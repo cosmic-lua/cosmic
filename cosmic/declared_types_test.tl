@@ -153,16 +153,16 @@ local function test_a_typed_route_is_given_an_empty_none_for_an_absent_slot()
   local seen: mut {string} = {}
   honest("web", function()
     local app = Web.app{ routes = {
-      Web.get_typed("/a", Web.input(Web.NONE, Web.NONE, Web.no_body),
+      Web.get("/a", Web.typed(Web.input(Web.NONE, Web.NONE, Web.no_body),
         function(_req: Web.Request, p: Web.None, q: Web.None, b: Web.None): Web.Response
           table.insert(seen, type(p) .. type(q) .. type(b))
           return Web.text("ok")
-        end),
-      Web.post_typed("/b", Web.input(Web.NONE, Web.NONE, Web.json_body(Shape.record_of("Created"))),
+        end)),
+      Web.post("/b", Web.typed(Web.input(Web.NONE, Web.NONE, Web.json_body(Shape.record_of("Created"))),
         function(_req: Web.Request, p: Web.None, q: Web.None, _b: Created): Web.Response
           table.insert(seen, type(p) .. type(q))
           return Web.text("ok")
-        end),
+        end)),
     } }
     local client <close> = Web.test_client(app) -- checked: close_not_closable
     assert(client:get("/a").status == 200)

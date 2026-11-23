@@ -13,7 +13,7 @@ a pattern and a handler, and a `.tmpl` file is a typed template.
 
 ## typed routes
 
-A route made with [`Web.post_typed`] and its siblings names
+A route given a [`Web.typed`] handler names
 [`cosmic.shape`] specs for its path parameters, its query and its body
 ([`Web.input`]). The handler is then given checked records in that order,
 after the request: the spec `SIGNUP` below is `Shape.record_of("Signup")`,
@@ -124,7 +124,7 @@ function Site.routes(): {Web.Route}
     Web.get("/signup", function(_req: Web.Request): Web.Response
       return Web.html(page.render({ email = "", age = "" }))
     end),
-    Web.post_typed("/signup", Web.input(Web.NONE, Web.NONE, Web.form_body(SIGNUP)), join,
+    Web.post("/signup", Web.typed(Web.input(Web.NONE, Web.NONE, Web.form_body(SIGNUP)), join),
       { on_invalid = refuse }),
   }
 end
@@ -223,13 +223,13 @@ local AVATAR <const> = Shape.record_of("Avatar")
 --- the server's own limit (1 MiB by default) still comes before.
 function Upload.routes(): {Web.Route}
   return {
-    Web.post_typed("/avatar", Web.input(Web.NONE, Web.NONE, Web.multipart_body(AVATAR)),
+    Web.post("/avatar", Web.typed(Web.input(Web.NONE, Web.NONE, Web.multipart_body(AVATAR)),
       function(req: Web.Request, _p: Web.None, _q: Web.None, form: Avatar): Web.Response
         local avatars = assert(Input.multipart(req).value).files["avatar"]
         local file = if avatars ~= nil then avatars[1] else nil end
         if file == nil then return Web.abort(422, "send an avatar file") end
         return Web.text(form.name .. ":" .. file.filename .. ":" .. tostring(file.size))
-      end, { input_options = { max_bytes = 2 * 1024 * 1024, max_file_bytes = 1024 * 1024 } }),
+      end), { input_options = { max_bytes = 2 * 1024 * 1024, max_file_bytes = 1024 * 1024 } }),
   }
 end
 
@@ -319,6 +319,6 @@ test: 9 tests passed
 [`Web.multipart_body`]: ../../cosmic/web/init.tl
 [`Web.no_body`]: ../../cosmic/web/init.tl
 [`Web.NONE`]: ../../cosmic/web/init.tl
-[`Web.post_typed`]: ../../cosmic/web/init.tl
 [`Web.serve`]: ../../cosmic/web/init.tl
+[`Web.typed`]: ../../cosmic/web/init.tl
 [`Web.with_server`]: ../../cosmic/web/init.tl

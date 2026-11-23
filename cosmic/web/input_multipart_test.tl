@@ -9,6 +9,7 @@ local Poll = require("cosmic.poll")
 local Server = require("cosmic.http.server")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
+local Test = require("cosmic.test")
 local Types = require("cosmic.web.types")
 local Url = require("cosmic.url")
 local Web = require("cosmic.web")
@@ -227,12 +228,12 @@ local function test_a_typed_multipart_route_binds_and_answers_problems(tmp: stri
   local got: Signup? = nil
   local files: integer = 0
   local app = Web.app{ routes = {
-    Web.post_typed("/up", Web.input(Web.NONE, Web.NONE, Web.multipart_body(SIGNUP)),
+    Web.post("/up", Web.typed(Web.input(Web.NONE, Web.NONE, Web.multipart_body(SIGNUP)),
       function(req: Web.Request, _p: Web.None, _q: Web.None, b: Signup): Web.Response
         got = b
         files = #uploads(assert(Input.multipart(req).value), "pic")
         return Web.empty()
-      end, { input_options = { dir = tmp, max_file_bytes = 10 } }),
+      end), { input_options = { dir = tmp, max_file_bytes = 10 } }),
   }, sink = { line = function(_self: Web.Sink, _text: string) end } }
   local client = Web.test_client(app)
   local ok_body = body_of(field("email", "e"), field("news", "0"), file("pic", "p.png", "0123456789"))
@@ -254,14 +255,14 @@ local function test_a_typed_multipart_route_binds_and_answers_problems(tmp: stri
 end
 
 local function test_a_typed_route_registers_a_multipart_spec_text_can_carry()
-  local ok = pcall(Web.post_typed, "/up", Web.input(Web.NONE, Web.NONE, -- checked: overload_none
-    Web.multipart_body(Shape.record_of("Signup"))), function(_req: Web.Request): Web.Response
-      return Web.empty()
-    end)
-  assert(ok)
-  local bad = pcall(Web.get_typed, "/up", Web.input(Web.NONE, Web.NONE, Web.multipart_body(SIGNUP)), -- checked: overload_none
-    function(_req: Web.Request): Web.Response return Web.empty() end)
-  assert(not bad, "GET takes no body")
+  local function handle(_req: Web.Request, _p: Web.None, _q: Web.None, _form: Signup): Web.Response
+    return Web.empty()
+  end
+  local route = Web.post("/up", Web.typed(Web.input(Web.NONE, Web.NONE, Web.multipart_body(SIGNUP)), handle))
+  assert(assert(route.input).body_kind == "multipart")
+  Test.raises(function()
+    Web.get("/up", Web.typed(Web.input(Web.NONE, Web.NONE, Web.multipart_body(SIGNUP)), handle))
+  end, "GET takes no body")
 end
 
 local function test_a_form_route_takes_multipart_within_its_own_small_limit(tmp: string)

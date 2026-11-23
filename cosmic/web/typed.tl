@@ -7,7 +7,6 @@
 local Input = require("cosmic.web.input")
 local Json = require("cosmic.json")
 local Response = require("cosmic.web.response")
-local Route = require("cosmic.web.route")
 local Shape = require("cosmic.shape")
 local Types = require("cosmic.web.types")
 
@@ -106,12 +105,12 @@ local function check_path(pattern: string, spec: Shape.Node?)
   for _, name in ipairs(names) do
     seen[name] = true
     if fields[name] ~= true then
-      error(("web: route_typed %s: the parameter %q is not a field of the path spec"):format(pattern, name), 3)
+      error(("web: route %s: the parameter %q is not a field of the path spec"):format(pattern, name), 0)
     end
   end
   for name in pairs(fields) do
     if seen[name] ~= true then
-      error(("web: route_typed %s: the path spec field %q is not a parameter of the pattern"):format(pattern, name), 3)
+      error(("web: route %s: the path spec field %q is not a parameter of the pattern"):format(pattern, name), 0)
     end
   end
 end
@@ -138,149 +137,111 @@ local function answer(req: Types.Request, inv: Types.Invalid, json_first: boolea
   return Response.abort(inv.status, inv.message)
 end
 
---- A route answering `methods` at `pattern` whose input is bound to the
---- specs of `input` before `fn` runs, in order: the path, the query, the
---- body. `fn` is given the request and the three records, each an empty
+--- A handler whose input is bound to the specs of `input` before `fn`
+--- runs, in order: the path, the query, the body. A route takes it where it
+--- takes a plain [`Web.Handler`] ([`Web.get`], [`Web.post`], [`Web.route`],
+--- ...). `fn` is given the request and the three records, each an empty
 --- [`Web.None`], which has no field to read, where the slot is absent:
 ---
----     Web.post_typed("/items", Web.input(Web.NONE, Web.NONE, Web.json_body(NEW)),
+---     Web.post("/items", Web.typed(Web.input(Web.NONE, Web.NONE, Web.json_body(NEW)),
 ---       function(req: Web.Request, _: Web.None, _: Web.None, b: NewItem): Web.Response
 ---         return Web.json({ id = db:insert(b.title, b.qty) }, { status = 201 })
----       end)
+---       end))
 ---
 --- Teal does not infer the handler's parameters from `input`: a parameter
 --- left unannotated is `any`, and one annotated is checked against the
 --- slot (`p: NewItem` for an `ItemPath` slot is a type error). The first
 --- slot that fails ends the request, with every error of that source
---- collected in an [`Input.Invalid`], which `opts.on_invalid` answers if
---- given; without it the answer is a problem body for a client that
---- prefers JSON and the app's error page otherwise.
+--- collected in an [`Input.Invalid`], which the route's `opts.on_invalid`
+--- answers if given; without it the answer is a problem body for a client
+--- that prefers JSON and the app's error page otherwise.
 ---
---- Raises, naming the pattern, when a path parameter and a field of the
---- path spec do not match one to one, when a spec is one its source cannot
---- carry ([`Input.check_spec`]), and when a body is declared for GET.
---- @param methods string | {string} A method, or several, in capitals
---- @param pattern string The pattern, as [`Web.route`] reads it
+--- The route that takes it raises, naming the pattern, when a path
+--- parameter and a field of the path spec do not match one to one, when a
+--- spec is one its source cannot carry ([`Input.check_spec`]), and when a
+--- body is declared for a method that takes none, as GET. [`Web.typed`]
+--- itself raises when the body is not json, form, multipart or none.
 --- @param input Types.Input<P,Q,B> The slots, from [`Web.input`]
 --- @param fn function(Types.Request, P, Q, B): Types.Response The handler
---- @param opts Types.RouteOptions | nil The name, middleware, `on_invalid` and `input_options`
---- @return Types.Route The route
-function Typed.route_typed<P,Q,B>(methods: string | {string}, pattern: string, input: Types.Input<P,Q,B>,
-                                  fn: function(Types.Request, P, Q, B): Types.Response, opts?: Types.RouteOptions): Types.Route
+--- @return Types.TypedHandler What a route takes as its handler
+function Typed.typed<P,Q,B>(input: Types.Input<P,Q,B>,
+                            fn: function(Types.Request, P, Q, B): Types.Response): Types.TypedHandler
   local has_path = not rawequal(input.path, NONE)
   local has_query = not rawequal(input.query, NONE)
   local kind = input.body.kind
   if kind ~= "json" and kind ~= "form" and kind ~= "multipart" and kind ~= "none" then
-    error(("web: route_typed %s: the body is a %s, not json, form, multipart or none"):format(pattern, tostring(kind)), 2)
+    error(("web: typed: the body is a %s, not json, form, multipart or none"):format(tostring(kind)), 2)
   end
-  local verbs: {string} = if methods is string then { methods } else methods end
-  if kind ~= "none" then
-    for _, verb in ipairs(verbs) do
-      if BODY_METHODS[verb] ~= true then
-        error(("web: route_typed %s: %s takes no body, so it cannot have a %s body spec"):format(pattern, verb, kind), 2)
+  local function bind(verbs: {string}, pattern: string, opts?: Types.RouteOptions): Types.Bound
+    if kind ~= "none" then
+      for _, verb in ipairs(verbs) do
+        if BODY_METHODS[verb] ~= true then
+          error(("web: route %s: %s takes no body, so it cannot have a %s body spec"):format(pattern, verb, kind), 0)
+        end
       end
     end
-  end
-  check_path(pattern, if has_path then Input.described(input.path.spec) else nil end)
-  if has_path then Input.check_spec(Input.described(input.path.spec), "path") end
-  if has_query then Input.check_spec(Input.described(input.query.spec), "query") end
-  if kind == "form" or kind == "multipart" then
-    Input.check_spec(Input.described(input.body.typed.spec), "form")
-  end
-  local options = opts and opts.input_options
-  local on_invalid = opts and opts.on_invalid
-  local json_first = kind == "json"
-  local function refuse(req: Types.Request, inv: Types.Invalid): Types.Response
-    if on_invalid ~= nil then return on_invalid(req, inv) end
-    return answer(req, inv, json_first)
-  end
-  local handler: Types.Handler = function(req: Types.Request): Types.Response
-    -- An absent slot is an empty [`Web.None`]: its record has no field to read.
-    local p: P
-    local q: Q
-    local b: B
-    if has_path then
-      local read: Types.Parsed<P> = Input.path_into(req, input.path, options)
-      local invalid = read.invalid
-      if invalid ~= nil then return refuse(req, invalid) end
-      p = assert(read.value, "web: an input read with no invalid answers its value")
-    else
-      p = absent(input.path)
+    check_path(pattern, if has_path then Input.described(input.path.spec) else nil end)
+    if has_path then Input.check_spec(Input.described(input.path.spec), "path") end
+    if has_query then Input.check_spec(Input.described(input.query.spec), "query") end
+    if kind == "form" or kind == "multipart" then
+      Input.check_spec(Input.described(input.body.typed.spec), "form")
     end
-    if has_query then
-      local read: Types.Parsed<Q> = Input.query_into(req, input.query, options)
-      local invalid = read.invalid
-      if invalid ~= nil then return refuse(req, invalid) end
-      q = assert(read.value, "web: an input read with no invalid answers its value")
-    else
-      q = absent(input.query)
+    local options = opts and opts.input_options
+    local on_invalid = opts and opts.on_invalid
+    local json_first = kind == "json"
+    local function refuse(req: Types.Request, inv: Types.Invalid): Types.Response
+      if on_invalid ~= nil then return on_invalid(req, inv) end
+      return answer(req, inv, json_first)
     end
-    if kind == "form" then
-      local read: Types.Parsed<B> = Input.form_into(req, input.body.typed, options)
-      local invalid = read.invalid
-      if invalid ~= nil then return refuse(req, invalid) end
-      b = assert(read.value, "web: an input read with no invalid answers its value")
-    elseif kind == "multipart" then
-      local read: Types.Parsed<B> = Input.multipart_into(req, input.body.typed, options)
-      local invalid = read.invalid
-      if invalid ~= nil then return refuse(req, invalid) end
-      b = assert(read.value, "web: an input read with no invalid answers its value")
-    elseif kind == "json" then
-      local read: Types.Parsed<B> = Input.json_into(req, input.body.typed, options)
-      local invalid = read.invalid
-      if invalid ~= nil then return refuse(req, invalid) end
-      b = assert(read.value, "web: an input read with no invalid answers its value")
-    else
-      b = absent(input.body.typed)
+    local handler: Types.Handler = function(req: Types.Request): Types.Response
+      -- An absent slot is an empty [`Web.None`]: its record has no field to read.
+      local p: P
+      local q: Q
+      local b: B
+      if has_path then
+        local read: Types.Parsed<P> = Input.path_into(req, input.path, options)
+        local invalid = read.invalid
+        if invalid ~= nil then return refuse(req, invalid) end
+        p = assert(read.value, "web: an input read with no invalid answers its value")
+      else
+        p = absent(input.path)
+      end
+      if has_query then
+        local read: Types.Parsed<Q> = Input.query_into(req, input.query, options)
+        local invalid = read.invalid
+        if invalid ~= nil then return refuse(req, invalid) end
+        q = assert(read.value, "web: an input read with no invalid answers its value")
+      else
+        q = absent(input.query)
+      end
+      if kind == "form" then
+        local read: Types.Parsed<B> = Input.form_into(req, input.body.typed, options)
+        local invalid = read.invalid
+        if invalid ~= nil then return refuse(req, invalid) end
+        b = assert(read.value, "web: an input read with no invalid answers its value")
+      elseif kind == "multipart" then
+        local read: Types.Parsed<B> = Input.multipart_into(req, input.body.typed, options)
+        local invalid = read.invalid
+        if invalid ~= nil then return refuse(req, invalid) end
+        b = assert(read.value, "web: an input read with no invalid answers its value")
+      elseif kind == "json" then
+        local read: Types.Parsed<B> = Input.json_into(req, input.body.typed, options)
+        local invalid = read.invalid
+        if invalid ~= nil then return refuse(req, invalid) end
+        b = assert(read.value, "web: an input read with no invalid answers its value")
+      else
+        b = absent(input.body.typed)
+      end
+      return fn(req, p, q, b)
     end
-    return fn(req, p, q, b)
+    return { handler = handler, input = {
+      path = if has_path then Input.described(input.path.spec) else nil end, query = if has_query then Input.described(input.query.spec) else nil end,
+      body_kind = kind, body = if kind ~= "none" then Input.described(input.body.typed.spec) else nil end,
+      max_bytes = options and options.max_bytes or
+        (if kind == "multipart" then Input.DEFAULT_MULTIPART_MAX else Input.DEFAULT_MAX end),
+    } }
   end
-  local route = Route.route(methods, pattern, handler, opts)
-  route.input = {
-    path = if has_path then Input.described(input.path.spec) else nil end, query = if has_query then Input.described(input.query.spec) else nil end,
-    body_kind = kind, body = if kind ~= "none" then Input.described(input.body.typed.spec) else nil end,
-    max_bytes = options and options.max_bytes or
-      (if kind == "multipart" then Input.DEFAULT_MULTIPART_MAX else Input.DEFAULT_MAX end),
-  }
-  return route
-end
-
---- A typed route for a page or a read: GET, and HEAD with the same
---- handler. Its input is the path and the query, and it takes no body, so
---- a body slot other than [`Web.no_body`] raises. See [`Web.route_typed`].
-function Typed.get_typed<P,Q,B>(pattern: string, input: Types.Input<P,Q,B>,
-                                fn: function(Types.Request, P, Q, B): Types.Response, opts?: Types.RouteOptions): Types.Route
-  return Typed.route_typed("GET", pattern, input, fn, opts)
-end
-
---- A typed route for what a form submits or an action that creates: POST,
---- whose body is urlencoded ([`Web.form_body`]), multipart
---- ([`Web.multipart_body`]) or JSON ([`Web.json_body`]).
---- See [`Web.route_typed`].
-function Typed.post_typed<P,Q,B>(pattern: string, input: Types.Input<P,Q,B>,
-                                 fn: function(Types.Request, P, Q, B): Types.Response, opts?: Types.RouteOptions): Types.Route
-  return Typed.route_typed("POST", pattern, input, fn, opts)
-end
-
---- A typed route that replaces the thing at the URL whole: PUT, with the
---- full record in the body. See [`Web.route_typed`].
-function Typed.put_typed<P,Q,B>(pattern: string, input: Types.Input<P,Q,B>,
-                                fn: function(Types.Request, P, Q, B): Types.Response, opts?: Types.RouteOptions): Types.Route
-  return Typed.route_typed("PUT", pattern, input, fn, opts)
-end
-
---- A typed route that changes part of the thing at the URL: PATCH, with a
---- body spec whose fields are mostly optional. See [`Web.route_typed`].
-function Typed.patch_typed<P,Q,B>(pattern: string, input: Types.Input<P,Q,B>,
-                                  fn: function(Types.Request, P, Q, B): Types.Response, opts?: Types.RouteOptions): Types.Route
-  return Typed.route_typed("PATCH", pattern, input, fn, opts)
-end
-
---- A typed route that removes the thing at the URL: DELETE, which may carry
---- a body but usually reads the path alone. See [`Web.route_typed`].
-function Typed.delete_typed<P,Q,B>(pattern: string, input: Types.Input<P,Q,B>,
-                                   fn: function(Types.Request, P, Q, B): Types.Response, opts?: Types.RouteOptions): Types.Route
-  return Typed.route_typed("DELETE", pattern, input, fn, opts)
+  return { bind = bind }
 end
 
 return Typed

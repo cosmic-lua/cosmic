@@ -109,9 +109,9 @@ function Api.mount(opts: Api.Options): Web.Route
   end
 
   return Web.mount("/api", {
-    Web.get_typed("/notes", Web.input(Web.NONE, PAGE, Web.no_body), list),
-    Web.post_typed("/notes", Web.input(Web.NONE, Web.NONE, Web.json_body(NEW)), create),
-    Web.get_typed("/notes/:id", Web.input(NOTE, Web.NONE, Web.no_body), show, { name = "show" }),
+    Web.get("/notes", Web.typed(Web.input(Web.NONE, PAGE, Web.no_body), list)),
+    Web.post("/notes", Web.typed(Web.input(Web.NONE, Web.NONE, Web.json_body(NEW)), create)),
+    Web.get("/notes/:id", Web.typed(Web.input(NOTE, Web.NONE, Web.no_body), show), { name = "show" }),
   }, {
     name = "api",
     middleware = { Cors.middleware{

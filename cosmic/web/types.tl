@@ -35,7 +35,7 @@ local record Types
   type Middleware = function(Handler): Handler
 
   --- What a handler of a typed route answers when its input fails: see
-  --- [`Web.route_typed`]. It is given the request and every error the
+  --- [`Web.typed`]. It is given the request and every error the
   --- route's specs found.
   type InvalidHandler = function(Request, Invalid): Response
 
@@ -260,7 +260,7 @@ local record Types
     --- The route's own middleware, outermost first; inside the mount's and
     --- the app's.
     middleware?: {Middleware}
-    --- For a typed route ([`Web.route_typed`]): answers input that fails
+    --- For a typed route ([`Web.typed`]): answers input that fails
     --- the route's specs in place of the default problem or error page.
     on_invalid?: InvalidHandler
     --- For a typed route: the body limit, the names left out of a
@@ -320,7 +320,7 @@ local record Types
     code: string
   end
 
-  --- Input that was refused: data, not a response. [`Web.route_typed`]
+  --- Input that was refused: data, not a response. [`Web.typed`]
   --- turns it into a problem body or an error page, or gives it to the
   --- route's `on_invalid`.
   record Invalid
@@ -387,7 +387,7 @@ local record Types
     typed: Shape.Typed<B>
   end
 
-  --- A route's three slots, which [`Web.route_typed`] binds before the
+  --- A route's three slots, which [`Web.typed`] binds before the
   --- handler runs: see [`Web.input`].
   record Input<P,Q,B>
     --- The path parameters' spec.
@@ -397,6 +397,25 @@ local record Types
     --- The body's.
     body: Body<B>
   end
+
+  --- A handler that reads its request's path, query and body into checked records before it runs: [`Web.typed`]
+  --- makes one, and a route takes it where it takes a [`Handler`].
+  record TypedHandler
+    --- The plain handler for a route answering `methods` at `pattern`, and what it reads; raises, naming the
+    --- pattern, where the input does not suit them.
+    bind: function(methods: {string}, pattern: string, opts?: RouteOptions): Bound
+  end
+
+  --- A [`TypedHandler`] bound to its route.
+  record Bound
+    --- Reads the input, then runs the typed handler.
+    handler: Handler
+    --- What it reads.
+    input: RouteInput
+  end
+
+  --- What a route answers with: a plain handler, or one that reads typed input first.
+  type Handles = Handler | TypedHandler
 
   --- What a typed route binds, without the types.
   record RouteInput
