@@ -435,7 +435,7 @@ local function cose_key(cose: Cbor.Item): Public?, string
     return nil, "webauthn: the public key's type is not its algorithm's"
   end
   local key, why = Jose.key(jwk)
-  if key == nil then return nil, "webauthn: the public key: " .. why end
+  if key == nil then return nil, "webauthn: the public key: " .. tostring(why) end
   return { key = key, alg = alg }, ""
 end
 

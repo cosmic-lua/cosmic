@@ -10,6 +10,7 @@
 local Array = require("cosmic.array")
 local Fuzz = require("build.fuzz")
 local Url = require("cosmic.url")
+local type Failure = require("cosmic.failure")
 
 --- Bytes an escaped text has to get right: a `%` and hex digits of both
 --- cases (escapes, half escapes and bad ones), the separators, a `+`,
@@ -71,20 +72,19 @@ local function test_unescape_is_total_and_exact(tmp: string)
     check = function(input: string): boolean, string
       local bytes, why = Url.unescape(input)
       if bytes == nil then
-        if not why:find("^url: '%%' at byte %d+ is not followed by two hex digits$") then
-          return false, "refused with " .. why
+        if not tostring(why):find("^url: '%%' at byte %d+ is not followed by two hex digits$") then
+          return false, "refused with " .. tostring(why)
         end
-        local at = math.tointeger(tonumber(why:match("byte (%d+)")))
+        local at = math.tointeger(tonumber(tostring(why):match("byte (%d+)")))
         if at == nil then
-          return false, "refused without naming a byte: " .. why
+          return false, "refused without naming a byte: " .. tostring(why)
         end
         if input:sub(at, at) ~= "%" or input:find("^%x%x", at + 1) ~= nil then
-          return false, "refused naming the wrong byte: " .. why
+          return false, "refused naming the wrong byte: " .. tostring(why)
         end
         Fuzz.label("refused")
         return true, ""
       end
-      if why ~= "" then return false, "decoded with a reason: " .. why end
       local again = input:gsub("%%(%x%x)", function(hex: string): string
         local byte = math.tointeger(tonumber(hex, 16))
         assert(byte, "the pattern `%x%x` holds two hex digits")
@@ -158,15 +158,14 @@ local function test_segments_answer_no_climb_and_read_back_escaped_names(tmp: st
       local path = "/" .. table.concat(pieces, "/")
       local segs, why = Url.segments(path)
       if segs == nil then
-        if not why:find("^url: ") then return false, "refused with " .. why end
+        if not tostring(why):find("^url: ") then return false, "refused with " .. tostring(why) end
         if only_names then
           return false, ("refused %q, built of escaped names: %s"):format(path, why)
         end
-        if why:find("'..'", 1, true) then Fuzz.label("climb refused") end
+        if tostring(why):find("'..'", 1, true) then Fuzz.label("climb refused") end
         Fuzz.label("refused")
         return true, ""
       end
-      if why ~= "" then return false, "answered with a reason: " .. why end
       for _, seg in ipairs(segs) do
         if seg == "" or seg == "." or seg == ".." or seg:find("[/\0]") ~= nil then
           return false, ("%q answered the segment %q"):format(path, seg)
@@ -203,11 +202,10 @@ local function test_parse_is_total(tmp: string)
     check = function(input: string): boolean, string
       local parts, why = Url.parse(input)
       if parts == nil then
-        if not why:find("^url: ") then return false, "refused with " .. why end
+        if not tostring(why):find("^url: ") then return false, "refused with " .. tostring(why) end
         Fuzz.label("refused")
         return true, ""
       end
-      if why ~= "" then return false, "parsed with a reason: " .. why end
       if not parts.scheme:find("^[a-z][a-z0-9+.-]*$") then
         return false, "scheme " .. parts.scheme
       end
@@ -372,18 +370,18 @@ local function test_decode_query_is_total_and_keeps_what_it_reads(tmp: string)
       local text = f[2] or ""
       local opts: Url.QueryOptions = { lenient = mode & 1 == 1, utf8 = mode & 2 == 0, max_pairs = 6 }
       local decoded: Url.Query?
-      local reason = ""
+      local reason: Failure? = nil
       local ok, raised = pcall(function() decoded, reason = Url.decode_query(text, opts) end)
       if not ok then return false, "raised: " .. tostring(raised) end
       -- Fresh locals: the closure assigns the two above, which stops the
       -- checker narrowing them.
       local q, why = decoded, reason
       if q == nil then
-        if not why:find("^url: ") then return false, "refused with " .. why end
+        if not tostring(why):find("^url: ") then return false, "refused with " .. tostring(why) end
         Fuzz.label("refused")
         return true, ""
       end
-      if why ~= "" or #q.pairs > 6 then return false, "decoded with a reason or past the cap" end
+      if why ~= nil or #q.pairs > 6 then return false, "decoded with a reason or past the cap" end
       local total = 0
       for name, values in pairs(q.by_name) do
         if #values == 0 then return false, "empty list for " .. name end

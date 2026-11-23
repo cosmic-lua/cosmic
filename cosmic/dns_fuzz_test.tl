@@ -141,11 +141,10 @@ local function test_decode_is_total_and_what_it_reads_is_written_back(tmp: strin
     check = function(input: string): boolean, string
       local message, why = Dns.decode(input)
       if message == nil then
-        if why == "" then return false, "refused without a reason" end
+        if tostring(why) == "" then return false, "refused without a reason" end
         Fuzz.label("refused")
         return true, ""
       end
-      if why ~= "" then return false, "read with a reason: " .. why end
       Fuzz.label("read")
       if #message.answers + #message.authorities + #message.additionals > 0 then
         Fuzz.label("read a record")
@@ -153,15 +152,17 @@ local function test_decode_is_total_and_what_it_reads_is_written_back(tmp: strin
       -- Every name and number of a message that was read fits, so it is written, and what is written holds the
       -- same message: reading and writing it again changes no byte.
       local bytes, encode_why = Dns.encode(message)
-      if bytes == nil then return false, "what was read is not written: " .. encode_why end
+      if bytes == nil then
+        return false, "what was read is not written: " .. tostring(encode_why)
+      end
       local again, again_why = Dns.decode(bytes)
-      if again == nil then return false, "what was written is not read: " .. again_why end
+      if again == nil then return false, "what was written is not read: " .. tostring(again_why) end
       if #again.questions ~= #message.questions or #again.answers ~= #message.answers or
           #again.authorities ~= #message.authorities or #again.additionals ~= #message.additionals then
         return false, "a question or a record was lost"
       end
       local twice, twice_why = Dns.encode(again)
-      if twice ~= bytes then return false, "written twice, it differs: " .. twice_why end
+      if twice ~= bytes then return false, "written twice, it differs: " .. tostring(twice_why) end
       return true, ""
     end,
     requires = { "refused", "read", "read a record" },
@@ -176,9 +177,11 @@ local function test_an_encoded_message_is_read_as_written(tmp: string)
     gen = gen_message,
     check = function(input: string): boolean, string
       local message, why = Dns.decode(input)
-      if message == nil then return false, "what was written is not read: " .. why end
+      if message == nil then return false, "what was written is not read: " .. tostring(why) end
       local bytes, encode_why = Dns.encode(message)
-      if bytes ~= input then return false, "read and written again, it differs: " .. encode_why end
+      if bytes ~= input then
+        return false, "read and written again, it differs: " .. tostring(encode_why)
+      end
       return true, ""
     end,
   })
@@ -207,7 +210,7 @@ local function test_a_name_reads_back_as_its_labels(tmp: string)
       fits = fits and size <= 255
       local name, why = Dns.name(labels)
       if name == nil then
-        if fits then return false, "a name that fits was refused: " .. why end
+        if fits then return false, "a name that fits was refused: " .. tostring(why) end
         Fuzz.label("too long")
         return true, ""
       end
@@ -239,16 +242,17 @@ local function test_labels_is_total(tmp: string)
     check = function(input: string): boolean, string
       local labels, why = Dns.labels(input)
       if labels == nil then
-        if why == "" then return false, "refused without a reason" end
+        if tostring(why) == "" then return false, "refused without a reason" end
         Fuzz.label("refused")
         return true, ""
       end
-      if why ~= "" then return false, "read with a reason: " .. why end
       Fuzz.label("read")
       -- What was read is a name: it has a text, and the text reads as the same labels.
       local name, name_why = Dns.name(labels)
-      if name == nil then return false, "labels that were read have no text: " .. name_why end
-      local back = Dns.labels(name)
+      if name == nil then
+        return false, "labels that were read have no text: " .. tostring(name_why)
+      end
+      local back, _ = Dns.labels(name)
       if back == nil or table.concat(back, "\0.") ~= table.concat(labels, "\0.") then
         return false, ("%q read, written as %q, reads as other labels"):format(input, name)
       end

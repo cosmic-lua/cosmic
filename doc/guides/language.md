@@ -371,7 +371,7 @@ local counters: {string: function(string): integer} = {
     return #list
   end,
   csv = function(text: string): integer
-    local rows = Csv.parse(text)
+    local rows, _ = Csv.parse(text)
     if rows == nil then return 0 end
     return #rows
   end,

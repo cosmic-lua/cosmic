@@ -13,11 +13,6 @@ local sys = require("cosmic.sys")
 local State = require("cosmic_ci.state")
 local Test = require("cosmic.test")
 
--- TODO: Child.FOREVER in place of CEILING_NS once ci/cosmic-driver.pin
--- names a release whose Child has it: ci/ runs on that release, where a
--- limit must be stated for the tree's checker yet FOREVER is not there.
-local CEILING_NS <const> = 24 * 60 * 60 * 1000000000
-
 -- The driver's namespace, which `command` copies into a project of its
 -- own with the system's `cp` (and `git` and `sh` run the fixtures); the
 -- fixture modules, whose sources [`code_of`] reads; the one testdata
@@ -114,7 +109,7 @@ local function command(tmp: string): {string}, string
   local project = tmp .. "/driver-project"
   assert(Fs.mkdirs(project))
   assert(assert(Child.run({ "/bin/cp", "-R", here .. "/cosmic_ci",
-    here .. "/fixtures", project }, { timeout_ns = CEILING_NS })).ok)
+    here .. "/fixtures", project }, { timeout_ns = Child.FOREVER })).ok)
   return { host, project .. "/cosmic_ci/driver.tl" }, project
 end
 
@@ -182,7 +177,7 @@ local function test_provenance_failures_are_durable(tmp: string)
     local runner_temp = tmp .. "/" .. name .. "-runner-temp"
     assert(Fs.mkdirs(runner_temp .. "/cosmic-ci"))
     assert(assert(Child.run({ "/bin/cp", "-R", template,
-      runner_temp .. "/cosmic-ci/products" }, { timeout_ns = CEILING_NS })).ok)
+      runner_temp .. "/cosmic-ci/products" }, { timeout_ns = Child.FOREVER })).ok)
     return runner_temp
   end
 

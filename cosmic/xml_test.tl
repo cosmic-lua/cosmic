@@ -34,7 +34,7 @@ end
 local function refused(text: string, opts?: Xml.Options): string
   local events, why = Xml.events(text, opts)
   assert(events == nil, "read as " .. show(events or {}))
-  return why
+  return tostring(why)
 end
 
 local function test_events_in_document_order()
@@ -69,16 +69,16 @@ local function test_namespaces_answer_clark_notation()
   assert(got == 'start {urn:x}a plain=2 {urn:x}k=1|start {urn:d}b|end {urn:d}b|end {urn:x}a', got)
   assert(read(text) == 'start x:a plain=2 x:k=1 xmlns:x=urn:x|start b xmlns=urn:d|end b|end x:a')
   local why = refused("<y:a/>", { namespaces = true })
-  assert(why == "xml: line 1, column 1: unbound prefix", why)
+  assert(why == "xml: unbound prefix at line 1, column 1", why)
 end
 
 local function test_refusals_name_where()
   local why = refused("<a>\n  <b></a>")
-  assert(why == "xml: line 2, column 8: mismatched tag", why)
+  assert(why == "xml: mismatched tag at line 2, column 8", why)
   why = refused("<a>")
-  assert(why:match("^xml: line 1, column 4: ") ~= nil, why)
+  assert(why:match("^xml: .* at line 1, column 4$") ~= nil, why)
   why = refused('<a x="1" x="2"/>')
-  assert(why == "xml: line 1, column 10: duplicate attribute", why)
+  assert(why == "xml: duplicate attribute at line 1, column 10", why)
 end
 
 --- The billion laughs: nine entities, each ten references to the one
@@ -192,16 +192,16 @@ end
 --- A column counts characters, not bytes: `é` is two bytes, one column.
 local function test_a_column_counts_characters()
   local why = refused("<a>\u{E9}\u{E9}</b>")
-  assert(why == "xml: line 1, column 8: mismatched tag", why)
+  assert(why == "xml: mismatched tag at line 1, column 8", why)
 end
 
 --- A run of text past `max_text` is refused where it passes it, however
 --- the chunks split it; one at the limit reads.
 local function test_a_run_of_text_past_max_text_is_refused()
   local why = refused("<a>" .. string.rep("x", 11) .. "</a>", { max_text = 10 })
-  assert(why == "xml: line 1, column 4: a run of text is longer than 10 bytes", why)
+  assert(why == "xml: a run of text is longer than 10 bytes at line 1, column 4", why)
   assert(read("<a>" .. string.rep("x", 10) .. "</a>", { max_text = 10 }) == 'start a|text "xxxxxxxxxx"|end a')
-  local ok, raised = pcall(Xml.parser, { max_text = 0 })
+  local ok, raised = pcall(function() local _, _ = Xml.parser({ max_text = 0 }) end)
   assert(not ok and tostring(raised):match("max_text must be at least 1") ~= nil, tostring(raised))
 end
 
@@ -238,7 +238,7 @@ local function test_write_refuses_what_is_no_document()
   local function why(events: {Xml.Event}): string
     local written, trouble = Xml.write(events)
     assert(written == nil, written)
-    return trouble
+    return tostring(trouble)
   end
   assert(why({ { kind = "start", name = "a" } }) == "xml: <a> is not closed")
   assert(why({}) == "xml: no root element")
@@ -260,7 +260,7 @@ local function test_local_names_drop_the_namespace()
   local text = '<x:a xmlns:x="urn:x" xmlns:r="urn:r" r:id="7"><b xmlns="urn:d"/></x:a>'
   assert(read(text, { local_names = true }) == "start a id=7|start b|end b|end a")
   local why = refused("<y:a/>", { local_names = true })
-  assert(why == "xml: line 1, column 1: unbound prefix", why)
+  assert(why == "xml: unbound prefix at line 1, column 1", why)
 end
 
 --- A tree keeps text and children in document order; `text` joins all
@@ -276,7 +276,7 @@ local function test_a_tree_keeps_content_in_order()
   assert(Xml.text(b) == "xy")
   assert(Xml.child(root, "missing") == nil)
   local _, why = Xml.tree("<r>")
-  assert(why:match("^xml: ") ~= nil, why)
+  assert(tostring(why):match("^xml: ") ~= nil, why)
 end
 
 --- `text` walks a tree as deep as a parse builds without running out of
@@ -342,7 +342,7 @@ local function test_write_keeps_clear_of_declared_prefixes()
   local function why(name: string): string
     local none, trouble = Xml.write({ { kind = "start", name = name }, { kind = "end", name = name } })
     assert(none == nil, none)
-    return trouble
+    return tostring(trouble)
   end
   assert(why("{}a") == 'xml: event 1: no namespace a name may be in: ""', why("{}a"))
   assert(why("{http://www.w3.org/2000/xmlns/}a"):match("no namespace a name may be in") ~= nil)

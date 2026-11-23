@@ -116,12 +116,21 @@ allowed["build.compile_fanout.ended_well"] = "how many copies ended well, which 
 allowed["build.dataset.read"] = "the reader load_text composes and falls back on, tested directly " ..
   "over each format's text, and with load the reference load_text's fuzz property is held to"
 
+allowed["cosmic.agent.cost"] = "public API: what a reply's usage costs at the list prices, which a program that " ..
+  "runs the loop reads; the loop keeps each request's cost through billed"
+allowed["cosmic.agent.billed"] = "public API: what a request cost, each attempt of a fallback at its own model's " ..
+  "price; the loop keeps it with each request, and a test holds it to each case"
+allowed["cosmic.agent.auth.now_ns"] = "the clock a test stands in for, so an exchanged token is held to its expiry " ..
+  "without waiting for it"
 allowed["cosmic.acme.auto"] = "public API: a certificate from an ACME CA kept current for a server, " ..
   "which a program passes to Web.serve's `acme`; the tree's own servers take theirs from tailscaled"
 allowed["cosmic.web.tailnet_funnel"] = "how a public app served through Funnel tells a request from the " ..
   "internet from one of the tailnet; no app of the tree serves through Funnel"
 allowed["cosmic.failure.path"] = "public API: the path a failure concerns, which a caller reads; the standard " ..
   "library's own calls move to it one module at a time"
+allowed["cosmic.failure.line"] = "public API: the line of a decoder's refusal (Failure.at), which a caller reads " ..
+  "to point at the place, as an editor jumps to it; the stdlib only prints it"
+allowed["cosmic.failure.column"] = "public API: the column of a decoder's refusal (Failure.at), read with `line`"
 allowed["cosmic.defer.run"] = "the function a Defer runs, which its `__close` calls: a field of the class, set by " ..
   "Defer.new, that no caller needs to read"
 allowed["cosmic.tls.client"] = "public API: the TLS client a program connects with, Net.connect's `tls`; " ..

@@ -44,7 +44,7 @@ local function test_key_is_total(tmp: string)
       local object, _ = Json.decode_object(input)
       if object ~= nil then
         local key, why = Jose.key(object)
-        if key == nil and why == "" then return false, "a refusal with no reason" end
+        if key == nil and tostring(why) == "" then return false, "a refusal with no reason" end
       end
       return true, ""
     end,

@@ -71,11 +71,11 @@ local function test_load_failures_leave_nothing(tmp: string)
   }
   for _, case in ipairs(cases) do
     local copied, why = Csv.load(db, case.table, case.source)
-    assert(copied == nil and why:find(case.why, 1, true) ~= nil, why)
+    assert(copied == nil and tostring(why):find(case.why, 1, true) ~= nil, why)
   end
   assert(quoted(db, "SELECT count(*) FROM sqlite_schema WHERE name = 'fresh'") == "0")
   assert(quoted(db, "SELECT count(*) FROM sqlite_temp_schema") == "0")
-  Test.raises(function() Csv.load(db, "t", {}) end, "one of them")
+  Test.raises(function() local _, _ = Csv.load(db, "t", {}) end, "one of them")
   assert(db:close())
 end
 
@@ -116,7 +116,7 @@ end
 local function test_a_quote_fault_mid_record_is_named()
   local db = assert(Sqlite.memory())
   local copied, why = Csv.load(db, "t", { text = 'a,b,c\n1,"x"y,2\n' })
-  assert(copied == nil and why:find("unescaped \" character", 1, true) ~= nil, why)
+  assert(copied == nil and tostring(why):find("unescaped \" character", 1, true) ~= nil, why)
   assert(db:close())
 end
 
@@ -142,7 +142,7 @@ local function test_load_takes_a_delimiter_and_reserved_names()
   assert(quoted(db, "SELECT a, _json_2, \"c,d\" FROM t") == "1|x\ty|2,3")
   assert(assert(Csv.load(db, "q", { text = "a'b\n1'2\n", delimiter = "'" })).count == 1)
   assert(quoted(db, "SELECT a + b FROM q") == "3")
-  Test.raises(function() Csv.load(db, "z", { text = "a\n", delimiter = "\0" }) end, "NUL")
+  Test.raises(function() local _, _ = Csv.load(db, "z", { text = "a\n", delimiter = "\0" }) end, "NUL")
   assert(db:close())
 end
 
@@ -158,7 +158,9 @@ local function test_load_reads_a_high_byte_delimiter()
     assert(quoted(db, "SELECT x, y FROM t" .. tostring(index)) == "1|2" .. delimiter .. "3")
   end
   for _, delimiter in ipairs({ "\xEF", "\xBB", "\xBF" }) do
-    Test.raises(function() Csv.load(db, "z", { text = "a\n", delimiter = delimiter }) end, "byte order mark")
+    Test.raises(function()
+      local _, _ = Csv.load(db, "z", { text = "a\n", delimiter = delimiter })
+    end, "byte order mark")
   end
   assert(db:close())
 end

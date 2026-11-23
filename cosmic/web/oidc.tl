@@ -491,7 +491,7 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
     local set, bad = Json.decode_object(body.body)
     if set == nil then return nil, "keys: " .. bad end
     local got, trouble = Jose.keys(set)
-    if got == nil then return nil, "keys: " .. trouble end
+    if got == nil then return nil, "keys: " .. tostring(trouble) end
     return got, ""
   end
 
@@ -528,7 +528,9 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
       if again == nil then return { reason = trouble, down = true } end
       if again ~= have then claims, refused = Jose.verify_jwt(token, again, jwt_opts) end
     end
-    if claims == nil then return { reason = "the ID token: " .. refused, down = false } end
+    if claims == nil then
+      return { reason = "the ID token: " .. tostring(refused), down = false }
+    end
     if text(claims.claims, "nonce") ~= nonce then
       return { reason = "the ID token is not of this login", down = false }
     end

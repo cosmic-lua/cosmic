@@ -43,7 +43,7 @@ function Example.events()
   assert(assert(first.attributes)["id"] == "7")
   local none, why = Xml.events("<a><b></a>")
   assert(none == nil)
-  print(why) -- xml: line 1, column 9: mismatched tag
+  print(why) -- xml: mismatched tag at line 1, column 9
 end
 
 --- `write` turns events back into a document, here one built by hand;

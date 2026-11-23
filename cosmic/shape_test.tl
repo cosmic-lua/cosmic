@@ -74,6 +74,22 @@ local record Nested
   nested: Port
 end
 
+local record Tag
+  name: string
+  count: integer?
+end
+
+local record Artist
+  name: string
+  score: integer?
+  area: Inner?
+  tags: {Tag}?
+  aliases: {string}
+  links: {string: string}?
+end
+
+local ARTIST <const> = Shape.record_of("Artist")
+
 local function must<T>(v: T?, err: string): T
   if v == nil then
     error(err)
@@ -525,14 +541,62 @@ local function test_a_spec_written_by_hand_composes_by_its_check()
     end,
   }
   local forged: Shape.Typed<Server> = {
-    name = "Server", spec = honest, make = function(_strict: boolean): Shape.Spec<Server>
+    name = "Server", spec = honest, make = function(_mode: Shape.Mode): Shape.Spec<Server>
       return honest
     end,
     node = { kind = "record", optional = false }, into = SERVER.into, decode_into = SERVER.decode_into,
-    strict = SERVER.strict,
+    strict = SERVER.strict, lenient = SERVER.lenient,
   }
   local _, said = forged:into({ host = "h" })
   assert(said == "Server: no server is a Server here", said)
   -- the specs the module makes are composed, strict ones included, and `strict` keeps its answer
   assert(SERVER:strict() == SERVER:strict() and SERVER:strict():strict() == SERVER:strict())
+end
+
+local function test_a_lenient_record_passes_over_what_does_not_fit()
+  local untidy = must(Json.decode('{"name": "Jeff Mills", "score": "high", "area": "Detroit", ' ..
+      '"tags": [{"name": "techno", "count": 9}, "house", {"count": 2}, {"name": "ambient", "count": 1.5}], ' ..
+      '"aliases": ["The Wizard", 7, "Millsart"], "links": {"ra": "https://ra.co/dj/jeffmills", "x": false}, ' ..
+      '"grown": true}'))
+  -- The plain record refuses it at the first field that does not fit.
+  local _, why = ARTIST:into(untidy)
+  assert(why == "Artist: $.aliases[1]: want string, got integer", why)
+  local a = must(ARTIST:lenient():into(untidy))
+  assert(a.name == "Jeff Mills" and a.score == nil and a.area == nil)
+  -- An element that does not fit is dropped, one of a record whose required field does not fit too, and an optional
+  -- field of a kept element that does not fit reads as nil.
+  local tags = must(a.tags, "tags")
+  assert(#tags == 2 and tags[1].name == "techno" and tags[1].count == 9, #tags)
+  assert(tags[2].name == "ambient" and tags[2].count == nil)
+  assert(#a.aliases == 2 and a.aliases[1] == "The Wizard" and a.aliases[2] == "Millsart")
+  local links = must(a.links, "links")
+  assert(links["ra"] == "https://ra.co/dj/jeffmills" and links["x"] == nil)
+  -- What is kept is still a JSON array.
+  assert(Json.is_array(a.aliases) and Json.encode(a.aliases) == '["The Wizard","Millsart"]')
+end
+
+local function test_a_lenient_record_still_fails_on_a_required_field()
+  local lenient = ARTIST:lenient()
+  local _, missing = lenient:into({ aliases = Json.array() })
+  assert(missing == "Artist: $.name: missing", missing)
+  local _, wrong = lenient:into({ name = 3, aliases = Json.array() })
+  assert(wrong == "Artist: $.name: want string, got integer", wrong)
+  -- A required list that is no list at all fails: only what is in it is passed over.
+  local _, flat = lenient:into({ name = "n", aliases = "a" })
+  assert(flat == "Artist: $.aliases: want list, got string", flat)
+  local _, none = lenient:into("text")
+  assert(none == "Artist: $: want record, got string", none)
+  -- An empty list stays one.
+  local empty = must(lenient:into(must(Json.decode('{"name": "n", "aliases": [7]}'))))
+  assert(#empty.aliases == 0 and Json.encode(empty.aliases) == "[]")
+end
+
+local function test_lenient_is_kept_and_is_not_strict_too()
+  assert(ARTIST:lenient() == ARTIST:lenient() and ARTIST:lenient():lenient() == ARTIST:lenient())
+  local ok, why = pcall(function(): Shape.Typed<Artist> return ARTIST:lenient():strict() end)
+  assert(not ok and tostring(why):find("Artist is lenient", 1, true) ~= nil, tostring(why))
+  local ok2, why2 = pcall(function(): Shape.Typed<Artist> return ARTIST:strict():lenient() end)
+  assert(not ok2 and tostring(why2):find("Artist is strict", 1, true) ~= nil, tostring(why2))
+  -- The lenient record describes the same fields, so what reads its node reads the same record.
+  assert(ARTIST:lenient().node == ARTIST.node)
 end

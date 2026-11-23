@@ -89,7 +89,7 @@ local function serving_packets(reply: ReplyTo, body: function(opts: Mdns.Options
       while true do
         local packet = device:receive()
         if packet == nil then return end
-        local query = Dns.decode(packet.data)
+        local query, _ = Dns.decode(packet.data)
         if query ~= nil then
           for _, bytes in ipairs(reply(query, packet)) do
             assert(device:send(bytes, packet.address))
@@ -665,7 +665,7 @@ local function serving_group(group: string, reply: Reply, body: function(opts: M
       while true do
         local packet = device:receive()
         if packet == nil then return end
-        local query = Dns.decode(packet.data)
+        local query, _ = Dns.decode(packet.data)
         -- The group carries the responder's own answers back to it.
         if query ~= nil and not query.response then
           for _, bytes in ipairs(reply(query)) do assert(out:send(bytes, Net.udp(group, port))) end

@@ -25,7 +25,7 @@ function Example.table()
   assert(bob["name"] == "Bob")
   local none, why = Csv.table("id,name\n1\n")
   assert(none == nil)
-  print(why) -- csv: line 2, column 1: the record has 1 field, the header 2
+  print(why) -- csv: the record has 1 field, the header 2 at line 2, column 1
 end
 
 --- A row the caller refuses is named by its line: here the second

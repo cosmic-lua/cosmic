@@ -13,14 +13,14 @@ local function test_escape_keeps_only_the_unreserved_bytes()
 end
 
 local function test_unescape_reads_either_case_and_any_byte()
-  assert(Url.unescape("%41%6a%6A") == "Ajj")
-  assert(Url.unescape("%00%2F%ff") == "\0/\xff")
-  assert(Url.unescape("") == "")
-  assert(Url.unescape("plain") == "plain")
+  assert(assert(Url.unescape("%41%6a%6A")) == "Ajj")
+  assert(assert(Url.unescape("%00%2F%ff")) == "\0/\xff")
+  assert(assert(Url.unescape("")) == "")
+  assert(assert(Url.unescape("plain")) == "plain")
 end
 
 local function test_unescape_leaves_a_plus_as_it_is()
-  assert(Url.unescape("a+b%2B") == "a+b+")
+  assert(assert(Url.unescape("a+b%2B")) == "a+b+")
 end
 
 local function test_unescape_refuses_a_percent_without_two_hex_digits_naming_its_byte()
@@ -28,7 +28,7 @@ local function test_unescape_refuses_a_percent_without_two_hex_digits_naming_its
   for text, at in pairs(cases) do
     local bytes, why = Url.unescape(text)
     assert(bytes == nil, text)
-    assert(why == ("url: '%%' at byte %d is not followed by two hex digits"):format(at), why)
+    assert(tostring(why) == ("url: '%%' at byte %d is not followed by two hex digits"):format(at), why)
   end
 end
 
@@ -45,8 +45,7 @@ local function test_segments_split_before_unescaping_and_drop_empty_and_dot()
   }
   for path, want in pairs(cases) do
     local got, why = Url.segments(path)
-    assert(got ~= nil, path .. ": " .. why)
-    assert(why == "")
+    assert(got ~= nil, path .. ": " .. tostring(why))
     assert(StringList.same(got, want), path .. " gave " .. table.concat(got, "|"))
   end
 end
@@ -55,26 +54,26 @@ local function test_segments_refuse_a_climb_escaped_or_not()
   for _, path in ipairs({ "/..", "/a/../b", "/%2e%2e", "/%2E%2E/x", "/.%2e", "/%2e." }) do
     local got, why = Url.segments(path)
     assert(got == nil, path)
-    assert(why:find("'..'", 1, true), why)
+    assert(tostring(why):find("'..'", 1, true), why)
   end
 end
 
 local function test_segments_refuse_an_escaped_slash_or_nul()
   local got, why = Url.segments("/a/b%2Fc")
-  assert(got == nil and why == "url: the segment at byte 4 holds an escaped '/'", why)
+  assert(got == nil and tostring(why) == "url: the segment at byte 4 holds an escaped '/'", why)
   got, why = Url.segments("/a%00")
-  assert(got == nil and why == "url: the segment at byte 2 holds a NUL", why)
+  assert(got == nil and tostring(why) == "url: the segment at byte 2 holds a NUL", why)
 end
 
 local function test_segments_name_a_bad_escape_by_its_byte_in_the_path()
   local got, why = Url.segments("/ab/c%z")
-  assert(got == nil and why == "url: '%' at byte 6 is not followed by two hex digits", why)
+  assert(got == nil and tostring(why) == "url: '%' at byte 6 is not followed by two hex digits", why)
 end
 
 local function test_segments_refuse_a_path_not_starting_with_a_slash()
   for _, path in ipairs({ "", "a/b", "%2Fa", "http://h/a" }) do
     local got, why = Url.segments(path)
-    assert(got == nil and why == "url: the path does not start with '/'", path)
+    assert(got == nil and tostring(why) == "url: the path does not start with '/'", path)
   end
 end
 
@@ -111,13 +110,13 @@ local function test_parse_takes_only_a_well_formed_ipv6_host()
   for _, host in ipairs({ "::", "1::", "1:2:3:4:5:6:7:8", "1::8", "1:2:3:4:5:6:1.2.3.4", "::1.2.3.4",
       "1:2:3:4:5:6:7::", "::2:3:4:5:6:7:8" }) do
     local p, why = Url.parse("http://[" .. host .. "]/")
-    assert(p ~= nil and p.host == host, host .. ": " .. why)
+    assert(p ~= nil and p.host == host, host .. ": " .. tostring(why))
   end
   for _, host in ipairs({ ":", ":::", ":::::", "1:2:3:4:5:6:7:8:9", "1:2:3:4:5:6:7", "1::2::3", "12345::",
       "g::", "1:2:3:4:5:6:7:8::", "::1.2.3.256", "::1.2.3", "1:2:3:4:5:6:7:1.2.3.4", ":1::", "1::2:",
       "::0001.2.3.4", "::01.2.3.4", "::ffff:1.2.3.04", "::1:2:3:4:5:6:7:8", "fe80::1%25eth0" }) do
     local p, why = Url.parse("http://[" .. host .. "]/")
-    assert(p == nil and why == "url: the host in brackets is not an IPv6 address", host)
+    assert(p == nil and tostring(why) == "url: the host in brackets is not an IPv6 address", host)
   end
 end
 
@@ -127,12 +126,12 @@ local function test_parse_reads_a_port_from_0_to_65535()
   assert(assert(Url.parse("http://h:000080/")).port == 80)
   for _, url in ipairs({ "http://h:65536/", "http://h:100000/", "http://h:99999999999999999999999/" }) do
     local p, why = Url.parse(url)
-    assert(p == nil and why == "url: the port is not a number from 0 to 65535", url)
+    assert(p == nil and tostring(why) == "url: the port is not a number from 0 to 65535", url)
   end
   local p, why = Url.parse("http://h:8o/")
-  assert(p == nil and why == "url: the port holds a byte other than a digit", why)
+  assert(p == nil and tostring(why) == "url: the port holds a byte other than a digit", why)
   p, why = Url.parse("http://h:-1/")
-  assert(p == nil and why == "url: the port holds a byte other than a digit", why)
+  assert(p == nil and tostring(why) == "url: the port holds a byte other than a digit", why)
 end
 
 local function test_parse_refuses_what_is_not_an_absolute_url_naming_a_host()
@@ -157,20 +156,20 @@ local function test_parse_refuses_what_is_not_an_absolute_url_naming_a_host()
   for url, says in pairs(cases) do
     local p, why = Url.parse(url)
     assert(p == nil, url)
-    assert(why:find(says, 1, true), url .. ": " .. why)
+    assert(tostring(why):find(says, 1, true), url .. ": " .. tostring(why))
   end
 end
 
 local function test_parse_refuses_a_space_or_control_byte_naming_url_escape()
   local p, why = Url.parse("http://h/a b")
   assert(p == nil)
-  assert(why == "url: the URL holds a space at byte 11; escape a path segment or query value with Url.escape", why)
+  assert(tostring(why) == "url: the URL holds a space at byte 11; escape a path segment or query value with Url.escape", why)
   p, why = Url.parse("http://h/\0")
-  assert(p == nil and why:find("holds a NUL at byte 10;", 1, true) ~= nil, why)
+  assert(p == nil and tostring(why):find("holds a NUL at byte 10;", 1, true) ~= nil, why)
   p, why = Url.parse("http://h/?a=\n")
-  assert(p == nil and why:find("holds control byte 0x0a at byte 13;", 1, true) ~= nil, why)
+  assert(p == nil and tostring(why):find("holds control byte 0x0a at byte 13;", 1, true) ~= nil, why)
   p, why = Url.parse("http://h\127/")
-  assert(p == nil and why:find("holds control byte 0x7f at byte 9;", 1, true) ~= nil, why)
+  assert(p == nil and tostring(why):find("holds control byte 0x7f at byte 9;", 1, true) ~= nil, why)
 end
 
 local function test_parse_keeps_bytes_past_ascii_as_written()
@@ -198,10 +197,10 @@ local function test_parse_refuses_an_authority_a_browser_reads_otherwise()
   for url, says in pairs(cases) do
     local p, why = Url.parse(url)
     if says == "" then
-      assert(p ~= nil, url .. ": " .. why)
+      assert(p ~= nil, url .. ": " .. tostring(why))
     else
       assert(p == nil, url)
-      assert(why:find(says, 1, true), url .. ": " .. why)
+      assert(tostring(why):find(says, 1, true), url .. ": " .. tostring(why))
     end
   end
 end
@@ -216,8 +215,7 @@ end
 
 local function decoded(text: string, opts?: Url.QueryOptions): Url.Query
   local q, why = Url.decode_query(text, opts)
-  assert(q ~= nil, text .. ": " .. why)
-  assert(why == "")
+  assert(q ~= nil, text .. ": " .. tostring(why))
   return q
 end
 
@@ -258,7 +256,7 @@ local function test_decode_query_refuses_a_bad_escape_naming_its_byte_in_the_who
   for text, at in pairs(cases) do
     local q, why = Url.decode_query(text)
     assert(q == nil, text)
-    assert(why == ("url: '%%' at byte %d is not followed by two hex digits"):format(at), text .. ": " .. why)
+    assert(tostring(why) == ("url: '%%' at byte %d is not followed by two hex digits"):format(at), text .. ": " .. tostring(why))
   end
 end
 
@@ -268,17 +266,29 @@ end
 
 local function test_decode_query_refuses_invalid_utf8_unless_told_not_to()
   local q, why = Url.decode_query("a=1&b=%FF")
-  assert(q == nil and why == "url: the name or value of pair 2 is not valid UTF-8", why)
-  assert(Url.decode_query("%ED%A0%80=1") == nil)
-  assert(Url.decode_query("a=%C0%80") == nil, "overlong NUL")
-  assert(Url.decode_query("a=%F4%90%80%80") == nil, "past U+10FFFF")
+  assert(q == nil and tostring(why) == "url: the name or value of pair 2 is not valid UTF-8", why)
+  do
+    local none, _ = Url.decode_query("%ED%A0%80=1")
+    assert(none == nil)
+  end
+  do
+    local none, _ = Url.decode_query("a=%C0%80")
+    assert(none == nil, "overlong NUL")
+  end
+  do
+    local none, _ = Url.decode_query("a=%F4%90%80%80")
+    assert(none == nil, "past U+10FFFF")
+  end
   assert(names_values(decoded("a=%C3%A9")) == "a=\xc3\xa9")
   assert(names_values(decoded("b=%FF%00", { utf8 = false })) == "b=\xff\0")
 end
 
 local function test_decode_query_lenient_without_utf8_keeps_stray_percent_and_raw_bytes()
   local text = "a=%FF%&b=%4"
-  assert(Url.decode_query(text, { lenient = true }) == nil)
+  do
+    local none, _ = Url.decode_query(text, { lenient = true })
+    assert(none == nil)
+  end
   assert(names_values(decoded(text, { lenient = true, utf8 = false })) == "a=\xff%|b=%4")
 end
 
@@ -286,12 +296,15 @@ local function test_decode_query_caps_pairs_and_bytes()
   local many: mut {string} = {}
   for i = 1, 1001 do many[i] = "a=" .. tostring(i) end
   local q, why = Url.decode_query(table.concat(many, "&"))
-  assert(q == nil and why == "url: the query holds more pairs than max_pairs (1000)", why)
+  assert(q == nil and tostring(why) == "url: the query holds more pairs than max_pairs (1000)", why)
   assert(#decoded(table.concat(many, "&", 1, 1000)).pairs == 1000)
-  assert(Url.decode_query("a=1&b=2&c=3", { max_pairs = 2 }) == nil)
+  do
+    local none, _ = Url.decode_query("a=1&b=2&c=3", { max_pairs = 2 })
+    assert(none == nil)
+  end
   local _, bytes_why = Url.decode_query("abcdef", { max_bytes = 5 })
-  assert(bytes_why == "url: the query is longer than max_bytes (5)", bytes_why)
-  assert(Url.decode_query("abcde", { max_bytes = 5 }) ~= nil)
+  assert(tostring(bytes_why) == "url: the query is longer than max_bytes (5)", bytes_why)
+  assert(Url.decode_query("abcde", { max_bytes = 5 }))
 end
 
 local function test_encode_query_writes_plus_for_space_and_round_trips()

@@ -11,6 +11,17 @@ local function test_the_text_names_the_path_then_the_message()
   assert(made.errno == 0 and made.path == nil)
 end
 
+--- A failure at a place in a text names it as a compiler does where a
+--- path is known, and after the words where none is.
+local function test_a_failure_at_a_place_names_it()
+  local quoted = Failure.at("csv: unclosed quote opened", 3, 5)
+  assert(quoted.line == 3 and quoted.column == 5 and quoted.errno == 0)
+  assert(tostring(quoted) == "csv: unclosed quote opened at line 3, column 5", tostring(quoted))
+  assert(tostring(Failure.at("no root element", 7)) == "no root element at line 7")
+  assert(tostring(Failure.at("bad", 3, 5, "a.csv")) == "a.csv:3:5: bad")
+  assert(tostring(Failure.at("bad", 3, nil, "a.csv")) == "a.csv:3: bad")
+end
+
 local function test_a_system_failure_keeps_its_errno_and_words()
   local made = Failure.system(sys.ENOENT, "/nowhere")
   assert(made.errno == sys.ENOENT)

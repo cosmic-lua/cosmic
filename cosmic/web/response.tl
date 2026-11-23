@@ -264,7 +264,7 @@ local function absolute_url(target: string): boolean, string
   if not target:find("^[Hh][Tt][Tt][Pp][Ss]?://") then return false, "" end
   if target:find("[%z\1-\31\127]") then return false, "it holds a control byte" end
   local parts, why = Url.parse(target)
-  if parts == nil then return false, why end
+  if parts == nil then return false, tostring(why) end
   return true, ""
 end
 

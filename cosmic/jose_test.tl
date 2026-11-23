@@ -64,7 +64,7 @@ local function test_a_changed_byte_is_refused()
   local payload = assert(Codec.unbase64url(assert(body)))
   local changed = Codec.base64url((payload:gsub("joe", "jim")))
   local jws, why = Jose.verify(assert(head) .. "." .. changed .. "." .. assert(tail), { key })
-  assert(jws == nil and why:find("does not check", 1, true) ~= nil, why)
+  assert(jws == nil and tostring(why):find("does not check", 1, true) ~= nil, why)
 end
 
 --- A token whose header says `alg`, with `payload` and no signature
@@ -77,16 +77,16 @@ local function test_none_and_hmac_are_refused()
   local key = assert(Jose.key(ES256_JWK))
   for _, alg in ipairs({ "none", "None", "NONE", "HS256", "none " }) do
     local jws, why = Jose.verify(forged({ alg = alg }, "{}"), { key })
-    assert(jws == nil and why:find("not allowed", 1, true) ~= nil, why)
+    assert(jws == nil and tostring(why):find("not allowed", 1, true) ~= nil, why)
   end
   local jws, why = Jose.verify(forged({ alg = "ES256", kid = 7 }, "{}"), { key })
-  assert(jws == nil and why:find("kid", 1, true) ~= nil, why)
+  assert(jws == nil and tostring(why):find("kid", 1, true) ~= nil, why)
 end
 
 local function test_an_algorithm_the_caller_does_not_allow_is_refused()
   local key = assert(Jose.key(ES256_JWK))
   local jws, why = Jose.verify(ES256_TOKEN, { key }, { algs = { "RS256" } })
-  assert(jws == nil and why:find("not allowed", 1, true) ~= nil, why)
+  assert(jws == nil and tostring(why):find("not allowed", 1, true) ~= nil, why)
 end
 
 --- A token signed with one algorithm is not checked against a key of
@@ -98,24 +98,24 @@ local function test_a_key_checks_only_its_own_algorithm()
   local es = Jose.signer("ES256", Sign.p256_secret())
   local token = Jose.sign(ed, { sub = "ada" })
   local jws, why = Jose.verify(token, { es.key })
-  assert(jws == nil and why:find("no key signs with EdDSA", 1, true) ~= nil, why)
-  assert(Jose.verify(token, { es.key, ed.key }) ~= nil)
+  assert(jws == nil and tostring(why):find("no key signs with EdDSA", 1, true) ~= nil, why)
+  assert(Jose.verify(token, { es.key, ed.key }))
 end
 
 local function test_crit_is_refused()
   local signer = Jose.signer("ES256", Sign.p256_secret())
   local token = Jose.sign(signer, { sub = "ada" }, { crit = Json.array({ "exp" }), exp = 1 })
   local jws, why = Jose.verify(token, { signer.key })
-  assert(jws == nil and why:find("crit", 1, true) ~= nil, why)
+  assert(jws == nil and tostring(why):find("crit", 1, true) ~= nil, why)
 end
 
 local function test_kid_picks_the_key()
   local one = Jose.signer("ES256", Sign.p256_secret(), "one")
   local two = Jose.signer("ES256", Sign.p256_secret(), "two")
   local token = Jose.sign(two, { sub = "ada" })
-  assert(Jose.verify(token, { one.key, two.key }) ~= nil)
+  assert(Jose.verify(token, { one.key, two.key }))
   local jws, why = Jose.verify(token, { one.key })
-  assert(jws == nil and why:find('id "two"', 1, true) ~= nil, why)
+  assert(jws == nil and tostring(why):find('id "two"', 1, true) ~= nil, why)
 end
 
 local function test_rs256_signs_and_verifies()
@@ -123,14 +123,14 @@ local function test_rs256_signs_and_verifies()
   local token = Jose.sign(signer, { sub = "ada" })
   local key = assert(Jose.key(signer.jwk))
   assert(key.alg == "RS256")
-  assert(Jose.verify(token, { key }) ~= nil)
+  assert(Jose.verify(token, { key }))
   assert(Jose.thumbprint(key) == Jose.thumbprint(signer.key))
 end
 
 local function test_keys_refused_by_jwk()
   local function refused(jwk: {string: Json.Value}, says: string)
     local key, why = Jose.key(jwk)
-    assert(key == nil and why:find(says, 1, true) ~= nil, why)
+    assert(key == nil and tostring(why):find(says, 1, true) ~= nil, why)
   end
   refused({ kty = "EC", crv = "P-384", x = "AA", y = "AA" }, "P-256")
   refused({ kty = "EC", crv = "P-256", x = "AA", y = "AA" }, "32 bytes")
@@ -164,13 +164,13 @@ local function test_keys_leaves_out_what_does_not_sign()
   local keys = assert(Jose.keys(set))
   assert(#keys == 1 and keys[1].alg == "ES256")
   local none, why = Jose.keys({ nothing = true })
-  assert(none == nil and why:find("no keys", 1, true) ~= nil, why)
+  assert(none == nil and tostring(why):find("no keys", 1, true) ~= nil, why)
 end
 
 local function test_decode_refuses_what_is_no_token()
   for _, text in ipairs({ "", "a.b", "a.b.c.d", "!!.e30.", "e30.e30.", "W10.e30.", ("a"):rep(70000) .. ".e30." }) do
     local jws, why = Jose.decode(text)
-    assert(jws == nil and why ~= "", text)
+    assert(jws == nil and tostring(why) ~= "", text)
   end
 end
 
@@ -197,13 +197,13 @@ local function test_verify_jwt_takes_a_good_token()
   assert(claims.sub == "ada" and claims.aud[1] == "client" and claims.exp == NOW + 300 and claims.iat == NOW)
   local many = assert(Jose.verify_jwt(token({ aud = Json.array({ "other", "client" }) }), { signer.key }, OPTS))
   assert(#many.aud == 2)
-  assert(Jose.verify_jwt(token({ exp = NOW + 0.5 }), { signer.key }, OPTS) ~= nil)
+  assert(Jose.verify_jwt(token({ exp = NOW + 0.5 }), { signer.key }, OPTS))
 end
 
 local function test_verify_jwt_refuses()
   local function refused(t: string, says: string, opts?: Jose.JwtOptions)
     local claims, why = Jose.verify_jwt(t, { signer.key }, opts or OPTS)
-    assert(claims == nil and why:find(says, 1, true) ~= nil, why)
+    assert(claims == nil and tostring(why):find(says, 1, true) ~= nil, why)
   end
   refused(token({ iss = "https://evil.example.com" }), "issuer")
   refused(token({}, "iss"), "issuer")
@@ -229,11 +229,11 @@ end
 
 --- A token is taken within the leeway of its times, either side.
 local function test_verify_jwt_takes_the_leeway()
-  assert(Jose.verify_jwt(token({ exp = NOW - 30 }), { signer.key }, OPTS) ~= nil)
-  assert(Jose.verify_jwt(token({ nbf = NOW + 30 }), { signer.key }, OPTS) ~= nil)
-  assert(Jose.verify_jwt(token({ iat = NOW + 30 }), { signer.key }, OPTS) ~= nil)
+  assert(Jose.verify_jwt(token({ exp = NOW - 30 }), { signer.key }, OPTS))
+  assert(Jose.verify_jwt(token({ nbf = NOW + 30 }), { signer.key }, OPTS))
+  assert(Jose.verify_jwt(token({ iat = NOW + 30 }), { signer.key }, OPTS))
   assert(Jose.verify_jwt(token({ exp = NOW + 1 }), { signer.key },
-    { issuer = OPTS.issuer, audience = "client", now = NOW, leeway = 0 }) ~= nil)
+    { issuer = OPTS.issuer, audience = "client", now = NOW, leeway = 0 }))
 end
 
 --- A token past 64 KiB is refused before it is read, though it is
@@ -241,15 +241,15 @@ end
 local function test_a_long_token_is_refused()
   local long = token({ pad = ("x"):rep(64 * 1024) })
   local claims, why = Jose.verify_jwt(long, { signer.key }, OPTS)
-  assert(claims == nil and why:find("too long", 1, true) ~= nil, why)
+  assert(claims == nil and tostring(why):find("too long", 1, true) ~= nil, why)
 end
 
 local function test_verify_jwt_compares_typ_loosely()
   local t = Jose.sign(signer, { iss = "x", sub = "s", aud = "c", exp = NOW + 10 }, { typ = "application/AT+JWT" })
-  assert(Jose.verify_jwt(t, { signer.key }, { issuer = "x", audience = "c", now = NOW, typ = "at+jwt" }) ~= nil)
+  assert(Jose.verify_jwt(t, { signer.key }, { issuer = "x", audience = "c", now = NOW, typ = "at+jwt" }))
 end
 
 local function test_verify_jwt_without_exp_when_asked()
   assert(Jose.verify_jwt(token({}, "exp"), { signer.key },
-    { issuer = OPTS.issuer, audience = "client", now = NOW, require_exp = false }) ~= nil)
+    { issuer = OPTS.issuer, audience = "client", now = NOW, require_exp = false }))
 end

@@ -1,0 +1,168 @@
+# Flow-style YAML, held by build/workflows_test.tl to what YAML and
+# JSON5 read alike; a longer script lives under .github/scripts/.
+{
+  name: "relay",
+
+  # Main moves only through the merge queue, and the commit the queue
+  # tested is the commit main's push runs. Once the queue merges it, this
+  # saves what the queue's run of that commit left as main's caches, for
+  # the pull requests and queue entries that start next: its verdicts,
+  # merged into main's newest; its compiles and parses; and the memo of
+  # its tree checks (ci/README.md's "the workflow"). It runs apart from
+  # ci.yml, whose pushes to main wait on each other and save only as they
+  # end, 15 to 30 minutes after the merge, and drop the relay of a push
+  # superseded while it waits.
+  #
+  # A row stands only under its key, which holds everything its verdict
+  # or compile was reached under, so what this saves decides how much a
+  # later run does again, never what it finds; no step fails the job.
+  "on": {
+    push: {branches: ["main"]},
+  },
+
+  permissions: {contents: "read"},
+
+  # One relay at a time, so each restores the one before. A newer push
+  # replaces one still waiting, whose rows the newer queue run held too;
+  # main's push of the commit saves them where main has not moved past it.
+  concurrency: {group: "relay", "cancel-in-progress": false},
+
+  jobs: {
+    relay: {
+      name: "relay",
+      if: "github.repository == 'cosmic-lua/cosmic'",
+      defaults: {run: {"working-directory": "ci", shell: "sh"}},
+      "runs-on": "ubuntu-24.04",
+      # actions: to find and download the merge queue's artifacts.
+      permissions: {contents: "read", actions: "read"},
+      "timeout-minutes": 15,
+      steps: [
+        {uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"}, # v6
+        {
+          name: "bootstrap the pinned CI driver",
+          id: "driver",
+          uses: "./.github/actions/cosmic-driver",
+          with: {shell: "sh"},
+        },
+        {
+          name: "find the merge queue's run of this commit",
+          id: "queue-run",
+          "continue-on-error": true,
+          env: {SHA: "${{ github.sha }}", ARTIFACT: "queue-verdicts-linux-x86_64", GH_TOKEN: "${{ github.token }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl queue-run",
+        },
+        # The verdicts, with the name of the cache the queue's host gave
+        # them (driver.tl verdicts-name), merged into main's newest of that
+        # cache, so the rows of main's own legs stay.
+        {
+          name: "download the merge queue's verdicts",
+          id: "queue-download",
+          if: "steps.queue-run.outputs.run != ''",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            name: "queue-verdicts-linux-x86_64",
+            path: "${{ runner.temp }}/queue-verdicts",
+            "run-id": "${{ steps.queue-run.outputs.run }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        {
+          name: "name the cache the merge queue's verdicts belong in",
+          id: "verdicts-key",
+          if: "steps.queue-download.outcome == 'success'",
+          "continue-on-error": true,
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-key \"${{ runner.temp }}/queue-verdicts\" linux-x86_64",
+        },
+        {
+          name: "restore test verdicts",
+          id: "verdicts-restore",
+          if: "steps.verdicts-key.outputs.verdicts != ''",
+          "continue-on-error": true,
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/verdicts",
+            key: "${{ steps.verdicts-key.outputs.verdicts }}",
+            "restore-keys": "${{ steps.verdicts-key.outputs.verdicts }}\n",
+          },
+        },
+        {
+          name: "take in the merge queue's verdicts",
+          id: "verdicts-merged",
+          if: "steps.verdicts-key.outputs.verdicts != ''",
+          "continue-on-error": true,
+          env: {COSMIC_VERDICT_CACHE: "${{ runner.temp }}/verdicts/verdicts.db"},
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-merge \"${{ runner.temp }}/queue-verdicts\"",
+        },
+        {
+          name: "save test verdicts",
+          if: "steps.verdicts-merged.outcome == 'success'",
+          "continue-on-error": true,
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/verdicts",
+            key: "${{ steps.verdicts-key.outputs.verdicts }}queue-${{ github.sha }}",
+          },
+        },
+        # The compiles and parses the queue's boot and suite made of this
+        # very tree, as main's own save would keep them.
+        {
+          name: "download the merge queue's compiles and parses",
+          id: "queue-compiles",
+          if: "steps.queue-run.outputs.run != ''",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            name: "queue-compiles-linux-x86_64",
+            path: "${{ runner.temp }}/build-cache",
+            "run-id": "${{ steps.queue-run.outputs.run }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        {
+          name: "save the merge queue's compiles and parses",
+          if: "steps.queue-compiles.outcome == 'success'",
+          "continue-on-error": true,
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/build-cache",
+            key: "compiles-linux-x86_64-queue-${{ github.sha }}",
+          },
+        },
+        # The memo of the tree checks, held to a memo with rows: a file
+        # that is none would be the newest, and the next runs would check
+        # from cold.
+        {
+          name: "download the merge queue's tree checks memo",
+          id: "queue-checks",
+          if: "steps.queue-run.outputs.run != ''",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            name: "queue-checks-linux-x86_64",
+            path: "${{ runner.temp }}/cache/cosmic/build",
+            "run-id": "${{ steps.queue-run.outputs.run }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        {
+          name: "hold the merge queue's tree checks memo to a memo",
+          id: "queue-checks-held",
+          if: "steps.queue-checks.outcome == 'success'",
+          "continue-on-error": true,
+          run: "cosmic-driver cosmic_ci/driver.tl checks-seal \"${{ runner.temp }}/cache/cosmic/build/checks.db\"",
+        },
+        {
+          name: "save the tree checks' memo",
+          if: "steps.queue-checks-held.outcome == 'success'",
+          "continue-on-error": true,
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/cache/cosmic/build/checks.db",
+            key: "checks-linux-x86_64-${{ github.sha }}",
+          },
+        },
+      ],
+    },
+  },
+}

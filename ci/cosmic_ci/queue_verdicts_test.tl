@@ -170,3 +170,53 @@ local function test_a_schema_of_more_than_a_table_is_refused(tmp: string)
   assert(said.code == 0 and said.err:find("left as restored", 1, true) ~= nil, said.out .. said.err)
   assert(rows(into .. "/verdicts.db", "SELECT name FROM sqlite_schema WHERE sql IS NOT NULL ORDER BY name") == "kept")
 end
+
+--- The queue writes the name of its verdicts' cache beside them, and the
+--- relay reads it back as the step's output; a name that is no verdict
+--- cache's is refused on the way in and passed over on the way out.
+local function test_the_cache_the_verdicts_belong_in_is_relayed_beside_them(tmp: string)
+  local key = "verdicts-linux-x86_64-3a9f8d7b94f5492e-0de7cf39e1e63661-"
+  local wrote = QueueVerdicts.name(tmp, key)
+  assert(wrote.code == 0, wrote.err)
+  local fake = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
+  assert(QueueVerdicts.key(tmp, "linux-x86_64", fake.host) == 0)
+  assert(GithubFake.text(fake.outputs) == "verdicts=" .. key .. "\n", GithubFake.text(fake.outputs))
+  for _, bad in ipairs({ "", "verdicts-linux-x86_64", "other-linux-x86_64-", "verdicts-a b-", "verdicts-a\n-" }) do
+    assert(QueueVerdicts.name(tmp .. "/none", bad).code == 2, bad)
+  end
+  assert(Fs.write(tmp .. "/cache-key", "verdicts-a\nb-\n"))
+  local refused = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
+  assert(QueueVerdicts.key(tmp, "linux-x86_64", refused.host) == 0)
+  assert(#refused.outputs == 0, GithubFake.text(refused.outputs))
+  local missing = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
+  assert(QueueVerdicts.key(tmp .. "/absent", "linux-x86_64", missing.host) == 0)
+  assert(#missing.outputs == 0, GithubFake.text(missing.outputs))
+  -- Another leg's cache is not the relay's to write.
+  for _, foreign in ipairs({ "verdicts-macos-aarch64-3a9f8d7b94f5492e-0de7cf39e1e63661-",
+      "verdicts-linux-x86_64-checked-3a9f8d7b94f5492e-0de7cf39e1e63661-", "verdicts-linux-x86_64-3a9f8d7b94f5492e-" }) do
+    assert(QueueVerdicts.name(tmp, foreign).code == 0, foreign)
+    local other = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
+    assert(QueueVerdicts.key(tmp, "linux-x86_64", other.host) == 0)
+    assert(#other.outputs == 0, foreign .. ": " .. GithubFake.text(other.outputs))
+  end
+end
+
+--- Main's push says whether main is still its commit: false where main
+--- moved past it, true where not, and nothing where GitHub does not say.
+local function test_a_push_says_whether_main_moved_past_it()
+  local REF = "repos/o/r/git/ref/heads/main"
+  for _, case in ipairs({ { SHA, "newest=true\n" }, { OTHER, "newest=false\n" }, { "", "" }, { "main", "" } }) do
+    local head, said = case[1] or "", case[2] or ""
+    local fake = GithubFake.new(function(path: string, _nth: integer): string?
+      if path == REF and head ~= "" then return '{"object":{"sha":"' .. head .. '"}}' end
+      return nil
+    end)
+    assert(QueueVerdicts.newest(env(), fake.host) == 0, head)
+    assert(GithubFake.text(fake.outputs) == said, head .. ": " .. GithubFake.text(fake.outputs))
+  end
+  local bad = env()
+  bad["SHA"] = "main"
+  assert(QueueVerdicts.newest(bad, GithubFake.new(function(_path: string, _nth: integer): string?
+    return nil
+  end).host) == 2)
+end

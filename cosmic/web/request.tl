@@ -132,7 +132,7 @@ local class Made is Types.Request
     local cached = self:get(QUERY)
     if cached ~= nil then return cached, "" end
     local decoded, why = Url.decode_query(self.query_string)
-    if decoded == nil then return nil, why end
+    if decoded == nil then return nil, tostring(why) end
     self:set(QUERY, decoded)
     return decoded, ""
   end
