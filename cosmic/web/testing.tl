@@ -162,7 +162,7 @@ end
 local function bytes_of(body: string | Stream.Reader): string
   if body is string then return body end
   local data, why = Stream.read_all(body)
-  if data == nil then error("web: test client: reading the request body: " .. why, 3) end
+  if data == nil then error("web: test client: reading the request body: " .. tostring(why), 3) end
   return data
 end
 
@@ -403,7 +403,9 @@ local function send(client: Testing.Client, method: string, path: string, opts: 
       else
         local data, why = Stream.read_all(given)
         local _, _ = given:close()
-        if data == nil then error("web: test client: reading the reply body: " .. why, 0) end
+        if data == nil then
+          error("web: test client: reading the reply body: " .. tostring(why), 0)
+        end
         body = data
         length = #data
       end

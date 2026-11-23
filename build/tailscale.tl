@@ -166,13 +166,17 @@ local standard: verb.Io = {
     if st == nil then return nil, tostring(why) end
     if st.kind ~= "file" then return nil, path .. ": not a file" end
     local reader, trouble = Stream.open(path)
-    if reader == nil then return nil, trouble end
+    if reader == nil then return nil, tostring(trouble) end
     return { reader = reader, size = st.size }, ""
   end,
   stdin = function(): string?, string
     return bare.stdin_text("send reads standard input, which is a terminal: name a file")
   end,
-  create = function(path: string): Stream.Writer?, string return Stream.create(path) end,
+  create = function(path: string): Stream.Writer?, string
+    local writer, trouble = Stream.create(path)
+    if writer == nil then return nil, tostring(trouble) end
+    return writer, ""
+  end,
   exists = function(path: string): boolean?, string
     local found, why = Fs.status(path)
     if found == nil then return nil, tostring(why) end
@@ -828,7 +832,8 @@ local function file_get(to: verb.Io, complain: function(line: string), ts: Tails
         trouble = "the daemon sends " .. plural.count(reader.size, "byte") .. ", not the " .. tostring(file.size) ..
           " it listed"
       elseif reader ~= nil and writer ~= nil then
-        copied, trouble = Stream.copy(reader, writer)
+        local copied_got, trouble_failure = Stream.copy(reader, writer)
+        copied, trouble = copied_got, if copied_got == nil then tostring(trouble_failure) else "" end
         if copied ~= nil then
           local closed, lost = writer:close()
           if not closed then copied, trouble = nil, lost end

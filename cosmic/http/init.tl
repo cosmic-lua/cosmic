@@ -1376,7 +1376,7 @@ local function downloading(url: string, path: string,
     local algorithm, wanted = pair.algorithm, pair.wanted
     if wanted ~= "" then
       local hashing, trouble = Stream.hashing(algorithm)
-      if hashing == nil then return { kind = "failed", reason = trouble } end
+      if hashing == nil then return { kind = "failed", reason = tostring(trouble) } end
       checks[#checks + 1] = { algorithm = algorithm, hex = wanted:lower(), hashing = hashing }
     end
   end
@@ -1393,7 +1393,7 @@ local function downloading(url: string, path: string,
   local file, create_trouble = Stream.create(path)
   pending.file = file
   if file == nil then
-    return { kind = "failed", reason = create_trouble }
+    return { kind = "failed", reason = tostring(create_trouble) }
   end
   local sink: Stream.Writer = file
   for _, check in ipairs(checks) do sink = Stream.tee(sink, check.hashing) end
@@ -1404,7 +1404,7 @@ local function downloading(url: string, path: string,
   local _, _ = response:close()
   pending.response = nil
   if copied == nil then
-    return { kind = "failed", reason = trouble }
+    return { kind = "failed", reason = tostring(trouble) }
   end
   for _, check in ipairs(checks) do
     local digest, digest_trouble = check.hashing:digest()

@@ -290,7 +290,10 @@ local function test_opening_any_bytes_is_total(tmp: string)
           if e == nil then break end
           local entry: Archive.Entry = e
           local body = entry:open()
-          if body ~= nil and Stream.read_all(body) ~= nil then Fuzz.label("body read") end
+          if body ~= nil then
+            local read, _ = Stream.read_all(body)
+            if read ~= nil then Fuzz.label("body read") end
+          end
         end
         reader:close()
       end

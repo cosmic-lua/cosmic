@@ -216,7 +216,7 @@ function Archive.open(path: string): Archive.Reader?, string
     return refuse(path .. ": not a recognized archive format")
   end
   local raw, otrouble = Stream.open(path)
-  if raw == nil then return nil, otrouble end
+  if raw == nil then return nil, tostring(otrouble) end
   return open_tar(kind, raw, path)
 end
 
@@ -231,7 +231,7 @@ function Archive.open_stream(source: Stream.Reader): Archive.Reader?, string
   local head, trouble = Stream.read_up_to(source, 262)
   if head == nil then
     local _, _ = source:close()
-    return refuse(trouble)
+    return refuse(tostring(trouble))
   end
   local kind = detect(head)
   if kind == "zip" then
@@ -336,7 +336,7 @@ function Archive.create(path: string, opts?: Archive.CreateOptions): Archive.Wri
     if codec == nil then return refuse(path .. ": " .. tostring(ctrouble)) end
   end
   local file, trouble = Stream.create(path)
-  if file == nil then return nil, trouble end
+  if file == nil then return nil, tostring(trouble) end
   if format == "zip" then return Zip.writer(file, { deterministic = deterministic }), "" end
   local sink: Stream.Writer = file
   if codec ~= nil then sink = Stream.transform_writer(file, codec) end
@@ -571,7 +571,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
     local mode = safe_mode(entry.mode)
     if mode == 0 then mode = 0x1a4 end
     local w, ctrouble = Stream.create(dest_path, mode)
-    if w == nil then return false, ctrouble end
+    if w == nil then return false, tostring(ctrouble) end
     local size = 0
     while true do
       -- One byte past the room is read, to tell a body that ends at a

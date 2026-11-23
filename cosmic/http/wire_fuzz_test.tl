@@ -360,7 +360,7 @@ local function test_a_written_request_reads_back(tmp: string)
       end
       local got, why = Stream.read_all(wire.body(in_put, head, LIMITS))
       if got ~= (if framing == "none" then "" else body end) then
-        return false, "the body differs: " .. why
+        return false, "the body differs: " .. (if why ~= nil then tostring(why) else "" end)
       end
       if head.chunked ~= (framing == "chunked") then return false, "chunked differs" end
       if framing ~= "chunked" and head.length ~= (if framing == "length" then #body else 0 end) then

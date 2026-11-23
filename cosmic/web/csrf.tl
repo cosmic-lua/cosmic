@@ -209,7 +209,8 @@ local function multipart_token(req: Types.Request): string?
   local part, _ = reader:next_part()
   local value: string? = nil
   if part ~= nil and part.name == Csrf.FIELD and part.filename == nil then
-    value, _ = Stream.read_up_to(part.body, TOKEN_LENGTH + 1)
+    local read, _ = Stream.read_up_to(part.body, TOKEN_LENGTH + 1)
+    value = read
   end
   local _, _ = reader:close()
   return value

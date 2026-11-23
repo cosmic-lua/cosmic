@@ -431,7 +431,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     local body, read_trouble = Stream.read_all(response)
     done(response)
     if body == nil then
-      complain(shown .. ": " .. read_trouble)
+      complain(shown .. ": " .. tostring(read_trouble))
       return bare.failed
     end
     for _, algorithm in ipairs(algorithms) do

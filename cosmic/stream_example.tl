@@ -160,7 +160,7 @@ function Example.limit()
   print(text)
   assert(text == "0123", text)
   assert(head:close())
-  assert(Stream.read_all(source) == "456789", "the Reader keeps the rest")
+  assert(assert(Stream.read_all(source)) == "456789", "the Reader keeps the rest")
 end
 
 --- A header read whole, or found short: [`read_up_to`] gathers what a
@@ -186,7 +186,7 @@ function Example.copy_n()
   local ok, why = Stream.copy_n(Stream.from_string("ab"), Stream.collect(), 4)
   print(why)
   assert(not ok)
-  assert(why:find("wanted 4 bytes, got 2", 1, true), why)
+  assert(tostring(why):find("wanted 4 bytes, got 2", 1, true), why)
 end
 
 --- A Transform driven over a whole string: `run` feeds it, drains what
@@ -200,7 +200,7 @@ function Example.run()
   assert(back == string.rep("a", 10000))
   local out, why = Stream.run(assert(Compress.inflater("gzip")), packed, 100)
   print(why)
-  assert(out == nil and why == "stream: output is larger than 100 bytes", why)
+  assert(out == nil and tostring(why) == "stream: output is larger than 100 bytes", why)
   local record Shouter is Stream.Transform
     update: function(Shouter, chunk: string): string?, string
     finish: function(Shouter): string?, string

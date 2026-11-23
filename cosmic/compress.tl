@@ -93,7 +93,9 @@ end
 local function deflate_text(format: Compress.Format, data: string, level?: integer): string?, string
   local enc, trouble = raw.deflater(format, level)
   if enc == nil then return nil, trouble end
-  return Stream.run(enc, data)
+  local packed, run_trouble = Stream.run(enc, data)
+  if packed == nil then return nil, tostring(run_trouble) end
+  return packed, ""
 end
 
 --- Compresses `data` whole in the `format` framing, at `level` as
@@ -109,7 +111,7 @@ local function inflate_text(format: Compress.Format, data: string, max_bytes?: i
   local dec, trouble = raw.inflater(format)
   if dec == nil then return nil, trouble end
   local out, run_trouble = Stream.run(dec, data, max_bytes)
-  if out == nil then return nil, run_trouble end
+  if out == nil then return nil, tostring(run_trouble) end
   if dec:rest() ~= "" then
     return refuse("trailing bytes after the compressed data")
   end
@@ -230,7 +232,9 @@ end
 local function zstd_text(data: string, level?: integer): string?, string
   local encoder, trouble = raw.zstd_encoder(level, #data)
   if encoder == nil then return nil, trouble end
-  return Stream.run(encoder, data)
+  local packed, run_trouble = Stream.run(encoder, data)
+  if packed == nil then return nil, tostring(run_trouble) end
+  return packed, ""
 end
 
 --- Compresses `data` whole as one zstd frame at `level` (as

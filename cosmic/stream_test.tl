@@ -100,7 +100,7 @@ end
 
 local function test_open_missing_file_fails(tmp: string)
   local r, trouble = Stream.open(tmp .. "/missing")
-  assert(r == nil and trouble:find(tmp, 1, true) ~= nil)
+  assert(r == nil and tostring(trouble):find(tmp, 1, true) ~= nil)
 end
 
 local function test_from_fd_does_not_close_the_descriptor(tmp: string)
@@ -132,25 +132,25 @@ end
 local function test_read_exact_reads_precisely_that_many_bytes()
   local r = Stream.from_string("abcdefgh")
   local chunk, trouble = Stream.read_exact(r, 5)
-  assert(chunk == "abcde" and trouble == "")
+  assert(chunk == "abcde" and trouble == nil)
   assert(r:read() == "fgh")
 end
 
 local function test_read_exact_fails_short_of_the_target()
   local r = Stream.from_string("abc")
   local chunk, trouble = Stream.read_exact(r, 5)
-  assert(chunk == nil and trouble:find("wanted 5", 1, true) ~= nil)
+  assert(chunk == nil and tostring(trouble):find("wanted 5", 1, true) ~= nil)
 end
 
 local function test_read_exact_of_zero_never_touches_the_reader()
   local r = Stream.from_string("")
   local chunk, trouble = Stream.read_exact(r, 0)
-  assert(chunk == "" and trouble == "")
+  assert(chunk == "" and trouble == nil)
 end
 
 local function test_read_all_concatenates_every_chunk()
   local r = Stream.from_string("abc")
-  assert(Stream.read_all(r) == "abc")
+  assert(assert(Stream.read_all(r)) == "abc")
 end
 
 local function test_to_fd_writes_without_closing(tmp: string)
@@ -399,7 +399,7 @@ end
 local function test_prepend_of_nothing_is_the_reader_and_close_closes_it()
   local inner = Stream.from_string("xy")
   local r = Stream.prepend("", inner)
-  assert(Stream.read_all(r) == "xy")
+  assert(assert(Stream.read_all(r)) == "xy")
   assert(r:close())
   local none, why = inner:read()
   assert(none == nil and why ~= "")
@@ -410,7 +410,7 @@ local function test_skip_falls_back_to_reading_for_a_reader_that_cannot_seek()
   assert(r.skip == nil)
   assert(Stream.skip(r, 4))
   assert(r:read() == "ef")
-  local skipped = Stream.skip(Stream.limit(Stream.from_string("ab"), 2), 3)
+  local skipped, _ = Stream.skip(Stream.limit(Stream.from_string("ab"), 2), 3)
   assert(not skipped)
 end
 
@@ -436,7 +436,7 @@ local function test_create_syncs_before_it_closes(tmp: string)
   assert(assert(Fs.read(path)) == "kept")
   local missing = tmp .. "/missing/target"
   local made, trouble = Stream.create(missing)
-  assert(made == nil and trouble:find(missing .. ": ", 1, true) == 1, trouble)
+  assert(made == nil and tostring(trouble):find(missing .. ": ", 1, true) == 1, trouble)
 end
 
 local function test_create_abort_leaves_neither_the_file_nor_a_temporary(tmp: string)
@@ -565,7 +565,7 @@ local function shouting(): Stream.Transform
 end
 
 local function test_a_transform_without_pending_runs_through_every_driver()
-  assert(Stream.run(shouting(), "hi") == "HI!")
+  assert(assert(Stream.run(shouting(), "hi")) == "HI!")
   assert(drain(Stream.transform(Stream.from_string("hi"), shouting())) == "HI!")
   local c = Stream.collect()
   local w = Stream.transform_writer(c, shouting())
@@ -813,22 +813,22 @@ local function test_run_drains_a_decoder_that_holds_output_back()
   local packed = assert(Compress.deflate("zlib", plain))
   -- A decoder's one call returns at most 1 MiB, so the whole answer
   -- takes `update("")` calls past the first.
-  assert(Stream.run(assert(Compress.inflater("zlib")), packed) == plain)
-  assert(Stream.run(assert(Compress.deflater("gzip")), "") ~= nil)
+  assert(assert(Stream.run(assert(Compress.inflater("zlib")), packed)) == plain)
+  assert(Stream.run(assert(Compress.deflater("gzip")), ""))
 end
 
 local function test_run_bounds_what_it_returns()
   local plain = string.rep("x", 1000)
   local packed = assert(Compress.deflate("raw", plain))
-  assert(Stream.run(assert(Compress.inflater("raw")), packed, 1000) == plain)
+  assert(assert(Stream.run(assert(Compress.inflater("raw")), packed, 1000)) == plain)
   local out, trouble = Stream.run(assert(Compress.inflater("raw")), packed, 999)
-  assert(out == nil and trouble == "stream: output is larger than 999 bytes", trouble)
+  assert(out == nil and tostring(trouble) == "stream: output is larger than 999 bytes", trouble)
   -- The bound counts what `finish` returns too, and 0 is a bound.
   out, trouble = Stream.run(shouting(), "", 0)
-  assert(out == nil and trouble == "stream: output is larger than 0 bytes", trouble)
-  assert(Stream.run(shouting(), "", 1) == "!")
-  assert(Stream.run(shouting(), "", 1 << 62) == "!")
-  assert(Stream.run(shouting(), "") == "!")
+  assert(out == nil and tostring(trouble) == "stream: output is larger than 0 bytes", trouble)
+  assert(assert(Stream.run(shouting(), "", 1)) == "!")
+  assert(assert(Stream.run(shouting(), "", 1 << 62)) == "!")
+  assert(assert(Stream.run(shouting(), "")) == "!")
 end
 
 local function test_run_bounds_output_met_while_draining_a_decoder()
@@ -836,19 +836,19 @@ local function test_run_bounds_output_met_while_draining_a_decoder()
   -- `update("")`, in the drain loop.
   local packed = assert(Compress.deflate("zlib", string.rep("\0", 3 << 20)))
   local out, trouble = Stream.run(assert(Compress.inflater("zlib")), packed, (1 << 20) + 5)
-  assert(out == nil and trouble:find("larger than", 1, true) ~= nil, trouble)
+  assert(out == nil and tostring(trouble):find("larger than", 1, true) ~= nil, trouble)
 end
 
 local function test_run_answers_a_transform_failure()
   local out, trouble = Stream.run(assert(Compress.inflater("zlib")), "not zlib")
-  assert(out == nil and trouble ~= "", trouble)
+  assert(out == nil and trouble.message ~= "", tostring(trouble))
   local packed = assert(Compress.deflate("zlib", "some text to cut"))
   out, trouble = Stream.run(assert(Compress.inflater("zlib")), packed:sub(1, -3))
-  assert(out == nil and trouble:find("truncated", 1, true) ~= nil, trouble)
+  assert(out == nil and tostring(trouble):find("truncated", 1, true) ~= nil, trouble)
 end
 
 local function test_run_raises_on_a_negative_max_bytes()
-  Test.raises(function() Stream.run(shouting(), "x", -1) end, "max_bytes")
+  Test.raises(function() local _, _ = Stream.run(shouting(), "x", -1) end, "max_bytes")
 end
 
 --- Every line [`Stream.lines`] gives `reader`, through `read`, and why it
@@ -1145,46 +1145,46 @@ end
 
 local function test_read_up_to_gathers_pieces_up_to_the_count()
   local got, why = Stream.read_up_to(chunked({ "ab", "c", "def" }, ""), 6)
-  assert(got == "abcdef" and why == "", tostring(got))
+  assert(got == "abcdef" and why == nil, tostring(got))
   got, why = Stream.read_up_to(Stream.from_string("abcdef"), 4)
-  assert(got == "abcd" and why == "")
-  assert(Stream.read_up_to(Stream.from_string("abc"), 0) == "")
+  assert(got == "abcd" and why == nil)
+  assert(assert(Stream.read_up_to(Stream.from_string("abc"), 0)) == "")
 end
 
 local function test_read_up_to_tells_a_clean_end_from_a_truncation()
   local got, why = Stream.read_up_to(Stream.from_string(""), 4)
-  assert(got == "" and why == "", tostring(got))
+  assert(got == "" and why == nil, tostring(got))
   got, why = Stream.read_up_to(chunked({ "ab", "c" }, ""), 4)
-  assert(got == "abc" and why == "", tostring(got))
+  assert(got == "abc" and why == nil, tostring(got))
 end
 
 local function test_read_up_to_answers_a_failure_and_drops_what_was_read()
   local got, why = Stream.read_up_to(chunked({ "ab" }, "disk on fire"), 4)
-  assert(got == nil and why == "disk on fire", tostring(why))
+  assert(got == nil and tostring(why) == "disk on fire", tostring(why))
   got, why = Stream.read_up_to(chunked({}, "disk on fire"), 4)
-  assert(got == nil and why == "disk on fire", tostring(why))
+  assert(got == nil and tostring(why) == "disk on fire", tostring(why))
 end
 
 local function test_copy_n_copies_exactly_n_bytes_and_no_more()
   local r = Stream.from_string(string.rep("x", 200000) .. "tail")
   local c = Stream.collect()
   local ok, why = Stream.copy_n(r, c, 200000)
-  assert(ok and why == "", why)
+  assert(ok and why == nil, why)
   assert(c:result() == string.rep("x", 200000))
   assert(drain(r) == "tail", "copy_n read past its count")
   ok, why = Stream.copy_n(r, c, 0)
-  assert(ok and why == "")
+  assert(ok and why == nil)
 end
 
 local function test_copy_n_fails_on_a_short_reader_and_on_either_side_failing()
   local c = Stream.collect()
   local ok, why = Stream.copy_n(Stream.from_string("abc"), c, 10)
-  assert(not ok and why:find("stated size", 1, true) ~= nil and why:find("wanted 10 bytes, got 3", 1, true) ~= nil, why)
+  assert(not ok and tostring(why):find("stated size", 1, true) ~= nil and tostring(why):find("wanted 10 bytes, got 3", 1, true) ~= nil, why)
   assert(c:result() == "abc")
   ok, why = Stream.copy_n(chunked({ "ab" }, "disk on fire"), Stream.collect(), 10)
-  assert(not ok and why == "disk on fire", why)
+  assert(not ok and tostring(why) == "disk on fire", why)
   ok, why = Stream.copy_n(Stream.from_string("abc"), failing(1), 3)
-  assert(not ok and why == "disk full", why)
+  assert(not ok and tostring(why) == "disk full", why)
 end
 
 local function test_sticky_keeps_the_first_failure_and_aborts_once()

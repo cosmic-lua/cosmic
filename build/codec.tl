@@ -575,7 +575,9 @@ end
 --- @param text the encoded text
 --- @param lenient whether the other padding spelling is accepted
 function verb.decode(name: verb.Name, text: string, lenient: boolean): string?, string
-  return Stream.run(verb.decoding(name, lenient), text)
+  local got, failure = Stream.run(verb.decoding(name, lenient), text)
+  if got == nil then return nil, tostring(failure) end
+  return got, ""
 end
 
 --- What a command line asks for.
@@ -682,7 +684,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local read_trouble: string
   local file = request.file
   if file ~= nil then
-    opened, read_trouble = Stream.open(file)
+    local opened_got, read_trouble_failure = Stream.open(file)
+    opened, read_trouble = opened_got, if opened_got == nil then tostring(read_trouble_failure) else "" end
   elseif to.input ~= nil then
     opened, read_trouble = to.input()
   elseif to.stdin ~= nil then
@@ -724,7 +727,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     -- A read may come up short; fill the chunk, so that what is held
     -- back is a whole chunk of input and not the last read.
     local chunk, why = Stream.read_up_to(reader, chunk_size)
-    if chunk == nil then return stop(why) end
+    if chunk == nil then return stop(tostring(why)) end
     local wrote, refusal = sink:write(chunk)
     if not wrote then return stop(blame(refusal)) end
     if #chunk < chunk_size then break end

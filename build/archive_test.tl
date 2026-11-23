@@ -515,9 +515,10 @@ local function test_create_streams_a_large_file_into_a_zip_in_bounded_memory(tmp
   local reads = 0
   local peak = 0.0
   local patched = Stream as {string:any} -- checked: cast_refused
-  patched.open = function(path: string): Stream.Reader?, string
+  patched.open = function(path: string): (Stream.Reader) | (nil, Failure)
     local opened, why = real_open(path)
-    if opened == nil or path:sub(-7) ~= "big.txt" then return opened, why end
+    if opened == nil then return nil, why end
+    if path:sub(-7) ~= "big.txt" then return opened end
     local inner: Stream.Reader = opened
     local wrapped: Stream.Reader = { -- checked: literal_shape
       read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
@@ -528,7 +529,7 @@ local function test_create_streams_a_large_file_into_a_zip_in_bounded_memory(tmp
       end,
       close = function(_self: Stream.Reader): boolean, string return inner:close() end,
     }
-    return wrapped, ""
+    return wrapped
   end
   local ok, ran = pcall(in_dir, src, { "create", tmp .. "/out.zip", "big.txt" })
   patched.open = real_open
@@ -565,9 +566,10 @@ local function create_counting(src: string, out: string, extra: string): Ran, in
   local opens = 0
   local closes = 0
   local patched = Stream as {string:any} -- checked: cast_refused
-  patched.open = function(path: string): Stream.Reader?, string
+  patched.open = function(path: string): (Stream.Reader) | (nil, Failure)
     local opened, why = real_open(path)
-    if opened == nil or path:sub(-4) ~= ".txt" then return opened, why end
+    if opened == nil then return nil, why end
+    if path:sub(-4) ~= ".txt" then return opened end
     opens = opens + 1
     local inner: Stream.Reader = opened
     local grown = false
@@ -585,7 +587,7 @@ local function create_counting(src: string, out: string, extra: string): Ran, in
         return inner:close()
       end,
     }
-    return wrapped, ""
+    return wrapped
   end
   local ok, ran = pcall(in_dir, src, { "create", out, "tree" })
   patched.open = real_open
