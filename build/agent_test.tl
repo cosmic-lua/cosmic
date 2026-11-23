@@ -1,8 +1,9 @@
 --- `cosmic agent` (build/agent.tl), run in this process against a
 --- stand-in Messages API ([`build.agent_fixture`]), its standard streams,
---- environment and data directory stood in for. The tools run under the
---- default policy, which on Linux nests a sandbox, so the module needs a
---- host that lets one nest.
+--- environment and data directory stood in for. A run that names no
+--- --sandbox runs its tools with none: a sandbox nested in the worker
+--- needs the whole system in the test's key, and
+--- cosmic/agent/policy_test.tl holds the tools to one already.
 
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
@@ -11,7 +12,15 @@ local Test = require("cosmic.test")
 local agent = require("build.agent")
 local agent_fixture = require("build.agent_fixture")
 
-Test.policy{ profiles = { "system" }, env = { "PATH", "TMPDIR" }, promises = { "nest" }, requires = { "nest" } }
+-- The host programs the tests start, each where hosts keep it: named,
+-- not the whole system, so the key holds them alone.
+Test.policy{
+  grants = {
+    { path = "/bin/bash", letters = "r" }, { path = "/usr/bin/bash", letters = "r" },
+    { path = "/bin/sleep", letters = "r" }, { path = "/usr/bin/sleep", letters = "r" },
+  },
+  env = { "PATH", "TMPDIR" },
+}
 
 local type Api = agent_fixture.Api
 local bash_call = agent_fixture.bash_call
@@ -48,7 +57,13 @@ local function cli(argv: {string}, env: {string: string}, replies: {Json.Value},
   local err: mut {string} = {}
   local at = 0
   local full: mut {string} = { "agent" }
-  for _, word in ipairs(argv) do full[#full + 1] = word end
+  local named = false
+  for _, word in ipairs(argv) do
+    full[#full + 1] = word
+    if word == "--sandbox" then named = true end
+  end
+  local runs = { ask = true, chat = true, resume = true, rpc = true }
+  if not named and runs[argv[1] or ""] == true then full[#full + 1] = "--sandbox=off" end
   local code = agent.run(full, {
     out = function(line: string) out[#out + 1] = line end,
     err = function(line: string) err[#err + 1] = line end,
