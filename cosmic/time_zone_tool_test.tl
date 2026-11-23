@@ -28,7 +28,7 @@ local Time = require("cosmic.time")
 return function(): integer
   local z, why = Time.local_zone()
   if z == nil then
-    local _, _ = Fs.put(Fs.stdout, "nil " .. why .. "\n")
+    local _, _ = Fs.put(Fs.stdout, "nil " .. tostring(why) .. "\n")
     return 1
   end
   local again = assert(Time.local_zone())

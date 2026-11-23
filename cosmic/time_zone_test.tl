@@ -84,7 +84,7 @@ local function test_lord_howe_moves_half_an_hour()
   says(howe, "2026-10-03T15:29:59Z", "2026-10-04T01:59:59+10:30", 37800, "+1030", false)
   says(howe, "2026-10-03T15:30:00Z", "2026-10-04T02:30:00+11:00", 39600, "+11", true)
   local skipped, why = Time.from_civil(civil(2026, 10, 4, 2, 15), howe)
-  assert(skipped == nil and why ==
+  assert(skipped == nil and tostring(why) ==
       "time: 2026-10-04T02:15 does not exist in Australia/Lord_Howe: clocks moved from +10:30 to +11:00", why)
 end
 
@@ -118,11 +118,11 @@ local function test_apia_skipped_a_whole_day()
   says(apia, "2011-12-30T09:59:59Z", "2011-12-29T23:59:59-10:00", -36000, "-10", true)
   says(apia, "2011-12-30T10:00:00Z", "2011-12-31T00:00:00+14:00", 50400, "+14", true)
   local v, why = Time.from_civil(civil(2011, 12, 30, 12), apia)
-  assert(v == nil and why ==
+  assert(v == nil and tostring(why) ==
       "time: 2011-12-30T12:00 does not exist in Pacific/Apia: clocks moved from -10:00 to +14:00", why)
-  assert(Time.from_civil(civil(2011, 12, 30, 12), apia, { disambiguation = "later" }) ==
+  assert(assert(Time.from_civil(civil(2011, 12, 30, 12), apia, { disambiguation = "later" })) ==
       at("2011-12-30T22:00:00Z"))
-  assert(Time.from_civil(civil(2011, 12, 30, 12), apia, { disambiguation = "earlier" }) ==
+  assert(assert(Time.from_civil(civil(2011, 12, 30, 12), apia, { disambiguation = "earlier" })) ==
       at("2011-12-29T22:00:00Z"))
   -- Two hours, though the date went from the 29th to the 31st: the day
   -- between was skipped, and so is no day of the span.
@@ -143,7 +143,7 @@ local function test_utc_is_the_calendar_without_a_zone()
   for _, z in ipairs({ Time.UTC, zone("UTC"), zone("Etc/UTC") }) do
     local c = Time.civil(ns, z)
     assert(c.offset == 0 and c.abbreviation == "UTC" and c.dst == false and c.hour == 4, z.name)
-    assert(Time.from_civil(c, z) == ns)
+    assert(assert(Time.from_civil(c, z)) == ns)
   end
   local c = Time.civil(ns)
   assert(c.offset == 0 and c.abbreviation == "UTC" and c.dst == false)
@@ -155,10 +155,10 @@ local function test_disambiguation_resolves_gaps_and_folds()
   local ny = zone("America/New_York")
   local gap, fold = civil(2026, 3, 8, 2, 30), civil(2026, 11, 1, 1, 30)
   local v, why = Time.from_civil(gap, ny)
-  assert(v == nil and why ==
+  assert(v == nil and tostring(why) ==
       "time: 2026-03-08T02:30 does not exist in America/New_York: clocks moved from -05:00 to -04:00", why)
   v, why = Time.from_civil(fold, ny, { disambiguation = "reject" })
-  assert(v == nil and why == "time: 2026-11-01T01:30 happens twice in America/New_York: clocks moved " ..
+  assert(v == nil and tostring(why) == "time: 2026-11-01T01:30 happens twice in America/New_York: clocks moved " ..
       "from -04:00 to -05:00; disambiguation \"earlier\" or \"later\" picks one", why)
   local record Moments
     gap: string
@@ -171,13 +171,13 @@ local function test_disambiguation_resolves_gaps_and_folds()
   }
   for how, pair in pairs(want) do
     local opts: Time.AddOptions = { disambiguation = how }
-    assert(Time.from_civil(gap, ny, opts) == at(pair.gap), how)
-    assert(Time.from_civil(fold, ny, opts) == at(pair.fold), how)
+    assert(assert(Time.from_civil(gap, ny, opts)) == at(pair.gap), how)
+    assert(assert(Time.from_civil(fold, ny, opts)) == at(pair.fold), how)
   end
   -- An unambiguous local time is the same moment whatever is asked.
   local every: {Time.Disambiguation} = { "reject", "earlier", "later", "compatible" }
   for _, how in ipairs(every) do
-    assert(Time.from_civil(civil(2026, 7, 1, 12), ny, { disambiguation = how }) ==
+    assert(assert(Time.from_civil(civil(2026, 7, 1, 12), ny, { disambiguation = how })) ==
         at("2026-07-01T16:00:00Z"))
   end
 end
@@ -189,7 +189,7 @@ local function test_civil_then_from_civil_is_the_same_moment_in_a_fold()
   for _, text in ipairs({ "2026-11-01T05:30:00Z", "2026-11-01T06:30:00Z", "2026-03-08T07:00:00Z",
       "1883-11-18T17:00:00Z", "1800-01-01T00:00:00Z" }) do
     local ns = at(text)
-    assert(Time.from_civil(Time.civil(ns, ny), ny) == ns, text)
+    assert(assert(Time.from_civil(Time.civil(ns, ny), ny)) == ns, text)
   end
 end
 
@@ -233,7 +233,7 @@ local function test_an_empty_zone_name_raises()
   assert(not ok and tostring(why):find("time: the zone name is empty", 1, true) ~= nil, tostring(why))
   assert(tostring(why):find("time_zone_test", 1, true), "blames the caller: " .. tostring(why))
   local from_text, local_why = Time.local_zone({ tz = ":posix/" })
-  assert(from_text == nil and local_why:find("the zone name is empty", 1, true) ~= nil, tostring(local_why))
+  assert(from_text == nil and tostring(local_why):find("the zone name is empty", 1, true) ~= nil, tostring(local_why))
 end
 
 --- A zone's failures, however far down they arise -- a name, the
@@ -248,30 +248,30 @@ local function test_a_zone_failure_names_the_module_once()
   end
   local z, why = Time.zone("a b")
   assert(z == nil)
-  named(why, "zone name")
+  named(tostring(why), "zone name")
   z, why = Time.zone("Nowhere/Nothing")
   assert(z == nil)
-  named(why, "no time zone Nowhere/Nothing")
+  named(tostring(why), "no time zone Nowhere/Nothing")
   -- The second answer comes from the cache of refused names.
   local again, again_why = Time.zone("Nowhere/Nothing")
-  assert(again == nil and again_why == why)
-  named(again_why, "no time zone Nowhere/Nothing")
+  assert(again == nil and tostring(again_why) == tostring(why))
+  named(tostring(again_why), "no time zone Nowhere/Nothing")
   z, why = Time.zone_from_tzif("not a zone", "x")
   assert(z == nil)
-  named(why, "truncated: a TZif header at byte 1")
+  named(tostring(why), "truncated: a TZif header at byte 1")
   z, why = Time.local_zone({ tz = "not a tz" })
   assert(z == nil)
-  named(why, "TZ=not a tz names no zone this binary carries")
+  named(tostring(why), "TZ=not a tz names no zone this binary carries")
   z, why = Time.local_zone({ tz = ":posix/" })
   assert(z == nil)
-  named(why, "TZ=:posix/")
+  named(tostring(why), "TZ=:posix/")
   local ny = assert(Time.zone("America/New_York"))
   local ns, gap_why = Time.from_civil(civil(2026, 3, 8, 2, 30), ny)
   assert(ns == nil)
-  named(gap_why, "does not exist in America/New_York")
+  named(tostring(gap_why), "does not exist in America/New_York")
   local date, date_why = Time.parse_date("2026-02-30", ny)
   assert(date == nil)
-  named(date_why, "day 30")
+  named(tostring(date_why), "day 30")
 end
 
 local function test_zone_names_are_checked_before_any_file_is_read()
@@ -279,16 +279,16 @@ local function test_zone_names_are_checked_before_any_file_is_read()
       "America/", ".", "./UTC", "a b", "a\0b", "America/New_York\n", "Zone;rm", ("a"):rep(256),
       "localtime", "posixrules", "posix/Europe/Berlin", "right/UTC" }) do
     local z, why = Time.zone(name)
-    assert(z == nil and why ~= "", name)
+    assert(z == nil and tostring(why):find("^time: ") ~= nil, name)
   end
   local z, why = Time.zone("Nowhere/Nothing")
-  assert(z == nil and why:find("Nowhere/Nothing", 1, true) ~= nil, why)
+  assert(z == nil and tostring(why):find("Nowhere/Nothing", 1, true) ~= nil, why)
   local names = assert(Store.zone_names())
   assert(names["America/New_York"] == true and names["Nowhere/Nothing"] ~= true)
-  assert(not why:find("zoneinfo", 1, true), "the reason names no host path: " .. why)
+  assert(not tostring(why):find("zoneinfo", 1, true), "the reason names no host path: " .. tostring(why))
   -- Asked again, the answer is remembered rather than looked for.
   local again, again_why = Time.zone("Nowhere/Nothing")
-  assert(again == nil and again_why == why)
+  assert(again == nil and tostring(again_why) == tostring(why))
 end
 
 local function test_a_zone_is_read_once()
@@ -392,7 +392,7 @@ local function test_tzif_refuses_malformed_files()
   }
   for what, data in pairs(cases) do
     local z, why = Time.zone_from_tzif(data, "x")
-    assert(z == nil and why ~= "", what)
+    assert(z == nil and tostring(why):find("^time: ") ~= nil, what)
   end
   -- Leap second records: a right/ zone.
   local head = "TZif2" .. ("\0"):rep(15) .. string.pack(">I4I4I4I4I4I4", 0, 0, 1, 0, 1, 4) ..
@@ -400,7 +400,7 @@ local function test_tzif_refuses_malformed_files()
   local leap = head .. string.pack(">i4i4", 78796800, 1) .. head .. string.pack(">i8i4", 78796800, 1) ..
     "\n\n"
   local z, why = Time.zone_from_tzif(leap, "right/UTC")
-  assert(z == nil and why:find("leap second", 1, true) ~= nil, why)
+  assert(z == nil and tostring(why):find("leap second", 1, true) ~= nil, why)
 end
 
 --- A file of many local time types whose abbreviations run to one NUL
@@ -431,7 +431,7 @@ local function test_tzif_with_long_abbreviations_is_read_in_linear_time()
       assert(z ~= nil, why)
       assert(Time.civil(0, z).abbreviation == "CET")
     else
-      assert(z == nil and why:find("NUL", 1, true) ~= nil, why)
+      assert(z == nil and tostring(why):find("NUL", 1, true) ~= nil, why)
     end
     return elapsed
   end
@@ -463,7 +463,7 @@ end
 --- when the binary carries no zone of that name.
 local function posix(tz: string): Time.Zone
   local z, why = Time.local_zone({ tz = tz })
-  assert(z ~= nil, tz .. ": " .. why)
+  assert(z ~= nil, tz .. ": " .. tostring(why))
   return z
 end
 
@@ -533,7 +533,7 @@ local function test_posix_refuses_what_is_not_a_tz_string()
       "EST5EDT,366,1", "EST5EDT,M3.2.0/168,M11.1.0", "EST5EDT,M3.2.0,M11.1.0x", "<AB>5",
       "<ABC5", "EST5:60", "EST5EDT;M3.2.0,M11.1.0", ("A"):rep(300) .. "5" }) do
     local z, why = Time.local_zone({ tz = tz })
-    assert(z == nil and why ~= "", tz)
+    assert(z == nil and tostring(why):find("^time: ") ~= nil, tz)
   end
 end
 
@@ -551,7 +551,7 @@ local function test_a_bad_tz_string_says_where_and_what_it_wanted()
   }
   for tz, want in pairs(cases) do
     local z, why = Time.local_zone({ tz = tz })
-    assert(z == nil and why:find(want, 1, true) ~= nil, tz .. ": " .. tostring(why))
+    assert(z == nil and tostring(why):find(want, 1, true) ~= nil, tz .. ": " .. tostring(why))
   end
 end
 
@@ -566,7 +566,7 @@ local function test_format_writes_a_zones_offset_and_name()
   local lmt = at("1800-01-01T00:00:00Z")
   local text = Time.format_rfc3339(lmt, ny, { zone_name = true })
   assert(text == "1799-12-31T19:04:00-04:56[America/New_York]", text)
-  assert(Time.parse_rfc3339(text) == lmt)
+  assert(assert(Time.parse_rfc3339(text)) == lmt)
   Test.raises(function() Time.format_rfc3339(0, nil, { zone_name = true }) end, "zone_name")
 end
 
@@ -579,9 +579,9 @@ local function test_parse_reads_a_zone_suffix()
       "2026-07-01T12:00:00-04:00[u-ca=iso8601][x_y=a-b]", "2026-07-01T16:00:00Z[_x.y/Etc_UTC]" }) do
     local ns, why = Time.parse_rfc3339(text)
     if text:find("_x.y", 1, true) then
-      assert(ns == nil and why:find("_x.y/Etc_UTC", 1, true) ~= nil, why)
+      assert(ns == nil and tostring(why):find("_x.y/Etc_UTC", 1, true) ~= nil, why)
     else
-      assert(ns == want, text .. ": " .. why)
+      assert(ns == want, text .. ": " .. tostring(why))
     end
   end
   -- A numeric suffix names a zone always that offset.
@@ -598,7 +598,7 @@ local function test_parse_reads_a_zone_suffix()
   assert(zoned.ns == want and zoned.zone.name == "+05:30" and zoned.zone == fixed.zone)
   local ny = zone("America/New_York")
   local ns = at("2026-11-01T05:30:00Z")
-  assert(Time.parse_rfc3339(Time.format_rfc3339(ns, ny, { zone_name = true })) == ns)
+  assert(assert(Time.parse_rfc3339(Time.format_rfc3339(ns, ny, { zone_name = true }))) == ns)
 end
 
 local function test_parse_refuses_a_suffix_that_disagrees()
@@ -624,7 +624,7 @@ local function test_parse_refuses_a_suffix_that_disagrees()
   }
   for text, reason in pairs(cases) do
     local ns, why = Time.parse_rfc3339(text)
-    assert(ns == nil and why:find(reason, 1, true) ~= nil, text .. ": " .. tostring(why))
+    assert(ns == nil and tostring(why):find(reason, 1, true) ~= nil, text .. ": " .. tostring(why))
   end
 end
 
@@ -637,7 +637,7 @@ local function test_add_calendar_keeps_local_time_across_a_change()
   assert(assert(Time.add_calendar(before, { days = 1 })) - before == 86400 * NS, "UTC's are all 24")
   local night = at("2026-03-07T07:30:00Z") -- 02:30 EST
   local v, why = Time.add_calendar(night, { days = 1 }, ny)
-  assert(v == nil and why:find("does not exist in America/New_York", 1, true) ~= nil, why)
+  assert(v == nil and tostring(why):find("does not exist in America/New_York", 1, true) ~= nil, why)
   local moved = assert(Time.add_calendar(night, { days = 1 }, ny, { disambiguation = "compatible" }))
   assert(Time.format_rfc3339(moved, ny) == "2026-03-08T03:30:00-04:00")
   -- In a fold, the offset of the moment moved from chooses, as Temporal
@@ -650,13 +650,13 @@ local function test_add_calendar_keeps_local_time_across_a_change()
   assert(Time.format_rfc3339(later, ny) == "2026-11-01T01:30:00-05:00")
   -- So nothing added is nothing moved, at either moment of a fold.
   for _, text in ipairs({ "2026-11-01T05:30:00Z", "2026-11-01T06:30:00Z" }) do
-    assert(Time.add_calendar(at(text), {}, ny) == at(text), text)
-    assert(Time.add_calendar(at(text), { days = 0 }, ny, { disambiguation = "later" }) ==
+    assert(assert(Time.add_calendar(at(text), {}, ny)) == at(text), text)
+    assert(assert(Time.add_calendar(at(text), { days = 0 }, ny, { disambiguation = "later" })) ==
         at(text), text)
   end
   local sofia = zone("Europe/Sofia")
   local folded = at("2026-10-25T00:30:00Z") -- 03:30 EEST, then 03:30 EET again
-  assert(Time.add_calendar(folded, {}, sofia) == folded)
+  assert(assert(Time.add_calendar(folded, {}, sofia)) == folded)
   local month = assert(Time.add_calendar(at("2026-01-31T15:00:00Z"), { months = 1 },
     ny, { overflow = "clamp" }))
   assert(Time.format_rfc3339(month, ny) == "2026-02-28T10:00:00-05:00")
@@ -705,7 +705,7 @@ local function test_between_holds_across_folds_and_skipped_days()
       assert((d.years or 0) * dir >= 0 and (d.months or 0) * dir >= 0 and (d.days or 0) * dir >= 0 and
           (d.ns or 0) * dir >= 0,
         case.zone .. " " .. text)
-      assert(Time.add_calendar(pair[1], d, z, options) == pair[2], case.zone .. " " .. text)
+      assert(assert(Time.add_calendar(pair[1], d, z, options)) == pair[2], case.zone .. " " .. text)
     end
   end
   local ny = zone("America/New_York")
@@ -724,7 +724,7 @@ local function test_local_zone_names_a_carried_zone(tmp: string)
   local function lz(tz?: string, localtime?: string, timezone?: string): Time.Zone
     local z, why = Time.local_zone({ tz = tz, unset = tz == nil, localtime = localtime or missing,
       timezone = timezone or missing })
-    assert(z ~= nil, tostring(tz) .. ": " .. why)
+    assert(z ~= nil, tostring(tz) .. ": " .. tostring(why))
     return z
   end
   assert(rawequal(lz(nil), Time.UTC), "no /etc/localtime and no /etc/timezone is UTC")
@@ -797,7 +797,7 @@ local function test_local_zone_names_a_carried_zone(tmp: string)
       ":" .. tmp .. "/loop-a",
       ":" .. tmp .. "/share/zoneinfo/Nowhere" }) do
     local z, why = Time.local_zone({ tz = tz, localtime = missing, timezone = missing })
-    assert(z == nil and why ~= "", tz)
+    assert(z == nil and tostring(why):find("^time: ") ~= nil, tz)
   end
 end
 
@@ -809,14 +809,14 @@ local function test_dates_follow_a_zones_calendar()
   local late = at("2026-06-02T03:30:00Z") -- 23:30 on June 1 in New York
   assert(Time.format_date(late) == "2026-06-02")
   assert(Time.format_date(late, ny) == "2026-06-01")
-  assert(Time.parse_date("2026-06-01", ny) == at("2026-06-01T04:00:00Z"))
-  assert(Time.parse_date("2026-06-01") == at("2026-06-01T00:00:00Z"))
+  assert(assert(Time.parse_date("2026-06-01", ny)) == at("2026-06-01T04:00:00Z"))
+  assert(assert(Time.parse_date("2026-06-01")) == at("2026-06-01T00:00:00Z"))
   local havana = zone("America/Havana")
-  local skipped = Time.parse_date("2026-03-08", havana)
+  local skipped, _ = Time.parse_date("2026-03-08", havana)
   assert(skipped ~= nil and skipped == at("2026-03-08T05:00:00Z"), tostring(skipped))
   assert(Time.format_rfc3339(skipped, havana) == "2026-03-08T01:00:00-04:00")
   local v, why = Time.parse_date("2026-02-30", ny)
-  assert(v == nil and why ~= "")
+  assert(v == nil and tostring(why):find("^time: ") ~= nil)
 end
 
 --- A day begins at its midnight, or at the moment the zone's clocks
@@ -831,13 +831,13 @@ local function test_a_date_begins_where_the_zone_says()
   assert(skipped == at("2011-12-30T10:00:00Z"))
   assert(Time.format_date(skipped, apia) == "2011-12-31")
   local ny = zone("America/New_York")
-  assert(Time.parse_date("2026-11-01", ny) == at("2026-11-01T04:00:00Z"))
+  assert(assert(Time.parse_date("2026-11-01", ny)) == at("2026-11-01T04:00:00Z"))
 end
 
 --- A directory of the tz database is no zone.
 local function test_a_directory_is_no_zone()
   local z, why = Time.zone("America")
-  assert(z == nil and why:find("America", 1, true) ~= nil, why)
+  assert(z == nil and tostring(why):find("America", 1, true) ~= nil, why)
 end
 
 --- A zone the carried database lacks may be one IANA added since: the
@@ -845,8 +845,8 @@ end
 local function test_a_missing_zone_names_the_way_to_a_newer_database()
   local missing, why = Time.zone("Nowhere/Newly_Added")
   assert(missing == nil)
-  assert(why:find("no time zone Nowhere/Newly_Added", 1, true), why)
-  assert(why:find("`cosmic refresh tzdata --binary <this program> -o <copy>`", 1, true), why)
+  assert(tostring(why):find("no time zone Nowhere/Newly_Added", 1, true), why)
+  assert(tostring(why):find("`cosmic refresh tzdata --binary <this program> -o <copy>`", 1, true), why)
 end
 
 --- A bare `TZ` written as a zone name the carried database lacks says
@@ -854,6 +854,6 @@ end
 local function test_a_tz_naming_a_missing_zone_names_the_way_to_a_newer_database()
   local missing, why = Time.local_zone({ tz = "Nowhere/Newly_Added" })
   assert(missing == nil)
-  assert(why:find("TZ=Nowhere/Newly_Added names no zone this binary carries", 1, true), why)
-  assert(why:find("`cosmic refresh tzdata --binary <this program> -o <copy>`", 1, true), why)
+  assert(tostring(why):find("TZ=Nowhere/Newly_Added names no zone this binary carries", 1, true), why)
+  assert(tostring(why):find("`cosmic refresh tzdata --binary <this program> -o <copy>`", 1, true), why)
 end

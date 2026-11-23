@@ -23,7 +23,7 @@ function Example.parse_duration()
   print(d.years, d.months, d.days, d.ns)
   assert(d.years == 1 and d.months == 2 and d.days == 3)
   assert(d.ns == Clock.hours(4) + Clock.minutes(5) + Clock.seconds(6.5))
-  local back = Time.parse_duration("-90m")
+  local back, _ = Time.parse_duration("-90m")
   assert(back ~= nil and back.ns == -Clock.minutes(90))
   local none, why = Time.parse_duration("5 minutes")
   assert(none == nil)
@@ -38,11 +38,12 @@ function Example.from_civil()
   local midnight = assert(Time.parse_rfc3339("2026-09-25T00:00:00Z"))
   local nine: Time.Wall = { year = 2026, month = 9, day = 25, hour = 9, minute = 0, second = 0,
     ns = 0 }
-  assert(Time.from_civil(nine, tokyo) == midnight, "09:00 in Tokyo is midnight UTC")
+  assert(assert(Time.from_civil(nine, tokyo)) == midnight, "09:00 in Tokyo is midnight UTC")
   local ny = assert(Time.zone("America/New_York"))
   local twice: Time.Wall = { year = 2026, month = 11, day = 1, hour = 1, minute = 30, second = 0,
     ns = 0 }
-  print(Time.from_civil(twice, ny))
+  local ambiguous, ambiguous_why = Time.from_civil(twice, ny)
+  print(ambiguous, ambiguous_why)
   local hows: {Time.Disambiguation} = { "earlier", "later" }
   for _, how in ipairs(hows) do
     local ns = assert(Time.from_civil(twice, ny, { disambiguation = how }))
@@ -74,7 +75,7 @@ function Example.parse_rfc3339()
     second = c.second, ns = c.ns }
   local refused, reason = Time.from_civil(september_31)
   print(refused, reason)
-  assert(refused == nil and reason ~= "")
+  assert(refused == nil and tostring(reason):find("^time: ") ~= nil)
 end
 
 --- A month past January 31 names no day unless asked to take the
@@ -82,7 +83,8 @@ end
 --- added to the moment the calendar part reaches.
 function Example.add_calendar()
   local jan31 = assert(Time.parse_rfc3339("2024-01-31T09:00:00Z"))
-  print(Time.add_calendar(jan31, { months = 1 }))
+  local overflowed, overflowed_why = Time.add_calendar(jan31, { months = 1 })
+  print(overflowed, overflowed_why)
   local feb = assert(Time.add_calendar(jan31, { months = 1, ns = Clock.minutes(90) }, nil,
     { overflow = "clamp" }))
   print(Time.format_rfc3339(feb))
@@ -99,7 +101,7 @@ function Example.between()
   local span = assert(Time.between(from, to))
   print(Time.format_duration(span))
   assert(span.years == 2 and span.months == 1 and span.days == 15 and span.ns == Clock.minutes(90))
-  assert(Time.add_calendar(from, span, nil, { overflow = "clamp" }) == to)
+  assert(assert(Time.add_calendar(from, span, nil, { overflow = "clamp" })) == to)
   local leap = assert(Time.parse_rfc3339("2024-02-29T09:00:00Z"))
   assert(assert(Time.between(from, leap)).months == 0)
 end
@@ -112,7 +114,8 @@ function Example.parse_date()
   assert(midnight ~= nil, why)
   print(Time.format_rfc3339(midnight))
   assert(Time.format_rfc3339(midnight) == "2026-09-25T00:00:00Z")
-  print(Time.parse_date("2026-02-29"))
+  local no_day, no_day_why = Time.parse_date("2026-02-29")
+  print(no_day, no_day_why)
 end
 
 --- An HTTP date written as IMF-fixdate, RFC 9110's three forms read
@@ -143,7 +146,8 @@ function Example.zone()
   print(Time.format_rfc3339(ns, ny, { zone_name = true }))
   local skipped: Time.Wall = { year = 2026, month = 3, day = 8, hour = 2, minute = 30, second = 0,
     ns = 0 }
-  print(Time.from_civil(skipped, ny))
+  local skipped_at, skipped_at_why = Time.from_civil(skipped, ny)
+  print(skipped_at, skipped_at_why)
   local later = assert(Time.from_civil(skipped, ny, { disambiguation = "compatible" }))
   print(Time.format_rfc3339(later, ny))
   assert(Time.format_rfc3339(later, ny) == "2026-03-08T03:30:00-04:00")
@@ -181,7 +185,8 @@ function Example.parse_rfc3339_zoned()
   local zoned = assert(Time.parse_rfc3339_zoned("2026-07-01T12:00:00-04:00[America/New_York]"))
   print(zoned.ns, zoned.zone.name)
   assert(zoned.zone.name == "America/New_York" and zoned.ns == 1782921600 * 1000000000)
-  print(Time.parse_rfc3339_zoned("2026-07-01T12:00:00-05:00[America/New_York]"))
+  local wrong_offset, wrong_offset_why = Time.parse_rfc3339_zoned("2026-07-01T12:00:00-05:00[America/New_York]")
+  print(wrong_offset, wrong_offset_why)
   local plain = assert(Time.parse_rfc3339_zoned("2026-07-01T21:30:00+05:30"))
   print(plain.zone.name)
   assert(plain.zone.name == "+05:30" and plain.ns == zoned.ns)

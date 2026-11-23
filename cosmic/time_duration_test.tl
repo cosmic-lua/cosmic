@@ -32,7 +32,7 @@ local function test_a_bad_duration_is_refused_with_a_reason()
   for _, text in ipairs({ "", "-", "1", "y", "1x", "1d1y", "1d1d", "1.5m", "1.s", "1.1234567890s",
       "1 d", "1d ", "9999999999d", "99999999h99999999m", "-+1d", "1mo2mo" }) do
     local d, why = Time.parse_duration(text)
-    assert(d == nil and why ~= "", ("%q read as a duration"):format(text))
+    assert(d == nil and tostring(why):find("^time: ") ~= nil, ("%q read as a duration"):format(text))
   end
 end
 

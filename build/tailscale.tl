@@ -450,7 +450,7 @@ end
 local function validity(complain: function(line: string), text: string): integer?
   local d, why = Time.parse_duration(text)
   if d == nil then
-    complain("--min-validity: " .. why .. "; " .. usage)
+    complain("--min-validity: " .. tostring(why) .. "; " .. usage)
     return nil
   end
   if (d.years or 0) ~= 0 or (d.months or 0) ~= 0 then

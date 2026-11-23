@@ -6,6 +6,7 @@
 --- process alone shows.
 
 local Array = require("cosmic.array")
+local Failure = require("cosmic.failure")
 local Time = require("cosmic.time")
 local time_verb = require("build.time")
 
@@ -33,7 +34,7 @@ local function run(words: {string}, writes?: boolean): Ran
     end,
     err = function(line: string) ran.err = ran.err .. line .. "\n" end,
     now = function(): integer return NOW end,
-    local_zone = function(): Time.Zone?, string
+    local_zone = function(): (Time.Zone) | (nil, Failure)
       return Time.zone("Asia/Tokyo")
     end,
   })

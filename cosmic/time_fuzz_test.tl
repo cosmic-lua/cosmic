@@ -10,6 +10,7 @@
 --- moment. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Array = require("cosmic.array")
+local Failure = require("cosmic.failure")
 local Fuzz = require("build.fuzz")
 local Time = require("cosmic.time")
 
@@ -99,7 +100,11 @@ local SAMPLES <const> = {
 local function parse_holds(input: string): boolean, string
   local parsed: integer?
   local why = ""
-  local ok, raised = pcall(function() parsed, why = Time.parse_rfc3339(input) end)
+  local ok, raised = pcall(function()
+    local read, refusal = Time.parse_rfc3339(input)
+    parsed = read
+    why = if read == nil then tostring(refusal) else "" end
+  end)
   if not ok then return false, "raised: " .. tostring(raised) end
   local ns = parsed
   if ns == nil then
@@ -145,12 +150,12 @@ local function cut(ns: integer, unit: integer): integer?
 end
 
 --- Whether `text` parses as `want` (nil for a refusal), and why not.
-local function parses_as(parse: function(string): (integer?, string), text: string,
+local function parses_as(parse: function(string): (integer) | (nil, Failure), text: string,
                          want: integer?, ns: integer): boolean, string
   local back, why = parse(text)
   if back ~= want then
     return false, ("%d wrote %q, which parsed as %s, not %s: %s"):format(ns, text,
-      tostring(back), tostring(want), why)
+      tostring(back), tostring(want), tostring(why))
   end
   return true, ""
 end
@@ -201,25 +206,35 @@ local TEXT_SAMPLES <const> = {
 local function text_parse_holds(input: string): boolean, string
   local parsed: integer?
   local why = ""
-  local ok, raised = pcall(function() parsed, why = Time.parse_http(input) end)
+  local ok, raised = pcall(function()
+    local read, refusal = Time.parse_http(input)
+    parsed = read
+    why = if read == nil then tostring(refusal) else "" end
+  end)
   if not ok then return false, "parse_http raised: " .. tostring(raised) end
   local ns = parsed
   if ns ~= nil then
     Fuzz.label("http parsed")
     if why ~= "" then return false, "parse_http parsed with a reason: " .. why end
-    if ns % NS ~= 0 or Time.parse_http(Time.format_http(ns)) ~= ns then
+    local back, _ = Time.parse_http(Time.format_http(ns))
+    if ns % NS ~= 0 or back ~= ns then
       return false, ("%q parsed as %d, which does not come back"):format(input, ns)
     end
   elseif why == "" then
     return false, "parse_http refused without a reason"
   end
-  ok, raised = pcall(function() parsed, why = Time.parse_date(input) end)
+  ok, raised = pcall(function()
+    local read, refusal = Time.parse_date(input)
+    parsed = read
+    why = if read == nil then tostring(refusal) else "" end
+  end)
   if not ok then return false, "parse_date raised: " .. tostring(raised) end
   ns = parsed
   if ns ~= nil then
     Fuzz.label("date parsed")
     if why ~= "" then return false, "parse_date parsed with a reason: " .. why end
-    if ns % DAY_NS ~= 0 or Time.parse_date(Time.format_date(ns)) ~= ns then
+    local back, _ = Time.parse_date(Time.format_date(ns))
+    if ns % DAY_NS ~= 0 or back ~= ns then
       return false, ("%q parsed as %d, which does not come back"):format(input, ns)
     end
   elseif why == "" then
@@ -268,7 +283,7 @@ local function between_holds(input: string): boolean, string
   if not text_ok then
     return false, ("%d to %d in %s: %s"):format(from, to, name, tostring(text))
   end
-  local back = Time.parse_duration(text) -- checked: any_use
+  local back, _ = Time.parse_duration(text) -- checked: any_use
   if back == nil or back.years ~= d.years or back.months ~= d.months or back.days ~= d.days or
       back.ns ~= d.ns then
     return false, text .. " does not read back" -- checked: any_use

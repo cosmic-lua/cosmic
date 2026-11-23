@@ -467,7 +467,7 @@ local tzdata: refresh.Dataset = {
       end
       local name = under:gsub("^zoneinfo/", "")
       local _, why = Time.zone_from_tzif(data, name)
-      if why ~= "" then
+      if why ~= nil then
         return nil, ("%s: zone %s: %s"):format(path, name, why)
       end
       -- `./a` and `a` in one archive land on one file: one zone.

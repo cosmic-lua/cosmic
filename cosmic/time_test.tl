@@ -1,5 +1,6 @@
 local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
+local Failure = require("cosmic.failure")
 local Time = require("cosmic.time")
 local Test = require("cosmic.test")
 
@@ -21,8 +22,8 @@ end
 
 local function test_a_wall_literal_is_read_by_from_civil_as_a_civil_is()
   local wall: Time.Wall = { year = 2000, month = 2, day = 29, hour = 0, minute = 0, second = 0, ns = 0 }
-  assert(Time.from_civil(wall) == 951782400 * NS)
-  assert(Time.from_civil(Time.civil(951782400 * NS)) == 951782400 * NS)
+  assert(assert(Time.from_civil(wall)) == 951782400 * NS)
+  assert(assert(Time.from_civil(Time.civil(951782400 * NS))) == 951782400 * NS)
 end
 
 local function test_civil_names_known_moments()
@@ -68,11 +69,11 @@ local function test_leap_years_follow_the_gregorian_rule()
   assert(Time.from_civil(civil(2000, 2, 29)))
   assert(Time.from_civil(civil(2024, 2, 29)))
   local v, why = Time.from_civil(civil(1900, 2, 29))
-  assert(v == nil and why:find("day 29", 1, true) ~= nil, why)
+  assert(v == nil and tostring(why):find("day 29", 1, true) ~= nil, why)
   v, why = Time.from_civil(civil(2100, 2, 29))
-  assert(v == nil and why ~= "", why)
+  assert(v == nil and tostring(why):find("day 29", 1, true) ~= nil, why)
   v, why = Time.from_civil(civil(2026, 2, 29))
-  assert(v == nil and why ~= "", why)
+  assert(v == nil and tostring(why):find("day 29", 1, true) ~= nil, why)
 end
 
 local function test_from_civil_inverts_civil()
@@ -90,7 +91,7 @@ local function test_from_civil_refuses_fields_out_of_range()
       civil(2026, 1, 1, 0, 0, 60), civil(2026, 1, 1, 0, 0, 0, NS), civil(2026, 1, 1, 0, 0, 0, -1),
   }) do
     local v, why = Time.from_civil(c)
-    assert(v == nil and why ~= "", tostring(v))
+    assert(v == nil and tostring(why):find("^time: ") ~= nil, tostring(v))
   end
 end
 
@@ -112,10 +113,10 @@ local function test_from_civil_refuses_what_an_integer_cannot_hold()
   for _, e in ipairs(edges) do
     local v, why = Time.from_civil(e.fields)
     assert((v ~= nil) == e.fits, why)
-    if not e.fits then assert(why:find("outside", 1, true), why) end
+    if not e.fits then assert(tostring(why):find("outside", 1, true), why) end
   end
-  assert(Time.from_civil(Array.at(edges, 1).fields) == math.mininteger)
-  assert(Time.from_civil(Array.at(edges, 3).fields) == math.maxinteger)
+  assert(assert(Time.from_civil(Array.at(edges, 1).fields)) == math.mininteger)
+  assert(assert(Time.from_civil(Array.at(edges, 3).fields)) == math.maxinteger)
 end
 
 local function test_format_writes_a_fraction_only_when_there_is_one()
@@ -167,7 +168,7 @@ end
 
 local function test_parse_says_there_are_no_leap_seconds()
   local got, why = Time.parse_rfc3339("2026-09-25T04:09:60Z")
-  assert(got == nil and why:find("second 60 is not 0 through 59", 1, true) ~= nil, why)
+  assert(got == nil and tostring(why):find("second 60 is not 0 through 59", 1, true) ~= nil, why)
 end
 
 local function test_parse_refuses_what_rfc3339_does_not_say()
@@ -184,7 +185,7 @@ local function test_parse_refuses_what_rfc3339_does_not_say()
       "1677-09-21T00:12:43.145224191Z", "2026-09-25T04:09:21\0Z", "2026-09-25T04:09:2aZ",
   }) do
     local got, why = Time.parse_rfc3339(text)
-    assert(got == nil and why ~= "", ("%q: got %s"):format(text, tostring(got)))
+    assert(got == nil and tostring(why):find("^time: ") ~= nil, ("%q: got %s"):format(text, tostring(got)))
   end
 end
 
@@ -230,39 +231,39 @@ local function test_add_calendar_adds_the_exact_part_last()
   assert(Time.format_rfc3339(moved) == "2024-02-29T11:30:00Z", Time.format_rfc3339(moved))
   local back = assert(Time.add_calendar(from, { days = 1, ns = -Clock.hours(25) }))
   assert(Time.format_rfc3339(back) == "2024-01-31T09:00:00Z", Time.format_rfc3339(back))
-  assert(Time.add_calendar(from, { ns = 7 }) == from + 7)
+  assert(assert(Time.add_calendar(from, { ns = 7 })) == from + 7)
   -- The sum is checked against the range, not wrapped.
   local none, why = Time.add_calendar(math.maxinteger - 5, { ns = 6 })
-  assert(none == nil and why:find("outside", 1, true) ~= nil, why)
+  assert(none == nil and tostring(why):find("outside", 1, true) ~= nil, why)
   none, why = Time.add_calendar(math.mininteger + 5, { ns = -6 })
-  assert(none == nil and why:find("outside", 1, true) ~= nil, why)
-  assert(Time.add_calendar(math.maxinteger - 5, { ns = 5 }) == math.maxinteger)
+  assert(none == nil and tostring(why):find("outside", 1, true) ~= nil, why)
+  assert(assert(Time.add_calendar(math.maxinteger - 5, { ns = 5 })) == math.maxinteger)
 end
 
 --- The calendar part may leave the range on the way when the exact part
 --- brings the sum back into it.
 local function test_add_calendar_holds_only_the_sum_to_the_range()
   local near_end = math.maxinteger - 86400 * NS + 1
-  assert(Time.add_calendar(near_end, { days = 1, ns = -1 }) == math.maxinteger)
-  assert(Time.add_calendar(math.mininteger + 86400 * NS - 1, { days = -1, ns = 1 }) == math.mininteger)
+  assert(assert(Time.add_calendar(near_end, { days = 1, ns = -1 })) == math.maxinteger)
+  assert(assert(Time.add_calendar(math.mininteger + 86400 * NS - 1, { days = -1, ns = 1 })) == math.mininteger)
   local none, why = Time.add_calendar(near_end, { days = 1 })
-  assert(none == nil and why:find("outside", 1, true) ~= nil, why)
+  assert(none == nil and tostring(why):find("outside", 1, true) ~= nil, why)
 end
 
 local function test_add_calendar_refuses_a_day_its_month_lacks_by_default()
   local none, why = Time.add_calendar(at("2024-01-31T00:00:00Z"), { months = 1 })
-  assert(none == nil and why == "time: 2024-02 has no day 31; overflow \"clamp\" takes its last", why)
+  assert(none == nil and tostring(why) == "time: 2024-02 has no day 31; overflow \"clamp\" takes its last", why)
   none, why = Time.add_calendar(at("2024-02-29T00:00:00Z"), { years = 1 }, nil, { overflow = "reject" })
-  assert(none == nil and why:find("2025-02 has no day 29", 1, true) ~= nil, why)
+  assert(none == nil and tostring(why):find("2025-02 has no day 29", 1, true) ~= nil, why)
   -- A step past the range on the way is not refused: the result is what counts.
   local back = assert(Time.add_calendar(at("2262-01-01T00:00:00Z"), { years = 10, days = -3652 }))
   assert(Time.format_rfc3339(back) == "2262-01-01T00:00:00Z", Time.format_rfc3339(back))
   none, why = Time.add_calendar(at("2262-01-01T00:00:00Z"), { years = 1 })
-  assert(none == nil and why:find("outside", 1, true) ~= nil, why)
+  assert(none == nil and tostring(why):find("outside", 1, true) ~= nil, why)
   none, why = Time.add_calendar(at("1678-01-01T00:00:00Z"), { days = -200 })
-  assert(none == nil and why:find("outside", 1, true) ~= nil, why)
+  assert(none == nil and tostring(why):find("outside", 1, true) ~= nil, why)
   none, why = Time.add_calendar(0, { years = math.maxinteger })
-  assert(none == nil and why:find("years", 1, true) ~= nil, why)
+  assert(none == nil and tostring(why):find("years", 1, true) ~= nil, why)
 end
 
 --- `between`'s whole months, in the cases Java's `ChronoUnit.MONTHS.between`
@@ -345,9 +346,10 @@ end
 
 --- What a malformed RFC 3339 or HTTP text is told, by where it goes wrong.
 local function test_a_text_that_stops_says_where_and_what_it_wanted()
-  local function why(parse: function(string): (integer?, string), text: string): string
-    local got, reason = parse(text)
+  local function why(parse: function(string): (integer) | (nil, Failure), text: string): string
+    local got, refusal = parse(text)
     assert(got == nil, text)
+    local reason = tostring(refusal)
     assert(reason:sub(1, 6) == "time: ", reason)
     return reason:sub(7)
   end
@@ -377,37 +379,37 @@ local function test_a_returned_failure_names_the_module_once()
   end
   local ns, why = Time.from_civil(civil(2026, 13, 1))
   assert(ns == nil)
-  named(why, "month 13 is not 1 through 12")
+  named(tostring(why), "month 13 is not 1 through 12")
   ns, why = Time.from_civil(civil(2300, 1, 1))
   assert(ns == nil)
-  named(why, "outside 1677-09-21")
+  named(tostring(why), "outside 1677-09-21")
   ns, why = Time.add_calendar(0, { months = 1000000 })
   assert(ns == nil)
-  named(why, "months 1000000 is not")
+  named(tostring(why), "months 1000000 is not")
   ns, why = Time.add_calendar(math.maxinteger, { days = 1 })
   assert(ns == nil)
-  named(why, "outside")
+  named(tostring(why), "outside")
   ns, why = Time.parse_rfc3339("2026-09-25T04:09:21")
   assert(ns == nil)
-  named(why, "expected \"Z\" or an offset at byte 20")
+  named(tostring(why), "expected \"Z\" or an offset at byte 20")
   ns, why = Time.parse_rfc3339("2300-01-01T00:00:00Z")
   assert(ns == nil)
-  named(why, "outside")
+  named(tostring(why), "outside")
   local zoned, zoned_why = Time.parse_rfc3339_zoned("2026-09-25T04:09:21Z[Nowhere/Nothing]")
   assert(zoned == nil)
-  named(zoned_why, "suffix at byte 21")
+  named(tostring(zoned_why), "suffix at byte 21")
   ns, why = Time.parse_date("2026-02-30")
   assert(ns == nil)
-  named(why, "day 30")
+  named(tostring(why), "day 30")
   ns, why = Time.parse_http("Mox, 26 Jul 1997 05:00:00 GMT")
   assert(ns == nil)
-  named(why, "expected a day name at byte 1")
+  named(tostring(why), "expected a day name at byte 1")
   local duration, duration_why = Time.parse_duration("")
   assert(duration == nil)
-  named(duration_why, "expected a duration")
+  named(tostring(duration_why), "expected a duration")
   duration, duration_why = Time.parse_duration("5 minutes")
   assert(duration == nil)
-  named(duration_why, "at byte 2")
+  named(tostring(duration_why), "at byte 2")
 end
 
 local function test_format_date_is_the_utc_date()
@@ -419,11 +421,11 @@ local function test_format_date_is_the_utc_date()
 end
 
 local function test_parse_date_is_its_midnight()
-  assert(Time.parse_date("1970-01-01") == 0)
-  assert(Time.parse_date("2000-02-29") == 951782400 * NS)
-  assert(Time.parse_date("1969-12-31") == -86400 * NS)
-  assert(Time.parse_date("1677-09-22") == (math.mininteger // NS // 86400 + 1) * 86400 * NS)
-  assert(Time.parse_date("2262-04-11") == math.maxinteger // NS // 86400 * 86400 * NS)
+  assert(assert(Time.parse_date("1970-01-01")) == 0)
+  assert(assert(Time.parse_date("2000-02-29")) == 951782400 * NS)
+  assert(assert(Time.parse_date("1969-12-31")) == -86400 * NS)
+  assert(assert(Time.parse_date("1677-09-22")) == (math.mininteger // NS // 86400 + 1) * 86400 * NS)
+  assert(assert(Time.parse_date("2262-04-11")) == math.maxinteger // NS // 86400 * 86400 * NS)
 end
 
 local function test_parse_date_refuses_what_is_not_a_date()
@@ -433,7 +435,7 @@ local function test_parse_date_refuses_what_is_not_a_date()
       "2026-09-31", "1677-09-21", "2262-04-12", "0000-01-01", "9999-12-31", "2026-09-2a",
   }) do
     local got, why = Time.parse_date(text)
-    assert(got == nil and why ~= "", ("%q: got %s"):format(text, tostring(got)))
+    assert(got == nil and tostring(why):find("^time: ") ~= nil, ("%q: got %s"):format(text, tostring(got)))
   end
 end
 
@@ -452,10 +454,10 @@ local function test_parse_http_reads_rfc_9110s_three_forms()
     local got, why = Time.parse_http(text)
     assert(got == 784111777 * NS, ("%s: got %s: %s"):format(text, tostring(got), why))
   end
-  assert(Time.parse_http("Fri, 25 Sep 2026 05:22:21 GMT") == 1790313741 * NS)
-  assert(Time.parse_http("Fri Sep 25 05:22:21 2026") == 1790313741 * NS)
-  assert(Time.parse_http("Wednesday, 31-Dec-69 23:59:59 GMT") == -NS)
-  assert(Time.parse_http("Thursday, 01-Jan-70 00:00:00 GMT") == 0)
+  assert(assert(Time.parse_http("Fri, 25 Sep 2026 05:22:21 GMT")) == 1790313741 * NS)
+  assert(assert(Time.parse_http("Fri Sep 25 05:22:21 2026")) == 1790313741 * NS)
+  assert(assert(Time.parse_http("Wednesday, 31-Dec-69 23:59:59 GMT")) == -NS)
+  assert(assert(Time.parse_http("Thursday, 01-Jan-70 00:00:00 GMT")) == 0)
 end
 
 local function test_parse_http_reads_two_digit_years_as_posix_does()
@@ -481,7 +483,7 @@ local function test_parse_http_reads_the_date_whatever_its_weekday_name()
       "Mond, 26-Jul-97 05:00:00 GMT", "mon Jul 26 05:00:00 1997", "Monday Jul 26 05:00:00 1997",
   }) do
     local got, why = Time.parse_http(text)
-    assert(got == nil and why ~= "", ("%q: got %s"):format(text, tostring(got)))
+    assert(got == nil and tostring(why):find("^time: ") ~= nil, ("%q: got %s"):format(text, tostring(got)))
   end
 end
 
@@ -503,11 +505,11 @@ local function test_parse_http_refuses_what_rfc_9110_does_not_say()
       "Sat, 01 Jan 0000 00:00:00 GMT",
   }) do
     local got, why = Time.parse_http(text)
-    assert(got == nil and why ~= "", ("%q: got %s"):format(text, tostring(got)))
+    assert(got == nil and tostring(why):find("^time: ") ~= nil, ("%q: got %s"):format(text, tostring(got)))
   end
 end
 
 local function test_parse_http_reaches_the_ranges_edges()
-  assert(Time.parse_http("Fri, 11 Apr 2262 23:47:16 GMT") == math.maxinteger - math.maxinteger % NS)
-  assert(Time.parse_http("Tue, 21 Sep 1677 00:12:44 GMT") == (math.mininteger // NS + 1) * NS)
+  assert(assert(Time.parse_http("Fri, 11 Apr 2262 23:47:16 GMT")) == math.maxinteger - math.maxinteger % NS)
+  assert(assert(Time.parse_http("Tue, 21 Sep 1677 00:12:44 GMT")) == (math.mininteger // NS + 1) * NS)
 end
