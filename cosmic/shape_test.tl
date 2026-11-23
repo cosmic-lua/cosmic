@@ -600,10 +600,11 @@ local function test_a_spec_written_by_hand_composes_by_its_check()
 end
 
 local function test_a_lenient_record_passes_over_what_does_not_fit()
-  local untidy = must(Json.decode('{"name": "Jeff Mills", "score": "high", "area": "Detroit", ' ..
+  local decoded, decode_why = Json.decode('{"name": "Jeff Mills", "score": "high", "area": "Detroit", ' ..
       '"tags": [{"name": "techno", "count": 9}, "house", {"count": 2}, {"name": "ambient", "count": 1.5}], ' ..
       '"aliases": ["The Wizard", 7, "Millsart"], "links": {"ra": "https://ra.co/dj/jeffmills", "x": false}, ' ..
-      '"grown": true}'))
+      '"grown": true}')
+  local untidy = must(decoded, tostring(decode_why))
   -- The plain record refuses it at the first field that does not fit.
   local _, why = ARTIST:into(untidy)
   assert(why == "Artist: $.aliases[1]: want string, got integer", why)
@@ -618,7 +619,8 @@ local function test_a_lenient_record_passes_over_what_does_not_fit()
   local links = must(a.links, "links")
   assert(links["ra"] == "https://ra.co/dj/jeffmills" and links["x"] == nil)
   -- What is kept is still a JSON array.
-  assert(Json.is_array(a.aliases) and Json.encode(a.aliases) == '["The Wizard","Millsart"]')
+  local kept, _ = Json.encode(a.aliases)
+  assert(Json.is_array(a.aliases) and kept == '["The Wizard","Millsart"]')
 end
 
 local function test_a_lenient_record_still_fails_on_a_required_field()
@@ -633,8 +635,10 @@ local function test_a_lenient_record_still_fails_on_a_required_field()
   local _, none = lenient:into("text")
   assert(none == "Artist: $: want record, got string", none)
   -- An empty list stays one.
-  local empty = must(lenient:into(must(Json.decode('{"name": "n", "aliases": [7]}'))))
-  assert(#empty.aliases == 0 and Json.encode(empty.aliases) == "[]")
+  local decoded, decode_why = Json.decode('{"name": "n", "aliases": [7]}')
+  local empty = must(lenient:into(must(decoded, tostring(decode_why))))
+  local text, _ = Json.encode(empty.aliases)
+  assert(#empty.aliases == 0 and text == "[]")
 end
 
 local function test_lenient_is_kept_and_is_not_strict_too()
