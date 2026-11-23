@@ -239,7 +239,7 @@ end
 --- so it is never stale-checked.
 verb.spec = {
   name = "qr",
-  guide = "a QR code of an address",
+  guide = "more quick tools",
   tests = { "build.qr_test", "build.qr_tool_test" },
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,

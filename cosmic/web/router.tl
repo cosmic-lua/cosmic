@@ -378,7 +378,7 @@ local class Built is Types.Router
         if value ~= nil then entries[#entries + 1] = { key, value } end
       end
       local part, why = Html.url_query(entries)
-      if part == nil then return nil, "url_for: " .. why end
+      if part == nil then return nil, "url_for: " .. why.message end
       path = path .. (if path:find("?", 1, true) then "&" else "?" end) .. Html.raw_url_part(part)
     end
     return path, ""

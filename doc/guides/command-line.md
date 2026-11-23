@@ -3,11 +3,10 @@
 <!-- policy: profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
 
 `cosmic` takes a verb, such as `test`, `fix`, `build` or `docs`, or a
-path to a file to run. Each example here starts the `cosmic` that runs
-it, through [`cosmic.child`], and shows what it prints. Each starts it the
-way `cosmic test` starts its workers, past its launcher: [`Proc.relaunch`]
-names the core it runs on and what the launcher would hand it, so the
-start needs no shell.
+path to a file to run. The examples here run `cosmic` and show what it
+prints. The Teal ones start it through [`cosmic.child`], the way
+`cosmic test` starts its workers: [`Proc.relaunch`] names the core it runs
+on and what the launcher would hand it, so the start needs no shell.
 
 ## a one-liner
 
@@ -20,31 +19,13 @@ nothing is bound for it. The words after
 the chunk are its `...`, each a `string?`, and an integer it returns is
 the exit code.
 
-```teal
-local Child = require("cosmic.child")
-local Env = require("cosmic.env")
-local Proc = require("cosmic.proc")
-local Clock = require("cosmic.clock")
-
-local relaunch = assert(Proc.relaunch())
-local env = Env.all()
-for name, value in pairs(relaunch.env) do env[name] = value end
-local function cosmic(...: string): {string}
-  local argv = { table.unpack(relaunch.argv) }
-  for _, word in ipairs({ ... }) do argv[#argv + 1] = word end
-  return argv
-end
-local said = assert(Child.run(cosmic("-e", "print(select('#', ...), ...)", "a", "b"),
-  { env = env, fds = relaunch.fds, stdout = "capture", timeout_ns = Clock.seconds(10) }))
-print(((said.stdout or ""):gsub("\n$", "")))
-local exited = assert(Child.run(cosmic("-e", "return 3"),
-  { env = env, fds = relaunch.fds, timeout_ns = Clock.seconds(10) }))
-print("exit " .. tostring(exited.code))
+```sh
+cosmic -e 'print(select("#", ...), ...)' a b
+cosmic -e 'return 3'  # exits 3
 ```
 
 ```output
 2	a	b
-exit 3
 ```
 
 A chunk prints only what it prints. It gets no summary, as a file run

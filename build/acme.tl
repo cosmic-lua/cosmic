@@ -381,7 +381,7 @@ end
 --- so it is never stale-checked.
 verb.spec = {
   name = "acme",
-  guide = "a certificate from Let's Encrypt",
+  guide = "more quick tools",
   tests = { "build.acme_test" },
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,

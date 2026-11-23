@@ -305,6 +305,23 @@ local function test_a_reference_to_a_module_the_library_keeps_is_named()
   assert(#mentioning(found, "`Inner.turn` names no symbol") == 1, table.concat(found, "\n"))
 end
 
+--- A name the page's own module declares is that module's, though
+--- another module's record has its head: `Inner.turn` on a page of
+--- cosmic.thing, where cosmic.thing declares `Inner`, is not
+--- cosmic.thing.inner's.
+local function test_a_name_the_module_declares_is_its_own()
+  local rows = clean()
+  Array.at(rows, MODULE).text = "Things. `Inner.turn` turns a thing."
+  rows[#rows + 1] = { module = "cosmic.thing", symbol = "Inner:turn", source_symbol = "Inner:turn", kind = "function",
+    signature = "function turn(self)", text = "Turns a thing.", exported = false }
+  table.insert(rows, row("cosmic.thing.inner", "", "module", "", "The workings."))
+  local found = docs_checks.references(projection(rows), {}, { "test" }, {})
+  assert(#found == 0, table.concat(found, "\n"))
+  Array.at(rows, MODULE).text = "Things. `Inner.turn` turns a thing; `Inner.spin` does not."
+  found = docs_checks.references(projection(rows), {}, { "test" }, {})
+  assert(#found == 1 and #mentioning(found, "`Inner.spin` names no symbol") == 1, table.concat(found, "\n"))
+end
+
 --- A help text is read as the module docs are, and reports under the
 --- name of what prints it.
 local function test_a_help_text_is_held_to_the_same_references()

@@ -48,7 +48,6 @@ local Globals = require("cosmic.internal.globals")
 local exit_status = require("build.exit_status")
 local type importer = require("build.importer")
 local log = require("build.logger").log
-local Pipeline = require("build.pipeline")
 
 local record standalone
   --- A loaded chunk, or the entry point one returns.
@@ -100,7 +99,9 @@ function standalone.code(file: string, source: string, variables?: {string:strin
   end
   if code == nil then
     -- What the checker reads besides the file is the declarations of the standard library, which the tool carries (so
-    -- they are part of the binary the cache name holds), read only for a file the cache does not hold.
+    -- they are part of the binary the cache name holds), read only for a file the cache does not hold. So is the checker
+    -- itself: a cached run loads none of its hundred modules (build/standalone_test.tl holds it to that).
+    local Pipeline = require("build.pipeline")
     local options, trouble = Pipeline.alone()
     if options == nil then
       return nil, file .. ": " .. trouble
@@ -125,7 +126,7 @@ end
 --- The modules `source`, which is `file`'s Teal, requires by a literal name, in the order they stand: read by the syntax tree
 --- of the checker that compiles the file ([`standalone.code`]). nil and why where the file does not parse.
 function standalone.requires(file: string, source: string): {string}?, string
-  return Pipeline.requires(file, source)
+  return require("build.pipeline").requires(file, source)
 end
 
 --- `file`'s Teal, checked and compiled to a loaded chunk ([`standalone.code`],
