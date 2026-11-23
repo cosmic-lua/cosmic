@@ -241,7 +241,7 @@ function roots.put(db: Sqlite.Handle, qualifier: string, found: {roots.Root}): b
   table.sort(digests)
   for _, digest in ipairs(digests) do
     local one = assert(by_digest[digest])
-    local put, put_trouble = Sqlite.run(db,
+    local put, put_trouble = db:run(
       "INSERT INTO " .. qualifier .. "ca_roots (sha256, label, der, distrust_after) VALUES (?1, ?2, ?3, ?4)",
       { bind.blob(digest), bind.text(one.label), bind.blob(one.der), bind.text(one.distrust_after) })
     if not put then

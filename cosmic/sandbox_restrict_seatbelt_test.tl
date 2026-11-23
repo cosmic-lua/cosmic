@@ -211,7 +211,7 @@ end
 sys.close(source)
 sys.close(target)
 local db = assert(Sqlite.open(copy, { writable = true }))
-local rows = assert(Sqlite.text_rows(db, "PRAGMA journal_mode=WAL"))
+local rows = assert(db:text_rows("PRAGMA journal_mode=WAL"))
 say("mode", assert(rows[1]):text(1))
 assert(db:close())
 assert(Store.attach(copy, { unchecked_bytecode = true }))

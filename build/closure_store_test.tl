@@ -113,7 +113,7 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
   assert(required ~= edited,
     "an edit to a declaration one the closure holds requires left its address")
   local held_db = assert(Sqlite.open(tmp .. "/required.db"))
-  local held_rows = assert(Sqlite.text_rows(held_db,
+  local held_rows = assert(held_db:text_rows(
     "SELECT group_concat(path, ' ') FROM (SELECT path FROM decls ORDER BY path)"))
   assert(held_db:close())
   assert(support.nth(held_rows, 1):text(1) == "base extra", support.nth(held_rows, 1):text(1))
@@ -128,7 +128,7 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
     "an edit inside the closure left its store")
 
   local db = assert(Sqlite.open(tmp .. "/first.db"))
-  local rows = assert(Sqlite.text_rows(db,
+  local rows = assert(db:text_rows(
     "SELECT (SELECT group_concat(path, ' ') FROM (SELECT path FROM modules ORDER BY path)), " ..
       "(SELECT count(*) FROM docs WHERE module = 'other'), " ..
       "(SELECT count(*) FROM meta WHERE key IN ('boot_hash', 'projected', 'writer')), " ..
@@ -345,7 +345,7 @@ local function test_a_closure_store_records_which_of_its_modules_are_public(tmp:
   local basis = assert(closure_store.basis(tmp .. "/whole.db"))
   assert(closure_store.write(tmp .. "/whole.db", tmp .. "/store.db", { "greet", "greet_test" }, basis))
   local db = assert(Sqlite.open(tmp .. "/store.db"))
-  local recorded = assert(Sqlite.text_rows(db, "SELECT group_concat(path, ' ' ORDER BY path) FROM public_modules"))
+  local recorded = assert(db:text_rows("SELECT group_concat(path, ' ' ORDER BY path) FROM public_modules"))
   assert(assert(recorded[1]):text(1) == "greet", assert(recorded[1]):text(1))
   local view = assert(docs.view({ db }, { true }))
   local listed: mut {string} = {}
@@ -403,7 +403,7 @@ local function test_a_declaration_moves_only_the_stores_that_hold_it(tmp: string
     local by_path: mut {string:importer.Module} = {}
     for _, m in ipairs(result.modules) do by_path[m.path] = m end
     local declarations: mut {string:string} = {}
-    local rows = assert(Sqlite.text_rows(handle.db,
+    local rows = assert(handle.db:text_rows(
       "SELECT path, file FROM inputs WHERE " .. analysis_schema.declaration("kind")))
     for _, row in ipairs(rows) do
       declarations[row:text(1)] = row:text(2)
@@ -480,7 +480,7 @@ local function test_a_closure_store_is_the_same_bytes_each_time_it_is_written(tm
   assert(assert(Fs.read(tmp .. "/four.db")) == one,
     "a write from the uses keyed by source module moved the store's bytes")
   local db = assert(Sqlite.open(tmp .. "/one.db"))
-  local counts = assert(Sqlite.text_rows(db, "SELECT (SELECT count(*) FROM docs_fts " ..
+  local counts = assert(db:text_rows("SELECT (SELECT count(*) FROM docs_fts " ..
       "WHERE docs_fts MATCH 'waves'), (SELECT count(*) FROM catalog_fts WHERE catalog_fts " ..
       "MATCH 'world'), (SELECT count(*) FROM examples_fts WHERE examples_fts MATCH 'greets'), " ..
       "(SELECT count(*) FROM uses)"))
@@ -579,7 +579,7 @@ end
 --- The `image_hash` row of the projection at `whole`, set to `value`.
 local function set_image_hash(whole: string, value: string)
   local db = assert(Sqlite.open(whole, { writable = true }))
-  assert(Sqlite.run(db, "INSERT OR REPLACE INTO meta (key, value) VALUES ('image_hash', ?1)",
+  assert(db:run("INSERT OR REPLACE INTO meta (key, value) VALUES ('image_hash', ?1)",
     { { text = value } }))
   assert(db:close())
 end
@@ -600,7 +600,7 @@ end
 --- The row `key` of the closure store at `path`, or nil.
 local function meta_of(path: string, key: string): string?
   local db = assert(Sqlite.open(path))
-  local rows = assert(Sqlite.text_rows(db, "SELECT CAST(value AS TEXT) FROM meta WHERE key = ?1",
+  local rows = assert(db:text_rows("SELECT CAST(value AS TEXT) FROM meta WHERE key = ?1",
     { { text = key } }))
   assert(db:close())
   local row = rows[1]

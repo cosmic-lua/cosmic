@@ -11,7 +11,7 @@ local schema = require("build.schema")
 Test.policy{}
 
 local function insert_symbol(db: Sqlite.Handle, module: string, symbol: string, kind: string)
-  assert(Sqlite.run(db,
+  assert(db:run(
     "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, text, file, line) " ..
       "VALUES (?1, ?2, ?2, 1, ?3, ?2, 'A symbol of the tree.', ?4, 7)",
     { { text = module }, { text = symbol }, { text = kind }, { text = module:gsub("%.", "/") .. ".tl" } }))
@@ -30,7 +30,7 @@ local function database(with_codes: boolean, with_symbols?: boolean): Sqlite.Han
   end
   if with_symbols == true then
     for _, module in ipairs({ "lang.check_codes", "lang.parser", "build.ast.node" }) do
-      assert(Sqlite.run(db,
+      assert(db:run(
         "INSERT INTO modules (path, file, kind, source_hash, key, source, bytecode, tests) " ..
           "VALUES (?1, ?2, 'module', '', '', '', '', '')", { { text = module }, { text = module:gsub("%.", "/") .. ".tl" } }))
     end
@@ -86,7 +86,7 @@ local function test_a_code_is_answered_with_its_rule_why_and_fix()
   assert(line_at(lines, 3) == "  rule: nil is its own type", line_at(lines, 3))
   assert(line_at(lines, 4):find("^  why: a type admits nil only as `T%?`") ~= nil, line_at(lines, 4))
   assert(line_at(lines, 5):find("^  fix: test it %(`if <value> == nil") ~= nil, line_at(lines, 5))
-  db:close()
+  local _, _ = db:close()
 end
 
 local function test_a_code_comes_before_the_symbols_that_share_its_name_on_a_database_that_holds_the_tree()
@@ -111,14 +111,14 @@ local function test_a_code_comes_before_the_symbols_that_share_its_name_on_a_dat
   assert(entry_at(semicolon, 1).kind == "code" and #semicolon == 3, tostring(#semicolon))
   local answer = assert(Doc.answer(v, { "not_assignable" }))
   assert(answer.found and line_at(answer.lines, 1) == "lang.check not_assignable (lang/check_codes.tl)", line_at(answer.lines, 1))
-  db:close()
+  local _, _ = db:close()
 end
 
 local function test_a_symbol_that_is_no_code_is_answered_as_before_on_a_database_that_holds_the_codes()
   local db = database(true, true)
   local found = assert(Doc.lookup(view(db), "Parser.unclosed"))
   assert(found.exact and #found == 1 and entry_at(found, 1).kind == "function")
-  db:close()
+  local _, _ = db:close()
 end
 
 local function test_a_code_of_each_stage_is_answered_by_its_name()
@@ -134,7 +134,7 @@ local function test_a_code_of_each_stage_is_answered_by_its_name()
   local answer = assert(Doc.answer(v, { "duplicate_binding" }))
   assert(answer.found and line_at(answer.lines, 1):find("^lang%.parser duplicate_binding %(lang/syntax_codes%.tl%)") ~= nil,
     line_at(answer.lines, 1))
-  db:close()
+  local _, _ = db:close()
 end
 
 local function test_the_words_of_a_rule_find_the_codes_that_carry_them()
@@ -147,14 +147,14 @@ local function test_the_words_of_a_rule_find_the_codes_that_carry_them()
     names = names .. " " .. entry.symbol
   end
   assert(names:find("array_of_optional", 1, true) ~= nil, names)
-  db:close()
+  local _, _ = db:close()
 end
 
 local function test_a_database_without_the_rows_answers_a_code_with_nothing_as_it_did()
   local without = database(false)
   assert(#assert(Doc.lookup(view(without), "nil_not_allowed")) == 0)
   assert(#assert(Doc.lookup(view(without), "a type admits nil only")) == 0)
-  without:close()
+  local _, _ = without:close()
   -- a database built before the catalog had its index
   local old = assert(Sqlite.memory())
   for _, statement in ipairs(schema.create("")) do
@@ -163,5 +163,5 @@ local function test_a_database_without_the_rows_answers_a_code_with_nothing_as_i
     end
   end
   assert(#assert(Doc.lookup(view(old), "nil_not_allowed")) == 0)
-  old:close()
+  local _, _ = old:close()
 end

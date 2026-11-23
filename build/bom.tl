@@ -342,7 +342,7 @@ function bom.fill(db: Sqlite.Handle, root: string, qualifier: string): boolean, 
       if patches == nil then
         return false, patch_trouble
       end
-      local inserted, insert_trouble = Sqlite.run(db,
+      local inserted, insert_trouble = db:run(
         "INSERT INTO " .. qualifier .. "components (name, kind, version, license, url, " ..
           "sha256, sha3_256, patches) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         { text(name), text(component.kind), text(component.version),
@@ -356,7 +356,7 @@ function bom.fill(db: Sqlite.Handle, root: string, qualifier: string): boolean, 
         if body == nil then
           return false, path .. ": " .. notice_trouble
         end
-        local put, put_trouble = Sqlite.run(db,
+        local put, put_trouble = db:run(
           "INSERT INTO " .. qualifier .. "notices (component, ordinal, file, text) " ..
             "VALUES (?1, ?2, ?3, ?4)",
           { text(name), bind.integer(ordinal), text(notice.file), text(body) })
@@ -371,7 +371,7 @@ end
 
 --- Every component `db` holds, by name.
 function bom.rows(db: Sqlite.Handle): {bom.Row}?, string
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT name, kind, version, license, url, sha256, sha3_256, patches " ..
       "FROM components ORDER BY name")
   if rows == nil then
@@ -445,7 +445,7 @@ end
 --- recipient be told where the source is -- gets its heading and that
 --- source.
 function bom.notices(db: Sqlite.Handle): string?, string
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT c.name, c.version, c.license, c.url, n.file IS NULL, " ..
       "coalesce(n.file, ''), coalesce(n.text, '') FROM components c " ..
       "LEFT JOIN notices n ON n.component = c.name ORDER BY c.name, n.ordinal")

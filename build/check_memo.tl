@@ -199,8 +199,11 @@ function check_memo.share(path: string?, sharing?: check_memo.Sharing): boolean,
   local held, held_trouble = private(path)
   if not held then return false, held_trouble end
   local db, trouble = shared_sqlite.open(path, function(handle: Sqlite.Handle): boolean, string
-    return handle:exec("CREATE TABLE IF NOT EXISTS " .. shared_table .. " (code TEXT NOT NULL, kind TEXT NOT NULL, " ..
-        "key TEXT NOT NULL, value TEXT NOT NULL, used_ns INTEGER NOT NULL, PRIMARY KEY (code, kind, key)) WITHOUT ROWID")
+    local made, made_trouble = handle:exec("CREATE TABLE IF NOT EXISTS " .. shared_table .. " (code TEXT NOT NULL, " ..
+        "kind TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, used_ns INTEGER NOT NULL, " ..
+        "PRIMARY KEY (code, kind, key)) WITHOUT ROWID")
+    if not made then return false, tostring(made_trouble) end
+    return true, ""
   end, shared_wait_ns)
   if db == nil then return false, trouble end
   shared = { db = db, code = sharing.code, kept_bytes = sharing.kept_bytes or kept_bytes, owed = {}, bounded = false }
@@ -226,17 +229,17 @@ local function settle(open: Shared, kind: string, now_ns: integer): boolean
   for key in pairs(rows) do keys[#keys + 1] = key end
   table.sort(keys)
   for _, key in ipairs(keys) do
-    local ok, _ = Sqlite.run(db, "INSERT OR REPLACE INTO " .. shared_table .. " (code, kind, key, value, used_ns) " ..
+    local ok, _ = db:run("INSERT OR REPLACE INTO " .. shared_table .. " (code, kind, key, value, used_ns) " ..
         "VALUES (?1, ?2, ?3, ?4, ?5)",
       { { text = open.code }, { text = kind }, { text = key }, { text = rows[key] or "" }, { integer = now_ns } })
     if not ok then return false end
   end
   if open.bounded then return true end
   open.bounded = true
-  local aged, _ = Sqlite.run(db, "DELETE FROM " .. shared_table .. " WHERE used_ns < ?1",
+  local aged, _ = db:run("DELETE FROM " .. shared_table .. " WHERE used_ns < ?1",
     { { integer = now_ns - kept_ns } })
   if not aged then return false end
-  local bounded, _ = Sqlite.run(db, "DELETE FROM " .. shared_table .. " WHERE (code, kind, key) IN (SELECT code, kind, " ..
+  local bounded, _ = db:run("DELETE FROM " .. shared_table .. " WHERE (code, kind, key) IN (SELECT code, kind, " ..
       "key FROM (SELECT code, kind, key, sum(length(CAST(code AS BLOB)) + length(CAST(kind AS BLOB)) + " ..
       "length(CAST(key AS BLOB)) + length(CAST(value AS BLOB))) OVER (ORDER BY used_ns DESC, code, kind, key) " ..
       "AS held FROM " .. shared_table .. ") WHERE held > ?1)", { { integer = open.kept_bytes } })
@@ -244,56 +247,56 @@ local function settle(open: Shared, kind: string, now_ns: integer): boolean
 end
 
 function check_memo.prepare(db: Sqlite.Handle, kind: string): boolean, string
-  local made, made_trouble = Sqlite.run(db,
+  local made, made_trouble = db:run(
     "CREATE TABLE IF NOT EXISTS check_memo (kind TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, " ..
       "used INTEGER NOT NULL, PRIMARY KEY (kind, key)) WITHOUT ROWID")
   if not made then
     return false, tostring(made_trouble)
   end
-  local reset, reset_trouble = Sqlite.run(db, "UPDATE check_memo SET used = 0 WHERE kind = ?1", { { text = kind } })
+  local reset, reset_trouble = db:run("UPDATE check_memo SET used = 0 WHERE kind = ?1", { { text = kind } })
   if not reset then
     return false, tostring(reset_trouble)
   end
   -- One transaction for a run's lookups and writes: a commit for each of a
   -- thousand files is most of the cost of a memo.
-  local answered, answer_why = Sqlite.run(db, "BEGIN")
+  local answered, answer_why = db:run("BEGIN")
   if not answered then return false, tostring(answer_why) end
   return answered, ""
 end
 
 function check_memo.get(db: Sqlite.Handle, kind: string, key: string): string?
-  local rows, _ = Sqlite.rows(db, "SELECT value FROM check_memo WHERE kind = ?1 AND key = ?2",
+  local rows, _ = db:rows("SELECT value FROM check_memo WHERE kind = ?1 AND key = ?2",
     { { text = kind }, { text = key } })
   local row = if rows ~= nil then rows[1] else nil end
   if row == nil then
     local open = shared
     if open == nil or unshared[kind] ~= nil then return nil end
-    local found, _ = Sqlite.rows(open.db, "SELECT value FROM " .. shared_table ..
+    local found, _ = open.db:rows("SELECT value FROM " .. shared_table ..
         " WHERE code = ?1 AND kind = ?2 AND key = ?3", { { text = open.code }, { text = kind }, { text = key } })
     local sibling = if found ~= nil then found[1] else nil end
     if sibling == nil then return nil end
     local taken = sibling:text(1)
-    local _, _ = Sqlite.run(db, "INSERT OR REPLACE INTO check_memo (kind, key, value, used) VALUES (?1, ?2, ?3, 1)",
+    local _, _ = db:run("INSERT OR REPLACE INTO check_memo (kind, key, value, used) VALUES (?1, ?2, ?3, 1)",
       { { text = kind }, { text = key }, { text = taken } })
     owe(kind, key, taken)
     return taken
   end
   local value = row:text(1)
-  local _, _ = Sqlite.run(db, "UPDATE check_memo SET used = 1 WHERE kind = ?1 AND key = ?2",
+  local _, _ = db:run("UPDATE check_memo SET used = 1 WHERE kind = ?1 AND key = ?2",
     { { text = kind }, { text = key } })
   -- Not owed to the shared file: the tool that made the row may have been of other code than this one.
   return value
 end
 
 function check_memo.put(db: Sqlite.Handle, kind: string, key: string, value: string)
-  local _, _ = Sqlite.run(db, "INSERT OR REPLACE INTO check_memo (kind, key, value, used) VALUES (?1, ?2, ?3, 1)",
+  local _, _ = db:run("INSERT OR REPLACE INTO check_memo (kind, key, value, used) VALUES (?1, ?2, ?3, 1)",
     { { text = kind }, { text = key }, { text = value } })
   owe(kind, key, value)
 end
 
 function check_memo.finish(db: Sqlite.Handle, kind: string, now_ns?: integer)
-  local _, _ = Sqlite.run(db, "DELETE FROM check_memo WHERE kind = ?1 AND used = 0", { { text = kind } })
-  local _, _ = Sqlite.run(db, "COMMIT")
+  local _, _ = db:run("DELETE FROM check_memo WHERE kind = ?1 AND used = 0", { { text = kind } })
+  local _, _ = db:run("COMMIT")
   local open = shared
   if open == nil then return end
   -- One short transaction of the shared file, which another checkout's run may be reading: what does not go in is

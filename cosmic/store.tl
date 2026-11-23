@@ -149,6 +149,14 @@ function Store.source(name: string): (string) | (nil, Failure)
   return value
 end
 
+--- The store's connections, each as the handle [`cosmic.sqlite`] reads
+--- it through, in search order.
+local function borrowed(): {Sqlite.Handle}
+  local out: mut {Sqlite.Handle} = {}
+  for index, connection in ipairs(store.databases()) do out[index] = Sqlite.borrowed(connection) end
+  return out
+end
+
 --- The reason [`Store.source`] gave no text for `name` when the binary's
 --- database holds its row without the source (a test's pure store);
 --- `false` for a name it holds a source of or no row of, and where there
@@ -156,10 +164,10 @@ end
 --- that is absent, which [`Store.source`] alone answers with a failure in
 --- both cases. Nil and a Failure when the query failed.
 function Store.withheld(name: string): (string | false) | (nil, Failure)
-  local databases = store.databases()
+  local databases = borrowed()
   local binary = databases[#databases]
   if binary == nil then return false end -- a boot carries none, so holds nothing withheld
-  local rows, trouble = Sqlite.text_rows(binary,
+  local rows, trouble = binary:text_rows(
     "SELECT 1 FROM decls WHERE path = ?1 AND length(source) = 0 UNION ALL " ..
       "SELECT 1 FROM modules WHERE path = ?1 AND length(source) = 0",
     { { text = name } })
@@ -176,10 +184,10 @@ end
 --- absent. Nil and a Failure where there is no database (a boot carries
 --- none) or the query failed.
 function Store.holds(name: string): (boolean) | (nil, Failure)
-  local databases = store.databases()
+  local databases = borrowed()
   local binary = databases[#databases]
   if binary == nil then return nil, Failure.new("holds: the binary carries no database") end
-  local rows, trouble = Sqlite.text_rows(binary,
+  local rows, trouble = binary:text_rows(
     "SELECT 1 FROM decls WHERE path = ?1 UNION ALL SELECT 1 FROM modules WHERE path = ?1", { { text = name } })
   if rows == nil then return nil, Failure.new("holds: " .. tostring(trouble)) end
   return #rows > 0
@@ -201,7 +209,7 @@ end
 --- [`cosmic.sqlite`] reads through and never closes -- what a verb that
 --- asks about the shipped tables (`docs`, `uses`, `catalog`) queries.
 function Store.databases(): {Sqlite.Handle}
-  return store.databases()
+  return borrowed()
 end
 
 --- One time zone's TZif file (RFC 8536), by IANA name, from the copy
@@ -219,9 +227,9 @@ end
 --- hashes and version, from the binary's own database. Nil and a Failure when it
 --- carries no such file or the query failed.
 function Store.web_asset(name: string): (Store.WebAsset) | (nil, Failure)
-  local databases = store.databases()
+  local databases = borrowed()
   -- The binary's own database is always the last of them.
-  local rows, trouble = Sqlite.rows(Array.at(databases, #databases),
+  local rows, trouble = Array.at(databases, #databases):rows(
     "SELECT data, sha256, sha384, version FROM web_assets WHERE name = ?1",
     { { text = name } })
   if rows == nil then return nil, Failure.new(tostring(trouble)) end
@@ -293,7 +301,7 @@ local function locate(name: string, required?: string): Handle?, string
   for step = 1, count do
     -- `step` runs 1 to `count`, so either index is one of the databases.
     local db = Array.at(databases, if binary_first then count + 1 - step else step end)
-    local rows, trouble = Sqlite.text_rows(db,
+    local rows, trouble = db:text_rows(
       "SELECT 1 FROM modules WHERE path = ?1", { text(name) })
     if rows == nil then
       return nil, tostring(trouble)
@@ -323,7 +331,7 @@ end
 --- its closures to, so a sealed program's modules are those the tests of
 --- it ran against. Keep the two in step.
 local function requires_of(db: Handle, name: string, types: boolean): {string}
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT i.requires FROM imports i WHERE i.path = ?1 AND (?2 = 1 OR " ..
       "NOT EXISTS (SELECT 1 FROM modules m WHERE m.path = i.path AND " ..
       "m.kind IN ('module', 'main') AND " ..
@@ -390,7 +398,7 @@ end
 local function copy_rows(from: Handle, into: Handle, table_name: string,
                          columns: {string}, query: string,
                          values?: {Sqlite.Value}): boolean, string
-  local rows, trouble = Sqlite.rows(from, query, values)
+  local rows, trouble = from:rows(query, values)
   if rows == nil then
     return false, table_name .. ": " .. tostring(trouble)
   end
@@ -405,7 +413,7 @@ local function copy_rows(from: Handle, into: Handle, table_name: string,
     for index = 1, row:count() do
       bound[index] = row:value(index)
     end
-    local ok, why = Sqlite.run(into, insert, bound)
+    local ok, why = into:run(insert, bound)
     if not ok then
       return false, table_name .. ": " .. tostring(why)
     end
@@ -472,10 +480,10 @@ local function write_database(names: {string}, file: string, main: string?,
     for _, statement in ipairs(seal_schema) do
       local ok, why = db:exec(statement)
       if not ok then
-        return false, why
+        return false, tostring(why)
       end
     end
-    local transacted, transact_why = Sqlite.transact(db, function(): (true) | (false, Failure)
+    local transacted, transact_why = db:transact(function(): (true) | (false, Failure)
       local zones, roots, web = false, false, false
       for _, name in ipairs(names) do
         local source, locate_trouble = locate(name)
@@ -496,7 +504,7 @@ local function write_database(names: {string}, file: string, main: string?,
         -- holds them: a compile that resolves the module follows each. A
         -- database the core reads need not have the table (one attached
         -- by hand), and gives none.
-        local has_edges, has_trouble = Sqlite.text_rows(source,
+        local has_edges, has_trouble = source:text_rows(
           "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'decl_imports'")
         if has_edges == nil then
           return false, Failure.new("decl_imports: " .. tostring(has_trouble))
@@ -512,7 +520,7 @@ local function write_database(names: {string}, file: string, main: string?,
         end
         -- Only edges within the set: one left out (by type alone) would
         -- dangle, and a closure of the sealed program would raise on it.
-        local edges, edge_trouble = Sqlite.text_rows(source,
+        local edges, edge_trouble = source:text_rows(
           "SELECT requires FROM imports WHERE path = ?1 ORDER BY requires",
           { text(name) })
         if edges == nil then
@@ -520,7 +528,7 @@ local function write_database(names: {string}, file: string, main: string?,
         end
         for _, edge in ipairs(edges) do
           if present[edge:text(1)] == true then
-            local inserted, insert_trouble = Sqlite.run(db,
+            local inserted, insert_trouble = db:run(
               "INSERT OR IGNORE INTO imports (path, requires) VALUES (?1, ?2)",
               { text(name), text(edge:text(1)) })
             if not inserted then
@@ -534,7 +542,7 @@ local function write_database(names: {string}, file: string, main: string?,
       end
       if script ~= nil then
         -- Last, so the rows' order is the same whatever the script is.
-        local added, why = Sqlite.run(db,
+        local added, why = db:run(
           "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
             "VALUES (?1, ?2, 'main', ?3, X'', ?4, '', deflate(?5))",
           { text(script.name), text(script.name), { blob = Hash.sha256(script.source) },
@@ -544,7 +552,7 @@ local function write_database(names: {string}, file: string, main: string?,
         end
         for _, edge in ipairs(script.requires or {}) do -- checked: condition_type, literal_needs_type
           if present[edge] == true then
-            local inserted, insert_trouble = Sqlite.run(db,
+            local inserted, insert_trouble = db:run(
               "INSERT OR IGNORE INTO imports (path, requires) VALUES (?1, ?2)",
               { text(script.name), text(edge) })
             if not inserted then
@@ -565,7 +573,7 @@ local function write_database(names: {string}, file: string, main: string?,
       end
       if web then
         -- A binary from before the table has none to carry.
-        local has_web, has_trouble = Sqlite.text_rows(binary_db,
+        local has_web, has_trouble = binary_db:text_rows(
           "SELECT 1 FROM sqlite_master WHERE name = 'web_assets'")
         if has_web == nil then
           return false, has_trouble
@@ -594,14 +602,14 @@ local function write_database(names: {string}, file: string, main: string?,
       end
       -- What the program was made to run on and as.
       for _, pair in ipairs(identity) do
-        local inserted, trouble = Sqlite.run(db,
+        local inserted, trouble = db:run(
           "INSERT INTO meta (key, value) VALUES (?1, ?2)", { text(pair.key), text(pair.value) })
         if not inserted then
           return false, trouble
         end
       end
       if main ~= nil then
-        return Sqlite.run(db, "INSERT INTO meta (key, value) VALUES ('main', ?1)",
+        return db:run("INSERT INTO meta (key, value) VALUES ('main', ?1)",
           { text(main) })
       end
       return true
@@ -746,7 +754,7 @@ function Store.seal(names: {string}, path?: string,
     if vacuumed == nil then
       return nil, tostring(open_trouble)
     end
-    local moved, why = Sqlite.run(vacuumed, "VACUUM INTO ?1", { text(scratch .. "/sealed.db") })
+    local moved, why = vacuumed:run("VACUUM INTO ?1", { text(scratch .. "/sealed.db") })
     local _, _ = vacuumed:close()
     if not moved then
       return nil, tostring(why)

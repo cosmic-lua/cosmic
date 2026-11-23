@@ -26,7 +26,8 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local db = assert(Sqlite.open(%q .. "/rebuild.lock", { writable = true }))
 assert(db:exec("PRAGMA busy_timeout = 0"))
-if not db:exec("BEGIN IMMEDIATE") then
+local begun, _ = db:exec("BEGIN IMMEDIATE")
+if not begun then
   print("busy")
   return
 end

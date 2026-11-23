@@ -307,7 +307,7 @@ function Vector.load(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value},
   if opts ~= nil and opts.storage ~= nil then
     local _ = raw.corpus(1, opts.storage)
   end
-  local q, why = Sqlite.query(db, sql, values)
+  local q, why = db:query(sql, values)
   if not q then
     return nil, tostring(why)
   end
@@ -356,7 +356,7 @@ function Vector.load_blocks(db: Sqlite.Handle, sql: string, values?: {Sqlite.Val
   if opts ~= nil and opts.storage ~= nil then
     local _ = raw.corpus(1, opts.storage)
   end
-  local q, why = Sqlite.query(db, sql, values)
+  local q, why = db:query(sql, values)
   if not q then
     return nil, tostring(why)
   end

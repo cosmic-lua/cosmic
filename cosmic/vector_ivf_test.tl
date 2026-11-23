@@ -64,7 +64,7 @@ local function test_ivf_recall_against_exact_search()
   ]]))
   assert(db:exec("BEGIN"))
   for i, p in ipairs(points) do
-    assert(Sqlite.run(db, "INSERT INTO chunks VALUES (?1, ?2, ?3)",
+    assert(db:run("INSERT INTO chunks VALUES (?1, ?2, ?3)",
       { { integer = i }, { integer = Vector.nearest(centroids, p) }, { blob = p } }))
   end
   assert(db:exec("COMMIT"))
@@ -83,7 +83,7 @@ local function test_ivf_recall_against_exact_search()
       local exact = assert(corpus:search(query, 10)).ids
       local probes = Vector.nearest_n(centroids, query, probes_n)
       local v: Sqlite.Value = { integers = probes }
-      local found = assert(Sqlite.map(db, [[
+      local found = assert(db:map([[
         SELECT id FROM chunks WHERE cluster IN carray(?2)
         ORDER BY inner_product(embedding, ?1) DESC, id LIMIT 10
       ]], { { blob = query }, v }, function(r: Sqlite.Row): integer

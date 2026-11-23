@@ -51,7 +51,7 @@ end
 -- [`code_of`] holds all that this module requires, each by its source, so a
 -- comment anywhere in it has the rebuilt tool write its database again.
 local function code_of(db: Sqlite.Handle): string?
-  local rows, _ = Sqlite.text_rows(db,
+  local rows, _ = db:text_rows(
     "WITH RECURSIVE reached(name) AS (VALUES ('build.stamps') UNION " ..
       "SELECT requires FROM imports JOIN reached ON path = name) " ..
       "SELECT sum(path = 'build.stamps'), lower(hex(sha256(group_concat(path || ' ' || " ..
@@ -73,7 +73,7 @@ end
 --- its source is marked in `reading`.
 local function source_of(db: Sqlite.Handle, reading: Reading, name: string): string?
   for _, table_name in ipairs({ "decls", "modules" }) do
-    local rows, _ = Sqlite.rows(db, "SELECT length(source), inflate(source) FROM " .. table_name ..
+    local rows, _ = db:rows("SELECT length(source), inflate(source) FROM " .. table_name ..
         " WHERE path = ?1", { { text = name } })
     local row = if rows ~= nil then rows[1] else nil end
     if row ~= nil then
@@ -90,7 +90,7 @@ end
 --- What the module `name` of `db` requires, as [`Store.requires`] answers
 --- it of the binary's own.
 local function requires_of(db: Sqlite.Handle, name: string): {string}
-  local rows, _ = Sqlite.text_rows(db, "SELECT requires FROM imports WHERE path = ?1 ORDER BY requires",
+  local rows, _ = db:text_rows("SELECT requires FROM imports WHERE path = ?1 ORDER BY requires",
     { { text = name } })
   local names: mut {string} = {}
   for _, row in ipairs(rows or {}) do names[#names + 1] = row:text(1) end
@@ -116,7 +116,7 @@ local function worked(db: Sqlite.Handle): mut {string:string}
   local function source(name: string): string? return source_of(db, reading, name) end
   local function requires(name: string): {string} return requires_of(db, name) end
   out["stamp_coded"] = code_identity.code_of(source, requires)
-  local basis_rows, _ = Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'runtime_basis'")
+  local basis_rows, _ = db:text_rows("SELECT value FROM meta WHERE key = 'runtime_basis'")
   local basis_row = if basis_rows ~= nil then basis_rows[1] else nil end
   -- Given the code, it raises for nothing: a source held without its text is marked in `reading`.
   local analyzer = importer.analyzer_identity({
@@ -140,7 +140,7 @@ local function worked(db: Sqlite.Handle): mut {string:string}
 end
 
 function stamps.fill(db: Sqlite.Handle, running?: Sqlite.Handle): boolean, string
-  local cleared, clear_trouble = Sqlite.run(db, "DELETE FROM meta WHERE key LIKE 'stamp!_%' ESCAPE '!'", {})
+  local cleared, clear_trouble = db:run("DELETE FROM meta WHERE key LIKE 'stamp!_%' ESCAPE '!'", {})
   if not cleared then return false, tostring(clear_trouble) end
   local binary = running
   if binary == nil then
@@ -157,7 +157,7 @@ function stamps.fill(db: Sqlite.Handle, running?: Sqlite.Handle): boolean, strin
   for key in pairs(rows) do keys[#keys + 1] = key end
   table.sort(keys)
   for _, key in ipairs(keys) do
-    local written, trouble = Sqlite.run(db, "INSERT INTO meta (key, value) VALUES (?1, ?2)",
+    local written, trouble = db:run("INSERT INTO meta (key, value) VALUES (?1, ?2)",
       { { text = key }, { text = rows[key] } })
     if not written then return false, tostring(trouble) end
   end

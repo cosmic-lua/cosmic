@@ -96,11 +96,11 @@ function database_start_fixture.write_database(path: string, modules: {Module}, 
   for _, module in ipairs(rows) do
     -- Each row came from `closure` or `modules`, and both filled `bytecode` under its name.
     local code = assert(bytecode[module.name], "no bytecode for " .. module.name)
-    assert(Sqlite.run(db, "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, " ..
+    assert(db:run("INSERT INTO modules (path, file, kind, source_hash, key, bytecode, " ..
         "tests, source) VALUES (?1, ?2, ?3, X'', X'', deflate(?4), '', X'')",
       { text(module.name), text(module.name), text(module.kind), blob(code) }))
     for _, required in ipairs(module.requires) do
-      assert(Sqlite.run(db, "INSERT OR IGNORE INTO imports (path, requires) VALUES (?1, ?2)",
+      assert(db:run("INSERT OR IGNORE INTO imports (path, requires) VALUES (?1, ?2)",
         { text(module.name), text(required) }))
     end
   end
@@ -110,7 +110,7 @@ function database_start_fixture.write_database(path: string, modules: {Module}, 
   local core = made.core
   if core ~= nil then meta[#meta + 1] = { key = "core_sha256", value = core } end
   for _, pair in ipairs(meta) do
-    assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES (?1, ?2)",
+    assert(db:run("INSERT INTO meta (key, value) VALUES (?1, ?2)",
       { text(pair.key), text(pair.value) }))
   end
   assert(db:close())

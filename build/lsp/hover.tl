@@ -100,7 +100,7 @@ end
 --- write through `handle` itself moves nothing, and the docs never write through theirs. Cheap to ask (it reads the header
 --- of the file), so a key can hold it for every check. "" where it cannot be read.
 function hover.version(handle: Sqlite.Handle): string
-  local rows, _ = Sqlite.text_rows(handle, "PRAGMA data_version")
+  local rows, _ = handle:text_rows("PRAGMA data_version")
   local row = rows and rows[1]
   if row == nil then return "" end
   return row:text(1)

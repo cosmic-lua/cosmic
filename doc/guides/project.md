@@ -642,14 +642,14 @@ local Failure = require("cosmic.failure")
 local Sqlite = require("cosmic.sqlite")
 
 local function add(db: Sqlite.Handle, body: string): (true) | (false, Failure)
-  local began, trouble = Sqlite.run(db, "BEGIN")
+  local began, trouble = db:run("BEGIN")
   if not began then return false, trouble end
-  local ok, why = Sqlite.run(db, "INSERT INTO t (body) VALUES (?1)", { { text = body } })
+  local ok, why = db:run("INSERT INTO t (body) VALUES (?1)", { { text = body } })
   if not ok then
-    local _, _ = Sqlite.run(db, "ROLLBACK")
+    local _, _ = db:run("ROLLBACK")
     return false, why
   end
-  return Sqlite.run(db, "COMMIT")
+  return db:run("COMMIT")
 end
 
 local db = assert(Sqlite.memory())

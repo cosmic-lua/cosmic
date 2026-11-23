@@ -285,13 +285,13 @@ local function open_corpus(): Sqlite.Handle, integer
       DELETE FROM chunk_bits WHERE id = old.id;
     END;
   ]]))
-  assert(Sqlite.run(db, "INSERT INTO embedding_models (name, dims) VALUES (?1, ?2)",
+  assert(db:run("INSERT INTO embedding_models (name, dims) VALUES (?1, ?2)",
     { { text = "toy-hash-64" }, { integer = DIMS } }))
   return db, db:last_insert_rowid()
 end
 
 local function add_chunk(db: Sqlite.Handle, model: integer, doc: string, span: Span, body: string)
-  assert(Sqlite.run(db, [[
+  assert(db:run([[
     INSERT INTO chunks (doc, start, stop, body, model, embedding)
     VALUES (?1, ?2, ?3, ?4, ?5, l2_normalize(?6))
   ]], { { text = doc }, { integer = span.start }, { integer = span.stop }, { text = body },
@@ -299,7 +299,7 @@ local function add_chunk(db: Sqlite.Handle, model: integer, doc: string, span: S
 end
 
 local function ids(db: Sqlite.Handle, sql: string, values: {Sqlite.Value}): {integer}
-  local found = assert(Sqlite.map(db, sql, values, function(r: Sqlite.Row): integer
+  local found = assert(db:map(sql, values, function(r: Sqlite.Row): integer
     return r:integer(1)
   end))
   return found
@@ -380,7 +380,7 @@ embeds it, and the trigger adds the bits:
 
 ```teal continue
 local late: Sqlite.Value = { blob = embed("kittens purr in the sun") }
-assert(Sqlite.run(db, "INSERT INTO chunks (doc, start, stop, body, model) VALUES (?1, 1, 23, ?2, ?3)",
+assert(db:run("INSERT INTO chunks (doc, start, stop, body, model) VALUES (?1, 1, 23, ?2, ?3)",
   { { text = "late" }, { text = "Kittens purr in the sun" }, { integer = model } }))
 local late_id = db:last_insert_rowid()
 local function nearest_bits(): integer
@@ -390,7 +390,7 @@ local function nearest_bits(): integer
   ]], { late, { integer = model } })[1] or 0
 end
 local before = nearest_bits() == late_id
-assert(Sqlite.run(db, "UPDATE chunks SET embedding = l2_normalize(?1) WHERE id = ?2",
+assert(db:run("UPDATE chunks SET embedding = l2_normalize(?1) WHERE id = ?2",
   { late, { integer = late_id } }))
 print("late", before, nearest_bits() == late_id)
 ```
@@ -644,9 +644,9 @@ assert(nearest_packed()[1] == newest)
 -- that block is made again. An update or a delete does the same, because
 -- a block holds the vector it was made from.
 local function repack(id: integer)
-  assert(Sqlite.run(db, "DELETE FROM chunk_blocks WHERE model = ?1 AND n = ?2 / 4",
+  assert(db:run("DELETE FROM chunk_blocks WHERE model = ?1 AND n = ?2 / 4",
     { { integer = model }, { integer = id } }))
-  assert(Sqlite.run(db, PACK:format("AND id / 4 = ?1 / 4"), { { integer = id } }))
+  assert(db:run(PACK:format("AND id / 4 = ?1 / 4"), { { integer = id } }))
 end
 repack(newest)
 assert(nearest_packed()[1] == newest)
@@ -732,17 +732,17 @@ assert(big:exec([[
 ]]))
 assert(big:exec("BEGIN"))
 for i, c in ipairs(centroids) do
-  assert(Sqlite.run(big, "INSERT INTO centroids VALUES (?1, ?2)", { { integer = i }, { blob = c } }))
+  assert(big:run("INSERT INTO centroids VALUES (?1, ?2)", { { integer = i }, { blob = c } }))
 end
 local record Placed
   id: integer
   cluster: integer
 end
-local placed = assert(Sqlite.map(big, "SELECT id, embedding FROM chunks", nil, function(r: Sqlite.Row): Placed
+local placed = assert(big:map("SELECT id, embedding FROM chunks", nil, function(r: Sqlite.Row): Placed
   return { id = r:integer(1), cluster = Vector.nearest(centroids, r:blob(2)) }
 end))
 for _, p in ipairs(placed) do
-  assert(Sqlite.run(big, "UPDATE chunks SET cluster = ?2 WHERE id = ?1", { { integer = p.id }, { integer = p.cluster } }))
+  assert(big:run("UPDATE chunks SET cluster = ?2 WHERE id = ?1", { { integer = p.id }, { integer = p.cluster } }))
 end
 assert(big:exec("COMMIT"))
 ```
@@ -767,7 +767,7 @@ A program that starts later reloads the centers from their table, in
 `id` order, since a center's position is its cluster number:
 
 ```teal continue
-local reloaded = assert(Sqlite.map(big, "SELECT vector FROM centroids ORDER BY id", nil,
+local reloaded = assert(big:map("SELECT vector FROM centroids ORDER BY id", nil,
   function(r: Sqlite.Row): string
     return r:blob(1)
   end))

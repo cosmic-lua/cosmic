@@ -70,11 +70,11 @@ local function test_past_its_bound_the_least_lately_used_go(tmp: string)
   for at, key in ipairs({ "k1", "k2", "k3" }) do
     assert(shared_compiles.settle(cache, { kept = { kept(key) }, used = {} }, at))
   end
-  local sizes = assert(Sqlite.text_rows(cache.db, "SELECT DISTINCT size FROM compiled_v2"))
+  local sizes = assert(cache.db:text_rows("SELECT DISTINCT size FROM compiled_v2"))
   assert(#sizes == 1, "rows of one shape differ in size")
   local size = math.tointeger(tonumber(sizes[1]:text(1))) or 0
   assert(shared_compiles.settle(cache, { kept = { kept("k4") }, used = { "k1" } }, 5, 2 * size))
-  local left = assert(Sqlite.text_rows(cache.db, "SELECT key FROM compiled_v2 ORDER BY key"))
+  local left = assert(cache.db:text_rows("SELECT key FROM compiled_v2 ORDER BY key"))
   shared_compiles.close(cache)
   local first, second = left[1], left[2]
   assert(#left == 2 and first ~= nil and second ~= nil and first:text(1) == "k1" and second:text(1) == "k4",
@@ -107,7 +107,7 @@ local function test_a_query_failure_leaves_other_connections_and_files_alone(tmp
   assert(holder:exec("CREATE TABLE healthy (value TEXT)"))
   assert(holder:exec("INSERT INTO healthy VALUES ('still usable')"))
   local reader = assert(Sqlite.open(path))
-  assert(Array.at(assert(Sqlite.text_rows(reader, "SELECT value FROM healthy")), 1):text(1) == "still usable")
+  assert(Array.at(assert(reader:text_rows("SELECT value FROM healthy")), 1):text(1) == "still usable")
   assert(reader:close())
   assert(holder:close())
   assert(not assert(Fs.status(path .. "-wal")).exists, "the failed build kept a connection open")

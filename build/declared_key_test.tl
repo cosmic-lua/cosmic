@@ -990,10 +990,10 @@ local function program_at(path: string, core: string, meta: {string:string}, byt
   for key in pairs(meta) do keys[#keys + 1] = key end
   table.sort(keys)
   for _, key in ipairs(keys) do
-    assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES (?1, ?2)",
+    assert(db:run("INSERT INTO meta (key, value) VALUES (?1, ?2)",
       { { text = key }, { text = meta[key] } }))
   end
-  assert(Sqlite.run(db, "INSERT INTO modules (path, bytecode) VALUES ('cosmic.thing', ?1)",
+  assert(db:run("INSERT INTO modules (path, bytecode) VALUES ('cosmic.thing', ?1)",
     { { blob = bytecode } }))
   assert(db:close())
   local database = assert(Fs.read(db_path))
@@ -1227,9 +1227,9 @@ local function projection_at(path: string, meta: {string:string}, source: string
   for key in pairs(meta) do keys[#keys + 1] = key end
   table.sort(keys)
   for _, key in ipairs(keys) do
-    assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES (?1, ?2)", { { text = key }, { text = meta[key] } }))
+    assert(db:run("INSERT INTO meta (key, value) VALUES (?1, ?2)", { { text = key }, { text = meta[key] } }))
   end
-  assert(Sqlite.run(db, "INSERT INTO modules (path, source) VALUES ('cosmic.thing', ?1)", { { blob = source } }))
+  assert(db:run("INSERT INTO modules (path, source) VALUES ('cosmic.thing', ?1)", { { blob = source } }))
   assert(db:close())
 end
 

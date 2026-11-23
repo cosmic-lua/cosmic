@@ -37,7 +37,7 @@ function Example.load_and_filter()
       (4, 'b', l2_normalize('[0.8, 0.2, 0.1]'));
   ]]))
   local corpus = assert(Vector.load(db, "SELECT id, embedding FROM chunks"))
-  local tenant_a = assert(Sqlite.map(db, "SELECT id FROM chunks WHERE tenant = 'a'", nil,
+  local tenant_a = assert(db:map("SELECT id FROM chunks WHERE tenant = 'a'", nil,
     function(r: Sqlite.Row): integer
       return r:integer(1)
     end))
@@ -85,13 +85,13 @@ function Example.ivf()
   ]]))
   for i, p in ipairs(points) do
     local blob = Vector.normalize(Vector.pack(p))
-    assert(Sqlite.run(db, "INSERT INTO chunks VALUES (?1, ?2, ?3)",
+    assert(db:run("INSERT INTO chunks VALUES (?1, ?2, ?3)",
       { { integer = i }, { integer = Vector.nearest(centroids, blob) }, { blob = blob } }))
   end
 
   local query = Vector.normalize(Vector.pack({ 0.2, 1 }))
   local probes: Sqlite.Value = { integers = Vector.nearest_n(centroids, query, 1) }
-  local ids = assert(Sqlite.map(db, [[
+  local ids = assert(db:map([[
     SELECT id FROM chunks WHERE cluster IN carray(?2)
     ORDER BY inner_product(embedding, ?1) DESC LIMIT 2
   ]], { { blob = query }, probes }, function(r: Sqlite.Row): integer

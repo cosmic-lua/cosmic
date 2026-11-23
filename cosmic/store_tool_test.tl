@@ -25,7 +25,7 @@ test_child.register("shadowing", function(argv: {string}): integer
   local binary = assert(databases[#databases])
   local wrappers: mut {string} = {}
   local ordinary: string? = nil
-  for _, row in ipairs((assert(Sqlite.text_rows(binary,
+  for _, row in ipairs((assert(binary:text_rows(
       "SELECT path FROM modules WHERE kind = 'module' ORDER BY path")))) do
     local name = row:text(1)
     local _, extra = search(name)
@@ -45,7 +45,7 @@ test_child.register("shadowing", function(argv: {string}): integer
   local names: mut {string} = { ordinary }
   for _, name in ipairs(wrappers) do table.insert(names, name) end
   for _, name in ipairs(names) do
-    assert(Sqlite.run(db, "INSERT INTO modules (path, bytecode, kind) VALUES (?1, deflate(?2), 'module')",
+    assert(db:run("INSERT INTO modules (path, bytecode, kind) VALUES (?1, deflate(?2), 'module')",
       { { text = name }, { blob = impostor } }))
   end
   assert(db:close())
@@ -87,13 +87,13 @@ test_child.register("stored", function(argv: {string}): integer
   assert(db:exec("CREATE TABLE modules (path TEXT, bytecode BLOB, kind TEXT, source TEXT, file TEXT); " ..
       "CREATE TABLE meta (key TEXT, value TEXT)"))
   local chunk = string.dump(function(...: any): any return ... end, true)
-  assert(Sqlite.run(db, "INSERT INTO modules (path, bytecode, kind) VALUES ('project.packed', deflate(?1), 'module')",
+  assert(db:run("INSERT INTO modules (path, bytecode, kind) VALUES ('project.packed', deflate(?1), 'module')",
     { { blob = chunk } }))
-  assert(Sqlite.run(db, "INSERT INTO modules (path, bytecode, kind) VALUES ('project.plain', ?1, 'module')",
+  assert(db:run("INSERT INTO modules (path, bytecode, kind) VALUES ('project.plain', ?1, 'module')",
     { { blob = chunk } }))
-  assert(Sqlite.run(db, "INSERT INTO modules (path, bytecode, kind) VALUES ('project.neither', ?1, 'module')",
+  assert(db:run("INSERT INTO modules (path, bytecode, kind) VALUES ('project.neither', ?1, 'module')",
     { { blob = "return 1" } }))
-  assert(Sqlite.run(db, "INSERT INTO modules (path, bytecode, kind) VALUES ('project.damaged', ?1, 'module')",
+  assert(db:run("INSERT INTO modules (path, bytecode, kind) VALUES ('project.damaged', ?1, 'module')",
     { { blob = chunk:sub(1, 12) .. "not the rest of a chunk" } }))
   assert(db:close())
   assert(Store.attach((argv[1] or ""), { unchecked_bytecode = true }))

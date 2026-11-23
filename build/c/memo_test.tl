@@ -66,7 +66,7 @@ end
 --- How many outcomes the store keeps. The check prepares the memo table only for a pinned toolchain, so a store with no
 --- table means the check ran without one: the likely cause is a stand-in toolchain variable that leaked into the run.
 local function kept(store: Sqlite.Handle): integer
-  local rows, why = Sqlite.rows(store, "SELECT count(*) FROM check_memo WHERE kind = 'c'")
+  local rows, why = store:rows("SELECT count(*) FROM check_memo WHERE kind = 'c'")
   assert(rows ~= nil, tostring(why) .. ": the check kept no memo, which it does for a stand-in toolchain; " ..
       "COSMIC_BOOTSTRAP or COSMIC_ZIG is probably set in this run when it should not be (an entry point, a wrapper or a " ..
       "caller leaking it)")

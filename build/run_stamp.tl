@@ -68,7 +68,7 @@ end
 local function signature_of(path: string): string?
   local db, _ = Sqlite.open(path)
   if db == nil then return nil end
-  local rows, _ = Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'projected'")
+  local rows, _ = db:text_rows("SELECT value FROM meta WHERE key = 'projected'")
   local _, _ = db:close()
   if rows == nil then return nil end
   local row = rows[1]
@@ -82,7 +82,7 @@ end
 
 function run_stamp.key(db: Sqlite.Handle, root: string, own: boolean, tool: string, target: string,
                        links?: string): string?
-  local rows, _ = Sqlite.text_rows(db, inputs_sql)
+  local rows, _ = db:text_rows(inputs_sql)
   if rows == nil then return nil end
   local row = rows[1]
   if row == nil then return nil end

@@ -279,7 +279,7 @@ local function test_staging_indexes_what_it_reads_and_forgets_what_goes()
   assert(support.nth(listed, 1).text == "first" and support.nth(listed, 1).commit == "")
 
   -- Bytes already indexed are not scanned again, so their rows stand.
-  assert(Sqlite.run(handle.db, "UPDATE todos SET text = 'from the index'"))
+  assert(handle.db:run("UPDATE todos SET text = 'from the index'"))
   assert(work.stage(handle, { own = false }))
   listed = assert(todos.list(handle.db, root)).todos
   assert(support.nth(listed, 1).text == "from the index", support.nth(listed, 1).text)
@@ -291,7 +291,7 @@ local function test_staging_indexes_what_it_reads_and_forgets_what_goes()
   assert(work.stage(handle, { own = false }))
   listed = assert(todos.list(handle.db, root)).todos
   assert(#listed == 1 and listed[1].file == "src/b.tl" and listed[1].line == 2)
-  local rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM todos"))
+  local rows = assert(handle.db:text_rows("SELECT count(*) FROM todos"))
   assert(support.nth(rows, 1):text(1) == "1", support.nth(rows, 1):text(1))
   assert(work.close(handle))
   assert(Fs.remove_tree(root))
@@ -311,7 +311,7 @@ local function test_a_file_the_build_does_not_consume_is_scanned_all_the_same()
   assert(support.nth(listed, 1).file == "scripts/release.sh" and support.nth(listed, 1).line == 2)
   assert(support.nth(listed, 1).text == "sign the archive", support.nth(listed, 1).text)
   -- Scanned, not staged: nothing the build compiles or runs sees it.
-  local rows = assert(Sqlite.text_rows(handle.db,
+  local rows = assert(handle.db:text_rows(
     "SELECT count(*) FROM files WHERE path = 'scripts/release.sh'"))
   assert(support.nth(rows, 1):text(1) == "0", support.nth(rows, 1):text(1))
 
@@ -319,7 +319,7 @@ local function test_a_file_the_build_does_not_consume_is_scanned_all_the_same()
   assert(work.stage(handle, { own = false }))
   listed = assert(todos.list(handle.db, root)).todos
   assert(#listed == 0, "found " .. tostring(#listed))
-  rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM scanned"))
+  rows = assert(handle.db:text_rows("SELECT count(*) FROM scanned"))
   assert(support.nth(rows, 1):text(1) == "0", support.nth(rows, 1):text(1))
   assert(work.close(handle))
   assert(Fs.remove_tree(root))
@@ -349,7 +349,7 @@ local function test_own_tree_scans_github_for_todos()
   end
   assert(table.concat(seen, "|") == ".github/actions/driver/action.yml:2: lint these steps|" ..
       ".github/check.tl:1: not an input|.github/workflows/ci.yml:1: pin the runner", table.concat(seen, "|"))
-  local rows = assert(Sqlite.text_rows(handle.db,
+  local rows = assert(handle.db:text_rows(
     "SELECT count(*) FROM files WHERE path LIKE '.github/%'"))
   assert(support.nth(rows, 1):text(1) == "0", support.nth(rows, 1):text(1))
   assert(work.close(handle))
@@ -360,7 +360,7 @@ local function test_own_tree_scans_github_for_todos()
   assert(work.stage(other, { own = false }))
   listed = assert(todos.list(other.db, root)).todos
   assert(#listed == 0, "found " .. tostring(#listed))
-  rows = assert(Sqlite.text_rows(other.db, "SELECT count(*) FROM scanned"))
+  rows = assert(other.db:text_rows("SELECT count(*) FROM scanned"))
   assert(support.nth(rows, 1):text(1) == "0", support.nth(rows, 1):text(1))
   assert(work.close(other))
   assert(Fs.remove_tree(root))
@@ -608,7 +608,7 @@ local function test_todos_makes_a_free_database_of_another_schema_again(tmp: str
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/a.tl", text({ "-- TODO: listed all the same" })))
   local made = assert(work.open(root))
-  assert(Sqlite.run(made.db, "UPDATE meta SET value = 'another' WHERE key = 'schema'"))
+  assert(made.db:run("UPDATE meta SET value = 'another' WHERE key = 'schema'"))
   assert(work.close(made))
   local result = invoke.run({ "todos" }, { cwd = root,
     env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = assert(Env.get("COSMIC_BUILD_HOME")) } })
@@ -625,7 +625,7 @@ local function test_todos_refuses_a_held_database_of_another_schema(tmp: string)
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/a.tl", text({ "-- TODO: never listed" })))
   local made = assert(work.open(root))
-  assert(Sqlite.run(made.db, "UPDATE meta SET value = 'another' WHERE key = 'schema'"))
+  assert(made.db:run("UPDATE meta SET value = 'another' WHERE key = 'schema'"))
   local path = made.dir .. "/build.db"
   assert(work.close(made))
   local held = assert(Sqlite.open(path, { writable = true }))

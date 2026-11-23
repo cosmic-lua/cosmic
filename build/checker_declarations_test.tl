@@ -1,7 +1,6 @@
 --- Tests of [`build.checker_declarations`]: the prelude and the standard library's declarations a tool carries for the projects
 --- it types, read from the tree it is written from and held to the files as they were staged.
 local Fs = require("cosmic.fs")
-local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local CheckerDeclarations = require("build.checker_declarations")
 local work = require("build.work")
@@ -52,7 +51,7 @@ end
 local function test_a_declaration_file_is_a_tool_file_and_no_module_of_the_tree(tmp: string)
   local handle, _ = own_tree(tmp, { ["lang/prelude.d.tl"] = PRELUDE, ["lang/stdlib.d.tl"] = STDLIB, ["lang/m.tl"] = "return 1\n" })
   local function count(table_name: string, file: string): integer
-    local rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM " .. table_name .. " WHERE path = ?1",
+    local rows = assert(handle.db:text_rows("SELECT count(*) FROM " .. table_name .. " WHERE path = ?1",
       { { text = file } }))
     return math.tointeger(tonumber(assert(rows[1]):text(1))) or -1
   end

@@ -175,11 +175,11 @@ end
 local function test_sqlite_runs_without_values_as_declared(tmp: string)
   honest("sqlite", function()
     local db = assert(Sqlite.open(tmp .. "/db.sqlite", { writable = true }))
-    assert(Sqlite.run(db, "create table t(a integer)"))
-    assert(Sqlite.run(db, "insert into t values (1), (2)"))
-    assert(#assert(Sqlite.rows(db, "select a from t")) == 2)
-    assert(Sqlite.run(db, "insert into t values (3)"))
-    local query = assert(Sqlite.query(db, "select a from t"))
+    assert(db:run("create table t(a integer)"))
+    assert(db:run("insert into t values (1), (2)"))
+    assert(#assert(db:rows("select a from t")) == 2)
+    assert(db:run("insert into t values (3)"))
+    local query = assert(db:query("select a from t"))
     local count = 0
     -- (Not `each`, whose iterator answers nil at the end: see the TODO
     -- in cosmic/sqlite.tl.)

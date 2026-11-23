@@ -70,7 +70,7 @@ local function boot(root: string, path: string): importer.Parses, string, string
   if shared ~= nil then shared.finish() end
   assert(ok, tostring(raised))
   local parses = assert(derived, trouble)
-  local recorded = assert(Sqlite.text_rows(handle.db,
+  local recorded = assert(handle.db:text_rows(
     "SELECT value FROM meta WHERE key = 'analyzer'"))
   local rows = parse_rows(handle.db)
   work.close(handle)
@@ -125,7 +125,7 @@ local function test_a_boot_takes_only_the_parses_its_own_analyzer_made(tmp: stri
   local analyzer_hash = rows:match("\n([0-9a-f]+)\t1\tbuild%.ast\n")
   assert(analyzer_hash ~= nil, rows)
   local cache = assert(Sqlite.open(path, { writable = true }))
-  assert(Sqlite.run(cache, "UPDATE parsed_v1 SET requires = 'build.ast\n' " ..
+  assert(cache:run("UPDATE parsed_v1 SET requires = 'build.ast\n' " ..
       "WHERE analyzer = ?1 AND source_hash = ?2", { { text = named }, { text = analyzer_hash } }))
   assert(cache:close())
   assert(dump(path, "SELECT count(*) FROM parsed_v1 WHERE requires = 'build.ast\n'") == "1")
@@ -165,10 +165,10 @@ local function test_a_taken_analyzer_the_parse_moves_is_parsed_afresh(tmp: strin
   local analyzer_hash = lacking_rows:match("\n([0-9a-f]+)\t3\tbuild%.extra\n")
   assert(analyzer_hash ~= nil, lacking_rows)
   local cache = assert(Sqlite.open(path, { writable = true }))
-  assert(Sqlite.run(cache, "UPDATE parsed_v1 SET requires = 'build.ast\nbuild.thing\n' " ..
+  assert(cache:run("UPDATE parsed_v1 SET requires = 'build.ast\nbuild.thing\n' " ..
       "WHERE analyzer = ?1 AND source_hash = ?2",
     { { text = lacking_named }, { text = analyzer_hash } }))
-  assert(Sqlite.run(cache, "DELETE FROM parsed_v1 WHERE analyzer = ?1", { { text = having_named } }))
+  assert(cache:run("DELETE FROM parsed_v1 WHERE analyzer = ?1", { { text = having_named } }))
   assert(cache:close())
   local count = 0
   for _ in pairs(analyzer_tree) do count = count + 1 end
@@ -214,7 +214,7 @@ local function test_a_kept_parse_comes_back_whole(tmp: string)
   assert(#analyzers == 1 and analyzers[1] == "x")
   assert(#assert(shared_compiles.analyzers(cache, { "ab", "cd" })) == 0)
   -- A row moved to another source is no row of that source.
-  assert(Sqlite.run(cache.db, "UPDATE parsed_v1 SET source_hash = 'cd'"))
+  assert(cache.db:run("UPDATE parsed_v1 SET source_hash = 'cd'"))
   local moved, moved_trouble = shared_compiles.look_parse(cache,
     { analyzer = "x", source_hash = "cd", mapped = true })
   assert(moved == nil and moved_trouble == "", "a moved row was taken")
@@ -227,14 +227,14 @@ local function test_a_kept_parse_comes_back_whole(tmp: string)
   assert(shared_compiles.settle(cache, { kept = {}, used = {},
     parses = { { key = key, made = made } }, parses_used = {} }, 10))
   assert(shared_compiles.settle(cache, { kept = { kept }, used = {} }, 5))
-  local sizes = assert(Sqlite.text_rows(cache.db,
+  local sizes = assert(cache.db:text_rows(
     "SELECT (SELECT size FROM compiled_v2), (SELECT size FROM parsed_v1)"))
   local parse_size = math.tointeger(tonumber(support.nth(sizes, 1):text(2))) or 0
   assert(parse_size > 0)
   assert(shared_compiles.settle(cache, { kept = {}, used = {},
     parses = { { key = { analyzer = "y", source_hash = "ab", mapped = false }, made = made } },
     parses_used = {} }, 20, 2 * parse_size + 1))
-  local left = assert(Sqlite.text_rows(cache.db,
+  local left = assert(cache.db:text_rows(
     "SELECT (SELECT count(*) FROM compiled_v2), (SELECT count(*) FROM parsed_v1)"))
   shared_compiles.close(cache)
   assert(support.nth(left, 1):text(1) == "0" and support.nth(left, 1):text(2) == "2", support.nth(left, 1):text(1) .. " " .. support.nth(left, 1):text(2))

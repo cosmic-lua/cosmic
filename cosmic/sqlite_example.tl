@@ -17,10 +17,10 @@ function Example.open()
   assert(absent == nil, "a read-only open does not create the file")
   local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("CREATE TABLE notes (body TEXT)"))
-  assert(Sqlite.run(db, "INSERT INTO notes VALUES (?1)", { { text = "hi" } }))
+  assert(db:run("INSERT INTO notes VALUES (?1)", { { text = "hi" } }))
   assert(db:close())
   local frozen = assert(Sqlite.open(path, { immutable = true }))
-  local rows = assert(Sqlite.rows(frozen, "SELECT body FROM notes"))
+  local rows = assert(frozen:rows("SELECT body FROM notes"))
   local note = assert(rows[1])
   assert(note:kind(1) == "text" and note:text(1) == "hi")
   assert(frozen:close())
@@ -35,7 +35,7 @@ end
 --- Read a value without losing its SQLite storage class.
 function Example.typed_row()
   local db = assert(Sqlite.memory())
-  local rows = assert(Sqlite.rows(db, "SELECT 42, 'answer', NULL"))
+  local rows = assert(db:rows("SELECT 42, 'answer', NULL"))
   local row = assert(rows[1])
   assert(row:kind(1) == "integer" and row:integer(1) == 42)
   assert(row:kind(2) == "text" and row:text(2) == "answer")
@@ -49,7 +49,7 @@ end
 --- first where a column may hold something else.
 function Example.read_a_row()
   local db = assert(Sqlite.memory())
-  local rows = assert(Sqlite.rows(db, "SELECT 7, 'seven', NULL, x'ff00'"))
+  local rows = assert(db:rows("SELECT 7, 'seven', NULL, x'ff00'"))
   local row = assert(rows[1])
   print(row:count(), row:integer(1), row:text(2), row:is_null(3), #row:blob(4))
   assert(row:count() == 4 and row:integer(1) == 7 and row:text(2) == "seven")
@@ -69,14 +69,14 @@ function Example.map()
     name: string
     n: integer
   end
-  local found = assert(Sqlite.map(db, "SELECT name, n FROM t WHERE n > ?1 ORDER BY n",
+  local found = assert(db:map("SELECT name, n FROM t WHERE n > ?1 ORDER BY n",
     { { integer = 0 } }, function(r: Sqlite.Row): Named
       return { name = r:text(1), n = r:integer(2) }
     end))
   local first, second = assert(found[1]), assert(found[2])
   print(#found, second.name) -- 2  b
   assert(#found == 2 and first.n == 1 and second.name == "b")
-  local none, why = Sqlite.map(db, "SELECT * FROM missing", nil, function(r: Sqlite.Row): integer
+  local none, why = db:map("SELECT * FROM missing", nil, function(r: Sqlite.Row): integer
     return r:integer(1)
   end)
   assert(none == nil and tostring(why):find("missing", 1, true) ~= nil, why)
@@ -87,15 +87,15 @@ end
 function Example.rowid_and_changes()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT)"))
-  assert(Sqlite.run(db, "INSERT INTO items (value) VALUES (?1)", { { text = "a" } }))
+  assert(db:run("INSERT INTO items (value) VALUES (?1)", { { text = "a" } }))
   local id = db:last_insert_rowid()
   assert(id == 1)
-  assert(Sqlite.run(db, "DELETE FROM items WHERE id = ?1", { { integer = id } }))
+  assert(db:run("DELETE FROM items WHERE id = ?1", { { integer = id } }))
   assert(db:changes() == 1)
   -- Deleting an id that is no longer there changes nothing: this is
   -- how a caller tells "removed" from "was never there" without a
   -- SELECT of its own first.
-  assert(Sqlite.run(db, "DELETE FROM items WHERE id = ?1", { { integer = id } }))
+  assert(db:run("DELETE FROM items WHERE id = ?1", { { integer = id } }))
   assert(db:changes() == 0)
   assert(db:close())
 end
@@ -107,10 +107,10 @@ function Example.query()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE events (id INTEGER PRIMARY KEY, level TEXT)"))
   for _, level in ipairs({ "info", "warn", "info", "warn" }) do
-    assert(Sqlite.run(db, "INSERT INTO events (level) VALUES (?1)", { { text = level } }))
+    assert(db:run("INSERT INTO events (level) VALUES (?1)", { { text = level } }))
   end
   do
-    local q <close> = assert(Sqlite.query(db,
+    local q <close> = assert(db:query(
       "SELECT id FROM events WHERE level = ?1 ORDER BY id", { { text = "warn" } }))
     for row in q:each() do print(row:integer(1)) end
     assert(q:failure() == nil, q:failure())
@@ -124,24 +124,24 @@ end
 function Example.transact()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE t (n INTEGER)"))
-  local ok, why = Sqlite.transact(db, function(): (true) | (false, Failure)
-    assert(Sqlite.run(db, "INSERT INTO t VALUES (1)"))
+  local ok, why = db:transact(function(): (true) | (false, Failure)
+    assert(db:run("INSERT INTO t VALUES (1)"))
     return false, Failure.new("changed my mind")
   end)
   assert(not ok and why.message == "changed my mind", tostring(why))
   local raised, err = pcall(function()
-    local _, _ = Sqlite.transact(db, function(): (true) | (false, Failure)
-      assert(Sqlite.run(db, "INSERT INTO t VALUES (2)"))
+    local _, _ = db:transact(function(): (true) | (false, Failure)
+      assert(db:run("INSERT INTO t VALUES (2)"))
       error("boom", 0)
     end)
   end)
   assert(not raised and tostring(err) == "boom", tostring(err))
-  local count = assert(Sqlite.rows(db, "SELECT count(*) FROM t"))
+  local count = assert(db:rows("SELECT count(*) FROM t"))
   assert(assert(count[1]):integer(1) == 0)
-  assert(Sqlite.transact(db, function(): (true) | (false, Failure)
-    return Sqlite.run(db, "INSERT INTO t VALUES (3)")
+  assert(db:transact(function(): (true) | (false, Failure)
+    return db:run("INSERT INTO t VALUES (3)")
   end))
-  count = assert(Sqlite.rows(db, "SELECT count(*) FROM t"))
+  count = assert(db:rows("SELECT count(*) FROM t"))
   assert(assert(count[1]):integer(1) == 1)
   assert(db:close())
 end
@@ -157,8 +157,8 @@ end
 --- health of the database.
 function Example.captured_results()
   local db = assert(Sqlite.memory())
-  assert(Sqlite.run(db, "CREATE TABLE notes (body TEXT)"))
-  local none, invalid = Sqlite.rows(db, "SELECT json('invalid')")
+  assert(db:run("CREATE TABLE notes (body TEXT)"))
+  local none, invalid = db:rows("SELECT json('invalid')")
   assert(none == nil and invalid.code ~= Sqlite.OK, "malformed JSON is refused")
   assert(invalid.code ~= Sqlite.CORRUPT and invalid.code ~= Sqlite.NOTADB)
   assert(invalid.code ~= Sqlite.BUSY and invalid.code ~= Sqlite.LOCKED)
@@ -180,7 +180,7 @@ function Example.vector_search()
       (4, 'kittens nap all day', 'b', l2_normalize('[0.8, 0.2, 0.1]'));
   ]]))
   local query = "[0.85, 0.15, 0.05]"
-  local found = assert(Sqlite.map(db, [[
+  local found = assert(db:map([[
     SELECT body, cosine_distance(embedding, ?1) FROM chunks
     WHERE tenant = 'a' ORDER BY 2 NULLS LAST LIMIT 2
   ]], { { text = query } }, function(r: Sqlite.Row): string

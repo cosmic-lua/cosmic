@@ -166,7 +166,7 @@ function Errors.guidance_in(handle: Sqlite.Handle, message: string): string?
   local name = if main ~= nil then main:match("^cmd%.([^%.]+)%.main$") else nil end
   local values: mut {Sqlite.Value} = { { text = query } }
   if main ~= nil and name ~= nil then
-    local held, _ = Sqlite.text_rows(handle, "SELECT 1 FROM main.modules WHERE path = ?1", { { text = main } })
+    local held, _ = handle:text_rows("SELECT 1 FROM main.modules WHERE path = ?1", { { text = main } })
     if held ~= nil and #held > 0 then
       carried = " AND catalog.module IN (WITH RECURSIVE carried(path) AS (SELECT ?2 UNION SELECT path FROM " ..
         "main.modules WHERE kind = 'module' AND substr(path, 1, length(?3)) = ?3 UNION SELECT path FROM " ..
@@ -178,7 +178,7 @@ function Errors.guidance_in(handle: Sqlite.Handle, message: string): string?
       values[#values + 1] = { text = source_run.pages or "" }
     end
   end
-  local rows, _ = Sqlite.text_rows(handle,
+  local rows, _ = handle:text_rows(
     "SELECT catalog.text, catalog.message, catalog.symbol, catalog.file, " ..
       "catalog.line, catalog.text IS NULL " ..
       "FROM main.catalog_fts JOIN main.catalog " ..
@@ -188,7 +188,7 @@ function Errors.guidance_in(handle: Sqlite.Handle, message: string): string?
   if rows == nil then
     -- A test's pure store leaves the catalog out ([`build.closure_store`]): that is no database without guidance, which
     -- answers none, but a store a test was not given the text of, and the lookup says so.
-    local pure, _ = Sqlite.text_rows(handle, "SELECT 1 FROM meta WHERE key = 'pure_store'")
+    local pure, _ = handle:text_rows("SELECT 1 FROM meta WHERE key = 'pure_store'")
     if pure ~= nil and #pure > 0 then
       error("the catalog of the store is withheld, so guidance on an error cannot be read from it: a test that reads " ..
           "the guidance of an error declares `Test.policy { store_text = true }`", 0)

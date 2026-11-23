@@ -74,7 +74,7 @@ local function read_as(root: string, file: string, hash: string): string?, strin
 end
 
 function CheckerDeclarations.staged(db: Sqlite.Handle, root: string): CheckerDeclarations.Texts?, string
-  local rows, trouble = Sqlite.text_rows(db, "SELECT path, sha256 FROM tool WHERE path IN (?1, ?2) ORDER BY path",
+  local rows, trouble = db:text_rows("SELECT path, sha256 FROM tool WHERE path IN (?1, ?2) ORDER BY path",
     { { text = PRELUDE }, { text = STDLIB } })
   if rows == nil then
     return nil, tostring(trouble)

@@ -412,7 +412,7 @@ end
 local function record_run(handle: Sqlite.Handle, path: string, name: string,
                           passed: boolean, message: string, ran_at_ns: integer,
                           key: string, run_at_ns: integer, elapsed: integer): boolean, string
-  local answered, answer_why = Sqlite.run(handle,
+  local answered, answer_why = handle:run(
     "INSERT OR REPLACE INTO runs (path, test, passed, message, ran_at_ns, " ..
       "key, run_at_ns, elapsed_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
     { text(path), text(name), { integer = if passed then 1 else 0 end }, text(message),
@@ -424,7 +424,7 @@ end
 --- Every test that has a `runs` row, by "path name": each that ran or
 --- stood here before.
 local function previous_runs(handle: Sqlite.Handle): {string:boolean}?, string
-  local rows, trouble = Sqlite.text_rows(handle, "SELECT path, test FROM runs")
+  local rows, trouble = handle:text_rows("SELECT path, test FROM runs")
   if rows == nil then
     return nil, tostring(trouble)
   end
@@ -446,7 +446,7 @@ local kept_snapshots = 10
 --- standing verdict's `coverage_by_test` rows are never dropped out
 --- from under it: only a verdict already gone can lose them.
 function test.prune_history(handle: Sqlite.Handle, run: integer): boolean, string
-  local dropped, drop_trouble = Sqlite.run(handle,
+  local dropped, drop_trouble = handle:run(
     "DELETE FROM verdicts WHERE seen < ?1", { { integer = run - kept_runs } })
   if not dropped then
     return false, tostring(drop_trouble)
@@ -455,7 +455,7 @@ function test.prune_history(handle: Sqlite.Handle, run: integer): boolean, strin
     "DELETE FROM coverage_by_test WHERE ran_at_ns NOT IN " ..
       "(SELECT run_at_ns FROM verdicts)")
   if not pruned_credits then
-    return false, credits_trouble
+    return false, tostring(credits_trouble)
   end
   -- By range, not `NOT IN`: the key leads with `ran_at_ns`, so this reads
   -- the rows it drops, where `NOT IN` read every kept snapshot's as well,
@@ -465,11 +465,13 @@ function test.prune_history(handle: Sqlite.Handle, run: integer): boolean, strin
       "(SELECT min(ran_at_ns) FROM (SELECT ran_at_ns FROM test_runs ORDER BY ran_at_ns DESC LIMIT " ..
       tostring(kept_snapshots) .. "))")
   if not pruned_snapshots then
-    return false, snapshots_trouble
+    return false, tostring(snapshots_trouble)
   end
-  return handle:exec(
+  local pruned_runs, runs_trouble = handle:exec(
     "DELETE FROM test_runs WHERE ran_at_ns NOT IN (SELECT ran_at_ns FROM coverage) " ..
       "AND ran_at_ns NOT IN (SELECT ran_at_ns FROM coverage_by_test)")
+  if not pruned_runs then return false, tostring(runs_trouble) end
+  return true, ""
 end
 
 --- A map entry carried with its key, so a sorted walk of the keys needs no second lookup.
@@ -721,7 +723,7 @@ local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
       placeholders[index] = "?" .. tostring((index + 1))
       args[#args + 1] = text(id)
     end
-    local rows, trouble = Sqlite.text_rows(handle,
+    local rows, trouble = handle:text_rows(
       "SELECT hits FROM coverage_by_test WHERE ran_at_ns = ?1 " ..
         "AND test IN (" .. table.concat(placeholders, ", ") .. ")", args)
     if rows == nil then
@@ -768,15 +770,15 @@ function test.write_module_coverage(handle: Sqlite.Handle,
     "CREATE TEMP TABLE IF NOT EXISTS run_modules (path TEXT PRIMARY KEY, source_hash TEXT NOT NULL) " ..
       "WITHOUT ROWID; CREATE TEMP TABLE IF NOT EXISTS run_hits (path TEXT NOT NULL, line INTEGER NOT NULL, " ..
       "PRIMARY KEY (path, line)) WITHOUT ROWID; DELETE FROM temp.run_modules; DELETE FROM temp.run_hits")
-  if not made then return nil, made_trouble end
+  if not made then return nil, tostring(made_trouble) end
   local prepared_modules, modules_trouble = handle:prepare(
     "INSERT INTO temp.run_modules (path, source_hash) VALUES (?1, ?2)")
-  if prepared_modules == nil then return nil, modules_trouble end
+  if prepared_modules == nil then return nil, tostring(modules_trouble) end
   local into_modules: Sqlite.Statement = prepared_modules
   local prepared_hits, hits_trouble = handle:prepare("INSERT OR IGNORE INTO temp.run_hits (path, line) VALUES (?1, ?2)")
   if prepared_hits == nil then
     into_modules:finalize()
-    return nil, hits_trouble
+    return nil, tostring(hits_trouble)
   end
   local into_hits: Sqlite.Statement = prepared_hits
   local filled, fill_trouble = each(function(path: string, hash: string): boolean, string
@@ -797,7 +799,7 @@ function test.write_module_coverage(handle: Sqlite.Handle,
   into_modules:finalize()
   into_hits:finalize()
   if not filled then return nil, fill_trouble end
-  local missing, missing_trouble = Sqlite.text_rows(handle,
+  local missing, missing_trouble = handle:text_rows(
     "SELECT m.path FROM temp.run_modules m LEFT JOIN executable e ON e.source_hash = m.source_hash " ..
       "WHERE e.source_hash IS NULL ORDER BY m.path")
   if missing == nil then return nil, tostring(missing_trouble) end
@@ -805,7 +807,7 @@ function test.write_module_coverage(handle: Sqlite.Handle,
     local trouble = ensure(row:text(1))
     if trouble ~= "" then return nil, trouble end
   end
-  local written, write_trouble = Sqlite.run(handle,
+  local written, write_trouble = handle:run(
     "INSERT INTO coverage (ran_at_ns, path, line, hit) " ..
       "SELECT ?1, m.path, j.value, EXISTS (SELECT 1 FROM temp.run_hits h WHERE h.path = m.path AND h.line = j.value) " ..
       "FROM temp.run_modules m JOIN executable e ON e.source_hash = m.source_hash, " ..
@@ -814,12 +816,12 @@ function test.write_module_coverage(handle: Sqlite.Handle,
   if not written then return nil, tostring(write_trouble) end
   -- How many rows that wrote, and how many of them are hit, counted from the rows themselves: asking `run_hits` which
   -- of its lines a module's executable lines hold spreads the module's lines again for each line hit.
-  local totals, totals_trouble = Sqlite.text_rows(handle,
+  local totals, totals_trouble = handle:text_rows(
     "SELECT count(*), coalesce(sum(c.hit), 0) FROM coverage c JOIN temp.run_modules m ON m.path = c.path " ..
       "WHERE c.ran_at_ns = ?1", { { integer = run_at_ns } })
   local cleaned, clean_trouble = handle:exec("DELETE FROM temp.run_modules; DELETE FROM temp.run_hits")
   if totals == nil then return nil, tostring(totals_trouble) end
-  if not cleaned then return nil, clean_trouble end
+  if not cleaned then return nil, tostring(clean_trouble) end
   local counted = totals[1]
   if counted == nil then return nil, "the count of the rows written came back empty" end
   return { hit = math.tointeger(tonumber(counted:text(2))) or 0, lines = math.tointeger(tonumber(counted:text(1))) or 0 }, ""
@@ -850,7 +852,7 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
                               by_test: {string: string},
                               run_at_ns: integer): integer, integer, string
   local totals = { hit = 0, lines = 0 }
-  local recorded, run_trouble = Sqlite.run(handle,
+  local recorded, run_trouble = handle:run(
     "INSERT OR REPLACE INTO test_runs (ran_at_ns) VALUES (?1)",
     { { integer = run_at_ns } })
   if not recorded then
@@ -864,13 +866,13 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
     "INSERT INTO coverage (ran_at_ns, path, line, hit) " ..
       "SELECT ?1, ?2, j.value, CAST(substr(?4, j.key + 1, 1) AS INTEGER) FROM json_each(?3) j")
   if coverage == nil then
-    return 0, 0, prepare_trouble
+    return 0, 0, tostring(prepare_trouble)
   end
   local per_test, test_trouble = handle:prepare(
     "INSERT INTO coverage_by_test (ran_at_ns, test, hits) VALUES (?1, ?2, ?3)")
   if per_test == nil then
     coverage:finalize()
-    return 0, 0, test_trouble
+    return 0, 0, tostring(test_trouble)
   end
   -- The core's own C sits among the modules by path: a core that
   -- observes it answers every line a block begins on, and a line is hit
@@ -999,11 +1001,11 @@ end
 --- so a checkout made again at the same path is another checkout, and
 --- one whose o/ is removed is too.
 local function checkout_id(records: Sqlite.Handle, root: string, now_ns: integer): string
-  local rows, _ = Sqlite.text_rows(records, "SELECT value FROM meta WHERE key = 'checkout'")
+  local rows, _ = records:text_rows("SELECT value FROM meta WHERE key = 'checkout'")
   if rows ~= nil and rows[1] ~= nil then return rows[1]:text(1) end
   local made = hex_sha256(root .. "\0" .. tostring(now_ns) .. "\0" ..
       tostring(Clock.monotonic_ns()) .. "\0" .. tostring({})) -- checked: literal_needs_type
-  local _, _ = Sqlite.run(records, "INSERT OR REPLACE INTO meta (key, value) VALUES ('checkout', ?1)",
+  local _, _ = records:run("INSERT OR REPLACE INTO meta (key, value) VALUES ('checkout', ?1)",
     { text(made) })
   return made
 end
@@ -1038,7 +1040,7 @@ local function instruction_lines_of(rec: Recording, path: string): {integer}?, s
   local opened, trouble = Sqlite.open(projection)
   if opened == nil then return nil, projection .. ": " .. tostring(trouble) end
   local db: Sqlite.Handle = opened
-  local rows, rows_trouble = Sqlite.rows(db, "SELECT chunk(bytecode) FROM modules WHERE path = ?1", { text(path) })
+  local rows, rows_trouble = db:rows("SELECT chunk(bytecode) FROM modules WHERE path = ?1", { text(path) })
   local _, _ = db:close()
   if rows == nil then return nil, projection .. ": " .. tostring(rows_trouble) end
   local row = rows[1]
@@ -3256,10 +3258,10 @@ end
 local function keep_violations(records: Sqlite.Handle, rec: Recording,
                                run_at_ns: integer): boolean, string
   local cleared, clear_trouble = records:exec("DELETE FROM type_violations")
-  if not cleared then return false, clear_trouble end
+  if not cleared then return false, tostring(clear_trouble) end
   for _, key in ipairs(rec.violation_order) do
     local met = violation_of(rec, key)
-    local saved, save_trouble = Sqlite.run(records,
+    local saved, save_trouble = records:run(
       "INSERT INTO type_violations (ran_at_ns, kind, site, target, declared, actual, " ..
         "count, test) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
       { { integer = run_at_ns }, text(met.kind), text(met.at), text(met.target),
@@ -3268,10 +3270,10 @@ local function keep_violations(records: Sqlite.Handle, rec: Recording,
     if not saved then return false, tostring(save_trouble) end
   end
   local cleared_tests, clear_tests_trouble = records:exec("DELETE FROM type_violation_tests")
-  if not cleared_tests then return false, clear_tests_trouble end
+  if not cleared_tests then return false, tostring(clear_tests_trouble) end
   for _, met in ipairs(rec.violation_met) do
     local row = assert(rec.violations[met.key])
-    local saved, save_trouble = Sqlite.run(records,
+    local saved, save_trouble = records:run(
       "INSERT OR REPLACE INTO type_violation_tests (test, kind, site, target, declared, actual, count) " ..
         "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
       { text(met.test), text(row.kind), text(row.at), text(row.target), text(row.declared),
@@ -3353,7 +3355,7 @@ end
 --- entirely on verdicts has the same figures as the runs that earned them,
 --- but for a module whose lines have moved since (`stale`).
 local function file_lines(handle: Sqlite.Handle, run_at_ns: integer): {test_report.FileLines}?, string
-  local rows, trouble = Sqlite.text_rows(handle,
+  local rows, trouble = handle:text_rows(
     "SELECT path, count(*), sum(hit) FROM coverage WHERE ran_at_ns = ?1 GROUP BY path",
     { { integer = run_at_ns } })
   if rows == nil then return nil, tostring(trouble) end

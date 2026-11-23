@@ -12,7 +12,9 @@ local sys = require("cosmic.sys")
 
 --- A `prepare` that makes one table, as each cache makes its own.
 local function prepare(db: Sqlite.Handle): boolean, string
-  return db:exec("CREATE TABLE IF NOT EXISTS kept (key TEXT PRIMARY KEY)")
+  local done, done_why = db:exec("CREATE TABLE IF NOT EXISTS kept (key TEXT PRIMARY KEY)")
+  if not done then return false, tostring(done_why) end
+  return true, ""
 end
 
 --- A cache opened is in write-ahead mode and prepared; a `prepare`
@@ -20,19 +22,19 @@ end
 local function test_an_open_cache_is_in_wal_mode_and_prepared(tmp: string)
   local path = tmp .. "/cache.db"
   local db = assert(shared_sqlite.open(path, prepare))
-  local mode = assert(Sqlite.text_rows(db, "PRAGMA journal_mode"))
+  local mode = assert(db:text_rows("PRAGMA journal_mode"))
   local mode_row = Array.at(mode, 1)
   assert(mode_row:text(1) == "wal", mode_row:text(1))
-  local timeout = assert(Sqlite.text_rows(db, "PRAGMA busy_timeout"))
+  local timeout = assert(db:text_rows("PRAGMA busy_timeout"))
   local timeout_row = Array.at(timeout, 1)
   assert(timeout_row:text(1) == "10000", "busy timeout " .. timeout_row:text(1))
-  assert(Sqlite.text_rows(db, "SELECT key FROM kept"))
-  db:close()
+  assert(db:text_rows("SELECT key FROM kept"))
+  local _, _ = db:close()
   local waiting = assert(shared_sqlite.open(path, prepare, Clock.ms(50)))
-  timeout = assert(Sqlite.text_rows(waiting, "PRAGMA busy_timeout"))
+  timeout = assert(waiting:text_rows("PRAGMA busy_timeout"))
   timeout_row = Array.at(timeout, 1)
   assert(timeout_row:text(1) == "50", "busy timeout " .. timeout_row:text(1))
-  waiting:close()
+  local _, _ = waiting:close()
   -- The last connection closed, SQLite removes the log; one left open
   -- by a failed open would keep it.
   assert(not assert(Fs.status(path .. "-wal")).exists, "the log outlived its connections")
@@ -70,9 +72,9 @@ local function held_open(path: string, statements: {string},
   local waited = Clock.monotonic_ns() - started
   assert(db == nil, "opened a cache another holds")
   assert(holder:exec("COMMIT"))
-  holder:close()
+  local _, _ = holder:close()
   local opened = assert(shared_sqlite.open(path, prepare, wait_ns))
-  opened:close()
+  local _, _ = opened:close()
   return waited, trouble
 end
 
@@ -115,10 +117,10 @@ local function test_a_wal_cache_opens_while_another_writes(tmp: string)
   assert(first:exec("INSERT INTO kept (key) VALUES ('k')"))
   local second = assert(shared_sqlite.open(path, prepare, Clock.ms(50)))
   assert(first:exec("COMMIT"))
-  local rows = assert(Sqlite.text_rows(second, "SELECT key FROM kept"))
+  local rows = assert(second:text_rows("SELECT key FROM kept"))
   assert(#rows == 1 and rows[1]:text(1) == "k")
-  second:close()
-  first:close()
+  local _, _ = second:close()
+  local _, _ = first:close()
 end
 
 --- The zero-wait handler still captures an unread guard signal when

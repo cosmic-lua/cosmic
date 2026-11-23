@@ -79,7 +79,7 @@ local carried_code: Reader = {
 local function staged_code(db: Sqlite.Handle): Reader
   return {
     source = function(name: string): string?
-      local rows, _ = Sqlite.text_rows(db, "SELECT source FROM inputs WHERE path = ?1 AND " .. AnalysisSchema.not_declaration("kind") .. " LIMIT 1", { { text = name } })
+      local rows, _ = db:text_rows("SELECT source FROM inputs WHERE path = ?1 AND " .. AnalysisSchema.not_declaration("kind") .. " LIMIT 1", { { text = name } })
       if rows == nil then
         return nil
       end
@@ -90,7 +90,7 @@ local function staged_code(db: Sqlite.Handle): Reader
       return row:text(1)
     end,
     requires = function(name: string): {string}
-      local rows, _ = Sqlite.text_rows(db,
+      local rows, _ = db:text_rows(
         "SELECT DISTINCT r.name FROM inputs i JOIN requires r ON r.source_hash = i.source_hash " ..
           "WHERE i.path = ?1 AND " .. AnalysisSchema.not_declaration("i.kind") .. " ORDER BY r.name", { { text = name } })
       local out: mut {string} = {}
@@ -126,7 +126,7 @@ end
 function code_identity.coded_of(tool: string, db: Sqlite.Handle): string?, string
   -- The requires of a source are rows the parse of it made, so a tree not parsed yet has none: the identity would be the
   -- pipeline's own source alone, and an edit to the checker would read as none.
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT count(*) FROM inputs i JOIN requires r ON r.source_hash = i.source_hash WHERE i.path = 'build.pipeline'")
   if rows == nil then
     return nil, tostring(trouble)

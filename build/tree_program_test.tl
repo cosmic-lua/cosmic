@@ -2,7 +2,6 @@
 --- are modules, the globals, the bindings of C, and the sources the build writes from other files.
 local Driver = require("build.driver")
 local Fs = require("cosmic.fs")
-local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local TreeProgram = require("build.tree_program")
 local importer = require("build.importer")
@@ -124,7 +123,7 @@ local function test_the_guides_and_templates_are_the_modules_the_stage_derives_f
   local handle = assert(work.open(root))
   assert(work.stage(handle, { own = false }))
   assert(importer.derive(handle))
-  local rows = assert(Sqlite.text_rows(handle.db, "SELECT file, path, source, origin FROM derived ORDER BY file"))
+  local rows = assert(handle.db:text_rows("SELECT file, path, source, origin FROM derived ORDER BY file"))
   local derived: mut {{string}} = {}
   for _, row in ipairs(rows) do
     if row:text(4) == "doctest" or row:text(4) == "template" then

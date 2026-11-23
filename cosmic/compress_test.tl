@@ -790,12 +790,12 @@ end
 local function test_sql_chunk_answers_bytecode_stored_either_way()
   local db = assert(Sqlite.memory())
   local dumped = string.dump(function(...: any): any return ... end, true)
-  local rows = assert(Sqlite.rows(db, "SELECT chunk(?1), chunk(deflate(?1)), chunk(NULL) IS NULL",
+  local rows = assert(db:rows("SELECT chunk(?1), chunk(deflate(?1)), chunk(NULL) IS NULL",
     { { blob = dumped } }))
   local row = Array.at(rows, 1)
   assert(row:blob(1) == dumped and row:blob(2) == dumped and row:integer(3) == 1)
   for _, refused in ipairs({ "", "not a chunk" }) do
-    local none, trouble = Sqlite.rows(db, "SELECT chunk(?1)", { { blob = refused } })
+    local none, trouble = db:rows("SELECT chunk(?1)", { { blob = refused } })
     assert(none == nil and trouble.message ~= "", refused)
   end
   -- A stream that began with the byte would open with a copy from before its start: none inflates,
@@ -822,19 +822,19 @@ local function test_sql_deflate_and_inflate_speak_raw_deflate()
   local db = assert(Sqlite.memory())
   local text = string.rep("the quick brown fox jumps over the lazy dog\n", 200)
   for _, input in ipairs({ text, "", "x" }) do
-    local rows = assert(Sqlite.rows(db,
+    local rows = assert(db:rows(
       "SELECT deflate(?1), inflate(deflate(?1))", { { text = input } }))
     local stored = Array.at(rows, 1):blob(1)
     assert(stored == assert(Compress.encode("raw", input)),
       "SQL and Compress deflate alike")
     assert(assert(Compress.decode("raw", stored)) == input)
     assert(Array.at(rows, 1):kind(2) == "blob" and Array.at(rows, 1):blob(2) == input)
-    local back = assert(Sqlite.rows(db, "SELECT inflate(?1)",
+    local back = assert(db:rows("SELECT inflate(?1)",
       { { blob = assert(Compress.encode("raw", input)) } }))
     assert(Array.at(back, 1):blob(1) == input, "SQL inflates what Compress deflated")
   end
   assert(#assert(Compress.encode("raw", text)) < #text // 10)
-  local nulls = assert(Sqlite.text_rows(db,
+  local nulls = assert(db:text_rows(
     "SELECT deflate(NULL) IS NULL, inflate(NULL) IS NULL"))
   assert(Array.at(nulls, 1):text(1) == "1" and Array.at(nulls, 1):text(2) == "1")
   local stream = assert(Compress.encode("raw", text))
@@ -848,7 +848,7 @@ local function test_sql_deflate_and_inflate_speak_raw_deflate()
     { blob = "\xff\xff\xff\xff", why = "the deflate stream is damaged" },
   }
   for _, case in ipairs(damaged) do
-    local rows, trouble = Sqlite.rows(db, "SELECT inflate(?1)", { { blob = case.blob } })
+    local rows, trouble = db:rows("SELECT inflate(?1)", { { blob = case.blob } })
     assert(rows == nil, case.why)
     assert(tostring(trouble):find(case.why, 1, true) ~= nil, trouble)
   end

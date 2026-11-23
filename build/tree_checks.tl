@@ -145,6 +145,16 @@ allowed["cosmic.compress.zstd_decoder"] = "ci/ calls it on the pinned release, w
   "goes with the TODO in cosmic/compress.tl"
 allowed["cosmic.compress.zstd"] = "ci/ calls it on the pinned release, which has no Compress.encode; " ..
   "goes with the TODO in cosmic/compress.tl"
+allowed["cosmic.sqlite.run"] = "ci/ calls it on the pinned release, whose handle has no run method; " ..
+  "goes with the TODO in cosmic/sqlite.tl"
+allowed["cosmic.sqlite.rows"] = "ci/ calls it on the pinned release, whose handle has no rows method; " ..
+  "goes with the TODO in cosmic/sqlite.tl"
+allowed["cosmic.sqlite.map"] = "ci/ calls it on the pinned release, whose handle has no map method; " ..
+  "goes with the TODO in cosmic/sqlite.tl"
+allowed["cosmic.sqlite.query"] = "ci/ calls it on the pinned release, whose handle has no query method; " ..
+  "goes with the TODO in cosmic/sqlite.tl"
+allowed["cosmic.sqlite.transact"] = "ci/ calls it on the pinned release, whose handle has no transact method; " ..
+  "goes with the TODO in cosmic/sqlite.tl"
 allowed["cosmic.agent.cost"] = "public API: what a reply's usage costs at the list prices, which a program that " ..
   "runs the loop reads; the loop keeps each request's cost through billed"
 allowed["cosmic.agent.billed"] = "public API: what a request cost, each attempt of a fallback at its own model's " ..
@@ -456,7 +466,7 @@ allowed["build.writer.signature"] = "tested directly: the test signs a database 
 -- `refs` records how many arguments each call passes; build/c/rules.tl's
 -- `declared?` and build/artifact.tl's `selected_configuration?` on `test_prefix` were found by hand.
 local function unearned(db: Sqlite.Handle): {string}?, string
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT d.file || ':' || d.line || ': ' || d.module || '.' || d.symbol " ..
       "FROM docs d " ..
       "WHERE d.exported = 1 AND d.symbol <> '' AND instr(d.symbol, '.') = 0 " ..
@@ -588,7 +598,7 @@ end
 --- in the returned record's body, a nested declaration there, or
 --- `Record.Name = ...`.
 function tree_checks.unnamed_types(db: Sqlite.Handle): {string}
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT d.module, d.symbol, d.kind, d.signature, d.file, d.line, d.exported " ..
       "FROM docs d WHERE d.file GLOB 'cosmic/*.tl' " ..
       "AND d.file NOT GLOB 'cosmic/internal/*' AND d.file NOT GLOB '*_test.tl' " ..
@@ -596,7 +606,7 @@ function tree_checks.unnamed_types(db: Sqlite.Handle): {string}
   if rows == nil then
     return { "reading the docs: " .. tostring(trouble) }
   end
-  local sources, why = Sqlite.text_rows(db,
+  local sources, why = db:text_rows(
     "SELECT path, CAST(inflate(source) AS TEXT) FROM modules")
   if sources == nil then
     return { "reading the modules: " .. tostring(why) }
@@ -714,7 +724,7 @@ local anchors_expected: {string} = { "cosmic.cli Cli", "cosmic.layout Layout",
 --- `Failure` has only strings too, but `failures` hands it out, so its
 --- fields are an API's, not anchors.
 function tree_checks.anchors(db: Sqlite.Handle, expected?: {string}): {string}
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT module, symbol, kind, signature, text, file, line FROM docs WHERE " ..
       symbols.public_only("module", true) .. " ORDER BY module, id")
   if rows == nil then
@@ -842,7 +852,7 @@ function tree_checks.meta_readers(db: Sqlite.Handle, group: string, named?: {str
   if entry == nil then
     return { group .. " is no group of build/key_parts.tl's `meta_readers`" }
   end
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT path, CAST(inflate(source) AS TEXT) FROM modules ORDER BY path")
   if rows == nil then
     return { "reading the modules' sources: " .. tostring(trouble) }
@@ -915,7 +925,7 @@ end
 --- the rebuild lock cannot come to name different ones.
 function tree_checks.build_directory(db: Sqlite.Handle, excused?: {string: string}): {string}
   excused = excused or spelled
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT file, CAST(inflate(source) AS TEXT) FROM modules " ..
       "WHERE file GLOB '*.tl' AND file NOT GLOB '*_test.tl' ORDER BY file")
   if rows == nil then
@@ -1059,7 +1069,7 @@ function tree_checks.quieted(db: Sqlite.Handle, names?: {string}): {string}
   local out: mut {string} = {}
   for _, name in ipairs(names or ContractRules.quieted_names()) do
     local module, symbol = name:match("^(%S+) (%S+)$")
-    local rows, trouble = Sqlite.text_rows(db,
+    local rows, trouble = db:text_rows(
       "SELECT 1 FROM docs WHERE module = ?1 AND symbol = ?2 LIMIT 1",
       { { text = module or "" }, { text = symbol or "" } })
     if rows == nil then
@@ -1114,7 +1124,7 @@ function tree_checks.restricted(db: Sqlite.Handle, rules?: {string: Restriction}
   for _, name in ipairs(names) do
     local rule = assert((rules or restricted)[name], "a name listed is one of the rules")
     local module, symbol = name:match("^(%S+) (%S+)$")
-    local rows, trouble = Sqlite.text_rows(db,
+    local rows, trouble = db:text_rows(
       "SELECT from_file, line FROM uses WHERE module = ?1 AND symbol = ?2 " ..
         "ORDER BY from_file, line",
       { { text = module or "" }, { text = symbol or "" } })
@@ -1168,7 +1178,7 @@ local requirers: {string: Restriction} = {
 function tree_checks.requirers(db: Sqlite.Handle, rules?: {string: Restriction}): {string}
   local out: mut {string} = {}
   for name, rule in pairs(rules or requirers) do
-    local rows, trouble = Sqlite.text_rows(db,
+    local rows, trouble = db:text_rows(
       "SELECT path FROM decl_imports WHERE requires = ?1 ORDER BY path", { { text = name } })
     if rows == nil then
       return { "reading the imports: " .. tostring(trouble) }
@@ -1192,7 +1202,7 @@ end
 --- ([`build.closure_store`]'s `declared`), so a module one required would
 --- be neither carried nor in the store's address.
 function tree_checks.declarations(db: Sqlite.Handle): {string}
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT path, CAST(inflate(source) AS TEXT) FROM decls ORDER BY path")
   if rows == nil then
     return { "reading the declarations: " .. tostring(trouble) }
@@ -1220,7 +1230,7 @@ end
 --- @param build the working database
 --- @return the names a module declares, for each that declares any
 function tree_checks.requirements(build: Sqlite.Handle): {string:{string}}?, string
-  local rows, trouble = Sqlite.text_rows(build,
+  local rows, trouble = build:text_rows(
     "SELECT i.path, t.value FROM test_inputs t JOIN inputs i ON i.source_hash = t.source_hash " ..
       "WHERE t.field = 'requires' ORDER BY i.path, t.ordinal")
   if rows == nil then return nil, "reading the declared requirements: " .. tostring(trouble) end
@@ -1241,7 +1251,7 @@ end
 --- @param build the working database
 --- @return the findings, or nil and why the declarations cannot be read
 function tree_checks.unguarded_zig(build: Sqlite.Handle): {string}?, string
-  local rows, trouble = Sqlite.text_rows(build,
+  local rows, trouble = build:text_rows(
     "SELECT DISTINCT i.path FROM test_inputs t JOIN inputs i ON i.source_hash = t.source_hash " ..
       "WHERE t.field = 'caches' AND t.value = 'zig' AND NOT EXISTS (SELECT 1 FROM test_inputs r " ..
       "WHERE r.source_hash = t.source_hash AND r.field = 'requires' AND r.value = 'pinned_zig') ORDER BY i.path")
@@ -1262,7 +1272,7 @@ end
 --- @param build the working database
 --- @return the module paths, as a set
 function tree_checks.unsealed(build: Sqlite.Handle): {string:boolean}?, string
-  local rows, trouble = Sqlite.text_rows(build,
+  local rows, trouble = build:text_rows(
     "SELECT DISTINCT i.path FROM test_inputs t JOIN inputs i ON i.source_hash = t.source_hash " ..
       "WHERE t.field IN ('tool', 'store') OR (t.field = 'requires' AND t.value = 'portable')")
   if rows == nil then return nil, "reading the unsealed modules: " .. tostring(trouble) end
@@ -1319,7 +1329,7 @@ launcher_allowed["build.workflows_test"] = "reads COSMIC_PORTABLE_CACHE in the t
 --- @param excused the modules that may, with the reason of each
 function tree_checks.sealed_launch(db: Sqlite.Handle, unsealed: {string:boolean},
                                    excused?: {string: string}): {string}
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT path, CAST(inflate(source) AS TEXT) FROM modules WHERE path GLOB '*_test' ORDER BY path")
   if rows == nil then return { "reading the modules' sources: " .. tostring(trouble) } end
   local allowed_here = excused or launcher_allowed
@@ -1628,14 +1638,14 @@ end
 --- guides are not held to it.
 function tree_checks.verbs(db: Sqlite.Handle, quickstart: string?): {string}
   local out: mut {string} = {}
-  local required, trouble = Sqlite.text_rows(db,
+  local required, trouble = db:text_rows(
     "SELECT requires FROM imports WHERE path = 'build.verb_list'")
   if required == nil then
     return { "reading the imports: " .. tostring(trouble) }
   end
   local listed: mut {string:boolean} = {}
   for _, row in ipairs(required) do listed[row:text(1)] = true end
-  local modules, module_trouble = Sqlite.text_rows(db,
+  local modules, module_trouble = db:text_rows(
     "SELECT path, kind, CAST(inflate(source) AS TEXT) FROM modules ORDER BY path")
   if modules == nil then
     return { "reading the modules: " .. tostring(module_trouble) }
@@ -1846,13 +1856,13 @@ function tree_checks.public_docs(db: Sqlite.Handle, excused?: {string: string}, 
     end
     named = " AND d.file IN (" .. table.concat(marks, ", ") .. ")"
   end
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT d.module, d.symbol, d.text, d.file, d.line FROM docs d WHERE " ..
       symbols.shown_docs("d", true) .. " AND d.text <> ''" .. named .. " ORDER BY d.file, d.line, d.id", values)
   if rows == nil then
     return { "reading the public docs: " .. tostring(trouble) }
   end
-  local names, names_trouble = Sqlite.text_rows(db, "SELECT path FROM modules")
+  local names, names_trouble = db:text_rows("SELECT path FROM modules")
   if names == nil then
     return { "reading the modules: " .. tostring(names_trouble) }
   end
@@ -2007,7 +2017,7 @@ end
 function tree_checks.plurals(db: Sqlite.Handle, extra?: {{string}}, excused?: {string: string},
                              read?: {string: tree_checks.Plurals}): {string}
   excused = excused or plural_exempt
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT file, CAST(inflate(source) AS TEXT) FROM modules WHERE kind <> 'test' " ..
       "AND file GLOB '*.tl' AND file NOT GLOB '*.d.tl' AND (file GLOB 'build/*' " ..
       "OR file GLOB 'cmd/*' OR file GLOB 'cosmic/*') ORDER BY file")
@@ -3436,14 +3446,14 @@ local text_read_allowed <const>: {string:string} = {
 --- declares [`build.reads.all`] by hand.
 function tree_checks.text_readers(db: Sqlite.Handle, excusing?: {string:string}): {string}
   local excused = excusing or text_read_allowed
-  local imported, imported_trouble = Sqlite.text_rows(db, "SELECT path, requires FROM imports ORDER BY path, requires")
+  local imported, imported_trouble = db:text_rows("SELECT path, requires FROM imports ORDER BY path, requires")
   if imported == nil then return { "reading the imports: " .. tostring(imported_trouble) } end
-  local modules, trouble = Sqlite.text_rows(db,
+  local modules, trouble = db:text_rows(
     "SELECT path, CAST(inflate(source) AS TEXT) FROM modules WHERE kind NOT IN ('test', 'example') ORDER BY path")
   if modules == nil then return { "reading the modules: " .. tostring(trouble) } end
   local source_of: mut {string:string} = {}
   for _, row in ipairs(modules) do source_of[row:text(1)] = row:text(2) end
-  local called, called_trouble = Sqlite.text_rows(db,
+  local called, called_trouble = db:text_rows(
     "SELECT DISTINCT from_module, symbol FROM uses WHERE module = 'cosmic.store' " ..
       "AND symbol IN ('source', 'withheld') ORDER BY from_module, symbol")
   if called == nil then return { "reading the uses: " .. tostring(called_trouble) } end

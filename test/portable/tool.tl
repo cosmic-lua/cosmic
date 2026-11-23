@@ -49,15 +49,15 @@ local function prepare_databases(argv: {string}): integer
     "usage: tool.tl prepare-databases OLD NEW BASIS MISSING")
   local function update(path: string, marker: string)
     local db = assert(Sqlite.open(path, { writable = true }))
-    assert(Sqlite.run(db,
+    assert(db:run(
       "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
       { text("retained_fixture"), text(marker) }))
     if marker == "basis" then
-      assert(Sqlite.run(db,
+      assert(db:run(
         "UPDATE meta SET value = ?1 WHERE key = 'runtime_basis'",
         { text(Hash.hex_sha256("portable fixture basis variant")) }))
     elseif marker == "missing" then
-      assert(Sqlite.run(db, "DELETE FROM meta WHERE key = 'runtime_basis'"))
+      assert(db:run("DELETE FROM meta WHERE key = 'runtime_basis'"))
     end
     assert(db:close())
   end
@@ -65,10 +65,10 @@ local function prepare_databases(argv: {string}): integer
   for index, marker in ipairs(markers) do update(assert(argv[index]), marker) end
 
   local db = assert(Sqlite.open(assert(argv[1])))
-  local rows = assert(Sqlite.text_rows(db, "SELECT key FROM meta"))
+  local rows = assert(db:text_rows("SELECT key FROM meta"))
   local keys: mut {string:boolean} = {}
   for _, row in ipairs(rows) do keys[row:text(1)] = true end
-  local images = assert(Sqlite.text_rows(db,
+  local images = assert(db:text_rows(
     "SELECT count(*) FROM sqlite_schema WHERE name = 'images'"))
   assert(db:close())
   for _, forbidden in ipairs({ "host", "host_image", "runtime" }) do

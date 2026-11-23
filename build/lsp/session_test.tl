@@ -612,7 +612,7 @@ local function test_definition_of_a_binary_module_s_field_is_the_file_extracted_
   local root = session_fixture.project()
   local text = 'local Fs = require("cosmic.fs")\nlocal _ = Fs.read\nlocal t: Fs.Staged? = nil\n'
   local databases = Store.databases()
-  local carried = assert(assert(Sqlite.text_rows(assert(databases[#databases]),
+  local carried = assert(assert(assert(databases[#databases]):text_rows(
     "SELECT CAST(inflate(source) AS TEXT) FROM modules WHERE path = 'cosmic.fs'"))[1]):text(1)
   local function line_of(needle: string): integer
     local from = 0

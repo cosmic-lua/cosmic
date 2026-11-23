@@ -22,6 +22,9 @@ local record maintenance
     since_ns?: integer
     whole: boolean
     restored?: string
+    --- How long a file's trim waits at a lock another connection holds,
+    --- its checkpoint's wait for readers included; ten seconds when nil.
+    lock_wait_ns?: integer
   end
   record File
     path: string
@@ -71,13 +74,13 @@ local function close(database: Database): boolean, string
   local db = database.db
   if db == nil then return true, "" end
   local ok, why = db:close()
-  if not ok then return false, why end
+  if not ok then return false, tostring(why) end
   database.db = nil
   return true, ""
 end
 
 local function count(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): integer?, string
-  local rows, why = Sqlite.rows(db, sql, values)
+  local rows, why = db:rows(sql, values)
   if rows == nil then return nil, tostring(why) end
   local row = rows[1]
   if row == nil then return nil, "the query answered no row" end
@@ -86,7 +89,7 @@ end
 
 --- A column's shape, including hidden/generated columns that table_info omits.
 local function columns(db: Sqlite.Handle, name: string): {string}?, string
-  local rows, why = Sqlite.text_rows(db,
+  local rows, why = db:text_rows(
     'SELECT name, upper(type), "notnull", coalesce(dflt_value, \'\'), pk, hidden ' ..
       "FROM pragma_table_xinfo(?1) ORDER BY cid", { { text = name } })
   if rows == nil then return nil, tostring(why) end
@@ -118,7 +121,7 @@ local function shapes(): {string:Shape}
   local out: mut {string:Shape} = {}
   for _, name in ipairs({ formats.compiled, formats.parsed, formats.bridge, formats.declared,
       formats.stores, "verdicts_v4" }) do
-    local declared = assert(Sqlite.text_rows(memory,
+    local declared = assert(memory:text_rows(
       "SELECT sql FROM sqlite_schema WHERE name = ?1", { { text = name } }))
     local sql = assert(declared[1], "every format is declared in memory"):text(1)
     out[name] = { columns = (assert(columns(memory, name))), sql = normalized(sql) }
@@ -160,7 +163,7 @@ end
 --- Conservatively retain all family rows when any such effect is present.
 local function inspect(db: Sqlite.Handle, family: maintenance.Family,
                        expected: {string:Shape}): {Table}?, string
-  local schema, why = Sqlite.text_rows(db,
+  local schema, why = db:text_rows(
     "SELECT name, type, coalesce(sql, '') FROM sqlite_schema ORDER BY name")
   if schema == nil then return nil, tostring(why) end
   local unsafe = false
@@ -237,7 +240,7 @@ end
 
 --- A checkpoint can report SQLITE_OK while its result row says busy.
 local function checkpoint(db: Sqlite.Handle): boolean, string
-  local rows, why = Sqlite.rows(db, "PRAGMA wal_checkpoint(TRUNCATE)")
+  local rows, why = db:rows("PRAGMA wal_checkpoint(TRUNCATE)")
   if rows == nil then return false, tostring(why) end
   local row = rows[1]
   if row == nil or row:integer(1) ~= 0 or row:integer(2) ~= row:integer(3) then
@@ -269,9 +272,9 @@ local function maintain_file(path: string, options: maintenance.Options,
   if opened == nil then return failed(file, tostring(open_why)) end
   local database <close> = owned(opened)
   local db = opened
-  db:busy_timeout(Clock.seconds(10))
-  local begun = db:exec_result("BEGIN IMMEDIATE")
-  if begun.code ~= Sqlite.OK then return failed(file, begun.reason) end
+  db:busy_timeout(options.lock_wait_ns or Clock.seconds(10))
+  local begun, begun_why = db:exec("BEGIN IMMEDIATE")
+  if not begun then return failed(file, tostring(begun_why)) end
   database.transaction = true
   local tables, tables_why = inspect(db, options.family, expected)
   if tables == nil then return failed(file, tables_why) end
@@ -300,21 +303,21 @@ local function maintain_file(path: string, options: maintenance.Options,
   if trimming then
     for _, entry in ipairs(tables) do
       if entry.supported then
-        local ok, why = Sqlite.run(db, "DELETE FROM " .. quoted(entry.name) ..
+        local ok, why = db:run("DELETE FROM " .. quoted(entry.name) ..
             " WHERE used_ns < ?1", { { integer = options.since_ns } })
         if not ok then return failed(file, tostring(why)) end
         left = left - db:changes()
       end
     end
   end
-  local committed = db:exec_result("COMMIT")
-  if committed.code ~= Sqlite.OK then return failed(file, committed.reason) end
+  local committed, committed_why = db:exec("COMMIT")
+  if not committed then return failed(file, tostring(committed_why)) end
   database.transaction = false
   file.kept, file.removed = left, total - left
   if trimming and supported > 0 then file.state = "trimmed" end
   if not options.whole and supported > 0 then
-    local vacuumed = db:exec_result("VACUUM")
-    if vacuumed.code ~= Sqlite.OK then return failed(file, vacuumed.reason) end
+    local vacuumed, vacuumed_why = db:exec("VACUUM")
+    if not vacuumed then return failed(file, tostring(vacuumed_why)) end
   end
   local ready, ready_why = checkpoint(db)
   if not ready then return failed(file, ready_why) end
@@ -335,16 +338,16 @@ local function feed_rows(hasher: Hash.Hasher, path: string, guard: Signal.Guard)
   local database <close> = owned(opened)
   local db = opened
   db:busy_timeout(Clock.seconds(10))
-  local begun = db:exec_result("BEGIN")
-  if begun.code ~= Sqlite.OK then return false, begun.reason end
+  local begun, begun_why = db:exec("BEGIN")
+  if not begun then return false, tostring(begun_why) end
   database.transaction = true
-  local names, names_why = Sqlite.text_rows(db, "SELECT name FROM sqlite_schema " ..
+  local names, names_why = db:text_rows("SELECT name FROM sqlite_schema " ..
       "WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name")
   if names == nil then return false, tostring(names_why) end
   for _, row in ipairs(names) do
     if guard:cancelled() ~= 0 then return false, "cache maintenance interrupted" end
     local name = row:text(1)
-    local fields, fields_why = Sqlite.text_rows(db,
+    local fields, fields_why = db:text_rows(
       "SELECT name FROM pragma_table_info(?1) WHERE name <> 'used_ns' ORDER BY cid",
       { { text = name } })
     if fields == nil then return false, tostring(fields_why) end
@@ -356,7 +359,7 @@ local function feed_rows(hasher: Hash.Hasher, path: string, guard: Signal.Guard)
     end
     hasher:update("table\0" .. tostring(#name) .. ":" .. name .. "\0" .. tostring(#fields) .. "\0")
     if #selected > 0 then
-      local query, query_why = Sqlite.query(db, "SELECT " .. table.concat(selected, ", ") ..
+      local query, query_why = db:query("SELECT " .. table.concat(selected, ", ") ..
           " FROM " .. quoted(name) .. " ORDER BY " .. table.concat(order, ", "))
       if query == nil then return false, tostring(query_why) end
       local q <close> = query
@@ -381,8 +384,8 @@ local function feed_rows(hasher: Hash.Hasher, path: string, guard: Signal.Guard)
       if q:failure() ~= nil then return false, tostring(q:failure()) end
     end
   end
-  local committed = db:exec_result("COMMIT")
-  if committed.code ~= Sqlite.OK then return false, committed.reason end
+  local committed, committed_why = db:exec("COMMIT")
+  if not committed then return false, tostring(committed_why) end
   database.transaction = false
   local ready, ready_why = checkpoint(db)
   if not ready then return false, ready_why end
@@ -409,10 +412,10 @@ local function new_keys(db: Sqlite.Handle, restored: Sqlite.Handle?,
     "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = ?1", { { text = name } })
   if there == nil then return nil, there_why end
   if there == 0 then return count(db, "SELECT count(*) FROM " .. quoted(name)) end
-  local opened, why = Sqlite.query(db, "SELECT key FROM " .. quoted(name) .. " ORDER BY key")
+  local opened, why = db:query("SELECT key FROM " .. quoted(name) .. " ORDER BY key")
   if opened == nil then return nil, tostring(why) end
   local live <close> = opened
-  local old_opened, old_why = Sqlite.query(restored, "SELECT key FROM " .. quoted(name) .. " ORDER BY key")
+  local old_opened, old_why = restored:query("SELECT key FROM " .. quoted(name) .. " ORDER BY key")
   if old_opened == nil then return nil, tostring(old_why) end
   local old <close> = old_opened
   local previous, previous_why = old:read()
@@ -461,7 +464,7 @@ local function fresh_keys(path: string, restored: string, expected: {string:Shap
       end
     end
   end
-  local names, names_why = Sqlite.text_rows(opened,
+  local names, names_why = opened:text_rows(
     "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
   if names == nil then return nil, tostring(names_why) end
   local total = 0

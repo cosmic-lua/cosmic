@@ -509,7 +509,7 @@ end
 --- a row, cells split by tabs, within the limits. `?1` is `session`.
 local function rows_of(db: Sqlite.Handle, query: string, session?: integer): Tools.Result
   local statement, why = db:prepare(query)
-  if statement == nil then return fail("sql: " .. why) end
+  if statement == nil then return fail("sql: " .. tostring(why)) end
   if statement:parameters() >= 1 and session ~= nil then
     local bound, bind_why = statement:bind_integer(1, session)
     if not bound then
@@ -570,7 +570,7 @@ end
 local function reader_of(context: Tools.Context): (Sqlite.Handle) | (nil, string)
   local db = context.db
   if db == nil then return nil, "no sessions are kept here" end
-  local files, files_why = Sqlite.rows(db, "SELECT file FROM pragma_database_list WHERE name = 'main'")
+  local files, files_why = db:rows("SELECT file FROM pragma_database_list WHERE name = 'main'")
   if files == nil then return nil, tostring(files_why) end
   local main = files[1]
   local file = if main ~= nil then main:text(1) else "" end
@@ -605,7 +605,7 @@ local MAX_REPLY <const> = 512 * 1024
 local function objects_of(db: Sqlite.Handle, query: string, session: integer?, over: function(): boolean):
     (Json.Value) | (nil, Failure)
   local statement, why = db:prepare(query)
-  if statement == nil then return nil, Failure.new(why) end
+  if statement == nil then return nil, why end
   if statement:parameters() >= 1 and session ~= nil then
     local bound, bind_why = statement:bind_integer(1, session)
     if not bound then

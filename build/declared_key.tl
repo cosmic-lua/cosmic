@@ -504,7 +504,7 @@ local function carried_digest(database: string, kept: string): string?, string
       trouble = tostring(open_trouble)
     else
       local lines: mut {string} = {}
-      local schema, schema_trouble = Sqlite.text_rows(db,
+      local schema, schema_trouble = db:text_rows(
         "SELECT type, name, coalesce(sql, '') FROM sqlite_schema ORDER BY type, name")
       if schema == nil then trouble = tostring(schema_trouble) end
       for _, row in ipairs(schema or {}) do
@@ -512,7 +512,7 @@ local function carried_digest(database: string, kept: string): string?, string
         if row:text(1) == "table" and row:text(2):sub(1, 7) ~= "sqlite_" and
             row:text(3):upper():sub(1, 20) ~= "CREATE VIRTUAL TABLE" then
           local quoted = row:text(2):gsub('"', '""')
-          local columns, columns_trouble = Sqlite.text_rows(db,
+          local columns, columns_trouble = db:text_rows(
             "SELECT name FROM pragma_table_info(?1) ORDER BY cid", { { text = row:text(2) } })
           if columns == nil then
             trouble = tostring(columns_trouble)
@@ -530,7 +530,7 @@ local function carried_digest(database: string, kept: string): string?, string
               named .. ") = 'text' THEN CAST(" .. named .. " AS BLOB) ELSE " .. named .. " END)"
           end
           local where = if row:text(2) == "meta" then (" WHERE " .. kept) else "" end
-          local digest, digest_trouble = Sqlite.text_rows(db,
+          local digest, digest_trouble = db:text_rows(
             "SELECT lower(hex(sha256(coalesce(group_concat(r, char(10) ORDER BY r), '')))) " ..
               "FROM (SELECT " .. table.concat(parts, " || ',' || ") .. ' AS r FROM "' ..
               quoted .. '"' .. where .. ")")

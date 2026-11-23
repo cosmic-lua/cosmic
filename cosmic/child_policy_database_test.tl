@@ -63,7 +63,7 @@ local function test_a_database_sealed_for_another_core_does_not_start(tmp: strin
   local path = tmp .. "/sealed.db"
   fixture.seal(tmp, path)
   local db = assert(Sqlite.open(path, { writable = true }))
-  assert(Sqlite.run(db, "UPDATE meta SET value = ?1 WHERE key = 'core_sha256'",
+  assert(db:run("UPDATE meta SET value = ?1 WHERE key = 'core_sha256'",
     { { text = string.rep("0", 64) } }))
   assert(db:close())
   local env = this_program.environment()

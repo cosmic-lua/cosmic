@@ -334,7 +334,7 @@ local cacert: refresh.Dataset = {
       write = function(db: Sqlite.Handle): boolean, string
         -- A binary built before the table held distrust dates: its core
         -- reads only `der`, and takes the column as it comes.
-        local columns, column_trouble = Sqlite.text_rows(db,
+        local columns, column_trouble = db:text_rows(
           "SELECT 1 FROM pragma_table_info('ca_roots') WHERE name = 'distrust_after'")
         if columns == nil then
           return false, tostring(column_trouble)
@@ -343,12 +343,12 @@ local cacert: refresh.Dataset = {
           local added, add_trouble = db:exec(
             "ALTER TABLE ca_roots ADD COLUMN distrust_after TEXT NOT NULL DEFAULT ''")
           if not added then
-            return false, add_trouble
+            return false, tostring(add_trouble)
           end
         end
         local cleared, clear_trouble = db:exec("DELETE FROM ca_roots")
         if not cleared then
-          return false, clear_trouble
+          return false, tostring(clear_trouble)
         end
         return roots.put(db, "", readable)
       end,
@@ -391,7 +391,7 @@ local revocations: refresh.Dataset = {
       write = function(db: Sqlite.Handle): boolean, string
         local cleared, clear_trouble = db:exec("DELETE FROM ca_revoked")
         if not cleared then
-          return false, clear_trouble
+          return false, tostring(clear_trouble)
         end
         return onecrl.put(db, "", found)
       end,
@@ -500,7 +500,7 @@ end
 
 --- What the binary records of the release it carries of `name`.
 local function recorded(db: Sqlite.Handle, name: string): Recorded?, string
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT version, url, sha256, patches FROM components WHERE name = ?1", { bind.text(name) })
   if rows == nil then
     return nil, tostring(trouble)
@@ -547,14 +547,14 @@ local function apply(db: Sqlite.Handle, dataset: refresh.Dataset, source: refres
     end
     url = if source.url ~= "" then source.url else "file:" .. Fs.basename(source.path) end
   end
-  local made, made_trouble = Sqlite.transact(db, function(): (true) | (false, Failure)
+  local made, made_trouble = db:transact(function(): (true) | (false, Failure)
     local written, write_trouble = release.write(db)
     if not written then
       return false, Failure.new(write_trouble)
     end
     -- sha3_256 is left as it was: no dataset's upstream publishes one,
     -- and a binary older than that column has none to set.
-    return Sqlite.run(db,
+    return db:run(
       "UPDATE components SET version = ?1, url = ?2, sha256 = ?3 WHERE name = ?4",
       { bind.text(version), bind.text(url), bind.text(sha256), bind.text(dataset.name) })
   end)
@@ -623,7 +623,7 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
     local skipped: mut {string:boolean} = {}
     if every == true then
       for _, dataset in ipairs(chosen) do
-        local has, has_trouble = Sqlite.text_rows(db, "SELECT 1 FROM components WHERE name = ?1",
+        local has, has_trouble = db:text_rows("SELECT 1 FROM components WHERE name = ?1",
           { bind.text(dataset.name) })
         if has == nil then
           return done(tostring(has_trouble))
@@ -665,7 +665,7 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
     -- function of its rows. A vacuum writes the schema cookie one past
     -- the source's, which no row here moved: set back by one first, so
     -- the copy carries the cookie the binary did.
-    local cookie, cookie_trouble = Sqlite.text_rows(db, "PRAGMA schema_version")
+    local cookie, cookie_trouble = db:text_rows("PRAGMA schema_version")
     if cookie == nil then
       return done(tostring(cookie_trouble))
     end
@@ -676,9 +676,9 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
     end
     local kept, keep_trouble = db:exec("PRAGMA schema_version = " .. tostring(cookie_value - 1))
     if not kept then
-      return done(keep_trouble)
+      return done(tostring(keep_trouble))
     end
-    local vacuumed, vacuum_trouble = Sqlite.run(db, "VACUUM INTO ?1",
+    local vacuumed, vacuum_trouble = db:run("VACUUM INTO ?1",
       { bind.text(scratch .. "/refreshed.db") })
     if not vacuumed then
       return done(tostring(vacuum_trouble))

@@ -307,7 +307,7 @@ local function declared(name: string): boolean
   if own == nil then
     return false
   end
-  local rows, _ = Sqlite.text_rows(own, "SELECT 1 FROM decls WHERE path = ?1", { { text = name } })
+  local rows, _ = own:text_rows("SELECT 1 FROM decls WHERE path = ?1", { { text = name } })
   return rows ~= nil and #rows > 0
 end
 

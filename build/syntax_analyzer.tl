@@ -327,7 +327,7 @@ local function dotted(path: {Ast.Name}, count: integer): string
 end
 
 --- A declared function's own name: a `local function`'s name alone, or a `function`'s path joined by `.` the way it
---- was declared, e.g. `"Sqlite.run"`.
+--- was declared, e.g. `"Sqlite.open"`.
 local function symbol_of(stat: Ast.Stat): string
   if (stat.kind == "LocalFunction") then
     return stat.name.name

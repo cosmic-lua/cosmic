@@ -11,7 +11,7 @@ end
 --- element and `|` between cells.
 local function grid(db: Sqlite.Handle, sql: string): {string}
   local out: mut {string} = {}
-  local q <close> = assert(Sqlite.query(db, sql))
+  local q <close> = assert(db:query(sql))
   for row in q:each() do
     local cells: mut {string} = {}
     for index = 1, row:count() do
@@ -78,7 +78,7 @@ local function test_keys_are_quoted_and_collisions_renamed()
   assert(by_name == '_,A,_JSON_2,_json_3,a_2,a b,a_2_2,select,x"y,_json', by_name)
   -- Each key's value is in the column named for it, or the renamed one.
   local function value(column: string): string
-    local rows = assert(Sqlite.text_rows(db, 'SELECT "' .. column:gsub('"', '""') .. '" FROM t'))
+    local rows = assert(db:text_rows('SELECT "' .. column:gsub('"', '""') .. '" FROM t'))
     return support.nth(rows, 1):text(1)
   end
   assert(value("a b") == "1" and value('x"y') == "2" and value("select") == "3")
@@ -166,12 +166,12 @@ local function test_load_refuses_what_sqlite_or_the_caller_cannot_take()
   assert(nameless == nil and nameless_why == "dataset: a table needs a name")
   local odd = assert(dataset.load(db, 'we"ird name', rows))
   assert(odd.name == 'we"ird name')
-  assert(Sqlite.rows(db, 'SELECT a FROM "we""ird name"'))
+  assert(db:rows('SELECT a FROM "we""ird name"'))
   -- A row JSON cannot encode (NaN) is refused, naming the row.
   local bad, bad_why = dataset.load(db, "u", { { a = 0 / 0 } })
   assert(bad == nil and bad_why:find("row 1", 1, true) ~= nil, bad_why)
   -- A refused load leaves no table behind.
-  local left, _ = Sqlite.rows(db, "SELECT * FROM u")
+  local left, _ = db:rows("SELECT * FROM u")
   assert(left == nil)
 end
 
@@ -203,7 +203,7 @@ local function test_too_many_columns_says_the_limit_and_the_count()
   local made, why = dataset.load(db, "u", { row })
   assert(made == nil and why == "dataset: too many columns: 2000 distinct keys, and SQLite holds at most " ..
       "2000 columns in a table (one is `_json`)", why)
-  local left, _ = Sqlite.rows(db, "SELECT * FROM u")
+  local left, _ = db:rows("SELECT * FROM u")
   assert(left == nil, "a refused load leaves no table")
 end
 
@@ -292,7 +292,7 @@ local function test_a_csv_table_follows_the_header_and_json_stays_sorted()
   local db = memory()
   local made = assert(dataset.load(db, "t", rows))
   assert(table.concat(made.columns, ",") == "z,a,m,_json", table.concat(made.columns, ","))
-  local star, _ = Sqlite.text_rows(db, "SELECT * FROM t")
+  local star, _ = db:text_rows("SELECT * FROM t")
   assert(star ~= nil and support.nth(star, 1):text(1) == "1" and support.nth(star, 1):text(2) == "2" and support.nth(star, 1):text(3) == "3")
   -- Rows with no order of their own are in byte order.
   local db2 = memory()
@@ -331,7 +331,7 @@ local function test_a_csv_file_answers_a_sum_by_group()
   local db = memory()
   local made = assert(dataset.load(db, "accounts", rows))
   assert(table.concat(made.columns, ",") == "type,balance,_json")
-  local totals = assert(Sqlite.text_rows(db,
+  local totals = assert(db:text_rows(
     "SELECT type, sum(balance) FROM accounts GROUP BY type ORDER BY type"))
   assert(support.nth(totals, 1):text(1) == "checking" and support.nth(totals, 1):text(2) == "5")
   assert(support.nth(totals, 2):text(1) == "savings" and support.nth(totals, 2):text(2) == "12.5")
@@ -342,7 +342,7 @@ end
 local function test_json_rows_have_null_for_a_missing_key_and_byte_order_columns()
   local db, made = loaded('[{"id": 1, "type": "a"}, {"id": 2}]', "accounts")
   assert(table.concat(made.columns, ",") == "id,type,_json")
-  local nulls = assert(Sqlite.rows(db, "SELECT id FROM accounts WHERE type IS NULL"))
+  local nulls = assert(db:rows("SELECT id FROM accounts WHERE type IS NULL"))
   assert(#nulls == 1 and nulls[1]:integer(1) == 2)
   assert(dataset.format_of("accounts.jsonl") == "ndjson")
 end

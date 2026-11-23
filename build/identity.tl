@@ -311,7 +311,7 @@ end
 
 --- The hash over some of the rows of `tool`, in path order.
 function identity.hash_over(db: Sqlite.Handle, where: string): string?, string
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT lower(hex(sha256(group_concat(path || ' ' || sha256, char(10) " ..
       "ORDER BY path)))) FROM tool WHERE " .. where)
   if rows == nil then
@@ -392,7 +392,7 @@ function identity.record_fingerprint(db: Sqlite.Handle, root: string): identity.
   local fingerprints: {MetaRow} = { { key = "boot_hash", value = boot }, { key = "image_hash", value = image },
     { key = "built_from", value = built_from } }
   for _, pair in ipairs(fingerprints) do
-    local ok, why = Sqlite.run(db,
+    local ok, why = db:run(
       "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
       { text(pair.key), text(pair.value) })
     if not ok then
@@ -410,7 +410,7 @@ end
 --- database holds no such row yet: a fresh build directory, or one nothing has
 --- staged for.
 function identity.recorded_boot_hash(db: Sqlite.Handle): string?, string
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT value FROM meta WHERE key = 'boot_hash'")
   if rows == nil then
     return nil, tostring(trouble)
@@ -445,7 +445,7 @@ local function requires_in(db: Sqlite.Handle): function(string): {string}?, stri
   return function(name: string): {string}?, string
     local all = held[1]
     if all == nil then
-      local rows, rows_trouble = Sqlite.text_rows(db,
+      local rows, rows_trouble = db:text_rows(
         "SELECT DISTINCT i.path, r.name FROM inputs i " ..
           "JOIN requires r ON r.source_hash = i.source_hash ORDER BY i.path, r.name")
       if rows == nil then return nil, tostring(rows_trouble) end
@@ -477,7 +477,7 @@ local function hash_of(db: Sqlite.Handle, names: {string}, extra: string): strin
     slots[#slots + 1] = "?" .. tostring(index)
     values[#values + 1] = text(name)
   end
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT lower(hex(sha256(coalesce((SELECT group_concat(path || ' ' || " ..
       "source_hash, char(10) ORDER BY path) FROM inputs WHERE path IN (" ..
       table.concat(slots, ", ") .. ")), '') || char(10) || " .. extra .. ")))", values)
@@ -678,7 +678,7 @@ end
 --- database holds now, recorded nowhere: the hash of Lua's pin and patches
 --- and the declarations the new checker types a program with.
 function identity.runtime_basis(db: Sqlite.Handle): string?, string
-  local rows, trouble = Sqlite.text_rows(db, "SELECT lower(hex(sha256(" .. pins .. ")))")
+  local rows, trouble = db:text_rows("SELECT lower(hex(sha256(" .. pins .. ")))")
   if rows == nil then
     return nil, tostring(trouble)
   end
@@ -715,7 +715,7 @@ function identity.record_identities(db: Sqlite.Handle): identity.Identities?, st
     { key = "writer", value = identities.writer },
   }
   for _, pair in ipairs(recorded) do
-    local ok, why = Sqlite.run(db,
+    local ok, why = db:run(
       "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
       { text(pair.key), text(pair.value) })
     if not ok then

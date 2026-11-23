@@ -36,13 +36,13 @@ local function catalog(rows: {Row}, docs?: {string:string}): Sqlite.Handle
     if row_text ~= nil then
       text = { text = row_text }
     end
-    assert(Sqlite.run(db, "INSERT INTO catalog (kind, module, symbol, message, " ..
+    assert(db:run("INSERT INTO catalog (kind, module, symbol, message, " ..
         "text, file, line) VALUES ('extracted', ?1, ?2, ?3, ?4, ?5, ?6)",
       { { text = row.module }, { text = row.symbol }, { text = row.message }, text,
         { text = row.file }, { integer = row.line } }))
   end
   for symbol, doc in pairs(docs or {}) do
-    assert(Sqlite.run(db, "INSERT INTO docs (module, source_symbol, text) " ..
+    assert(db:run("INSERT INTO docs (module, source_symbol, text) " ..
         "VALUES ('zorb', ?1, ?2)", { { text = symbol }, { text = doc } }))
   end
   assert(db:exec("INSERT INTO catalog_fts(catalog_fts) VALUES ('rebuild')"))

@@ -30,7 +30,7 @@ local function test_a_directory_a_build_was_started_in_is_staged(tmp: string)
   local where = assert(rebuild.stage(root))
   assert(where.project and not where.busy)
   local db = assert(Sqlite.open(build_paths.required(root) .. "/build.db"))
-  local rows = assert(Sqlite.text_rows(db, "SELECT path FROM inputs"))
+  local rows = assert(db:text_rows("SELECT path FROM inputs"))
   assert(db:close())
   assert(#rows == 1 and assert(rows[1]):text(1) == "a", tostring(#rows))
 end
@@ -61,7 +61,7 @@ local function test_a_lookups_build_makes_a_database_of_an_older_schema_again(tm
   local path = build_paths.required(root) .. "/build.db"
   local function schema_of(): string
     local db = assert(Sqlite.open(path))
-    local rows = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'schema'"))
+    local rows = assert(db:text_rows("SELECT value FROM meta WHERE key = 'schema'"))
     assert(db:close())
     return assert(rows[1]):text(1)
   end
@@ -69,7 +69,7 @@ local function test_a_lookups_build_makes_a_database_of_an_older_schema_again(tm
   local current = schema_of()
   local function stamp(schema: string)
     local db = assert(Sqlite.open(path, { writable = true }))
-    assert(Sqlite.run(db, "UPDATE meta SET value = ?1 WHERE key = 'schema'", { { text = schema } }))
+    assert(db:run("UPDATE meta SET value = ?1 WHERE key = 'schema'", { { text = schema } }))
     assert(db:close())
   end
   stamp("99")
@@ -87,7 +87,7 @@ local function test_a_stage_leaves_a_database_of_another_schema(tmp: string)
   local root = tmp .. "/project"
   assert(Fs.mkdirs(root))
   local made = assert(work.open(root))
-  assert(Sqlite.run(made.db, "UPDATE meta SET value = 'another' WHERE key = 'schema'"))
+  assert(made.db:run("UPDATE meta SET value = 'another' WHERE key = 'schema'"))
   assert(work.close(made))
   assert(Fs.write(root .. "/a.tl", "return {}\n"))
   local path = build_paths.required(root) .. "/build.db"
@@ -97,7 +97,7 @@ local function test_a_stage_leaves_a_database_of_another_schema(tmp: string)
   assert(where.other_schema == "another", tostring(where.other_schema))
   assert(assert(Fs.stat(path)).ino == before, "the file was removed")
   local db = assert(Sqlite.open(path))
-  local rows = assert(Sqlite.text_rows(db, "SELECT path FROM inputs"))
+  local rows = assert(db:text_rows("SELECT path FROM inputs"))
   assert(db:close())
   assert(#rows == 0, "staged " .. tostring(#rows) .. " files in it")
 end
@@ -113,7 +113,7 @@ local function test_a_stage_reads_the_sources_with_the_new_checker(tmp: string)
   local where = assert(rebuild.stage(root))
   assert(where.project and not where.busy)
   local db = assert(Sqlite.open(build_paths.required(root) .. "/build.db"))
-  local rows = assert(Sqlite.text_rows(db,
+  local rows = assert(db:text_rows(
     "SELECT d.symbol FROM docs d JOIN inputs i ON i.source_hash = d.source_hash WHERE i.file = 'a.tl' ORDER BY d.line"))
   assert(db:close())
   local symbols = ""

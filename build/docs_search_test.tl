@@ -85,7 +85,7 @@ end
 local function test_the_tool_records_the_public_library()
   local databases: {Sqlite.Handle} = Store.databases()
   local binary = assert(databases[#databases], "the tool has a database")
-  local rows = assert(Sqlite.text_rows(binary,
+  local rows = assert(binary:text_rows(
     "SELECT (SELECT count(*) FROM public_modules WHERE path IN ('cosmic.fs', 'cosmic.sys', 'cosmic.web', " ..
       "'cosmic.web.input', 'cosmic.http.server')), " ..
       "(SELECT count(*) FROM public_modules WHERE path LIKE 'cosmic.internal.%' OR path LIKE '%\\_test' ESCAPE '\\' " ..

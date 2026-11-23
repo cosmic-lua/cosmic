@@ -18,14 +18,14 @@ local function database(path: string, inputs: {{string}}, runs: {{string}})
     create table runs (path text, passed integer);
   ]]))
   for _, input in ipairs(inputs) do
-    assert(Sqlite.run(db, "insert into inputs values (?, ?, ?)",
+    assert(db:run("insert into inputs values (?, ?, ?)",
       { { text = input[1] }, { text = input[2] }, { text = input[3] } }))
   end
   for _, run in ipairs(runs) do
-    assert(Sqlite.run(db, "insert into runs values (?, ?)",
+    assert(db:run("insert into runs values (?, ?)",
       { { text = run[1] }, { integer = math.tointeger(tonumber(run[2])) } }))
   end
-  db:close()
+  local _, _ = db:close()
 end
 
 local function test_evidence_counts_passing_tests_and_examples_apart(dir: string)
@@ -51,8 +51,8 @@ local function test_reset_clears_the_runs_and_keeps_the_rest(dir: string)
   local evidence = assert(Grader.evidence(path))
   assert(evidence.tests == 0 and evidence.examples == 0)
   local db = assert(Sqlite.open(path))
-  local rows = assert(Sqlite.text_rows(db, "select count(*) from inputs", {}))
-  db:close()
+  local rows = assert(db:text_rows("select count(*) from inputs", {}))
+  local _, _ = db:close()
   local counted = assert(rows[1], "expected the count row")
   assert(counted:text(1) == "1")
 end

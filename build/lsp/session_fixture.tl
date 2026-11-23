@@ -177,18 +177,18 @@ function session_fixture.carrying(path: string, file: string, text: string, plac
                                   members?: {{string}}): Sqlite.Handle
   local db = assert(Sqlite.memory())
   for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
-  assert(Sqlite.run(db, "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
+  assert(db:run("INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
       "VALUES (?1, ?2, 'module', CAST(?3 AS BLOB), x'00', x'00', '', deflate(?4))",
     { { text = path }, { text = file }, { text = Hash.hex_sha256(text) }, { text = text } }))
   for ordinal, place in ipairs(places) do
-    assert(Sqlite.run(db, "INSERT INTO places (module, ordinal, symbol, kind, line, column, length, plain) " ..
+    assert(db:run("INSERT INTO places (module, ordinal, symbol, kind, line, column, length, plain) " ..
         "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
       { { text = path }, { text = tostring(ordinal) }, { text = place[1] or "" }, { text = place[2] or "" },
         { text = place[3] or "0" }, { text = place[4] or "0" }, { text = place[5] or "0" },
         { text = place[6] or "0" } }))
   end
   for ordinal, member in ipairs(members or {}) do
-    assert(Sqlite.run(db, "INSERT INTO members (module, ordinal, owner, name, kind, scope, type, doc) " ..
+    assert(db:run("INSERT INTO members (module, ordinal, owner, name, kind, scope, type, doc) " ..
         "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
       { { text = path }, { text = tostring(ordinal) }, { text = member[1] or "" }, { text = member[2] or "" },
         { text = member[3] or "" }, { text = member[4] or "both" }, { text = member[5] or "" },
@@ -203,7 +203,7 @@ function session_fixture.carrying_origin(path: string, file: string, header: str
   local db = session_fixture.carrying("cosmic.unused", "cosmic/unused.tl", "", places)
   assert(db:exec("DELETE FROM modules"))
   assert(db:exec("UPDATE places SET module = '" .. path .. "'"))
-  assert(Sqlite.run(db, "INSERT INTO origins (module, file, sha256, source) VALUES (?1, ?2, ?3, deflate(?4))",
+  assert(db:run("INSERT INTO origins (module, file, sha256, source) VALUES (?1, ?2, ?3, deflate(?4))",
     { { text = path }, { text = file }, { text = Hash.hex_sha256(header) }, { text = header } }))
   return db
 end

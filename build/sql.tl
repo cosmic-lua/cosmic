@@ -260,7 +260,7 @@ function sql.open(source: sql.Source, between?: function()): sql.Opened?, string
   local ok, pragma_trouble = db:exec("PRAGMA query_only = 1")
   if not ok then
     local _, _ = db:close()
-    return nil, pragma_trouble
+    return nil, tostring(pragma_trouble)
   end
   return { db = db, owned = true }, ""
 end
@@ -490,17 +490,10 @@ local function stream(db: Sqlite.Handle, statement: string,
   local write = writer or row_lines
   local prepared, prepare_trouble = db:prepare(statement)
   if prepared == nil then
-    -- The code of a refusal is told by preparing again where that
-    -- answers one: `prepare` answers only SQLite's reason, and its
-    -- own refusals (no statement, several) raise from `prepare_result`.
-    local code = 0
-    local asked, _ = pcall(function()
-      code = db:prepare_result(statement).code
-    end)
-    if asked and code == sqlite_auth and refusal_hint ~= nil then
-      return nil, prepare_trouble .. refusal_hint
+    if prepare_trouble.code == sqlite_auth and refusal_hint ~= nil then
+      return nil, tostring(prepare_trouble) .. refusal_hint
     end
-    return nil, prepare_trouble
+    return nil, tostring(prepare_trouble)
   end
   -- Nothing is bound: a parameter left unbound would read as NULL.
   local wanted = prepared:parameters()
@@ -796,7 +789,7 @@ local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string}?, 
     end
     local from = ' FROM "' .. each.name:gsub('"', '""') .. '"'
     for _, column in ipairs(each.columns) do
-      local rows, trouble = Sqlite.text_rows(db, 'SELECT DISTINCT typeof("' ..
+      local rows, trouble = db:text_rows('SELECT DISTINCT typeof("' ..
           column:gsub('"', '""') .. '")' .. from .. " ORDER BY 1")
       if rows == nil then
         return nil, tostring(trouble)
@@ -813,7 +806,7 @@ local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string}?, 
       end
       lines[#lines + 1] = line
     end
-    local sample, trouble = Sqlite.text_rows(db, 'SELECT "_json"' .. from .. " LIMIT 1")
+    local sample, trouble = db:text_rows('SELECT "_json"' .. from .. " LIMIT 1")
     if sample == nil then
       return nil, tostring(trouble)
     end
@@ -905,7 +898,7 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
   local _ = db:limit("attached", 0)
   local guarded, guard_trouble = db:exec("PRAGMA query_only = 1")
   if not guarded then
-    return fail(guard_trouble)
+    return fail(tostring(guard_trouble))
   end
   local counted: string
   local statement_word = parsed.words[1]

@@ -253,7 +253,7 @@ local hex_sha256 = hashing.hex_sha256
 
 --- Every verdict ever reached, by key.
 function test_key.known_verdicts(handle: Sqlite.Handle): {string:Verdict}?, string
-  local rows, trouble = Sqlite.text_rows(handle,
+  local rows, trouble = handle:text_rows(
     "SELECT key, passed, run_at_ns, elapsed_ns FROM verdicts")
   if rows == nil then
     return nil, tostring(trouble)
@@ -273,7 +273,7 @@ end
 function test_key.record_verdict(handle: Sqlite.Handle, key: string, passed: boolean,
                                  run_at_ns: integer, run: integer,
                                  elapsed: integer): boolean, string
-  local answered, answer_why = Sqlite.run(handle,
+  local answered, answer_why = handle:run(
     "INSERT OR REPLACE INTO verdicts (key, passed, run_at_ns, seen, elapsed_ns) " ..
       "VALUES (?1, ?2, ?3, ?4, ?5)",
     { text(key), { integer = if passed then 1 else 0 end }, { integer = run_at_ns },
@@ -303,13 +303,13 @@ local function binary_tables(): string?, string
     local databases = Store.databases()
     local binary = databases[#databases]
     if binary ~= nil then
-      local has_web, web_trouble = Sqlite.text_rows(binary,
+      local has_web, web_trouble = binary:text_rows(
         "SELECT 1 FROM sqlite_master WHERE name = 'web_assets'")
       if has_web == nil then
         looked.trouble = tostring(web_trouble)
       else
         -- A binary from before the table has no assets to key on.
-        local value, value_trouble = Sqlite.text_rows(binary, schema.tables_digest("", #has_web > 0))
+        local value, value_trouble = binary:text_rows(schema.tables_digest("", #has_web > 0))
         looked.value, looked.trouble = value, if value ~= nil then "" else tostring(value_trouble) end
       end
     end
@@ -474,7 +474,7 @@ end
 --- The bytecode of each module and main of `db` that has any, as it was
 --- dumped, by path.
 local function module_code(db: Sqlite.Handle): {string:string}?, string
-  local modules, trouble = Sqlite.rows(db, "SELECT path, chunk(bytecode) FROM modules " ..
+  local modules, trouble = db:rows("SELECT path, chunk(bytecode) FROM modules " ..
       "WHERE kind IN ('module', 'main') AND bytecode IS NOT NULL")
   if modules == nil then return nil, tostring(trouble) end
   local code: mut {string:string} = {}
@@ -498,7 +498,7 @@ end
 --- [`test_key.type_only_imports`] the erased ones, so the two cannot
 --- drift apart.
 local function import_edges(db: Sqlite.Handle, code: {string:string}): {Edge}?, string
-  local rows, rows_trouble = Sqlite.text_rows(db, "SELECT path, requires FROM imports")
+  local rows, rows_trouble = db:text_rows("SELECT path, requires FROM imports")
   if rows == nil then return nil, tostring(rows_trouble) end
   local edges: mut {Edge} = {}
   for index, row in ipairs(rows) do
@@ -628,7 +628,7 @@ end
 --- `db` carries, or whose bytecode does not load, which the digests or
 --- the salt would otherwise leave out unnoticed.
 function test_key.harness(db: Sqlite.Handle): Harness?, string
-  local modules, trouble = Sqlite.text_rows(db,
+  local modules, trouble = db:text_rows(
     "SELECT path, source_hash FROM modules WHERE kind IN ('module', 'main')")
   if modules == nil then return nil, tostring(trouble) end
   -- The bytecode of a module, read when first asked for: the digests
@@ -640,7 +640,7 @@ function test_key.harness(db: Sqlite.Handle): Harness?, string
   local function code_of(name: string): string?
     if asked[name] ~= true then
       asked[name] = true
-      local rows, rows_trouble = Sqlite.rows(db, "SELECT chunk(bytecode) FROM modules " ..
+      local rows, rows_trouble = db:rows("SELECT chunk(bytecode) FROM modules " ..
           "WHERE path = ?1 AND kind IN ('module', 'main') AND bytecode IS NOT NULL", { { text = name } })
       if rows == nil then
         code_trouble = tostring(rows_trouble)
@@ -651,7 +651,7 @@ function test_key.harness(db: Sqlite.Handle): Harness?, string
     end
     return code[name]
   end
-  local imported, imports_trouble = Sqlite.text_rows(db, "SELECT path, requires FROM imports")
+  local imported, imports_trouble = db:text_rows("SELECT path, requires FROM imports")
   if imported == nil then return nil, tostring(imports_trouble) end
   local sources: mut {string:string} = {}
   local carried: mut {string:boolean} = {}
@@ -733,7 +733,7 @@ local function stamped_harness(binary: Sqlite.Handle, spelled: string): Harness?
     names[#names + 1] = name
     each[name] = module_digest
   end
-  local modules, trouble = Sqlite.text_rows(binary,
+  local modules, trouble = binary:text_rows(
     "SELECT path FROM modules WHERE kind IN ('module', 'main')")
   if modules == nil then return nil, tostring(trouble) end
   local carried: mut {string:boolean} = {}
@@ -1025,11 +1025,11 @@ function test_key.extras_rows(db: Sqlite.Handle): {{string}}?, string
     "WHERE d.path = modules.path), '')"
   -- With its stub ([`sealed_fill`] carries it), where the program has
   -- them: a program from before `stubs` has no such table to read.
-  local rows, _ = Sqlite.text_rows(db, query ..
+  local rows, _ = db:text_rows(query ..
       ", coalesce((SELECT lower(hex(sha256(source))) FROM stubs s WHERE s.path = modules.path), '') " ..
       "FROM modules ORDER BY path")
   if rows == nil then
-    local plain, trouble = Sqlite.text_rows(db, query .. " FROM modules ORDER BY path")
+    local plain, trouble = db:text_rows(query .. " FROM modules ORDER BY path")
     if plain == nil then return nil, tostring(trouble) end
     rows = plain
   end
@@ -1704,35 +1704,35 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
     -- and a sync per commit would only cost time.
     for _, pragma in ipairs({ "PRAGMA journal_mode = OFF", "PRAGMA synchronous = OFF" }) do
       local ok, why = db:exec(pragma)
-      if not ok then return false, why end
+      if not ok then return false, tostring(why) end
     end
     for _, statement in ipairs(sealed_schema) do
       local ok, why = db:exec(statement)
-      if not ok then return false, why end
+      if not ok then return false, tostring(why) end
     end
     for _, attached in ipairs({ { "closure", store }, { "program", sealing.program },
         { "whole", whole } }) do
-      local ok, why = Sqlite.run(db, "ATTACH DATABASE ?1 AS " .. attached[1], -- checked: nil_not_allowed
+      local ok, why = db:run("ATTACH DATABASE ?1 AS " .. attached[1], -- checked: nil_not_allowed
         { { text = attached[2] } })
       if not ok then return false, tostring(why) end
     end
-    local filled, fill_trouble = Sqlite.transact(db, function(): (true) | (false, Failure)
+    local filled, fill_trouble = db:transact(function(): (true) | (false, Failure)
       local ok, why = db:exec("CREATE TEMP TABLE extra (path TEXT PRIMARY KEY)")
-      if not ok then return false, Failure.new(why) end
+      if not ok then return false, Failure.new(tostring(why)) end
       for _, name in ipairs(worker.loads) do
-        local inserted, insert_trouble = Sqlite.run(db,
+        local inserted, insert_trouble = db:run(
           "INSERT OR IGNORE INTO temp.extra (path) VALUES (?1)", { { text = name } })
         if not inserted then return false, insert_trouble end
       end
       -- A program from before `web_assets`, `stubs` or `places` has no such table to
       -- carry.
-      local held, held_trouble = Sqlite.text_rows(db,
+      local held, held_trouble = db:text_rows(
         "SELECT name FROM program.sqlite_master WHERE name IN ('web_assets', 'stubs', 'places')")
       if held == nil then return false, held_trouble end
       local absent: mut {string:boolean} = { web_assets = true, stubs = true, places = true }
       for _, row in ipairs(held) do absent[row:text(1)] = nil end
       -- A pure closure store leaves out the tables of text-derived rows ([`build.closure_store`]'s `write`).
-      local carried, carried_trouble = Sqlite.text_rows(db,
+      local carried, carried_trouble = db:text_rows(
         "SELECT name FROM closure.sqlite_master WHERE name = 'places'")
       if carried == nil then return false, carried_trouble end
       local left_out = #carried == 0
@@ -1741,7 +1741,7 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
         local from_closure = statement:match("closure%.([%w_]+)")
         if (reads == nil or absent[reads] ~= true) and not (left_out and from_closure == "places") then
           local done, done_trouble = db:exec(statement)
-          if not done then return false, Failure.new(done_trouble) end
+          if not done then return false, Failure.new(tostring(done_trouble)) end
         end
       end
       if left_out then
@@ -1750,11 +1750,11 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
         for _, statement in ipairs({ "DROP TABLE main.places",
             "INSERT INTO main.meta (key, value) VALUES ('pure_store', X'31')" }) do
           local done, done_trouble = db:exec(statement)
-          if not done then return false, Failure.new(done_trouble) end
+          if not done then return false, Failure.new(tostring(done_trouble)) end
         end
       end
       for _, pair in ipairs(meta) do
-        local inserted, insert_trouble = Sqlite.run(db,
+        local inserted, insert_trouble = db:run(
           "INSERT INTO main.meta (key, value) VALUES (?1, ?2)",
           { { text = pair[1] }, { text = pair[2] } })
         if not inserted then return false, insert_trouble end
@@ -2152,7 +2152,7 @@ function test_key.gather(rec: Recording, from: Gather): string?
   local identity = from.identity
   local by_path: mut {string:Module} = {}
   for _, m in ipairs(from.modules) do by_path[m.path] = m end
-  local declaration_rows, declaration_trouble = Sqlite.text_rows(records,
+  local declaration_rows, declaration_trouble = records:text_rows(
     "SELECT path, file FROM inputs WHERE " .. analysis_schema.declaration("kind"))
   if declaration_rows == nil then return records_path .. ": " .. tostring(declaration_trouble) end
   local declarations: mut {string:string} = {}
@@ -2187,7 +2187,7 @@ function test_key.gather(rec: Recording, from: Gather): string?
   end
   -- What an earlier run hashed, so a key reads none of it again
   -- ([`build.declared_key`]).
-  local remembered, remembered_trouble = Sqlite.text_rows(records,
+  local remembered, remembered_trouble = records:text_rows(
     "SELECT path, signature, sha256 FROM digests")
   if remembered == nil then return records_path .. ": " .. tostring(remembered_trouble) end
   local earlier: mut {{string}} = {}
@@ -2597,7 +2597,7 @@ local function keep_now(rec: Recording, job: Job, judged: Judged, elapsed: integ
     -- Its inputs moved while it ran, so the failure is of no one state
     -- of them -- but it may be of the one it started from, and a pass
     -- kept under that key would stand for it: gone.
-    local saved, save_trouble = Sqlite.run(rec.records, "DELETE FROM verdicts WHERE key = ?1",
+    local saved, save_trouble = rec.records:run("DELETE FROM verdicts WHERE key = ?1",
       { text(key) })
     if not saved then
       local said = id .. ": verdict: " .. tostring(save_trouble)
@@ -2657,10 +2657,13 @@ function test_key.persist_digests(records: Sqlite.Handle, rec: Recording,
   local digests = rec.digests
   if digests ~= nil and digests.read > 0 then
     local kept, keep_trouble = true, ""
-    if whole == true then kept, keep_trouble = records:exec("DELETE FROM digests") end
+    if whole == true then
+      local cleared, clear_trouble = records:exec("DELETE FROM digests")
+      if not cleared then kept, keep_trouble = false, tostring(clear_trouble) end
+    end
     for _, row in ipairs(if kept then declared_key.kept(digests) else {} end) do -- checked: literal_needs_type
       if kept then
-        local inserted, insert_trouble = Sqlite.run(records,
+        local inserted, insert_trouble = records:run(
           "INSERT OR REPLACE INTO digests (path, signature, sha256) VALUES (?1, ?2, ?3)",
           { text(row[1]), text(row[2]), text(row[3]) })
         kept, keep_trouble = inserted, if inserted then "" else tostring(insert_trouble) end

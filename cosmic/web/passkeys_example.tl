@@ -30,11 +30,11 @@ function Example.passkeys()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE accounts (name TEXT PRIMARY KEY, handle BLOB NOT NULL UNIQUE)"))
   local function handle_of(name: string): string?
-    return assert(Sqlite.map(db, "SELECT handle FROM accounts WHERE name = ?1", { { text = name } },
+    return assert(db:map("SELECT handle FROM accounts WHERE name = ?1", { { text = name } },
       function(r: Sqlite.Row): string return r:blob(1) end))[1]
   end
   local function name_of(handle: string): string?
-    return assert(Sqlite.map(db, "SELECT name FROM accounts WHERE handle = ?1", { { blob = handle } },
+    return assert(db:map("SELECT name FROM accounts WHERE handle = ?1", { { blob = handle } },
       function(r: Sqlite.Row): string return r:text(1) end))[1]
   end
   local app = Web.app{
@@ -50,7 +50,7 @@ function Example.passkeys()
         local name = Url.query_last(form, "name")
         if name == nil or name == "" then return Web.empty(400) end
         local handle = assert(Rand.entropy(16))
-        assert(Sqlite.run(db, "INSERT INTO accounts (name, handle) VALUES (?1, ?2) ON CONFLICT DO NOTHING",
+        assert(db:run("INSERT INTO accounts (name, handle) VALUES (?1, ?2) ON CONFLICT DO NOTHING",
           { { text = name }, { blob = handle } }))
         if db:changes() ~= 1 then return Web.empty(409) end
         Session.of(req):set("signup", name)

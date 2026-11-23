@@ -56,7 +56,7 @@ return function(argv: {string}): integer
     return 1
   end
   if not closed then
-    print("work database integrity: FAIL (close: " .. close_trouble .. ")")
+    print("work database integrity: FAIL (close: " .. tostring(close_trouble) .. ")")
     return 1
   end
   local only: Sqlite.Row? = nil

@@ -394,7 +394,7 @@ end
 
 --- Adds a documented `symbol` of `module` to the docs database `db`.
 local function documented(db: Sqlite.Handle, module: string, symbol: string)
-  assert(Sqlite.run(db,
+  assert(db:run(
     "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, text, file, line) " ..
       "VALUES (?1, ?2, ?2, 1, 'function', '', 'Docs.', 'x.tl', 1)", { { text = module }, { text = symbol } }))
 end

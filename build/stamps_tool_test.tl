@@ -29,7 +29,7 @@ local stamp_keys <const>: {string} = { "stamp_analyzer", "stamp_coded", "stamp_e
 local function held(db: Sqlite.Handle): {string:string}
   local out: mut {string:string} = {}
   for _, key in ipairs(stamp_keys) do
-    local rows = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = ?1", { { text = key } }))
+    local rows = assert(db:text_rows("SELECT value FROM meta WHERE key = ?1", { { text = key } }))
     local row = rows[1]
     out[key] = if row ~= nil then row:text(1) else "" end
   end
@@ -52,7 +52,7 @@ test_child.register("stamped again", function(args: {string}): integer
   for _, statement in ipairs(schema.create("")) do assert(decoy:exec(statement)) end
   local decoy_of = assert(Stamp.content(decoy))
   for _, key in ipairs(stamp_keys) do
-    assert(Sqlite.run(decoy, "INSERT INTO meta (key, value) VALUES (?1, ?2)",
+    assert(decoy:run("INSERT INTO meta (key, value) VALUES (?1, ?2)",
       { { text = key }, { text = if key == Stamp.of then decoy_of else "another database's" end } }))
   end
   assert(decoy:close())

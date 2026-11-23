@@ -132,7 +132,7 @@ end
 
 --- The number of rows in the session table.
 local function session_count(db: Sqlite.Handle): integer
-  local rows = assert(Sqlite.rows(db, "SELECT count(*) FROM web_sessions"))
+  local rows = assert(db:rows("SELECT count(*) FROM web_sessions"))
   local row = assert(rows[1], "a count query answers one row")
   return row:integer(1)
 end

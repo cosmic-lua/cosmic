@@ -51,20 +51,20 @@ local LAZY_TABLES <const> = { "json_each", "json_tree", "jsonb_each", "jsonb_tre
 local function answered(): {string:boolean}
   local handle = assert(Sqlite.memory())
   for _, name in ipairs(LAZY_TABLES) do
-    assert(Sqlite.text_rows(handle, "SELECT * FROM " .. name .. "('[]')"))
+    assert(handle:text_rows("SELECT * FROM " .. name .. "('[]')"))
   end
   local names: mut {string:boolean} = {}
   for _, sql in ipairs({ "SELECT name FROM pragma_function_list",
       "SELECT name FROM pragma_module_list" }) do
-    local rows = assert(Sqlite.text_rows(handle, sql))
+    local rows = assert(handle:text_rows(sql))
     for _, row in ipairs(rows) do
       local name = row:text(1):lower()
       names[name:find("^pragma_") and PRAGMAS or name] = true
     end
   end
-  local rows = assert(Sqlite.text_rows(handle, "SELECT name FROM pragma_collation_list"))
+  local rows = assert(handle:text_rows("SELECT name FROM pragma_collation_list"))
   for _, row in ipairs(rows) do names[collation(row:text(1):lower())] = true end
-  handle:close()
+  local _, _ = handle:close()
   return names
 end
 

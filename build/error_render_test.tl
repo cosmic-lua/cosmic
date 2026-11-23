@@ -156,15 +156,15 @@ local function hinted(): ErrorRender.Hints, Sqlite.Handle
   for _, statement in ipairs(schema.create("")) do
     assert(db:exec(statement))
   end
-  assert(Sqlite.run(db,
+  assert(db:run(
     "INSERT INTO modules (path, file, kind, source_hash, key, source, bytecode, tests) " ..
       "VALUES ('cosmic.fs', 'cosmic/fs.tl', 'module', '', '', '', '', '')"))
-  assert(Sqlite.run(db,
+  assert(db:run(
     "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, text, file, line) " ..
       "VALUES ('cosmic.fs', 'Fs.read', 'Fs.read', 1, 'function', 'function Fs.read(path: string): string', " ..
       "'Reads a file.', 'cosmic/fs.tl', 3)"))
   for _, name in ipairs({ "records_interfaces_methods", "generics_functions_returns" }) do
-    assert(Sqlite.run(db,
+    assert(db:run(
       "INSERT INTO examples (module, name, text, file, line, source) " ..
         "VALUES ('cosmic.fs', ?1, 'Records.', 'cosmic/fs.tl', 9, 'local x = 1')", { { text = name } }))
   end
@@ -184,7 +184,7 @@ local function test_a_name_the_checker_could_not_resolve_points_at_what_cosmic_d
   -- a name the docs do not know is told nothing more, and so is a module that is found
   local unknown = ErrorRender.lines(result_of("print(nothing_here)\n"), hints)
   assert(at(unknown, 1):find("see also", 1, true) == nil, at(unknown, 1))
-  db:close()
+  local _, _ = db:close()
 end
 
 local function test_a_call_or_a_field_the_checker_refused_points_at_the_example_that_teaches_the_form()
@@ -208,8 +208,8 @@ local function test_a_call_or_a_field_the_checker_refused_points_at_the_example_
     return { bare }, { false }
   end)
   assert(at(none, 1):find("see also", 1, true) == nil, at(none, 1))
-  bare:close()
-  db:close()
+  local _, _ = bare:close()
+  local _, _ = db:close()
 end
 
 local function test_a_line_is_its_place_message_code_and_fix()
@@ -226,7 +226,7 @@ end
 local function first_line(text: string, stubs?: {string: string}): string
   local hints, db = hinted()
   local lines = ErrorRender.lines(result_of(text, stubs), hints)
-  db:close()
+  local _, _ = db:close()
   return at(lines, 1)
 end
 
@@ -266,7 +266,7 @@ local function test_the_fix_of_a_removed_name_beats_the_pointer_of_an_argument()
   local hints, db = hinted()
   assert(ErrorRender.pointers(result, marked(true), hints) == "")
   assert(ErrorRender.pointers(result, marked(false), hints) == POINTER)
-  db:close()
+  local _, _ = db:close()
 end
 
 --- A report a person reads shows the source line under each line that names a place and a code, with a caret under the

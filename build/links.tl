@@ -88,7 +88,6 @@
 --- this module answers symbols from the project's databases.
 
 local Fs = require("cosmic.fs")
-local Sqlite = require("cosmic.sqlite")
 local Doc = require("cosmic.doc")
 local link_resolve = require("build.link_resolve")
 local link_text = require("cosmic.internal.link_text")
@@ -492,14 +491,14 @@ local function index_of(view: Doc.View): symbol_index.Index?, string
   local out = symbol_index.new()
   for module in pairs(view.owners) do symbol_index.module(out, module) end
   for index, db in ipairs(view.databases) do
-    local tables, tables_trouble = Sqlite.text_rows(db,
+    local tables, tables_trouble = db:text_rows(
       "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'docs'")
     if tables == nil then return nil, tostring(tables_trouble) end
     if #tables > 0 then
       -- Every row, as [`cosmic.doc`] reads a type an alias stands for
       -- in any; only those shown, of the database that owns the
       -- module, answer a name.
-      local rows, trouble = Sqlite.text_rows(db,
+      local rows, trouble = db:text_rows(
         "SELECT d.module, d.symbol, d.source_symbol, d.file, d.kind, d.signature, d.exported, " ..
           "d.id, " .. symbols.shown_docs("d", view.public[index] == true) .. " FROM docs d " ..
           "ORDER BY d.module, d.id")

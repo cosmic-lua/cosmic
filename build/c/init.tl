@@ -890,7 +890,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     if is_whole and compiled then
       check_memo.finish(store, "c")
     else
-      local _, _ = Sqlite.run(store, "COMMIT")
+      local _, _ = store:run("COMMIT")
     end
   end
   if not compiled then error(trouble, 0) end

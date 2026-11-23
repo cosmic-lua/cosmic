@@ -85,7 +85,7 @@ local function test_a_loaded_row_reads_back_through_json(tmp: string)
             if utf8.len(key) == nil then text_keys = true end
           end
         end
-        local left, _ = Sqlite.rows(db, "SELECT 1 FROM t")
+        local left, _ = db:rows("SELECT 1 FROM t")
         if not text_keys or left ~= nil then
           return false, "refused: " .. why
         end
@@ -113,7 +113,7 @@ local function test_a_loaded_row_reads_back_through_json(tmp: string)
       if #made.columns ~= distinct + 1 then
         return false, #made.columns .. " columns for " .. tostring(distinct) .. " keys"
       end
-      local texts, trouble = Sqlite.text_rows(db, "SELECT _json FROM t ORDER BY rowid")
+      local texts, trouble = db:text_rows("SELECT _json FROM t ORDER BY rowid")
       if texts == nil then return false, tostring(trouble) end
       for index, row in ipairs(rows) do
         local expected = assert(Json.encode_any(row))
@@ -220,7 +220,7 @@ local function test_each_key_reads_back_by_its_column(tmp: string)
         do
           if column ~= key then Fuzz.label("renamed") end
           if not key:match("^[%a_][%w_]*$") then Fuzz.label("quoted") end
-          local got, trouble = Sqlite.rows(db, 'SELECT "' .. column:gsub('"', '""') .. '" FROM t ORDER BY rowid')
+          local got, trouble = db:rows('SELECT "' .. column:gsub('"', '""') .. '" FROM t ORDER BY rowid')
           if got == nil then return false, column .. ": " .. tostring(trouble) end
           for index, row in ipairs(rows) do
             local want = expected_cell(row[key])
@@ -280,7 +280,7 @@ local function cells_of(db: Sqlite.Handle, columns: {string}): string
   if #quoted == 0 then
     quoted[1] = "''"
   end
-  local rows = assert(Sqlite.text_rows(db, "SELECT " .. table.concat(quoted, " || '|' || ") ..
+  local rows = assert(db:text_rows("SELECT " .. table.concat(quoted, " || '|' || ") ..
       ", (SELECT group_concat(key || ':' || type || ':' || quote(atom), ',') FROM json_each(t._json))" ..
       ", json_type(json_object('row', t._json), '$.row') FROM t ORDER BY rowid"))
   local out: mut {string} = {}

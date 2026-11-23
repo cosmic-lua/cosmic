@@ -11,7 +11,7 @@ Test.policy{}
 local function test_a_database_is_made_with_its_schema(tmp: string)
   local path = tmp .. "/data/sessions.db"
   local db = assert(Sessions.open(path))
-  local version = assert(assert(Sqlite.rows(db, "PRAGMA user_version"))[1])
+  local version = assert(assert(db:rows("PRAGMA user_version"))[1])
   assert(version:integer(1) == 1)
   assert(assert(Fs.stat(path)).mode & 0x1ff == 0x180)
   assert(assert(Fs.stat(tmp .. "/data")).mode & 0x1ff == 0x1c0)
@@ -41,7 +41,7 @@ local function test_a_request_keeps_its_shape_build_and_cache_miss()
   local id = assert(Sessions.start(db, "/", "m", 0))
   assert(Sessions.request(db, id, { started = 0, ms = 0, model = "m", effort = "low", max_tokens = 1, betas = "",
     system = "s", status = 200, headers = "{}", shape = '{"a":1}', build = "b" }))
-  local stored = assert(Sqlite.rows(db, "SELECT (SELECT body FROM shapes WHERE id = shape), build FROM requests"))
+  local stored = assert(db:rows("SELECT (SELECT body FROM shapes WHERE id = shape), build FROM requests"))
   assert(assert(stored[1]):text(1) == '{"a":1}' and assert(stored[1]):text(2) == "b")
   -- Why the cache missed is read from the reply; a reply not JSON reads as none.
   assert(Sessions.request(db, id, { started = 0, ms = 0, model = "m", effort = "low", max_tokens = 1, betas = "",
@@ -49,7 +49,7 @@ local function test_a_request_keeps_its_shape_build_and_cache_miss()
   assert(Sessions.request(db, id, { started = 0, ms = 0, model = "m", effort = "low", max_tokens = 1, betas = "",
     system = "s", status = 200, headers = "{}", shape = "{}",
     reply = '{"id":"msg_9","diagnostics":{"cache_miss_reason":{"type":"tools_changed","cache_missed_input_tokens":5}}}' }))
-  local misses = assert(Sqlite.rows(db, "SELECT cache_miss, cache_missed FROM requests ORDER BY id"))
+  local misses = assert(db:rows("SELECT cache_miss, cache_missed FROM requests ORDER BY id"))
   assert(#misses == 3 and assert(misses[2]):is_null(1) and assert(misses[3]):text(1) == "tools_changed")
   assert(assert(misses[3]):integer(2) == 5)
   assert(Sessions.last_reply(db, id) == "msg_9")

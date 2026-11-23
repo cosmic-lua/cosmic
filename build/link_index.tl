@@ -338,7 +338,7 @@ end
 --- `digest`): it is a function of the rows, the answers and that, which is
 --- all `recalled` has found the same.
 local function recalled(db: Sqlite.Handle, fingerprint: string): link_index.Memo?, boolean, string?, string
-  local kept, _ = Sqlite.text_rows(db,
+  local kept, _ = db:text_rows(
     "SELECT kind, path, value, found FROM link_answers ORDER BY kind, path")
   if kept == nil then return nil, false, nil, "" end
   local memo: link_index.Memo = { kinds = {}, reads = {}, reals = {} }
@@ -415,7 +415,7 @@ function link_index.pending(db: Sqlite.Handle, root: string,
                             library: link_index.Library?, code?: string): link_index.Pending?, string
   local absolute, _ = Fs.absolute(root)
   root = absolute or root
-  local found, trouble = Sqlite.text_rows(db, raw_links)
+  local found, trouble = db:text_rows(raw_links)
   if found == nil then
     return nil, tostring(trouble)
   end
@@ -472,8 +472,8 @@ function link_index.pending(db: Sqlite.Handle, root: string,
         remember(db, fingerprint, memo, library_asked, signed or "", digest)
       else
         -- Answers kept before the digest was, or by a call that signed another library in.
-        local _, _ = Sqlite.run(db, "DELETE FROM link_answers WHERE kind = 'digest'")
-        local _, _ = Sqlite.run(db, "INSERT INTO link_answers (kind, path, value, found) VALUES ('digest', ?1, ?2, 1)",
+        local _, _ = db:run("DELETE FROM link_answers WHERE kind = 'digest'")
+        local _, _ = db:run("INSERT INTO link_answers (kind, path, value, found) VALUES ('digest', ?1, ?2, 1)",
           { text(signed or ""), text(digest) })
       end
     end
@@ -487,7 +487,7 @@ end
 local function index_of(db: Sqlite.Handle, qualifier: string,
                         held: mut {string: boolean}): symbol_index.Index?, string
   local out = symbol_index.new()
-  local modules, modules_trouble = Sqlite.text_rows(db, symbols.owned_modules(qualifier))
+  local modules, modules_trouble = db:text_rows(symbols.owned_modules(qualifier))
   if modules == nil then
     return nil, tostring(modules_trouble)
   end
@@ -495,7 +495,7 @@ local function index_of(db: Sqlite.Handle, qualifier: string,
     symbol_index.module(out, row:text(1))
     held[row:text(1)] = true
   end
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT module, symbol, source_symbol, file, kind, signature, exported, id FROM " ..
       qualifier .. "docs ORDER BY module, exported DESC, id")
   if rows == nil then
@@ -530,7 +530,7 @@ local function add_library(index: symbol_index.Index, held: {string: boolean},
   local owners: mut {string: integer} = {}
   for at, db in ipairs(databases) do
     local database = at + 1
-    local modules, modules_trouble = Sqlite.text_rows(db, symbols.owned_modules(""))
+    local modules, modules_trouble = db:text_rows(symbols.owned_modules(""))
     if modules == nil then
       return false, tostring(modules_trouble)
     end
@@ -540,7 +540,7 @@ local function add_library(index: symbol_index.Index, held: {string: boolean},
         symbol_index.module(index, row:text(1))
       end
     end
-    local rows, rows_trouble = Sqlite.text_rows(db,
+    local rows, rows_trouble = db:text_rows(
       "SELECT d.module, d.symbol, d.source_symbol, d.file, d.kind, d.signature, d.exported, " ..
         "d.id, " .. symbols.shown_docs("d", true) .. " FROM docs d ORDER BY d.module, d.id")
     if rows == nil then
@@ -677,7 +677,7 @@ local function resolve_and_write(db: Sqlite.Handle, pending: link_index.Pending,
     return a.column < b.column
   end)
   for _, row in ipairs(rows) do
-    local ok, trouble = Sqlite.run(db,
+    local ok, trouble = db:run(
       "INSERT INTO " .. qualifier .. "links (module, symbol, path, anchor, from_file, line, " ..
         "column, from_module, kind, form, source, text) " ..
         "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
@@ -716,7 +716,7 @@ local function symbols_digest(db: Sqlite.Handle, qualifier: string): string?
     return "coalesce((SELECT lower(hex(sha256(group_concat(" .. quoted(columns) ..
       ", char(10) ORDER BY " .. order .. ")))) FROM " .. qualifier .. from .. "), '')"
   end
-  local rows, _ = Sqlite.text_rows(db, "SELECT " .. table.concat({
+  local rows, _ = db:text_rows("SELECT " .. table.concat({
     digest({ "path" }, "modules", "path"),
     digest({ "path" }, "decls", "path"),
     digest({ "module", "symbol", "source_symbol", "file", "kind", "signature", "exported", "id" },
@@ -764,10 +764,10 @@ function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
       pending.digest, symbols_key, library_named }, "\n"))
   end
   if fingerprint ~= nil then
-    local kept, _ = Sqlite.text_rows(db, "SELECT 1 FROM link_fill WHERE fingerprint = ?1",
+    local kept, _ = db:text_rows("SELECT 1 FROM link_fill WHERE fingerprint = ?1",
       { text(fingerprint) })
     if kept ~= nil and kept[1] ~= nil then
-      local answered, answer_why = Sqlite.run(db, "INSERT INTO " .. qualifier .. "links (" .. link_columns .. ") " ..
+      local answered, answer_why = db:run("INSERT INTO " .. qualifier .. "links (" .. link_columns .. ") " ..
           "SELECT " .. link_columns .. " FROM link_fill_rows")
       if not answered then return false, tostring(answer_why) end
       return answered, ""
@@ -779,9 +779,9 @@ function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
   if fingerprint ~= nil and answers(pending.memo) == before then
     local _, _ = db:exec("DELETE FROM link_fill")
     local _, _ = db:exec("DELETE FROM link_fill_rows")
-    local _, _ = Sqlite.run(db, "INSERT INTO link_fill_rows (" .. link_columns .. ") SELECT " ..
+    local _, _ = db:run("INSERT INTO link_fill_rows (" .. link_columns .. ") SELECT " ..
         link_columns .. " FROM " .. qualifier .. "links")
-    local _, _ = Sqlite.run(db, "INSERT INTO link_fill (fingerprint) VALUES (?1)", { text(fingerprint) })
+    local _, _ = db:run("INSERT INTO link_fill (fingerprint) VALUES (?1)", { text(fingerprint) })
   end
   return true, ""
 end

@@ -14,7 +14,7 @@ local function carrying(own: string, required: string, other: string): Sqlite.Ha
   for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
   local hashes: {string:string} = { ["build.stamps"] = own, ["build.required"] = required, ["build.other"] = other }
   for path, hash in pairs(hashes) do
-    assert(Sqlite.run(db, "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
+    assert(db:run("INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
         "VALUES (?1, '', 'module', ?2, x'', x'', '', x'')", { { text = path }, { text = hash } }))
   end
   assert(db:exec("INSERT INTO imports (path, requires) VALUES ('build.stamps', 'build.required')"))
@@ -24,7 +24,7 @@ end
 
 --- The rows of `db`'s `meta` that are stamps, as `key=value` lines.
 local function stamps_of(db: Sqlite.Handle): string
-  local rows = assert(Sqlite.text_rows(db, "SELECT key || '=' || value FROM meta WHERE key LIKE 'stamp%' ORDER BY key"))
+  local rows = assert(db:text_rows("SELECT key || '=' || value FROM meta WHERE key LIKE 'stamp%' ORDER BY key"))
   local lines: mut {string} = {}
   for i, row in ipairs(rows) do lines[i] = row:text(1) end
   return table.concat(lines, "\n")

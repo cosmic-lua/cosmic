@@ -182,11 +182,11 @@ local function take_sqlite(lock: Lock, path: string,
   end
   lock.db = db
   db:busy_timeout(wait_ns)
-  local begun = db:exec_result("BEGIN IMMEDIATE")
-  if begun.cancelled == true then return nil, "interrupted while waiting for " .. path end
-  if begun.code == Sqlite.BUSY then return "busy", "" end
-  if begun.code ~= Sqlite.OK then return nil, path .. ": " .. begun.reason end
-  return "held", ""
+  local begun, why = db:exec("BEGIN IMMEDIATE")
+  if begun then return "held", "" end
+  if why.kind == "cancelled" then return nil, "interrupted while waiting for " .. path end
+  if why.code == Sqlite.BUSY then return "busy", "" end
+  return nil, path .. ": " .. why.message
 end
 
 --- Takes both halves of the lock on the file `path`, making it where it

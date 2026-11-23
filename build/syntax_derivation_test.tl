@@ -18,7 +18,7 @@ end
 
 --- The first column of each row `statement` selects.
 local function rows(db: Sqlite.Handle, statement: string): {string}
-  local found, why = Sqlite.text_rows(db, statement)
+  local found, why = db:text_rows(statement)
   assert(found ~= nil, why)
   local out: mut {string} = {}
   for _, row in ipairs(found) do
@@ -135,7 +135,7 @@ local TEST <const> = table.concat({
 local function tables_of(db: Sqlite.Handle): {string: string}
   local out: mut {string: string} = {}
   for _, name in ipairs(analysis_schema.tables) do
-    local found, why = Sqlite.rows(db, "SELECT * FROM " .. name .. " ORDER BY 1, 2")
+    local found, why = db:rows("SELECT * FROM " .. name .. " ORDER BY 1, 2")
     assert(found ~= nil, why)
     local lines: mut {string} = {}
     for _, row in ipairs(found) do

@@ -241,7 +241,7 @@ end
 function ErrorCatalog.insert(db: Sqlite.Handle, schema: string): integer?, string
   local count = 0
   for _, r in ipairs(ErrorCatalog.rows()) do
-    local ok, why = Sqlite.run(db,
+    local ok, why = db:run(
       "INSERT INTO " .. schema .. "catalog (kind, module, symbol, message, text, file, line) VALUES ('code', ?1, ?2, NULL, ?3, ?4, 0)",
       { bind.text(r.module), bind.text(r.code), bind.text(ErrorCatalog.text(r)), bind.text(r.file) })
     if not ok then

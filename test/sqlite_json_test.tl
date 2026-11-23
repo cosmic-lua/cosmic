@@ -14,13 +14,13 @@ end
 
 --- SQLite's `json(text)`, or nil and its failure.
 local function minified(db: Sqlite.Handle, text: string): string?, string
-  local rows, failure = Sqlite.text_rows(db, "SELECT json(?1)", { { text = text } })
+  local rows, failure = db:text_rows("SELECT json(?1)", { { text = text } })
   if rows == nil then return nil, tostring(failure) end
   return first_row(rows):text(1), ""
 end
 
 local function valid(db: Sqlite.Handle, text: string, flags: integer): boolean
-  local rows = assert(Sqlite.text_rows(db, "SELECT json_valid(?1, ?2)",
+  local rows = assert(db:text_rows("SELECT json_valid(?1, ?2)",
     { { text = text }, { integer = flags } }))
   return first_row(rows):text(1) == "1"
 end
@@ -74,7 +74,7 @@ local function test_a_subquerys_json_result_is_text_to_its_caller()
   for _, case in ipairs(cases) do
     local sql, want = case[1], case[2]
     assert(sql and want, "a case is a statement and what it answers")
-    local rows = assert(Sqlite.text_rows(db, sql))
+    local rows = assert(db:text_rows(sql))
     local got = first_row(rows):text(1)
     assert(got == want, sql .. ": " .. got)
   end

@@ -160,7 +160,7 @@ local function test_a_global_excludes_file_changes_neither_fix_nor_the_projectio
   assert(assert(Fs.read(user_config .. "/README.md")):find("[`src/kept.txt`]", 1, true) ~= nil)
   local function signature(root: string): string
     local db = assert(Sqlite.open(assert(build_paths.prepare(root)) .. "/cosmic.db"))
-    local rows = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'projected'"))
+    local rows = assert(db:text_rows("SELECT value FROM meta WHERE key = 'projected'"))
     local value = assert(rows[1]):text(1)
     assert(db:close())
     return value

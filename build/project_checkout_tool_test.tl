@@ -27,7 +27,7 @@ local function tool_of(path: string, built_from: string, scratch: string)
   local parts = assert(artifact.split((assert(Fs.read((assert(Proc.executable())))))))
   assert(Fs.write(scratch, parts.database))
   local db = assert(Sqlite.open(scratch, { writable = true }))
-  assert(Sqlite.run(db, "INSERT OR REPLACE INTO meta (key, value) VALUES ('built_from', ?1)",
+  assert(db:run("INSERT OR REPLACE INTO meta (key, value) VALUES ('built_from', ?1)",
     { { text = built_from } }))
   assert(db:close())
   local database = assert(Fs.read(scratch))

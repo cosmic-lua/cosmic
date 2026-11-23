@@ -68,7 +68,7 @@ local function projected_signature(path: string): string
   if handle == nil then
     return ""
   end
-  local rows, _ = Sqlite.text_rows(handle,
+  local rows, _ = handle:text_rows(
     "SELECT value FROM meta WHERE key = 'projected'")
   local _, _ = handle:close()
   if rows == nil or #rows == 0 then
@@ -474,7 +474,7 @@ end
 --- `pending`, as the writer whose identity is `binary` would write it.
 local function signed(handle: work.Handle, result: importer.Result, pending: link_index.Pending,
                       binary: string): string?, string
-  local rows, trouble = Sqlite.text_rows(handle.db, signature_sql(),
+  local rows, trouble = handle.db:text_rows(signature_sql(),
     { text(result.main or ""), text("portable-v1"), text(binary .. "\n" .. mime_digest()),
       text(pending.digest) })
   if rows == nil then
@@ -541,11 +541,11 @@ local prune_compressed <const> =
 --- is the same bytes with or without it.
 local function fill_payload(db: Sqlite.Handle): boolean, string
   local rules = mime_digest()
-  local pruned, prune_trouble = Sqlite.run(db, prune_compressed, { text(rules) })
+  local pruned, prune_trouble = db:run(prune_compressed, { text(rules) })
   if not pruned then
     return false, tostring(prune_trouble)
   end
-  local files, trouble = Sqlite.text_rows(db,
+  local files, trouble = db:text_rows(
     "SELECT f.path, f.data, f.sha256, c.path IS NOT NULL, c.gzip, c.zstd, " ..
       "c.gzip IS NULL, c.zstd IS NULL " ..
       "FROM files f LEFT JOIN compressed c ON c.path = f.path AND c.sha256 = f.sha256 " ..
@@ -581,7 +581,7 @@ local function fill_payload(db: Sqlite.Handle): boolean, string
       -- interrupted cold write keeps none of them; committing per file
       -- would split the transaction the projection is built in.
       if gzip_trouble == "" and zstd_trouble == "" then
-        local kept, kept_trouble = Sqlite.run(db,
+        local kept, kept_trouble = db:run(
           "INSERT OR REPLACE INTO compressed (path, sha256, rules, core, gzip, zstd) " ..
             "VALUES (?1, ?2, ?3, " .. deflating_core .. ", ?4, ?5)",
           { text(file), text(sha256), text(rules),
@@ -592,7 +592,7 @@ local function fill_payload(db: Sqlite.Handle): boolean, string
         end
       end
     end
-    local ok, failure = Sqlite.run(db,
+    local ok, failure = db:run(
       "INSERT INTO out.payload (program, path, data, sha256, type, gzip, zstd) " ..
         "VALUES (?7, ?1, ?2, ?3, ?4, ?5, ?6)",
       { text(path), blob(data), text(sha256), text(Mime.of(path)),
@@ -607,7 +607,7 @@ end
 
 --- Carries the text of a declaration of the new checker's under `module` in the `decls` of the projection being written.
 local function put_declaration(db: Sqlite.Handle, module: string, source: string): boolean, string
-  local answered, answer_why = Sqlite.run(db, "INSERT INTO out.decls (path, source) VALUES (?1, deflate(?2))", { text(module), text(source) })
+  local answered, answer_why = db:run("INSERT INTO out.decls (path, source) VALUES (?1, deflate(?2))", { text(module), text(source) })
   if not answered then return false, tostring(answer_why) end
   return answered, ""
 end
@@ -670,7 +670,7 @@ end
 --- projection it was signed as is the one the working database recorded
 --- them under ([`vendored_key`]).
 local function vendored_stands(db: Sqlite.Handle, digest: string): boolean
-  local rows, _ = Sqlite.text_rows(db,
+  local rows, _ = db:text_rows(
     "SELECT count(*) FROM main.meta m, prev.meta p WHERE m.key = '" .. vendored_key ..
       "' AND p.key = 'projected' AND m.value = p.value || char(10) || ?1",
     { text(digest) })
@@ -712,7 +712,7 @@ local function usable_base(db: Sqlite.Handle, by: string, tool: string): boolean
     return "(SELECT count(*) FROM prev.meta WHERE key = '" .. key .. "' AND value = " ..
       parameter .. ") = 1"
   end
-  local rows, _ = Sqlite.text_rows(db,
+  local rows, _ = db:text_rows(
     "SELECT " .. schema_rows("out", "prev") .. " + " .. schema_rows("prev", "out") .. " = 0 AND " ..
       meta_rows("prev", "main") .. " + " .. meta_rows("main", "prev") .. " = 0 AND " ..
       "(SELECT count(*) FROM main.meta WHERE key IN ('compiler', 'runtime_basis', 'writer')) = 3 AND " ..
@@ -764,7 +764,7 @@ end
 --- standard library's ([`symbols.library_modules`]), a declaration and an
 --- example among them, since a project requires nothing else of it.
 local function fill_public(db: Sqlite.Handle, own: boolean): boolean, string
-  local rows, trouble = Sqlite.text_rows(db, "SELECT path, file, kind FROM out.modules ORDER BY path")
+  local rows, trouble = db:text_rows("SELECT path, file, kind FROM out.modules ORDER BY path")
   if rows == nil then
     return false, tostring(trouble)
   end
@@ -778,7 +778,7 @@ local function fill_public(db: Sqlite.Handle, own: boolean): boolean, string
     local path, file = row:text(1), row:text(2)
     if row:text(3) == "module" then
       local reach = positions.reach(file, entries, function(): boolean
-        local sources, source_trouble = Sqlite.text_rows(db,
+        local sources, source_trouble = db:text_rows(
           "SELECT CAST(inflate(source) AS TEXT) FROM out.modules WHERE path = ?1 AND length(source) > 0",
           { text(path) })
         if sources == nil then
@@ -799,13 +799,13 @@ local function fill_public(db: Sqlite.Handle, own: boolean): boolean, string
     return false, unread
   end
   if own then
-    local answered, answer_why = Sqlite.run(db, "INSERT INTO out.public_modules (path) SELECT path FROM (SELECT path FROM out.modules " ..
+    local answered, answer_why = db:run("INSERT INTO out.public_modules (path) SELECT path FROM (SELECT path FROM out.modules " ..
         "UNION SELECT path FROM out.decls) WHERE " .. symbols.library_modules("path") ..
         " AND path NOT IN carray(?1) ORDER BY path", { { texts = closed } })
     if not answered then return false, tostring(answer_why) end
     return answered, ""
   end
-  local answered, answer_why = Sqlite.run(db, "INSERT INTO out.public_modules (path) SELECT value FROM carray(?1) ORDER BY value",
+  local answered, answer_why = db:run("INSERT INTO out.public_modules (path) SELECT value FROM carray(?1) ORDER BY value",
     { { texts = public } })
   if not answered then return false, tostring(answer_why) end
   return answered, ""
@@ -823,13 +823,13 @@ local function project(handle: work.Handle,
   for _, statement in ipairs(schema.settings("out.")) do
     local ok, failure = db:exec(statement)
     if not ok then
-      return false, failure
+      return false, tostring(failure)
     end
   end
   for _, statement in ipairs(schema.create("out.")) do
     local ok, failure = db:exec(statement)
     if not ok then
-      return false, failure
+      return false, tostring(failure)
     end
   end
   local usable = based and usable_base(db, by, result.tool)
@@ -856,7 +856,7 @@ local function project(handle: work.Handle,
   for _, statement in ipairs(statements) do
     local ok, failure = db:exec(statement)
     if not ok then
-      return false, failure
+      return false, tostring(failure)
     end
   end
   local recorded, record_trouble = fill_public(db, work.standing(handle).own)
@@ -887,10 +887,10 @@ local function project(handle: work.Handle,
     "INSERT INTO out.meta (key, value) SELECT key, value FROM meta " ..
       "WHERE key IN " .. metadata)
   if not carried then
-    return false, meta_trouble
+    return false, tostring(meta_trouble)
   end
   -- The identity the uses of this projection were found under, kept for the next write's [`usable_base`].
-  local based_on, base_trouble = Sqlite.run(db,
+  local based_on, base_trouble = db:run(
     "INSERT OR REPLACE INTO main.meta (key, value) SELECT '" .. base_key .. "', " ..
       "?1 || char(10) || value FROM main.meta WHERE key = 'receivers'", { text(signature) })
   if not based_on then
@@ -899,7 +899,7 @@ local function project(handle: work.Handle,
   for _, statement in ipairs(extraction(reusing)) do
     local ok, failure = db:exec(statement)
     if not ok then
-      return false, failure
+      return false, tostring(failure)
     end
   end
   -- The rule behind each code of the checker that compiled, after the rows extracted from the sources: the new checker's.
@@ -917,7 +917,7 @@ local function project(handle: work.Handle,
   for _, statement in ipairs(schema.rebuild("out.")) do
     local ok, failure = db:exec(statement)
     if not ok then
-      return false, failure
+      return false, tostring(failure)
     end
   end
   -- cosmic's own tree describes the binary it builds: its bill of
@@ -943,7 +943,7 @@ local function project(handle: work.Handle,
       for _, statement in ipairs(carry_vendored) do
         local carried_roots, carry_trouble = db:exec(statement)
         if not carried_roots then
-          return false, carry_trouble
+          return false, tostring(carry_trouble)
         end
       end
     else
@@ -956,10 +956,10 @@ local function project(handle: work.Handle,
         return false, revoke_trouble
       end
     end
-    local noted, note_trouble = Sqlite.run(db,
+    local noted, note_trouble = db:run(
       "DELETE FROM main.meta WHERE key = '" .. vendored_key .. "'", {})
     if noted and digest ~= nil then
-      noted, note_trouble = Sqlite.run(db,
+      noted, note_trouble = db:run(
         "INSERT INTO main.meta (key, value) VALUES ('" .. vendored_key .. "', ?1 || char(10) || ?2)",
         { text(signature), text(digest) })
     end
@@ -968,25 +968,25 @@ local function project(handle: work.Handle,
     end
     local stubbed, stub_trouble = db:exec(insert_stubs)
     if not stubbed then
-      return false, stub_trouble
+      return false, tostring(stub_trouble)
     end
     local placed, place_trouble = db:exec(insert_places)
     if not placed then
-      return false, place_trouble
+      return false, tostring(place_trouble)
     end
     local membered, member_trouble = db:exec(insert_members)
     if not membered then
-      return false, member_trouble
+      return false, tostring(member_trouble)
     end
     for _, statement in ipairs({ insert_mapped_places, insert_origins }) do
       local mapped, mapped_trouble = db:exec(statement)
       if not mapped then
-        return false, mapped_trouble
+        return false, tostring(mapped_trouble)
       end
     end
     -- A module the binary carried no stub of would be typed from its
     -- source, slower and with nothing to say so.
-    local unstubbed, unstubbed_trouble = Sqlite.text_rows(db, unstubbed_modules)
+    local unstubbed, unstubbed_trouble = db:text_rows(unstubbed_modules)
     if unstubbed == nil then
       return false, tostring(unstubbed_trouble)
     end
@@ -994,13 +994,13 @@ local function project(handle: work.Handle,
       return false, unstubbed[1]:text(1) .. ": the projection holds no stub of it (build/stub.tl)"
     end
   end
-  local carried_main, main_trouble = Sqlite.run(db,
+  local carried_main, main_trouble = db:run(
     "INSERT INTO out.meta (key, value) VALUES ('main', ?1)",
     { text(result.main or "") })
   if not carried_main then
     return false, tostring(main_trouble)
   end
-  local answered, answer_why = Sqlite.run(db,
+  local answered, answer_why = db:run(
     "INSERT INTO out.meta (key, value) VALUES ('projected', ?1), " ..
       "('written_by', ?2), ('compiled_by', ?3)",
     { text(signature), text(by), text(result.tool) })
@@ -1065,7 +1065,7 @@ function writer.other_code(db: Sqlite.Handle, compiler: string): string?, string
   local function value(key: string): string
     return "coalesce((SELECT value FROM meta WHERE key = '" .. key .. "'), '')"
   end
-  local rows, trouble = Sqlite.text_rows(db, "SELECT " .. value("written_by") .. ", " ..
+  local rows, trouble = db:text_rows("SELECT " .. value("written_by") .. ", " ..
       value("compiled_by") .. ", " .. value("writer") .. ", " .. value("boot_hash"))
   if rows == nil then
     return nil, tostring(trouble)
@@ -1160,13 +1160,13 @@ function writer.write_result(handle: work.Handle, out: string,
     return true, ""
   end
   local attached, attach_trouble = db:exec("ATTACH ':memory:' AS out")
-  if not attached then return false, attach_trouble end
+  if not attached then return false, tostring(attach_trouble) end
   -- The file there, if it is a projection, is the base of the write ([`usable_base`]).
   local based = false
   local there_status, _ = Fs.status(out)
   local there = there_status ~= nil and there_status.exists
   if there == true then
-    local joined, _ = Sqlite.run(db, "ATTACH DATABASE ?1 AS prev", { text(out) })
+    local joined, _ = db:run("ATTACH DATABASE ?1 AS prev", { text(out) })
     based = joined
   end
   local projected, project_trouble = project(handle, result, pending, signature, by, based)
@@ -1176,7 +1176,7 @@ function writer.write_result(handle: work.Handle, out: string,
     if based then
       -- A base that passed [`usable_base`] yet cannot be read to its end (a page of it damaged) would fail every
       -- write after this one the same way, since only a write that fills the rows whole replaces it.
-      local checked, _ = Sqlite.text_rows(db, "PRAGMA prev.quick_check(1)")
+      local checked, _ = db:text_rows("PRAGMA prev.quick_check(1)")
       local intact = says(checked, "ok")
       local _, _ = db:exec("DETACH prev")
       if not intact then
@@ -1225,7 +1225,7 @@ function writer.write_result(handle: work.Handle, out: string,
     took = taken
   end
   local _, _ = Fs.remove(out .. ".building")
-  local vacuumed, vacuum_why = Sqlite.run(db, "VACUUM out INTO ?1", { text(out .. ".building") })
+  local vacuumed, vacuum_why = db:run("VACUUM out INTO ?1", { text(out .. ".building") })
   local ok, trouble = vacuumed, if vacuumed then "" else tostring(vacuum_why) end
   local _, _ = db:exec("DETACH out")
   if ok then
@@ -1439,25 +1439,25 @@ function writer.carried(whole: string, out: string,
     for _, statement in ipairs(statements) do
       local ok, failure = db:exec(statement)
       if not ok then
-        return false, failure
+        return false, tostring(failure)
       end
     end
-    local attached, attach_trouble = Sqlite.run(db,
+    local attached, attach_trouble = db:run(
       "ATTACH DATABASE ?1 AS whole", { text(whole) })
     if not attached then
       return false, tostring(attach_trouble)
     end
-    local made, refused = Sqlite.transact(db, function(): (true) | (false, Failure)
+    local made, refused = db:transact(function(): (true) | (false, Failure)
       for _, statement in ipairs(carry) do
         local ok, failure = db:exec(statement)
         if not ok then
-          return false, Failure.new(failure)
+          return false, Failure.new(tostring(failure))
         end
       end
       for _, statement in ipairs(schema.rebuild("main.")) do
         local ok, failure = db:exec(statement)
         if not ok then
-          return false, Failure.new(failure)
+          return false, Failure.new(tostring(failure))
         end
       end
       return true
@@ -1473,7 +1473,7 @@ function writer.carried(whole: string, out: string,
       end
     end
     local _, _ = Fs.remove(out .. ".building")
-    local vacuumed, vacuum_trouble = Sqlite.run(db, "VACUUM INTO ?1",
+    local vacuumed, vacuum_trouble = db:run("VACUUM INTO ?1",
       { text(out .. ".building") })
     if not vacuumed then
       return false, tostring(vacuum_trouble)

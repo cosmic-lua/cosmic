@@ -181,7 +181,7 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
     return { "reading the index: " .. tostring(index_trouble) }
   end
   local modules: {Doc.Summary} = index
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT d.module, d.symbol, d.source_symbol, d.kind, d.signature, d.text, d.file, d.line " ..
       "FROM docs d WHERE d.module GLOB 'cosmic.*' AND d.module NOT LIKE '%\\_example' ESCAPE '\\' " ..
       "AND " .. symbols.shown_docs("d", true) .. " ORDER BY d.module, d.id")
@@ -437,7 +437,7 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   -- itself counts too, so that a public page naming its symbol
   -- ([`Router.match`]) is held to an answer a reader can get.
   local records: mut {string: boolean} = {}
-  local library, library_trouble = Sqlite.text_rows(db, "SELECT path FROM modules WHERE kind = 'module' AND " ..
+  local library, library_trouble = db:text_rows("SELECT path FROM modules WHERE kind = 'module' AND " ..
       symbols.library_modules("path"))
   if library == nil then
     return { "reading the modules: " .. tostring(library_trouble) }
@@ -460,7 +460,7 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
       kept[path:gsub("%.", "/") .. "/init.tl"] = true
     end
   end
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT d.module, d.symbol, d.text, d.file, d.line FROM docs d WHERE " ..
       "d.module NOT LIKE '%\\_example' ESCAPE '\\' AND d.text <> '' AND " ..
       symbols.shown_docs("d", true) .. " ORDER BY d.module, d.id")

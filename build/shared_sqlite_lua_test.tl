@@ -10,7 +10,7 @@ local _ = require("build.shared_sqlite") -- the child loads it
 Test.policy{ profiles = { "cosmic" } }
 
 -- TODO: test that the retry follows SQLite's captured codes and not the words of its reasons, as a child once did by
--- replacing [`Sqlite.text_rows`] with one that answered a busy or a locked code in other words (and an unrelated
+-- replacing [`Sqlite.Handle.text_rows`] with one that answered a busy or a locked code in other words (and an unrelated
 -- error that held the word "busy"), once a test can make SQLite answer so without replacing a field of the library's table.
 local function test_a_busy_cache_is_opened_once_its_holder_lets_go(tmp: string)
   local path = tmp .. "/cache.db"

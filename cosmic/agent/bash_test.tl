@@ -85,7 +85,7 @@ local function test_each_output_is_kept_before_it_is_shown()
   assert(Agent.prompt(s, "go", quiet))
   local answer = assert(Sessions.answer(db, assert(s.id), "t2"))
   assert(answer.text:find("use sql.]", 1, true) ~= nil and #answer.text < 20000, answer.text:sub(-100))
-  local whole = assert(Sqlite.rows(db, "SELECT length(text), call FROM outputs WHERE call = 't2'"))
+  local whole = assert(db:rows("SELECT length(text), call FROM outputs WHERE call = 't2'"))
   assert(assert(whole[1]):integer(1) > 13000)
 end
 

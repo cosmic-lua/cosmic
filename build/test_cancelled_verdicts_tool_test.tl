@@ -21,7 +21,7 @@ Test.policy{
 
 local function snapshot(path: string, query: string): string
   local db = assert(Sqlite.open(path))
-  local rows = assert(Sqlite.text_rows(db, query))
+  local rows = assert(db:text_rows(query))
   assert(db:close())
   local out: mut {string} = {}
   for _, row in ipairs(rows) do out[#out + 1] = table.concat(row:texts(), "|") end

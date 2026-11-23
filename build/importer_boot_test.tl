@@ -80,12 +80,12 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   assert(writer.write_result(handle, support.build_dir(root) .. "/cosmic.db", result))
   work.close(handle)
   local out = assert(Sqlite.open(support.build_dir(root) .. "/cosmic.db"))
-  local based_on = assert(Sqlite.text_rows(out,
+  local based_on = assert(out:text_rows(
     "SELECT value FROM meta WHERE key = 'runtime_basis'"))
   local binary: importer.Code = {
     basis = Array.at(based_on, 1):text(1), -- the boot wrote one `runtime_basis` row
     requires = function(name: string): {string}?, string
-      local rows, trouble = Sqlite.text_rows(out,
+      local rows, trouble = out:text_rows(
         "SELECT requires FROM imports WHERE path = ?1 ORDER BY requires",
         { { text = name } })
       if rows == nil then return nil, tostring(trouble) end
@@ -95,7 +95,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
     end,
     source = function(name: string): string?, string
       for _, table_name in ipairs({ "decls", "modules" }) do
-        local rows, trouble = Sqlite.text_rows(out,
+        local rows, trouble = out:text_rows(
           "SELECT CAST(inflate(source) AS TEXT) FROM " .. table_name ..
             " WHERE path = ?1", { { text = name } })
         if rows == nil then return nil, tostring(trouble) end
@@ -119,7 +119,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   local function boot(before_derive?: function(work.Handle)): string, string, string, boolean, integer
     local again = assert(work.open(root))
     assert(work.stage(again, { own = true }))
-    assert(Sqlite.run(again.db,
+    assert(again.db:run(
       "INSERT OR REPLACE INTO docs (source_hash, ordinal, symbol, source_symbol, " ..
         "exported, kind, signature, text, line) SELECT source_hash, 99, " ..
         "'Planted', 'Planted', 0, 'record', '', '', 1 " ..
@@ -139,9 +139,9 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
     assert(ok, tostring(failure))
     local parses = Array.at(tallies, 1)
     local after = importer.analyzer_identity((assert(importer.tree_code(again))))
-    local recorded = assert(Sqlite.text_rows(again.db,
+    local recorded = assert(again.db:text_rows(
       "SELECT value FROM meta WHERE key = 'analyzer'"))
-    local planted = assert(Sqlite.text_rows(again.db,
+    local planted = assert(again.db:text_rows(
       "SELECT count(*) FROM docs WHERE symbol = 'Planted'"))
     work.close(again)
     -- `meta` keys `analyzer` once, and `count(*)` answers one row.
@@ -202,7 +202,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
       assert(cut.db:exec("DELETE FROM " .. table_name .. " WHERE source_hash IN " ..
           "(SELECT source_hash FROM inputs WHERE path = 'build.ast')"))
     end
-    assert(Sqlite.run(cut.db,
+    assert(cut.db:run(
       "INSERT OR REPLACE INTO meta (key, value) VALUES ('analyzer', ?1)",
       { { text = importer.analyzer_identity((assert(importer.tree_code(cut)))) } }))
   end)

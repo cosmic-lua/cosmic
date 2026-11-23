@@ -151,7 +151,7 @@ function Derivation.insert_stub(db: Sqlite.Handle, source_hash: string, file: st
   for _, stat in ipairs(chunk.body.stats) do
     if stat.kind == "Return" then
       local stub = Stub.made(chunk)
-      local ok, why = Sqlite.run(db, "INSERT INTO stubs (source_hash, text, pruned) VALUES (?1, ?2, ?3)",
+      local ok, why = db:run("INSERT INTO stubs (source_hash, text, pruned) VALUES (?1, ?2, ?3)",
         { text(source_hash), text(stub.text), { integer = if stub.pruned then 1 else 0 end } })
       if not ok then return false, file .. ": " .. tostring(why) end
       return true, ""
@@ -198,7 +198,7 @@ local function insert_test_inputs(db: Sqlite.Handle, source_hash: string, declar
     end
   end
   for ordinal, row in ipairs(rows) do
-    local ok, why = Sqlite.run(db,
+    local ok, why = db:run(
       "INSERT INTO test_inputs (source_hash, ordinal, field, value) VALUES (?1, ?2, ?3, ?4)",
       { text(source_hash), { integer = ordinal }, text(row.field), text(row.value) })
     if not ok then
@@ -219,7 +219,7 @@ function Derivation.insert(db: Sqlite.Handle, source_hash: string, file: string,
   local hash = text(source_hash)
   --- Writes one row, naming the file in a failure.
   local function put(statement: string, cells: {Sqlite.Value}): boolean, string
-    local ok, why = Sqlite.run(db, statement, cells)
+    local ok, why = db:run(statement, cells)
     if not ok then
       return false, file .. ": " .. tostring(why)
     end

@@ -162,7 +162,7 @@ end
 --- cannot be judged, the database or the module's source not being read, is left off.
 local function closed_in(db: Sqlite.Handle): {string: string}
   local out: mut {string: string} = {}
-  local rows, _ = Sqlite.text_rows(db, "SELECT path, file, kind FROM modules", {})
+  local rows, _ = db:text_rows("SELECT path, file, kind FROM modules", {})
   if rows == nil then
     return out
   end
@@ -178,7 +178,7 @@ local function closed_in(db: Sqlite.Handle): {string: string}
       -- Only a module of a closed directory is asked, so few sources are inflated. One whose source cannot be read, or
       -- is not held (a row written without it), cannot be judged, and counts as open, which leaves its mark off.
       local reach = positions.reach(file, entries, function(): boolean
-        local sources, _ = Sqlite.text_rows(db,
+        local sources, _ = db:text_rows(
           "SELECT CAST(inflate(source) AS TEXT) FROM modules WHERE path = ?1 AND length(source) > 0",
           { text(module) })
         return sources == nil or #sources == 0 or AnalysisSchema.declares_public(sources[1]:text(1))

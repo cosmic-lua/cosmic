@@ -287,7 +287,7 @@ end
 --- read. Raises why where the binary holds a module without its source
 --- ([`Store.withheld`]), which is neither.
 function reboot.carries_tree_code(handle: work.Handle): boolean
-  local rows, _ = Sqlite.text_rows(handle.db,
+  local rows, _ = handle.db:text_rows(
     "SELECT path, source_hash FROM inputs WHERE (origin = 'tree' " ..
       "AND kind IN ('module', 'main')) OR origin = 'vendor' ORDER BY path")
   if rows == nil or #rows == 0 then
@@ -619,7 +619,7 @@ local function replaced(root: string, out: string): boolean
     local _, _ = Fs.remove(probe)
     return false
   end
-  local rows, _ = Sqlite.text_rows(db, "SELECT key, value FROM meta")
+  local rows, _ = db:text_rows("SELECT key, value FROM meta")
   local _, _ = db:close()
   local _, _ = Fs.remove(probe)
   if rows == nil then

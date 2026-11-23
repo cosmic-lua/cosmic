@@ -25,13 +25,13 @@ local function project(dir: string): string
   assert(Fs.mkdirs(tmp .. "/proj/a/b"))
   -- What the last build staged: one source under a/b.
   local db = assert(Sqlite.open(support.build_dir(tmp .. "/proj") .. "/build.db", { writable = true }))
-  assert(Sqlite.run(db, "CREATE TABLE files (path TEXT PRIMARY KEY, size INTEGER, " ..
+  assert(db:run("CREATE TABLE files (path TEXT PRIMARY KEY, size INTEGER, " ..
       "mtime_ns INTEGER, ino INTEGER, dev INTEGER, sha256 TEXT, data BLOB) WITHOUT ROWID"))
-  assert(Sqlite.run(db, "INSERT INTO files (path) VALUES ('a/b/x_test.tl')"))
+  assert(db:run("INSERT INTO files (path) VALUES ('a/b/x_test.tl')"))
   -- And one file of the tool's own, which no module is.
-  assert(Sqlite.run(db, "CREATE TABLE tool (path TEXT PRIMARY KEY, size INTEGER, " ..
+  assert(db:run("CREATE TABLE tool (path TEXT PRIMARY KEY, size INTEGER, " ..
       "mtime_ns INTEGER, ctime_ns INTEGER, ino INTEGER, dev INTEGER, sha256 TEXT) WITHOUT ROWID"))
-  assert(Sqlite.run(db, "INSERT INTO tool (path) VALUES ('lang/check.tl')"))
+  assert(db:run("INSERT INTO tool (path) VALUES ('lang/check.tl')"))
   assert(Fs.mkdirs(tmp .. "/proj/lang"))
   assert(db:close())
   return tmp .. "/proj"
