@@ -27,12 +27,25 @@ local function test_a_secret_goes_to_the_functions_for_secrets()
 end
 
 local function test_a_secret_is_refused_where_time_shows_its_value()
-  for _, call in ipairs{ "Bigint.mul(secret, m)", "Bigint.add(secret, m)", "Bigint.mod(secret, m)",
-      "Bigint.compare(secret, m)", "Bigint.powmod(secret, m, m)", "Bigint.pad(secret, 4)",
-      "Bigint.secret_mod(m, secret)" } do
+  for _, call in ipairs{ "Bigint.mul(secret, m)", "Bigint.mul(m, secret)", "Bigint.add(secret, m)",
+      "Bigint.add(m, secret)", "Bigint.sub(secret, m)", "Bigint.sub(m, secret)", "Bigint.mod(secret, m)",
+      "Bigint.mod(m, secret)", "Bigint.compare(secret, m)", "Bigint.compare(m, secret)",
+      "Bigint.powmod(secret, m, m)", "Bigint.powmod(m, m, secret)", "Bigint.pad(secret, 4)",
+      "Bigint.secret_mod(m, secret)", "Bigint.secret_powmod(m, m, secret)" } do
     local codes = codes_of("local _ = " .. call .. "\n")
     assert(codes == "not_assignable", call .. ": " .. codes)
   end
+end
+
+--- A secret's bytes are an operand as a string's are: arithmetic on
+--- secrets answers what it answers on their bytes.
+local function test_a_secret_is_an_operand_of_its_bytes()
+  local Bigint = require("cosmic.bigint")
+  local m = "\0\101"
+  local a, b = Bigint.hide("\7"), Bigint.hide("\0\200")
+  assert(Bigint.reveal(Bigint.secret_mulmod(a, b, m)) == Bigint.reveal(Bigint.secret_mulmod("\7", "\0\200", m)))
+  assert(Bigint.reveal(Bigint.secret_add(a, Bigint.secret_mul(a, b))) == Bigint.reveal(Bigint.secret_add("\7", "\0\5\120")))
+  assert(Bigint.powmod("\2", a, m) == Bigint.powmod("\2", "\7", m))
 end
 
 local function test_a_secret_prints_its_length_alone()

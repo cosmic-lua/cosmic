@@ -37,8 +37,8 @@ end
 --- bytes from the operating system, passed at that fixed width.
 function Example.powmod()
   local generator = "\2"
-  local alice_secret = assert(Rand.entropy(32))
-  local bob_secret = assert(Rand.entropy(32))
+  local alice_secret = Bigint.hide((assert(Rand.entropy(32))))
+  local bob_secret = Bigint.hide((assert(Rand.entropy(32))))
   local alice_public = Bigint.powmod(generator, alice_secret, prime)
   local bob_public = Bigint.powmod(generator, bob_secret, prime)
   assert(acceptable(alice_public) and acceptable(bob_public))
@@ -107,9 +107,9 @@ end
 function Example.secret_mod()
   local order = assert(Codec.unhex("ffffffffffffffffffffffffffffffffbaaedce6af48a03bbfd25e8cd0364141"))
   local wide = Hash.digest("sha512", "a seed that is kept secret")
-  local scalar = Bigint.reveal(Bigint.secret_mod(wide, order))
-  print(#wide, #scalar)
-  assert(#scalar == #order and Bigint.compare(scalar, order) < 0)
+  local scalar = Bigint.secret_mod(wide, order)
+  print(#wide, tostring(scalar))
+  assert(#Bigint.reveal(scalar) == #order)
 end
 
 --- A Diffie-Hellman exchange whose shared number is hidden as well as
@@ -118,14 +118,14 @@ end
 --- prime whatever its value. The public values are [`Bigint.powmod`]'s:
 --- a public base, and an answer that is sent.
 function Example.secret_powmod()
-  local alice_secret = assert(Rand.entropy(32))
-  local bob_secret = assert(Rand.entropy(32))
+  local alice_secret = Bigint.hide((assert(Rand.entropy(32))))
+  local bob_secret = Bigint.hide((assert(Rand.entropy(32))))
   local alice_public = Bigint.powmod("\2", alice_secret, prime)
   local bob_public = Bigint.powmod("\2", bob_secret, prime)
   local alice_shared = Bigint.reveal(Bigint.secret_powmod(bob_public, alice_secret, prime))
   local bob_shared = Bigint.reveal(Bigint.secret_powmod(alice_public, bob_secret, prime))
   print(#alice_shared)
-  assert(#alice_shared == #prime and alice_shared == bob_shared)
+  assert(#alice_shared == #prime and Hash.equal(alice_shared, bob_shared))
 end
 
 --- A secret split into two shares, neither of which says anything of
@@ -146,11 +146,11 @@ end
 --- as [`Bigint.powmod`] asks of a secret exponent.
 function Example.secret_add()
   local a, b = assert(Rand.entropy(32)), assert(Rand.entropy(48))
-  local exponent = Bigint.reveal(Bigint.secret_add(a, b))
-  print(#exponent)
+  local exponent = Bigint.secret_add(a, b)
+  print(tostring(exponent))
   local together = Bigint.powmod("\2", exponent, prime)
   local apart = Bigint.reveal(Bigint.secret_mulmod(Bigint.powmod("\2", a, prime), Bigint.powmod("\2", b, prime), prime))
-  assert(#exponent == 49 and apart == assert(Bigint.pad(together, #prime)))
+  assert(#Bigint.reveal(exponent) == 49 and apart == assert(Bigint.pad(together, #prime)))
 end
 
 --- An exponent that is a product and a sum of secrets, as SRP's client
@@ -159,14 +159,14 @@ end
 function Example.secret_mul()
   local a = assert(Rand.entropy(64))
   local u, x = Hash.digest("sha256", "public values"), Hash.digest("sha256", "salt and password")
-  local scaled = Bigint.reveal(Bigint.secret_mul(u, x))
-  local exponent = Bigint.reveal(Bigint.secret_add(a, scaled))
-  print(#scaled, #exponent)
+  local scaled = Bigint.secret_mul(u, x)
+  local exponent = Bigint.secret_add(a, scaled)
+  print(tostring(scaled), tostring(exponent))
   local shared = Bigint.powmod("\2", exponent, prime)
   -- g^(a + u*x) is g^a * (g^u)^x.
   local scrambled = Bigint.powmod(Bigint.powmod("\2", u, prime), x, prime)
   local parts = Bigint.reveal(Bigint.secret_mulmod(Bigint.powmod("\2", a, prime), scrambled, prime))
-  assert(#scaled == 64 and #exponent == 65 and parts == assert(Bigint.pad(shared, #prime)))
+  assert(#Bigint.reveal(scaled) == 64 and #Bigint.reveal(exponent) == 65 and parts == assert(Bigint.pad(shared, #prime)))
 end
 
 --- A secret kept as one from the moment it is drawn: the checker

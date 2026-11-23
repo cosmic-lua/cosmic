@@ -29,9 +29,9 @@
 --- [`Bigint.modulus_bytes`] bytes (8192 bits), and any other operand at
 --- most [`Bigint.operand_bytes`], twice that, so the product of two
 --- numbers below a modulus can still be reduced. The limit counts the
---- bytes given, leading zeros included. A longer string raises, as does
---- an argument that is not a string: check the length of what a peer
---- sent before computing with it.
+--- bytes given, leading zeros included. A longer number raises, as does
+--- an argument that is neither a string nor a [`Bigint.Secret`]: check
+--- the length of what a peer sent before computing with it.
 ---
 --- Secrets. The numbers are mbedtls's (the bignum its RSA and ECC use),
 --- and two kinds of function hide a value.
@@ -81,11 +81,11 @@ local raw = require("cosmic.internal.bigint")
 
 local String = require("cosmic.string")
 
---- A number to keep secret, as a function for secrets answers it: its
---- bytes at the fixed width that function gives. Only the functions for
---- secrets take one, so a secret cannot reach a function whose time
---- shows its value without a [`Bigint.reveal`] that says so.
---- [`Bigint.hide`] makes one of bytes a protocol holds.
+--- A secret: a number that the functions for secrets answer, held at
+--- the fixed width each gives. Only those functions, and
+--- [`Bigint.powmod`]'s exponent, take one, so a secret cannot reach a
+--- function whose time shows its value without a [`Bigint.reveal`] that
+--- says so. [`Bigint.hide`] makes one of bytes a protocol holds.
 local class Secret
   --- Internal: the number's bytes, big-endian, at their width. Read them
   --- through [`Bigint.reveal`].
@@ -100,8 +100,9 @@ end
 
 local record Bigint
   type Secret = Secret
-  --- What a function for secrets takes as an operand: a secret, or a
-  --- public number as a string.
+  --- What a function for secrets takes as an operand, and
+  --- [`Bigint.powmod`] as its exponent: a secret, or a public number as
+  --- a string.
   type Number = string | Secret
 
   --- The most bytes of a modulus or an exponent: 1024, which is 8192
@@ -195,7 +196,7 @@ end
 ---
 ---     local shared = Bigint.secret_powmod(their_public, my_secret, prime)
 function Bigint.secret_powmod(base: Bigint.Number, exponent: Bigint.Number, modulus: string): Bigint.Secret
-  return { bytes = raw.expmod(bytes(base), bytes(exponent), modulus) }
+  return { bytes = raw.secret_powmod(bytes(base), bytes(exponent), modulus) }
 end
 
 --- `a` modulo `modulus`, for a secret `a`: the remainder in exactly as
@@ -208,7 +209,7 @@ end
 ---
 ---     local digit = Bigint.secret_mod(hashed, order)
 function Bigint.secret_mod(a: Bigint.Number, modulus: string): Bigint.Secret
-  return { bytes = raw.reduce(bytes(a), modulus) }
+  return { bytes = raw.secret_mod(bytes(a), modulus) }
 end
 
 --- `a` plus `b`, modulo `modulus`, for secret operands: the sum in
@@ -218,7 +219,7 @@ end
 --- their values. Raises on a zero modulus and on a number over its
 --- limit.
 function Bigint.secret_addmod(a: Bigint.Number, b: Bigint.Number, modulus: string): Bigint.Secret
-  return { bytes = raw.addmod(bytes(a), bytes(b), modulus) }
+  return { bytes = raw.secret_addmod(bytes(a), bytes(b), modulus) }
 end
 
 --- `a` minus `b`, modulo `modulus`, for secret operands: the difference
@@ -228,7 +229,7 @@ end
 ---
 ---     local base = Bigint.secret_submod(their_public, masked, prime)
 function Bigint.secret_submod(a: Bigint.Number, b: Bigint.Number, modulus: string): Bigint.Secret
-  return { bytes = raw.submod(bytes(a), bytes(b), modulus) }
+  return { bytes = raw.secret_submod(bytes(a), bytes(b), modulus) }
 end
 
 --- `a` times `b`, modulo `modulus`, which is odd, for secret operands:
@@ -238,7 +239,7 @@ end
 ---
 ---     local masked = Bigint.secret_mulmod(multiplier, verifier, prime)
 function Bigint.secret_mulmod(a: Bigint.Number, b: Bigint.Number, modulus: string): Bigint.Secret
-  return { bytes = raw.mulmod(bytes(a), bytes(b), modulus) }
+  return { bytes = raw.secret_mulmod(bytes(a), bytes(b), modulus) }
 end
 
 --- `a` times `b`, for secret operands, where no modulus applies: the
@@ -248,7 +249,7 @@ end
 --- long operands is longer than [`Bigint.operand_bytes`], and then no
 --- function here takes it. Raises on a number over its limit.
 function Bigint.secret_mul(a: Bigint.Number, b: Bigint.Number): Bigint.Secret
-  return { bytes = raw.product(bytes(a), bytes(b)) }
+  return { bytes = raw.secret_mul(bytes(a), bytes(b)) }
 end
 
 --- `a` plus `b`, for secret operands, where no modulus applies: the sum
@@ -258,7 +259,7 @@ end
 ---
 ---     local exponent = Bigint.secret_add(a, Bigint.secret_mul(u, x))
 function Bigint.secret_add(a: Bigint.Number, b: Bigint.Number): Bigint.Secret
-  return { bytes = raw.sum(bytes(a), bytes(b)) }
+  return { bytes = raw.secret_add(bytes(a), bytes(b)) }
 end
 
 --- -1, 0 or 1 as `a` is less than, equal to or greater than `b`, as

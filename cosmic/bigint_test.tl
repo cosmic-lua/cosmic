@@ -647,7 +647,7 @@ local function test_arithmetic_for_secrets_takes_a_modulus_that_ends_inside_a_wo
   assert(Bigint.reveal(Bigint.secret_submod(s_b, s_a, s_odd)) == s_b_minus_a_mod_odd)
 end
 
-local function test_all_but_mulmod_take_an_even_modulus()
+local function test_all_but_secret_mulmod_take_an_even_modulus()
   assert(assert(s_even:byte(-1)) % 2 == 0)
   assert(Bigint.reveal(Bigint.secret_mod(s_a, s_even)) == s_a_mod_even)
   assert(Bigint.reveal(Bigint.secret_addmod(s_a, s_wide, s_even)) == s_a_plus_wide_mod_even)
@@ -656,13 +656,13 @@ local function test_all_but_mulmod_take_an_even_modulus()
   assert(Bigint.reveal(Bigint.secret_submod(zero, one, "\2")) == one)
   assert(Bigint.reveal(Bigint.secret_mod("\255", "\2")) == one)
   local why = Test.raises(function() Bigint.reveal(Bigint.secret_mulmod("\3", "\5", "\8")) end, "the modulus is even")
-  assert(why:find("bad argument #3 to 'mulmod'", 1, true), why)
+  assert(why:find("bad argument #3 to 'secret_mulmod'", 1, true), why)
   Test.raises(function() Bigint.reveal(Bigint.secret_mulmod("\3", "\5", "\2")) end, "the modulus is even")
   Test.raises(function() Bigint.reveal(Bigint.secret_mulmod(s_a, s_b, s_even)) end, "the modulus is even")
   Test.raises(function() Bigint.reveal(Bigint.secret_mulmod(s_a, s_b, "\0\0" .. s_even)) end, "the modulus is even")
 end
 
-local function test_products_and_sums_for_secrets_match_python()
+local function test_secret_mul_and_secret_add_match_python()
   assert(Bigint.reveal(Bigint.secret_mul(s_a, s_b)) == s_a_times_b)
   assert(Bigint.reveal(Bigint.secret_mul(s_b, s_a)) == s_a_times_b)
   assert(Bigint.reveal(Bigint.secret_add(s_a, s_b)) == s_a_plus_b)
@@ -715,7 +715,7 @@ local function test_an_operand_equal_to_the_modulus_is_zero()
   assert(Bigint.reveal(Bigint.secret_mulmod(Bigint.add(p256, "\2"), "\3", p256)) == wide("\6", #p256), "p + 2 is 2 modulo p")
 end
 
-local function test_everything_is_zero_modulo_one_and_three_is_the_smallest_modulus_mulmod_works_in()
+local function test_everything_is_zero_modulo_one_and_three_is_the_smallest_modulus_secret_mulmod_works_in()
   assert(Bigint.reveal(Bigint.secret_mod(s_a, one)) == zero)
   assert(Bigint.reveal(Bigint.secret_mulmod(s_a, s_b, one)) == zero)
   assert(Bigint.reveal(Bigint.secret_addmod(s_a, s_b, "\0\1")) == "\0\0")
@@ -768,17 +768,17 @@ end
 
 local function test_arithmetic_for_secrets_raises_on_a_zero_modulus()
   local why = Test.raises(function() Bigint.reveal(Bigint.secret_mod(a, zero)) end, "the modulus is zero")
-  assert(why:find("bad argument #2 to 'reduce'", 1, true), why)
+  assert(why:find("bad argument #2 to 'secret_mod'", 1, true), why)
   Test.raises(function() Bigint.reveal(Bigint.secret_mod(a, "")) end, "the modulus is zero")
   Test.raises(function() Bigint.reveal(Bigint.secret_mod(a, "\0\0\0")) end, "the modulus is zero")
   why = Test.raises(function() Bigint.reveal(Bigint.secret_addmod(a, b, zero)) end, "the modulus is zero")
-  assert(why:find("bad argument #3 to 'addmod'", 1, true), why)
+  assert(why:find("bad argument #3 to 'secret_addmod'", 1, true), why)
   Test.raises(function() Bigint.reveal(Bigint.secret_addmod(a, b, "")) end, "the modulus is zero")
   why = Test.raises(function() Bigint.reveal(Bigint.secret_submod(a, b, "\0\0")) end, "the modulus is zero")
-  assert(why:find("bad argument #3 to 'submod'", 1, true), why)
+  assert(why:find("bad argument #3 to 'secret_submod'", 1, true), why)
   Test.raises(function() Bigint.reveal(Bigint.secret_submod(a, b, "")) end, "the modulus is zero")
   why = Test.raises(function() Bigint.reveal(Bigint.secret_mulmod(a, b, zero)) end, "the modulus is zero")
-  assert(why:find("bad argument #3 to 'mulmod'", 1, true), why)
+  assert(why:find("bad argument #3 to 'secret_mulmod'", 1, true), why)
   Test.raises(function() Bigint.reveal(Bigint.secret_mulmod(a, b, "")) end, "the modulus is zero")
 end
 
@@ -810,8 +810,9 @@ local function test_arithmetic_for_secrets_raises_on_a_number_over_its_limit()
   local long = string.rep("\1", Bigint.modulus_bytes + 1)
   local says = "the number is longer than 2048 bytes"
   local why = Test.raises(function() Bigint.reveal(Bigint.secret_mod(over, "\3")) end, says)
-  assert(why:find("bad argument #1 to 'reduce'", 1, true), why)
-  for name, call in pairs{ addmod = Bigint.secret_addmod, submod = Bigint.secret_submod, mulmod = Bigint.secret_mulmod } do
+  assert(why:find("bad argument #1 to 'secret_mod'", 1, true), why)
+  for name, call in pairs{ secret_addmod = Bigint.secret_addmod, secret_submod = Bigint.secret_submod,
+      secret_mulmod = Bigint.secret_mulmod } do
     why = Test.raises(function() call(over, one, "\3") end, says)
     assert(why:find("bad argument #1 to '" .. name .. "'", 1, true), why)
     why = Test.raises(function() call(one, over, "\3") end, says)
@@ -819,21 +820,21 @@ local function test_arithmetic_for_secrets_raises_on_a_number_over_its_limit()
     why = Test.raises(function() call(one, one, long) end, "the number is longer than 1024 bytes")
     assert(why:find("bad argument #3 to '" .. name .. "'", 1, true), why)
   end
-  for name, call in pairs{ product = Bigint.secret_mul, sum = Bigint.secret_add } do
+  for name, call in pairs{ secret_mul = Bigint.secret_mul, secret_add = Bigint.secret_add } do
     why = Test.raises(function() call(over, one) end, says)
     assert(why:find("bad argument #1 to '" .. name .. "'", 1, true), why)
     why = Test.raises(function() call(one, over) end, says)
     assert(why:find("bad argument #2 to '" .. name .. "'", 1, true), why)
   end
   why = Test.raises(function() Bigint.reveal(Bigint.secret_mod(one, long)) end, "the number is longer than 1024 bytes")
-  assert(why:find("bad argument #2 to 'reduce'", 1, true), why)
+  assert(why:find("bad argument #2 to 'secret_mod'", 1, true), why)
   -- The limit counts the bytes given: zero, written too long, is refused.
   Test.raises(function()
     Bigint.reveal(Bigint.secret_add(string.rep("\0", Bigint.operand_bytes + 1), one))
   end, says)
 end
 
-local function test_expmod_matches_python_at_each_width()
+local function test_secret_powmod_matches_python_at_each_width()
   assert(Bigint.reveal(Bigint.secret_powmod(v256_base, v256_exponent, p256)) == v256_power)
   assert(Bigint.reveal(Bigint.secret_powmod("\2", v2048_exponent, p2048)) == v2048_power)
   assert(Bigint.reveal(Bigint.secret_powmod("\5", g5_exponent, p3072)) == wide(g5_power, #p3072), "the generator to a 256-bit exponent")
@@ -842,14 +843,14 @@ local function test_expmod_matches_python_at_each_width()
     "an odd modulus that is not prime")
 end
 
-local function test_expmod_reduces_a_base_that_is_not_below_the_modulus()
+local function test_secret_powmod_reduces_a_base_that_is_not_below_the_modulus()
   assert(Bigint.reveal(Bigint.secret_powmod(wide_base, wide_exponent, p2048)) == wide(wide_power, #p2048))
   assert(Bigint.reveal(Bigint.secret_powmod(p2048, "\3", p2048)) == string.rep("\0", #p2048), "the modulus itself is zero modulo it")
   assert(Bigint.reveal(Bigint.secret_powmod(Bigint.add(p256, "\2"), "\5", p256)) == wide("\32", #p256), "p + 2 is 2 modulo p")
   assert(Bigint.reveal(Bigint.secret_powmod(s_wide, s_b, p3072)) == wide(Bigint.powmod(s_wide, s_b, p3072), #p3072))
 end
 
-local function test_expmod_answers_at_the_modulus_width_whatever_the_power()
+local function test_secret_powmod_answers_at_the_modulus_width_whatever_the_power()
   local zeros = string.rep("\0", 24)
   assert(Bigint.reveal(Bigint.secret_powmod(zeros .. v256_base, zeros .. v256_exponent, p256)) == v256_power,
     "leading zero bytes of a base and an exponent change no number")
@@ -859,7 +860,7 @@ local function test_expmod_answers_at_the_modulus_width_whatever_the_power()
   assert(Bigint.reveal(Bigint.secret_powmod("\2", "\3", p3072)) == wide("\8", #p3072), "a small power is not a short answer")
 end
 
-local function test_expmod_at_the_edges_of_its_exponent_and_modulus()
+local function test_secret_powmod_at_the_edges_of_its_exponent_and_modulus()
   local unit, nothing = wide(one, #p256), string.rep("\0", #p256)
   assert(Bigint.reveal(Bigint.secret_powmod(v256_base, zero, p256)) == unit, "anything to the power zero is one")
   assert(Bigint.reveal(Bigint.secret_powmod(v256_base, "", p256)) == unit, "the empty exponent is zero")
@@ -877,7 +878,7 @@ local function test_expmod_at_the_edges_of_its_exponent_and_modulus()
   assert(Bigint.reveal(Bigint.secret_powmod(assert(Bigint.sub(p256, one)), "\2", p256)) == unit, "minus one, squared")
 end
 
-local function test_expmod_at_the_limits()
+local function test_secret_powmod_at_the_limits()
   -- As powmod's: 2 has order 8192 modulo 2^8192 - 1, and 8192 divides
   -- 2^8191, so 2 to the power 2^8191 + 5 is 2^5.
   local mersenne = string.rep("\255", Bigint.modulus_bytes)
@@ -889,9 +890,9 @@ local function test_expmod_at_the_limits()
     "a base of the operand limit whose two halves differ")
 end
 
-local function test_expmod_raises_on_an_even_or_zero_modulus_and_a_number_over_its_limit()
+local function test_secret_powmod_raises_on_an_even_or_zero_modulus_and_a_number_over_its_limit()
   local why = Test.raises(function() Bigint.reveal(Bigint.secret_powmod("\3", "\5", "\8")) end, "the modulus is even")
-  assert(why:find("bad argument #3 to 'expmod'", 1, true), why)
+  assert(why:find("bad argument #3 to 'secret_powmod'", 1, true), why)
   Test.raises(function() Bigint.reveal(Bigint.secret_powmod("\3", "\5", "\2")) end, "the modulus is even")
   Test.raises(function() Bigint.reveal(Bigint.secret_powmod("\3", "\5", s_even)) end, "the modulus is even")
   Test.raises(function() Bigint.reveal(Bigint.secret_powmod("\3", "\5", zero)) end, "the modulus is zero")
@@ -902,11 +903,11 @@ local function test_expmod_raises_on_an_even_or_zero_modulus_and_a_number_over_i
     Bigint.reveal(Bigint.secret_powmod(string.rep("\1", Bigint.operand_bytes + 1), one, "\3"))
   end,
     "the number is longer than 2048 bytes")
-  assert(why:find("bad argument #1 to 'expmod'", 1, true), why)
+  assert(why:find("bad argument #1 to 'secret_powmod'", 1, true), why)
   why = Test.raises(function() Bigint.reveal(Bigint.secret_powmod(one, long, "\3")) end, "the number is longer than 1024 bytes")
-  assert(why:find("bad argument #2 to 'expmod'", 1, true), why)
+  assert(why:find("bad argument #2 to 'secret_powmod'", 1, true), why)
   why = Test.raises(function() Bigint.reveal(Bigint.secret_powmod(one, one, long)) end, "the number is longer than 1024 bytes")
-  assert(why:find("bad argument #3 to 'expmod'", 1, true), why)
+  assert(why:find("bad argument #3 to 'secret_powmod'", 1, true), why)
 end
 
 --- Calls `call` with `count` arguments, each the number 3 as a string
@@ -942,18 +943,18 @@ local function test_an_argument_that_is_not_a_string_raises()
     Test.skip("a checked run refuses the mistyped value at the typed parameter it is handed to, first")
   end
   assert_strings_only("powmod", Bigint.powmod, 3)
-  assert_strings_only("expmod", Bigint.secret_powmod, 3)
-  assert_strings_only("mulmod", Bigint.secret_mulmod, 3)
-  assert_strings_only("addmod", Bigint.secret_addmod, 3)
-  assert_strings_only("submod", Bigint.secret_submod, 3)
-  assert_strings_only("reduce", Bigint.secret_mod, 2)
+  assert_strings_only("secret_powmod", Bigint.secret_powmod, 3)
+  assert_strings_only("secret_mulmod", Bigint.secret_mulmod, 3)
+  assert_strings_only("secret_addmod", Bigint.secret_addmod, 3)
+  assert_strings_only("secret_submod", Bigint.secret_submod, 3)
+  assert_strings_only("secret_mod", Bigint.secret_mod, 2)
   assert_strings_only("mul", Bigint.mul, 2)
   assert_strings_only("add", Bigint.add, 2)
   assert_strings_only("sub", Bigint.sub, 2)
   assert_strings_only("mod", Bigint.mod, 2)
   assert_strings_only("compare", Bigint.compare, 2)
-  assert_strings_only("product", Bigint.secret_mul, 2)
-  assert_strings_only("sum", Bigint.secret_add, 2)
+  assert_strings_only("secret_mul", Bigint.secret_mul, 2)
+  assert_strings_only("secret_add", Bigint.secret_add, 2)
   -- pad is Teal's own, and raises what the language does.
   assert(probe(Bigint.pad, 2, 1, 5) == false, "pad takes a number for a string")
   assert(probe(Bigint.pad, 2, 1, true) == false, "pad takes a boolean for a string")
