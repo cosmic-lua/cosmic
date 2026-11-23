@@ -11,12 +11,15 @@ local record sqlite
     extended_code: integer
     reason: string
     cancelled: boolean
+    --- True where `handle:time_limit(ns)` stopped the call; absent else.
+    timed_out?: boolean
   end
   record ExecResult is Outcome
     code: integer
     extended_code: integer
     reason: string
     cancelled?: boolean -- declared: interface_disagrees
+    timed_out?: boolean
   end
   record OpenResult is Outcome
     handle: Handle
@@ -24,6 +27,7 @@ local record sqlite
     extended_code: integer
     reason: string
     cancelled: boolean
+    timed_out?: boolean
   end
   record PrepareResult is Outcome
     statement: Statement
@@ -31,6 +35,7 @@ local record sqlite
     extended_code: integer
     reason: string
     cancelled: boolean
+    timed_out?: boolean
   end
   record Value
     --- Bound as a 64-bit SQLite integer.
@@ -153,6 +158,18 @@ local record sqlite
     --- that pragma replaces it. Call this method again to reinstall it.
     --- SQLite can refuse a lock without calling any busy handler.
     busy_timeout: function(Handle, timeout_ns: integer)
+    --- Stops each later exec or step that runs past timeout_ns, rounded up
+    --- to milliseconds from the call's start, as SQLite's progress handler
+    --- looks every thousand steps of its virtual machine (a statement of
+    --- fewer is never stopped): the call fails with SQLITE_INTERRUPT and
+    --- "the call ran past its time limit", its outcome `timed_out`. An
+    --- interrupted write rolls back the open transaction; a read leaves
+    --- it. A guard's unread signal stops a call so too, its outcome
+    --- `cancelled`. Only exec and step say which stopped them; a reset
+    --- after says "interrupted". nil takes the limit away, though a
+    --- guard's signal still stops a call. A negative or noninteger
+    --- duration and a borrowed or closed handle raise.
+    time_limit: function(Handle, timeout_ns?: integer)
     --- Compiles `sql`, which must hold exactly one statement.
     prepare: function(Handle, sql: string): Statement?, string
     --- Captures a preparation's outcome before cleanup or another operation.

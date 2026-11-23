@@ -566,8 +566,11 @@ local function rows_of(db: Sqlite.Handle, query: string, session?: integer): Too
   return ok(text)
 end
 
+--- How long one statement of the sql tool may run, in seconds.
+local SQL_SECONDS <const> = 60
+
 --- The sessions database of `context`, opened again read-only, so a query cannot change what is kept; or why it is not.
-local function reader_of(context: Tools.Context): (Sqlite.Handle) | (nil, string)
+local function reader_of(context: Tools.Context, limit_ns?: integer): (Sqlite.Handle) | (nil, string)
   local db = context.db
   if db == nil then return nil, "no sessions are kept here" end
   local files, files_why = db:rows("SELECT file FROM pragma_database_list WHERE name = 'main'")
@@ -581,6 +584,8 @@ local function reader_of(context: Tools.Context): (Sqlite.Handle) | (nil, string
   -- would still write another file, so no database may be attached.
   reader:limit("attached", 0)
   local _, _ = reader:exec("PRAGMA query_only = 1")
+  -- A query that runs past its time, or one Ctrl-C stops (the turn holds a guard), fails rather than hold the agent.
+  reader:time_limit(limit_ns)
   return reader
 end
 
@@ -589,7 +594,7 @@ end
 local function sql(input: Tools.Object, context: Tools.Context): Tools.Result
   local query, why = text_of(input, "query")
   if query == nil then return fail(why) end
-  local reader, open_why = reader_of(context)
+  local reader, open_why = reader_of(context, Clock.seconds(SQL_SECONDS))
   if reader == nil then return fail("sql: " .. open_why) end
   local r = rows_of(reader, query, context.session)
   local _, _ = reader:close()
@@ -601,7 +606,8 @@ end
 local MAX_REPLY <const> = 512 * 1024
 
 --- The rows of `query` on `db`, each an object of its columns, for a snippet's sql call; `?1` is `session`. It stops
---- between rows once `over` is true: the snippet's time ran out, or the user stopped the turn.
+--- between rows once `over` is true: the snippet's time ran out, or the user stopped the turn; a step that runs past
+--- the time `db` was given, or that Ctrl-C stops, fails ([`Sqlite.Handle.time_limit`]).
 local function objects_of(db: Sqlite.Handle, query: string, session: integer?, over: function(): boolean):
     (Json.Value) | (nil, Failure)
   local statement, why = db:prepare(query)
@@ -627,8 +633,6 @@ local function objects_of(db: Sqlite.Handle, query: string, session: integer?, o
         "after " .. String.counted(#rows, "row") .. ": narrow the query (LIMIT/OFFSET for rows, " ..
         "substr(text, start, length) for a long text)")
   end
-  -- TODO: stop a step that runs long too (a recursive CTE counted, one step of no row), once cosmic.sqlite sets a
-  -- deadline by a progress handler: until then `over` is tested between rows alone, as the sql tool tests nothing.
   while true do
     if over() then
       return refused("the snippet's time ran out, or the turn was stopped, as the query ran")
@@ -669,15 +673,15 @@ end
 
 --- What answers the calls a snippet of `context` makes of the agent: sql alone, as the sql tool runs it.
 local function served(context: Tools.Context): Worker.Serve
-  return function(name: string, args: Json.Value, over: function(): boolean): (Json.Value) | (nil, Failure)
+  return function(name: string, args: Json.Value, budget: Worker.Budget): (Json.Value) | (nil, Failure)
     local fields, _ = Json.to_object(args)
     local given: {string: Json.Value} = fields or {}
     if name == "sql" then
       local query = given["query"]
       if not (query is string) then return nil, Failure.new("the call has no query") end
-      local reader, open_why = reader_of(context)
+      local reader, open_why = reader_of(context, budget.left())
       if reader == nil then return nil, Failure.new(open_why) end
-      local rows, why = objects_of(reader, query, context.session, over)
+      local rows, why = objects_of(reader, query, context.session, budget.over)
       local _, _ = reader:close()
       if rows == nil then return nil, why end
       return rows
@@ -905,7 +909,8 @@ Tools.list = {
       "outputs_fts, FTS5 over outputs.text with the trigram tokenizer (rowid = outputs.id): " ..
       "outputs_fts MATCH '\"some text\"' for text of 3 characters or more, with snippet(outputs_fts, 0, " ..
       "'>>', '<<', '...', 64) and ORDER BY rank. ?1 is the current session's id. " ..
-      "Returns the column names, then a line a row, cells split by tabs: at most " .. LIMIT .. ".",
+      "Returns the column names, then a line a row, cells split by tabs: at most " .. LIMIT .. ". " ..
+      "A statement may run " .. String.counted(SQL_SECONDS, "second") .. ".",
     schema = schema({
       query = string_field("One SQLite statement, for example: SELECT text FROM outputs WHERE id = 3"),
     }, { "query" }),

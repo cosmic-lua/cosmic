@@ -51,8 +51,15 @@ local record Worker
   end
 
   --- What answers a snippet's call `name` with `args`.
-  --- `over` is true once the snippet's time ran out or the user stopped the turn: a long call tests it, and stops.
-  type Serve = function(name: string, args: Json.Value, over: function(): boolean): (Json.Value) | (nil, Failure)
+  --- How long a call a snippet makes may take: a long call tests it, and stops.
+  record Budget
+    --- Whether the snippet's time ran out, or the user stopped the turn.
+    over: function(): boolean
+    --- The time left to the snippet, in nanoseconds, 0 once it ran out; nil where it has no limit.
+    left: function(): integer?
+  end
+
+  type Serve = function(name: string, args: Json.Value, budget: Budget): (Json.Value) | (nil, Failure)
 
   --- The worker of a session: none until the first snippet.
   record Set
@@ -135,7 +142,7 @@ end
 --- The worker's answer to the request `id`, read from `lines`, each call it makes before it answered by `serve` and
 --- replied to on `writer`: or why there is none, which ends the worker.
 local function answer_of(lines: Stream.Lines, writer: Stream.Writer, id: integer, serve: Worker.Serve?,
-                         over: function(): boolean): Worker.Answer?, string
+                         budget: Worker.Budget): Worker.Answer?, string
   while true do
     local line, read_why = lines:read()
     if line == nil then
@@ -154,7 +161,7 @@ local function answer_of(lines: Stream.Lines, writer: Stream.Writer, id: integer
       reply = { failed = "the agent serves no call to this worker" }
     else
       local args = message["args"]
-      local value, why = serve(call, if args == nil then Json.null else args end, over)
+      local value, why = serve(call, if args == nil then Json.null else args end, budget)
       reply = if value == nil then { failed = tostring(why) } else { reply = value } end
     end
     local text, encode_why = Json.encode(reply)
@@ -187,12 +194,18 @@ function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worke
   local timed_out, halted = false, false
   local stopped = opts.stopped
   local deadline = if seconds ~= nil and seconds > 0 then Clock.monotonic_ns() + Clock.seconds(seconds) else nil end
-  local function over(): boolean
-    return (deadline ~= nil and Clock.monotonic_ns() >= deadline) or (stopped ~= nil and stopped())
-  end
+  local budget: Worker.Budget = {
+    over = function(): boolean
+      return (deadline ~= nil and Clock.monotonic_ns() >= deadline) or (stopped ~= nil and stopped())
+    end,
+    left = function(): integer?
+      if deadline == nil then return nil end
+      return math.max(deadline - Clock.monotonic_ns(), 0)
+    end,
+  }
   Poll.within(function()
     local reading = Poll.spawn(function()
-      answer, trouble = answer_of(lines, writer, id, opts.serve, over)
+      answer, trouble = answer_of(lines, writer, id, opts.serve, budget)
     end)
     while true do
       local slice = STOP_CHECK

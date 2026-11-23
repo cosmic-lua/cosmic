@@ -119,6 +119,8 @@ allowed["build.dataset.read"] = "the reader load_text composes and falls back on
 
 allowed["cosmic.agent.host.call"] = "public API: what a snippet of cosmic agent's run tool calls to reach the agent; " ..
   "snippets, which the tree never holds, are its users"
+allowed["cosmic.sqlite.INTERRUPT"] = "public API: the code a call fails with where handle:time_limit or a guard's " ..
+  "signal stopped it, beside BUSY and the other codes a caller compares"
 allowed["cosmic.agent.host.servers"] = "public API: what a snippet of cosmic agent's run tool calls to name the " ..
   "MCP servers it may call; snippets, which the tree never holds, are its users"
 allowed["cosmic.agent.host.tools"] = "public API: what a snippet of cosmic agent's run tool calls to list an MCP " ..
