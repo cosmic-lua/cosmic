@@ -126,14 +126,16 @@ local function program_modules(): Sqlite.Handle
   for _, module in ipairs({ "build.syntax_node", "build.syntax_links", "build.syntax_analyzer",
       "build.flow", "build.c", "build.fix.near", "build.fix.laid", "build.logger", "build.tree", "cosmic.flags",
       "cosmic.cli", "cosmic.template",
-      "cosmic.string", "cosmic.child", "cosmic.net", "cosmic.internal.connection", "cosmic.sandbox", "cosmic.fs" }) do
+      "cosmic.string", "cosmic.child", "cosmic.net", "cosmic.internal.connection", "cosmic.sandbox", "cosmic.fs",
+      "build.c_rules" }) do
     assert(Sqlite.run(db, "INSERT INTO modules VALUES (?1, ?2)",
       { { text = module }, { text = module:gsub("%.", "/") .. ".tl" } }))
   end
   -- The C rules run clang through cosmic.child, whose own requires check no file; cosmic.fs is also the reader's.
   for _, edge in ipairs({ "('build.syntax_node', 'cosmic.string')", "('build.c', 'cosmic.child')",
       "('cosmic.child', 'cosmic.net')", "('cosmic.net', 'cosmic.internal.connection')",
-      "('cosmic.child', 'cosmic.sandbox')", "('cosmic.child', 'cosmic.fs')", "('build.syntax_node', 'cosmic.fs')" }) do
+      "('cosmic.child', 'cosmic.sandbox')", "('cosmic.child', 'cosmic.fs')", "('build.syntax_node', 'cosmic.fs')",
+      "('build.c', 'build.c_rules')" }) do
     assert(Sqlite.run(db, "INSERT INTO imports VALUES " .. edge))
   end
   return db
@@ -187,8 +189,8 @@ local function test_changed_lays_out_only_the_paths_named(tmp: string)
 
   for _, case in ipairs({
       { "cosmic/string.tl", "it checks each file alone" }, { "cosmic", "it checks each file alone" },
-      { "core/a.c", "core/" }, { "build/fix/init.tl", "this verb" }, { "vendor", "vendor/" },
-      { "build/patch.tl", "patched" }, { "ci/cosmic-driver.pin", "clang" },
+      { "build/fix/init.tl", "this verb" }, { "vendor", "vendor/" },
+      { "build/patch.tl", "patched" },
       { ".", "the whole tree" }, { "/elsewhere/x.tl", "outside the tree" },
   }) do
     local widened = fix.narrowed(own, every, { "ci/a.tl", support.nth(case, 1) }, { db })
@@ -197,6 +199,20 @@ local function test_changed_lays_out_only_the_paths_named(tmp: string)
         #widened.files == #every.files and widened.noted == nil,
       support.nth(case, 1) .. ": " .. tostring(widened_widened))
   end
+  -- What checks C files alone -- core/'s headers, the zig and the cosmic clang runs from, what only the C rules
+  -- require -- holds every C file to the rules and lays out only the other files named.
+  for _, case in ipairs({ { "core/a.c", "core/" }, { "core", "core/" }, { "bin/zig.pin", "clang" },
+      { "ci/cosmic-driver.pin", "clang" }, { "build/c.tl", "alone" }, { "build/c_rules.tl", "alone" } }) do
+    local held = fix.narrowed(own, every, { "ci/a.tl", support.nth(case, 1) }, { db })
+    local held_why = held.c_widened
+    assert(held.widened == nil and held_why ~= nil and held_why:find(support.nth(case, 2), 1, true) ~= nil and
+        names(held.files) == "ci/a.tl" and names(held.c_files) == "core/a.c lib/b.c",
+      support.nth(case, 1) .. ": " .. tostring(held.widened) .. " " .. tostring(held_why))
+  end
+  -- Beside a path that checks other files too, it lays out the whole tree.
+  local mixed = fix.narrowed(own, every, { "core/a.c", "cosmic/string.tl" }, { db })
+  assert(mixed.widened ~= nil and #mixed.files == #every.files, tostring(mixed.widened))
+  assert(fix.narrowed(own, every, { "ci/a.tl" }, { db }).c_widened == nil, "a run that changed no C rule holds every C file")
   -- What only runs clang and zig for a check (cosmic.child), and what only it requires, checks no file; what a
   -- check also requires does.
   for _, path in ipairs({ "cosmic/child.tl", "cosmic/net.tl", "cosmic/internal/connection.tl", "cosmic/sandbox.tl" }) do

@@ -189,6 +189,10 @@ local record fix
     --- For a run of `--changed` that lays out the whole tree after all,
     --- why: a path named that is part of what checks each file alone.
     widened?: string
+    --- For a run of `--changed` that lays out every C file and only the
+    --- other files named, why: a path named that is part of what checks
+    --- C files alone ([`fix.narrowed`]).
+    c_widened?: string
   end
 end
 
@@ -574,6 +578,14 @@ end
 local file_checks: {string} = { "build.syntax_node", "build.syntax_links", "build.syntax_analyzer", "build.flow", "build.c",
   "build.fix.near", "build.fix.laid", "build.logger", "build.tree", "cosmic.flags", "cosmic.cli", "cosmic.template" }
 
+--- `file_checks` but the C rules ([`build.c`]): what a module must be reached from, beside them, to check a file
+--- other than a C file. A change to one only the C rules reach holds every C file to them and lays out no other
+--- file that did not change ([`fix.narrowed`]).
+local other_checks: mut {string} = {}
+for _, module in ipairs(file_checks) do
+  if module ~= "build.c" then other_checks[#other_checks + 1] = module end
+end
+
 --- What the closure of `file_checks` stops at: a module that only runs a program for a check. [`cosmic.child`] runs
 --- clang, zig and the bootstrap for [`build.c`] and [`build/zig.tl`], whose binaries bin/ and ci/cosmic-driver.pin pin;
 --- through it the closure took the sandbox, the network and the tailnet, so a change to any of them laid out the
@@ -588,9 +600,15 @@ local file_check_dirs: {string: string} = {
   ["vendor"] = "the program is built from vendor/",
   ["patch"] = "the program is built from patch/'s records",
   ["bin"] = "bin/ pins zig, whose clang reads each C file",
-  ["core"] = "the program runs on core/, whose headers each C file reads",
+  ["core"] = "core/'s headers are read by each C file",
   ["cmd"] = "the program starts in cmd/",
 }
+
+--- Of `file_check_dirs` and `file_check_files`, what a C file alone is checked against: the zig whose clang reads
+--- it, the cosmic the C rules run clang through, and core/'s headers. The layout of the other files runs on the VM,
+--- which vendor/ and patch/ build, and not on core/'s bindings: a change to one that moves what a layout answers is
+--- caught by its tests, by the next run that lays out that file, or by the weekly run over the whole tree.
+local c_check_paths: {string: boolean} = { ["bin"] = true, ["core"] = true, ["ci/cosmic-driver.pin"] = true }
 
 --- As `file_check_dirs`, by a file's whole path: this verb, what
 --- builds and writes the program (the image [`identity.record_fingerprint`]
@@ -629,13 +647,13 @@ local function inside(file: string, named: string): boolean
   return named == "" or file == named or String.starts_with(file, named .. "/")
 end
 
---- The files, under the root, of the modules `file_checks` names and
+--- The files, under the root, of the modules `checks` names and
 --- every module they require, short of `file_check_runners`, as the running program's `databases`
 --- ([`Store.databases()`]) hold them: nil, and why, where they hold
 --- none of one.
-local function file_check_sources(databases: {Sqlite.Handle}): {string: boolean}?, string
+local function file_check_sources(databases: {Sqlite.Handle}, checks: {string}): {string: boolean}?, string
   local roots: mut {string} = {}
-  for _, module in ipairs(file_checks) do roots[#roots + 1] = "('" .. module .. "')" end
+  for _, module in ipairs(checks) do roots[#roots + 1] = "('" .. module .. "')" end
   local runners: mut {string} = {}
   for _, module in ipairs(file_check_runners) do runners[#runners + 1] = "'" .. module .. "'" end
   local query = "WITH RECURSIVE closure(module) AS (VALUES " .. table.concat(roots, ", ") ..
@@ -651,7 +669,7 @@ local function file_check_sources(databases: {Sqlite.Handle}): {string: boolean}
       out[row:text(2)] = true
     end
   end
-  for _, module in ipairs(file_checks) do
+  for _, module in ipairs(checks) do
     if found[module] ~= true then
       return nil, module .. " is not among the program's modules"
     end
@@ -673,7 +691,10 @@ end
 --- Where a path named is part of what checks each file alone
 --- (`file_checks`, read from `databases`, and the like), a file that
 --- did not change can answer otherwise, so it answers `every` itself,
---- `widened` saying why; as it does for a path outside `root`.
+--- `widened` saying why; as it does for a path outside `root`. Where
+--- every such path is part of what checks C files alone (`c_check_paths`,
+--- and what only [`build.c`] requires), it lays out every C file and
+--- only the other files named, `c_widened` saying why.
 --- @param root string The tree's root, the working directory
 --- @param every fix.Chosen The whole tree's files
 --- @param changed {string} The paths named
@@ -695,19 +716,43 @@ function fix.narrowed(root: string, every: fix.Chosen, changed: {string},
     if relative == "" then return widened(path .. ": the whole tree") end
     named[#named + 1] = relative
   end
-  local checking, checking_trouble = file_check_sources(databases)
+  local checking, checking_trouble = file_check_sources(databases, file_checks)
   if checking == nil then return widened(checking_trouble) end
-  for _, path in ipairs(named) do
+  local others, others_trouble = file_check_sources(databases, other_checks)
+  if others == nil then return widened(others_trouble) end
+  -- Why `path` is part of what checks each file alone, if it is, and whether only of what checks C files.
+  local function reason_of(path: string): string?, boolean
     local first = path:match("^([^/]+)") or path
     local why: string? = nil
-    if not String.ends_with(path, "_test.tl") then why = file_check_dirs[first] end
+    local c_only = true
+    if not String.ends_with(path, "_test.tl") then
+      local dir = file_check_dirs[first]
+      if dir ~= nil then
+        why = dir
+        c_only = c_check_paths[first] == true
+      end
+    end
     for file, reason in pairs(file_check_files) do
-      if why == nil and inside(file, path) then why = reason end
+      if inside(file, path) then
+        why = why or reason
+        c_only = c_only and c_check_paths[file] == true
+      end
     end
     for file in pairs(checking) do
-      if why == nil and inside(file, path) then why = "it checks each file alone" end
+      if inside(file, path) then
+        why = why or "it checks each file alone"
+        c_only = c_only and others[file] ~= true
+      end
     end
-    if why ~= nil then return widened(path .. ": " .. why) end
+    return why, c_only
+  end
+  local c_widened: string? = nil
+  for _, path in ipairs(named) do
+    local why, c_only = reason_of(path)
+    if why ~= nil then
+      if not c_only then return widened(path .. ": " .. why) end
+      c_widened = c_widened or path .. ": " .. why
+    end
   end
   local function picked(files: {string}): {string}
     local out: mut {string} = {}
@@ -724,7 +769,7 @@ function fix.narrowed(root: string, every: fix.Chosen, changed: {string},
   end
   local files = picked(every.files)
   local c_files: {string} = {}
-  if #picked(every.c_files) > 0 then c_files = every.c_files end
+  if c_widened ~= nil or #picked(every.c_files) > 0 then c_files = every.c_files end
   -- A note on the standard library fails the run, and reads the docs
   -- the program carries of every file of it, which a change to what
   -- writes them can move as well as a change to one of them.
@@ -737,7 +782,7 @@ function fix.narrowed(root: string, every: fix.Chosen, changed: {string},
   end
   return { files = files, c_files = c_files, flow_files = picked(every.flow_files),
     checked = {}, templates = picked(every.templates), refused = {},
-    whole = every.whole, every = every, noted = noted }
+    whole = every.whole, every = every, noted = noted, c_widened = c_widened }
 end
 
 --- Lays out each YAML file of `files` ([`build.flow`]), writing it back
@@ -1186,8 +1231,13 @@ local function choose_files(ctx: Fix): integer?
     end
     picked = fix.narrowed(root, picked, paths, Store.databases())
     local widened = picked.widened
+    local c_widened = picked.c_widened
     if widened ~= nil then
       log:say("fix: --changed: laying out the whole tree, since " .. widened)
+    elseif c_widened ~= nil then
+      log:say("fix: --changed: laying out every C file and " .. plural.count(#picked.files + #picked.flow_files,
+        "other file") .. " of the paths named, since " .. c_widened .. "; the checks spanning files " ..
+          "cover the whole tree")
     else
       log:say("fix: --changed: laying out " .. plural.count(#picked.files + #picked.c_files +
           #picked.flow_files, "file") .. " of the paths named; the checks spanning files " ..
