@@ -139,19 +139,27 @@ local function test_help_is_a_short_index_of_every_verb(tmp: string)
   local all = verbs_fixture.expect(tmp, "help", { "help" }, 0).stdout
   local lines = 0
   for _ in all:gmatch("\n") do lines = lines + 1 end
-  -- A line a verb, and about 30 more: the guides, a heading and a blank
-  -- line a group, and the closing pointers.
-  assert(lines <= #Cli.order + 32, tostring(lines) .. " lines:\n" .. all)
+  -- A usage too wide to share its line with the summary takes a line of
+  -- its own.
+  local alone = 0
   for _, verb in ipairs(Cli.order) do
     local command = Cli.verbs[verb]
     assert(command ~= nil, verb .. " is in Cli.order but has no command")
-    assert(all:find(assert(command.usage) .. "  ", 1, true), verb .. " is not in the index:\n" .. all)
+    local usage = assert(command.usage)
+    local beside = all:find(usage .. "  ", 1, true) ~= nil
+    if not beside then
+      assert(all:find(usage .. "\n", 1, true), verb .. " is not in the index:\n" .. all)
+      alone = alone + 1
+    end
     assert(all:find(assert(command.about), 1, true), verb .. " has no line:\n" .. all)
   end
+  -- A line a verb, and about 30 more: the guides, a heading and a blank
+  -- line a group, and the closing pointers.
+  assert(lines <= #Cli.order + alone + 32, tostring(lines) .. " lines:\n" .. all)
   -- A usage follows the word that names its verb, or what is typed
   -- where a verb has no word of its own.
   for _, line in ipairs({ "\n  cosmic test [selector...]  ", "\n  cosmic <file.tl> [args]  ",
-      "\n  cosmic --standalone [--check] <file.tl> [args]  ", "\n  cosmic -e '<chunk>' [args]  ",
+      "\n  cosmic --standalone [--check] <file.tl> [args]\n", "\n  cosmic -e '<chunk>' [args]  ",
       "\n  cosmic --version  ", "\n  cosmic bom  " }) do
     assert(all:find(line, 1, true), line .. ":\n" .. all)
   end
@@ -167,6 +175,22 @@ local function test_help_is_a_short_index_of_every_verb(tmp: string)
   local asked = verbs_fixture.expect(tmp, "help", { "help", "--help" }, 0).stdout
   assert(asked:find("\nMore:\n", 1, true), asked)
   assert(bare:find("\nMore:\n", 1, true) and bare:find("\nQuick tools:\n", 1, true), bare)
+end
+
+--- Every line of the index fits a terminal of 80 columns. A usage too
+--- wide for that is one line alone, and its summary is under it.
+local function test_help_index_fits_80_columns(tmp: string)
+  local all = verbs_fixture.expect(tmp, "help", { "help" }, 0).stdout
+  for line in all:gmatch("[^\n]+") do
+    local alone = false
+    for _, verb in ipairs(Cli.order) do
+      local command = assert(Cli.verbs[verb])
+      if line:find(assert(command.usage), 1, true) ~= nil and line:find("%S  +%S") == nil then
+        alone = true
+      end
+    end
+    assert(alone or #line <= 80, tostring(#line) .. " columns: " .. line)
+  end
 end
 
 --- The index names the guides to start from, each by a `cosmic docs`

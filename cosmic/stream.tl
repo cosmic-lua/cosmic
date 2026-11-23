@@ -1356,32 +1356,27 @@ local class HashingWriter is Stream.Hashing
   end
 end
 
+--- The hasher [`Stream.hashing`] digests through: the plain one, or the
+--- HMAC under `key`.
+local function hasher_for(algorithm: Hash.Algorithm, key?: string): (Hash.Hasher) | (nil, Failure)
+  if key == nil then return Hash.hasher(algorithm) end
+  return Hash.hmac_hasher(algorithm, key)
+end
+
 -- TODO: once Hash.Hasher's `update` answers `"", ""` (or a thin adapter
 -- stands over it), make a Hasher a Stream.Transform with `finish` as its
 -- `digest`, so [`Stream.run`] and [`transform_writer`] drive it and this
 -- Writer shrinks to that adapter.
--- Stream.hashing, its failure in words.
-local function hashing_text(algorithm: Hash.Algorithm, key?: string): Stream.Hashing?, string
-  local hasher, trouble: Hash.Hasher?, string
-  if key == nil then
-    hasher, trouble = Hash.hasher(algorithm)
-  else
-    hasher, trouble = Hash.hmac_hasher(algorithm, key)
-  end
-  if hasher == nil then return nil, trouble end
-  local h: HashingWriter = { hasher = hasher, closed = false, result = nil, failure = "" }
-  return h, ""
-end
-
 --- A Writer that digests what is written to it under `algorithm`,
 --- for checking a body against a published digest as it streams past
 --- -- `tee` it beside the Writer the body is really going to. Given a
 --- `key`, it is the HMAC under that key ([`Hash.hmac_hasher`]) that
 --- `digest` answers, not the plain digest.
 function Stream.hashing(algorithm: Hash.Algorithm, key?: string): (Stream.Hashing) | (nil, Failure)
-  local value, why = hashing_text(algorithm, key)
-  if value == nil then return nil, Failure.new(why) end
-  return value
+  local hasher, why = hasher_for(algorithm, key)
+  if hasher == nil then return nil, why end
+  local h: HashingWriter = { hasher = hasher, closed = false, result = nil, failure = "" }
+  return h
 end
 
 local class TeeWriter is Stream.Writer

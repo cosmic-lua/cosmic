@@ -1,7 +1,7 @@
 # weekly review
 
 instructions for the weekly review agent. it runs once a week, on Opus,
-in `.github/workflows/review.yml`, in the pi coding agent, with a spend
+in `.github/workflows/review.yml`, in `cosmic agent`, with a spend
 limit on its Console workspace. the agent is told to
 read this file and follow it, so a change here takes effect at the next
 run.

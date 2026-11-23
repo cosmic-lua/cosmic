@@ -95,8 +95,9 @@ local function write(path: string, data: string) assert(Fs.write(path, data)) en
 --- verdicts (ci.yml's "restore test verdicts") and so runs only what its
 --- merge moved from what main's last run reached; main's push of
 --- linux-x86_64 takes the queue's verdicts of its commit too
---- (cosmic_ci/queue_verdicts.tl). A manual run and
---- main's scheduled one are the backstop, running every test.
+--- (cosmic_ci/queue_verdicts.tl). ci.yml gives main's daily scheduled
+--- run and a manual run `push` as well; the weekly run and a manual run
+--- with `every_test` are the backstop, running every test.
 local standing_events: {string:boolean} = { push = true, merge_group = true }
 
 --- Whether a suite in `env` stands on verdicts other runs reached, keyed
@@ -118,13 +119,14 @@ local standing_events: {string:boolean} = { push = true, merge_group = true }
 --- restores the newest cache main saved of its leg, host and host
 --- features (ci.yml's "name the leg's host").
 ---
---- A manual run and main's scheduled one run every test (`--all`) and
---- stand on nothing another run reached (COSMIC_TEST_NO_SHARED=1). So no
---- gating run runs every test: a pass a key does not answer for, such as
---- a test that turns on the clock or a flaky one, is caught only by
---- main's scheduled run the next day. When that run fails, GitHub tells
---- only whoever last edited its cron line (the TODO on ci.yml's
---- `schedule`).
+--- ci.yml gives the daily scheduled run and a manual run `push` too.
+--- The weekly scheduled run and a manual run with `every_test` keep
+--- their own event, so they run every test (`--all`) and stand on
+--- nothing another run reached (COSMIC_TEST_NO_SHARED=1). So no gating
+--- run runs every test: a pass a key does not answer for, such as a
+--- test that turns on the clock or a flaky one, is caught only by the
+--- weekly run. When that run fails, GitHub tells only whoever last
+--- edited its cron line (the TODO on ci.yml's `schedule`).
 -- TODO: share a Linux leg's verdicts across its runners only once the
 -- key holds what a host's package database does not say (the TODO on
 -- build/declared_key.tl's `system_identity`). Today they are keyed by
@@ -1277,7 +1279,7 @@ local function archive(c: Context, destination: string): integer
   status = step(c, "tracked source extract", function(): boolean, string
     local written, trouble = Archive.extract(tar, destination,
       { links = "create", filter = function(_path: string): boolean return true end })
-    if written == nil then return false, trouble end
+    if written == nil then return false, tostring(trouble) end
     return true, ""
   end)
   assert(not assert(Fs.status(destination .. "/o")).exists, "tracked source archive holds o/")
@@ -1807,7 +1809,7 @@ local function fixture_source(p: PlatformContext, destination: string): integer
     mkdir(destination)
     local written, trouble = Archive.extract(p.fresh .. ".tar", destination,
       { links = "create", filter = function(_path: string): boolean return true end })
-    if written == nil then return false, trouble end
+    if written == nil then return false, tostring(trouble) end
     return true, ""
   end)
 end

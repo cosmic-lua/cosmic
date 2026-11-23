@@ -17,8 +17,10 @@
 --- absolute path fails some run rather than none. The log names the
 --- inputs and the path, and `--name` with the same ones gives it again.
 ---
---- But for a gating run ($GITHUB_EVENT_NAME push or merge_group) of a
---- leg whose workers run unsandboxed, keyed by what their tests declare
+--- But for a run that stands on verdicts ($COSMIC_CI_EVENT push or
+--- merge_group, else $GITHUB_EVENT_NAME: a push, the queue, the daily
+--- scheduled run and a manual one) of a leg whose workers run
+--- unsandboxed, keyed by what their tests declare
 --- ($COSMIC_CI_DECLARED_KEYS=1, the macOS leg): there the leg alone
 --- chooses the name. Such a worker sees the tree where it is, so its key
 --- holds the tree's path (build/declared_key.tl's `Spec.tree`): a path
@@ -26,7 +28,7 @@
 --- commit, and a path that stays cannot let a verdict stand where the
 --- test would fail, since a test is keyed by where it ran. What a moving
 --- path still catches there, a test that turns on the path at all, the
---- scheduled run's path, chosen by the commit, catches.
+--- weekly scheduled run's path, chosen by the commit, catches.
 ---
 --- Only the name varies, never the depth: the tree is always one
 --- directory below $GITHUB_WORKSPACE's parent, as deep as the workspace
@@ -111,10 +113,10 @@ function PlaceTree.name(env: {string:string}): PlaceTree.Placed?, string
   -- ci/run-local runs the driver from a path with one (its drop_env is
   -- split on spaces) and shows its phases take it: the suite itself does.
   local seed, chosen: string, string
-  local event = env["GITHUB_EVENT_NAME"] or ""
+  local event = env["COSMIC_CI_EVENT"] or env["GITHUB_EVENT_NAME"] or ""
   if env["COSMIC_CI_DECLARED_KEYS"] == "1" and (event == "push" or event == "merge_group") then
     seed = Hash.hex_sha256("leg " .. worker .. "\n")
-    chosen = "leg " .. worker .. ", a gating run keyed by the path"
+    chosen = "leg " .. worker .. ", a run that stands on verdicts keyed by the path"
   else
     seed = Hash.hex_sha256("commit " .. sha .. "\nleg " .. worker .. "\n")
     chosen = "commit " .. sha .. ", leg " .. worker

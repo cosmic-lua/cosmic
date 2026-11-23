@@ -203,7 +203,7 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
       -- The escape `target_crosses_link` exists for: `link -> .` made,
       -- then a link through it (`x -> link/..`, which leads to dest's
       -- parent) refused.
-      if written == nil and trouble:find("another symlink", 1, true) ~= nil and
+      if written == nil and tostring(trouble):find("another symlink", 1, true) ~= nil and
           link_of(dest .. "/link") == "." then
         Fuzz.label("refused a link through a link")
       end
@@ -281,9 +281,11 @@ local function test_opening_any_bytes_is_total(tmp: string)
     check = function(input: string): boolean, string
       assert(Fs.write(file, input))
       local entries, trouble = Archive.list(file)
-      if entries == nil and trouble == "" then return false, "list: nil without a reason" end
+      if entries == nil and trouble.message == "" then
+        return false, "list: nil without a reason"
+      end
       if entries ~= nil then Fuzz.label("listed") end
-      local reader = Archive.open(file)
+      local reader, _ = Archive.open(file)
       if reader ~= nil then
         for _ = 1, 10000 do
           local e = reader:next()
@@ -386,10 +388,12 @@ local function test_open_stream_answers_as_open_does_for_the_same_bytes(tmp: str
       local zip = input:sub(1, 4) == "PK\3\4" or input:sub(1, 4) == "PK\5\6"
       if zip then
         if streamed ~= nil then return false, "open_stream took a zip" end
-        if why:find("zip", 1, true) == nil then return false, "zip refusal: " .. why end
+        if tostring(why):find("zip", 1, true) == nil then
+          return false, "zip refusal: " .. tostring(why)
+        end
         return true, ""
       end
-      local opened = Archive.open(file)
+      local opened, _ = Archive.open(file)
       if (opened == nil) ~= (streamed == nil) then
         return false, "open " .. (if opened == nil then "refused" else "took" end) .. " what open_stream " .. (if streamed == nil then "refused" else "took" end)
       end
@@ -461,7 +465,7 @@ local function test_extract_reader_answers_as_extract_does_for_the_same_bytes(tm
         strip_components = if fields[3] == "1" then 1 else nil end,
       }
       local from_file, file_why = Archive.extract(file, case .. "/by-file", opts)
-      local reader = Archive.open_stream(chunked(archive))
+      local reader, _ = Archive.open_stream(chunked(archive))
       if reader == nil then return false, "open_stream refused what open took" end
       local from_stream, stream_why = Archive.extract_reader(reader, case .. "/by-stream", opts)
       if (from_file == nil) ~= (from_stream == nil) then
@@ -470,8 +474,8 @@ local function test_extract_reader_answers_as_extract_does_for_the_same_bytes(tm
       -- The directory is a pattern's text: escaped, a "-" in its name
       -- (as a test's scratch directory's has) means itself.
       local at = case:gsub("%p", "%%%0")
-      local file_words = file_why:gsub(at .. "/by%-file", "DEST")
-      local stream_words = stream_why:gsub(at .. "/by%-stream", "DEST")
+      local file_words = tostring(file_why):gsub(at .. "/by%-file", "DEST")
+      local stream_words = tostring(stream_why):gsub(at .. "/by%-stream", "DEST")
       if file_words ~= stream_words then return false, file_words .. "\n" .. stream_words end
       if from_file ~= nil and from_stream ~= nil and table.concat(from_file, "\n") ~= table.concat(from_stream, "\n") then
         return false, "wrote " .. table.concat(from_file, ",") .. " / " .. table.concat(from_stream, ",")
@@ -658,19 +662,19 @@ local function test_extraction_stays_under_its_byte_limits(tmp: string)
       end
 
       local written, trouble = Archive.extract(file, case .. "/by-file", opts)
-      local ok, why = check_dest(case .. "/by-file", written, trouble, { refusal })
+      local ok, why = check_dest(case .. "/by-file", written, (if trouble ~= nil then tostring(trouble) else "" end), { refusal })
       if not ok then return false, why end
       -- Entries that state no size: only the bytes read tell.
-      local opened = Archive.open(file)
+      local opened, _ = Archive.open(file)
       if opened == nil then return false, "open refused what extract took" end
       written, trouble = Archive.extract_reader(understating(opened), case .. "/understated", opts)
-      ok, why = check_dest(case .. "/understated", written, trouble, either)
+      ok, why = check_dest(case .. "/understated", written, (if trouble ~= nil then tostring(trouble) else "" end), either)
       if not ok then return false, "understating its sizes: " .. why end
       if fields[1] == "zip" then return true, "" end
-      local reader = Archive.open_stream(chunked(archive))
+      local reader, _ = Archive.open_stream(chunked(archive))
       if reader == nil then return false, "open_stream refused what open took" end
       written, trouble = Archive.extract_reader(reader, case .. "/by-stream", opts)
-      return check_dest(case .. "/by-stream", written, trouble, { refusal })
+      return check_dest(case .. "/by-stream", written, (if trouble ~= nil then tostring(trouble) else "" end), { refusal })
     end,
   })
 end

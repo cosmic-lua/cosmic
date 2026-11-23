@@ -246,7 +246,7 @@ function SeededBoot.cached(cache: string, digest: string): string?, string
   local there, _ = Fs.status(path)
   if there == nil or not there.exists then return nil, "it is not there" end
   local got, trouble = Hash.hex_file("sha256", path)
-  if got == nil then return nil, trouble end
+  if got == nil then return nil, tostring(trouble) end
   if got == digest then return path, "" end
   local _, _ = Fs.remove(path)
   return nil, "its bytes are not its digest's"
