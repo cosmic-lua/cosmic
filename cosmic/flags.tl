@@ -119,6 +119,13 @@ local record Flags
     --- it starts, say, whose options are not its options. Given the line and the slot of its first word after
     --- the command; nil where the line holds none. They are the `rest` of what `run` is given.
     rest?: function(argv: {string}, from: integer): integer?
+    --- The command's own commands, by the word that names each (`time add`, `rand uuid`): each a command as
+    --- this one is, with its own `spec`, `usage`, `about` and `run`. [`Flags.dispatch`] runs the one the word
+    --- after this command names, reads the line with its spec alone, and refuses a line with that one's usage;
+    --- `prog help cmd sub` and `prog cmd sub --help` answer its help. This command's help lists them under
+    --- "commands:", and its usage is `<a|b> ...` when it gives none. A command with these has no `spec` or `rest`
+    --- of its own, or [`Flags.dispatch`] raises; nil for a command that has none.
+    subcommands?: {string:Command}
     --- Runs the command with what its line held, answering its exit
     --- status. None for a command only described, as [`cosmic.cli`]'s
     --- verbs are, which [`Flags.dispatch`] refuses to run.
@@ -680,12 +687,23 @@ end
 
 --- The line `command` is typed as, for its help: `program`, the word that runs it (`name`, or its `typed`), and
 --- its `usage`, "[options]" where it gives none and takes any.
+--- What follows `command` in its usage line: its `usage`; else, for one with subcommands, each word that names one
+--- ("<add|now> ..."); else "[options]" where it takes any, and "" where it takes none.
+local function usage_of(command: Flags.Command): string
+  local given = command.usage
+  if given ~= nil then return given end
+  local subcommands = command.subcommands
+  if subcommands ~= nil and next(subcommands) ~= nil then
+    return "<" .. table.concat(sorted(keys(subcommands)), "|") .. "> ..."
+  end
+  return if next(command.spec or {}) ~= nil then "[options]" else "" end
+end
+
 local function typed_line(program: string, name: string, command: Flags.Command): string
   local words: mut {string} = { program }
   local typed = command.typed or name
   if typed ~= "" then words[#words + 1] = typed end
-  local spec = command.spec or {}
-  local usage = command.usage or (if next(spec) ~= nil then "[options]" else "" end)
+  local usage = usage_of(command)
   if usage ~= "" then words[#words + 1] = usage end
   return table.concat(words, " ")
 end
@@ -709,6 +727,8 @@ end
 --- value's name and what it does, as a [`Flags.Option`] describes it:
 --- one named `false` is listed bare, and one named `true` with
 --- "<value>". An option the line must give ends "(required)". Then its
+--- `subcommands`, each by its word, usage and `about` under "commands:",
+--- with a line that says how to ask for one's help. Then its
 --- `examples`, each line after `name` beside what it does, and its `see`
 --- names after "see also:", as written: given one command, it cannot
 --- tell a name that is no command. A command with neither reads as one
@@ -760,7 +780,7 @@ function Flags.help(command: Flags.Command, name: string, width?: integer): stri
     error("flags: help's width is not a positive number of columns", 2)
   end
   local spec = command.spec or {}
-  local usage = command.usage or (if next(spec) ~= nil then "[options]" else "" end)
+  local usage = usage_of(command)
   local parts: mut {string} = { "usage: " .. (if usage ~= "" then name .. " " .. usage else name end) }
   local about = command.about
   if about ~= nil and about ~= "" then
@@ -772,6 +792,20 @@ function Flags.help(command: Flags.Command, name: string, width?: integer): stri
   end
   if next(spec) ~= nil then
     parts[#parts + 1] = "\noptions:\n" .. table.concat(laid_out(option_rows(spec), width), "\n")
+  end
+  local subcommands = command.subcommands or {}
+  if next(subcommands) ~= nil then
+    local rows: mut {Row} = {}
+    for _, sub in ipairs(sorted(keys(subcommands))) do
+      local described = assert(subcommands[sub], "a name of subcommands names one")
+      local sub_usage = usage_of(described)
+      rows[#rows + 1] = {
+        head = if sub_usage ~= "" then sub .. " " .. sub_usage else sub end,
+        about = described.about,
+      }
+    end
+    parts[#parts + 1] = "\ncommands:\n" .. table.concat(laid_out(rows, width), "\n") ..
+      "\n\n`" .. name .. " <command> --help` says more."
   end
   local examples = command.examples or {}
   if #examples > 0 then
@@ -1163,6 +1197,15 @@ end
 --- Two commands typed alike raise, as does one typed as "help", "-h" or
 --- "--help", and a `rest` that begins before the command's first word.
 ---
+--- A command with `subcommands` runs the one the word after it names, as
+--- this runs one of `commands`: that one's spec reads the rest of the
+--- line, and a refusal names both, with that one's usage ("time: add:
+--- --days needs a value; usage: prog time add [options] <time>").
+--- `prog help time add`, `prog time help add` and `prog time add --help`
+--- answer its help, and `prog time --help` the command's, which lists
+--- them. A command with both `subcommands` and a `spec` or a `rest`
+--- raises.
+---
 --- With `documented`, the program answers from its own documentation, which
 --- `cosmic build` carries in it ([`Flags.Documented`]). A command's help
 --- ends with the doc comment of its field of the `pages` record. `docs`,
@@ -1217,6 +1260,9 @@ function Flags.dispatch(argv: {string}, from: integer,
     if typed == "help" and held ~= "help" or typed == "-h" or typed == "--help" then
       error("flags: " .. held .. " is typed as " .. typed .. ", which asks for help", 2)
     end
+    if command ~= nil and command.subcommands ~= nil and (command.spec ~= nil or command.rest ~= nil) then
+      error("flags: " .. held .. " has subcommands, so it reads no options or rest of its own", 2)
+    end
     local see = if command ~= nil then command.see else nil end
     if see ~= nil then
       for _, other in ipairs(see) do
@@ -1258,9 +1304,6 @@ function Flags.dispatch(argv: {string}, from: integer,
     if asked == "--help" or asked == "-h" then
       asked = nil
     end
-    if asked ~= nil and argv[from + 2] ~= nil then
-      return nil, if next(topics) ~= nil then "help: one command or topic at a time" else "help: one command at a time" end
-    end
     if asked == nil then
       return { code = 0, help = Flags.program_help(program, commands, documented) }, ""
     end
@@ -1270,6 +1313,22 @@ function Flags.dispatch(argv: {string}, from: integer,
       if other ~= nil and other.typed == asked and asked ~= "" then asked = held end
     end
     local asked_command = commands[asked]
+    local asked_subcommands = if asked_command ~= nil then asked_command.subcommands else nil end
+    if asked_command ~= nil and asked_subcommands ~= nil and argv[from + 2] ~= nil then
+      -- `prog help cmd sub` is `prog cmd help sub`.
+      local line: mut {string} = { "help" }
+      for slot, word in ipairs(argv) do
+        if slot >= from + 2 then line[#line + 1] = word end
+      end
+      local answered, why = Flags.dispatch(line, 1, asked_subcommands, called(program, asked, asked_command))
+      if answered == nil then
+        return nil, "help: " .. why
+      end
+      return answered, ""
+    end
+    if argv[from + 2] ~= nil then
+      return nil, if next(topics) ~= nil then "help: one command or topic at a time" else "help: one command at a time" end
+    end
     if asked_command == nil and asked == "help" then
       return { code = 0, help = help_help(program, next(topics) ~= nil) }, ""
     end
@@ -1358,6 +1417,15 @@ function Flags.dispatch(argv: {string}, from: integer,
       if slot < at then before[#before + 1] = word else after[#after + 1] = word end
     end
     own, kept = before, after
+  end
+  local subcommands = command.subcommands
+  if subcommands ~= nil and argv[first] ~= "--help" and argv[first] ~= "-h" then
+    -- The word after the command names one of its own, which reads the rest of the line.
+    local answered, why = Flags.dispatch(argv, first, subcommands, called(program, name, command))
+    if answered == nil then
+      return nil, name .. ": " .. why
+    end
+    return answered, ""
   end
   local spec = command.spec or {}
   if Flags.asks_help(own, first, spec) then

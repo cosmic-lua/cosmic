@@ -146,7 +146,7 @@ end
 local function test_uuid_refuses_a_seed_and_the_rest()
   local seeded = run({ "uuid", "--seed", "1" })
   assert(seeded.code == 2 and seeded.out == "", seeded.out)
-  assert(seeded.err:find("--seed is refused with uuid", 1, true), seeded.err)
+  assert(seeded.err:find("uuid: --seed is refused", 1, true), seeded.err)
   local cases: {{string}} = {
     { "uuid", "--v4", "--v7" }, { "uuid", "-n", "0" }, { "uuid", "-n", "x" },
     { "uuid", "-n", tostring(rand.MAX_COUNT + 1) }, { "uuid", "--bytes", "3" }, { "uuid", "x" },
@@ -548,11 +548,11 @@ local function test_normal_and_gamma_refuse_bad_parameters()
   local ran = run({ "normal", "--stddev", "-1" })
   assert(ran.err:find("--stddev must not be negative, not -1", 1, true), ran.err)
   ran = run({ "gamma" })
-  assert(ran.err:find("gamma needs --shape", 1, true), ran.err)
+  assert(ran.err:find("gamma: --shape is required", 1, true), ran.err)
   ran = run({ "gamma", "--shape", "nan" })
   assert(ran.err:find("--shape needs a finite number, not nan", 1, true), ran.err)
-  -- Every refusal names the subcommands.
-  assert(ran.err:find("normal [-n N]", 1, true) and ran.err:find("gamma [-n N]", 1, true), ran.err)
+  -- A refusal names the subcommand's own usage, and no other's.
+  assert(ran.err:find("usage: cosmic rand gamma [options]", 1, true) ~= nil and ran.err:find("normal", 1, true) == nil, ran.err)
 end
 
 local function test_normal_and_gamma_take_negative_and_decimal_numbers_as_values()

@@ -253,6 +253,57 @@ local function test_dispatch_refuses_a_command_with_no_run()
   assert(helped.help:find("described, not run", 1, true) ~= nil, helped.help)
 end
 
+--- A command's subcommands each read the line with their own spec, refuse it with their own usage, and answer
+--- their own help; the command's help lists them.
+local function test_dispatch_runs_a_subcommand_with_its_own_options()
+  local ran: mut {string} = {}
+  local commands: {string:Flags.Command} = {
+    time = {
+      about = "Times and dates.",
+      subcommands = {
+        add = {
+          about = "Adds a duration.",
+          usage = "[options] <time>",
+          spec = { ["--days"] = { value = "n", about = "whole days" } },
+          run = function(got: Flags.Parsed): integer
+            local said = "add " .. (got.values["--days"] or "") .. " " .. table.concat(got.words, " ")
+            ran[#ran + 1] = said
+            return 5
+          end,
+        },
+        now = {
+          about = "The time now.",
+          spec = { ["--utc"] = { about = "in UTC" } },
+          run = function(_: Flags.Parsed): integer return 0 end,
+        },
+      },
+    },
+  }
+  local added = assert(Flags.dispatch({ "time", "add", "--days", "2", "t" }, 1, commands, "prog"))
+  assert(added.code == 5 and ran[1] == "add 2 t", ran[1])
+  local refused, why = Flags.dispatch({ "time", "add", "--utc" }, 1, commands, "prog")
+  assert(refused == nil and why:find("^time: add: ") ~= nil and why:find("usage: prog time add [options] <time>",
+    1, true) ~= nil and why:find("now", 1, true) == nil, why)
+  local none, none_why = Flags.dispatch({ "time" }, 1, commands, "prog")
+  assert(none == nil and none_why == "time: needs a command: add, now", none_why)
+  local wrong, wrong_why = Flags.dispatch({ "time", "ad" }, 1, commands, "prog")
+  assert(wrong == nil and wrong_why:find("time: no such command: ad; did you mean add?", 1, true) ~= nil, wrong_why)
+  for _, line in ipairs({ { "help", "time", "add" }, { "time", "add", "--help" }, { "time", "help", "add" } }) do
+    local helped = assert(Flags.dispatch(line, 1, commands, "prog"))
+    assert(helped.code == 0 and helped.help:find("^usage: prog time add %[options%] <time>") ~= nil and
+        helped.help:find("--days", 1, true) ~= nil, helped.help)
+  end
+  local listed = assert(Flags.dispatch({ "time", "--help" }, 1, commands, "prog"))
+  assert(listed.help:find("^usage: prog time <add|now> %.%.%.") ~= nil, listed.help)
+  assert(listed.help:find("commands:\n  add [options] <time>  Adds a duration.\n  now [options]", 1, true) ~= nil,
+    listed.help)
+  local unknown, unknown_why = Flags.dispatch({ "help", "time", "later" }, 1, commands, "prog")
+  assert(unknown == nil and unknown_why:find("^help: no such command: later") ~= nil, unknown_why)
+  Test.raises(function()
+    Flags.dispatch({ "x" }, 1, { x = { spec = {}, subcommands = assert(commands["time"]).subcommands } }, "prog")
+  end)
+end
+
 local help_commands: {string:Flags.Command} = {
   build = {
     about = "Builds the target.",

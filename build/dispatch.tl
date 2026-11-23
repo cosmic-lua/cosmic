@@ -322,13 +322,23 @@ local function index_help(): string
   return index.help .. "\n"
 end
 
+--- `command` as [`line_refusal`] hands it over: its options, usage and subcommands, each with a `run` that does
+--- nothing.
+local function described_only(command: flags.Command): flags.Command
+  local given = command.subcommands
+  local subcommands: mut {string:flags.Command} = {}
+  if given ~= nil then
+    for word, sub in pairs(given) do subcommands[word] = described_only(sub) end
+  end
+  return { spec = command.spec, usage = command.usage, subcommands = if given ~= nil then subcommands else nil end,
+    run = function(_: flags.Parsed): integer return 0 end }
+end
+
 --- Why Flags.dispatch refuses the line `own` of the verb `verb`, whose options `command` names, or "" where it
 --- takes it: "test: no such option: --jbs; did you mean --jobs?; usage: cosmic test [options] [path...]".
 --- Nothing is run: the verb reads its own line after.
 local function line_refusal(verb: string, command: flags.Command, own: {string}): string
-  local vetted: flags.Command = { spec = command.spec, usage = command.usage,
-    run = function(_: flags.Parsed): integer return 0 end }
-  local ran, why = require("cosmic.flags").dispatch(own, 1, { [verb] = vetted }, "cosmic")
+  local ran, why = require("cosmic.flags").dispatch(own, 1, { [verb] = described_only(command) }, "cosmic")
   return if ran == nil then why else "" end
 end
 
@@ -730,7 +740,8 @@ local help_spec: verb_spec.Spec?
 --- exit codes, then its summary on stderr.
 --- @param asked the verb `cosmic <verb> --help` asked about, or nil to
 ---   read the words after `help` itself
-local function help(argv: {string}, asked: string?): integer
+--- @param asked_sub the verb's subcommand `cosmic <verb> <sub> --help` asked about, or nil
+local function help(argv: {string}, asked: string?, asked_sub?: string): integer
   local Cli = require("cosmic.cli")
   local Clock = require("cosmic.clock")
   local clock = require("build.clock")
@@ -752,7 +763,9 @@ local function help(argv: {string}, asked: string?): integer
   if code ~= nil then
     return code
   end
-  local words: {string} = if asked ~= nil then { asked } else {} end
+  local words: mut {string} = {}
+  if asked ~= nil then words[#words + 1] = asked end
+  if asked ~= nil and asked_sub ~= nil then words[#words + 1] = asked_sub end
   if asked == nil then
     local line = argv
     local second = argv[2]
@@ -773,11 +786,27 @@ local function help(argv: {string}, asked: string?): integer
     end
     words = parsed.words
   end
+  local requested = words[1]
+  local asked_verb = if requested ~= nil then Cli.verbs[requested] else nil end
+  local subcommands = if asked_verb ~= nil then asked_verb.subcommands else nil end
+  if #words == 2 and requested ~= nil and subcommands ~= nil then
+    -- `cosmic help time add`: the subcommand's own help, as cosmic.flags writes it.
+    local word = words[2]
+    local sub = subcommands[word]
+    if sub == nil then
+      local names: mut {string} = {}
+      for name in pairs(subcommands) do names[#names + 1] = name end
+      log:complain("help: " .. requested .. " has no command " .. word .. meant(word, names))
+      return 2
+    end
+    log:say(require("cosmic.flags").help(sub, typed_name(requested) .. " " .. word, page_width) .. "\n")
+    local _, _ = logger.summary("help", "1 verb, " .. clock.took(started))
+    return 0
+  end
   if #words > 1 then
     log:complain("help: one verb at a time, not " .. tostring(#words))
     return 2
   end
-  local requested = words[1]
   if #words == 1 and requested ~= nil then
     local known = requested == "exit"
     for _, verb in ipairs(Cli.order) do
@@ -950,7 +979,7 @@ function Dispatch.main(argv: {string}): integer
   -- ([`line_refusal`]), so their refusals are one rule's; until the verbs take what it read, a line is parsed
   -- twice, to the same result. It waits on two things. Most verbs offer `run(argv, io?)` to their tests, which
   -- would each hand over a parsed line instead; and a verb that says more of its usage than one line (`time`,
-  -- `rand`, `sql`: a line a subcommand) needs Flags.dispatch to end a refusal with the verb's own words. A
+  -- `sql`: a line a subcommand) needs its subcommands in cosmic.cli first, as `rand` has them. A
   -- `fresh` verb and `todos` keep reading their own lines whatever is done: they rebuild a stale tool first.
   -- `-e`, `--standalone` and `--version` stay outside Flags.dispatch on purpose: they load neither cosmic.flags
   -- nor cosmic.cli (build/dispatch_tool_test.tl holds `-e` to it), being what runs when the tree cannot build.
@@ -971,15 +1000,18 @@ function Dispatch.main(argv: {string}): integer
   -- run and the verbs spelled as options read their own.
   local typed_by_name = chosen ~= nil and verb ~= "help" and verb ~= "run" and verb:sub(1, 1) ~= "-"
   if chosen ~= nil and verb ~= "help" and Flags.asks_help(own, 2, options) then
-    -- `cosmic <verb> --help` is `cosmic help <verb>`.
+    -- `cosmic <verb> --help` is `cosmic help <verb>`, and `cosmic <verb> <sub> --help` is `cosmic help <verb> <sub>`.
     local asked = verb
+    local subcommands = if command ~= nil then command.subcommands else nil end
+    local second = own[2]
+    local asked_sub = if subcommands ~= nil and second ~= nil and subcommands[second] ~= nil then second else nil end
     typed_by_name = false
     local own_spec = assert(help_spec, "help's spec is set before a verb is dispatched")
     verb = "help"
     chosen = {
       name = "help",
       run = function(line: {string}): integer
-        return help(line, asked)
+        return help(line, asked, asked_sub)
       end,
       bare = false,
       recheck_on_refusal = false,

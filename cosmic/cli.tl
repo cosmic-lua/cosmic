@@ -1671,24 +1671,72 @@ local module: Module = {
     },
     rand = {
       about = "uuids, tokens, integers, picks and draws",
-      usage = "<command> ...",
+      usage = "<uuid|token|int|pick|shuffle|normal|gamma> ...",
       examples = {
         { line = "uuid", about = "a random UUID" },
         { line = "token", about = "a 32-byte token" },
         { line = "int 1 6", about = "roll a die" },
       },
-      spec = {
-        ["--v4"] = { about = "uuid: version 4, random (the default)" },
-        ["--v7"] = { about = "uuid: version 7, time-ordered within a run" },
-        ["-n"] = { value = "n", about = "uuid, int, pick, normal, gamma: how many to draw (default 1)" },
-        ["--bytes"] = { value = "n", about = "token: bytes of entropy, 1 to 1048576 (default 32)" },
-        ["--hex"] = { about = "token: lowercase hex" },
-        ["--base64url"] = { about = "token: unpadded base64url (the default)" },
-        ["--seed"] = { value = "n", about = "int, pick, shuffle, normal, gamma: replayable, NOT secret; refused for uuid and token" },
-        ["--mean"] = { value = "m", about = "normal: the mean (default 0)" },
-        ["--stddev"] = { value = "sd", about = "normal: the standard deviation, not negative (default 1)" },
-        ["--shape"] = { value = "k", about = "gamma: the shape, above 0 (required)" },
-        ["--scale"] = { value = "t", about = "gamma: the scale, above 0 (default 1)" },
+      subcommands = {
+        uuid = {
+          about = "random UUIDs",
+          spec = {
+            ["--v4"] = { about = "version 4, random (the default)" },
+            ["--v7"] = { about = "version 7, time-ordered within a run" },
+            ["-n"] = { value = "n", about = "how many (default 1)" },
+            ["--seed"] = { value = "n", about = "refused: the output is secret" },
+          },
+        },
+        token = {
+          about = "a random token",
+          spec = {
+            ["--bytes"] = { value = "n", about = "bytes of entropy, 1 to 1048576 (default 32)" },
+            ["--hex"] = { about = "lowercase hex" },
+            ["--base64url"] = { about = "unpadded base64url (the default)" },
+            ["--seed"] = { value = "n", about = "refused: the output is secret" },
+          },
+        },
+        int = {
+          about = "integers, uniform over lo..hi inclusive",
+          usage = "[options] [--] <lo> <hi>",
+          spec = {
+            ["-n"] = { value = "n", about = "how many (default 1)" },
+            ["--seed"] = { value = "n", about = "replayable, NOT secret" },
+          },
+        },
+        pick = {
+          about = "distinct lines of a file",
+          usage = "[options] [file|-]",
+          spec = {
+            ["-n"] = { value = "n", about = "how many (default 1)" },
+            ["--seed"] = { value = "n", about = "replayable, NOT secret" },
+          },
+        },
+        shuffle = {
+          about = "every line of a file, shuffled",
+          usage = "[options] [file|-]",
+          spec = {
+            ["--seed"] = { value = "n", about = "replayable, NOT secret" },
+          },
+        },
+        normal = {
+          about = "draws from the normal distribution",
+          spec = {
+            ["-n"] = { value = "n", about = "how many (default 1)" },
+            ["--seed"] = { value = "n", about = "replayable, NOT secret" },
+            ["--mean"] = { value = "m", about = "the mean (default 0)" },
+            ["--stddev"] = { value = "sd", about = "the standard deviation, not negative (default 1)" },
+          },
+        },
+        gamma = {
+          about = "draws from the gamma distribution",
+          spec = {
+            ["-n"] = { value = "n", about = "how many (default 1)" },
+            ["--seed"] = { value = "n", about = "replayable, NOT secret" },
+            ["--shape"] = { value = "k", about = "the shape, above 0", required = true },
+            ["--scale"] = { value = "t", about = "the scale, above 0 (default 1)" },
+          },
+        },
       },
     },
     qr = {
