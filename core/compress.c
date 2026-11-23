@@ -575,9 +575,10 @@ static int xz_step (struct stream *s, const unsigned char *p, size_t n,
       return STEP_INPUT;
     }
     if (rc != LZMA_OK) {
-      *err = rc == LZMA_MEMLIMIT_ERROR ? "xz memory limit exceeded"
-             : rc == LZMA_MEM_ERROR    ? "out of memory"
-                                       : "corrupt xz data";
+      *err = rc == LZMA_MEMLIMIT_ERROR       ? "xz memory limit exceeded"
+             : rc == LZMA_MEM_ERROR         ? "out of memory"
+             : rc == LZMA_UNSUPPORTED_CHECK ? "unsupported xz integrity check"
+                                            : "corrupt xz data";
       return STEP_ERROR;
     }
     if (i == n && produced < out_take) {
@@ -769,7 +770,11 @@ static int start_member (struct stream *s, const char **err) {
    * way gzip and bzip2 members are. Re-initializing a live decoder
    * reuses its memory. */
   if (!s->codec_open) s->u.lzma = (lzma_stream)LZMA_STREAM_INIT;
-  lzma_ret rc = lzma_stream_decoder(&s->u.lzma, s->memlimit, 0);
+  /* A check liblzma cannot compute (one of the IDs the format reserves)
+   * is refused: told nothing, liblzma decodes such a stream verifying
+   * none of it, so a changed byte of the data passes. */
+  lzma_ret rc = lzma_stream_decoder(&s->u.lzma, s->memlimit,
+                                    LZMA_TELL_UNSUPPORTED_CHECK);
   if (rc != LZMA_OK) {
     *err = rc == LZMA_MEM_ERROR ? "out of memory"
                                 : "cannot start the xz decoder";

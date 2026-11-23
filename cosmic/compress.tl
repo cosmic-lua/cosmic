@@ -135,7 +135,10 @@ end
 
 --- A streaming decoder for the .xz container: multi-stream and stream
 --- padding are handled. The filters are LZMA2, delta, x86 BCJ and
---- ARM64 BCJ, and the checks are CRC32, CRC64 and SHA-256. The decoder
+--- ARM64 BCJ, and the checks are CRC32, CRC64 and SHA-256, each verified,
+--- or none (`xz --check=none`). A stream that names a check the format
+--- reserves is refused with "unsupported xz integrity check", since none
+--- of it could be verified. The decoder
 --- refuses, with "xz memory limit exceeded", a stream whose headers
 --- ask for more than `max_memory` bytes of decoder memory (default 256
 --- MiB; `xz -9` needs 65 MiB).
