@@ -3287,12 +3287,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     relay = if relayed then merged.connect else nil end }, ""
 end
 
---- Whether this host holds a policy's child by Seatbelt, which is how
---- macOS holds one, and Linux's Landlock and seccomp are not there.
-local function holds_by_seatbelt(): boolean
-  local names, _ = sys.uname()
-  return names ~= nil and names.sysname == "Darwin"
-end
+local holds_by_seatbelt <const> = Rules.on_macos
 
 --- Whether a program of `merged` may be started on macOS as the policy
 --- says: "" or why not ([`Seatbelt.credentials_unmet`], told this process's

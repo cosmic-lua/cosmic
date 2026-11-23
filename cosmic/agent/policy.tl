@@ -89,7 +89,6 @@
 
 local Fs = require("cosmic.fs")
 local Sandbox = require("cosmic.sandbox")
-local sys = require("cosmic.sys")
 
 local record Policy
   --- What the user asked for.
@@ -130,12 +129,7 @@ local PROCESSES <const> = 512
 local READS <const>: {string} = { "/etc/ssl", "/etc/ca-certificates", "/etc/pki", "/etc/resolv.conf", "/etc/hosts",
   "/etc/gitconfig", "/usr/share/zoneinfo" }
 
---- Whether this host holds a child by Seatbelt (macOS), which has no
---- namespaces to isolate it in.
-local function darwin(): boolean
-  local names, _ = sys.uname()
-  return names ~= nil and names.sysname == "Darwin"
-end
+local darwin <const> = Sandbox.on_macos
 
 --- Whether a directory is at `path`; false where nothing is, or it cannot be looked at.
 local function is_dir(path: string): boolean
