@@ -870,7 +870,7 @@ local function to_wal(db: Sqlite.Handle, path: string, wait: boolean, doing?: st
   while true do
     local rows, why = Sqlite.text_rows(db, "PRAGMA journal_mode = WAL")
     if rows ~= nil then return "done", "" end
-    if why.cancelled == true then return nil, "interrupted while waiting for the write lock" end
+    if why.kind == "cancelled" then return nil, "interrupted while waiting for the write lock" end
     if why.code ~= Sqlite.BUSY and why.code ~= Sqlite.LOCKED then
       return nil, tostring(why)
     end
