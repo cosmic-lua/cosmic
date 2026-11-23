@@ -12,7 +12,7 @@
 --- each address against the grants and the address classes first
 --- ([`cosmic.internal.relay_server`]):
 ---
---- - on macOS Seatbelt holds it under [`relay.seatbelt_policy`], whose
+--- - on macOS Seatbelt holds it under [`relay.policy`], whose
 ---   profile lets it connect anywhere, and it listens on the host's
 ---   loopback behind a token;
 --- - on Linux Landlock and seccomp hold it under [`relay.policy`], started
@@ -33,6 +33,7 @@
 local Clock = require("cosmic.clock")
 local Config = require("cosmic.internal.relay_config")
 local Address = require("cosmic.relay.address")
+local Grant = require("cosmic.relay.grant")
 local Resolv = require("cosmic.internal.relay_resolv")
 local type rules = require("cosmic.sandbox")
 local String = require("cosmic.string")
@@ -71,43 +72,28 @@ local RELAY_FILES <const>: {string} = {
 
 --- The policy the relay's process is started under, on the database at
 --- `database` (whose SHA-256 is `digest`, in hex): this program's core on
---- it, a pid namespace of its own, the resolver's files read-only, and no
---- promise beyond the basics a policy gives. Its network is not the
---- policy's to say: the start of the relay gives it inet sockets in the
---- host's own network (`spawn`'s `online`), since it connects and
---- resolves itself, and no filter or ruleset then holds where it
---- connects, what it sends over UDP, or what it binds and listens at.
+--- it, the resolver's files read-only, and no promise beyond the basics a
+--- policy gives. On Linux it has a pid namespace of its own; on macOS,
+--- where Seatbelt holds it (`seatbelt`, [`Seatbelt.compile`]), the
+--- "system" profile its core loads from. Its network is not the policy's
+--- to say: the start of the relay gives it inet sockets in the host's own
+--- network (`spawn`'s `online`), or on macOS what
+--- [`Seatbelt.Options.serves_relay`] names, since it connects and
+--- resolves itself, and no filter then holds where it connects, what it
+--- sends over UDP, or what it binds and listens at.
 --- @param database string The relay's sealed database
 --- @param digest string The database's SHA-256, in hex
+--- @param seatbelt boolean|nil Whether Seatbelt holds it (macOS)
 --- @return rules.Policy The policy
-function relay.policy(database: string, digest: string): rules.Policy
+function relay.policy(database: string, digest: string, seatbelt?: boolean): rules.Policy
   local grants: mut {rules.Grant} = {}
   for _, file in ipairs(RELAY_FILES) do
     local there, _ = sys.stat(file)
     if there ~= nil then grants[#grants + 1] = { path = file, letters = "r" } end
   end
-  local policy: rules.Policy = { database = { path = database, sha256 = digest }, isolate = { "proc" }, grants = grants }
-  return policy
-end
-
---- The policy the relay's process is started under on macOS, where
---- Seatbelt holds it ([`Seatbelt.compile`]): this
---- program's core on the database at `database` (whose SHA-256 is `digest`,
---- in hex), the "system" profile its core loads from, and the resolver's
---- files read-only. Its network is not the policy's to say: the start of the
---- relay gives its profile what [`Seatbelt.Options.serves_relay`] names,
---- since it connects and resolves itself.
---- @param database string The relay's sealed database
---- @param digest string The database's SHA-256, in hex
---- @return rules.Policy The policy
-function relay.seatbelt_policy(database: string, digest: string): rules.Policy
-  local grants: mut {rules.Grant} = {}
-  for _, file in ipairs(RELAY_FILES) do
-    local there, _ = sys.stat(file)
-    if there ~= nil then grants[#grants + 1] = { path = file, letters = "r" } end
-  end
-  local policy: rules.Policy = { database = { path = database, sha256 = digest }, profiles = { "system" }, grants = grants }
-  return policy
+  local held: rules.Database = { path = database, sha256 = digest }
+  if seatbelt == true then return { database = held, profiles = { "system" }, grants = grants } end
+  return { database = held, isolate = { "proc" }, grants = grants }
 end
 
 --- How many ports [`relay.loopback_listeners`] tries before it gives up
@@ -162,20 +148,6 @@ function relay.loopback_listeners(): relay.Loopback?, string
     String.counted(LOOPBACK_TRIES, "try", "tries") .. ": " .. last
 end
 
---- `bytes`, an address [`cosmic.relay.address`]'s `parse` read, as the
---- numeric text the relay is told: four decimal octets, or eight hex
---- groups.
-local function numeric(bytes: {integer}): string
-  if #bytes == 4 then return table.concat(bytes, ".") end
-  local groups: mut {string} = {}
-  assert(#bytes == 16, "relay: an address is four bytes or sixteen")
-  for i = 1, #bytes - 1, 2 do
-    local high, low = bytes[i], bytes[i + 1]
-    if high ~= nil and low ~= nil then groups[#groups + 1] = ("%x"):format(high << 8 | low) end
-  end
-  return table.concat(groups, ":")
-end
-
 --- The addresses of `up`'s host, resolved now and once, as the system's
 --- resolver answers this process, or `servers` (c-ares's server list, for
 --- tests) where given: what the start tells its relay. A numeric host is
@@ -186,7 +158,9 @@ end
 --- @return string Why there are none, "" otherwise
 function relay.resolved_upstream(up: Config.Upstream, servers?: string): {string}?, string
   local bytes = Address.parse(up.host)
-  if bytes ~= nil then return { numeric(bytes) }, "" end
+  if bytes ~= nil then
+    return { if #bytes == 4 then table.concat(bytes, ".") else Grant.ipv6_text(bytes) end }, ""
+  end
   local found, trouble = Resolv.lookup(up.host, { timeout_ns = RESOLVE_NS, servers = servers })
   if found == nil then
     return nil, "https_proxy's host " .. up.host .. " does not resolve: " .. trouble

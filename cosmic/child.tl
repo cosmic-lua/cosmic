@@ -3662,8 +3662,7 @@ local function prepare_relay(connect: {string}, opts: Options, seatbelt: boolean
   config.token = token
   -- `program.digest` is the hex SHA-256 [`Store.seal`] hashed the file to,
   -- which is what `$.database.sha256` holds; [`Rules.merge`] checks it anyway.
-  local policy = if seatbelt then RelayStart.seatbelt_policy(program.path, program.digest) else
-    RelayStart.policy(program.path, program.digest) end
+  local policy = RelayStart.policy(program.path, program.digest, seatbelt)
   return { dir = program.dir, policy = policy, config = RelayConfig.encode(config), log = log,
     handover = handover, seatbelt = seatbelt, token = token, port = port }, ""
 end
