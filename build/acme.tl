@@ -16,7 +16,7 @@
 --- is a key file or holds a private key. When the write fails, the chain,
 --- issued already, is printed instead. Each
 --- key file is PEM as `key` writes it, or as OpenSSL does
---- ([`Acme.read_key`]). The account is made on the first issue
+--- ([`Key.read`]), P-256 or RSA. The account is made on the first issue
 --- (`--agree-tos` accepts the server's terms; `--contact` names a
 --- `mailto:` URL) and found by its key after.
 ---
@@ -51,7 +51,7 @@ local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
-local Sign = require("cosmic.sign")
+local Key = require("cosmic.key")
 local sys = require("cosmic.sys")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
@@ -199,8 +199,8 @@ local function make_key(to: verb.Io, complain: function(line: string), parsed: F
   end
   -- No look for a file there first: the exclusive create alone refuses
   -- one, made however lately.
-  local key = if rsa then Acme.rsa_key(Sign.rsa_secret(bits)) else Acme.p256_key(Sign.p256_secret()) end
-  local pem = assert(key.pem, "a key this module makes has its PEM")
+  local key = if rsa then Key.generate("rsa", { bits = bits }) else Key.generate("p256") end
+  local pem = key:pem()
   if file == "-" then return bare.written(complain, to.out(pem)) end
   local ok, why = to.create(file, pem, OWNER_ONLY)
   if not ok then
@@ -212,7 +212,7 @@ end
 
 --- The key in the file the option `name` names, or nil after a complaint.
 local function read_key(to: verb.Io, complain: function(line: string), parsed: Flags.Parsed,
-                        name: string): Acme.Key?
+                        name: string): Key.Secret?
   local file = parsed.values[name]
   if file == nil or file == "" then
     complain(name .. " names a key file (`cosmic acme key <file>` makes one); " .. usage)
@@ -223,9 +223,13 @@ local function read_key(to: verb.Io, complain: function(line: string), parsed: F
     complain(why)
     return nil
   end
-  local key, trouble = Acme.read_key(text)
+  local key, trouble = Key.read(text)
   if key == nil then
-    complain(file .. ": " .. (trouble:gsub("^acme: ", "")))
+    complain(file .. ": " .. (trouble.message:gsub("^key: ", "")))
+    return nil
+  end
+  if key.alg == "ed25519" then
+    complain(file .. ": an Ed25519 key, which ACME servers take none of: make a P-256 or RSA key with `cosmic acme key`")
     return nil
   end
   return key
@@ -282,7 +286,7 @@ local function issue(to: verb.Io, complain: function(line: string), parsed: Flag
   if account_key == nil then return bare.refused end
   local key = read_key(to, complain, parsed, "--key")
   if key == nil then return bare.refused end
-  if key.spki == account_key.spki then
+  if key.public:spki() == account_key.public:spki() then
     complain("--key is the account's key; a certificate takes a key of its own")
     return bare.refused
   end

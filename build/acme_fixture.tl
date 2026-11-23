@@ -87,7 +87,6 @@ local record acme_fixture
   BASE: string
   read_csr: function(csr: string): Csr
   new_server: function(): Server
-  rsa_public: function(n: string, e: string): string
   no_pause: function(ns: integer): boolean, string
 end
 
@@ -570,9 +569,6 @@ end
 acme_fixture.read_csr = read_csr
 --- A new server, with one order of the names the client asks for.
 acme_fixture.new_server = new_server
---- The DER RSAPublicKey of the JWK members `n` and `e`, built here by
---- hand rather than by the encoder under test.
-acme_fixture.rsa_public = rsa_public
 --- A pause that returns at once.
 acme_fixture.no_pause = no_pause
 

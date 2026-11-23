@@ -433,7 +433,7 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
     error("web: oidc: provider.issuer must be the issuer", 2)
   end
   local provider: Oidc.Provider? = given
-  local keys: {Jose.Key}? = nil
+  local keys: {Jose.Jwk}? = nil
   local keys_at = 0
   local discovery_failure: string? = nil
   local discovery_failed_at = 0
@@ -483,7 +483,7 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
   end
 
   --- The provider's keys, fetched.
-  local function fetch_keys(p: Oidc.Provider): {Jose.Key}?, string
+  local function fetch_keys(p: Oidc.Provider): {Jose.Jwk}?, string
     local body, why = fetch("GET", p.jwks_uri, { timeout_ns = REQUEST_TIMEOUT, headers = { Accept = "application/json" }, follow = false })
     if body == nil then return nil, "keys: " .. why end
     if body.status ~= 200 then
@@ -498,7 +498,7 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
 
   --- The provider's keys, fetched where none are kept, they are old, or
   --- `fresh` asks and the last fetch is not too recent.
-  local function provider_keys(p: Oidc.Provider, fresh: boolean): {Jose.Key}?, string
+  local function provider_keys(p: Oidc.Provider, fresh: boolean): {Jose.Jwk}?, string
     local t = now()
     local have = keys
     if have ~= nil and t - keys_at < KEYS_SECONDS and not (fresh and t - keys_at >= REFETCH_SECONDS) then

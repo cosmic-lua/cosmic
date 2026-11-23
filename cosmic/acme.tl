@@ -3,11 +3,11 @@
 --- challenge, and answers the certificate chain as PEM.
 ---
 ---     local served: {string: string} = {} -- what a web server on port 80 answers
----     local account = Acme.p256_key(Sign.p256_secret())
+---     local account = Key.generate("p256")
 ---     local client = Acme.client({ directory = Acme.LETS_ENCRYPT_STAGING, key = account })
 ---     assert(client:account({ contact = { "mailto:ops@example.com" }, terms_agreed = true }))
 ---     local chain = assert(client:issue({ "example.com", "www.example.com" }, {
----       key = Acme.p256_key(Sign.p256_secret()),
+---       key = Key.generate("p256"),
 ---       challenge = "http-01",
 ---       present = function(c: Acme.Challenge): boolean, string
 ---         served[c.path] = c.key_authorization
@@ -33,14 +33,13 @@
 --- [`Poll.run`] every request and pause of a client waits through the
 --- run, so the server goes on meanwhile.
 ---
---- An account key and a certificate key are each an [`Acme.Key`]:
---- [`Acme.p256_key`] makes one from a [`Sign.p256_secret`], and
---- [`Acme.rsa_key`] from a [`Sign.rsa_secret`], for a server or a
---- client of the certificate that takes RSA alone. Keep the account
---- key's secret: the account is that key, and a lost one means a new
---- account. Use another key for the certificate. A key's `pem` is its
---- secret as a web server reads one, and [`Acme.read_key`] reads it
---- back, or a key OpenSSL wrote.
+--- An account key and a certificate key are each a [`Key.Secret`] of
+--- [`cosmic.key`], P-256 or RSA: RSA for a server or a client of the
+--- certificate that takes RSA alone. Let's Encrypt takes no Ed25519
+--- key, so none is taken here. Keep the account key's secret: the
+--- account is that key, and a lost one means a new account. Use another
+--- key for the certificate. A key's `pem` is its secret as a web server
+--- reads one, and [`Key.read`] reads it back, or a key OpenSSL wrote.
 ---
 --- Every fallible function answers `value, ""` or `nil, why`, the why
 --- opening `acme: `. A problem document the server sends (RFC 8555
@@ -71,10 +70,11 @@
 
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
+local Der = require("cosmic.internal.der")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
-local Sign = require("cosmic.sign")
+local Key = require("cosmic.key")
 local String = require("cosmic.string")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
@@ -85,34 +85,6 @@ local sys = require("cosmic.sys")
 local type Server = require("cosmic.http.server")
 
 local record Acme
-  --- A key that signs ACME requests (as the account's key) or a
-  --- certificate signing request (as the certificate's key).
-  record Key
-    --- The JWS algorithm the key signs with, as RFC 7518 names it:
-    --- "ES256" or "RS256".
-    alg: string
-    --- The public key as a JSON Web Key (RFC 7517), its members in hand
-    --- for a thumbprint: `crv`, `kty`, `x` and `y` for an EC key, `e`,
-    --- `kty` and `n` for an RSA key.
-    jwk: {string: string}
-    --- The DER SubjectPublicKeyInfo of the public key (RFC 5280).
-    spki: string
-    --- The DER AlgorithmIdentifier of the X.509 signature the key makes.
-    signature_algorithm: string
-    --- The JWS signature of `message`: for ES256, R then S; for RS256,
-    --- the PKCS #1 v1.5 signature.
-    sign: function(message: string): string
-    --- The X.509 signature of `message`: for ECDSA, the DER SEQUENCE of R
-    --- and S; for RSA, the PKCS #1 v1.5 signature as it is.
-    x509_sign: function(message: string): string
-    --- The private key as PEM, the form a web server reads a certificate's
-    --- key in and [`Acme.read_key`] reads back: "EC PRIVATE KEY" (SEC 1)
-    --- for P-256, "RSA PRIVATE KEY" (PKCS #1) for RSA. It holds the
-    --- secret: write it to a file only its owner reads, and never log or
-    --- print a key whole.
-    pem?: string
-  end
-
   --- The kinds of challenge [`Acme.Client.issue`] can answer.
   enum ChallengeType
     "http-01"
@@ -196,7 +168,7 @@ local record Acme
   --- What [`Acme.Client.issue`] takes.
   record IssueOptions
     --- The certificate's key: its public key goes in the request.
-    key: Key
+    key: Key.Secret
     --- The challenge type to answer, "http-01" when nil.
     challenge?: ChallengeType
     --- Publishes a challenge's response before the server checks it:
@@ -227,7 +199,7 @@ local record Acme
     --- The directory URL, such as [`Acme.LETS_ENCRYPT`].
     directory: string
     --- The account's key.
-    key: Key
+    key: Key.Secret
     --- The account's URL, when it is already known: it skips the
     --- lookup [`Acme.Client.account`] does.
     account?: string
@@ -276,9 +248,9 @@ local record Acme
     --- The directory URL: [`Acme.LETS_ENCRYPT`] when nil.
     directory?: string
     --- The certificate's key, the same at every renewal: one that
-    --- [`Acme.read_key`] or [`Acme.p256_key`] made, with its `pem`. A new
-    --- P-256 key for each certificate when nil.
-    key?: Key
+    --- [`Key.read`] or [`Key.generate`] made. A new P-256 key for each
+    --- certificate when nil.
+    key?: Key.Secret
     --- Answers dns-01 through these hooks in place of http-01.
     dns?: DnsHooks
     --- As [`Acme.ClientOptions.request`].
@@ -354,308 +326,33 @@ end
 Acme.LETS_ENCRYPT = "https://acme-v02.api.letsencrypt.org/directory"
 Acme.LETS_ENCRYPT_STAGING = "https://acme-staging-v02.api.letsencrypt.org/directory"
 
--- DER, as much of it as a certificate signing request needs.
+local der, der_sequence, der_unsigned, der_oid, der_bits = Der.element, Der.sequence, Der.unsigned, Der.oid, Der.bits
+local der_elements, der_sequence_of = Der.elements, Der.sequence_of
+local DER_NULL <const> = Der.NULL
 
-local function der_length(n: integer): string
-  if n < 0x80 then return string.char(n) end
-  local bytes: mut {string} = {}
-  while n > 0 do
-    table.insert(bytes, 1, string.char(n & 0xff))
-    n = n >> 8
-  end
-  return string.char(0x80 | #bytes) .. table.concat(bytes)
-end
-
-local function der(tag: integer, content: string): string
-  return string.char(tag) .. der_length(#content) .. content
-end
-
-local function der_sequence(...: string): string
-  return der(0x30, table.concat({ ... }))
-end
-
---- The DER INTEGER of the unsigned big-endian `bytes`.
-local function der_unsigned(bytes: string): string
-  local first = bytes:find("[^\0]")
-  local trimmed = if first == nil then "\0" else bytes:sub(first) end
-  if (trimmed:byte(1) or 0) >= 0x80 then trimmed = "\0" .. trimmed end
-  return der(0x02, trimmed)
-end
-
-local function der_oid(dotted: string): string
-  local arcs: mut {integer} = {}
-  for arc in dotted:gmatch("%d+") do arcs[#arcs + 1] = math.tointeger(tonumber(arc)) or 0 end
-  local out: mut {string} = { string.char(40 * (arcs[1] or 0) + (arcs[2] or 0)) }
-  for i = 3, #arcs do
-    local arc = arcs[i] or 0
-    local digits: mut {string} = { string.char(arc & 0x7f) }
-    arc = arc >> 7
-    while arc > 0 do
-      table.insert(digits, 1, string.char(0x80 | (arc & 0x7f)))
-      arc = arc >> 7
-    end
-    out[#out + 1] = table.concat(digits)
-  end
-  return der(0x06, table.concat(out))
-end
-
-local function der_bits(bytes: string): string
-  return der(0x03, "\0" .. bytes)
-end
-
-local DER_NULL <const> = "\5\0"
-
---- One element of a DER SEQUENCE: its tag and its content.
-local record Element
-  tag: integer
-  content: string
-  --- The index after the element in what it was read from.
-  after: integer
-end
-
---- The element at `at` of the DER `bytes`, or nil where it is cut short
---- or its length is indefinite or of more than four bytes. It reads BER's
---- longer spellings of a length too, and a tag of one byte alone.
-local function der_read(bytes: string, at: integer): Element?
-  local tag, first = bytes:byte(at, at + 1)
-  if tag == nil or first == nil or first == 0x80 or first > 0x84 then return nil end
-  local length, start = first, at + 2
-  if first > 0x80 then
-    length = 0
-    for i = 1, first & 0x7f do length = (length << 8) | (bytes:byte(at + 1 + i) or 0) end
-    start = at + 2 + (first & 0x7f)
-  end
-  if start + length - 1 > #bytes then return nil end
-  return { tag = tag, content = bytes:sub(start, start + length - 1), after = start + length }
-end
-
---- The elements of the constructed content `content`, or nil where one
---- is cut short.
-local function der_elements(content: string): {Element}?
-  local out: mut {Element} = {}
-  local at = 1
-  while at <= #content do
-    local element = der_read(content, at)
-    if element == nil then return nil end
-    out[#out + 1] = element
-    at = element.after
-  end
-  return out
-end
-
---- The elements of the DER SEQUENCE that is the whole of `der_bytes`,
---- or nil.
-local function der_sequence_of(der_bytes: string): {Element}?
-  local element = der_read(der_bytes, 1)
-  if element == nil or element.tag ~= 0x30 or element.after ~= #der_bytes + 1 then return nil end
-  return der_elements(element.content)
-end
-
---- The PEM of the DER `der` under `label` (RFC 7468): base64 in lines of
---- 64 characters between the BEGIN and END lines.
-local function pem(label: string, der_bytes: string): string
-  local text = Codec.base64(der_bytes)
-  local lines: mut {string} = { "-----BEGIN " .. label .. "-----" }
-  for i = 1, #text, 64 do lines[#lines + 1] = text:sub(i, i + 63) end
-  lines[#lines + 1] = "-----END " .. label .. "-----"
-  return table.concat(lines, "\n") .. "\n"
-end
-
-local OID_EC_PUBLIC_KEY <const> = "1.2.840.10045.2.1"
-local OID_P256 <const> = "1.2.840.10045.3.1.7"
 local OID_ECDSA_SHA256 <const> = "1.2.840.10045.4.3.2"
-local OID_RSA_ENCRYPTION <const> = "1.2.840.113549.1.1.1"
 local OID_RSA_SHA256 <const> = "1.2.840.113549.1.1.11"
 local OID_COMMON_NAME <const> = "2.5.4.3"
 local OID_EXTENSION_REQUEST <const> = "1.2.840.113549.1.9.14"
 local OID_SUBJECT_ALT_NAME <const> = "2.5.29.17"
 
---- An [`Acme.Key`] over the P-256 `secret`, a [`Sign.p256_secret`]: it
---- signs JWS as ES256 and X.509 as ecdsa-with-SHA256. Raises on a secret
---- [`Sign.p256_public`] refuses.
----
----     local key = Acme.p256_key(Sign.p256_secret())
----     assert(key.alg == "ES256" and key.jwk.crv == "P-256")
-function Acme.p256_key(secret: string): Acme.Key
-  local public = Sign.p256_public(secret)
-  return {
-    alg = "ES256",
-    jwk = {
-      crv = "P-256",
-      kty = "EC",
-      x = Codec.base64url(public:sub(2, 33)),
-      y = Codec.base64url(public:sub(34, 65)),
-    },
-    spki = der_sequence(der_sequence(der_oid(OID_EC_PUBLIC_KEY), der_oid(OID_P256)), der_bits(public)),
-    signature_algorithm = der_sequence(der_oid(OID_ECDSA_SHA256)),
-    pem = pem("EC PRIVATE KEY", der_sequence(der_unsigned("\1"), der(0x04, secret),
-      der(0xa0, der_oid(OID_P256)), der(0xa1, der_bits(public)))),
-    sign = function(message: string): string
-      return Sign.p256(secret, message)
-    end,
-    x509_sign = function(message: string): string
-      local signature = Sign.p256(secret, message)
-      return der_sequence(der_unsigned(signature:sub(1, 32)), der_unsigned(signature:sub(33, 64)))
-    end,
-  }
+--- The JWS algorithm of a key of each algorithm ACME servers take: an
+--- Ed25519 key is none of them.
+local JWS_ALGS <const>: {string: string} = { p256 = "ES256", rsa = "RS256" }
+
+--- The DER AlgorithmIdentifier of the X.509 signature `key` makes:
+--- ecdsa-with-SHA256 for P-256, sha256WithRSAEncryption for RSA.
+local function x509_algorithm(key: Key.Secret): string
+  if key.alg == "p256" then return der_sequence(der_oid(OID_ECDSA_SHA256)) end
+  return der_sequence(der_oid(OID_RSA_SHA256), DER_NULL)
 end
 
---- An [`Acme.Key`] over the RSA `secret`, a [`Sign.rsa_secret`] (a DER
---- RSAPrivateKey of 2048 to 4096 bits): it signs JWS as RS256 and X.509
---- as sha256WithRSAEncryption. Raises on a secret [`Sign.rsa_public`]
---- refuses.
----
----     local key = Acme.rsa_key(Sign.rsa_secret())
----     assert(key.alg == "RS256" and key.jwk.e == "AQAB")
-function Acme.rsa_key(secret: string): Acme.Key
-  local public = Sign.rsa_public(secret)
-  -- An RSAPublicKey is the SEQUENCE of the INTEGERs n and e, each
-  -- positive: a JWK spells each without the zero a DER INTEGER leads with.
-  local numbers = assert(der_sequence_of(public), "an RSAPublicKey is a SEQUENCE")
-  local n, e = assert(numbers[1], "n").content, assert(numbers[2], "e").content
-  return {
-    alg = "RS256",
-    jwk = {
-      e = Codec.base64url((e:gsub("^\0+", ""))),
-      kty = "RSA",
-      n = Codec.base64url((n:gsub("^\0+", ""))),
-    },
-    spki = der_sequence(der_sequence(der_oid(OID_RSA_ENCRYPTION), DER_NULL), der_bits(public)),
-    signature_algorithm = der_sequence(der_oid(OID_RSA_SHA256), DER_NULL),
-    pem = pem("RSA PRIVATE KEY", secret),
-    sign = function(message: string): string
-      return Sign.rsa(secret, message)
-    end,
-    x509_sign = function(message: string): string
-      return Sign.rsa(secret, message)
-    end,
-  }
-end
-
---- A failure of [`cosmic.sign`]'s, raised as `sign: why`, as this
---- module's.
-local function sign_refusal(raised: any): string
-  local message = tostring(raised)
-  return "acme: " .. (message:match("sign: (.*)$") or message)
-end
-
---- The P-256 secret of the DER ECPrivateKey `der_bytes` (SEC 1 section
---- C.4) whose curve, where it or `curve` names one, is P-256, or nil and
---- why.
-local function sec1_secret(der_bytes: string, curve?: string): string?, string
-  local parts = der_sequence_of(der_bytes)
-  local version = if parts == nil then nil else parts[1] end
-  local secret = if parts == nil then nil else parts[2] end
-  if parts == nil or version == nil or version.tag ~= 0x02 or version.content ~= "\1" or
-      secret == nil or secret.tag ~= 0x04 or #secret.content == 0 then
-    return nil, "acme: not an EC private key: no SEC 1 ECPrivateKey"
-  end
-  local named = curve
-  for i = 3, #parts do
-    local part = assert(parts[i])
-    if part.tag == 0xa0 then named = part.content end
-  end
-  if named ~= nil and named ~= der_oid(OID_P256) then
-    return nil, "acme: an EC key is on P-256, not another curve"
-  end
-  if #secret.content > 32 then return nil, "acme: a P-256 secret is 32 bytes at most" end
-  return string.rep("\0", 32 - #secret.content) .. secret.content, ""
-end
-
---- The [`Acme.Key`] over the P-256 `secret`, or nil and why it is out
---- of range.
-local function p256_of(secret: string): Acme.Key?, string
-  local readable, why = pcall(Sign.p256_public, secret)
-  if not readable then return nil, sign_refusal(why) end
-  return Acme.p256_key(secret), ""
-end
-
---- The [`Acme.Key`] over the DER RSAPrivateKey `secret`, or nil and why
---- it is refused.
-local function rsa_of(secret: string): Acme.Key?, string
-  local readable, why = pcall(Sign.rsa_public, secret)
-  if not readable then return nil, sign_refusal(why) end
-  return Acme.rsa_key(secret), ""
-end
-
---- The key of the DER PrivateKeyInfo `der_bytes` (RFC 5208), P-256 or
---- RSA, or nil and why.
-local function pkcs8_key(der_bytes: string): Acme.Key?, string
-  local parts = der_sequence_of(der_bytes)
-  local version = if parts == nil then nil else parts[1] end
-  local algorithm = if parts == nil then nil else parts[2] end
-  local inner = if parts == nil then nil else parts[3] end
-  if version == nil or version.tag ~= 0x02 or (version.content ~= "\0" and version.content ~= "\1") or
-      algorithm == nil or algorithm.tag ~= 0x30 or
-      inner == nil or inner.tag ~= 0x04 then
-    return nil, "acme: not a private key: no PKCS #8 PrivateKeyInfo"
-  end
-  local identifiers = der_elements(algorithm.content)
-  local oid = if identifiers == nil then nil else identifiers[1] end
-  local parameters = if identifiers == nil then nil else identifiers[2] end
-  local oid_der = if oid == nil then "" else der(oid.tag, oid.content) end
-  if oid_der == der_oid(OID_RSA_ENCRYPTION) then return rsa_of(inner.content) end
-  if oid_der == der_oid(OID_EC_PUBLIC_KEY) then
-    local curve = if parameters == nil then nil else der(parameters.tag, parameters.content) end
-    local secret, why = sec1_secret(inner.content, curve)
-    if secret == nil then return nil, why end
-    return p256_of(secret)
-  end
-  return nil, "acme: a private key is P-256 or RSA, not another algorithm"
-end
-
---- The labels of the PEM blocks [`Acme.read_key`] reads.
-local KEY_LABELS <const>: {string: boolean} = {
-  ["EC PRIVATE KEY"] = true, ["RSA PRIVATE KEY"] = true, ["PRIVATE KEY"] = true,
-}
-
---- The [`Acme.Key`] in the PEM `text`, as [`Acme.Key`]'s `pem` writes it
---- or as OpenSSL does: "EC PRIVATE KEY" (SEC 1) on P-256, "RSA PRIVATE
---- KEY" (PKCS #1), or "PRIVATE KEY" (PKCS #8) holding either. Text
---- around the block is skipped, an "EC PARAMETERS" block in front
---- included; the first key block decides. Nil and why for text with no such block, a block whose
---- base64 or DER is broken, a key on another curve or of another
---- algorithm, a P-256 secret out of range, or an RSA key of fewer than
---- 2048 bits or more than 4096. An encrypted key ("ENCRYPTED PRIVATE
---- KEY", or a block with a `Proc-Type` header) is not read: decrypt it
---- first (`openssl pkey -in key.pem -out plain.pem`).
----
----     local key = assert(Acme.read_key(assert(Fs.read("account.pem"))))
-function Acme.read_key(text: string): Acme.Key?, string
-  for label, body in text:gmatch("%-%-%-%-%-BEGIN ([%u ]+)%-%-%-%-%-(.-)%-%-%-%-%-END %1%-%-%-%-%-") do
-    if label == "ENCRYPTED PRIVATE KEY" then
-      return nil, "acme: the key is encrypted: decrypt it first"
-    end
-    if KEY_LABELS[label] == true then
-      if body:find("Proc-Type:", 1, true) ~= nil then
-        return nil, "acme: the key is encrypted: decrypt it first"
-      end
-      local der_bytes, undecoded = Codec.unbase64((body:gsub("%s", "")))
-      if der_bytes == nil then
-        return nil, "acme: the " .. label .. " block is not base64: " .. undecoded
-      end
-      if label == "PRIVATE KEY" then return pkcs8_key(der_bytes) end
-      if label == "RSA PRIVATE KEY" then return rsa_of(der_bytes) end
-      local secret, why = sec1_secret(der_bytes)
-      if secret == nil then return nil, why end
-      return p256_of(secret)
-    end
-  end
-  return nil, "acme: no private key in the text: no EC, RSA or PKCS #8 PRIVATE KEY block"
-end
-
---- The thumbprint of `key`'s JWK (RFC 7638): the base64url SHA-256 of
---- its members in the order of their names, with no space.
----
----     local key = Acme.p256_key(Sign.p256_secret())
----     assert(#Acme.thumbprint(key) == 43)
-function Acme.thumbprint(key: Acme.Key): string
-  local members: mut {string} = {}
-  for name, value in pairs(key.jwk) do
-    members[#members + 1] = Json.quote(name) .. ":" .. Json.quote(value)
-  end
-  table.sort(members)
-  return Codec.base64url(Hash.sha256("{" .. table.concat(members, ",") .. "}"))
+--- The X.509 signature of `message` under `key`: for ECDSA, the DER
+--- SEQUENCE of R and S; for RSA, the PKCS #1 v1.5 signature as it is.
+local function x509_sign(key: Key.Secret, message: string): string
+  local signature = key:sign(message)
+  if key.alg ~= "p256" then return signature end
+  return der_sequence(der_unsigned(signature:sub(1, 32)), der_unsigned(signature:sub(33, 64)))
 end
 
 --- A name a certificate can carry: letters, digits, hyphens and dots,
@@ -675,11 +372,15 @@ end
 --- names `names` under `key`: the first name is the subject's common
 --- name when it fits one (64 characters at most), and every name is a
 --- subjectAltName, as ACME asks (RFC 8555 section 7.4). Nil and why for
---- no names, or a name that is not dot-separated labels of 1 to 63
---- letters, digits and inner hyphens after an optional `*.`.
+--- no names, a key that is neither P-256 nor RSA, or a name that is not
+--- dot-separated labels of 1 to 63 letters, digits and inner hyphens
+--- after an optional `*.`.
 ---
----     local csr = assert(Acme.csr(Acme.p256_key(Sign.p256_secret()), { "example.com" }))
-function Acme.csr(key: Acme.Key, names: {string}): string?, string
+---     local csr = assert(Acme.csr(Key.generate("p256"), { "example.com" }))
+function Acme.csr(key: Key.Secret, names: {string}): string?, string
+  if JWS_ALGS[key.alg] == nil then
+    return nil, ("acme: a certificate's key is P-256 or RSA, not %s: CAs issue no other"):format(key.alg)
+  end
   if #names == 0 then return nil, "acme: a certificate request needs a name" end
   local alt: mut {string} = {}
   for i, name in ipairs(names) do
@@ -694,8 +395,8 @@ function Acme.csr(key: Acme.Key, names: {string}): string?, string
   local extensions = der_sequence(der_sequence(der_oid(OID_SUBJECT_ALT_NAME),
     der(0x04, der(0x30, table.concat(alt)))))
   local attributes = der(0xa0, der_sequence(der_oid(OID_EXTENSION_REQUEST), der(0x31, extensions)))
-  local info = der_sequence(der_unsigned("\0"), subject, key.spki, attributes)
-  return der_sequence(info, key.signature_algorithm, der_bits(key.x509_sign(info))), ""
+  local info = der_sequence(der_unsigned("\0"), subject, key.public:spki(), attributes)
+  return der_sequence(info, x509_algorithm(key), der_bits(x509_sign(key, info))), ""
 end
 
 -- The protocol.
@@ -914,7 +615,7 @@ local function leaf_of(chain: string): Leaf?, string
     local extensions = assert(fields[i])
     local listed = if extensions.tag == 0xa3 then der_elements(extensions.content) else nil end
     local sequence = if listed == nil then nil else listed[1] end
-    local none: {Element} = {}
+    local none: {Der.Element} = {}
     local each = if sequence == nil then none else der_elements(sequence.content) or none end
     for _, extension in ipairs(each) do
       local members = der_elements(extension.content) or {}
@@ -940,10 +641,10 @@ end
 
 --- Whether the leaf of the PEM `chain` certifies `key` for exactly the
 --- DNS names `names`: true, or false and why.
-local function leaf_matches(chain: string, key: Acme.Key, names: {string}): boolean, string
+local function leaf_matches(chain: string, key: Key.Secret, names: {string}): boolean, string
   local leaf, why = leaf_of(chain)
   if leaf == nil then return false, why end
-  if leaf.spki ~= key.spki then
+  if leaf.spki ~= key.public:spki() then
     return false, "acme: the issued certificate is not for the certificate's key"
   end
   local function set_of(list: {string}): {string}
@@ -977,17 +678,18 @@ end
 --- A session with the ACME server whose directory is `opts.directory`,
 --- under the account key `opts.key`. It sends nothing until a method
 --- needs it. Raises on a directory that is not a string, or a key that
---- is no [`Acme.Key`].
+--- is no P-256 or RSA [`Key.Secret`].
 ---
----     local client = Acme.client({ directory = Acme.LETS_ENCRYPT, key = Acme.p256_key(secret) })
+---     local client = Acme.client({ directory = Acme.LETS_ENCRYPT, key = Key.generate("p256") })
 function Acme.client(opts: Acme.ClientOptions): Acme.Client
   if type(opts.directory) ~= "string" then
     error("acme: opts.directory is the directory's URL", 2)
   end
-  if type(opts.key) ~= "table" or type(opts.key.sign) ~= "function" then
-    error("acme: opts.key is an Acme.Key, as Acme.p256_key or Acme.rsa_key makes", 2)
-  end
   local key = opts.key
+  local jws_alg = JWS_ALGS[key.alg]
+  if jws_alg == nil then
+    error(("acme: opts.key is a P-256 or RSA key, not %s: Let's Encrypt takes no other"):format(key.alg), 2)
+  end
   local request: Acme.Request = opts.request or default_request
   -- In a task of Poll.run the other tasks go on meanwhile.
   local pause_for = opts.pause or function(ns: integer): boolean, string
@@ -998,7 +700,7 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
     end
     return Clock.sleep_ns(ns)
   end
-  local thumbprint = Acme.thumbprint(key)
+  local thumbprint = key.public:thumbprint()
   local rate_limit_most = opts.rate_limit_wait_ns or Clock.minutes(1)
   if math.type(rate_limit_most) ~= "integer" or rate_limit_most < 0 then
     error("acme: opts.rate_limit_wait_ns must be an integer of at least 0", 2)
@@ -1078,10 +780,10 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
     while true do
       local fresh, why = fresh_nonce()
       if fresh == nil then return nil, why end
-      local header: mut {string: Json.Value} = { alg = key.alg, nonce = fresh, url = url }
+      local header: mut {string: Json.Value} = { alg = jws_alg, nonce = fresh, url = url }
       if with_jwk == true then
         local jwk: mut {string: Json.Value} = {}
-        for name, value in pairs(key.jwk) do jwk[name] = value end
+        for name, value in pairs(key.public:jwk()) do jwk[name] = value end
         header["jwk"] = jwk
       else
         local kid = account_url
@@ -1091,7 +793,7 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
         header["kid"] = kid
       end
       local protected = Codec.base64url((assert(Json.encode(header))))
-      local signature = Codec.base64url(key.sign(protected .. "." .. encoded))
+      local signature = Codec.base64url(key:sign(protected .. "." .. encoded))
       local body_text = assert(Json.encode({ protected = protected, payload = encoded, signature = signature }))
       local body, trouble = request("POST", url, {
         timeout_ns = REQUEST_TIMEOUT,
@@ -1242,7 +944,7 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
       local kind = issue_opts.challenge or "http-01"
       local csr, bad = Acme.csr(issue_opts.key, names)
       if csr == nil then return nil, bad end
-      if issue_opts.key.spki == key.spki then
+      if issue_opts.key.public:spki() == key.public:spki() then
         return nil, "acme: the certificate's key is the account's; use another"
       end
       local _, why = self:account()
@@ -1364,23 +1066,26 @@ end
 
 --- The account key kept at `path`, made and written there (mode 0600)
 --- where there is none.
-local function account_key(path: string): Acme.Key?, string
-  local key = Acme.p256_key(Sign.p256_secret())
+local function account_key(path: string): Key.Secret?, string
+  local key = Key.generate("p256")
   -- Created exclusively, with no look first: a key there, made by another
   -- process however lately, is an account, read and never written over.
   local fd, refused, number = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, OWNER_FILE)
   if fd == nil and number == sys.EEXIST then
     local text, unread = Fs.read(path)
     if text == nil then return nil, "acme: " .. tostring(unread) end
-    local kept, bad = Acme.read_key(text)
-    if kept == nil then return nil, "acme: " .. path .. ": " .. bad end
+    local kept, bad = Key.read(text)
+    if kept == nil then return nil, "acme: " .. path .. ": " .. bad.message end
+    if JWS_ALGS[kept.alg] == nil then
+      return nil, ("acme: %s: an account key is P-256 or RSA, not %s"):format(path, kept.alg)
+    end
     return kept, ""
   end
   -- TODO: write the key to a temporary file and link(2) it to `path`, so
   -- a crash mid-write leaves no cut key there, once cosmic.sys carries
   -- link (build/acme.tl's create waits on the same).
   if fd == nil then return nil, "acme: " .. path .. ": " .. refused end
-  local wrote, unwritten = Fs.put(fd, assert(key.pem))
+  local wrote, unwritten = Fs.put(fd, key:pem())
   local closed, unclosed = Fs.close(fd)
   if not wrote or not closed then
     local _, _ = Fs.remove(path)
@@ -1426,8 +1131,8 @@ function Acme.auto(opts: Acme.AutoOptions): Acme.Auto
   if type(opts.dir) ~= "string" or opts.dir == "" then
     error("acme: auto's opts.dir is the directory to keep the certificate in", 2)
   end
-  if opts.key ~= nil and opts.key.pem == nil then
-    error("acme: auto's opts.key needs its pem, as Acme.read_key and Acme.p256_key make it", 2)
+  if opts.key ~= nil and JWS_ALGS[opts.key.alg] == nil then
+    error(("acme: auto's opts.key is a P-256 or RSA key, not %s: CAs issue no other"):format(opts.key.alg), 2)
   end
   local names: {string} = { table.unpack(opts.names) }
   local dir = opts.dir
@@ -1451,7 +1156,7 @@ function Acme.auto(opts: Acme.AutoOptions): Acme.Auto
     end
     local account, refused = session:account({ contact = opts.contact, terms_agreed = opts.terms_agreed })
     if account == nil then return nil, refused end
-    local key = opts.key or Acme.p256_key(Sign.p256_secret())
+    local key = opts.key or Key.generate("p256")
     local chain, why = session:issue(names, {
       key = key,
       challenge = if dns ~= nil then "dns-01" else "http-01" end,
@@ -1470,7 +1175,7 @@ function Acme.auto(opts: Acme.AutoOptions): Acme.Auto
       end,
     })
     if chain == nil then return nil, why end
-    local pair: Tls.Pair = { cert = chain, key = assert(key.pem) }
+    local pair: Tls.Pair = { cert = chain, key = key:pem() }
     -- One file, written whole, so a reader never sees a chain with
     -- another's key.
     local wrote, unwritten = Fs.write(dir .. "/certificate.pem", chain .. pair.key, OWNER_FILE)

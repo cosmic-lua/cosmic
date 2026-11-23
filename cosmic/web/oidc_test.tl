@@ -7,6 +7,7 @@ local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Jose = require("cosmic.jose")
 local Json = require("cosmic.json")
+local Key = require("cosmic.key")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Secret = require("cosmic.web.secret")
@@ -14,7 +15,6 @@ local Session = require("cosmic.web.session")
 local SessionCookie = require("cosmic.web.session.cookie")
 local SessionSqlite = require("cosmic.web.session.sqlite")
 local Sqlite = require("cosmic.sqlite")
-local Sign = require("cosmic.sign")
 local Test = require("cosmic.test")
 local Url = require("cosmic.url")
 local Web = require("cosmic.web")
@@ -23,12 +23,23 @@ local ISSUER <const> = "https://id.example.com"
 local CLIENT <const> = "my-app"
 local REDIRECT <const> = "https://app.example.com/auth/callback"
 
+--- A key a provider signs with, and the id it publishes it by.
+local record Signer
+  key: Key.Secret
+  kid: string
+end
+
+--- A new P-256 key of the id `kid`.
+local function signer_of(kid: string): Signer
+  return { key = Key.generate("p256"), kid = kid }
+end
+
 --- A stand-in provider: what it was asked, and what it answers.
 local record Provider
   --- The key its ID tokens are signed with now.
-  mut signer: Jose.Signer
+  mut signer: Signer
   --- The keys its `jwks_uri` publishes.
-  mut published: {Jose.Signer}
+  mut published: {Signer}
   --- The claims of the next ID token, laid over the usual ones.
   mut claims: {string: Json.Value}
   --- The nonce the last authorization request asked for.
@@ -68,7 +79,7 @@ local function browser(app: Web.App): Web.TestClient
 end
 
 local function provider_new(): Provider
-  local signer = Jose.signer("ES256", Sign.p256_secret(), "k1")
+  local signer = signer_of("k1")
   return {
     signer = signer, published = { signer }, claims = {}, nonce = "", challenge = "", form = {},
     fetched = {}, token_status = 200, discovered_issuer = ISSUER, token_scheme = "https", iss_supported = false,
@@ -100,7 +111,7 @@ local function fetch_of(p: Provider): Web.OidcFetch
     if url == ISSUER .. "/jwks" then
       if p.keys_down then return nil, "timed out" end
       local jwks: mut {Json.Value} = {}
-      for i, s in ipairs(p.published) do jwks[i] = s.jwk end
+      for i, s in ipairs(p.published) do jwks[i] = Jose.jwk(s.key.public, s.kid) end
       return json_body({ keys = Json.array(jwks) }), ""
     end
     if url == ISSUER .. "/token" and method == "POST" then
@@ -119,7 +130,7 @@ local function fetch_of(p: Provider): Web.OidcFetch
         email = "ada@example.com", email_verified = true, name = "Ada", groups = Json.array({ "admins" }),
       }
       for name, value in pairs(p.claims) do claims[name] = value end
-      return json_body({ id_token = Jose.sign(p.signer, claims), token_type = "Bearer", access_token = "a" }), ""
+      return json_body({ id_token = Jose.sign(p.signer.key, claims, { kid = p.signer.kid }), token_type = "Bearer", access_token = "a" }), ""
     end
     return nil, "no such URL: " .. url
   end
@@ -300,7 +311,7 @@ local function test_a_token_from_a_key_the_provider_does_not_publish_is_refused(
   local p = provider_new()
   local client = browser(app_of(p))
   local state = start(client, p)
-  p.signer = Jose.signer("ES256", Sign.p256_secret(), "k1")
+  p.signer = signer_of("k1")
   local res = callback(client, state)
   assert(res.status == 401 and res.body:find("does not check", 1, true) ~= nil, res.body)
 end
@@ -312,7 +323,7 @@ local function test_a_rolled_key_is_fetched()
   local client = browser(app_of(p))
   callback(client, start(client, p))
   assert(p.fetched[ISSUER .. "/jwks"] == 1)
-  local rolled = Jose.signer("ES256", Sign.p256_secret(), "k2")
+  local rolled = signer_of("k2")
   p.signer, p.published = rolled, { rolled }
   p.now = p.now + 61
   local res = callback(client, start(client, p))
@@ -327,7 +338,7 @@ local function test_unknown_keys_fetch_at_most_once_a_minute()
   local p = provider_new()
   local client = browser(app_of(p))
   callback(client, start(client, p))
-  p.signer = Jose.signer("ES256", Sign.p256_secret(), "nobody's")
+  p.signer = signer_of("nobody's")
   for _ = 1, 3 do assert(callback(client, start(client, p)).status == 401) end
   assert(p.fetched[ISSUER .. "/jwks"] == 1)
 end
