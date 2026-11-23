@@ -10,7 +10,18 @@ local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local Tools = require("cosmic.agent.tools")
 
-Test.policy{ profiles = { "system" }, env = { "PATH", "TMPDIR" } }
+-- The host programs the tests start, each where hosts keep it: named,
+-- not the whole system, so the key holds them alone.
+Test.policy{
+  grants = {
+    { path = "/bin/bash", letters = "r" }, { path = "/usr/bin/bash", letters = "r" },
+    { path = "/bin/seq", letters = "r" }, { path = "/usr/bin/seq", letters = "r" },
+    { path = "/bin/head", letters = "r" }, { path = "/usr/bin/head", letters = "r" },
+    { path = "/bin/tr", letters = "r" }, { path = "/usr/bin/tr", letters = "r" },
+    { path = "/bin/sleep", letters = "r" }, { path = "/usr/bin/sleep", letters = "r" },
+  },
+  env = { "PATH", "TMPDIR" },
+}
 
 local NONE <const>: {string: Json.Value} = {}
 local scratch = agent_fixture.scratch

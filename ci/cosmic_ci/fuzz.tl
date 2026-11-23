@@ -15,11 +15,6 @@ local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local String = require("cosmic.string")
 
--- TODO: Child.FOREVER in place of CEILING_NS once ci/cosmic-driver.pin
--- names a release whose Child has it: ci/ runs on that release, where a
--- limit must be stated for the tree's checker yet FOREVER is not there.
-local CEILING_NS <const> = 24 * 60 * 60 * 1000000000
-
 local record Fuzz
   --- One fuzz run: the checkout it runs in, the runner's scratch, the
   --- environment the test starts from, where its output streams to as
@@ -331,7 +326,7 @@ local function streamed(guard: Signal.Guard, argv: {string}, cwd: string,
   local kept: Streamed = { trouble = "" }
   local called, failure = pcall(function()
     local sink = seams.stream_tee(Stream.to_fd(out_fd), Stream.to_fd(log))
-    local started, start_trouble = seams.child_start(argv, { timeout_ns = CEILING_NS, cwd = cwd, env = env,
+    local started, start_trouble = seams.child_start(argv, { timeout_ns = Child.FOREVER, cwd = cwd, env = env,
       stdout = "stream", stderr = "stdout" })
     if started == nil then
       local there, _ = seams.fs_exists(program)
