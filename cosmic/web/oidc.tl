@@ -92,6 +92,7 @@ local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Jose = require("cosmic.jose")
 local Json = require("cosmic.json")
+local Loopback = require("cosmic.internal.loopback")
 local Rand = require("cosmic.rand")
 local Request = require("cosmic.web.request")
 local Response = require("cosmic.web.response")
@@ -269,7 +270,7 @@ local function secure_url(url: string): boolean
   if parts == nil then return false end
   if parts.scheme == "https" then return true end
   local host = parts.host
-  return parts.scheme == "http" and (host == "localhost" or host == "::1" or host:match("^127%.%d+%.%d+%.%d+$") ~= nil)
+  return parts.scheme == "http" and (host == "localhost" or host == "::1" or Loopback.ipv4(host))
 end
 
 --- The member `name` of `object` when it is a string.

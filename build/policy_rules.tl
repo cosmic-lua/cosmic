@@ -9,6 +9,8 @@
 
 local cache_names = require("build.cache_names")
 local host_names = require("build.host_names")
+-- A leaf that requires nothing, so it adds no module to what this one reaches.
+local Loopback = require("cosmic.internal.loopback")
 
 local record policy_rules
   --- A test module's `policy` declaration ([`cosmic.test`]), read as
@@ -99,23 +101,13 @@ local LOOPBACK_ONLY <const> = "loopback takes loopback addresses 127.a.b.c only:
   "reaches another host, whose answer no key holds (::1 and localhost included), so one " ..
   "that needs a service starts its own on 127.0.0.1"
 
---- Why `host` may not be declared in `loopback`, or "" when it may: a
---- dotted quad of 127/8, `127.a.b.c`, each part decimal, 0 to 255,
---- with no leading zero. Strict: a name a lookup might answer
---- elsewhere, `localhost` or `::1`, a shortened or octal spelling,
---- `0.0.0.0`, a range or `*` is none; nor is a spelling no request's
---- host is (`127.0.0.1:8080`, whose port a request's host leaves out).
+--- Why `host` may not be declared in `loopback`, or "" when it may: it
+--- is the one spelling [`cosmic.internal.loopback`]'s `ipv4` takes. A
+--- name a lookup might answer elsewhere, `localhost` or `::1`, `*` or
+--- `127.0.0.1:8080` (whose port a request's host leaves out) is none.
 local function loopback_trouble(host: string): string
-  local refused = string.format("loopback %q: %s", host, LOOPBACK_ONLY)
-  local a, b, c, d = host:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
-  if a ~= "127" then return refused end
-  assert(b ~= nil and c ~= nil and d ~= nil, "a match sets every capture")
-  for _, part in ipairs({ b, c, d }) do
-    if #part > 3 or (#part > 1 and part:sub(1, 1) == "0") or assert(tonumber(part), "digits spell a number") > 255 then
-      return refused
-    end
-  end
-  return ""
+  if Loopback.ipv4(host) then return "" end
+  return string.format("loopback %q: %s", host, LOOPBACK_ONLY)
 end
 
 --- What a host grant of a directory is refused with: the rule.
