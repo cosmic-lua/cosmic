@@ -314,6 +314,8 @@ end
 
 -- What the restriction calls of other modules, taken as it loads, so a
 -- caller that replaces a library table's member does not change it.
+-- A database handle's methods are its class's, which Teal code cannot
+-- replace; a Lua chunk could, as it could the core's own methods.
 local executable_path <const> = Proc.executable
 local store_paths <const> = Store.paths
 local store_databases <const> = Store.databases

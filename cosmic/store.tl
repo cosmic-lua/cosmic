@@ -149,6 +149,14 @@ function Store.source(name: string): (string) | (nil, Failure)
   return value
 end
 
+--- The store's connections, each as the handle [`cosmic.sqlite`] reads
+--- it through, in search order.
+local function borrowed(): {Sqlite.Handle}
+  local out: mut {Sqlite.Handle} = {}
+  for index, connection in ipairs(store.databases()) do out[index] = Sqlite.borrowed(connection) end
+  return out
+end
+
 --- The reason [`Store.source`] gave no text for `name` when the binary's
 --- database holds its row without the source (a test's pure store);
 --- `false` for a name it holds a source of or no row of, and where there
@@ -156,7 +164,7 @@ end
 --- that is absent, which [`Store.source`] alone answers with a failure in
 --- both cases. Nil and a Failure when the query failed.
 function Store.withheld(name: string): (string | false) | (nil, Failure)
-  local databases = Store.databases()
+  local databases = borrowed()
   local binary = databases[#databases]
   if binary == nil then return false end -- a boot carries none, so holds nothing withheld
   local rows, trouble = binary:text_rows(
@@ -176,7 +184,7 @@ end
 --- absent. Nil and a Failure where there is no database (a boot carries
 --- none) or the query failed.
 function Store.holds(name: string): (boolean) | (nil, Failure)
-  local databases = Store.databases()
+  local databases = borrowed()
   local binary = databases[#databases]
   if binary == nil then return nil, Failure.new("holds: the binary carries no database") end
   local rows, trouble = binary:text_rows(
@@ -201,9 +209,7 @@ end
 --- [`cosmic.sqlite`] reads through and never closes -- what a verb that
 --- asks about the shipped tables (`docs`, `uses`, `catalog`) queries.
 function Store.databases(): {Sqlite.Handle}
-  local out: mut {Sqlite.Handle} = {}
-  for index, connection in ipairs(store.databases()) do out[index] = Sqlite.borrowed(connection) end
-  return out
+  return borrowed()
 end
 
 --- One time zone's TZif file (RFC 8536), by IANA name, from the copy
@@ -221,7 +227,7 @@ end
 --- hashes and version, from the binary's own database. Nil and a Failure when it
 --- carries no such file or the query failed.
 function Store.web_asset(name: string): (Store.WebAsset) | (nil, Failure)
-  local databases = Store.databases()
+  local databases = borrowed()
   -- The binary's own database is always the last of them.
   local rows, trouble = Array.at(databases, #databases):rows(
     "SELECT data, sha256, sha384, version FROM web_assets WHERE name = ?1",

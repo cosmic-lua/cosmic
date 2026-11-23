@@ -313,6 +313,7 @@ local MISUSE <const> = 21
 local RANGE <const> = 25
 local OK <const> = 0
 local ERROR <const> = 1
+local BUSY <const> = 5
 
 --- Finalizes `query`'s statement, once.
 local function finish(query: Query)
@@ -727,12 +728,13 @@ local class Handle
     self.connection:busy_timeout(timeout_ns)
   end
 
-  --- Closes the connection: true, or false and why (a statement or
-  --- query still open). Closing one already closed does nothing. A
-  --- borrowed handle, such as the store's, only lets go of it.
+  --- Closes the connection: true, or false and why, [`Sqlite.BUSY`] as
+  --- SQLite answers it, while a statement or query is still open.
+  --- Closing one already closed does nothing. A borrowed handle, such as
+  --- the store's, only lets go of it.
   function close(self): (true) | (false, Failure)
     local closed, why = self.connection:close()
-    if not closed then return false, Failure.coded("sqlite: " .. why, MISUSE) end
+    if not closed then return false, Failure.coded("sqlite: " .. why, BUSY) end
     return true
   end
 
@@ -764,9 +766,12 @@ local class Handle
   end
 
   -- TODO: once ci/cosmic-driver.pin names a release with the handle's
-  -- methods, move build/zig.tl's lock to `exec` and delete this.
-  --- Old: runs `sql` as [`Handle.exec`] does and answers SQLite's
-  --- outcome as a record.
+  -- methods, move build/zig.tl's lock to `exec` and delete this and
+  -- [`Sqlite.ExecResult`].
+
+  --- Runs `sql` as [`Handle.exec`] does and answers SQLite's outcome as
+  --- a record: for a script that also runs on a release older than
+  --- [`Handle.exec`]'s failure. Write new code with [`Handle.exec`].
   function exec_result(self, sql: string): raw_sqlite.ExecResult
     return self.connection:exec_result(sql)
   end
@@ -776,16 +781,9 @@ local class Handle
   end
 end
 
---- The handle of each connection, so one connection is one handle.
-local handles: mut {raw_sqlite.Handle: Handle} = setmetatable({}, { __mode = "k" })
-
---- The handle that holds `connection`.
+--- A handle that holds `connection`.
 local function handle_of(connection: raw_sqlite.Handle): Handle
-  local known = handles[connection]
-  if known ~= nil then return known end
-  local made: Handle = { connection = connection }
-  handles[connection] = made
-  return made
+  return { connection = connection }
 end
 
 local record Sqlite
@@ -794,7 +792,7 @@ local record Sqlite
   type Handle = Handle
   --- One prepared statement, as [`Handle.prepare`] answers it.
   type Statement = raw_sqlite.Statement
-  --- Old: what [`Handle.exec_result`] answers. See the TODO there.
+  --- What [`Handle.exec_result`] answers.
   type ExecResult = raw_sqlite.ExecResult
 
   --- Successful execution.
@@ -935,8 +933,9 @@ function Sqlite.borrowed(connection: Sqlite.Connection): Handle
 end
 
 -- TODO: once ci/cosmic-driver.pin names a release with the handle's
--- methods, move the callers in ci/ and in build/perf.tl to them and
--- delete these six, which those files call on the pinned release.
+-- methods, move the callers in ci/, build/perf.tl and
+-- eval/check/grade.tl to them and delete these six, which those files
+-- call on the pinned release.
 
 --- [`Handle.run`] of `handle`, for ci/.
 function Sqlite.run(handle: Handle, sql: string, values?: {raw_sqlite.Value}): (true) | (false, Failure)
@@ -972,11 +971,11 @@ function Sqlite.transact(handle: Handle,
 end
 
 Sqlite.OK = OK
-Sqlite.BUSY = 5
 Sqlite.LOCKED = 6
 Sqlite.CORRUPT = 11
 Sqlite.NOTADB = 26
 Sqlite.ERROR = ERROR
+Sqlite.BUSY = BUSY
 Sqlite.MISUSE = MISUSE
 Sqlite.RANGE = RANGE
 Sqlite.version = sqlite.version
