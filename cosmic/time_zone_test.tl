@@ -55,7 +55,7 @@ local function test_the_binary_carries_the_zones()
   assert(data ~= nil, why)
   assert(data:sub(1, 4) == "TZif", "a TZif file")
   local none, trouble = Store.zoneinfo("Nowhere/Nothing")
-  assert(none == nil and trouble:find("Nowhere/Nothing", 1, true) ~= nil, trouble)
+  assert(none == nil and tostring(trouble):find("Nowhere/Nothing", 1, true) ~= nil, trouble)
 end
 
 local function test_new_york_springs_forward_and_falls_back()

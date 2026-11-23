@@ -298,8 +298,8 @@ function reboot.carries_tree_code(handle: work.Handle): boolean
     if source == nil then
       -- A module held without its source has not moved: the comparison cannot be made, which is no answer.
       local withheld, trouble = Store.withheld(row:text(1))
-      if trouble ~= "" then error(trouble, 0) end
-      if withheld ~= nil then error(withheld, 0) end
+      if withheld == nil then error(tostring(trouble), 0) end
+      if withheld is string then error(withheld, 0) end
     end
     if source == nil or Hash.hex_sha256(source) ~= row:text(2) then
       return false

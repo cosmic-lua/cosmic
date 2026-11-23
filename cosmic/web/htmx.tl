@@ -166,7 +166,7 @@ end
 local function carried(name: string): Store.WebAsset
   local file, why = Store.web_asset(name)
   if file == nil then
-    error("cosmic.web.htmx: " .. why .. " (a binary from before cosmic.web carries no web assets: rebuild it)", 0)
+    error("cosmic.web.htmx: " .. tostring(why) .. " (a binary from before cosmic.web carries no web assets: rebuild it)", 0)
   end
   return file
 end

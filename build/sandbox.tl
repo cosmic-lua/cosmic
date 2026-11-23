@@ -478,7 +478,10 @@ local function sealed(names: {string}, opts: Store.SealOptions, held: mut {strin
   local path = dir .. "/program.db"
   local digest: string?
   local why = ""
-  local ok, raised = pcall(function() digest, why = Store.seal(names, path, opts) end)
+  local ok, raised = pcall(function()
+    local made, trouble = Store.seal(names, path, opts)
+    digest, why = made, if made == nil then tostring(trouble) else "" end
+  end)
   if not ok then
     -- Store.seal raises, with its position, for a name no store holds.
     return { why = (tostring(raised):gsub("^.-:%d+: store: ", ""):gsub("^store: ", "")), refused = true }

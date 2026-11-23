@@ -222,10 +222,11 @@ local function dependency_graph(db: Sqlite.Handle, modules: {Module}): Graph?, s
         -- A name of cosmic's that the binary has no module of is unknown, as one of the tree's is: the checker refuses
         -- the `require` at its place (require_unknown), where a trouble here would stop the build with no place.
         local held, held_trouble = Store.holds(name)
-        if held == nil then return nil, held_trouble end
+        if held == nil then return nil, tostring(held_trouble) end
         if not held then return nil, "" end
-        local _, source_trouble = Store.source(name)
-        return nil, source_trouble
+        local source, source_trouble = Store.source(name)
+        if source ~= nil then return nil, "" end
+        return nil, tostring(source_trouble)
       end
       local embedded_requires, edges_trouble = embedded_edges(name)
       if embedded_requires == nil then

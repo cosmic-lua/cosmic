@@ -1124,7 +1124,7 @@ local function carried_set(): {string:boolean}?, string
   if carried_zones_names ~= nil then return carried_zones_names, "" end
   local Store = require("cosmic.store")
   local names, trouble = Store.zone_names()
-  if names == nil then return nil, trouble end
+  if names == nil then return nil, tostring(trouble) end
   carried_zones.names = names
   return names, ""
 end

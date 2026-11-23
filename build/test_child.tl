@@ -49,7 +49,7 @@ end
 --- A store of the one module `module`, as the running process has it, written at `path`.
 local function store_of(module: string, path: string): boolean, string
   local bytecode, bytecode_trouble = Store.bytecode(module)
-  if bytecode == nil then return false, module .. ": " .. bytecode_trouble end
+  if bytecode == nil then return false, module .. ": " .. tostring(bytecode_trouble) end
   local basis = Store.meta("runtime_basis")
   if basis == nil or basis == "" then return false, "the running binary names no runtime basis" end
   local _, _ = Fs.remove(path)

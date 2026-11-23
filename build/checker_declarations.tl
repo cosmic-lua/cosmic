@@ -119,11 +119,11 @@ end
 function CheckerDeclarations.carried(): CheckerDeclarations.Texts?, string
   local prelude, prelude_why = Store.source(CheckerDeclarations.prelude_module())
   if prelude == nil then
-    return nil, CheckerDeclarations.prelude_module() .. ": " .. prelude_why
+    return nil, CheckerDeclarations.prelude_module() .. ": " .. tostring(prelude_why)
   end
   local stdlib, stdlib_why = Store.source(CheckerDeclarations.stdlib_module())
   if stdlib == nil then
-    return nil, CheckerDeclarations.stdlib_module() .. ": " .. stdlib_why
+    return nil, CheckerDeclarations.stdlib_module() .. ": " .. tostring(stdlib_why)
   end
   return { prelude = prelude, stdlib = stdlib }, ""
 end

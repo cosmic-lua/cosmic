@@ -3580,7 +3580,11 @@ local function seal_relay(): RelayProgram?, string
   local searchable, search_trouble = sys.chmod(dir, 0x1ed)
   if not searchable then return fail(dir .. ": " .. search_trouble) end
   local path = dir .. "/relay.db"
-  local sealed, digest, seal_trouble = pcall(Store.seal, names, path, { main = RELAY_MAIN })
+  local sealed, digest, seal_trouble = pcall(function(): string?, string
+    local sealed_digest, why = Store.seal(names, path, { main = RELAY_MAIN })
+    if sealed_digest == nil then return nil, tostring(why) end
+    return sealed_digest, ""
+  end)
   if not sealed then return fail(RELAY_MAIN .. ": " .. (tostring(digest):gsub("^.-:%d+: ", ""))) end
   if not digest is string then return fail(path .. ": " .. tostring(seal_trouble)) end
   local shared, share_trouble = sys.chmod(path, 0x1a4)

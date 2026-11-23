@@ -6,6 +6,7 @@ local importer_fixture = require("build.importer_fixture")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local store_lookups = require("build.store_lookups")
 local String = require("cosmic.string")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
@@ -1950,13 +1951,13 @@ end
 --- identity has a declaration of its own but build.compiler, which
 --- requires nothing.
 local function test_the_compiler_modules_are_closed_under_require()
-  local modules = assert(identity.compiler_modules(Store.requires))
+  local modules = assert(identity.compiler_modules(store_lookups.requires))
   local covered: mut {string:boolean} = {}
   for _, name in ipairs(modules) do covered[name] = true end
   -- The parse's own modules ([`build.parse_derive`] and what it reaches) are the checker's readers' too, which every
   -- compile's key holds ([`Pipeline.coded`]).
   local readers: mut {string:boolean} = {}
-  for _, name in ipairs((assert(CodeWalk.reach(CodeWalk.pipeline, Store.requires)))) do
+  for _, name in ipairs((assert(CodeWalk.reach(CodeWalk.pipeline, store_lookups.requires)))) do
     readers[name] = true
   end
   for _, name in ipairs((assert(importer.analyzer_modules()))) do
@@ -2043,7 +2044,7 @@ end
 --- that runs on a standard-library module the writer does not, fails
 --- here until it is one or the other.
 local function test_the_writer_modules_are_closed_under_require()
-  local modules = assert(identity.writer_modules(Store.requires))
+  local modules = assert(identity.writer_modules(store_lookups.requires))
   local covered: mut {string:boolean} = {}
   for _, name in ipairs(modules) do covered[name] = true end
   for _, name in ipairs({ "build.writer", "build.identity", "build.schema", "build.bom",
@@ -2063,7 +2064,7 @@ local function test_the_writer_modules_are_closed_under_require()
     assert(covered[name] ~= true, name .. " is left out of the writer's identity, but is in it")
   end
   local compiler: mut {string:boolean} = {}
-  for _, name in ipairs((assert(identity.compiler_modules(Store.requires)))) do
+  for _, name in ipairs((assert(identity.compiler_modules(store_lookups.requires)))) do
     compiler[name] = true
   end
   --- What build.writer's closure reaches that neither identity holds,
@@ -2184,7 +2185,8 @@ local function test_the_analyzer_modules_are_closed_under_require()
   for _, name in ipairs(modules) do
     local file = file_of(name)
     assert(file ~= nil, name .. " is listed but is no module of the tree's")
-    assert(Store.source(name) ~= nil, name .. " has no source in the running binary, " ..
+    local held_source, _ = Store.source(name)
+    assert(held_source ~= nil, name .. " has no source in the running binary, " ..
         "so the analyzer could only be named by the whole binary")
     do
       local source = assert(Fs.read(file))

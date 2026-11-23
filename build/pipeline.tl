@@ -313,10 +313,10 @@ end
 --- call missing: it raises why.
 local function withheld_or_absent(module: string): string?
   local withheld, trouble = Store.withheld(module)
-  if trouble ~= "" then
-    error(trouble, 0)
+  if withheld == nil then
+    error(tostring(trouble), 0)
   end
-  if withheld ~= nil then
+  if withheld is string then
     -- A standard-library module is served from its stub, which a test keeps by naming the module.
     if module:sub(1, 7) == "cosmic." then
       error("the stub of '" .. module .. "' is withheld: the store carries the module without it; a test that type-checks " ..
@@ -426,8 +426,8 @@ local carried_code: Reader = {
     if source == nil then
       -- Held without its source is no module the identity may leave out.
       local withheld, trouble = Store.withheld(name)
-      if trouble ~= "" then error(trouble, 0) end
-      if withheld ~= nil then error(withheld, 0) end
+      if withheld == nil then error(tostring(trouble), 0) end
+      if withheld is string then error(withheld, 0) end
     end
     return source
   end,

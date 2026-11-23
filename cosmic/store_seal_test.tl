@@ -241,11 +241,11 @@ end
 
 local function test_seal_refuses_what_it_cannot_carry(tmp: string)
   attach(tmp)
-  Test.raises(function() Store.seal({}, tmp .. "/none.db") end, "non-empty")
-  Test.raises(function() Store.seal({ "fixture.nowhere" }, tmp .. "/gone.db") end,
+  Test.raises(function() local _, _ = Store.seal({}, tmp .. "/none.db") end, "non-empty")
+  Test.raises(function() local _, _ = Store.seal({ "fixture.nowhere" }, tmp .. "/gone.db") end,
     "fixture.nowhere")
   Test.raises(function()
-    Store.seal({ "fixture.leaf" }, tmp .. "/main.db", { main = "fixture.app" })
+    local _, _ = Store.seal({ "fixture.leaf" }, tmp .. "/main.db", { main = "fixture.app" })
   end,
     "fixture.app")
   assert(not assert(Fs.status(tmp .. "/gone.db")).exists, "a failed seal leaves no file")
@@ -264,7 +264,7 @@ local function test_seal_writes_whole_or_leaves_the_old_file(tmp: string)
   assert(#listing == 1 and listing[1] == "p.db", "only the result is left")
   assert(Fs.mkdirs(dir .. "/blocked"))
   local ok, why = Store.seal({ "fixture.leaf" }, dir .. "/blocked")
-  assert(ok == nil and why ~= "", "a directory is no place for a database")
+  assert(ok == nil, "a directory is no place for a database: " .. tostring(why))
   assert(#assert(Fs.list(dir)) == 2)
 end
 
@@ -291,15 +291,15 @@ local function test_seal_carries_an_extra_module_as_the_main(tmp: string)
   assert(Store.seal({}, tmp .. "/alone.db", { extra = extra, unchecked_bytecode = true }))
   assert(modules_of(tmp .. "/alone.db") == "main")
   Test.raises(function()
-    Store.seal({ "fixture.leaf", "main" }, tmp .. "/x.db", { extra = extra, unchecked_bytecode = true })
+    local _, _ = Store.seal({ "fixture.leaf", "main" }, tmp .. "/x.db", { extra = extra, unchecked_bytecode = true })
   end, "also one of the names")
   Test.raises(function()
-    Store.seal({ "fixture.leaf" }, tmp .. "/y.db", { extra = extra, main = "fixture.leaf", unchecked_bytecode = true })
+    local _, _ = Store.seal({ "fixture.leaf" }, tmp .. "/y.db", { extra = extra, main = "fixture.leaf", unchecked_bytecode = true })
   end, "both given")
   -- It may not shadow a module the store holds, or any of `cosmic.`.
   for _, name in ipairs({ "fixture.app", "cosmic.fs", "cosmic.nothing" }) do
     Test.raises(function()
-      Store.seal({ "fixture.leaf" }, tmp .. "/z.db", { unchecked_bytecode = true, extra = {
+      local _, _ = Store.seal({ "fixture.leaf" }, tmp .. "/z.db", { unchecked_bytecode = true, extra = {
         name = name, bytecode = extra.bytecode, source = "", requires = {} } })
     end, "must not shadow")
   end
@@ -311,18 +311,18 @@ end
 local function test_attach_and_extra_name_the_unchecked_bytecode_option(tmp: string)
   attach(tmp)
   local before = #Store.databases()
-  Test.raises(function() Store.attach(tmp .. "/fixture.db") end, "unchecked_bytecode")
+  Test.raises(function() local _, _ = Store.attach(tmp .. "/fixture.db") end, "unchecked_bytecode")
   Test.raises(function()
-    Store.attach(tmp .. "/fixture.db", { unchecked_bytecode = false })
+    local _, _ = Store.attach(tmp .. "/fixture.db", { unchecked_bytecode = false })
   end, "unchecked_bytecode")
   assert(#Store.databases() == before, "a refused attach opens nothing")
   local extra: Store.Extra = { name = "main", bytecode = assert(Store.bytecode("cosmic.json")),
     source = "return 1\n", requires = {} }
   local path = tmp .. "/unflagged.db"
-  Test.raises(function() Store.seal({ "fixture.leaf" }, path, { extra = extra }) end,
+  Test.raises(function() local _, _ = Store.seal({ "fixture.leaf" }, path, { extra = extra }) end,
     "unchecked_bytecode")
   Test.raises(function()
-    Store.seal({ "fixture.leaf" }, path, { extra = extra, unchecked_bytecode = false })
+    local _, _ = Store.seal({ "fixture.leaf" }, path, { extra = extra, unchecked_bytecode = false })
   end, "unchecked_bytecode")
   assert(not assert(Fs.status(path)).exists, "a refused seal writes nothing")
   -- The option is for `extra` alone: sealing the store's own rows needs none.

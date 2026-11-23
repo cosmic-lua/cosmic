@@ -2160,7 +2160,11 @@ local function links_finder(db: Sqlite.Handle): string?, string
   if recorded["links_boot"] == boot_hash and recorded["links_by"] ~= nil then
     return recorded["links_by"], ""
   end
-  local names, reach_trouble = CodeWalk.reach(CodeWalk.links, Store.requires)
+  local names, reach_trouble = CodeWalk.reach(CodeWalk.links, function(name: string): {string}?, string
+    local required, why = Store.requires(name)
+    if required == nil then return nil, tostring(why) end
+    return required, ""
+  end)
   if names == nil then
     return nil, reach_trouble
   end
@@ -2170,8 +2174,8 @@ local function links_finder(db: Sqlite.Handle): string?, string
     if source == nil then
       -- A module held without its source is not one that is absent: it would hash as empty.
       local withheld, withheld_trouble = Store.withheld(name)
-      if withheld_trouble ~= "" then return nil, withheld_trouble end
-      if withheld ~= nil then return nil, withheld end
+      if withheld == nil then return nil, tostring(withheld_trouble) end
+      if withheld is string then return nil, withheld end
     end
     parts[#parts + 1] = name .. "\n" .. (source or "")
   end

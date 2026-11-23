@@ -25,6 +25,7 @@ local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local GrammarMode = require("build.grammar_mode")
 local Store = require("cosmic.store")
+local store_lookups = require("build.store_lookups")
 local CodeWalk = require("build.code_walk")
 local Stamp = require("build.stamp")
 local identities = require("build.identity")
@@ -265,11 +266,18 @@ local record Walk
   withheld: boolean
 end
 
+--- [`Store.source`] in the shape an [`importer.Code`] answers.
+local function store_source(name: string): string?, string
+  local source, why = Store.source(name)
+  if source == nil then return nil, tostring(why) end
+  return source, ""
+end
+
 local function walk_analyzer(code?: importer.Code): Walk
   -- A name at a time ([`Store.requires`]), not a query of a handle on
   -- the binary's database, which would read every module's rows.
-  local requires = if code ~= nil then code.requires else Store.requires end
-  local source_of = if code ~= nil then code.source else Store.source end
+  local requires = if code ~= nil then code.requires else store_lookups.requires end
+  local source_of = if code ~= nil then code.source else store_source end
   local reached, reach_trouble = CodeWalk.reach(CodeWalk.analyzer, requires)
   if reached == nil then return { names = nil, trouble = reach_trouble, withheld = false } end
   local names: mut {string} = {}
@@ -283,10 +291,10 @@ local function walk_analyzer(code?: importer.Code): Walk
       -- A module the binary holds without its source (a pure test store)
       -- is held, not absent: its absence would shorten the set quietly.
       local withheld, withheld_trouble = Store.withheld(name)
-      if withheld_trouble ~= "" then
-        return { names = nil, trouble = withheld_trouble, withheld = false }
+      if withheld == nil then
+        return { names = nil, trouble = tostring(withheld_trouble), withheld = false }
       end
-      if withheld ~= nil then return { names = nil, trouble = withheld, withheld = true } end
+      if withheld is string then return { names = nil, trouble = withheld, withheld = true } end
     end
   end
   table.sort(names)
@@ -387,7 +395,7 @@ local function analyzer_named(code?: importer.Code): string?, string
     if walk.withheld then return nil, walk.trouble end
     return "binary " .. (Store.meta("boot_hash") or ""), ""
   end
-  local source_of = if code ~= nil then code.source else Store.source end
+  local source_of = if code ~= nil then code.source else store_source end
   for _, name in ipairs(modules) do
     local source, _ = source_of(name)
     if source == nil then
@@ -529,8 +537,8 @@ local function receivers_identity(db: Sqlite.Handle): string?, string
       if not booting then
         -- Held without its source is no binary that lacks the module.
         local withheld, withheld_trouble = Store.withheld(name)
-        if withheld_trouble ~= "" then return nil, withheld_trouble end
-        if withheld ~= nil then return nil, withheld end
+        if withheld == nil then return nil, tostring(withheld_trouble) end
+        if withheld is string then return nil, withheld end
       end
       return "binary " .. (Store.meta("boot_hash") or ""), ""
     end

@@ -17,6 +17,8 @@ local function test_a_worker_that_only_nests_runs_on_a_sealed_database()
     assert(on_database, "a sandboxed worker that only nests was not given a sealed database")
   end
   if not on_database then Test.skip("this worker does not run on a sealed database") end
-  assert(Store.source("cosmic.zip") == nil, "a module outside the closure is in the program")
-  assert(Store.bytecode("cosmic.store") ~= nil, "a module of the closure is not")
+  local outside, _ = Store.source("cosmic.zip")
+  assert(outside == nil, "a module outside the closure is in the program")
+  local inside, _ = Store.bytecode("cosmic.store")
+  assert(inside ~= nil, "a module of the closure is not")
 end

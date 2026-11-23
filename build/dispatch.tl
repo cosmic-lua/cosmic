@@ -546,7 +546,7 @@ local function run(file: string, argv: {string}): integer
   -- The projection is the tool's own output of this run, not a file it was handed.
   local attached, attach_trouble = Store.attach(database, { unchecked_bytecode = true })
   if not attached then
-    log:complain(attach_trouble)
+    log:complain(tostring(attach_trouble))
     return 1
   end
 

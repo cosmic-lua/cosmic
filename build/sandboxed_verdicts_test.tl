@@ -1040,7 +1040,8 @@ Test.policy { env = { "ADDED" } }
 
 local function test_closed()
   assert(lib.value == 1)
-  assert(Store.bytecode("suite.lib") ~= nil, "the closure is not in the store")
+  local lib_bytes, _ = Store.bytecode("suite.lib")
+  assert(lib_bytes ~= nil, "the closure is not in the store")
   local bytes, _ = Store.bytecode("suite.other")
   assert(bytes == nil, "a module outside the closure is in the store")
   if Env.get("ADDED") == "1" then
