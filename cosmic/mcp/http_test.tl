@@ -239,6 +239,44 @@ local function test_progress_comes_as_events_and_a_closed_stream_cancels()
   assert(#troubles == 0, table.concat(troubles, "\n"))
 end
 
+--- A subscription over HTTP is one event stream: the acknowledgment, each notice asked for, then the graceful end
+--- the server sends as it stops. One that asks without a stream is refused.
+local function test_a_subscription_comes_as_events_and_ends_with_the_server()
+  local instance = server()
+  serving(instance:handler{ authorize = Server.anyone }, function(url: string)
+    local session = Client.http(url, { timeout_ns = WAIT })
+    local agreed: Client.Subscription? = nil
+    local notices: mut {string} = {}
+    local result: boolean? = nil
+    local listener = Poll.spawn(function()
+      local ok, why = session:listen({ tools = true, prompts = true, uris = { "note://x" } },
+        function(n: Client.Notice) notices[#notices + 1] = n.kind end,
+        function(a: Client.Subscription) agreed = a end)
+      assert(ok, tostring(why))
+      result = ok
+    end)
+    for _ = 1, 2000 do
+      if agreed ~= nil then break end
+      assert(Poll.delay(Clock.ms(10)))
+    end
+    local a = assert(agreed, "the acknowledgment comes first")
+    assert(a.tools == true and a.prompts == false and #assert(a.uris) == 0, "it agrees only to what it offers")
+    assert(session:call("echo", { text = "meanwhile" }))
+    instance:update({ tools = { count_tool() } })
+    for _ = 1, 2000 do
+      if #notices > 0 then break end
+      assert(Poll.delay(Clock.ms(10)))
+    end
+    instance:end_subscriptions()
+    assert(listener:join(WAIT))
+    assert(result == true and table.concat(notices, "|") == "tools", table.concat(notices, "|"))
+    local plain = post(url, '{"jsonrpc":"2.0","id":9,"method":"subscriptions/listen","params":{"notifications":{},' ..
+        '"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}',
+      { Accept = "application/json", ["MCP-Protocol-Version"] = Mcp.VERSION, ["Mcp-Method"] = "subscriptions/listen" })
+    assert(plain.body:find("text/event-stream", 1, true) ~= nil, plain.body)
+  end)
+end
+
 --- A body that gives its text a byte at a time.
 local class Trickle is Stream.Reader
   mut text: string

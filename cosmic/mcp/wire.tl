@@ -29,6 +29,9 @@ local record wire
     data: any
   end
 
+  --- The key of `_meta` that names the subscription a notice belongs to: the id of its `subscriptions/listen`.
+  META_SUBSCRIPTION: string
+
   --- What `server/discover` answers, as it arrives.
   record Discover
     supportedVersions: {string}
@@ -197,19 +200,33 @@ end
 
 local PROGRESS_PARAMS <const>: Shape.Typed<ProgressParams> = Shape.record_of("ProgressParams")
 
+--- `token`, a request's id or a progress token, encoded as JSON (`1`, `"a"`), as [`wire.Message.id`] is: nil where it
+--- is neither a string nor an integer.
+local function encoded_id(token: any): string?
+  if token is string then return Json.quote(token) end
+  if math.type(token) == "integer" then return tostring(token) end
+  return nil
+end
+
 --- The progress `params` says, and its token encoded as JSON (`1`, `"a"`), or nil where they are not progress's.
 function wire.progress_of(params: any): (Mcp.Progress, string) | (nil)
   local p, _ = PROGRESS_PARAMS:into(params)
   if p == nil then return nil end
-  local token = p.progressToken
-  local encoded: string? = nil
-  if token is string then
-    encoded = Json.quote(token)
-  elseif math.type(token) == "integer" then
-    encoded = tostring(token)
-  end
+  local encoded = encoded_id(p.progressToken)
   if encoded == nil then return nil end
   return { progress = p.progress, total = p.total, message = p.message }, encoded
+end
+
+wire.META_SUBSCRIPTION = "io.modelcontextprotocol/subscriptionId"
+
+--- The id of the subscription a notice's `params` names in its `_meta`, encoded as JSON as [`wire.Message.id`] is,
+--- or nil where it names none.
+function wire.subscription_id(params: any): string?
+  local p, _ = Json.to_object(params)
+  if p == nil then return nil end
+  local meta = Json.object_of(p["_meta"])
+  if meta == nil then return nil end
+  return encoded_id(meta[wire.META_SUBSCRIPTION])
 end
 
 -- Records as values.

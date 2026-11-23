@@ -152,13 +152,19 @@ local record Stream
   interface Lines
     --- The next line, without its "\n", and ""; nil and "" after the
     --- last; nil and why when the Reader failed or a line ran past the
-    --- limit, the same again on every later read.
+    --- limit, the same again on every later read. A read the Reader
+    --- ends with [`Poll.TIMEOUT`] or [`Poll.CANCELLED`] answers nil and
+    --- that, and leaves the lines usable: the part of a line read so far
+    --- is kept for the next read.
     read: function(Lines): string?, string
     --- An iterator for a `for` loop over the lines still to come. It
-    --- ends at the last one or at a failure, which `failure` then says.
+    --- ends at the last one, at a failure, or at a timeout or a cancel,
+    --- which `failure` then says.
     each: function(Lines): function(): string?
     --- Why the lines ended early, or "" when they have not: after an
-    --- `each` loop, "" means every line was read.
+    --- `each` loop, "" means every line was read. After a read that
+    --- timed out or was cancelled it says so, until a later read gives
+    --- a line or the end.
     failure: function(Lines): string
     --- The rest of the stream as a Reader, for a protocol that turns
     --- from lines to bytes (a head, then a body): the bytes these lines
@@ -972,12 +978,15 @@ local class LineReader is Stream.Lines
   mut held: integer
   mut ended: boolean
   mut failed: string
+  -- Why the last read stopped short and may be made again: a timeout or a cancel; "" after one that did not.
+  mut paused: string
   -- Set once `rest` has given the stream away.
   mut rested: boolean
 
   function read(self): string?, string
     if self.rested then error(rested, 2) end
     if self.failed ~= "" then return nil, self.failed end
+    self.paused = ""
     local limit = self.limit
     while true do
       local chunk, at = self.chunk, self.at
@@ -1008,6 +1017,11 @@ local class LineReader is Stream.Lines
       -- A Reader answers a non-empty chunk or nil, so each round moves.
       local read, trouble = self.source:read(chunk_size)
       if read == nil then
+        -- A deadline or a cancelled task took nothing: what is held stays, for the next read.
+        if resumable(trouble) then
+          self.paused = trouble
+          return nil, trouble
+        end
         if trouble ~= "" then return fail(self, trouble) end
         self.ended = true
       else
@@ -1025,7 +1039,8 @@ local class LineReader is Stream.Lines
   end
 
   function failure(self): string
-    return self.failed
+    if self.failed ~= "" then return self.failed end
+    return self.paused
   end
 
   function rest(self): Stream.Reader
@@ -1072,7 +1087,7 @@ function Stream.lines(reader: Stream.Reader, max_bytes?: integer): Stream.Lines
     error("stream: max_bytes must be at least 1", 2)
   end
   local lines: LineReader = { source = reader, limit = limit,
-    chunk = "", at = 1, parts = {}, held = 0, ended = false, failed = "",
+    chunk = "", at = 1, parts = {}, held = 0, ended = false, failed = "", paused = "",
     rested = false }
   return lines
 end

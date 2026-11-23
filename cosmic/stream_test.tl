@@ -4,6 +4,7 @@
 local Clock = require("cosmic.clock")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
+local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 
@@ -968,6 +969,42 @@ local function test_lines_stop_at_a_reader_failure()
   for line in lines:each() do seen[#seen + 1] = line end
   assert(#seen == 1 and seen[1] == "a", table.concat(seen, "|"))
   assert(lines:failure() == "boom", lines:failure())
+end
+
+--- A Reader that answers its chunks in turn, an empty one as a read that ends with `why`.
+local class Paused is Stream.Reader
+  chunks: {string}
+  why: string
+  mut at: integer
+
+  function read(self, _max_bytes?: integer): string?, string
+    self.at = self.at + 1
+    local chunk = self.chunks[self.at]
+    if chunk == nil then return nil, "" end
+    if chunk == "" then return nil, self.why end
+    return chunk, ""
+  end
+
+  function close(self): boolean, string
+    self.at = #self.chunks
+    return true, ""
+  end
+end
+
+--- A read the Reader ends with a timeout or a cancel leaves the lines usable, the part of a line read so far
+--- kept: a caller may read again.
+local function test_lines_survive_a_timeout_or_a_cancel()
+  for _, why in ipairs({ Poll.TIMEOUT, Poll.CANCELLED }) do
+    local r: Paused = { chunks = { "par", "", "tial\nnext\n" }, why = why, at = 0, skip = nil }
+    local lines = Stream.lines(r)
+    local line, trouble = lines:read()
+    assert(line == nil and trouble == why, trouble)
+    assert(lines:failure() == why, "a loop that stops here is not taken for the end")
+    assert(lines:read() == "partial")
+    assert(lines:failure() == "", lines:failure())
+    assert(lines:read() == "next")
+    assert(lines:read() == nil)
+  end
 end
 
 local function test_each_reads_every_line_and_leaves_no_failure()

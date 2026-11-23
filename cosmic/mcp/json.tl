@@ -52,10 +52,17 @@ end
 function McpJson.discovery(d: Mcp.Discovery): Json.Value
   local caps: mut {string: Json.Value} = {}
   local c = d.capabilities
-  for name, feature in pairs({ tools = c.tools, resources = c.resources, prompts = c.prompts }) do
+  for name, feature in pairs({ tools = c.tools, prompts = c.prompts }) do
     local entry: mut {string: Json.Value} = {}
     if feature.listChanged == true then entry["listChanged"] = true end
     caps[name] = entry
+  end
+  local resources = c.resources
+  if resources ~= nil then
+    local entry: mut {string: Json.Value} = {}
+    if resources.listChanged == true then entry["listChanged"] = true end
+    if resources.subscribe == true then entry["subscribe"] = true end
+    caps["resources"] = entry
   end
   local out: mut {string: Json.Value} = { supportedVersions = wire.strings(d.supportedVersions), capabilities = caps }
   if d.instructions ~= nil then out["instructions"] = d.instructions end
