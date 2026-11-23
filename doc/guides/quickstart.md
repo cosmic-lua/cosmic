@@ -429,7 +429,7 @@ exit 3
 `local sleeper <close> = assert(Child.start(...))`, above, closes the
 child when the block ends, however it ends -- by its last line, a
 `return` or an error: `<close>` calls its type's `__close`, which ends
-a child still running. An opener answers `Handle | nil` and a reason,
+a child still running. An opener answers a `Handle?` and a reason,
 and the compiler refuses `<close>` on a type that may be nil, so
 `assert` narrows it first, raising the reason when there is no handle.
 The same line holds a [`Signal.guard`], a [`cosmic.net`] socket or an
