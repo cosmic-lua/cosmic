@@ -6,6 +6,7 @@ local Bigint = require("cosmic.bigint")
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
 local Rand = require("cosmic.rand")
+local String = require("cosmic.string")
 local Test = require("cosmic.test")
 
 Test.policy{ cpu_features = true }
@@ -180,7 +181,7 @@ function Example.hide()
   local shared = Bigint.secret_powmod(peer, exponent, prime)
   print(tostring(shared))
   local key = Hash.digest("sha256", Bigint.reveal(shared))
-  assert(#public > 0 and #key == 32 and tostring(shared) == "Bigint.Secret (" .. tostring(#prime) .. " bytes)")
+  assert(#public > 0 and #key == 32 and tostring(shared) == "Bigint.Secret (" .. String.counted(#prime, "byte") .. ")")
 end
 
 --- The two limits: the product of two numbers of a modulus's length is
