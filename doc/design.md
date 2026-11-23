@@ -899,7 +899,7 @@ CI's Linux legs stand on shared verdicts: those of sandboxed runs, keyed by
 each test's declared inputs ([`build/declared_key.tl`]), which the sandbox holds
 the test to, and the host's identity: its kernel, processor, user and
 capabilities; and what it has installed -- its package database, the system
-it says it is and what its system paths hold -- only for a module that
+it says it is and the image `COSMIC_SYSTEM_ID` names -- only for a module that
 declares `system`, whose worker alone
 is given /usr, /bin, /lib and /etc, or that declares a host directory. what
 that key still leaves out is in the `TODO:`s on `host_identity` and
@@ -917,15 +917,15 @@ what the declared key leaves out, each with a `TODO:` where its fix goes:
 - *the clock*: a test whose verdict turns on the date stands on one reached
   another day. CI's scheduled run, which stands on nothing, runs it weekly.
 - *what the host has installed*: what the system's own paths hold, for a test
-  that declares `system`, is keyed by the package database, the image
-  `COSMIC_SYSTEM_ID` names, and, where it names none, a walk of their files by mode, size and
-  modification time, but /etc's, the host's configuration, which a run
-  holding such a test makes once and remembers while no directory it
-  walked moves (`system_identity`): a file written in place is not seen
-  until a directory moves, one rewritten with its size and modification
-  time put back is not told apart, and on macOS, which walks nothing, what a
-  developer's Mac installs beyond the sealed system volume is keyed by
-  nothing -- its runs keyed so are CI's, whose image the variable names.
+  that declares `system`, is keyed by the package database, the system the
+  host says it is, and the image `COSMIC_SYSTEM_ID` names, not by a walk of
+  their files, which on a fresh CI runner's image took minutes
+  (`system_identity`): a file changed or added beneath them outside the
+  package manager -- a package built from source into /usr/local, a
+  container image's own layers -- is not seen unless the host names it in
+  `COSMIC_SYSTEM_ID`, and on macOS what a developer's Mac installs beyond
+  the sealed system volume is keyed by nothing -- its runs keyed so are
+  CI's, whose image the variable names.
 - *the program's own modules*: a worker whose module does not declare
   `store` is given at its build directory's `cosmic.db` the store of its import closure alone
   ([`build/closure_store.tl`]'s `write`, kept under the build directory's `stores/` by the address its
