@@ -110,7 +110,8 @@ end
 --- The most fields a record may have: its check names two locals for each field, and a Lua function holds 200.
 local MOST_FIELDS <const> = 90
 
---- The check of the record `decl` at `path`, as a function of its [`Shape.Mode`], over the checks
+--- The check of the record `decl` at `path`, as a function of its [`Shape.Mode`] (whether it refuses a key it does not
+--- name, or passes over a value that does not fit), over the checks
 --- of its fields, and the node that describes its fields. Where the record has a field of a type the generator cannot
 --- spell, nil and why.
 local function gen_record(g: Gen, t_of_decl: Type, decl: Types.Decl, path: string): Written?, string -- checked: not_assigned

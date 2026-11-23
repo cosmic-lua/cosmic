@@ -76,18 +76,13 @@
 ---   time, re-running after each fix.
 --- - `into` never raises on a value, whatever it holds.
 ---
---- A record read from a service that is not the program's own is often
---- untidy: a field that is sometimes a string and sometimes a number, a
---- list with a stray element. [`Typed.lenient`] reads such a record as
---- far as it fits: an optional field that does not fit reads as nil, a
---- list keeps the elements that fit and a map the values that fit, and
---- only a required field that is missing or does not fit fails the
---- record (or, inside a lenient list or map, drops it).
+--- [`Typed.lenient`] reads a payload of a service that is not the
+--- program's own as far as it fits:
 ---
 ---     local record Artist
 ---       name: string
----       score: integer | nil
----       tags: {Tag} | nil
+---       score: integer?
+---       tags: {Tag}?
 ---     end
 ---     local ARTIST <const> = Shape.record_of("Artist"):lenient()
 
@@ -174,8 +169,9 @@ local record Shape
     --- This record's shape, passing over what does not fit where it can, in it and in every record below it: an
     --- optional field that does not fit reads as nil, a list keeps the elements that fit and a map the values that fit,
     --- and a required field that is missing or does not fit fails the record, or drops it from a list or map it is
-    --- in. For a payload of a service that is not the program's own. Nothing is converted: a `"3"` does not fit an
-    --- integer here either.
+    --- in. A list's elements kept are numbered from 1 again, so an index no longer names the payload's element.
+    --- Nothing is converted: a `"3"` does not fit an integer here either. A record is lenient or strict, not both:
+    --- `lenient` of a strict record raises, as `strict` of a lenient one does.
     lenient: function(self: Typed<T>): Typed<T>
     --- The result of `lenient`, kept by it.
     mut lenienter?: Typed<T>
@@ -637,6 +633,9 @@ local function spec_for<T>(make: function(mode: Shape.Mode): Shape.Spec<T>, node
 end
 
 local function typed_strict<T>(self: Shape.Typed<T>): Shape.Typed<T>
+  if self.lenienter == self then
+    error("shape: " .. self.name .. " is lenient, and a record is not strict as well", 2)
+  end
   local held = self.stricter
   if held ~= nil then
     return held
@@ -653,6 +652,9 @@ local function typed_strict<T>(self: Shape.Typed<T>): Shape.Typed<T>
 end
 
 local function typed_lenient<T>(self: Shape.Typed<T>): Shape.Typed<T>
+  if self.stricter == self then
+    error("shape: " .. self.name .. " is strict, and a record is not lenient as well", 2)
+  end
   local held = self.lenienter
   if held ~= nil then
     return held

@@ -591,11 +591,12 @@ local function test_a_lenient_record_still_fails_on_a_required_field()
   assert(#empty.aliases == 0 and Json.encode(empty.aliases) == "[]")
 end
 
-local function test_lenient_is_kept_and_meets_strict()
+local function test_lenient_is_kept_and_is_not_strict_too()
   assert(ARTIST:lenient() == ARTIST:lenient() and ARTIST:lenient():lenient() == ARTIST:lenient())
-  -- Strict of a lenient record refuses a key it does not name, as strict always does.
-  local _, why = ARTIST:lenient():strict():into({ name = "n", aliases = Json.array(), grown = 1 })
-  assert(why == "Artist: $.grown: unknown key", why)
+  local ok, why = pcall(function(): Shape.Typed<Artist> return ARTIST:lenient():strict() end)
+  assert(not ok and tostring(why):find("Artist is lenient", 1, true) ~= nil, tostring(why))
+  local ok2, why2 = pcall(function(): Shape.Typed<Artist> return ARTIST:strict():lenient() end)
+  assert(not ok2 and tostring(why2):find("Artist is strict", 1, true) ~= nil, tostring(why2))
   -- The lenient record describes the same fields, so what reads its node reads the same record.
   assert(ARTIST:lenient().node == ARTIST.node)
 end
