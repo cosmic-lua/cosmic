@@ -1366,7 +1366,8 @@ function fix.lay_out_source(file: string, source: string, chunk: Ast.Chunk, chec
   local wrote, wrote_why = Fs.write(file, text, if stat ~= nil then stat.mode & 0xfff else nil end)
   local written, write_trouble = wrote, if wrote then "" else tostring(wrote_why) end
   if written and stat ~= nil then
-    written, write_trouble = Fs.chmod(file, stat.mode & 0xfff)
+    local chmod_ok, chmod_why = Fs.chmod(file, stat.mode & 0xfff)
+    written, write_trouble = chmod_ok, if chmod_ok then "" else tostring(chmod_why) end
   end
   if not written then
     return { state = "unwritable", text = source, chunk = chunk, why = write_trouble }

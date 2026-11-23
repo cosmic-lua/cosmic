@@ -188,7 +188,7 @@ function PlaceTree.run(host: PlaceTree.Host, mode: string): integer
   end
   local made, trouble = Fs.symlink(relative, workspace)
   if not made then
-    host.warn("place-tree: " .. trouble)
+    host.warn("place-tree: " .. tostring(trouble))
     return 1
   end
   host.print("the tree is at " .. tree .. " (" .. chosen .. ")")

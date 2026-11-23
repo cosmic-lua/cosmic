@@ -1266,7 +1266,10 @@ function test_key.scratch(): string?, string
   end
   local made_real, made_why = Fs.mkdirs(scratch .. "/real")
   local ok, why = made_real, if made_real then "" else tostring(made_why) end
-  if ok then ok, why = Fs.symlink("real", scratch .. "/tmp") end
+  if ok then
+    local symlink_ok, symlink_why = Fs.symlink("real", scratch .. "/tmp")
+    ok, why = symlink_ok, if symlink_ok then "" else tostring(symlink_why) end
+  end
   if not ok then
     local _, _ = Fs.remove_tree(scratch)
     return nil, why

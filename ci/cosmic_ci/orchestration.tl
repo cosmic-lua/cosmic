@@ -75,6 +75,13 @@ end
 
 local function mkdir(path: string) assert(Fs.mkdirs(path)) end
 
+--- Sets `path`'s mode, as a step's `boolean, string`.
+local function chmodded(path: string, mode: integer): boolean, string
+  local changed, why = Fs.chmod(path, mode)
+  if not changed then return false, tostring(why) end
+  return true, ""
+end
+
 local exists = Predicate.exists
 local is_dir = Predicate.is_dir
 local function read(path: string): string return (assert(Fs.read(path))) end
@@ -1530,7 +1537,7 @@ local function phase_checked_build(p: PlatformContext): integer
   mkdir(format)
   write(decoder, read(BuildPaths.directory(root) .. "/portable-fixture/format/format-test-" .. p.target))
   return step(c, "format decoder mode", function(): boolean, string
-    return Fs.chmod(decoder, 0x1ed)
+    return chmodded(decoder, 0x1ed)
   end)
 end
 
@@ -1704,7 +1711,7 @@ local function phase_assemble(p: PlatformContext): integer
   write(portable_d .. "/cosmic-portable", ArtifactRow.with(read(product .. "/cosmic"),
     portable_d .. "/retarget.db", (assert(sys.realpath(fresh)))))
   s = step(c, "portable executable mode", function(): boolean, string
-    return Fs.chmod(portable_d .. "/cosmic-portable", 0x1ed)
+    return chmodded(portable_d .. "/cosmic-portable", 0x1ed)
   end)
   if s ~= 0 then return s end
   write(portable_d .. "/portable-artifact.before.sha256", hash(portable_d .. "/cosmic-portable") .. "\n")
@@ -1777,12 +1784,12 @@ local function phase_portable_boundary(p: PlatformContext): integer
     local executable = portable_d .. "/cosmic-portable"
     local cache = Orchestration.suite_cores(p.work)
     local locked = step(portable_context, "portable cache read-only mode",
-      function(): boolean, string return Fs.chmod(cache, 0x140) end)
+      function(): boolean, string return chmodded(cache, 0x140) end)
     if locked ~= 0 then return locked end
     local help = checked(portable_context, "read-only cache execution",
       { executable, "help" }, Clock.seconds(30), fresh, environment({ COSMIC_PORTABLE_CACHE = cache }))
     local restored = step(portable_context, "portable cache restore mode",
-      function(): boolean, string return Fs.chmod(cache, 0x1c0) end)
+      function(): boolean, string return chmodded(cache, 0x1c0) end)
     if help ~= 0 then return help end
     if restored ~= 0 then return restored end
   end

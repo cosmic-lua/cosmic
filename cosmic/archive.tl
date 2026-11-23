@@ -655,7 +655,8 @@ local function extract_from(from: string | Archive.Reader, dest: string,
       if st.kind == "dir" then return false, "archive: " .. full .. " is a directory" end
       local _, _ = sys.unlink(full)
     end
-    ok, why = Fs.symlink(link.target, full)
+    local symlink_ok, symlink_why = Fs.symlink(link.target, full)
+    ok, why = symlink_ok, if symlink_ok then "" else tostring(symlink_why) end
     if not ok then return false, why end
     local _, _ = Fs.set_mtime(full, link.mtime)
     return true, ""

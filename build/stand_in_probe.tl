@@ -486,7 +486,7 @@ local verbs: {string:function(string, string): integer?} = {
     local bits = math.tointeger(tonumber(word, 8))
     if bits == nil then return failed("chmod", "no mode " .. word) end
     local ok, trouble = Fs.chmod(path, bits)
-    if not ok then return failed(path, trouble) end
+    if not ok then return failed(path, tostring(trouble)) end
     return nil
   end,
   mode = function(path: string): integer?
