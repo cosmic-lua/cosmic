@@ -111,6 +111,9 @@ local function test_sql_reads_what_is_kept()
   local lined = Tools.run("sql", { query = "SELECT replace(printf('%.3000c', 'x'), 'x', 'a' || char(10))" }, ctx)
   local _, shown = lined.text:gsub("\n", "")
   assert(shown < MAX_LINES + 3 and lined.text:find("[Stopped after 1 row,", 1, true) ~= nil, lined.text:sub(-200))
+  -- A cell cut to the limit keeps whole characters.
+  local wide = Tools.run("sql", { query = "SELECT 'x' || replace(printf('%.40000c', 'x'), 'x', 'é') AS e" }, ctx)
+  assert(wide.text:find("[Stopped after 1 row,", 1, true) ~= nil and utf8.len(wide.text) ~= nil, wide.text:sub(-200))
   local copy = scratch() .. "/copy.db"
   assert(Tools.run("sql", { query = "VACUUM INTO '" .. copy .. "'" }, ctx).is_error)
   assert(Tools.run("sql", { query = "ATTACH '" .. copy .. "' AS b" }, ctx).is_error)
