@@ -393,6 +393,21 @@ joins each of `ARCHES` (blank-separated) under `<SOURCE_COMMIT>`, the commit
 of the ci-images run that built them, prints the
 index's `name@digest`, and appends it to `GITHUB_STEP_SUMMARY`.
 
+`review` is review.yml's, the weekly agent review, apart from ci.yml's
+weekly run. It records no operation. It starts `cosmic-driver agent ask`
+on Opus at high effort, with `--sandbox=off`, told to follow
+[`agents/weekly-review.md`]. It needs `ACTIONS_ID_TOKEN_REQUEST_URL`,
+`ACTIONS_ID_TOKEN_REQUEST_TOKEN`, `RUNNER_TEMP` and `GITHUB_WORKSPACE`.
+Before the agent starts, it lets unprivileged user namespaces be made
+and runs `gh auth setup-git`. While the agent runs, it writes a fresh
+GitHub OIDC token every 4 minutes, for the agent to trade for a Claude
+token. It ends the agent at 130 minutes or on a signal. The job's log
+gets the agent's answer and its `cosmic:` complaints, not the agent's
+tool calls. The header of review.yml says when it runs and what the
+agent may do; [`cosmic_ci/review.tl`] says why the token is refreshed
+and the tool calls are kept out of the log. [`cosmic_ci/review_test.tl`]
+drives it against a fake host.
+
 ## the workflow
 
 `.github/workflows/ci.yml` says what each step does; this is why.
@@ -632,6 +647,9 @@ the first tried once, with the clearing and sleeping step between them.
 [`cosmic_ci/cache_trim.tl`]: cosmic_ci/cache_trim.tl
 [`cosmic_ci/prerelease_test.tl`]: cosmic_ci/prerelease_test.tl
 [`cosmic_ci/prerelease_follow_test.tl`]: cosmic_ci/prerelease_follow_test.tl
+[`agents/weekly-review.md`]: agents/weekly-review.md
+[`cosmic_ci/review.tl`]: cosmic_ci/review.tl
+[`cosmic_ci/review_test.tl`]: cosmic_ci/review_test.tl
 [`cosmic_ci/github_api.tl`]: cosmic_ci/github_api.tl
 [`cosmic_ci/github_api_test.tl`]: cosmic_ci/github_api_test.tl
 [`cosmic_ci/report_test.tl`]: cosmic_ci/report_test.tl

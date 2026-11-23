@@ -14,7 +14,7 @@ file below is written there, and the block at the end of the guide runs the
 tests of the finished project, so what you read is what runs. The other
 guides each take one subject further, with a small project of their own, and
 can be read alone; the map at the end of this one lists them. The guide for
-a first project, `cosmic docs doc.guides.project`, covers the verbs this one
+a first project, `cosmic docs project`, covers the verbs this one
 uses.
 
 ## the files
