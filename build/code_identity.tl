@@ -138,5 +138,4 @@ function code_identity.coded_of(tool: string, db: Sqlite.Handle): string?, strin
   return Hash.hex_sha256(tool .. "\0" .. identity(staged_code(db))), ""
 end
 
-
 return code_identity

@@ -34,7 +34,6 @@ local Rules = require("build.contract_rules")
 local Driver = require("build.driver")
 local Memprobe = require("build.memprobe")
 local ParseDerive = require("build.parse_derive")
-local ErrorCatalog = require("build.error_catalog")
 local ErrorRender = require("build.error_render")
 local Fs = require("cosmic.fs")
 local Lexer = require("lang.lexer")
@@ -204,10 +203,6 @@ local record Pipeline
   --- captures what it prints in a local of that name), as the fork's compile discounts it: the module is generated, and the
   --- name is its own.
   discounted: function(result: Driver.Outcome)
-
-  --- Writes a row for every code the new checker emits to the `catalog` table of `db` (of the schema `schema`, "" for the
-  --- default), as [`ErrorCatalog.insert`] does.
-  catalog: function(db: Sqlite.Handle, schema: string): integer?, string
 end
 
 --- Whether the stub of the module `module` of the file `file` is held to its source's type: a standard-library module that
@@ -388,10 +383,6 @@ function Pipeline.discounted(result: Driver.Outcome)
     end
   end
   result.scope_errors = kept
-end
-
-function Pipeline.catalog(db: Sqlite.Handle, schema: string): integer?, string
-  return ErrorCatalog.insert(db, schema)
 end
 
 --- The stub of each standard-library module of the tree that has a declaration-only one, as the source a build reads in place of
