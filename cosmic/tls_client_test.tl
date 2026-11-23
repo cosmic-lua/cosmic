@@ -98,8 +98,8 @@ local function test_a_wildcard_name_verifies_and_another_does_not()
       { tls = trusting(), server_name = "www.a.test" }))
     assert(round_trip(conn, "x") == "TLSv1.3 - www.a.test\nx")
     local none, why = Net.connect(Net.tcp("127.0.0.1", port), { tls = trusting(), server_name = "b.test" })
-    assert(none == nil and why:find("is not trusted", 1, true) ~= nil and
-        why:find("does not match", 1, true) ~= nil, why)
+    assert(none == nil and tostring(why):find("is not trusted", 1, true) ~= nil and
+        tostring(why):find("does not match", 1, true) ~= nil, why)
   end)
 end
 
@@ -115,7 +115,7 @@ local function test_an_ip_address_is_verified_against_the_certificates_own()
   end)
   served(A, function(port: integer)
     local none, why = Net.connect(Net.tcp("127.0.0.1", port), { tls = trusting() })
-    assert(none == nil and why:find("does not match", 1, true) ~= nil, why)
+    assert(none == nil and tostring(why):find("does not match", 1, true) ~= nil, why)
   end)
 end
 
@@ -124,8 +124,8 @@ local function test_a_chain_to_no_trusted_root_is_refused()
     -- b.pem signed a.pem no more than any root did.
     local client = assert(Tls.client({ roots = "none", ca = fixture("b.pem") }))
     local none, why = Net.connect(Net.tcp("127.0.0.1", port), { tls = client, server_name = "localhost" })
-    assert(none == nil and why:find("^127%.0%.0%.1:%d+: tls: the peer's certificate is not trusted: ") ~= nil and
-        why:find("not correctly signed", 1, true) ~= nil and why:find("opts.roots", 1, true) ~= nil, why)
+    assert(none == nil and tostring(why):find("^127%.0%.0%.1:%d+: tls: the peer's certificate is not trusted: ") ~= nil and
+        tostring(why):find("not correctly signed", 1, true) ~= nil and tostring(why):find("opts.roots", 1, true) ~= nil, why)
   end)
 end
 
@@ -150,7 +150,7 @@ local function test_a_pin_is_held_to_with_or_without_a_chain()
     assert(round_trip(pinned, "x") == "TLSv1.3 - -\nx")
     local none, why = Net.connect(Net.tcp("127.0.0.1", port),
       { tls = trusting({ pin = other }), server_name = "localhost" })
-    assert(none == nil and why:find("the server's key is none of the pinned ones: it is " .. pin, 1, true) ~= nil, why)
+    assert(none == nil and tostring(why):find("the server's key is none of the pinned ones: it is " .. pin, 1, true) ~= nil, why)
   end)
 end
 
@@ -202,7 +202,7 @@ local function test_a_client_that_verifies_needs_a_name()
     local ok, why = conn:start_tls(trusting())
     assert(not ok and why:find("needs a server name", 1, true) ~= nil, why)
     local none, long = Net.connect(Net.tcp("127.0.0.1", port), { tls = trusting(), server_name = string.rep("a", 256) })
-    assert(none == nil and long:find("1 to 255 bytes", 1, true) ~= nil, long)
+    assert(none == nil and tostring(long):find("1 to 255 bytes", 1, true) ~= nil, long)
   end)
 end
 

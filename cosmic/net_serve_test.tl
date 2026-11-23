@@ -39,7 +39,7 @@ end
 local function released(address: Net.Address): boolean
   if address.kind == "unix" then return not assert(Fs.status(assert(address.path))).exists end
   local conn, why = Net.connect(address, { timeout_ns = Clock.seconds(1) })
-  if conn == nil then return why ~= Poll.TIMEOUT end
+  if conn == nil then return tostring(why) ~= Poll.TIMEOUT end
   local _, _ = conn:close()
   return false
 end
@@ -212,7 +212,7 @@ local function stop_drains_then_kills_after_grace_ns_at(path: string?)
       server:stop()
       assert(released(Array.at(addresses, 1)), "the listener was left")
       local refused, why = Net.connect(Array.at(addresses, 1))
-      assert(refused == nil and why:find(if path ~= nil then "No such file" else "Connection refused" end, 1, true) ~= nil, why)
+      assert(refused == nil and tostring(why):find(if path ~= nil then "No such file" else "Connection refused" end, 1, true) ~= nil, why)
       answer = assert(slow.lines:read())
     end,
   })
@@ -245,7 +245,7 @@ local function test_a_listener_that_cannot_listen_fails_the_server(tmp: string)
     serve = echo,
     on_ready = function() called = true end,
   }
-  assert(not ok and why:find(tmp .. "/missing/b.sock: ", 1, true) == 1, why)
+  assert(not ok and tostring(why):find(tmp .. "/missing/b.sock: ", 1, true) == 1, why)
   assert(not called)
   assert(not assert(Fs.status(tmp .. "/a.sock")).exists, "the first listener's file was left")
 end
@@ -255,7 +255,7 @@ end
 local function test_a_spec_with_a_bad_value_raises_naming_the_field(tmp: string)
   local address = Net.unix(tmp .. "/s.sock")
   local function refused(spec: Net.ServeSpec, field: string)
-    Test.raises(function() Net.serve(spec) end, "net: " .. field)
+    Test.raises(function() local _, _ = Net.serve(spec) end, "net: " .. field)
   end
   refused({ listeners = {}, serve = echo }, "spec.listeners must be")
   refused({ listeners = { address, Net.unix("") }, serve = echo },
@@ -268,7 +268,9 @@ local function test_a_spec_with_a_bad_value_raises_naming_the_field(tmp: string)
   refused({ listeners = { address }, serve = echo, grace_ns = Poll.MOST_NS + 1 },
     "spec.grace_ns must be")
   Poll.run(function()
-    local ok, why = pcall(Net.serve, { listeners = { address }, serve = echo })
+    local ok, why = pcall(function()
+      local _, _ = Net.serve({ listeners = { address }, serve = echo })
+    end)
     assert(not ok and tostring(why):find("net: serve runs a Poll.run of its own", 1, true) ~= nil,
       tostring(why))
   end)
@@ -535,7 +537,7 @@ local function sigterm_stops_the_server_and_it_drains_at(path: string?)
       answer = assert(c.lines:read())
     end,
   }
-  assert(ok and why == "", why)
+  assert(ok and why == nil, why)
   assert(answer == "slow", answer)
   assert(outer:cancelled() == sys.SIGTERM)
   assert(outer:release() == sys.SIGTERM)
@@ -611,7 +613,7 @@ local function test_the_longest_grace_drains_the_connections_open()
       answer = assert(c.lines:read())
     end,
   }
-  assert(ok and why == "", why)
+  assert(ok and why == nil, why)
   assert(answer == "slow", answer)
 end
 
@@ -762,7 +764,7 @@ local function a_raising_on_stop_reaches_on_error_and_the_server_stops_at(path: 
       server:stop()
     end,
   }
-  assert(ok and why == "", why)
+  assert(ok and why == nil, why)
   assert(#troubles == 1, tostring(#troubles))
   assert(troubles[1]:find("net_serve_test:%d+: on_stop failed") ~= nil, troubles[1])
   assert(troubles[1]:find("stack traceback", 1, true) ~= nil, troubles[1])

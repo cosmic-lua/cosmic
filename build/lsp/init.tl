@@ -203,7 +203,7 @@ local function listen(root: string, listeners: {Net.Address}): integer
     end,
   })
   if not ok then
-    bare.err("cosmic: lsp: " .. trouble)
+    bare.err("cosmic: lsp: " .. tostring(trouble))
     return bare.failed
   end
   return bare.ok

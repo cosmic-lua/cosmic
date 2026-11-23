@@ -438,7 +438,7 @@ local function taken(host: string, port: integer): string
     assert(listener:close())
     return "a listener took the port"
   end
-  return why
+  return tostring(why)
 end
 
 --- The start holds the relay's port on 127.0.0.1 and on ::1, both of which
@@ -533,13 +533,13 @@ local function test_a_public_name_is_resolved_and_reached_through_the_relay(tmp:
   local name = "example.com"
   local found, resolve_why = Net.resolve(name, { timeout_ns = Clock.seconds(5) })
   if found == nil then
-    Test.skip("this host resolves no public name: " .. resolve_why)
+    Test.skip("this host resolves no public name: " .. tostring(resolve_why))
     return
   end
   -- [`Net.resolve`] answers at least one address, or nil and why.
   local reached, reach_why = Net.connect(Net.tcp(Array.at(found, 1).address, 443), { timeout_ns = Clock.seconds(5) })
   if reached == nil then
-    Test.skip("this host reaches no public address: " .. reach_why)
+    Test.skip("this host reaches no public address: " .. tostring(reach_why))
     return
   end
   assert(reached:close())
@@ -607,7 +607,7 @@ local function test_a_granted_name_of_another_host_address_is_refused_as_its_own
   local name = address:gsub("%.", "-") .. ".sslip.io"
   local found, resolve_why = Net.resolve(name, { timeout_ns = Clock.seconds(5) })
   if found == nil then
-    Test.skip("this host does not resolve " .. name .. ": " .. resolve_why)
+    Test.skip("this host does not resolve " .. name .. ": " .. tostring(resolve_why))
     return
   end
   if #found == 0 then

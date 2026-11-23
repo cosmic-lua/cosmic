@@ -63,7 +63,9 @@ test_child.register("serve", function(argv: {string}): integer
       http = http, grants = { "api.test:443", "direct.test:443" }, upstream = pinned, resolve = resolve,
       log = function(_: string) end,
       connect = function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
-        return Net.connect(Net.tcp(address, port), { timeout_ns = timeout_ns })
+        local got, failure = Net.connect(Net.tcp(address, port), { timeout_ns = timeout_ns })
+        if got == nil then return nil, tostring(failure) end
+        return got, ""
       end,
     })
     for _, target in ipairs({ "api.test:443", "api.test:443", "api.test:443", "ungranted.test:443",

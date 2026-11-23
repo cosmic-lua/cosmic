@@ -1042,7 +1042,7 @@ function Server.serve(spec: Server.ServeSpec): boolean, string
     compress_from = compress_from,
     idle = {},
   }
-  return Net.serve{
+  local served, why = Net.serve{
     listeners = listeners,
     serve = function(conn: Net.Conn) serve_conn(s, conn) end,
     limits = { connections = limits.connections or 256 },
@@ -1061,6 +1061,8 @@ function Server.serve(spec: Server.ServeSpec): boolean, string
     end,
     on_error = spec.on_error,
   }
+  if not served then return false, tostring(why) end
+  return true, ""
 end
 
 -- What a handler reads of a request's Range and If-None-Match, as RFC

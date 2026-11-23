@@ -104,7 +104,7 @@ end
 
 local function test_a_name_is_refused_not_looked_up()
   local socket, why = Net.datagram(Net.udp("localhost", 0))
-  assert(socket == nil and why:find("not a numeric IPv4 or IPv6 address", 1, true) ~= nil, why)
+  assert(socket == nil and tostring(why):find("not a numeric IPv4 or IPv6 address", 1, true) ~= nil, why)
   local sender <close> = bound()
   local sent, send_why = sender:send("x", Net.udp("localhost", 9))
   assert(not sent and send_why:find("not a numeric IPv4 or IPv6 address", 1, true) ~= nil, send_why)
@@ -113,19 +113,19 @@ end
 local function test_a_port_in_use_is_refused()
   local first <close> = bound()
   local second, why = Net.datagram(Net.udp("127.0.0.1", assert(first.address.port)))
-  assert(second == nil and why:find("127.0.0.1:", 1, true) == 1, why)
+  assert(second == nil and tostring(why):find("127.0.0.1:", 1, true) == 1, why)
 end
 
 local function test_what_is_no_datagram_raises()
   local socket <close> = bound()
-  Test.raises(function() Net.datagram(Net.tcp("127.0.0.1", 0)) end, "net: address must be a udp address")
-  Test.raises(function() Net.datagram(Net.udp("127.0.0.1", 65536)) end, "net: address must be a udp address")
+  Test.raises(function() local _, _ = Net.datagram(Net.tcp("127.0.0.1", 0)) end, "net: address must be a udp address")
+  Test.raises(function() local _, _ = Net.datagram(Net.udp("127.0.0.1", 65536)) end, "net: address must be a udp address")
   Test.raises(function() socket:send("x", Net.tcp("127.0.0.1", 9)) end, "net: a datagram is sent to a udp address")
   Test.raises(function() socket:send("x", Net.udp("127.0.0.1", -1)) end, "net: a datagram is sent to a udp address")
   -- A stream's calls refuse a datagram's address.
-  Test.raises(function() Net.listen(Net.udp("127.0.0.1", 0)) end, "from Net.unix or Net.tcp")
-  Test.raises(function() Net.connect(Net.udp("127.0.0.1", 9)) end, "from Net.unix or Net.tcp")
+  Test.raises(function() local _, _ = Net.listen(Net.udp("127.0.0.1", 0)) end, "from Net.unix or Net.tcp")
+  Test.raises(function() local _, _ = Net.connect(Net.udp("127.0.0.1", 9)) end, "from Net.unix or Net.tcp")
   Test.raises(function() socket:send(string.rep("x", 65536), socket.address) end, "at most 65535 bytes")
-  Test.raises(function() Net.datagram(Net.udp("127.0.0.1", 0), { timeout_ns = -1 }) end, "timeout_ns")
+  Test.raises(function() local _, _ = Net.datagram(Net.udp("127.0.0.1", 0), { timeout_ns = -1 }) end, "timeout_ns")
   Test.raises(function() socket:receive(-1) end, "timeout_ns")
 end

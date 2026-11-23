@@ -163,7 +163,9 @@ end
 
 --- A TCP listener on `host`:`port` (0 for any), or nil.
 local function listener(host: string, port: integer): Net.Listener?, string
-  return Net.listen(Net.tcp(host, port), { timeout_ns = Clock.seconds(5) })
+  local got, failure = Net.listen(Net.tcp(host, port), { timeout_ns = Clock.seconds(5) })
+  if got == nil then return nil, tostring(failure) end
+  return got, ""
 end
 
 --- The port a listener or a datagram socket holds.
@@ -350,7 +352,7 @@ end
 local function reach_listener(port: integer, seconds: number): boolean
   local deadline = Clock.monotonic_ns() + Clock.seconds(seconds)
   while Clock.monotonic_ns() < deadline do
-    local conn = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.ms(300) })
+    local conn, _ = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.ms(300) })
     if conn ~= nil then
       local _, _ = conn:write("ping\n")
       local _, _ = conn:close()
@@ -431,7 +433,7 @@ local function test_a_unix_socket_is_denied_under_default_deny(tmp: string)
   report[#report + 1] = "with a rule on /private/var/run/mDNSResponder: " .. granted
   -- A socket of the test's own, where the path fits sun_path.
   local own = tmp .. "/s"
-  local server = Net.listen(Net.unix(own))
+  local server, _ = Net.listen(Net.unix(own))
   if server ~= nil then
     local resolved = sys.realpath(own) or own
     table.insert(report, "own socket, default-deny: " .. unix_reach(tmp, profile(BASE, {}), {}, own))

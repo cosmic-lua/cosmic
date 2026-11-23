@@ -122,7 +122,7 @@ local function serve(config: Config.Config): integer
       for i = 1, count do
         local listener, adopt_why = Net.listener_from(CHANNEL_FD + i - 1)
         if listener == nil then
-          run.status = failed(adopt_why)
+          run.status = failed(tostring(adopt_why))
           return
         end
         if listener.address.port ~= (gathered[1] or listener).address.port then
@@ -135,7 +135,7 @@ local function serve(config: Config.Config): integer
     else
       local listeners, listeners_why = Net.receive_listeners(CHANNEL_FD)
       if listeners == nil then
-        run.status = failed(listeners_why)
+        run.status = failed(tostring(listeners_why))
         return
       end
       local first, second = listeners[1], listeners[2]
@@ -153,7 +153,9 @@ local function serve(config: Config.Config): integer
     -- The address is one the relay has checked; its policy lets it
     -- connect anywhere.
     local connect: Relay.Connect = function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
-      return Net.connect(Net.tcp(address, port), { timeout_ns = timeout_ns })
+      local got, failure = Net.connect(Net.tcp(address, port), { timeout_ns = timeout_ns })
+      if got == nil then return nil, tostring(failure) end
+      return got, ""
     end
     local running, start_why = started({
       http = http, socks = socks, mixed = mixed, token = config.token, grants = config.grants, connect = connect,

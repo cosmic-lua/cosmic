@@ -119,9 +119,13 @@ local function test_a_timeout_out_of_range_is_refused()
   Test.raises(function() p.client:set_timeout(-1) end)
   local data, read_why = p.client:read()
   assert(data == nil and read_why == Poll.TIMEOUT, read_why)
-  Test.raises(function() Net.connect(p.server.address, { timeout_ns = -1 }) end)
-  assert(not pcall(Net.listen, Net.tcp("127.0.0.1", 0), { timeout_ns = Poll.MOST_NS + 1 })) -- checked: alternatives_as_value
-  assert(not pcall(Net.listen, Net.tcp("127.0.0.1", 0), { timeout_ns = 1 << 62 })) -- checked: alternatives_as_value
+  Test.raises(function() local _, _ = Net.connect(p.server.address, { timeout_ns = -1 }) end)
+  Test.raises(function()
+    local _, _ = Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Poll.MOST_NS + 1 })
+  end)
+  Test.raises(function()
+    local _, _ = Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = 1 << 62 })
+  end)
 end
 
 --- A timeout is nanoseconds: a read, an accept and a connection's wait
@@ -172,7 +176,7 @@ local function full(path: string): Full
   local server = assert(Net.listen(Net.unix(path), { backlog = 1 }))
   local held: mut {Net.Conn} = {}
   for _ = 1, 16 do
-    local conn = Net.connect(server.address, { timeout_ns = 0 })
+    local conn, _ = Net.connect(server.address, { timeout_ns = 0 })
     if conn == nil then break end
     held[#held + 1] = conn
   end
@@ -197,7 +201,7 @@ local function test_connecting_to_a_full_backlog_fails_at_once(tmp: string)
   local began = Clock.monotonic_ns()
   local conn, why = Net.connect(Net.unix(path), { timeout_ns = Clock.seconds(20) })
   assert(Clock.monotonic_ns() - began < Clock.seconds(10), "the connection waited for room")
-  assert(conn == nil and why == busy(path), why)
+  assert(conn == nil and tostring(why) == busy(path), why)
 end
 
 local function test_accept_with_no_one_connecting_times_out()
@@ -400,11 +404,11 @@ local function test_a_socket_file_left_behind_is_refused_and_kept(tmp: string)
   assert(assert(Fs.read(path)) == "someone else's")
   assert(assert(Fs.status(moved)).exists, "the moved socket file was removed")
   local conn, why = Net.connect(Net.unix(moved))
-  assert(conn == nil and why == moved .. ": Connection refused", why)
+  assert(conn == nil and tostring(why) == moved .. ": Connection refused", why)
   local again, taken = Net.listen(Net.unix(moved))
-  assert(again == nil and taken == moved .. ": Address in use", taken)
+  assert(again == nil and tostring(taken) == moved .. ": Address in use", taken)
   local over, file = Net.listen(Net.unix(path))
-  assert(over == nil and file == path .. ": Address in use", file)
+  assert(over == nil and tostring(file) == path .. ": Address in use", file)
   assert(assert(Fs.read(path)) == "someone else's")
 end
 
@@ -412,7 +416,7 @@ local function test_connecting_where_there_is_no_socket_file_fails(tmp: string)
   unix_socket.skip_if_refused(tmp)
   local path = tmp .. "/none.sock"
   local conn, why = Net.connect(Net.unix(path))
-  assert(conn == nil and why == path .. ": No such file or directory", why)
+  assert(conn == nil and tostring(why) == path .. ": No such file or directory", why)
 end
 
 --- A socket file's own name the platform cannot hold fails rather than
@@ -422,28 +426,30 @@ local function test_a_path_that_names_no_socket_file_is_refused(tmp: string)
   local too_long = ": Filename too long (a socket file's own name may be at most "
   for _, long in ipairs({ tmp .. "/" .. string.rep("x", 120), string.rep("y", 120) }) do
     local server, why = Net.listen(Net.unix(long))
-    assert(server == nil and why:find(long .. too_long, 1, true) == 1, why)
+    assert(server == nil and tostring(why):find(long .. too_long, 1, true) == 1, why)
     local conn, conn_why = Net.connect(Net.unix(long))
-    assert(conn == nil and conn_why:find(long .. too_long, 1, true) == 1, conn_why)
+    assert(conn == nil and tostring(conn_why):find(long .. too_long, 1, true) == 1, conn_why)
   end
   local directory = tmp .. "/" .. string.rep("d", 120) .. "/"
   assert(Fs.mkdirs(directory))
   local ended, ended_why = Net.listen(Net.unix(directory))
-  assert(ended == nil and ended_why == directory .. ": Is a directory", ended_why)
+  assert(ended == nil and tostring(ended_why) == directory .. ": Is a directory", ended_why)
   local nul = tmp .. "/a\0b"
   local held, held_why = Net.listen(Net.unix(nul))
-  assert(held == nil and held_why == nul .. ": Invalid argument", held_why)
+  assert(held == nil and tostring(held_why) == nul .. ": Invalid argument", held_why)
   assert(not assert(Fs.status(tmp .. "/a")).exists, "a shorter name was bound")
   local pipe: Net.Address = { kind = "pipe" }
   for _, address in ipairs({ Net.unix(""), Net.tcp("127.0.0.1", 65536), pipe }) do
-    local listen_ok, listen_why = pcall(Net.listen, address)
-    assert(not listen_ok and tostring(listen_why):find("net: address must be ", 1, true) == 1,
+    local listen_ok, listen_why = pcall(function() local _, _ = Net.listen(address) end)
+    assert(not listen_ok and tostring(listen_why):find("^cosmic%.net_test:%d+: net: address must be ") ~= nil,
       tostring(listen_why))
-    local connect_ok, connect_why = pcall(Net.connect, address)
-    assert(not connect_ok and tostring(connect_why):find("net: address must be ", 1, true) == 1,
+    local connect_ok, connect_why = pcall(function() local _, _ = Net.connect(address) end)
+    assert(not connect_ok and tostring(connect_why):find("^cosmic%.net_test:%d+: net: address must be ") ~= nil,
       tostring(connect_why))
   end
-  local listened, backlog_why = pcall(Net.listen, Net.unix(tmp .. "/b.sock"), { backlog = 0 })
+  local listened, backlog_why = pcall(function()
+    local _, _ = Net.listen(Net.unix(tmp .. "/b.sock"), { backlog = 0 })
+  end)
   assert(not listened and tostring(backlog_why):find("net: backlog must be at least 1", 1, true) ~= nil,
     tostring(backlog_why))
 end
@@ -469,7 +475,7 @@ local function test_a_long_path_is_reached_from_its_directory(tmp: string)
   assert(not assert(Fs.status(path)).exists, "the socket file was left")
   local missing = tmp .. "/" .. string.rep("m", 120) .. "/s.sock"
   local conn, why = Net.connect(Net.unix(missing))
-  assert(conn == nil and why == missing .. ": No such file or directory", why)
+  assert(conn == nil and tostring(why) == missing .. ": No such file or directory", why)
   assert(sys.chdir(tmp))
   local relative = string.rep("d", 100) .. "/" .. string.rep("e", 100) .. "/r.sock"
   local server, trouble = Net.listen(Net.unix(relative))
@@ -493,13 +499,13 @@ local function test_a_long_socket_bind_restores_the_working_directory_on_refusal
     assert(server:close())
   end
   assert(not assert(Fs.status(path)).exists, "the socket file was left")
-  if server == nil and why ~= path .. ": " .. sys.errno_message(sys.EPERM) then
+  if server == nil and tostring(why) ~= path .. ": " .. sys.errno_message(sys.EPERM) then
     local unsupported = false
     for _, errno in ipairs({ sys.EACCES, sys.EAFNOSUPPORT, sys.EPROTONOSUPPORT, sys.ENOSYS }) do
-      if why == path .. ": " .. sys.errno_message(errno) then unsupported = true end
+      if tostring(why) == path .. ": " .. sys.errno_message(errno) then unsupported = true end
     end
     assert(unsupported, why)
-    Test.skip("the host refuses this Unix socket operation: " .. why)
+    Test.skip("the host refuses this Unix socket operation: " .. tostring(why))
   end
 end
 
@@ -693,7 +699,8 @@ local function test_in_a_run_a_connect_to_a_full_backlog_fails_at_once(tmp: stri
   local why: string = ""
   local began = Clock.monotonic_ns()
   Poll.run(function()
-    conn, why = Net.connect(Net.unix(path), { timeout_ns = Clock.seconds(20) })
+    local conn_got, why_failure = Net.connect(Net.unix(path), { timeout_ns = Clock.seconds(20) })
+    conn, why = conn_got, if conn_got == nil then tostring(why_failure) else "" end
   end)
   assert(Clock.monotonic_ns() - began < Clock.seconds(10), "the connection waited for room")
   assert(conn == nil and why == busy(path), why)

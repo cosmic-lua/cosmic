@@ -179,8 +179,10 @@ local function start(tmp: string, opts: Options): Rig
     connect = opts.connect or function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
       table.insert(rig.asked, address .. ":" .. tostring(port))
       rig.given[#rig.given + 1] = timeout_ns
-      return Net.connect(Net.tcp(if redirect[address] ~= nil then "127.0.0.1" else address end, redirect[address] or port),
-        { timeout_ns = timeout_ns })
+      local conn, why = Net.connect(Net.tcp(if redirect[address] ~= nil then "127.0.0.1" else address end,
+        redirect[address] or port), { timeout_ns = timeout_ns })
+      if conn == nil then return nil, tostring(why) end
+      return conn, ""
     end,
   }
   rig.server = Relay.start(spec)
@@ -465,7 +467,9 @@ local function first_fails_connect(how: string, port: integer, asked: mut {strin
     asked[#asked + 1] = address
     given[#given + 1] = timeout_ns
     if #asked == 1 then return nil, how end
-    return Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = timeout_ns })
+    local got, failure = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = timeout_ns })
+    if got == nil then return nil, tostring(failure) end
+    return got, ""
   end
 end
 
@@ -960,7 +964,9 @@ local function test_a_connection_made_after_stop_is_closed(tmp: string)
     local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(server.port) },
       connect = function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
         assert(Poll.delay(Clock.ms(150)))
-        return Net.connect(Net.tcp(address, port), { timeout_ns = timeout_ns })
+        local got, failure = Net.connect(Net.tcp(address, port), { timeout_ns = timeout_ns })
+        if got == nil then return nil, tostring(failure) end
+        return got, ""
       end })
     local conn = dial(rig.http)
     assert(conn:write(Fixture.connect("127.0.0.1:" .. tostring(server.port))))
@@ -1244,7 +1250,9 @@ local function test_an_upstream_proxy_is_reached_at_the_next_of_its_addresses(tm
         asked[#asked + 1] = address
         given[#given + 1] = timeout_ns
         if address == "192.0.2.1" then return nil, "No route to host" end
-        return Net.connect(Net.tcp(address, port), { timeout_ns = timeout_ns })
+        local got, failure = Net.connect(Net.tcp(address, port), { timeout_ns = timeout_ns })
+        if got == nil then return nil, tostring(failure) end
+        return got, ""
       end })
     local conn, head = connect_to(rig, "api.test:443")
     assert(status_line(head) == "HTTP/1.1 200 Connection established", head)
@@ -1367,7 +1375,7 @@ local function test_stop_closes_open_tunnels(tmp: string)
     local data, _ = conn:read()
     assert(data == nil, "the tunnel was closed")
     -- New connections are not taken.
-    local late = Net.connect(rig.http, { timeout_ns = Clock.ms(200) })
+    local late, _ = Net.connect(rig.http, { timeout_ns = Clock.ms(200) })
     if late ~= nil then
       late:set_timeout(Clock.ms(200))
       local got, _ = late:read()

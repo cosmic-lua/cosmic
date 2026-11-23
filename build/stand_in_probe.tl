@@ -354,7 +354,7 @@ local verbs: {string:function(string, string): integer?} = {
   end,
   connect = function(path: string): integer?
     local conn, trouble = Net.connect(Net.unix(path), { timeout_ns = Clock.seconds(5) })
-    if conn == nil then return put_all(1, trouble .. "\n") end
+    if conn == nil then return put_all(1, tostring(trouble) .. "\n") end
     local _, _ = conn:close()
     return put_all(1, "connected\n")
   end,
@@ -364,7 +364,7 @@ local verbs: {string:function(string, string): integer?} = {
       return failed("connect-tcp", "no port " .. word)
     end
     local conn, trouble = Net.connect(Net.tcp(host, port), { timeout_ns = Clock.seconds(5) })
-    if conn == nil then return put_all(1, trouble .. "\n") end
+    if conn == nil then return put_all(1, tostring(trouble) .. "\n") end
     local _, _ = conn:close()
     return put_all(1, "connected\n")
   end,
@@ -374,18 +374,18 @@ local verbs: {string:function(string, string): integer?} = {
       return failed("bind-tcp", "no port " .. word)
     end
     local server, trouble = Net.listen(Net.tcp(host, port), { timeout_ns = Clock.seconds(5) })
-    if server == nil then return put_all(1, trouble .. "\n") end
+    if server == nil then return put_all(1, tostring(trouble) .. "\n") end
     local _, _ = server:close()
     return put_all(1, "bound\n")
   end,
   ["loopback-tcp"] = function(host: string): integer?
     local server, trouble = Net.listen(Net.tcp(host, 0), { timeout_ns = Clock.seconds(5) })
-    if server == nil then return put_all(1, trouble .. "\n") end
+    if server == nil then return put_all(1, tostring(trouble) .. "\n") end
     local conn, connect_trouble = Net.connect(Net.tcp(host, assert(server.address.port)),
       { timeout_ns = Clock.seconds(5) })
     if conn == nil then
       local _, _ = server:close()
-      return put_all(1, connect_trouble .. "\n")
+      return put_all(1, tostring(connect_trouble) .. "\n")
     end
     local accepted, accept_trouble = server:accept()
     local _, _ = conn:close()
@@ -396,11 +396,11 @@ local verbs: {string:function(string, string): integer?} = {
   end,
   ["loopback-unix"] = function(path: string): integer?
     local server, trouble = Net.listen(Net.unix(path), { timeout_ns = Clock.seconds(5) })
-    if server == nil then return put_all(1, trouble .. "\n") end
+    if server == nil then return put_all(1, tostring(trouble) .. "\n") end
     local conn, connect_trouble = Net.connect(Net.unix(path), { timeout_ns = Clock.seconds(5) })
     if conn == nil then
       local _, _ = server:close()
-      return put_all(1, connect_trouble .. "\n")
+      return put_all(1, tostring(connect_trouble) .. "\n")
     end
     local accepted, accept_trouble = server:accept()
     local _, _ = conn:close()

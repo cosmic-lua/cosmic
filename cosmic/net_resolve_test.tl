@@ -24,7 +24,7 @@ local function test_a_hosts_file_answers_every_address_of_both_families(tmp: str
     "",
   }, "\n")))
   local found, why = Net.resolve("multi.example.test", { hosts_file = hosts })
-  assert(found ~= nil and why == "", why)
+  assert(found ~= nil and why == nil, why)
   assert(table.concat(listed(found), ",") ==
       "ipv4 192.0.2.1,ipv4 192.0.2.2,ipv6 2001:db8::1,ipv6 2001:db8::2")
   local only = assert(Net.resolve("single.example.test", { hosts_file = hosts }))
@@ -54,7 +54,7 @@ local function test_a_numeric_literal_answers_itself_without_a_query()
   }
   for _, case in ipairs(literals) do
     local found, why = Net.resolve(case.address, opts)
-    assert(found ~= nil and why == "", case.address .. ": " .. why)
+    assert(found ~= nil and why == nil, case.address .. ": " .. tostring(why))
     assert(#found == 1 and found[1].address == case.address and found[1].family == case.family, case.address)
   end
   -- Written back as inet_ntop writes it.
@@ -66,21 +66,21 @@ end
 local function test_a_name_the_resolver_cannot_take_fails_and_a_degenerate_argument_raises(tmp: string)
   for _, name in ipairs({ "", "a\0b.example", "fe80::1%lo", string.rep("a", 255) }) do
     local found, why = Net.resolve(name, { timeout_ns = 1 })
-    assert(found == nil and why == "Invalid argument", string.format("%q: %s", name, tostring(why)))
+    assert(found == nil and tostring(why) == "Invalid argument", string.format("%q: %s", name, tostring(why)))
   end
   local found, why = Net.resolve("example.test", { servers = { { host = "127.0.0.1,8.8.8.8", port = 53 } } })
-  assert(found == nil and why == "Invalid argument", why)
+  assert(found == nil and tostring(why) == "Invalid argument", why)
   found, why = Net.resolve("example.test", { servers = { { host = "localhost", port = 53 } } })
-  assert(found == nil and why == "Invalid argument", why)
+  assert(found == nil and tostring(why) == "Invalid argument", why)
   found, why = Net.resolve("example.test", { hosts_file = tmp .. "/x\0y" })
-  assert(found == nil and why == "Invalid argument", why)
-  Test.raises(function() Net.resolve("example.test", { timeout_ns = -1 }) end)
-  Test.raises(function() Net.resolve("example.test", { servers = {} }) end)
+  assert(found == nil and tostring(why) == "Invalid argument", why)
+  Test.raises(function() local _, _ = Net.resolve("example.test", { timeout_ns = -1 }) end)
+  Test.raises(function() local _, _ = Net.resolve("example.test", { servers = {} }) end)
   Test.raises(function()
-    Net.resolve("example.test", { servers = { { host = "127.0.0.1", port = 70000 } } })
+    local _, _ = Net.resolve("example.test", { servers = { { host = "127.0.0.1", port = 70000 } } })
   end)
   Test.raises(function()
-    Net.resolve("example.test", { servers = { { host = "127.0.0.1", port = 0 } } })
+    local _, _ = Net.resolve("example.test", { servers = { { host = "127.0.0.1", port = 0 } } })
   end)
 end
 
@@ -92,7 +92,7 @@ local function test_the_longest_name_is_looked_up_and_one_byte_more_is_refused()
   local longest = table.concat(labels, ".") .. "."
   assert(#longest == 254)
   local found, why = Net.resolve(longest, { timeout_ns = 0 })
-  assert(found == nil and why ~= "Invalid argument", tostring(why))
+  assert(found == nil and tostring(why) ~= "Invalid argument", tostring(why))
   found, why = Net.resolve(longest .. "x", { timeout_ns = 0 })
-  assert(found == nil and why == "Invalid argument", tostring(why))
+  assert(found == nil and tostring(why) == "Invalid argument", tostring(why))
 end

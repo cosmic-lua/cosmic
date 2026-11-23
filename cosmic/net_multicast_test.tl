@@ -91,10 +91,10 @@ local function test_a_port_is_shared_only_where_every_socket_asks()
   local shared <close> = at_group(group)
   local port = assert(shared.address.port)
   local alone, why = Net.datagram(Net.udp(group, port))
-  assert(alone == nil and why:find(group .. ":" .. tostring(port) .. ": ", 1, true) == 1, why)
+  assert(alone == nil and tostring(why):find(group .. ":" .. tostring(port) .. ": ", 1, true) == 1, why)
   local unshared <close> = assert(Net.datagram(Net.udp(LOOPBACK, 0)))
   local late, late_why = Net.datagram(Net.udp(LOOPBACK, assert(unshared.address.port)), { shared = true })
-  assert(late == nil and late_why:find(LOOPBACK .. ":", 1, true) == 1, late_why)
+  assert(late == nil and tostring(late_why):find(LOOPBACK .. ":", 1, true) == 1, late_why)
 end
 
 local function test_a_group_is_joined_once_and_left_once_on_an_interface()
@@ -201,7 +201,7 @@ end
 local function test_an_ipv6_group_is_joined_and_left_by_its_interfaces_index()
   local socket, why = Net.datagram(Net.udp("::", 0), { shared = true })
   if socket == nil then
-    Test.skip("this host binds no IPv6 socket: " .. why)
+    Test.skip("this host binds no IPv6 socket: " .. tostring(why))
     return
   end
   local member <close> = socket

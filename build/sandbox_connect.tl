@@ -316,7 +316,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
   local relay = "socks5h://127.0.0.1:" .. tostring(relay_port)
   local made, connect_why = Net.connect(Net.tcp("127.0.0.1", relay_port), { timeout_ns = CONNECT_NS })
   if made == nil then
-    complain("the relay at " .. relay .. ": " .. connect_why)
+    complain("the relay at " .. relay .. ": " .. tostring(connect_why))
     return bare.failed
   end
   local conn: Net.Conn = made

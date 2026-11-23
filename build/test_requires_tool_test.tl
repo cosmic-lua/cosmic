@@ -233,7 +233,7 @@ local Net = require("cosmic.net")
 local Test = require("cosmic.test")
 Test.policy { loopback = { "127.0.0.1" } }
 local function test_listens()
-  assert(Net.listen(Net.tcp("127.0.0.1", 0)) ~= nil)
+  assert(Net.listen(Net.tcp("127.0.0.1", 0)))
 end
 ]]))
   local out, code = run(root)
