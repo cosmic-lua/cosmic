@@ -117,6 +117,15 @@ allowed["build.compile_fanout.ended_well"] = "how many copies ended well, which 
 allowed["build.dataset.read"] = "the reader load_text composes and falls back on, tested directly " ..
   "over each format's text, and with load the reference load_text's fuzz property is held to"
 
+allowed["cosmic.mcp.MISSING_CAPABILITY"] = "public API: the protocol's code for a request that needs a capability the " ..
+  "client did not declare, which a client tests a failure's code against"
+allowed["cosmic.mcp.text"] = "public API: a text block of a tool's result or a prompt's message, which a server builds"
+allowed["cosmic.mcp.image"] = "public API: an image block of a tool's result, its bytes in base64, which a server builds"
+allowed["cosmic.mcp.audio"] = "public API: an audio block of a tool's result, its bytes in base64, which a server builds"
+allowed["cosmic.mcp.link"] = "public API: a block that links a resource from a tool's result, which a server builds"
+allowed["cosmic.mcp.embedded"] = "public API: a block that embeds a resource's contents, which a server builds"
+allowed["cosmic.mcp.object_schema"] = "public API: the JSON Schema of a tool's arguments, which a server declares its tools with"
+
 allowed["cosmic.agent.cost"] = "public API: what a reply's usage costs at the list prices, which a program that " ..
   "runs the loop reads; the loop keeps each request's cost through billed"
 allowed["cosmic.agent.billed"] = "public API: what a request cost, each attempt of a fallback at its own model's " ..
