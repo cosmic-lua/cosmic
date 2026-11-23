@@ -929,6 +929,12 @@ local function test_a_kept_checker_answers_each_text_as_it_is_answered_alone()
     "global counted: integer = 3\nreturn counted\n",
     "return counted\n",
     "local Box = require(\"cosmic.box\")\nreturn Box.make(5).n + 1\n",
+    "local Shape = require(\"cosmic.shape\")\nlocal record Wrap\n  n: integer\nend\nlocal spec = Shape.record_of(\"Wrap\")\n" ..
+      "return spec.kind\n",
+    "return 1\n",
+    "local Shape = require(\"cosmic.shape\")\nlocal spec = Shape.record_of(\"Nothing\")\nreturn spec.kind\n",
+    "local Shape = require(\"cosmic.shape\")\nlocal record Wrap\n  n: integer\nend\nlocal spec = Shape.record_of(\"Wrap\")\n" ..
+      "return spec.kind\n",
   }
   local kept = Pipeline.kept_alone("snippet.tl", boxed())
   for round = 1, 2 do
