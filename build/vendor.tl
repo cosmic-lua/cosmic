@@ -363,7 +363,7 @@ local function from_archive(tree: string, pin: Vendor.Pin, archive_path: string)
   end
   local entries, list_trouble = Archive.list(archive_path)
   if entries == nil then
-    return nil, archive_path .. ": " .. list_trouble
+    return nil, archive_path .. ": " .. tostring(list_trouble)
   end
   local files, keep_trouble = Vendor.kept(pin, entries)
   if files == nil then
@@ -381,7 +381,7 @@ local function from_archive(tree: string, pin: Vendor.Pin, archive_path: string)
   local count: integer?
   local trouble = ""
   if written == nil then
-    trouble = archive_path .. ": " .. extract_trouble
+    trouble = archive_path .. ": " .. tostring(extract_trouble)
   else
     count, trouble = install(tree, scratch, files)
   end

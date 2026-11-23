@@ -82,7 +82,7 @@ local function test_a_zstd_zip_lists_and_extracts_through_archive(tmp: string)
   assert(assert(Fs.read(dest .. "/adir/z.txt")) == text)
   assert(assert(Fs.read(dest .. "/adir/s.txt")) == text)
   local written, why = Archive.extract(path, tmp .. "/small", { max_entry_bytes = 4096 })
-  assert(written == nil and why:find("max_entry_bytes (4096 bytes)", 1, true) ~= nil, why)
+  assert(written == nil and tostring(why):find("max_entry_bytes (4096 bytes)", 1, true) ~= nil, why)
 end
 
 local function test_open_detects_a_zip_by_its_local_header_signature(tmp: string)
@@ -148,11 +148,11 @@ local function test_open_stream_refuses_a_zip_and_an_unrecognized_stream(tmp: st
   local path = tmp .. "/a.zip"
   make_zip(path)
   local r, why = Archive.open_stream(Stream.from_string((assert(Fs.read(path)))))
-  assert(r == nil and why:find("zip", 1, true) ~= nil, why)
+  assert(r == nil and tostring(why):find("zip", 1, true) ~= nil, why)
   r, why = Archive.open_stream(Stream.from_string("just some text"))
-  assert(r == nil and why:find("not a recognized archive format", 1, true) ~= nil, why)
+  assert(r == nil and tostring(why):find("not a recognized archive format", 1, true) ~= nil, why)
   r, why = Archive.open_stream(Stream.from_string(""))
-  assert(r == nil and why:find("not a recognized archive format", 1, true) ~= nil, why)
+  assert(r == nil and tostring(why):find("not a recognized archive format", 1, true) ~= nil, why)
 end
 
 local function test_open_stream_fails_on_a_truncated_gzip_stream()
@@ -191,7 +191,7 @@ local function test_open_refuses_an_unrecognized_file(tmp: string)
   local path = tmp .. "/plain.txt"
   assert(Fs.write(path, "just some text, not an archive"))
   local r, trouble = Archive.open(path)
-  assert(r == nil and trouble:find("not a recognized archive format", 1, true) ~= nil, trouble)
+  assert(r == nil and tostring(trouble):find("not a recognized archive format", 1, true) ~= nil, trouble)
 end
 
 local function test_extract_writes_files_and_directories_and_keeps_the_mode(tmp: string)
@@ -248,7 +248,9 @@ local function test_extract_strips_by_a_whole_float(tmp: string)
   local refusals: {Refusal} = { { count = float(1.5), says = "whole number" }, { count = -1, says = "negative" } }
   for _, refusal in ipairs(refusals) do
     local count, says = refusal.count, refusal.says
-    Test.raises(function() Archive.extract(archive, tmp .. "/bad", { strip_components = count }) end, says)
+    Test.raises(function()
+      local _, _ = Archive.extract(archive, tmp .. "/bad", { strip_components = count })
+    end, says)
     assert(not assert(Fs.status(tmp .. "/bad")).exists)
   end
 end
@@ -272,7 +274,7 @@ local function test_extract_refuses_an_absolute_entry_path(tmp: string)
   assert(tw:close())
   local dest = tmp .. "/out"
   local written, trouble = Archive.extract(archive, dest)
-  assert(written == nil and trouble:find("unsafe entry path", 1, true) ~= nil, trouble)
+  assert(written == nil and tostring(trouble):find("unsafe entry path", 1, true) ~= nil, trouble)
 end
 
 local function test_extract_refuses_a_dotdot_entry_path(tmp: string)
@@ -283,7 +285,7 @@ local function test_extract_refuses_a_dotdot_entry_path(tmp: string)
   assert(tw:close())
   local dest = tmp .. "/out"
   local written, trouble = Archive.extract(archive, dest)
-  assert(written == nil and trouble:find("unsafe entry path", 1, true) ~= nil, trouble)
+  assert(written == nil and tostring(trouble):find("unsafe entry path", 1, true) ~= nil, trouble)
   assert(not assert(Fs.status(tmp .. "/escaped.txt")).exists)
 end
 
@@ -295,7 +297,7 @@ local function test_extract_refuses_a_backslash_dotdot_entry_path(tmp: string)
   assert(tw:close())
   local dest = tmp .. "/out"
   local written, trouble = Archive.extract(archive, dest)
-  assert(written == nil and trouble:find("unsafe entry path", 1, true) ~= nil, trouble)
+  assert(written == nil and tostring(trouble):find("unsafe entry path", 1, true) ~= nil, trouble)
 end
 
 local function test_extract_refuses_a_drive_letter_entry_path(tmp: string)
@@ -306,7 +308,7 @@ local function test_extract_refuses_a_drive_letter_entry_path(tmp: string)
   assert(tw:close())
   local dest = tmp .. "/out"
   local written, trouble = Archive.extract(archive, dest)
-  assert(written == nil and trouble:find("unsafe entry path", 1, true) ~= nil, trouble)
+  assert(written == nil and tostring(trouble):find("unsafe entry path", 1, true) ~= nil, trouble)
 end
 
 local function test_extract_skips_symlinks_by_default_without_erroring(tmp: string)
@@ -327,7 +329,7 @@ local function test_extract_refuses_a_symlink_escaping_the_destination(tmp: stri
   assert(tw:close())
   local dest = tmp .. "/out"
   local written, trouble = Archive.extract(archive, dest, { links = "create" })
-  assert(written == nil and trouble:find("escaping the destination", 1, true) ~= nil, trouble)
+  assert(written == nil and tostring(trouble):find("escaping the destination", 1, true) ~= nil, trouble)
 end
 
 local function test_extract_refuses_a_backslash_symlink_target(tmp: string)
@@ -338,7 +340,7 @@ local function test_extract_refuses_a_backslash_symlink_target(tmp: string)
   assert(tw:close())
   local dest = tmp .. "/out"
   local written, trouble = Archive.extract(archive, dest, { links = "create" })
-  assert(written == nil and trouble:find("escaping the destination", 1, true) ~= nil, trouble)
+  assert(written == nil and tostring(trouble):find("escaping the destination", 1, true) ~= nil, trouble)
 end
 
 local function test_extract_creates_a_safe_symlink(tmp: string)
@@ -416,7 +418,7 @@ local function test_extract_refuses_a_symlink_chain_that_climbs_out(tmp: string)
   end)
   local dest = tmp .. "/work/dest"
   local written, trouble = Archive.extract(archive, dest, { links = "create" })
-  assert(written == nil and trouble:find("through a symlink", 1, true) ~= nil, trouble)
+  assert(written == nil and tostring(trouble):find("through a symlink", 1, true) ~= nil, trouble)
   assert(not assert(Fs.status(tmp .. "/work/pwned")).exists)
   assert(not assert(Fs.status(tmp .. "/work/a2")).exists)
 end
@@ -431,7 +433,7 @@ local function test_extract_refuses_a_symlink_placed_inside_another_symlink(tmp:
   end)
   local dest = tmp .. "/work/dest"
   local written, trouble = Archive.extract(archive, dest, { links = "create" })
-  assert(written == nil and trouble:find("through a symlink", 1, true) ~= nil, trouble)
+  assert(written == nil and tostring(trouble):find("through a symlink", 1, true) ~= nil, trouble)
   assert(not assert(Fs.status(tmp .. "/work/dest/a2")).exists)
 end
 
@@ -444,7 +446,7 @@ local function test_extract_refuses_a_directory_entry_later_replaced_by_a_symlin
   end)
   local dest = tmp .. "/work/dest"
   local written, trouble = Archive.extract(archive, dest, { links = "create" })
-  assert(written == nil and trouble:find("through a symlink", 1, true) ~= nil, trouble)
+  assert(written == nil and tostring(trouble):find("through a symlink", 1, true) ~= nil, trouble)
   assert(not assert(Fs.status(tmp .. "/work/pwned")).exists)
 end
 
@@ -470,7 +472,7 @@ local function test_extract_refuses_a_link_target_that_walks_through_another_lin
   end)
   local dest = tmp .. "/out"
   local written, trouble = Archive.extract(archive, dest, { links = "create" })
-  assert(written == nil and trouble:find("runs through another symlink", 1, true) ~= nil, trouble)
+  assert(written == nil and tostring(trouble):find("runs through another symlink", 1, true) ~= nil, trouble)
 end
 
 local function test_extract_refuses_a_link_target_through_a_missing_directory(tmp: string)
@@ -482,7 +484,7 @@ local function test_extract_refuses_a_link_target_through_a_missing_directory(tm
     assert(tw:add_symlink("B", "."))
   end)
   local written, trouble = Archive.extract(archive, tmp .. "/out", { links = "create" })
-  assert(written == nil and trouble:find("runs through another symlink or a missing directory", 1,
+  assert(written == nil and tostring(trouble):find("runs through another symlink or a missing directory", 1,
     true) ~= nil, trouble)
   assert(link_of(tmp .. "/out/x") == nil)
 end
@@ -513,7 +515,7 @@ local function test_extract_refuses_to_write_through_a_symlink_already_in_dest(t
   assert(Fs.mkdirs(tmp .. "/elsewhere"))
   assert(Fs.symlink(tmp .. "/elsewhere", dest .. "/sub"))
   local written, trouble = Archive.extract(archive, dest)
-  assert(written == nil and trouble:find("through a symlink", 1, true) ~= nil, trouble)
+  assert(written == nil and tostring(trouble):find("through a symlink", 1, true) ~= nil, trouble)
   assert(not assert(Fs.status(tmp .. "/elsewhere/f")).exists)
 end
 
@@ -549,14 +551,14 @@ local function test_extract_refuses_a_nul_byte_in_a_pax_link_target(tmp: string)
   local archive = tmp .. "/nul.tar"
   assert(Fs.write(archive, nul_pax_tar("linkpath", "2", "l")))
   local written, trouble = Archive.extract(archive, tmp .. "/out", { links = "create" })
-  assert(written == nil and trouble:find("NUL", 1, true) ~= nil, trouble)
+  assert(written == nil and tostring(trouble):find("NUL", 1, true) ~= nil, trouble)
 end
 
 local function test_extract_refuses_a_nul_byte_in_a_pax_path(tmp: string)
   local archive = tmp .. "/nul.tar"
   assert(Fs.write(archive, nul_pax_tar("path", "0", "f")))
   local written, trouble = Archive.extract(archive, tmp .. "/out")
-  assert(written == nil and trouble:find("NUL", 1, true) ~= nil, trouble)
+  assert(written == nil and tostring(trouble):find("NUL", 1, true) ~= nil, trouble)
 end
 
 local function test_extract_never_commits_a_file_that_fails_its_crc(tmp: string)
@@ -572,7 +574,7 @@ local function test_extract_never_commits_a_file_that_fails_its_crc(tmp: string)
   assert(Fs.mkdirs(dest))
   assert(Fs.write(dest .. "/f.txt", "ORIGINAL"))
   local written, trouble = Archive.extract(archive, dest)
-  assert(written == nil and trouble:find("crc32", 1, true) ~= nil, trouble)
+  assert(written == nil and tostring(trouble):find("crc32", 1, true) ~= nil, trouble)
   assert(assert(Fs.read(dest .. "/f.txt")) == "ORIGINAL")
   local left = assert(Fs.list(dest))
   assert(#left == 1, table.concat(left, ","))
@@ -590,9 +592,9 @@ local function test_extract_fails_on_a_truncated_compressed_tar(tmp: string)
   -- drop the gzip trailer: every tar block is still there
   assert(Fs.write(archive, whole:sub(1, #whole - 8)))
   local written, trouble = Archive.extract(archive, tmp .. "/out")
-  assert(written == nil and trouble:find("truncated", 1, true) ~= nil, trouble)
+  assert(written == nil and tostring(trouble):find("truncated", 1, true) ~= nil, trouble)
   local listed, ltrouble = Archive.list(archive)
-  assert(listed == nil and ltrouble ~= "")
+  assert(listed == nil and ltrouble.message ~= "", tostring(ltrouble))
   -- the whole one is fine
   assert(Fs.write(archive, whole))
   assert(Archive.extract(archive, tmp .. "/out2"))
@@ -615,7 +617,7 @@ local function test_extract_fails_on_a_hardlink(tmp: string)
   block = block:sub(1, 148) .. string.format("%06o", sum) .. "\0 " .. block:sub(157)
   assert(Fs.write(archive, raw:sub(1, 1024) .. block .. raw:sub(1537)))
   local written, trouble = Archive.extract(archive, tmp .. "/out")
-  assert(written == nil and trouble:find("h: unsupported entry kind 'hardlink'", 1, true) ~= nil,
+  assert(written == nil and tostring(trouble):find("h: unsupported entry kind 'hardlink'", 1, true) ~= nil,
     trouble)
 end
 
@@ -659,12 +661,14 @@ local function test_extract_stops_at_max_entries(tmp: string)
     assert(tw:add_file("b", string.rep("b", 600)))
   end)
   local written, trouble = Archive.extract(archive, tmp .. "/o1", { max_entries = 1 })
-  assert(written == nil and trouble:find("more than 1 entry", 1, true) ~= nil, trouble)
+  assert(written == nil and tostring(trouble):find("more than 1 entry", 1, true) ~= nil, trouble)
   assert(not assert(Fs.status(tmp .. "/o1/b")).exists)
   assert(Archive.extract(archive, tmp .. "/o2", { max_entries = 2 }))
   assert(assert(Fs.read(tmp .. "/o2/b")) == string.rep("b", 600))
   -- A negative limit is a mistake, not a failure to report.
-  Test.raises(function() Archive.extract(archive, tmp .. "/o3", { max_entries = -1 }) end)
+  Test.raises(function()
+    local _, _ = Archive.extract(archive, tmp .. "/o3", { max_entries = -1 })
+  end)
 end
 
 --- A tar of one file `name` whose header claims `claimed` bytes and
@@ -709,13 +713,13 @@ local function test_max_entry_bytes_bounds_the_decoded_output_of_a_zstd_zip_entr
   local dest = tmp .. "/out"
   local written, why = Archive.extract(archive, dest, { max_entry_bytes = 4096 })
   assert(written == nil, "extracted a bomb")
-  assert(why:find("archive: big is larger than max_entry_bytes (4096 bytes)", 1, true), why)
+  assert(tostring(why):find("archive: big is larger than max_entry_bytes (4096 bytes)", 1, true), why)
   holds_only(dest, {})
   -- An entry whose decoded size is within the limit is extracted.
   assert(Archive.extract(archive, tmp .. "/at", { max_entry_bytes = #big }))
   assert(assert(Fs.read(tmp .. "/at/big")) == big)
   written, why = Archive.extract(archive, tmp .. "/over", { max_entry_bytes = #big - 1 })
-  assert(written == nil and why:find("max_entry_bytes (4194303 bytes)", 1, true) ~= nil, tostring(why))
+  assert(written == nil and tostring(why):find("max_entry_bytes (4194303 bytes)", 1, true) ~= nil, tostring(why))
   holds_only(tmp .. "/over", {})
 end
 
@@ -726,10 +730,10 @@ local function test_extract_refuses_a_zip_bomb_and_leaves_no_file(tmp: string)
   local dest = tmp .. "/out"
   local written, why = Archive.extract(archive, dest, { max_entry_bytes = 4096 })
   assert(written == nil, "extracted a bomb")
-  assert(why:find("archive: big is larger than max_entry_bytes (4096 bytes)", 1, true), why)
+  assert(tostring(why):find("archive: big is larger than max_entry_bytes (4096 bytes)", 1, true), why)
   holds_only(dest, {})
   written, why = Archive.extract(archive, tmp .. "/out2", { max_bytes = 4096 })
-  assert(written == nil and why:find("max_bytes (4096 bytes)", 1, true) ~= nil and why:find("big", 1, true) ~= nil, why)
+  assert(written == nil and tostring(why):find("max_bytes (4096 bytes)", 1, true) ~= nil and tostring(why):find("big", 1, true) ~= nil, why)
   holds_only(tmp .. "/out2", {})
 end
 
@@ -738,12 +742,12 @@ local function test_extract_refuses_a_tar_claiming_four_gib_by_default(tmp: stri
   assert(Fs.write(archive, tar_claiming("huge", 1 << 32)))
   local written, why = Archive.extract(archive, tmp .. "/out")
   assert(written == nil, "extracted a claimed 4 GiB")
-  assert(why:find("archive: huge is larger than max_entry_bytes (1073741824 bytes)", 1, true), why)
+  assert(tostring(why):find("archive: huge is larger than max_entry_bytes (1073741824 bytes)", 1, true), why)
   holds_only(tmp .. "/out", {})
   -- The total is a limit of its own, whatever the per-entry one allows.
   written, why = Archive.extract(archive, tmp .. "/out2", { max_entry_bytes = math.maxinteger,
     max_bytes = 1 << 31 })
-  assert(written == nil and why:find("would write more than max_bytes (2147483648 bytes)", 1, true) ~= nil, why)
+  assert(written == nil and tostring(why):find("would write more than max_bytes (2147483648 bytes)", 1, true) ~= nil, why)
   holds_only(tmp .. "/out2", {})
 end
 
@@ -760,11 +764,11 @@ local function test_extract_refuses_a_tgz_bomb_and_leaves_no_file(tmp: string)
   assert(Fs.write(archive, c:result()))
   assert(#c:result() < 8192, "the bomb is not small")
   local written, why = Archive.extract(archive, tmp .. "/out", { max_entry_bytes = 4096 })
-  assert(written == nil and why:find("archive: big is larger than max_entry_bytes", 1, true) ~= nil, why)
+  assert(written == nil and tostring(why):find("archive: big is larger than max_entry_bytes", 1, true) ~= nil, why)
   -- The entry before it stays, as a failure partway leaves it.
   holds_only(tmp .. "/out", { "small" })
   written, why = Archive.extract(archive, tmp .. "/out2", { max_bytes = 100 })
-  assert(written == nil and why:find("max_bytes (100 bytes)", 1, true) ~= nil, why)
+  assert(written == nil and tostring(why):find("max_bytes (100 bytes)", 1, true) ~= nil, why)
   holds_only(tmp .. "/out2", { "small" })
 end
 
@@ -803,7 +807,7 @@ local function test_extract_counts_the_bytes_it_writes_not_the_size_a_header_rec
   end)
   local written, why = Archive.extract_reader(reader, tmp .. "/out", { max_entry_bytes = 1000 })
   assert(written == nil, "extracted a body that outgrew its header")
-  assert(why:find("grows is larger than max_entry_bytes (1000 bytes)", 1, true), why)
+  assert(tostring(why):find("grows is larger than max_entry_bytes (1000 bytes)", 1, true), why)
   -- A body that answers whatever it is asked is never asked for more than
   -- one byte past the limit.
   assert(sent <= 1001, "asked for " .. tostring(sent) .. " bytes")
@@ -821,11 +825,11 @@ local function test_extract_refusing_a_file_keeps_the_one_already_at_its_path(tm
   assert(Fs.mkdirs(dest))
   assert(Fs.write(dest .. "/a", "old"))
   local written, why = Archive.extract(archive, dest, { max_entry_bytes = 100 })
-  assert(written == nil and why:find("max_entry_bytes (100 bytes)", 1, true) ~= nil, tostring(why))
+  assert(written == nil and tostring(why):find("max_entry_bytes (100 bytes)", 1, true) ~= nil, tostring(why))
   assert(assert(Fs.read(dest .. "/a")) == "old")
   holds_only(dest, { "a" })
   written, why = Archive.extract(archive, dest, { max_bytes = 100 })
-  assert(written == nil and why:find("max_bytes (100 bytes)", 1, true) ~= nil, tostring(why))
+  assert(written == nil and tostring(why):find("max_bytes (100 bytes)", 1, true) ~= nil, tostring(why))
   assert(assert(Fs.read(dest .. "/a")) == "old")
   holds_only(dest, { "a" })
 end
@@ -838,7 +842,7 @@ local function test_extract_a_body_that_fails_to_read_leaves_no_file(tmp: string
     return nil, "disk on fire"
   end)
   local written, why = Archive.extract_reader(reader, tmp .. "/out", {})
-  assert(written == nil and why == "disk on fire", tostring(why))
+  assert(written == nil and tostring(why) == "disk on fire", tostring(why))
   assert(reads == 2)
   -- Neither the file nor the temporary it was staged in.
   holds_only(tmp .. "/out", {})
@@ -852,7 +856,7 @@ local function test_extract_caps_a_file_at_exactly_max_entry_bytes(tmp: string)
   assert(Archive.extract(archive, tmp .. "/at", { max_entry_bytes = 600 }))
   assert(assert(Fs.read(tmp .. "/at/a")) == string.rep("a", 600))
   local written, why = Archive.extract(archive, tmp .. "/over", { max_entry_bytes = 599 })
-  assert(written == nil and why:find("archive: a is larger than max_entry_bytes (599 bytes)", 1, true) ~= nil, why)
+  assert(written == nil and tostring(why):find("archive: a is larger than max_entry_bytes (599 bytes)", 1, true) ~= nil, why)
   holds_only(tmp .. "/over", {})
 end
 
@@ -866,13 +870,13 @@ local function test_extract_caps_all_the_files_at_exactly_max_bytes(tmp: string)
   assert(Archive.extract(archive, tmp .. "/at", { max_bytes = 1800 }))
   assert(assert(Fs.read(tmp .. "/at/c")) == string.rep("c", 600))
   local written, why = Archive.extract(archive, tmp .. "/over", { max_bytes = 1799 })
-  assert(written == nil and why:find("archive: extracting c would write more than max_bytes (1799 bytes)", 1, true) ~= nil, why)
+  assert(written == nil and tostring(why):find("archive: extracting c would write more than max_bytes (1799 bytes)", 1, true) ~= nil, why)
   -- Refused before the file that passes it, after those within it.
   holds_only(tmp .. "/over", { "a", "d" })
   assert(assert(Fs.read(tmp .. "/over/d/b")) == string.rep("b", 600))
   -- A cap of its own for each file does not add up to more than the total.
   written, why = Archive.extract(archive, tmp .. "/each", { max_entry_bytes = 600, max_bytes = 1200 })
-  assert(written == nil and why:find("max_bytes (1200 bytes)", 1, true) ~= nil, why)
+  assert(written == nil and tostring(why):find("max_bytes (1200 bytes)", 1, true) ~= nil, why)
 end
 
 local function test_extract_counts_only_the_files_it_writes(tmp: string)
@@ -894,7 +898,7 @@ local function test_extract_counts_only_the_files_it_writes(tmp: string)
   assert(Archive.extract(empty, tmp .. "/zero", { max_bytes = 0, max_entry_bytes = 0 }))
   assert(assert(Fs.read(tmp .. "/zero/zero")) == "")
   local none, why = Archive.extract(archive, tmp .. "/none", { max_bytes = 0 })
-  assert(none == nil and why:find("max_bytes (0 bytes)", 1, true) ~= nil, why)
+  assert(none == nil and tostring(why):find("max_bytes (0 bytes)", 1, true) ~= nil, why)
 end
 
 local function test_extract_limits_reach_extract_reader_and_can_be_lifted(tmp: string)
@@ -907,9 +911,9 @@ local function test_extract_limits_reach_extract_reader_and_can_be_lifted(tmp: s
     return (assert(Archive.open_stream(Stream.from_string(sink:result()))))
   end
   local written, why = Archive.extract_reader(open(), tmp .. "/o1", { max_entry_bytes = 1999 })
-  assert(written == nil and why:find("max_entry_bytes (1999 bytes)", 1, true) ~= nil, why)
+  assert(written == nil and tostring(why):find("max_entry_bytes (1999 bytes)", 1, true) ~= nil, why)
   written, why = Archive.extract_reader(open(), tmp .. "/o2", { max_bytes = 1999 })
-  assert(written == nil and why:find("max_bytes (1999 bytes)", 1, true) ~= nil, why)
+  assert(written == nil and tostring(why):find("max_bytes (1999 bytes)", 1, true) ~= nil, why)
   holds_only(tmp .. "/o2", {})
   -- The limit of a whole number held as a float, and the largest one.
   assert(Archive.extract_reader(open(), tmp .. "/o3", { max_bytes = float(2000.0) }))
@@ -930,7 +934,7 @@ local function test_extract_byte_limits_that_are_not_whole_numbers_of_bytes_rais
       local opts: Archive.ExtractOptions = {}
       if name == "max_bytes" then opts.max_bytes = value else opts.max_entry_bytes = value end
       local ok, why = pcall(function(): boolean
-        Archive.extract(archive, tmp .. "/o", opts)
+        local _, _ = Archive.extract(archive, tmp .. "/o", opts)
         return true
       end)
       assert(not ok, name .. " = " .. tostring(value) .. " was taken")
@@ -943,7 +947,7 @@ local function test_extract_byte_limits_that_are_not_whole_numbers_of_bytes_rais
   end
   local reader = assert(Archive.open(archive))
   local ok, why = pcall(function(): boolean
-    Archive.extract_reader(reader, tmp .. "/o", { max_bytes = -1 })
+    local _, _ = Archive.extract_reader(reader, tmp .. "/o", { max_bytes = -1 })
     return true
   end)
   assert(not ok and tostring(why):find("archive_test:%d+: archive: max_bytes is negative") ~= nil, tostring(why))
@@ -1020,7 +1024,7 @@ local function test_extract_refuses_a_write_under_a_checked_directory_once_a_sym
   end)
   local dest = tmp .. "/work/dest"
   local written, trouble = Archive.extract(archive, dest, { links = "create" })
-  assert(written == nil and trouble:find("through a symlink", 1, true) ~= nil, trouble)
+  assert(written == nil and tostring(trouble):find("through a symlink", 1, true) ~= nil, trouble)
   assert(not assert(Fs.status(tmp .. "/work/second")).exists)
 end
 
@@ -1075,9 +1079,11 @@ local function test_extract_reader_closes_the_reader_when_it_refuses(tmp: string
     end,
   }
   local written, why = Archive.extract_reader(counting, tmp .. "/dest")
-  assert(written == nil and why:find("unsafe entry path", 1, true) ~= nil, why)
+  assert(written == nil and tostring(why):find("unsafe entry path", 1, true) ~= nil, why)
   assert(closes == 1, "closed " .. tostring(closes) .. " times")
-  Test.raises(function() Archive.extract_reader(counting, tmp .. "/dest", { max_entries = -1 }) end)
+  Test.raises(function()
+    local _, _ = Archive.extract_reader(counting, tmp .. "/dest", { max_entries = -1 })
+  end)
 end
 
 local function test_extract_resolve_in_lets_a_link_target_pass_through_the_real_destination(tmp: string)
@@ -1089,8 +1095,10 @@ local function test_extract_resolve_in_lets_a_link_target_pass_through_the_real_
   -- Staged apart, `held` is nowhere: refused, unless the real
   -- destination it will be moved into holds it.
   local function unpack(stage: string, opts: Archive.ExtractOptions): {string}?, string
-    return Archive.extract_reader((assert(Archive.open_stream(Stream.from_string(bytes)))), stage,
+    local written, why = Archive.extract_reader((assert(Archive.open_stream(Stream.from_string(bytes)))), stage,
       opts)
+    if written == nil then return nil, tostring(why) end
+    return written, ""
   end
   local written, why = unpack(tmp .. "/s1", { links = "create" })
   assert(written == nil and why:find("missing directory", 1, true) ~= nil, why)
@@ -1108,11 +1116,11 @@ end
 --- A bad option is blamed on the caller's line, through either entry.
 local function test_extract_argument_errors_name_the_callers_line(tmp: string)
   local _, first = pcall(function(): boolean
-    Archive.extract(tmp .. "/none", tmp .. "/o1", { max_entries = -1 })
+    local _, _ = Archive.extract(tmp .. "/none", tmp .. "/o1", { max_entries = -1 })
     return true
   end)
   local _, second = pcall(function(): boolean
-    Archive.extract_reader({} as Archive.Reader, tmp .. "/o2", { strip_components = -1 }) -- checked: cast_refused, literal_needs_type
+    local _, _ = Archive.extract_reader({} as Archive.Reader, tmp .. "/o2", { strip_components = -1 }) -- checked: cast_refused, literal_needs_type
     return true
   end)
   for _, why in ipairs({ tostring(first), tostring(second) }) do
@@ -1207,7 +1215,7 @@ local function test_list_reader_lists_a_reader_to_its_end_and_closes_it()
   local cut = sink:result():sub(1, 700)
   local listed, trouble = Archive.list_reader(counting(
     assert(Archive.open_stream(Stream.from_string(cut))), closes))
-  assert(listed == nil and trouble ~= "", tostring(trouble))
+  assert(listed == nil and trouble.message ~= "", tostring(trouble))
   assert(closes.count == 1, "closed " .. tostring(closes.count) .. " times")
 end
 
@@ -1233,7 +1241,7 @@ local function test_create_writes_the_format_its_name_asks_for_and_open_reads_it
   local formats: {string:string} = { gzip = "tar.gz", zstd = "tar.zst", xz = "tar.xz", bzip2 = "tar.bz2" }
   for name, format in pairs(named) do
     local path = tmp .. "/" .. name
-    assert(Archive.format_of(path) == (formats[format] or format), name)
+    assert(assert(Archive.format_of(path)) == (formats[format] or format), name)
     pack((assert(Archive.create(path))))
     assert(sniffed(path) == format, name .. ": " .. sniffed(path))
     local r = assert(Archive.open(path))
@@ -1317,10 +1325,10 @@ local function test_create_refuses_a_name_it_cannot_write_and_creates_nothing(tm
   }
   for name, says in pairs(cases) do
     local format, format_why = Archive.format_of(name)
-    assert(format == nil and format_why:find(says, 1, true) ~= nil, format_why)
+    assert(format == nil and tostring(format_why):find(says, 1, true) ~= nil, format_why)
     local w, why = Archive.create(dir .. "/" .. name)
     assert(w == nil, name)
-    assert(why:find("^archive: ") and why:find(name, 1, true) and why:find(says, 1, true), why)
+    assert(tostring(why):find("^archive: ") and tostring(why):find(name, 1, true) and tostring(why):find(says, 1, true), why)
   end
   local left = assert(Fs.list(dir))
   assert(#left == 0, table.concat(left, ","))

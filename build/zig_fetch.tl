@@ -271,7 +271,7 @@ local function unpack(work: string, version: string, host: string,
   end
   local written, xtrouble = Archive.extract(archive, work)
   if written == nil then
-    return nil, archive .. ": " .. xtrouble
+    return nil, archive .. ": " .. tostring(xtrouble)
   end
   local extracted = work .. "/zig-" .. host .. "-" .. version
   local has_zig_status, look_trouble = Fs.status(extracted .. "/zig")

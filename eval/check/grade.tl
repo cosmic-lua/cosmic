@@ -1832,11 +1832,12 @@ end
 --- directory, its format chosen by the name; with `dirs`, with an
 --- entry for each directory too.
 local function packed(g: Grade, site: Site, name: string, dirs: boolean): boolean
-  local writer, trouble = Archive.create(g.empty .. "/" .. name)
+  local writer, refused = Archive.create(g.empty .. "/" .. name)
   if writer == nil then
-    fail(g, "could not write " .. name .. ": " .. trouble)
+    fail(g, "could not write " .. name .. ": " .. tostring(refused))
     return false
   end
+  local trouble = ""
   local paths: mut {string} = {}
   for path in pairs(site.files) do paths[#paths + 1] = path end
   table.sort(paths)
