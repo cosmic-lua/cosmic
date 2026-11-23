@@ -181,6 +181,21 @@ function Grant.address(text: string): {integer}?
   return parse4(text)
 end
 
+--- The four bytes of the IPv4 address an IPv4-mapped IPv6 address
+--- (::ffff:0:0/96) carries, or the table `bytes` itself for any other address.
+---
+---     local bytes = assert(Grant.address("::ffff:192.0.2.7"))
+---     print(table.concat(Grant.unmapped(bytes), ".")) -- 192.0.2.7
+--- @param bytes {integer} An address's 4 or 16 bytes
+--- @return {integer} The bytes, unmapped
+function Grant.unmapped(bytes: {integer}): {integer}
+  if #bytes ~= 16 or bytes[11] ~= 0xff or bytes[12] ~= 0xff then return bytes end
+  for i = 1, 10 do
+    if bytes[i] ~= 0 then return bytes end
+  end
+  return { bytes[13], bytes[14], bytes[15], bytes[16] }
+end
+
 --- The 16 `bytes` of an IPv6 address in RFC 5952's form: lower-case hex
 --- groups without leading zeros, the longest run of two or more zero groups
 --- (the first, on a tie) as "::".

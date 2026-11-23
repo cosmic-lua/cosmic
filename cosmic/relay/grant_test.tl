@@ -107,3 +107,19 @@ local function test_ipv6_hosts_round_trip_through_both_readers()
   assert(head.status == "done" and head.host == target.host)
   assert(Address.granted("2001:db8::1", 443, { "[2001:DB8:0:0:0:0:0:1]:*" }))
 end
+
+local function test_unmapped_reduces_only_an_ipv4_mapped_address()
+  local function unmapped(text: string): string
+    local bytes = Grant.unmapped(assert(Grant.address(text)))
+    if #bytes == 4 then return table.concat(bytes, ".") end
+    return Grant.ipv6_text(bytes)
+  end
+  assert(unmapped("::ffff:192.0.2.7") == "192.0.2.7")
+  assert(unmapped("::FFFF:c000:0207") == "192.0.2.7")
+  assert(unmapped("192.0.2.7") == "192.0.2.7")
+  -- The IPv4-compatible form, and a mapped prefix with any other bit set, are IPv6 addresses.
+  assert(unmapped("::192.0.2.7") == "::c000:207")
+  assert(unmapped("1::ffff:192.0.2.7") == "1::ffff:c000:207")
+  assert(unmapped("::1:ffff:192.0.2.7") == "::1:ffff:c000:207")
+  assert(unmapped("::fffe:192.0.2.7") == "::fffe:c000:207")
+end
