@@ -169,8 +169,11 @@ local function test_no_finalizer_runs_inside_a_parser_call()
     arm()
   ]], "finalizer", "t"))
   local seen: mut {string} = {}
+  -- The input is built before the finalizer is armed: building it after
+  -- could run a collection, and the finalizer, before the call.
+  local input = "<r>" .. string.rep("<i>t</i>", 20000)
   chunk(p, seen)
-  local events = assert(p:feed("<r>" .. string.rep("<i>t</i>", 20000)))
+  local events = assert(p:feed(input))
   assert(#seen == 0, "a finalizer ran during the call")
   assert(#events > 0)
   collectgarbage()
