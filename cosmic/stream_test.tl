@@ -195,7 +195,7 @@ local function test_create_renames_into_place_only_on_close(tmp: string)
   assert(w:write("first "))
   assert(w:write("second"))
   -- nothing at the destination until close
-  assert(Fs.exists(path) == false)
+  assert(not assert(Fs.status(path)).exists)
   assert(w:close())
   assert(assert(Fs.read(path)) == "first second")
 end
@@ -213,7 +213,7 @@ local function test_create_leaves_no_temp_file_when_write_fails(tmp: string)
   assert(not ok and why == path .. ": injected failure", why)
   local closed, trouble = w:close()
   assert(not closed and trouble == why, trouble)
-  assert(Fs.exists(path) == false)
+  assert(not assert(Fs.status(path)).exists)
   local left = assert(Fs.list(tmp))
   assert(#left == 0, table.concat(left, ","))
 end
@@ -431,7 +431,7 @@ local function test_create_syncs_before_it_closes(tmp: string)
   local w = assert(Stream.create(path))
   assert(w:write("kept"))
   assert(w:sync())
-  assert(Fs.exists(path) == false)
+  assert(not assert(Fs.status(path)).exists)
   assert(w:close())
   assert(assert(Fs.read(path)) == "kept")
   local missing = tmp .. "/missing/target"
@@ -445,7 +445,7 @@ local function test_create_abort_leaves_neither_the_file_nor_a_temporary(tmp: st
   assert(w:write("partial"))
   assert(w:abort())
   assert(w:close()) -- a close after abort commits nothing
-  assert(Fs.exists(path) == false)
+  assert(not assert(Fs.status(path)).exists)
   local left = assert(Fs.list(tmp))
   assert(#left == 0, table.concat(left, ","))
 end
@@ -522,7 +522,7 @@ local function test_transform_writer_aborts_its_writer_when_the_codec_fails_to_f
   assert(w:write("data"))
   local ok, trouble = w:close()
   assert(not ok and trouble:find("injected", 1, true) ~= nil, trouble)
-  assert(Fs.exists(path) == false)
+  assert(not assert(Fs.status(path)).exists)
   local left = assert(Fs.list(tmp))
   assert(#left == 0, table.concat(left, ","))
 end

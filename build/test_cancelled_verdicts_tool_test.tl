@@ -87,7 +87,7 @@ local function test_d_unstarted() assert(true) end
   local handle <close> = assert(Child.start(start.argv, start.options))
   assert(Fs.close(fd))
   local deadline = Clock.monotonic_ns() + Clock.seconds(20)
-  while Fs.exists(marker) ~= true do
+  while not assert(Fs.status(marker)).exists do
     assert(Clock.monotonic_ns() < deadline, assert(Fs.read(output)))
     local done = Child.wait_any({ handle }, Clock.ms(10))
     assert(done == nil, assert(Fs.read(output)))

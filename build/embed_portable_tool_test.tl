@@ -96,7 +96,7 @@ local function test_build_writes_the_portable_programs_under_a_path(tmp: string)
   assert(built.code == 0, built.stdout .. built.stderr)
   local bin = build_dir(tmp) .. "/bin"
   assert(built.stdout == bin .. "/bye\n", built.stdout)
-  assert(Fs.exists(bin .. "/hello") ~= true, "a program outside the path was written")
+  assert(not assert(Fs.status(bin .. "/hello")).exists, "a program outside the path was written")
   assert(String.starts_with(assert(Fs.read(bin .. "/bye")), "#!/bin/sh\n"))
 end
 

@@ -1372,7 +1372,8 @@ local function tree_note(rec: Recording, job: Job, message: string): string
   for _, said in ipairs(test_report.missing_relative_paths(message)) do
     local path = said
     while path:sub(1, 2) == "./" do path = path:sub(3) end
-    local there, _ = Fs.exists(rec.root .. "/" .. path)
+    local there_status, _ = Fs.status(rec.root .. "/" .. path)
+    local there = there_status ~= nil and there_status.exists
     if path ~= "" and not in_sandbox(effective, path) and there == true then
       local hint = test_report.tree_hint(path)
       lines[#lines + 1] = "\n  " .. hint

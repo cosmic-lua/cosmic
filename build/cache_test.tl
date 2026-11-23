@@ -80,7 +80,7 @@ local function test_equal_cutoff_is_kept_and_fresh_counts_only_compiles(tmp: str
   assert(count(old, "compiled_v2") == 1, "the snapshot belongs to the caller")
   local absent = trim(path, "compiles", 5, tmp .. "/absent.db")
   assert(absent.complete and absent.report.fresh == 2)
-  assert(Fs.exists(tmp .. "/absent.db") ~= true)
+  assert(not assert(Fs.status(tmp .. "/absent.db")).exists)
 end
 
 local function test_verdicts_keep_unreached_then_trim_all_supported_tables(tmp: string)
@@ -147,7 +147,7 @@ local function test_missing_and_unreadable_active_files_are_never_created_or_rem
   local missing = tmp .. "/missing/absent.db"
   local result = trim(missing, "compiles", 5)
   assert(result.complete and support.nth(result.report.files, 1).state == "missing" and result.report.digest == nil)
-  assert(Fs.exists(tmp .. "/missing") ~= true)
+  assert(not assert(Fs.status(tmp .. "/missing")).exists)
   local path = tmp .. "/cache.db"
   assert(Fs.write(path, "not a SQLite database"))
   result = trim(path, "compiles", 5)
@@ -166,7 +166,7 @@ local function test_only_exact_retired_basename_siblings_are_removed(tmp: string
   assert(Fs.write(other, "other"))
   local result = trim(path, "compiles", 5)
   assert(result.complete and #support.nth(result.report.files, 1).removed_set_aside == #retired)
-  for _, suffix in ipairs(retired) do assert(Fs.exists(path .. suffix) ~= true) end
+  for _, suffix in ipairs(retired) do assert(not assert(Fs.status(path .. suffix)).exists) end
   for _, suffix in ipairs(kept) do assert(assert(Fs.read(path .. suffix)) == "unowned") end
   assert(assert(Fs.read(other)) == "other")
 end
@@ -227,7 +227,7 @@ local function test_retired_file_disappearance_before_inspection_is_harmless(tmp
   Fs.list = original -- checked: field_fixed
   assert(ok and result.complete and support.nth(result.report.files, 1).state == "missing")
   assert(#support.nth(result.report.files, 1).removed_set_aside == 0)
-  assert(Fs.exists(retired) ~= true)
+  assert(not assert(Fs.status(retired)).exists)
 end
 
 local function test_failed_retired_file_inspection_withholds_save_digest(tmp: string)
@@ -352,7 +352,7 @@ local function test_disappearance_before_open_does_not_recreate_database(tmp: st
   local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
   Sqlite.open = original -- checked: field_fixed
   assert(ok and not result.complete and result.report.digest == nil)
-  assert(Fs.exists(path) ~= true)
+  assert(not assert(Fs.status(path)).exists)
 end
 
 local function test_busy_checkpoint_row_suppresses_save_digest(tmp: string)

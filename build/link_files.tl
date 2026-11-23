@@ -46,7 +46,8 @@ function link_files.skipper(dir: string): function(string): boolean
   local function checkout(path: string): boolean
     local known = checkouts[path]
     if known == nil then
-      local there, _ = Fs.exists(dir .. "/" .. path .. "/.git")
+      local there_status, _ = Fs.status(dir .. "/" .. path .. "/.git")
+      local there = there_status ~= nil and there_status.exists
       known = there == true
       checkouts[path] = known
     end

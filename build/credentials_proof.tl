@@ -19,8 +19,7 @@ local function identity(): string
 end
 
 local function exists(path: string): boolean
-  local found, trouble = Fs.exists(path)
-  assert(found ~= nil, trouble)
+  local found = assert(Fs.status(path)).exists
   return found
 end
 

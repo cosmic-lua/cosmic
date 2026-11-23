@@ -113,7 +113,7 @@ function Example.rmdir()
   assert(not ok and errno == sys.ENOTEMPTY, tostring(errno))
   assert(Fs.remove(path))
   assert(sys.rmdir(dir))
-  print(Fs.is_dir(dir))
+  print(assert(Fs.status(dir)).is_dir)
 end
 
 --- An explicit request for Darwin's device-cache flush. Unsupported

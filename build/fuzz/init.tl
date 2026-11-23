@@ -310,10 +310,11 @@ end
 --- first, as a drawn input is. Returns how many were checked.
 local function check_corpus(p: Fuzz.Property, budget: integer, kept: string?): integer
   local dir = corpus_of(p)
-  local there, trouble = Fs.exists(dir)
-  if there == false then return 0 end
+  local there, look_trouble = Fs.status(dir)
+  local trouble = if there == nil then tostring(look_trouble) else "" end
+  if there ~= nil and not there.exists then return 0 end
   local names: {string}?
-  if there == true then
+  if there ~= nil then
     local listed, why = Fs.list(dir)
     names = listed
     if listed == nil then trouble = tostring(why) end

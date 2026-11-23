@@ -938,7 +938,8 @@ function fix.link_context(root: string, whole: boolean, own: boolean,
   end
   local function unbuilt(): string?
     if own then return nil end
-    local built_before, _ = Fs.exists(build_paths.resolve(root).projection)
+    local built_before_status, _ = Fs.status(build_paths.resolve(root).projection)
+    local built_before = built_before_status ~= nil and built_before_status.exists
     if built_before == true then return nil end
     return "the project has no projection yet (`cosmic build`, `cosmic test` or `cosmic fix` makes one)"
   end

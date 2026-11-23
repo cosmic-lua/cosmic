@@ -16,6 +16,17 @@ local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 
+--- Whether anything is at `path`, false where it or a parent is missing,
+--- nil and why where it cannot be looked at. This file runs on the
+--- bootstrap release too, whose cosmic.fs has no status call yet, so it
+--- asks [`sys.stat`], which both have.
+local function path_there(path: string): boolean?, string
+  local st, why, errno = sys.stat(path)
+  if st ~= nil then return true, "" end
+  if errno == sys.ENOENT or errno == sys.ENOTDIR then return false, "" end
+  return nil, path .. ": " .. why
+end
+
 local record Perf
   record Interval
     low: number?
@@ -500,6 +511,7 @@ local J = require("cosmic.json")
 local H = require("cosmic.hash")
 local S = require("cosmic.store")
 local Sqlite = require("cosmic.sqlite")
+
 local c = assert(A.trusted_core())
 local basis = S.meta("runtime_basis") or ""
 local boot = S.meta("boot_hash") or ""
@@ -691,7 +703,7 @@ local function experiment(argv: {string}, count: integer, probes: integer, progr
   end
   assert(#selected > 0, "unknown workload: " .. (argv[5] or ""))
   local given_output = assert(argv[3], "missing output directory")
-  local exists, exists_trouble = Fs.exists(given_output)
+  local exists, exists_trouble = path_there(given_output)
   assert(exists ~= nil, exists_trouble)
   assert(not exists, "output directory must not already exist")
   assert(Fs.mkdirs(given_output))
@@ -752,7 +764,7 @@ local function experiment(argv: {string}, count: integer, probes: integer, progr
   assert(rawequal(afacts["target"], bfacts["target"]) and
       rawequal(afacts["configuration"], bfacts["configuration"]),
     "baseline and candidate must use the same target/configuration")
-  local has_true, _ = Fs.exists("/usr/bin/true")
+  local has_true, _ = path_there("/usr/bin/true")
   if has_true == true then
     local supervisor: mut {number} = {}
     for _ = 1, probes do

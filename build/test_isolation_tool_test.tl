@@ -58,7 +58,7 @@ local sys = require("cosmic.sys")
 
 local function await(path: string, seconds: integer)
   local deadline = Clock.monotonic_ns() + seconds * 1000 * 1000 * 1000
-  while Fs.exists(path) ~= true do
+  while not assert(Fs.status(path)).exists do
     assert(Clock.monotonic_ns() < deadline, "waited for " .. path)
     local _, _ = sys.nanosleep(5 * 1000 * 1000)
   end
@@ -98,7 +98,7 @@ end
   local result = invoke(root, output, { "--jobs", "2" })
   local text = assert(Fs.read(output))
   assert(result.ok, text)
-  assert(Fs.exists(shared .. "/done") == true, text)
+  assert(assert(Fs.status(shared .. "/done")).exists, text)
 end
 
 local function test_limits_must_be_positive_whole_numbers(tmp: string)
@@ -195,7 +195,7 @@ local function test_second(tmp: string) hold(tmp, "second") end
   assert(Fs.close(fd))
   local handle <close> = assert(runner, trouble)
   local deadline = Clock.monotonic_ns() + Clock.seconds(30)
-  while not (Fs.exists(marks .. "/first") == true and Fs.exists(marks .. "/second") == true) do
+  while not (assert(Fs.status(marks .. "/first")).exists and assert(Fs.status(marks .. "/second")).exists) do
     assert(Clock.monotonic_ns() < deadline, assert(Fs.read(output)))
     -- Leaves the runner running, as a timed `wait` would not.
     local done, _ = Child.wait_any({ handle }, Clock.ms(50))
@@ -252,7 +252,7 @@ end
   assert(Fs.close(fd))
   local handle <close> = assert(runner, trouble)
   local deadline = Clock.monotonic_ns() + Clock.seconds(20)
-  while Fs.exists(marks .. "/held") ~= true do
+  while not assert(Fs.status(marks .. "/held")).exists do
     assert(Clock.monotonic_ns() < deadline, assert(Fs.read(output)))
     local done, _ = Child.wait_any({ handle }, Clock.ms(50))
     assert(done == nil, "the runner ended before its tests started\n" .. assert(Fs.read(output)))

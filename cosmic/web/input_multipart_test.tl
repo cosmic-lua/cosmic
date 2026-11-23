@@ -124,7 +124,7 @@ local function test_text_and_file_parts_are_read_and_the_file_is_spooled(tmp: st
   assert(stat_mode == 384, "mode 0600")
   assert(read.size > 100)
   assert(#assert(Fs.list(tmp)) == 0, "removed when the request ended")
-  assert(Fs.exists(up.path) == false)
+  assert(not assert(Fs.status(up.path)).exists)
 end
 
 local function test_without_a_dir_a_private_directory_is_made_and_removed()
@@ -132,14 +132,14 @@ local function test_without_a_dir_a_private_directory_is_made_and_removed()
   post(body_of(file("f", "a.txt", "hello")), function(req: Web.Request): Web.Response
     local up = upload(assert(Input.multipart(req).value), "f")
     where = up.path
-    assert(Fs.exists(up.path) == true)
+    assert(assert(Fs.status(up.path)).exists)
     return Web.empty()
   end)
   local made = assert(where, "the handler never ran")
   assert(made:find("cosmic%-upload%-") ~= nil, made)
-  assert(Fs.exists(made) == false)
+  assert(not assert(Fs.status(made)).exists)
   local dir = assert(made:match("^(.*)/[^/]+$"))
-  assert(Fs.exists(dir) == false, "the directory went with its files")
+  assert(not assert(Fs.status(dir)).exists, "the directory went with its files")
 end
 
 local function test_a_handler_that_keeps_a_file_moves_it(tmp: string)

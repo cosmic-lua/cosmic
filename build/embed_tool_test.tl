@@ -1178,13 +1178,13 @@ local function test_build_of_a_tree_that_does_not_compile_exits_4(tmp: string)
   local hello = support.build_dir(tmp) .. "/bin/hello"
   assert(built.code == 4 and built.stdout == hello .. "\n" and built.stderr:find("bad.tl", 1, true) ~= nil,
     tostring(built.code) .. built.stdout .. built.stderr)
-  assert(Fs.exists(hello) == true)
+  assert(assert(Fs.status(hello)).exists)
   assert(Fs.remove(tmp .. "/bad.tl"))
   assert(Fs.write(tmp .. "/ping.tl", 'local pong = require("pong")\nreturn pong\n'))
   assert(Fs.write(tmp .. "/pong.tl", 'local ping = require("ping")\nreturn ping\n'))
   local cycle = invoke.run({ "build", "--host" }, { cwd = tmp, env = env })
   assert(cycle.code == 4 and cycle.stdout == "", tostring(cycle.code) .. cycle.stdout .. cycle.stderr)
-  assert(Fs.exists(hello) == false, "the earlier executable stood after a tree that cannot be ordered")
+  assert(not assert(Fs.status(hello)).exists, "the earlier executable stood after a tree that cannot be ordered")
 end
 
 --- `cosmic build --roots` takes minimal or mozilla, and refuses anything
@@ -1239,7 +1239,7 @@ local function test_a_broken_test_file_leaves_the_programs_built_and_exits_4(tmp
   assert(built.code == 4, tostring(built.code) .. built.stdout .. built.stderr)
   assert(built.stdout == bin .. "/one\n" .. bin .. "/two\n", built.stdout)
   assert(built.stderr:find("shared_test.tl", 1, true) ~= nil, built.stderr)
-  assert(Fs.exists(bin .. "/one") == true and Fs.exists(bin .. "/two") == true, "a program was not written")
+  assert(assert(Fs.status(bin .. "/one")).exists and assert(Fs.status(bin .. "/two")).exists, "a program was not written")
 end
 
 --- A program the checker refuses is not written, and the executable an earlier build left for it is removed, in the build
@@ -1250,14 +1250,14 @@ local function test_a_broken_program_is_removed_and_the_other_built(tmp: string)
   local first = invoke.run({ "build", "--host", "--out", out }, { cwd = tmp, env = build_env() })
   assert(first.code == 0, first.stdout .. first.stderr)
   local bin = support.build_dir(tmp) .. "/bin"
-  assert(Fs.exists(bin .. "/two") == true and Fs.exists(out .. "/two") == true)
+  assert(assert(Fs.status(bin .. "/two")).exists and assert(Fs.status(out .. "/two")).exists)
   assert(Fs.write(tmp .. "/cmd/two/main.tl", 'local n: integer = "x"\nreturn function(): integer return n end\n'))
   local built = invoke.run({ "build", "--host", "--out", out }, { cwd = tmp, env = build_env() })
   assert(built.code == 4, tostring(built.code) .. built.stdout .. built.stderr)
   assert(built.stdout == bin .. "/one\n", built.stdout)
-  assert(Fs.exists(bin .. "/one") == true and Fs.exists(out .. "/one") == true, "the other program was not built")
-  assert(Fs.exists(bin .. "/two") == false, "the old executable was left in the build directory")
-  assert(Fs.exists(out .. "/two") == false, "the old executable was left in --out")
+  assert(assert(Fs.status(bin .. "/one")).exists and assert(Fs.status(out .. "/one")).exists, "the other program was not built")
+  assert(not assert(Fs.status(bin .. "/two")).exists, "the old executable was left in the build directory")
+  assert(not assert(Fs.status(out .. "/two")).exists, "the old executable was left in --out")
   assert(built.stderr:find("cmd/two/main.tl", 1, true) ~= nil, built.stderr)
   assert(built.stderr:find("removed", 1, true) ~= nil and built.stderr:find(bin .. "/two", 1, true) ~= nil, built.stderr)
 end
@@ -1271,7 +1271,7 @@ local function test_a_broken_module_refuses_only_the_programs_that_need_it(tmp: 
   local bin = support.build_dir(tmp) .. "/bin"
   assert(built.code == 4, tostring(built.code) .. built.stdout .. built.stderr)
   assert(built.stdout == bin .. "/one\n", built.stdout)
-  assert(Fs.exists(bin .. "/two") == false)
+  assert(not assert(Fs.status(bin .. "/two")).exists)
   assert(built.stderr:find("shared.tl", 1, true) ~= nil and built.stderr:find("two", 1, true) ~= nil, built.stderr)
 end
 
@@ -1303,7 +1303,7 @@ local function test_out_that_is_no_directory_is_refused(tmp: string)
   assert(built.stdout == "", built.stdout)
   local under = invoke.run({ "build", "--host", "--out", tmp .. "/afile/sub" }, { cwd = tmp, env = build_env() })
   assert(under.code == 2 and under.stderr:find("--out", 1, true) ~= nil, tostring(under.code) .. under.stderr)
-  assert(Fs.exists(support.build_dir(tmp) .. "/bin/one") ~= true, "a program was built for a refused --out")
+  assert(not assert(Fs.status(support.build_dir(tmp) .. "/bin/one")).exists, "a program was built for a refused --out")
 end
 
 --- A test that requires a module private to a directory breaks a position rule, and that refuses the test alone: both
@@ -1326,7 +1326,7 @@ local function test_a_position_violation_refuses_only_the_module_that_breaks_it(
     'local hidden = require("lib.hidden")\nreturn function(): integer return hidden == nil and 1 or 0 end\n'))
   local refused = invoke.run({ "build", "--host" }, { cwd = tmp, env = build_env() })
   assert(refused.code == 4 and refused.stdout == bin .. "/one\n", tostring(refused.code) .. refused.stdout .. refused.stderr)
-  assert(Fs.exists(bin .. "/two") == false, "the refused program's earlier executable stood")
+  assert(not assert(Fs.status(bin .. "/two")).exists, "the refused program's earlier executable stood")
 end
 
 --- A `global` in a module refuses that module alone.
@@ -1363,12 +1363,12 @@ local function test_out_removes_only_what_the_build_wrote_and_makes_no_empty_dir
   assert(built.code == 4, tostring(built.code) .. built.stderr)
   assert(assert(Fs.read(tmp .. "/dist/two")) == "the user's own file", "a file cosmic did not write was removed")
   assert(built.stderr:find("not a file this build wrote", 1, true) ~= nil, built.stderr)
-  assert(Fs.exists(tmp .. "/dist/one") == true)
+  assert(assert(Fs.status(tmp .. "/dist/one")).exists)
   -- Nothing built, nothing made.
   assert(Fs.write(tmp .. "/cmd/one/main.tl", 'local n: integer = "x"\nreturn function(): integer return n end\n'))
   local none = invoke.run({ "build", "--host", "--out", "fresh/sub" }, { cwd = tmp, env = build_env() })
   assert(none.code == 4, tostring(none.code) .. none.stderr)
-  assert(Fs.exists(tmp .. "/fresh") == false, "--out was made for a build that wrote nothing")
+  assert(not assert(Fs.status(tmp .. "/fresh")).exists, "--out was made for a build that wrote nothing")
 end
 
 --- A partial projection a build that stopped left behind is removed by the next build.
@@ -1378,7 +1378,7 @@ local function test_a_stale_partial_projection_is_removed(tmp: string)
   assert(Fs.write(stale, "left by a crash"))
   local built = invoke.run({ "build", "--host" }, { cwd = tmp, env = build_env() })
   assert(built.code == 0, built.stderr)
-  assert(Fs.exists(stale) == false, "the stale partial projection stood")
+  assert(not assert(Fs.status(stale)).exists, "the stale partial projection stood")
 end
 
 --- What the `build` verb asks of the tool, answered for a tool that carries the host's core alone, whatever this one
@@ -1417,8 +1417,8 @@ local function test_an_environment_failure_removes_no_executable(tmp: string)
   local again = build_on(host_only_tool({}), tmp, { "build", "--out", "dist" })
   assert(again.code == 1 and again.stderr:find("-Dboot-cores=all", 1, true) ~= nil,
     tostring(again.code) .. again.stderr)
-  assert(Fs.exists(bin .. "/one") == true and Fs.exists(bin .. "/two") == true, "an environment failure removed a program")
-  assert(Fs.exists(tmp .. "/dist") == false, "--out was made for a build that wrote nothing")
+  assert(assert(Fs.status(bin .. "/one")).exists and assert(Fs.status(bin .. "/two")).exists, "an environment failure removed a program")
+  assert(not assert(Fs.status(tmp .. "/dist")).exists, "--out was made for a build that wrote nothing")
 end
 
 --- A portable program asked of a tool that carries the host's core alone has the tool boot every core and run the
@@ -1477,7 +1477,7 @@ local function test_a_position_breach_holds_out_the_program_resting_on_it(tmp: s
   -- `a` is held out for its position, not refused by the checker: the line says only that it did not build.
   assert(built.stderr:find("mid.tl: not compiled: it requires a, which did not build", 1, true) ~= nil, built.stderr)
   assert(built.stderr:find("two (cmd/two/main.tl) was not built", 1, true) ~= nil, built.stderr)
-  assert(Fs.exists(bin .. "/two") == false, "the held-out program's earlier executable stood")
+  assert(not assert(Fs.status(bin .. "/two")).exists, "the held-out program's earlier executable stood")
 end
 
 --- A `global` in a declaration file belongs to no module: it stops the whole tree, writes no program and removes the
@@ -1491,7 +1491,7 @@ local function test_a_global_of_a_declaration_file_stops_the_whole_tree(tmp: str
   assert(built.code == 4 and built.stdout == "", tostring(built.code) .. built.stdout .. built.stderr)
   assert(built.stderr:find("types.d.tl", 1, true) ~= nil, built.stderr)
   local bin = support.build_dir(tmp) .. "/bin"
-  assert(Fs.exists(bin .. "/one") == false and Fs.exists(bin .. "/two") == false, "an executable stood")
+  assert(not assert(Fs.status(bin .. "/one")).exists and not assert(Fs.status(bin .. "/two")).exists, "an executable stood")
 end
 
 --- A build without `--out` leaves the copy an earlier `--out` build wrote, and a copy the user removed is forgotten,
@@ -1501,7 +1501,7 @@ local function test_the_manifest_forgets_a_copy_that_is_gone(tmp: string)
   local first = invoke.run({ "build", "--host", "--out", "dist" }, { cwd = tmp, env = build_env() })
   assert(first.code == 0, first.stderr)
   local plain = invoke.run({ "build", "--host" }, { cwd = tmp, env = build_env() })
-  assert(plain.code == 0 and Fs.exists(tmp .. "/dist/one") == true, plain.stderr)
+  assert(plain.code == 0 and assert(Fs.status(tmp .. "/dist/one")).exists, plain.stderr)
   assert(Fs.remove(tmp .. "/dist/two"))
   assert(Fs.write(tmp .. "/dist/two", "the user's own file, put where the copy was"))
   assert(Fs.write(tmp .. "/cmd/two/main.tl", 'local n: integer = "x"\nreturn function(): integer return n end\n'))

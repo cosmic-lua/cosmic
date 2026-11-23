@@ -178,7 +178,7 @@ local function relay_refused(tmp: string, probe: string, sandbox: raw_process.Sa
   end
   assert(why:find(cause, 1, true), "the message names the failed call's errno: " .. why)
   assert(math.type(number) == "integer" and number > 0, "the errno is answered")
-  assert(Fs.exists(marker) == false, "the program ran")
+  assert(not assert(Fs.status(marker)).exists, "the program ran")
 end
 
 local function test_a_channel_that_is_no_socket_fails_the_start_naming_the_relay(tmp: string)

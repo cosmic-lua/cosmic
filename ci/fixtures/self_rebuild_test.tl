@@ -2,6 +2,7 @@ local BuildPaths = require("cosmic_ci.build_paths")
 local Clock = require("cosmic.clock")
 local Sqlite = require("cosmic.sqlite")
 local Fs = require("cosmic.fs")
+local Predicate = require("cosmic_ci.fs_predicate")
 local sys = require("cosmic.sys")
 local Fixture = require("cosmic_ci.fixture")
 local Process = require("cosmic_ci.process")
@@ -742,7 +743,7 @@ local function test_a_cosmic_outside_the_tree_is_a_project_to_it_and_rebuilds_no
       assert(verb[1]) .. ": a tool outside the tree rebuilt itself")
     assert(Fixture.hash(program) == before_hash,
       assert(verb[1]) .. ": a tool outside the tree was overwritten")
-    assert(Fs.exists(BuildPaths.directory(tree) .. "/bin/cosmic") == false,
+    assert(Predicate.exists(BuildPaths.directory(tree) .. "/bin/cosmic") == false,
       assert(verb[1]) .. ": a tool outside the tree wrote one into it")
   end
 end

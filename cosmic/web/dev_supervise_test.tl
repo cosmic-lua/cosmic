@@ -65,7 +65,7 @@ local function test_a_change_replaces_the_program_with_a_counted_boot(tmp: strin
     end,
     stop = function(): boolean
       give_up()
-      return #pids == 2 and Fs.exists(tmp .. "/marks/2") == true
+      return #pids == 2 and assert(Fs.status(tmp .. "/marks/2")).exists
     end,
   }
   assert(ok and why == "")
@@ -221,7 +221,7 @@ local function sigterm_the_supervisor(tmp: string, chunk: string, ready: string,
     on_boot = function(_boot: integer, started: integer) pid = started end,
     stop = function(): boolean
       give_up()
-      if pid ~= 0 and Fs.exists(tmp .. "/marks/" .. ready) == true and not sent then
+      if pid ~= 0 and assert(Fs.status(tmp .. "/marks/" .. ready)).exists and not sent then
         sent = true
         assert(sys.kill(sys.getpid(), sys.SIGTERM))
       end
@@ -253,13 +253,13 @@ local function test_a_sigterm_to_the_supervisor_gives_the_program_its_grace(tmp:
   -- Longer than cosmic.child's own 250 ms, well within the supervisor's.
   local pid = sigterm_the_supervisor(tmp, finishing(tmp, 800), "ready", Clock.seconds(5))
   assert(not alive(pid), "the program was ended with the supervisor")
-  assert(Fs.exists(tmp .. "/marks/done") == true, "the program finished within its grace")
+  assert(assert(Fs.status(tmp .. "/marks/done")).exists, "the program finished within its grace")
 end
 
 local function test_a_program_that_outlasts_the_grace_is_killed(tmp: string)
   local pid = sigterm_the_supervisor(tmp, finishing(tmp, 60000), "ready", Clock.ms(300))
   assert(not alive(pid), "the program was ended with the supervisor")
-  assert(Fs.exists(tmp .. "/marks/done") ~= true, "the program did not finish")
+  assert(not assert(Fs.status(tmp .. "/marks/done")).exists, "the program did not finish")
 end
 
 local function test_options_out_of_range_raise()

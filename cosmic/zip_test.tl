@@ -433,7 +433,7 @@ local function test_a_failed_write_aborts_the_zip_and_a_closed_writer_refuses_mo
   local zw = Zip.writer((assert(Stream.create(path))))
   assert(zw:add_file("f", "x"))
   assert(zw:abort())
-  assert(Fs.exists(path) == false)
+  assert(not assert(Fs.status(path)).exists)
   local left = assert(Fs.list(tmp))
   assert(#left == 0, table.concat(left, ","))
 end

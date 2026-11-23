@@ -476,7 +476,7 @@ local function run_then(tmp: string, root: string, env: {string:string}, out: st
     for _, entry in ipairs(listed_names or {}) do
       for _, sub in ipairs({ "/real", "/tmp", "" }) do
         local dir = tmp .. "/t/" .. entry .. sub
-        if Fs.exists(dir .. "/started") == true and Fs.exists(dir .. "/stop") ~= true then
+        if assert(Fs.status(dir .. "/started")).exists and not assert(Fs.status(dir .. "/stop")).exists then
           found = dir
         end
       end
@@ -527,7 +527,7 @@ local function test_moving(tmp: string)
   local was, _ = Fs.read("suite/moving.txt")
   assert(Fs.write(tmp .. "/started", "yes"))
   local deadline = Clock.monotonic_ns() + 20000000000
-  while Fs.exists(tmp .. "/stop") ~= true and Clock.monotonic_ns() < deadline do
+  while not assert(Fs.status(tmp .. "/stop")).exists and Clock.monotonic_ns() < deadline do
     local now, _ = Fs.read("suite/moving.txt")
     assert(now == was, "it moved")
     assert(Clock.sleep_ns(20000000))
@@ -595,10 +595,10 @@ Test.policy {
 local function test_b_watching(tmp: string)
   assert(Fs.write(tmp .. "/started", "yes"))
   local deadline = Clock.monotonic_ns() + 20000000000
-  while Fs.exists(tmp .. "/stop") ~= true and Clock.monotonic_ns() < deadline do
+  while not assert(Fs.status(tmp .. "/stop")).exists and Clock.monotonic_ns() < deadline do
     assert(Clock.sleep_ns(20000000))
   end
-  assert(Fs.exists(tmp .. "/stop") == true, "never told to stop")
+  assert(assert(Fs.status(tmp .. "/stop")).exists, "never told to stop")
 end
 ]]))
   local env = environment(tmp .. "/cache/verdicts.db")

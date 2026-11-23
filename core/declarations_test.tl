@@ -544,7 +544,7 @@ local function test_every_raw_module_has_a_declaration()
   for _, raw in pairs(in_c) do handed[raw] = true end
   local values = assert(raw_values_in(source))
   for name, plain in pairs(values) do
-    assert(Fs.exists("cosmic/internal/" .. name .. ".d.tl") == true or derived[name] ~= nil,
+    assert(assert(Fs.status("cosmic/internal/" .. name .. ".d.tl")).exists or derived[name] ~= nil,
       "cosmic.internal." .. name .. " is a raw value of core/store.c with no declaration")
     if plain then
       assert(handed[name] == nil, "cosmic.internal." .. name .. " is handed to a wrapper and answered by its name")
@@ -598,7 +598,7 @@ local function test_every_preloaded_raw_module_has_a_declaration()
     if name ~= nil then
       found = found + 1
       assert(preloaded[name] == true, key .. " is preloaded but this test does not reach it")
-      assert(Fs.exists("cosmic/internal/" .. name .. ".d.tl") == true,
+      assert(assert(Fs.status("cosmic/internal/" .. name .. ".d.tl")).exists,
         key .. " is preloaded but cosmic/internal/" .. name .. ".d.tl does not declare it")
     end
   end

@@ -115,8 +115,7 @@ function docs.databases(store?: {Sqlite.Handle}, at?: string, known?: docs.Known
   local own_path = build_paths.under(directory or "/nonexistent").projection
   local own_exists = false
   if directory ~= nil then
-    local exists, own_trouble = Fs.exists(own_path)
-    assert(exists ~= nil, own_trouble)
+    local exists = assert(Fs.status(own_path)).exists
     own_exists = exists
   end
   if own_exists then

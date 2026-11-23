@@ -325,8 +325,9 @@ end
 --- seed list (a project's), whose tool's compiler is the one it was given.
 local function seed_paths(root: string): {string}?, string
   local path = root .. "/build/seed.txt"
-  local present, missing = Fs.exists(path)
-  if present == nil then return nil, "seed list: " .. missing end
+  local present_status, missing = Fs.status(path)
+  if present_status == nil then return nil, "seed list: " .. tostring(missing) end
+  local present = present_status.exists
   if not present then return {}, "" end
   local listed, trouble = Fs.read(path)
   if listed == nil then return nil, "seed list: " .. tostring(trouble) end

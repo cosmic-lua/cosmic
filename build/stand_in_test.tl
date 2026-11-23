@@ -30,7 +30,7 @@ end
 --- Waits, a little at a time, until `path` exists.
 local function await(path: string)
   local deadline = Clock.monotonic_ns() + Clock.seconds(30)
-  while Fs.exists(path) ~= true do
+  while not assert(Fs.status(path)).exists do
     assert(Clock.monotonic_ns() < deadline, "waited for " .. path)
     local _, _ = sys.nanosleep(Clock.ms(5))
   end
@@ -61,7 +61,7 @@ local function test_a_placed_copy_runs_its_script_with_its_words(tmp: string)
   -- One placed without a script runs its first argument, as the probe
   -- itself does.
   assert(stand_in.place(probe, tmp .. "/bin/bare"))
-  assert(Fs.exists(tmp .. "/bin/bare.do") ~= true)
+  assert(not assert(Fs.status(tmp .. "/bin/bare.do")).exists)
   local bare = run({ tmp .. "/bin/bare", "print $@; exit 4", "x", "y" })
   assert(bare.code == 4 and bare.stdout == "x y\n", tostring(bare.stdout))
   local empty = run({ probe })
@@ -300,7 +300,7 @@ local function test_the_verbs_that_ask_of_a_path(tmp: string)
   assert(r.ok, tostring(r.stderr))
   assert(r.stdout == "there\nabsent\nopens\na-directory-does-not\nnor-a-missing-file\n750\n" ..
       d .. "/sub/deeper/f\n", r.stdout)
-  assert(Fs.exists(d .. "/missing") ~= true, "writable made the file")
+  assert(not assert(Fs.status(d .. "/missing")).exists, "writable made the file")
   assert(assert(Fs.read(d .. "/sub/deeper/f")) == "x", "writable wrote to the file")
   local absent = run({ probe, "present " .. d .. "/missing" })
   assert(absent.code == 1 and assert(absent.stderr):find(d .. "/missing", 1, true) ~= nil,
@@ -323,7 +323,7 @@ local function test_what_start_and_run_leave_running_runs_on(tmp: string)
     local r = assert(Child.run({ probe, how .. "; print gone on" },
       { env = {}, process_group = false, stdout = "capture", timeout_ns = Clock.seconds(30) }))
     assert(r.ok and r.stdout == "gone on\n", tostring(r.stdout))
-    assert(Fs.exists(tmp .. "/bin/done-" .. word) ~= true, "it did not wait")
+    assert(not assert(Fs.status(tmp .. "/bin/done-" .. word)).exists, "it did not wait")
     assert(Fs.write(tmp .. "/bin/go-" .. word, ""))
     await(tmp .. "/bin/done-" .. word)
   end

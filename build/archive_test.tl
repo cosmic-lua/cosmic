@@ -307,7 +307,7 @@ local function test_an_unknown_format_or_a_missing_file_is_refused(tmp: string)
   assert(ran.err:find("cosmic: archive: ", 1, true) == 1, ran.err)
   assert(ran.err:find("not a recognized archive format", 1, true), ran.err)
   local extracted = run({ "extract", text, "-C", tmp .. "/out" })
-  assert(extracted.code == 2 and Fs.exists(tmp .. "/out/notes") ~= true, extracted.err)
+  assert(extracted.code == 2 and not assert(Fs.status(tmp .. "/out/notes")).exists, extracted.err)
   local missing = run({ "list", tmp .. "/nothing.zip" })
   assert(missing.code == 2 and missing.err:find("nothing.zip", 1, true) ~= nil, missing.err)
   local truncated = tmp .. "/cut.tar.gz"
@@ -333,7 +333,7 @@ local function test_members_select_a_file_or_everything_under_a_directory(tmp: s
   local one = run({ "extract", path, "-C", tmp .. "/one", "top.txt" })
   assert(one.code == 0, one.err)
   assert(assert(Fs.read(tmp .. "/one/top.txt")) == "top")
-  assert(Fs.exists(tmp .. "/one/proj") ~= true)
+  assert(not assert(Fs.status(tmp .. "/one/proj")).exists)
   local tree = run({ "extract", path, "-C", tmp .. "/two", "./proj/", "top.txt" })
   assert(tree.code == 0, tree.err)
   assert(assert(Fs.read(tmp .. "/two/proj/sub/b.txt")) == "bravo!")
@@ -341,7 +341,7 @@ local function test_members_select_a_file_or_everything_under_a_directory(tmp: s
   -- A name is a whole path or a directory, not a prefix of a name.
   local prefix = run({ "extract", path, "-C", tmp .. "/three", "pro" })
   assert(prefix.code == 1 and prefix.err:find("no such member: pro", 1, true) ~= nil, prefix.err)
-  assert(Fs.exists(tmp .. "/three/proj") ~= true)
+  assert(not assert(Fs.status(tmp .. "/three/proj")).exists)
 end
 
 local function test_a_missing_member_writes_nothing_and_exits_1(tmp: string)
@@ -349,7 +349,7 @@ local function test_a_missing_member_writes_nothing_and_exits_1(tmp: string)
   local ran = run({ "extract", path, "-C", tmp .. "/o", "top.txt", "nope.txt" })
   assert(ran.code == 1 and ran.out == "", ran.out)
   assert(ran.err:find(path .. ": no such member: nope.txt", 1, true), ran.err)
-  assert(Fs.exists(tmp .. "/o/top.txt") ~= true)
+  assert(not assert(Fs.status(tmp .. "/o/top.txt")).exists)
 end
 
 local function test_extract_reads_standard_input(tmp: string)
@@ -381,7 +381,7 @@ local function refused(path: string, tmp: string, probe: string, why: string)
   local ran = run({ "extract", "--force", path, "-C", dest })
   assert(ran.code == 2, why .. ": exited " .. tostring(ran.code) .. " " .. ran.err)
   assert(ran.err:find("cosmic: archive: ", 1, true) == 1, ran.err)
-  assert(Fs.exists(probe) ~= true, why .. ": wrote " .. probe)
+  assert(not assert(Fs.status(probe)).exists, why .. ": wrote " .. probe)
 end
 
 local function test_a_dot_dot_member_is_refused_in_tar_and_zip(tmp: string)
@@ -411,7 +411,7 @@ local function test_a_symlink_out_of_the_target_is_refused(tmp: string)
   assert(Fs.mkdirs(through))
   local ran = run({ "extract", make_tar(tmp .. "/d.tar",
     { link_member("l", "sub"), file_member("l/f.txt", "x") }), "-C", through })
-  assert(Fs.exists(through .. "/sub/f.txt") ~= true, ran.err)
+  assert(not assert(Fs.status(through .. "/sub/f.txt")).exists, ran.err)
 end
 
 local function test_extract_will_not_overwrite_without_force(tmp: string)
@@ -424,7 +424,7 @@ local function test_extract_will_not_overwrite_without_force(tmp: string)
   assert(ran.err:find("would overwrite 1 existing path", 1, true), ran.err)
   assert(ran.err:find("proj/a.txt", 1, true) and ran.err:find("--force", 1, true), ran.err)
   assert(assert(Fs.read(dest .. "/proj/a.txt")) == "mine")
-  assert(Fs.exists(dest .. "/top.txt") ~= true, "nothing is written on a refusal")
+  assert(not assert(Fs.status(dest .. "/top.txt")).exists, "nothing is written on a refusal")
   local forced = run({ "extract", "--force", path, "-C", dest })
   assert(forced.code == 0, forced.err)
   assert(assert(Fs.read(dest .. "/proj/a.txt")) == "alpha")
@@ -490,8 +490,7 @@ local function test_create_a_zip_sorts_its_entries_and_round_trips(tmp: string)
   assert(assert(Fs.read(tmp .. "/back/tree/sub/m.txt")) == "em")
   assert(assert(Fs.read(tmp .. "/back/loose.txt")) == "loose")
   do
-    local held_true, held_why = Fs.is_dir(tmp .. "/back/tree/empty")
-    assert(held_true == true, held_why)
+    assert(assert(Fs.status(tmp .. "/back/tree/empty")).is_dir)
   end
 end
 
@@ -612,7 +611,7 @@ local function test_create_of_a_file_that_grew_fails_and_leaves_no_archive(tmp: 
     assert(ran.code == 2 and (ran.err:find("bytes, not", 1, true) or ran.err:find("bytes as it was read", 1, true)) ~= nil,
       name .. ": " .. ran.err)
     assert(opens > 0 and opens == closes, name)
-    assert(Fs.exists(out) ~= true, name .. ": a failed create left an archive behind")
+    assert(not assert(Fs.status(out)).exists, name .. ": a failed create left an archive behind")
   end
 end
 
@@ -701,7 +700,7 @@ local function test_create_refuses_paths_that_would_extract_outside(tmp: string)
   assert(up.code == 2 and up.err:find("extract outside", 1, true) ~= nil, up.err)
   local absolute = in_dir(src, { "create", tmp .. "/a.zip", src .. "/loose.txt" })
   assert(absolute.code == 2 and absolute.err:find("extract outside", 1, true) ~= nil, absolute.err)
-  assert(Fs.exists(tmp .. "/u.zip") ~= true and Fs.exists(tmp .. "/a.zip") ~= true)
+  assert(not assert(Fs.status(tmp .. "/u.zip")).exists and not assert(Fs.status(tmp .. "/a.zip")).exists)
   local missing = in_dir(src, { "create", tmp .. "/m.zip", "nope" })
   assert(missing.code == 1 and missing.err:find("nope", 1, true) ~= nil, missing.err)
 end
@@ -791,7 +790,7 @@ local function test_a_fifo_in_a_directory_is_refused_by_name(tmp: string)
     local ran = in_dir(src, { "create", tmp .. "/" .. out, "tree" })
     assert(ran.code == 2 and ran.out == "", ran.out)
     assert(ran.err:find("tree/sub/pipe: neither a file, a directory nor a symlink", 1, true), ran.err)
-    assert(Fs.exists(tmp .. "/" .. out) ~= true, "nothing is written")
+    assert(not assert(Fs.status(tmp .. "/" .. out)).exists, "nothing is written")
   end
   local named = in_dir(src, { "create", tmp .. "/n.zip", "tree/sub/pipe" })
   assert(named.code == 2 and named.err:find("tree/sub/pipe", 1, true) ~= nil, named.err)
@@ -804,12 +803,12 @@ local function test_a_refusal_partway_leaves_the_entries_before_it(tmp: string)
   local ran = run({ "extract", link, "-C", dest })
   assert(ran.code == 2, ran.err)
   assert(assert(Fs.read(dest .. "/first.txt")) == "1", "the entry before the refusal stays written")
-  assert(Fs.exists(dest .. "/out") ~= true and Fs.exists(dest .. "/last.txt") ~= true)
+  assert(not assert(Fs.status(dest .. "/out")).exists and not assert(Fs.status(dest .. "/last.txt")).exists)
   local dots = make_tar(tmp .. "/b.tar", { file_member("kept.txt", "1"),
     file_member("../gone.txt", "2") })
   assert(run({ "extract", dots, "-C", tmp .. "/dest2" }).code == 2)
   assert(assert(Fs.read(tmp .. "/dest2/kept.txt")) == "1")
-  assert(Fs.exists(tmp .. "/gone.txt") ~= true)
+  assert(not assert(Fs.status(tmp .. "/gone.txt")).exists)
 end
 
 local function test_a_hard_link_is_refused(tmp: string)
@@ -817,7 +816,7 @@ local function test_a_hard_link_is_refused(tmp: string)
   assert(Fs.write(path, raw_entry("hard", "1", "target")))
   local ran = run({ "extract", path, "-C", tmp .. "/dest" })
   assert(ran.code == 2 and ran.err:find("hardlink", 1, true) ~= nil, ran.err)
-  assert(Fs.exists(tmp .. "/dest/hard") ~= true)
+  assert(not assert(Fs.status(tmp .. "/dest/hard")).exists)
   assert(run({ "list", path }).out:find("hard -> target\t0\t0644\thardlink", 1, true))
 end
 
@@ -839,7 +838,7 @@ local function test_force_never_writes_through_a_symlink_in_the_target(tmp: stri
   local through = run({ "extract", "--force", make_tar(tmp .. "/b.tar",
     { file_member("dir/f.txt", "x") }), "-C", dest })
   assert(through.code == 2, through.err)
-  assert(Fs.exists(tmp .. "/outdir/f.txt") ~= true)
+  assert(not assert(Fs.status(tmp .. "/outdir/f.txt")).exists)
 end
 
 local function test_symlink_chains_and_a_directory_then_a_link_are_refused(tmp: string)
@@ -847,7 +846,7 @@ local function test_symlink_chains_and_a_directory_then_a_link_are_refused(tmp: 
   local chain = run({ "extract", make_tar(tmp .. "/a.tar",
     { link_member("a", "b"), link_member("b", "..") }), "-C", tmp .. "/one/dest" })
   assert(chain.code == 2, chain.err)
-  assert(Fs.exists(tmp .. "/one/dest/b") ~= true)
+  assert(not assert(Fs.status(tmp .. "/one/dest/b")).exists)
   -- b -> ., a -> b/..: a target through another link is refused.
   local hop = run({ "extract", make_tar(tmp .. "/b.tar",
     { link_member("b", "."), link_member("a", "b/..") }), "-C", tmp .. "/two/dest" })
@@ -857,7 +856,7 @@ local function test_symlink_chains_and_a_directory_then_a_link_are_refused(tmp: 
     { dir_member("d"), link_member("d", "."), file_member("d/f.txt", "x") }),
     "-C", tmp .. "/three/dest" })
   assert(dir_link.code == 2, dir_link.err)
-  assert(Fs.exists(tmp .. "/three/dest/f.txt") ~= true)
+  assert(not assert(Fs.status(tmp .. "/three/dest/f.txt")).exists)
 end
 
 --- The names under `dir`, recursively, sorted: what a destination holds.
@@ -906,7 +905,7 @@ local function test_extract_of_a_tar_stream_makes_no_temporary_copy(tmp: string)
     end)
     assert(made == 0, "a tar stream was written to a temporary file")
     assert(assert(Fs.read(dest .. "/proj/sub/b.txt")) == "bravo!")
-    assert(#assert(Fs.list(tmp .. "/")) >= 1 and Fs.exists(dest .. "/stdin") ~= true)
+    assert(#assert(Fs.list(tmp .. "/")) >= 1 and not assert(Fs.status(dest .. "/stdin")).exists)
   end
   local zip = assert(Fs.read(make_zip(tmp .. "/z.zip", SAMPLE)))
   local made = counting_mkdtemp(function()
@@ -979,7 +978,7 @@ local function test_a_member_that_fails_mid_stream_leaves_the_destination_untouc
     file_member("b", string.rep("x", 200000)) }, true)))
   local ran = run({ "extract", "-", "-C", tmp .. "/cut/dest" }, whole:sub(1, #whole // 2))
   assert(ran.code == 2 and ran.err:find("standard input: ", 1, true) ~= nil, ran.err)
-  assert(Fs.exists(tmp .. "/cut") ~= true, "a truncated stream wrote " .. table.concat(tree_of(tmp .. "/cut"), ","))
+  assert(not assert(Fs.status(tmp .. "/cut")).exists, "a truncated stream wrote " .. table.concat(tree_of(tmp .. "/cut"), ","))
   -- The same failure from a file leaves what was written before it.
   local direct = run({ "extract", tmp .. "/unsafe.tgz", "-C", tmp .. "/direct" })
   assert(direct.code == 2 and assert(Fs.read(tmp .. "/direct/first.txt")) == "1", direct.err)
@@ -1052,7 +1051,7 @@ local function test_a_stream_is_moved_into_a_destination_that_holds_files(tmp: s
     file_member("lnk/f.txt", "x") })))
   local refused_run = run({ "extract", "--force", "-", "-C", dest }, hostile)
   assert(refused_run.code == 2 and refused_run.err:find("through a symlink", 1, true) ~= nil, refused_run.err)
-  assert(Fs.exists(dest .. "/aaa.txt") ~= true and Fs.exists(out .. "/f.txt") ~= true)
+  assert(not assert(Fs.status(dest .. "/aaa.txt")).exists and not assert(Fs.status(out .. "/f.txt")).exists)
   assert(#tree_of(out) == 0)
   local listed_names, _ = Fs.list(dest)
   for _, name in ipairs(listed_names or {}) do

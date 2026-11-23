@@ -148,7 +148,7 @@ local function test_a_verb_below_the_root_runs_at_the_root(tmp: string)
   assert(result.code == 0, result.stderr .. result.stdout)
   assert(result.stderr:find("todos runs in " .. root, 1, true), result.stderr)
   assert(result.stdout:find("a/b/note.tl:1", 1, true), result.stdout)
-  assert(Fs.exists(build_paths.required(root .. "/a/b")) ~= true)
+  assert(not assert(Fs.status(build_paths.required(root .. "/a/b"))).exists)
 end
 
 --- The home directory stops the climb however it is spelled: with a

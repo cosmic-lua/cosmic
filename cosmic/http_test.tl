@@ -451,7 +451,7 @@ local function test_download_removes_its_temporary_file_on_a_mismatch(tmp: strin
     script = { reply("200 OK", "", "not what was promised") } })
   assert(not ok)
   assert(trouble:find("mismatch", 1, true) ~= nil, trouble)
-  assert(Fs.exists(path) ~= true and #assert(Fs.list(tmp)) == 0)
+  assert(not assert(Fs.status(path)).exists and #assert(Fs.list(tmp)) == 0)
 end
 
 local function test_download_removes_its_temporary_file_on_a_truncated_body(tmp: string)
@@ -460,7 +460,7 @@ local function test_download_removes_its_temporary_file_on_a_truncated_body(tmp:
     "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\nonly ten b",
   } })
   assert(not ok)
-  assert(Fs.exists(path) ~= true and #assert(Fs.list(tmp)) == 0)
+  assert(not assert(Fs.status(path)).exists and #assert(Fs.list(tmp)) == 0)
 end
 
 local function test_download_names_its_path_when_it_cannot_make_the_file(tmp: string)
@@ -827,7 +827,7 @@ local function test_a_cancelled_download_removes_its_part_file_and_makes_no_targ
   })
   assert(not ok and why == "interrupted", why)
   assert(asked > 1, "asked between chunks")
-  assert(Fs.exists(path) ~= true, "the target was created")
+  assert(not assert(Fs.status(path)).exists, "the target was created")
   local names = (assert(Fs.list(tmp)))
   for _, name in ipairs(names) do
     assert(name ~= "got.bin" and not name:find("got.bin", 1, true), "left behind: " .. name)
@@ -873,7 +873,7 @@ local function test_a_download_cancelled_only_at_the_end_makes_no_target(tmp: st
     end,
   })
   assert(not ok and why == "interrupted", tostring(why))
-  assert(Fs.exists(path) ~= true, "the target was created")
+  assert(not assert(Fs.status(path)).exists, "the target was created")
   local names = (assert(Fs.list(tmp)))
   assert(#names == 0, "left behind: " .. table.concat(names, ","))
 end
@@ -899,7 +899,7 @@ local function test_a_download_checks_every_digest_it_is_given(tmp: string)
   local bad, bad_why = Http.download(url, other, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "hello") },
     sha256 = s256, sha512 = string.rep("0", 128) })
   assert(not bad and bad_why:find("sha512 mismatch: want " .. string.rep("0", 128) .. ", got " .. s512, 1, true) ~= nil, bad_why)
-  assert(Fs.exists(other) ~= true, "the target was created")
+  assert(not assert(Fs.status(other)).exists, "the target was created")
   for _, name in ipairs((assert(Fs.list(tmp)))) do
     assert(name == "two.bin", "left behind: " .. name)
   end
@@ -916,7 +916,7 @@ local function test_a_download_with_only_a_sha512_checks_that_alone(tmp: string)
   local bad, bad_why = Http.download(url, other, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "hello") }, sha512 = zeros })
   assert(not bad and bad_why:find("sha512 mismatch: want " .. zeros .. ", got " .. s512, 1, true) ~= nil, bad_why)
   assert(not bad_why:find("sha256", 1, true), bad_why)
-  assert(Fs.exists(other) ~= true, "the target was created")
+  assert(not assert(Fs.status(other)).exists, "the target was created")
 end
 
 --- A sha3-256, the digest sqlite.org publishes alone, is checked as the
@@ -933,7 +933,7 @@ local function test_a_download_with_a_sha3_256_checks_it(tmp: string)
   local bad, bad_why = Http.download(url, other, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "hello") },
     sha256 = Hash.hex_sha256("hello"), sha3_256 = zeros })
   assert(not bad and bad_why:find("sha3-256 mismatch: want " .. zeros .. ", got " .. sha3, 1, true) ~= nil, bad_why)
-  assert(Fs.exists(other) ~= true, "the target was created")
+  assert(not assert(Fs.status(other)).exists, "the target was created")
 end
 
 local function test_download_result_success_has_no_failure_fields(tmp: string)

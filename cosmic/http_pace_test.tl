@@ -52,7 +52,7 @@ local function test_a_pacer_spaces_every_entry_point(tmp: string)
   assert(Http.download(url, tmp .. "/one", { timeout_ns = Clock.seconds(60), pace = pacer, script = ok_script() }))
   local result = Http.download_result(url, tmp .. "/two", { timeout_ns = Clock.seconds(60), pace = pacer, script = ok_script() })
   assert(result.kind == "downloaded", result.reason)
-  assert(Fs.exists(tmp .. "/two") == true)
+  assert(assert(Fs.status(tmp .. "/two")).exists)
   local took = Clock.monotonic_ns() - began
   assert(took >= Clock.ms(300), "four requests took " .. tostring(took))
   assert(took < Clock.seconds(5), tostring(took))
@@ -207,7 +207,7 @@ local function test_a_pace_that_is_no_pacer_raises_naming_the_option(tmp: string
     assert(err:find("http: opts.pace must be made by Http.pacer", 1, true) ~= nil, name .. ": " .. err)
     assert(err:find("http_pace_test:", 1, true) ~= nil, name .. ": " .. err)
   end
-  assert(Fs.exists(tmp .. "/never") ~= true)
+  assert(not assert(Fs.status(tmp .. "/never")).exists)
 end
 
 --- The message of the raise that calling `entry` with `literal`, Lua source,
@@ -262,5 +262,5 @@ local function test_a_pace_of_the_wrong_lua_type_raises_naming_the_option(tmp: s
       assert(err:find("http_pace_test:", 1, true) ~= nil, name .. " " .. literal .. ": " .. err)
     end
   end
-  assert(Fs.exists(tmp .. "/never") ~= true)
+  assert(not assert(Fs.status(tmp .. "/never")).exists)
 end

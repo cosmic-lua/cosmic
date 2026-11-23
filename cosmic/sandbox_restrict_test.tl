@@ -78,8 +78,7 @@ say("create", writes(%q))
 ]], tmp .. "/rw/f", tmp .. "/rw/made")))
   assert(said.lines["overwrite"] == "wrote" and said.lines["create"] == "wrote", said.raw)
   do
-    local held_true, held_why = Fs.exists(tmp .. "/rw/made")
-    assert(held_true == true, held_why)
+    assert(assert(Fs.status(tmp .. "/rw/made")).exists)
   end
 end
 

@@ -297,7 +297,7 @@ local function test_a_cancelled_task_s_wait_answers_cancelled(tmp: string)
         ran = why
       end)
       local by = Clock.monotonic_ns() + Clock.seconds(30)
-      while Fs.exists(report) ~= true and Clock.monotonic_ns() < by do
+      while not assert(Fs.status(report)).exists and Clock.monotonic_ns() < by do
         assert(Poll.delay(Clock.ms(5)))
       end
       local started = Clock.monotonic_ns()
@@ -331,7 +331,7 @@ end
 --- The pid a child wrote to `report`, once it has, which is taken away.
 local function reported_pid(report: string): integer
   local by = Clock.monotonic_ns() + Clock.seconds(30)
-  while Fs.exists(report) ~= true and Clock.monotonic_ns() < by do
+  while not assert(Fs.status(report)).exists and Clock.monotonic_ns() < by do
     assert(Poll.delay(Clock.ms(5)))
   end
   local pid = assert(math.tointeger(tonumber((assert(Fs.read(report))))))
@@ -405,7 +405,9 @@ local function test_a_child_that_holds_sigterm_is_ended_within_the_deadline(tmp:
   for _, module in ipairs(both()) do
     local h = assert(module.start(lua(holding_term(report))))
     local by = Clock.monotonic_ns() + Clock.seconds(30)
-    while Fs.exists(report) ~= true and Clock.monotonic_ns() < by do Clock.sleep_ns(Clock.ms(5)) end
+    while not assert(Fs.status(report)).exists and Clock.monotonic_ns() < by do
+      Clock.sleep_ns(Clock.ms(5))
+    end
     local pid = assert(math.tointeger(tonumber((assert(Fs.read(report))))))
     assert(Fs.remove(report))
     local started = Clock.monotonic_ns()
@@ -416,7 +418,9 @@ local function test_a_child_that_holds_sigterm_is_ended_within_the_deadline(tmp:
     assert(sys.kill(pid, 0) == false, "the child outlived its wait")
     local closing = assert(module.start(lua(holding_term(report))))
     by = Clock.monotonic_ns() + Clock.seconds(30)
-    while Fs.exists(report) ~= true and Clock.monotonic_ns() < by do Clock.sleep_ns(Clock.ms(5)) end
+    while not assert(Fs.status(report)).exists and Clock.monotonic_ns() < by do
+      Clock.sleep_ns(Clock.ms(5))
+    end
     local closing_pid = assert(math.tointeger(tonumber((assert(Fs.read(report))))))
     assert(Fs.remove(report))
     started = Clock.monotonic_ns()
@@ -437,7 +441,7 @@ local function test_a_raise_while_ending_a_run_still_kills_the_child(tmp: string
   local poll = sys.poll
   local raised: boolean = false
   sys.poll = function(fds: {integer}, events: {integer}, ms: integer): {integer}?, string, integer -- checked: field_fixed
-    if Fs.exists(report) == true then
+    if assert(Fs.status(report)).exists then
       raised = true
       error("poll refused", 0)
     end

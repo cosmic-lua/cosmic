@@ -63,7 +63,8 @@ end
 
 --- Whether `path` is there, taking a failure to look as its absence.
 local function exists(path: string): boolean
-  local there, _ = Fs.exists(path)
+  local there_status, _ = Fs.status(path)
+  local there = there_status ~= nil and there_status.exists
   return there == true
 end
 

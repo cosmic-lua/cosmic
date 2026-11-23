@@ -187,10 +187,11 @@ end
 --- snapshot writes none.
 function onecrl.fill(db: Sqlite.Handle, root: string, qualifier: string): boolean, string
   local path = root .. "/" .. snapshot
-  local exists, trouble = Fs.exists(path)
-  if exists == nil then
-    return false, trouble
+  local exists_status, trouble = Fs.status(path)
+  if exists_status == nil then
+    return false, tostring(trouble)
   end
+  local exists = exists_status.exists
   if not exists then
     return true, ""
   end

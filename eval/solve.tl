@@ -18,6 +18,26 @@ local Clock = require("cosmic.clock")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 
+--- Whether anything is at `path`, false where it or a parent is missing,
+--- nil and why where it cannot be looked at. This file runs on the
+--- bootstrap release too, whose cosmic.fs has no status call yet, so it
+--- asks [`sys.stat`], which both have.
+local function path_there(path: string): boolean?, string
+  local st, why, errno = sys.stat(path)
+  if st ~= nil then return true, "" end
+  if errno == sys.ENOENT or errno == sys.ENOTDIR then return false, "" end
+  return nil, path .. ": " .. why
+end
+
+--- Whether a directory is at `path`, as [`path_there`] says whether
+--- anything is.
+local function path_directory(path: string): boolean?, string
+  local st, why, errno = sys.stat(path)
+  if st ~= nil then return st.kind == "dir", "" end
+  if errno == sys.ENOENT or errno == sys.ENOTDIR then return false, "" end
+  return nil, path .. ": " .. why
+end
+
 -- TODO: Child.FOREVER in place of CEILING_NS once
 -- ci/cosmic-driver.pin names a release whose Child has it: this file runs
 -- standalone on that release. Until then a ceiling no run reaches.
@@ -261,12 +281,12 @@ end
 --- and nothing a run writes is yet.
 local function check_arena(arena: string): boolean, string
   for _, sub in ipairs({ "bin", "project", "tmp" }) do
-    local dir, trouble = Fs.is_dir(arena .. "/" .. sub)
+    local dir, trouble = path_directory(arena .. "/" .. sub)
     if dir == nil then return false, trouble end
     if not dir then return false, arena .. " is no arena: no " .. sub .. "/" end
   end
   for _, name in ipairs({ "transcript.jsonl", "stderr", "started_at", "config", "home" }) do
-    local there, trouble = Fs.exists(arena .. "/" .. name)
+    local there, trouble = path_there(arena .. "/" .. name)
     if there == nil then return false, trouble end
     if there then return false, arena .. " has run already: " .. name .. " is there" end
   end
@@ -274,7 +294,7 @@ local function check_arena(arena: string): boolean, string
 end
 
 local function exists(path: string): boolean
-  local there, _ = Fs.exists(path)
+  local there, _ = path_there(path)
   return there == true
 end
 

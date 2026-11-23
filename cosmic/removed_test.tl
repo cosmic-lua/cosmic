@@ -284,15 +284,19 @@ local function test_the_removed_cli_maps_name_the_verb_record_field_that_replace
   end
 end
 
---- A program that streamed a request body, truncated a descriptor or
---- asked for a cache path is told what to write instead: a whole body
---- through [`Http.request`], [`sys.ftruncate`], and `cache_dir` with `make = false`.
+--- A program that streamed a request body, truncated a descriptor,
+--- asked for a cache path or asked whether a path exists is told what
+--- to write instead: a whole body through [`Http.request`],
+--- [`sys.ftruncate`], `cache_dir` with `make = false`, and
+--- [`Fs.status`].
 local function test_the_removed_fs_and_http_members_name_their_replacements()
   for member, want in pairs({ -- checked: cast_refused
       ["http.upload"] = "Http.request(\"PUT\", url, { timeout_ns = limit, body = body })",
       ["http.Upload"] = "Http.request(\"PUT\", url, { timeout_ns = limit, body = body })",
       ["fs.truncate"] = "sys.ftruncate(fd, length)",
       ["fs.cache_path"] = "Fs.cache_dir(tool, { environment = environment, make = false })",
+      ["fs.exists"] = "assert(Fs.status(path)).exists",
+      ["fs.is_dir"] = "assert(Fs.status(path)).is_dir",
   } as {string:string}) do
     local instead = Removed.members["cosmic." .. member]
     assert(instead ~= nil and instead:find(want, 1, true) ~= nil, member)

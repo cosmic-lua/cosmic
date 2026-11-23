@@ -1156,9 +1156,7 @@ local function test_types_the_standard_library_from_the_binary()
     ["main.tl"] = table.concat({
       'local Fs = require("cosmic.fs")',
       "local function exists(path: string): boolean",
-      "  local answer, trouble = Fs.exists(path)",
-      "  assert(answer ~= nil, trouble)",
-      "  return answer",
+      "  return assert(Fs.status(path)).exists",
       "end",
       "return exists",
       "",
@@ -1810,7 +1808,7 @@ end
 local function tree_file_of(name: string): string?
   local base = name:gsub("%.", "/")
   for _, candidate in ipairs({ base .. ".tl", base .. "/init.tl", base .. ".d.tl" }) do
-    if Fs.exists(candidate) == true then return candidate end
+    if assert(Fs.status(candidate)).exists then return candidate end
   end
   return nil
 end

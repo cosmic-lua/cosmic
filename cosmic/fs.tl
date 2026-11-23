@@ -67,6 +67,18 @@ local record Fs
   --- type its callee declares.
   type Kind = sys.Kind
 
+  --- What [`Fs.status`] finds at a path: whether anything is there,
+  --- whether it is a directory, and its [`Stat`] when it is there. A
+  --- missing path is a Status, not a failure.
+  record Status
+    --- Whether anything is at the path.
+    exists: boolean
+    --- Whether a directory is at the path.
+    is_dir: boolean
+    --- What [`Fs.stat`] answers for the path, there only where it exists.
+    stat?: sys.Stat
+  end
+
   --- A file at a path being written through a temporary neighbor and a
   --- rename, as [`Fs.create`] returns it: the calls of a
   --- [`cosmic.stream`] Writer (`write`, `close` and `abort`), answering
@@ -348,30 +360,20 @@ function Fs.stat(path: string): (sys.Stat) | (nil, Failure)
   return st
 end
 
---- Whether anything is at a path. A missing path is false, while an error
---- inspecting the path is nil.
-function Fs.exists(path: string): boolean?, string
+--- What is at a path, looked at as [`Fs.stat`] looks: a [`Fs.Status`],
+--- whose `exists` is false where nothing is there (the path or a parent
+--- of it is missing, or a parent is not a directory). Any other failure
+--- to look, such as a parent without search permission or a symlink
+--- loop, is nil and a [`Failure`] naming the path, never a missing path.
+function Fs.status(path: string): (Fs.Status) | (nil, Failure)
   local st, trouble, number = sys.stat(path)
   if st ~= nil then
-    return true, ""
+    return { exists = true, is_dir = st.kind == "dir", stat = st }
   end
   if number == sys.ENOENT or number == sys.ENOTDIR then
-    return false, ""
+    return { exists = false, is_dir = false }
   end
-  return nil, path .. ": " .. trouble
-end
-
---- Whether a directory is at a path. A missing path or an existing
---- non-directory is false, while an error inspecting the path is nil.
-function Fs.is_dir(path: string): boolean?, string
-  local st, trouble, number = sys.stat(path)
-  if st ~= nil then
-    return st.kind == "dir", ""
-  end
-  if number == sys.ENOENT or number == sys.ENOTDIR then
-    return false, ""
-  end
-  return nil, path .. ": " .. trouble
+  return nil, failure_of(number, trouble, path)
 end
 
 --- `path` without its trailing slashes, scanned back from the end: a

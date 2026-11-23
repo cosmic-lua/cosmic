@@ -39,7 +39,7 @@ local function test_no_patch_directory_leaves_the_copy_pristine(dir: string)
   checkout(dir .. "/root", { ["src/a.h"] = "same\n" })
   assert(Patch.tree(dir .. "/root", "lib", dir .. "/out"))
   assert(assert(Fs.read(dir .. "/out/src/a.h")) == "same\n")
-  assert(Fs.exists(dir .. "/out/PIN") == true)
+  assert(assert(Fs.status(dir .. "/out/PIN")).exists)
 end
 
 --- A file keeps its permission bits, which a patched one keeps too; one
@@ -244,7 +244,7 @@ local function test_zig_lib_that_fails_leaves_nothing(dir: string)
   assert(Fs.mkdirs(dir .. "/cache"))
   local written, err = Patch.zig_lib(dir .. "/root", dir .. "/lib", out)
   assert(not written and err:find("patch/zig-lib/01-absent.txt: found 0 matches", 1, true) ~= nil, err)
-  assert(Fs.exists(out) ~= true, "a failed library was left at its name")
+  assert(not assert(Fs.status(out)).exists, "a failed library was left at its name")
   local left = assert(Fs.list(dir .. "/cache"))
   for _, name in ipairs(left) do
     assert(name:match("^%.scratch%.") == nil, "a failed library left its scratch: " .. name)
@@ -288,8 +288,8 @@ local function test_links_are_left_out_and_empty_directories_kept(dir: string)
   assert(sys.symlink(".", dir .. "/root/vendor/lib/loop"))
   assert(Fs.mkdirs(dir .. "/root/vendor/lib/empty"))
   assert(Patch.tree(dir .. "/root", "lib", dir .. "/out"))
-  assert(Fs.exists(dir .. "/out/linked.h") == false)
-  assert(Fs.exists(dir .. "/out/loop") == false)
+  assert(not assert(Fs.status(dir .. "/out/linked.h")).exists)
+  assert(not assert(Fs.status(dir .. "/out/loop")).exists)
   assert(assert(Fs.stat(dir .. "/out/empty")).kind == "dir")
   assert(assert(Fs.read(dir .. "/out/a.h")) == "x\n")
 end

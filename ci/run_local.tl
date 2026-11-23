@@ -11,6 +11,17 @@ local Signal = require("cosmic.signal")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 
+--- Whether anything is at `path`, false where it or a parent is missing,
+--- nil and why where it cannot be looked at. This file runs on the
+--- bootstrap release too, whose cosmic.fs has no status call yet, so it
+--- asks [`sys.stat`], which both have.
+local function path_there(path: string): boolean?, string
+  local st, why, errno = sys.stat(path)
+  if st ~= nil then return true, "" end
+  if errno == sys.ENOENT or errno == sys.ENOTDIR then return false, "" end
+  return nil, path .. ": " .. why
+end
+
 -- TODO: Child.FOREVER in place of CEILING_NS once ci/cosmic-driver.pin
 -- names a release whose Child has it: ci/ runs on that release, where a
 -- limit must be stated for the tree's checker yet FOREVER is not there.
@@ -141,7 +152,7 @@ local function successful(result: Child.Result, program: string)
 end
 
 local function present(path: string): boolean
-  local exists, why = Fs.exists(path)
+  local exists, why = path_there(path)
   assert(exists ~= nil, why)
   return exists
 end

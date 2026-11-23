@@ -163,8 +163,7 @@ local function test_a_check_that_fails_fails_the_serve_before_it_is_ready(tmp: s
   assert(not ok)
   assert(why:find("invalid", 1, true) ~= nil, why)
   assert(not served.ready, "on_ready ran though no certificate was loaded")
-  local there, unknown = Fs.exists(dir .. "/certificate.pem")
-  assert(there == false, unknown)
+  assert(not assert(Fs.status(dir .. "/certificate.pem")).exists)
 end
 
 --- A request as a server hands it over, for the handler alone.

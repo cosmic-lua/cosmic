@@ -194,7 +194,7 @@ local replacements: {string:string} = {
   ["package.loadlib"] = "a C library cannot be loaded, and a module comes only " ..
     "from the database: use require(name)",
   ["package.searchpath"] = "there is no file search path to apply a template to: " ..
-    "check one file with Fs.exists(path) or Fs.stat(path) (" .. fs ..
+    "check one file with Fs.status(path) or Fs.stat(path) (" .. fs ..
     "), find a program on PATH with Proc.find(name) (" .. proc ..
     "), and load a module with require(name), which reads the database",
   ["io.write"] = "use Fs.put(Fs.stdout, text), which answers a result to discard on purpose: " ..
@@ -518,6 +518,10 @@ local module: Module = {
     ["cosmic.http.RangeKind"] = moved_to_server("RangeKind"),
     ["cosmic.sandbox.decode"] = moved_to_policy_json("decode"),
     ["cosmic.sandbox.encode"] = moved_to_policy_json("encode"),
+    ["cosmic.fs.exists"] = "use assert(Fs.status(path)).exists, false for a missing path: " ..
+      "a failure to look is nil and a Failure, never false (" .. fs .. ")",
+    ["cosmic.fs.is_dir"] = "use assert(Fs.status(path)).is_dir: a failure to look is nil " ..
+      "and a Failure, never false (" .. fs .. ")",
     ["cosmic.fs.truncate"] = "use sys.ftruncate(fd, length), which Fs.truncate wrapped (" .. sys .. ")",
     ["cosmic.fs.cache_path"] = "use Fs.cache_dir(tool, { environment = environment, make = false }), " ..
       "which answers the name alone, made, looked at and checked nowhere (" .. fs .. ")",

@@ -141,7 +141,7 @@ end
 --- `action.yaml` under ACTIONS, at any depth.
 local function action_paths(): {string}
   local paths: mut {string} = {}
-  if Fs.is_dir(ACTIONS) ~= true then return paths end
+  if not assert(Fs.status(ACTIONS)).is_dir then return paths end
   for _, relative in ipairs((assert(Fs.walk(ACTIONS)))) do
     local name = relative:match("[^/]+$")
     if name == "action.yml" or name == "action.yaml" then
@@ -509,7 +509,7 @@ local function test_each_path_filter_names_what_exists()
           -- A `!` excludes what it names, which must exist all the same.
           local fixed = entry:gsub("^!", ""):gsub("/%*%*$", "")
           assert(not fixed:find("*", 1, true), where .. ": " .. entry .. ": only a trailing /** is checked")
-          assert(Fs.exists(fixed) == true, entry .. " is in " .. where .. ", and does not exist")
+          assert(assert(Fs.status(fixed)).exists, entry .. " is in " .. where .. ", and does not exist")
         end
       end
     end

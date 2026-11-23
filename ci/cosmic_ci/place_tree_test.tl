@@ -7,6 +7,7 @@
 --- workspace resolve through it. The names are checked against vectors
 --- recorded from the original shell implementation.
 local Fs = require("cosmic.fs")
+local Predicate = require("cosmic_ci.fs_predicate")
 local PlaceTree = require("cosmic_ci.place_tree")
 
 local SHA <const> = "2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d"
@@ -235,7 +236,7 @@ local function layout(root: string): string
       local target, _ = Fs.readlink(root .. path)
       if target then
         lines[#lines + 1] = path .. " -> " .. target
-      elseif Fs.is_dir(root .. path) == true then
+      elseif Predicate.is_dir(root .. path) == true then
         lines[#lines + 1] = path .. "/"
         walk(path)
       else

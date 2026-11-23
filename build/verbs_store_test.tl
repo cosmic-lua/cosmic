@@ -238,16 +238,14 @@ local function test_build_takes_paths_to_narrow_it(tmp: string)
   local one = verbs_fixture.expect(tree, "build", { "build", "--host", "./cmd/hi/" }, 0).stdout
   assert(one == support.build_dir(tree) .. "/bin/hi\n", one)
   do
-    local held_true, held_why = Fs.exists(support.build_dir(tree) .. "/bin/hi")
-    assert(held_true == true, held_why)
+    assert(assert(Fs.status(support.build_dir(tree) .. "/bin/hi")).exists)
   end
-  assert(Fs.exists(support.build_dir(tree) .. "/bin/bye") ~= true)
+  assert(not assert(Fs.status(support.build_dir(tree) .. "/bin/bye")).exists)
   local refused = verbs_fixture.expect(tree, "build", { "build", "--host", "cmd/hi", "lib" }, 1)
   assert(refused.stderr:find("no cmd/<name>/main.tl under lib", 1, true) ~= nil, refused.stderr)
   local _ = verbs_fixture.expect(tree, "build", { "build", "--host", "cmd" }, 0)
   do
-    local held_true, held_why = Fs.exists(support.build_dir(tree) .. "/bin/bye")
-    assert(held_true == true, held_why)
+    assert(assert(Fs.status(support.build_dir(tree) .. "/bin/bye")).exists)
   end
 end
 

@@ -64,6 +64,7 @@
 local Flags = require("cosmic.flags")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
 
 local record PlaceTree
@@ -157,8 +158,8 @@ function PlaceTree.run(host: PlaceTree.Host, mode: string): integer
         return 1
       end
     end
-    local exists_already, _ = Fs.exists(workspace)
-    local is_tree, _ = Fs.is_dir(tree)
+    local exists_already, _ = Predicate.there(workspace)
+    local is_tree, _ = Predicate.directory(tree)
     if exists_already ~= true and is_tree == true then
       local moved, why = Fs.rename(tree, workspace)
       if not moved then
@@ -176,7 +177,7 @@ function PlaceTree.run(host: PlaceTree.Host, mode: string): integer
     return 0
   end
   -- The rename would replace an empty directory already at `tree`.
-  local tree_exists, _ = Fs.exists(tree)
+  local tree_exists, _ = Predicate.there(tree)
   if tree_exists == true then
     host.warn("place-tree: " .. tree .. " exists already")
     return 1

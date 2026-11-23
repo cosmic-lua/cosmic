@@ -1568,9 +1568,11 @@ function work.tool_read_unwritten(root: string, boot_hash: string): work.Unwritt
   local directory, _ = build_paths.optional(root)
   if directory == nil then return "unknown" end
   local path = build_paths.under(directory).working
-  local present, _ = Fs.exists(path)
+  local present_status, _ = Fs.status(path)
+  local present = present_status ~= nil and present_status.exists
   if present ~= true then return "unknown" end
-  local logged, _ = Fs.exists(path .. "-wal")
+  local logged_status, _ = Fs.status(path .. "-wal")
+  local logged = logged_status ~= nil and logged_status.exists
   local db, _ = Sqlite.open(path, { immutable = logged ~= true })
   if db == nil then return "unknown" end
   local schema, _ = schema_of(db)

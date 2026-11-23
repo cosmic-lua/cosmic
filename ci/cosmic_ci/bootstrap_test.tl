@@ -220,7 +220,7 @@ local function test_bootstrap_rejects_corrupt_cache_and_download(tmp: string)
   local result = bootstrap(tmp, root, tmp .. "/bad.out",
     { PATH = fake_curl(tmp), DOWNLOAD_SOURCE = tmp .. "/download",
       COSMIC_BOOTSTRAP_ATTEMPTS = "1" })
-  assert(not result.ok and Fs.exists(cached) == false,
+  assert(not result.ok and Predicate.exists(cached) == false,
     "corrupt replacement was accepted")
 end
 

@@ -72,8 +72,7 @@ local function test_the_first_codesign_on_path_runs(dir: string)
   fake_codesign(probe, dir .. "/b", 5)
   assert(VerifyCodesign.verify("Darwin", "core", dir .. "/a:" .. dir .. "/b") == 0)
   do
-    local held_true, held_why = Fs.exists(log)
-    assert(held_true == true, held_why)
+    assert(assert(Fs.status(log)).exists)
   end
 end
 

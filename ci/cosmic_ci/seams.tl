@@ -7,6 +7,7 @@
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Predicate = require("cosmic_ci.fs_predicate")
 local Proc = require("cosmic.proc")
 local Signal = require("cosmic.signal")
 local Stream = require("cosmic.stream")
@@ -100,7 +101,7 @@ local current: Seams.Calls = {
     if not appended then return false, tostring(why) end
     return true, ""
   end,
-  fs_exists = Fs.exists,
+  fs_exists = Predicate.there,
   fs_open_write = function(path: string, mode?: integer): integer?, string
     local fd, why = Fs.open_write(path, mode)
     if fd == nil then return nil, tostring(why) end

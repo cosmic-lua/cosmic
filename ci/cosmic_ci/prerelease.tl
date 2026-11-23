@@ -8,6 +8,7 @@
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Predicate = require("cosmic_ci.fs_predicate")
 local ArtifactRow = require("cosmic_ci.artifact_row")
 local GithubApi = require("cosmic_ci.github_api")
 local Hash = require("cosmic.hash")
@@ -629,7 +630,7 @@ end
 --- A directory under the job's temporary directory, made now.
 local function fresh(p: Prerelease.Publish, name: string): string
   local path = p.temp .. "/prerelease/" .. name
-  local there, why = Fs.exists(path)
+  local there, why = Predicate.there(path)
   assert(there ~= nil, why)
   assert(not there, path .. " exists already")
   assert(Fs.mkdirs(path))

@@ -269,7 +269,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   if text == nil then
     local named = request.file
     if request.pathlike and named ~= nil then
-      local there, _ = Fs.exists(named)
+      local there_status, _ = Fs.status(named)
+      local there = there_status ~= nil and there_status.exists
       if there ~= true then read_trouble = read_trouble .. "; a path starts with `$`" end
     end
     complain(read_trouble)

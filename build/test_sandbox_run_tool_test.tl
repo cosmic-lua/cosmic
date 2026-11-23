@@ -158,7 +158,7 @@ end
   skip_if_unsandboxed(text)
   assert(text:find("wrote|true|false|end", 1, true), text)
   assert(assert(Fs.read(xdg .. "/cosmic/zig-global/entry")) == "cached")
-  assert(Fs.exists(xdg .. "/cosmic/bootstrap") ~= true)
+  assert(not assert(Fs.status(xdg .. "/cosmic/bootstrap")).exists)
 end
 
 --- End to end: a module that grants a `host` path has its worker given
@@ -313,7 +313,7 @@ local function test_second(tmp: string) hold(tmp) end
     local count = 0
     local listed_names, _ = Fs.list(temp)
     for _, name in ipairs(listed_names or {}) do
-      if name:sub(1, 12) == "cosmic-test-" and Fs.exists(temp .. "/" .. name .. "/real/kept") == true then
+      if name:sub(1, 12) == "cosmic-test-" and assert(Fs.status(temp .. "/" .. name .. "/real/kept")).exists then
         count = count + 1
       end
     end

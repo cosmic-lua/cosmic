@@ -64,15 +64,15 @@ local function test_sweeps_preserve_live_owners_and_reap_killed_ones(tmp: string
     assert(Fs.mkdirs(legacy))
     local child = holder(wrapper .. "/owner")
     prepare(root, cache, patch)
-    assert(Fs.exists(wrapper) == true, "a live owner's payload was swept")
+    assert(assert(Fs.status(wrapper)).exists, "a live owner's payload was swept")
     assert(sys.kill(child.pid, sys.SIGKILL))
     local _ = assert(child:wait(Clock.seconds(5)))
     -- Move the patched content so the second prepare is also a cache miss.
     assert(Fs.write(root .. "/vendor/lib/file", "next"))
     prepare(root, cache, patch)
-    assert(Fs.exists(wrapper) == false, "a dead owner's payload was retained")
-    assert(Fs.exists(missing) == true, "missing ownership metadata was treated as dead")
-    assert(Fs.exists(legacy) == true, "a legacy PID was treated as proof of death")
+    assert(not assert(Fs.status(wrapper)).exists, "a dead owner's payload was retained")
+    assert(assert(Fs.status(missing)).exists, "missing ownership metadata was treated as dead")
+    assert(assert(Fs.status(legacy)).exists, "a legacy PID was treated as proof of death")
   end
 end
 
@@ -117,7 +117,7 @@ local function test_concurrent_patch_installs_publish_only_whole_payloads(tmp: s
 local Fs = require("cosmic.fs")
 local path = assert(require("build.patch").prepare(%q, "lib", %q))
 assert(assert(Fs.read(path .. "/file")) == "whole")
-assert(Fs.exists(path .. "/owner") == false)
+assert(not assert(Fs.status(path .. "/owner")).exists)
 print(path)
 ]]
   local children: mut {Child.Handle} = {}

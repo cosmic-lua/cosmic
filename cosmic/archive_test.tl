@@ -202,11 +202,11 @@ local function test_extract_writes_files_and_directories_and_keeps_the_mode(tmp:
   table.sort(written) -- checked: overload_none
   assert(#written == 3, table.concat(written, ","))
   assert(assert(Fs.read(dest .. "/adir/short.txt")) == "hello there")
-  assert(Fs.is_dir(dest .. "/adir") == true)
+  assert(assert(Fs.status(dest .. "/adir")).is_dir)
   local st = assert(Fs.stat(dest .. "/bin/tool"))
   assert(st.mode & 0x49 ~= 0, string.format("%o", st.mode)) -- some execute bit set
   -- a symlink is skipped by default
-  assert(Fs.exists(dest .. "/adir/link") == false)
+  assert(not assert(Fs.status(dest .. "/adir/link")).exists)
 end
 
 local function test_extract_strips_a_string_prefix(tmp: string)
@@ -249,7 +249,7 @@ local function test_extract_strips_by_a_whole_float(tmp: string)
   for _, refusal in ipairs(refusals) do
     local count, says = refusal.count, refusal.says
     Test.raises(function() Archive.extract(archive, tmp .. "/bad", { strip_components = count }) end, says)
-    assert(Fs.exists(tmp .. "/bad") == false)
+    assert(not assert(Fs.status(tmp .. "/bad")).exists)
   end
 end
 
@@ -261,7 +261,7 @@ local function test_extract_applies_a_filter(tmp: string)
     filter = function(rel: string): boolean return rel:find("^bin/", 1) ~= nil end,
   }))
   assert(#written == 1 and written[1] == "bin/tool", table.concat(written, ","))
-  assert(Fs.exists(dest .. "/adir") == false)
+  assert(not assert(Fs.status(dest .. "/adir")).exists)
 end
 
 local function test_extract_refuses_an_absolute_entry_path(tmp: string)
@@ -284,7 +284,7 @@ local function test_extract_refuses_a_dotdot_entry_path(tmp: string)
   local dest = tmp .. "/out"
   local written, trouble = Archive.extract(archive, dest)
   assert(written == nil and trouble:find("unsafe entry path", 1, true) ~= nil, trouble)
-  assert(Fs.exists(tmp .. "/escaped.txt") == false)
+  assert(not assert(Fs.status(tmp .. "/escaped.txt")).exists)
 end
 
 local function test_extract_refuses_a_backslash_dotdot_entry_path(tmp: string)
@@ -417,8 +417,8 @@ local function test_extract_refuses_a_symlink_chain_that_climbs_out(tmp: string)
   local dest = tmp .. "/work/dest"
   local written, trouble = Archive.extract(archive, dest, { links = "create" })
   assert(written == nil and trouble:find("through a symlink", 1, true) ~= nil, trouble)
-  assert(Fs.exists(tmp .. "/work/pwned") == false)
-  assert(Fs.exists(tmp .. "/work/a2") == false)
+  assert(not assert(Fs.status(tmp .. "/work/pwned")).exists)
+  assert(not assert(Fs.status(tmp .. "/work/a2")).exists)
 end
 
 local function test_extract_refuses_a_symlink_placed_inside_another_symlink(tmp: string)
@@ -432,7 +432,7 @@ local function test_extract_refuses_a_symlink_placed_inside_another_symlink(tmp:
   local dest = tmp .. "/work/dest"
   local written, trouble = Archive.extract(archive, dest, { links = "create" })
   assert(written == nil and trouble:find("through a symlink", 1, true) ~= nil, trouble)
-  assert(Fs.exists(tmp .. "/work/dest/a2") == false)
+  assert(not assert(Fs.status(tmp .. "/work/dest/a2")).exists)
 end
 
 local function test_extract_refuses_a_directory_entry_later_replaced_by_a_symlink(tmp: string)
@@ -445,7 +445,7 @@ local function test_extract_refuses_a_directory_entry_later_replaced_by_a_symlin
   local dest = tmp .. "/work/dest"
   local written, trouble = Archive.extract(archive, dest, { links = "create" })
   assert(written == nil and trouble:find("through a symlink", 1, true) ~= nil, trouble)
-  assert(Fs.exists(tmp .. "/work/pwned") == false)
+  assert(not assert(Fs.status(tmp .. "/work/pwned")).exists)
 end
 
 local function test_extract_lets_a_later_entry_replace_a_pending_symlink(tmp: string)
@@ -514,7 +514,7 @@ local function test_extract_refuses_to_write_through_a_symlink_already_in_dest(t
   assert(Fs.symlink(tmp .. "/elsewhere", dest .. "/sub"))
   local written, trouble = Archive.extract(archive, dest)
   assert(written == nil and trouble:find("through a symlink", 1, true) ~= nil, trouble)
-  assert(Fs.exists(tmp .. "/elsewhere/f") == false)
+  assert(not assert(Fs.status(tmp .. "/elsewhere/f")).exists)
 end
 
 --- A pax header naming `key` with a value holding a NUL, then a
@@ -660,7 +660,7 @@ local function test_extract_stops_at_max_entries(tmp: string)
   end)
   local written, trouble = Archive.extract(archive, tmp .. "/o1", { max_entries = 1 })
   assert(written == nil and trouble:find("more than 1 entry", 1, true) ~= nil, trouble)
-  assert(Fs.exists(tmp .. "/o1/b") == false)
+  assert(not assert(Fs.status(tmp .. "/o1/b")).exists)
   assert(Archive.extract(archive, tmp .. "/o2", { max_entries = 2 }))
   assert(assert(Fs.read(tmp .. "/o2/b")) == string.rep("b", 600))
   -- A negative limit is a mistake, not a failure to report.
@@ -994,7 +994,7 @@ local function test_extract_creates_a_zip_symlink_as_a_symlink(tmp: string)
   -- skipped by default, like a tar symlink, rather than written as a file
   local dest2 = tmp .. "/out2"
   assert(Archive.extract(archive, dest2))
-  assert(Fs.exists(dest2 .. "/src/adir/alink") == false)
+  assert(not assert(Fs.status(dest2 .. "/src/adir/alink")).exists)
 end
 
 local function test_listed_entries_refuse_to_open_rather_than_read_a_closed_file(tmp: string)
@@ -1021,7 +1021,7 @@ local function test_extract_refuses_a_write_under_a_checked_directory_once_a_sym
   local dest = tmp .. "/work/dest"
   local written, trouble = Archive.extract(archive, dest, { links = "create" })
   assert(written == nil and trouble:find("through a symlink", 1, true) ~= nil, trouble)
-  assert(Fs.exists(tmp .. "/work/second") == false)
+  assert(not assert(Fs.status(tmp .. "/work/second")).exists)
 end
 
 local function test_extract_walks_a_zip_and_a_tar_to_the_same_tree(tmp: string)
@@ -1260,9 +1260,9 @@ local function test_create_writes_nothing_at_the_path_until_close(tmp: string)
     local path = tmp .. "/" .. name
     local w = assert(Archive.create(path))
     assert(w:add_file("x", "y"))
-    assert(Fs.exists(path) ~= true, name .. ": there before close")
+    assert(not assert(Fs.status(path)).exists, name .. ": there before close")
     assert(w:close())
-    assert(Fs.exists(path) == true, name)
+    assert(assert(Fs.status(path)).exists, name)
   end
 end
 

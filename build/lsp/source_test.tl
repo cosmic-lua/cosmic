@@ -307,7 +307,7 @@ local function test_a_refusal_is_not_told_once_the_root_is_no_project()
   -- The build directory's database goes: the root is no project.
   local layout = build_paths.under((assert(build_paths.directory(root))))
   assert(Fs.remove(layout.working))
-  if Fs.exists(layout.projection) == true then assert(Fs.remove(layout.projection)) end
+  if assert(Fs.status(layout.projection)).exists then assert(Fs.remove(layout.projection)) end
   local gone = send({ session_fixture.changed_on_disk(root, "x/init.tl") })
   local after: mut {string:integer} = {}
   for _, each in ipairs(session_fixture.publications(gone)) do
@@ -566,8 +566,7 @@ local function test_a_root_no_build_was_started_in_publishes_nothing_until_one_i
   assert(counts(before) == "0,0", counts(before))
   assert(shown(before) == 1, table.concat(before.sent, "\n"))
   assert(before.tally.stages == 0)
-  local made, trouble = Fs.exists((assert(build_paths.directory(root))))
-  assert(made ~= nil, trouble)
+  local made = assert(Fs.status((assert(build_paths.directory(root))))).exists
   assert(made == false, "a root that is no project gets a build directory")
   -- A build is started there, as `cosmic test` starts one.
   assert(work.close((assert(work.open(root)))))
@@ -1358,8 +1357,8 @@ local function test_the_extracted_texts_of_a_tool_built_again_are_removed()
   source.refresh(src)
   local placed = assert(source.places(src, "cosmic.thing", none_open))
   local path = assert(source.extracted(src, placed))
-  assert(Fs.exists(stale) ~= true, "the text no module has goes")
-  assert(assert(Fs.read(path)) == THING and Fs.exists(directory .. "/notes") == true, "the current text and another name stay")
+  assert(not assert(Fs.status(stale)).exists, "the text no module has goes")
+  assert(assert(Fs.read(path)) == THING and assert(Fs.status(directory .. "/notes")).exists, "the current text and another name stay")
   source.close(src)
   assert(db:close())
 end

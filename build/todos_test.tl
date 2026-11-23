@@ -237,7 +237,7 @@ local function test_a_tree_in_no_repository_starts_no_git(tmp: string)
   assert(work.stage(handle, { own = false }))
   -- What [`cosmic.sys`]'s shared table is asked while the listing runs,
   -- each call's first argument: every lookup of a variable (`Env`) and
-  -- of a path ([`Proc.find`], [`Fs.exists`]) goes through it.
+  -- of a path ([`Proc.find`], [`Fs.status`]) goes through it.
   local asked: mut {string} = {}
   local calls = sys as {string:any} -- checked: cast_refused
   local stood: mut {string:any} = {}

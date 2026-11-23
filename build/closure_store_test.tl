@@ -539,11 +539,11 @@ local function test_a_basis_is_kept_beside_a_projection_that_is_old_enough(tmp: 
   assert(work.close(build_and_write(root, "world", tmp .. "/whole.db")))
   local whole = tmp .. "/whole.db"
   local fresh = assert(closure_store.basis(whole))
-  assert(Fs.exists(whole .. ".basis") ~= true, "a basis was kept of a file just written")
+  assert(not assert(Fs.status(whole .. ".basis")).exists, "a basis was kept of a file just written")
   -- Two seconds on, by a clock the test names, not one it waits on.
   local later = Clock.now_ns() + Clock.seconds(2) + Clock.ms(100)
   local made = assert(closure_store.basis(whole, nil, later))
-  assert(Fs.exists(whole .. ".basis") == true, "no basis was kept of a file two seconds old")
+  assert(assert(Fs.status(whole .. ".basis")).exists, "no basis was kept of a file two seconds old")
   local kept = assert(closure_store.basis(whole, nil, later))
   for _, basis in ipairs({ made, kept }) do
     assert(basis.shared == fresh.shared, "the kept basis names other meta")
@@ -563,8 +563,7 @@ local function test_a_basis_is_kept_beside_a_projection_that_is_old_enough(tmp: 
   -- Once the edited file is older than the tick too, a basis is kept and
   -- looked for again: only its token says it is of the file before the edit.
   do
-    local held_true, held_why = Fs.exists(whole .. ".basis")
-    assert(held_true == true, held_why)
+    assert(assert(Fs.status(whole .. ".basis")).exists)
   end
   local old_token = assert(closure_store.basis(whole, nil, Clock.now_ns() + Clock.seconds(2) + Clock.ms(100)))
   assert(old_token.modules["greet"] == changed.modules["greet"],

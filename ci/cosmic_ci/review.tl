@@ -25,6 +25,7 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Predicate = require("cosmic_ci.fs_predicate")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
 local Poll = require("cosmic.poll")
@@ -274,7 +275,7 @@ local function live(guard: Signal.Guard): Review.Host
       }, ""
     end,
     exists = function(path: string): boolean
-      local there, _ = Fs.exists(path)
+      local there, _ = Predicate.there(path)
       return there == true
     end,
     now = Clock.monotonic_ns,

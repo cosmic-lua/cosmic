@@ -160,7 +160,7 @@ local function opening_script(tmp: string): string
     'local Fs = require("cosmic.fs") ' ..
     'local handle = assert(work.open(' .. string.format("%q", tmp) .. ')) ' ..
     'local path = handle.dir .. "/build.db" assert(work.close(handle)) ' ..
-    'if Fs.exists(path) ~= true then assert(Fs.put(1, "gone")) return end ' ..
+    'if not assert(Fs.status(path)).exists then assert(Fs.put(1, "gone")) return end ' ..
     'local db = assert(Sqlite.open(path)) ' ..
     'local rows = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = \'schema\'")) ' ..
     'assert(db:close()) assert(Fs.put(1, assert(rows[1]):text(1)))'

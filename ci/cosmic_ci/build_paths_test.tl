@@ -1,5 +1,6 @@
 local BuildPaths = require("cosmic_ci.build_paths")
 local Fs = require("cosmic.fs")
+local Predicate = require("cosmic_ci.fs_predicate")
 local Test = require("cosmic.test")
 
 -- Resolving a not-yet-booted project executes the running driver.
@@ -28,7 +29,7 @@ local function test_resolution_uses_the_child_environment_and_source_checkout(tm
   assert(BuildPaths.directory(project, a, checkout) == tmp .. "/a/application")
   assert(BuildPaths.directory(project, b, checkout) == tmp .. "/b/application")
   assert(BuildPaths.directory(project, a, checkout) == tmp .. "/a/application")
-  assert(Fs.exists(project .. "/o") == false, "resolver created legacy output")
+  assert(Predicate.exists(project .. "/o") == false, "resolver created legacy output")
 end
 
 local function test_a_failed_resolver_is_not_used_as_a_directory(tmp: string)

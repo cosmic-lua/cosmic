@@ -120,7 +120,7 @@ end
 local function boot(tmp: string, tree: string, cache?: string, declaration?: string, mid_run?: string,
                     bootstrap?: string): Booted
   local core = tmp .. "/cosmic-core"
-  if Fs.exists(core) ~= true then
+  if not assert(Fs.status(core)).exists then
     local trusted = assert(artifact.trusted_core())
     assert(Fs.write(core, trusted.bytes, 0x1ed))
   end
@@ -481,7 +481,7 @@ local function test_the_cache_can_be_turned_off(tmp: string)
       assert(seen(booted):find("stage two: compiled by stage one", 1, true) ~= nil, name .. " kept or read rows: " .. seen(booted))
       assert(compiled(booted) >= 1, name .. " took modules from a cache: " .. seen(booted))
     end
-    assert(Fs.exists(name) == false and Fs.exists(tmp .. "/" .. name) == false, name .. " made the file")
+    assert(not assert(Fs.status(name)).exists and not assert(Fs.status(tmp .. "/" .. name)).exists, name .. " made the file")
   end
   -- Off, a cache that holds the rows is not read either.
   local off = boot(tmp, tree, "0")

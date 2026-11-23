@@ -53,8 +53,7 @@ local function test_docs_answers_from_the_tree_as_it_stands(tmp: string)
   local empty = tmp .. "/nothing"
   assert(Fs.mkdirs(empty))
   local _ = cosmic(empty, { "docs", "Fs.read" })
-  local made, made_trouble = Fs.exists(build_paths.required(empty))
-  assert(made ~= nil, made_trouble)
+  local made = assert(Fs.status(build_paths.required(empty))).exists
   assert(not made, "a directory of no project gets a build directory")
 end
 
@@ -66,8 +65,7 @@ local function test_a_lookup_builds_nothing_in_an_unbuilt_directory(tmp: string)
   assert(Fs.write(stray .. "/notes.tl", "--- Notes.\nlocal record Notes\nend\nreturn Notes\n"))
   local result = cosmic(stray, { "docs", "Fs.read" })
   assert(result.code == 0, result.stdout .. result.stderr)
-  local made, made_trouble = Fs.exists(build_paths.required(stray))
-  assert(made ~= nil, made_trouble)
+  local made = assert(Fs.status(build_paths.required(stray))).exists
   assert(not made, "a directory never built gets a build directory")
   assert(result.stderr:find("note: answering without this directory's modules, which no build has made yet; `cosmic build`, " ..
       "`cosmic test` or `cosmic fix` builds them", 1, true), result.stderr)

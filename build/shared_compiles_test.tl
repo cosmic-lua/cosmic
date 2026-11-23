@@ -110,7 +110,7 @@ local function test_a_query_failure_leaves_other_connections_and_files_alone(tmp
   assert(Array.at(assert(Sqlite.text_rows(reader, "SELECT value FROM healthy")), 1):text(1) == "still usable")
   assert(reader:close())
   assert(holder:close())
-  assert(Fs.exists(path .. "-wal") ~= true, "the failed build kept a connection open")
+  assert(not assert(Fs.status(path .. "-wal")).exists, "the failed build kept a connection open")
 end
 
 --- A meminfo that says the host has memory for every copy: what it has free is not what these tests check.

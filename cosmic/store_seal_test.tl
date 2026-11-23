@@ -248,7 +248,7 @@ local function test_seal_refuses_what_it_cannot_carry(tmp: string)
     Store.seal({ "fixture.leaf" }, tmp .. "/main.db", { main = "fixture.app" })
   end,
     "fixture.app")
-  assert(Fs.exists(tmp .. "/gone.db") == false, "a failed seal leaves no file")
+  assert(not assert(Fs.status(tmp .. "/gone.db")).exists, "a failed seal leaves no file")
 end
 
 --- A seal replaces a file whole: a failure before the rename leaves the old
@@ -324,7 +324,7 @@ local function test_attach_and_extra_name_the_unchecked_bytecode_option(tmp: str
   Test.raises(function()
     Store.seal({ "fixture.leaf" }, path, { extra = extra, unchecked_bytecode = false })
   end, "unchecked_bytecode")
-  assert(Fs.exists(path) ~= true, "a refused seal writes nothing")
+  assert(not assert(Fs.status(path)).exists, "a refused seal writes nothing")
   -- The option is for `extra` alone: sealing the store's own rows needs none.
   assert(Store.seal({ "fixture.leaf" }, tmp .. "/plain.db"))
 end

@@ -175,14 +175,14 @@ local function test_a_file_left_at_this_pid_is_refused_and_removed()
   local left = assert(handoff.nonce())
   assert(handoff.put(launch, left, session_of(launch, pid)))
   local file = directory .. "/lsp-handoff-" .. tostring(pid) .. "-" .. left .. ".json"
-  assert(Fs.exists(file) == true)
+  assert(assert(Fs.status(file)).exists)
   local none, none_why = handoff.take(launch, nil)
   assert(none == nil and none_why == "", "a file was taken with no nonce")
-  assert(Fs.exists(file) == false, "the file was left")
+  assert(not assert(Fs.status(file)).exists, "the file was left")
   assert(handoff.put(launch, left, session_of(launch, pid)))
   local other, other_why = handoff.take(launch, (assert(handoff.nonce())))
   assert(other == nil and other_why == "", "a file was taken under another nonce")
-  assert(Fs.exists(file) == false, "the file was left")
+  assert(not assert(Fs.status(file)).exists, "the file was left")
 end
 
 --- A write removes the files of a process that is gone, and leaves those of one that is not.
@@ -195,8 +195,8 @@ local function test_a_put_sweeps_the_files_of_dead_processes()
   assert(Fs.write(alive, "{}"))
   local nonce = assert(handoff.nonce())
   assert(handoff.put(launch, nonce, session_of(launch, sys.getpid())))
-  assert(Fs.exists(dead) == false, "a dead process's file was left")
-  assert(Fs.exists(alive) == true, "a live process's file was removed")
+  assert(not assert(Fs.status(dead)).exists, "a dead process's file was left")
+  assert(assert(Fs.status(alive)).exists, "a live process's file was removed")
   handoff.drop(launch, nonce)
   local _, _ = Fs.remove(alive)
 end
@@ -223,7 +223,7 @@ local function test_the_session_is_written_only_for_an_exec_and_the_entry_releas
     local given = assert(env["COSMIC_LSP_HANDOFF"])
     nonces[#nonces + 1] = given
     local file = directory_of(launch) .. "/lsp-handoff-" .. tostring(sys.getpid()) .. "-" .. assert(nonces[1]) .. ".json"
-    assert(Fs.exists(file) == true, "nothing was written for the exec")
+    assert(assert(Fs.status(file)).exists, "nothing was written for the exec")
     -- The exec failed, as it returns only then.
     return 3
   end
@@ -237,7 +237,7 @@ local function test_the_session_is_written_only_for_an_exec_and_the_entry_releas
   assert(holding("/x", state) == 3)
   assert(built == 1 and table.concat(log, ",") == "recheck,release,recheck", table.concat(log, ","))
   local file = directory_of(launch) .. "/lsp-handoff-" .. tostring(sys.getpid()) .. "-" .. assert(nonces[1]) .. ".json"
-  assert(Fs.exists(file) == false, "a process that was not replaced left its file")
+  assert(not assert(Fs.status(file)).exists, "a process that was not replaced left its file")
   local first = assert(nonces[1])
   assert(first:match("^%x+$") ~= nil and #first >= 16)
   -- A tree that is not cosmic's own has nothing to check.

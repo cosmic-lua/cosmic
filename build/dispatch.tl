@@ -990,7 +990,8 @@ function Dispatch.main(argv: {string}): integer
   -- A word that could not be a file to run is a mistyped verb, told as
   -- one rather than as a file that is not there.
   if not verb:find("/", 1, true) and not String.ends_with(verb, ".tl") then
-    local exists, _ = Fs.exists(verb)
+    local exists_status, _ = Fs.status(verb)
+    local exists = exists_status ~= nil and exists_status.exists
     if exists ~= true then
       -- The verbs typed by their names: a file run and the verbs spelled
       -- as options are typed by none.

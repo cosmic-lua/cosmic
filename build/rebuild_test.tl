@@ -16,8 +16,7 @@ local function test_a_directory_that_is_no_project_is_never_staged(tmp: string)
   assert(Fs.write(root .. "/notes.tl", "return {}\n"))
   local where = assert(rebuild.stage(root))
   assert(not where.project and not where.busy)
-  local made, trouble = Fs.exists(build_paths.required(root))
-  assert(made ~= nil, trouble)
+  local made = assert(Fs.status(build_paths.required(root))).exists
   assert(made == false, "a directory that is no project gets a build directory")
 end
 

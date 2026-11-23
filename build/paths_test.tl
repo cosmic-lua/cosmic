@@ -31,7 +31,7 @@ local function test_resolution_makes_nothing(tmp: string)
   local directory, trouble = paths.directory(root, { COSMIC_BUILD_HOME = home })
   assert(directory == home .. "/" .. Hash.hex_sha256(root), trouble)
   assert(paths.required(root, { COSMIC_BUILD_HOME = home }) == directory)
-  assert(Fs.exists(home) == false, "resolving output created a directory")
+  assert(not assert(Fs.status(home)).exists, "resolving output created a directory")
 end
 
 --- With no COSMIC_BUILD_HOME the base is the user's cache:
@@ -90,7 +90,7 @@ local function test_an_unusable_location_is_refused(tmp: string)
       ": writable by its group or others", trouble)
   local made, made_trouble = paths.prepare(root, { COSMIC_BUILD_HOME = home })
   assert(made == nil and made_trouble == trouble, made_trouble)
-  assert(Fs.exists(root .. "/o") == false)
+  assert(not assert(Fs.status(root .. "/o")).exists)
 end
 
 --- `prepare` makes the base and the directory, each this user's alone.
@@ -104,7 +104,7 @@ local function test_prepare_makes_a_private_directory(tmp: string)
     assert(st.kind == "dir" and st.mode & 0x1ff == 0x1c0, path)
   end
   assert(paths.prepare(root, env) == made)
-  assert(Fs.exists(root .. "/o") == false)
+  assert(not assert(Fs.status(root .. "/o")).exists)
 end
 
 --- `prepare` records the directory's use in `used`, each time it is
@@ -115,7 +115,7 @@ local function test_prepare_records_the_use(tmp: string)
   local directory = assert(paths.required(root, env))
   local used = paths.under(directory).used
   assert(used == directory .. "/used")
-  assert(Fs.exists(used) ~= true, "a lookup recorded a use")
+  assert(not assert(Fs.status(used)).exists, "a lookup recorded a use")
   assert(paths.prepare(root, env) == directory)
   local now = Clock.now_ns() // 1000000000
   assert(math.abs(assert(sys.stat(used)).mtime - now) < 60, "no use was recorded")
@@ -156,7 +156,7 @@ local function test_bootstrap_and_runtime_resolve_the_same_directory(tmp: string
     assert(result.ok, tostring(result.stderr))
     assert(result.stdout == paths.required(root, { COSMIC_BUILD_HOME = home }) .. "\n",
       tostring(result.stdout))
-    assert(Fs.exists(home) == (words[1] == "--prepare"), "only --prepare makes the directory")
+    assert(assert(Fs.status(home)).exists == (words[1] == "--prepare"), "only --prepare makes the directory")
   end
   local started = this_program.program({ "--standalone", script, root }, {
     cwd = tmp, env = { COSMIC_BUILD_HOME = "relative" }, stdout = "capture", stderr = "capture",
@@ -241,8 +241,7 @@ local function test_boot_verbs_and_lock_resolve_alike(tmp: string)
   assert(work.close(handle))
   assert(opened == layout.directory, opened .. " against " .. layout.directory)
   do
-    local held_true, held_why = Fs.exists(layout.working)
-    assert(held_true == true, held_why)
+    assert(assert(Fs.status(layout.working)).exists)
   end
   assert(rebuild_lock.hand({}, root).COSMIC_REBUILD_LOCK_HANDED == layout.lock) -- checked: map_field
   assert(Fs.mkdirs(layout.bin))
@@ -255,5 +254,5 @@ local function test_boot_verbs_and_lock_resolve_alike(tmp: string)
     return 7
   end)
   assert(status == 7)
-  assert(Fs.exists(root .. "/o") == false, "a build wrote o/ in the project")
+  assert(not assert(Fs.status(root .. "/o")).exists, "a build wrote o/ in the project")
 end

@@ -295,7 +295,7 @@ local function test_root_and_proc_follow_the_host()
   local host = host_requires.new()
   assert((ask(host, "root").kind == "present") == (sys.getuid() == 0))
   if assert(sys.uname()).sysname == "Linux" then
-    assert((ask(host, "proc").kind == "present") == (Fs.is_dir("/proc/self") == true))
+    assert((ask(host, "proc").kind == "present") == (assert(Fs.status("/proc/self")).is_dir))
   end
 end
 
@@ -357,11 +357,11 @@ local function test_a_path_is_keyed_by_what_it_is(tmp: string)
     fifo.why)
   assert(assert(sys.symlink(pipe, tmp .. "/to-pipe")))
   assert(ask(host_requires.new(), "path:" .. tmp .. "/to-pipe").kind == "skipped", "a link is followed")
-  if Fs.exists("/dev/zero") == true then
+  if assert(Fs.status("/dev/zero")).exists then
     local zero = ask(host_requires.new(), "path:/dev/zero")
     assert(zero.kind == "skipped" and zero.why:find("char", 1, true) ~= nil, zero.why)
   end
-  if assert(sys.uname()).sysname == "Linux" and Fs.exists("/proc/self/status") == true then
+  if assert(sys.uname()).sysname == "Linux" and assert(Fs.status("/proc/self/status")).exists then
     assert(assert(sys.symlink("/proc/self/status", tmp .. "/to-proc")))
     local linked = ask(host_requires.new(), "path:" .. tmp .. "/to-proc")
     assert(linked.kind == "present" and linked.key == "present", linked.key)
@@ -439,7 +439,7 @@ local without_admin <const> = "Name:\tx\nCapEff:\t0000000000000000\n"
 --- CAP_SYS_ADMIN, whatever its user; the key is the same wherever the limit.
 local function test_userns_follows_the_settings()
   if not (assert(sys.uname()).sysname == "Linux") then Test.skip("only Linux has this probe") end
-  if Fs.exists("/proc/self") ~= true then Test.skip("this host has no /proc/self") end
+  if not assert(Fs.status("/proc/self")).exists then Test.skip("this host has no /proc/self") end
   local function userns(files: {string:string}): host_requires.Answer
     return ask(settings(files), "userns")
   end
@@ -465,7 +465,7 @@ end
 --- raises, as neither is an absence.
 local function test_a_setting_that_cannot_be_read_raises()
   if not (assert(sys.uname()).sysname == "Linux") then Test.skip("only Linux has this probe") end
-  if Fs.exists("/proc/self") ~= true then Test.skip("this host has no /proc/self") end
+  if not assert(Fs.status("/proc/self")).exists then Test.skip("this host has no /proc/self") end
   local garbled, why = pcall(ask, settings({ [limit_file] = "many\n", [status_file] = without_admin }), "userns")
   assert(not garbled and tostring(why):find("holds no number", 1, true) ~= nil, tostring(why))
   local no_caps, caps_why = pcall(ask, settings({ [limit_file] = "9", [status_file] = "Name:\tx\n" }), "userns")
@@ -538,7 +538,7 @@ local function test_a_program_outside_the_systems_paths_is_absent(tmp: string)
   local answer = ask(host_with({ ok = true, why = "", broken = false }, tmp .. "/bin", { "/nonexistent-system" }),
     "program:elsewhere-tool")
   assert(answer.kind == "skipped" and answer.why:find("outside the system's paths", 1, true) ~= nil, answer.why)
-  if Fs.exists("/bin/sh") == true then
+  if assert(Fs.status("/bin/sh")).exists then
     assert(ask(host_with({ ok = true, why = "", broken = false }, "/bin"), "program:sh").kind == "present")
   end
 end

@@ -197,7 +197,7 @@ return function(argv: {string}): integer
   local lines = {
     tostring(ok) .. " " .. why,
     result.kind .. " " .. tostring(result.status),
-    "exists " .. tostring((Fs.exists(dest))),
+    "exists " .. tostring(assert(Fs.status(dest)).exists),
   }
   local followed, followed_why = Http.download("http://files.test/moved", dest, { timeout_ns = Clock.seconds(60), via = via, follow = true })
   assert(followed, followed_why)

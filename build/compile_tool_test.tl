@@ -40,7 +40,7 @@ local function test_a_require_of_a_named_file_is_typed_from_it(tmp: string)
   local ran = tool_fixture.cosmic(tmp, { "compile", "--errors", "-o", "out", "globals.d.tl", "lib.tl", "main.tl" })
   assert(ran.code == 0, ran.err)
   assert(ran.err:find("main.tl:2:", 1, true) ~= nil and not ran.err:find("not found", 1, true), ran.err)
-  assert(Fs.exists(tmp .. "/out/lib.lua") == true and Fs.exists(tmp .. "/out/main.lua") == true)
+  assert(assert(Fs.status(tmp .. "/out/lib.lua")).exists and assert(Fs.status(tmp .. "/out/main.lua")).exists)
 end
 
 --- The library's own advice rides on the refusals of [`Json.Value`], which is named as a user writes it.

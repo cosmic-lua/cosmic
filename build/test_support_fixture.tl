@@ -62,7 +62,8 @@ function test_support_fixture.descriptors(): string
   local out: mut {string} = {}
   -- /dev/fd where there is no /proc (macOS, the BSDs).
   local directory = "/proc/self/fd"
-  local is_dir, _ = Fs.is_dir(directory)
+  local is_dir_status, _ = Fs.status(directory)
+  local is_dir = is_dir_status ~= nil and is_dir_status.is_dir
   if is_dir ~= true then directory = "/dev/fd" end
   for _, number in ipairs((assert(Fs.list(directory)))) do
     local target, _ = Fs.readlink(directory .. "/" .. number)
