@@ -256,6 +256,25 @@ local function test_an_input_is_read_however_it_is_written()
   assert(table.concat(names, ",") == "zig-cache,x y,z", table.concat(names, ","))
 end
 
+--- No `env` of a workflow or a job reads the `runner` context, which
+--- GitHub gives only a job's steps: one that does makes the workflow
+--- file invalid, and its run fails before any job starts.
+local function test_no_job_env_reads_the_runner_context()
+  local count = 0
+  for path, text in pairs(flow_workflows()) do
+    local workflow = read_as(WORKFLOW, path, text)
+    local function held(env: {string: string}?, where: string)
+      for name, value in pairs(env or {}) do
+        count = count + 1
+        assert(not tostring(value):find("runner%."), where .. "'s env " .. name .. " reads the runner context")
+      end
+    end
+    held(workflow.env, path)
+    for job_name, job in pairs(workflow.jobs) do held(job.env, path .. " job " .. job_name) end
+  end
+  assert(count > 0, "no workflow or job has an env")
+end
+
 --- Each decoded flow-style workflow, by path.
 local function decoded_workflows(): {string: Workflow}
   local out: mut {string: Workflow} = {}
@@ -1534,11 +1553,13 @@ local function test_mains_push_repeats_nothing_the_queue_checked()
   local driver = job_of(jobs, "driver")
   assert(driver["if"] == "github.event_name == 'merge_group'" and #needs_of(driver) == 0,
     "the pinned driver's own job runs on other runs, or waits on another job")
+  local own = driver.steps
   -- Its unprivileged builder cannot write the default ~/.cache, and it
   -- has no `zig-cache` to name another.
-  assert(map_of(driver.env)["XDG_CACHE_HOME"] == "${{ runner.temp }}/cache",
+  local named, named_at = step_named(own, "name the cosmic cache every later step shares")
+  local _, bootstrap_at = step_with_id(own, "driver")
+  assert(named_at < bootstrap_at and (named.run or ""):find("XDG_CACHE_HOME=$RUNNER_TEMP/cache", 1, true) ~= nil,
     "the driver's job names no cosmic cache its builder can write")
-  local own = driver.steps
   for _, s in ipairs(own) do
     assert((s.run or ""):find("platform boot", 1, true) == nil, "the driver's job boots the tree")
   end

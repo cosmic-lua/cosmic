@@ -1176,12 +1176,7 @@
       "runs-on": "ubuntu-24.04",
       permissions: {contents: "read", packages: "read"},
       "timeout-minutes": 20,
-      # XDG_CACHE_HOME: the launcher's cores and the driver lie under it,
-      # and the unprivileged builder cannot write the default
-      # ~/.cache. The platform job has it from the driver action's
-      # `zig-cache`, whose caches this job does not restore.
-      # $RUNNER_TEMP lies at its host path in the leg's container.
-      env: {COSMIC_WORKER: "linux-x86_64", TARGET: "x86_64-linux-musl", XDG_CACHE_HOME: "${{ runner.temp }}/cache"},
+      env: {COSMIC_WORKER: "linux-x86_64", TARGET: "x86_64-linux-musl"},
       steps: [
         {
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
@@ -1202,6 +1197,18 @@
           "working-directory": "/",
           shell: "leg-shell --root {0}",
           run: "uid=\"$(stat -c %u \"$GITHUB_WORKSPACE\")\"; if command -v useradd >/dev/null; then useradd -m -o -u \"$uid\" runner; else adduser -D -u \"$uid\" runner; fi",
+        },
+        # One cosmic cache for every step after this: the launcher's cores
+        # and the driver lie under $XDG_CACHE_HOME, and the unprivileged
+        # builder cannot write the default ~/.cache. The platform job has
+        # it from the driver action's `zig-cache`, whose caches this job
+        # does not restore. $RUNNER_TEMP lies at its host path in the
+        # leg's container.
+        {
+          name: "name the cosmic cache every later step shares",
+          "working-directory": "/",
+          shell: "sh",
+          run: "echo \"XDG_CACHE_HOME=$RUNNER_TEMP/cache\" >> \"$GITHUB_ENV\"",
         },
         {
           name: "bootstrap the pinned CI driver",
