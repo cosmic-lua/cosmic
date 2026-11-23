@@ -10,16 +10,16 @@ local Test = require("cosmic.test")
 
 Test.policy{ cpu_features = true, requires = { "checked" } }
 
-local function gzip_decoder(): Compress.Stream return (assert(Compress.inflater("gzip"))) end
+local function gzip_decoder(): Compress.Stream return (assert(Compress.decoder("gzip"))) end
 
 --- The ratio check, reached through the checked core's fault point: a
 --- tinfl that stops consuming, as upstream's did on a block with no
 --- codes, gives out a full window per call for nothing, and the stream
 --- fails once that passes deflate's largest ratio rather than spinning.
 local function test_a_decoder_that_stops_consuming_fails_the_ratio_check()
-  local packed = assert(Compress.deflate("raw", "hello, cosmic!"))
+  local packed = assert(Compress.encode("raw", "hello, cosmic!"))
   testing.fail_at("tinfl_decompress")
-  local dec = assert(Compress.inflater("raw"))
+  local dec = assert(Compress.decoder("raw"))
   local out, trouble: string?, string?
   for _ = 1, 64 do
     out, trouble = dec:update(packed)
@@ -32,7 +32,7 @@ end
 
 local function test_a_raise_inside_update_leaves_the_stream_finished()
   local input = string.rep("the quick brown fox ", 5000)
-  local enc = assert(Compress.deflater("gzip"))
+  local enc = assert(Compress.encoder("gzip"))
   local packed = assert(enc:update(input)) .. assert(enc:finish())
   local raised = 0
   for after = 0, 100000 do

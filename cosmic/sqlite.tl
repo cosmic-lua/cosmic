@@ -492,7 +492,7 @@ end
 --- - `digest(A, X)`: the digest of X under the algorithm A names (a
 ---   [`cosmic.hash`] `Algorithm`).
 --- - `hmac(A, K, X)`: the HMAC of X under the key K over A.
---- - `deflate(X)`: the raw deflate of X, as `Compress.deflate("raw", X)`
+--- - `deflate(X)`: the raw deflate of X, as `Compress.encode("raw", X)`
 ---   writes it; `inflate(X)` decodes such a stream, to a blob.
 --- - `chunk(X)`: a module's bytecode as `string.dump` wrote it, where X
 ---   is how a database stores it ([`cosmic.store`]): as it is, or

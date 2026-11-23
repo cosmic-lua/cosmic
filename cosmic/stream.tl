@@ -1574,7 +1574,7 @@ end
 --- raises. `t` is finished by it, or left unfinished by a
 --- failure, and is not reused.
 ---
----     local gz = assert(Compress.deflater("gzip"))
+---     local gz = assert(Compress.encoder("gzip"))
 ---     local packed = assert(Stream.run(gz, text))
 function Stream.run(t: Stream.Transform, data: string, max_bytes?: integer): (string) | (nil, Failure)
   if max_bytes ~= nil and max_bytes < 0 then
