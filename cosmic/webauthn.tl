@@ -29,7 +29,7 @@
 --- `none` and a packed self-attestation are taken: an app here trusts a
 --- passkey for what it proves later, not for who made the
 --- authenticator. Every function that checks takes the browser's JSON,
---- which is from anyone: what does not check answers nil and a reason,
+--- which is from anyone: what does not check returns nil and a reason,
 --- and nothing raises.
 ---
 --- What stays the app's to do, with what it keeps:

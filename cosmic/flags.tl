@@ -24,12 +24,13 @@
 --- ["--jobs"] = { value = "n", about = "run n at once" } }` -- and
 --- [`Flags.help`] writes a command's help from it. [`Flags.dispatch`] reads a
 --- command first -- `prog build --jobs 4` -- parses the rest with that
---- command's own spec, and answers `--help` from the same descriptions.
+--- command's own spec, and returns the help for `--help` from the same
+--- descriptions.
 --- A [`Flags.Documented`] adds what a program's help holds beyond its
 --- commands -- topics, the order of its groups, the text around its
 --- index -- for [`Flags.dispatch`] and [`Flags.program_help`] alike.
 --- [`Flags.main`] runs a program's whole line with them, writing its help
---- and refusals and answering its exit status.
+--- and refusals and returning its exit status.
 
 local Distance = require("cosmic.internal.distance")
 local Fs = require("cosmic.fs")

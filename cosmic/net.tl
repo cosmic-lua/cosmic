@@ -1,6 +1,6 @@
 --- Stream sockets listen, accept and connect, then read and write as a
 --- [`cosmic.stream`] Reader and Writer. [`Net.resolve`] looks a host name
---- up, as the system's resolver would, and answers every address it has.
+--- up, as the system's resolver would, and returns every address it has.
 ---
 ---     local server <close> = assert(Net.listen(Net.unix(dir .. "/app.sock")))
 ---     local conn <close> = assert(server:accept())
@@ -17,7 +17,7 @@
 --- tells the peer the end of what was sent while its answer is still
 --- read. That suits a protocol whose request ends at end of file. After a
 --- framed request (HTTP, a length prefix) do not half-close: a server may
---- take the half-close as the client closing and answer nothing. HTTP over
+--- take the half-close as the client closing and send no reply. HTTP over
 --- a unix socket is [`Http.request`] with `via`. The direction is a
 --- [`Net.Shutdown`], one of "read", "write" or "both", and any other
 --- string does not compile.

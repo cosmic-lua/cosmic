@@ -1,8 +1,8 @@
 --- An ACME client (RFC 8555): it asks a certificate authority such as
 --- Let's Encrypt for a certificate, proving control of each name by a
---- challenge, and answers the certificate chain as PEM.
+--- challenge, and returns the certificate chain as PEM.
 ---
----     local served: {string: string} = {} -- what a web server on port 80 answers
+---     local served: {string: string} = {} -- what a web server on port 80 serves
 ---     local account = Key.generate("p256")
 ---     local client = Acme.client({ directory = Acme.LETS_ENCRYPT_STAGING, key = account })
 ---     assert(client:account({ contact = { "mailto:ops@example.com" }, terms_agreed = true }))
@@ -41,7 +41,7 @@
 --- key for the certificate. A key's `pem` is its secret as a web server
 --- reads one, and [`Key.read`] reads it back, or a key OpenSSL wrote.
 ---
---- Every fallible function answers `value, ""` or `nil, why`, the why
+--- Every fallible function returns `value, ""` or `nil, why`, the why
 --- opening `acme: `. A problem document the server sends (RFC 8555
 --- section 6.7) is named in the why by its type and detail. A request
 --- the server refuses for a stale nonce (`badNonce`) is sent again once

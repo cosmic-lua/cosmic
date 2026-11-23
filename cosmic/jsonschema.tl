@@ -1,5 +1,5 @@
 --- JSON Schema (draft 2020-12) checked against a [`Json.Value`]: [`JsonSchema.compile`] reads a schema once, and
---- the [`JsonSchema.Schema`] it answers says whether a value is one the schema allows, and where it is not.
+--- the [`JsonSchema.Schema`] it returns says whether a value is one the schema allows, and where it is not.
 ---
 ---     local Json = require("cosmic.json")
 ---     local JsonSchema = require("cosmic.jsonschema")

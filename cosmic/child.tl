@@ -9,7 +9,7 @@
 --- `policy` or a `sandbox`.
 ---
 --- A child owns a new process group by default, and its Handle owns
---- that group: once a wait, a timeout, or a close has an answer, no
+--- that group: once a wait, a timeout, or a close returns, no
 --- process of the group is left. Anything still running when the
 --- child exits is sent SIGTERM, then SIGKILL, and on Linux this
 --- process becomes a child subreaper the first time it starts a
@@ -57,7 +57,7 @@
 --- pidfd on Linux, a kqueue on Darwin) -- a moment after the child's
 --- last act, which its teardown and a busy host's scheduling lengthen
 --- -- and is looked for every 10 ms elsewhere. A wait whose task is cancelled
---- answers nil (or false) and [`Poll.CANCELLED`], as [`cosmic.net`]'s
+--- returns nil (or false) and [`Poll.CANCELLED`], as [`cosmic.net`]'s
 --- do, and leaves the child running, for its handle to end. Ending a
 --- child in a cancelled task -- [`Child.run`]'s, a close, a timeout --
 --- waits through the run all the same ([`Poll.shielded`]) until it is
