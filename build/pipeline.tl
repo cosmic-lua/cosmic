@@ -54,6 +54,11 @@ local standard_text = require("build.standard_text")
 local type Plans = require("build.plans")
 -- Declares what text this module reads ([`build.code_walk`]'s `markers`): pipeline, stubs.
 local _ = require("build.reads.pipeline")
+-- Required for no use here: the edge puts in the walk of the checker's readers ([`build.code_walk`]), and in the closure
+-- of each test that loads this module, the code that names every compile's key ([`code_identity.coded`]) and the
+-- catalog a compile writes. A compile loads this module anyway, and a run that compiles nothing loads neither.
+local _ = require("build.code_identity")
+local _ = require("build.error_catalog")
 local type Module = Plans.Module
 
 local record Pipeline

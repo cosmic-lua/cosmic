@@ -1911,6 +1911,7 @@ local function compile_derived(handle: work.Handle, tool: string,
     for _, one in ipairs(mended) do
       local examined = reading.built
       if examined == nil then
+        -- Options that cannot be made leave the file not checked, its line kept, as a tree that cannot be read does.
         local options, _ = options_of(reading)
         if options ~= nil then
           local made_built, _ = require("build.pipeline").build(handle.db, options)

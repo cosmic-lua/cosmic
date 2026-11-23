@@ -1992,6 +1992,10 @@ local function test_the_compiler_modules_are_closed_under_require()
     ["build.pipeline"] = "the compile with the new checker, keyed by the code that reads it " ..
       "(`code_identity.coded`) and not by the compiler's identity, which a default run keeps",
     ["build.code_walk"] = "names which modules the identities of the code that reads hash, and which a test's store keeps",
+    ["build.code_identity"] = "hashes the code that reads into every compile's key (`code_identity.coded`), and is a root " ..
+      "of what it hashes (`CodeWalk.roots_of`), not of the compiler's identity",
+    ["build.error_catalog"] = "writes the catalog of the checker's codes, held in every compile's key by the code that reads " ..
+      "(`code_identity.coded`), of which it is a root",
     ["build.logger"] = "says a refusal ahead of the report of a long compile; what is said, not what is stored",
     ["build.parse_derive"] = "the parse, keyed by the analyzer's identity, of which it is a root (`CodeWalk.analyzer_roots`), " ..
       "and held in every compile's key by the code that reads (`code_identity.coded`), not by the compiler's identity",
@@ -2078,6 +2082,8 @@ local function test_the_writer_modules_are_closed_under_require()
       "which refuses a build and fills no row",
     ["build.grammar_mode"] = "names the tool string a compile is keyed by, which only the compile consults",
     ["build.code_walk"] = "names which modules the identities of the code that reads hash, and which a test's store keeps",
+    ["build.code_identity"] = "names the code that reads, which only the compile's key holds",
+    ["build.error_catalog"] = "writes the catalog of the checker's codes, held by the compile's key through the code that reads",
     ["build.reads.analyzer"] = "a declaration of what text a module reads, which a test's store follows; no code",
     ["build.reads.receivers"] = "a declaration of what text a module reads, which a test's store follows; no code",
     ["build.reads.links"] = "a declaration of what text a module reads, which a test's store follows; no code",

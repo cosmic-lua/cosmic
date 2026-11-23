@@ -7,7 +7,7 @@
 --- of a test's pure store ([`build.closure_store`]) reach the same modules: the pure store keeps the source of exactly the
 --- walks a test's closure declares it reads (it requires [`build.reads.pipeline`], `analyzer`, `receivers` or `links`).
 
--- TODO: hash the tokens of each module of a walk, not its source, in the four identities (build.pipeline's `identity`,
+-- TODO: hash the tokens of each module of a walk, not its source, in the four identities (build.code_identity's `identity`,
 -- build.importer's `analyzer_named` and `receivers_identity`, build.work's `links_finder`) once a comment-insensitive
 -- fingerprint of a module exists, so that a comment in a module of a walk moves no key; the pure store would then keep
 -- that fingerprint in place of the source.

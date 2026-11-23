@@ -19,7 +19,7 @@ local record code_identity
 
   --- The tool string a compile is keyed by, given the one the harness chose ([`build.grammar_mode`]'s `tool`): that and the
   --- identity of the code that reads and checks a source, which is the source, as the running binary carries it,
-  --- of every module of the tree (`lang.*`, `build.*`) that [`build.pipeline`] reaches. A compile made with it is
+  --- of every module of the tree (`lang.*`, `build.*`) that [`build.pipeline`] reaches, this module among them. A compile made with it is
   --- keyed by it, so that an edit to the checker or to a reader compiles the tree again; the compiler's identity
   --- ([`build.identity`]) holds none of it, so a default run is not read again for it. A parse is keyed by the part of it
   --- a parse runs, and no more ([`build.parse_derive`], [`build.importer`]'s `analyzer_identity`).
