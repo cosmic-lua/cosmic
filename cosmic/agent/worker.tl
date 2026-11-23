@@ -1,8 +1,8 @@
 --- @public
 --- The worker of `cosmic agent`'s `run` tool: one process a session, `cosmic agent worker`, that checks and runs the
 --- snippets of Teal the model sends, one after another, under the sandbox the other tools are held to. It is started
---- when the model first calls `run`, and lives until the session ends; one that a snippet outlasts its timeout in is
---- ended, and the next `run` starts another. Its checker lives as long as it does, so a snippet that requires what an
+--- when the model first calls `run`, and lives until the session ends. A snippet that runs past its timeout, or a turn
+--- the user stops, ends the worker, and the next `run` starts another. Its checker lives as long as it does, so a snippet that requires what an
 --- earlier one did is checked in a few milliseconds.
 ---
 ---     local w = Worker.new()
@@ -12,10 +12,15 @@
 ---
 --- The worker reads requests, `{"id":1,"code":"..."}`, one JSON object a line, and answers each with a line holding
 --- the request's `id` and one of: `refused`, the checker's lines, for a snippet that did not run; `ok` true,
---- `output` (what it wrote to standard output and standard error together, its last megabyte, `cut` true where more was
---- written) and `value` (the JSON of what it returned, where it returned one); `ok` false with `output` and `error`,
+--- `output` (what it wrote to standard output and standard error together, its last 64KB as UTF-8, `cut` true where
+--- more was written) and `value` (the JSON of what it returned, where it returned one, at most 64KB); `ok` false with `output` and `error`,
 --- for one that raised; or `error` alone, for a request it could not read. A snippet sets no global, which the checker
---- refuses; what it keeps for the next it writes to a file.
+--- refuses; what it keeps for the next it writes to a file. Its standard input is /dev/null.
+---
+--- Under a policy the worker is held as bash is, with two changes: it is granted this program's own file (read and
+--- run), which it runs as, and it is not given the nest promise, beside which this program cannot be started again, so
+--- Landlock holds its files too. Its environment is the policy's alone, so no key of the user's reaches it. With no
+--- policy (`--sandbox off`) it has the agent's whole environment, the API key included, as bash does then.
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -46,9 +51,13 @@ local record Worker
     argv: {string}
     --- The environment and descriptors it starts with beside its pipes, where given: a test's.
     base?: Child.Options
+    --- The worker running, nil where none runs.
     mut handle?: Child.Handle
+    --- Its answers, a line each.
     mut lines?: Stream.Lines
+    --- Its requests.
     mut writer?: Stream.Writer
+    --- The id the next request is sent with.
     mut next: integer
     --- How many workers it started.
     mut started: integer
@@ -86,8 +95,8 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
   local policy: Sandbox.Policy? = nil
   local given = opts.policy
   if given ~= nil then
-    -- The worker runs this program's own file, which the tools' policy may not grant. It is held to less than bash:
-    -- no nest, which the relaunch of this program is refused beside, so Landlock holds its files as well.
+    -- TODO: copy `merged` whole, changing its promises alone, once a record can be copied with a field changed: a field
+    -- Sandbox.Policy gains is left out of this copy, and so given to the worker as nothing.
     local merged, why = Sandbox.merge(given, { profiles = { "cosmic" } })
     if merged == nil then return nil, Failure.new("worker: " .. why) end
     local promises: mut {Sandbox.Promise} = {}
@@ -173,6 +182,11 @@ function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worke
   if answer == nil then
     Worker.close(set)
     return nil, Failure.new("worker: its answer is no JSON object: " .. tostring(decode_why))
+  end
+  -- An answer to another request (a line the snippet wrote where the answers go) puts every later answer out of step.
+  if answer["id"] ~= id then
+    Worker.close(set)
+    return nil, Failure.new("worker: it answered another request than this one; the next run starts a new one")
   end
   return answer
 end

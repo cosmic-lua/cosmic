@@ -455,8 +455,14 @@ local function run(input: Tools.Object, context: Tools.Context): Tools.Result
   end
   local value = answer["value"]
   if value ~= nil then
-    local shown, _ = Json.encode(value)
-    text = text .. (if text == "" or text:sub(-1) == "\n" then "" else "\n" end) .. "Returned: " .. (shown or "?")
+    local encoded, _ = Json.encode(value)
+    local shown = encoded or "?"
+    if #shown > RUN_BYTES then
+      shown = String.cut(shown, RUN_BYTES) .. " ... (" .. String.counted(#shown, "byte") .. "; the whole is kept in sessions.db)"
+      said = said .. "\nReturned: " .. (encoded or "?")
+      cut = true
+    end
+    text = text .. (if text == "" or text:sub(-1) == "\n" then "" else "\n" end) .. "Returned: " .. shown
   end
   if text == "" then text = "(no output)" end
   local r = if answer["ok"] == true then ok(text) else
@@ -681,8 +687,8 @@ Tools.list = {
       "cosmic.sqlite, cosmic.child, cosmic.http, ...). It is checked first, in milliseconds; one the checker refuses " ..
       "does not run, and the answer is the checker's lines, each with its fix. Returns what it printed (its last " ..
       tostring(RUN_BYTES // 1024) .. "KB) and the JSON of what it returned. Timeout in seconds, " ..
-      tostring(RUN_SECONDS) .. " unless given; a snippet that runs past it ends the worker, and the next run " ..
-      "starts another.",
+      tostring(RUN_SECONDS) .. " unless given, counted from when the snippet is sent (a first run starts the worker " ..
+      "too), and 0 for none; a snippet that runs past it ends the worker, and the next run starts another.",
     schema = schema({
       code = string_field("The snippet of Teal, as the body of a file: `local Fs = require(\"cosmic.fs\")` ..."),
       timeout = integer_field("Timeout in seconds (optional, " .. tostring(RUN_SECONDS) .. " by default)"),

@@ -18,13 +18,15 @@
 ---     "ok": false, "output", "error"   it raised `error`, after writing `output`
 ---     "error": "..."                   the request could not be read
 ---
---- "output" is at most a megabyte, its last part, and "cut": true says where more was written. A snippet sets no
+--- "output" is at most 64KB, its last part, as UTF-8 (a byte that begins no character is U+FFFD), and "cut": true
+--- says where more was written; "value" is at most 64KB of JSON, and a note where it is more. A snippet sets no
 --- global, which the checker refuses; what it keeps for the next it writes to a file. It ends at the end of standard
 --- input.
 
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Pipeline = require("build.pipeline")
+local String = require("cosmic.string")
 local standalone = require("build.standalone")
 local sys = require("cosmic.sys")
 
@@ -48,8 +50,9 @@ local record Capture
   run: function(Capture, f: function(): Answer): Ran
 end
 
---- The most bytes of a snippet's output an answer holds.
-local MAX_OUTPUT <const> = 1024 * 1024
+--- The most bytes of a snippet's output an answer holds, and of the JSON of what it returned: well within the line of
+--- 1MB the agent reads an answer in, escaped.
+local MAX_OUTPUT <const> = 64 * 1024
 
 --- The name each snippet is checked and run as.
 local SNIPPET <const> = "run.tl"
@@ -58,12 +61,48 @@ local function failed(id: Json.Value, why: string): Answer
   return { id = id, error = why }
 end
 
---- The last MAX_OUTPUT bytes of `text`, from a character's start, and whether that is less than all of it.
+--- `text` as UTF-8: each byte that begins no whole character is U+FFFD, so that JSON can hold it.
+local function utf8_of(text: string): string
+  if utf8.len(text) ~= nil then return text end
+  local out: mut {string} = {}
+  local at = 1
+  while at <= #text do
+    local b = text:byte(at) or 0
+    local n = if b < 0x80 then 1 elseif b >= 0xC2 and b <= 0xDF then 2 elseif b >= 0xE0 and b <= 0xEF then 3
+      elseif b >= 0xF0 and b <= 0xF4 then 4 else 0 end
+    local piece = if n > 0 then text:sub(at, at + n - 1) else "" end
+    if n > 0 and #piece == n and utf8.len(piece) == 1 then
+      out[#out + 1] = piece
+      at = at + n
+    else
+      out[#out + 1] = "\u{FFFD}"
+      at = at + 1
+    end
+  end
+  return table.concat(out)
+end
+
+--- The last MAX_OUTPUT bytes of `text`, from a character's start, as UTF-8, and whether that is less than all of it.
 local function cut(text: string): string, boolean
-  if #text <= MAX_OUTPUT then return text, false end
+  if #text <= MAX_OUTPUT then return utf8_of(text), false end
   local from = #text - MAX_OUTPUT + 1
   while from <= #text and (text:byte(from) or 0) & 0xC0 == 0x80 do from = from + 1 end
-  return text:sub(from), true
+  return utf8_of(text:sub(from)), true
+end
+
+--- What a snippet returned, as an answer holds it: its JSON where that is within MAX_OUTPUT, else its text, cut.
+local function value_of(value: any): Json.Value
+  local text, _ = Json.encode_any(value)
+  if text ~= nil and #text <= MAX_OUTPUT then
+    local decoded, _ = Json.decode(text)
+    if decoded ~= nil then return decoded end
+  end
+  local shown = utf8_of(tostring(value))
+  if text ~= nil and #text > MAX_OUTPUT then
+    return "(" .. String.counted(#text, "byte") .. " of JSON, more than an answer holds: write it to a file)"
+  end
+  local most, _ = cut(shown)
+  return most
 end
 
 --- The answer to the request `line` holds, checked by `kept` and run within `capture`.
@@ -84,13 +123,9 @@ local function answer_to(kept: Pipeline.Kept, capture: Capture, line: string): A
   local ran: mut {string: Json.Value} = {}
   local done_run = capture:run(function(): Answer
     local done, value = pcall(function(): any return (chunk()) end)
-    if not done then return { ok = false, error = tostring(value) } end
+    if not done then return { ok = false, error = utf8_of(tostring(value)) } end
     if value == nil then return { ok = true } end
-    local text, _ = Json.encode_any(value)
-    if text == nil then return { ok = true, value = tostring(value) } end
-    local decoded, _ = Json.decode(text)
-    if decoded == nil then return { ok = true, value = tostring(value) } end
-    return { ok = true, value = decoded }
+    return { ok = true, value = value_of(value) }
   end)
   for k, v in pairs(done_run.answer) do ran[k] = v end
   local shown, was_cut = cut(done_run.output)
@@ -100,7 +135,8 @@ local function answer_to(kept: Pipeline.Kept, capture: Capture, line: string): A
   return ran
 end
 
---- A capture through a file in `dir`, with `null` the descriptor 1 and 2 point at between runs.
+--- A capture through a file in `dir`, with `null` the descriptor 0, 1 and 2 point at but while a snippet runs: then 1
+--- and 2 are the file, and 0 stays /dev/null, so neither the snippet nor a program it starts reads the requests.
 local function capture_in(dir: string, null: integer): Capture
   local path = dir .. "/output"
   return {
@@ -115,6 +151,8 @@ local function capture_in(dir: string, null: integer): Capture
       local _, _ = sys.dup2(null, 1)
       local _, _ = sys.dup2(null, 2)
       local _, _ = sys.close(fd)
+      -- TODO: bound the file a snippet writes its output to, and read only its last MAX_OUTPUT bytes, once Fs reads a
+      -- file's tail: a snippet that prints without end fills the sandbox's /tmp, and the whole is read here.
       local text, _ = Fs.read(path)
       return { answer = answer, output = text or "" }
     end,
@@ -127,14 +165,20 @@ function worker.main(): integer
     local _, _ = Fs.put(Fs.stderr, "cosmic: agent worker: " .. why .. "\n")
     return 1
   end
-  -- The answers go out on a copy of standard output; descriptors 1 and 2 point at /dev/null but while a snippet runs.
+  -- The requests come in on a copy of standard input and the answers go out on a copy of standard output; descriptors
+  -- 0, 1 and 2 are /dev/null, but 1 and 2 while a snippet runs.
+  local input, input_why = sys.dup(0)
   local out, out_why = sys.dup(1)
   local null, null_why = sys.open("/dev/null", sys.O_RDWR)
+  -- TODO: remove the directory as a signal ends the worker, once cosmic.signal runs a handler at SIGTERM: the agent
+  -- ends it so, and under --sandbox off the directory is the host's.
   local dir, dir_why = Fs.mkdtemp("cosmic-agent-worker-")
-  if out == nil or null == nil or dir == nil then
-    local _, _ = Fs.put(Fs.stderr, "cosmic: agent worker: " .. out_why .. null_why .. tostring(dir_why) .. "\n")
+  if input == nil or out == nil or null == nil or dir == nil then
+    local _, _ = Fs.put(Fs.stderr, "cosmic: agent worker: " .. input_why .. out_why .. null_why .. tostring(dir_why) ..
+        "\n")
     return 1
   end
+  local _, _ = sys.dup2(null, 0)
   local _, _ = sys.dup2(null, 1)
   local _, _ = sys.dup2(null, 2)
   local capture = capture_in(dir, null)
@@ -143,7 +187,7 @@ function worker.main(): integer
   while true do
     local nl = pending:find("\n", 1, true)
     if nl == nil then
-      local chunk, _ = Fs.take(Fs.stdin, 65536)
+      local chunk, _ = Fs.take(input, 65536)
       if chunk == nil or chunk == "" then break end
       pending = pending .. chunk
     else
@@ -155,7 +199,9 @@ function worker.main(): integer
         local id = answer["id"]
         text = assert(Json.encode(failed(if id == nil then Json.null else id end, tostring(encode_why))))
       end
-      local _, _ = Fs.put(out, text .. "\n")
+      -- An answer that cannot go out ends the worker, so the agent reads the end, not a wait.
+      local sent, _ = Fs.put(out, text .. "\n")
+      if not sent then break end
     end
   end
   local _, _ = Fs.remove_tree(dir)

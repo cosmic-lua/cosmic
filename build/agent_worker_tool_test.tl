@@ -9,7 +9,7 @@ local agent_worker = require("build.agent_worker")
 local test_child = require("build.test_child")
 local this_program = require("build.this_program")
 
-Test.policy{ profiles = { "cosmic" } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "/bin/sh", letters = "r" }, { path = "/bin/sleep", letters = "r" }, { path = "/usr/bin/sleep", letters = "r" } } }
 
 --- The worker, as `cosmic agent worker` runs it, in a child of this module.
 test_child.register("worker", function(_args: {string}): integer
@@ -106,4 +106,36 @@ local function test_a_stopped_turn_ends_the_snippet_and_the_worker()
   end })
   assert(answer == nil and tostring(why):find("stopped by the user", 1, true) ~= nil and w.handle == nil, tostring(why))
   Worker.close(w)
+end
+
+--- What a snippet prints or returns reaches the model whatever its bytes or size, and the snippet reads no request.
+local function test_an_answer_holds_any_bytes_and_a_large_value_and_the_snippet_reads_no_request()
+  local w = set()
+  local bytes = run(w, "print(\"a\\xffb\")\nreturn \"\\xfe\"\n")
+  assert(bytes["ok"] == true and bytes["output"] == "a\u{FFFD}b\n" and bytes["value"] == "\u{FFFD}", shown(bytes))
+  local big = run(w, "return string.rep(\"x\", 200000)\n")
+  assert(big["ok"] == true and tostring(big["value"]):find("more than an answer holds", 1, true) ~= nil, shown(big))
+  local much = run(w, "for i = 1, 20000 do print(\"line \" .. tostring(i)) end\n")
+  local output = tostring(much["output"])
+  assert(much["cut"] == true and #output <= 64 * 1024 and output:find("line 20000\n", 1, true) ~= nil, #output)
+  local Fs_take = "local Fs = require(\"cosmic.fs\")\nlocal got, _ = Fs.take(Fs.stdin, 100)\nreturn got == \"\"\n"
+  local read = run(w, Fs_take, 10)
+  assert(read["ok"] == true and read["value"] == true, shown(read))
+  assert(w.started == 1, "one worker answered all")
+  Worker.close(w)
+end
+
+--- An answer out of step, one that is no JSON, and a worker that ends are each told, and the worker ended.
+local function test_a_worker_that_answers_wrong_or_ends_is_ended_and_told()
+  local dir = assert(Fs.mkdtemp("agent-worker-"))
+  local cases: {{string}} = {
+    { "read line; echo '{\"id\":99}'; sleep 5", "another request" },
+    { "read line; echo 'not json'; sleep 5", "no JSON object" },
+    { "read line; exit 0", "it ended" },
+  }
+  for _, case in ipairs(cases) do
+    local w = Worker.new({ "/bin/sh", "-c", assert(case[1]) })
+    local answer, why = Worker.run(w, "return 1\n", { cwd = dir, seconds = 10 })
+    assert(answer == nil and tostring(why):find(assert(case[2]), 1, true) ~= nil and w.handle == nil, tostring(why))
+  end
 end
