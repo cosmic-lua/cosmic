@@ -48,9 +48,14 @@
 --- a local server to 127.0.0.1, not every address. Over stdio the client
 --- that started the process is the only caller; start a server you did
 --- not write under a [`cosmic.sandbox`] policy (`cosmic docs
---- cosmic.mcp.client`).
+--- cosmic.mcp.client`). A tool's handler runs in the server, with all it
+--- may reach; a tool made by [`McpServer.command`] runs a program under a
+--- policy of its own instead, so a call reaches only what that tool's
+--- policy grants, whatever the client asks.
 --- @public
 
+local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Errors = require("cosmic.errors")
 local Failure = require("cosmic.failure")
@@ -60,8 +65,10 @@ local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Mcp = require("cosmic.mcp")
 local Net = require("cosmic.net")
+local Sandbox = require("cosmic.sandbox")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
+local String = require("cosmic.string")
 local wire = require("cosmic.mcp.wire")
 local type HttpServer = require("cosmic.http.server")
 
@@ -86,6 +93,26 @@ local record McpServer
     --- answered is sent as a result with `isError`, its words for the
     --- model to read.
     call: function(arguments: {string: Json.Value}, call: Call): (Mcp.ToolResult) | (nil, Failure)
+  end
+
+  --- A tool that is a program run under a sandbox: what [`McpServer.command`] makes a [`ToolSpec`] of.
+  record CommandSpec
+    --- The tool, as `tools/list` lists it.
+    tool: Mcp.Tool
+    --- The program and its arguments. It reads the call's arguments, a JSON object, on stdin.
+    argv: {string}
+    --- What the program is held to ([`Child.Options.policy`]): what it does not grant, the program cannot reach,
+    --- the server's own files, sockets and environment among them. Required: a tool that needs nothing still names
+    --- the program it runs (`profiles = { "cosmic" }` for this program, or `"system"`).
+    policy: Sandbox.Policy
+    --- How long one call may run (60 seconds); one that runs past it is ended and answered as an error.
+    timeout_ns?: integer
+    --- The most bytes of output a call keeps (1 MiB); more is answered as an error.
+    output_limit?: integer
+    --- The directory it starts in, absolute, granted or not by `policy`; this process's when nil.
+    cwd?: string
+    --- How many calls may run at once (4); a call past them is answered as an error.
+    concurrency?: integer
   end
 
   --- A resource, and what reads it.
@@ -1053,6 +1080,127 @@ function McpServer.bearer(token: string): function(HttpServer.Request): boolean
     local scheme, credentials = said:match("^(%S+) +(%S+)%s*$")
     return scheme ~= nil and credentials ~= nil and scheme:lower() == "bearer" and Hash.equal(credentials, token)
   end
+end
+
+--- The calls of one command tool now running.
+local record CallCount
+  mut count: integer
+end
+
+--- One call's place among them, given back however the call ends: a return, a raise, or its task ended mid-wait.
+local class Slot
+  running: CallCount
+
+  function __close(self)
+    self.running.count = self.running.count - 1
+  end
+end
+
+--- The most bytes of a failed call's stderr the client is sent; the rest is cut.
+local SAID_LIMIT <const> = 16 * 1024
+
+--- `text` cut to [`SAID_LIMIT`] bytes on a character's boundary, saying so where it is cut.
+local function capped(text: string): string
+  if #text <= SAID_LIMIT then return text end
+  local cut = SAID_LIMIT
+  while cut > 0 and utf8.len(text:sub(1, cut)) == nil do cut = cut - 1 end
+  return text:sub(1, cut) .. "\n(cut at " .. String.counted(SAID_LIMIT, "byte") .. ")"
+end
+
+--- A tool whose every call runs `spec.argv` under `spec.policy` ([`Child.run`]), so the tool reaches what the
+--- policy grants and nothing of the server's: the arguments go to the program's stdin as a JSON object, what it
+--- prints on stdout is the result's text, and an exit other than 0 is a result with `isError`, its stderr (or
+--- stdout, where stderr is empty) the text, its first 16 KiB: the client reads what the program prints there, so a
+--- program prints nothing it would not show the client. A call that runs past `timeout_ns`, or prints more than
+--- `output_limit` (on stdout or stderr, each held to it, so a call holds up to twice it), or sends what is not UTF-8,
+--- is an error result too, and so is one past `concurrency` calls at once. A program that does not start, or that
+--- the server is told to stop while it runs, is a raise: the client is told the server failed, and
+--- [`McpServer.Spec.on_error`] how. The program learns nothing of the request beyond its arguments: not the client,
+--- and not an HTTP request's headers, where a token is; and of the server's environment only what `policy.env`
+--- passes on. The policy is merged ([`Sandbox.merge`]) once, here. A policy it refuses, a grant or `cwd` that is
+--- not absolute, a `cwd` with a `..` step, a NUL byte in `argv` or `cwd`, an empty `argv`, or a limit below 1
+--- raises.
+---
+---     local tool = McpServer.command{
+---       tool = { name = "word_count", inputSchema = Mcp.object_schema({ path = { type = "string" } }) },
+---       argv = { "/usr/bin/wc", "-w" },
+---       policy = { profiles = { "system" } },
+---     }
+function McpServer.command(spec: McpServer.CommandSpec): McpServer.ToolSpec
+  local name = spec.tool.name
+  local argv: mut {string} = {}
+  for _, word in ipairs(spec.argv) do argv[#argv + 1] = word end
+  if argv[1] == nil or argv[1] == "" then
+    refuse("command: " .. name .. ": argv names no program")
+  end
+  for _, word in ipairs(argv) do
+    if word:find("\0", 1, true) ~= nil then
+      refuse("command: " .. name .. ": a word of argv holds a NUL byte")
+    end
+  end
+  -- Merged now, and so copied: what runs is the policy as it was given, and its profiles' paths as they are now.
+  local merged, why = Sandbox.merge(spec.policy)
+  if merged == nil then refuse("command: " .. name .. ": " .. why) end
+  local checked, check_why = Sandbox.check(merged)
+  if not checked then refuse("command: " .. name .. ": " .. check_why) end
+  for _, grant in ipairs(merged.grants or {}) do
+    if grant.path:sub(1, 1) ~= "/" then
+      refuse("command: " .. name .. ": grant " .. grant.path .. " is relative: a call would read it from the " ..
+          "server's directory as it is then")
+    end
+  end
+  local cwd = spec.cwd
+  if cwd ~= nil and cwd:sub(1, 1) ~= "/" then
+    refuse("command: " .. name .. ": cwd " .. cwd .. " is relative")
+  end
+  if cwd ~= nil and (cwd:find("\0", 1, true) ~= nil or ("/" .. cwd .. "/"):find("/../", 1, true) ~= nil) then
+    refuse("command: " .. name .. ": cwd must name its directory with no NUL byte and no .. step")
+  end
+  local timeout_ns = spec.timeout_ns or Clock.seconds(60)
+  local limit = spec.output_limit or 1024 * 1024
+  local most = spec.concurrency or 4
+  if timeout_ns < 1 or limit < 1 or most < 1 then
+    refuse("command: " .. name .. ": a limit must be at least 1")
+  end
+  local running: CallCount = { count = 0 }
+  return {
+    tool = spec.tool,
+    call = function(arguments: {string: Json.Value}, _: McpServer.Call): (Mcp.ToolResult) | (nil, Failure)
+      local input, bad = Json.encode(arguments)
+      if input == nil then return nil, bad end
+      if running.count >= most then
+        return Mcp.result({ "the tool is running " .. String.counted(most, "call") .. " already: try again" }, true)
+      end
+      running.count = running.count + 1
+      local _slot <close>: Slot = { running = running }
+      local ran, trouble = Child.run(argv, { policy = merged, cwd = cwd, input = input, stdout = "capture",
+        stderr = "capture", capture_limit = limit, timeout_ns = timeout_ns })
+      -- How the run failed (a start refused, or the server told to stop while it waited) names the host's paths and
+      -- the policy's shape: the server's to read, not the client's.
+      if ran == nil then
+        error("command: " .. name .. ": the program did not start, or did not run to its end: " .. trouble, 0)
+      end
+      if ran.timed_out then return Mcp.result({ "the tool ran past its time" }, true) end
+      if ran.truncated then
+        return Mcp.result({ "the tool printed more than " .. String.counted(limit, "byte") }, true)
+      end
+      local out, err = ran.stdout or "", ran.stderr or ""
+      -- Only the stream the client is sent must be text.
+      if ran.ok then
+        if utf8.len(out) == nil then
+          return Mcp.result({ "the tool printed bytes that are not UTF-8 text" }, true)
+        end
+        return Mcp.result({ out })
+      end
+      local said = if err ~= "" then err elseif out ~= "" then out else
+        (if ran.code ~= nil then "the tool exited " .. tostring(ran.code) else
+          "the tool was ended by signal " .. tostring(ran.signal) end) end
+      if utf8.len(said) == nil then
+        return Mcp.result({ "the tool failed and printed bytes that are not UTF-8 text" }, true)
+      end
+      return Mcp.result({ capped(said) }, true)
+    end,
+  }
 end
 
 --- An `authorize` that lets every request in: for a server bound to
