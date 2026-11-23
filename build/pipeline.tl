@@ -17,7 +17,7 @@
 --- not parse and for a construct the generator does not write. The markers are held by the tree's checks as they are here;
 --- the other refusals are listed in build.pipeline.residue.
 ---
---- A MODULE IS KEYED by its text, markers and all, and the whole compile by the code that reads ([`Pipeline.coded`]), so that
+--- A MODULE IS KEYED by its text, markers and all, and the whole compile by the code that reads ([`code_identity.coded`]), so that
 --- an edit to a module or to the checker judges a module another run compiled again. The standard library the module was
 --- checked against is in the compiler's identity ([`build.identity`]).
 --
@@ -28,17 +28,14 @@
 local AnalysisSchema = require("build.analysis_schema")
 local Ceilings = require("build.ceilings")
 local CheckerDeclarations = require("build.checker_declarations")
-local CodeWalk = require("build.code_walk")
 local CompileGrammar = require("build.compile_grammar")
 local Ast = require("lang.ast")
 local Rules = require("build.contract_rules")
 local Driver = require("build.driver")
 local Memprobe = require("build.memprobe")
 local ParseDerive = require("build.parse_derive")
-local ErrorCatalog = require("build.error_catalog")
 local ErrorRender = require("build.error_render")
 local Fs = require("cosmic.fs")
-local Hash = require("cosmic.hash")
 local Lexer = require("lang.lexer")
 local LuaTail = require("build.lua_tail")
 local Node = require("build.syntax_node")
@@ -52,13 +49,17 @@ local Stub = require("build.syntax_stub")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
-local Stamp = require("build.stamp")
 local SyntaxContracts = require("build.syntax_contracts")
 local TreeProgram = require("build.tree_program")
 local standard_text = require("build.standard_text")
 local type Plans = require("build.plans")
 -- Declares what text this module reads ([`build.code_walk`]'s `markers`): pipeline, stubs.
 local _ = require("build.reads.pipeline")
+-- Required for no use here: the edge puts in the walk of the checker's readers ([`build.code_walk`]), and in the closure
+-- of each test that loads this module, the code that names every compile's key ([`code_identity.coded`]) and the
+-- catalog a compile writes. A compile loads this module anyway, and a run that compiles nothing loads neither.
+local _ = require("build.code_identity")
+local _ = require("build.error_catalog")
 local type Module = Plans.Module
 
 local record Pipeline
@@ -224,23 +225,6 @@ local record Pipeline
   --- captures what it prints in a local of that name), as the fork's compile discounts it: the module is generated, and the
   --- name is its own.
   discounted: function(result: Driver.Outcome)
-
-  --- The tool string a compile is keyed by, given the one the harness chose ([`build.grammar_mode`]'s `tool`): that and the
-  --- identity of the code that reads and checks a source, which is the source, as the running binary carries it,
-  --- of every module of the tree (`lang.*`, `build.*`) that [`build.pipeline`] reaches. A compile made with it is
-  --- keyed by it, so that an edit to the checker or to a reader compiles the tree again; the compiler's identity
-  --- ([`build.identity`]) holds none of it, so a default run is not read again for it. A parse is keyed by the part of it
-  --- a parse runs, and no more ([`build.parse_derive`], [`build.importer`]'s `analyzer_identity`).
-  coded: function(tool: string): string
-
-  --- [`Pipeline.coded`] over the code the working database `db` stages, parsed, in place of the code the running binary
-  --- carries: the identity of a boot, which runs the tree's own code under a bootstrap release that carries another. nil and
-  --- why where the tree is not parsed.
-  coded_of: function(tool: string, db: Sqlite.Handle): string?, string
-
-  --- Writes a row for every code the new checker emits to the `catalog` table of `db` (of the schema `schema`, "" for the
-  --- default), as [`ErrorCatalog.insert`] does.
-  catalog: function(db: Sqlite.Handle, schema: string): integer?, string
 end
 
 --- Whether the stub of the module `module` of the file `file` is held to its source's type: a standard-library module that
@@ -413,77 +397,6 @@ function Pipeline.build(db: Sqlite.Handle, options: Pipeline.Options, refusal?: 
   return Pipeline.over(entries, kinds, options), ""
 end
 
---- Where the identity of the code finds a module's source and what it requires.
-local record Reader
-  source: function(name: string): string?
-  requires: function(name: string): {string}
-end
-
---- The identity of the code that reads and checks ([`Pipeline.coded`]), over the modules `reader` answers for: each module
---- of [`build.code_walk`]'s walk from this one by its name and its source. What the walk leaves out of this module's own
---- requires, and why, is [`CodeWalk.type_only`].
-local function identity(reader: Reader): string
-  local names, trouble = CodeWalk.reach(CodeWalk.pipeline, function(name: string): {string}?, string
-    return reader.requires(name), ""
-  end)
-  assert(names, trouble)
-  local parts: mut {string} = {}
-  for _, name in ipairs(names) do
-    local source = reader.source(name)
-    if source ~= nil then
-      parts[#parts + 1] = name .. "\n" .. source
-    end
-  end
-  table.sort(parts)
-  return Hash.hex_sha256(table.concat(parts, "\n\0\n"))
-end
-
---- The code as the running binary carries it.
-local carried_code: Reader = {
-  source = function(name: string): string?
-    local source, _ = Store.source(name)
-    if source == nil then
-      -- Held without its source is no module the identity may leave out.
-      local withheld, trouble = Store.withheld(name)
-      if withheld == nil then error(tostring(trouble), 0) end
-      if withheld is string then error(withheld, 0) end
-    end
-    return source
-  end,
-  requires = function(name: string): {string}
-    local required, _ = Store.requires(name)
-    return required or {}
-  end,
-}
-
---- The code as the working database `db` stages it: a boot runs the tree's own, which the bootstrap release that runs it does
---- not carry. A declaration is no code, and the binary answers no source for one.
-local function staged_code(db: Sqlite.Handle): Reader
-  return {
-    source = function(name: string): string?
-      local rows, _ = Sqlite.text_rows(db, "SELECT source FROM inputs WHERE path = ?1 AND " .. AnalysisSchema.not_declaration("kind") .. " LIMIT 1", { { text = name } })
-      if rows == nil then
-        return nil
-      end
-      local row = rows[1]
-      if row == nil then
-        return nil
-      end
-      return row:text(1)
-    end,
-    requires = function(name: string): {string}
-      local rows, _ = Sqlite.text_rows(db,
-        "SELECT DISTINCT r.name FROM inputs i JOIN requires r ON r.source_hash = i.source_hash " ..
-          "WHERE i.path = ?1 AND " .. AnalysisSchema.not_declaration("i.kind") .. " ORDER BY r.name", { { text = name } })
-      local out: mut {string} = {}
-      for _, row in ipairs(rows or {}) do
-        out[#out + 1] = row:text(1)
-      end
-      return out
-    end,
-  }
-end
-
 function Pipeline.discounted(result: Driver.Outcome)
   local kept: mut {Driver.Problem} = {}
   for _, p in ipairs(result.scope_errors) do
@@ -492,46 +405,6 @@ function Pipeline.discounted(result: Driver.Outcome)
     end
   end
   result.scope_errors = kept
-end
-
---- The identity of the code the running binary carries, which nothing in this process changes: read once, rather than
---- hashing the sources of the checker's closure again for each compile of a process that compiles many trees.
-local record Remembered
-  mut code: string?
-end
-
-local carried_identity: Remembered = { code = nil }
-
-function Pipeline.code_of(source: function(name: string): string?, requires: function(name: string): {string}): string
-  return identity({ source = source, requires = requires })
-end
-
-function Pipeline.coded(tool: string): string
-  local code = carried_identity.code
-  if code == nil then
-    code = Stamp.read("stamp_coded") or identity(carried_code)
-    carried_identity.code = code
-  end
-  return Hash.hex_sha256(tool .. "\0" .. code)
-end
-
-function Pipeline.coded_of(tool: string, db: Sqlite.Handle): string?, string
-  -- The requires of a source are rows the parse of it made, so a tree not parsed yet has none: the identity would be the
-  -- pipeline's own source alone, and an edit to the checker would read as none.
-  local rows, trouble = Sqlite.text_rows(db,
-    "SELECT count(*) FROM inputs i JOIN requires r ON r.source_hash = i.source_hash WHERE i.path = 'build.pipeline'")
-  if rows == nil then
-    return nil, tostring(trouble)
-  end
-  local count = rows[1]
-  if count == nil or count:text(1) == "0" then
-    return nil, "build/pipeline.tl is not parsed yet, so the code that reads the tree cannot be named"
-  end
-  return Hash.hex_sha256(tool .. "\0" .. identity(staged_code(db))), ""
-end
-
-function Pipeline.catalog(db: Sqlite.Handle, schema: string): integer?, string
-  return ErrorCatalog.insert(db, schema)
 end
 
 --- The stub of each standard-library module of the tree that has a declaration-only one, as the source a build reads in place of

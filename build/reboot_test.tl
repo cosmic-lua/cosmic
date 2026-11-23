@@ -16,7 +16,7 @@ local logger = require("build.logger")
 local work = require("build.work")
 local sys = require("cosmic.sys")
 local identity = require("build.identity")
-local pipeline = require("build.pipeline")
+local code_identity = require("build.code_identity")
 local GrammarMode = require("build.grammar_mode")
 
 --- A core change boots unless COSMIC_AUTO_BOOT is "0".
@@ -693,7 +693,7 @@ local function fresh_tool(tmp: string, stamp_of: string): reboot.Seen, string, p
   assert(work.close(handle))
   local settled: {string:string} = { built_from = assert(tree.built_from(checkout)), boot_hash = fingerprint.boot,
     written_by = "this writer", writer = "this writer", compiler = "this compiler",
-    compiled_by = pipeline.coded(GrammarMode.tool("this compiler")), stamp_of = stamp_of }
+    compiled_by = code_identity.coded(GrammarMode.tool("this compiler")), stamp_of = stamp_of }
   return { tool = layout.tool, environment = {}, meta = settled }, project, layout
 end
 

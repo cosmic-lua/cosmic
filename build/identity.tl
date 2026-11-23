@@ -37,7 +37,7 @@ local record identity
   --- Lua standard library the new checker types a program with
   --- (lang/prelude.d.tl, lang/stdlib.d.tl), and the pins and patches
   --- Lua is built from. The checker's own source (`lang/`) is not in it:
-  --- a compile is keyed by the code that reads ([`build.pipeline`]'s
+  --- a compile is keyed by the code that reads ([`build.code_identity`]'s
   --- `coded`) and a parse by the analyzer's modules ([`build.importer`]'s
   --- `analyzer_identity`), each of which holds the modules of `lang/` it runs.
   --- The rest of the standard library the importer runs on is plumbing,
@@ -556,7 +556,7 @@ end
 --- - the pinned Lua and its patches, and the declarations the new
 ---   checker types a program with (lang/prelude.d.tl, lang/stdlib.d.tl),
 ---   which decide what every compile accepts. The checker's source
----   (`lang/`) is not here: a compile is keyed by [`build.pipeline`]'s
+---   (`lang/`) is not here: a compile is keyed by [`build.code_identity`]'s
 ---   `coded` over what reads and writes in the new mode, and a parse by
 ---   [`build.importer`]'s `analyzer_identity`, which hold the modules of
 ---   `lang/` they reach;
