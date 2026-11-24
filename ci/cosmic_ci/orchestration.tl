@@ -718,17 +718,15 @@ local performance_test_timeout_ns <const> = Clock.seconds(150)
 local checked_compile_timeout_ns <const> = Clock.seconds(300)
 
 -- A whole `cosmic test` run of every test, sandboxed, is what a change to
--- core/ runs, as no verdict stands for it, and what every merge-queue run
--- runs (its verdicts never stand). Its time follows the runner and the
--- number of tests. On 2026-11-24, with about 10470 tests, a passing
--- linux-x86_64 queue run's suite step took 693 s (45456650778), and three
--- queue runs that would have passed (45456908979, 45461568363, 45462021235)
--- met the bound then, 720 s, with 2 to 450 tests left. The bound is 1.6
--- times the slowest passing run, as #2834 sized it, rounded up. A queue
--- job runs one suite; a full leg runs two (macOS three, with the darwin
--- suite), so a leg whose suites all met it would meet the job's 60
--- minutes first: the bound is for one slow suite, not all. Each test gets far less than the whole run, so a test
--- that hangs is ended and named by the runner, not hidden under a
+-- core/ runs, as no verdict stands for it, and what a run whose keys
+-- moved (the harness, the runtime) runs. Its time follows the runner and
+-- the number of tests: with about 10500 tests, a passing linux-x86_64
+-- queue suite took about 690 s. The bound is 1.6 times the slowest
+-- passing run, rounded up. A queue job runs one suite; a full leg runs
+-- two (macOS three, with the darwin suite), so a leg whose suites all
+-- neared it would meet the job's 60 minutes first: the bound is for one
+-- slow suite, not all. Each test gets far less than the whole run, so a
+-- test that hangs is ended and named by the runner, not hidden under a
 -- cancelled run. Each suite says its time against the bound, and warns
 -- from 75% of it ([`Orchestration.bound_lines`]), so its growth is seen
 -- before a run meets it.
