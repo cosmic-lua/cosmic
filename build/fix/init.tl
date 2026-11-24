@@ -1540,7 +1540,7 @@ local function lay_out_teal(ctx: Fix)
 end
 
 --- The named files that are no input of the project ([`fix.Chosen`]'s `alone`), which the build never reads and so
---- [`find_unbuilt`] cannot vouch for: each is checked on its own as `cosmic --standalone` checks a file ([`Pipeline.lone`]),
+--- [`find_unbuilt`] cannot vouch for: each is checked on its own as `cosmic --standalone --check` checks a file ([`Pipeline.lone`]),
 --- and the checker's refusal fails the run like a finding of the tree. The log says each was checked alone.
 local function check_alone(ctx: Fix)
   local named = assert(ctx.picked).alone
