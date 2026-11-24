@@ -78,8 +78,9 @@ local record paths
     --- ([`build.lsp.source`]'s `extracted`).
     cosmic_source: string
     --- The record of the directory's last use: a file whose
-    --- modification time [`prepare`] sets, which [`build.cache_lifetime`]
-    --- prunes the directory by.
+    --- modification time [`prepare`] sets and whose text names the
+    --- [`view`] it was written in and the canonical root, on two lines,
+    --- which [`build.cache_lifetime`] prunes the directory by.
     used: string
     --- zig's global cache where the user has no cache directory.
     zig_global: string
@@ -203,12 +204,23 @@ function paths.optional(root: string, environment?: {string:string}): string?, s
   return selected.output, ""
 end
 
+--- What names the view of the file system this process has: the device
+--- and inode of its `/`, "" where it cannot look. Another machine that
+--- shares the cache, or a container, sees another `/`.
+function paths.view(): string
+  local st, _ = stat("/")
+  if st == nil then return "" end
+  return tostring(st.dev) .. ":" .. tostring(st.ino)
+end
+
 --- `root`'s build directory, made where it is missing -- the base too,
 --- each new one 0700 -- and checked to be this user's alone. A directory
 --- that fails the check is never repaired, only refused. It records the
 --- use ([`Layout.used`]), which is what keeps the directory from
---- [`build.cache_lifetime`]'s pruning: it is written whole beside the
---- rest, and a failure to record it, in a directory a sandbox holds
+--- [`build.cache_lifetime`]'s pruning, and names in it the [`view`] and
+--- the canonical root, so a pass can tell the checkout is gone: it is
+--- written whole
+--- beside the rest, and a failure to record it, in a directory a sandbox holds
 --- read-only, is no failure to prepare.
 function paths.prepare(root: string, environment?: {string:string}): string?, string
   local selected, trouble = location(root, environment)
@@ -234,7 +246,10 @@ function paths.prepare(root: string, environment?: {string:string}): string?, st
   end
   local valid, out_trouble = trusted(out)
   if not valid then return nil, "build directory " .. out_trouble end
-  local _, _ = Fs.write(under(out).used, "", 0x180)
+  local canonical, _ = sys.realpath(root)
+  local view = paths.view()
+  local record_text = if canonical ~= nil and view ~= "" then view .. "\n" .. canonical else "" end
+  local _, _ = Fs.write(under(out).used, record_text, 0x180)
   return out, ""
 end
 local prepare = paths.prepare

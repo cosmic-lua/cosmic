@@ -2485,8 +2485,8 @@ local function read_command(ctx: Run): integer?
   return nil
 end
 
---- Removes the build directories no run has used for thirty days
---- ([`build.cache_lifetime`]), saying so when it removes any. It holds
+--- Removes the build directories no run has used for thirty days, or
+--- whose checkout is gone ([`build.cache_lifetime`]), saying so when it removes any. It holds
 --- this checkout's rebuild lock, and fails no run.
 local function prune_trees(root: string)
   local own, _ = build_paths.directory(root)
@@ -2494,7 +2494,7 @@ local function prune_trees(root: string)
   local report = cache_lifetime.prune(own)
   if #report.removed > 0 then
     log:say("test: removed " .. plural.count(#report.removed, "build directory") ..
-        " unused for thirty days")
+        " unused for thirty days or whose checkout is gone")
   end
   for _, line in ipairs(report.troubles) do
     log:complain("test: pruning build directories: " .. line)

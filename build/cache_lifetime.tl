@@ -3,7 +3,8 @@
 ---
 --- The rule is the one the shared caches' rows follow
 --- ([`build.shared_compiles`], [`build.shared_verdicts`]): what no run
---- has used in thirty days goes. A build directory's use is the
+--- has used in thirty days goes, and so does what was built for a
+--- checkout that is gone. A build directory's use is the
 --- modification time of its `used` file ([`build.paths`]' [`Layout.used`]),
 --- which [`build.paths`]' `prepare` sets for every run that builds,
 --- tests or opens the working database there. Each worktree, and each
@@ -20,12 +21,22 @@
 ---   caller's own directory is in, which is this user's and writable by no
 ---   one else;
 --- - its `used` file is a regular file last modified over thirty days
----   ago, read again once the lock is held;
+---   ago, or names a checkout that is gone: its text is the view of the
+---   file system and the canonical root [`build.paths`]' `prepare` wrote,
+---   the view is this process's own, the root's SHA-256 is the
+---   directory's name, and nothing is at the root. It is read again once
+---   the lock is held;
 --- - its rebuild lock ([`build.rebuild_lock`]) is taken, so no run is
 ---   building, testing or writing there, and stays held to the end;
 --- - the directory is renamed aside before anything is removed, and put
----   back if a use was recorded in the meantime, so a run that records
----   its use before the pass reads it is never pruned.
+---   back if a use was recorded or its checkout came back in the
+---   meantime, so a run that records its use before the pass reads it is
+---   never pruned.
+---
+--- A checkout on a volume that is not mounted reads as gone, and its
+--- directory is made again by its next build. A record written before
+--- records named their root, or one a pass dated, names none, and its
+--- directory waits out its thirty days.
 ---
 --- A directory without a `used` file that holds a build's files is not
 --- removed, only dated from now, so one made before the rule began lives
@@ -54,6 +65,7 @@
 
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local sys = require("cosmic.sys")
 local build_paths = require("build.paths")
 local rebuild_lock = require("build.rebuild_lock")
@@ -124,6 +136,31 @@ local function age(path: string, now: integer): Age
   return if now - st.mtime > kept_s then "stale" else "recent" end
 end
 
+--- Whether the record of use at `path`, in the build directory `name`,
+--- names a checkout that is gone: it was written in this process's view
+--- of the file system, it names a root whose SHA-256 is `name`, and
+--- looking at that root finds nothing there. A root that cannot be looked
+--- at for another reason (a directory above it this user cannot search)
+--- is not gone.
+local function orphaned(path: string, name: string): boolean
+  local text, _ = Fs.read(path)
+  if text == nil then return false end
+  local view, root = text:match("^([^\n]+)\n(/[^\n]*)$")
+  if view == nil or root == nil or view ~= build_paths.view() or Hash.hex_sha256(root) ~= name then
+    return false
+  end
+  local _, _, errno = sys.lstat(root)
+  return errno == sys.ENOENT
+end
+
+--- Whether the build directory `name`'s record of use at `path` lets a
+--- pass remove it at `now`: stale, or recent but naming a checkout that
+--- is gone.
+local function expired(path: string, name: string, now: integer): boolean
+  local dated = age(path, now)
+  return dated == "stale" or (dated == "recent" and orphaned(path, name))
+end
+
 --- Whether `directory` holds anything a build writes, which only a
 --- build directory does ([`build.paths`]' `Layout`).
 local function built(layout: build_paths.Layout): boolean
@@ -137,7 +174,7 @@ end
 local function remove(path: string, name: string, base: string, now: integer,
                       report: cache_lifetime.Report)
   -- Read again under the lock: a run may have recorded its use since.
-  if age(build_paths.under(path).used, now) ~= "stale" then return end
+  if not expired(build_paths.under(path).used, name, now) then return end
   local aside = base .. "/" .. name .. aside_infix .. tostring(sys.getpid())
   local moved, move_why = Fs.rename(path, aside)
   if not moved then
@@ -146,8 +183,9 @@ local function remove(path: string, name: string, base: string, now: integer,
     return
   end
   -- A run that recorded its use after the check above, and has not yet
-  -- taken the lock, is given its directory back.
-  if age(build_paths.under(aside).used, now) ~= "stale" then
+  -- taken the lock, or a checkout made again at the root, is given its
+  -- directory back.
+  if not expired(build_paths.under(aside).used, name, now) then
     local back, back_why = Fs.rename(aside, path)
     if not back then
       local said = tostring(back_why)
@@ -178,7 +216,7 @@ local function consider(base: string, name: string, now: integer,
     end
     return
   end
-  if dated ~= "stale" then return end
+  if not expired(layout.used, name, now) then return end
   if not built(layout) then return end
   local lock, lock_why = rebuild_lock.claim(path)
   if lock == nil then
@@ -194,14 +232,15 @@ local function consider(base: string, name: string, now: integer,
 end
 
 --- A directory set aside by a pass that ended before it removed it:
---- removed if its record of use is stale or gone (a removal that began
---- takes it first), as the pass would have.
+--- removed if its record of use is stale, names a checkout that is gone,
+--- or is missing (a removal that began takes it first), as the pass
+--- would have.
 local function sweep(base: string, name: string, now: integer, report: cache_lifetime.Report)
   local path = base .. "/" .. name
   local st = look(path)
   if st == nil or st.kind ~= "dir" or st.uid ~= sys.getuid() then return end
-  local dated = age(build_paths.under(path).used, now)
-  if dated ~= "stale" and dated ~= "missing" then return end
+  local used = build_paths.under(path).used
+  if age(used, now) ~= "missing" and not expired(used, name:sub(1, 64), now) then return end
   local gone, gone_why = Fs.remove_tree(path)
   if gone then
     report.removed[#report.removed + 1] = path
