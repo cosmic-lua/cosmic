@@ -71,6 +71,12 @@ local record Orchestration
   fixture_lanes: function(env: {string:string}, cpus: integer): Lanes
   run_groups: function(high: Orchestration.Group, low: {Orchestration.Group},
     lanes: boolean): integer
+  --- `group`, named as running from its start until it finishes or is
+  --- abandoned ([`Failures.begin`]), and a failed run's lines kept
+  --- ([`Failures.keep`]) as `phase`'s. `files` answers the files its
+  --- output goes to, once it has started.
+  watched_group: function(group: Orchestration.Group, phase: string,
+    files: function(): (string, string)): Orchestration.Group
 end
 
 local function mkdir(path: string) assert(Fs.mkdirs(path)) end
@@ -467,10 +473,21 @@ local function say_bound(name: string, started_ns: integer, bound_ns: integer)
   end
 end
 
+--- Runs `request` as `phase` ([`Runner.operation`]), named as running
+--- while it does ([`Failures.during`]): its output goes to `out` and `err`.
+local function named_operation(runner: Runner.Context, phase: string, request: Runner.Request, out: string,
+                               err: string): Runner.Outcome
+  local outcome: Runner.Outcome? = nil
+  Failures.during(phase, out, err, function()
+    outcome = Runner.operation(runner, phase, request)
+  end)
+  return assert(outcome)
+end
+
 local function logged(c: Context, phase: string, command: {string}, out: string,
                       err: string, timeout: integer, cwd?: string, env?: {string:string}): integer
   local runner, request = request_for(c, command, timeout, cwd, env, out, err)
-  local outcome = Runner.operation(runner, phase, request)
+  local outcome = named_operation(runner, phase, request, out, err)
   local replay_ok = replay(out, err)
   if outcome.code ~= 0 then
     Failures.keep(phase, read_or_empty(out) .. "\n" .. read_or_empty(err) .. ended_line(phase, outcome))
@@ -498,16 +515,54 @@ local function watched(c: Context, phase: string, command: {string},
   local stem = directory .. "/" .. tostring(said_files.count)
   local out, err = stem .. ".out", stem .. ".err"
   local runner, request = request_for(c, command, timeout, cwd, env, out, err)
-  Failures.begin(phase, out, err)
-  local outcome = Runner.operation(runner, phase, request)
+  local outcome = named_operation(runner, phase, request, out, err)
   -- What the log could not be given fails nothing: the command's own
   -- status decides the step.
   local _ = replay(out, err)
-  Failures.done()
   if outcome.code ~= 0 then
     Failures.keep(phase, read_or_empty(out) .. "\n" .. read_or_empty(err) .. ended_line(phase, outcome))
   end
   return outcome.code
+end
+
+--- What [`Failures.begin`] named a watched group's run by, while it runs.
+local record Named
+  mut running?: string
+end
+
+function Orchestration.watched_group(group: Orchestration.Group, phase: string,
+                                     files: function(): (string, string)): Orchestration.Group
+  local held: Named = {}
+  local function done()
+    local name = held.running
+    if name ~= nil then
+      held.running = nil
+      Failures.done(name)
+    end
+  end
+  return {
+    name = group.name,
+    run = group.run,
+    start = function(): Runner.Running
+      local running = group.start()
+      local out, err = files()
+      held.running = Failures.begin(phase, out, err)
+      return running
+    end,
+    finish = function(outcome: Runner.Outcome): integer
+      done()
+      local code = group.finish(outcome)
+      if outcome.code ~= 0 then
+        local out, err = files()
+        Failures.keep(phase, read_or_empty(out) .. "\n" .. read_or_empty(err) .. ended_line(phase, outcome))
+      end
+      return code
+    end,
+    abandon = function(outcome: Runner.Outcome)
+      done()
+      group.abandon(outcome)
+    end,
+  }
 end
 
 local function checked(c: Context, phase: string, command: {string},
@@ -975,7 +1030,7 @@ local function fixture_group(c: Context, work: string, spec: FixtureSpec,
                              jobs?: integer): Orchestration.Group
   -- The preparation, once the group has started.
   local held: FixtureHeld = {}
-  return {
+  return Orchestration.watched_group({
     name = spec.name,
     run = function(): integer return fixture_run_spec(c, work, spec) end,
     start = function(): Runner.Running
@@ -989,12 +1044,7 @@ local function fixture_group(c: Context, work: string, spec: FixtureSpec,
     finish = function(outcome: Runner.Outcome): integer
       local made = assert(held.prepared, "fixture group finished before it started")
       local replay_ok = replay(made.out, made.err)
-      if outcome.code == 0 then
-        assert(replay_ok, "could not replay retained output")
-      else
-        Failures.keep("fixture: " .. spec.name, read_or_empty(made.out) .. "\n" .. read_or_empty(made.err) ..
-            ended_line("fixture: " .. spec.name, outcome))
-      end
+      if outcome.code == 0 then assert(replay_ok, "could not replay retained output") end
       say_bound(spec.name, assert(held.started_ns), spec.timeout_ns)
       Orchestration.say_figures(spec.name, made.figures)
       record_suite(c, "fixture " .. spec.name, outcome.code, made.out)
@@ -1007,7 +1057,10 @@ local function fixture_group(c: Context, work: string, spec: FixtureSpec,
         Orchestration.say_figures(spec.name, begun.figures)
       end
     end,
-  }
+  }, "fixture: " .. spec.name, function(): (string, string)
+    local made = assert(held.prepared, "fixture group's files asked for before it started")
+    return made.out, made.err
+  end)
 end
 
 -- Copy the exact selected candidate and controller into declared external

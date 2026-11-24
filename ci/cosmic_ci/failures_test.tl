@@ -116,16 +116,39 @@ local function test_the_last_step_says_the_end_of_a_command_the_job_was_ended_un
   for n = 1, 150 do lines[#lines + 1] = "line " .. tostring(n) end
   assert(Fs.write(tmp .. "/out", table.concat(lines, "\n") .. "\n"))
   assert(Fs.write(tmp .. "/err", "warning: slow"))
+  local name = ""
   local printed = in_a_job(tmp, function()
-    Failures.begin("core build", tmp .. "/out", tmp .. "/err")
+    name = Failures.begin("core build", tmp .. "/out", tmp .. "/err")
     assert(Failures.command({}) == 0)
   end)
   assert(printed:find("the job was ended while core build ran; the end of what it said:\nline 51\n", 1, true) ~= nil,
     printed)
   assert(printed:find("line 50\n", 1, true) == nil and printed:find("line 150\nwarning: slow\n$") ~= nil, printed)
   local after = in_a_job(tmp, function()
-    Failures.done()
+    Failures.done(name)
     assert(Failures.command({}) == 0)
   end)
   assert(after:find("was ended while", 1, true) == nil, after)
+end
+
+--- Several commands can run at once, each named apart; `during` names
+--- one no more once it raises, and the tail of a file of one long line
+--- is cut to its last bytes.
+local function test_commands_are_named_apart_and_no_more_once_they_end(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cosmic-ci"))
+  assert(Fs.write(tmp .. "/a.out", "lane a\n"))
+  assert(Fs.write(tmp .. "/b.out", string.rep("b", 40000)))
+  local printed = in_a_job(tmp, function()
+    local a = Failures.begin("fixture: a", tmp .. "/a.out", tmp .. "/a.err")
+    local _ = Failures.begin("fixture: b", tmp .. "/b.out", tmp .. "/b.err")
+    local ran, why = pcall(Failures.during, "suite", tmp .. "/a.out", tmp .. "/a.err", function()
+      error("gone", 0)
+    end)
+    assert(not ran and why == "gone", tostring(why))
+    Failures.done(a)
+    assert(Failures.command({}) == 0)
+  end)
+  assert(printed:find("fixture: a ran", 1, true) == nil and printed:find("suite ran", 1, true) == nil, printed)
+  local said = assert(printed:match("while fixture: b ran; the end of what it said:\n(b+)\n$"), printed)
+  assert(#said == 16384, tostring(#said))
 end

@@ -235,7 +235,10 @@ annotations and a block of the job's summary page, and are kept in
 failed" (`driver.tl failures`) prints them just before the tree is moved
 back, so the log ends near the failure. The phases' build and check
 commands, as a suite does, keep their output in files beside the
-operations database (`said/`), which they say whole once they end.
+operations database (`said/`), which they say whole once they end. Each
+such command is named while it runs, in a file of `running/` beside the
+database, so a job cancelled or timed out under it still has the step
+print the end of what that command said.
 
 Each suite a platform phase runs -- the native (`local`) suite, the
 checked and portable suites, and each fixture's `cosmic test` -- writes
