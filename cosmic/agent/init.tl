@@ -113,8 +113,8 @@ local record Agent
 
   --- The most one turn ([`Agent.Session.prompt`], or `resume`) may
   --- spend: each field nil for no limit. The first limit reached ends the
-  --- turn for good, the tool calls of its last reply answered as
-  --- stopped, with why ([`Agent.BUDGET_SPENT`]). Tokens, cost and turns
+  --- turn for good, the tool calls of its last reply given results
+  --- that say stopped, with why ([`Agent.BUDGET_SPENT`]). Tokens, cost and turns
   --- are counted when each request comes back, so the request that
   --- reaches a limit is the last; the time is counted from the turn's
   --- start, and a tool that runs past it is stopped as the user stops one
