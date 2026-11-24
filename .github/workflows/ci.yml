@@ -753,19 +753,20 @@
     # `checked_suite_timeout_ns`), and the bounded performance fixture, on
     # linux-x86_64's host, beside the legs. Not on a pull request: the
     # merge queue, main's push, the scheduled and a manual run. Its verdicts are kept under a
-    # cache name of its own on that host. The queue runs the suite in two
+    # cache name of its own on that host. The queue runs the suite in three
     # shares at once (`cosmic test --shard`), each its own job, so the
-    # longest job of a queue run is not the suite whole (14 of its 16
-    # minutes); a share saves nothing, and the performance fixture runs
-    # in the first. Elsewhere it is one job, whose run checks the C
-    # functions too, which a share cannot.
+    # longest job of a queue run is not the suite whole (about 28
+    # minutes; two shares took 16.4 and 11.8, since tests are dealt by
+    # name, not time); a share saves nothing, and the performance fixture
+    # (`performance`) runs in the third. Elsewhere it is one job, whose
+    # run checks the C functions too, which a share cannot.
     checked: {
       if: "github.event_name != 'pull_request'",
       name: "${{ matrix.name }}",
       strategy: {
         "fail-fast": false,
         matrix: {
-          include: "${{ fromJSON(github.event_name == 'pull_request' && '[{\"name\": \"linux-x86_64-checked\", \"shard\": \"\"}]' || github.event_name == 'merge_group' && '[{\"name\": \"linux-x86_64-checked-1\", \"shard\": \"1/2\"}, {\"name\": \"linux-x86_64-checked-2\", \"shard\": \"2/2\"}]' || github.event_name == 'push' && '[{\"name\": \"linux-x86_64-checked\", \"shard\": \"\"}]' || '[{\"name\": \"linux-x86_64-checked\", \"shard\": \"\"}]') }}",
+          include: "${{ fromJSON(github.event_name == 'pull_request' && '[{\"name\": \"linux-x86_64-checked\", \"shard\": \"\", \"performance\": \"run\"}]' || github.event_name == 'merge_group' && '[{\"name\": \"linux-x86_64-checked-1\", \"shard\": \"1/3\", \"performance\": \"skip\"}, {\"name\": \"linux-x86_64-checked-2\", \"shard\": \"2/3\", \"performance\": \"skip\"}, {\"name\": \"linux-x86_64-checked-3\", \"shard\": \"3/3\", \"performance\": \"run\"}]' || github.event_name == 'push' && '[{\"name\": \"linux-x86_64-checked\", \"shard\": \"\", \"performance\": \"run\"}]' || '[{\"name\": \"linux-x86_64-checked\", \"shard\": \"\", \"performance\": \"run\"}]') }}",
         },
       },
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
@@ -909,7 +910,7 @@
         },
         {
           name: "check performance fixture histories on the checked core",
-          if: "matrix.shard != '2/2'",
+          if: "matrix.performance == 'run'",
           run: "cosmic-driver cosmic_ci/driver.tl platform performance-checked",
         },
         # A run that failed keeps what it restored too (`whole`). Cut to

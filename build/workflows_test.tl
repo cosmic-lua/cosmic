@@ -1959,30 +1959,31 @@ local function test_mains_push_takes_the_queues_verdicts_before_its_suites()
     "the queue uploads its verdicts otherwise: " .. tostring(upload["if"]))
 end
 
---- The merge queue runs the checked suite in two shares at once, each a job named for its share, which saves no
+--- The merge queue runs the checked suite in three shares at once, each a job named for its share, which saves no
 --- verdicts; every other run runs it whole, as one job, `linux-x86_64-checked`, whose run checks the C functions,
---- which a share cannot (build/test.tl). The performance fixture runs in the first share, and once elsewhere.
---- Each job's uploads are named for it, so two shares' do not collide.
-local function test_the_queue_runs_the_checked_suite_in_two_shares()
+--- which a share cannot (build/test.tl). The performance fixture runs in the third share, and once elsewhere.
+--- Each job's uploads are named for it, so the shares' do not collide.
+local function test_the_queue_runs_the_checked_suite_in_three_shares()
   local checked = job_of(ci_workflow().jobs, "checked")
   assert(checked.name == "${{ matrix.name }}", "the checked job is not named for its share")
   local function shares(kind: string): string
     local out: mut {string} = {}
     for _, entry in ipairs(legs_of(checked, kind)) do
-      out[#out + 1] = assert(entry["name"]) .. "=" .. assert(entry["shard"])
+      out[#out + 1] = assert(entry["name"]) .. "=" .. assert(entry["shard"]) .. "=" .. assert(entry["performance"])
     end
     table.sort(out)
     return table.concat(out, " ")
   end
-  assert(shares("queue") == "linux-x86_64-checked-1=1/2 linux-x86_64-checked-2=2/2", "the queue's shares: " .. shares("queue"))
+  assert(shares("queue") == "linux-x86_64-checked-1=1/3=skip linux-x86_64-checked-2=2/3=skip linux-x86_64-checked-3=3/3=run",
+    "the queue's shares: " .. shares("queue"))
   for _, kind in ipairs({ "push", "full" }) do
-    assert(shares(kind) == "linux-x86_64-checked=", kind .. " runs the checked suite in shares: " .. shares(kind))
+    assert(shares(kind) == "linux-x86_64-checked==run", kind .. " runs the checked suite in shares: " .. shares(kind))
   end
   local env = map_of(checked.env)
   assert(env["COSMIC_CI_CHECKED_SHARD"] == "${{ matrix.shard }}" and env["COSMIC_WORKER"] == "linux-x86_64-checked",
     "the share does not reach the suite, or a share keys its verdicts apart")
   local performance = step_named(checked.steps, "check performance fixture histories on the checked core")
-  assert(performance["if"] == "matrix.shard != '2/2'", "the performance fixture runs in both shares or in none")
+  assert(performance["if"] == "matrix.performance == 'run'", "the performance fixture runs in no share or in several")
   for _, step in ipairs(checked.steps) do
     if step.uses ~= nil and step.uses:find("upload-artifact", 1, true) ~= nil then
       local name = tostring(with_of(step)["name"])

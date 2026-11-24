@@ -497,7 +497,7 @@ macOS's whole leg. A branch's push runs nothing.
   main, as a pull request does, and `linux-x86_64-driver` (the `driver`
   job) boots nothing and checks the pinned CI driver where those paths
   reach what its tests read (`ci/`, `.github/`). The checked suite runs
-  in two shares at once (`linux-x86_64-checked-1` and `-2`,
+  in three shares at once (`linux-x86_64-checked-1` to `-3`,
   `cosmic test --shard`), so it is not the entry's longest job; a share
   does not check the C functions, which main's push does. The gate
   compares the three products. An entry takes as long as its longest job. Main moves
