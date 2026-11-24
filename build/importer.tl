@@ -50,6 +50,7 @@ local _ = require("build.reads.receivers")
 
 local type Module = plans.Module
 local type Source = derivation.Source
+local type tree = require("build.tree")
 
 local record importer
   type Module = plans.Module
@@ -1115,13 +1116,6 @@ local function remember(cache: Cache, path: string, key: string, ordinal: intege
   return true, ""
 end
 
---- What [`compile_derived`] keeps as it compiles, for the closure
---- that compiles every module to write and its caller to read.
-local record Progress
-  --- Why the compile stopped, "" while it has not.
-  mut failure: string
-end
-
 --- What a compile with the new checker reads ([`build.pipeline`]): the options, and the program, made when the first module
 --- that no cache answers needs it.
 local record Reading
@@ -1250,6 +1244,690 @@ function importer.telling(): importer.Outcome
   return { refused = false, tell = function(line: string) log:complain(line) end }
 end
 
+--- One compile of a derived tree ([`compile_derived`]): what it is given, what it holds out and leaves out as it
+--- goes, and the result it builds. The tables are shared by every step; the `mut` fields are set as it runs.
+local record Compiling
+  handle: work.Handle
+  tool: string
+  shared?: importer.Shared
+  checks: boolean
+  --- Whether the compiles are judged: the opposite of the caller's `unjudged`.
+  judged: boolean
+  outcome?: importer.Outcome
+  standing: tree.Standing
+  --- For a file run, what `target` reaches; a module outside it that does not parse or compile is left out (`failed`),
+  --- and so is each module that requires one, rather than stopping the run. Nil for a run over the tree.
+  mut needed?: {string:boolean}
+  failed: mut {string:boolean}
+  left: mut {string}
+  --- A run with the new checker reads every module and goes on past one it refuses, so that one refusal does not hide
+  --- the rest of the tree: a refused module, a module that does not parse and each module that requires one are named
+  --- in the result's `refused`, run no tests, and fail the run ([`build.test`]).
+  lenient: boolean
+  refusals: mut {string}
+  own_refused: mut {string}
+  --- The positions in `refusals` of what holds each refused module out, by path and by file ([`importer.Result`]'s
+  --- `refusal_roots`).
+  roots_of: mut {string:{integer}}
+  roots_by_file: mut {string:{integer}}
+  --- The files that do not parse and have a repaired text ([`derivation.Broken`]'s `repaired`), which the checker reads
+  --- once the modules are compiled.
+  mended: mut {Mended}
+  --- Where the caller asked to be told of the first module this run refuses for what it holds, ahead of the report:
+  --- how, how long after, and that module (`noted`, one at most).
+  --- TODO: say a file that does not parse while the tree is still being derived, once [`importer.derive`] hands each
+  --- `broken` to its caller as it is found: the list is read here, when every source is parsed, 40 seconds into a boot
+  --- after a change to the checker.
+  tell?: function(string)
+  patience: integer
+  noted: mut {importer.Early}
+  --- The modules a run holds out for what they do, not for what they hold: a position rule they break, a `global`
+  --- they declare. A run that names a file stops at the first, as it always did; one over the tree refuses the modules
+  --- alone ([`importer.Result`]'s `refused`) and goes on, so that a module that breaks none still builds.
+  held_out: mut {string:boolean}
+  mut order: {Module}
+  mut keys: {string:plans.Keys}
+  --- What the new checker's compile is made over ([`build.pipeline`]), read once the first module needs it. A module is
+  --- keyed by its text, which holds its markers.
+  reading: Reading
+  hinting: Hinting
+  hints: Hints
+  result: importer.Result
+  --- The modules this run is to compile itself, made in copies of this process where there are many.
+  mut fanned?: importer.Shared.Fanned
+  --- Whether a module stopped the compile, and why.
+  mut stopped: boolean
+  mut failure: string
+end
+
+--- Notes `file`, refused with `why`, as the first module `c` refuses, where the caller asked to be told of it.
+local function note(c: Compiling, file: string, why: string)
+  if c.tell ~= nil and #c.noted == 0 then
+    c.noted[1] = { file = file, trouble = why, at_ns = Clock.monotonic_ns(), told = false }
+  end
+end
+
+--- Tells the caller of the module [`note`] noted, once `c`'s patience has passed.
+local function tell_due(c: Compiling)
+  local tell = c.tell
+  if tell ~= nil then
+    local said = importer.due(c.noted[1], Clock.monotonic_ns(), c.patience)
+    if said ~= nil then tell(said) end
+  end
+end
+
+--- Holds `path` out with `message` among the refusals.
+local function hold(c: Compiling, path: string, file: string, message: string)
+  local refusals, roots_of = c.refusals, c.roots_of
+  refusals[#refusals + 1] = message
+  note(c, file, message)
+  if c.held_out[path] ~= true then c.own_refused[#c.own_refused + 1] = file end
+  c.held_out[path] = true
+  c.failed[path] = true
+  local resting: mut {integer} = {}
+  for _, position in ipairs(roots_of[path] or {}) do resting[#resting + 1] = position end
+  resting[#resting + 1] = #refusals
+  roots_of[path] = resting
+  c.roots_by_file[file] = resting
+end
+
+--- Holds out each module of a run over the tree whose source does not parse (`broken`), keeping its repaired text to
+--- check once the modules are compiled.
+local function hold_broken(c: Compiling, broken: {derivation.Broken}): boolean, string
+  local handle, refusals, failed, own_refused = c.handle, c.refusals, c.failed, c.own_refused
+  local roots_of, roots_by_file, mended = c.roots_of, c.roots_by_file, c.mended
+  for _, one in ipairs(broken) do
+    local holders, holders_trouble = handle.db:text_rows(
+      "SELECT path, file, kind FROM inputs WHERE source_hash = ?1 ORDER BY file", { text(one.source_hash) })
+    if holders == nil then
+      return false, tostring(holders_trouble)
+    end
+    refusals[#refusals + 1] = one.message
+    for _, row in ipairs(holders) do
+      failed[row:text(1)] = true
+      local held_file = row:text(2)
+      note(c, held_file, one.message)
+      own_refused[#own_refused + 1] = held_file
+      roots_of[row:text(1)] = { #refusals }
+      roots_by_file[held_file] = { #refusals }
+      local repaired = one.repaired
+      if repaired ~= nil then
+        local one_mended: Mended = { path = row:text(1), file = held_file, kind = row:text(3), text = repaired, position = #refusals }
+        mended[#mended + 1] = one_mended
+      end
+    end
+  end
+  return true, ""
+end
+
+--- Reads what `target` reaches into `c.needed`. A source `target` reaches that does not parse stops the run; each
+--- module of one it does not reach is left out.
+local function reach_target(c: Compiling, target: string, broken: {derivation.Broken}): boolean, string
+  local handle, outcome, failed, left = c.handle, c.outcome, c.failed, c.left
+  local reached, reach_trouble = reach(handle.db, target)
+  if reached == nil then
+    return false, reach_trouble
+  end
+  c.needed = reached
+  for _, one in ipairs(broken) do
+    -- Each file holding the broken source: files alike are one source.
+    local holders, holders_trouble = handle.db:text_rows(
+      "SELECT path, file FROM inputs WHERE source_hash = ?1 ORDER BY file", { text(one.source_hash) })
+    if holders == nil then
+      return false, tostring(holders_trouble)
+    end
+    for _, row in ipairs(holders) do
+      if reached[row:text(1)] == true then
+        if outcome ~= nil then outcome.refused = true end
+        -- TODO: tell what the checker says of a repaired text ([`derivation.Broken`]'s `repaired`) here too, as a run
+        -- over the tree does below, once a run that names a file goes on past the first module it cannot build: it
+        -- stops here, before any module is read.
+        return false, one.message
+      end
+    end
+    for _, row in ipairs(holders) do
+      failed[row:text(1)] = true
+      local why = left_out(row:text(2), one.file, one.message)
+      left[#left + 1] = why
+    end
+  end
+  return true, ""
+end
+
+--- Where a hint (with_docs_hint) looks up the name a refused module could not resolve, as [`docs.databases`] builds the
+--- same list for `cosmic docs`, opened when the first refusal asks:
+--- * This tree's last projection, `cosmic.db`, unrestricted. It is the only place cosmic's own `build.*` symbols are
+---   documented, since the tool carries only the public standard library's ([`writer.carried`]).
+--- * Then the running binary's own, where a standard-library symbol such as one of [`cosmic.removed`]'s fields lives
+---   for any tree but cosmic's.
+--- The working database cannot stand in: its `docs` rows are keyed by source hash, with no module to name. A
+--- projection that is missing or unreadable is left out, since the hint is best effort.
+local function hints_of(dir: string, own: boolean, hinting: Hinting): Hints
+  return function(): {Sqlite.Handle}, {boolean}
+    local held_databases, held_public = hinting.databases, hinting.public
+    if held_databases == nil or held_public == nil then
+      local databases: mut {Sqlite.Handle} = {}
+      local public: mut {boolean} = {}
+      local projection, _ = Sqlite.open(dir .. "/cosmic.db")
+      if projection ~= nil then
+        hinting.projection = projection
+        databases[1] = projection
+        public[1] = false
+      end
+      for _, store_db in ipairs(Store.databases()) do
+        databases[#databases + 1] = store_db
+        public[#public + 1] = not own
+      end
+      hinting.databases, hinting.public = databases, public
+      held_databases, held_public = databases, public
+    end
+    return held_databases, held_public
+  end
+end
+
+--- Drops what the copies made and finishes the cache.
+local function finish_all(c: Compiling, cache: Cache)
+  local made_at_once = c.fanned
+  if made_at_once ~= nil then made_at_once.close() end
+  finish_cache(cache)
+end
+
+--- Compiles in copies of this process, where there are many ([`build.compile_fanout`]), the modules this run is to
+--- compile itself: each neither held out, nor standing here, nor made by another checkout. A module one of them
+--- requires may yet fail, and [`compile_all`] then leaves it out as it does: its compile is made for nothing.
+local function fan_out(c: Compiling, cache: Cache, shared: importer.Shared)
+  local fan = shared.fan
+  if fan == nil then return end
+  local order, keys, held_out, standing, reading = c.order, c.keys, c.held_out, c.standing, c.reading
+  local failed, needed, handle, checks, judged = c.failed, c.needed, c.handle, c.checks, c.judged
+  local due: mut {Module} = {}
+  local by_path: mut {string:Module} = {}
+  for _, m in ipairs(order) do
+    local planned = assert(keys[m.path], "every module of the order was keyed")
+    m.key = planned.key
+    m.graph_key = planned.graph
+    by_path[m.path] = m
+    if held_out[m.path] ~= true and plans.refusal(m) == nil then
+      local stands, _ = cached_stands(cache, planned.key)
+      local known = shared.known
+      if not stands and not (known ~= nil and known(m, standing.own)) then due[#due + 1] = m end
+    end
+  end
+  -- The tree is read before the copies are made, so each holds it: the first module [`compile_all`] compiles would read
+  -- it anyway. One that cannot be read is [`compile_all`]'s to say, and nothing is made at once.
+  local due_options: Pipeline.Options? = nil
+  if #due > 0 then
+    local made_options, _ = options_of(reading)
+    due_options = made_options
+  end
+  if due_options ~= nil then
+    local made_built, _ = require("build.pipeline").build(handle.db, due_options)
+    if made_built ~= nil then
+      reading.built = made_built
+      -- What a copy makes of each module it says at once, in a file every copy and this process read as they go, a
+      -- line a module: that it compiled, or that it could not and why. A copy compiles no module that requires one
+      -- that could not be, as [`compile_all`] leaves each out. This process tells of the first such module while
+      -- the copies still run ([`importer.due`]), once every module it requires is said to have compiled: a copy
+      -- reaches a module before another reaches what it requires, and fails it for what is wrong there, so a
+      -- module is told of only when the fault is its own. Each process takes up the file where it left it.
+      local said_dir, _ = Fs.mkdtemp("cosmic-refused-")
+      local said_path = if said_dir ~= nil then said_dir .. "/said" else nil end
+      local read_to = 0
+      --- The lines said since this process last asked: for each, whether its module compiled, the module's path,
+      --- its file and why it did not.
+      local function heard(): {{string}}
+        local out: mut {{string}} = {}
+        local data: string? = nil
+        if said_path ~= nil then
+          local read, _ = Fs.read(said_path)
+          data = read
+        end
+        if data == nil then return out end
+        local whole = data:sub(read_to + 1):match("^(.*\n)") or ""
+        read_to = read_to + #whole
+        for kind, path, file, why_text in whole:gmatch("([^\t\n]*)\t([^\t\n]*)\t([^\t\n]*)\t([^\t\n]*)\n") do
+          out[#out + 1] = { kind, path, file, (why_text:gsub("%%(%x%x)", function(hex: string): string
+            return string.char(math.tointeger(tonumber(hex, 16)) or 0)
+          end)) }
+        end
+        return out
+      end
+      --- Says of the module `m` that it compiled, or with `reason` that it could not be.
+      local function say(m: Module, reason?: string)
+        if said_path == nil then return end
+        local escaped = (reason or ""):gsub("[%%\t\n]", function(char: string): string
+          return string.format("%%%02x", char:byte() or 0)
+        end)
+        local _, _ = Fs.append(said_path, (if reason == nil then "ok" else "no" end) .. "\t" .. m.path .. "\t" .. m.file ..
+            "\t" .. escaped .. "\n")
+      end
+      local refused_now: mut {string:boolean} = {}
+      -- Whether the copies are told to make no more (a line "stop"): a run of a file stops at the first module
+      -- it needs that does not build, so what a copy would compile after it is made for nothing. A copy keeps
+      -- what it made only as it ends, so the copies are told and left to end rather than ended.
+      local stopped = false
+      -- Where each module the copies are to compile comes among them.
+      local place: mut {string:integer} = {}
+      for index, m in ipairs(due) do place[m.path] = index end
+      local leaning: mut {string:boolean} = {}
+      --- Whether the module at `path` requires, directly or not, one that does not build.
+      local function leans(path: string): boolean
+        local known = leaning[path]
+        if known ~= nil then return known end
+        leaning[path] = false
+        local m = by_path[path]
+        local found = false
+        local required: {string} = if m ~= nil then m.requires else {} end
+        for _, name in ipairs(required) do
+          if not found and (failed[name] == true or refused_now[name] == true or leans(name)) then
+            found = true
+          end
+        end
+        leaning[path] = found
+        return found
+      end
+      -- In this process: the modules the copies are to compile, those said to have compiled, and those said not to,
+      -- in the order they were said, each with its file and why.
+      local awaited: mut {string:boolean} = {}
+      for _, m in ipairs(due) do awaited[m.path] = true end
+      local compiled_now: mut {string:boolean} = {}
+      -- Those a copy said it left uncompiled, since each requires one that did not compile.
+      local left_now: mut {string:boolean} = {}
+      local unsettled: mut {{string}} = {}
+      --- Whether every module `path` requires, directly or not, that the copies are to compile is said to have
+      --- compiled ("yes"), one is said not to have ("no"), or it is not known yet ("wait").
+      local function requires_settled(path: string, seen: mut {string:boolean}): string
+        local m = by_path[path]
+        local required: {string} = if m ~= nil then m.requires else {} end
+        local answer = "yes"
+        for _, name in ipairs(required) do
+          if seen[name] ~= true then
+            seen[name] = true
+            if failed[name] == true or refused_now[name] == true then return "no" end
+            local below = requires_settled(name, seen)
+            if below == "no" then return "no" end
+            if below == "wait" or (awaited[name] == true and compiled_now[name] ~= true) then
+              answer = "wait"
+            end
+          end
+        end
+        return answer
+      end
+      c.fanned = fan(due, standing.own, function(m: Module, rest: {string:boolean}): importer.Shared.Compile?
+        for _, one in ipairs(heard()) do
+          if one[1] == "no" then
+            refused_now[assert(one[2])] = true
+            leaning = {}
+          elseif one[1] == "stop" then
+            stopped = true
+          end
+        end
+        if stopped then return nil end
+        if leans(m.path) then
+          -- Said, so that the process knows the module is not still to come.
+          if said_path ~= nil then
+            local _, _ = Fs.append(said_path, "left\t" .. m.path .. "\t" .. m.file .. "\t\n")
+          end
+          return nil
+        end
+        -- No hints: what a copy is refused it does not keep, and the build says it with them.
+        local made, make_trouble = require("build.pipeline").generate(m, made_built, checks, judged)
+        -- A copy lowers the modules its own require, most of them another copy's to compile, which nothing here
+        -- would retire: it forgets each but those it has yet to compile, and holds what the build does alone.
+        require("build.pipeline").forget(made_built, rest)
+        if made == nil then say(m, make_trouble) else say(m) end
+        if made == nil or made.refused then return nil end
+        return { lua = made.lua, bytecode = made.bytecode, references = made.references,
+          fact_wraps = made.fact_wraps, parameter_checks = made.parameter_checks }
+      end, function()
+        for _, one in ipairs(heard()) do
+          local path = assert(one[2])
+          if one[1] == "ok" then
+            compiled_now[path] = true
+          elseif one[1] == "no" then
+            refused_now[path] = true
+            unsettled[#unsettled + 1] = one
+          elseif one[1] == "left" then
+            left_now[path] = true
+          end
+        end
+        local waiting: mut {{string}} = {}
+        for _, one in ipairs(unsettled) do
+          local settled = requires_settled(assert(one[2]), {})
+          if settled == "yes" then
+            note(c, assert(one[3]), assert(one[4]))
+          elseif settled == "wait" then
+            waiting[#waiting + 1] = one
+          end
+        end
+        unsettled = waiting
+        if not stopped and needed ~= nil and said_path ~= nil then
+          -- [`compile_all`] stops at the first module the file needs that does not build: once one is said not
+          -- to, and every module before it is said either way, nothing a copy has yet to make is read.
+          local first: integer? = nil
+          for path in pairs(refused_now) do
+            local at = place[path]
+            if at ~= nil and needed[path] == true and (first == nil or at < first) then
+              first = at
+            end
+          end
+          local settled = first ~= nil
+          if first ~= nil then
+            for index = 1, first - 1 do
+              local before = assert(due[index], "an index within the list is a module").path
+              if compiled_now[before] ~= true and refused_now[before] ~= true and left_now[before] ~= true then
+                settled = false
+              end
+            end
+          end
+          if settled then
+            stopped = true
+            local _, _ = Fs.append(said_path, "stop\t\t\t\n")
+          end
+        end
+        tell_due(c)
+      end)
+      if said_dir ~= nil then local _, _ = Fs.remove_tree(said_dir) end
+    end
+  end
+end
+
+--- Refuses `m` of a run over the tree, which requires a module that did not build, and checks it all the same where
+--- the declarations of every refused module it requires stand.
+local function refuse_leaning(c: Compiling, m: Module, refusal: string?)
+  local failed, roots_of, roots_by_file, own_refused = c.failed, c.roots_of, c.roots_by_file, c.own_refused
+  local reading, result, judged, hints = c.reading, c.result, c.judged, c.hints
+  local lacking = ""
+  local resting: mut {integer} = {}
+  local seen: mut {integer:boolean} = {}
+  for _, name in ipairs(m.requires) do
+    if failed[name] == true then
+      if lacking == "" then
+        lacking = name
+      end
+      for _, position in ipairs(roots_of[name] or {}) do
+        if seen[position] ~= true then
+          seen[position] = true
+          resting[#resting + 1] = position
+        end
+      end
+    end
+  end
+  table.sort(resting)
+  failed[m.path] = true
+  -- The module cannot be built, and is checked all the same where the declarations of every refused module it
+  -- requires stand: its own findings are told in this run, and nothing of it is written, kept or run.
+  local examined = reading.built
+  local checked = examined ~= nil
+  for _, name in ipairs(m.requires) do
+    if failed[name] == true and (examined == nil or examined.standing[name] ~= true) then
+      checked = false
+    end
+  end
+  local own_trouble = ""
+  if refusal ~= nil then
+    checked = false
+    own_trouble = refusal
+  elseif checked and examined ~= nil then
+    own_trouble = require("build.pipeline").examine(m, examined, judged, hints)
+  end
+  if own_trouble ~= "" then
+    if checked then
+      -- A finding here holds of the declarations as they are written, which the fix of the other module may change:
+      -- the line says so, since the tree as written does disagree and either side may be the one to change.
+      own_trouble = own_trouble .. "\n" .. m.file .. ": checked against the declarations of " .. lacking ..
+        " as they are written, though it did not build: a fix there that changes a declaration may settle a finding here"
+    end
+    result.refused[#result.refused + 1] = own_trouble
+    own_refused[#own_refused + 1] = m.file
+    resting[#resting + 1] = #result.refused
+  else
+    -- [`build.refusals`] reads the end of the line to say which files were checked.
+    result.refused[#result.refused + 1] = m.file .. ": not compiled: it requires " .. lacking ..
+      ", which did not build" .. (if checked then "; checked all the same, it has no finding of its own" else "" end)
+  end
+  roots_of[m.path] = resting
+  roots_by_file[m.file] = resting
+end
+
+--- Compiles `m`, the `ordinal`th module of the order, keyed `key`, which nothing holds out: takes the compile that stands, another
+--- checkout's, or a copy's, or makes it, and remembers it. False and why where the cache cannot be read or written;
+--- where the module stops the run, `c.stopped` says so and `c.failure` why. The caller finishes the cache.
+local function compile_one(c: Compiling, cache: Cache, ordinal: integer, m: Module, key: string): boolean, string
+  local result, shared, standing, reading, db = c.result, c.shared, c.standing, c.reading, c.handle.db
+  local lenient, needed, outcome, failed, fanned = c.lenient, c.needed, c.outcome, c.failed, c.fanned
+  local own_refused, roots_of, roots_by_file = c.own_refused, c.roots_of, c.roots_by_file
+  local handle, checks, judged, hints = c.handle, c.checks, c.judged, c.hints
+  local stands, look_trouble = cached_stands(cache, key)
+  if not stands and look_trouble ~= "" then
+    return false, look_trouble
+  end
+  -- The Lua of a compile made or copied here, not of one that stands.
+  local lua: string? = nil
+  local bytecode: string? = nil
+  local refused = false
+  -- What the Lua of the module checks: the counts of the compile that stands or was copied, or made here.
+  local fact_wraps, parameter_checks = cache.wraps, cache.checks
+  -- Another checkout's compile stands for one made here: its key
+  -- and what else decides it are the same ([`build.shared_compiles`]),
+  -- and it lands as a compile does, uses and all.
+  local elsewhere: importer.Shared.Compile? = nil
+  if not stands and shared ~= nil then
+    elsewhere = shared.look(m, standing.own)
+  end
+  if stands then
+    result.cached = result.cached + 1
+  elseif elsewhere ~= nil then
+    lua = elsewhere.lua
+    bytecode = elsewhere.bytecode
+    fact_wraps, parameter_checks = elsewhere.fact_wraps, elsewhere.parameter_checks
+    result.cached = result.cached + 1
+    result.shared = result.shared + 1
+    local kept_refs, refs_trouble = plans.keep_references(db, key, elsewhere.references)
+    if not kept_refs then
+      return false, m.file .. ": " .. refs_trouble
+    end
+  else
+    local generated: plans.Generated? = nil
+    -- Read the tree once, when the first module that is not cached asks.
+    if reading.built == nil then
+      local options, options_trouble = options_of(reading)
+      if options == nil then
+        c.stopped, c.failure = true, options_trouble
+        return true, ""
+      end
+      local tree_refusal: Pipeline.Refusal = { refused = false }
+      local made_built, built_trouble = require("build.pipeline").build(handle.db, options, tree_refusal)
+      if made_built == nil then
+        if tree_refusal.refused and outcome ~= nil then outcome.refused = true end
+        c.stopped, c.failure = true, built_trouble
+        return true, ""
+      end
+      reading.built = made_built
+    end
+    local made_generated, generate_trouble: plans.Generated?, string = nil, ""
+    local taken = if fanned ~= nil then fanned.look(m) else nil end
+    if taken ~= nil then
+      -- A copy of this process made it: the build has written the module, as if it had made it here.
+      require("build.pipeline").took(m, assert(reading.built))
+      made_generated = { lua = taken.lua, bytecode = taken.bytecode, references = taken.references, refused = false,
+        fact_wraps = taken.fact_wraps, parameter_checks = taken.parameter_checks }
+    else
+      made_generated, generate_trouble = require("build.pipeline").generate(m, assert(reading.built), checks, judged, hints)
+    end
+    if made_generated == nil then
+      if lenient then
+        note(c, m.file, generate_trouble)
+        result.refused[#result.refused + 1] = generate_trouble
+        own_refused[#own_refused + 1] = m.file
+        roots_of[m.path] = { #result.refused }
+        roots_by_file[m.file] = { #result.refused }
+        failed[m.path] = true
+      elseif needed == nil or needed[m.path] == true then
+        c.stopped, c.failure = true, generate_trouble
+        if outcome ~= nil then outcome.refused = true end
+        return true, ""
+      end
+      table.insert(result.left_out, left_out(m.file, m.file, generate_trouble))
+      failed[m.path] = true
+    end
+    generated = made_generated
+    if generated ~= nil then
+      lua = generated.lua
+      bytecode = generated.bytecode
+      refused = generated.refused
+      fact_wraps, parameter_checks = generated.fact_wraps, generated.parameter_checks
+      result.compiled = result.compiled + 1
+      local kept_refs, refs_trouble = plans.keep_references(db, key,
+        generated.references)
+      if not kept_refs then
+        return false, m.file .. ": " .. refs_trouble
+      end
+      -- A refused compile is this run's alone (`remember`), and
+      -- never another checkout's.
+      if shared ~= nil and not refused then
+        shared.keep(m, standing.own, { lua = generated.lua, bytecode = generated.bytecode,
+          references = generated.references, fact_wraps = generated.fact_wraps,
+          parameter_checks = generated.parameter_checks })
+      end
+    end
+  end
+  -- Nothing stands, and nothing is made, only for a module left out
+  -- above, of which nothing is kept.
+  if stands or lua ~= nil then
+    m.lua = lua
+    result.fact_wraps = result.fact_wraps + fact_wraps
+    result.parameter_checks = result.parameter_checks + parameter_checks
+    local kept, keep_trouble = remember(cache, m.path, key, ordinal, lua,
+      bytecode, refused, fact_wraps, parameter_checks)
+    if not kept then
+      return false, m.file .. ": " .. keep_trouble
+    end
+    if m.kind == "main" then
+      result.main = m.path
+    end
+    result.modules[#result.modules + 1] = m -- checked: view_written
+  end
+  return true, ""
+end
+
+--- Checks each file refused for a `global` alone ([`Mended`]) with `local` in its place, and tells what the checker
+--- says of that text under the parser's line: the findings the next run would tell once the fix is made. Nothing is
+--- said where it requires a module whose declarations do not stand, which would be told as its own fault.
+---
+--- TODO: check the modules that require such a file against its repaired text too, once a source that does not parse
+--- has a place in the order the modules are compiled in ([`plans.ordered`] plans only what was derived): they are met
+--- before it here, and keep the line of a file not checked.
+local function check_mended(c: Compiling)
+  local reading, failed, handle, result, judged, hints = c.reading, c.failed, c.handle, c.result, c.judged, c.hints
+  local mended = c.mended
+  for _, one in ipairs(mended) do
+    local examined = reading.built
+    if examined == nil then
+      -- Options that cannot be made leave the file not checked, its line kept, as a tree that cannot be read does.
+      local options, _ = options_of(reading)
+      if options ~= nil then
+        local made_built, _ = require("build.pipeline").build(handle.db, options)
+        reading.built = made_built
+        examined = made_built
+      end
+    end
+    local required, _ = require("build.pipeline").requires(one.file, one.text)
+    local sound = examined ~= nil and required ~= nil
+    for _, name in ipairs(required or {}) do
+      if failed[name] == true and (examined == nil or examined.standing[name] ~= true) then
+        sound = false
+      end
+    end
+    if sound and examined ~= nil then
+      local module: Module = {
+        path = one.path, file = one.file, kind = one.kind, source = one.text, source_hash = "", requires = {}, tests = {},
+        inputs = nil,
+      }
+      local more = require("build.pipeline").examine(module, examined, judged, hints, one.text)
+      local head = one.file .. ": the compiler refused it\n"
+      if more:sub(1, #head) == head then
+        more = more:sub(#head + 1)
+      end
+      if more ~= "" then
+        local told = assert(table.remove(result.refused, one.position), "the refusal of a file that does not parse is kept")
+        table.insert(result.refused, one.position, told .. "\n" .. one.file .. ": with `local` written for `global`, " ..
+            "as the fix says, the checker refuses this too\n" .. more)
+      end
+    end
+  end
+end
+
+--- Compiles every module of `c`'s order, in order, many at once in copies where it can ([`fan_out`]), until a module
+--- stops the run; checks the repaired texts ([`check_mended`]); then prunes the compiles and uses no later run reads.
+local function compile_all(c: Compiling): boolean, string
+  local handle, failed, needed, lenient, db = c.handle, c.failed, c.needed, c.lenient, c.handle.db
+  local cleared, clear_trouble = db:exec("DELETE FROM plan")
+  if not cleared then
+    return false, tostring(clear_trouble)
+  end
+  local forgotten, forget_trouble = forget_stale_receivers(db)
+  if not forgotten then
+    return false, forget_trouble
+  end
+  local cache, prepare_trouble = prepare_cache(handle, c.tool)
+  if cache == nil then
+    return false, prepare_trouble
+  end
+  local shared = c.shared
+  if shared ~= nil then fan_out(c, cache, shared) end
+
+  for ordinal, m in ipairs(c.order) do
+    tell_due(c)
+    local planned = assert(c.keys[m.path], "every module of the order was keyed")
+    m.key = planned.key
+    m.graph_key = planned.graph
+
+    local refusal = plans.refusal(m)
+    if c.held_out[m.path] == true then
+      -- Told of already, with the rule it breaks.
+      failed[m.path] = true
+    elseif needed ~= nil and needed[m.path] ~= true and leans_on(m, failed) then
+      -- Left out quietly: the module it requires was told of.
+      failed[m.path] = true
+    elseif lenient and leans_on(m, failed) then
+      refuse_leaning(c, m, refusal)
+    elseif refusal ~= nil then
+      note(c, m.file, refusal)
+      local result = c.result
+      result.refused[#result.refused + 1] = refusal
+      c.own_refused[#c.own_refused + 1] = m.file
+      c.roots_of[m.path] = { #result.refused }
+      c.roots_by_file[m.file] = { #result.refused }
+    else
+      local compiled, compile_trouble = compile_one(c, cache, ordinal, m, planned.key)
+      if not compiled then
+        finish_all(c, cache)
+        return false, compile_trouble
+      end
+      if c.stopped then break end
+    end
+  end
+
+  check_mended(c)
+
+  finish_all(c, cache)
+  local pruned, prune_trouble = db:run(
+    "DELETE FROM compiled WHERE tool <> ?1 OR (seen >= 0 AND seen < ?2)" ..
+      (if c.judged then " OR seen < 0" else "" end),
+    { text(c.tool), { integer = handle.run - kept_runs - refresh_after } })
+  if not pruned then
+    return false, tostring(prune_trouble)
+  end
+  -- Run whether or not the prune above dropped anything: a run that
+  -- failed between a compile's [`plans.keep_references`] and its `remember`
+  -- commits the uses without the compile (build.dispatch closes the
+  -- handle, keeping what the run did), and only this sweeps them.
+  local done, done_why = db:exec(importer.prune_references)
+  if not done then return false, tostring(done_why) end
+  return true, ""
+end
+
 --- Plans and compiles an already derived tree. Only the entry points
 --- below own the shared cache; every failure here returns through them.
 local function compile_derived(handle: work.Handle, tool: string,
@@ -1262,91 +1940,42 @@ local function compile_derived(handle: work.Handle, tool: string,
   if modules == nil then
     return nil, trouble
   end
-  -- For a file run, what `target` reaches is `needed`; a module outside
-  -- it that does not parse or compile is left out (`failed`), and so is
-  -- each module that requires one, rather than stopping the run.
-  local needed: {string:boolean}? = nil
-  local failed: mut {string:boolean} = {}
-  local left: mut {string} = {}
-  -- A run with the new checker reads every module and goes on past one it refuses, so that one refusal does not hide the
-  -- rest of the tree: a refused module, a module that does not parse and each module that requires one are named in the
-  -- result's `refused`, run no tests, and fail the run ([`build.test`]).
   local lenient = target == nil
-  local refusals: mut {string} = {}
-  local own_refused: mut {string} = {}
-  -- The positions in `refusals` of what holds each refused module out, by path and by file ([`importer.Result`]'s
-  -- `refusal_roots`).
-  local roots_of: mut {string:{integer}} = {}
-  local roots_by_file: mut {string:{integer}} = {}
-  -- The files that do not parse and have a repaired text ([`derivation.Broken`]'s `repaired`), which the checker reads once
-  -- the modules are compiled.
-  local mended: mut {Mended} = {}
-  -- The first module this run refuses for what it holds, where the caller asked to be told of it ahead of the report.
-  -- TODO: say a file that does not parse while the tree is still being derived, once [`importer.derive`] hands each
-  -- `broken` to its caller as it is found: the list is read here, when every source is parsed, 40 seconds into a boot
-  -- after a change to the checker.
   local tell: function(string)? = nil
   local patience = patience_ns
   if lenient and outcome ~= nil then
     tell = outcome.tell
     patience = outcome.patience_ns or patience_ns
   end
-  local noted: mut {importer.Early} = {}
-  local function note(file: string, why: string)
-    if tell ~= nil and #noted == 0 then
-      noted[1] = { file = file, trouble = why, at_ns = Clock.monotonic_ns(), told = false }
-    end
-  end
+  local refusals: mut {string} = {}
+  local own_refused: mut {string} = {}
+  local roots_by_file: mut {string:{integer}} = {}
+  local left: mut {string} = {}
+  local hinting: Hinting = {}
+  local c: Compiling = {
+    handle = handle, tool = tool, shared = shared, checks = checks, judged = unjudged ~= true, outcome = outcome,
+    standing = standing, needed = nil, failed = {}, left = left, lenient = lenient, refusals = refusals,
+    own_refused = own_refused, roots_of = {}, roots_by_file = roots_by_file, mended = {}, tell = tell,
+    patience = patience, noted = {}, held_out = {}, order = {}, keys = {},
+    reading = { root = handle.root, own = standing.own, options = nil, built = nil },
+    hinting = hinting, hints = hints_of(handle.dir, standing.own, hinting),
+    result = {
+      modules = {}, tool = tool, main = nil, refused = refusals, own_refused = own_refused,
+      refusal_roots = roots_by_file,
+      left_out = left, compiled = 0, cached = 0, shared = 0, parses = parses, fact_wraps = 0, parameter_checks = 0,
+      catalog = function(catalog_db: Sqlite.Handle, schema: string): integer?, string
+        return require("build.error_catalog").insert(catalog_db, schema)
+      end,
+    },
+    fanned = nil, stopped = false, failure = "",
+  }
   if lenient then
-    for _, one in ipairs(broken or {}) do
-      local holders, holders_trouble = handle.db:text_rows(
-        "SELECT path, file, kind FROM inputs WHERE source_hash = ?1 ORDER BY file", { text(one.source_hash) })
-      if holders == nil then
-        return nil, tostring(holders_trouble)
-      end
-      refusals[#refusals + 1] = one.message
-      for _, row in ipairs(holders) do
-        failed[row:text(1)] = true
-        local held_file = row:text(2)
-        note(held_file, one.message)
-        own_refused[#own_refused + 1] = held_file
-        roots_of[row:text(1)] = { #refusals }
-        roots_by_file[held_file] = { #refusals }
-        local repaired = one.repaired
-        if repaired ~= nil then
-          local one_mended: Mended = { path = row:text(1), file = held_file, kind = row:text(3), text = repaired, position = #refusals }
-          mended[#mended + 1] = one_mended
-        end
-      end
-    end
+    local held, held_trouble = hold_broken(c, broken or {})
+    if not held then return nil, held_trouble end
   end
   if target ~= nil then
-    local reached, reach_trouble = reach(handle.db, target)
-    if reached == nil then
-      return nil, reach_trouble
-    end
-    needed = reached
-    for _, one in ipairs(broken or {}) do
-      -- Each file holding the broken source: files alike are one source.
-      local holders, holders_trouble = handle.db:text_rows(
-        "SELECT path, file FROM inputs WHERE source_hash = ?1 ORDER BY file", { text(one.source_hash) })
-      if holders == nil then
-        return nil, tostring(holders_trouble)
-      end
-      for _, row in ipairs(holders) do
-        if reached[row:text(1)] == true then
-          if outcome ~= nil then outcome.refused = true end
-          -- TODO: tell what the checker says of a repaired text ([`derivation.Broken`]'s `repaired`) here too, as a run
-          -- over the tree does below, once a run that names a file goes on past the first module it cannot build: it
-          -- stops here, before any module is read.
-          return nil, one.message
-        end
-      end
-      for _, row in ipairs(holders) do
-        failed[row:text(1)] = true
-        left[#left + 1] = left_out(row:text(2), one.file, one.message)
-      end
-    end
+    local reached, reach_trouble = reach_target(c, target, broken or {})
+    if not reached then return nil, reach_trouble end
   end
   local carries = function(name: string): boolean
     -- A declaration has a source but no bytecode.
@@ -1356,26 +1985,9 @@ local function compile_derived(handle: work.Handle, tool: string,
   -- Read once, and for a project alone: cosmic's own tree is held to none of it.
   local recorded: positions.Library? = nil
   if not standing.own then recorded = library_record.read() end
-  -- The modules a run holds out for what they do, not for what they hold: a position rule they break, a `global`
-  -- they declare. A run that names a file stops at the first, as it always did; one over the tree refuses the modules
-  -- alone ([`importer.Result`]'s `refused`) and goes on, so that a module that breaks none still builds.
-  local held_out: mut {string:boolean} = {}
-  --- Holds `path` out with `message` among the refusals.
-  local function hold(path: string, file: string, message: string)
-    refusals[#refusals + 1] = message
-    note(file, message)
-    if held_out[path] ~= true then own_refused[#own_refused + 1] = file end
-    held_out[path] = true
-    failed[path] = true
-    local resting: mut {integer} = {}
-    for _, position in ipairs(roots_of[path] or {}) do resting[#resting + 1] = position end
-    resting[#resting + 1] = #refusals
-    roots_of[path] = resting
-    roots_by_file[file] = resting
-  end
   if lenient then
     for _, one in ipairs(positions.violations(modules, standing, carries, recorded)) do
-      hold(one.module.path, one.module.file, one.message)
+      hold(c, one.module.path, one.module.file, one.message)
     end
   else
     local positioned, position_trouble = positions.check(modules, standing, carries, recorded)
@@ -1389,6 +2001,7 @@ local function compile_derived(handle: work.Handle, tool: string,
     if outcome ~= nil then outcome.refused = true end
     return nil, why
   end
+  c.order = order
   local globals, globals_trouble = plans.global_refusals(handle.db)
   if globals == nil then
     return nil, globals_trouble
@@ -1405,541 +2018,20 @@ local function compile_derived(handle: work.Handle, tool: string,
   if keys == nil then
     return nil, keys_trouble
   end
-  -- What the new checker's compile is made over ([`build.pipeline`]), read once the first module needs it. A module is
-  -- keyed by its text, which holds its markers.
-  local reading: Reading = { root = handle.root, own = standing.own, options = nil, built = nil }
-  local result: importer.Result = {
-    modules = {}, tool = tool, main = nil, refused = refusals, own_refused = own_refused,
-    refusal_roots = roots_by_file,
-    left_out = left, compiled = 0, cached = 0, shared = 0, parses = parses, fact_wraps = 0, parameter_checks = 0,
-    catalog = function(catalog_db: Sqlite.Handle, schema: string): integer?, string
-      return require("build.error_catalog").insert(catalog_db, schema)
-    end,
-  }
-  local db = handle.db
-  local progress: Progress = { failure = "" }
-
-  -- Where a hint (with_docs_hint) looks up the name a refused module
-  -- could not resolve, as [`docs.databases`] builds the same list for
-  -- `cosmic docs`:
-  -- * This tree's last projection, `cosmic.db`, unrestricted. It is
-  --   the only place cosmic's own `build.*` symbols are documented,
-  --   since the tool carries only the public standard library's
-  --   ([`writer.carried`]).
-  -- * Then the running binary's own, where a standard-library symbol
-  --   such as one of [`cosmic.removed`]'s fields lives for any tree but
-  --   cosmic's.
-  -- The working database cannot stand in: its `docs` rows are keyed by
-  -- source hash, with no module to name. A projection that is missing
-  -- or unreadable is left out, since the hint is best effort.
-  local hinting: Hinting = {}
-  local hints: Hints = function(): {Sqlite.Handle}, {boolean}
-    local held_databases, held_public = hinting.databases, hinting.public
-    if held_databases == nil or held_public == nil then
-      local databases: mut {Sqlite.Handle} = {}
-      local public: mut {boolean} = {}
-      local projection, _ = Sqlite.open(handle.dir .. "/cosmic.db")
-      if projection ~= nil then
-        hinting.projection = projection
-        databases[1] = projection
-        public[1] = false
-      end
-      for _, store_db in ipairs(Store.databases()) do
-        databases[#databases + 1] = store_db
-        public[#public + 1] = not standing.own
-      end
-      hinting.databases, hinting.public = databases, public
-      held_databases, held_public = databases, public
-    end
-    return held_databases, held_public
-  end
-
-  local compile_all = function(): boolean, string
-    local cleared, clear_trouble = db:exec("DELETE FROM plan")
-    if not cleared then
-      return false, tostring(clear_trouble)
-    end
-    local forgotten, forget_trouble = forget_stale_receivers(db)
-    if not forgotten then
-      return false, forget_trouble
-    end
-    local judged = unjudged ~= true
-    local cache, prepare_trouble = prepare_cache(handle, tool)
-    if cache == nil then
-      return false, prepare_trouble
-    end
-
-    -- The modules this run is to compile itself, made in copies of this process where there are many
-    -- ([`build.compile_fanout`]): each neither held out, nor standing here, nor made by another checkout. A module one
-    -- of them requires may yet fail, and the loop below then leaves it out as it does: its compile is made for nothing.
-    local fanned: importer.Shared.Fanned? = nil
-    local function finish_all()
-      local made_at_once = fanned
-      if made_at_once ~= nil then made_at_once.close() end
-      finish_cache(cache)
-    end
-    local fan = if shared ~= nil then shared.fan else nil end
-    if fan ~= nil and shared ~= nil then
-      local due: mut {Module} = {}
-      local by_path: mut {string:Module} = {}
-      for _, m in ipairs(order) do
-        local planned = assert(keys[m.path], "every module of the order was keyed")
-        m.key = planned.key
-        m.graph_key = planned.graph
-        by_path[m.path] = m
-        if held_out[m.path] ~= true and plans.refusal(m) == nil then
-          local stands, _ = cached_stands(cache, planned.key)
-          local known = shared.known
-          if not stands and not (known ~= nil and known(m, standing.own)) then due[#due + 1] = m end
-        end
-      end
-      -- The tree is read before the copies are made, so each holds it: the first module the loop compiles would read it
-      -- anyway. One that cannot be read is the loop's to say, and nothing is made at once.
-      local due_options: Pipeline.Options? = nil
-      if #due > 0 then
-        local made_options, _ = options_of(reading)
-        due_options = made_options
-      end
-      if due_options ~= nil then
-        local made_built, _ = require("build.pipeline").build(handle.db, due_options)
-        if made_built ~= nil then
-          reading.built = made_built
-          -- What a copy makes of each module it says at once, in a file every copy and this process read as they go, a
-          -- line a module: that it compiled, or that it could not and why. A copy compiles no module that requires one
-          -- that could not be, as the loop below leaves each out. This process tells of the first such module while
-          -- the copies still run ([`importer.due`]), once every module it requires is said to have compiled: a copy
-          -- reaches a module before another reaches what it requires, and fails it for what is wrong there, so a
-          -- module is told of only when the fault is its own. Each process takes up the file where it left it.
-          local said_dir, _ = Fs.mkdtemp("cosmic-refused-")
-          local said_path = if said_dir ~= nil then said_dir .. "/said" else nil end
-          local read_to = 0
-          --- The lines said since this process last asked: for each, whether its module compiled, the module's path,
-          --- its file and why it did not.
-          local function heard(): {{string}}
-            local out: mut {{string}} = {}
-            local data: string? = nil
-            if said_path ~= nil then
-              local read, _ = Fs.read(said_path)
-              data = read
-            end
-            if data == nil then return out end
-            local whole = data:sub(read_to + 1):match("^(.*\n)") or ""
-            read_to = read_to + #whole
-            for kind, path, file, why_text in whole:gmatch("([^\t\n]*)\t([^\t\n]*)\t([^\t\n]*)\t([^\t\n]*)\n") do
-              out[#out + 1] = { kind, path, file, (why_text:gsub("%%(%x%x)", function(hex: string): string
-                return string.char(math.tointeger(tonumber(hex, 16)) or 0)
-              end)) }
-            end
-            return out
-          end
-          --- Says of the module `m` that it compiled, or with `reason` that it could not be.
-          local function say(m: Module, reason?: string)
-            if said_path == nil then return end
-            local escaped = (reason or ""):gsub("[%%\t\n]", function(c: string): string
-              return string.format("%%%02x", c:byte() or 0)
-            end)
-            local _, _ = Fs.append(said_path, (if reason == nil then "ok" else "no" end) .. "\t" .. m.path .. "\t" .. m.file ..
-                "\t" .. escaped .. "\n")
-          end
-          local refused_now: mut {string:boolean} = {}
-          -- Whether the copies are told to make no more (a line "stop"): a run of a file stops at the first module
-          -- it needs that does not build, so what a copy would compile after it is made for nothing. A copy keeps
-          -- what it made only as it ends, so the copies are told and left to end rather than ended.
-          local stopped = false
-          -- Where each module the copies are to compile comes among them.
-          local place: mut {string:integer} = {}
-          for index, m in ipairs(due) do place[m.path] = index end
-          local leaning: mut {string:boolean} = {}
-          --- Whether the module at `path` requires, directly or not, one that does not build.
-          local function leans(path: string): boolean
-            local known = leaning[path]
-            if known ~= nil then return known end
-            leaning[path] = false
-            local m = by_path[path]
-            local found = false
-            local required: {string} = if m ~= nil then m.requires else {} end
-            for _, name in ipairs(required) do
-              if not found and (failed[name] == true or refused_now[name] == true or leans(name)) then
-                found = true
-              end
-            end
-            leaning[path] = found
-            return found
-          end
-          -- In this process: the modules the copies are to compile, those said to have compiled, and those said not to,
-          -- in the order they were said, each with its file and why.
-          local awaited: mut {string:boolean} = {}
-          for _, m in ipairs(due) do awaited[m.path] = true end
-          local compiled_now: mut {string:boolean} = {}
-          -- Those a copy said it left uncompiled, since each requires one that did not compile.
-          local left_now: mut {string:boolean} = {}
-          local unsettled: mut {{string}} = {}
-          --- Whether every module `path` requires, directly or not, that the copies are to compile is said to have
-          --- compiled ("yes"), one is said not to have ("no"), or it is not known yet ("wait").
-          local function requires_settled(path: string, seen: mut {string:boolean}): string
-            local m = by_path[path]
-            local required: {string} = if m ~= nil then m.requires else {} end
-            local answer = "yes"
-            for _, name in ipairs(required) do
-              if seen[name] ~= true then
-                seen[name] = true
-                if failed[name] == true or refused_now[name] == true then return "no" end
-                local below = requires_settled(name, seen)
-                if below == "no" then return "no" end
-                if below == "wait" or (awaited[name] == true and compiled_now[name] ~= true) then
-                  answer = "wait"
-                end
-              end
-            end
-            return answer
-          end
-          fanned = fan(due, standing.own, function(m: Module, rest: {string:boolean}): importer.Shared.Compile?
-            for _, one in ipairs(heard()) do
-              if one[1] == "no" then
-                refused_now[assert(one[2])] = true
-                leaning = {}
-              elseif one[1] == "stop" then
-                stopped = true
-              end
-            end
-            if stopped then return nil end
-            if leans(m.path) then
-              -- Said, so that the process knows the module is not still to come.
-              if said_path ~= nil then
-                local _, _ = Fs.append(said_path, "left\t" .. m.path .. "\t" .. m.file .. "\t\n")
-              end
-              return nil
-            end
-            -- No hints: what a copy is refused it does not keep, and the build says it with them.
-            local made, make_trouble = require("build.pipeline").generate(m, made_built, checks, judged)
-            -- A copy lowers the modules its own require, most of them another copy's to compile, which nothing here
-            -- would retire: it forgets each but those it has yet to compile, and holds what the build does alone.
-            require("build.pipeline").forget(made_built, rest)
-            if made == nil then say(m, make_trouble) else say(m) end
-            if made == nil or made.refused then return nil end
-            return { lua = made.lua, bytecode = made.bytecode, references = made.references,
-              fact_wraps = made.fact_wraps, parameter_checks = made.parameter_checks }
-          end, function()
-            for _, one in ipairs(heard()) do
-              local path = assert(one[2])
-              if one[1] == "ok" then
-                compiled_now[path] = true
-              elseif one[1] == "no" then
-                refused_now[path] = true
-                unsettled[#unsettled + 1] = one
-              elseif one[1] == "left" then
-                left_now[path] = true
-              end
-            end
-            local waiting: mut {{string}} = {}
-            for _, one in ipairs(unsettled) do
-              local settled = requires_settled(assert(one[2]), {})
-              if settled == "yes" then
-                note(assert(one[3]), assert(one[4]))
-              elseif settled == "wait" then
-                waiting[#waiting + 1] = one
-              end
-            end
-            unsettled = waiting
-            if not stopped and needed ~= nil and said_path ~= nil then
-              -- The loop below stops at the first module the file needs that does not build: once one is said not
-              -- to, and every module before it is said either way, nothing a copy has yet to make is read.
-              local first: integer? = nil
-              for path in pairs(refused_now) do
-                local at = place[path]
-                if at ~= nil and needed[path] == true and (first == nil or at < first) then
-                  first = at
-                end
-              end
-              local settled = first ~= nil
-              if first ~= nil then
-                for index = 1, first - 1 do
-                  local before = assert(due[index], "an index within the list is a module").path
-                  if compiled_now[before] ~= true and refused_now[before] ~= true and left_now[before] ~= true then
-                    settled = false
-                  end
-                end
-              end
-              if settled then
-                stopped = true
-                local _, _ = Fs.append(said_path, "stop\t\t\t\n")
-              end
-            end
-            if tell ~= nil then
-              local said = importer.due(noted[1], Clock.monotonic_ns(), patience)
-              if said ~= nil then tell(said) end
-            end
-          end)
-          if said_dir ~= nil then local _, _ = Fs.remove_tree(said_dir) end
-        end
-      end
-    end
-
-    for ordinal, m in ipairs(order) do
-      if tell ~= nil then
-        local said = importer.due(noted[1], Clock.monotonic_ns(), patience)
-        if said ~= nil then tell(said) end
-      end
-      local planned = assert(keys[m.path], "every module of the order was keyed")
-      local key = planned.key
-      m.key = key
-      m.graph_key = planned.graph
-
-      local refusal = plans.refusal(m)
-      if held_out[m.path] == true then
-        -- Told of already, with the rule it breaks.
-        failed[m.path] = true
-      elseif needed ~= nil and needed[m.path] ~= true and leans_on(m, failed) then
-        -- Left out quietly: the module it requires was told of.
-        failed[m.path] = true
-      elseif lenient and leans_on(m, failed) then
-        local lacking = ""
-        local resting: mut {integer} = {}
-        local seen: mut {integer:boolean} = {}
-        for _, name in ipairs(m.requires) do
-          if failed[name] == true then
-            if lacking == "" then
-              lacking = name
-            end
-            for _, position in ipairs(roots_of[name] or {}) do
-              if seen[position] ~= true then
-                seen[position] = true
-                resting[#resting + 1] = position
-              end
-            end
-          end
-        end
-        table.sort(resting)
-        failed[m.path] = true
-        -- The module cannot be built, and is checked all the same where the declarations of every refused module it
-        -- requires stand: its own findings are told in this run, and nothing of it is written, kept or run.
-        local examined = reading.built
-        local checked = examined ~= nil
-        for _, name in ipairs(m.requires) do
-          if failed[name] == true and (examined == nil or examined.standing[name] ~= true) then
-            checked = false
-          end
-        end
-        local own_trouble = ""
-        if refusal ~= nil then
-          checked = false
-          own_trouble = refusal
-        elseif checked and examined ~= nil then
-          own_trouble = require("build.pipeline").examine(m, examined, judged, hints)
-        end
-        if own_trouble ~= "" then
-          if checked then
-            -- A finding here holds of the declarations as they are written, which the fix of the other module may change:
-            -- the line says so, since the tree as written does disagree and either side may be the one to change.
-            own_trouble = own_trouble .. "\n" .. m.file .. ": checked against the declarations of " .. lacking ..
-              " as they are written, though it did not build: a fix there that changes a declaration may settle a finding here"
-          end
-          result.refused[#result.refused + 1] = own_trouble
-          own_refused[#own_refused + 1] = m.file
-          resting[#resting + 1] = #result.refused
-        else
-          -- [`build.refusals`] reads the end of the line to say which files were checked.
-          result.refused[#result.refused + 1] = m.file .. ": not compiled: it requires " .. lacking ..
-            ", which did not build" .. (if checked then "; checked all the same, it has no finding of its own" else "" end)
-        end
-        roots_of[m.path] = resting
-        roots_by_file[m.file] = resting
-      elseif refusal ~= nil then
-        note(m.file, refusal)
-        result.refused[#result.refused + 1] = refusal
-        own_refused[#own_refused + 1] = m.file
-        roots_of[m.path] = { #result.refused }
-        roots_by_file[m.file] = { #result.refused }
-      else
-        local stands, look_trouble = cached_stands(cache, key)
-        if not stands and look_trouble ~= "" then
-          finish_all()
-          return false, look_trouble
-        end
-        -- The Lua of a compile made or copied here, not of one that stands.
-        local lua: string? = nil
-        local bytecode: string? = nil
-        local refused = false
-        -- What the Lua of the module checks: the counts of the compile that stands or was copied, or made here.
-        local fact_wraps, parameter_checks = cache.wraps, cache.checks
-        -- Another checkout's compile stands for one made here: its key
-        -- and what else decides it are the same ([`build.shared_compiles`]),
-        -- and it lands as a compile does, uses and all.
-        local elsewhere: importer.Shared.Compile? = nil
-        if not stands and shared ~= nil then
-          elsewhere = shared.look(m, standing.own)
-        end
-        if stands then
-          result.cached = result.cached + 1
-        elseif elsewhere ~= nil then
-          lua = elsewhere.lua
-          bytecode = elsewhere.bytecode
-          fact_wraps, parameter_checks = elsewhere.fact_wraps, elsewhere.parameter_checks
-          result.cached = result.cached + 1
-          result.shared = result.shared + 1
-          local kept_refs, refs_trouble = plans.keep_references(db, key, elsewhere.references)
-          if not kept_refs then
-            finish_all()
-            return false, m.file .. ": " .. refs_trouble
-          end
-        else
-          local generated: plans.Generated? = nil
-          -- Read the tree once, when the first module that is not cached asks.
-          if reading.built == nil then
-            local options, options_trouble = options_of(reading)
-            if options == nil then
-              progress.failure = options_trouble
-              break
-            end
-            local tree_refusal: Pipeline.Refusal = { refused = false }
-            local made_built, built_trouble = require("build.pipeline").build(handle.db, options, tree_refusal)
-            if made_built == nil then
-              if tree_refusal.refused and outcome ~= nil then outcome.refused = true end
-              progress.failure = built_trouble
-              break
-            end
-            reading.built = made_built
-          end
-          local made_generated, generate_trouble: plans.Generated?, string = nil, ""
-          local taken = if fanned ~= nil then fanned.look(m) else nil end
-          if taken ~= nil then
-            -- A copy of this process made it: the build has written the module, as if it had made it here.
-            require("build.pipeline").took(m, assert(reading.built))
-            made_generated = { lua = taken.lua, bytecode = taken.bytecode, references = taken.references, refused = false,
-              fact_wraps = taken.fact_wraps, parameter_checks = taken.parameter_checks }
-          else
-            made_generated, generate_trouble = require("build.pipeline").generate(m, assert(reading.built), checks, judged, hints)
-          end
-          if made_generated == nil then
-            if lenient then
-              note(m.file, generate_trouble)
-              result.refused[#result.refused + 1] = generate_trouble
-              own_refused[#own_refused + 1] = m.file
-              roots_of[m.path] = { #result.refused }
-              roots_by_file[m.file] = { #result.refused }
-              failed[m.path] = true
-            elseif needed == nil or needed[m.path] == true then
-              progress.failure = generate_trouble
-              if outcome ~= nil then outcome.refused = true end
-              break
-            end
-            table.insert(result.left_out, left_out(m.file, m.file, generate_trouble))
-            failed[m.path] = true
-          end
-          generated = made_generated
-          if generated ~= nil then
-            lua = generated.lua
-            bytecode = generated.bytecode
-            refused = generated.refused
-            fact_wraps, parameter_checks = generated.fact_wraps, generated.parameter_checks
-            result.compiled = result.compiled + 1
-            local kept_refs, refs_trouble = plans.keep_references(db, key,
-              generated.references)
-            if not kept_refs then
-              finish_all()
-              return false, m.file .. ": " .. refs_trouble
-            end
-            -- A refused compile is this run's alone (`remember`), and
-            -- never another checkout's.
-            if shared ~= nil and not refused then
-              shared.keep(m, standing.own, { lua = generated.lua, bytecode = generated.bytecode,
-                references = generated.references, fact_wraps = generated.fact_wraps,
-                parameter_checks = generated.parameter_checks })
-            end
-          end
-        end
-        -- Nothing stands, and nothing is made, only for a module left out
-        -- above, of which nothing is kept.
-        if stands or lua ~= nil then
-          m.lua = lua
-          result.fact_wraps = result.fact_wraps + fact_wraps
-          result.parameter_checks = result.parameter_checks + parameter_checks
-          local kept, keep_trouble = remember(cache, m.path, key, ordinal, lua,
-            bytecode, refused, fact_wraps, parameter_checks)
-          if not kept then
-            finish_all()
-            return false, m.file .. ": " .. keep_trouble
-          end
-          if m.kind == "main" then
-            result.main = m.path
-          end
-          result.modules[#result.modules + 1] = m -- checked: view_written
-        end
-      end
-    end
-
-    -- A file refused for a `global` alone is read with `local` in its place, and what the checker says of that text is
-    -- told under the parser's line: the findings the next run would tell once the fix is made. Nothing is said where it
-    -- requires a module whose declarations do not stand, which would be told as its own fault.
-    --
-    -- TODO: check the modules that require such a file against its repaired text too, once a source that does not parse
-    -- has a place in the order the modules are compiled in ([`plans.ordered`] plans only what was derived): they are met
-    -- before it here, and keep the line of a file not checked.
-    for _, one in ipairs(mended) do
-      local examined = reading.built
-      if examined == nil then
-        -- Options that cannot be made leave the file not checked, its line kept, as a tree that cannot be read does.
-        local options, _ = options_of(reading)
-        if options ~= nil then
-          local made_built, _ = require("build.pipeline").build(handle.db, options)
-          reading.built = made_built
-          examined = made_built
-        end
-      end
-      local required, _ = require("build.pipeline").requires(one.file, one.text)
-      local sound = examined ~= nil and required ~= nil
-      for _, name in ipairs(required or {}) do
-        if failed[name] == true and (examined == nil or examined.standing[name] ~= true) then
-          sound = false
-        end
-      end
-      if sound and examined ~= nil then
-        local module: Module = {
-          path = one.path, file = one.file, kind = one.kind, source = one.text, source_hash = "", requires = {}, tests = {},
-          inputs = nil,
-        }
-        local more = require("build.pipeline").examine(module, examined, judged, hints, one.text)
-        local head = one.file .. ": the compiler refused it\n"
-        if more:sub(1, #head) == head then
-          more = more:sub(#head + 1)
-        end
-        if more ~= "" then
-          local told = assert(table.remove(result.refused, one.position), "the refusal of a file that does not parse is kept")
-          table.insert(result.refused, one.position, told .. "\n" .. one.file .. ": with `local` written for `global`, " ..
-              "as the fix says, the checker refuses this too\n" .. more)
-        end
-      end
-    end
-
-    finish_all()
-    local pruned, prune_trouble = db:run(
-      "DELETE FROM compiled WHERE tool <> ?1 OR (seen >= 0 AND seen < ?2)" ..
-        (if judged then " OR seen < 0" else "" end),
-      { text(tool), { integer = handle.run - kept_runs - refresh_after } })
-    if not pruned then
-      return false, tostring(prune_trouble)
-    end
-    -- Run whether or not the prune above dropped anything: a run that
-    -- failed between a compile's [`plans.keep_references`] and its `remember`
-    -- commits the uses without the compile (build.dispatch closes the
-    -- handle, keeping what the run did), and only this sweeps them.
-    local done, done_why = db:exec(importer.prune_references)
-    if not done then return false, tostring(done_why) end
-    return true, ""
-  end
-  local made, compile_trouble = compile_all()
-  local hinting_projection = hinting.projection
+  c.keys = keys
+  local made, compile_trouble = compile_all(c)
   -- The projection the hints opened, once a message earned one.
+  local hinting_projection = hinting.projection
   if hinting_projection ~= nil then
     local _, _ = hinting_projection:close()
   end
   if not made then
     return nil, compile_trouble
   end
-  if progress.failure ~= "" then
-    return nil, progress.failure
+  if c.stopped then
+    return nil, c.failure
   end
-  return result, ""
+  return c.result, ""
 end
 
 --- The compiler a self-build runs, chosen once the tree's identities are
