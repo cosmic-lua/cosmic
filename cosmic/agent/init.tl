@@ -575,6 +575,17 @@ local function held_policy(s: Agent.Session): Sandbox.Policy?, string
   return policy, ""
 end
 
+--- The paths a call by code of `name` with `input` touches: its tool's, where it is one code may call
+--- ([`Tools.for_code`]) and says; none for a host call of the agent (sql, store, mcp). Nil and why where they fail.
+local function code_paths(s: Agent.Session, name: string, input: Tools.Object): {Tools.Touch}?, string
+  local t = Tools.find(s.tools, name)
+  local paths = if t ~= nil and Tools.for_code(t) then t.paths else nil end
+  if paths == nil then return {}, "" end
+  local ran, found = pcall(paths, input, s.cwd)
+  if not ran then return nil, "the tool's paths failed: " .. tostring(found) end
+  return found, ""
+end
+
 --- What `before` of `s` says of `call`: nil to run it, or why not.
 local function blocked(s: Agent.Session, call: Agent.Call): string?
   local before = s.before
@@ -1203,7 +1214,9 @@ local function loop(s: Agent.Session): boolean, string
           tell(s, { kind = "tool", name = called, input = given })
           -- A tool that runs past the turn's time is stopped as the user stops one.
           local asking = function(): boolean return stopped(s) or spent_why(s, spent) ~= nil end
-          local tool = Tools.find(s.tools, called)
+          -- A tool for code alone is not the model's to call: it is not offered, so it is not found.
+          local listed = Tools.find(s.tools, called)
+          local tool = if listed ~= nil and Tools.for_model(listed) then listed else nil end
           local paths = tool and tool.paths
           local touched: {Tools.Touch} = {}
           local reason: string? = nil
@@ -1226,9 +1239,10 @@ local function loop(s: Agent.Session): boolean, string
               mcp = s.mcp, stopped = asking, deadline_ns = deadline, tools = s.tools,
               commands = Tools.find(s.tools, "bash") ~= nil,
               guard = if s.before == nil then nil else function(host: string, args: Tools.Object): string?
+                local touches, touches_why = code_paths(s, host, args)
                 local by_code: Agent.Call = { name = host, input = args, caller = "code", cwd = s.cwd, id = s.id,
-                  paths = {}, stopped = asking }
-                local why_not = blocked(s, by_code)
+                  paths = touches or {}, stopped = asking }
+                local why_not = if touches == nil then touches_why else blocked(s, by_code) end
                 if why_not ~= nil then
                   tell(s, { kind = "blocked", name = host, caller = "code", input = args, reason = why_not })
                 end
@@ -1236,11 +1250,13 @@ local function loop(s: Agent.Session): boolean, string
               end end,
               amend = if s.after == nil then nil else function(host: string, args: Tools.Object,
                                                                answered: Tools.Result): Tools.Result
+                local touches, _ = code_paths(s, host, args)
                 local by_code: Agent.Call = { name = host, input = args, caller = "code", cwd = s.cwd, id = s.id,
-                  paths = {}, stopped = asking }
+                  paths = touches or {}, stopped = asking }
                 return afterward(s, by_code, answered)
               end end }
-            result = Tools.dispatch(s.tools, called, given, context)
+            result = if tool ~= nil then Tools.dispatch(s.tools, called, given, context) else
+              { text = "Tool " .. called .. " not found", is_error = true } end
             if tool ~= nil then result = afterward(s, asked_call, result) end
           end
           local shown, record_why = record(s, call_id, called, given, result)

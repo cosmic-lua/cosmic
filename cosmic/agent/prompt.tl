@@ -95,8 +95,15 @@ function Prompt.build(cwd: string, contexts: {Prompt.Context}, options?: Prompt.
     local about = server.description
     servers[#servers + 1] = { name = server.name, about = if about ~= nil then (about:gsub("%s+", " ")) else nil end }
   end
+  local for_model: mut {Tools.Tool} = {}
+  local for_code: mut {Tools.Tool} = {}
+  for _, t in ipairs(offered) do
+    if Tools.for_model(t) then for_model[#for_model + 1] = t end
+    if Tools.for_code(t) then for_code[#for_code + 1] = t end
+  end
   return Text.render({
-    tools = if #offered > 0 then offered else nil end,
+    tools = if #for_model > 0 then for_model else nil end,
+    code_tools = if #for_code > 0 and Tools.find(offered, "run") ~= nil then for_code else nil end,
     bash = Tools.find(offered, "bash") ~= nil,
     run = Tools.find(offered, "run") ~= nil,
     instructions = if #instructions > 0 then instructions else nil end,

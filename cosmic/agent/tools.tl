@@ -92,6 +92,13 @@ local record Tools
   --- A JSON object.
   type Object = {string: Json.Value}
 
+  --- Who may call a tool: the model, code (a snippet of run, by [`Host.use`]), or both.
+  enum Callers
+    "model"
+    "code"
+    "both"
+  end
+
   --- What a tool answers: the text the model reads, and whether it is
   --- an error.
   record Result
@@ -142,7 +149,9 @@ local record Tools
     --- `before`, as a call by code): nil lets it run, a string is why
     --- not, raised in the snippet; a raise blocks it too. `name` is the
     --- call's: sql, store.get, store.put, mcp.servers, mcp.tools or
-    --- mcp.call, a name the snippet chose only among those. `input` is
+    --- mcp.call, or the name of a tool code may call ([`Tools.for_code`])
+    --- that the snippet called by [`Host.use`], a name the snippet chose
+    --- only among those. `input` is
     --- the arguments it sent, `{}` where they are no object, unchecked:
     --- sql's `{query}`, store's `{key, value?}` (put with no value or
     --- null lets the key go), mcp's `{server?, tool?, arguments?}`.
@@ -196,6 +205,10 @@ local record Tools
     --- hook to check ([`Check.paths`]); nil for a tool that touches none
     --- the hook can see.
     paths?: function(input: Object, cwd: string): {Touch}
+    --- Who may call it; "model" where nil. A tool code may call is called from a snippet of run with
+    --- `Host.use(name, input)`, under the same `before` and `after` as the model's calls, as a call by code; one
+    --- for code alone is not offered to the model, which reads of it only in the system prompt.
+    callers?: Callers
   end
 end
 
@@ -221,6 +234,16 @@ function Tools.find(tools: {Tools.Tool}, name: string): Tools.Tool?
     if t.name == name then return t end
   end
   return nil
+end
+
+--- Whether the model may call `t` ([`Tools.Callers`]).
+function Tools.for_model(t: Tools.Tool): boolean
+  return t.callers ~= "code"
+end
+
+--- Whether code, a snippet of run, may call `t` ([`Tools.Callers`]).
+function Tools.for_code(t: Tools.Tool): boolean
+  return t.callers == "code" or t.callers == "both"
 end
 
 --- `path` from `cwd`: absolute as given, `~` as HOME, else under `cwd`.
@@ -914,7 +937,7 @@ local function served_unguarded(context: Tools.Context): Worker.Serve
     if name == "store.put" or name == "store.get" then return stored(context, name, given) end
     if name ~= "mcp.servers" and name ~= "mcp.tools" and name ~= "mcp.call" then
       return nil, Failure.new("the agent serves no call " .. Json.quote(String.as_utf8(name)) ..
-          ": it serves sql, store.put, store.get, mcp.servers, mcp.tools and mcp.call")
+          ": it serves sql, store.put, store.get, mcp.servers, mcp.tools, mcp.call and use")
     end
     local set = context.mcp
     if name == "mcp.servers" then
@@ -984,15 +1007,60 @@ local function amended(context: Tools.Context, name: string, given: Tools.Object
   return value
 end
 
+--- What a tool code may call ([`Tools.for_code`]) answers a snippet of `context` that calls it with `args`,
+--- `{name, input}` ([`Host.use`]): its text, or its error result as a failure. The call is asked of the guard first,
+--- and given to the amend after, by the tool's own name, as the model's calls of it are.
+local function used(context: Tools.Context, args: Json.Value): (Json.Value) | (nil, Failure)
+  local fields, _ = Json.to_object(args)
+  local given: {string: Json.Value} = fields or {}
+  local named = given["name"]
+  if not (named is string) then return nil, Failure.new("the call names no tool") end
+  local t = Tools.find(context.tools or {}, named)
+  if t == nil or not Tools.for_code(t) then
+    local callable: mut {string} = {}
+    for _, other in ipairs(context.tools or {}) do
+      if Tools.for_code(other) then callable[#callable + 1] = other.name end
+    end
+    return nil, Failure.new("no tool " .. Json.quote(String.as_utf8(named)) .. " is one code may call; " ..
+        (if #callable == 0 then "none is" else "these are: " .. table.concat(callable, ", ") end))
+  end
+  local none: {string: Json.Value} = {}
+  local stated = given["input"]
+  local input, _ = Json.to_object(if stated == nil then none else stated end)
+  if input == nil then return nil, Failure.new("the call's input is no object") end
+  local guard = context.guard
+  if guard ~= nil then
+    local guard_ran, reason = pcall(guard, named, input)
+    if not guard_ran then
+      return nil, Failure.new("Blocked: the agent's before hook failed: " .. tostring(reason))
+    end
+    if reason ~= nil then return nil, Failure.new("Blocked: " .. tostring(reason)) end
+  end
+  local tool_ran, answered = pcall(t.run, input, context)
+  local result: Tools.Result = if tool_ran then answered else
+    { text = "the tool " .. named .. " failed: " .. tostring(answered), is_error = true } end
+  local amend = context.amend
+  if amend ~= nil then
+    local amend_ran, made = pcall(amend, named, input, result)
+    if not amend_ran then
+      return nil, Failure.new("the agent's after hook failed: " .. tostring(made))
+    end
+    result = made
+  end
+  if result.is_error then return nil, Failure.new(result.text) end
+  return result.text
+end
+
 --- What answers the calls a snippet of `context` makes of the agent (sql as the sql tool runs it, store.get,
 --- store.put, and mcp.servers, mcp.tools and mcp.call), each asked of its guard first and given to its amend
 --- after, failed or not. A call of no other name is refused before either is asked.
 local function served(context: Tools.Context): Worker.Serve
   local answer_of = served_unguarded(context)
   return function(name: string, args: Json.Value, budget: Worker.Budget): (Json.Value) | (nil, Failure)
+    if name == "use" then return used(context, args) end
     if SERVED[name] ~= true then
       return nil, Failure.new("the agent serves no call " .. Json.quote(String.as_utf8(name)) ..
-          ": it serves sql, store.put, store.get, mcp.servers, mcp.tools and mcp.call")
+          ": it serves sql, store.put, store.get, mcp.servers, mcp.tools, mcp.call and use")
     end
     local fields, _ = Json.to_object(args)
     local given: {string: Json.Value} = fields or {}
@@ -1326,20 +1394,24 @@ function Tools.named(names: string): ({Tools.Tool}) | (nil, string)
   return Tools.only(ALL, picked)
 end
 
---- `tools` as the Messages API takes them. The last is a cache breakpoint: the tools come first in a request, and
+--- The tools of `tools` the model may call ([`Tools.for_model`]), as the Messages API takes them. The last is a cache breakpoint: the tools come first in a request, and
 --- are the same in every session of a model whatever its directory and prompt, so each session reads them from the
 --- cache another wrote, where the project's instructions in the system prompt and the messages after them differ.
 function Tools.definitions(tools: {Tools.Tool}): Json.Value
   local out: mut {Json.Value} = {}
   local offers_bash = Tools.find(tools, "bash") ~= nil
-  for i, t in ipairs(tools) do
-    -- Without bash a snippet runs no program, so run's description names no Host.bash.
-    local description = if t.name == "run" and not offers_bash then
-      (t.description:gsub("Host%.bash%(command%) %-> {output, ok, code}; ", "")) else t.description end
-    local def: mut {string: Json.Value} = { name = t.name, description = description, input_schema = t.schema }
-    if i == #tools then def["cache_control"] = { type = "ephemeral" } end
-    out[#out + 1] = def
+  local last: mut {string: Json.Value}? = nil
+  for _, t in ipairs(tools) do
+    if Tools.for_model(t) then
+      -- Without bash a snippet runs no program, so run's description names no Host.bash.
+      local description = if t.name == "run" and not offers_bash then
+        (t.description:gsub("Host%.bash%(command%) %-> {output, ok, code}; ", "")) else t.description end
+      local def: mut {string: Json.Value} = { name = t.name, description = description, input_schema = t.schema }
+      out[#out + 1] = def
+      last = def
+    end
   end
+  if last ~= nil then last["cache_control"] = { type = "ephemeral" } end
   return Json.array(out)
 end
 

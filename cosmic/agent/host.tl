@@ -600,6 +600,17 @@ function Host.sql(query: string): {Host.Row}
   return value
 end
 
+--- What the agent's tool `name` answers `input`, as the model would call it: its text. Only a tool code may call
+--- is called (`callers` "code" or "both", cosmic.agent.tools), under the agent's `before` and `after` as a call by
+--- code. Raises where the call is refused or the tool's result is an error, as "host: use: ...".
+function Host.use(name: string, input?: {string: Json.Value}): string
+  local none: {string: Json.Value} = {}
+  local answer, why = Host.call("use", { name = name, input = input or none })
+  if answer == nil then error(tostring(why), 2) end
+  if not (answer is string) then error("host: use: the agent's reply is no text", 2) end
+  return answer
+end
+
 --- The MCP servers the agent was given: each one's `name`, `reached` and `description`; none where it was
 --- given none. Raises where it fails, as "host: ...".
 function Host.servers(): {{string: Json.Value}}

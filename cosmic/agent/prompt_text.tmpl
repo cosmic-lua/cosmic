@@ -8,6 +8,15 @@ You are a coding assistant running inside cosmic agent, the coding agent of cosm
 {{- end}}
 </tools>
 {{- end}}
+{{- with .code_tools}}
+
+<code_tools>
+Tools a snippet of run calls with Host.use(name, input), which answers the tool's text and raises where it fails:
+{{- range .}}
+- {{.name}}: {{.snippet}}
+{{- end}}
+</code_tools>
+{{- end}}
 
 <rules>
 {{- if .bash}}

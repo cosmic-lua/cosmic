@@ -114,3 +114,50 @@ local function test_an_agents_after_sees_a_snippets_answers()
   s:close()
   local _, _ = db:close()
 end
+
+--- A tool for code alone is not offered to the model, nor found when it calls it; a snippet calls it with Host.use,
+--- under before as a call by code, by the tool's own name and with its paths.
+local function test_a_tool_for_code_is_called_from_a_snippet_alone()
+  local dir = assert(Fs.mkdtemp("agent-hook-"))
+  local none: {string: Json.Value} = {}
+  local stamp: Tools.Tool = { name = "stamp", snippet = "Stamp a word", guidelines = {}, description = "Stamps a word.",
+    schema = { type = "object", properties = none }, callers = "code",
+    run = function(input: Tools.Object, _: Tools.Context): Tools.Result
+      local word = input["word"]
+      if not (word is string) then return { text = "no word", is_error = true } end
+      return { text = "stamped " .. word, is_error = false }
+    end,
+    paths = function(_: Tools.Object, cwd: string): {Tools.Touch}
+      return { { path = cwd .. "/stamps", action = "write" } }
+    end }
+  local code = "local Host = require(\"cosmic.agent.host\")\n" ..
+    "local _, bad = pcall(Host.use, \"stamp\", {})\n" ..
+    "local _, other = pcall(Host.use, \"read\", { path = \"x\" })\n" ..
+    "return Host.use(\"stamp\", { word = \"hi\" }) .. \" / \" .. tostring(bad) .. \" / \" .. tostring(other)\n"
+  local a = agent_fixture.api({
+    { content = { { type = "tool_use", id = "t1", name = "stamp", input = { word = "x" } } }, stop_reason = "tool_use" },
+    { content = { { type = "tool_use", id = "t2", name = "run", input = { code = code } } }, stop_reason = "tool_use" },
+    { content = { { type = "text", text = "done" } }, stop_reason = "end_turn" } })
+  local w = Worker.new()
+  local s = Agent.new({ sign = agent_fixture.keyed("k"), cwd = dir, base_url = "https://api.test", send = a.send,
+    system = "", worker = w, tools = { (assert(Tools.find(Tools.all(), "run"))), (assert(Tools.find(Tools.all(), "read"))), stamp },
+    sandbox = { (assert(Policy.of(dir, { mode = "write", network = false, grants = {} }))) } })
+  local calls: mut {string} = {}
+  s.before = function(call: Agent.Call): string?
+    local touched = call.paths[1]
+    calls[#calls + 1] = call.name .. ":" .. call.caller .. (if touched ~= nil then ":" .. touched.action else "" end)
+    return nil
+  end
+  assert(s:prompt("go"))
+  -- Not offered, and not found when called.
+  local first = agent_fixture.said(a, 1)
+  assert(first:find('"name":"stamp"', 1, true) == nil, first)
+  local second = agent_fixture.said(a, 2)
+  assert(second:find("Tool stamp not found", 1, true) ~= nil, second)
+  local answer = agent_fixture.said(a, 3)
+  assert(answer:find("stamped hi", 1, true) ~= nil, answer)
+  assert(answer:find("host: use: no word", 1, true) ~= nil, answer)
+  assert(answer:find("is one code may call; these are: stamp", 1, true) ~= nil, answer)
+  assert(table.concat(calls, " ") == "run:model stamp:code:write stamp:code:write", table.concat(calls, " "))
+  s:close()
+end
