@@ -510,9 +510,45 @@ local class Handle
     local statement, trouble = prepared(self.connection, sql, values, false, true)
     if statement == nil then return false, trouble end
     local state = statement:step_result()
+    if state == "row" then
+      -- A write with RETURNING stopped at its first row commits at this
+      -- reset in autocommit, which answers a failure of the commit.
+      local reset = statement:reset_result()
+      statement:release()
+      if reset.code ~= OK then return false, failed(reset) end
+      return true
+    end
     statement:release()
     if state is raw_sqlite.ExecResult then return false, failed(state) end
     return true
+  end
+
+  --- The first row a query yields, as [`Handle.rows`] reads it: the row,
+  --- `nil` alone where the query yields none, or `nil` and why; an
+  --- `assert` of a query that yields none fails with no message. A query
+  --- stops at the first row, so rows past it are never read; a write
+  --- with `RETURNING` makes all its changes, and answers its first row.
+  --- A failure where the statement commits (a deferred foreign key) is
+  --- why. `values` follows [`Handle.run`]'s contract.
+  ---
+  ---     local row = assert(db:one("SELECT count(*) FROM t"))
+  ---     print(row:integer(1))
+  ---     local found, why = db:one("SELECT body FROM t WHERE id = ?1", { id })
+  ---     if found == nil and why ~= nil then return nil, why end
+  function one(self, sql: string, values?: {raw_sqlite.Param}): (Row) | (nil, Failure?)
+    local statement, trouble = prepared(self.connection, sql, values, false, true)
+    if statement == nil then return nil, trouble end
+    local row, failure = step_row(statement, cells_of)
+    if row ~= nil then
+      -- Stopped before its end, so in autocommit the statement commits at
+      -- this reset, which answers a failure of the commit.
+      local reset = statement:reset_result()
+      statement:release()
+      if reset.code ~= OK then return nil, failed(reset) end
+      return row
+    end
+    statement:release()
+    return nil, failure
   end
 
   --- Every row a query yields, each a [`Sqlite.Row`] that keeps its

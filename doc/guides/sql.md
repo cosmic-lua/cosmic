@@ -44,6 +44,11 @@ stops the wait. A file that readers share beside one writer opens in
 write-ahead mode: `Sqlite.open(path, { writable = true, wal = true,
 synchronous = "normal" })`. `wait` sets another wait, in nanoseconds.
 
+`db:rows(sql, values)` answers every row a query yields; `db:one(sql,
+values)` answers its first, `nil` alone where it yields none, or `nil`
+and why: `assert(db:one("select count(*) from t")):integer(1)`. A query
+stops at its first row; a write with `returning` makes all its changes.
+
 A value goes in a statement as a bound parameter, in a list with one
 value per `?N`: `db:run("insert into t values (?1, ?2)", { 4, "d" })`.
 An integer, a float, a string and a boolean bind as themselves (a string
@@ -723,7 +728,7 @@ local _, _ = old:close()
 local db = assert(Sqlite.open(dir .. "/new.db", { writable = true, create = true }))
 assert(db:exec("ATTACH '" .. dir .. "/old.db' AS old"))
 assert(db:exec("create table t2 as select * from old.t"))
-print(assert(assert(db:rows("select count(*) from t2"))[1]):integer(1))
+print(assert(db:one("select count(*) from t2")):integer(1))
 ```
 
 ```output
@@ -755,7 +760,7 @@ end
 insert:finalize()
 
 assert(db:run("insert into t values (?1, ?2)", { 4, "d" }))
-print(assert(assert(db:rows("select count(*) from t"))[1]):integer(1))
+print(assert(db:one("select count(*) from t")):integer(1))
 ```
 
 ```output

@@ -120,6 +120,10 @@ local record sqlite
     --- the previous step's failure, in which case the statement is
     --- rewound all the same. See [`Statement.rewind`] to keep the bindings.
     reset: function(Statement): boolean, string
+    --- As [`Statement.reset`], but answers SQLite's codes as
+    --- [`Statement.step_result`] does. A statement stopped before its end
+    --- in autocommit commits at its reset, so a failure there is its own.
+    reset_result: function(Statement): ExecResult
     --- Rewinds the statement to run again and keeps every binding, as
     --- SQLite's own reset does: bind the columns that stay fixed once,
     --- then per row rebind the one that changes and rewind. It returns

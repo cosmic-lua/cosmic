@@ -1699,6 +1699,22 @@ static int statement_reset (lua_State *L) {
   return rewound(L, 1);
 }
 
+/* reset_result(): as reset, but answers an ExecResult with SQLite's
+ * codes, as step_result does: a statement stopped before its end, in
+ * autocommit, commits at this reset, and a failure there (a deferred
+ * foreign key, BUSY) is the statement's. */
+static int statement_reset_result (lua_State *L) {
+  struct outcome out = {0};
+  out.message = cosmic_guard_push(L, release_message);
+  struct statement *s = checked_statement(L);
+  begin_wait(s->owner);
+  sqlite3_clear_bindings(s->stmt);
+  int rc = sqlite3_reset(s->stmt);
+  capture(L, &out, s->db, rc, NULL);
+  push_outcome(L, &out, false);
+  return 1;
+}
+
 static int statement_rewind (lua_State *L) {
   return rewound(L, 0);
 }
@@ -1848,6 +1864,7 @@ static const luaL_Reg statement_methods[] = {
   {"number", statement_number},
   {"bytes", statement_bytes},
   {"reset", statement_reset},
+  {"reset_result", statement_reset_result},
   {"rewind", statement_rewind},
   {"finalize", statement_finalize},
   {"release", statement_release},
