@@ -258,13 +258,13 @@ assert(server:serve_stdio())
 ## over HTTP, with a token
 
 [`McpServer.Instance.handler`] serves the endpoint under
-[`cosmic.http.server`]. [`McpServer.bearer`] lets in only a request that
-carries the token, which must be at least 16 bytes. Any other request gets
-HTTP 401. A client sends the token in its `Authorization` header. A plain
-`http://` endpoint is safe for this only on loopback: elsewhere, put TLS in
-front of it, or use OAuth as the next section shows. Here the server and its
-client run in one program. The client with the token gets the tools, and
-one without it is refused.
+[`cosmic.http.server`]. [`McpServer.bearer`], given as `authorize`, lets in
+only a request that carries the token, which must be at least 16 bytes. A
+request without it gets HTTP 401. A client sends the token in its
+`Authorization` header. A plain `http://` endpoint is safe for this only on
+loopback. Elsewhere, put TLS in front of it, or use OAuth as the next section
+shows. Here the server and its client run in one program. The client with
+the token gets the tools, and one without it gets HTTP 401.
 
 ```teal
 local Clock = require("cosmic.clock")
