@@ -153,7 +153,10 @@ local function test_budget_ends_a_turn()
     { content = { agent_fixture.bash_call("t1", "true") }, stop_reason = "tool_use" }, text_reply("never") })
   assert(r.code ~= 0 and #a.sent == 1 and r.err:find("the turn's budget is spent: 1 request, of 1", 1, true) ~= nil,
     r.err)
-  assert(r.err:find("go on with `cosmic agent ask --continue 'go on'` and a larger --budget", 1, true) ~= nil, r.err)
+  assert(r.err:find("go on with `cosmic agent ask %-%-session %d+ 'go on'` and a larger %-%-budget") ~= nil, r.err)
+  -- A prompt with a budget is kept as blocks, and the sessions list still shows its words.
+  local listed = cli({ "sessions" }, KEYED, {})
+  assert(listed.out:find("%$0%.000%s+go\n?$") ~= nil, listed.out)
   for _, bad in ipairs({ "", "turns=0", "turns=1.5", "cost=-1", "cost=x", "time=10d", "time=0", "speed=1",
       "turns=1,turns=2", "turns" }) do
     r, a = cli({ "ask", "--budget", bad, "go" }, KEYED, {})

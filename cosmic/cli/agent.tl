@@ -49,8 +49,8 @@
 --- - `ask` and `chat` go on with the newest session in the directory,
 ---   and say so on standard error. `--new` starts a fresh one,
 ---   `--session <id>` goes on with any session, and `--fork` copies the
----   newest (or `--session`'s) and goes on in the copy. `rpc` and
----   `resume` go on with one only when told (`--continue`).
+---   newest (or `--session`'s) and goes on in the copy. `rpc` goes on
+---   with one only when told (`--continue`).
 --- - The default tools are run, read, edit, write and sql, which run no
 ---   program. `--with bash,jobs` adds bash and its background jobs,
 ---   `--without sql` takes a tool out, and `--tools run,read` names them

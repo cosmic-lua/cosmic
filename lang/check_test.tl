@@ -527,6 +527,16 @@ local CASES <const>: {Case} = {
     msg = "the SQL binds 1 value, and 2 are given", fix = "give 1 value, one for each parameter, in order",
   },
   {
+    code = "sql_column", at = { line = 5, column = 16 },
+    source = "local Sqlite = require(\"cosmic.sqlite\")\nlocal S <const> = Sqlite.schema(\"CREATE TABLE t (x INTEGER) STRICT\")\n" ..
+      "local db = Sqlite.memory({ schema = S })\nlocal row = db:one(\"SELECT x FROM t\")\nprint(row:text(1))\n",
+    modules = { ["cosmic.sqlite"] = "local record Row\n  text: function(Row, integer): string\nend\nlocal record Handle\n" ..
+        "  one: function(Handle, string): Row\nend\nlocal record Schema\n  ddl: string\nend\nlocal record Options\n" ..
+        "  schema?: Schema\nend\nlocal record Sqlite\n  schema: function(string): Schema\n  memory: function(?Options): Handle\n" ..
+        "end\nreturn Sqlite\n" },
+    msg = "column 1 is t.x, declared INTEGER in a STRICT table, so `text` raises on each of its cells", fix = "read it with `integer(1)`",
+  },
+  {
     code = "paren_is", at = { line = 2, column = 11 }, source = "local x: integer | string = 1\nlocal y = (x) is integer\nprint(y)\n",
     msg = "`(x) is ...` tests a value: the parentheses make `x` no place, so the test narrows nothing",
     fix = "write `x is integer` without the parentheses, so that the test narrows it",

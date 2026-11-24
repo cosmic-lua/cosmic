@@ -25,8 +25,8 @@
 --- and ends with the session. The tools cannot reach that directory, so
 --- no tool chooses what a later session starts.
 ---
---- The model's words go to standard output, and each tool call to
---- standard error. `ask --json` and `rpc` print events instead, one JSON
+--- The turn's answer goes to standard output. Each tool call, and what
+--- the model says on the way, go to standard error. `ask --json` and `rpc` print events instead, one JSON
 --- object a line, each after what it tells of is kept:
 ---
 ---     {"type":"session","id":7}            the session (rpc adds
@@ -664,7 +664,8 @@ local function ask(r: Run, got: Flags.Parsed): integer
     if not ok then
       -- A spent turn is over: resume finds nothing to finish, and a new prompt goes on.
       local next_step = if s.spent then
-        "; go on with `cosmic agent ask --continue 'go on'` and a larger --budget" else "" end
+        "; go on with `cosmic agent ask --session " .. tostring(s.id or 0) .. " 'go on'` and a larger --budget" else
+        "" end
       r.complain("ask: " .. trouble .. next_step)
       return bare.failed
     end

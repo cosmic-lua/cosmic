@@ -316,6 +316,21 @@ local function test_a_turn_ends_where_its_budget_is_spent()
   assert(s:prompt("go") and s:prompt("again") and #a.sent == 2 and not s.spent)
 end
 
+--- Words in a reply that also calls a tool are told as on the way (`calls`); the turn's last words are not.
+local function test_words_on_the_way_are_told_apart()
+  local s, _ = kept({ { content = { { type = "text", text = "looking" }, bash_call("t1", "true") },
+    stop_reason = "tool_use" }, text_reply("done") })
+  local told: mut {string} = {}
+  s.on = function(e: Agent.Event)
+    if e.kind == "text" then
+      local line = e.text .. "=" .. tostring(e.calls == true)
+      told[#told + 1] = line
+    end
+  end
+  assert(s:prompt("go"))
+  assert(table.concat(told, " ") == "looking=true done=false", table.concat(told, " "))
+end
+
 --- The model reads its budget beside the prompt, and a note to finish
 --- once a limit is mostly spent; a prompt with no budget is its words alone.
 local function test_the_model_reads_its_budget()

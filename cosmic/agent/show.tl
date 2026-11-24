@@ -3,8 +3,9 @@
 --- function to set as an agent's `on`, so a program of its own shows them
 --- as the verb does, or wraps one to show more.
 ---
---- [`Show.text`] is the verb's at a terminal: the model's words to one
---- writer, and each tool call, and each that failed, to another.
+--- [`Show.text`] is the verb's at a terminal: the turn's answer to one
+--- writer, and each tool call, each that failed, and what the model says
+--- on the way, to another.
 --- [`Show.json`] is its `--json` and its rpc: a line of JSON an event.
 ---
 ---     local agent = Agent.new({ sign = sign, cwd = cwd })
@@ -17,7 +18,7 @@
 local type Agent = require("cosmic.agent")
 local Json = require("cosmic.json")
 local String = require("cosmic.string")
-local type Tools = require("cosmic.agent.tools")
+local Tools = require("cosmic.agent.tools")
 
 local record Show
 end
@@ -56,6 +57,12 @@ local function lines_of(text: string): {string}
   return out
 end
 
+--- `line` cut to 120 bytes.
+local function cut(line: string): string
+  if #line > 120 then return String.cut(line, 117) .. "..." end
+  return line
+end
+
 --- Each of `lines` behind `lead`, cut to [`MOST_LINES`] and each line to 120 bytes, to `err`.
 local function block(err: function(line: string), lines: {string}, lead: string)
   for i, line in ipairs(lines) do
@@ -63,8 +70,7 @@ local function block(err: function(line: string), lines: {string}, lead: string)
       err("    ... " .. String.counted(#lines - MOST_LINES, "more line"))
       return
     end
-    if #line > 120 then line = String.cut(line, 117) .. "..." end
-    err(lead .. line)
+    err(lead .. cut(line))
   end
 end
 
@@ -100,7 +106,8 @@ function Show.diff(old: string, new: string): {string}
 end
 
 --- The lines a tool call shows at a terminal, the first naming it: run's
---- code, bash's command, edit's changes as [`Show.diff`] lines, a path for
+--- code, bash's command, edit's changes as [`Show.diff`] lines (each
+--- replacement after a line "@@"), a path for
 --- read and write, the statement for sql, else [`Show.input`].
 ---
 ---     for _, l in ipairs(Show.call("read", { path = "a.tl", offset = 3 })) do print(l) end -- read a.tl, from line 3
@@ -120,13 +127,10 @@ function Show.call(name: string, input: Tools.Object): {string}
   elseif name == "edit" and path is string then
     put("edit " .. path)
     local diff: mut {string} = {}
-    for i, item in ipairs(Json.array_of(input["edits"]) or {}) do
-      local e = Json.object_of(item) or {}
-      local old, new = e["oldText"], e["newText"]
-      if old is string and new is string then
-        if i > 1 then diff[#diff + 1] = "..." end
-        for _, line in ipairs(Show.diff(old, new)) do diff[#diff + 1] = line end
-      end
+    local replacements, _ = Tools.replacements(input)
+    for _, r in ipairs(replacements or {}) do
+      diff[#diff + 1] = "@@"
+      for _, line in ipairs(Show.diff(r.old, r.new)) do diff[#diff + 1] = line end
     end
     block(put, diff, "    ")
   elseif name == "write" and path is string then
@@ -135,7 +139,8 @@ function Show.call(name: string, input: Tools.Object): {string}
     put("write " .. path .. " (" .. String.counted(n, "line") .. ")")
   elseif name == "read" and path is string then
     local offset = input["offset"]
-    local from = if offset is number then ", from line " .. string.format("%d", math.floor(offset)) else "" end
+    local at = if offset is number then math.tointeger(offset) else nil end
+    local from = if at ~= nil then ", from line " .. tostring(at) else "" end
     put("read " .. path .. from)
   elseif name == "sql" and query is string then
     put("sql " .. Show.brief(query))
@@ -159,7 +164,7 @@ function Show.text(out: function(line: string), err: function(line: string)): fu
     elseif e.kind == "result" then
       if e.result.is_error then
         local lines = lines_of(e.result.text)
-        err(e.name .. " failed: " .. (lines[1] or ""))
+        err(cut(e.name .. " failed: " .. (lines[1] or "")))
         local rest: mut {string} = {}
         for i = 2, #lines do rest[#rest + 1] = lines[i] end
         block(err, rest, "    ")

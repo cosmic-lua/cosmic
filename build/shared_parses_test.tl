@@ -109,7 +109,7 @@ local function test_a_boot_takes_only_the_parses_its_own_analyzer_made(tmp: stri
   -- An analyzer module edited that no root is: the roots' parses are
   -- the cache's, but the rows they name the analyzer by reach the edit,
   -- so the name is another, and nothing is taken.
-  local edited = { ["build/thing.tl"] = analyzer_source("build/thing.tl") .. "-- edited\n" }
+  local edited = { ["build/thing.tl"] = "local _ = \"edited\"\n" .. analyzer_source("build/thing.tl") }
   analyzer_checkout(tmp .. "/edited", edited)
   local declined, declined_named, declined_rows = boot(tmp .. "/edited", path)
   assert(declined.parsed == count and declined.shared == 0,
@@ -188,7 +188,7 @@ local function test_a_boot_the_cache_knows_nothing_of_parses_the_tree(tmp: strin
   analyzer_checkout(tmp .. "/first", { ["build/other.tl"] = "local x = 1\nreturn x\n" })
   local _, named = boot(tmp .. "/first", path)
   analyzer_checkout(tmp .. "/second", {
-    ["build/derivation.tl"] = analyzer_source("build/derivation.tl") .. "-- another\n",
+    ["build/derivation.tl"] = "local _ = \"another\"\n" .. analyzer_source("build/derivation.tl"),
   })
   local parses, second_named = boot(tmp .. "/second", path)
   assert(parses.shared == 0 and second_named ~= named)
