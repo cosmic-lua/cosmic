@@ -31,6 +31,18 @@
  * disowned once the count has moved on. */
 static unsigned disowned_times;
 
+/* The most statements a handle keeps prepared for its SQL to run again
+ * (`prepare_cached_result`, `release`). */
+#define CACHED_STATEMENTS 16
+
+/* A statement kept prepared, reset and with no bindings, under the SQL
+ * it was prepared from, a copy the cache owns. */
+struct cached {
+  sqlite3_stmt *stmt;
+  char *sql;
+  size_t len;
+};
+
 struct handle {
   sqlite3 *db;
   /* Set when the connection belongs to someone else (the store): this
@@ -49,6 +61,11 @@ struct handle {
   /* Why the progress handler stopped the call running: STOP_NONE, or the
    * time limit or a guard's caught signal. */
   int stop;
+  /* The statements kept for their SQL to run again, the oldest first;
+   * only a handle that owns its connection keeps any, and closing it
+   * finalizes them first. */
+  struct cached cache[CACHED_STATEMENTS];
+  int cached;
 };
 
 enum { STOP_NONE, STOP_TIME, STOP_SIGNAL };
@@ -61,6 +78,11 @@ struct statement {
   sqlite3_stmt *stmt;
   sqlite3 *db;
   struct handle *owner;
+  /* The SQL a cached prepare was asked for, which `release` keeps the
+   * statement under; NULL for any other statement. The statement owns
+   * it until `release` hands it to the cache. */
+  char *sql;
+  size_t len;
 };
 
 /* A budget belongs to one call, not one locking event: SQLite can ask
@@ -561,6 +583,7 @@ static int open_database (lua_State *L, bool result) {
   h->run_ms = -1;
   h->run_deadline_ms = -1;
   h->stop = STOP_NONE;
+  h->cached = 0;
   luaL_setmetatable(L, HANDLE_TYPE);
 
   /* The program's own file named through a descriptor of it
@@ -696,7 +719,55 @@ static int handle_busy_timeout (lua_State *L) {
   return 0;
 }
 
-static int prepare_statement (lua_State *L, bool result) {
+/* Whether `h` keeps statements: it owns its connection, open and not
+ * disowned. */
+static bool keeps_statements (const struct handle *h) {
+  return h->db != NULL && !h->borrowed && !disowned(h);
+}
+
+/* Finalizes every statement `h` keeps. */
+static void drop_cached (struct handle *h) {
+  for (int i = 0; i < h->cached; i++) {
+    sqlite3_finalize(h->cache[i].stmt);
+    cosmic_free(h->cache[i].sql);
+  }
+  h->cached = 0;
+}
+
+/* Frees the SQL of every statement a disowned `h` keeps, and not the
+ * statements: they are the connection's, which the process this one is a
+ * copy of still uses. */
+static void forget_cached (struct handle *h) {
+  for (int i = 0; i < h->cached; i++) cosmic_free(h->cache[i].sql);
+  h->cached = 0;
+}
+
+/* Whether a statement of `sql` may be kept: not a PRAGMA, some of which
+ * act as they are prepared (`busy_timeout`, `cache_size`), not as they
+ * step. */
+static bool keepable (const char *sql, size_t len) {
+  size_t i = 0;
+  while (i < len && (sql[i] == ' ' || sql[i] == '\t' || sql[i] == '\n' || sql[i] == '\r')) i++;
+  return !(len - i >= 6 && sqlite3_strnicmp(sql + i, "pragma", 6) == 0);
+}
+
+/* The statement `h` keeps for `sql`, taken out of the cache with its copy
+ * of the SQL (`*kept`); NULL when it keeps none. */
+static sqlite3_stmt *take_cached (struct handle *h, const char *sql, size_t len, char **kept) {
+  for (int i = h->cached - 1; i >= 0; i--) {
+    struct cached *c = &h->cache[i];
+    if (c->len == len && memcmp(c->sql, sql, len) == 0) {
+      sqlite3_stmt *stmt = c->stmt;
+      *kept = c->sql;
+      memmove(c, c + 1, (size_t)(h->cached - i - 1) * sizeof *c);
+      h->cached--;
+      return stmt;
+    }
+  }
+  return NULL;
+}
+
+static int prepare_statement (lua_State *L, bool result, bool cached) {
   checked_handle(L);
   size_t len;
   const char *sql = luaL_checklstring(L, 2, &len);
@@ -719,6 +790,8 @@ static int prepare_statement (lua_State *L, bool result) {
   s->stmt = NULL;
   s->db = NULL;
   s->owner = NULL;
+  s->sql = NULL;
+  s->len = 0;
   luaL_setmetatable(L, STATEMENT_TYPE);
   /* The statement holds a reference to its handle, so the handle cannot
    * be collected while a statement is still open on it. */
@@ -728,9 +801,30 @@ static int prepare_statement (lua_State *L, bool result) {
   s->owner = h;
   s->db = h->db;
   begin_wait(h);
+  /* A cached prepare keeps its SQL for `release`; the copy is made before
+   * SQLite is asked, so a failure to make it leaves nothing prepared. */
+  if (cached && keeps_statements(h) && keepable(sql, len)) {
+    s->stmt = take_cached(h, sql, len, &s->sql);
+    s->len = len;
+    if (s->stmt != NULL) {
+      /* Prepared before from this SQL, which held one statement then. */
+      capture(L, &out, h->db, SQLITE_OK, NULL);
+      push_outcome(L, &out, true);
+      lua_pushvalue(L, statement_index);
+      lua_setfield(L, -2, "statement");
+      return 1;
+    }
+    s->sql = cosmic_malloc(len == 0 ? 1 : len);
+    if (s->sql == NULL) return luaL_error(L, "sqlite: not enough memory");
+    memcpy(s->sql, sql, len);
+  }
 
   const char *tail = NULL;
-  int rc = sqlite3_prepare_v2(h->db, sql, (int)len, &s->stmt, &tail);
+  /* A statement the cache may keep is prepared PERSISTENT, so it does not
+   * hold the connection's small lookaside pool for its long life. */
+  int rc = sqlite3_prepare_v3(h->db, sql, (int)len,
+                              s->sql != NULL ? SQLITE_PREPARE_PERSISTENT : 0,
+                              &s->stmt, &tail);
   if (rc != SQLITE_OK) {
     if (!result) return failed(L, h->db, rc);
     capture(L, &out, h->db, rc, h);
@@ -781,11 +875,19 @@ static int prepare_statement (lua_State *L, bool result) {
 }
 
 static int handle_prepare (lua_State *L) {
-  return prepare_statement(L, false);
+  return prepare_statement(L, false, false);
 }
 
 static int handle_prepare_result (lua_State *L) {
-  return prepare_statement(L, true);
+  return prepare_statement(L, true, false);
+}
+
+/* prepare_cached_result(sql): as prepare_result, but the statement a
+ * `release` of one prepared from the same SQL kept, when the handle keeps
+ * one; a statement prepared this way goes back to the handle on
+ * `release`. */
+static int handle_prepare_cached_result (lua_State *L) {
+  return prepare_statement(L, true, true);
 }
 
 static int handle_close (lua_State *L) {
@@ -794,9 +896,11 @@ static int handle_close (lua_State *L) {
    * to close, the store or the process this one is a copy of, and this
    * handle only lets go of it. */
   if (h->db == NULL || h->borrowed || disowned(h)) {
+    forget_cached(h);
     h->db = NULL;
     return cosmic_done(L);
   }
+  drop_cached(h);
   int rc = sqlite3_close(h->db);
   if (rc != SQLITE_OK) {
     return failed_effect(L, h->db, rc);
@@ -808,8 +912,10 @@ static int handle_close (lua_State *L) {
 static int handle_gc (lua_State *L) {
   struct handle *h = luaL_checkudata(L, 1, HANDLE_TYPE);
   if (h->db != NULL && !h->borrowed && !disowned(h)) {
+    drop_cached(h);
     sqlite3_close_v2(h->db);
   }
+  forget_cached(h);
   h->db = NULL;
   return 0;
 }
@@ -828,6 +934,7 @@ void cosmic_sqlite_push_borrowed (lua_State *L, sqlite3 *db) {
   h->run_ms = -1;
   h->run_deadline_ms = -1;
   h->stop = STOP_NONE;
+  h->cached = 0;
   luaL_setmetatable(L, HANDLE_TYPE);
 }
 
@@ -869,6 +976,9 @@ static int handle_limit (lua_State *L) {
         return luaL_error(L, "sqlite: the %s limit is at most %d, not %d", name,
                           ceiling, value); /* a bug, not a failure */
       }
+      /* A statement takes the limits as it is prepared: those kept were
+       * prepared under the old one. */
+      if (value >= 0 && keeps_statements(h)) drop_cached(h);
       lua_pushinteger(L, old);
       return 1;
     }
@@ -1275,7 +1385,96 @@ static int statement_finalize (lua_State *L) {
     sqlite3_finalize(s->stmt);
   }
   s->stmt = NULL;
+  cosmic_free(s->sql);
+  s->sql = NULL;
   return 0;
+}
+
+/* release(): done with the statement. One a cached prepare made goes
+ * back to its handle, rewound and with its bindings cleared, for the
+ * same SQL to take again, the oldest the handle keeps finalized to make
+ * room; any other is finalized. Releasing one already released or
+ * finalized does nothing. */
+static int statement_release (lua_State *L) {
+  struct statement *s = luaL_checkudata(L, 1, STATEMENT_TYPE);
+  struct handle *h = s->owner;
+  if (s->stmt == NULL || s->sql == NULL || h == NULL || h->db != s->db ||
+      !keeps_statements(h)) {
+    return statement_finalize(L);
+  }
+  begin_wait(h);
+  /* The reset answers the last step's failure, which was answered then. */
+  sqlite3_reset(s->stmt);
+  sqlite3_clear_bindings(s->stmt);
+  if (h->cached == CACHED_STATEMENTS) {
+    sqlite3_finalize(h->cache[0].stmt);
+    cosmic_free(h->cache[0].sql);
+    memmove(&h->cache[0], &h->cache[1],
+            (CACHED_STATEMENTS - 1) * sizeof h->cache[0]);
+    h->cached--;
+  }
+  h->cache[h->cached].stmt = s->stmt;
+  h->cache[h->cached].sql = s->sql;
+  h->cache[h->cached].len = s->len;
+  h->cached++;
+  s->stmt = NULL;
+  s->sql = NULL;
+  return 0;
+}
+
+/* row(metatable, as_text?): the row the statement stands on as one
+ * table, two slots a column: its kind ("integer", "number", "text",
+ * "blob" or "null"), then its value (false for NULL); with `as_text`,
+ * every column "text" and its bytes, NULL as "". The table takes
+ * `metatable`. cosmic/sqlite.tl's rows read it. */
+static int statement_row (lua_State *L) {
+  struct statement *s = checked_statement(L);
+  luaL_checktype(L, 2, LUA_TTABLE);
+  bool as_text = lua_toboolean(L, 3);
+  int columns = sqlite3_data_count(s->stmt);
+  lua_createtable(L, 2 * columns, 0);
+  for (int i = 0; i < columns; i++) {
+    int type = as_text ? SQLITE_TEXT : sqlite3_column_type(s->stmt, i);
+    switch (type) {
+      case SQLITE_INTEGER:
+      lua_pushliteral(L, "integer");
+      lua_pushinteger(L, (lua_Integer)sqlite3_column_int64(s->stmt, i));
+      break;
+      case SQLITE_FLOAT:
+      lua_pushliteral(L, "number");
+      lua_pushnumber(L, (lua_Number)sqlite3_column_double(s->stmt, i));
+      break;
+      case SQLITE_TEXT:
+      case SQLITE_BLOB: {
+        if (type == SQLITE_TEXT) {
+          lua_pushliteral(L, "text");
+        } else {
+          lua_pushliteral(L, "blob");
+        }
+        const void *data = sqlite3_column_blob(s->stmt, i);
+        int len = sqlite3_column_bytes(s->stmt, i);
+        if (data == NULL && len > 0) {
+          /* SQLite could not make the bytes: out of memory, not a value. */
+          return luaL_error(L, "sqlite: not enough memory");
+        }
+        if (data == NULL) {
+          lua_pushliteral(L, "");
+        } else {
+          lua_pushlstring(L, data, (size_t)len);
+        }
+        break;
+      }
+      default:
+      lua_pushliteral(L, "null");
+      lua_pushboolean(L, 0);
+      break;
+    }
+    lua_rawseti(L, -3, 2 * i + 2);
+    lua_rawseti(L, -2, 2 * i + 1);
+  }
+  lua_pushvalue(L, 2);
+  lua_setmetatable(L, -2);
+  return 1;
 }
 
 /* Disowns every connection this process has open through this module:
@@ -1295,6 +1494,7 @@ static const luaL_Reg handle_methods[] = {
   {"busy_timeout", handle_busy_timeout},
   {"time_limit", handle_time_limit},
   {"prepare_result", handle_prepare_result},
+  {"prepare_cached_result", handle_prepare_cached_result},
   {NULL, NULL},
 };
 
@@ -1321,6 +1521,8 @@ static const luaL_Reg statement_methods[] = {
   {"reset", statement_reset},
   {"rewind", statement_rewind},
   {"finalize", statement_finalize},
+  {"release", statement_release},
+  {"row", statement_row},
   {NULL, NULL},
 };
 

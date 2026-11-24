@@ -132,6 +132,16 @@ local record sqlite
     --- Releases the statement. Finalizing one already finalized does
     --- nothing.
     finalize: function(Statement)
+    --- Done with the statement: one [`Handle.prepare_cached_result`] made
+    --- goes back to its handle, rewound and its bindings cleared, for the
+    --- same SQL to take again; any other is finalized. Releasing one
+    --- already released or finalized does nothing.
+    release: function(Statement)
+    --- The row the statement stands on as one table of two slots a
+    --- column, its kind then its value (`false` for NULL), with
+    --- `metatable`; with `as_text`, every column `"text"` and its bytes,
+    --- NULL as `""`. Empty where the statement stands on no row.
+    row: function<T>(Statement, metatable: metatable<T>, as_text?: boolean): T
   end
 
   --- One database connection. Every call on a closed handle raises.
@@ -175,6 +185,11 @@ local record sqlite
     --- Captures a preparation's outcome before cleanup or another operation.
     --- Empty, multiple, overlong or NUL-containing SQL raises.
     prepare_result: function(Handle, sql: string): PrepareResult
+    --- As [`prepare_result`], but the statement a [`Statement.release`] of
+    --- one prepared from the same SQL kept, where the handle keeps one: a
+    --- handle that owns its connection keeps up to 16, and closing it
+    --- finalizes them first. A borrowed handle keeps none.
+    prepare_cached_result: function(Handle, sql: string): PrepareResult
     --- Closes the connection; closing one already closed does nothing.
     --- A borrowed handle, such as the store's, only lets go of it.
     close: function(Handle): boolean, string
