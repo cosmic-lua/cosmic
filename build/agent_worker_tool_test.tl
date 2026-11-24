@@ -18,7 +18,11 @@ local _ = require("build.standalone")
 local type _ = require("cosmic.mcp.server")
 local this_program = require("build.this_program")
 
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "/bin/sh", letters = "r" }, { path = "/bin/sleep", letters = "r" }, { path = "/usr/bin/sleep", letters = "r" }, { path = "/usr/bin/setsid", letters = "r" } } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "/bin/sh", letters = "r" }, { path = "/bin/sleep", letters = "r" }, { path = "/usr/bin/sleep", letters = "r" }, { path = "/usr/bin/setsid", letters = "r" } },
+  -- Most tests start a worker, whose first snippet loads the checker: 1.6 s alone here, 3.5 s beside four others,
+  -- and past 10 s on a loaded macOS runner (test_a_snippet_keeps_a_value_for_a_later_one, 2026-11-24). A test that
+  -- hangs still ends at the bound.
+  timeout = 30 }
 
 --- The worker, as `cosmic agent worker` runs it, in a child of this module.
 test_child.register("worker", function(_args: {string}): integer
