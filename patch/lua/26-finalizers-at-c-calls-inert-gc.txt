@@ -1,0 +1,35 @@
+file: src/lgc.c
+note: The C functions whose calls run no pending finalizer (patch/lua/31-finalizers-at-c-calls-run-call.txt): those the checker counts as running no code of the program, `Tests.inert_callee` and `Tests.quiet_callee` in lang/check.tl, which core/surface.c names with lua_setinert as the state opens. Any other C function a Lua function calls runs them first, so a loop whose body calls only C functions does not keep its finalizable objects on 'tobefnz' for ever. The list is a process's, not a state's, as the functions are, and is written without a lock: cosmic opens one state at a time (core/main.c). A lookup scans it only while finalizers are pending.
+--- find
+void luaC_runfinalizers (lua_State *L) {
+--- replace
+#define INERT_MOST 128
+
+static lua_CFunction inert[INERT_MOST];
+static int inert_count = 0;
+
+
+/* Whether 'f' is a C function lua_setinert named. */
+int luaC_inert (lua_CFunction f) {
+  int i;
+  for (i = 0; i < inert_count; i++)
+    if (inert[i] == f)
+      return 1;
+  return 0;
+}
+
+
+/* Names 'f' a C function whose calls run no pending finalizer; 0 when
+** the list is full. */
+int luaC_setinert (lua_CFunction f) {
+  if (luaC_inert(f))
+    return 1;
+  if (inert_count == INERT_MOST)
+    return 0;
+  inert[inert_count++] = f;
+  return 1;
+}
+
+
+void luaC_runfinalizers (lua_State *L) {
+--- end

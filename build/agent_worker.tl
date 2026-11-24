@@ -260,6 +260,21 @@ local function answer_to(kept: Pipeline.Kept, modules: Modules, capture: Capture
   return ran
 end
 
+--- The last `most` bytes of the file `path`, read a chunk at a time so that no more is held; "" where it cannot be read.
+local function tail_of(path: string, most: integer): string
+  local fd, _ = sys.open(path, sys.O_RDONLY)
+  if fd == nil then return "" end
+  local kept = ""
+  while true do
+    local chunk, _ = sys.read(fd, 1 << 20)
+    if chunk == nil or chunk == "" then break end
+    kept = kept .. chunk
+    if #kept > most then kept = kept:sub(-most) end
+  end
+  local _, _ = sys.close(fd)
+  return kept
+end
+
 --- A capture through a file in `dir`, with `null` the descriptor 0, 1 and 2 point at but while a snippet runs: then 1
 --- and 2 are the file, and 0 stays /dev/null, so neither the snippet nor a program it starts reads the requests.
 local function capture_in(dir: string, null: integer): Capture
@@ -276,10 +291,9 @@ local function capture_in(dir: string, null: integer): Capture
       local _, _ = sys.dup2(null, 1)
       local _, _ = sys.dup2(null, 2)
       local _, _ = sys.close(fd)
-      -- TODO: bound the file a snippet writes its output to, and read only its last MAX_OUTPUT bytes, once Fs reads a
-      -- file's tail: a snippet that prints without end fills the sandbox's /tmp, and the whole is read here.
-      local text, _ = Fs.read(path)
-      return { answer = answer, output = text or "" }
+      -- TODO: bound the file a snippet writes its output to: a snippet that prints without end fills the sandbox's /tmp
+      -- (under --sandbox off, the host's), though only its end is read.
+      return { answer = answer, output = tail_of(path, MAX_OUTPUT + 4) }
     end,
   }
 end
