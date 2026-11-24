@@ -51,7 +51,7 @@ local Flags = require("cosmic.flags")
 
 local command: Flags.Command = {
   about = "draw a QR code, or read one back",
-  usage = "[options] [text...]",
+  usage = "[options] [text...] | --read [file|-]",
   examples = {
     { line = "https://example.com/", about = "a QR code in the terminal" },
     { line = "--svg code.svg https://example.com/", about = "an SVG image" },

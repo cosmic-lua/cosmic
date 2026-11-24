@@ -104,7 +104,7 @@ local Flags = require("cosmic.flags")
 
 local command: Flags.Command = {
   about = "read-only SQL on a database or data files",
-  usage = "[options] ['<statement>']",
+  usage = "[--from <file|-> [--as <fmt>] [--at <path>]]... ['<statement>']",
   examples = {
     { line = "--from sales.csv 'SELECT region, sum(amount) FROM sales GROUP BY region'", about = "query a CSV file" },
     { line = "--from accounts.json", about = "list a file's columns and a sample row" },

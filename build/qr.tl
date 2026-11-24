@@ -212,9 +212,13 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     text = read:gsub("\r?\n$", "", 1)
   end
   if text == "" then
-    complain("the text is empty; give the text or pipe it in")
     -- An empty word is the command line's; an empty standard input is the data's.
-    return if request.text ~= nil then bare.refused else bare.undone end
+    if request.text ~= nil then
+      complain("the text is empty; give the text or pipe it in; " .. usage)
+      return bare.refused
+    end
+    complain("the text is empty; give the text or pipe it in")
+    return bare.undone
   end
   local code, why = Qr.encode(text, { level = request.level, max_version = request.max_version })
   if code == nil then
