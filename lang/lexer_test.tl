@@ -276,12 +276,12 @@ local function test_a_label_is_refused()
   assert(only_error("::").msg == "`::` is not in the grammar")
 end
 
-local function test_a_semicolon_is_refused()
-  local e = only_error("local x = 1; local y")
-  assert(e.code == "semicolon" and e.msg == "`;` is not in the grammar")
-  assert(e.fix == "delete the `;`: a statement needs no terminator and the fields of a table are separated by `,`")
-  assert(e.y == 1 and e.x == 12 and e.offset == 12 and e.length == 1)
-  assert(token("local x = 1; local y", 5).kind == "$ERR$")
+--- A `;` is a token of its own, as in Lua: the parser reads where it may stand.
+local function test_a_semicolon_is_a_token()
+  local lexed = lex("local x = 1; local y")
+  assert(#lexed.errors == 0)
+  local t = token("local x = 1; local y", 5)
+  assert(t.kind == ";" and t.text == ";" and t.y == 1 and t.x == 12)
 end
 
 local function test_a_long_comment_is_refused_and_kept_as_a_comment()
@@ -477,13 +477,13 @@ local function test_a_control_byte_is_shown_as_hex()
 end
 
 local function test_one_run_reports_every_problem()
-  local lexed = lex("::a:: ; @ 1_0 'x\nlocal y = 0x1p1 --[[c]] [[z")
+  local lexed = lex("::a:: @ 1_0 'x\nlocal y = 0x1p1 --[[c]] [[z")
   local codes: mut {string} = {}
   for _, e in ipairs(lexed.errors) do
     codes[#codes + 1] = e.code
   end
   assert(table.concat(codes, " ") ==
-      "label_or_goto semicolon stray_byte digit_separator unterminated_string hex_float long_comment " ..
+      "label_or_goto stray_byte digit_separator unterminated_string hex_float long_comment " ..
       "unterminated_long_string", table.concat(codes, " "))
   assert(Lexer.token(lexed.tokens, Lexer.count(lexed.tokens) - 1).kind == "$ERR$" and
       Lexer.token(lexed.tokens, Lexer.count(lexed.tokens)).kind == "$EOF$")
@@ -506,7 +506,6 @@ end
 --- One source for each code, whose first error has that code.
 local REFUSALS <const>: {Lexer.Code: string} = {
   label_or_goto = "::continue::",
-  semicolon = ";",
   long_comment = "--[[ x ]]",
   unterminated_long_comment = "--[[ x",
   digit_separator = "1_000",
@@ -519,7 +518,7 @@ local REFUSALS <const>: {Lexer.Code: string} = {
 }
 
 local function test_every_code_has_a_refusal_with_a_message_and_a_fix()
-  assert(#Lexer.codes == 11)
+  assert(#Lexer.codes == 10)
   for _, code in ipairs(Lexer.codes) do
     local source = REFUSALS[code]
     assert(source ~= nil, code .. " has no refusal here")

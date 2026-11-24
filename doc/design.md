@@ -1318,7 +1318,8 @@ the grammar is Teal's, made smaller and explicit.
   `T | nil` is refused.
 - a field is fixed unless declared `mut`. a collection parameter is a
   view unless declared `mut {T}`.
-- there are no casts (`as`), no `;`, and no `goto` but a continue.
+- there are no casts (`as`) and no `goto` but a continue. a `;` may
+  end a statement, as in Lua, and `cosmic fix` deletes it.
 - there is no `setmetatable`: a class's methods are written as
   methods, and the compiler writes its metatable. the one exception is
   the weak table `setmetatable({}, { __mode = "k" })`, the `mut` map

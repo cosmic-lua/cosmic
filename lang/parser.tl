@@ -40,9 +40,11 @@ local record Parser
   --- What an error is, so that a reader does not parse its `msg`. The lexer's
   --- codes ([`Lexer.Code`]) come first, then the parser's.
   enum Code
-    "label_or_goto" "semicolon" "long_comment" "unterminated_long_comment"
+    "label_or_goto" "long_comment" "unterminated_long_comment"
     "digit_separator" "hex_float" "malformed_number" "unterminated_string"
     "unterminated_long_string" "bad_escape" "stray_byte"
+    -- a `;` between the items of a table, which `,` separates
+    "semicolon"
     -- a reserved word where a name stands
     "reserved_word"
     -- `T | nil`, which is `T?`
@@ -153,7 +155,6 @@ end
 
 local LEXER_CODES <const>: {string: Parser.Code} = {
   label_or_goto = "label_or_goto",
-  semicolon = "semicolon",
   long_comment = "long_comment",
   unterminated_long_comment = "unterminated_long_comment",
   digit_separator = "digit_separator",
@@ -1336,6 +1337,10 @@ local function parse_table(): Ast.Exp
       items[#items + 1] = { kind = "Positional", id = 0, first = first, last = S.pos - 1, value = value }
     end
     if S.text == "," then
+      advance()
+    elseif S.kind == ";" then
+      report("semicolon", S.pos, "`;` separates the items of a table here",
+        "write `,`: the items of a table are separated by `,`, and a `;` only ends a statement")
       advance()
     elseif S.text ~= "}" and begins_line(S.pos) and starts_item() then
       report("expected_token", S.pos, "expected `,` or `}` after the item on line " .. (S.yends[S.pos - 1] or S.ys[S.pos - 1]) .. ", found " .. shown(S.pos), -- checked: nil_not_allowed
@@ -2866,6 +2871,10 @@ parse_block = function(mode: integer): Ast.Block
   S.depth = S.depth + 1
   local returned = 0
   while true do
+    -- A statement may end in a `;`, as in Lua: it is no statement, and `cosmic fix` deletes it.
+    while S.kind == ";" do
+      advance()
+    end
     if S.muted and S.depth == 1 then
       -- What is left of the construct that was too deep is skipped, and the
       -- statements after it are reported again.
@@ -2996,9 +3005,9 @@ function Parser.parse(lexed: Lexer.Lexed, name: string, dialect: Ast.Dialect): P
 end
 
 Parser.codes = {
-  "label_or_goto", "semicolon", "long_comment", "unterminated_long_comment", "digit_separator",
+  "label_or_goto", "long_comment", "unterminated_long_comment", "digit_separator",
   "hex_float", "malformed_number", "unterminated_string", "unterminated_long_string", "bad_escape",
-  "stray_byte", "reserved_word", "nil_union", "method_in_record", "continue_outside_loop",
+  "stray_byte", "semicolon", "reserved_word", "nil_union", "method_in_record", "continue_outside_loop",
   "break_outside_loop", "continue_skips_local", "unclosed", "expected_token", "expected_name",
   "expected_expression", "expected_type", "unexpected_token", "not_a_statement", "bad_target",
   "statement_after_return", "chained_optional", "chained_is", "is_union", "bare_function",

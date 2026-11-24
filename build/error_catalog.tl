@@ -58,8 +58,8 @@ local record ErrorCatalog
 
   --- Every code that can be emitted, in the order the stages run: the lexer's, the parser's own, the scope builder's, the
   --- declarations', the checker's and the warnings', and the generator's. A code a user sees in `(code)` is one of these;
-  --- [`lang.relation`]'s `Code` names the reason inside a refusal's message and is no error code. A code two stages emit (`semicolon` of the lexer and the parser,
-  --- `float_key` of the declarations and the checker) is listed once, under the first.
+  --- [`lang.relation`]'s `Code` names the reason inside a refusal's message and is no error code. A code two stages emit (`float_key` of the declarations and
+  --- the checker) is listed once, under the first.
   emitted: function(): {Emitted}
 
   --- The rows of the codes that can be emitted, in the order of `emitted`; a code with no row has none here.

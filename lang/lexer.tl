@@ -38,7 +38,7 @@ local find, byte, sub, capture, concat = string.find, string.byte, string.sub, s
 local math_type = math.type
 
 local record Lexer
-  --- The kind of a token. A bracket, `,`, `:`, `.`, `?` and `...` are their
+  --- The kind of a token. A bracket, `,`, `:`, `.`, `?`, `;` and `...` are their
   --- own kind. `op` is every other operator and punctuator (`=` and `|`
   --- among them) and `keyword` every reserved word, with the text in `text`.
   --- `integer` is a number Lua reads as an integer and `number` one it reads
@@ -62,6 +62,7 @@ local record Lexer
     ":"
     "."
     "?"
+    ";"
     "..."
     "$ERR$"
     "$EOF$"
@@ -72,8 +73,6 @@ local record Lexer
   enum Code
     -- a label `::name::` (the parser refuses a `goto`)
     "label_or_goto"
-    -- a `;`
-    "semicolon"
     -- a long comment `--[[ ... ]]`
     "long_comment"
     -- a long comment with no closing bracket: the token runs to the end
@@ -314,7 +313,7 @@ class[byte(":")] = 10 -- untyped: call
 class[byte("[")] = 11 -- untyped: call
 
 local bracket_kinds: {string: Lexer.Kind} = {
-  ["("] = "(", [")"] = ")", ["{"] = "{", ["}"] = "}", ["]"] = "]", [","] = ",", ["?"] = "?",
+  ["("] = "(", [")"] = ")", ["{"] = "{", ["}"] = "}", ["]"] = "]", [","] = ",", ["?"] = "?", [";"] = ";",
   ["#"] = "op", ["+"] = "op", ["*"] = "op", ["%"] = "op", ["^"] = "op", ["&"] = "op", ["|"] = "op",
 }
 local one_text: mut {integer: string} = {}
@@ -872,38 +871,32 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
         line, line_start = yend, yend_start
       end
     else
-      -- A cut `;`, or a byte that begins no token.
+      -- A byte that begins no token.
       if b >= 128 then
         e = run_end(source, "^[\128-\255]+", pos)
       end
       kind = "$ERR$"
       text = sub(source, pos, e)
       local x = pos - line_start + 1
-      if b == 59 then
-        add_error(errors, name, "semicolon", "`;` is not in the grammar", -- checked: view_as_mut
-          "delete the `;`: a statement needs no terminator and the fields of a table are separated by `,`",
-          pos, 1, line, x)
-      else
-        local fix = "delete it; a character outside Lua's syntax can stand only inside a string or a comment"
-        if b == 33 then
-          fix = if byte(source, pos + 1) == 61 then "write `~=` for \"not equal\"" else "write `not` for negation" end -- untyped: call
-        elseif b >= 128 then
-          if text == "\239\187\191" then
-            fix = if pos == 1 then "delete the byte order mark at the start of the file" else
-              "delete the byte order mark; one marks the start of a file and is no part of a program" end
-          else
-            fix = "names are ASCII letters, digits and `_`; a character like this can stand only inside a " ..
-              "string or a comment"
-          end
+      local fix = "delete it; a character outside Lua's syntax can stand only inside a string or a comment"
+      if b == 33 then
+        fix = if byte(source, pos + 1) == 61 then "write `~=` for \"not equal\"" else "write `not` for negation" end -- untyped: call
+      elseif b >= 128 then
+        if text == "\239\187\191" then
+          fix = if pos == 1 then "delete the byte order mark at the start of the file" else
+            "delete the byte order mark; one marks the start of a file and is no part of a program" end
+        else
+          fix = "names are ASCII letters, digits and `_`; a character like this can stand only inside a " ..
+            "string or a comment"
         end
-        local what = "`" .. shown(text) .. "`"
-        if text == "`" then
-          what = "backtick"
-        elseif text == "\239\187\191" then
-          what = "byte order mark"
-        end
-        add_error(errors, name, "stray_byte", "stray " .. what, fix, pos, e - pos + 1, line, x) -- checked: view_as_mut
       end
+      local what = "`" .. shown(text) .. "`"
+      if text == "`" then
+        what = "backtick"
+      elseif text == "\239\187\191" then
+        what = "byte order mark"
+      end
+      add_error(errors, name, "stray_byte", "stray " .. what, fix, pos, e - pos + 1, line, x) -- checked: view_as_mut
     end
     if kind ~= nil then
       n = n + 1
@@ -1044,7 +1037,7 @@ end
 
 Lexer.reserved = reserved_set
 Lexer.codes = {
-  "label_or_goto", "semicolon", "long_comment", "unterminated_long_comment",
+  "label_or_goto", "long_comment", "unterminated_long_comment",
   "digit_separator", "hex_float", "malformed_number", "unterminated_string",
   "unterminated_long_string", "bad_escape", "stray_byte",
 }

@@ -24,7 +24,7 @@ The checker refuses, so write:
 - `if c then a else b end`, with its `end` even inside a call, in place of `c and a or b`.
 - `{key: string, count: integer}` is a record type, `{string: integer}` a map, and `mut {{"{{"}}key: string}}` a list one may add to. Host.top answers `{Host.Count}`.
 - The first n of a list: `for i, v in ipairs(list) do if i > n then break end ... end`.
-- Records, not tuples (`{A, B}`); `T?`, not `T | nil`; no `;`; no goto.
+- Records, not tuples (`{A, B}`); `T?`, not `T | nil`; no goto.
 
 For example:
 local exts: mut {string} = {}

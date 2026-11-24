@@ -378,10 +378,15 @@ local function test_a_reserved_word_where_a_name_is_used_says_it_is_reserved_and
   clean("local m = s:match(p)\nlocal c = t.continue(p)\nmatch f(p) do\n  | (true, v) then g(v)\nend")
 end
 
-local function test_a_stray_semicolon_does_not_swallow_the_rest_of_its_line()
-  local parsed = parse("x = 1; y = 2; z = 3")
-  assert(codes(parsed) == "semicolon semicolon", codes(parsed))
-  assert(#parsed.chunk.body.stats == 5, "three assignments and two stray tokens")
+--- A `;` ends a statement, as in Lua, and is no statement; one between a table's items is refused, and the rest of
+--- the table is read on.
+local function test_a_semicolon_ends_a_statement_and_a_tables_is_refused()
+  local parsed = parse("x = 1; y = 2;; z = 3;\nif x then f(); end;\nreturn x;")
+  assert(codes(parsed) == "", codes(parsed))
+  assert(#parsed.chunk.body.stats == 5, "three assignments, an if and a return")
+  local table_one = parse("t = { 1; 2, 3 }\nu = 1")
+  assert(codes(table_one) == "semicolon", codes(table_one))
+  assert(#table_one.chunk.body.stats == 2, "the table is read on")
 end
 
 local function test_two_constructs_left_open_at_the_end_of_the_file_are_both_reported()
