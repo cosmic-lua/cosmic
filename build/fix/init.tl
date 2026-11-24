@@ -1786,8 +1786,8 @@ local function ci_tree(root: string): boolean
 end
 
 --- A run of some paths in cosmic's own tree makes the checks of the tree that cost it a few seconds: the exports
---- earned, the names the docs and help refer to, and the public docs and plurals of the Teal files named. The rest wait for
---- `cosmic fix --check .` (or `--changed`). Each line is the whole tree's check's, so a line
+--- earned, the names the docs and help refer to, and the public docs, rendered docs and plurals of the Teal files
+--- named. The rest wait for `cosmic fix --check .` (or `--changed`). Each line is the whole tree's check's, so a line
 --- may name a file that was not named: a new module's name can break a reference in another. A tree that does not build
 --- has no projection, and its refusal is said already.
 local function named_tree_checks(ctx: Fix, findings: mut {string})
@@ -1819,6 +1819,9 @@ local function named_tree_checks(ctx: Fix, findings: mut {string})
   else
     for _, line in ipairs(docs_checks.references(carried, help)) do
       findings[#findings + 1] = "doc references: " .. line
+    end
+    for _, line in ipairs(docs_checks.rendered(carried, nil, named)) do
+      findings[#findings + 1] = "rendered docs: " .. line
     end
   end
   if carried ~= nil then
