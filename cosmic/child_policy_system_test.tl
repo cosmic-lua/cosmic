@@ -80,3 +80,55 @@ local function test_the_system_profile_runs_no_program_and_programs_does(tmp: st
   local ran, ran_code = shell({ "system", "programs" })
   assert(ran_code == 0 and ran == "alpha\nstatus=0\n", ran)
 end
+
+--- A limit this records, not a guard: no `x` stops an execve, and the
+--- start grants the shell's ELF loader, which runs any program the policy
+--- lets be read, so under "system" alone `ld.so /bin/cat` still runs cat.
+--- A start that applies the policy after the program has started would
+--- grant no loader, and would make this fail.
+local function test_the_elf_loader_runs_a_readable_program_with_no_x(tmp: string)
+  local files = assert(Sandbox.loaders("/bin/sh"))
+  local loader = files[#files]
+  if #files < 2 or loader == nil or not loader:find("ld", 1, true) then
+    Test.skip("/bin/sh starts through no ELF loader on this host")
+    return
+  end
+  searchable.open(tmp)
+  assert(Fs.write(tmp .. "/a", "alpha\n"))
+  local result, why = Child.run({ "/bin/sh", "-c", loader .. " " .. CAT .. " " .. tmp .. "/a" },
+    { timeout_ns = Child.FOREVER, policy = { profiles = { "system" }, promises = { "fork" }, grants = { { path = tmp, letters = "r" } } },
+      stdout = "capture", stderr = "stdout" })
+  if result == nil then
+    if why.message:find("Landlock", 1, true) or why.message:find("seccomp", 1, true) or why.message:find("not implemented", 1, true) then
+      Test.skip(tostring(why))
+    end
+    error("the start was refused: " .. tostring(why))
+  end
+  assert(result.code == 0 and result.stdout == "alpha\n", tostring(result.stdout))
+end
+
+--- The start grants no file the policy lets the program change: one a
+--- `w` or `c` grant covers could be rewritten and then run, so it needs
+--- an `x` grant of its own, and is refused without one.
+local function test_the_start_grants_no_program_the_policy_lets_be_written(tmp: string)
+  searchable.open(tmp)
+  assert(Fs.mkdirs(tmp .. "/w"))
+  local script = tmp .. "/w/run.sh"
+  assert(Fs.write(script, "#!/bin/sh\necho ran\n"))
+  assert(Fs.chmod(script, 493))
+  local function start(letters: string): string
+    local result, why = Child.run({ script }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "stdout",
+      policy = { profiles = { "system" }, grants = { { path = tmp .. "/w", letters = letters } } } })
+    if result == nil then
+      if why.message:find("Landlock", 1, true) or why.message:find("seccomp", 1, true) or why.message:find("not implemented", 1, true) then
+        Test.skip(tostring(why))
+      end
+      return why.message
+    end
+    return assert(result.stdout)
+  end
+  assert(start("r") == "ran\n", "a program only read is granted by the start")
+  local refused = start("rwc")
+  assert(refused:find("is not granted x", 1, true) ~= nil, refused)
+  assert(start("rwxc") == "ran\n", "an x grant of its own runs it")
+end

@@ -126,7 +126,8 @@ end
 --- start, to read and not to run (`r` on /usr and the library and binary
 --- directories: a library is mapped by the loader, which needs no `x`, and
 --- a program a policy starts is granted by [`Child.start`]; one it runs
---- from there needs a grant of its own; `r` on
+--- from there by its path needs a grant of its own, though code it can
+--- read it can still run by mapping it, as the ELF loader does; `r` on
 --- /etc/ld.so.cache, nsswitch.conf, passwd, group and localtime, and the
 --- null, zero and random devices), each only where it exists; on macOS
 --- it is macOS's own list instead (/usr, /bin, /sbin, the system

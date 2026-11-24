@@ -456,7 +456,9 @@ end
 local LINUX_SYSTEM_PATHS <const>: {{string}} = {
   -- The programs and libraries of the system, read: a library is mapped
   -- by the loader, which needs no `x`, and a program a policy runs is
-  -- granted by the start ([`Child.start`]) or by a grant naming it.
+  -- granted by the start ([`Child.start`]) or by a grant naming it. No
+  -- `x` stops an execve, not code run by mapping what is read (the ELF
+  -- loader runs any program it can read).
   -- Everything installed under /usr is reachable, /usr/local included;
   -- /opt, /home and /var are not. /bin and the /lib directories are links into /usr on
   -- a merged-usr host, and are granted where they are directories of their own.

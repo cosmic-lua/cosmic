@@ -2371,7 +2371,7 @@ local function ungranted(files: {string}, grants: {Rules.Grant}, cwd?: string): 
     if #missing > 0 then
       local what = if i == 1 then "the program" else "the interpreter the program starts through" end
       return string.format("%s %s is not granted %s: grant it, { path = %q, letters = \"rx\" }, " ..
-          "or add the \"system\" profile for the host's own programs", what, file,
+          "or add the \"programs\" profile for the host's own programs", what, file,
         table.concat(missing, " and "), file)
     end
   end
@@ -2446,6 +2446,30 @@ end
 --- Whether `letters` holds `letter`.
 local function lettered(letters: string, letter: string): boolean
   return letters:find(letter, 1, true) ~= nil
+end
+
+--- Whether the start may grant `file`, a file a host program needs to
+--- start, `rx` when no grant gives it: only a regular file the policy
+--- gives no way to change or replace. A file a grant giving `w` or `c`
+--- covers could be rewritten after the start and then run, as a policy
+--- with no `x` grant never lets, so it needs a grant of `x` of its own;
+--- so does a file at a name a grant with `from` shows another file at,
+--- and, where `tmp` makes the sandbox's own /tmp, one beneath /tmp.
+local function startable(file: string, grants: {Rules.Grant}, cwd?: string, own_tmp?: boolean): boolean
+  local st, _ = sys.stat(file)
+  if st == nil or st.kind ~= "file" then return false end
+  if own_tmp == true and beneath(file, "/tmp") then return false end
+  for _, grant in ipairs(grants) do
+    local at = grant.path
+    if cwd ~= nil and at:sub(1, 1) ~= "/" then at = cwd .. "/" .. at end
+    if grant.from ~= nil then
+      if beneath(file, at) then return false end
+    elseif lettered(grant.letters, "w") or lettered(grant.letters, "c") then
+      local real, _ = sys.realpath(at)
+      if beneath(file, real or at) then return false end
+    end
+  end
+  return true
 end
 
 --- Whether a root of `grants` has the directory `base`, which it does when
@@ -3192,7 +3216,11 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- interpreter its start reads (a `#!` line's, the ELF loader) `rx`, as
   -- it grants a core above, so a policy names only what the program may
   -- do once it runs, and the "system" profile reads libraries without
-  -- running them. A relaunched core is granted above, beside a database
+  -- running them. A file the policy lets the program change is not
+  -- granted ([`startable`]). Landlock checks execve, not mmap: the ELF
+  -- loader this grants runs any program the policy lets be read
+  -- (`ld.so /usr/bin/cat`), so no `x` stops a program started by its
+  -- path, not code the program can read. A relaunched core is granted above, beside a database
   -- it runs on, whose read-only grant a merge would join with the policy's.
   if relaunch == nil then
     -- Only a file no grant gives already, so a policy at the most a start
@@ -3205,7 +3233,8 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     end
     local start_grants: mut {Rules.Grant} = {}
     for _, start_file in ipairs(files) do
-      if ungranted({ start_file }, giving, base) ~= "" then
+      if ungranted({ start_file }, giving, base) ~= "" and
+          startable(start_file, merged.grants or {}, base, file and merged.tmp == true) then
         start_grants[#start_grants + 1] = { path = start_file, letters = "rx" }
       end
     end
@@ -3374,16 +3403,6 @@ local function seatbelt_credentials(merged: Rules.Policy): string
   return Seatbelt.credentials_unmet(merged, effective_user(), effective_group())
 end
 
---- A policy's start on macOS: the profile [`Seatbelt.compile`] makes of
---- it, with the paths it names resolved on this host, for spawn to apply
---- before it runs the program, and the environment and limits the policy
---- gives. Nil and why for a policy Seatbelt cannot hold or not yet: its
---- own refusals, for `isolate`, `loopback`, `nest`, `from`,
---- `limits.processes` and a digest without its value. With `connect`
---- the profile is compiled again once the relay's port is known
---- ([`relay_held`]); `serves_relay`, the port the relay accepts at, makes it
---- the relay's own.
---- It acquires nothing.
 --- `p` with `extra` grants beside its own, every other field as it is:
 --- the policy a profile is compiled from once the start grants its
 --- program's start files, unmerged, as [`Seatbelt.compile`] takes it.
@@ -3400,6 +3419,16 @@ local function with_grants(p: Rules.Policy, extra: {Rules.Grant}): Rules.Policy
   return result
 end
 
+--- A policy's start on macOS: the profile [`Seatbelt.compile`] makes of
+--- it, with the paths it names resolved on this host, for spawn to apply
+--- before it runs the program, and the environment and limits the policy
+--- gives. Nil and why for a policy Seatbelt cannot hold or not yet: its
+--- own refusals, for `isolate`, `loopback`, `nest`, `from`,
+--- `limits.processes` and a digest without its value. With `connect`
+--- the profile is compiled again once the relay's port is known
+--- ([`relay_held`]); `serves_relay`, the port the relay accepts at, makes it
+--- the relay's own.
+--- It acquires nothing.
 local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Policy, pty?: Pty,
                                 serves_relay?: integer): Held?, string
   local joined, why = Rules.merge(policy)
@@ -3469,7 +3498,8 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   if relaunch == nil then
     local start_grants: mut {Rules.Grant} = {}
     for _, start_file in ipairs(files) do
-      if ungranted({ start_file }, merged.grants or {}, opts.cwd) ~= "" then
+      if ungranted({ start_file }, merged.grants or {}, opts.cwd) ~= "" and
+          startable(start_file, merged.grants or {}, opts.cwd) then
         start_grants[#start_grants + 1] = { path = start_file, letters = "rx" }
       end
     end
