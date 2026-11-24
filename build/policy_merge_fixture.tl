@@ -11,7 +11,7 @@ end
 --- @param ... the policies to merge
 --- @return the merge
 function policy_merge_fixture.merged(...: Sandbox.Policy): Sandbox.Policy
-  local out, why = Sandbox.merge(...)
+  local out, why = Sandbox.union(...)
   assert(out ~= nil, why)
   return out
 end

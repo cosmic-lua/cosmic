@@ -112,7 +112,7 @@ local function test_a_decoded_policy_encodes_to_text_that_encodes_the_same(tmp: 
       if policy == nil then return true, "" end
       -- A policy naming "cosmic" merges here; one naming a profile this
       -- host cannot give is refused by merge, which says why.
-      local merged, why = Sandbox.merge(policy)
+      local merged, why = Sandbox.union(policy)
       if merged == nil then
         if not why:find("^sandbox: ") then
           return false, "merge refused without its name: " .. why

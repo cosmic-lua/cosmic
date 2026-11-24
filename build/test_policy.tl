@@ -180,7 +180,7 @@ end
 --- @return the paths, in the policy's order, nil and why where it does not merge
 --- @return why, where it does not
 function test_policy.runs(policy: Sandbox.Policy): {string}?, string
-  local merged, why = Sandbox.merge(policy)
+  local merged, why = Sandbox.union(policy)
   if merged == nil then return nil, why end
   local out: mut {string} = {}
   for _, grant in ipairs(merged.grants or {}) do

@@ -389,7 +389,7 @@ function Policy.of(cwd: string, config: Policy.Config): Sandbox.Policy?, string
     isolate = if linux then { "file" } else nil end,
     limits = if counts then { processes = PROCESSES } else nil end,
   }
-  local merged, why = Sandbox.merge(own)
+  local merged, why = Sandbox.union(own)
   if merged == nil then return nil, why end
   return merged, ""
 end
