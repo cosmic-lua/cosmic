@@ -37,13 +37,15 @@ local Host = require("cosmic.agent.host")
 local Json = require("cosmic.json")
 local McpModule = require("cosmic.agent.mcp_module")
 local Pipeline = require("build.pipeline")
+local Worker = require("cosmic.agent.worker")
 local String = require("cosmic.string")
 local standalone = require("build.standalone")
 local sys = require("cosmic.sys")
 
 local record worker
   --- `cosmic agent worker`: answers requests on standard input until it ends. 0 at its end, 1 where it could not start.
-  main: function(): integer
+  --- `file_bytes` where a file it writes holds less than [`Worker.FILE_BYTES`]: a test's.
+  main: function(file_bytes?: integer): integer
 end
 
 --- An answer, as it is sent.
@@ -291,14 +293,12 @@ local function capture_in(dir: string, null: integer): Capture
       local _, _ = sys.dup2(null, 1)
       local _, _ = sys.dup2(null, 2)
       local _, _ = sys.close(fd)
-      -- TODO: bound the file a snippet writes its output to: a snippet that prints without end fills the sandbox's /tmp
-      -- (under --sandbox off, the host's), though only its end is read.
       return { answer = answer, output = tail_of(path, MAX_OUTPUT + 4) }
     end,
   }
 end
 
-function worker.main(): integer
+function worker.main(file_bytes?: integer): integer
   local options, why = Pipeline.alone()
   if options == nil then
     local _, _ = Fs.put(Fs.stderr, "cosmic: agent worker: " .. why .. "\n")
@@ -320,6 +320,14 @@ function worker.main(): integer
   local _, _ = sys.dup2(null, 0)
   local _, _ = sys.dup2(null, 1)
   local _, _ = sys.dup2(null, 2)
+  local most = file_bytes or Worker.FILE_BYTES
+  -- A file it writes holds at most Worker.FILE_BYTES (RLIMIT_FSIZE): a write past it ends the worker with SIGXFSZ, which
+  -- the agent tells. It bounds the file a snippet's output goes to, which a snippet that prints without end would grow
+  -- until the disk under it is full. Never above what this process is held to already, which it may not raise.
+  local held, _ = sys.getrlimit(sys.RLIMIT_FSIZE)
+  if held ~= nil then
+    local _, _ = sys.setrlimit(sys.RLIMIT_FSIZE, math.min(held.soft, most), math.min(held.hard, most))
+  end
   local capture = capture_in(dir, null)
   -- The checker reads an MCP server's module where the binary has none of its name.
   local modules: Modules = { teal = {}, values = {} }

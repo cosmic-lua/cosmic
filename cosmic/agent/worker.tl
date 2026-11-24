@@ -33,8 +33,13 @@ local Proc = require("cosmic.proc")
 local String = require("cosmic.string")
 local Sandbox = require("cosmic.sandbox")
 local Stream = require("cosmic.stream")
+local sys = require("cosmic.sys")
 
 local record Worker
+  --- The most bytes a file the worker writes, or a program a snippet starts, may hold: a snippet that writes past it,
+  --- printing without end, ends the worker, and the run says so.
+  FILE_BYTES: integer
+
   --- What one snippet runs with.
   record Options
     --- Where the worker starts: the session's working directory.
@@ -77,6 +82,9 @@ local record Worker
     mut next: integer
     --- How many workers it started.
     mut started: integer
+    --- The most bytes a file the worker writes may hold, as the worker is started with it: [`Worker.FILE_BYTES`] but
+    --- in a test.
+    file_bytes: integer
   end
 
   --- What the worker answered for a snippet, as it sent it: see above.
@@ -86,14 +94,15 @@ end
 --- How often a wait for an answer looks whether the user stopped the turn.
 local STOP_CHECK <const> = Clock.ms(100)
 
---- A set with no worker yet, started by `argv` where given, with the `env` and `fds` of `base`.
-function Worker.new(argv?: {string}, base?: Child.Options): Worker.Set
+--- A set with no worker yet, started by `argv` where given, with the `env` and `fds` of `base`; `file_bytes` where
+--- `argv` starts a worker held to another limit than [`Worker.FILE_BYTES`], which a run that writes past it tells.
+function Worker.new(argv?: {string}, base?: Child.Options, file_bytes?: integer): Worker.Set
   local command = argv
   if command == nil then
     local self, _ = Proc.executable()
     command = { self or "cosmic", "agent", "worker" }
   end
-  return { argv = command, base = base, next = 1, started = 0 }
+  return { argv = command, base = base, next = 1, started = 0, file_bytes = file_bytes or Worker.FILE_BYTES }
 end
 
 --- Ends the worker of `set`, if one runs; the next snippet starts another.
@@ -228,7 +237,18 @@ function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worke
   end)
   local got = answer
   if timed_out or halted or got == nil then
+    -- A worker that ended by itself may have written past what a file holds: its signal says so.
+    local handle = set.handle
+    local ended: Child.Result? = nil
+    if handle ~= nil and got == nil and not timed_out and not halted then
+      local done, _ = handle:wait(Clock.ms(500))
+      ended = done
+    end
     Worker.close(set)
+    if ended ~= nil and ended.signal == sys.SIGXFSZ then
+      return nil, Failure.new("the snippet wrote past the " .. String.counted(set.file_bytes, "byte") .. " a file may " ..
+          "hold (its output, or a file it wrote); the worker was ended, and the next run starts a new one")
+    end
     if halted then return nil, Failure.new("stopped by the user; the worker was ended") end
     if timed_out then
       return nil, Failure.new("the snippet ran past " .. String.counted(seconds or 0, "second") .. "; the worker was ended, " ..
@@ -238,5 +258,7 @@ function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worke
   end
   return got
 end
+
+Worker.FILE_BYTES = 1024 * 1024 * 1024
 
 return Worker

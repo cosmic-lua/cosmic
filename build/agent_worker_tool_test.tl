@@ -23,12 +23,20 @@ test_child.register("worker", function(_args: {string}): integer
   return agent_worker.main()
 end)
 
---- A set whose worker is this program, as a test starts it.
-local function set_of_worker(): Worker.Set
+--- The most bytes a file of the worker `small_worker` may hold.
+local SMALL <const> = 1024 * 1024
+
+--- The worker, a file it writes held to [`SMALL`] bytes.
+test_child.register("small_worker", function(_args: {string}): integer
+  return agent_worker.main(SMALL)
+end)
+
+--- A set whose worker is this program, as a test starts it: the child `name`, `worker` by default.
+local function set_of_worker(name?: string, file_bytes?: integer): Worker.Set
   local dir = assert(Fs.mkdtemp("agent-worker-store-"))
-  local started = this_program.program(test_child.words(dir, "build.agent_worker_tool_test", "worker"),
+  local started = this_program.program(test_child.words(dir, "build.agent_worker_tool_test", name or "worker"),
     { env = this_program.environment(), timeout_ns = -1 })
-  return Worker.new(started.argv, started.options)
+  return Worker.new(started.argv, started.options, file_bytes)
 end
 
 --- `answer` as JSON text, for an assertion's message.
@@ -136,6 +144,26 @@ local function test_an_answer_holds_any_bytes_and_a_large_value_and_the_snippet_
   local read = run(w, Fs_take, 10)
   assert(read["ok"] == true and read["value"] == true, shown(read))
   assert(w.started == 1, "one worker answered all")
+  Worker.close(w)
+end
+
+--- A snippet that prints, or writes a file, past what a file may hold ends the worker, and the run says so; the next
+--- run starts another.
+local function test_a_snippet_that_writes_past_what_a_file_holds_ends_the_worker()
+  local w = set_of_worker("small_worker", SMALL)
+  local dir = assert(Fs.mkdtemp("agent-worker-"))
+  local cases: {string} = {
+    "while true do print(string.rep(\"z\", 4096)) end\n",
+    "local Fs = require(\"cosmic.fs\")\nlocal ok, _ = Fs.write(\"big\", string.rep(\"z\", 2 * 1024 * 1024))\nreturn ok\n",
+  }
+  for i, code in ipairs(cases) do
+    local answer, why = Worker.run(w, code, { cwd = dir, seconds = 30 })
+    assert(answer == nil and tostring(why):find("wrote past the 1048576 bytes a file may hold", 1, true) ~= nil,
+      tostring(why))
+    assert(w.handle == nil and w.started == i, "the worker was ended")
+  end
+  local after = run(w, "return 7\n")
+  assert(after["value"] == 7 and w.started == 3, shown(after))
   Worker.close(w)
 end
 

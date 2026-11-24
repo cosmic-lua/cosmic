@@ -992,6 +992,7 @@ COSMIC_SYSCALL(poll, 3);
  * ---@field SIGPIPE integer a write to a pipe nobody reads
  * ---@field SIGTERM integer request termination
  * ---@field SIGUSR1 integer the first user-defined signal
+ * ---@field SIGXFSZ integer a write past RLIMIT_FSIZE, which ends the process unless it is caught or ignored
  * ---@field POLLIN integer for `poll`: there is data to read, or a connection to accept
  * ---@field POLLOUT integer for `poll`: a write would not wait
  * ---@field POLLERR integer for `poll`: the descriptor is in error
@@ -1052,6 +1053,7 @@ COSMIC_CONSTANT(SIGKILL)
 COSMIC_CONSTANT(SIGPIPE)
 COSMIC_CONSTANT(SIGTERM)
 COSMIC_CONSTANT(SIGUSR1)
+COSMIC_CONSTANT(SIGXFSZ)
 COSMIC_CONSTANT(POLLIN)
 COSMIC_CONSTANT(POLLOUT)
 COSMIC_CONSTANT(POLLERR)
