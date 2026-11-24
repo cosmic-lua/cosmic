@@ -179,6 +179,11 @@ portable_exec_failed() {
 # it inspects everything here, repairs what it can, and hashes an entry no
 # stamp holds. So do macOS, with no /proc, and a shell whose test(1) has no
 # -O (status 2). `command` keeps a failed open from ending the shell.
+# macOS has no other way to run the file opened: its kernel refuses execve
+# of /dev/fd/N (EACCES), and test -x there reads the descriptor's open
+# mode, never x. Builtin tests of the entry's name would let a file renamed
+# into the leaf after them run, as no builtin reads the leaf's mode, so
+# macOS pays the path below's uname and stat forks.
 cosmic_run=/proc/self/fd/$cosmic_core_fd
 if [ -d "$cosmic_cache" ] && [ ! -L "$cosmic_cache" ] && [ -O "$cosmic_cache" ] &&
    [ -f "$cosmic_core" ] && [ ! -L "$cosmic_core" ] &&
