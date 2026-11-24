@@ -1117,8 +1117,10 @@ function McpClient.http(url: string, opts: McpClient.HttpOptions): McpClient.Ses
     return message
   end
   local send = function(req: Request): (wire.Message) | (nil, Failure)
-    -- A 401 signs in, and a 403 after it may step up: each once, so a server that refuses every token ends.
+    -- A 401 refreshes or signs in, and one after a refresh signs in; a 403 may step up. A sign-in answers each status
+    -- once, so a server that refuses every token ends.
     local answered: mut {integer: boolean} = {}
+    local may_refresh = true
     while true do
       local refusal: mut {integer: string} = {}
       local said, why = once(req, refusal)
@@ -1126,9 +1128,9 @@ function McpClient.http(url: string, opts: McpClient.HttpOptions): McpClient.Ses
       if auth == nil then return nil, why end
       local status, header = next(refusal)
       if status == nil or header == nil or answered[status] == true then return nil, why end
-      answered[status] = true
-      local ok, awhy = auth.challenged(status, if header ~= "" then header else nil end)
-      if not ok then return nil, awhy end
+      local remedy, awhy = auth.challenged(status, if header ~= "" then header else nil end, may_refresh)
+      if remedy == nil then return nil, awhy end
+      if remedy == "refreshed" then may_refresh = false else answered[status] = true end
     end
   end
   return session(send, { info = opts.info, elicit = opts.elicit }, true,
