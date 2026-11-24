@@ -8056,7 +8056,7 @@ end
 --- write of a nil or of the array's name, and a comparison that may call a class's `__lt` or `__le`
 --- ([`Writes.plain_compare`]). No other code runs in the body, because no other metamethod can: `class_metamethod` lets
 --- a class declare only `__close`, `__tostring` (both reached by the forms above), `__lt`, `__le` and `__gc` (which the VM
---- runs only as a Lua function or `collectgarbage` is called, patch/lua/19-finalizers-at-calls-gc.txt), `setmetatable_call`
+--- runs only at a call that is not inert, or of `collectgarbage`, patch/lua/19-finalizers-at-calls-gc.txt), `setmetatable_call`
 --- refuses `setmetatable`, and `operand_type` refuses any other operator on a record or a class. The loop rule must be
 --- revisited if any of the three is relaxed; lang/check_test.tl pins them beside the loop tests.
 function Writes.scalar_math(call: Ast.Call, var: integer): boolean

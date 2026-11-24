@@ -185,7 +185,7 @@ c.analyzed = {
   "assertions.c", "bigint.c", "boot.c", "cipher.c", "coverage.c", "compress.c", "crypto.c",
   "environment.c", "errnos.c", "executable.c", "hash.c", "html.c", "http.c", "json.c", "xml.c", "namespace_calls.c",
   "sign.c", "protobuf.c", "socket.c", "sqlite.c", "store.c", "strnlen.c", "surface.c", "syscalls.c", "syscalls_fs.c", "tls.c",
-  "vector.c", "vfs.c", "main.c", "portable.c", "promises.c", "rand.c", "startup.c",
+  "vector.c", "vfs.c", "main.c", "portable.c", "profile.c", "promises.c", "rand.c", "startup.c",
   "entry.c", "startup_hook.c", "testing.c", "testing_checked.c", "unzstd.c",
 }
 

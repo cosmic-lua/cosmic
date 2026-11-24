@@ -1,0 +1,15 @@
+file: src/lvm.c
+note: A generic for's call of its iterator runs the pending finalizers the same way, once the call's frame is copied above the loop's three values, so a loop over a C iterator (`next`, a binding's) whose body calls only inert functions gives back what it made (patch/lua/30-finalizers-at-c-calls-run-predicate.txt).
+--- find
+        L->top.p = ra + 3 + 3;
+        ProtectNT(luaD_call(L, ra + 3, GETARG_C(i)));  /* do the call */
+--- replace
+        L->top.p = ra + 3 + 3;
+        if (l_unlikely(G(L)->tobefnz != NULL) && runsfinalizers(L, s2v(ra))) {
+          ptrdiff_t f = savestack(L, ra);
+          savepc(ci);
+          luaC_runfinalizers(L);
+          ra = restorestack(L, f);
+        }
+        ProtectNT(luaD_call(L, ra + 3, GETARG_C(i)));  /* do the call */
+--- end

@@ -21,15 +21,22 @@
 --- lower-case letters, digits and `_`, from a letter. `description` says what the server is for, which the model
 --- reads.
 ---
---- A server's standard error is dropped. What a server answers is untrusted input, as its tools' descriptions are: the snippet and the model read it.
+--- What a server answers is untrusted input, as its tools' descriptions are: the snippet and the model read it. So is
+--- the end of its standard error, which a call that gets no answer tells, with the values of the environment variables
+--- its policy passes put as their names.
 
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
+local Env = require("cosmic.env")
 local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
+local type Mcp = require("cosmic.mcp")
 local McpClient = require("cosmic.mcp.client")
+local Poll = require("cosmic.poll")
 local PolicyJson = require("cosmic.policy")
 local Sandbox = require("cosmic.sandbox")
+local String = require("cosmic.string")
 
 local record AgentMcp
   --- One server of the config.
@@ -61,12 +68,21 @@ local record AgentMcp
     --- The servers a call is out to, by name: one still there when the next call comes was cut off (the snippet's
     --- time ran out, or the user stopped the turn), which may leave the server out of step, so it is ended.
     busy: mut {string: boolean}
+    --- The last part of what each server started over stdio wrote to its standard error, by name: read while a call
+    --- to it is out, and told where a call gets no answer.
+    tails: mut {string: string}
   end
 end
 
 --- How long an HTTP request to a server may take.
 local HTTP_TIMEOUT <const> = 120 * 1000000000
 
+--- How many bytes of a server's standard error are kept, and how many a failure tells.
+local TAIL <const> = 4096
+local TOLD <const> = 1024
+
+--- How long a server that gave no answer is read for what it wrote last.
+local LAST_READ <const> = Clock.ms(100)
 --- The policy a server with a command runs under, before its config's.
 local function default_policy(): Sandbox.Policy
   return { profiles = { "system" }, tmp = true }
@@ -188,7 +204,7 @@ function AgentMcp.new(servers: {AgentMcp.Server}, cwd: string): AgentMcp.Set
     by_name[server.name] = server
     names[#names + 1] = server.name
   end
-  return { servers = by_name, names = names, cwd = cwd, sessions = {}, handles = {}, busy = {} }
+  return { servers = by_name, names = names, cwd = cwd, sessions = {}, handles = {}, busy = {}, tails = {} }
 end
 
 --- The session to the server `name` of `set`, started where none is.
@@ -213,9 +229,9 @@ local function session_of(set: AgentMcp.Set, name: string): (McpClient.Session) 
     return nil, Failure.new("the MCP server " .. name .. "'s program " .. program .. " lies in the working directory, " ..
         "which the tools write: it is not run")
   end
-  -- TODO: keep the last part of a server's standard error, to say why one that ended did, once a child's stderr can
-  -- go to a bounded file with no reader to drain it.
-  local handle, why = Child.start(argv, { cwd = set.cwd, stdin = "stream", stdout = "stream", stderr = "null",
+  -- Its standard error is read while a call to it is out ([`draining`]), and the child queues it while its stdout is
+  -- read; between calls the pipe holds what the server writes, and a server that fills it waits.
+  local handle, why = Child.start(argv, { cwd = set.cwd, stdin = "stream", stdout = "stream", stderr = "stream",
     policy = server.policy, timeout_ns = Child.FOREVER })
   if handle == nil then
     return nil, Failure.new("starting the MCP server " .. name .. ": " .. why)
@@ -226,15 +242,73 @@ local function session_of(set: AgentMcp.Set, name: string): (McpClient.Session) 
     return nil, Failure.new("the MCP server " .. name .. " has no pipes")
   end
   local session = McpClient.stdio(reader, writer)
-  set.sessions[name], set.handles[name] = session, handle
+  set.sessions[name], set.handles[name], set.tails[name] = session, handle, nil
   return session
+end
+
+--- Runs `f`, reading what the server `name` of `set` writes to its standard error while it runs, its last TAIL bytes
+--- kept in `set.tails`; with no `f`, reads until the stream ends or `wait_ns` passes. The child queues a streamed
+--- stderr while its stdout is read, up to its capture limit; this keeps the end alone, and reads on while a call is out.
+local function draining(set: AgentMcp.Set, name: string, f?: function(), wait_ns?: integer)
+  local handle = set.handles[name]
+  local reader = if handle ~= nil then handle.stderr_stream else nil end
+  if reader == nil then
+    if f ~= nil then f() end
+    return
+  end
+  local raised: string? = nil
+  Poll.within(function()
+    local drain = Poll.spawn(function()
+      while true do
+        local chunk, _ = reader:read()
+        if chunk == nil then return end
+        local kept = (set.tails[name] or "") .. chunk
+        set.tails[name] = if #kept > TAIL then kept:sub(-TAIL) else kept end
+      end
+    end)
+    if f ~= nil then
+      -- The drain ends with the call, raise or not: left running, it would write an old server's bytes over a new one's.
+      local ok, err = pcall(f)
+      if not ok then raised = tostring(err) end
+    else
+      local _, _ = drain:join(wait_ns or 0)
+    end
+    drain:cancel()
+    local _, _ = drain:join()
+  end)
+  if raised ~= nil then error(raised, 0) end
+end
+
+--- `text` with each value of an environment variable `server` is given ([`Sandbox.Policy`]'s `env`) put as its name in
+--- brackets, and each control byte but a newline and a tab taken out: what a crashed server printed may hold its key.
+local function told_of(server: AgentMcp.Server?, text: string): string
+  local out = text
+  local policy = if server ~= nil then server.policy else nil end
+  local none: {string} = {}
+  for _, key in ipairs(if policy ~= nil then policy.env or none else none end) do
+    local value = Env.get(key)
+    if value ~= nil and #value >= 4 then
+      out = out:gsub(value:gsub("%W", "%%%0"), "[" .. key .. "]")
+    end
+  end
+  return (String.as_utf8(out):gsub("[%z\1-\8\11-\31\127]", ""))
+end
+
+--- Why a call to the server `name` of `set` got no answer, `why`, and the end of what it wrote to its standard error,
+--- read until it ends or LAST_READ passes: a server that ended has said why there. What it wrote is untrusted input.
+local function unanswered(set: AgentMcp.Set, name: string, why: string): string
+  draining(set, name, nil, LAST_READ)
+  local tail = set.tails[name]
+  if tail == nil or tail == "" then return why end
+  local told = if #tail > TOLD then "..." .. tail:sub(-TOLD) else tail end
+  return why .. "; the end of its standard error: " .. told_of(set.servers[name], told)
 end
 
 --- Ends the server `name` of `set`, where it was started: a call that failed with no answer may have left it out of
 --- step, and the next starts it again.
 local function ended(set: AgentMcp.Set, name: string)
   local session, handle = set.sessions[name], set.handles[name]
-  set.sessions[name], set.handles[name], set.busy[name] = nil, nil, nil
+  set.sessions[name], set.handles[name], set.busy[name], set.tails[name] = nil, nil, nil, nil
   if session ~= nil then local _, _ = session:close() end
   if handle ~= nil then local _, _ = handle:close() end
 end
@@ -250,14 +324,22 @@ function AgentMcp.tools(set: AgentMcp.Set, name: string): ({Json.Value}) | (nil,
   local session, why = session_of(set, name)
   if session == nil then return nil, why end
   set.busy[name] = true
-  local tools, tools_why = session:tools()
+  local tools: {Mcp.Tool}? = nil
+  local tools_why: Failure? = nil
+  draining(set, name, function() tools, tools_why = session:tools() end)
   set.busy[name] = nil
-  if tools == nil then
-    if tools_why.code == nil then ended(set, name) end
-    return nil, Failure.new(name .. ": " .. tostring(tools_why))
+  local listed = tools
+  if listed == nil then
+    local failure = assert(tools_why)
+    local told = tostring(failure)
+    if failure.code == nil then
+      told = unanswered(set, name, told)
+      ended(set, name)
+    end
+    return nil, Failure.new(name .. ": " .. told)
   end
-  if #tools == 0 then return Json.array({}) end
-  local text, text_why = json_text(tools)
+  if #listed == 0 then return Json.array({}) end
+  local text, text_why = json_text(listed)
   if text == nil then return nil, text_why end
   return Json.decode_array(text, { null_value = Json.null })
 end
@@ -270,13 +352,21 @@ function AgentMcp.call(set: AgentMcp.Set, name: string, tool: string, arguments:
   local session, why = session_of(set, name)
   if session == nil then return nil, why end
   set.busy[name] = true
-  local result, call_why = session:call(tool, arguments)
+  local result: Mcp.ToolResult? = nil
+  local call_why: Failure? = nil
+  draining(set, name, function() result, call_why = session:call(tool, arguments) end)
   set.busy[name] = nil
-  if result == nil then
-    if call_why.code == nil then ended(set, name) end
-    return nil, Failure.new(name .. "." .. tool .. ": " .. tostring(call_why))
+  local answered = result
+  if answered == nil then
+    local failure = assert(call_why)
+    local told = tostring(failure)
+    if failure.code == nil then
+      told = unanswered(set, name, told)
+      ended(set, name)
+    end
+    return nil, Failure.new(name .. "." .. tool .. ": " .. told)
   end
-  local text, text_why = json_text(result)
+  local text, text_why = json_text(answered)
   if text == nil then return nil, text_why end
   return Json.decode_object(text, { null_value = Json.null })
 end
