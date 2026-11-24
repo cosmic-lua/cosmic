@@ -72,8 +72,9 @@ function Receivers.references(subject: Report.Subject): {Receivers.Reference}
     -- An enum or an alias to one is a string, and `kind:sub()` is a method of strings: only a record, class, interface or
     -- userdata record has fields, and only one that declares (or lists, or as a value holds) the name is read.
     local kind = decl.kind
-    -- A record inferred for a table literal is declared nowhere in the program, and has no member to use.
-    if kind == "enum" or Types.inferred_record(decl) then
+    -- A record inferred for a table literal, or one in braces, is declared nowhere in the program, and has no member
+    -- to use.
+    if kind == "enum" or Types.inferred_record(decl) or Types.shape_record(decl) then
       return
     end
     local statics = program.statics[decl]

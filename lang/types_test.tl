@@ -631,6 +631,32 @@ local function test_text_decodes_to_the_same_type_in_the_store_and_in_another()
   assert(second:find("m", "Handle") == nil, "and no other")
 end
 
+--- A record written in braces ([`Types.shape`]) is one declaration for its fields in any order, shown by them, and is
+--- read from its name in a store that has no loader: its text holds its fields.
+local function test_a_shape_is_one_declaration_for_its_fields_in_any_store()
+  local w = world()
+  local s = w.store
+  local reader = named(w, "Stream.Reader")
+  local made = Types.shape(s, { { name = "y", type = s:array(reader) }, { name = "x", type = s.integer, omittable = true } })
+  local again = Types.shape(s, { { name = "x", type = s.integer, omittable = true }, { name = "y", type = s:array(reader) } })
+  assert(made == again, "the order of the fields is not the type's")
+  assert(Types.shape(s, { { name = "x", type = s.integer }, { name = "y", type = s:array(reader) } }) ~= made,
+    "a field that may be left out is another type")
+  same(shown(made), "{ x?: integer, y: {Stream.Reader} }")
+  assert((made.tag == "named") and Types.shape_record(made.decl) and not Types.inferred_record(made.decl))
+  same(Types.decl_name(if (made.tag == "named") then made.decl else error("a shape is named") end), "{ x?: integer, y: {Stream.Reader} }")
+  local text = Types.encode(made)
+  local alone = Types.new(loading_from(s))
+  local there, why = alone:decode(text)
+  assert(there ~= nil, why)
+  same(Types.encode(there), text)
+  same(shown(there), shown(made))
+  local bare = Types.new()
+  local plain, plain_why = bare:decode(Types.encode(Types.shape(s, { { name = "a", type = s.string }, { name = "b", type = s.number } })))
+  assert(plain ~= nil, plain_why)
+  same(shown(plain), "{ a: string, b: number }")
+end
+
 local function test_a_declaration_used_as_a_value_is_a_type_of_its_own_in_text_and_in_every_store()
   local w = world()
   local s = w.store
