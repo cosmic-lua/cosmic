@@ -171,7 +171,9 @@ local function test_what_seatbelt_cannot_hold_fails_the_start_with_its_own_refus
   SeatbeltFixture.macos_only()
   local granted = files(tmp)
   local function says(field: Sandbox.Policy, expected: string)
-    local why = refusal({ ...field, profiles = { "system" }, grants = { { path = granted, letters = "r" } } })
+    local grants: mut {Sandbox.Grant} = { { path = granted, letters = "r" } }
+    for _, grant in ipairs(field.grants or {}) do grants[#grants + 1] = grant end
+    local why = refusal({ ...field, profiles = { "system" }, grants = grants })
     assert(why:find("^child: start: sandbox: seatbelt: ") and why:find(expected, 1, true), why)
   end
   says({ isolate = { "proc" } }, "isolate needs namespaces")

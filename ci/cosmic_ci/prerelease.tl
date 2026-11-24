@@ -277,10 +277,10 @@ end
 --- else in the form the pinned driver reads.
 -- TODO: build the policy directly, its calls as grants, once ci/cosmic-driver.pin names a release that has them.
 function Prerelease.smoke_policy(path: string, cache: string): Sandbox.Policy
-  local policy, _ = PolicyJson.decode(Prerelease.smoke_policy_text(path, cache, true))
+  local policy, why = PolicyJson.decode(Prerelease.smoke_policy_text(path, cache, true))
   if policy ~= nil then return policy end
-  local old, why = PolicyJson.decode(Prerelease.smoke_policy_text(path, cache, false))
-  return (assert(old, why))
+  local old, old_why = PolicyJson.decode(Prerelease.smoke_policy_text(path, cache, false))
+  return (assert(old, why .. "; in the pinned driver's form: " .. old_why))
 end
 
 --- Runs the tool at `path` with `help`, under [`Prerelease.smoke_policy`], and raises unless it succeeds.
