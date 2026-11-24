@@ -5,7 +5,8 @@
 ---
 --- IT EMITS DESPITE TYPE ERRORS. A type error is reported and the Lua is written all the same: a count per file on standard
 --- error, and with `--errors` each error as `file:line:column: message`. Only a file the parser refuses -- a syntax error --
---- stops the run: nothing is written for any file, each error is named as `file:line:column: message`, and the exit is 2.
+--- stops the run: nothing is written for any file, each error is named as `file:line:column: message`, and the exit is 4,
+--- as a file that does not compile gives elsewhere.
 --- Every file is parsed before the first is written, so a refusal never leaves some files written and others not.
 ---
 --- THE LUA IS RAW: one file's text exactly as the generator writes it, no wrapper and nothing joining one file to another.
@@ -25,7 +26,8 @@
 --- refuse (still exit 0, the Lua still written). A syntax error refuses and writes nothing, any other error is reported and the Lua written anyway.
 ---
 --- Like `cosmic json` it prints no summary: its standard output is the Lua of a single file written without `-o`, and its
---- exit status says how it went, 0 for Lua written (type errors or none) and 2 for a command line or a file it refuses;
+--- exit status says how it went: 0 for Lua written (type errors or none), 2 for a command line it refuses, 4 for a syntax
+--- error or a `.d.tl` whose text a build refuses, and 5 for a file it cannot read or write;
 --- after a refusal, or a write that failed, the directory of `-o` must not be used, for an earlier run's files may be in it.
 --- Complaints go to standard error as `cosmic: compile: ...`. Its `spec` (build/verb_spec.tl) is `bare`.
 
@@ -33,6 +35,7 @@ local Verb = require("cosmic.cli.compile")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local bare = require("build.bare")
+local exit_status = require("build.exit_status")
 local verb_spec = require("build.verb_spec")
 local type Grammar = require("build.compile_grammar")
 local type Ast = require("lang.ast")
@@ -155,13 +158,13 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
   local root, root_why = Fs.absolute(request.root or ".")
   if root == nil then
     complain(tostring(root_why) .. ": --root must name a directory that exists")
-    return bare.refused
+    return bare.undone
   end
   local is_directory_status, _ = Fs.status(root)
   local is_directory = is_directory_status ~= nil and is_directory_status.is_dir
   if is_directory ~= true then
     complain(root .. ": --root must name a directory, not a file")
-    return bare.refused
+    return bare.undone
   end
   --- The files in the order given, each with the name the checker knows
   --- it by.
@@ -176,12 +179,12 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
     local text, why = Fs.read(path)
     if text == nil then
       complain(said(path, tostring(why)) .. ": check the path, which is read from this directory")
-      return bare.refused
+      return bare.undone
     end
     local absolute, absolute_why = Fs.absolute(path)
     if absolute == nil then
       complain(tostring(absolute_why))
-      return bare.refused
+      return bare.undone
     end
     local same = resolved[absolute]
     if same ~= nil then
@@ -240,7 +243,7 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
   local options, options_why = Pipeline.alone()
   if options == nil then
     complain(options_why)
-    return bare.refused
+    return bare.undone
   end
   -- A file named for a module of the language is checked as the project's and run as the binary's.
   local entries: mut {{string}} = {}
@@ -253,8 +256,9 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
     return false
   end, false)
   if declared ~= "" then
+    -- A declaration's own text is refused, as a build refuses it: it does not compile.
     complain(declared)
-    return bare.refused
+    return exit_status.uncompiled
   end
   local TreeProgram = require("build.tree_program")
   local library = TreeProgram.library_modules(options.globals)
@@ -291,7 +295,7 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
       refused = true
     end
   end
-  if refused then return bare.refused end
+  if refused then return exit_status.uncompiled end
 
   for _, compiled in ipairs(made) do
     local count = #compiled.type_errors
@@ -312,7 +316,7 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
     local ok, why = Fs.mkdirs(directory)
     if not ok then
       complain(said(directory, tostring(why)) .. ": name a directory this run can create")
-      return bare.refused
+      return bare.undone
     end
   end
   for _, compiled in ipairs(made) do
@@ -320,13 +324,13 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
     if code == nil then
       -- A declaration file: it has no Lua.
     elseif directory == nil then
-      if not bare.delivered(complain, to.out(code)) then return bare.refused end
+      if not bare.delivered(complain, to.out(code)) then return bare.undone end
     else
       local target = directory:gsub("/+$", "") .. "/" .. base_of(compiled.path):gsub("%.tl$", ".lua")
       local ok, why = Fs.write(target, code)
       if not ok then
         complain(said(target, tostring(why)) .. ": name a directory this run can write in")
-        return bare.refused
+        return bare.undone
       end
     end
   end
@@ -343,7 +347,7 @@ verb.spec = {
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "the .tl files to compile",
-  exits = "`compile` prints the Lua of one file, or writes one .lua per file under `-o`, and exits 2 for a syntax error.",
+  exits = "`compile` prints the Lua of one file, or writes one .lua per file under `-o`, and exits 4 for a syntax error, 2 for a command line it refused, 5 for a file it could not read or write.",
   passthrough = "its output is the Lua asked for, so its exit status is the verdict (build/compile_test.tl)",
 }
 

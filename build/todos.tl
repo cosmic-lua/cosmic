@@ -25,7 +25,6 @@ local Signal = require("cosmic.signal")
 local Verb = require("cosmic.cli.todos")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
-local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Clock = require("cosmic.clock")
@@ -280,7 +279,7 @@ local function spawning(program: string, root: string): Blamer
         if waited_on ~= nil then handles[#handles + 1] = waited_on end
       end
       local done, trouble = Child.wait_any(handles, Clock.ms(100))
-      if done == nil then return nil, trouble ~= Poll.TIMEOUT end
+      if done == nil then return nil, trouble.kind ~= "timeout" end
       return run_of[done], false
     end,
   }

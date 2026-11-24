@@ -994,3 +994,13 @@ local function test_a_generic_function_in_a_field_that_may_be_nil_is_narrowed_an
   -- Until it is narrowed, it may be nil.
   Programs.refused(head .. "local r: R = { pick = nil }\nprint(r.pick(1))\n", "nil_not_allowed")
 end
+
+local function test_a_generic_function_whose_result_nothing_solves_is_no_function_of_a_fixed_result()
+  -- `trust` answers a real value of `T` through its cast, so `T` is no `never` that would drop
+  -- the result alternatives of the type wanted.
+  local trust = "local function trust<T>(v: any): T\n  return v as T -- checked: cast_refused\nend\n"
+  Programs.refused(trust .. "local function use(f: function(any): (true, string) | (false, string)): string\n" ..
+      "  local ok, s = f(42)\n  if ok then return s:upper() end\n  return s\nend\nprint(use(trust))\n", "cast_refused not_assignable")
+  Programs.refused("local function pair<T>(v: any): (integer, T)\n  return 1, v as T -- checked: cast_refused\nend\n" ..
+      "local f: function(any): string = pair\nprint(f(1))\n", "cast_refused not_assignable")
+end

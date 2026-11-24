@@ -58,7 +58,7 @@
 --- Like `cosmic json` it prints no summary. Exit 0 is ok, 1 a daemon that
 --- could not be asked or refused, a node that is not running, or an
 --- address or name no node has, 2 a command
---- line or a write it refuses. Complaints go to standard error as
+--- line it refuses, 5 a write that failed. Complaints go to standard error as
 --- `cosmic: tailscale: ...`. Its `spec` (build/verb_spec.tl) is `bare`.
 
 local Verb = require("cosmic.cli.tailscale")
@@ -892,7 +892,7 @@ local SUBCOMMANDS <const>: {string: function(verb.Io, function(string), Tailscal
 
 --- `cosmic tailscale <status|whois|cert|ping> ...`: asks the daemon and
 --- returns the exit code: 0 ok, 1 a daemon that failed or refused, or
---- an address no node has, 2 a command line or a write it refuses.
+--- an address no node has, 2 a command line it refuses, 5 a write that failed.
 --- @param argv the command line, `tailscale` at slot 1
 --- @param io where output goes and which daemon is asked; the process's own when nil
 function verb.run(argv: {string}, io?: verb.Io): integer
@@ -940,7 +940,7 @@ verb.spec = {
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "status, whois, cert, ping or file, and its options",
-  exits = "`tailscale` prints what the daemon answered, and nothing after; it exits 0 when it answered, 1 when the daemon could not be asked or refused, the node is not running, or no node has the address or name, 2 when it refuses its command line or a write.",
+  exits = "`tailscale` prints what the daemon answered, and nothing after; it exits 0 when it answered, 1 when the daemon could not be asked or refused, the node is not running, or no node has the address or name, 2 when it refuses its command line, 5 when a write failed.",
   passthrough = "its output is the daemon's answer, so its exit status is the verdict (build/tailscale_test.tl)",
 }
 

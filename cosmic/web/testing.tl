@@ -368,7 +368,7 @@ local function send(client: Testing.Client, method: string, path: string, opts: 
     local old = prepared.headers["cookie"]
     prepared.headers["cookie"] = if old ~= nil then old .. "; " .. sent else sent end
   end
-  local raw: Server.Request = {
+  local raw: Server.Request = { gone = function(): boolean return false end,
     method = method, target = prepared.target, path = prepared.path, query = prepared.query,
     version = "HTTP/1.1", headers = prepared.headers, body = Stream.from_string(prepared.body),
     length = #prepared.body, peer = opts.peer or Net.tcp("127.0.0.1", 50000), listener = opts.listener,

@@ -46,9 +46,9 @@ local MINIMAL_ROOTS <const>: {string} = {
 --- What `roots` and `ca` choose to trust, for [`Trust.pem`] to give
 --- the TLS stack.
 local record Chosen
-  --- What names the blob these roots make for every request that chooses
-  --- them, when one does ("minimal", "none"): nil when `ca` or a list of
-  --- digests makes it the request's own.
+  --- The roots' name ("minimal", "none", "mozilla"), and a NUL and `ca`
+  --- when one is given: what names the blob every request with these
+  --- makes. Nil for a list of digests, whose blob is the request's own.
   key: string?
   --- Every carried root, rather than only those `wanted` names.
   all: boolean
@@ -59,18 +59,51 @@ local record Chosen
   ca: string?
 end
 
+--- What each request would otherwise work out again, kept for the
+--- program's life.
+local record Kept
+  --- What `cosmic build --roots` recorded in this executable ("" for
+  --- nothing): the store does not change under a running program.
+  mut recorded?: string
+  --- The roots of "minimal" as [`Chosen`]'s `wanted`; no caller writes to it.
+  mut minimal?: {string:boolean}
+end
+local kept: Kept = { recorded = nil, minimal = nil }
+
+--- What `cosmic build --roots` recorded in this executable, or "".
+local function recorded_roots(): string
+  local held = kept.recorded
+  if held == nil then
+    held = Store.meta("ca_roots_default") or ""
+    kept.recorded = held
+  end
+  return held
+end
+
+--- The roots of "minimal", by the SHA-256 of each one's DER, decoded once.
+local function minimal_wanted(): {string:boolean}
+  local held = kept.minimal
+  if held ~= nil then return held end
+  local made: mut {string:boolean} = {}
+  for _, hex in ipairs(MINIMAL_ROOTS) do
+    made[assert(Codec.unhex(hex))] = true
+  end
+  kept.minimal = made
+  return made
+end
+
 --- The roots a caller that names none trusts, "minimal" or "mozilla",
 --- and "": `COSMIC_CA_ROOTS` when it is set, else what `cosmic build
 --- --roots` recorded in this executable, else "minimal". Nil and why
 --- when either names anything else, worded for `who`.
 local function default_roots(who: string): string?, string
-  local chosen = Env.read("COSMIC_CA_ROOTS")
+  local chosen = Env.read("COSMIC_CA_ROOTS") or ""
   local from = "COSMIC_CA_ROOTS"
-  if chosen == nil or chosen == "" then
-    chosen = Store.meta("ca_roots_default")
+  if chosen == "" then
+    chosen = recorded_roots()
     from = "this executable's `cosmic build --roots`"
   end
-  if chosen == nil or chosen == "" then
+  if chosen == "" then
     return "minimal", ""
   end
   if chosen ~= "minimal" and chosen ~= "mozilla" then
@@ -95,22 +128,19 @@ local function chosen_of(roots: (string | {string})?, ca: string?, who: string, 
     end
     roots = default
   end
-  local wanted: mut {string:boolean} = {}
   if roots == "mozilla" then
     if ca == nil then return nil, "" end
-    return { key = nil, all = true, wanted = wanted, extra = true, ca = ca }, ""
+    return { key = "mozilla\0" .. ca, all = true, wanted = {}, extra = true, ca = ca }, ""
   elseif roots == "minimal" then
-    for _, hex in ipairs(MINIMAL_ROOTS) do
-      wanted[assert(Codec.unhex(hex))] = true
-    end
-    local key: string? = nil
-    if ca == nil then key = "minimal" end
-    return { key = key, all = false, wanted = wanted, extra = true, ca = ca }, ""
+    local key = "minimal"
+    if ca ~= nil then key = "minimal\0" .. ca end
+    return { key = key, all = false, wanted = minimal_wanted(), extra = true, ca = ca }, ""
   elseif roots == "none" then
-    local key: string? = nil
-    if ca == nil then key = "none" end
-    return { key = key, all = false, wanted = wanted, extra = false, ca = ca }, ""
+    local key = "none"
+    if ca ~= nil then key = "none\0" .. ca end
+    return { key = key, all = false, wanted = {}, extra = false, ca = ca }, ""
   elseif type(roots) == "table" then
+    local wanted: mut {string:boolean} = {}
     for i, hex in ipairs(roots) do
       local digest = ""
       if type(hex) == "string" then
@@ -184,10 +214,15 @@ end
 local record Held
   mut carried: {Carried}?
   mut extra: {string}
-  --- The blob of each [`Chosen`] with a `key`, by it, made once.
-  blobs: mut {string:string}
+  --- The blob of each [`Chosen`] with a `key`, by it, made once, until
+  --- `BLOBS_MOST` of them drop them all.
+  mut blobs: mut {string:string}
+  --- How many `blobs` holds, at most `BLOBS_MOST`: a program that trusts
+  --- a new `ca` per request holds no more than that.
+  mut counted: integer
 end
-local store: Held = { carried = nil, extra = {}, blobs = {} }
+local BLOBS_MOST <const> = 32
+local store: Held = { carried = nil, extra = {}, blobs = {}, counted = 0 }
 
 --- The carried roots with their digests, read from the trust store
 --- the first time, or nil and why when it cannot be made.
@@ -254,7 +289,9 @@ local function trusted(trust: Chosen, who: string): string?, string
   end
   local blob = table.concat(pems)
   if key ~= nil then
+    if store.counted >= BLOBS_MOST then store.blobs, store.counted = {}, 0 end
     store.blobs[key] = blob
+    store.counted = store.counted + 1
   end
   return blob, ""
 end
@@ -286,7 +323,7 @@ end
 --- Every carried root, the certificates `$SSL_CERT_FILE` names, and
 --- `ca`: what a [`Chosen`] of nil leaves the trust store to mean.
 function Trust.everything(ca?: string): Chosen
-  return { key = if ca == nil then "mozilla" else nil end, all = true, wanted = {}, extra = true, ca = ca }
+  return { key = if ca == nil then "mozilla" else "mozilla\0" .. ca end, all = true, wanted = {}, extra = true, ca = ca }
 end
 
 --- The PEM of every certificate `chosen` names: see [`trusted`].

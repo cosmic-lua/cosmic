@@ -19,8 +19,8 @@
 ---   `shuffle [file|-]` prints all of them, in an order drawn by
 ---   Fisher-Yates. A line ends at a newline, and a carriage return before
 ---   the newline is dropped (CRLF input reads as LF). An empty input has
----   no lines. Asking `pick` for more lines than there are is refused
----   (exit 2), and nothing is printed.
+---   no lines. Asking `pick` for more lines than there are cannot be done
+---   (exit 5), and nothing is printed.
 --- - `normal [-n N] [--mean M] [--stddev SD]` prints N draws (default one)
 ---   from the normal distribution: mean 0 and standard deviation 1 unless
 ---   given. SD may be 0, but not negative.
@@ -48,9 +48,9 @@
 --- is refused with uuid and token.
 ---
 --- Its standard output is data, and it prints no summary. It exits 0 when
---- it printed, and 1 when the entropy source failed. It exits 2 for a
---- command line, a file or a request that it refuses, or a failed write
---- to standard output.
+--- it printed. It exits 2 for a command line that it refuses, and 5 for a
+--- file it cannot read, a request it cannot meet, a failed write to
+--- standard output or an entropy source that failed.
 --- @public
 
 local Flags = require("cosmic.flags")

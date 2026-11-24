@@ -165,3 +165,12 @@ local function test_every_verb_has_examples_its_options_take()
     end
   end
 end
+
+--- A verb that runs at its tree's root is a listed verb: a key that names none would leave the verb it meant where it
+--- was started.
+local function test_every_tree_verb_is_listed()
+  for name, kind in pairs(verb_list.tree_paths) do
+    assert(verb_list.loads[name] ~= nil, name .. " runs at its tree's root but is no listed verb")
+    assert(kind == "all" or kind == "rest" or kind == "named" or kind == "none", name .. ": " .. kind)
+  end
+end

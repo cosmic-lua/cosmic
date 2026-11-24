@@ -113,6 +113,7 @@
 --- chooses, whatever stands.
 
 local Child = require("cosmic.child")
+local type Failure = require("cosmic.failure")
 local Signal = require("cosmic.signal")
 local Verb = require("cosmic.cli.test")
 local Clock = require("cosmic.clock")
@@ -123,7 +124,6 @@ local Fs = require("cosmic.fs")
 local type test_inputs = require("build.test_inputs")
 local build_paths = require("build.paths")
 local cache_lifetime = require("build.cache_lifetime")
-local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local lua_tail = require("build.lua_tail")
@@ -231,6 +231,12 @@ local fuzz_seconds_variable <const>: Env.Name = "FUZZ_SECONDS"
 --- set and no deadline is named: room to draw, shrink what failed (up to
 --- 2000 more checks) and report it, as fuzz.yml's 1200 s does for 120.
 local fuzz_deadline_factor <const> = 10
+
+--- The words of a failure a child's handle answered, "" for none.
+local function words(why: Failure?): string
+  if why == nil then return "" end
+  return why.message
+end
 
 --- A selector without its trailing slashes and leading "./".
 local function normalized(selector: string): string
@@ -1943,7 +1949,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
     if ended then
       local result, trouble = handle:wait()
       -- One that said it retires is followed by another; one that ended saying nothing, by a worker for each test.
-      over(batch, result, trouble, batch.retired and not batch.unforkable)
+      over(batch, result, words(trouble), batch.retired and not batch.unforkable)
       return false
     end
     local flying = batch.flying
@@ -1962,7 +1968,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
           "running, " .. (if batch.forked then "between two tests" else "loading the module" end) ..
           ", and was ended; each test left has a worker of its own"
       end
-      over(batch, result, stop_trouble, flying ~= nil and batch.forked)
+      over(batch, result, words(stop_trouble), flying ~= nil and batch.forked)
       return false
     end
     return true
@@ -2001,12 +2007,16 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
       if deadline < earliest then earliest = deadline end
     end
     local left_ns = math.max(0, math.min(Clock.ms(100), earliest - Clock.monotonic_ns()))
-    local done, trouble: Child.Handle?, string = nil, Poll.TIMEOUT
+    local done: Child.Handle? = nil
+    -- Why the wait failed, other than its time running out; "" for none.
+    local trouble = ""
     if #handles > 0 then
       -- A worker of one test is served by `wait_any` alone, its end and its captured streams, which a wait of no
       -- length does not serve: so beside forking workers, whose records wake no such wait, it waits a millisecond
       -- at most, and they are read after each.
-      done, trouble = Child.wait_any(handles, if #readers > 0 then math.min(left_ns, Clock.ms(1)) else left_ns end)
+      local first, why = Child.wait_any(handles, if #readers > 0 then math.min(left_ns, Clock.ms(1)) else left_ns end)
+      done = first
+      if why ~= nil and why.kind ~= "timeout" then trouble = why.message end
     else
       -- A forking worker's record wakes the wait.
       local _, _ = sys.poll(readers, wanted, (left_ns + 999999) // 1000000)
@@ -2016,11 +2026,11 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
       local job_handle = job.handle
       local handle = assert(job_handle)
       if job_handle == done then
-        -- Settled already, so this answers at once; the trouble
-        -- `wait_any` gave beside the handle is the one reported.
-        local result, _ = handle:wait()
-        collect(job, result, trouble)
-      elseif done == nil and trouble ~= Poll.TIMEOUT then
+        -- Settled already, so this answers at once, with the Result or why
+        -- its settle failed; what the settle left is the Result's `remains`.
+        local result, why = handle:wait()
+        collect(job, result, words(why))
+      elseif trouble ~= "" then
         -- Supervision itself failed; end this worker and say why.
         local _, _ = handle:close()
         collect(job, nil, trouble)
@@ -2034,7 +2044,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
           -- the workers the cancelled run ended, reported on by none.
           still[#still + 1] = job
         else
-          collect(job, result, stop_trouble)
+          collect(job, result, words(stop_trouble))
         end
       else
         still[#still + 1] = job
@@ -2113,12 +2123,20 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
     running[#running + 1] = batch.lead
   end
   for _, job in ipairs(running) do
-    local closed, trouble = assert(job.handle):close()
+    local handle = assert(job.handle)
+    local closed, trouble = handle:close()
+    -- Only a close that worked has settled the child: waiting after a failed one could block on a child
+    -- that never ends, as a worker has no deadline.
+    local remains: string? = nil
+    if closed then
+      local settled, _ = handle:wait()
+      if settled ~= nil then remains = settled.remains end
+    end
     local scratch = job.scratch
-    if not closed and scratch ~= nil then
+    if (not closed or remains ~= nil) and scratch ~= nil then
       -- A member of its group may still be writing into it.
-      rec.errors[#rec.errors + 1] = job.id .. ": its directory is kept: " ..
-        scratch .. ": " .. trouble
+      local said = remains or tostring(trouble)
+      rec.errors[#rec.errors + 1] = job.id .. ": its directory is kept: " .. scratch .. ": " .. said
       job.scratch = nil
     end
   end

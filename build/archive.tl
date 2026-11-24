@@ -954,7 +954,7 @@ verb.spec = {
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "a subcommand and its paths",
-  exits = "`archive` prints its listing or the paths it wrote, and exits 0, 1 or 2 as `json` does.",
+  exits = "`archive` prints its listing or the paths it wrote, and exits 0, 1 or 2 as `json` does for those codes.",
   passthrough = "its output is data for a pipe, so its exit status is the verdict (build/archive_test.tl)",
 }
 

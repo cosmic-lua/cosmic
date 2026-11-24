@@ -43,21 +43,32 @@ end
 --- Every byte's two lowercase hex digits, by the byte: `gsub` takes the
 --- table as its replacement, one lookup per byte.
 local hex_of: mut {string:string} = {}
---- Every pair of hex digits, either case, to the byte it spells.
-local byte_of_hex: mut {string:string} = {}
-do
-  local digits = "0123456789abcdef"
-  local upper = "0123456789ABCDEF"
-  for byte = 0, 255 do
-    local hi, lo = (byte >> 4) + 1, (byte & 15) + 1
-    local ch = string.char(byte)
-    hex_of[ch] = digits:sub(hi, hi) .. digits:sub(lo, lo)
-    for _, h in ipairs({ digits:sub(hi, hi), upper:sub(hi, hi) }) do
-      for _, l in ipairs({ digits:sub(lo, lo), upper:sub(lo, lo) }) do
-        byte_of_hex[h .. l] = ch
-      end
+for byte = 0, 255 do
+  hex_of[string.char(byte)] = ("%02x"):format(byte)
+end
+
+--- [`hex_bytes`]'s table, once built.
+local byte_of_hex: {string:string}? = nil
+
+--- Every pair of hex digits, either case, to the byte it spells, built
+--- on first use: most programs that load this module (through
+--- [`cosmic.hash`]) decode no hex.
+local function hex_bytes(): {string:string}
+  local found = byte_of_hex
+  if found == nil then
+    local made: mut {string:string} = {}
+    for byte = 0, 255 do
+      local ch = string.char(byte)
+      local lower = ("%02x"):format(byte)
+      made[lower] = ch
+      made[lower:upper()] = ch
+      made[lower:sub(1, 1):upper() .. lower:sub(2, 2)] = ch
+      made[lower:sub(1, 1) .. lower:sub(2, 2):upper()] = ch
     end
+    byte_of_hex = made
+    found = made
   end
+  return found
 end
 
 --- Bytes as lowercase hexadecimal, two digits per byte.
@@ -81,7 +92,7 @@ function Codec.unhex(s: string): string?, string
   if at ~= nil then
     return refuse(("byte 0x%02x at %d is not a hex digit"):format(byte_at(s, at), at))
   end
-  return (s:gsub("..", byte_of_hex)), ""
+  return (s:gsub("..", hex_bytes())), ""
 end
 
 --- One base64 alphabet's tables: `char` maps a 6-bit value to its
@@ -109,10 +120,30 @@ local function alphabet(chars: string, class: string): Alphabet
   return a
 end
 
-local STANDARD <const> = alphabet(
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/", "[^A-Za-z0-9+/]")
-local URL <const> = alphabet(
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_", "[^A-Za-z0-9_-]")
+local standard_alphabet: Alphabet? = nil
+local url_alphabet: Alphabet? = nil
+
+--- The standard base64 alphabet's tables, built on first use.
+local function standard(): Alphabet
+  local a = standard_alphabet
+  if a == nil then
+    a = alphabet("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
+      "[^A-Za-z0-9+/]")
+    standard_alphabet = a
+  end
+  return a
+end
+
+--- The URL- and filename-safe base64 alphabet's tables, built on first use.
+local function url(): Alphabet
+  local a = url_alphabet
+  if a == nil then
+    a = alphabet("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
+      "[^A-Za-z0-9_-]")
+    url_alphabet = a
+  end
+  return a
+end
 
 --- `s` in `a`'s alphabet, `=`-padded to a multiple of four characters
 --- when `pad`.
@@ -232,7 +263,7 @@ end
 --- @param s string The bytes to encode
 --- @return string The base64 text
 function Codec.base64(s: string): string
-  return encode(STANDARD, s, true)
+  return encode(standard(), s, true)
 end
 
 --- The bytes standard, padded base64 spells. Strict: answers `nil` and
@@ -244,7 +275,7 @@ end
 --- @return string | nil The decoded bytes
 --- @return string Why the text was refused, or "" when it was not
 function Codec.unbase64(s: string): string?, string
-  return decode(STANDARD, s, true, "base64")
+  return decode(standard(), s, true, "base64")
 end
 
 --- Bytes as unpadded base64 in the URL- and filename-safe alphabet
@@ -252,7 +283,7 @@ end
 --- @param s string The bytes to encode
 --- @return string The base64url text, without `=` padding
 function Codec.base64url(s: string): string
-  return encode(URL, s, false)
+  return encode(url(), s, false)
 end
 
 --- The bytes unpadded base64url spells. Strict like [`Codec.unbase64`],
@@ -263,7 +294,7 @@ end
 --- @return string | nil The decoded bytes
 --- @return string Why the text was refused, or "" when it was not
 function Codec.unbase64url(s: string): string?, string
-  return decode(URL, s, false, "base64url")
+  return decode(url(), s, false, "base64url")
 end
 
 return Codec

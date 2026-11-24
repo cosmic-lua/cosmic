@@ -343,6 +343,19 @@ local class SocketConn is Duplex
     return address, ""
   end
 
+  --- Whether the peer has gone: it has closed the connection, ended
+  --- what it sends ([`shutdown`] "write" at its end) or reset it. True
+  --- too for a connection closed here, or whose reading was shut down
+  --- here. It reads nothing and waits for nothing, so what the peer
+  --- sent before its end is still there to read, and a peer that has
+  --- sent more but not ended is not gone. Over TLS it is the
+  --- connection's end that is seen: a close_notify with the TCP
+  --- connection still open is not.
+  function gone(self): boolean
+    if not self.open then return true end
+    return raw.peer_gone(self.fd)
+  end
+
   --- Where this end is: its own numeric TCP address, as the kernel
   --- names it (the accepted end of a dual-stack listener may name an
   --- IPv4 address as an IPv4-mapped IPv6 one). A client's is the

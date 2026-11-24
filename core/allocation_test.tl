@@ -572,6 +572,8 @@ local function test_deflate_and_inflate_leave_nothing_whenever_an_allocation_fai
     assert(row:blob(1) == text)
   end)
   assert(ended > 0, "a query allocates")
+  -- Closed first: the handle keeps the query's statement, and its copy of the SQL, for the next run of it.
+  assert(db:close())
   assert_c_heap(bytes, blocks, "deflate and inflate under refusal")
   ended = AllocationFixture.under_every_failure(function()
     local source = assert(Store.source("cosmic.compress"))
@@ -579,7 +581,6 @@ local function test_deflate_and_inflate_leave_nothing_whenever_an_allocation_fai
   end)
   assert(ended > 0, "a source lookup allocates")
   assert_c_heap(bytes, blocks, "the source lookup under refusal")
-  assert(db:close())
 end
 
 --- The vector functions parse, copy and build blobs and text with
@@ -601,8 +602,9 @@ local function test_vector_functions_leave_nothing_whenever_an_allocation_fails(
     assert(row:integer(3) == 1 and row:integer(4) == 5)
   end)
   assert(ended > 0, "a query allocates")
-  assert_c_heap(bytes, blocks, "the vector functions under refusal")
+  -- Closed first, as above.
   assert(db:close())
+  assert_c_heap(bytes, blocks, "the vector functions under refusal")
 end
 
 --- A vector of four small numbers that differ by `i`, so a corpus of

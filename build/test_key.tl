@@ -1701,8 +1701,9 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
   local db: Sqlite.Handle = opened
   local function fill(): boolean, string
     -- Written aside and moved into place whole, or not at all: a journal
-    -- and a sync per commit would only cost time.
-    for _, pragma in ipairs({ "PRAGMA journal_mode = OFF", "PRAGMA synchronous = OFF" }) do
+    -- on disk and a sync per commit would only cost time (MEMORY: a
+    -- defensive handle refuses OFF).
+    for _, pragma in ipairs({ "PRAGMA journal_mode = MEMORY", "PRAGMA synchronous = OFF" }) do
       local ok, why = db:exec(pragma)
       if not ok then return false, tostring(why) end
     end

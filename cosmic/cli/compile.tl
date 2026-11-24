@@ -14,7 +14,7 @@
 --- error gets a count per file, and with `--errors` each error as
 --- `file:line:column: message`. Only a syntax error refuses: each is
 --- named as `file:line:column: message`, no file is written, and the
---- exit is 2, as for a command line or a file it cannot use.
+--- exit is 4.
 --- With a `.d.tl` file named, the files named are the whole program, the
 --- globals are those the `.d.tl` files declare, and a `cosmic.*` module
 --- no file named is the module of is typed `invalid` and reported. With
@@ -24,7 +24,9 @@
 --- refusals (`package`, `_G`); all are listed and
 --- counted as type errors, and none stops the Lua. After a
 --- non-zero exit do not use the `-o` directory: it may hold files of an
---- earlier run. It prints no summary; exits 0 when the Lua is written
+--- earlier run. It prints no summary; exits 0 when the Lua is written,
+--- 2 for a command line it refuses, 4 for a syntax error or a `.d.tl`
+--- whose text a build refuses, and 5 for a file it cannot read or write.
 --- @public
 
 local Flags = require("cosmic.flags")

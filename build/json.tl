@@ -16,7 +16,7 @@
 --- Like the other bare verbs (build/bare.tl) it prints no summary: its
 --- standard output is data for a pipe or a `$(...)`, and what it found is
 --- the value itself. Its exit status says how it went: 0 found, 1 the path is not
---- there, 2 a command line, a file or a text it cannot read. Complaints
+--- there, 2 a command line, 5 a file or a text it cannot read. Complaints
 --- go to standard error, as every verb's do, a missing place named by
 --- its JSON Pointer as [`Json.get`] names it. Its `spec`
 --- (build/verb_spec.tl) is `bare`.
@@ -241,8 +241,8 @@ end
 
 --- `cosmic json [options] [<path>] [<file>|-]`: prints the value at the
 --- path, and returns the exit code: 0 found, 1 the path is not there
---- (or `--keys` was asked of a scalar), 2 a command line, a file or a
---- text it cannot read.
+--- (or `--keys` was asked of a scalar), 2 a command line it refused, 5 a
+--- file, a text or a write it could not use.
 --- @param argv the command line, `json` at slot 1
 --- @param io where the text is read and written; the process's own when nil
 function verb.run(argv: {string}, io?: verb.Io): integer
@@ -274,12 +274,12 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       if there ~= true then read_trouble = read_trouble .. "; a path starts with `$`" end
     end
     complain(read_trouble)
-    return bare.refused
+    return bare.undone
   end
   local document, decode_trouble = Json.decode(text, { null_value = Json.null })
   if document == nil then
     complain((request.file or "standard input") .. ": " .. tostring(decode_trouble))
-    return bare.refused
+    return bare.undone
   end
   local selected, select_trouble = Json.select(document, request.query)
   if selected == nil then
@@ -321,7 +321,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       local under, why = json_query.flatten(hit.value, { max_depth = Json.depth_limit, root = hit.steps })
       if under == nil then
         complain(why)
-        return bare.refused
+        return bare.undone
       end
       for _, leaf in ipairs(under) do leaves[#leaves + 1] = leaf end
     end
@@ -394,7 +394,7 @@ verb.spec = {
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "a path and a file",
-  exits = "`json` prints its value and nothing after, for a pipe, and exits 0 when it found the path, 1 when the path is not there, 2 for a command line or a text it refused.",
+  exits = "`json` prints its value and nothing after, for a pipe, and exits 0 when it found the path, 1 when the path is not there, 2 for a command line it refused, 5 for a file or a text it could not read, or a write that failed.",
   passthrough = "its output is data for a pipe, so its exit status is the verdict (build/json_test.tl)",
 }
 

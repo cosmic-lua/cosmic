@@ -2,7 +2,9 @@
 --- to load its `spec` (build/verb_spec.tl), loaded only when asked, so a
 --- command line loads the one verb it runs. The verbs that name a file
 --- to run (`run`, `standalone`, `eval`, `version`) have none, and `help`
---- is build/dispatch.tl's own.
+--- is build/dispatch.tl's own. It also names the verbs that run at the
+--- root of their tree (`tree_paths`), so a verb not among them loads no
+--- [`build.tree_root`].
 ---
 --- Adding a verb takes a module with a `spec`, a line in `loads` and in
 --- `commands`, a module cosmic/cli/<verb>.tl whose overview is its prose,
@@ -25,7 +27,19 @@ local record verb_list
   --- How to load each verb's command ([`cosmic.cli.verbs`]), by its name: every verb, those with no spec too.
   --- Each loads that verb's module of [`cosmic.cli`] alone, where [`cosmic.cli`] loads them all.
   commands: {string: function(): Flags.Command}
+
+  --- The verbs that run at the root of the tree they are started in ([`build.tree_root`]), each by which of its
+  --- words are paths to read from where it was started: all of them ("all"), all but the first ("rest"), only those
+  --- naming something that exists ("named"), or none that matter ("none": `docs`). `sql` looks in the working
+  --- directory only, by its documentation. Kept here, which every verb's command line loads, so a verb not among them
+  --- loads no [`build.tree_root`].
+  tree_paths: {string: string}
 end
+
+verb_list.tree_paths = {
+  test = "named", fix = "all", build = "all", db = "all", uses = "rest", todos = "named",
+  docs = "none",
+}
 
 verb_list.loads = {
   test = function(): verb_spec.Spec return require("build.test").spec end,

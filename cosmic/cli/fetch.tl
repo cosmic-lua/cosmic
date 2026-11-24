@@ -25,7 +25,7 @@
 ---   when the digest matches, because bytes already on a pipe cannot be
 ---   taken back. On a mismatch it exits 1 and names both digests.
 --- - Without a digest, streaming to standard output can leave partial
----   bytes sent before a failure (exit 1).
+---   bytes sent before a failure (exit 5).
 ---
 --- Status and redirects:
 ---
@@ -36,7 +36,7 @@
 ---   lowercased and sorted. With `--json` it prints an object of `status`,
 ---   `url` and `headers`. It also fails on a status outside 2xx.
 --- - Redirects are followed, up to 10, as [`cosmic.http`] follows them.
----   From an https URL, a redirect to http is refused (exit 1), unlike
+---   From an https URL, a redirect to http is refused (exit 5), unlike
 ---   curl's default. `--allow-downgrade` follows it; use it with
 ---   `--sha256`.
 --- - Header values print with control bytes as `\xNN`, and a URL's
@@ -52,14 +52,15 @@
 --- - `--cacert` also trusts a file's certificates.
 --- - `--pin` holds the server's key to a public key pin
 ---   ([`Http.public_key_pin`]).
---- - A value of the wrong shape, or a `--cacert` file it cannot read,
----   exits 2 before any request.
+--- - A value of the wrong shape exits 2 before any request, and a
+---   `--cacert` file it cannot read exits 5.
 ---
 --- It prints no summary: its output is the body that a pipe reads. It
---- exits 0 when the body was delivered. It exits 1 when the fetch failed:
---- no connection, a bad status, a digest that does not match, a body that
---- broke off, or an `-o` write that failed. It exits 2 for a command line,
---- a URL or a write to standard output that it cannot use.
+--- exits 0 when the body was delivered. It exits 1 when the server said no
+--- (a status outside 2xx) or a digest does not match. It exits 2 for a
+--- command line or a URL that it refuses. It exits 5 when the fetch could
+--- not be done: no connection, a body that broke off, or an `-o` write or
+--- a write to standard output that failed.
 --- @public
 
 local Flags = require("cosmic.flags")

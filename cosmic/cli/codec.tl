@@ -8,14 +8,14 @@
 --- platforms. Encoding does not wrap unless `--wrap N` gives the
 --- columns, unlike GNU base64, which wraps at 76. Decoding ignores
 --- ASCII whitespace, and is otherwise strict: an invalid character,
---- misplaced padding, a bad length or nonzero trailing bits exits 2
+--- misplaced padding, a bad length or nonzero trailing bits exits 5
 --- and names the byte offset, from 0, in the input as given. base64
 --- must be padded with `=` and base64url must not be, as each is
 --- written; `--lenient` accepts the other spelling (missing padding on
 --- base64, `=` padding on base64url) and is refused for hex. The whole
 --- input is read at once. It prints no summary: its output is the data
---- a pipe reads; exits 0 when done, 2 for a command line, an
---- input or a write it cannot honor
+--- a pipe reads; exits 0 when done, 2 for a command line it refuses, 5
+--- for an input or a write it cannot use
 --- @public
 
 local Flags = require("cosmic.flags")

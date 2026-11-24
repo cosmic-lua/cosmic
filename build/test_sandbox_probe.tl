@@ -130,7 +130,7 @@ local function ran_under(argv: {string}, fds: {integer:integer | string},
   local result, wait_trouble = handle:wait(probe_timeout_ns)
   if result == nil then
     local _, _ = handle:close()
-    return { ok = false, why = wait_trouble, broken = true }
+    return { ok = false, why = tostring(wait_trouble), broken = true }
   end
   if result.timed_out then
     return { ok = false, why = "a sandboxed start of this program took 30 s", broken = true }

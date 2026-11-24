@@ -21,7 +21,7 @@
 --- with its name escaped as above. `--quiet` prints only the failures.
 ---
 --- - BSD lines (`SHA256 (file) = hex`) and one-space separators are
----   malformed. A malformed line makes the exit 2, even when every
+---   malformed. A malformed line makes the exit 5, even when every
 ---   entry is OK. (GNU only warns, without `--strict`.)
 --- - A CRLF sums file leaves the CR in each name.
 --- - Each listed path is opened as given. A path that is not a regular
@@ -39,8 +39,8 @@
 --- `cosmic hash` prints no summary: its output is data. It exits 0 when
 --- all is well, and 1 when a check failed or a listed file could not be
 --- read. It exits 2, with `cosmic: hash: ...` on standard error, for a command
---- line, a file to hash, a sums file (a malformed line too) or a write to
---- standard output that it cannot use.
+--- line it refuses, and 5 for a file to hash, a sums file (a malformed line
+--- too) or a write to standard output that it cannot use.
 --- @public
 
 local Flags = require("cosmic.flags")

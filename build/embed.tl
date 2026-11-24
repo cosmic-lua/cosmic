@@ -481,8 +481,8 @@ function embed.database(project: string, main: string, roots?: string): string?,
     return nil, building .. ": " .. tostring(open_trouble)
   end
   -- Written aside, read back whole and removed, and begun again from nothing if a build is cut short: a journal
-  -- and a sync at each commit would only cost time.
-  local statements: mut {string} = { "PRAGMA journal_mode = OFF", "PRAGMA synchronous = OFF" }
+  -- on disk and a sync at each commit would only cost time. MEMORY, not OFF, which a defensive handle refuses.
+  local statements: mut {string} = { "PRAGMA journal_mode = MEMORY", "PRAGMA synchronous = OFF" }
   for _, statement in ipairs(schema.settings("")) do
     statements[#statements + 1] = statement
   end

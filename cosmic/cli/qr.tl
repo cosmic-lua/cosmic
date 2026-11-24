@@ -43,7 +43,8 @@
 --- prints no summary. It exits 0 when it printed or wrote. It exits 1
 --- when the text is too large for a code of the allowed versions at the
 --- level, or when a drawing holds no code that it can read. It exits 2
---- for a command line or an input that it refuses, or a failed write.
+--- for a command line that it refuses, and 5 for an input it cannot read
+--- or a failed write.
 --- @public
 
 local Flags = require("cosmic.flags")

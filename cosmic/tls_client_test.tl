@@ -6,8 +6,10 @@
 --- testdata/tls's; its README says how they were made.
 
 local Array = require("cosmic.array")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
+local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local Tls = require("cosmic.tls")
@@ -258,4 +260,47 @@ local function test_a_tls_listener_with_no_configuration_serves_nothing_in_the_c
   assert(not served_plain)
   local said = table.concat(troubles, "\n")
   assert(#troubles == 1 and said:find("no certificates are loaded", 1, true) ~= nil, said)
+end
+
+--- A TLS client that closes is gone to the server at once, though the
+--- close_notify it sent first is still unread; while it is there and
+--- quiet, it is not.
+local function test_a_tls_client_that_closes_is_gone()
+  local seen = { before = true, after = false }
+  local closed_ns, seen_ns = 0, 0
+  assert(Net.serve{
+    listeners = { Net.tcp("127.0.0.1", 0) },
+    tls = Tls.certs(Tls.static({ A })),
+    on_error = function(_: string) end,
+    serve = function(conn: Net.Conn)
+      if not conn:handshake() then return end
+      assert(conn:write("hi\n"))
+      assert(Poll.delay(Clock.ms(100)))
+      seen.before = conn:gone()
+      local until_ns = Clock.monotonic_ns() + Clock.seconds(3)
+      while Clock.monotonic_ns() < until_ns do
+        if conn:gone() then
+          seen.after, seen_ns = true, Clock.monotonic_ns()
+          return
+        end
+        assert(Poll.delay(Clock.ms(10)))
+      end
+    end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      local conn = assert(Net.connect(Net.tcp("127.0.0.1", assert(Array.at(addresses, 1).port)),
+        { tls = trusting(), server_name = "localhost" }))
+      assert(conn:read() == "hi\n")
+      assert(Poll.delay(Clock.ms(200)))
+      closed_ns = Clock.monotonic_ns()
+      assert(conn:close())
+      local until_ns = closed_ns + Clock.seconds(2)
+      while not seen.after and Clock.monotonic_ns() < until_ns do
+        assert(Poll.delay(Clock.ms(10)))
+      end
+      server:stop()
+    end,
+  })
+  assert(not seen.before, "a quiet client read as gone")
+  assert(seen.after, "the server never saw the client go")
+  assert(seen_ns - closed_ns < Clock.seconds(1), tostring(seen_ns - closed_ns))
 end

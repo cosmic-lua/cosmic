@@ -62,8 +62,8 @@
 --- standard error. The message names, by its JSON Pointer, the first place
 --- that is not there (`no value at pointer "/users/4"`); for a many-value
 --- query that matches nothing, it is `<query>: no match`. A `null` value
---- is found. It exits 2 for a command line or a path it cannot read, or a
---- file that is missing or not JSON.
+--- is found. It exits 2 for a command line or a path it cannot read, and
+--- 5 for a file that is missing or not JSON, or a write that failed.
 --- @public
 
 local Flags = require("cosmic.flags")

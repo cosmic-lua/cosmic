@@ -21,7 +21,7 @@
 --- chain.pem example.com`. A program asks for its own with
 --- [`cosmic.acme`]. It prints no summary. Exits 0 when it wrote, 1 when
 --- the server or a challenge refused the issue or a request failed, 2
---- for a command line, a key file or a write it refuses
+--- for a command line or a key file it refuses, 5 for a write that failed
 --- @public
 
 local Flags = require("cosmic.flags")

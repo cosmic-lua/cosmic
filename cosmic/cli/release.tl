@@ -50,9 +50,9 @@
 --- redirect must stay on https.
 ---
 --- It prints no summary. It exits 0 when it did what was asked. It exits
---- 1 when it could not: no connection, no matching release, a release
---- that fails verification, or a write that failed. It exits 2 for a
---- command line that it refused.
+--- 1 when it could not: no connection, no matching release, or a release
+--- that fails verification. It exits 2 for a command line that it
+--- refused, and 5 when its output could not be written.
 --- @public
 
 local Flags = require("cosmic.flags")

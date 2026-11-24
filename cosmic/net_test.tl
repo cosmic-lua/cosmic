@@ -258,6 +258,31 @@ local function test_a_closed_connection_says_so_and_closes_again()
   assert(not shut and shut_trouble == "net: the connection is closed", shut_trouble)
 end
 
+--- A peer that only sends is there, and stays so while what it sent
+--- is unread; one that ends what it sends, or closes, is gone, the
+--- bytes it sent before still there to read; and a connection closed
+--- here is gone.
+local function test_a_peer_is_gone_once_it_ends_and_not_while_it_sends()
+  local p <close> = pair()
+  local client, accepted = p.client, p.accepted
+  assert(not accepted:gone())
+  assert(client:write("pipelined"))
+  assert(not accepted:gone(), "bytes with no end after them")
+  assert(not accepted:gone(), "asking took nothing")
+  assert(client:shutdown("write"))
+  local until_ns = Clock.monotonic_ns() + Clock.seconds(5)
+  while not accepted:gone() and Clock.monotonic_ns() < until_ns do end
+  assert(accepted:gone(), "the peer ended what it sends")
+  assert(assert(Stream.read_all(accepted)) == "pipelined")
+  assert(not client:gone(), "the accepted end still reads")
+  assert(accepted:close())
+  until_ns = Clock.monotonic_ns() + Clock.seconds(5)
+  while not client:gone() and Clock.monotonic_ns() < until_ns do end
+  assert(client:gone(), "the peer closed")
+  assert(client:close())
+  assert(client:gone(), "closed here")
+end
+
 --- Each end of a TCP connection names the other: the accepted end the
 --- client's address, whose port is the one the client was given and
 --- which differs from the listener's, and the client the listener's.

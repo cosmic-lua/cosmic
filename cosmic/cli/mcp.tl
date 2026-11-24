@@ -14,7 +14,7 @@
 --- A program serves with [`cosmic.mcp.server`] and asks with
 --- [`cosmic.mcp.client`]. It prints no summary. Exits 0 when it
 --- got a reply, 1 when the server failed or refused or a tool's result is
---- an error, 2 for a command line or a write it refuses
+--- an error, 2 for a command line it refuses, 5 for a write that failed
 --- @public
 
 local Flags = require("cosmic.flags")
