@@ -154,9 +154,19 @@ older than the core's build (x86-64-v3, or Armv8.2-A with dot-product and
 half-precision floats) stops the core with SIGILL. It opens the artifact
 before changing the cache. The cache parent is the user's trust boundary.
 
-A warm start runs no child process. Where the cache leaf and the entry
-are this user's, neither is a symbolic link, and startup's verified stamp
-stands beside an entry no newer than it, the shell execs the core at once. Startup then
+A warm start runs no child process. Where the cache leaf is the default one
+under HOME (`$HOME/.cache/cosmic/cores`, or `$HOME/Library/Caches/cosmic/cores`
+on macOS; `XDG_CACHE_HOME=$HOME/.cache` names it too), it and the entry are
+this user's, the leaf has the sticky bit, neither is a symbolic link, and
+startup's verified stamp stands beside an entry no newer than it, the shell
+execs the core at once: on Linux the file it opened, through
+`/proc/self/fd`, and on macOS, whose kernel refuses that, the entry by name.
+In a sticky leaf no one else can rename or remove this user's entry. A leaf
+named any other way may be another user's to write, and another user who can
+write a leaf can add a hard link to a file this user owns there, which no
+builtin can see, so such a leaf always takes the full path. The launcher makes
+the leaf sticky (`mkdir -m 1700`), and gives the bit to a default leaf that
+lacks it. Startup then
 checks what the shell's builtins cannot see: the leaf is this user's (or
 root's) and no group or others can write it, and the entry is owned so
 and is mode 0500. A leaf that fails is refused; an entry that fails is
@@ -193,15 +203,16 @@ is newer than its stamp. The launcher's warm start runs only an entry no
 newer than its stamp, so the full path hashes a damaged one before it
 runs and repairs it. A write that sets the old modification time back, or lands in
 the second the stamp was written where the shell's `test` compares whole
-seconds (BusyBox), still reaches the warm start on Linux:
+seconds (BusyBox, and bash 3.2, macOS's `/bin/sh`), still reaches the warm start:
 startup hashes the entry, removes it and its stamp, and exits 2 with
 `cache entry <entry> digest differs from the manifest; removed it: run
 again to extract it`, and the next start extracts it again.
 
-A warm start with a verified stamp on Linux runs no utility: the OS and
-machine come from `/proc/sys/kernel`, and the checks are the shell's own
-`test`. Elsewhere it runs `uname` and one `stat` for both the cache leaf
-and the entry. Neither hashes anything, and the umask changes only in the
+A warm start with a verified stamp runs no utility: the OS and machine come
+from `/proc/sys/kernel` on Linux and from bash's `OSTYPE` and `HOSTTYPE` on
+an Apple silicon Mac, and the checks are the shell's own `test`. Elsewhere it
+runs `uname`, and a leaf that does not start warm runs one `stat` for both the
+cache leaf and the entry. Neither hashes anything, and the umask changes only in the
 child that creates the cache leaf.
 
 On supported hosts the launcher also checks whether the verified cache entry

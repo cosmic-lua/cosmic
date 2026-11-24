@@ -55,6 +55,13 @@
 ---                   shape, its system prompt, messages 1 to seq-1 and
 ---                   diagnostics naming the id of the reply before
 ---                   (null for none)
+---     kept          session, key, value (JSON): what a snippet of the
+---                   run tool kept for a later one (cosmic.agent.host's
+---                   store), which a resumed session reads again; the
+---                   sql tool reads every session's
+---
+--- A database of version 1 is made version 2 as it opens. There is no
+--- way back: an older cosmic refuses a newer one's database.
 ---
 --- Each ask or chat starts a session; --continue goes on with the
 --- newest one in the working directory, and --session <id> with any,
@@ -66,6 +73,7 @@
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
+local String = require("cosmic.string")
 local Failure = require("cosmic.failure")
 
 local record Sessions
@@ -179,6 +187,12 @@ local record Sessions
 
 end
 
+--- What version 2 adds to version 1: the values a snippet keeps ([`Sessions.keep`]).
+local KEPT <const> = [[
+CREATE TABLE kept (session INTEGER NOT NULL REFERENCES sessions (id), key TEXT NOT NULL, value TEXT NOT NULL,
+  PRIMARY KEY (session, key));
+]]
+
 --- The schema, one step a version ([`Sqlite.Handle.migrate`]).
 local SCHEMA <const> = [[
 CREATE TABLE sessions (id INTEGER PRIMARY KEY, cwd TEXT NOT NULL, started INTEGER NOT NULL,
@@ -246,7 +260,7 @@ function Sessions.open(path: string): Sqlite.Handle?, string
   end
   -- In one IMMEDIATE transaction: another run that opened it at once
   -- waits for the lock, then finds the schema made.
-  local migrated, migrate_why = db:migrate({ SCHEMA })
+  local migrated, migrate_why = db:migrate({ SCHEMA, KEPT })
   if migrated == nil then return refused(tostring(migrate_why)) end
   -- WAL lets a reader (the sql tool, sqlite3) in beside a writer, once the
   -- file is known to be ours; a database busy past the wait may refuse the
@@ -328,6 +342,46 @@ function Sessions.shown(db: Sqlite.Handle, id: integer, text: string): boolean, 
   local answered, answer_why = db:run("UPDATE outputs SET shown = ?2 WHERE id = ?1", { { integer = id }, { text = text } })
   if not answered then return false, tostring(answer_why) end
   return answered, ""
+end
+
+--- The most bytes of a value's JSON one key of [`Sessions.keep`] holds.
+local KEPT_BYTES <const> = 256 * 1024
+
+--- The most bytes of JSON a session keeps under all its keys.
+local SESSION_KEPT_BYTES <const> = 1024 * 1024
+
+--- Keeps `value`, JSON text, under `key` for session `id`, in place of what was kept there; nil `value` lets the key
+--- go. A value past 256KB, or one that would take what the session keeps, its keys and values, past 1MB, is refused.
+function Sessions.keep(db: Sqlite.Handle, id: integer, key: string, value?: string): boolean, string
+  if value == nil then
+    local gone, gone_why = db:run("DELETE FROM kept WHERE session = ?1 AND key = ?2", { { integer = id }, { text = key } })
+    if not gone then return false, tostring(gone_why) end
+    return true, ""
+  end
+  if #value > KEPT_BYTES then
+    return false, "the value is " .. String.counted(#value, "byte") .. " of JSON, more than the 256KB a key holds"
+  end
+  -- One statement, so that two agents on one session cannot both pass the check: it puts the row only where the keys
+  -- and values the session keeps beside it, and this one, are within what a session keeps.
+  local put, put_why = db:run("INSERT INTO kept (session, key, value) SELECT ?1, ?2, ?3 WHERE " ..
+      "(SELECT coalesce(sum(length(CAST(key AS BLOB)) + length(CAST(value AS BLOB))), 0) FROM kept " ..
+      "WHERE session = ?1 AND key <> ?2) + ?4 <= ?5 " ..
+      "ON CONFLICT (session, key) DO UPDATE SET value = excluded.value", { { integer = id }, { text = key },
+        { text = value }, { integer = #key + #value }, { integer = SESSION_KEPT_BYTES } })
+  if not put then return false, tostring(put_why) end
+  if db:changes() == 0 then
+    return false, "this value would take what the session keeps (its keys and values) past the 1MB it may keep"
+  end
+  return true, ""
+end
+
+--- The JSON text kept under `key` for session `id` ([`Sessions.keep`]): nil where none is (why is "" then).
+function Sessions.kept(db: Sqlite.Handle, id: integer, key: string): string?, string
+  local rows, why = db:rows("SELECT value FROM kept WHERE session = ?1 AND key = ?2", { { integer = id }, { text = key } })
+  if rows == nil then return nil, tostring(why) end
+  local row = rows[1]
+  if row == nil then return nil, "" end
+  return row:text(1), ""
 end
 
 --- What answered the tool call `call` in session `id`, as the model

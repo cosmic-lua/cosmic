@@ -198,3 +198,63 @@ local function test_a_directory_named_otherwise_is_not_swept(tmp: string)
   local report = cache_lifetime.prune(own)
   assert(#report.removed == 0 and exists(stranger .. "/build.db"))
 end
+
+--- The view the records of these tests are written in: a sandboxed
+--- worker's /proc names no boot.
+local VIEW <const> = "a-boot mnt:[1]"
+
+--- The device a record of use names last.
+local function record_device(record: string): string?
+  return record:match("\n(%d+)$")
+end
+
+--- A directory whose record names a checkout that is gone goes at the
+--- next pass, however recent its use; one whose checkout is still there,
+--- or whose record names a root its name is not the hash of, waits out
+--- its thirty days.
+local function test_a_directory_of_a_removed_checkout_goes(tmp: string)
+  local base = base_of(tmp)
+  local own = made(base, "own", 0)
+  local root = assert(sys.realpath(tmp)) .. "/checkouts"
+  assert(Fs.mkdirs(root .. "/gone"))
+  assert(Fs.mkdirs(root .. "/here"))
+  local function of(name: string): string
+    local path = root .. "/" .. name
+    local directory = build_paths.in_home(path, base)
+    assert(Fs.mkdirs(directory .. "/bin"))
+    assert(Fs.write(directory .. "/build.db", "x"))
+    local record = build_paths.record(path, VIEW)
+    assert(record ~= "", "no record of " .. path)
+    assert(Fs.write(build_paths.under(directory).used, record))
+    return directory
+  end
+  local gone, here, elsewhere, moved, linked = of("gone"), of("here"), of("elsewhere"), of("moved"), of("linked")
+  local device = assert(record_device(build_paths.record(root .. "/gone", VIEW)))
+  assert(Fs.write(build_paths.under(elsewhere).used, "another-boot mnt:[1]\n" .. root .. "/elsewhere\n" .. device))
+  -- Its parent on another device: a volume not mounted now.
+  assert(Fs.write(build_paths.under(moved).used, VIEW .. "\n" .. root .. "/moved\n" ..
+      tostring(assert(math.tointeger(tonumber(device))) + 1)))
+  local forged = made(base, "forged", 1)
+  assert(Fs.write(build_paths.under(forged).used, build_paths.record(root .. "/gone", VIEW)))
+  -- Set aside by a pass that ended before it removed it.
+  local half = of("half")
+  local aside = half .. ".pruning-1"
+  assert(Fs.rename(half, aside))
+  assert(Fs.remove_tree(root .. "/gone"))
+  assert(Fs.remove_tree(root .. "/elsewhere"))
+  assert(Fs.remove_tree(root .. "/moved"))
+  -- A link at the root, though it leads nowhere, is something there.
+  assert(Fs.remove_tree(root .. "/linked"))
+  assert(sys.symlink(root .. "/nowhere", root .. "/linked"))
+  local report = cache_lifetime.prune(own, nil, nil, VIEW)
+  assert(#report.troubles == 0, table.concat(report.troubles, "; "))
+  table.sort(report.removed)
+  local expected = { aside, gone }
+  table.sort(expected)
+  assert(table.concat(report.removed, ",") == table.concat(expected, ","), table.concat(report.removed, ","))
+  assert(exists(here .. "/build.db"), "the directory of a checkout still there went")
+  assert(exists(elsewhere .. "/build.db"), "a record written in another view of the file system counted")
+  assert(exists(forged .. "/build.db"), "a record naming another directory's root counted")
+  assert(exists(moved .. "/build.db"), "a root whose parent is on another device now counted")
+  assert(exists(linked .. "/build.db"), "a link at the root counted as nothing there")
+end

@@ -37,7 +37,7 @@ local function test_a_tools_schemas_are_records_of_its_members()
   has(teal, "    extra?: {string: integer}\n")
   has(teal, "    loose?: {string: Json.Value}\n")
   has(teal, "    either?: Json.Value\n")
-  has(teal, "  --- Finds notes. Many.\n  search: function(arguments: SearchInput): (Host.Result) | (nil, Failure)\n")
+  has(teal, "  --- Finds notes. Many.\n  search: function(arguments: SearchInput): Host.Result\n")
   has(teal, "return notes\n")
   local f = assert(made.functions[1])
   assert(f.name == "search" and f.tool == "search" and not f.structured)
@@ -54,9 +54,9 @@ local function test_a_tool_with_an_output_schema_answers_its_record()
     outputSchema = { type = "object" },
   } })
   has(made.teal, "  record WeighOutput\n    grams: integer\n  end\n")
-  has(made.teal, "  weigh: function(arguments?: {string: Json.Value}): (WeighOutput) | (nil, Failure)\n")
+  has(made.teal, "  weigh: function(arguments?: {string: Json.Value}): WeighOutput\n")
   -- An output that is no record is read from the result, as a tool with none.
-  has(made.teal, "  loose: function(arguments?: {string: Json.Value}): (Host.Result) | (nil, Failure)\n")
+  has(made.teal, "  loose: function(arguments?: {string: Json.Value}): Host.Result\n")
   assert(assert(made.functions[1]).structured and not assert(made.functions[2]).structured)
 end
 
@@ -70,6 +70,23 @@ local function test_a_name_teal_cannot_hold_is_renamed_or_read_as_a_map()
   has(made.teal, "  _2fa: function(")
   local f = assert(made.functions[2])
   assert(f.name == "get_file_2" and f.tool == "get_file")
+end
+
+--- Each function holds its tool's description and the Teal of a module of it alone, named as in the whole module, so
+--- a tool with no name shifts no other tool's.
+local function test_each_function_holds_its_description_and_its_own_teal()
+  local made = McpModule.made("files", { { name = 7, description = "nameless" }, {
+    name = "get-file", description = "Reads a file.",
+    inputSchema = { type = "object", properties = { path = { type = "string" } }, required = { "path" } },
+  }, { name = "get_file", description = "Reads another.", inputSchema = { type = "object",
+    properties = { size = { type = "integer" } } } } })
+  local first, second = assert(made.functions[1]), assert(made.functions[2])
+  assert(#made.functions == 2 and first.description == "Reads a file." and second.description == "Reads another.")
+  has(second.teal, "record GetFile2Input\n")
+  has(second.teal, "  get_file_2: function(arguments?: GetFile2Input)")
+  assert(second.teal:find("GetFileInput", 1, true) == nil and second.teal:find("get-file", 1, true) == nil, second.teal)
+  has(first.teal, "  --- The tool \"get-file\".\n  get_file: function(arguments: GetFileInput)")
+  assert(first.teal:find("get_file_2", 1, true) == nil, first.teal)
 end
 
 local function test_each_word_teal_reserves_is_no_member_or_function()
@@ -107,7 +124,7 @@ local function test_an_outputs_nullable_member_is_optional_and_a_scalar_output_i
   -- An input's required member is sent, null or not; an output's that may be null may be absent.
   has(made.teal, "  record WeighInput\n    at: string\n  end\n")
   has(made.teal, "  record WeighOutput\n    grams: integer\n    note?: string\n  end\n")
-  has(made.teal, "  name: function(arguments?: {string: Json.Value}): (Host.Result) | (nil, Failure)\n")
+  has(made.teal, "  name: function(arguments?: {string: Json.Value}): Host.Result\n")
   assert(not assert(made.functions[2]).structured)
 end
 

@@ -42,7 +42,7 @@ return function(argv: {string}): integer
   local freelist, freelist_trouble = scalar(db, "PRAGMA freelist_count")
   local coverage, coverage_trouble = scalar(db, "SELECT count(*) FROM coverage")
   local by_test, by_test_trouble =
-    scalar(db, "SELECT count(*) FROM coverage_by_test")
+    scalar(db, "SELECT count(*) FROM hits_by_test")
   local integrity, integrity_trouble = Sqlite.text_rows(db, "PRAGMA integrity_check")
   local closed, close_trouble = db:close()
   -- The first of these that says anything, the page count's before the rest.

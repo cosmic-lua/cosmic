@@ -522,12 +522,12 @@ local function test_without_fork_a_clone_must_be_a_thread()
   })
 end
 
-local function test_fattr_grants_modes_but_never_a_special_bit()
+local function test_fattr_grants_modes_but_never_setuid_or_setgid()
   holds_on_both({ "fattr" }, {
     call("chmod", "allow", 0, 0x1ed), call("fchmod", "allow", 3, 0x1a4),
     call("fchmodat", "allow", -100, 0, 0x1ed), call("fchmodat2", "allow", -100, 0, 0x1ed),
     call("chmod", "EPERM", 0, 0x9ed), call("fchmod", "EPERM", 3, 0x4ed),
-    call("fchmod", "EPERM", 3, 0x2ed), call("chmod", "EPERM", 0, 0x200),
+    call("fchmod", "allow", 3, 0x2ed), call("chmod", "allow", 0, 0x200),
     call("fchmodat", "EPERM", -100, 0, 0x9ed), call("fchmodat2", "EPERM", -100, 0, 0x4ed),
     call("chown", "allow"), call("fchown", "allow"), call("lchown", "allow"),
     call("fchownat", "allow"), call("utimensat", "allow"), call("utimes", "allow"),
@@ -537,16 +537,17 @@ local function test_fattr_grants_modes_but_never_a_special_bit()
   holds_on_both({ "fattr" }, never())
 end
 
-local function test_a_file_is_never_made_with_a_special_bit()
+local function test_a_file_is_never_made_setuid_or_setgid()
   holds_on_both({}, {
     call("openat", "allow", -100, 0, O_CREAT | 1, 0x1a4),
     call("openat", "allow", -100, 0, 0, 0xffff),
     call("openat", "EPERM", -100, 0, O_CREAT | 1, 0x9ed),
     call("openat", "EPERM", -100, 0, O_CREAT, 0x4ed),
-    call("openat", "EPERM", -100, 0, 0x410000 | 2, 0x2ed),
+    call("openat", "allow", -100, 0, 0x410000 | 2, 0x2ed),
     call("open", "allow", 0, O_CREAT, 0x1a4), call("open", "EPERM", 0, O_CREAT, 0x4ed),
     call("creat", "allow", 0, 0x1a4), call("creat", "EPERM", 0, 0x4ed),
-    call("mkdir", "allow", 0, 0x1ed), call("mkdir", "EPERM", 0, 0x9ed),
+    call("mkdir", "allow", 0, 0x1ed), call("mkdir", "allow", 0, 0x3c0),
+    call("mkdir", "EPERM", 0, 0x9ed),
     call("mkdirat", "allow", -100, 0, 0x1ed), call("mkdirat", "EPERM", -100, 0, 0x9ed),
     -- A fifo, a socket or a file, never a device.
     call("mknod", "allow", 0, 0x1000 | 0x1a4), call("mknod", "allow", 0, 0xc000 | 0x1a4),

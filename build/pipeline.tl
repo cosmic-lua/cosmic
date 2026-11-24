@@ -78,6 +78,9 @@ local record Pipeline
     --- Whether the tree is a project outside cosmic's own, whose checker is its own and which no marker holds: every error
     --- refuses. Absent for cosmic's tree, whose markers hold what they mark.
     project: boolean?
+    --- Whether an unused name (`unused_*`) is let pass rather than told: for a snippet, which runs once and is read
+    --- by no one after. Other warnings are told.
+    mut lax?: boolean
   end
 
   --- A build over the tree.
@@ -853,7 +856,10 @@ local function alone_of(build: Driver.Build, module: string, file: string, optio
     note_stages(stages, "declared", result.declared)
     note_stages(stages, "checked", result.bodies)
     for _, w in ipairs(result.warnings) do
-      told[#told + 1] = ErrorRender.line(file, w)
+      -- Lax, an unused name is let pass; an unread value, the sign of a wrong name, is still told.
+      if options.lax ~= true or not w.code:find("^unused_") then
+        told[#told + 1] = ErrorRender.line(file, w)
+      end
     end
     if options.project == true then
       for _, line in ipairs(ProjectRefusals.check(file, result.chunk, result.scoped, Pipeline.kept)) do
