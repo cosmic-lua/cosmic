@@ -23,20 +23,20 @@ local function test_it_reads_standard_input_and_prints_no_summary(tmp: string)
   assert(dec.code == 0 and dec.out == "\0\1\xfb\xff\xfe\0" and dec.err == "", dec.err)
 end
 
-local function test_a_file_is_read_and_a_bad_text_exits_2(tmp: string)
+local function test_a_file_is_read_and_a_bad_text_exits_5(tmp: string)
   local path = tmp .. "/in.txt"
   assert(Fs.write(path, "66 6f\n6f\n"))
   local ok = tool_fixture.cosmic(tmp, { "codec", "hex", "-d", path })
   assert(ok.code == 0 and ok.out == "foo" and ok.err == "", ok.err)
   local bad = tool_fixture.cosmic(tmp, { "codec", "hex", "-d" }, "66zz")
-  assert(bad.code == 2 and bad.out == "", bad.out)
+  assert(bad.code == 5 and bad.out == "", bad.out)
   assert(bad.err:find("cosmic: codec: standard input: byte 0x7a at offset 2", 1, true), bad.err)
   assert(not bad.err:find("FAIL", 1, true), bad.err)
   local usage = tool_fixture.cosmic(tmp, { "codec", "base32" }, "x")
   assert(usage.code == 2 and usage.out == "" and usage.err:find("no such encoding", 1, true) ~= nil, usage.err)
 end
 
-local function test_a_failed_standard_output_write_exits_2(tmp: string)
+local function test_a_failed_standard_output_write_exits_5(tmp: string)
   -- /dev/full, where a write fails with ENOSPC, is Linux's, and every
   -- worker there is given it (build.confine's `runtime_paths`): one
   -- without it, or a host that has none, is skipped.
@@ -50,7 +50,7 @@ local function test_a_failed_standard_output_write_exits_2(tmp: string)
   })
   local result = assert(Child.run(started.argv, started.options))
   assert(Fs.close(full))
-  assert(result.code == 2, tostring(result.code))
+  assert(result.code == 5, tostring(result.code))
   assert((result.stderr or ""):find("cosmic: codec: standard output: ", 1, true), result.stderr)
 end
 

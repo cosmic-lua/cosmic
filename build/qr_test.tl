@@ -57,11 +57,11 @@ local function test_standard_input_less_one_newline_is_the_text()
   assert(two.out == Qr.text((assert(Qr.encode("a\n")))), "only one newline goes")
   for _, empty in ipairs({ "", "\n" }) do
     local ran = run({}, empty)
-    assert(ran.code == 2 and ran.out == "" and ran.err:find("the text is empty", 1, true) ~= nil, ran.err)
+    assert(ran.code == 5 and ran.out == "" and ran.err:find("the text is empty", 1, true) ~= nil, ran.err)
   end
   assert(run({ "" }).code == 2, "an empty word is an empty text")
   local none = run({})
-  assert(none.code == 2 and none.out == "" and none.err == "cosmic: qr: no standard input in this test\n", none.err)
+  assert(none.code == 5 and none.out == "" and none.err == "cosmic: qr: no standard input in this test\n", none.err)
 end
 
 local function test_the_options_reach_the_drawing()
@@ -106,9 +106,9 @@ local function test_a_command_line_it_refuses_is_exit_2()
   end
 end
 
-local function test_a_write_that_fails_is_exit_2()
+local function test_a_write_that_fails_is_exit_5()
   local ran = run({ "--svg", "code.svg", "x" }, nil, true)
-  assert(ran.code == 2 and ran.err == "cosmic: qr: code.svg: no room\n", ran.err)
+  assert(ran.code == 5 and ran.err == "cosmic: qr: code.svg: no room\n", ran.err)
 end
 
 local function test_read_prints_the_text_of_each_drawing()
@@ -137,10 +137,10 @@ local function test_read_refuses_options_and_what_is_no_code()
     assert(ran.code == 2 and ran.out == "" and ran.err:find("^cosmic: qr: ") ~= nil, table.concat(words, " "))
   end
   local missing = run({ "--read", "nosuch.svg" })
-  assert(missing.code == 2 and missing.err == "cosmic: qr: nosuch.svg: no such file\n", missing.err)
+  assert(missing.code == 5 and missing.err == "cosmic: qr: nosuch.svg: no such file\n", missing.err)
   for _, empty in ipairs({ "", " \n\n" }) do
     local ran = run({ "--read" }, empty)
-    assert(ran.code == 2 and ran.err == "cosmic: qr: there is nothing to read\n", ran.err)
+    assert(ran.code == 5 and ran.err == "cosmic: qr: there is nothing to read\n", ran.err)
   end
   local none = run({ "--read" }, "not a code\n")
   assert(none.code == 1 and none.out == "", none.out)

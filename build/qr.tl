@@ -19,8 +19,8 @@
 --- Like `cosmic json` it prints no summary: its standard output is the
 --- code, or the text read. Exit 0 is ok, 1 a text too large for a code
 --- of the allowed versions at the level or a drawing that holds no code
---- it can read, 2 a command line or an input it refuses, or a write that
---- failed. Complaints go to standard error as
+--- it can read, 2 a command line it refuses, 5 an input it cannot read or a
+--- write that failed. Complaints go to standard error as
 --- `cosmic: qr: ...`. Its `spec` (build/verb_spec.tl) is `bare`.
 
 local Cli = require("cosmic.cli")
@@ -171,11 +171,11 @@ local function read_back(to: verb.Io, complain: function(line: string), file: st
   end
   if drawing == nil then
     complain(why)
-    return bare.refused
+    return bare.undone
   end
   if drawing:match("^%s*$") ~= nil then
     complain("there is nothing to read")
-    return bare.refused
+    return bare.undone
   end
   local read, read_why = Qr.read(drawing)
   if read == nil then
@@ -188,7 +188,7 @@ end
 --- `cosmic qr [options] [text...]`: prints the code of the text, or
 --- writes its SVG, or with `--read` prints the text of a code drawn,
 --- and returns the exit code: 0 ok, 1 a text too large or a drawing it
---- cannot read, 2 a command line, an input or a write it refuses.
+--- cannot read, 2 a command line it refuses, 5 an input or a write it could not use.
 --- @param argv the command line, `qr` at slot 1
 --- @param io where text is read and written; the process's own when nil
 function verb.run(argv: {string}, io?: verb.Io): integer
@@ -207,13 +207,14 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     local read, why = to.stdin()
     if read == nil then
       complain(why)
-      return bare.refused
+      return bare.undone
     end
     text = read:gsub("\r?\n$", "", 1)
   end
   if text == "" then
     complain("the text is empty; give the text or pipe it in")
-    return bare.refused
+    -- An empty word is the command line's; an empty standard input is the data's.
+    return if request.text ~= nil then bare.refused else bare.undone end
   end
   local code, why = Qr.encode(text, { level = request.level, max_version = request.max_version })
   if code == nil then
@@ -230,7 +231,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local ok, write_why = to.write(svg, image)
   if not ok then
     complain(write_why)
-    return bare.refused
+    return bare.undone
   end
   return bare.ok
 end
@@ -244,7 +245,7 @@ verb.spec = {
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "options and the text",
-  exits = "`qr` prints the code, its SVG or the text it read, and nothing after; it exits 1 when the text is too large for a code or a drawing holds no code it can read, 2 when it refuses its command line or its input, or a write fails.",
+  exits = "`qr` prints the code, its SVG or the text it read, and nothing after; it exits 1 when the text is too large for a code or a drawing holds no code it can read, 2 when it refuses its command line, 5 when it cannot read its input or a write fails.",
   passthrough = "its output is data for a pipe, so its exit status is the verdict (build/qr_test.tl)",
 }
 

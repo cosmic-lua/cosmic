@@ -7,6 +7,7 @@
 --- out. A verb keeps the rest: its own `Io` record, whose fields a test
 --- stands in for, and what it prints.
 
+local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Stream = require("cosmic.stream")
@@ -39,16 +40,25 @@ local record bare
   --- looked for: a checksum that did not match, a path or a member that
   --- is not there, a value that cannot be printed.
   mut failed: integer
-  --- The exit code of a command line or an input it refused, or a write
-  --- to standard output that was lost.
+  --- The exit code of a command line refused as it was typed: an option, a value or a word that the
+  --- line alone shows is wrong.
   mut refused: integer
+  --- The exit code of a run that could not do what was asked: a file it could not read or write, a
+  --- write to standard output that was lost, a network request that failed, or input data it refused.
+  mut undone: integer
   --- What every bare verb says of an empty file argument.
   mut empty_file: string
 end
 
 bare.ok = 0
-bare.failed = 1
-bare.refused = 2
+bare.failed = Flags.FAILED
+bare.refused = Flags.REFUSED
+-- TODO: give archive, tailscale, acme, agent, time and cache `undone` for a read or a request that failed
+-- (each answers `undone` only for a write to standard output, through `written`), once each is on
+-- `subcommands`; then mcp and release, whose failed requests still answer `failed`; then the verbs that are not
+-- bare, whose `cosmic help exit` text still counts a failed read or write as 1, and a file run's
+-- missing file.
+bare.undone = Flags.UNDONE
 bare.empty_file = "an empty file name"
 
 --- Writes `text` to standard output, as given. False and why when the
@@ -93,12 +103,12 @@ function bare.delivered(complain: function(line: string), ok: boolean, why: stri
   return false
 end
 
---- What a write to standard output answers as an exit code: 0, or 2
---- and a complaint, since a value lost to a full disk or a closed pipe
+--- What a write to standard output answers as an exit code: 0, or
+--- [`bare.undone`] and a complaint, since a value lost to a full disk or a closed pipe
 --- is no success. Takes what `out` answers.
 function bare.written(complain: function(line: string), ok: boolean, why: string): integer
   if bare.delivered(complain, ok, why) then return bare.ok end
-  return bare.refused
+  return bare.undone
 end
 
 --- The Reader over standard input, refusing a terminal, where nothing

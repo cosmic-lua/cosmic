@@ -494,8 +494,8 @@ local record Cli
   --- standard error. The message names, by its JSON Pointer, the first place
   --- that is not there (`no value at pointer "/users/4"`); for a many-value
   --- query that matches nothing, it is `<query>: no match`. A `null` value
-  --- is found. It exits 2 for a command line or a path it cannot read, or a
-  --- file that is missing or not JSON.
+  --- is found. It exits 2 for a command line or a path it cannot read, and
+  --- 5 for a file that is missing or not JSON, or a write that failed.
   json: string
   --- `cosmic hash [options] [file|-]...`: prints the digest of each file,
   --- or of standard input for `-` or no file. The line is
@@ -520,7 +520,7 @@ local record Cli
   --- with its name escaped as above. `--quiet` prints only the failures.
   ---
   --- - BSD lines (`SHA256 (file) = hex`) and one-space separators are
-  ---   malformed. A malformed line makes the exit 2, even when every
+  ---   malformed. A malformed line makes the exit 5, even when every
   ---   entry is OK. (GNU only warns, without `--strict`.)
   --- - A CRLF sums file leaves the CR in each name.
   --- - Each listed path is opened as given. A path that is not a regular
@@ -538,8 +538,8 @@ local record Cli
   --- `cosmic hash` prints no summary: its output is data. It exits 0 when
   --- all is well, and 1 when a check failed or a listed file could not be
   --- read. It exits 2, with `cosmic: hash: ...` on standard error, for a command
-  --- line, a file to hash, a sums file (a malformed line too) or a write to
-  --- standard output that it cannot use.
+  --- line it refuses, and 5 for a file to hash, a sums file (a malformed line
+  --- too) or a write to standard output that it cannot use.
   hash: string
   --- `cosmic compile [--errors] [--root dir] [-o dir] file.tl...`: the Lua
   --- source of each `.tl` file, one text per file, written by this binary's
@@ -557,7 +557,7 @@ local record Cli
   --- error gets a count per file, and with `--errors` each error as
   --- `file:line:column: message`. Only a syntax error refuses: each is
   --- named as `file:line:column: message`, no file is written, and the
-  --- exit is 2, as for a command line or a file it cannot use.
+  --- exit is 4.
   --- With a `.d.tl` file named, the files named are the whole program, the
   --- globals are those the `.d.tl` files declare, and a `cosmic.*` module
   --- no file named is the module of is typed `invalid` and reported. With
@@ -567,7 +567,9 @@ local record Cli
   --- refusals (`package`, `_G`); all are listed and
   --- counted as type errors, and none stops the Lua. After a
   --- non-zero exit do not use the `-o` directory: it may hold files of an
-  --- earlier run. It prints no summary; exits 0 when the Lua is written
+  --- earlier run. It prints no summary; exits 0 when the Lua is written,
+  --- 2 for a command line it refuses, 4 for a syntax error or a `.d.tl`
+  --- whose text a build refuses, and 5 for a file it cannot read or write.
   compile: string
   --- `cosmic cache trim compiles PATH --since-ns N` keeps supported compile
   --- and parse rows last used at or after N, a Unix nanosecond timestamp.
@@ -657,8 +659,8 @@ local record Cli
   ---   `shuffle [file|-]` prints all of them, in an order drawn by
   ---   Fisher-Yates. A line ends at a newline, and a carriage return before
   ---   the newline is dropped (CRLF input reads as LF). An empty input has
-  ---   no lines. Asking `pick` for more lines than there are is refused
-  ---   (exit 2), and nothing is printed.
+  ---   no lines. Asking `pick` for more lines than there are cannot be done
+  ---   (exit 5), and nothing is printed.
   --- - `normal [-n N] [--mean M] [--stddev SD]` prints N draws (default one)
   ---   from the normal distribution: mean 0 and standard deviation 1 unless
   ---   given. SD may be 0, but not negative.
@@ -686,9 +688,9 @@ local record Cli
   --- is refused with uuid and token.
   ---
   --- Its standard output is data, and it prints no summary. It exits 0 when
-  --- it printed, and 1 when the entropy source failed. It exits 2 for a
-  --- command line, a file or a request that it refuses, or a failed write
-  --- to standard output.
+  --- it printed. It exits 2 for a command line that it refuses, and 5 for a
+  --- file it cannot read, a request it cannot meet, a failed write to
+  --- standard output or an entropy source that failed.
   rand: string
   --- `cosmic qr [options] [text...]`: prints the QR code of a text, to show
   --- an address to a phone with nothing installed. The text is the words,
@@ -735,7 +737,8 @@ local record Cli
   --- prints no summary. It exits 0 when it printed or wrote. It exits 1
   --- when the text is too large for a code of the allowed versions at the
   --- level, or when a drawing holds no code that it can read. It exits 2
-  --- for a command line or an input that it refuses, or a failed write.
+  --- for a command line that it refuses, and 5 for an input it cannot read
+  --- or a failed write.
   qr: string
   --- `cosmic acme <key|issue> ...`: a TLS certificate from an ACME
   --- certificate authority (RFC 8555) such as Let's Encrypt. `key
@@ -760,7 +763,7 @@ local record Cli
   --- chain.pem example.com`. A program asks for its own with
   --- [`cosmic.acme`]. It prints no summary. Exits 0 when it wrote, 1 when
   --- the server or a challenge refused the issue or a request failed, 2
-  --- for a command line, a key file or a write it refuses
+  --- for a command line or a key file it refuses, 5 for a write that failed
   acme: string
   --- `cosmic tailscale <status|whois|cert|ping|file> ...`: asks the
   --- machine's own Tailscale node, through tailscaled's LocalAPI, with no
@@ -817,7 +820,7 @@ local record Cli
   --- A program serves with [`cosmic.mcp.server`] and asks with
   --- [`cosmic.mcp.client`]. It prints no summary. Exits 0 when it
   --- answered, 1 when the server failed or refused or a tool's result is
-  --- an error, 2 for a command line or a write it refuses
+  --- an error, 2 for a command line it refuses, 5 for a write that failed
   mcp: string
   --- `cosmic time <now|convert|between|add> ...`: the clock and calendar
   --- the same on every host, where GNU and BSD `date` differ. Zones are
@@ -855,14 +858,14 @@ local record Cli
   --- platforms. Encoding does not wrap unless `--wrap N` gives the
   --- columns, unlike GNU base64, which wraps at 76. Decoding ignores
   --- ASCII whitespace, and is otherwise strict: an invalid character,
-  --- misplaced padding, a bad length or nonzero trailing bits exits 2
+  --- misplaced padding, a bad length or nonzero trailing bits exits 5
   --- and names the byte offset, from 0, in the input as given. base64
   --- must be padded with `=` and base64url must not be, as each is
   --- written; `--lenient` accepts the other spelling (missing padding on
   --- base64, `=` padding on base64url) and is refused for hex. The whole
   --- input is read at once. It prints no summary: its output is the data
-  --- a pipe reads; exits 0 when done, 2 for a command line, an
-  --- input or a write it cannot honor
+  --- a pipe reads; exits 0 when done, 2 for a command line it refuses, 5
+  --- for an input or a write it cannot use
   codec: string
   --- `cosmic fetch <url[#sha256=hex]> [-o file] [--sha256 hex] [--sha512 hex] [--allow-downgrade] [--head [--json]]
   --- [--roots set] [--cacert file] [--pin pin]`: makes one GET, like a small
@@ -891,7 +894,7 @@ local record Cli
   ---   when the digest matches, because bytes already on a pipe cannot be
   ---   taken back. On a mismatch it exits 1 and names both digests.
   --- - Without a digest, streaming to standard output can leave partial
-  ---   bytes sent before a failure (exit 1).
+  ---   bytes sent before a failure (exit 5).
   ---
   --- Status and redirects:
   ---
@@ -902,7 +905,7 @@ local record Cli
   ---   lowercased and sorted. With `--json` it prints an object of `status`,
   ---   `url` and `headers`. It also fails on a status outside 2xx.
   --- - Redirects are followed, up to 10, as [`cosmic.http`] follows them.
-  ---   From an https URL, a redirect to http is refused (exit 1), unlike
+  ---   From an https URL, a redirect to http is refused (exit 5), unlike
   ---   curl's default. `--allow-downgrade` follows it; use it with
   ---   `--sha256`.
   --- - Header values print with control bytes as `\xNN`, and a URL's
@@ -918,14 +921,15 @@ local record Cli
   --- - `--cacert` also trusts a file's certificates.
   --- - `--pin` holds the server's key to a public key pin
   ---   ([`Http.public_key_pin`]).
-  --- - A value of the wrong shape, or a `--cacert` file it cannot read,
-  ---   exits 2 before any request.
+  --- - A value of the wrong shape exits 2 before any request, and a
+  ---   `--cacert` file it cannot read exits 5.
   ---
   --- It prints no summary: its output is the body that a pipe reads. It
-  --- exits 0 when the body was delivered. It exits 1 when the fetch failed:
-  --- no connection, a bad status, a digest that does not match, a body that
-  --- broke off, or an `-o` write that failed. It exits 2 for a command line,
-  --- a URL or a write to standard output that it cannot use.
+  --- exits 0 when the body was delivered. It exits 1 when the server said no
+  --- (a status outside 2xx) or a digest does not match. It exits 2 for a
+  --- command line or a URL that it refuses. It exits 5 when the fetch could
+  --- not be done: no connection, a body that broke off, or an `-o` write or
+  --- a write to standard output that failed.
   fetch: string
   --- `cosmic docs [q...]`: prints what the database says about q. The
   --- tree is found as `test` finds it.
@@ -1109,9 +1113,9 @@ local record Cli
   --- redirect must stay on https.
   ---
   --- It prints no summary. It exits 0 when it did what was asked. It exits
-  --- 1 when it could not: no connection, no matching release, a release
-  --- that fails verification, or a write that failed. It exits 2 for a
-  --- command line that it refused.
+  --- 1 when it could not: no connection, no matching release, or a release
+  --- that fails verification. It exits 2 for a command line that it
+  --- refused, and 5 when its output could not be written.
   release: string
   --- `cosmic sandbox [options] [--] program [args...]`: runs a program, and
   --- everything it starts, held to what the options grant and nothing more:

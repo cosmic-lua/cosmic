@@ -41,7 +41,7 @@
 ---
 --- Like `cosmic json` it prints no summary. Exit 0 is ok, 1 an issue the
 --- server or a challenge refused, or a request that failed, 2 a command
---- line, a key file or a write it refuses. Complaints go to standard
+--- line or a key file it refuses, 5 a write that failed. Complaints go to standard
 --- error as `cosmic: acme: ...`. Its `spec` (build/verb_spec.tl) is
 --- `bare`.
 
@@ -353,7 +353,7 @@ end
 
 --- `cosmic acme <key|issue> ...`: makes a key, or a certificate, and
 --- returns the exit code: 0 ok, 1 an issue that failed, 2 a command
---- line, a file or a write it refuses.
+--- line or a file it refuses, 5 a write that failed.
 --- @param argv the command line, `acme` at slot 1
 --- @param io where files are read and written and requests sent; the process's own when nil
 function verb.run(argv: {string}, io?: verb.Io): integer
@@ -390,7 +390,7 @@ verb.spec = {
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "key or issue, its options and the names",
-  exits = "`acme` prints a key or a chain when no file is named, and nothing after; it exits 1 when the server or a challenge refused an issue or a request failed, 2 when it refuses its command line, a key file or a write.",
+  exits = "`acme` prints a key or a chain when no file is named, and nothing after; it exits 1 when the server or a challenge refused an issue or a request failed, 2 when it refuses its command line or a key file, 5 when a write failed.",
   passthrough = "its output is data for a pipe, so its exit status is the verdict (build/acme_test.tl)",
 }
 

@@ -239,12 +239,14 @@ local record Flags
   --- What ends a command: it says why, and answers the exit code.
   type Verdict = function(why: string): integer
 
-  --- [`Flags.verdicts`]'s two.
+  --- [`Flags.verdicts`]' three.
   record Verdicts
     --- Says why on `err`, and answers [`Flags.FAILED`].
     failed: Verdict
     --- Says why on `err`, and answers [`Flags.REFUSED`].
     refused: Verdict
+    --- Says why on `err`, and answers [`Flags.UNDONE`].
+    undone: Verdict
   end
 
   --- The exit code of a command that failed: 1.
@@ -252,10 +254,15 @@ local record Flags
   --- The exit code of a command line refused as it was typed: 2, as
   --- [`Flags.dispatch`]'s example gives for a word that names no command.
   REFUSED: integer
+  --- The exit code of a command that could not do what was asked: 5. A file it could not read or write,
+  --- a request that failed, or input data it refused. [`Flags.FAILED`] is the answer "no" (not found, a
+  --- check that did not pass); this is "could not tell".
+  UNDONE: integer
 end
 
 Flags.FAILED = 1
 Flags.REFUSED = 2
+Flags.UNDONE = 5
 
 --- Whether `word`, the word after an option that takes a value, looks
 --- like an option rather than a value: it begins with "-", and is
@@ -1699,12 +1706,12 @@ function Flags.std_io(said?: function(line: string): string): Flags.Io
 end
 
 --- What ends a command, saying why on `err`: `failed` answers
---- [`Flags.FAILED`], `refused` [`Flags.REFUSED`].
+--- [`Flags.FAILED`], `refused` [`Flags.REFUSED`], `undone` [`Flags.UNDONE`].
 ---
 ---     local ends = Flags.verdicts(Flags.std_io().err)
 ---     return ends.refused("give one path") -- 2
 --- @param err function Where why is said
---- @return Flags.Verdicts The two
+--- @return Flags.Verdicts The three
 function Flags.verdicts(err: function(line: string)): Flags.Verdicts
   return {
     failed = function(why: string): integer
@@ -1714,6 +1721,10 @@ function Flags.verdicts(err: function(line: string)): Flags.Verdicts
     refused = function(why: string): integer
       err(why)
       return Flags.REFUSED
+    end,
+    undone = function(why: string): integer
+      err(why)
+      return Flags.UNDONE
     end,
   }
 end
