@@ -4,7 +4,7 @@
 
 The Model Context Protocol (MCP) lets a program offer tools, resources and
 prompts to a model's host, and lets a host ask for them. [`cosmic.mcp.server`]
-serves the protocol and [`cosmic.mcp.client`] asks it, over stdio or
+serves them and [`cosmic.mcp.client`] asks a server for them, over stdio or
 Streamable HTTP. Both speak revision 2026-07-28 only. That revision is
 stateless: there is no `initialize` and no session, and each request names
 its version and the client's capabilities in its `_meta`.
@@ -96,7 +96,7 @@ return Notes
 The program's main serves the server: [`McpServer.Instance.main`] serves
 stdio. `--http host:port` serves Streamable HTTP instead, with
 `--token-env NAME` naming the variable that holds the bearer token each
-request must carry (or `--anyone`, on a loopback host only).
+request must carry, at least 16 bytes (or `--anyone`, on a loopback host only).
 
 ```teal file=main.tl
 local Notes = require("notes")
@@ -109,8 +109,8 @@ end
 ## test it
 
 [`McpServer.Instance.answer`] takes one message as text and returns the
-reply, with no stdio and no HTTP. A test sends it requests as a client would, each with its
-`_meta`, and reads the JSON that comes back.
+reply, with no stdio and no HTTP. A test sends it requests as a client
+would, each with its `_meta`, and reads the JSON that comes back.
 
 ```teal file=notes_test.tl
 local Json = require("cosmic.json")
@@ -207,7 +207,10 @@ test: 2 tests passed
 
 [`McpClient.spawn`] starts a server and speaks to it over stdio. Each method
 returns its result, or nil and a [`Failure`]. A refusal from the server
-carries its JSON-RPC code in `code`.
+carries its JSON-RPC code in `code`. `timeout_ns` bounds the server's whole
+run from its start, not one request: here the server ends 30 s after it
+starts. Pass [`Child.FOREVER`] for a long session. For a server you did not
+write, pass `sandbox` too, so that it runs under a policy.
 
 ```teal
 local Clock = require("cosmic.clock")
@@ -230,7 +233,10 @@ program cannot reach, the server's files, sockets and environment among
 them. The `system` profile grants the host's programs and libraries,
 and the few files under /etc a libc reads to start (passwd and group among
 them). A call that runs past its time, or writes too much, is an
-error result.
+error result. So is a call made while `concurrency` calls (4 by default) run.
+When the program exits with a non-zero status, the error result's text is
+its stderr (or its stdout), up to 16 KiB, and the client reads it. So a
+program must print nothing that it would not show the client.
 
 ```teal
 local Mcp = require("cosmic.mcp")
@@ -253,15 +259,15 @@ assert(server:serve_stdio())
 
 [`McpServer.Instance.handler`] serves the endpoint under
 [`cosmic.http.server`]. With `oauth`, the endpoint is an OAuth 2.1 resource
-server: a request needs an access token that `verify` takes, and one with
-none gets HTTP 401 with a challenge that says where the authorization
-server is. [`McpServer.jwt`] takes a JWT access token only when the
-authorization server's keys signed it, its `iss` is that server, its `aud`
-holds this endpoint, its `typ` is `at+jwt`, and it is within its time: a
-token for another server is refused. The endpoint here listens on
-loopback behind a proxy that ends TLS for `https://notes.example.com`. A tool's `scopes` are the scopes a call of it
-needs; a token without them gets HTTP 403, and the client signs in again
-for them.
+server. A request needs an access token that `verify` takes. A request
+with no token gets HTTP 401, with a challenge that says where the
+authorization server is. [`McpServer.jwt`] takes a JWT access token only
+when the authorization server's keys signed it, its `iss` is that server,
+its `aud` holds this endpoint, its `typ` is `at+jwt`, it has a `sub` and an
+`exp`, and it is within its time. A tool's `scopes` are the scopes that a
+call of it needs. A token without them gets HTTP 403, and the client signs
+in again for them. The endpoint here listens on loopback, behind a proxy
+that ends TLS for `https://notes.example.com`.
 
 ```teal
 local Failure = require("cosmic.failure")
@@ -319,6 +325,7 @@ Revision 2026-07-28 deprecates sampling, roots and logging, so cosmic has
 none of them. Elicitation is there: a handler asks the person for input with
 `call.elicit`, and the client replies through its `elicit` option.
 
+[`Child.FOREVER`]: ../../cosmic/child.tl
 [`cosmic.child`]: ../../cosmic/child.tl
 [`cosmic.http.server`]: ../../cosmic/http/server.tl
 [`cosmic.mcp.client`]: ../../cosmic/mcp/client.tl
