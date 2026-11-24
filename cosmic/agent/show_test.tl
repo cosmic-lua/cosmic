@@ -63,11 +63,24 @@ local function test_call_shows_code_commands_and_edits()
   assert(joined("sql", { query = "SELECT 1" }) == "sql SELECT 1")
   local edit = joined("edit", { path = "R.md", edits = {
     { oldText = "a\nb\nc", newText = "a\nB\nc" }, { oldText = "x", newText = "y\nz" } } })
-  assert(edit == "edit R.md|     a|    -b|    +B|     c|    ...|    -x|    +y|    +z", edit)
+  assert(edit == "edit R.md|    @@|     a|    -b|    +B|     c|    @@|    -x|    +y|    +z", edit)
+  -- The shapes the edit tool takes: a JSON string of the list, one object, and the fields at the top.
+  local shapes: {{string: Json.Value}} = { { path = "R.md", edits = '[{"oldText":"a","newText":"b"}]' },
+    { path = "R.md", edits = { oldText = "a", newText = "b" } }, { path = "R.md", oldText = "a", newText = "b" } }
+  for _, shape in ipairs(shapes) do
+    local one = joined("edit", shape)
+    assert(one == "edit R.md|    @@|    -a|    +b", one)
+  end
+  -- An offset with no integer shows no line, and raises nothing.
+  assert(joined("read", { path = "a", offset = 1e300 }) == "read a")
   local long: mut {string} = {}
   for i = 1, 20 do long[#long + 1] = "print(" .. tostring(i) .. ")" end
   local cut = Show.call("run", { code = table.concat(long, "\n") })
   assert(#cut == 14 and cut[14] == "    ... 8 more lines", cut[14])
+  -- A failure's first line is cut as the others are.
+  local _, errs = shown({ { kind = "result", name = "run", result = { text = string.rep("x", 5000), is_error = true } } })
+  local first = assert(errs[1])
+  assert(#errs == 1 and #first == 120, tostring(#first))
 end
 
 local function test_diff_keeps_one_line_of_context()

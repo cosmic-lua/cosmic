@@ -120,9 +120,9 @@ local record Agent
   --- start, and a tool that runs past it is stopped as the user stops one
   --- (bash's command is ended as at its timeout). A turn resumed
   --- ([`Agent.Session.resume`]) counts from nothing again. The model
-  --- reads the limits beside the turn's prompt, and once a limit is
-  --- mostly spent (a quarter left, or one request), a note with its
-  --- tool results that tells it to finish.
+  --- reads the limits beside the turn's prompt. Once a limit is mostly
+  --- spent (a quarter left, or one request), a note with the tool results
+  --- tells it to finish.
   record Budget
     --- Tokens new to each request of the turn: input, cache writes and
     --- output. Cache reads are left out: each counts the whole prefix
@@ -1006,6 +1006,11 @@ local function spent_why(s: Agent.Session, spent: Spent): string?
   return nil
 end
 
+--- `usd` as the budget notes show it: cents, or tenths of a cent below a dime.
+local function dollars(usd: number): string
+  return string.format(if usd ~= 0 and usd < 0.1 then "$%.4f" else "$%.2f" end, usd)
+end
+
 --- The limits of budget `b`, each with what `spent` used of it where given: "2 of 6 requests, $0.04 of $0.25".
 local function budget_text(b: Agent.Budget, spent?: Spent): string
   local parts: mut {string} = {}
@@ -1020,7 +1025,7 @@ local function budget_text(b: Agent.Budget, spent?: Spent): string
     put(if spent ~= nil then tostring(spent.tokens) else nil end, String.counted(tokens, "token"))
   end
   if cost ~= nil then
-    put(if spent ~= nil then string.format("$%.2f", spent.cost) else nil end, string.format("$%.2f", cost))
+    put(if spent ~= nil then dollars(spent.cost) else nil end, dollars(cost))
   end
   if seconds ~= nil then
     local took = if spent ~= nil then string.format("%.0f s", (Clock.monotonic_ns() - spent.started) / 1e9) else nil end
@@ -1183,7 +1188,8 @@ local function loop(s: Agent.Session): boolean, string
       for _, t in ipairs(steering(s)) do sent[#sent + 1] = t end
     end
     for _, t in ipairs(sent) do results[#results + 1] = { type = "text", text = t } end
-    local near = if #results > 0 and not halted then nearly_spent(s, spent) else nil end
+    -- None where the budget is spent already: the turn ends next, and a later prompt would read it stale.
+    local near = if #results > 0 and not halted and spent_why(s, spent) == nil then nearly_spent(s, spent) else nil end
     if near ~= nil then results[#results + 1] = { type = "text", text = near } end
     -- Each tool call is answered before any stop, so the session stays one the API takes.
     if #results > 0 then
