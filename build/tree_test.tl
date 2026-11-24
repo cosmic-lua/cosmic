@@ -85,3 +85,27 @@ local function test_an_unreadable_root_and_a_misplaced_tool_are_errors(tmp: stri
   assert(moved == nil and moved_trouble:find("was built from " .. tmp .. "/old; run bin/zig build boot", 1, true) ~= nil,
     tostring(moved_trouble))
 end
+
+--- A tool holds itself to the checkout it records only where it is that checkout's own tool and the checkout is
+--- still cosmic's own tree: a release, a copy outside the build directory, or a checkout that lost its `core/`
+--- holds it to none.
+local function test_a_tool_holds_itself_only_to_the_checkout_whose_tool_it_is(tmp: string)
+  local root = tmp .. "/tree"
+  checkout(root)
+  local here = assert(tree.built_from(root))
+  local layout = paths.resolve(root)
+  assert(Fs.mkdirs(layout.bin))
+  assert(Fs.write(layout.tool, "binary", 0x1ed))
+  local none = tree.checkout(nil, layout.tool)
+  assert(none == nil, "a tool that records no checkout holds itself to one")
+  local copy = tmp .. "/copy/cosmic"
+  assert(Fs.mkdirs(tmp .. "/copy"))
+  assert(Fs.write(copy, "binary", 0x1ed))
+  local away = tree.checkout(here, copy)
+  assert(away == nil, "a copy outside the build directory holds itself to the checkout")
+  local held = tree.checkout(here, layout.tool)
+  assert(held ~= nil and held.own, "the checkout's own tool holds itself to it")
+  assert(Fs.remove_tree(root .. "/core"))
+  local lost = tree.checkout(here, layout.tool)
+  assert(lost == nil, "a checkout with no core/ still holds its tool")
+end
