@@ -169,7 +169,7 @@ local function gen_record(g: Gen, t_of_decl: Type, decl: Types.Decl, path: strin
     -- folds `any?` into `any`, so the union that would say so is gone from the field's type.
     local nilable = field.omittable == true or field.type == g.store.any
     local inner, node = written.spec, written.node
-    if nilable and field.type.tag ~= "union" then
+    if nilable and not ((field.type.tag == "union") and field.type.nilable) then
       inner = S .. ".build.optional(" .. own .. ", " .. inner .. ")"
       node = optional_node(node)
     end
@@ -177,7 +177,7 @@ local function gen_record(g: Gen, t_of_decl: Type, decl: Types.Decl, path: strin
     checks[#checks + 1] = ("local sh_c%d = %s "):format(k, inner)
     reads[#reads + 1] = ("local sh_v%d, sh_e%d = sh_c%d.check(%s.build.get(sh_t, %q), %s) %s"):format(
       k, k, k, S, field.name, step,
-      if nilable or field.type.tag == "union" then ("if sh_e%d ~= \"\" then return nil, sh_e%d end"):format(k, k) else
+      if nilable or ((field.type.tag == "union") and field.type.nilable) then ("if sh_e%d ~= \"\" then return nil, sh_e%d end"):format(k, k) else
         ("if sh_v%d == nil then return nil, %s.build.failed(sh_e%d, %s) end"):format(k, S, k, step) end)
     names[#names + 1] = ("%q"):format(field.name)
     built[#built + 1] = ("[%q] = sh_v%d"):format(field.name, k)
@@ -278,7 +278,7 @@ local type Splice = ShapeSpecs.Splice
 local UNRESOLVED_ON_PURPOSE <const> = "-- record_of: unresolved on purpose"
 
 --- The check of the union `t` of records at `path`, each told by a field it alone declares
---- ([`Declarations.presence_field`]): the value is the first record whose field it holds. Nil and why for a union of
+--- ([`Declarations.presence_field`]): the value is the record whose field it holds, and one that holds none or two is refused. Nil and why for a union of
 --- anything else, or of records no field tells apart.
 function Unions.gen(g: Gen, t: Types.Union, path: string): Written?, string
   local records: mut {Types.Named} = {}

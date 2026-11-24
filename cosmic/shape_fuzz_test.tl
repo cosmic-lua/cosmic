@@ -47,6 +47,16 @@ local record Inner
   n: number
 end
 
+--- Records told apart by the field each alone declares.
+local record Dot
+  at: integer
+end
+
+local record Span
+  first: integer
+  last: integer
+end
+
 --- One field of every kind: the shapes the draws are made against.
 local record Wide
   s: string
@@ -62,6 +72,8 @@ local record Wide
   opt: Inner?
   inners: {Inner}
   deep: {string: {string}}
+  either: Dot | Span
+  eithers: {Dot | Span}
 end
 
 local record Plain
@@ -207,6 +219,19 @@ local function fits(v: any, spec: Shape.Node): boolean
     return true
   end
   if Json.is_array(t) then return false end
+  if kind == "union" then
+    -- The one arm whose field is there; none or two fit nothing.
+    local arms, by = assert(spec.arms), assert(spec.by)
+    local found: Shape.Node? = nil
+    for i, name in ipairs(by) do
+      local held = rawget(t, name)
+      if held ~= nil and not rawequal(held, Json.null) then
+        if found ~= nil then return false end
+        found = arms[i]
+      end
+    end
+    return found ~= nil and fits(v, found)
+  end
   if kind == "map" then
     for k, e in next, t do -- checked: overload_value
       if not (k is string) or not fits(e, assert(spec.of)) then return false end

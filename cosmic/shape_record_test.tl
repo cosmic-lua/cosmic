@@ -155,6 +155,14 @@ end
 
 local GRANTED <const> = Shape.record_of("Granted")
 
+--- One union field, required, and one that may be missing.
+local record Single
+  one: Reach | Call
+  maybe?: Reach | Call
+end
+
+local SINGLE <const> = Shape.record_of("Single")
+
 local function test_a_union_of_records_is_the_one_whose_own_field_the_value_holds()
   local granted, why = GRANTED:decode_into([[{"grants": [{"path": "/tmp", "letters": "r"}, {"calls": "fork"}]}]])
   assert(granted ~= nil, why)
@@ -175,4 +183,11 @@ local function test_a_union_of_records_is_the_one_whose_own_field_the_value_hold
   local grants = assert(node.fields)["grants"]
   local union = assert(assert(grants).of)
   assert(union.kind == "union" and table.concat(assert(union.by), ",") == "calls,path", union.kind)
+end
+
+local function test_a_required_union_field_is_missing_where_absent_and_an_omittable_one_is_nil()
+  local _, missing = SINGLE:decode_into("{}")
+  assert(missing == "Single: $.one: missing", missing)
+  local single, why = SINGLE:decode_into([[{"one": {"calls": "fork"}}]])
+  assert(single ~= nil and single.one is Call and single.maybe == nil, why)
 end

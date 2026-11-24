@@ -140,7 +140,8 @@ local record Shape
     values?: {string | number | boolean}
     --- The records a "union" is one of, each told by the field of `by` at its index, which only it declares.
     arms?: {Node}
-    --- For "union", the field that tells each of `arms`: a value is the first whose field it holds.
+    --- For "union", the field that tells each of `arms`: a value is the one whose field it holds, and one that holds
+    --- none or two is refused.
     by?: {string}
   end
 
@@ -773,15 +774,19 @@ local BUILD: Shape.Build = {
     for i, name in ipairs(names) do
       if not absent(rawget(t, name)) then
         if found ~= nil then
+          local two: mut {string} = { names[found] or "", name }
+          table.sort(two)
           return nil, ("%s: holds both %s and %s, which tell different records apart; keep one"):format(path,
-            quoted(names[found] or ""), quoted(name))
+            quoted(two[1] or ""), quoted(two[2] or ""))
         end
         found = i
       end
     end
     if found ~= nil then return found, "" end
     local fields: mut {string} = {}
-    for i, name in ipairs(names) do fields[i] = quoted(name) end
+    for i, name in ipairs(names) do fields[i] = name end
+    table.sort(fields)
+    for i, name in ipairs(fields) do fields[i] = quoted(name) end
     return nil, ("%s: want a record with one of the fields %s"):format(path, table.concat(fields, ", "))
   end,
 }
