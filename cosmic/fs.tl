@@ -89,12 +89,20 @@ local class Dir
   --- Its descriptor; -1 once closed. Leave it to the methods.
   mut fd: integer
 
-  --- The bytes of the file `name`, as [`Fs.read`] answers them.
+  --- The bytes of the file `name`, as [`Fs.read`] answers them; a name that is no file (a directory, a pipe, a
+  --- device) fails.
   function read(self, name: string): (string) | (nil, Failure)
     local named = self.path .. "/" .. name
     if self.fd < 0 then return nil, Failure.new("the directory is closed", named) end
-    local fd, why, errno = sys.openat(self.fd, name, sys.O_RDONLY)
+    -- Opened not to wait, so a pipe swapped in at the name is refused, not waited on: only a file is read.
+    local fd, why, errno = sys.openat(self.fd, name, sys.O_RDONLY | sys.O_NONBLOCK)
     if fd == nil then return nil, dir_failure(errno, why, named) end
+    local st, st_why, st_errno = sys.fstat(fd)
+    if st == nil or st.kind ~= "file" then
+      local _, _ = sys.close(fd)
+      if st == nil then return nil, dir_failure(st_errno, st_why, named) end
+      return nil, Failure.new("no file (" .. st.kind .. "): a Dir reads files", named)
+    end
     local parts: mut {string} = {}
     while true do
       local chunk, _, read_errno = sys.read(fd, 1 << 16)
@@ -120,7 +128,8 @@ local class Dir
     local why, errno = "", 0
     for _ = 1, 100 do
       dir_writes = dir_writes + 1
-      temporary = name .. ".writing." .. tostring(sys.getpid()) .. "." .. tostring(dir_writes)
+      -- A name of its own length, so the longest name has one too.
+      temporary = ".writing." .. tostring(sys.getpid()) .. "." .. tostring(dir_writes)
       fd, why, errno = sys.openat(self.fd, temporary, sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, mode or 0x1a4)
       if fd ~= nil or errno ~= sys.EEXIST then break end
     end
@@ -171,14 +180,11 @@ local class Dir
     return true
   end
 
-  --- The directory `name` in this one, opened as [`Fs.dir`] opens a path.
+  --- The directory `name` in this one, opened from this one's descriptor: a link at the name fails, ELOOP.
   function dir(self, name: string): (Dir) | (nil, Failure)
     local named = self.path .. "/" .. name
     if self.fd < 0 then return nil, Failure.new("the directory is closed", named) end
-    if name == "" or name:find("/", 1, true) ~= nil or name == "." or name == ".." then
-      return nil, Failure.system(sys.EINVAL, named)
-    end
-    local fd, why, errno = sys.open_dir(named)
+    local fd, why, errno = sys.open_dir_at(self.fd, name)
     if fd == nil then return nil, dir_failure(errno, why, named) end
     local held: Dir = { path = named, fd = fd }
     return held

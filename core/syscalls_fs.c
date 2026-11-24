@@ -747,11 +747,54 @@ COSMIC_SYSCALL(openat, 4) {
   if (name == NULL || !one_name(name)) return cosmic_fail(L, EINVAL);
   int flags = cosmic_checkint(L, 3);
   int mode = cosmic_optint(L, 4, 0644);
+  /* The program's own file is refused, by any name: on macOS /dev/fd
+   * holds descriptor nodes, not links, which no O_NOFOLLOW meets, and
+   * one of them is the retained descriptor of the program
+   * ([`artifact_through_descriptor`]). Asked before the open, since
+   * asking may raise. */
+  const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
   int fd;
   do {
     fd = openat(dir, name, flags | O_NOFOLLOW | O_CLOEXEC, (mode_t)mode);
   } while (fd < 0 && errno == EINTR);
   if (fd < 0) return cosmic_fail(L, errno);
+  if (artifact != NULL) {
+    struct stat st;
+    int refused = fstat(fd, &st) != 0 ? errno : 0;
+    if (refused == 0 && (uint64_t)st.st_dev == artifact->device && (uint64_t)st.st_ino == artifact->inode) {
+      refused = EACCES;
+    }
+    if (refused != 0) {
+      close(fd);
+      return cosmic_fail(L, refused);
+    }
+  }
+  lua_pushinteger(L, fd);
+  return 1;
+}
+
+COSMIC_SYSCALL(open_dir_at, 2) {
+  int dir = cosmic_checkfd(L, 1);
+  const char *name = cosmic_path(L, 2);
+  if (name == NULL || !one_name(name)) return cosmic_fail(L, EINVAL);
+#if defined(__linux__)
+  int fd = openat(dir, name, O_PATH | O_NOFOLLOW | O_CLOEXEC);
+  int number = fd < 0 ? errno : 0;
+  struct stat st;
+  if (number == 0 && fstat(fd, &st) != 0) number = errno;
+  if (number == 0 && S_ISLNK(st.st_mode)) number = ELOOP;
+  if (number == 0 && !S_ISDIR(st.st_mode)) number = ENOTDIR;
+  if (number != 0) {
+    if (fd >= 0) close(fd);
+    return cosmic_fail(L, number);
+  }
+#else
+  int fd;
+  do {
+    fd = openat(dir, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  } while (fd < 0 && errno == EINTR);
+  if (fd < 0) return cosmic_fail(L, errno);
+#endif
   lua_pushinteger(L, fd);
   return 1;
 }

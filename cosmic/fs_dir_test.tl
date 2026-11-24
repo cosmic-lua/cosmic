@@ -76,3 +76,26 @@ local function test_a_dir_takes_one_name(tmp: string)
   local closed, closed_why = d:read("b")
   assert(closed == nil and tostring(closed_why):find("closed", 1, true) ~= nil, tostring(closed_why))
 end
+
+--- Only a file is read: a directory, or a pipe, which would wait for a writer, is refused at once.
+local function test_a_dir_reads_files_alone(tmp: string)
+  local root = real(tmp)
+  assert(Fs.mkdirs(root .. "/sub"))
+  local d <close> = assert(Fs.dir(root))
+  local read, why = d:read("sub")
+  assert(read == nil and tostring(why):find("no file (dir)", 1, true) ~= nil, tostring(why))
+  local made, _ = sys.mkfifo(root .. "/pipe", 0x1a4)
+  if made then
+    local piped, piped_why = d:read("pipe")
+    assert(piped == nil and tostring(piped_why):find("no file", 1, true) ~= nil, tostring(piped_why))
+  end
+end
+
+--- A name as long as a name may be is written: the temporary file's name does not grow with it.
+local function test_a_dir_writes_the_longest_name(tmp: string)
+  local root = real(tmp)
+  local d <close> = assert(Fs.dir(root))
+  local long = string.rep("n", 255)
+  assert(d:write(long, "x"))
+  assert(assert(d:read(long)) == "x")
+end

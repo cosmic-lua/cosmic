@@ -353,8 +353,9 @@ end
 
 --- The directory that holds `full`, held with no link on its path ([`Fs.dir`]), and the name in it, under a policy:
 --- the real name [`permitted`] checked is what is opened, as a link swapped in on it after the check is met, not
---- followed. With `make`, each missing directory is made in the one above it, one name at a time. Nil and why where
---- the directory cannot be held.
+--- followed. `missing` names the directories above `full` to make, outermost first, each in the one above it: the
+--- ones the caller checked, so a directory removed since is not made unchecked. Nil and why where the directory
+--- cannot be held.
 local record Held
   --- The directory, held.
   dir: Fs.Dir
@@ -362,20 +363,12 @@ local record Held
   name: string
 end
 
-local function held(full: string, make: boolean): Held?, string
+local function held(full: string, missing?: {string}): Held?, string
   local dir = Fs.dirname(full)
-  local missing: mut {string} = {}
-  if make then
-    while dir ~= Fs.dirname(dir) do
-      local status, _ = Fs.status(dir)
-      if status ~= nil and status.exists then break end
-      table.insert(missing, 1, Fs.basename(dir))
-      dir = Fs.dirname(dir)
-    end
-  end
+  for _ in ipairs(missing or {}) do dir = Fs.dirname(dir) end
   local d, why = Fs.dir(dir)
   if d == nil then return nil, tostring(why) end
-  for _, name in ipairs(missing) do
+  for _, name in ipairs(missing or {}) do
     local made, made_why = d:mkdir(name)
     local inner, inner_why = d:dir(name)
     d:close()
@@ -398,7 +391,7 @@ local function read_file(full: string, path: string, policy?: Sandbox.Policy): s
     if body == nil then return nil, tostring(why) end
     return body, ""
   end
-  local at, why = held(full, false)
+  local at, why = held(full)
   if at == nil then return nil, why end
   local d, name = at.dir, at.name
   local status, status_why = d:status(name)
@@ -417,8 +410,9 @@ local function read_file(full: string, path: string, policy?: Sandbox.Policy): s
   return body, ""
 end
 
---- Writes `content` to `full`, making the directories above it: through [`held`] under a policy.
-local function write_file(full: string, content: string, policy?: Sandbox.Policy): boolean, string
+--- Writes `content` to `full`: through [`held`] under a policy, making `missing` there, the directories above it that
+--- the caller checked; by its name where there is none, making what is missing.
+local function write_file(full: string, content: string, policy?: Sandbox.Policy, missing?: {string}): boolean, string
   if policy == nil then
     local made, made_why = Fs.mkdirs(Fs.dirname(full))
     if not made then return false, tostring(made_why) end
@@ -426,7 +420,7 @@ local function write_file(full: string, content: string, policy?: Sandbox.Policy
     if not wrote then return false, tostring(wrote_why) end
     return true, ""
   end
-  local at, why = held(full, true)
+  local at, why = held(full, missing)
   if at == nil then return false, why end
   local d, name = at.dir, at.name
   local wrote, wrote_why = d:write(name, content)
@@ -462,6 +456,7 @@ local function write(input: Tools.Object, context: Tools.Context): Tools.Result
   if full == nil then return fail(refused) end
   -- Each directory the write makes is made in the one above it: each asks c there, not only the last.
   local policy = context.policy
+  local missing: mut {string} = {}
   if policy ~= nil then
     local dir = Fs.dirname(full)
     while dir ~= Fs.dirname(dir) do
@@ -471,10 +466,11 @@ local function write(input: Tools.Object, context: Tools.Context): Tools.Result
       if made_here == nil then
         return fail("The sandbox does not let the agent create " .. dir .. ": " .. why_not)
       end
+      table.insert(missing, 1, Fs.basename(dir))
       dir = Fs.dirname(dir)
     end
   end
-  local wrote, wrote_why = write_file(full, content, policy)
+  local wrote, wrote_why = write_file(full, content, policy, missing)
   if not wrote then return fail(wrote_why) end
   return ok(string.format("Successfully wrote %s to %s", String.counted(#content, "byte"), path))
 end

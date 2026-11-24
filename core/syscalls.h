@@ -296,7 +296,17 @@ COSMIC_SYSCALL(rename, 2);
 COSMIC_SYSCALL(open_dir, 1);
 
 /*
- * --- Opens `name` in the directory `dir` holds, never through a link: a link at the name is ELOOP. Close-on-exec, as `open` is. A name with "/", or "." or "..", is EINVAL.
+ * --- Opens the directory `name` in the directory `dir` holds, as `open_dir` opens a path: a link at the name is ELOOP, anything else that is no directory ENOTDIR. A name with "/", or "." or "..", is EINVAL.
+ * ---@param dir integer a directory's descriptor, from `open_dir`
+ * ---@param name string one name in it
+ * ---@return integer|nil fd the descriptor, or nil on failure
+ * ---@return string error what went wrong, when fd is nil
+ * ---@return integer errno the error number, when fd is nil
+ */
+COSMIC_SYSCALL(open_dir_at, 2);
+
+/*
+ * --- Opens `name` in the directory `dir` holds, never through a link: a link at the name is ELOOP. Close-on-exec, as `open` is. The program's own file is refused, EACCES, by any name. A name with "/", or "." or "..", is EINVAL.
  * ---@param dir integer a directory's descriptor, from `open_dir`
  * ---@param name string one name in it
  * ---@param flags integer the O_* flags, such as `O_RDONLY` or `O_WRONLY | O_CREAT | O_EXCL`
