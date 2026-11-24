@@ -262,6 +262,15 @@ local function test_proc_profile_is_proc_on_linux_and_nothing_on_macos()
   assert(both.profiles == nil and #assert(both.grants) == 1 and Array.at(assert(both.grants), 1).path == "/proc")
 end
 
+--- On macOS /bin/sh is a stub that runs the shell /private/var/select/sh
+--- names, so that shell is a file its start needs too.
+local function test_loaders_follows_macos_sh_to_the_shell_it_runs()
+  if not Sandbox.on_macos() then return end
+  local files = assert(Sandbox.loaders("/bin/sh"))
+  local variant = assert(sys.realpath("/private/var/select/sh"))
+  assert(files[1] == "/bin/sh" and files[2] == variant, table.concat(files, " "))
+end
+
 local function test_loaders_names_a_static_program_alone(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local files = assert(Sandbox.loaders(probe))

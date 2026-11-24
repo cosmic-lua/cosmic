@@ -513,13 +513,17 @@ local function interpreter_of(path: string): string?
   return found
 end
 
+--- The link macOS's /bin/sh reads to find the shell it runs.
+local SH_VARIANT <const> = "/private/var/select/sh"
+
 --- What the program at `path` needs to start, as real paths with no link
 --- left in them: the program itself first, then the interpreter its `#!`
 --- line or its ELF header (PT_INTERP) names, then that one's, as far as the
 --- kernel follows. The files a policy must grant `r` and `x` for the
 --- program to start at all. `path` is relative to `cwd` (this process's
 --- directory when nil). Nil and why when the program or an interpreter it
---- names does not exist.
+--- names does not exist. On macOS /bin/sh is followed by the shell it
+--- runs, the one /private/var/select/sh names.
 ---
 --- A script that starts with `#!/usr/bin/env python3` names /usr/bin/env;
 --- the program env then finds is its own start, which this cannot know.
@@ -543,6 +547,12 @@ function Sandbox.loaders(path: string, cwd?: string): {string}?, string
     seen[real] = true
     files[#files + 1] = real
     local next_file = interpreter_of(real)
+    if next_file == nil and real == "/bin/sh" and rules.on_macos() then
+      -- macOS's /bin/sh is a stub that runs the shell /private/var/select/sh
+      -- names (bash, unless the admin chose another), as an exec of its own.
+      local variant, _ = sys.realpath(SH_VARIANT)
+      if variant ~= nil and variant ~= real then next_file = variant end
+    end
     if next_file == nil then break end
     at = next_file
   end
