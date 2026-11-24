@@ -388,7 +388,10 @@ function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, c
     -- The start reads "/tmp" and "tmp" alike as the letters of its own /tmp.
     local own_tmp = isolated_tmp and grant.from == nil and (grant.path == "/tmp" or grant.path == "tmp")
     if grant.from ~= nil or own_tmp then
-      local covers = at == "/" or checked == at or checked:sub(1, #at + 1) == at .. "/"
+      -- Its real name, as `checked` is one: /tmp is /private/tmp on macOS.
+      local real_at, _ = Sandbox.real(at)
+      local held = real_at or at
+      local covers = held == "" or held == "/" or checked == held or checked:sub(1, #held + 1) == held .. "/"
       if covers then
         local why_skipped = if own_tmp then "is the sandbox's own /tmp" else "has from" end
         skipped[#skipped + 1] = string.format("%q %s", grant.path, why_skipped)
