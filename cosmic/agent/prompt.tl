@@ -8,9 +8,7 @@
 --- the working directory itself is a block of its own after it
 --- ([`Prompt.where`]). Code mode adds no section of its own: what a
 --- snippet of `run` may do is in that tool's description, so a session
---- that never runs one pays for little more than the tool. Its words are
---- a text template, `prompt_text.tmpl` ([`cosmic.template`]), which
---- [`Prompt.build`] fills.
+--- that never runs one pays for little more than the tool.
 
 local AgentMcp = require("cosmic.agent.mcp")
 local Fs = require("cosmic.fs")
@@ -84,6 +82,7 @@ end
 
 --- The system prompt for `cwd`, with `contexts` as its project's instructions (each named by its path relative to `cwd`), and `options`' MCP servers where
 --- given: each server's name and what it is for, which a snippet calls by `require("mcp.<name>")`.
+-- The words are the text template prompt_text.tmpl (cosmic.template); this fills its record.
 function Prompt.build(cwd: string, contexts: {Prompt.Context}, options?: Prompt.Options): string
   local offered = if options ~= nil and options.tools ~= nil then options.tools else Tools.default() end
   local instructions: mut {Data.Instructions} = {}

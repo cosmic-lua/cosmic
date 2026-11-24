@@ -1,4 +1,4 @@
---- What [`Prompt.build`](./prompt.tl) gives its template, `prompt_text.tmpl`:
+--- What [`Prompt.build`] (cosmic/agent/prompt.tl) gives its template, `prompt_text.tmpl`:
 --- the record it renders, apart so that the template's import of it is no
 --- cycle.
 
