@@ -20,9 +20,7 @@ return function(argv: {string}): integer
     for _, source in ipairs({ Env.all(), { [reentered] = "1" } }) do
       for name, value in pairs(source) do environment[name] = value end
     end
-    local _, trouble = Proc.exec({ artifact, script, first, second, "reenter" },
-      { env = environment })
-    error(trouble)
+    error(tostring(Proc.exec({ artifact, script, first, second, "reenter" }, { env = environment })))
   end
   assert(Fs.put(Fs.stdout, "script " .. first .. " " .. second .. "\n"))
   return 0

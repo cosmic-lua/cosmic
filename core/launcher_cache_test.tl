@@ -68,7 +68,8 @@ end
 --- Skips the test where this program has no artifact to relaunch, as a
 --- native start has not.
 local function relaunch_or_skip()
-  if Proc.relaunch() == nil then
+  local relaunched, _ = Proc.relaunch()
+  if relaunched == nil then
     Test.skip("a native start has no artifact to launch from a cache")
   end
 end

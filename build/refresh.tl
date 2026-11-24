@@ -771,7 +771,7 @@ local function run(argv: {string}): integer
   if binary == nil then
     local running, trouble = Proc.executable()
     if running == nil then
-      log:complain("refresh: " .. trouble)
+      log:complain("refresh: " .. tostring(trouble))
       return 1
     end
     binary = running

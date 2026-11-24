@@ -103,7 +103,8 @@ local function test_processes_confined_apart_report_apart(tmp: string)
     Test.skip("this core reports no native coverage")
     return
   end
-  if Proc.relaunch() == nil then
+  local relaunched, _ = Proc.relaunch()
+  if relaunched == nil then
     Test.skip("a native start has nothing to relaunch")
     return
   end

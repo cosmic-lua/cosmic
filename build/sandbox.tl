@@ -350,7 +350,9 @@ local function request_of(argv: {string}): Request?, string
     if #given == 1 and not request.closure then
       -- No command is this program's core on the database, with no arguments.
       local own, own_trouble = Proc.executable()
-      if own == nil then return nil, "this program has no file to run: " .. own_trouble end
+      if own == nil then
+        return nil, "this program has no file to run: " .. tostring(own_trouble)
+      end
       request.argv[1] = own
     elseif request.closure then
       return nil, "--closure runs a script: give this program and then the script after the " ..
@@ -549,11 +551,11 @@ local function failed_start(program: string, cwd: string?, why: string): integer
     end
     return START_FAILED, said
   end
-  local found = Proc.find_result(program)
-  if found.kind == "not_found" and said:find(found.reason, 1, true) ~= nil then
+  local _, absent = Proc.find(program)
+  if absent ~= nil and absent.errno == sys.ENOENT and said:find(tostring(absent), 1, true) ~= nil then
     return NOT_FOUND, said
   end
-  if found.kind == "not_executable" and said:find(found.reason, 1, true) ~= nil then
+  if absent ~= nil and absent.errno == sys.EACCES and said:find(tostring(absent), 1, true) ~= nil then
     return NOT_EXECUTABLE, said
   end
   return START_FAILED, said

@@ -24,7 +24,7 @@ Test.policy{ profiles = { "cosmic" }, promises = { "nest" }, requires = { "nest"
 --- database (`skip_unless_sealed` of build/sealed_worker_test.tl, for a
 --- worker that nests).
 local function sealed_or_skip(): Proc.Relaunch
-  local relaunch = Proc.relaunch()
+  local relaunch, _ = Proc.relaunch()
   local on_database = relaunch ~= nil and relaunch.argv[2] == "--database"
   if Env.get(confine.held_variable) ~= nil then
     assert(on_database, "a sandboxed worker that nests was not given a sealed database")

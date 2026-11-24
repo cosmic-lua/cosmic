@@ -482,7 +482,7 @@ local function test_fuzz_waits_after_output_eof_and_drains_a_finite_post_exit_ta
   local first <close>, temp = start_fuzz(eof, { "#!/bin/sh", "exec 1>&- 2>&-", "sleep 0.2", "exit 7" }, {})
   assert(assert(first:wait(Clock.seconds(30))).code == 7)
   assert(read(temp .. "/fuzz.status") == "7\n")
-  local setsid = Proc.find("setsid")
+  local setsid, _ = Proc.find("setsid")
   if setsid == nil then
     Test.skip("this host has no setsid")
     return
@@ -574,7 +574,7 @@ local function test_a_failed_drain_preserves_the_status_it_observed(tmp: string)
 end
 
 local function test_an_escaped_writer_bounds_final_drain_without_replacing_child_status(tmp: string)
-  local found = Proc.find("setsid")
+  local found, _ = Proc.find("setsid")
   if found == nil then Test.skip("this host has no setsid") end
   local setsid = assert(found)
   local pid_file = tmp .. "/escaped-pid"

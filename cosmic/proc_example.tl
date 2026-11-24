@@ -5,6 +5,7 @@
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
+local sys = require("cosmic.sys")
 
 -- The account file a lookup reads here. On Darwin it consults the host's
 -- directory service too, which an unsandboxed worker reaches undeclared.
@@ -22,20 +23,21 @@ function Example.is_tty()
   end
 end
 
---- A command dispatcher chooses shell status 126 or 127 from the kind,
---- leaving the reason for a person. Resolution of an explicit path only
---- selects its spelling: starting that path can still fail.
-function Example.find_result()
+--- A command dispatcher chooses shell status 126 or 127 from the
+--- failure's errno, leaving its words for a person. Resolution of an
+--- explicit path only selects its spelling: starting that path can still
+--- fail.
+function Example.find()
   local dir = assert(Fs.mkdtemp("cosmic-proc-example-"))
   assert(Fs.write(dir .. "/blocked", "", 0x180))
   local function status(name: string): integer
-    local result = Proc.find_result(name, dir)
-    if result.kind == "resolved" then
-      print("selected", result.path)
+    local found, why = Proc.find(name, dir)
+    if found ~= nil then
+      print("selected", found)
       return 0
     end
-    print(result.reason)
-    return if result.kind == "not_executable" then 126 else 127 end
+    print(tostring(why))
+    return if why.errno == sys.EACCES then 126 else 127 end
   end
   assert(status("blocked") == 126)
   assert(status("missing") == 127)
@@ -49,10 +51,10 @@ function Example.user()
   local user, trouble = Proc.user("nobody")
   if user ~= nil then
     print("uid", user.uid, "gid", user.gid)
-  elseif trouble == "" then
+  elseif trouble.message == Proc.NO_ACCOUNT then
     print("no account named nobody")
   else
-    error(trouble)
+    error(tostring(trouble))
   end
 end
 

@@ -733,7 +733,7 @@ local function version(argv: {string}): integer
   end
   local path, path_trouble = Proc.executable()
   if path == nil then
-    log:complain("--version: " .. path_trouble)
+    log:complain("--version: " .. tostring(path_trouble))
     return 1
   end
   -- TODO: hash the artifact descriptor startup retained rather than

@@ -3211,7 +3211,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     path = relaunch.argv[1]
   elseif not path:find("/", 1, true) then -- checked: nil_not_allowed
     local on_path, absent = Proc.find(path) -- checked: nil_not_allowed
-    if on_path == nil then return nil, absent end
+    if on_path == nil then return nil, tostring(absent) end
     local real, real_trouble = sys.realpath(on_path)
     if real == nil then return nil, on_path .. ": " .. real_trouble end
     path = real
@@ -3422,7 +3422,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   local path = core or argv[1]
   if core == nil and not path:find("/", 1, true) then -- checked: nil_not_allowed
     local found, absent = Proc.find(path) -- checked: nil_not_allowed
-    if found == nil then return nil, absent end
+    if found == nil then return nil, tostring(absent) end
     local real, real_trouble = sys.realpath(found)
     if real == nil then return nil, found .. ": " .. real_trouble end
     path = real
@@ -4085,7 +4085,9 @@ end
 --- needed. Nil and why where it cannot start or ends first.
 begin_relay = function(prep: RelayPrep, channel: integer?): RelayLaunch?, string
   local program, program_trouble = Proc.executable()
-  if program == nil then return nil, "this program's own file is unknown: " .. program_trouble end
+  if program == nil then
+    return nil, "this program's own file is unknown: " .. tostring(program_trouble)
+  end
   local logged = prep.log
   local log: integer | Stderr
   if logged is integer then
