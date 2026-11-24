@@ -13,6 +13,7 @@ local Codec = require("cosmic.codec")
 local Test = require("cosmic.test")
 local codec = require("build.codec")
 local String = require("cosmic.string")
+local type Failure = require("cosmic.failure")
 
 local record Ran
   mut code: integer
@@ -195,13 +196,13 @@ local function stream(words: {string}, chunk: string, rounds: integer, expect: s
     integer, boolean, number, number
   local sent = 0
   local input: Stream.Reader = { -- checked: literal_shape
-    read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
-      if sent == rounds then return nil, "" end
+    read = function(_self: Stream.Reader, _max_bytes?: integer): (string | false) | (nil, Failure)
+      if sent == rounds then return false end
       sent = sent + 1
-      return chunk, ""
+      return chunk
     end,
-    close = function(_self: Stream.Reader): boolean, string
-      return true, ""
+    close = function(_self: Stream.Reader): (true) | (false, Failure)
+      return true
     end,
   }
   collectgarbage()
@@ -278,15 +279,15 @@ local function trickle(text: string): Stream.Reader
   local at = 1
   local turn = 0
   local reader: Stream.Reader = { -- checked: literal_shape
-    read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
-      if at > #text then return nil, "" end
+    read = function(_self: Stream.Reader, max_bytes?: integer): (string | false) | (nil, Failure)
+      if at > #text then return false end
       turn = turn % 4 + 1
       local piece = text:sub(at, at + math.min(turn, max_bytes or turn) - 1)
       at = at + #piece
-      return piece, ""
+      return piece
     end,
-    close = function(_self: Stream.Reader): boolean, string
-      return true, ""
+    close = function(_self: Stream.Reader): (true) | (false, Failure)
+      return true
     end,
   }
   return reader
@@ -323,13 +324,13 @@ local function test_an_encoder_writes_as_it_reads_but_a_decoder_holds_a_chunk()
   local writes = 0
   local sent = 0
   local input: Stream.Reader = { -- checked: literal_shape
-    read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
-      if sent == 3 then return nil, "" end
+    read = function(_self: Stream.Reader, max_bytes?: integer): (string | false) | (nil, Failure)
+      if sent == 3 then return false end
       sent = sent + 1
-      return ("a"):rep(max_bytes or 1), ""
+      return ("a"):rep(max_bytes or 1)
     end,
-    close = function(_self: Stream.Reader): boolean, string
-      return true, ""
+    close = function(_self: Stream.Reader): (true) | (false, Failure)
+      return true
     end,
   }
   local seen: mut {integer} = {}

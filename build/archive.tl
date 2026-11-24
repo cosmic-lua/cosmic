@@ -44,11 +44,8 @@ local record verb
   end
 end
 
-local spec = Verb.spec or {}
-
-local usage = "cosmic archive list [--json] <file>|-; " ..
-  "cosmic archive extract [-C <dir>] [--force] <file>|- [<member>...]; " ..
-  "cosmic archive create [--reproducible] <out.tar.gz|out.tgz|out.tar.xz|out.txz|out.tar.bz2|out.tbz2|out.tbz|out.tar.zst|out.tzst|out.tar|out.zip> <path>..."
+--- The subcommands, each with the options it takes, as [`cosmic.cli.archive`] describes them.
+local subcommands = Verb.subcommands or {}
 
 --- What a run ends with: an exit code and the complaint that goes
 --- with it (none for 0).
@@ -116,12 +113,10 @@ local function peek(source: Stream.Reader, n: integer): string?, string
   while have < n do
     local chunk, why = source:read(n - have)
     if chunk == nil then
-      if why ~= "" then
-        local _, _ = source:close()
-        return nil, why
-      end
-      break
+      local _, _ = source:close()
+      return nil, tostring(why)
     end
+    if chunk == false then break end
     parts[#parts + 1] = chunk
     have = have + #chunk
   end
@@ -148,7 +143,9 @@ local function spool(source: Stream.Reader): string?, string
   local _, _ = source:close()
   local closed, close_why = false, ""
   if copied ~= nil then
-    closed, close_why = sink:close()
+    local ok, trouble = sink:close()
+    closed = ok
+    if not ok then close_why = tostring(trouble) end
   else
     local _, _ = sink:abort()
   end
@@ -622,7 +619,9 @@ local function extract(file: string, dest: string, force: boolean, members: {str
   local wanted: mut {string} = {}
   for _, member in ipairs(members) do
     local name = normal(member)
-    if name == "" then return fail(bare.refused, "an empty member name; " .. usage) end
+    if name == "" then
+      return fail(bare.refused, "an empty member name; " .. Flags.usage(Verb, "cosmic archive", { "extract" }))
+    end
     wanted[#wanted + 1] = name
   end
   local function selected(name: string): boolean
@@ -800,13 +799,17 @@ local function add_file(writer: Stream.ArchiveWriter, item: Item): boolean, stri
   -- A tar reads only the size it was given, so a file that grew since
   -- it was stat'd has bytes past it that would be silently dropped; a
   -- zip has read to the end and refused it already.
-  local more, more_why: string?, string = nil, ""
-  if ok then more, more_why = body:read(1) end
+  local more: string | false = false
+  local more_why = ""
+  if ok then
+    local got, got_why = body:read(1)
+    if got == nil then more_why = tostring(got_why) else more = got end
+  end
   -- A writer does not close its body.
   local _, _ = body:close()
   if not ok then return false, added end
-  if more == nil and more_why ~= "" then return false, item.full .. ": " .. more_why end
-  if more ~= nil and more ~= "" then
+  if more_why ~= "" then return false, item.full .. ": " .. more_why end
+  if more is string and more ~= "" then
     return false, item.full .. ": grew past " .. plural.count(item.size, "byte") .. " as it was read"
   end
   return true, ""
@@ -877,44 +880,35 @@ local standard: verb.Io = {
 function verb.run(argv: {string}, io?: verb.Io): integer
   local to = io or standard
   local complain = bare.complainer("archive", to.err)
-  local parsed, trouble = Flags.parse(argv, 2, spec)
-  if parsed == nil then
-    complain(trouble .. "; " .. usage)
-    return bare.refused
-  end
-  local flags: Flags.Parsed = parsed
-  local words = flags.words
-  local action = words[1]
-  local function only(option: string, actions: {string}): boolean
-    if flags.set[option] ~= true and flags.values[option] == nil then return true end
-    for _, name in ipairs(actions) do
-      if name == action then return true end
-    end
-    complain(option .. " does not go with " .. tostring(action) .. "; " .. usage)
-    return false
-  end
-  if action ~= "list" and action ~= "extract" and action ~= "create" then
+  local action = argv[2]
+  local usage = Flags.usage(Verb, "cosmic archive", { action or "" })
+  local described = if action ~= nil then subcommands[action] else nil end
+  if action == nil or described == nil then
     complain((if action == nil then "name list, extract or create" else ("no such action: " .. action) end) ..
         "; " .. usage)
     return bare.refused
   end
-  if not (only("--json", { "list" }) and only("-C", { "extract" }) and
-      only("--force", { "extract" }) and only("--reproducible", { "create" })) then
+  local none: {string:boolean | Flags.Option} = {}
+  local parsed, trouble = Flags.parse(argv, 3, described.spec or none)
+  if parsed == nil then
+    complain(action .. ": " .. trouble .. "; " .. usage)
     return bare.refused
   end
+  local flags: Flags.Parsed = parsed
+  local words = flags.words
   local outcome: Outcome
   if action == "list" then
-    if #words ~= 2 then
+    if #words ~= 1 then
       complain("give one file, or - for standard input; " .. usage)
       return bare.refused
     end
-    if words[2] == "" then
+    if words[1] == "" then
       complain(bare.empty_file .. "; " .. usage)
       return bare.refused
     end
-    outcome = list(words[2], flags.set["--json"] == true, to)
+    outcome = list(words[1], flags.set["--json"] == true, to)
   elseif action == "extract" then
-    local archive_file = words[2]
+    local archive_file = words[1]
     if archive_file == nil then
       complain("give a file, or - for standard input; " .. usage)
       return bare.refused
@@ -924,19 +918,19 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       return bare.refused
     end
     local members: mut {string} = {}
-    for slot = 3, #words do
+    for slot = 2, #words do
       members[#members + 1] = words[slot]
     end
     outcome = extract(archive_file, flags.values["-C"] or ".", flags.set["--force"] == true,
       members, to)
   else
-    local output = words[2]
-    if #words < 3 or output == nil then
+    local output = words[1]
+    if #words < 2 or output == nil then
       complain("give an output file and at least one path; " .. usage)
       return bare.refused
     end
     local paths: mut {string} = {}
-    for slot = 3, #words do
+    for slot = 2, #words do
       paths[#paths + 1] = words[slot]
     end
     outcome = create(output, paths, flags.set["--reproducible"] == true, to)

@@ -19,6 +19,7 @@
 
 local Clock = require("cosmic.clock")
 local Compress = require("cosmic.compress")
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Number = require("cosmic.number")
@@ -28,6 +29,15 @@ local Time = require("cosmic.time")
 local type Tls = require("cosmic.tls")
 local errors = require("cosmic.internal.errors")
 local wire = require("cosmic.http.wire")
+
+--- The [`Failure`] for the words a read failed with: kind "timeout" for
+--- [`Poll.TIMEOUT`], "cancelled" for [`Poll.CANCELLED`] and for
+--- "interrupted" (a signal a [`Signal.guard`] caught), else "other".
+local function failure_of(why: string): Failure
+  if why == Poll.TIMEOUT then return Failure.timeout(why) end
+  if why == Poll.CANCELLED or why == "interrupted" then return Failure.cancelled(why) end
+  return Failure.new(why)
+end
 
 local record Server
   --- One request [`Server.serve`] hands its handler. Its head is read
@@ -377,12 +387,12 @@ local class Timed is Stream.Reader
   each: integer
   mut deadline?: integer
 
-  function read(self, max_bytes?: integer): string?, string
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     local wait = self.each
     local deadline = self.deadline
     if deadline ~= nil then
       local left = deadline - Clock.monotonic_ns()
-      if left <= 0 then return nil, Poll.TIMEOUT end
+      if left <= 0 then return nil, failure_of(Poll.TIMEOUT) end
       if wait == nil or left < wait then wait = left end -- checked: compare_disjoint
     end
     self.conn:set_timeout(wait)
@@ -390,8 +400,8 @@ local class Timed is Stream.Reader
   end
 
   --- The connection is the server's to close.
-  function close(self): boolean, string
-    return true, ""
+  function close(self): (true) | (false, Failure)
+    return true
   end
 end
 
@@ -474,7 +484,7 @@ local function linger(conn: Net.Conn)
     if left <= 0 then return end
     conn:set_timeout(left)
     local piece, _ = conn:read()
-    if piece == nil then return end
+    if piece == nil or piece == false then return end
     dropped = dropped + #piece
   end
 end

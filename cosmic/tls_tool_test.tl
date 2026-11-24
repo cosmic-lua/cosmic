@@ -10,7 +10,6 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
-local Poll = require("cosmic.poll")
 local Server = require("cosmic.http.server")
 local Test = require("cosmic.test")
 local Tailnet = require("cosmic.web.tailnet")
@@ -21,6 +20,15 @@ local _ = require("build.standalone")
 local this_program = require("build.this_program")
 --- What the client script requires, as in cosmic/http_tool_test.tl.
 local type _ = require("cosmic.http")
+local type Stream = require("cosmic.stream")
+
+--- The next chunk of `reader`: raises where it ended or failed.
+local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
+  local chunk, why = reader:read(max_bytes)
+  if chunk == nil then error(tostring(why), 2) end
+  if chunk == false then error("the stream ended", 2) end
+  return chunk
+end
 
 Test.policy{
   profiles = { "cosmic" }, loopback = { "127.0.0.1" },
@@ -123,7 +131,7 @@ local function test_the_first_pair_is_served_without_a_name_and_a_clear_client_i
       local conn <close> = assert(Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(20) }))
       assert(conn:write("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"))
       local got, why = conn:read()
-      clear = tostring(got) .. " " .. why
+      clear = tostring(got) .. " " .. tostring(why)
       said = fetched(tmp, port, { "127.0.0.1", "localhost" })
       server:stop()
     end,
@@ -243,7 +251,7 @@ local function test_a_handshake_sent_a_byte_at_a_time_is_cut_off()
         local _, _ = conn:write("\x01")
         conn:set_timeout(Clock.ms(1))
         local got, why = conn:read()
-        if got ~= nil or why ~= Poll.TIMEOUT then break end
+        if got ~= nil or why.kind ~= "timeout" then break end
       end
       lasted = Clock.monotonic_ns() - started
       server:stop()
@@ -272,7 +280,7 @@ local function test_a_stalled_handshake_is_closed_unserved()
       assert(conn:write("\x16\x03\x01\x02\x00"))
       local got, why = conn:read()
       lasted = Clock.monotonic_ns() - started
-      ended = tostring(got) .. " " .. why
+      ended = tostring(got) .. " " .. tostring(why)
       server:stop()
     end,
   })
@@ -294,7 +302,7 @@ local function test_a_protocol_handshakes_first_and_reads_what_it_settled(tmp: s
       local info = assert(conn:tls())
       local body = info.version .. " " .. (info.alpn or "-") .. " " .. (info.server_name or "-")
       local head = ""
-      while not head:find("\r\n\r\n", 1, true) do head = head .. assert(conn:read()) end
+      while not head:find("\r\n\r\n", 1, true) do head = head .. chunk_of(conn) end
       assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: " .. tostring(#body) .. "\r\nConnection: close\r\n\r\n" .. body))
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)

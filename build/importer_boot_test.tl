@@ -163,7 +163,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
 
   local other = files["build/other.tl"]
   assert(other ~= nil, "the tree holds build/other.tl")
-  assert(Fs.write(root .. "/build/other.tl", other .. "-- edited\n"))
+  assert(Fs.write(root .. "/build/other.tl", "local _ = \"edited\"\n" .. other))
   before, after, recorded, kept, parsed = boot()
   assert(before == tool and after == tool and recorded == tool,
     "an edit outside the analyzer moved its name")
@@ -175,12 +175,17 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   assert(before == tool and after == tool and recorded == tool, "an edit to the checker moved the analyzer's name")
   assert(kept and parsed == 1, "an edit to the checker parsed " .. tostring(parsed) .. " sources, want the one edited")
   -- An edit to an analyzer module, its text alone, parses every source again.
-  assert(Fs.write(root .. "/build/thing.tl", module_of("thing", {}) .. "-- edited\n"))
+  assert(Fs.write(root .. "/build/thing.tl", "local _ = \"edited\"\n" .. module_of("thing", {})))
   before, after, recorded, kept, parsed = boot()
   assert(before ~= tool and after == before and recorded == after, "an edit to an analyzer module did not move its name")
   assert(not kept and parsed == every, "an edit to an analyzer module parsed " .. tostring(parsed) .. " sources of " ..
       tostring(every))
   tool = after
+  -- A comment in an analyzer module is no code of it ([`build.code_text`]): the name stays, and only that source parses.
+  assert(Fs.write(root .. "/build/thing.tl", "-- a comment\n" .. (assert(Fs.read(root .. "/build/thing.tl")))))
+  before, after, recorded, kept, parsed = boot()
+  assert(before == tool and after == tool and recorded == tool, "a comment in an analyzer module moved its name")
+  assert(kept and parsed == 1, "a comment in an analyzer module parsed " .. tostring(parsed) .. " sources, want the one edited")
   -- A new require of an analyzer module is found only by the parse: the
   -- edit alone moves the name, the parse settles it, and the boot
   -- records it, so the next boot forgets nothing.
@@ -241,9 +246,9 @@ local function test_the_code_that_reads_leaves_out_what_build_pipeline_names_for
     return name
   end
   local original = named()
-  assert(Fs.write(root .. "/build/plans.tl", record_of("plans") .. "-- edited\n"))
+  assert(Fs.write(root .. "/build/plans.tl", "local _ = \"edited\"\n" .. record_of("plans")))
   assert(named() == original, "an edit to build.plans, which build.pipeline names for a type alone, moved its name")
-  assert(Fs.write(root .. "/build/helper.tl", record_of("helper") .. "-- edited\n"))
+  assert(Fs.write(root .. "/build/helper.tl", "local _ = \"edited\"\n" .. record_of("helper")))
   assert(named() ~= original, "an edit to a module build.pipeline runs did not move its name")
 end
 

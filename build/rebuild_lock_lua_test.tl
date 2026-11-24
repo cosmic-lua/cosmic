@@ -77,7 +77,7 @@ local function start(script: string, root: string, hold_ns?: integer): Child.Han
     { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream" })
   local child = assert(Child.start(started.argv, started.options))
   local line, trouble = Stream.lines(child.stdout_stream as Stream.Reader):read() -- checked: cast_refused
-  assert(line ~= nil, trouble)
+  if line == nil or line == false then error(tostring(trouble)) end
   return child, line
 end
 

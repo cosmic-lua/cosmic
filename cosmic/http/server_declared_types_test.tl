@@ -10,6 +10,15 @@ local Net = require("cosmic.net")
 local Server = require("cosmic.http.server")
 local Test = require("cosmic.test")
 local TypeWatch = require("build.type_watch")
+local type Stream = require("cosmic.stream")
+
+--- The next chunk of `reader`: raises where it ended or failed.
+local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
+  local chunk, why = reader:read(max_bytes)
+  if chunk == nil then error(tostring(why), 2) end
+  if chunk == false then error("the stream ended", 2) end
+  return chunk
+end
 
 Test.policy{ loopback = { "127.0.0.1" } }
 
@@ -29,7 +38,7 @@ local function test_a_handler_that_answers_nothing_is_a_500_the_server_declares(
         local listening = assert(addresses[1], "the server listens")
         local conn = assert(Net.connect(listening))
         assert(conn:write("GET / HTTP/1.1\r\nHost: test\r\n\r\n"))
-        local piece = assert(conn:read())
+        local piece = chunk_of(conn)
         answered = piece
         assert(conn:close())
         server:stop()

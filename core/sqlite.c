@@ -1777,6 +1777,30 @@ static int statement_name (lua_State *L) {
   return 1;
 }
 
+/* Where the column argument 2 counts from zero comes from: the table
+ * and the column of that table, and the column's declared type. Each is
+ * nil for a column that is an expression (`count(*)`, `x + 1`), and the
+ * type is nil for a column declared with none. Known once the
+ * statement is prepared, row or none. */
+static int statement_origin (lua_State *L) {
+  struct statement *s = checked_statement(L);
+  int index = cosmic_checkint(L, 2);
+  luaL_argcheck(L, index >= 0 && index < sqlite3_column_count(s->stmt), 2,
+                "no such column in the statement");
+  const char *table = sqlite3_column_table_name(s->stmt, index);
+  const char *column = sqlite3_column_origin_name(s->stmt, index);
+  const char *declared = sqlite3_column_decltype(s->stmt, index);
+  if (table != NULL && column != NULL) {
+    lua_pushstring(L, table);
+    lua_pushstring(L, column);
+  } else {
+    lua_pushnil(L);
+    lua_pushnil(L);
+  }
+  if (declared != NULL) lua_pushstring(L, declared); else lua_pushnil(L);
+  return 3;
+}
+
 /* The column argument 2 names, refused unless the statement is on a
  * row that has it. SQLite leaves a column read out of range, or read
  * when the last step did not return a row, undefined; sqlite3_data_count
@@ -2023,6 +2047,7 @@ static const luaL_Reg statement_methods[] = {
   {"bind_all", statement_bind_all},
   {"columns", statement_columns},
   {"name", statement_name},
+  {"origin", statement_origin},
   {"kind", statement_kind},
   {"integer", statement_integer},
   {"number", statement_number},

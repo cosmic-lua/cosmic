@@ -527,6 +527,16 @@ local CASES <const>: {Case} = {
     msg = "the SQL binds 1 value, and 2 are given", fix = "give 1 value, one for each parameter, in order",
   },
   {
+    code = "sql_column", at = { line = 5, column = 16 },
+    source = "local Sqlite = require(\"cosmic.sqlite\")\nlocal S <const> = Sqlite.schema(\"CREATE TABLE t (x INTEGER) STRICT\")\n" ..
+      "local db = Sqlite.memory({ schema = S })\nlocal row = db:one(\"SELECT x FROM t\")\nprint(row:text(1))\n",
+    modules = { ["cosmic.sqlite"] = "local record Row\n  text: function(Row, integer): string\nend\nlocal record Handle\n" ..
+        "  one: function(Handle, string): Row\nend\nlocal record Schema\n  ddl: string\nend\nlocal record Options\n" ..
+        "  schema?: Schema\nend\nlocal record Sqlite\n  schema: function(string): Schema\n  memory: function(?Options): Handle\n" ..
+        "end\nreturn Sqlite\n" },
+    msg = "column 1 is t.x, declared INTEGER in a STRICT table, so `text` raises on each of its cells", fix = "read it with `integer(1)`",
+  },
+  {
     code = "paren_is", at = { line = 2, column = 11 }, source = "local x: integer | string = 1\nlocal y = (x) is integer\nprint(y)\n",
     msg = "`(x) is ...` tests a value: the parentheses make `x` no place, so the test narrows nothing",
     fix = "write `x is integer` without the parentheses, so that the test narrows it",
@@ -2127,7 +2137,7 @@ local function test_a_read_at_the_index_of_a_loop_over_the_length_of_the_array_i
       "total = sum()\n") == "")
 end
 
---- `math.min` answers the least of its arguments, so a limit of `math.min(n, #t)` is at most `#t`.
+--- `math.min` returns the least of its arguments, so a limit of `math.min(n, #t)` is at most `#t`.
 local function test_a_read_at_the_index_of_a_loop_to_the_least_of_a_number_and_the_length_is_not_optional()
   assert(counted("for i = 1, math.min(2, #xs) do\n  total = total + xs[i]\nend\n") == "")
   assert(counted("for i = 1, math.min(#xs, total, 5) do\n  total = total + xs[i]\nend\n") == "")

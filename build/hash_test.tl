@@ -15,6 +15,7 @@ local Stream = require("cosmic.stream")
 local hash = require("build.hash")
 local support = require("build.test_support_fixture")
 local Test = require("cosmic.test")
+local type Failure = require("cosmic.failure")
 
 Test.policy{ cpu_features = true }
 
@@ -388,12 +389,12 @@ local function pattern(total: integer, chunk: string): Stream.Reader, function()
   local left = { value = total }
   local peak = { value = 0 }
   local reader: Stream.Reader = { -- checked: literal_shape
-    read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
+    read = function(_self: Stream.Reader, max_bytes?: integer): (string | false) | (nil, Failure)
       peak.value = math.max(peak.value, math.floor(collectgarbage("count") as number)) -- checked: cast_refused
-      if left.value == 0 then return nil, "" end
+      if left.value == 0 then return false end
       local size = math.min(left.value, max_bytes or #chunk, #chunk)
       left.value = left.value - size
-      return chunk:sub(1, size), ""
+      return chunk:sub(1, size)
     end,
     close = function(): boolean, string return true, "" end,
   }

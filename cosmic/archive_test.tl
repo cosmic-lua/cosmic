@@ -14,6 +14,7 @@ local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
 local Archive = require("cosmic.archive")
 local Test = require("cosmic.test")
+local type Failure = require("cosmic.failure")
 
 --- The target of the link at `path`, or nil where it is no link.
 local function link_of(path: string): string?
@@ -118,12 +119,12 @@ local function test_open_of_a_stream_reads_a_plain_tar_from_a_stream_one_byte_at
   -- A source that gives a byte per read splits the peek across reads.
   local at: integer = 1
   local source: Stream.Reader = { -- checked: literal_shape
-    read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
-      if at > #bytes then return nil, "" end
+    read = function(_self: Stream.Reader, _max_bytes?: integer): (string | false) | (nil, Failure)
+      if at > #bytes then return false end
       at = at + 1
-      return bytes:sub(at - 1, at - 1), ""
+      return bytes:sub(at - 1, at - 1)
     end,
-    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
   local by = walked((assert(Archive.open(source))))
   local short, link = by["adir/short.txt"], by["adir/link"]
@@ -780,10 +781,15 @@ local function reader_of_one_file(path: string, size: integer,
     path = path, kind = "file", mode = 0x1a4, size = size, mtime = 0, linkpath = "",
     open = function(_self: Archive.Entry): Stream.Reader?, string
       local r: Stream.Reader = { -- checked: literal_shape
-        read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
-          return answer(max_bytes or 65536)
+        read = function(_self: Stream.Reader, max_bytes?: integer): (string | false) | (nil, Failure)
+          local chunk, why = answer(max_bytes or 65536)
+          if chunk == nil then
+            if why == "" then return false end
+            return nil, Failure.new(why)
+          end
+          return chunk
         end,
-        close = function(_self: Stream.Reader): boolean, string return true, "" end,
+        close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
       }
       return r, ""
     end,

@@ -73,7 +73,7 @@ end
 local function drain(conn: Net.Conn, seen: Origin, answer?: string)
   while true do
     local data, _ = conn:read()
-    if data == nil then
+    if data == nil or data == false then
       seen.eof = true
       return
     end
@@ -87,7 +87,7 @@ end
 local function echo(conn: Net.Conn, seen: Origin)
   while true do
     local data, _ = conn:read()
-    if data == nil then
+    if data == nil or data == false then
       seen.eof = true
       return
     end
@@ -212,7 +212,7 @@ local function read_all(conn: Net.Conn): string
   local out = ""
   while true do
     local data, _ = conn:read()
-    if data == nil then
+    if data == nil or data == false then
       return out
     end
     out = out .. data
@@ -225,7 +225,7 @@ local function read_head(conn: Net.Conn): string
   local out = ""
   while not out:find("\r\n\r\n", 1, true) do
     local data, why = conn:read(1)
-    assert(data ~= nil, "the connection ended before the head was whole: " .. why .. " " .. out)
+    assert(data is string, "the connection ended before the head was whole: " .. tostring(why) .. " " .. out)
     out = out .. data
   end
   return out
@@ -976,7 +976,7 @@ local function test_a_connection_made_after_stop_is_closed(tmp: string)
     rig.server:wait()
     until_it(function(): boolean return server.eof end)
     local data, _ = conn:read()
-    assert(data == nil, "no reply to a connection made after stop")
+    assert(data == nil or data == false, "no reply to a connection made after stop")
     local _, _ = conn:close()
     finish(rig, server)
   end)
@@ -997,8 +997,8 @@ local function test_each_side_ending_what_it_sends_is_passed_on(tmp: string)
     -- The server ends first: the program reads the end, and can still send.
     local other = connect_to(rig, "127.0.0.1:" .. tostring(greeter.port))
     assert(Fixture.read_exact(other, 5) == "greet")
-    local data, why = other:read()
-    assert(data == nil and why == "", "the end of what the server sends")
+    local data, _ = other:read()
+    assert(data == false, "the end of what the server sends")
     assert(other:write("late"))
     assert(other:shutdown("write"))
     until_it(function(): boolean return greeter.eof end)
@@ -1023,7 +1023,7 @@ local function test_a_tunnel_nothing_moves_in_ends_at_the_idle_timeout(tmp: stri
     assert(Clock.monotonic_ns() - started > Clock.ms(350))
     -- Then none do.
     local data, _ = conn:read()
-    assert(data == nil, "the relay ended the idle tunnel")
+    assert(data == nil or data == false, "the relay ended the idle tunnel")
     -- The relay closes the tunnel first and writes its line once both
     -- directions have stopped.
     until_it(function(): boolean
@@ -1141,7 +1141,7 @@ local function proxy(status: string): Proxy
     local text = ""
     while not text:find("\r\n\r\n", 1, true) do
       local data, _ = conn:read()
-      if data == nil then
+      if data == nil or data == false then
         return
       end
       text = text .. data
@@ -1373,13 +1373,13 @@ local function test_stop_closes_open_tunnels(tmp: string)
     assert(Fixture.read_exact(conn, 1) == "a")
     rig.server:stop()
     local data, _ = conn:read()
-    assert(data == nil, "the tunnel was closed")
+    assert(data == nil or data == false, "the tunnel was closed")
     -- New connections are not taken.
     local late, _ = Net.connect(rig.http, { timeout_ns = Clock.ms(200) })
     if late ~= nil then
       late:set_timeout(Clock.ms(200))
       local got, _ = late:read()
-      assert(got == nil, "nothing serves a connection after stop")
+      assert(got == nil or got == false, "nothing serves a connection after stop")
       local _, _ = late:close()
     end
     local _, _ = conn:close()
@@ -1397,7 +1397,7 @@ local function test_stop_does_not_wait_for_a_request_that_is_not_finished(tmp: s
     finish(rig)
     assert(Clock.monotonic_ns() - started < Clock.seconds(3), "stop ended the half-read request, not the head timeout")
     local data, _ = conn:read()
-    assert(data == nil)
+    assert(data == nil or data == false)
     local _, _ = conn:close()
   end)
 end
@@ -1475,7 +1475,7 @@ end
 local function ended(conn: Net.Conn): boolean
   conn:set_timeout(Clock.seconds(5))
   local data, _ = conn:read(1)
-  return data == nil
+  return data == nil or data == false
 end
 
 local function test_a_token_lets_a_connect_with_its_basic_credential_through(tmp: string)
@@ -1715,7 +1715,7 @@ local function test_connections_not_yet_authenticated_are_bounded_in_number_and_
     assert(waiting:write(Fixture.connect("127.0.0.1:" .. tostring(server.port), { basic("u", TOKEN) })))
     waiting:set_timeout(Clock.ms(100))
     local early, why = waiting:read(1)
-    assert(early == nil and why == Poll.TIMEOUT, "it waits for a slot")
+    assert(early == nil and tostring(why) == Poll.TIMEOUT, "it waits for a slot")
     -- The auth timeout ends the silent one, and the waiting one is served.
     waiting:set_timeout(Clock.seconds(5))
     local head = read_head(waiting)

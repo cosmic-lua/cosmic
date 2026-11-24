@@ -872,7 +872,9 @@ local function test_a_session_over_a_loopback_connection()
     Poll.spawn(function()
       local conn <close> = assert(listener:accept(Clock.seconds(10)))
       exchange.code = session.serve(session.new(root), conn, function(text: string): boolean, string
-        return conn:write(text)
+        local wrote, why = conn:write(text)
+        if not wrote then return false, tostring(why) end
+        return true, ""
       end)
     end)
     local client <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(10) }))

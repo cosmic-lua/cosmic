@@ -265,7 +265,7 @@ local function draining(set: AgentMcp.Set, name: string, f?: function(), wait_ns
     local drain = Poll.spawn(function()
       while true do
         local chunk, _ = reader:read()
-        if chunk == nil then return end
+        if chunk == nil or chunk == false then return end
         local kept = (set.tails[name] or "") .. chunk
         set.tails[name] = if #kept > TAIL then kept:sub(-TAIL) else kept end
       end

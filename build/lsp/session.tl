@@ -637,7 +637,10 @@ local function frames_of(s: Session, reader: Stream.Reader, poll?: protocol.Poll
       first = nil
       return given, ""
     end
-    return reader:read()
+    local chunk, why = reader:read()
+    if chunk == nil then return nil, tostring(why) end
+    if chunk == false then return nil, "" end
+    return chunk, ""
   end, poll)
 end
 

@@ -34,6 +34,7 @@ local Poll = require("cosmic.poll")
 local Response = require("cosmic.web.response")
 local Stream = require("cosmic.stream")
 local Types = require("cosmic.web.types")
+local type Failure = require("cosmic.failure")
 
 local record Sse
   --- One event. Every field is optional; a field that holds a line ending
@@ -330,8 +331,8 @@ local record Body is Stream.Reader
   mut waiting: boolean
   mut guard?: Defer
   mut prologue: string
-  read: function(Body, max_bytes?: integer): string?, string
-  close: function(Body): boolean, string
+  read: function(Body, max_bytes?: integer): (string | false) | (nil, Failure)
+  close: function(Body): (true) | (false, Failure)
 end
 
 --- Ends the stream once: frees its slot (if it took one), closes the
@@ -357,11 +358,11 @@ local function finish(self: Body, why: string)
   end
 end
 
-function Body.read(self: Body, max_bytes?: integer): string?, string
+function Body.read(self: Body, max_bytes?: integer): (string | false) | (nil, Failure)
   if max_bytes ~= nil and (math.type(max_bytes) ~= "integer" or max_bytes < 1) then
     error("sse: read takes a positive integer of bytes", 2)
   end
-  if self.done then return nil, "" end
+  if self.done then return false end
   if not self.started then
     self.started = true
     -- The slot is taken here, as the reply begins, not when the response is
@@ -370,7 +371,7 @@ function Body.read(self: Body, max_bytes?: integer): string?, string
     -- can overshoot it by the few the server has yet to start.
     if self.app:stopping() then
       finish(self, "end")
-      return nil, ""
+      return false
     end
     self.held = true
     self.app.stream_count = self.app.stream_count + 1
@@ -390,7 +391,7 @@ function Body.read(self: Body, max_bytes?: integer): string?, string
       local left = self_deadline - Clock.monotonic_ns()
       if left <= 0 then
         finish(self, "end")
-        return nil, ""
+        return false
       end
       if timeout == nil or left < timeout then timeout = left end
     end
@@ -406,12 +407,12 @@ function Body.read(self: Body, max_bytes?: integer): string?, string
       ev, why = self.source:next(timeout)
       self.waiting = false
     end
-    if self.done then return nil, "" end
+    if self.done then return false end
     if ev ~= nil then
       local ok, text = pcall(format_event, ev)
       if not ok then
         finish(self, "failed: " .. tostring(text))
-        return nil, ""
+        return false
       end
       self.pending = text
     elseif why == Poll.TIMEOUT then
@@ -422,21 +423,21 @@ function Body.read(self: Body, max_bytes?: integer): string?, string
       end
     elseif why == "" then
       finish(self, "end")
-      return nil, ""
+      return false
     else
       finish(self, "failed: " .. why)
-      return nil, ""
+      return false
     end
   end
   local take = max_bytes or #self.pending
   local chunk = self.pending:sub(1, take)
   self.pending = self.pending:sub(take + 1)
-  return chunk, ""
+  return chunk
 end
 
-function Body.close(self: Body): boolean, string
+function Body.close(self: Body): (true) | (false, Failure)
   finish(self, "client")
-  return true, ""
+  return true
 end
 
 --- Why `value` is under `least`; nil when it is not, or nil.

@@ -7,17 +7,17 @@ local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
-local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 
 local Example = {} -- checked: literal_needs_type
 
 --- Bytes already in memory, read as a stream: at most `max_bytes` bytes a
---- `read`, and nil and `""` at the end.
+--- `read`, and `false` at the end.
 function Example.from_string()
   local r = Stream.from_string("hello, world")
-  local first = assert(r:read(5))
+  local first, why = r:read(5)
+  assert(first is string, tostring(why))
   print(first)
   assert(first == "hello", first)
   local rest = assert(Stream.read_all(r))
@@ -37,7 +37,7 @@ end
 --- A descriptor opened elsewhere, read as a stream. Closing the Reader
 --- leaves the descriptor open: whoever opened it closes it. A
 --- non-blocking one can be waited on, for as long as `timeout_ns`: here a
---- named pipe with a writer that says nothing, which fails the read with [`Poll.TIMEOUT`].
+--- named pipe with a writer that says nothing, which fails the read with a Failure of kind "timeout".
 function Example.from_fd()
   local dir = assert(Fs.mkdtemp("cosmic-stream-example-"))
   assert(Fs.write(dir .. "/notes.txt", "one\ntwo\n"))
@@ -53,7 +53,7 @@ function Example.from_fd()
   local waiting = Stream.from_fd(quiet, { nonblocking = true, timeout_ns = Clock.ms(20) })
   local chunk, why = waiting:read()
   print(why)
-  assert(chunk == nil and why == Poll.TIMEOUT, why)
+  assert(chunk == nil and why.kind == "timeout", why)
   assert(Fs.close(quiet))
   assert(Fs.close(writer))
   assert(Fs.remove_tree(dir))
@@ -99,7 +99,7 @@ end
 --- A stream written to an open descriptor: here standard output. A
 --- non-blocking one can be waited on for room, for as long as
 --- `timeout_ns`: here a named pipe nobody reads, which takes what it
---- holds, and then fails the write with [`Poll.TIMEOUT`]; `written` says
+--- holds, and then fails the write with a Failure of kind "timeout"; `written` says
 --- how much of the body went before it did.
 function Example.to_fd()
   local w = Stream.to_fd(Fs.stdout)
@@ -113,7 +113,7 @@ function Example.to_fd()
   local body = string.rep("x", 1 << 20)
   local ok, why = slow:write(body)
   print(why, slow:written())
-  assert(not ok and why == Poll.TIMEOUT, why)
+  assert(not ok and why.kind == "timeout", tostring(why))
   assert(slow:written() > 0 and slow:written() < #body)
   assert(Fs.close(pipe))
   assert(Fs.close(reader))

@@ -73,8 +73,7 @@ local record Flags
 
   -- TODO: move the other verbs' value checks onto `choices` and `integer` (qr, codec, sandbox,
   -- test, build, sql, lsp), their "(default ...)" text onto `default`, and json's -r and codec's -d onto
-  -- `aliases`; each still words its own refusal of a bad value. Wait for the docs thread's move of each
-  -- verb's spec to cosmic/cli/<verb>.tl, and the six verbs to `subcommands`.
+  -- `aliases`; each still words its own refusal of a bad value. A gap: it waits on nothing.
 
   --- The bounds of a whole number an option takes, each inclusive; no bound where nil.
   record Range
@@ -899,20 +898,6 @@ local function usage_of(command: Flags.Command): string
   return if next(command.spec or {}) ~= nil then "[options]" else "" end
 end
 
---- The usage line of `command`, as its help's first line and every refusal's end give it:
---- "usage: prog count [options] <file>".
---- @param command Command The command
---- @param name string What the line calls it: the program, and the command's own word after it when it has one
----   ("prog count"); not empty, or this raises
---- @return string The line, with no newline
-function Flags.usage(command: Flags.Command, name: string): string
-  if name == "" then
-    error("flags: usage's name is empty", 2)
-  end
-  local usage = usage_of(command)
-  return "usage: " .. (if usage ~= "" then name .. " " .. usage else name end)
-end
-
 --- The line `command` is typed as, for its help: `program`, the word that runs it (`name`, or its `typed`), and
 --- its usage ([`usage_of`]).
 local function typed_line(program: string, name: string, command: Flags.Command): string
@@ -1045,6 +1030,29 @@ function Flags.help(command: Flags.Command, name: string, width?: integer): stri
     parts[#parts + 1] = "\nsee also: " .. table.concat(see, ", ")
   end
   return table.concat(parts, "\n")
+end
+
+--- The usage line of `command`, as its help's first line and every refusal's end give it ("usage: prog count
+--- [options] <file>"), or of the subcommand that `words` name, one level a word: "usage: prog time add <time>
+--- <duration>" for `Flags.usage(time, "prog time", { "add" })`. The walk stops at a word that names no
+--- subcommand, and the line is then that of the last command reached.
+--- @param command Command The command the words start from
+--- @param name string What its usage line calls it: the program, and the command's own word after it when it
+---   has one ("prog time"); not empty, or this raises
+--- @param words? {string} The words that name its subcommands, outermost first; none when nil
+--- @return string The usage line, with no newline
+function Flags.usage(command: Flags.Command, name: string, words?: {string}): string
+  if name == "" then
+    error("flags: usage's name is empty", 2)
+  end
+  local reached, called_as = command, name
+  for _, word in ipairs(words or {}) do
+    local sub = (reached.subcommands or {})[word]
+    if sub == nil then break end
+    reached, called_as = sub, called_as .. " " .. word
+  end
+  local usage = usage_of(reached)
+  return "usage: " .. (if usage ~= "" then called_as .. " " .. usage else called_as end)
 end
 
 --- A topic's page, as `prog help <topic>` prints it: its name and
@@ -1654,7 +1662,12 @@ function Flags.dispatch(argv: {string}, from: integer,
     -- The word after the command names one of its own, which reads the rest of the line.
     local answered, why = Flags.dispatch(argv, first, subcommands, called(program, name, command))
     if answered == nil then
-      return nil, name .. ": " .. why
+      -- A line that names none of its subcommands gets the command's own usage, naming them; a
+      -- refusal by one of them, or by help, ends with its own.
+      local named = argv[first]
+      local reached = named ~= nil and (subcommands[named] ~= nil or named == "help")
+      local usage = if reached then "" else "; " .. Flags.usage(command, called(program, name, command)) end
+      return nil, name .. ": " .. why .. usage
     end
     return answered, ""
   end

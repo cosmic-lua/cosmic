@@ -59,8 +59,8 @@ local function say(name, value) print(name .. "\t" .. tostring(value)) end
 local function bytes(conn, count)
   local data = ""
   while #data < count do
-    local chunk = conn:read(count - #data)
-    if chunk == nil then break end
+    local chunk, _ = conn:read(count - #data)
+    if chunk == nil or chunk == false then break end
     data = data .. chunk
   end
   return data
@@ -69,8 +69,8 @@ end
 local function head(conn)
   local data = ""
   while not data:find("\r\n\r\n", 1, true) do
-    local chunk = conn:read(4096)
-    if chunk == nil then break end
+    local chunk, _ = conn:read(4096)
+    if chunk == nil or chunk == false then break end
     data = data .. chunk
   end
   return data
@@ -169,8 +169,8 @@ local function echoing(listener: Net.Listener): Poll.Task
       local conn, _ = listener:accept()
       if conn == nil then return end
       Poll.spawn(function()
-        local data = conn:read(4)
-        if data ~= nil then
+        local data, _ = conn:read(4)
+        if data is string then
           local _, _ = conn:write("echo:" .. data)
         end
         local _, _ = conn:close()
@@ -617,14 +617,14 @@ local function test_the_upstream_proxy_is_reached_by_the_relay(tmp: string)
         Poll.spawn(function()
           local head = ""
           while not head:find("\r\n\r\n", 1, true) do
-            local data = conn:read(4096)
-            if data == nil then break end
+            local data, _ = conn:read(4096)
+            if data == nil or data == false then break end
             head = head .. data
           end
           table.insert(asked, head:match("^[^\r]*") or "")
           local _, _ = conn:write("HTTP/1.1 200 Connection established\r\n\r\n")
-          local data = conn:read(4)
-          if data ~= nil then
+          local data, _ = conn:read(4)
+          if data is string then
             local _, _ = conn:write("echo:" .. data)
           end
           local _, _ = conn:close()

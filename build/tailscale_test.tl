@@ -6,6 +6,7 @@
 --- for.
 
 local Array = require("cosmic.array")
+local type Failure = require("cosmic.failure")
 local Net = require("cosmic.net")
 local Server = require("cosmic.http.server")
 local Stream = require("cosmic.stream")
@@ -113,18 +114,18 @@ local class Sink is Stream.Writer
   path: string
   parts: mut {string}
 
-  function write(self, chunk: string): boolean, string
+  function write(self, chunk: string): (true) | (false, Failure)
     self.parts[#self.parts + 1] = chunk
-    return true, ""
+    return true
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.ran.files[self.path] = table.concat(self.parts)
-    return true, ""
+    return true
   end
 
-  function abort(self): boolean, string
-    return true, ""
+  function abort(self): (true) | (false, Failure)
+    return true
   end
 end
 
@@ -214,11 +215,11 @@ local function run(tmp: string, words: {string}, status?: string, no_socket?: bo
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local path = assert(Array.at(addresses, 1).path)
       local argv: mut {string} = { "tailscale" }
+      for _, word in ipairs(words) do argv[#argv + 1] = word end
       if no_socket ~= true then
         argv[#argv + 1] = "--socket"
         argv[#argv + 1] = path
       end
-      for _, word in ipairs(words) do argv[#argv + 1] = word end
       ran.code = tailscale.run(argv, {
         out = function(text: string): boolean, string
           ran.out = ran.out .. text
@@ -471,24 +472,29 @@ local function test_ping_prints_the_round_trip_and_its_path(tmp: string)
   local refused = run(tmp, { "ping", "100.64.0.7" })
   assert(refused.code == 1 and refused.err:find("^cosmic: tailscale: /localapi/v0/ping: ") ~= nil, refused.err)
   local bad = run(tmp, { "ping", "--kind", "udp", "100.64.0.2" })
-  assert(bad.code == 2 and bad.err:find("--kind is disco", 1, true) ~= nil, bad.err)
+  assert(bad.code == 2 and bad.err:find("ping: --kind takes disco, ICMP, TSMP or peerapi, not udp", 1, true) ~= nil, bad.err)
 end
 
 --- A command line it cannot run is refused before the daemon is asked.
 local function test_a_command_line_it_cannot_run_is_refused(tmp: string)
+  -- Each line, and the usage its refusal ends with: the subcommand's own, or the verb's where it names none.
   local lines: {{string}} = { {}, { "up" }, { "status", "--kind", "disco" }, { "whois" }, { "status", "x" },
-    { "cert", "a", "b" } }
-  for _, words in ipairs(lines) do
+    { "cert", "a", "b" }, { "file", "get" }, { "file", "list", "x" } }
+  local usages: {string} = { "<cert|file|ping|status|whois> ...", "<cert|file|ping|status|whois> ...",
+    "status [options]", "whois [--json] <address|name>", "status [options]", "cert [options] [domain]",
+    "file get [options] <dir>", "file list [options]" }
+  for i, words in ipairs(lines) do
     local ran = run(tmp, words)
     assert(ran.code == 2, table.concat(words, " ") .. ": " .. tostring(ran.code))
-    assert(ran.err:find("; cosmic tailscale ", 1, true) ~= nil, ran.err)
+    local usage = "; usage: cosmic tailscale " .. assert(usages[i]) .. "\n"
+    assert(ran.err:sub(-#usage) == usage, ran.err)
     assert(#ran.seen == 0, table.concat(ran.seen, "\n"))
   end
 end
 
 --- A daemon that is not there fails the call, exit 1, naming the socket.
 local function test_a_daemon_that_is_not_there_exits_1(tmp: string)
-  local ran = run(tmp, { "--socket", tmp .. "/none.sock", "status" }, nil, true)
+  local ran = run(tmp, { "status", "--socket", tmp .. "/none.sock" }, nil, true)
   assert(ran.code == 1, tostring(ran.code))
   assert(ran.err:find("^cosmic: tailscale: ") ~= nil, ran.err)
 end

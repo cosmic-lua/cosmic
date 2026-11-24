@@ -13,6 +13,14 @@ local this_program = require("build.this_program")
 --- What the server script requires, as the standalone run loads it.
 local type _ = require("cosmic.mcp.server")
 
+--- The next line of `lines`: raises where they ended or failed.
+local function line_of(lines: Stream.Lines): string
+  local line, why = lines:read()
+  if line == nil then error(tostring(why), 2) end
+  if line == false then error("the lines ended", 2) end
+  return line
+end
+
 Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" } }
 
 local function test_a_spawned_server_is_asked_and_ended(tmp: string)
@@ -52,6 +60,7 @@ local function test_a_main_serves_http_with_a_token_from_the_environment(tmp: st
   local script = tmp .. "/server.tl"
   assert(Fs.write(script, [[
 local Server = require("cosmic.mcp.server")
+
 local server = Server.new{ info = { name = "web", version = "1" } }
 return function(argv: {string}): integer
   return server:main(argv)
@@ -65,7 +74,7 @@ end
     { env = env, stderr = "stream", timeout_ns = Clock.seconds(60) })
   local handle <close> = assert(Child.start(started.argv, started.options))
   local lines = Stream.lines(assert(handle.stderr_stream))
-  local said = assert(lines:read())
+  local said = line_of(lines)
   local url = assert(said:match("^mcp: serving (http://127%.0%.0%.1:%d+/mcp)$"), said)
   local session = Client.http(url, { timeout_ns = Clock.seconds(20), headers = { Authorization = "Bearer " .. token } })
   local d = assert(session:discover())

@@ -345,7 +345,7 @@ local function request_of(conn: Net.Conn): Message.Request?
   local read = reader:feed("")
   while read.status == "more" and Clock.monotonic_ns() < until_ns do
     local bytes, _ = conn:read(4096)
-    if bytes == nil or bytes == "" then break end
+    if bytes == nil or bytes == false or bytes == "" then break end
     read = reader:feed(bytes)
   end
   return read.request

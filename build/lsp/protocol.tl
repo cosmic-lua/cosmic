@@ -419,7 +419,12 @@ end
 --- The messages `reader` holds, one body at a time ([`protocol.Frames`]),
 --- and what has arrived of them, as `poll` says, when given.
 function protocol.frames(reader: Stream.Reader, poll?: protocol.Poll): protocol.Frames
-  return protocol.frames_of(function(): string?, string return reader:read() end, poll)
+  return protocol.frames_of(function(): string?, string
+    local chunk, why = reader:read()
+    if chunk == nil then return nil, tostring(why) end
+    if chunk == false then return nil, "" end
+    return chunk, ""
+  end, poll)
 end
 
 --- The path a `file:` URI names, or nil for another scheme.

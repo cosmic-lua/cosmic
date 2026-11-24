@@ -1754,9 +1754,18 @@ end
 --- checker runs the DDL too, and reads the SQL a program sends to a
 --- handle opened with the schema against it: a table or column it does
 --- not create, or a values list of another length than the SQL binds,
---- is refused where it is written. That holds for a handle held in a
+--- is refused where it is written. So is a read of a row from that SQL
+--- past its last column, or one that raises on every cell its column
+--- may hold: in a `STRICT` table, any read but that of the declared
+--- type (`row:text(1)` of an `INTEGER` column); in another, which keeps
+--- a text it cannot convert in any column, `integer` and `number` of a
+--- text column and `integer` of a `REAL` one. A compound select
+--- (`UNION`) and an expression are not read. That holds for a handle held in a
 --- local the program never assigns, given the schema in a local of the
---- same module, and SQL that is a literal or joins literals.
+--- same module, and SQL that is a literal or joins literals; a row is
+--- read where it is a local given `db:one`, an element of a local given
+--- `db:rows`, the variable of `for _, row in ipairs(rows)`, or the
+--- parameter of the function `db:map` takes.
 function Sqlite.schema(ddl: string): Sqlite.Schema
   if ddl:find("\0", 1, true) ~= nil then error("sqlite: a schema's DDL cannot hold a NUL", 2) end
   local schema: Sqlite.Schema = { ddl = ddl }

@@ -2168,10 +2168,10 @@ local function fill(self: TokenReader): boolean, string
   if self.ended then return true, "" end
   local chunk, trouble = self.source:read()
   if chunk == nil then
-    if trouble ~= "" then
-      local _, why = stop(self, "json: " .. trouble)
-      return false, why
-    end
+    local _, why = stop(self, "json: " .. tostring(trouble))
+    return false, why
+  end
+  if chunk == false then
     self.ended = true
     return true, ""
   end

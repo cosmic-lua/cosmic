@@ -9,6 +9,14 @@ local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 
+--- The next chunk of `reader`: raises where it ended or failed.
+local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
+  local chunk, why = reader:read(max_bytes)
+  if chunk == nil then error(tostring(why), 2) end
+  if chunk == false then error("the stream ended", 2) end
+  return chunk
+end
+
 Test.policy{ loopback = { "127.0.0.1" } }
 
 --- How long a request here waits for what the server never fails to do.
@@ -18,8 +26,8 @@ local WAIT <const> = Clock.seconds(20)
 local function head_of(conn: Net.Conn): string?
   local seen = ""
   while not seen:find("\r\n\r\n", 1, true) do
-    local chunk = conn:read(4096)
-    if chunk == nil then return nil end
+    local chunk, _ = conn:read(4096)
+    if chunk == nil or chunk == false then return nil end
     seen = seen .. chunk
   end
   return seen
@@ -144,12 +152,12 @@ local function test_a_response_closed_by_another_task_ends_a_read_that_waits()
       local _, _ = Clock.sleep(Poll.MOST_NS)
     end, function(port: integer)
       local response = assert(Http.open("http://127.0.0.1:" .. tostring(port) .. "/", { timeout_ns = WAIT }))
-      assert(response:read() == "x")
+      assert(chunk_of(response) == "x")
       local answer = ""
       local reading = Poll.spawn(function()
         local chunk, why = response:read()
         assert(chunk == nil)
-        answer = why
+        answer = tostring(why)
       end)
       while not held do assert(Clock.sleep(Clock.ms(5))) end
       assert(Clock.sleep(Clock.ms(50)))

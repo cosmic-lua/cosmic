@@ -13,6 +13,15 @@ local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local wire = require("cosmic.mcp.wire")
 
+--- The [`Failure`] for the words a read failed with: kind "timeout" for
+--- [`Poll.TIMEOUT`], "cancelled" for [`Poll.CANCELLED`] and for
+--- "interrupted" (a signal a [`Signal.guard`] caught), else "other".
+local function failure_of(why: string): Failure
+  if why == Poll.TIMEOUT then return Failure.timeout(why) end
+  if why == Poll.CANCELLED or why == "interrupted" then return Failure.cancelled(why) end
+  return Failure.new(why)
+end
+
 local function add(args: {string: Json.Value}, _: Server.Call): (Mcp.ToolResult) | (nil, Failure)
   local a, b = math.tointeger(args["a"]), math.tointeger(args["b"])
   if a == nil or b == nil then return nil, Failure.new("a and b must be integers") end
@@ -258,14 +267,14 @@ end
 local class PipeReader is Stream.Reader
   pipe: Pipe
 
-  function read(self, _max?: integer): string?, string
-    if self.pipe.pending == "" then return nil, "" end
+  function read(self, _max?: integer): (string | false) | (nil, Failure)
+    if self.pipe.pending == "" then return false end
     local out = self.pipe.pending
     self.pipe.pending = ""
-    return out, ""
+    return out
   end
 
-  function close(self): boolean, string return true, "" end
+  function close(self): (true) | (false, Failure) return true end
 end
 
 --- The client's end of the pipe it writes: each line gets its response
@@ -274,16 +283,16 @@ local class PipeWriter is Stream.Writer
   pipe: Pipe
   mut server: Server.Instance
 
-  function write(self, data: string): boolean, string
+  function write(self, data: string): (true) | (false, Failure)
     for line in data:gmatch("[^\n]+") do
       local said = self.server:answer(line)
       if said.body ~= nil then self.pipe.pending = self.pipe.pending .. said.body .. "\n" end
     end
-    return true, ""
+    return true
   end
 
-  function close(self): boolean, string return true, "" end
-  function abort(self): boolean, string return true, "" end
+  function close(self): (true) | (false, Failure) return true end
+  function abort(self): (true) | (false, Failure) return true end
 end
 
 local function piped(server: Server.Instance, opts?: Client.Options): Client.Session
@@ -478,36 +487,36 @@ end
 local class DuctReader is Stream.Reader
   duct: Duct
 
-  function read(self, _max?: integer): string?, string
+  function read(self, _max?: integer): (string | false) | (nil, Failure)
     while self.duct.held == "" do
-      if self.duct.closed then return nil, "" end
+      if self.duct.closed then return false end
       local ok, why = self.duct.notifier:wait()
-      if not ok then return nil, why.message end
+      if not ok then return nil, failure_of(why.message) end
     end
     local out = self.duct.held
     self.duct.held = ""
-    return out, ""
+    return out
   end
 
-  function close(self): boolean, string return true, "" end
+  function close(self): (true) | (false, Failure) return true end
 end
 
 local class DuctWriter is Stream.Writer
   duct: Duct
 
-  function write(self, data: string): boolean, string
+  function write(self, data: string): (true) | (false, Failure)
     self.duct.held = self.duct.held .. data
     self.duct.notifier:notify_all()
-    return true, ""
+    return true
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.duct.closed = true
     self.duct.notifier:notify_all()
-    return true, ""
+    return true
   end
 
-  function abort(self): boolean, string return self:close() end
+  function abort(self): (true) | (false, Failure) return self:close() end
 end
 
 local function duct(): Duct
@@ -717,9 +726,11 @@ local function test_a_cancel_is_read_while_the_server_is_full()
 end
 
 local class FailingWriter is Stream.Writer
-  function write(self, _: string): boolean, string return false, "the pipe is broken" end
-  function close(self): boolean, string return true, "" end
-  function abort(self): boolean, string return true, "" end
+  function write(self, _: string): (true) | (false, Failure)
+    return false, failure_of("the pipe is broken")
+  end
+  function close(self): (true) | (false, Failure) return true end
+  function abort(self): (true) | (false, Failure) return true end
 end
 
 --- A write that fails ends the server, though its input has nothing more to say and never ends.

@@ -355,14 +355,14 @@ end
 local class Trickle is Stream.Reader
   mut text: string
 
-  function read(self, _max?: integer): string?, string
-    if self.text == "" then return nil, "" end
+  function read(self, _max?: integer): (string | false) | (nil, Failure)
+    if self.text == "" then return false end
     local byte = self.text:sub(1, 1)
     self.text = self.text:sub(2)
-    return byte, ""
+    return byte
   end
 
-  function close(self): boolean, string return true, "" end
+  function close(self): (true) | (false, Failure) return true end
 end
 
 --- An event stream sent a byte at a time, its lines ended CRLF, is read whole: each notice once, a notice that
@@ -418,7 +418,7 @@ local function test_a_quiet_call_is_cancelled_soon_after_its_client_closes()
     local got = ""
     while not got:find("\r\n\r\n", 1, true) do
       local piece, why = conn:read()
-      assert(piece ~= nil, "reading the head: " .. why)
+      assert(piece is string, "reading the head: " .. tostring(why))
       got = got .. piece
     end
     assert(got:find("^HTTP/1%.1 200") ~= nil and got:find("text/event-stream", 1, true) ~= nil, got)

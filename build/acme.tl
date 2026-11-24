@@ -89,21 +89,13 @@ local record verb
   end
 end
 
-local spec = assert(Verb.spec)
+--- The subcommands, each with the options it takes, as [`cosmic.cli.acme`] describes them.
+local subcommands = Verb.subcommands or {}
 
-local usage = "cosmic acme key [--rsa] [--bits N] <file|-> | cosmic acme issue --account <file> --key <file> " ..
-  "(--webroot <dir> | --dns-hook <program>) [--staging | --directory <url>] [--contact <url>]... [--agree-tos] " ..
-  "[--out <file>] <name>..."
-
---- The options each subcommand takes.
-local TAKES <const>: {string: {string: boolean}} = {
-  key = { ["--rsa"] = true, ["--bits"] = true },
-  issue = {
-    ["--account"] = true, ["--key"] = true, ["--webroot"] = true, ["--dns-hook"] = true,
-    ["--staging"] = true, ["--directory"] = true, ["--contact"] = true, ["--agree-tos"] = true,
-    ["--out"] = true,
-  },
-}
+--- The usage line of the subcommand `sub`, which a refusal ends with; the verb's own where it names none.
+local function usage(sub: string): string
+  return Flags.usage(Verb, "cosmic acme", { sub })
+end
 
 --- Mode 0600: a key file only its owner reads.
 local OWNER_ONLY <const> = 0x180
@@ -180,25 +172,22 @@ local standard: verb.Io = {
 --- output.
 local function make_key(to: verb.Io, complain: function(line: string), parsed: Flags.Parsed): integer
   if #parsed.words ~= 1 then
-    complain(("key takes one file, not %d; %s"):format(#parsed.words, usage))
+    complain(("key takes one file, not %d; %s"):format(#parsed.words, usage("key")))
     return bare.refused
   end
   local file = assert(parsed.words[1])
   if file == "" then
-    complain(bare.empty_file)
+    complain(bare.empty_file .. "; " .. usage("key"))
     return bare.refused
   end
   local bits_word = parsed.values["--bits"]
   local rsa = parsed.set["--rsa"] == true
   if bits_word ~= nil and not rsa then
-    complain("--bits is for --rsa; " .. usage)
+    complain("--bits is for --rsa; " .. usage("key"))
     return bare.refused
   end
-  local bits = if (bits_word or "2048"):match("^%d+$") ~= nil then math.tointeger(tonumber(bits_word or "2048")) else nil end
-  if bits ~= 2048 and bits ~= 3072 and bits ~= 4096 then
-    complain("--bits is 2048, 3072 or 4096, not " .. tostring(bits_word))
-    return bare.refused
-  end
+  -- The option's choices, which Flags.parse holds it to, are whole numbers.
+  local bits = assert(math.tointeger(tonumber(bits_word or "2048")), "--bits takes only its choices")
   -- No look for a file there first: the exclusive create alone refuses
   -- one, made however lately.
   local key = if rsa then Key.generate("rsa", { bits = bits }) else Key.generate("p256") end
@@ -217,7 +206,7 @@ local function read_key(to: verb.Io, complain: function(line: string), parsed: F
                         name: string): Key.Secret?
   local file = parsed.values[name]
   if file == nil or file == "" then
-    complain(name .. " names a key file (`cosmic acme key <file>` makes one); " .. usage)
+    complain(name .. " names a key file (`cosmic acme key <file>` makes one); " .. usage("issue"))
     return nil
   end
   local text, why = to.read(file)
@@ -241,7 +230,7 @@ end
 --- prints or writes its chain.
 local function issue(to: verb.Io, complain: function(line: string), parsed: Flags.Parsed): integer
   local function refuse(line: string): integer
-    complain(line .. "; " .. usage)
+    complain(line .. "; " .. usage("issue"))
     return bare.refused
   end
   if #parsed.words == 0 then return refuse("issue names the certificate's DNS names") end
@@ -361,24 +350,19 @@ end
 function verb.run(argv: {string}, io?: verb.Io): integer
   local to = io or standard
   local complain = bare.complainer("acme", to.err)
-  local got, trouble = Flags.parse(argv, 2, spec)
+  local sub = argv[2]
+  local described = if sub ~= nil then subcommands[sub] else nil end
+  if sub == nil or described == nil then
+    complain((if sub == nil then "name key or issue" else "no subcommand " .. sub end) .. "; " .. usage(sub or ""))
+    return bare.refused
+  end
+  local none: {string:boolean | Flags.Option} = {}
+  local got, trouble = Flags.parse(argv, 3, described.spec or none)
   if got == nil then
-    complain(trouble .. "; " .. usage)
+    complain(sub .. ": " .. trouble .. "; " .. usage(sub))
     return bare.refused
   end
   local parsed: Flags.Parsed = got
-  local sub = table.remove(parsed.words, 1)
-  local takes = if sub == nil then nil else TAKES[sub] end
-  if sub == nil or takes == nil then
-    complain((if sub == nil then "name key or issue" else "no subcommand " .. sub end) .. "; " .. usage)
-    return bare.refused
-  end
-  for _, name in ipairs(parsed.given) do
-    if takes[name] ~= true then
-      complain(name .. " is not an option of " .. sub .. "; " .. usage)
-      return bare.refused
-    end
-  end
   if sub == "key" then return make_key(to, complain, parsed) end
   return issue(to, complain, parsed)
 end

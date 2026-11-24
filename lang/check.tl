@@ -77,6 +77,7 @@ local Literals = require("lang.literals")
 local LoadOrder = require("lang.load_order")
 local Relation = require("lang.relation")
 local Scopes = require("lang.scopes")
+local type Sql = require("lang.sql")
 local Types = require("lang.types")
 local Warnings = require("lang.warnings")
 
@@ -505,6 +506,12 @@ local record Ctx
   --- `Sqlite.memory({ schema = S })`, either in `assert`), where the local is never assigned, by id: the
   --- SQL literals sent to it are read against that schema ([`lang.sql`]).
   handle_schemas: mut {integer: string}
+  --- The result columns of the rows each local holds, by id: a local given `db:rows(sql)` of a handle
+  --- [`Ctx.handle_schemas`] holds ([`Calls.result_columns`]).
+  row_lists: mut {integer: {Sql.Column}}
+  --- The result columns of the row each local holds, by id: one given `db:one(sql)`, a `for` variable
+  --- over a list [`Ctx.row_lists`] holds, or the parameter of the function given `db:map`.
+  row_columns: mut {integer: {Sql.Column}}
   --- The integer literal as written (`0`) that starts each local declared without a type, by binding: an `integer` the
   --- program may mean as a `number`.
   starts: mut {integer: string}
@@ -7228,8 +7235,8 @@ end
 --- refuses there, and a values list written out whose length is not the number of values the SQL binds.
 function Calls.sql_arguments(ctx: Ctx, method: string, node: Ast.Node, args: {Ast.Exp}, recv_node: Ast.Node)
   -- Required here, not in the main chunk, whose locals are at their ceiling.
-  local Sql = require("lang.sql")
-  local valued = Sql.methods[method]
+  local Reads = require("lang.sql")
+  local valued = Reads.methods[method]
   local receiver = peel(recv_node)
   local sql = args[1]
   local bound = if (receiver.kind == "Name") then receiver.binding else nil end
@@ -7243,14 +7250,14 @@ function Calls.sql_arguments(ctx: Ctx, method: string, node: Ast.Node, args: {As
   local text = Calls.joined_text(ctx, sql)
   -- SQL that may make a table or attach a database ends the reads of the handle: what it holds is
   -- no longer the schema alone.
-  if (method == "exec" and text == nil) or (text ~= nil and Sql.changes_schema(text)) then
+  if (method == "exec" and text == nil) or (text ~= nil and Reads.changes_schema(text)) then
     ctx.handle_schemas[bound] = nil
     return
   end
   if text == nil or valued == nil then
     return
   end
-  local read = Sql.read(ddl, text)
+  local read = Reads.read(ddl, text)
   if read == nil then
     return
   end
@@ -7262,6 +7269,16 @@ function Calls.sql_arguments(ctx: Ctx, method: string, node: Ast.Node, args: {As
     report(ctx, "sql_refused", sql, quoted(receiver.text) .. " was opened with a schema, and SQLite refuses this SQL " ..
         "against it: " .. refusal, fix, { refusal })
     return
+  end
+  local project = if method == "map" then args[3] else nil end
+  local made = if project ~= nil then peel(project) else nil end
+  if made ~= nil and (made.kind == "FunctionLit") then
+    local param = made.fn.params[1]
+    local row = if param ~= nil then param.name else nil end
+    local held = if row ~= nil then ctx.scoped.vars[row.id] else nil end
+    if row ~= nil and held ~= nil and not held.assigned then
+      ctx.row_columns[row.id] = read.columns
+    end
   end
   if not valued then
     return
@@ -7291,6 +7308,111 @@ function Calls.sql_arguments(ctx: Ctx, method: string, node: Ast.Node, args: {As
   end
 end
 
+--- The result columns of `e` where it is `db:rows(sql)` or `db:one(sql)`, either in `assert`, on a handle
+--- [`Ctx.handle_schemas`] holds, with literal SQL that SQLite prepares against its schema: the columns, and whether the
+--- call returns a list of rows (`rows`) or one row (`one`). An element of a list [`Ctx.row_lists`] holds (`rows[1]`) is
+--- one row of its columns. Nil otherwise.
+function Calls.result_columns(ctx: Ctx, e: Ast.Node): {Sql.Column}?, boolean
+  local at = peel(e)
+  if (at.kind == "Call") then
+    local callee = peel(at.callee)
+    local first = at.args[1]
+    if (callee.kind == "Name") and callee.binding == nil and callee.text == "assert" and first ~= nil then
+      at = peel(first)
+    end
+  end
+  if (at.kind == "Index") then
+    local list = peel(at.object)
+    local held = if (list.kind == "Name") then list.binding else nil end
+    return if held ~= nil then ctx.row_lists[held] else nil end, false
+  end
+  if not (at.kind == "MethodCall") or (at.name ~= "rows" and at.name ~= "one") then
+    return nil, false
+  end
+  local receiver = peel(at.object)
+  local bound = if (receiver.kind == "Name") then receiver.binding else nil end
+  local sql = at.args[1]
+  local ddl = if bound ~= nil then ctx.handle_schemas[bound] else nil end
+  local text = if ddl ~= nil and sql ~= nil then Calls.joined_text(ctx, sql) else nil end
+  if ddl == nil or text == nil then
+    return nil, false
+  end
+  local read = require("lang.sql").read(ddl, text)
+  if read == nil or read.refused ~= nil then
+    return nil, false
+  end
+  return read.columns, at.name == "rows"
+end
+
+--- Reads a call of `method` on a row whose result columns are known ([`Ctx.row_columns`], or an element of a list
+--- [`Ctx.row_lists`] holds) with a literal column: a column past the last, and a read that raises on every cell of the
+--- column's declared type (`row:text(i)` of an `INTEGER` column).
+function Calls.row_read(ctx: Ctx, method: string, args: {Ast.Exp}, recv_node: Ast.Node)
+  local Reads = require("lang.sql")
+  local index = args[1]
+  if index == nil or Reads.row_reads[method] == nil then
+    return
+  end
+  local at = peel(index)
+  if not (at.kind == "Integer") then
+    return
+  end
+  local receiver = peel(recv_node)
+  local columns: {Sql.Column}? = nil
+  local own = if (receiver.kind == "Name") then receiver.binding else nil end
+  if own ~= nil then
+    columns = ctx.row_columns[own]
+  elseif (receiver.kind == "Index") then
+    local list = peel(receiver.object)
+    local bound = if (list.kind == "Name") then list.binding else nil end
+    if bound ~= nil then
+      columns = ctx.row_lists[bound]
+    end
+  end
+  if columns == nil then
+    return
+  end
+  local n = at.value
+  local column = columns[n]
+  if column == nil then
+    local count = #columns
+    local counted = if count == 1 then "1 column" else tostring(count) .. " columns" end
+    report(ctx, "sql_column", index, "the SQL gives " .. counted .. ", so this row has no column " .. tostring(n),
+      "read a column from 1 to " .. tostring(count), { tostring(count), tostring(n) })
+    return
+  end
+  local kind, origin, declared = column.kind, column.origin, column.declared
+  if kind == nil or origin == nil or declared == nil or not Reads.refuses(column, method) then
+    return
+  end
+  local better: string = kind
+  report(ctx, "sql_column", index, "column " .. tostring(n) .. " is " .. origin .. ", declared " .. declared ..
+      (if column.strict then " in a STRICT table" else "" end) .. ", so `" .. method .. "` raises on each of its cells", "read it with `" .. better .. "(" .. tostring(n) .. ")`",
+    { origin, declared })
+end
+
+--- Gives the variable of `for _, row in ipairs(rows)` the result columns of `rows`, where [`Ctx.row_lists`] holds them.
+function Calls.for_rows(ctx: Ctx, s: Ast.ForIn)
+  local first = s.iterators[1]
+  local row = s.vars[2]
+  local at = if first ~= nil then peel(first) else nil end
+  if row == nil or at == nil or not (at.kind == "Call") or #s.iterators ~= 1 then
+    return
+  end
+  local callee = peel(at.callee)
+  local list = at.args[1]
+  local over = if list ~= nil then peel(list) else nil end
+  local bound = if over ~= nil and (over.kind == "Name") then over.binding else nil end
+  if not (callee.kind == "Name") or callee.binding ~= nil or callee.text ~= "ipairs" or bound == nil then
+    return
+  end
+  local columns = ctx.row_lists[bound]
+  local held = ctx.scoped.vars[row.id]
+  if columns ~= nil and held ~= nil and not held.assigned then
+    ctx.row_columns[row.id] = columns
+  end
+end
+
 --- The lists a call returns, where the callee has type `ft` (and the overloads `cands`, if it has several). `expected`
 --- is the type the call is expected to return, which solves a type parameter no argument does.
 function Calls.dispatch(ctx: Ctx, node: Ast.Node, callee_node: Ast.Node, callee: string, ft: Type, cands: {Type}?,
@@ -7317,6 +7439,7 @@ function Calls.dispatch(ctx: Ctx, node: Ast.Node, callee_node: Ast.Node, callee:
   local refined: Fn? = nil
   if (node.kind == "MethodCall") and recv_node ~= nil then
     Calls.sql_arguments(ctx, node.name, node, args, recv_node)
+    Calls.row_read(ctx, node.name, args, recv_node)
   end
   if library ~= nil then
     Calls.literal_arguments(ctx, library, node, args, recv_node)
@@ -8178,6 +8301,14 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
         if opened ~= nil then
           ctx.handle_schemas[b.id] = opened
         end
+        local columns, many = Calls.result_columns(ctx, literal)
+        if columns ~= nil then
+          if many then
+            ctx.row_lists[b.id] = columns
+          else
+            ctx.row_columns[b.id] = columns
+          end
+        end
       end
     end
     if want ~= nil then
@@ -8351,7 +8482,7 @@ end
 --- The local `t` whose length the limit `to` of a numeric loop with the index `var` is at most, and the literal `b`
 --- it stops short of that length by: `#t`, `#t - b`, or a `math.min` of such a one and other values that run no code
 --- of the program ([`Writes.keeps_length`] of each), so that nothing they run can change `t` between its length and the
---- loop. `math.min` answers the least of its arguments, so the limit is at most `#t - b`. Nil for another form.
+--- loop. `math.min` returns the least of its arguments, so the limit is at most `#t - b`. Nil for another form.
 function Writes.length_limit(to: Ast.Exp, var: integer): (Ast.Exp, integer) | (nil, integer)
   local at = peel(to)
   local slack = 0
@@ -9661,6 +9792,7 @@ end
 
 local function for_generic(ctx: Ctx, s: Ast.ForIn)
   local store = ctx.store
+  Calls.for_rows(ctx, s)
   local vals = values_of(ctx, s.iterators, nil, nil)
   local iterator = vals.types[1] or vals.tail
   local types: mut {Type} = {}
@@ -10378,7 +10510,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, spreads = {}, tags = {}, declared = {}, union_fields = {}, spine = {},
     ternaries = {}, spare = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
-    loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, runs = {}, inferred = {}, boundaries = {}, types = {}, callees = {}, consts = {}, schemas = {}, handle_schemas = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
+    loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, runs = {}, inferred = {}, boundaries = {}, types = {}, callees = {}, consts = {}, schemas = {}, handle_schemas = {}, row_lists = {}, row_columns = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
     end,

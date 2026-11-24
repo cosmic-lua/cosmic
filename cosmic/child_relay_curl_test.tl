@@ -31,8 +31,8 @@ local function serving(body: function(port: integer))
   Net.with_loopback(function(conn: Net.Conn)
     local seen = ""
     while not seen:find("\r\n\r\n", 1, true) do
-      local chunk = conn:read(4096)
-      if chunk == nil then break end
+      local chunk, _ = conn:read(4096)
+      if chunk == nil or chunk == false then break end
       seen = seen .. chunk
     end
     local _, _ = conn:write("HTTP/1.1 200 OK\r\nContent-Length: 19\r\nConnection: close\r\n\r\nhello from the host")

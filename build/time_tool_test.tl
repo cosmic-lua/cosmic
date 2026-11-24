@@ -61,7 +61,7 @@ local function test_the_exit_status_is_the_verdict(tmp: string)
   assert(bad.code == 2 and bad.out == "", bad.out)
   assert(not bad.err:find("time: FAIL", 1, true), bad.err)
   local usage = cosmic(tmp, { "time", "--bogus" })
-  assert(usage.code == 2 and usage.out == "" and usage.err:find("no such option: --bogus", 1, true) ~= nil, usage.err)
+  assert(usage.code == 2 and usage.out == "" and usage.err:find("no such command: --bogus", 1, true) ~= nil, usage.err)
 end
 
 --- Help reads the store's docs, which a test not declaring `store` is not

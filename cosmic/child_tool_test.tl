@@ -183,8 +183,11 @@ return function(): integer
   local chunk = string.rep("x", 1 << 20)
   local ok, trouble = true, ""
   for _ = 1, 8 do
-    ok, trouble = stdin:write(chunk)
-    if not ok then break end
+    local wrote, why = stdin:write(chunk)
+    if not wrote then
+      ok, trouble = false, tostring(why)
+      break
+    end
   end
   print(tostring(ok) .. " " .. trouble)
   local _, _ = h:stop()

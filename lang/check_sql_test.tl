@@ -9,11 +9,16 @@ Test.policy{ grants = { { path = "lang/stdlib.d.tl", letters = "r" }, { path = "
 local SQLITE <const> = [[
 local record Row
   integer: function(Row, integer): integer
+  number: function(Row, integer): number
+  text: function(Row, integer): string
+  bytes: function(Row, integer): string
+  blob: function(Row, integer): string
 end
 local record Handle
   run: function(Handle, string, ?{integer | string}): boolean
   rows: function(Handle, string, ?{integer | string}): {Row}
   one: function(Handle, string, ?{integer | string}): Row
+  map: function(Handle, string, {integer | string}, function(Row): integer): {integer}
   prepare: function(Handle, string): boolean
   exec: function(Handle, string): boolean
 end
@@ -29,6 +34,7 @@ local record MemoryOptions
 end
 local record Sqlite
   type Handle = Handle
+  type Row = Row
   schema: function(string): Schema
   open: function(string, ?OpenOptions): Handle
   memory: function(?MemoryOptions): Handle
@@ -135,4 +141,45 @@ local function test_sql_of_several_statements_is_refused_with_exec_as_the_fix()
   local run = Programs.run(HEAD .. 'print(db:run("DELETE FROM notes; DELETE FROM notes"))\n', MODULES)
   local first = run.errors[1]
   assert(first ~= nil and first.code == "sql_refused" and first.fix:find("db:exec", 1, true) ~= nil)
+end
+
+local ROWS <const> = 'local Sqlite = require("cosmic.sqlite")\n' ..
+  'local S <const> = Sqlite.schema("CREATE TABLE docs (id INTEGER PRIMARY KEY, body TEXT NOT NULL, data BLOB, w REAL) ' ..
+  'STRICT; CREATE TABLE loose (n INTEGER, t TEXT, r REAL, b BLOB)")\n' ..
+  'local db = Sqlite.memory({ schema = S })\n'
+
+--- A read of a row from SQL on a handle with a schema is held to the column's declared type.
+local function test_a_read_of_the_wrong_type_is_refused()
+  says(ROWS .. 'local row = db:one("SELECT id, body FROM docs")\nprint(row:text(1))\n', "sql_column",
+    "column 1 is docs.id, declared INTEGER in a STRICT table, so `text` raises")
+  says(ROWS .. 'local rows = db:rows("SELECT id, body FROM docs")\nlocal first = assert(rows[1])\nprint(first:integer(2))\n', "sql_column",
+    "column 2 is docs.body, declared TEXT in a STRICT table, so `integer` raises")
+  says(ROWS .. 'local rows = db:rows("SELECT w FROM docs")\nfor _, row in ipairs(rows) do print(row:integer(1)) end\n',
+    "sql_column", "declared REAL")
+  says(ROWS .. 'local row = db:one("SELECT id FROM docs")\nprint(row:integer(2))\n', "sql_column",
+    "the SQL gives 1 column, so this row has no column 2")
+end
+
+local function test_reads_of_the_declared_type_and_of_any_column_are_accepted()
+  accepted(ROWS .. 'local row = db:one("SELECT id, body, data, w, count(*) FROM docs")\n' ..
+      'print(row:integer(1), row:number(1), row:text(2), row:bytes(2), row:blob(3), row:number(4), row:text(5), ' ..
+      'row:integer(5))\n')
+  -- a table that is not STRICT keeps a text it cannot convert, and a blob, in any column
+  accepted(ROWS .. 'local row = db:one("SELECT n, t, r, b FROM loose")\n' ..
+      'print(row:text(1), row:blob(1), row:text(3), row:bytes(2), row:integer(4), row:text(4), row:number(1))\n')
+  -- the later arms of a compound select may give any cell
+  accepted(ROWS .. 'local row = db:one("SELECT id FROM docs UNION ALL SELECT \'a\'")\nprint(row:text(1))\n')
+end
+
+local function test_a_loose_table_refuses_what_affinity_never_gives()
+  says(ROWS .. 'local row = db:one("SELECT t FROM loose")\nprint(row:integer(1))\n', "sql_column",
+    "column 1 is loose.t, declared TEXT, so `integer` raises")
+  says(ROWS .. 'local row = db:one("SELECT r FROM loose")\nprint(row:integer(1))\n', "sql_column", "declared REAL")
+  says(ROWS .. 'local row = db:one("SELECT data FROM docs")\nprint(row:text(1))\n', "sql_column",
+    "declared BLOB in a STRICT table")
+end
+
+local function test_the_row_of_map_is_read()
+  says(ROWS .. 'print(db:map("SELECT body FROM docs WHERE id = ?1", { 1 }, function(row: Sqlite.Row): integer\n' ..
+      '  return row:integer(1)\nend))\n', "sql_column", "declared TEXT")
 end

@@ -15,6 +15,15 @@ local type raw_tls = require("cosmic.internal.tls")
 local raw = require("cosmic.internal.socket")
 local tls = require("cosmic.internal.tls")
 
+--- The [`Failure`] for the words a read failed with: kind "timeout" for
+--- [`Poll.TIMEOUT`], "cancelled" for [`Poll.CANCELLED`] and for
+--- "interrupted" (a signal a [`Signal.guard`] caught), else "other".
+local function failure_of(why: string): Failure
+  if why == Poll.TIMEOUT then return Failure.timeout(why) end
+  if why == Poll.CANCELLED or why == "interrupted" then return Failure.cancelled(why) end
+  return Failure.new(why)
+end
+
 local DEFAULT_READ <const> = 64 * 1024
 
 --- The most a TLS session's read gives: one record's plaintext.
@@ -94,7 +103,7 @@ local class SocketConn is Duplex
   --- Internal: see `read_failure`.
   mut write_failure: string
   --- Never present: [`Stream.skip`] reads and discards a connection's bytes.
-  skip?: function(SocketConn, n: integer): boolean, string
+  skip?: function(SocketConn, n: integer): (true) | (false, Failure)
   --- Internal: the TLS session every read and write goes through, on a
   --- connection a TLS listener accepted or [`start_tls`] secured; nil
   --- for one in the clear. No caller reads or writes it.
@@ -126,17 +135,17 @@ local class SocketConn is Duplex
   -- raises SIGPIPE where sys.write may, and reads the timeout [`set_timeout`]
   -- changes on every call, which an option fixes when the object is made.
   --- What has arrived, at most `max_bytes` bytes (64 KiB by default), once
-  --- something has; nil and "" once the peer has ended what it sends.
-  --- nil and [`Poll.TIMEOUT`], "interrupted" or "cancelled" (in a task of
-  --- [`Poll.run`]) takes nothing, and a later read may still succeed; nil
-  --- and any other failure is every read's after. A failed read leaves
+  --- something has; `false` once the peer has ended what it sends. Nil
+  --- and a [`Failure`] of kind "timeout" or "cancelled" (a caught signal,
+  --- or a cancel in a task of [`Poll.run`]) takes nothing, and a later
+  --- read may still succeed; nil and any other Failure is every read's after. A failed read leaves
   --- writing be. A `max_bytes` below 1 raises.
-  function read(self, max_bytes?: integer): string?, string
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     if max_bytes ~= nil and max_bytes <= 0 then
       error("net: read's max_bytes must be positive", 2)
     end
-    if not self.open then return nil, "net: the connection is closed" end
-    if self.read_failure ~= "" then return nil, self.read_failure end
+    if not self.open then return nil, failure_of("net: the connection is closed") end
+    if self.read_failure ~= "" then return nil, failure_of(self.read_failure) end
     local fd = self.fd
     local session = self.session
     if session ~= nil then
@@ -146,46 +155,46 @@ local class SocketConn is Duplex
       local deadline = deadline_of(self.limit)
       while true do
         local data, why, stop = session:read(math.min(max_bytes or RECORD_BYTES, RECORD_BYTES))
-        if data ~= nil then return data, "" end
+        if data ~= nil then return data end
         -- TODO: an end with no close_notify (a TCP end alone) is ENDED as
         -- close_notify is, so an HTTP/1.x body read to the connection's end
         -- cannot tell truncation from the end: tell the two apart here,
         -- from core/tls.c, and refuse a body so cut, once #3853 merges.
-        if stop == tls.ENDED then return nil, "" end
+        if stop == tls.ENDED then return false end
         if stop == tls.FAILED then
           self.read_failure = why
-          return nil, why
+          return nil, failure_of(why)
         end
         local ready, waiting = waited(fd, stop == tls.WRITE, left(deadline))
-        if not ready then return nil, waiting end
-        if not self.open then return nil, "net: the connection is closed" end
+        if not ready then return nil, failure_of(waiting) end
+        if not self.open then return nil, failure_of("net: the connection is closed") end
       end
     end
     while true do
       local data, why, errno = sys.read(fd, max_bytes or DEFAULT_READ)
-      if data == "" then return nil, "" end
-      if data ~= nil then return data, "" end
+      if data == "" then return false end
+      if data ~= nil then return data end
       if errno ~= raw.EAGAIN then
         self.read_failure = why
-        return nil, why
+        return nil, failure_of(why)
       end
       -- Nothing was taken: a deadline or a signal leaves the next
       -- read to try again.
       local ready, waiting = waited(fd, false, self.limit)
-      if not ready then return nil, waiting end
+      if not ready then return nil, failure_of(waiting) end
       -- Another task may have closed the connection while this one
       -- waited in a run, and its descriptor gone to another socket.
-      if not self.open then return nil, "net: the connection is closed" end
+      if not self.open then return nil, failure_of("net: the connection is closed") end
     end
   end
 
-  --- Sends all of `data`, waiting as the peer takes it. False and
-  --- [`Poll.TIMEOUT`], "interrupted", "cancelled" (in a task of [`Poll.run`])
-  --- or why not may leave part of it sent,
+  --- Sends all of `data`, waiting as the peer takes it. False and a
+  --- [`Failure`] (kind "timeout" for a deadline, "cancelled" for
+  --- "interrupted" or a task of [`Poll.run`] cancelled) may leave part of it sent,
   --- so it is every write's after; reading is left be.
-  function write(self, data: string): boolean, string
-    if not self.open then return false, "net: the connection is closed" end
-    if self.write_failure ~= "" then return false, self.write_failure end
+  function write(self, data: string): (true) | (false, Failure)
+    if not self.open then return false, failure_of("net: the connection is closed") end
+    if self.write_failure ~= "" then return false, failure_of(self.write_failure) end
     local fd = self.fd
     local from = 1
     local session = self.session
@@ -198,17 +207,17 @@ local class SocketConn is Duplex
         elseif stop == tls.FAILED or stop == tls.ENDED then
           local trouble = if stop == tls.ENDED then "tls: the peer ended the session" else why end
           self.write_failure = trouble
-          return false, trouble
+          return false, failure_of(trouble)
         else
           local ready, waiting = waited(fd, stop == tls.WRITE, left(deadline))
           if not ready then
             self.write_failure = waiting
-            return false, waiting
+            return false, failure_of(waiting)
           end
-          if not self.open then return false, "net: the connection is closed" end
+          if not self.open then return false, failure_of("net: the connection is closed") end
         end
       end
-      return true, ""
+      return true
     end
     -- One deadline for the call, as over TLS: a peer that takes a byte
     -- each wait would hold the write for ever.
@@ -219,17 +228,17 @@ local class SocketConn is Duplex
         from = from + sent
       elseif errno ~= raw.EAGAIN then
         self.write_failure = why
-        return false, why
+        return false, failure_of(why)
       else
         local ready, waiting = waited(fd, true, left(deadline))
         if not ready then
           self.write_failure = waiting
-          return false, waiting
+          return false, failure_of(waiting)
         end
-        if not self.open then return false, "net: the connection is closed" end
+        if not self.open then return false, failure_of("net: the connection is closed") end
       end
     end
-    return true, ""
+    return true
   end
 
   --- Completes the TLS handshake of a connection a TLS listener
@@ -448,8 +457,8 @@ local class SocketConn is Duplex
   end
 
   --- Closes the connection. Safe to call more than once.
-  function close(self): boolean, string
-    if not self.open then return true, "" end
+  function close(self): (true) | (false, Failure)
+    if not self.open then return true end
     self.open = false
     Poll.closing(self.fd)
     local session = self.session
@@ -459,12 +468,12 @@ local class SocketConn is Duplex
       session:free()
     end
     local ok, why = self.socket:close()
-    if not ok then return false, why end
-    return true, ""
+    if not ok then return false, failure_of(why) end
+    return true
   end
 
   --- The same as `close`: nothing sent can be taken back.
-  function abort(self): boolean, string
+  function abort(self): (true) | (false, Failure)
     return self:close()
   end
 

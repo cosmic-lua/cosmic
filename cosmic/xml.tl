@@ -421,7 +421,7 @@ local class EventWriter is Xml.DocumentWriter
       if text == "" then return true, "" end
       local ok, trouble = self.target:write(text)
       if ok then return true, "" end
-      why = "xml: " .. trouble
+      why = "xml: " .. tostring(trouble)
     end
     self.failed = why
     return false, why
@@ -580,7 +580,9 @@ local class EventWriter is Xml.DocumentWriter
       else
         self.failed = "xml: the writer is closed"
         self.closed = true
-        return self.target:close()
+        local ok, why = self.target:close()
+        if not ok then return false, tostring(why) end
+        return true, ""
       end
     end
     -- The document is refused already: an abort that fails adds nothing to say.
@@ -592,7 +594,9 @@ local class EventWriter is Xml.DocumentWriter
     -- What was closed is written: there is nothing left to abandon.
     if self.closed then return true, "" end
     if self.failed == "" then self.failed = "xml: the writer is abandoned" end
-    return self.target:abort()
+    local ok, why = self.target:abort()
+    if not ok then return false, tostring(why) end
+    return true, ""
   end
 end
 

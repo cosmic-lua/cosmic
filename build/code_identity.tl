@@ -38,18 +38,21 @@ local record Reader
 end
 
 --- The identity of the code that reads and checks ([`code_identity.coded`]), over the modules `reader` covers: each module
---- of [`build.code_walk`]'s walk from this one by its name and its source. What the walk leaves out of this module's own
+--- of [`build.code_walk`]'s walk from this one by its name and its code text ([`build.code_text`]), so that an edit to a
+--- comment or to layout moves no compile's key. What the walk leaves out of this module's own
 --- requires, and why, is [`CodeWalk.type_only`].
 local function identity(reader: Reader): string
   local names, trouble = CodeWalk.reach(CodeWalk.pipeline, function(name: string): {string}?, string
     return reader.requires(name), ""
   end)
   assert(names, trouble)
+  -- Required here: a run whose compiles a cache holds takes the identity from the binary's stamps, and loads no lexer.
+  local code_text = require("build.code_text")
   local parts: mut {string} = {}
   for _, name in ipairs(names) do
     local source = reader.source(name)
     if source ~= nil then
-      parts[#parts + 1] = name .. "\n" .. source
+      parts[#parts + 1] = name .. "\n" .. code_text.of(source, name)
     end
   end
   table.sort(parts)

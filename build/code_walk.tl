@@ -1,16 +1,16 @@
---- Which modules the identities of the code that reads and checks hash the source of.
+--- Which modules the identities of the code that reads and checks hash.
 ---
---- Four identities hold the source of the code that decides what a compile or a parse stores: the checker's readers
+--- Four identities hold the code that decides what a compile or a parse stores: the checker's readers
 --- ([`code_identity.coded`]), the analyzer ([`build.importer`]'s `analyzer_identity`), the readers of the
 --- record-field uses (`receivers_identity`) and the code that finds the links of the files ([`build.work`]'s
 --- `links_finder`). Each is a walk from roots over `require`, defined here once, so that the identities and the writer
 --- of a test's pure store ([`build.closure_store`]) reach the same modules: the pure store keeps the source of exactly the
 --- walks a test's closure declares it reads (it requires [`build.reads.pipeline`], `analyzer`, `receivers` or `links`).
 
--- TODO: hash the tokens of each module of a walk, not its source, in the four identities (build.code_identity's `identity`,
--- build.importer's `analyzer_named` and `receivers_identity`, build.work's `links_finder`) once a comment-insensitive
--- fingerprint of a module exists, so that a comment in a module of a walk moves no key; the pure store would then keep
--- that fingerprint in place of the source.
+-- TODO: hash the code text ([`build.code_text`]) of each module of a walk, not its source, in build.importer's
+-- `receivers_identity` and build.work's `links_finder`, as build.code_identity's `identity` and build.importer's
+-- `analyzer_named` do, so that a comment in a module of those walks moves no key either; the pure store would then keep
+-- the code text in place of the source.
 
 local record Walks
   --- The walk of the checker's readers, from [`build.pipeline`].

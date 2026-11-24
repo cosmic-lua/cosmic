@@ -12,10 +12,19 @@ local this_program = require("build.this_program")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local _ = require("build.standalone")
+local type Stream = require("cosmic.stream")
 --- What the scripts its tests run standalone require, which a child
 --- is typed and run against only where the closure holds it (`lua`).
 local type _ = require("cosmic.http")
 local Clock = require("cosmic.clock")
+
+--- The next chunk of `reader`: raises where it ended or failed.
+local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
+  local chunk, why = reader:read(max_bytes)
+  if chunk == nil then error(tostring(why), 2) end
+  if chunk == false then error("the stream ended", 2) end
+  return chunk
+end
 
 --- Requests to a local port, closed or one a test serves, which a
 --- loopback alone reaches: the worker runs offline, and is keyed. And
@@ -97,7 +106,7 @@ end
   local child <close> = assert(Child.start(started.argv, started.options))
   local conn <close> = assert(server:accept())
   local head = ""
-  while not head:find("\r\n\r\n", 1, true) do head = head .. assert(conn:read()) end
+  while not head:find("\r\n\r\n", 1, true) do head = head .. chunk_of(conn) end
   serve(conn, head)
   for _ = 1, 2000 do
     if assert(Fs.status(marker)).exists then break end
@@ -115,10 +124,11 @@ end
 local function test_a_caught_signal_ends_a_read_that_waits(tmp: string)
   local said = interrupted(tmp, [[
   local response = assert(Http.open(url, { timeout_ns = Clock.seconds(60) }))
-  assert(assert(response:read()) == "part")
+  local first, _ = response:read()
+  assert(first == "part")
   assert(Fs.write(marker, ""))
   local data, why = response:read()
-  local _, _ = Fs.put(Fs.stdout, tostring(data) .. " " .. why)
+  local _, _ = Fs.put(Fs.stdout, tostring(data) .. " " .. tostring(why))
 ]], function(conn: Net.Conn, _head: string)
   assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\npart"))
 end)
@@ -182,16 +192,16 @@ end
   local request = ""
   local head_start = request:find("\r\n\r\n", 1, true)
   while head_start == nil do
-    request = request .. assert(conn:read())
+    request = request .. chunk_of(conn)
     head_start = request:find("\r\n\r\n", 1, true)
   end
   local head_end = head_start + 3
   -- The pattern takes digits only, and "0" is the default.
   local length = assert(tonumber(request:sub(1, head_end):lower():match("\r\ncontent%-length: *(%d+)") or "0"),
     "a Content-Length of digits")
-  while #request < head_end + length do request = request .. assert(conn:read()) end
+  while #request < head_end + length do request = request .. chunk_of(conn) end
   assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\ndone"))
-  conn:close()
+  local _, _ = conn:close()
   local result = assert(child:wait(Clock.seconds(20)))
   assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
   return request, result.stdout or ""
@@ -219,9 +229,9 @@ end
 --- many bytes as the header says, with whatever `pending` already holds.
 local function tls_record(conn: Net.Conn, pending: string): string
   local got = pending
-  while #got < 5 do got = got .. assert(conn:read()) end
+  while #got < 5 do got = got .. chunk_of(conn) end
   local length = string.unpack(">I2", got, 4)
-  while #got < 5 + length do got = got .. assert(conn:read()) end
+  while #got < 5 + length do got = got .. chunk_of(conn) end
   return got:sub(1, 5 + length)
 end
 
@@ -260,6 +270,7 @@ local function test_a_tls_1_2_server_hello_naming_tls_1_3_is_refused(tmp: string
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
+
 return function(argv: {string}): integer
   local _, trouble = Http.open((argv[1] or ""), { timeout_ns = Clock.seconds(10) })
   local _, _ = Fs.put(Fs.stdout, tostring(trouble))
@@ -278,10 +289,10 @@ end
   local answer = ""
   while #answer < 7 do
     local more, _ = conn:read()
-    if more == nil or more == "" then break end
+    if more == nil or more == false or more == "" then break end
     answer = answer .. more
   end
-  conn:close()
+  local _, _ = conn:close()
   local result = assert(child:wait(Clock.seconds(20)))
   assert(result.code == 0, tostring(result.stderr))
   local shown = answer:gsub(".", function(c: string): string

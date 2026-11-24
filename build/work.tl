@@ -291,6 +291,9 @@ local version <const> = "35"
 --- `deflated` is the compressed text of a source, by the source's SHA-256
 --- and the core that compressed it, which [`build.writer`] puts in a
 --- projection beside it instead of compressing every source on each write.
+--- `code_hashes` is the hash of a module's code text ([`build.code_text`]), by the source's SHA-256 and the boot hash
+--- of the tool whose lexer read it, which [`build.identity`] hashes into the tool's identities instead of lexing each
+--- module on each build; it holds the running tool's rows alone.
 --- `kept_bytecode` is a compile's bytecode alone, as `string.dump` wrote it,
 --- by the compile's key, which a projection's modules take theirs from.
 ---
@@ -535,6 +538,10 @@ for _, statement in ipairs({
                                          core TEXT NOT NULL,
                                          data BLOB NOT NULL,
                                          PRIMARY KEY (source_hash, core)) WITHOUT ROWID]],
+    [[CREATE TABLE IF NOT EXISTS code_hashes (source_hash TEXT NOT NULL,
+                                            by TEXT NOT NULL,
+                                            code_hash TEXT NOT NULL,
+                                            PRIMARY KEY (source_hash, by)) WITHOUT ROWID]],
     [[CREATE TABLE IF NOT EXISTS kept_bytecode (key TEXT PRIMARY KEY NOT NULL,
                                               data BLOB NOT NULL) WITHOUT ROWID]],
     [[CREATE TABLE IF NOT EXISTS compressed (path TEXT NOT NULL,

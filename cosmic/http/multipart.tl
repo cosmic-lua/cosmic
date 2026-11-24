@@ -47,9 +47,20 @@
 --- is read when there is no `filename`.
 --- @public
 
+local Failure = require("cosmic.failure")
 local Number = require("cosmic.number")
+local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local String = require("cosmic.string")
+
+--- The [`Failure`] for the words a read failed with: kind "timeout" for
+--- [`Poll.TIMEOUT`], "cancelled" for [`Poll.CANCELLED`] and for
+--- "interrupted" (a signal a [`Signal.guard`] caught), else "other".
+local function failure_of(why: string): Failure
+  if why == Poll.TIMEOUT then return Failure.timeout(why) end
+  if why == Poll.CANCELLED or why == "interrupted" then return Failure.cancelled(why) end
+  return Failure.new(why)
+end
 
 local record Multipart
   --- One part of the body.
@@ -89,7 +100,7 @@ local record Multipart
     --- malformed or its source fails (the source's own reason, as it gave it).
     next_part: function(Reader): Part?, string
     --- Ends the parser; it does not close the source.
-    close: function(Reader): boolean, string
+    close: function(Reader): (true) | (false, Failure)
   end
 end
 
@@ -120,29 +131,32 @@ local class BodyReader is Stream.Reader
   take: function(max: integer): string?, string
   fail: function(why: string): nil, string
 
-  function read(self, max_bytes?: integer): string?, string
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     if max_bytes ~= nil and max_bytes < 1 then
       error("multipart: a part body reads at least one byte", 2)
     end
-    if self.finished then return nil, "" end
+    if self.finished then return false end
     if self.parsed_generation() ~= self.generation then
-      return nil, "multipart: the part was passed by next_part"
+      return nil, Failure.new("multipart: the part was passed by next_part")
     end
     local state = self.state()
-    if state == "failed" then return nil, self.failure() end
-    if state == "done" then return nil, "multipart: the parser was closed" end
+    if state == "failed" then return nil, failure_of(self.failure()) end
+    if state == "done" then return nil, Failure.new("multipart: the parser was closed") end
     local chunk, why = self.take(max_bytes or CHUNK)
-    if chunk == nil then return self.fail(why) end
+    if chunk == nil then
+      local _, failed = self.fail(why)
+      return nil, failure_of(failed)
+    end
     if chunk == "" then
       self.finished = true
-      return nil, ""
+      return false
     end
-    return chunk, ""
+    return chunk
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.finished = true
-    return true, ""
+    return true
   end
 end
 
@@ -158,8 +172,8 @@ end
 local function fill(p: Parser): boolean, string
   if p.eof then return true, "" end
   local chunk, why = p.source:read(CHUNK)
-  if chunk == nil then
-    if why ~= "" then return false, why end
+  if chunk == nil then return false, tostring(why) end
+  if chunk == false then
     p.eof = true
     return true, ""
   end
@@ -516,10 +530,10 @@ local class Parser is Multipart.Reader
     return part, ""
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     if self.state ~= "failed" then self.state = "done" end
     self.buf = ""
-    return true, ""
+    return true
   end
 end
 

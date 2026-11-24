@@ -70,7 +70,7 @@ local function test_a_post_body_is_sent_again()
   }))
   assert(response.status == 200 and response.headers["x-n"] == "2", tostring(response.status))
   local sent = response:sent()
-  response:close()
+  local _, _ = response:close()
   assert(sent:find("POST / HTTP/1.1\r\n", 1, true) == 1, sent)
   assert(sent:find("payload", 1, true) ~= nil, "the retry sent no body: " .. sent)
 end

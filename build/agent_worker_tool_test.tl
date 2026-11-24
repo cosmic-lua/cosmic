@@ -205,6 +205,11 @@ end
 --- What a program an earlier snippet started writes after that snippet finished is not the next snippet's output,
 --- nor is a snippet's end mark another's.
 local function test_a_late_write_and_a_snippets_own_mark_are_not_the_next_snippets_output()
+  -- macOS has no setsid program, so the shell could leave nothing behind that outlives its group.
+  if not assert(Fs.status("/usr/bin/setsid")).exists then
+    Test.skip("this host has no /usr/bin/setsid to leave a program in a session of its own")
+    return
+  end
   local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
   -- The shell leaves a program behind in a session of its own, which outlives the shell's group and writes once the
@@ -724,16 +729,17 @@ print(tostring(missing))
   Worker.close(w)
 end
 
---- A snippet's Host.fetch is made from its sandbox, so a session of no network reaches none, and a request that
---- gets no response raises in the snippet, as one of no http or https URL does.
-local function test_a_snippet_fetches_from_its_sandbox()
+--- A snippet's request that gets no response raises in the snippet, naming the URL, as one of no http or https URL
+--- does. The port is one nothing listens at, so the request fails whether or not the host has a network: a macOS
+--- runner's tests may reach the internet, where a Linux one's have no network at all.
+local function test_a_failed_fetch_raises_in_the_snippet()
   local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
   local context: Tools.Context = { cwd = dir, worker = w }
-  local ran = Tools.run("run", { code = "local _, none = pcall(Host.fetch, \"http://example.com/\", { timeout = 5 })\n" ..
+  local ran = Tools.run("run", { code = "local _, none = pcall(Host.fetch, \"http://127.0.0.1:1/\", { timeout = 5 })\n" ..
       "print(tostring(none))\n" ..
       "local _, why = pcall(Host.fetch, \"file:///etc/passwd\")\nprint(tostring(why))\n" }, context)
-  assert(not ran.is_error and ran.text:find("^host: fetch: http://example.com/: ") ~= nil, ran.text)
+  assert(not ran.is_error and ran.text:find("^host: fetch: http://127.0.0.1:1/: ") ~= nil, ran.text)
   assert(ran.text:find("give an http or https URL", 1, true) ~= nil, ran.text)
   Worker.close(w)
 end

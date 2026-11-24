@@ -13,10 +13,21 @@
 --- does; the bytes read past one request stay in the [`Input`] for the
 --- next, which is how a pipelined request is kept.
 
+local Failure = require("cosmic.failure")
 local Number = require("cosmic.number")
+local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local String = require("cosmic.string")
 local Url = require("cosmic.url")
+
+--- The [`Failure`] for the words a read failed with: kind "timeout" for
+--- [`Poll.TIMEOUT`], "cancelled" for [`Poll.CANCELLED`] and for
+--- "interrupted" (a signal a [`Signal.guard`] caught), else "other".
+local function failure_of(why: string): Failure
+  if why == Poll.TIMEOUT then return Failure.timeout(why) end
+  if why == Poll.CANCELLED or why == "interrupted" then return Failure.cancelled(why) end
+  return Failure.new(why)
+end
 
 local record wire
   --- The bounds one request is read under.
@@ -229,7 +240,8 @@ end
 function wire.fill(input: wire.Input): boolean, string
   if wire.buffered(input) then return true, "" end
   local chunk, why = input.source:read(CHUNK)
-  if chunk == nil then return false, why end
+  if chunk == nil then return false, tostring(why) end
+  if chunk == false then return false, "" end
   input.buf, input.at = chunk, 1
   return true, ""
 end
@@ -244,7 +256,8 @@ local function take(input: wire.Input, most: integer): string?, string
     return piece, ""
   end
   local chunk, why = input.source:read(math.min(most, CHUNK))
-  if chunk == nil then return nil, why end
+  if chunk == nil then return nil, tostring(why) end
+  if chunk == false then return nil, "" end
   input.taken = input.taken + #chunk
   return chunk, ""
 end
@@ -285,7 +298,8 @@ local function line(input: wire.Input, budget: integer): string?, string
     end
     input.buf, input.at = "", 1
     local chunk, why = input.source:read(CHUNK)
-    if chunk == nil then return nil, why end
+    if chunk == nil then return nil, tostring(why) end
+    if chunk == false then return nil, "" end
     input.buf = chunk
   end
 end
@@ -735,10 +749,10 @@ local class BodyReader is wire.Body
   mut failure: string
   mut closed: boolean
 
-  function read(self, max_bytes?: integer): string?, string
-    if self.closed then return nil, "http: the request body is closed" end
-    if self.failure ~= "" then return nil, self.failure end
-    if self.state == "done" then return nil, "" end
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
+    if self.closed then return nil, Failure.new("http: the request body is closed") end
+    if self.failure ~= "" then return nil, failure_of(self.failure) end
+    if self.state == "done" then return false end
     local most = max_bytes or CHUNK
     if most < 1 then error("http: read's max_bytes must be positive", 2) end
     if not self.touched then
@@ -748,48 +762,53 @@ local class BodyReader is wire.Body
     if not self.head.chunked then
       if self.left == 0 then
         self.state = "done"
-        return nil, ""
+        return false
       end
       local piece, why = take(self.input, math.min(most, self.left))
       if piece == nil then
-        return fail(self, "failed", if why ~= "" then why else "http: the request body ended early" end)
+        local _, failed = fail(self, "failed", if why ~= "" then why else "http: the request body ended early" end)
+        return nil, failure_of(failed)
       end
       self.left = self.left - #piece
       self.total = self.total + #piece
       if self.left == 0 then self.state = "done" end
-      return piece, ""
+      return piece
     end
     while true do
       if self.phase == "size" then
         local ok, why = next_chunk(self)
-        if not ok then return nil, why end
+        if not ok then return nil, failure_of(why) end
       elseif self.phase == "data" then
         local piece, why = take(self.input, math.min(most, self.left))
         if piece == nil then
-          return fail(self, "failed", if why ~= "" then why else "http: the request body ended early" end)
+          local _, failed = fail(self, "failed", if why ~= "" then why else "http: the request body ended early" end)
+          return nil, failure_of(failed)
         end
         self.left = self.left - #piece
         self.total = self.total + #piece
         if self.left == 0 then self.phase = "data end" end
-        return piece, ""
+        return piece
       elseif self.phase == "data end" then
         local text, why = meta_line(self)
-        if text == nil then return nil, why end
-        if text ~= "" then return fail(self, "bad", "http: a chunk's data runs past its size") end
+        if text == nil then return nil, failure_of(why) end
+        if text ~= "" then
+          local _, failed = fail(self, "bad", "http: a chunk's data runs past its size")
+          return nil, failure_of(failed)
+        end
         self.phase = "size"
       else
         local ok, why = trailers(self)
-        if not ok then return nil, why end
-        return nil, ""
+        if not ok then return nil, failure_of(why) end
+        return false
       end
     end
   end
 
   --- Closing the body leaves the connection be: what of it is unread,
   --- the server discards before the next request.
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.closed = true
-    return true, ""
+    return true
   end
 
   function drain(self): boolean
@@ -974,8 +993,8 @@ local function copy_body(w: Stream.Writer, body: Stream.Reader, length: integer?
   local left = length
   while left == nil or left > 0 do
     local piece, why = body:read(if left ~= nil then math.min(left, CHUNK) else CHUNK end)
-    if piece == nil then
-      if why ~= "" then return "", why end
+    if piece == nil then return "", tostring(why) end
+    if piece == false then
       if left ~= nil then
         return "", "the reply body ended " .. String.counted(left, "byte") .. " short of its length"
       end
@@ -990,17 +1009,12 @@ local function copy_body(w: Stream.Writer, body: Stream.Reader, length: integer?
       return "", "the reply body's Reader gave more bytes than asked for"
     end
     if left ~= nil then left = left - #piece end
-    local ok, write_why: boolean, string
-    if chunked then
-      ok, write_why = w:write(("%x\r\n"):format(#piece) .. piece .. "\r\n")
-    else
-      ok, write_why = w:write(piece)
-    end
-    if not ok then return write_why, "" end
+    local ok, write_why = w:write(if chunked then ("%x\r\n"):format(#piece) .. piece .. "\r\n" else piece end)
+    if not ok then return tostring(write_why), "" end
   end
   if chunked then
     local ok, why = w:write("0\r\n\r\n")
-    if not ok then return why, "" end
+    if not ok then return tostring(why), "" end
   end
   return "", ""
 end
@@ -1020,7 +1034,7 @@ function wire.send(w: Stream.Writer, reply: wire.Reply): wire.Sent
   local write_why, body_why = "", ""
   if reply.method == "HEAD" or bodiless(reply.status) then
     local ok, why = w:write(head)
-    if not ok then write_why = why end
+    if not ok then write_why = tostring(why) end
   elseif reader == nil then
     -- In CHUNK slices, as a Reader body goes: a write's timeout bounds
     -- the whole write, and a large body over a slow link would pass it.
@@ -1028,17 +1042,18 @@ function wire.send(w: Stream.Writer, reply: wire.Reply): wire.Sent
     local text = if body is string then body else "" end
     local first = CHUNK - #head
     local ok, why = w:write(if #text <= first then head .. text else head .. text:sub(1, first) end)
-    if not ok then write_why = why end
+    if not ok then write_why = tostring(why) end
     local from = first + 1
     while ok and from <= #text do
-      ok, why = w:write(text:sub(from, from + CHUNK - 1))
-      if not ok then write_why = why end
+      local wrote, trouble = w:write(text:sub(from, from + CHUNK - 1))
+      ok = wrote
+      if not wrote then write_why = tostring(trouble) end
       from = from + CHUNK
     end
   else
     local ok, why = w:write(head)
     if not ok then
-      write_why = why
+      write_why = tostring(why)
     else
       write_why, body_why = copy_body(w, reader, length, chunked)
     end

@@ -8,6 +8,7 @@ local Stream = require("cosmic.stream")
 local Types = require("cosmic.web.types")
 local Url = require("cosmic.url")
 local Web = require("cosmic.web")
+local Failure = require("cosmic.failure")
 
 --- A record node read as a map of untrusted values, which is all a hand-written record says of its type.
 local function dynamic(node: Shape.Node): Shape.Spec<{string:any}>
@@ -477,13 +478,13 @@ end
 local function test_a_chunked_body_over_the_limit_is_413_without_reading_it_all()
   local pulled: integer = 0
   local reader: Stream.Reader = { -- checked: literal_shape
-    read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
+    read = function(_self: Stream.Reader, max_bytes?: integer): (string | false) | (nil, Failure)
       pulled = pulled + 1
-      if pulled > 100 then return nil, "" end
-      return ("y"):rep(math.min(max_bytes or 10, 10)), ""
+      if pulled > 100 then return false end
+      return ("y"):rep(math.min(max_bytes or 10, 10))
     end,
-    close = function(_self: Stream.Reader): boolean, string
-      return true, ""
+    close = function(_self: Stream.Reader): (true) | (false, Failure)
+      return true
     end,
   }
   local status: integer = 0
@@ -506,11 +507,11 @@ end
 --- limit returns.
 local function failing_body(why: string): integer, integer
   local reader: Stream.Reader = { -- checked: literal_shape
-    read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
-      return nil, why
+    read = function(_self: Stream.Reader, _max_bytes?: integer): (string | false) | (nil, Failure)
+      return nil, if why == Poll.TIMEOUT then Failure.timeout(why) else Failure.new(why) end
     end,
-    close = function(_self: Stream.Reader): boolean, string
-      return true, ""
+    close = function(_self: Stream.Reader): (true) | (false, Failure)
+      return true
     end,
   }
   local first: integer = 0
@@ -542,13 +543,13 @@ end
 local function test_a_body_read_over_the_limit_stays_failed_for_a_later_reader()
   local pulled: integer = 0
   local reader: Stream.Reader = { -- checked: literal_shape
-    read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
+    read = function(_self: Stream.Reader, max_bytes?: integer): (string | false) | (nil, Failure)
       pulled = pulled + 1
-      if pulled > 100 then return nil, "" end
-      return ("y"):rep(math.min(max_bytes or 10, 10)), ""
+      if pulled > 100 then return false end
+      return ("y"):rep(math.min(max_bytes or 10, 10))
     end,
-    close = function(_self: Stream.Reader): boolean, string
-      return true, ""
+    close = function(_self: Stream.Reader): (true) | (false, Failure)
+      return true
     end,
   }
   local statuses: mut {integer} = {}

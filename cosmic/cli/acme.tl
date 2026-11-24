@@ -28,23 +28,35 @@ local Flags = require("cosmic.flags")
 
 local command: Flags.Command = {
   about = "a certificate from Let's Encrypt",
-  usage = "<key|issue> [options] [names...]",
+  usage = "<issue|key> ...",
   examples = {
     { line = "key account.pem", about = "make a key" },
     { line = "issue --account account.pem --key site.pem --webroot /var/www --agree-tos --out chain.pem example.com", about = "get a certificate" },
   },
-  spec = {
-    ["--rsa"] = { about = "key: an RSA key, not P-256" },
-    ["--bits"] = { value = "n", about = "key: the RSA key's bits, 2048, 3072 or 4096 (default 2048)" },
-    ["--account"] = { value = "file", about = "issue: the account key, as PEM" },
-    ["--key"] = { value = "file", about = "issue: the certificate key, as PEM" },
-    ["--webroot"] = { value = "dir", about = "issue: meet http-01 from this web root" },
-    ["--dns-hook"] = { value = "program", about = "issue: meet dns-01 by running this program" },
-    ["--staging"] = { about = "issue: Let's Encrypt's staging server" },
-    ["--directory"] = { value = "url", about = "issue: another ACME server's directory" },
-    ["--contact"] = { value = "url", about = "issue: a contact for the account, such as mailto:ops@example.com" },
-    ["--agree-tos"] = { about = "issue: accept the server's terms of service" },
-    ["--out"] = { value = "file", about = "issue: write the chain here, not to standard output" },
+  subcommands = {
+    key = {
+      about = "a new key, written to a file or - for standard output",
+      usage = "[--rsa [--bits n]] <file>|-",
+      spec = {
+        ["--rsa"] = { about = "an RSA key, not P-256" },
+        ["--bits"] = { value = "n", about = "the RSA key's bits (default 2048)", choices = { "2048", "3072", "4096" } },
+      },
+    },
+    issue = {
+      about = "a certificate for the names",
+      usage = "[options] <name>...",
+      spec = {
+        ["--account"] = { value = "file", about = "the account key, as PEM" },
+        ["--key"] = { value = "file", about = "the certificate key, as PEM" },
+        ["--webroot"] = { value = "dir", about = "meet http-01 from this web root" },
+        ["--dns-hook"] = { value = "program", about = "meet dns-01 by running this program" },
+        ["--staging"] = { about = "Let's Encrypt's staging server" },
+        ["--directory"] = { value = "url", about = "another ACME server's directory" },
+        ["--contact"] = { value = "url", about = "a contact for the account, such as mailto:ops@example.com" },
+        ["--agree-tos"] = { about = "accept the server's terms of service" },
+        ["--out"] = { value = "file", about = "write the chain here, not to standard output" },
+      },
+    },
   },
 }
 

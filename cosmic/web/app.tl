@@ -305,7 +305,9 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
         local made = filed
         if made ~= nil then
           local closed, why = made:close()
-          if not closed then sink:line("tailnet: taking down the Serve configuration: " .. why) end
+          if not closed then
+            sink:line("tailnet: taking down the Serve configuration: " .. tostring(why))
+          end
         end
         for _, fn in ipairs(app.stoppers) do
           local trouble = raised_by(fn)

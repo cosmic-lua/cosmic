@@ -257,7 +257,7 @@ local function test_a_child_started_without_a_policy_is_held_by_the_profile(tmp:
   assert(Fs.write(tmp .. "/granted", "granted-bytes"))
   assert(Fs.write(tmp .. "/other", "other-bytes"))
   local said = in_child(string.format([[
-say("restrict", Sandbox.restrict({ profiles = { "system" }, promises = { "fork" },
+say("restrict", Sandbox.restrict({ profiles = { "system", "programs" }, promises = { "fork" },
   grants = { { path = %q, letters = "r" } } }))
 local granted, _ = Child.run({ "/bin/cat", %q }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
 if granted ~= nil then say("granted", granted.ok, granted.stdout) else say("granted", nil, nil) end

@@ -395,12 +395,15 @@ local function analyzer_named(code?: importer.Code): string?, string
     return "binary " .. (Store.meta("boot_hash") or ""), ""
   end
   local source_of = if code ~= nil then code.source else store_source end
+  -- Required here: a run whose binary is stamped never names its analyzer, and loads no lexer.
+  local code_text = require("build.code_text")
   for _, name in ipairs(modules) do
     local source, _ = source_of(name)
     if source == nil then
       return "binary " .. (Store.meta("boot_hash") or ""), ""
     end
-    parts[#parts + 1] = name .. "\n" .. source
+    -- Its code text ([`build.code_text`]): an edit to a comment of the analyzer parses only the source it edits.
+    parts[#parts + 1] = name .. "\n" .. code_text.of(source, name)
   end
   return Hash.hex_sha256(table.concat(parts, "\n\0\n")), ""
 end

@@ -94,12 +94,12 @@ local function entries_of(input: string, read: boolean): {string}?, string
         -- a caller that trusts the header would; the rest in chunks.
         local data: string? = nil
         if #seen % 2 == 0 and e.size > 0 then
-          local first, ftrouble = body:read(e.size)
-          if first ~= nil then
+          local first, _ = body:read(e.size)
+          if first == false then
+            data = ""
+          elseif first ~= nil then
             local rest, _ = Stream.read_all(body)
             if rest ~= nil then data = first .. rest end
-          elseif ftrouble == "" then
-            data = ""
           end
         else
           local got, _ = Stream.read_all(body)

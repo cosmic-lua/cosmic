@@ -244,6 +244,21 @@ local function test_a_default_stands_where_the_line_gives_none()
   end)
 end
 
+--- A usage line is that of the subcommand the words name, down to the last one that names one.
+local function test_usage_names_the_subcommand_the_words_reach()
+  local tool: Flags.Command = { subcommands = {
+    file = { subcommands = { get = { usage = "[options] <dir>", spec = { ["--keep"] = {} } }, list = {} } },
+    status = { spec = { ["--json"] = {} } },
+  } }
+  assert(Flags.usage(tool, "tool") == "usage: tool <file|status> ...", Flags.usage(tool, "tool"))
+  assert(Flags.usage(tool, "tool", { "status" }) == "usage: tool status [options]")
+  assert(Flags.usage(tool, "tool", { "file" }) == "usage: tool file <get|list> ...")
+  assert(Flags.usage(tool, "tool", { "file", "get" }) == "usage: tool file get [options] <dir>")
+  assert(Flags.usage(tool, "tool", { "file", "list" }) == "usage: tool file list")
+  assert(Flags.usage(tool, "tool", { "file", "nope", "get" }) == "usage: tool file <get|list> ...")
+  Test.raises(function() Flags.usage(tool, "") end, "usage's name is empty")
+end
+
 local function test_help_shows_aliases_choices_bounds_and_defaults()
   local described: {string:boolean | Flags.Option} = {
     ["--raw"] = { about = "as text", aliases = { "-r" } },
@@ -385,9 +400,9 @@ local function test_dispatch_runs_a_subcommand_with_its_own_options()
   assert(refused == nil and why:find("^time: add: ") ~= nil and why:find("usage: prog time add [options] <time>",
     1, true) ~= nil and why:find("now", 1, true) == nil, why)
   local none, none_why = Flags.dispatch({ "time" }, 1, commands, "prog")
-  assert(none == nil and none_why == "time: needs a command: add, now", none_why)
+  assert(none == nil and none_why == "time: needs a command: add, now; usage: prog time <add|now> ...", none_why)
   local wrong, wrong_why = Flags.dispatch({ "time", "ad" }, 1, commands, "prog")
-  assert(wrong == nil and wrong_why:find("time: no such command: ad; did you mean add?", 1, true) ~= nil, wrong_why)
+  assert(wrong == nil and wrong_why == "time: no such command: ad; did you mean add?; usage: prog time <add|now> ...", wrong_why)
   for _, line in ipairs({ { "help", "time", "add" }, { "time", "add", "--help" }, { "time", "help", "add" } }) do
     local helped = assert(Flags.dispatch(line, 1, commands, "prog"))
     assert(helped.code == 0 and helped.help:find("^usage: prog time add %[options%] <time>") ~= nil and

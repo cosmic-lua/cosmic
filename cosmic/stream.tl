@@ -5,16 +5,18 @@
 ---
 --- A Reader's `read` returns a non-empty chunk of at most `max_bytes` bytes
 --- -- or, when `max_bytes` is omitted, of whatever size suits that Reader
---- (the rest of a string, 64 KiB of a file) -- or nil and `""` at end
---- of file, or nil and an error. An error is sticky: every later
---- `read` returns the same error rather than a false end of file.
+--- (the rest of a string, 64 KiB of a file) -- or `false` at end of
+--- file, or nil and a [`Failure`]. A failure is sticky: every later
+--- `read` returns the same failure rather than a spurious end of file.
 --- A Writer's `write` takes one chunk at a time; `close` commits what
 --- was written, `abort` discards it where that means anything (a
 --- [`Stream.create`] file is never renamed into place), and a `write`
---- after either fails. Every constructor here gives `close` (and each
---- Writer `abort`), even where it does nothing, and each is safe to
---- call more than once, so a caller never has to ask which kind it
---- holds. [`Stream.lines`] reads a Reader a line at a time.
+--- after either fails. `write`, `close`, `abort`, `skip` and `sync`
+--- return `true`, or `false` and a [`Failure`]. Every constructor here
+--- gives `close` (and each Writer `abort`), even where it does nothing,
+--- and each is safe to call more than once, so a caller never has to
+--- ask which kind it holds. [`Stream.lines`] reads a Reader a line at
+--- a time.
 
 local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
@@ -35,38 +37,38 @@ local type raw_compress = require("cosmic.internal.compress")
 -- they make a test double that implements the interface instead of patching a real one.
 local record Stream
   interface Reader
-    --- The next chunk of at most `max_bytes` bytes, or nil and `""` at the
-    --- end, or nil and an error; see the module's description.
-    -- TODO: a read with `max_bytes` below 1 returns nil and "", a false
-    -- end of the stream, from Stream.from_string's and Stream.prepend's
-    -- Readers (so from a Lines' `rest` holding bytes read ahead); raise on
-    -- it in every Reader here instead, as Stream.lines does on its own.
-    read: function(Reader, max_bytes?: integer): string?, string
+    --- The next chunk of at most `max_bytes` bytes, `false` at the end,
+    --- or nil and a [`Failure`]; see the module's description.
+    -- TODO: a `max_bytes` below 1 returns `false`, a spurious end of
+    -- the stream, from Stream.from_string's and Stream.prepend's Readers
+    -- (so from a Lines' `rest` holding bytes read ahead); raise on it in
+    -- every Reader here instead, as Stream.lines does on its own.
+    read: function(Reader, max_bytes?: integer): (string | false) | (nil, Failure)
     --- Releases what the Reader holds. Safe to call more than once.
-    close: function(Reader): boolean, string
+    close: function(Reader): (true) | (false, Failure)
 
     --- Present only on a Reader that can move forward without reading
     --- (one over a regular file): skips `n` bytes, failing when that
     --- would pass the end of the file. A caller checks for it and
     --- falls back to reading and discarding.
-    skip?: function(Reader, n: integer): boolean, string
+    skip?: function(Reader, n: integer): (true) | (false, Failure)
   end
 
   interface Writer
-    --- Takes one chunk; false and why when it cannot.
-    write: function(Writer, string): boolean, string
+    --- Takes one chunk; `false` and a [`Failure`] when it cannot.
+    write: function(Writer, string): (true) | (false, Failure)
     --- Commits what was written. Safe to call more than once.
-    close: function(Writer): boolean, string
+    close: function(Writer): (true) | (false, Failure)
     --- Discards what was written, where that means anything. Safe to
     --- call more than once.
-    abort: function(Writer): boolean, string
+    abort: function(Writer): (true) | (false, Failure)
   end
 
   --- What [`Stream.create`] returns: a Writer that can also `sync`.
   interface FileWriter is Writer
     --- Flushes what was written to storage, so that the rename `close`
     --- makes cannot reach it before the data does.
-    sync: function(FileWriter): boolean, string
+    sync: function(FileWriter): (true) | (false, Failure)
   end
 
   --- How [`Stream.from_fd`] and [`Stream.to_fd`] wait for a descriptor
@@ -82,7 +84,8 @@ local record Stream
     nonblocking?: boolean
     --- The longest one `read` or one `write` waits in all, in
     --- nanoseconds, from its call; nil for no limit. A call that runs
-    --- out of it fails with [`Poll.TIMEOUT`], and the stream stays
+    --- out of it fails with a [`Failure`] of kind "timeout", and the
+    --- stream stays
     --- usable: a read took nothing, and a write says how much it wrote
     --- (`written` of [`Stream.FdWriter`]). A value outside what [`Poll.checked_ns`]
     --- allows raises.
@@ -104,7 +107,7 @@ local record Stream
   interface FdWriter is Writer
     --- How many bytes the descriptor has taken from this Writer in all,
     --- those of a write that then failed included: after a write that
-    --- fails with [`Poll.TIMEOUT`], the difference from before it is
+    --- fails with kind "timeout", the difference from before it is
     --- how much of that write went, and `data:sub(went + 1)` what is
     --- left to write.
     written: function(FdWriter): integer
@@ -150,13 +153,13 @@ local record Stream
 
   --- The lines of a Reader, one at a time: see [`Stream.lines`].
   interface Lines
-    --- The next line, without its "\n", and ""; nil and "" after the
-    --- last; nil and why when the Reader failed or a line ran past the
+    --- The next line, without its "\n"; `false` after the last; nil and
+    --- a [`Failure`] when the Reader failed or a line ran past the
     --- limit, the same again on every later read. A read the Reader
-    --- ends with [`Poll.TIMEOUT`] or [`Poll.CANCELLED`] returns nil and
-    --- that, and leaves the lines usable: the part of a line read so far
+    --- ends with a Failure of kind "timeout" or "cancelled" returns nil
+    --- and that, and leaves the lines usable: the part of a line read so far
     --- is kept for the next read.
-    read: function(Lines): string?, string
+    read: function(Lines): (string | false) | (nil, Failure)
     --- An iterator for a `for` loop over the lines still to come. It
     --- ends at the last one, at a failure, or at a timeout or a cancel,
     --- which `failure` then says.
@@ -357,6 +360,15 @@ local function refuse(why: string): nil, string
 end
 
 local closed_reader <const> = "stream: the reader is closed"
+
+--- The [`Failure`] for the words a read failed with: kind "timeout" for
+--- [`Poll.TIMEOUT`], "cancelled" for [`Poll.CANCELLED`] and for
+--- "interrupted" (a signal a [`Signal.guard`] caught), else "other".
+local function failure_of(why: string): Failure
+  if why == Poll.TIMEOUT then return Failure.timeout(why) end
+  if why == Poll.CANCELLED or why == "interrupted" then return Failure.cancelled(why) end
+  return Failure.new(why)
+end
 local closed_writer <const> = "stream: the writer is closed"
 
 -- How an object of this module is made. A Reader or Writer is a record
@@ -399,34 +411,34 @@ local class FromStringReader is Stream.Reader
   mut at: integer
   mut closed: boolean
 
-  function read(self, max_bytes?: integer): string?, string
-    if self.closed then return nil, closed_reader end
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
+    if self.closed then return nil, failure_of(closed_reader) end
     local data, at = self.data, self.at
-    if at > #data then return nil, "" end
+    if at > #data then return false end
     local want = max_bytes or (#data - at + 1)
-    if want <= 0 then return nil, "" end
+    if want <= 0 then return false end
     -- Clamped before it is added, so a huge `max_bytes` cannot wrap `stop`.
     if want > #data - at + 1 then want = #data - at + 1 end
     local stop = at + want - 1
     self.at = stop + 1
-    return data:sub(at, stop), ""
+    return data:sub(at, stop)
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.closed = true
-    return true, ""
+    return true
   end
 
-  function skip(self, n: integer): boolean, string -- declared: interface_disagrees
-    if self.closed then return false, closed_reader end
-    if n < 0 then return false, "stream: skip of a negative count" end
+  function skip(self, n: integer): (true) | (false, Failure) -- declared: interface_disagrees
+    if self.closed then return false, failure_of(closed_reader) end
+    if n < 0 then return false, failure_of("stream: skip of a negative count") end
     -- Compared this way round, so a huge `n` cannot wrap `at + n`.
     if n > #self.data + 1 - self.at then
       self.at = #self.data + 1
-      return false, "stream: skip past the end of the data"
+      return false, failure_of("stream: skip past the end of the data")
     end
     self.at = self.at + n
-    return true, ""
+    return true
   end
 end
 
@@ -469,12 +481,10 @@ local function resumable(why: string): boolean
 end
 
 -- Closes the descriptor the Reader owns, once.
-local function release(self: FdReader): boolean, string
-  if self.released or not self.owned then return true, "" end
+local function release(self: FdReader): (true) | (false, Failure)
+  if self.released or not self.owned then return true end
   self.released = true
-  local closed, close_why = Fs.close(self.fd)
-  if not closed then return false, tostring(close_why) end
-  return true, ""
+  return Fs.close(self.fd)
 end
 
 local class FdReader is Stream.Reader
@@ -492,13 +502,13 @@ local class FdReader is Stream.Reader
   -- The file's size, which `skip` checks the new position against; set
   -- with `skip`, only on a regular file.
   mut size?: integer
-  skip?: function(FdReader, n: integer): boolean, string
+  skip?: function(FdReader, n: integer): (true) | (false, Failure)
 
-  function read(self, max_bytes?: integer): string?, string
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     local failed = self.failed
-    if failed then return nil, failed end
-    if self.closed then return nil, closed_reader end
-    if self.ended then return nil, "" end
+    if failed then return nil, failure_of(failed) end
+    if self.closed then return nil, failure_of(closed_reader) end
+    if self.ended then return false end
     local fd, opts = self.fd, self.opts
     local deadline: integer? = nil
     local timeout = opts.timeout_ns
@@ -506,27 +516,27 @@ local class FdReader is Stream.Reader
     while true do
       local data, trouble, errno = sys.read(fd, max_bytes or chunk_size)
       if data ~= nil then
-        if #data > 0 then return data, "" end
+        if #data > 0 then return data end
         self.ended = true
         local _, _ = release(self)
-        return nil, ""
+        return false
       end
       if not (opts.nonblocking == true and (errno == sys.EAGAIN or errno == sys.EINTR)) then
         local why = if trouble ~= "" then trouble else "stream: read failed" end
         self.failed = why
-        return nil, why
+        return nil, failure_of(why)
       end
       local ready, why = wait_for(fd, sys.POLLIN, opts, deadline)
       if not ready then
-        if resumable(why) then return nil, why end
+        if resumable(why) then return nil, failure_of(why) end
         self.failed = why
-        return nil, why
+        return nil, failure_of(why)
       end
     end
   end
 
-  function close(self): boolean, string
-    if self.closed then return true, "" end
+  function close(self): (true) | (false, Failure)
+    if self.closed then return true end
     self.closed = true
     return release(self)
   end
@@ -535,20 +545,20 @@ end
 -- Only a regular file can seek, so only its Reader has a `skip` (a pipe or
 -- socket reads and discards, which a caller tests for): it is set as a field
 -- of that Reader, not put on the shared methods.
-local function file_skip(self: FdReader, n: integer): boolean, string
+local function file_skip(self: FdReader, n: integer): (true) | (false, Failure)
   local failed = self.failed
-  if failed then return false, failed end
-  if self.closed then return false, closed_reader end
-  if n == 0 then return true, "" end
+  if failed then return false, failure_of(failed) end
+  if self.closed then return false, failure_of(closed_reader) end
+  if n == 0 then return true end
   if self.ended then
     local why = "stream: skip past the end of the file"
     self.failed = why
-    return false, why
+    return false, failure_of(why)
   end
   local at, trouble = sys.lseek(self.fd, n, sys.SEEK_CUR)
   if at == nil then
     self.failed = trouble
-    return false, trouble
+    return false, failure_of(trouble)
   end
   -- lseek happily moves past the end; the size says whether that
   -- skipped bytes the file never had. It is asked for again only
@@ -563,10 +573,10 @@ local function file_skip(self: FdReader, n: integer): boolean, string
     if at > size then
       local why = "stream: skip past the end of the file"
       self.failed = why
-      return false, why
+      return false, failure_of(why)
     end
   end
-  return true, ""
+  return true
 end
 
 local function make_fd_reader(fd: integer, owned: boolean, opts: Stream.FdOptions): Stream.Reader
@@ -585,13 +595,13 @@ end
 ---
 --- Over a descriptor in non-blocking mode, `opts.nonblocking` makes a
 --- read that finds nothing wait for data, as [`Stream.FdOptions`] says,
---- and `opts.timeout_ns` bounds that wait: the read then fails with
---- [`Poll.TIMEOUT`], and may be called again. A deadline or a cancelled
+--- and `opts.timeout_ns` bounds that wait: the read then fails with a
+--- [`Failure`] of kind "timeout", and may be called again. A deadline or a cancelled
 --- task is the one failure that is not sticky.
 ---
 ---     local r = Stream.from_fd(fd, { nonblocking = true, timeout_ns = Clock.ms(50) })
 ---     local chunk, why = r:read()
----     if chunk == nil and why == Poll.TIMEOUT then print("nothing for 50 ms") end
+---     if chunk == nil and why.kind == "timeout" then print("nothing for 50 ms") end
 function Stream.from_fd(fd: integer, opts?: Stream.FdOptions): Stream.Reader
   return make_fd_reader(fd, false, fd_options(opts, 2))
 end
@@ -633,8 +643,8 @@ local function step(self: TransformReader): string?, string
     return codec:finish()
   end
   local chunk, trouble = self.source:read(chunk_size)
-  if chunk == nil then
-    if trouble ~= "" then return nil, trouble end
+  if chunk == nil then return nil, tostring(trouble) end
+  if chunk == false then
     self.at_eof = true
     return "", ""
   end
@@ -657,35 +667,35 @@ local class TransformReader is Stream.Reader
   mut failed?: string
   mut closed: boolean
 
-  function read(self, max_bytes?: integer): string?, string
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     local failed = self.failed
-    if failed then return nil, failed end
-    if self.closed then return nil, closed_reader end
+    if failed then return nil, failure_of(failed) end
+    if self.closed then return nil, failure_of(closed_reader) end
     while self.at > #self.batch and not self.finished do
       local out, trouble = step(self)
       if out == nil then
         local why = if trouble ~= "" then trouble else "stream: codec failed" end
         self.failed = why
         self.batch, self.at = "", 1
-        return nil, why
+        return nil, failure_of(why)
       end
       self.batch, self.at = out, 1
     end
     local batch, at = self.batch, self.at
-    if at > #batch then return nil, "" end
+    if at > #batch then return false end
     local want = max_bytes or chunk_size
     local avail = #batch - at + 1
     if want >= avail then
       local piece = if at == 1 then batch else batch:sub(at) end
       self.batch, self.at = "", 1
-      return piece, ""
+      return piece
     end
     self.at = at + want
-    return batch:sub(at, at + want - 1), ""
+    return batch:sub(at, at + want - 1)
   end
 
-  function close(self): boolean, string
-    if self.closed then return true, "" end
+  function close(self): (true) | (false, Failure)
+    if self.closed then return true end
     self.closed = true
     self.batch, self.at = "", 1
     return self.source:close()
@@ -707,20 +717,21 @@ local class LimitReader is Stream.Reader
   mut left: integer
   mut closed: boolean
 
-  function read(self, max_bytes?: integer): string?, string
-    if self.closed then return nil, closed_reader end
-    if self.left <= 0 then return nil, "" end
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
+    if self.closed then return nil, failure_of(closed_reader) end
+    if self.left <= 0 then return false end
     local want = max_bytes or chunk_size
     if want > self.left then want = self.left end
     local chunk, trouble = self.source:read(want)
     if chunk == nil then return nil, trouble end
+    if chunk == false then return false end
     self.left = self.left - #chunk
-    return chunk, ""
+    return chunk
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.closed = true
-    return true, ""
+    return true
   end
 end
 
@@ -738,21 +749,21 @@ local class PrependReader is Stream.Reader
   mut at: integer
   mut closed: boolean
 
-  function read(self, max_bytes?: integer): string?, string
-    if self.closed then return nil, closed_reader end
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
+    if self.closed then return nil, failure_of(closed_reader) end
     local prefix, at = self.prefix, self.at
     if at <= #prefix then
       local want = max_bytes or (#prefix - at + 1)
-      if want <= 0 then return nil, "" end
+      if want <= 0 then return false end
       local chunk = prefix:sub(at, at + want - 1)
       self.at = at + #chunk
-      return chunk, ""
+      return chunk
     end
     return self.source:read(max_bytes)
   end
 
-  function close(self): boolean, string
-    if self.closed then return true, "" end
+  function close(self): (true) | (false, Failure)
+    if self.closed then return true end
     self.closed = true
     return self.source:close()
   end
@@ -772,8 +783,8 @@ end
 local function read_up_to_text(reader: Stream.Reader, n: integer): string?, string
   if n <= 0 then return "", "" end
   local first, trouble = reader:read(n)
-  if first == nil then
-    if trouble ~= "" then return nil, trouble end
+  if first == nil then return nil, tostring(trouble) end
+  if first == false then
     return "", ""
   end
   if #first >= n then return first, "" end
@@ -781,8 +792,8 @@ local function read_up_to_text(reader: Stream.Reader, n: integer): string?, stri
   local got = #first
   while got < n do
     local chunk, rtrouble = reader:read(n - got)
-    if chunk == nil then
-      if rtrouble ~= "" then return nil, rtrouble end
+    if chunk == nil then return nil, tostring(rtrouble) end
+    if chunk == false then
       break
     end
     parts[#parts + 1] = chunk
@@ -823,30 +834,23 @@ function Stream.read_exact(reader: Stream.Reader, n: integer): (string) | (nil, 
   return value
 end
 
--- Stream.skip, its failure in words.
-local function skip_text(reader: Stream.Reader, n: integer): boolean, string
-  if n <= 0 then return true, "" end
+--- Moves `reader` forward `n` bytes: with its `skip` when it has one,
+--- by reading and discarding otherwise. Returns `true`, or `false` and
+--- a Failure when the stream ends first or fails.
+function Stream.skip(reader: Stream.Reader, n: integer): (true) | (false, Failure)
+  if n <= 0 then return true end
   if reader.skip ~= nil then return reader:skip(n) end
   local left = n
   while left > 0 do
     local want = left
     if want > chunk_size then want = chunk_size end
     local chunk, trouble = reader:read(want)
-    if chunk == nil then
-      if trouble ~= "" then return false, trouble end
-      return false, "stream: truncated: skipping " .. String.counted(n, "byte")
+    if chunk == nil then return false, trouble end
+    if chunk == false then
+      return false, Failure.new("stream: truncated: skipping " .. String.counted(n, "byte"))
     end
     left = left - #chunk
   end
-  return true, ""
-end
-
---- Moves `reader` forward `n` bytes: with its `skip` when it has one,
---- by reading and discarding otherwise. Returns `true`, or `false` and
---- a Failure when the stream ends first or fails.
-function Stream.skip(reader: Stream.Reader, n: integer): (true) | (false, Failure)
-  local ok, why = skip_text(reader, n)
-  if not ok then return false, Failure.new(why) end
   return true
 end
 
@@ -855,8 +859,8 @@ local function read_all_text(reader: Stream.Reader): string?, string
   local parts: mut {string} = {}
   while true do
     local chunk, trouble = reader:read(chunk_size)
-    if chunk == nil then
-      if trouble ~= "" then return nil, trouble end
+    if chunk == nil then return nil, tostring(trouble) end
+    if chunk == false then
       return table.concat(parts), ""
     end
     parts[#parts + 1] = chunk
@@ -890,7 +894,7 @@ local class StickyWriter is Stream.Sticky
 
   function put(self, data: string): boolean, string
     local ok, trouble = self.writer:write(data)
-    if not ok then return self:fail(trouble) end
+    if not ok then return self:fail(tostring(trouble)) end
     return true, ""
   end
 
@@ -908,10 +912,11 @@ local class StickyWriter is Stream.Sticky
     self.closed = true
     local ok, trouble = self:put(trailer)
     if not ok then return false, trouble end
-    ok, trouble = self.writer:close()
-    if not ok then
-      self.failed = trouble
-      return false, trouble
+    local closed, why = self.writer:close()
+    if not closed then
+      local text = tostring(why)
+      self.failed = text
+      return false, text
     end
     return true, ""
   end
@@ -919,7 +924,9 @@ local class StickyWriter is Stream.Sticky
   function abort(self): boolean, string
     if self.closed or self.failed ~= nil then return true, "" end
     self.closed = true
-    return self.writer:abort()
+    local ok, why = self.writer:abort()
+    if not ok then return false, tostring(why) end
+    return true, ""
   end
 end
 
@@ -943,13 +950,14 @@ local class SpentReader is Stream.Reader
   why: string
   mut closed: boolean
 
-  function read(self, _max_bytes?: integer): string?, string
-    if self.closed then return nil, closed_reader end
-    return nil, self.why
+  function read(self, _max_bytes?: integer): (string | false) | (nil, Failure)
+    if self.closed then return nil, failure_of(closed_reader) end
+    if self.why == "" then return false end
+    return nil, failure_of(self.why)
   end
 
-  function close(self): boolean, string
-    if self.closed then return true, "" end
+  function close(self): (true) | (false, Failure)
+    if self.closed then return true end
     self.closed = true
     return self.source:close()
   end
@@ -960,10 +968,11 @@ local function too_long(self: LineReader): string
 end
 
 -- Ends the lines with `why`, which every later read returns too.
-local function fail(self: LineReader, why: string): nil, string
-  self.failed = why
+local function fail(self: LineReader, why: string, given?: Failure): Failure
+  local failure = given or failure_of(why)
+  self.failed, self.held_failure = why, failure
   self.chunk, self.at, self.parts, self.held = "", 1, {}, 0
-  return nil, why
+  return failure
 end
 
 local class LineReader is Stream.Lines
@@ -979,21 +988,28 @@ local class LineReader is Stream.Lines
   mut held: integer
   mut ended: boolean
   mut failed: string
+  --- The failure every read returns once `failed` is set: the
+  --- Reader's own, its kind kept.
+  mut held_failure?: Failure
   -- Why the last read stopped short and may be made again: a timeout or a cancel; "" after one that did not.
   mut paused: string
   -- Set once `rest` has given the stream away.
   mut rested: boolean
 
-  function read(self): string?, string
+  function read(self): (string | false) | (nil, Failure)
     if self.rested then error(rested, 2) end
-    if self.failed ~= "" then return nil, self.failed end
+    if self.failed ~= "" then
+      local failure = self.held_failure
+      if failure ~= nil then return nil, failure end
+      return nil, failure_of(self.failed)
+    end
     self.paused = ""
     local limit = self.limit
     while true do
       local chunk, at = self.chunk, self.at
       local newline = chunk:find("\n", at, true)
       if newline ~= nil then
-        if self.held + newline - at > limit then return fail(self, too_long(self)) end
+        if self.held + newline - at > limit then return nil, fail(self, too_long(self)) end
         local line = chunk:sub(at, newline - 1)
         self.at = newline + 1
         if self.held > 0 then
@@ -1001,29 +1017,32 @@ local class LineReader is Stream.Lines
           line = table.concat(self.parts)
           self.parts, self.held = {}, 0
         end
-        return line, ""
+        return line
       end
       if at <= #chunk then
         self.held = self.held + #chunk - at + 1
-        if self.held > limit then return fail(self, too_long(self)) end
+        if self.held > limit then return nil, fail(self, too_long(self)) end
         table.insert(self.parts, if at == 1 then chunk else chunk:sub(at) end)
       end
       self.chunk, self.at = "", 1
       if self.ended then
-        if self.held == 0 then return nil, "" end
+        if self.held == 0 then return false end
         local line = table.concat(self.parts)
         self.parts, self.held = {}, 0
-        return line, ""
+        return line
       end
-      -- A read returns a non-empty chunk or nil, so each round moves.
+      -- A Reader's read returns a non-empty chunk, `false` or nil, so each round moves.
       local read, trouble = self.source:read(chunk_size)
       if read == nil then
         -- A deadline or a cancelled task took nothing: what is held stays, for the next read.
-        if resumable(trouble) then
-          self.paused = trouble
+        -- A wait that ran out or was cancelled resumes; a caught signal
+        -- ("interrupted", also of kind "cancelled") does not.
+        if trouble.message == Poll.TIMEOUT or trouble.message == Poll.CANCELLED then
+          self.paused = trouble.message
           return nil, trouble
         end
-        if trouble ~= "" then return fail(self, trouble) end
+        return nil, fail(self, tostring(trouble), trouble)
+      elseif read == false then
         self.ended = true
       else
         self.chunk = read
@@ -1046,6 +1065,7 @@ local class LineReader is Stream.Lines
         end
       end
       local line, _ = self:read()
+      if line == false then return nil end
       return line
     end
   end
@@ -1099,24 +1119,9 @@ function Stream.lines(reader: Stream.Reader, max_bytes?: integer): Stream.Lines
     error("stream: max_bytes must be at least 1", 2)
   end
   local lines: LineReader = { source = reader, limit = limit,
-    chunk = "", at = 1, parts = {}, held = 0, ended = false, failed = "", paused = "",
+    chunk = "", at = 1, parts = {}, held = 0, ended = false, failed = "", held_failure = nil, paused = "",
     rested = false }
   return lines
-end
-
--- Stream.copy, its failure in words.
-local function copy_text(reader: Stream.Reader, writer: Stream.Writer): integer?, string
-  local total = 0
-  while true do
-    local chunk, trouble = reader:read(chunk_size)
-    if chunk == nil then
-      if trouble ~= "" then return nil, trouble end
-      return total, ""
-    end
-    total = total + #chunk
-    local ok, wtrouble = writer:write(chunk)
-    if not ok then return nil, wtrouble end
-  end
 end
 
 --- Copies `reader` to `writer` until `reader`'s end of file, and
@@ -1126,28 +1131,15 @@ end
 --- count with `max_bytes`, which tells a source that ends at it from one
 --- that goes on past it.
 function Stream.copy(reader: Stream.Reader, writer: Stream.Writer): (integer) | (nil, Failure)
-  local value, why = copy_text(reader, writer)
-  if value == nil then return nil, Failure.new(why) end
-  return value
-end
-
--- Stream.copy_n, its failure in words.
-local function copy_n_text(reader: Stream.Reader, writer: Stream.Writer, n: integer): boolean, string
-  local left = n
-  while left > 0 do
-    local want = left
-    if want > chunk_size then want = chunk_size end
-    local chunk, trouble = reader:read(want)
-    if chunk == nil then
-      if trouble ~= "" then return false, trouble end
-      return false, "stream: truncated before its stated size: wanted " ..
-        String.counted(n, "byte") .. ", got " .. tostring(n - left)
-    end
+  local total = 0
+  while true do
+    local chunk, trouble = reader:read(chunk_size)
+    if chunk == nil then return nil, trouble end
+    if chunk == false then return total end
+    total = total + #chunk
     local ok, wtrouble = writer:write(chunk)
-    if not ok then return false, wtrouble end
-    left = left - #chunk
+    if not ok then return nil, wtrouble end
   end
-  return true, ""
 end
 
 --- Copies exactly `n` bytes of `reader` to `writer`, and no more of
@@ -1159,8 +1151,20 @@ end
 ---     local ok, why = Stream.copy_n(reader, writer, size)
 ---     if not ok then writer:abort() end
 function Stream.copy_n(reader: Stream.Reader, writer: Stream.Writer, n: integer): (true) | (false, Failure)
-  local ok, why = copy_n_text(reader, writer, n)
-  if not ok then return false, Failure.new(why) end
+  local left = n
+  while left > 0 do
+    local want = left
+    if want > chunk_size then want = chunk_size end
+    local chunk, trouble = reader:read(want)
+    if chunk == nil then return false, trouble end
+    if chunk == false then
+      return false, Failure.new("stream: truncated before its stated size: wanted " ..
+          String.counted(n, "byte") .. ", got " .. tostring(n - left))
+    end
+    local ok, wtrouble = writer:write(chunk)
+    if not ok then return false, wtrouble end
+    left = left - #chunk
+  end
   return true
 end
 
@@ -1171,10 +1175,10 @@ local class ToFdWriter is Stream.FdWriter
   mut failed?: string
   mut went: integer
 
-  function write(self, data: string): boolean, string
-    if self.closed then return false, closed_writer end
+  function write(self, data: string): (true) | (false, Failure)
+    if self.closed then return false, failure_of(closed_writer) end
     local failed = self.failed
-    if failed then return false, failed end
+    if failed then return false, failure_of(failed) end
     local fd, options = self.fd, self.options
     local deadline: integer? = nil
     local timeout = options.timeout_ns
@@ -1194,16 +1198,16 @@ local class ToFdWriter is Stream.FdWriter
         if put == 0 then
           local why = "stream: write made no progress"
           self.failed = why
-          return false, why
+          return false, failure_of(why)
         end
         at = at + put
         self.went = self.went + put
       elseif options.nonblocking == true and (errno == sys.EAGAIN or errno == sys.EINTR) then
         local ready, why = wait_for(fd, sys.POLLOUT, options, deadline)
         if not ready then
-          if resumable(why) then return false, why end
+          if resumable(why) then return false, failure_of(why) end
           self.failed = why
-          return false, why
+          return false, failure_of(why)
         end
       elseif errno == sys.EINTR then
         -- A blocking write a signal interrupted before it took a byte
@@ -1211,26 +1215,26 @@ local class ToFdWriter is Stream.FdWriter
       elseif errno == sys.EAGAIN then
         -- A descriptor the caller made non-blocking without saying so:
         -- no room now, which a later write may find.
-        return false, trouble
+        return false, failure_of(trouble)
       else
         self.failed = trouble
-        return false, trouble
+        return false, failure_of(trouble)
       end
     end
-    return true, ""
+    return true
   end
 
   function written(self): integer
     return self.went
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.closed = true
-    return true, ""
+    return true
   end
 
   -- Nothing is written beyond `write`, so there is nothing for an abort to take back.
-  function abort(self): boolean, string
+  function abort(self): (true) | (false, Failure)
     return self:close()
   end
 end
@@ -1246,14 +1250,14 @@ end
 ---
 --- Over a descriptor in non-blocking mode, `opts.nonblocking` makes a
 --- write that finds no room wait for it, as [`Stream.FdOptions`] says,
---- and `opts.timeout_ns` bounds the whole call: it fails with
---- [`Poll.TIMEOUT`] having written part of `data`, which `written`
+--- and `opts.timeout_ns` bounds the whole call: it fails with a
+--- Failure of kind "timeout" having written part of `data`, which `written`
 --- counts, so the caller can write the rest, or give up knowing how
 --- much of it went.
 ---
 ---     local w = Stream.to_fd(fd, { nonblocking = true, timeout_ns = Clock.seconds(5) })
 ---     local ok, why = w:write(body)
----     if not ok and why == Poll.TIMEOUT then print(w:written() .. " bytes went") end
+---     if not ok and why.kind == "timeout" then print(w:written() .. " bytes went") end
 function Stream.to_fd(fd: integer, opts?: Stream.FdOptions): Stream.FdWriter
   local w: ToFdWriter = { fd = fd, options = fd_options(opts, 2),
     closed = false, failed = nil, went = 0 }
@@ -1263,27 +1267,21 @@ end
 local class StagedWriter is Stream.FileWriter
   staged: Fs.Staged
 
-  function write(self, data: string): boolean, string
-    local ok, why = self.staged:write(data)
-    if not ok then return false, tostring(why) end
-    return true, ""
+  function write(self, data: string): (true) | (false, Failure)
+    return self.staged:write(data)
   end
 
-  function sync(self): boolean, string
-    local ok, why = self.staged:sync()
-    if not ok then return false, tostring(why) end
-    return true, ""
+  function sync(self): (true) | (false, Failure)
+    return self.staged:sync()
   end
 
-  function close(self): boolean, string
-    local ok, why = self.staged:close()
-    if not ok then return false, tostring(why) end
-    return true, ""
+  function close(self): (true) | (false, Failure)
+    return self.staged:close()
   end
 
-  function abort(self): boolean, string
+  function abort(self): (true) | (false, Failure)
     self.staged:abort()
-    return true, ""
+    return true
   end
 end
 
@@ -1315,21 +1313,21 @@ local class CollectWriter is Stream.Collector
   mut parts: mut {string}
   mut closed: boolean
 
-  function write(self, data: string): boolean, string
-    if self.closed then return false, closed_writer end
+  function write(self, data: string): (true) | (false, Failure)
+    if self.closed then return false, failure_of(closed_writer) end
     self.parts[#self.parts + 1] = data
-    return true, ""
+    return true
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.closed = true
-    return true, ""
+    return true
   end
 
-  function abort(self): boolean, string
+  function abort(self): (true) | (false, Failure)
     self.closed = true
     self.parts = {}
-    return true, ""
+    return true
   end
 
   function result(self): string
@@ -1354,15 +1352,15 @@ local class HashingWriter is Stream.Hashing
   mut result?: string
   mut failure: string
 
-  function write(self, data: string): boolean, string
-    if self.closed or self.result ~= nil then return false, closed_writer end
+  function write(self, data: string): (true) | (false, Failure)
+    if self.closed or self.result ~= nil then return false, failure_of(closed_writer) end
     self.hasher:update(data)
-    return true, ""
+    return true
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.closed = true
-    return true, ""
+    return true
   end
 
   function digest(self): string?, string
@@ -1380,7 +1378,7 @@ local class HashingWriter is Stream.Hashing
     return result, ""
   end
 
-  function abort(self): boolean, string
+  function abort(self): (true) | (false, Failure)
     return self:close()
   end
 end
@@ -1412,24 +1410,24 @@ local class TeeWriter is Stream.Writer
   first: Stream.Writer
   second: Stream.Writer
 
-  function write(self, data: string): boolean, string
+  function write(self, data: string): (true) | (false, Failure)
     local ok, trouble = self.first:write(data)
     if not ok then return false, trouble end
     return self.second:write(data)
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     local ok, trouble = self.first:close()
     local ok2, trouble2 = self.second:close()
     if not ok then return false, trouble end
     if not ok2 then return false, trouble2 end
-    return true, ""
+    return true
   end
 
-  function abort(self): boolean, string
+  function abort(self): (true) | (false, Failure)
     local _, _ = self.first:abort()
     local _, _ = self.second:abort()
-    return true, ""
+    return true
   end
 end
 
@@ -1441,19 +1439,19 @@ function Stream.tee(a: Stream.Writer, b: Stream.Writer): Stream.Writer
 end
 
 -- Writes `out` on, unless it is empty.
-local function emit(self: TransformWriter, out: string): boolean, string
-  if #out == 0 then return true, "" end
+local function emit(self: TransformWriter, out: string): (true) | (false, Failure)
+  if #out == 0 then return true end
   return self.writer:write(out)
 end
 
 -- Feeds `data` to the codec and writes its output on, then keeps
 -- draining while the codec says it is still holding output.
-local function feed(self: TransformWriter, data: string): boolean, string
+local function feed(self: TransformWriter, data: string): (true) | (false, Failure)
   local codec, hold = self.codec, self.hold
   local parts: mut {string} = {}
   while true do
     local out, trouble = codec:update(data)
-    if out == nil then return false, trouble end
+    if out == nil then return false, Failure.new(trouble) end
     if hold == 0 then
       local ok, why = emit(self, out)
       if not ok then return false, why end
@@ -1463,7 +1461,7 @@ local function feed(self: TransformWriter, data: string): boolean, string
     if not holds_output(codec) then break end
     data = ""
   end
-  if hold == 0 then return true, "" end
+  if hold == 0 then return true end
   local held = self.held
   table.insert(held, table.concat(parts))
   -- This write went through: the oldest held write is now safe to release.
@@ -1473,7 +1471,7 @@ local function feed(self: TransformWriter, data: string): boolean, string
     table.remove(held, 1)
     return emit(self, oldest)
   end
-  return true, ""
+  return true
 end
 
 local class TransformWriter is Stream.Writer
@@ -1481,40 +1479,40 @@ local class TransformWriter is Stream.Writer
   codec: Stream.Transform
   hold: integer
   mut closed: boolean
-  mut failed?: string
+  mut failed?: Failure
   -- With `hold`, one entry per write: its output, in order.
   mut held: mut {string}
 
-  function write(self, data: string): boolean, string
-    if self.closed then return false, closed_writer end
+  function write(self, data: string): (true) | (false, Failure)
+    if self.closed then return false, failure_of(closed_writer) end
     local failed = self.failed
     if failed then return false, failed end
-    if self.hold > 0 and #data == 0 then return true, "" end
+    if self.hold > 0 and #data == 0 then return true end
     local ok, trouble = feed(self, data)
     if not ok then
       self.failed, self.held = trouble, {}
       return false, trouble
     end
-    return true, ""
+    return true
   end
 
-  function abort(self): boolean, string
-    if self.closed then return true, "" end
+  function abort(self): (true) | (false, Failure)
+    if self.closed then return true end
     self.closed, self.held = true, {}
     return self.writer:abort()
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     if self.closed then
       local failed = self.failed
       if failed then return false, failed end
-      return true, ""
+      return true
     end
     self.closed = true
     if not self.failed then
       local out, trouble = self.codec:finish()
       if out == nil then
-        self.failed = trouble
+        self.failed = Failure.new(trouble)
       else
         self.held[#self.held + 1] = out
         local ok, why = emit(self, table.concat(self.held))
@@ -1532,7 +1530,7 @@ local class TransformWriter is Stream.Writer
       self.failed = why
       return false, why
     end
-    return true, ""
+    return true
   end
 end
 

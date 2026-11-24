@@ -42,7 +42,7 @@ test_child.register("serve", function(argv: {string}): integer
           local head = ""
           while not head:find("\r\n\r\n", 1, true) do
             local data, _ = conn:read(4096)
-            if data == nil then break end
+            if data == nil or data == false then break end
             head = head .. data
           end
           local _, _ = conn:write("HTTP/1.1 200 Connection established\r\n\r\n")
@@ -76,7 +76,7 @@ test_child.register("serve", function(argv: {string}): integer
       local reply = ""
       while not reply:find("\r\n") do
         local data, _ = conn:read(4096)
-        if data == nil then break end
+        if data == nil or data == false then break end
         reply = reply .. data
       end
       table.insert(lines, target .. " " .. (reply:match("^HTTP/1.1 (%d+)") or "none"))

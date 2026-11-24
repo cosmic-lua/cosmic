@@ -435,6 +435,8 @@ local function test_the_code_that_reads_is_named_from_the_staged_tree(tmp: strin
   end
   -- a module the pipeline does not reach moves nothing; one it reaches, directly or not, moves it
   assert(again("build/other.tl", "return 3\n") == first, "a module the pipeline does not reach moved the identity")
+  assert(again("build/reader.tl", "-- a comment\nlocal Check = require(\"lang.check\")\nreturn Check\n") == first,
+    "a comment in a module the pipeline requires moved the identity")
   local reader = again("build/reader.tl", "local Check = require(\"lang.check\")\nreturn Check, 1\n")
   assert(reader ~= first, "an edit to a module the pipeline requires did not move the identity")
   assert(again("lang/check.tl", "return 4\n") ~= reader, "an edit to a module it reaches through another did not move the identity")

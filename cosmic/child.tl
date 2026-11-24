@@ -1443,27 +1443,32 @@ local class PipeReader is Stream.Reader
   --- allocation.
   owner: Consumption
 
-  function read(self, max_bytes?: integer): string?, string
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     if max_bytes ~= nil and max_bytes < 1 then
       error("child: read's max_bytes must be positive", 2)
     end
     local pipe = self.pipe
     if pipe.consuming then error("child: output is already being consumed", 2) end
-    if self.failed ~= "" then return nil, self.failed end
-    if self.closed then return nil, closed_reader end
-    if pipe.size ~= 0 then return take_chunk(pipe, max_bytes or CHUNK), "" end
-    return waiting_read(self, max_bytes)
+    if self.failed ~= "" then return nil, failure_of(self.failed) end
+    if self.closed then return nil, failure_of(closed_reader) end
+    if pipe.size ~= 0 then return take_chunk(pipe, max_bytes or CHUNK) end
+    local chunk, why = waiting_read(self, max_bytes)
+    if chunk == nil then
+      if why == "" then return false end
+      return nil, failure_of(why)
+    end
+    return chunk
   end
 
-  function close(self): boolean, string
-    if self.closed then return true, "" end
+  function close(self): (true) | (false, Failure)
+    if self.closed then return true end
     self.closed = true
     local pipe = self.pipe
     pipe.reader_closed = true
     -- The child's next write to it fails, as it would into `head`.
     end_stream(pipe)
     pipe.chunks, pipe.queue, pipe.head, pipe.tail, pipe.size = {}, {}, 1, 0, 0
-    return true, ""
+    return true
   end
 end
 
@@ -1486,25 +1491,30 @@ local class FeedWriter is Stream.Writer
   mut closed: boolean
   mut into?: Stream.Writer
 
-  function write(self, data: string): boolean, string
-    if self.closed then return false, closed_writer end
+  function write(self, data: string): (true) | (false, Failure)
+    if self.closed then return false, failure_of(closed_writer) end
     -- Only a settled child's stdin is closed from under its writer.
-    if self.child._feed_fd ~= self.fd then return false, EXITED end
-    return assert(self.into):write(data)
+    if self.child._feed_fd ~= self.fd then return false, failure_of(EXITED) end
+    local ok, why = assert(self.into):write(data)
+    if ok then return true end
+    -- The words of a signal the child's guard caught come up through
+    -- the stream's wait, which knows only its own: kind them here.
+    if why.kind == "other" then return false, failure_of(why.message) end
+    return false, why
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.closed = true
     local child, fd = self.child, self.fd
-    if child._feed_fd == nil then return true, "" end
+    if child._feed_fd == nil then return true end
     child._feed_fd = nil
     Poll.closing(fd)
     local ok, trouble = sys.close(fd)
-    if not ok then return false, trouble end
-    return true, ""
+    if not ok then return false, failure_of(trouble) end
+    return true
   end
 
-  function abort(self): boolean, string
+  function abort(self): (true) | (false, Failure)
     return self:close()
   end
 end
@@ -1646,8 +1656,9 @@ local function drain(self: Handle, opts: DrainOptions): DrainResult
         owner.discard = true
         local ok, why = sinks[index]:write(chunk) -- checked: nil_not_allowed
         if not ok then
-          owner.reason = why
-          return result("failed", why)
+          local text = tostring(why)
+          owner.reason = text
+          return result("failed", text)
         end
         owner.discard = false
         moved = true
@@ -3898,11 +3909,11 @@ end
 local function relay_says(launch: RelayLaunch, wanted: string, log: RelayLog | integer): boolean, string
   local line, read_trouble = launch.lines:read()
   if line == wanted then return true, "" end
-  if line ~= nil then
+  if line is string then
     kill_relay(launch.handle)
     return false, (line:gsub("^error: ", ""))
   end
-  return false, relay_ended(launch.handle, read_trouble, log)
+  return false, relay_ended(launch.handle, if read_trouble ~= nil then tostring(read_trouble) else "" end, log)
 end
 
 --- Waits for the relay to say it serves, which it does once the program's
@@ -4267,7 +4278,7 @@ begin_relay = function(prep: RelayPrep, channel: integer?): RelayLaunch?, string
   local written, write_trouble = feed:write(prep.config .. "\n")
   if not written then
     kill_relay(relay)
-    return nil, "the relay would not take its config: " .. write_trouble
+    return nil, "the relay would not take its config: " .. tostring(write_trouble)
   end
   local launch: RelayLaunch = { handle = relay, lines = Stream.lines(reader) }
   local began, why = relay_says(launch, "opened", prep.log)
