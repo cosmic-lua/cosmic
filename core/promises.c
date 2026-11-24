@@ -1214,7 +1214,8 @@ int cosmic_no_x_apply (void) {
   size_t length = no_x_program_for(code, arch);
   if (length == 0) return ENOSPC;
   struct sock_fprog program = { (unsigned short)length, (struct sock_filter *)code };
-  /* Every thread at once (TSYNC), so no other thread is left to exec. */
+  /* Every thread at once (TSYNC): `restrict_self` refuses a process with a
+   * second thread already, so this is a second guard, not the only one. */
   long synced = syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_TSYNC, &program);
   if (synced < 0) return errno;
   /* A positive answer names a thread that could not take the filter. */

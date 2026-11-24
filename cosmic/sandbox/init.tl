@@ -506,12 +506,16 @@ end
 --- process has already spent: lowering it below that on a process that has
 --- run long ends it by SIGKILL at once.
 ---
---- Grants that give `x` nowhere let the process run no program, for good:
---- Landlock refuses every file, and on Linux a seccomp filter of its own
---- refuses execve and execveat before that (EPERM), in every thread, a
---- second layer for what no ruleset reaches. A program that a policy
---- started, which needed `x` on its own file to start, gives up running
---- programs so: it restricts itself with no `x` once it runs.
+--- Grants that give `x` nowhere refuse every execve, for good: Landlock
+--- refuses every file, and on Linux a seccomp filter derived from the
+--- grants refuses execve and execveat first (EPERM, where Landlock
+--- answers EACCES), in every thread, a second layer for what no ruleset
+--- reaches, such as a memfd run by its descriptor. It is no refusal of
+--- foreign code: a file the process may read it may still map executable,
+--- which native code could run with no execve (the cosmic environment
+--- has no call that does). The layer looks at the letters alone: one
+--- grant of `x`, on a path that is there or not, leaves it out, and
+--- Landlock alone refuses the rest.
 ---
 --- Called again, it narrows: the kernel holds the process to every
 --- ruleset and every filter made, so what a later call grants beyond

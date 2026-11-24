@@ -120,6 +120,23 @@ say("exec", done, why)
   assert(assert(said.lines["child"]):find("^false"), said.raw)
 end
 
+--- A later restriction that grants `x` does not lift the filter an
+--- earlier one with no `x` added: the kernel holds every layer.
+local function test_a_later_x_grant_runs_no_program_after_none(tmp: string)
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local said = Restrict.in_child(restricted(
+    string.format("{ grants = { { path = %q, letters = \"r\" } } }", probe),
+    string.format([[
+local again, again_why = Sandbox.restrict({ grants = { { path = %q, letters = "rx" } } })
+say("again", again, again_why)
+local done, why = require("cosmic.proc").exec({ %q, "print replaced" })
+say("exec", done, why)
+]], probe, probe)))
+  assert(said.raw:find("replaced", 1, true) == nil, said.raw)
+  assert(assert(said.lines["again"]):find("^true"), said.raw)
+  assert(assert(said.lines["exec"]):find("Operation not permitted", 1, true), said.raw)
+end
+
 local function test_the_fork_promise_lets_a_process_start(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local said = Restrict.in_child(restricted(

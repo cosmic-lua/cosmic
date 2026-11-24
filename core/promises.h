@@ -134,13 +134,14 @@ int cosmic_promises_apply (unsigned promises, unsigned sockets, unsigned held);
  * it instead. 0, or an errno; ENOSYS where [`cosmic_promises_apply`] is. */
 int cosmic_truncation_apply (void);
 
-/* Holds the calling process, for good, to run no program: no_new_privs,
+/* Holds the calling process, for good, to call no execve: no_new_privs,
  * and a filter over whatever holds it already that refuses execve and
  * execveat with EPERM (and x32's calls with ENOSYS) in every thread,
  * allowing every other call for the filters before it to answer
  * (core/promises.c's `no_x_program_for`). `restrict_self`
  * (core/syscalls.c) adds it where no grant gives `x`: a layer derived
- * from the grants, under Landlock's. 0, or an errno; ENOSYS where
+ * from the grants, under Landlock's. A file the process reads it may
+ * still map executable. 0, or an errno; ENOSYS where
  * [`cosmic_promises_apply`] is. */
 int cosmic_no_x_apply (void);
 
