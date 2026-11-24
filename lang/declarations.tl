@@ -22,7 +22,8 @@
 ---   field that is neither `mut` nor omittable: `interface_disagrees`. What it lists is an interface, and no declaration lists itself, even
 ---   through the declarations it lists: `super_not_interface`, `super_cycle`, `listing_too_large`.
 --- - tags: a union with two records or more is legal only if each has one shared fixed field typed
----   by an enum, and no value of it is in two members: `untagged_union`.
+---   by an enum, and no value of it is in two members, or each requires a fixed field, never nil, that
+---   no other member declares: `untagged_union`.
 --- - dense arrays: `{T?}`, `{K: V?}` and an instance that makes one (`List<string?>` for `record
 ---   List<T>` that holds a `{T}`): `array_of_optional`.
 --- - keys: a map's key is `integer`, `string`, `boolean`, an enum or a record, class, interface or
@@ -417,8 +418,10 @@ Declarations.catalog = {
   {
     code = "untagged_union", rule = "tagged unions",
     why = "a record is erased, so a union of records is told apart by a field of a type each member has to " ..
-      "itself: a fixed field of an enum, none of whose values is in another member's enum",
-    fix = "give <members> a fixed field of an enum, the same name in all, with different values in each",
+      "itself: a fixed field of an enum, none of whose values is in another member's enum, or a required " ..
+      "field, never nil, that no other member declares",
+    fix = "give <members> a fixed field of an enum, the same name in all, with different values in each, or " ..
+      "give each a required field no other declares",
   },
   {
     code = "array_of_optional", rule = "arrays are dense",
@@ -2776,6 +2779,88 @@ function Declarations.inherited(store: Store, judge: Relation.Judge, decl: Types
   return out
 end
 
+--- The names a value of the record or class `decl` may hold: its fields, those it has from the interfaces it lists,
+--- and its methods, which no record value holds but a class value does.
+function Declarations.names_held(store: Store, judge: Relation.Judge, decl: Types.Decl): {string: boolean}
+  local out: mut {string: boolean} = {}
+  local body = decl.body
+  if body == nil then
+    return out
+  end
+  for _, f in ipairs(body.fields) do
+    out[f.name] = true
+  end
+  for _, f in ipairs(Declarations.inherited(store, judge, decl)) do
+    out[f.name] = true
+  end
+  for _, m in ipairs(body.methods) do
+    out[m.name] = true
+  end
+  return out
+end
+
+--- The field that tells the record `r` apart from the other records of `records` by being there: the first `r`
+--- requires, fixed, of a type that is never nil, that no other record declares, so that `x.name ~= nil` tells `r`.
+--- Nil where `r` has none, or where a field every record types by an enum reads as a tag, which alone tells them.
+function Declarations.presence_field(store: Store, judge: Relation.Judge, records: {Named}, r: Named): string?
+  local body = r.decl.body
+  if body == nil then
+    return nil
+  end
+  local fields: mut {Types.Field} = {}
+  for _, f in ipairs(body.fields) do
+    fields[#fields + 1] = f
+  end
+  for _, f in ipairs(Declarations.inherited(store, judge, r.decl)) do
+    fields[#fields + 1] = f
+  end
+  local others: mut {{string: boolean}} = {}
+  local fields_of_others: mut {{Types.Field}} = {}
+  for _, m in ipairs(records) do
+    if m ~= r then
+      others[#others + 1] = Declarations.names_held(store, judge, m.decl)
+      local of_m: mut {Types.Field} = {}
+      local mbody = m.decl.body
+      if mbody ~= nil then
+        for _, f in ipairs(mbody.fields) do
+          of_m[#of_m + 1] = f
+        end
+      end
+      for _, f in ipairs(Declarations.inherited(store, judge, m.decl)) do
+        of_m[#of_m + 1] = f
+      end
+      fields_of_others[#fields_of_others + 1] = of_m
+    end
+  end
+  local function enum_typed(t?: Type): boolean
+    return t ~= nil and (t.tag == "named") and t.decl.kind == "enum"
+  end
+  for _, f in ipairs(fields) do
+    local everywhere = enum_typed(f.type)
+    for _, of_m in ipairs(fields_of_others) do
+      local g = field_named(of_m, f.name)
+      everywhere = everywhere and g ~= nil and enum_typed(g.type)
+    end
+    if everywhere then
+      return nil
+    end
+  end
+  for _, f in ipairs(fields) do
+    local t = f.type
+    if f.mut ~= true and f.omittable ~= true and not nilable(t) and t.tag ~= "any" and t.tag ~= "var" and
+        t.tag ~= "invalid" then
+      local alone = true
+      for _, held in ipairs(others) do
+        alone = alone and held[f.name] ~= true
+      end
+      if alone then
+        return f.name
+      end
+    end
+  end
+  return nil
+end
+
 --- Checks that the records of a union have a tag. Returns false where a body is not defined yet.
 local function check_union(ctx: Ctx, site: UnionSite): boolean
   local records: mut {Named} = {}
@@ -2894,6 +2979,26 @@ local function check_union(ctx: Ctx, site: UnionSite): boolean
       blamed = candidate.name
     end
   end
+  -- Else each record may be told by being there ([`Declarations.presence_field`]), where every other member is no
+  -- table.
+  local present = true
+  for _, m in ipairs(site.type.members) do
+    if m.tag == "array" or m.tag == "map" or m.tag == "any" or m.tag == "var" or
+        ((m.tag == "named") and (m.value or (m.decl.kind ~= "record" and m.decl.kind ~= "enum" and
+            m.decl.kind ~= "integer_enum" and m.decl.kind ~= "userdata"))) then
+      present = false
+    end
+  end
+  local unmarked: Named? = nil
+  for _, r in ipairs(records) do
+    if Declarations.presence_field(ctx.store, ctx.program.judge, records, r) == nil then
+      present = false
+      unmarked = unmarked or r
+    end
+  end
+  if present then
+    return true
+  end
   for _, r in ipairs(records) do
     if tainted(ctx, r) then
       return true
@@ -2909,7 +3014,9 @@ local function check_union(ctx: Ctx, site: UnionSite): boolean
   report_at(ctx, "untagged_union", site.node, "the union " .. quoted(shown) .. " holds " .. tostring(#records) ..
       " records that have no tag" .. reason,
     "give " .. table.concat(listed, ", ") .. " a fixed field of the same name whose type is one named enum, with values " ..
-      "different in each, so that `x.kind == \"...\"` tells them apart",
+      "different in each, so that `x.kind == \"...\"` tells them apart; or give each a required field no other " ..
+      "declares" .. (if unmarked ~= nil then " (" .. shown_of(unmarked) .. " has none)" else "" end) ..
+      ", so that `x.<field> ~= nil` does",
     { shown })
   return true
 end

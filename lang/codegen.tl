@@ -844,7 +844,8 @@ local function type_test(declared: Ast.Type, value: Output, y: integer, operand?
   local out = new(y)
   local tag = G.tags[declared.id]
   if tag ~= nil then
-    -- A record the value may be is a table, and the one its tag names where the value may be another.
+    -- A record the value may be is a table, and the one its tag names, or the one with a field only it has, where
+    -- the value may be another.
     local field = tag[1] or ""
     put(out, "(type(")
     add_child(out, value, "", G.indent)
@@ -857,7 +858,12 @@ local function type_test(declared: Ast.Type, value: Output, y: integer, operand?
       local read = if RESERVED_FIELDS[field] == true then "[\"" .. field .. "\"]" else "." .. field end
       -- The value is read again, as a name or as the parameter that holds it.
       local again = if operand ~= nil then exp(operand) else text(y, held or "__v") end
-      if #members == 1 then
+      if #members == 0 then
+        -- A field the record alone has, which a value of another never holds.
+        put(out, " and ")
+        add_child(out, again, "", G.indent)
+        put(out, read .. " ~= nil")
+      elseif #members == 1 then
         put(out, " and ")
         add_child(out, again, "", G.indent)
         put(out, read .. " == " .. (members[1] or ""))

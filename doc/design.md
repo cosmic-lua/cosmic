@@ -1414,7 +1414,8 @@ the rules the checker holds, each with its own codes, are these.
   over every string ends a function.
 - a record that is not a class is tested by `is` only where the
   run-time Lua can tell it apart. that is as the one table a value may
-  be, or by the tag of a tagged union, which `is` then reads.
+  be, by the tag of a tagged union, which `is` then reads, or by a
+  required field only that record of the union declares.
 - there is no implicit conversion. `integer` is not concatenated
   without `tostring`, and a number does not compare with a string.
 - the error-slot discipline of the third principle
