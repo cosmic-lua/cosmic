@@ -36,20 +36,20 @@ local function test_each_datagram_arrives_whole_with_its_sender()
     assert(packet.address.port == sender.address.port)
   end
   local none, why = receiver:receive(0)
-  assert(none == nil and why == Poll.TIMEOUT, why)
+  assert(none == nil and why.kind == "timeout", why)
 end
 
 local function test_receive_waits_no_longer_than_its_timeout()
   local socket <close> = bound()
   local started = Clock.monotonic_ns()
   local packet, why = socket:receive(Clock.ms(20))
-  assert(packet == nil and why == Poll.TIMEOUT, why)
+  assert(packet == nil and why.kind == "timeout", why)
   assert(Clock.monotonic_ns() - started < Clock.seconds(4))
   socket:set_timeout(Clock.ms(20))
   local again, again_why = socket:receive()
-  assert(again == nil and again_why == Poll.TIMEOUT, again_why)
+  assert(again == nil and again_why.kind == "timeout", again_why)
   local now, now_why = socket:receive(0)
-  assert(now == nil and now_why == Poll.TIMEOUT, now_why)
+  assert(now == nil and now_why.kind == "timeout", now_why)
 end
 
 local function test_a_closed_socket_refuses_and_closes_again()
@@ -58,9 +58,9 @@ local function test_a_closed_socket_refuses_and_closes_again()
   assert(socket:close())
   assert(socket:close())
   local sent, send_why = socket:send("x", to)
-  assert(not sent and send_why == "net: the socket is closed", send_why)
+  assert(not sent and send_why.message == "net: the socket is closed", send_why)
   local packet, receive_why = socket:receive()
-  assert(packet == nil and receive_why == "net: the socket is closed", receive_why)
+  assert(packet == nil and receive_why.message == "net: the socket is closed", receive_why)
 end
 
 local function test_closing_ends_a_task_waiting_to_receive()
@@ -70,7 +70,7 @@ local function test_closing_ends_a_task_waiting_to_receive()
     local why = ""
     local waiter = Poll.spawn(function()
       local _, trouble = socket:receive()
-      why = trouble
+      why = if trouble ~= nil then trouble.message else "" end
     end)
     assert(Poll.delay(Clock.ms(10)))
     assert(socket:close())
@@ -107,7 +107,7 @@ local function test_a_name_is_refused_not_looked_up()
   assert(socket == nil and tostring(why):find("not a numeric IPv4 or IPv6 address", 1, true) ~= nil, why)
   local sender <close> = bound()
   local sent, send_why = sender:send("x", Net.udp("localhost", 9))
-  assert(not sent and send_why:find("not a numeric IPv4 or IPv6 address", 1, true) ~= nil, send_why)
+  assert(not sent and send_why.message:find("not a numeric IPv4 or IPv6 address", 1, true) ~= nil, send_why)
 end
 
 local function test_a_port_in_use_is_refused()
@@ -120,12 +120,12 @@ local function test_what_is_no_datagram_raises()
   local socket <close> = bound()
   Test.raises(function() local _, _ = Net.datagram(Net.tcp("127.0.0.1", 0)) end, "net: address must be a udp address")
   Test.raises(function() local _, _ = Net.datagram(Net.udp("127.0.0.1", 65536)) end, "net: address must be a udp address")
-  Test.raises(function() socket:send("x", Net.tcp("127.0.0.1", 9)) end, "net: a datagram is sent to a udp address")
-  Test.raises(function() socket:send("x", Net.udp("127.0.0.1", -1)) end, "net: a datagram is sent to a udp address")
+  Test.raises(function() local _, _ = socket:send("x", Net.tcp("127.0.0.1", 9)) end, "net: a datagram is sent to a udp address")
+  Test.raises(function() local _, _ = socket:send("x", Net.udp("127.0.0.1", -1)) end, "net: a datagram is sent to a udp address")
   -- A stream's calls refuse a datagram's address.
   Test.raises(function() local _, _ = Net.listen(Net.udp("127.0.0.1", 0)) end, "from Net.unix or Net.tcp")
   Test.raises(function() local _, _ = Net.connect(Net.udp("127.0.0.1", 9)) end, "from Net.unix or Net.tcp")
-  Test.raises(function() socket:send(string.rep("x", 65536), socket.address) end, "at most 65535 bytes")
+  Test.raises(function() local _, _ = socket:send(string.rep("x", 65536), socket.address) end, "at most 65535 bytes")
   Test.raises(function() local _, _ = Net.datagram(Net.udp("127.0.0.1", 0), { timeout_ns = -1 }) end, "timeout_ns")
-  Test.raises(function() socket:receive(-1) end, "timeout_ns")
+  Test.raises(function() local _, _ = socket:receive(-1) end, "timeout_ns")
 end

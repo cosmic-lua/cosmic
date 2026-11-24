@@ -166,7 +166,7 @@ end
 local function echoing(listener: Net.Listener): Poll.Task
   return Poll.spawn(function()
     while true do
-      local conn = listener:accept()
+      local conn, _ = listener:accept()
       if conn == nil then return end
       Poll.spawn(function()
         local data = conn:read(4)
@@ -612,7 +612,7 @@ local function test_the_upstream_proxy_is_reached_by_the_relay(tmp: string)
     local listener = assert(Net.listen(Net.tcp("127.0.0.2", 0)))
     local proxy = Poll.spawn(function()
       while true do
-        local conn = listener:accept()
+        local conn, _ = listener:accept()
         if conn == nil then return end
         Poll.spawn(function()
           local head = ""

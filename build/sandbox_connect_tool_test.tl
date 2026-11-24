@@ -61,7 +61,7 @@ end
 local function echoing(listener: Net.Listener, heard: function(data: string)): Poll.Task
   return Poll.spawn(function()
     while true do
-      local conn = listener:accept()
+      local conn, _ = listener:accept()
       if conn == nil then return end
       Poll.spawn(function()
         conn:set_timeout(Clock.seconds(30))
@@ -154,7 +154,7 @@ local function test_a_callers_https_proxy_is_the_relays_upstream(tmp: string)
     local proxy = assert(listener.address.port)
     at.value = proxy
     local task = Poll.spawn(function()
-      local conn = listener:accept()
+      local conn, _ = listener:accept()
       if conn == nil then return end
       conn:set_timeout(Clock.seconds(30))
       local head = ""

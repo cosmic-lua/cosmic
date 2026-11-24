@@ -393,7 +393,7 @@ local verbs: {string:function(string, string): integer?} = {
     local accepted, accept_trouble = server:accept()
     local _, _ = conn:close()
     local _, _ = server:close()
-    if accepted == nil then return put_all(1, accept_trouble .. "\n") end
+    if accepted == nil then return put_all(1, tostring(accept_trouble) .. "\n") end
     local _, _ = accepted:close()
     return put_all(1, "connected\n")
   end,
@@ -408,7 +408,7 @@ local verbs: {string:function(string, string): integer?} = {
     local accepted, accept_trouble = server:accept()
     local _, _ = conn:close()
     local _, _ = server:close()
-    if accepted == nil then return put_all(1, accept_trouble .. "\n") end
+    if accepted == nil then return put_all(1, tostring(accept_trouble) .. "\n") end
     local _, _ = accepted:close()
     return put_all(1, "connected\n")
   end,

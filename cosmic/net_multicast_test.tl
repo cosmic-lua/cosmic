@@ -5,7 +5,6 @@
 
 local Clock = require("cosmic.clock")
 local Net = require("cosmic.net")
-local Poll = require("cosmic.poll")
 local Test = require("cosmic.test")
 
 --- Every group is joined on the worker's own loopback, and sent to over it.
@@ -55,7 +54,7 @@ local function test_a_socket_that_joined_no_group_receives_none_of_it()
   assert(from:send("members only", Net.udp(group, assert(member.address.port))))
   assert(assert(member:receive()).data == "members only")
   local packet, why = bystander:receive(Clock.ms(50))
-  assert(packet == nil and why == Poll.TIMEOUT, why)
+  assert(packet == nil and why.kind == "timeout", why)
 end
 
 local function test_a_socket_that_left_its_group_receives_no_more()
@@ -69,7 +68,7 @@ local function test_a_socket_that_left_its_group_receives_no_more()
   assert(member:leave(group, LOOPBACK))
   assert(from:send("after", to))
   local packet, why = member:receive(Clock.ms(50))
-  assert(packet == nil and why == Poll.TIMEOUT, why)
+  assert(packet == nil and why.kind == "timeout", why)
 end
 
 local function test_sockets_sharing_a_port_each_receive_a_groups_datagram()
@@ -102,10 +101,10 @@ local function test_a_group_is_joined_once_and_left_once_on_an_interface()
   local member <close> = at_group(group)
   assert(member:join(group, LOOPBACK))
   local again, again_why = member:join(group, LOOPBACK)
-  assert(not again and again_why:find(group .. ": ", 1, true) == 1, again_why)
+  assert(not again and again_why.message:find(group .. ": ", 1, true) == 1, again_why)
   assert(member:leave(group, LOOPBACK))
   local gone, gone_why = member:leave(group, LOOPBACK)
-  assert(not gone and gone_why:find(group .. ": ", 1, true) == 1, gone_why)
+  assert(not gone and gone_why.message:find(group .. ": ", 1, true) == 1, gone_why)
   -- Left, it may be joined again.
   assert(member:join(group, LOOPBACK))
 end
@@ -115,22 +114,22 @@ local function test_what_is_no_group_or_no_interface_is_refused()
   local numeric = "the group must be a numeric IPv4 or IPv6 multicast address"
   for _, group in ipairs({ "10.0.0.1", "example.test", "239.255.77.007", "" }) do
     local joined, why = member:join(group, LOOPBACK)
-    assert(not joined and why:find(numeric, 1, true) ~= nil, group .. ": " .. why)
+    assert(not joined and why.message:find(numeric, 1, true) ~= nil, group .. ": " .. tostring(why))
     local left, left_why = member:leave(group, LOOPBACK)
-    assert(not left and left_why ~= "", group)
+    assert(not left and left_why.message ~= "", group)
   end
   local named, named_why = member:join(group_of(7), "lo")
-  assert(not named and named_why:find("an IPv4 interface a numeric address", 1, true) ~= nil, named_why)
+  assert(not named and named_why.message:find("an IPv4 interface a numeric address", 1, true) ~= nil, named_why)
   -- 192.0.2.0/24 is for documentation: no interface has an address of it.
   local nowhere, nowhere_why = member:join(group_of(7), "192.0.2.77")
-  assert(not nowhere and nowhere_why:find(group_of(7) .. ": ", 1, true) == 1, nowhere_why)
+  assert(not nowhere and nowhere_why.message:find(group_of(7) .. ": ", 1, true) == 1, nowhere_why)
   local via, via_why = member:set_multicast({ via = "192.0.2.77" })
-  assert(not via and via_why:find("via 192.0.2.77: ", 1, true) == 1, via_why)
+  assert(not via and via_why.message:find("via 192.0.2.77: ", 1, true) == 1, via_why)
   local name, name_why = member:set_multicast({ via = "lo" })
-  assert(not name and name_why:find("via lo: ", 1, true) == 1, name_why)
+  assert(not name and name_why.message:find("via lo: ", 1, true) == 1, name_why)
   -- An IPv6 group is not joined on a socket bound to an IPv4 address.
   local other, other_why = member:join("ff15::7707", 1)
-  assert(not other and other_why:find("ff15::7707: ", 1, true) == 1, other_why)
+  assert(not other and other_why.message:find("ff15::7707: ", 1, true) == 1, other_why)
 end
 
 local function test_how_a_group_is_sent_to_is_set_a_field_at_a_time()
@@ -152,14 +151,14 @@ end
 local function test_a_via_of_the_wrong_form_and_hops_out_of_range_raise()
   local socket <close> = at_group(group_of(9))
   local group = group_of(9)
-  Test.raises(function() socket:join(group, 1) end, "net: via must be one of an interface's IPv4 addresses")
-  Test.raises(function() socket:leave(group, 1) end, "net: via must be one of an interface's IPv4 addresses")
-  Test.raises(function() socket:set_multicast({ via = 1 }) end, "net: via must be one of an interface's IPv4 addresses")
-  Test.raises(function() socket:join("ff15::7709", LOOPBACK) end, "net: via must be an interface's index")
-  Test.raises(function() socket:leave("ff15::7709", 0) end, "net: via must be an interface's index")
-  Test.raises(function() socket:join("ff15::7709", 1 << 31) end, "net: via must be an interface's index")
-  Test.raises(function() socket:set_multicast({ hops = -1 }) end, "net: hops must be from 0 to 255")
-  Test.raises(function() socket:set_multicast({ hops = 256 }) end, "net: hops must be from 0 to 255")
+  Test.raises(function() local _, _ = socket:join(group, 1) end, "net: via must be one of an interface's IPv4 addresses")
+  Test.raises(function() local _, _ = socket:leave(group, 1) end, "net: via must be one of an interface's IPv4 addresses")
+  Test.raises(function() local _, _ = socket:set_multicast({ via = 1 }) end, "net: via must be one of an interface's IPv4 addresses")
+  Test.raises(function() local _, _ = socket:join("ff15::7709", LOOPBACK) end, "net: via must be an interface's index")
+  Test.raises(function() local _, _ = socket:leave("ff15::7709", 0) end, "net: via must be an interface's index")
+  Test.raises(function() local _, _ = socket:join("ff15::7709", 1 << 31) end, "net: via must be an interface's index")
+  Test.raises(function() local _, _ = socket:set_multicast({ hops = -1 }) end, "net: hops must be from 0 to 255")
+  Test.raises(function() local _, _ = socket:set_multicast({ hops = 256 }) end, "net: hops must be from 0 to 255")
 end
 
 local function test_a_closed_socket_joins_leaves_and_sets_nothing()
@@ -167,11 +166,11 @@ local function test_a_closed_socket_joins_leaves_and_sets_nothing()
   local socket = at_group(group)
   assert(socket:close())
   local joined, join_why = socket:join(group, LOOPBACK)
-  assert(not joined and join_why == "net: the socket is closed", join_why)
+  assert(not joined and join_why.message == "net: the socket is closed", join_why)
   local left, leave_why = socket:leave(group, LOOPBACK)
-  assert(not left and leave_why == "net: the socket is closed", leave_why)
+  assert(not left and leave_why.message == "net: the socket is closed", leave_why)
   local set, set_why = socket:set_multicast({ hops = 2 })
-  assert(not set and set_why == "net: the socket is closed", set_why)
+  assert(not set and set_why.message == "net: the socket is closed", set_why)
 end
 
 local function test_the_interfaces_listed_hold_the_loopback_and_its_address()
@@ -213,12 +212,12 @@ local function test_an_ipv6_group_is_joined_and_left_by_its_interfaces_index()
   local group = "ff15::7711"
   assert(member:join(group, index))
   local again, again_why = member:join(group, index)
-  assert(not again and again_why:find(group .. ": ", 1, true) == 1, again_why)
+  assert(not again and again_why.message:find(group .. ": ", 1, true) == 1, again_why)
   assert(member:set_multicast({ via = index, hops = 1, loop = true }))
   assert(member:leave(group, index))
   local gone, gone_why = member:leave(group, index)
-  assert(not gone and gone_why:find(group .. ": ", 1, true) == 1, gone_why)
+  assert(not gone and gone_why.message:find(group .. ": ", 1, true) == 1, gone_why)
   local unicast, unicast_why = member:join("fd00::1", index)
-  assert(not unicast and unicast_why:find("fd00::1: ", 1, true) == 1, unicast_why)
-  Test.raises(function() member:set_multicast({ via = "::1" }) end, "net: via must be an interface's index")
+  assert(not unicast and unicast_why.message:find("fd00::1: ", 1, true) == 1, unicast_why)
+  Test.raises(function() local _, _ = member:set_multicast({ via = "::1" }) end, "net: via must be an interface's index")
 end
