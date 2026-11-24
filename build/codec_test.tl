@@ -503,6 +503,10 @@ local function test_a_long_stream_takes_bounded_memory()
   local rounds = 32 -- 2 MiB of input through each encoding, and back
   local warm = 6
   for _, name in ipairs(NAMES) do
+    -- The encoding's tables are built at first use: a throwaway round
+    -- builds them before the base is taken.
+    local warm_text = assert(codec.encoder(name):update(chunk))
+    assert(codec.decoder(name):update(warm_text))
     local enc, dec = codec.encoder(name), codec.decoder(name)
     collectgarbage()
     collectgarbage()
