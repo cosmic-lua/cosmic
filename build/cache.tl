@@ -16,15 +16,13 @@ local record verb
 end
 
 local standard: verb.Io = { out = bare.out, err = bare.err }
-local usage = "cosmic cache trim compiles PATH --since-ns N [--restored PATH] [--json]; " ..
-  "cosmic cache trim verdicts PATH... (--since-ns N | --whole) [--json]"
 
 --- Runs the explicit operation; neither a cache path nor a cutoff is inferred.
 function verb.run(argv: {string}, io?: verb.Io): integer
   local to = io or standard
   local complain = bare.complainer("cache", to.err)
   local function refuse(why: string): integer
-    complain(why .. "; " .. usage)
+    complain(why .. "; " .. Flags.usage(Verb, "cosmic cache", { argv[2] or "", argv[3] or "" }))
     return 2
   end
   if argv[2] ~= "trim" then return refuse("give the trim operation") end
@@ -47,7 +45,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local whole = parsed.set["--whole"] == true
   local since = parsed.integers["--since-ns"]
   if whole == (since ~= nil) then
-    return refuse("give --since-ns or --whole")
+    return refuse(if family == "verdicts" then "give --since-ns or --whole" else "give --since-ns" end)
   end
   local restored = parsed.values["--restored"]
   if restored ~= nil and (restored:sub(1, 1) ~= "/" or restored:find("\0", 1, true) ~= nil) then

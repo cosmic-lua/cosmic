@@ -114,11 +114,10 @@ end
 --- The subcommands, each with the options it takes, as [`cosmic.cli.tailscale`] describes them.
 local subcommands = Verb.subcommands or {}
 
-local usage = "cosmic tailscale status [--json] | whois [--json] <address|name> | " ..
-  "cert [--cert-file <file|->] [--key-file <file|->] [--min-validity <duration>] [domain] | " ..
-  "ping [--kind disco|ICMP|TSMP|peerapi] [--json] <address|name> | " ..
-  "file targets [--json] | file send [--name <name>] <file|-> <target> | file list [--json] | " ..
-  "file get [--wait] [--conflict skip|overwrite|rename] [--keep] <dir>; each takes --socket <path>"
+--- The usage line of the subcommand the words name, outermost first, which a refusal ends with.
+local function usage(...: string): string
+  return Flags.usage(Verb, "cosmic tailscale", { ... })
+end
 
 local KINDS <const>: {string: Tailscale.PingKind} = {
   disco = "disco", ICMP = "ICMP", TSMP = "TSMP", peerapi = "peerapi",
@@ -351,7 +350,7 @@ end
 local function show_status(to: verb.Io, complain: function(line: string), ts: Tailscale.Client,
                            parsed: Flags.Parsed): integer
   if #parsed.words > 0 then
-    complain("status takes no words; " .. usage)
+    complain("status takes no words; " .. usage("status"))
     return bare.refused
   end
   local status, why = ts:status()
@@ -387,7 +386,7 @@ end
 local function show_whois(to: verb.Io, complain: function(line: string), ts: Tailscale.Client,
                           parsed: Flags.Parsed): integer
   if #parsed.words ~= 1 then
-    complain(("whois takes one address, not %d; %s"):format(#parsed.words, usage))
+    complain(("whois takes one address, not %d; %s"):format(#parsed.words, usage("whois")))
     return bare.refused
   end
   local address, unknown = address_of(ts, assert(parsed.words[1]))
@@ -438,7 +437,7 @@ end
 local function validity(complain: function(line: string), text: string): integer?
   local d, why = Time.parse_duration(text)
   if d == nil then
-    complain("--min-validity: " .. tostring(why) .. "; " .. usage)
+    complain("--min-validity: " .. tostring(why) .. "; " .. usage("cert"))
     return nil
   end
   if (d.years or 0) ~= 0 or (d.months or 0) ~= 0 then
@@ -475,7 +474,7 @@ end
 local function write_cert(to: verb.Io, complain: function(line: string), ts: Tailscale.Client,
                           parsed: Flags.Parsed): integer
   if #parsed.words > 1 then
-    complain(("cert takes at most one domain, not %d; %s"):format(#parsed.words, usage))
+    complain(("cert takes at most one domain, not %d; %s"):format(#parsed.words, usage("cert")))
     return bare.refused
   end
   local min_validity: integer? = nil
@@ -486,7 +485,7 @@ local function write_cert(to: verb.Io, complain: function(line: string), ts: Tai
   end
   local cert_file, key_file = parsed.values["--cert-file"], parsed.values["--key-file"]
   if cert_file == "" or key_file == "" then
-    complain(bare.empty_file .. "; " .. usage)
+    complain(bare.empty_file .. "; " .. usage("cert"))
     return bare.refused
   end
   if cert_file ~= nil and cert_file == key_file and cert_file ~= "-" then
@@ -497,7 +496,7 @@ local function write_cert(to: verb.Io, complain: function(line: string), ts: Tai
   if domain ~= nil then
     domain = domain:gsub("%.$", "")
     if domain == "" or domain:match("^[%w.-]+$") == nil then
-      complain("no such domain " .. string.format("%q", parsed.words[1]) .. "; " .. usage)
+      complain("no such domain " .. string.format("%q", parsed.words[1]) .. "; " .. usage("cert"))
       return bare.refused
     end
   else
@@ -563,7 +562,7 @@ end
 local function show_ping(to: verb.Io, complain: function(line: string), ts: Tailscale.Client,
                          parsed: Flags.Parsed): integer
   if #parsed.words ~= 1 then
-    complain(("ping takes one address, not %d; %s"):format(#parsed.words, usage))
+    complain(("ping takes one address, not %d; %s"):format(#parsed.words, usage("ping")))
     return bare.refused
   end
   -- The option's choices, which Flags.parse holds it to, are KINDS' keys.
@@ -621,7 +620,7 @@ end
 local function file_targets(to: verb.Io, complain: function(line: string), ts: Tailscale.Client,
                             parsed: Flags.Parsed): integer
   if #parsed.words > 0 then
-    complain("file targets takes no words; " .. usage)
+    complain("file targets takes no words; " .. usage("file", "targets"))
     return bare.refused
   end
   local targets, why = ts:file_targets()
@@ -653,17 +652,17 @@ end
 local function file_send(to: verb.Io, complain: function(line: string), ts: Tailscale.Client,
                          parsed: Flags.Parsed): integer
   if #parsed.words ~= 2 then
-    complain("file send takes a file and a target, not " .. plural.count(#parsed.words, "word") .. "; " .. usage)
+    complain("file send takes a file and a target, not " .. plural.count(#parsed.words, "word") .. "; " .. usage("file", "send"))
     return bare.refused
   end
   local path, word = assert(parsed.words[1]), assert(parsed.words[2])
   if path == "" then
-    complain(bare.empty_file .. "; " .. usage)
+    complain(bare.empty_file .. "; " .. usage("file", "send"))
     return bare.refused
   end
   local name = parsed.values["--name"] or (if path == "-" then nil else path:match("([^/]+)/*$") end)
   if name == nil then
-    complain("a file sent from standard input needs --name; " .. usage)
+    complain("a file sent from standard input needs --name; " .. usage("file", "send"))
     return bare.refused
   end
   if not Tailscale.file_name_ok(name) then
@@ -713,7 +712,7 @@ end
 local function file_list(to: verb.Io, complain: function(line: string), ts: Tailscale.Client,
                          parsed: Flags.Parsed): integer
   if #parsed.words > 0 then
-    complain("file list takes no words; " .. usage)
+    complain("file list takes no words; " .. usage("file", "list"))
     return bare.refused
   end
   local files, why = ts:waiting_files()
@@ -749,7 +748,7 @@ end
 local function file_get(to: verb.Io, complain: function(line: string), ts: Tailscale.Client,
                         parsed: Flags.Parsed): integer
   if #parsed.words ~= 1 then
-    complain(("file get takes one directory, not %d; %s"):format(#parsed.words, usage))
+    complain(("file get takes one directory, not %d; %s"):format(#parsed.words, usage("file", "get")))
     return bare.refused
   end
   local dir = assert(parsed.words[1]):gsub("/+$", "")
@@ -899,14 +898,14 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local function complain(line: string) said(safe(line)) end
   local got, trouble = line_of(argv)
   if got == nil then
-    complain(trouble .. "; " .. usage)
+    complain(trouble .. "; " .. usage(argv[2] or "", argv[3] or ""))
     return bare.refused
   end
   local line: Line = got
   local parsed = line.flags
   local socket = parsed.values["--socket"]
   if socket == "" then
-    complain(bare.empty_file .. "; " .. usage)
+    complain(bare.empty_file .. "; " .. usage(line.command, line.action))
     return bare.refused
   end
   local ts, why = to.connect({ socket = socket })

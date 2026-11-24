@@ -132,8 +132,6 @@ end
 
 local subcommands = Verb.subcommands or {}
 
-local USAGE <const> = "cosmic agent <ask|chat|resume|rpc|sessions|prompt|policy> [options] [words...]"
-
 -- What standard input holds past the last line read.
 local pending = ""
 
@@ -336,7 +334,8 @@ end
 local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boolean): Agent.Session?, string
   local effort = got.values["--effort"] or Agent.EFFORT
   local name = got.values["--model"] or Agent.MODEL
-  local model = if name == "sonnet" then Agent.MODELS.sonnet else Agent.MODELS.opus end
+  local model = if name == "opus" then Agent.MODELS.opus elseif name == "sonnet" then Agent.MODELS.sonnet else nil end
+  if model == nil then return nil, "--model is opus or sonnet" end
   local base = r.io.env("ANTHROPIC_BASE_URL") or "https://api.anthropic.com"
   local sign, sign_why = Auth.from(r.io.env, base)
   if sign == nil then return nil, sign_why end
@@ -721,12 +720,12 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local described = if sub == nil then nil else subcommands[sub] end
   if sub == nil or described == nil then
     complain((if sub == nil then "name ask, chat, resume, rpc, sessions, prompt or policy" else
-      "no such command: " .. sub end) .. "; " .. USAGE)
+      "no such command: " .. sub end) .. "; " .. Flags.usage(Verb, "cosmic agent"))
     return bare.refused
   end
   local got, trouble = Flags.parse(argv, 3, described.spec or {})
   if got == nil then
-    complain(sub .. ": " .. trouble .. "; " .. USAGE)
+    complain(sub .. ": " .. trouble .. "; " .. Flags.usage(Verb, "cosmic agent", { sub }))
     return bare.refused
   end
   local parsed: Flags.Parsed = got

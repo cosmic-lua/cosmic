@@ -481,7 +481,7 @@ local function test_a_command_line_it_cannot_run_is_refused(tmp: string)
   for _, words in ipairs(lines) do
     local ran = run(tmp, words)
     assert(ran.code == 2, table.concat(words, " ") .. ": " .. tostring(ran.code))
-    assert(ran.err:find("; cosmic tailscale ", 1, true) ~= nil, ran.err)
+    assert(ran.err:find("; usage: cosmic tailscale ", 1, true) ~= nil, ran.err)
     assert(#ran.seen == 0, table.concat(ran.seen, "\n"))
   end
 end

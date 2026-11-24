@@ -92,11 +92,11 @@ end
 --- The subcommands, each with the options it takes, as [`cosmic.cli.acme`] describes them.
 local subcommands = Verb.subcommands or {}
 
-local usage = "cosmic acme key [--rsa] [--bits N] <file|-> | cosmic acme issue --account <file> --key <file> " ..
-  "(--webroot <dir> | --dns-hook <program>) [--staging | --directory <url>] [--contact <url>]... [--agree-tos] " ..
-  "[--out <file>] <name>..."
+--- The usage line of the subcommand `sub`, which a refusal ends with; the verb's own where it names none.
+local function usage(sub: string): string
+  return Flags.usage(Verb, "cosmic acme", { sub })
+end
 
---- The options each subcommand takes.
 --- Mode 0600: a key file only its owner reads.
 local OWNER_ONLY <const> = 0x180
 --- Mode 0644: a certificate chain anyone reads.
@@ -170,7 +170,7 @@ local standard: verb.Io = {
 --- output.
 local function make_key(to: verb.Io, complain: function(line: string), parsed: Flags.Parsed): integer
   if #parsed.words ~= 1 then
-    complain(("key takes one file, not %d; %s"):format(#parsed.words, usage))
+    complain(("key takes one file, not %d; %s"):format(#parsed.words, usage("key")))
     return bare.refused
   end
   local file = assert(parsed.words[1])
@@ -181,7 +181,7 @@ local function make_key(to: verb.Io, complain: function(line: string), parsed: F
   local bits_word = parsed.values["--bits"]
   local rsa = parsed.set["--rsa"] == true
   if bits_word ~= nil and not rsa then
-    complain("--bits is for --rsa; " .. usage)
+    complain("--bits is for --rsa; " .. usage("key"))
     return bare.refused
   end
   -- The option's choices, which Flags.parse holds it to, are whole numbers.
@@ -204,7 +204,7 @@ local function read_key(to: verb.Io, complain: function(line: string), parsed: F
                         name: string): Key.Secret?
   local file = parsed.values[name]
   if file == nil or file == "" then
-    complain(name .. " names a key file (`cosmic acme key <file>` makes one); " .. usage)
+    complain(name .. " names a key file (`cosmic acme key <file>` makes one); " .. usage("issue"))
     return nil
   end
   local text, why = to.read(file)
@@ -228,7 +228,7 @@ end
 --- prints or writes its chain.
 local function issue(to: verb.Io, complain: function(line: string), parsed: Flags.Parsed): integer
   local function refuse(line: string): integer
-    complain(line .. "; " .. usage)
+    complain(line .. "; " .. usage("issue"))
     return bare.refused
   end
   if #parsed.words == 0 then return refuse("issue names the certificate's DNS names") end
@@ -351,13 +351,13 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local sub = argv[2]
   local described = if sub ~= nil then subcommands[sub] else nil end
   if sub == nil or described == nil then
-    complain((if sub == nil then "name key or issue" else "no subcommand " .. sub end) .. "; " .. usage)
+    complain((if sub == nil then "name key or issue" else "no subcommand " .. sub end) .. "; " .. usage(sub or ""))
     return bare.refused
   end
   local none: {string:boolean | Flags.Option} = {}
   local got, trouble = Flags.parse(argv, 3, described.spec or none)
   if got == nil then
-    complain(sub .. ": " .. trouble .. "; " .. usage)
+    complain(sub .. ": " .. trouble .. "; " .. usage(sub))
     return bare.refused
   end
   local parsed: Flags.Parsed = got

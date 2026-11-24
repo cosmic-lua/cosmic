@@ -1,4 +1,4 @@
---- `cosmic agent <ask|chat|resume|rpc|sessions|prompt|policy> ...`: a
+--- `cosmic agent <ask|chat|policy|prompt|resume|rpc|sessions|worker> ...`: a
 --- small coding agent, after pi. It is Claude, with tools that read,
 --- write and edit files, run commands in the foreground or as background
 --- jobs, check and run snippets of Teal in a worker kept for the session,
@@ -93,12 +93,12 @@ local Flags = require("cosmic.flags")
 
 local model: Flags.Option = { value = "name", about = "the latest of opus or sonnet (default opus, or the session's own)",
   choices = { "opus", "sonnet" } }
-local effort: Flags.Option = { value = "level", about = "how hard it thinks (default medium)",
+local effort: Flags.Option = { value = "level", about = "how hard it thinks (default medium, as cosmic.agent sets it)",
   choices = { "low", "medium", "high", "xhigh", "max" } }
 local continue_: Flags.Option = { about = "go on with the newest session in this directory" }
 local session: Flags.Option = { value = "id", about = "go on with the session of this id" }
-local sandbox: Flags.Option = { value = "mode", about = "what the tools may change (default write)",
-  choices = { "write", "read", "off" } }
+local sandbox: Flags.Option = { value = "mode", about = "what the tools may change",
+  choices = { "write", "read", "off" }, default = "write" }
 local network: Flags.Option = { about = "let bash reach the network" }
 local grant: Flags.Option = { value = "path[:rwxc]", about = "let the tools reach this path too, read alone unless letters say more" }
 local mcp: Flags.Option = { value = "file",
@@ -117,7 +117,7 @@ ask_spec["--json"] = { about = "print each event as a line of JSON, not the mode
 
 local command: Flags.Command = {
   about = "a coding agent, Claude, held to a sandbox",
-  usage = "<ask|chat|policy|prompt|resume|rpc|sessions> ...",
+  usage = "<ask|chat|policy|prompt|resume|rpc|sessions|worker> ...",
   examples = {
     { line = "ask 'what does this repository do?'", about = "ask Claude about this directory" },
     { line = "chat", about = "a conversation, a prompt a line" },

@@ -7,8 +7,10 @@
 
 local Array = require("cosmic.array")
 local Failure = require("cosmic.failure")
+local Flags = require("cosmic.flags")
 local Time = require("cosmic.time")
 local time_verb = require("build.time")
+local Verb = require("cosmic.cli.time")
 
 local NS <const> = 1000000000
 
@@ -289,7 +291,11 @@ local function test_a_command_line_it_cannot_read_is_refused()
   }) do
     local ran = run(words)
     assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. ": " .. tostring(ran.code) .. ran.out)
-    assert(ran.err:find("cosmic: time: ", 1, true) and ran.err:find("cosmic time now", 1, true), ran.err)
+    -- The usage is the subcommand's own, or the verb's where none is named.
+    local sub = words[1]
+    local usage = if sub ~= nil and sub ~= "later" then "; usage: cosmic time " .. sub .. " " else
+      "; usage: cosmic time <add|between|convert|now> ...\n" end
+    assert(ran.err:find("cosmic: time: ", 1, true) ~= nil and ran.err:find(usage, 1, true) ~= nil, ran.err)
   end
 end
 
@@ -324,12 +330,19 @@ local function test_the_two_overflow_messages_agree_and_json_names_utc_plainly()
   assert(said({ "now", "--json", "--zone", "Etc/UTC" }):find('"zone": "UTC"', 1, true))
 end
 
-local function test_the_usage_lists_every_option_of_each_subcommand()
+--- A refusal with no subcommand names each one, and each one's help lists the options it takes.
+local function test_each_subcommand_lists_its_own_options()
   local ran = run({})
-  assert(ran.code == 2)
-  for _, name in ipairs({ "--zone", "--format", "--json", "--from", "--to", "--disambiguate", "--days",
-      "--months", "--seconds", "--clamp" }) do
-    assert(ran.err:find(name, 1, true), name)
+  assert(ran.code == 2 and ran.err:find("usage: cosmic time <add|between|convert|now> ...", 1, true) ~= nil, ran.err)
+  local takes: {string:{string}} = {
+    now = { "--zone", "--format", "--json" },
+    convert = { "--from", "--to", "--format", "--json", "--disambiguate" },
+    between = { "--zone", "--days", "--months", "--seconds", "--json", "--disambiguate" },
+    add = { "--zone", "--format", "--json", "--clamp", "--disambiguate" },
+  }
+  for sub, names in pairs(takes) do
+    local help = Flags.help(assert((Verb.subcommands or {})[sub]), "cosmic time " .. sub)
+    for _, name in ipairs(names) do assert(help:find(name, 1, true), sub .. ": " .. name) end
   end
 end
 

@@ -84,12 +84,6 @@ local NS <const> = 1000000000
 --- The subcommands, each with the options it takes, as [`cosmic.cli.time`] describes them.
 local subcommands = Verb.subcommands or {}
 
-local usage = "cosmic time now [--zone Z] [--format F] [--json] | " ..
-  "convert <time> [--from Z] [--to Z] [--format F] [--json] [--disambiguate H] | " ..
-  "between <a> <b> [--zone Z] [--days|--months|--seconds] [--json] [--disambiguate H] | " ..
-  "add <time> <duration> [--zone Z] [--format F] [--json] [--clamp] [--disambiguate H]; " ..
-  "a negative duration follows its time, as `add 2026-01-31 -1d`"
-
 --- How many words each subcommand takes after its name.
 local arity: {string:integer} = { now = 0, convert = 1, between = 2, add = 2 }
 
@@ -289,7 +283,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   }
   local complain = bare.complainer("time", to.err)
   local function refuse(line: string): integer
-    complain(line .. "; " .. usage)
+    complain(line .. "; " .. Flags.usage(Verb, "cosmic time", { argv[2] or "" }))
     return bare.refused
   end
   local sub = argv[2]

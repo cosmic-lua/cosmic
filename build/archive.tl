@@ -47,10 +47,6 @@ end
 --- The subcommands, each with the options it takes, as [`cosmic.cli.archive`] describes them.
 local subcommands = Verb.subcommands or {}
 
-local usage = "cosmic archive list [--json] <file>|-; " ..
-  "cosmic archive extract [-C <dir>] [--force] <file>|- [<member>...]; " ..
-  "cosmic archive create [--reproducible] <out.tar.gz|out.tgz|out.tar.xz|out.txz|out.tar.bz2|out.tbz2|out.tbz|out.tar.zst|out.tzst|out.tar|out.zip> <path>..."
-
 --- What a run answers: an exit code and the complaint that goes with it
 --- (none for 0).
 local record Outcome
@@ -623,7 +619,9 @@ local function extract(file: string, dest: string, force: boolean, members: {str
   local wanted: mut {string} = {}
   for _, member in ipairs(members) do
     local name = normal(member)
-    if name == "" then return fail(bare.refused, "an empty member name; " .. usage) end
+    if name == "" then
+      return fail(bare.refused, "an empty member name; " .. Flags.usage(Verb, "cosmic archive", { "extract" }))
+    end
     wanted[#wanted + 1] = name
   end
   local function selected(name: string): boolean
@@ -879,6 +877,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local to = io or standard
   local complain = bare.complainer("archive", to.err)
   local action = argv[2]
+  local usage = Flags.usage(Verb, "cosmic archive", { action or "" })
   local described = if action ~= nil then subcommands[action] else nil end
   if action == nil or described == nil then
     complain((if action == nil then "name list, extract or create" else ("no such action: " .. action) end) ..

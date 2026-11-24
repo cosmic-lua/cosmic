@@ -804,7 +804,8 @@ local function help(argv: {string}, asked: string?, asked_subs?: {string}): inte
   -- The staleness guard `test` applies: a fingerprint compare when the
   -- tool is fresh. A verb's help reads build.docs, so an edit to it must
   -- rebuild. A cache subcommand's help is this binary's alone, as above.
-  local code = if asked == "cache" then nil else stale_exit(argv, true) end
+  local cache_asked = asked == "cache" or (asked == nil and argv[2] == "cache")
+  local code = if cache_asked then nil else stale_exit(argv, true) end
   if code ~= nil then
     return code
   end

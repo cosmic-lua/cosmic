@@ -70,8 +70,7 @@ local record Flags
 
   -- TODO: move the other verbs' value checks onto `choices` and `integer` (qr, codec, release, sandbox,
   -- test, build, sql, lsp), their "(default ...)" text onto `default`, and json's -r and codec's -d onto
-  -- `aliases`; each still words its own refusal of a bad value. Each verb's spec is in cosmic/cli/<verb>.tl
-  -- now, so nothing waits.
+  -- `aliases`; each still words its own refusal of a bad value.
 
   --- The bounds of a whole number an option takes, each inclusive; no bound where nil.
   record Range
@@ -1012,6 +1011,27 @@ function Flags.help(command: Flags.Command, name: string, width?: integer): stri
     parts[#parts + 1] = "\nsee also: " .. table.concat(see, ", ")
   end
   return table.concat(parts, "\n")
+end
+
+--- The usage line of the subcommand of `command` that `words` name, one level a word, as a refusal ends with
+--- it: "usage: prog time add <time> <duration>" for `Flags.usage(time, "prog time", { "add" })`. The walk stops
+--- at a word that names no subcommand, and the line is then that of the last command reached.
+--- @param command Command The command the words start from
+--- @param name string What its usage line calls it ("prog time"); not empty, or this raises
+--- @param words? {string} The words that name its subcommands, outermost first; none when nil
+--- @return string The usage line, with no newline
+function Flags.usage(command: Flags.Command, name: string, words?: {string}): string
+  if name == "" then
+    error("flags: usage's name is empty", 2)
+  end
+  local reached, called_as = command, name
+  for _, word in ipairs(words or {}) do
+    local sub = (reached.subcommands or {})[word]
+    if sub == nil then break end
+    reached, called_as = sub, called_as .. " " .. word
+  end
+  local usage = usage_of(reached)
+  return "usage: " .. (if usage ~= "" then called_as .. " " .. usage else called_as end)
 end
 
 --- A topic's page, as `prog help <topic>` prints it: its name and

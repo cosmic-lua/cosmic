@@ -244,6 +244,21 @@ local function test_a_default_stands_where_the_line_gives_none()
   end)
 end
 
+--- A usage line is that of the subcommand the words name, down to the last one that names one.
+local function test_usage_names_the_subcommand_the_words_reach()
+  local tool: Flags.Command = { subcommands = {
+    file = { subcommands = { get = { usage = "[options] <dir>", spec = { ["--keep"] = {} } }, list = {} } },
+    status = { spec = { ["--json"] = {} } },
+  } }
+  assert(Flags.usage(tool, "tool") == "usage: tool <file|status> ...", Flags.usage(tool, "tool"))
+  assert(Flags.usage(tool, "tool", { "status" }) == "usage: tool status [options]")
+  assert(Flags.usage(tool, "tool", { "file" }) == "usage: tool file <get|list> ...")
+  assert(Flags.usage(tool, "tool", { "file", "get" }) == "usage: tool file get [options] <dir>")
+  assert(Flags.usage(tool, "tool", { "file", "list" }) == "usage: tool file list")
+  assert(Flags.usage(tool, "tool", { "file", "nope", "get" }) == "usage: tool file <get|list> ...")
+  Test.raises(function() Flags.usage(tool, "") end, "usage's name is empty")
+end
+
 local function test_help_shows_aliases_choices_bounds_and_defaults()
   local described: {string:boolean | Flags.Option} = {
     ["--raw"] = { about = "as text", aliases = { "-r" } },
