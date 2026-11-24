@@ -268,8 +268,7 @@ end
 --- The records the tree's doc anchors are known to be, as
 --- `<module> <record>`: each must still be taken for one, so a change
 --- to what counts as an anchor cannot leave the check vacuous.
-local anchors_expected: {string} = { "cosmic.cli Cli", "cosmic.layout Layout",
-  "cosmic.entrypoint Entrypoint", "cosmic.errno Errno" }
+local anchors_expected: {string} = { "cosmic.layout Layout", "cosmic.entrypoint Entrypoint", "cosmic.errno Errno" }
 
 --- Every pair of doc anchors in `db` that share a bare name, as
 --- `<file>:<line>: <module> <symbol> and <module> <symbol>: ...`,
@@ -287,7 +286,7 @@ local anchors_expected: {string} = { "cosmic.cli Cli", "cosmic.layout Layout",
 ---
 --- A doc anchor is a record of a public `cosmic/` module that exists to
 --- be looked up, not passed around: every field of it is a documented
---- `string` (`test: string` in [`cosmic.cli`]'s `Cli`), and no function
+--- `string` (`tests: string` in [`cosmic.layout`]'s `Layout`), and no function
 --- or method in the public catalog takes or returns it. [`cosmic.shape`]'s
 --- `Failure` has only strings too, but `failures` hands it out, so its
 --- fields are an API's, not anchors.
@@ -550,7 +549,7 @@ local stand_ins_expected: {{string}} = {
   { "tar -x", "Archive.extract" },
   { "unzip", "Archive.extract" },
   { "sha256sum", "Hash.hex_sha256" },
-  { "sleep", "Clock.sleep_ns" },
+  { "sleep", "Clock.sleep" },
   { "getentropy", "Rand.entropy" },
   { "getenv", "Env.get" },
   { "urandom", "Rand.entropy" },
@@ -1324,7 +1323,7 @@ end
 --- module's own doc), and why each stays.
 local doc_exempt: mut {string: string} = {}
 
-doc_exempt["cosmic.cli Cli.todos todo"] = "`cosmic todos` lists the tree's " ..
+doc_exempt["cosmic.cli.todos (module) todo"] = "`cosmic todos` lists the tree's " ..
   "`TODO:` comments: the marker is the verb's subject"
 
 --- The rules a public doc is held to: a name, the Lua pattern that
@@ -1967,7 +1966,7 @@ end
 --- The modules a source requires by a literal name, as `require("m")` or `pcall(require, "m")`: the parser's own
 --- reading of the file `file`. A file that does not parse is read by its text, a name in a comment or a string counting
 --- too, which costs a key that moves for no reason and never a missed edge.
-local function required_modules(source: string, file: string): {string}
+local function parsed_requires(source: string, file: string): {string}
   local chunk, _ = SyntaxNode.parse(source, file)
   if chunk ~= nil then
     return SyntaxNode.requires(chunk)
@@ -1981,6 +1980,31 @@ local function required_modules(source: string, file: string): {string}
     end
   end
   return out
+end
+
+--- What [`parsed_requires`] returned for each text, by its digest and its dialect, which a path ending in `.d.tl`
+--- says: the checks of one run each index the tree ([`tree_of`]), and parsing every file is most of the work of
+--- one. `fix` tells it what its own parse of each file found ([`tree_checks.knows_requires`]).
+local requires_known: mut {string: {string}} = {}
+
+local function requires_key(digest: string, file: string): string
+  return digest .. (if file:find("%.d%.tl$") ~= nil then " decl" else " tl" end)
+end
+
+--- Keeps what `chunk`, the parse of `source` as the text of `file`, requires, for the checks that index the tree
+--- later in the run to read rather than parse the file again.
+function tree_checks.knows_requires(source: string, file: string, chunk: Ast.Chunk)
+  requires_known[requires_key(Hash.hex_sha256(source), file)] = SyntaxNode.requires(chunk)
+end
+
+local function required_modules(source: string, file: string, digest: string): {string}
+  local key = requires_key(digest, file)
+  local known = requires_known[key]
+  if known == nil then
+    known = parsed_requires(source, file)
+    requires_known[key] = known
+  end
+  return known
 end
 
 --- The files of the tree the new checker lowers: every `.tl` file but those of a `testdata` directory, which hold programs for
@@ -2036,14 +2060,14 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
   for _, source in ipairs(index.sources) do
     -- A declaration derived from a header is no file of the tree: its text is in the salt of the checks that read it.
     if derived[source.filename] ~= true then
+      local exact = Hash.hex_sha256(source.text)
       local row: DeclareFile = {
         file = source.filename, source = source.text, module = source.module, dialect = source.dialect,
-        imports = required_modules(source.text, source.filename), key = "",
+        imports = required_modules(source.text, source.filename, exact), key = "",
       }
       rows[#rows + 1] = row -- checked: view_written
       row_of[source] = row
       -- A module given as two files (`x.tl` and `x/init.tl`) is read from the first; the key holds both texts.
-      local exact = Hash.hex_sha256(source.text)
       hashes[row.module] = (hashes[row.module] or "") .. exact
       -- A source the build mends or writes from another file is read as its text says, comments and all.
       local held = exact

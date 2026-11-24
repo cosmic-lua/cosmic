@@ -1441,6 +1441,9 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
           " has no field " end) .. quoted(written) .. ", which " .. quoted(Types.display(r.super, ctx.binders,
             ctx.fn_names)) .. " declares)"
         fix = "declare `" .. written .. "` in " .. sub .. ", as the interface does, or pass a value that has it"
+        if (r.sub.tag == "named") and Types.shape_record(r.sub.decl) then
+          fix = "write `" .. written .. "` in the braces of " .. sub .. ", or pass a value that has it"
+        end
         if (r.sub.tag == "named") and Types.inferred_record(r.sub.decl) then
           local record = Types.display(r.super, ctx.binders, ctx.fn_names)
           local name = text_of(ctx, e)
@@ -1599,7 +1602,7 @@ local function module_value(ctx: Ctx, node: Ast.Node, name: string): Type
       return value
     end
     unchecked(ctx, "unchecked_binding", node, "the module " .. quoted(name) .. " returns a value of the generic " ..
-        quoted(decl.name) .. " whose type arguments the checker has not read")
+        quoted(Types.decl_name(decl)) .. " whose type arguments the checker has not read")
     return ctx.invalid
   elseif decl ~= nil then
     return declaration_value(ctx, decl)
@@ -2334,12 +2337,12 @@ end
 --- The fix for a class out of reach: made, or tested, by a function of the class in the module that has its table.
 function TableLiterals.reach_fix(ctx: Ctx, decl: Decl, function_name: string): string
   if decl.module == ctx.input.module and ctx.declared[decl] ~= true and #decl.names == 1 then
-    return "move the declaration of " .. quoted(decl.name) .. " above this, or make the value with a function of the " ..
+    return "move the declaration of " .. quoted(Types.decl_name(decl)) .. " above this, or make the value with a function of the " ..
       "class declared after it"
   elseif decl.module:find("@", 1, true) ~= nil and decl.module:gsub("@.*$", "") == ctx.input.module then
-    return "declare " .. quoted(decl.name) .. " at the top level of the module, as a statement of it"
+    return "declare " .. quoted(Types.decl_name(decl)) .. " at the top level of the module, as a statement of it"
   elseif #decl.names > 1 and decl.module == ctx.input.module then
-    return "declare " .. quoted(decl.name) .. " beside the type around it, as a statement of the module"
+    return "declare " .. quoted(Types.decl_name(decl)) .. " beside the type around it, as a statement of the module"
   end
   return function_name
 end
@@ -2381,17 +2384,17 @@ function TableLiterals.literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
         -- Lua runs the metamethods a class admits by itself, at a `tostring`, the end of a `<close>` local or a comparison, on
         -- any value the literals make: the value is mentioned with them.
         for _, meta in ipairs({ "__tostring", "__close", "__lt", "__le" }) do
-          LoadOrder.mention(ctx.load, ctx.within, e, LoadOrder.of_static(n.decl, meta, quoted(n.decl.name .. "." .. meta)))
+          LoadOrder.mention(ctx.load, ctx.within, e, LoadOrder.of_static(n.decl, meta, quoted(Types.decl_name(n.decl) .. "." .. meta)))
         end
       end
     else
-      report(ctx, "class_scope", e, "this literal makes a value of " .. quoted(n.decl.name) .. ", " .. why,
+      report(ctx, "class_scope", e, "this literal makes a value of " .. quoted(Types.decl_name(n.decl)) .. ", " .. why,
         TableLiterals.reach_fix(ctx, n.decl, "make the value in " .. quoted(n.decl.module) .. " with a function of the class (`function " ..
             n.decl.name .. ".new(...): " .. n.decl.name .. "`), and call it here"), { show(ctx, n) })
     end
   end
   local given: mut {string: boolean} = {}
-  local owner = if Types.inferred_record(n.decl) then tq(ctx, n) else quoted(n.decl.name) end
+  local owner = if Types.inferred_record(n.decl) then tq(ctx, n) else quoted(Types.decl_name(n.decl)) end
   local array_part = index.array
   local shaped = true
   -- A spread, which `spread_literal` (in [`table_literal`]) has checked, gives every field the items after it do not.
@@ -2733,7 +2736,7 @@ function TableLiterals.table_literal(ctx: Ctx, e: Ast.Table, expected: Type?): T
       return made
     end
     if index.array ~= nil then
-      report(ctx, "literal_spread", source, quoted(made.decl.name) .. " has an array part, which a spread does not copy",
+      report(ctx, "literal_spread", source, quoted(Types.decl_name(made.decl)) .. " has an array part, which a spread does not copy",
         "make the copy by hand, or declare the elements as a field", { show(ctx, made) })
       items_after_first()
       return made
@@ -2807,8 +2810,8 @@ function TableLiterals.table_literal(ctx: Ctx, e: Ast.Table, expected: Type?): T
     local kind = want.decl.kind
     if want.value then
       report(ctx, "literal_shape", e, "a table literal cannot make " .. tq(ctx, want) .. ", the table of the functions of " ..
-          quoted(want.decl.name),
-        "write a value of " .. quoted(want.decl.name) .. " where one is wanted, or the declaration itself", { show(ctx, want) })
+          quoted(Types.decl_name(want.decl)),
+        "write a value of " .. quoted(Types.decl_name(want.decl)) .. " where one is wanted, or the declaration itself", { show(ctx, want) })
       TableLiterals.items_unshaped(ctx, e.items)
       return ctx.invalid
     elseif kind == "record" or kind == "class" then
@@ -2818,8 +2821,8 @@ function TableLiterals.table_literal(ctx: Ctx, e: Ast.Table, expected: Type?): T
     report(ctx, "literal_shape", e, "a table literal cannot make " .. tq(ctx, want) .. ", " ..
         (if kind == "interface" then "an interface" elseif kind == "enum" then "an enum" else "a userdata record" end),
       if kind == "interface" then (if advised ~= nil then advised else "make the value with a class that lists " ..
-          quoted(want.decl.name) .. " (`class C is " .. want.decl.name .. "`)" end) else "write a value of " ..
-          quoted(want.decl.name) end, { show(ctx, want) })
+          quoted(Types.decl_name(want.decl)) .. " (`class C is " .. want.decl.name .. "`)" end) else "write a value of " ..
+          quoted(Types.decl_name(want.decl)) end, { show(ctx, want) })
     TableLiterals.items_unshaped(ctx, e.items)
     return ctx.invalid
   elseif (want.tag == "array") then
@@ -2885,7 +2888,7 @@ end
 local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
   if (t.tag == "named") and t.value and (ctx.program.absent[t.decl] or {})[name] == true then
     -- The function is a field every value holds, filled where the value is made: the table of the functions has none.
-    local owner = quoted(t.decl.name)
+    local owner = quoted(Types.decl_name(t.decl))
     report(ctx, "field_unknown", node, owner .. " has no field " .. quoted(name) .. " in the table of its functions: " ..
         quoted(name) .. " is a function field of the values of " .. owner .. ", which no statement of its module gives " ..
         "that table",
@@ -2895,7 +2898,7 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
   if (t.tag == "named") and not t.value and (ctx.program.statics[t.decl] or {})[name] ~= nil then
     -- A module stored in a field typed with its record is typed as the record's value, which has none of its functions.
     local decl: Decl = t.decl
-    local owner = quoted(decl.name)
+    local owner = quoted(Types.decl_name(decl))
     local through_field = false
     if (node.kind == "Field") then
       local object = node.object
@@ -2922,7 +2925,7 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
       fix, { show(ctx, t) })
     return
   end
-  local owner = (t.tag == "named") and quoted(t.decl.name) or tq(ctx, t) -- checked: and_ternary
+  local owner = (t.tag == "named") and quoted(Types.decl_name(t.decl)) or tq(ctx, t) -- checked: and_ternary
   if (t.tag == "named") and not t.value and Types.inferred_record(t.decl) then
     local close = nearest(name, names_of(ctx, t))
     report(ctx, "field_unknown", node, tq(ctx, t) .. ", the record inferred for a literal, has no field " .. quoted(name) ..
@@ -2950,7 +2953,9 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
   end
   local close = nearest(name, names)
   local declare = "declare " .. quoted(name) .. " in " .. owner
-  if (t.tag == "named") and t.value and t.decl.kind == "integer_enum" then
+  if (t.tag == "named") and Types.shape_record(t.decl) then
+    declare = "add `" .. name .. ": T` to the braces of " .. owner
+  elseif (t.tag == "named") and t.value and t.decl.kind == "integer_enum" then
     declare = "add the member `" .. name .. " = n` to " .. owner
   end
   if (t.tag == "named") and t.decl.module:sub(1, 7) == "cosmic." and ctx.input.module:sub(1, 7) ~= "cosmic." then
@@ -3005,7 +3010,7 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
       end
     end
     if as_declared and ctx.load.waiting > 0 then
-      LoadOrder.mention(ctx.load, ctx.within, node, LoadOrder.of_static(decl, name, quoted(decl.name .. "." .. name)))
+      LoadOrder.mention(ctx.load, ctx.within, node, LoadOrder.of_static(decl, name, quoted(Types.decl_name(decl) .. "." .. name)))
     end
     local list = member_types(ctx, t, name)
     if list == nil then
@@ -4442,8 +4447,10 @@ local function index_read(ctx: Ctx, node: Ast.Index, object: Type): Type
         return store:optional(put_in(ctx, t, array_part))
       end
       local body = t.decl.body
-      if not t.value and Types.inferred_record(t.decl) and body ~= nil and below(ctx, k, store.string) then
-        -- A record inferred for a literal reads as a map of strings to its fields: a key it lacks reads nil.
+      if not t.value and (Types.inferred_record(t.decl) or Types.shape_record(t.decl)) and body ~= nil and
+          below(ctx, k, store.string) then
+        -- A record inferred for a literal, or one in braces, reads as a map of strings to its fields: a key it lacks
+        -- reads nil.
         local values: mut {Type} = {}
         for _, f in ipairs(body.fields) do
           values[#values + 1] = store:non_nil(f.type)
@@ -5168,7 +5175,8 @@ function Operators.tested(ctx: Ctx, node: Ast.Node, type_node: Ast.Type, value_n
       -- A record is told by its tag where the other tables the value may be have one too.
       refuse(subject(ctx, value_node) .. " is " .. tq(ctx, value) .. ", whose tables no tag field tells apart",
         "give each record of the union a fixed field of its own string literal type (`kind: \"" ..
-          tested.decl.name:lower() .. "\"`), so that `is` tests it, or validate the data with a [`cosmic.shape`] validator")
+          (if Types.shape_record(tested.decl) then "name" else tested.decl.name:lower() end) ..
+          "\"`), so that `is` tests it, or validate the data with a [`cosmic.shape`] validator")
     else
       refuse((if word:sub(1, 1) == "i" then "an " else "a " end) .. word .. " leaves nothing to test")
     end
@@ -8714,16 +8722,18 @@ local function place_of_target(ctx: Ctx, s: Ast.Assign, target: Ast.Exp, at: int
         field_unknown(ctx, target, base, target.name)
         return nil, false
       end
-      local field = list[1]
-      local fixed = not field.mut and not inits_module(ctx, s, target) -- checked: nil_not_allowed
+      local field = assert(list[1])
+      local fixed = not field.mut and not inits_module(ctx, s, target)
       if fixed and Types.inferred_record(base.decl) then
         TableLiterals.fixed(ctx, target, base, target.name)
       elseif fixed then
-        report(ctx, "field_fixed", target, quoted(base.decl.name .. "." .. target.name) .. " is fixed: it is not declared `mut`",
-          "declare `mut " .. target.name .. ": " .. show(ctx, field.type) .. "` in " .. quoted(base.decl.name) .. -- checked: nil_not_allowed
-            ", or make a new " .. quoted(base.decl.name), { show(ctx, base) })
+        report(ctx, "field_fixed", target, quoted(Types.decl_name(base.decl) .. "." .. target.name) .. " is fixed: it is not declared `mut`",
+          (if Types.shape_record(base.decl) then "declare a record (`local record R ... end`) with `mut " .. target.name ..
+              ": " .. show(ctx, field.type) .. "`, and name it in place of the braces" else "declare `mut " .. target.name ..
+              ": " .. show(ctx, field.type) .. "` in " .. quoted(Types.decl_name(base.decl)) end) ..
+            ", or make a new " .. quoted(Types.decl_name(base.decl)), { show(ctx, base) })
       end
-      return put_in(ctx, base, field.type), false -- checked: nil_not_allowed
+      return put_in(ctx, base, field.type), false
     end
     local read = member_read(ctx, target, base, target.name)
     ctx.cands, ctx.cand_node = nil, nil
@@ -8789,20 +8799,25 @@ local function place_of_target(ctx: Ctx, s: Ast.Assign, target: Ast.Exp, at: int
           "keep the elements in a field declared `mut {T}`, and write that", { show(ctx, base) })
         return nil, false
       end
-      if names ~= nil and #names == 1 then
-        local list = member_types(ctx, base, names[1])
-        if list ~= nil and not list[1].method then -- checked: nil_not_allowed
-          local fixed = not list[1].mut -- checked: nil_not_allowed
+      local only: string? = if names ~= nil and #names == 1 then names[1] else nil end
+      if only ~= nil then
+        local list = member_types(ctx, base, only)
+        local field = if list ~= nil then list[1] else nil end
+        if field ~= nil and not field.method then
+          local fixed = not field.mut
           if fixed and Types.inferred_record(base.decl) then
-            TableLiterals.fixed(ctx, target, base, table.concat(names))
+            TableLiterals.fixed(ctx, target, base, only)
           elseif fixed then
-            report(ctx, "field_fixed", target, quoted(base.decl.name .. "." .. names[1]) .. " is fixed: it is not declared `mut`", -- checked: nil_not_allowed
-              "declare `mut " .. names[1] .. ": " .. show(ctx, list[1].type) .. "` in " .. quoted(base.decl.name) .. -- checked: nil_not_allowed*2
-                ", or make a new " .. quoted(base.decl.name), { show(ctx, base) })
+            local written = "`mut " .. only .. ": " .. show(ctx, field.type) .. "`"
+            report(ctx, "field_fixed", target, quoted(Types.decl_name(base.decl) .. "." .. only) .. " is fixed: it is not declared `mut`",
+              (if Types.shape_record(base.decl) then "declare a record (`local record R ... end`) with " .. written ..
+                  ", and name it in place of the braces" else "declare " .. written .. " in " ..
+                  quoted(Types.decl_name(base.decl)) end) .. ", or make a new " .. quoted(Types.decl_name(base.decl)),
+              { show(ctx, base) })
           end
-          return put_in(ctx, base, list[1].type), false -- checked: nil_not_allowed
+          return put_in(ctx, base, field.type), false
         end
-        field_unknown(ctx, target.key, base, names[1]) -- checked: index_may_be_nil
+        field_unknown(ctx, target.key, base, only)
         return nil, false
       end
       report(ctx, "record_index", target, subject(ctx, target.key) .. " is " .. tq(ctx, k) .. ", which names no one field of " ..
@@ -9105,7 +9120,75 @@ end
 local function check_return(ctx: Ctx, s: Ast.Return)
   local frame = ctx.frames[#ctx.frames]
   if frame.chunk then -- checked: nil_not_allowed
-    local _ = values_of(ctx, s.values, nil, nil)
+    -- Reports the value `node`, of type `got`, that an entry point returns ([`Declarations.Input.entry`]), where the run
+    -- would refuse it: build/dispatch.tl's `run` calls a function, or a record's `main`, with the command line's words,
+    -- `{string}`, and reads what it returns as the exit code (build/exit_status.tl: nil, a whole number or text naming
+    -- one); a built program's main module must be a function (core/main.c). Here, not at the top, where the main
+    -- chunk holds as many locals as it may.
+    local function entry_return(node: Ast.Exp, got: Type)
+      local store = ctx.store
+      local program = ctx.input.module:match("^cmd%.[^.]+%.main$") ~= nil
+      -- A file run alone that returns nil is a run that calls nothing; a built program refuses one.
+      local value = if program then got else store:non_nil(got) end
+      local what = "the function this entry point returns"
+      local fix = "declare it `function(argv: {string}): integer`"
+      if value.tag == "named" and not program then
+        local members = member_types(ctx, value, "main")
+        if members == nil or #members ~= 1 then
+          -- TODO: hold each `main` of an overloaded declaration, and each member of a union of records.
+          return
+        end
+        value = store:non_nil(put_in(ctx, value, assert(members[1]).type))
+        what = "the `main` of the record this entry point returns"
+        fix = "declare `main` a field of type `function(argv: {string}): integer`, not a method"
+      end
+      if value.tag ~= "fn" then
+        if program then
+          report(ctx, "entry_signature", node, "a built program calls its main module, and this returns " .. tq(ctx, got) ..
+              ", which is no function", "return the function `function(argv: {string}): integer`")
+        end
+        return
+      end
+      if #value.tparams > 0 then
+        -- TODO: hold a generic function as the call with `{string}` would infer it.
+        return
+      end
+      local words = store:array(store.string)
+      local takes = true
+      local params = value.params
+      local p1 = params[1]
+      if p1 ~= nil then
+        local wanted = p1.type
+        -- An array of `any` takes the words whatever the variance of a view of an array.
+        takes = wanted == store.any or (wanted.tag == "array" and wanted.element == store.any) or below(ctx, words, wanted) or below(ctx, store:array(store.string, true), wanted) or
+          below(ctx, store:map(store.integer, store.string), wanted)
+        for i = 2, #params do
+          takes = takes and assert(params[i]).omittable == true
+        end
+      else
+        local rest = value.rest
+        takes = rest == nil or rest == store.any or below(ctx, words, rest)
+      end
+      if not takes then
+        report(ctx, "entry_signature", node, what .. " is " .. tq(ctx, value) ..
+            ", which cannot take the command line's words, `{string}`", fix .. ", or take no parameters")
+        return
+      end
+      local status = store:optional(store:union({ store.number, store.string }))
+      for _, alt in ipairs(value.rets) do
+        local code = alt.items[1] or alt.tail
+        if code ~= nil and code ~= store.any and not below(ctx, code, status) then
+          report(ctx, "entry_signature", node, what .. " is " .. tq(ctx, value) .. ", which answers " .. tq(ctx, code) ..
+              " where the run reads an exit code", "return an `integer` from 0 to 255, or nothing")
+          return
+        end
+      end
+    end
+    local returned = values_of(ctx, s.values, nil, nil)
+    local first, value = returned.types[1], s.values[1]
+    if ctx.input.entry == true and first ~= nil and value ~= nil then
+      entry_return(value, first)
+    end
     local info = ctx.program.modules[ctx.input.module]
     local ok = #s.values == 0 or (info ~= nil and (info.export ~= nil or info.value ~= nil))
     if not ok then
@@ -9589,9 +9672,9 @@ local function function_statement(ctx: Ctx, s: Ast.Function)
     -- The table of an integer enum is made whole where it is declared: a statement would replace `of` or `name` at run
     -- time with a function the checker does not read as theirs.
     report(ctx, "field_fixed", s, quoted(text) .. " defines a function in the table of the integer enum " ..
-        quoted(owner.decl.name) .. ", which holds its members, `of` and `name` and nothing more",
-      "declare the function beside the enum (`local function ...`), and call " .. quoted(owner.decl.name .. ".of") ..
-        " or " .. quoted(owner.decl.name .. ".name") .. " in it", { show(ctx, owner) })
+        quoted(Types.decl_name(owner.decl)) .. ", which holds its members, `of` and `name` and nothing more",
+      "declare the function beside the enum (`local function ...`), and call " .. quoted(Types.decl_name(owner.decl) .. ".of") ..
+        " or " .. quoted(Types.decl_name(owner.decl) .. ".name") .. " in it", { show(ctx, owner) })
   elseif owner.tag ~= "invalid" then
     local field_type: Type = owner
     for i = 2, #s.path do

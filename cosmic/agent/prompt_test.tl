@@ -4,6 +4,7 @@ local agent_fixture = require("build.agent_fixture")
 local Fs = require("cosmic.fs")
 local Prompt = require("cosmic.agent.prompt")
 local Test = require("cosmic.test")
+local Tools = require("cosmic.agent.tools")
 
 Test.policy{ env = { "TMPDIR" } }
 
@@ -20,7 +21,7 @@ local function test_the_prompt_lists_tools_rules_context_and_cwd()
     if c.path:sub(1, #dir) == dir then mine[#mine + 1] = c end
   end
   assert(#mine == 2 and mine[1].path == dir .. "/AGENTS.md" and mine[2].content == "sub rules")
-  local p = Prompt.build(dir .. "/sub", mine)
+  local p = Prompt.build(dir .. "/sub", mine, { tools = Tools.all() })
   assert(p:find("^You are a coding assistant running inside cosmic agent") ~= nil)
   assert(p:find("<tools>\n- read: Read file contents\n- bash: ", 1, true) ~= nil, p)
   assert(p:find("- Use write only for new files or complete rewrites.", 1, true) ~= nil)
@@ -45,6 +46,11 @@ local function test_the_prompt_names_the_library_but_tooling_each_with_the_start
   assert(#line <= 90 + #"- cosmic.long: " and line:sub(-7) == "word...", line)
   assert(p:find("\n- cosmic.bare\n", 1, true) ~= nil, p)
   assert(Prompt.build("/", {}):find("<stdlib>", 1, true) == nil)
+  -- The default tools offer no bash, and the rules name none; the rules for every tool stay.
+  local quiet = Prompt.build("/", {})
+  assert(quiet:find("bash", 1, true) == nil and quiet:find("- Tools may run in a sandbox", 1, true) ~= nil, quiet)
+  assert(Prompt.build("/", {}, { tools = Tools.all() }):find("<rules>\n- Use bash for file operations", 1, true) ~= nil)
+  assert(Prompt.build("/", {}, { tools = {} }):find("<tools>", 1, true) == nil)
   -- With no space to cut at, the cut ends at a character's end.
   local wide = Prompt.build("/", {}, { library = { { module = "cosmic.wide", text = string.rep("é", 60), closed = "" } } })
   local wide_line = assert(wide:match("\n%- cosmic%.wide: ([^\n]*)"))

@@ -28,7 +28,7 @@
 --- were, and the table comes out as it was.
 
 local Archive = require("cosmic.archive")
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.refresh")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -412,7 +412,7 @@ local tzdata: refresh.Dataset = {
     end
     source.path = scratch .. "/tzdata-sdist"
     local ok, download_trouble = Http.download(source.url, source.path,
-      { timeout_ns = Http.FOREVER, sha256 = source.sha256, roots = refresh.fetching().roots })
+      { timeout_ns = Http.FOREVER, digests = { ["sha256"] = source.sha256 }, roots = refresh.fetching().roots })
     if not ok then
       return nil, source.url .. ": " .. download_trouble
     end
@@ -710,7 +710,7 @@ end
 
 local usage <const> = "cosmic refresh -o <path> [--binary <path>] [--<dataset> <file>...] [dataset...]"
 
---- `cosmic refresh`'s command line: see [`cosmic.cli.Cli.refresh`].
+--- `cosmic refresh`'s command line: see [`cosmic.cli.refresh`].
 local function run(argv: {string}): integer
   local started = Clock.monotonic_ns()
   -- A failure's complaint says why; only a run that passed is summarized.
@@ -722,7 +722,7 @@ local function run(argv: {string}): integer
     log:complain("refresh: " .. why .. "; " .. usage)
     return 2
   end
-  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.refresh.spec)) -- checked: map_field
+  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Verb.spec))
   if parsed == nil then
     return refuse(parse_trouble)
   end

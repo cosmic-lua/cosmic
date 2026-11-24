@@ -518,7 +518,7 @@ local function test_records_the_tests_elapsed_duration(tmp: string)
   assert(Fs.write(root .. "/timing/sleep_test.tl", [[
 local Clock = require("cosmic.clock")
 local function test_sleeps_a_known_duration()
-  assert(Clock.sleep_ns(50 * 1000 * 1000))
+  assert(Clock.sleep(50 * 1000 * 1000))
 end
 ]]))
   local output = tmp .. "/sleep.out"

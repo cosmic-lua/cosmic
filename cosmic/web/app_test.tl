@@ -443,7 +443,8 @@ local function test_access_log_escapes_control_bytes_of_the_query()
   local sink, lines = recording()
   local app = Web.app{ routes = { Web.get("/", hello) }, middleware = { Web.access_log{ log_query = true } },
     sink = sink }
-  local raw: Server.Request = { gone = function(): boolean return false end, method = "GET", target = "/?a=1\r\nFAKE 200", path = "/",
+  local raw: Server.Request = { gone = function(): boolean return false end,
+    wait_gone = function(_?: integer): boolean return false end, method = "GET", target = "/?a=1\r\nFAKE 200", path = "/",
     query = "a=1\r\nFAKE 200 line\127", version = "HTTP/1.1", headers = { host = "x" },
     body = Stream.from_string(""), length = 0 }
   assert(app.handle(raw).status == 200)

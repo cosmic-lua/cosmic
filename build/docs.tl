@@ -188,8 +188,8 @@ local function closed_in(db: Sqlite.Handle): {string: string}
   return out
 end
 
---- The tool's verbs as the commands of a view: each is documented by its field of [`cosmic.cli`]'s record, and
---- its options are data (a `spec` of [`Cli.verbs`]), shown and searched as the binary answering has them.
+--- The tool's verbs as the commands of a view: each is documented by its module's overview ([`cosmic.cli.test`]),
+--- and its options are data (a `spec` of [`Cli.verbs`]), shown and searched as the binary answering has them.
 local function verbs(): {Doc.Command}
   local names: mut {string} = {}
   for verb in pairs(Cli.verbs) do names[#names + 1] = verb end
@@ -199,7 +199,7 @@ local function verbs(): {Doc.Command}
     local command = assert(Cli.verbs[verb])
     local spec = command.spec
     local options = if spec ~= nil then Flags.options(spec) else nil end
-    out[#out + 1] = { name = verb, module = "cosmic.cli", symbol = "Cli." .. verb, options = options }
+    out[#out + 1] = { name = verb, module = "cosmic.cli." .. verb, symbol = "", options = options }
   end
   return out
 end

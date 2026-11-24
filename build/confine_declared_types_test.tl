@@ -68,7 +68,7 @@ local function tunnels(userinfo?: string)
         err = function(_line: string) end,
         read = function(): string?, string
           while waiting.value == "" and ended.value ~= true do
-            local ok, why = Poll.delay(Clock.ms(1))
+            local ok, why = Clock.sleep(Clock.ms(1))
             if not ok then return nil, why.message end
           end
           local data = waiting.value

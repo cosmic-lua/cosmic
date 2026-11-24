@@ -462,3 +462,18 @@ local function test_a_link_answered_by_the_disk_builds_again_when_the_disk_moves
   assert(moved.code == 0 and moved.stdout == "one\n", tostring(moved.stdout) .. tostring(moved.stderr))
   assert(builds_of(root) == built + 1, "a run after the disk moved under a link did not build the tree")
 end
+
+--- A record type written in braces is one type in every file of a tree: a module's function that takes and returns
+--- `{x: number, y: number}` meets the braces its caller writes, in any order of the fields, and a literal of no written
+--- type fits it by its fields.
+local function test_a_record_in_braces_is_one_type_across_the_files_of_a_tree(tmp: string)
+  local geo = "local record Geo\n  dist: function(a: {x: number, y: number}, b: {y: number, x: number}): number\n" ..
+    "  origin: function(): {x: number, y: number}\nend\n" ..
+    "function Geo.dist(a: {x: number, y: number}, b: {y: number, x: number}): number\n" ..
+    "  return math.sqrt((a.x - b.x) ^ 2 + (a.y - b.y) ^ 2)\nend\n" ..
+    "function Geo.origin(): {x: number, y: number}\n  return { x = 0, y = 0 }\nend\nreturn Geo\n"
+  local main = "local Geo = require(\"lib.geo\")\nlocal p: {y: number, x: number} = { x = 3, y = 4 }\n" ..
+    "print(Geo.dist(Geo.origin(), p))\nlocal t = { x = 0.0, y = 0.0 }\nprint(Geo.dist(t, p))\n"
+  local result = run_in(tree_of(tmp, "shapes", { ["lib/geo.tl"] = geo, ["main.tl"] = main }), "main.tl")
+  assert(result.code == 0 and result.stdout == "5.0\n5.0\n", tostring(result.stdout) .. tostring(result.stderr))
+end

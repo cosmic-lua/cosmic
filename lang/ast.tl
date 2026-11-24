@@ -38,8 +38,8 @@ local record Ast
     -- function parts
     "Fn" "Rets" "Param" "Binding"
     -- types
-    "TypeName" "TypeBool" "TypeString" "TypeNil" "TypeError" "TypeArray" "TypeMap" "TypeUnion" "TypeOptional"
-    "TypeMut" "TypeFunction" "PType" "Narrows" "TypeParam"
+    "TypeName" "TypeBool" "TypeString" "TypeNil" "TypeError" "TypeArray" "TypeMap" "TypeRecord" "TypeUnion"
+    "TypeOptional" "TypeMut" "TypeFunction" "PType" "Narrows" "TypeParam"
     -- declarations
     "Record" "Interface" "Class" "Enum" "EnumValue" "Alias" "Import" "FieldDecl" "Method" "Userdata"
     -- a failed production
@@ -753,6 +753,18 @@ local record Ast
     key: Type
     value: Type
   end
+  enum TypeRecord_kind
+    "TypeRecord"
+  end
+  --- A record type written in braces, `{a: A, b?: B}`: two or more fields, each a [`PType`] with its name. Two
+  --- written with the same fields are one type, wherever they are written.
+  record TypeRecord is Base
+    kind: TypeRecord_kind
+    first: integer
+    mut last: integer
+    mut id: integer
+    fields: {PType}
+  end
   enum TypeUnion_kind
     "TypeUnion"
   end
@@ -992,7 +1004,7 @@ local record Ast
   type CallExp = Call | MethodCall | Error
   type Item = Positional | Spread | Named | Keyed
   type PatItem = PatBool | PatNil | PatBind | PatType
-  type Type = TypeName | TypeBool | TypeString | TypeNil | TypeError | TypeArray | TypeMap | TypeUnion |
+  type Type = TypeName | TypeBool | TypeString | TypeNil | TypeError | TypeArray | TypeMap | TypeRecord | TypeUnion |
     TypeOptional | TypeMut | TypeFunction
   --- An item of a return list.
   type RType = Type | Narrows
@@ -1003,8 +1015,8 @@ local record Ast
     Continue | While | Repeat | If | Arm | Match | MatchArm | PatBool | PatNil | PatBind | PatType | ForNum | ForIn | Name |
     Nil | Boolean | Integer | Float | String | Vararg | Paren | FunctionLit | Table | Positional | Spread | Named |
     Keyed | Field | Index | Call | MethodCall | Unary | Binary | IsTest | Cast | IfExp | ExpArm | Fn |
-    Rets | Param | Binding | TypeName | TypeBool | TypeString | TypeNil | TypeError | TypeArray | TypeMap | TypeUnion |
-    TypeOptional | TypeMut | TypeFunction | PType | Narrows | TypeParam | Record | Interface | Class |
+    Rets | Param | Binding | TypeName | TypeBool | TypeString | TypeNil | TypeError | TypeArray | TypeMap | TypeRecord |
+    TypeUnion | TypeOptional | TypeMut | TypeFunction | PType | Narrows | TypeParam | Record | Interface | Class |
     Enum | EnumValue | TypeAlias | Import | FieldDecl | Method | Userdata | Error
 
   --- The fields of each kind that hold a node, a list of nodes or a scalar
@@ -1048,7 +1060,7 @@ local SPEC <const>: {string: string} = {
   Fn = "params* rets body", Rets = "lists** variadic",
   Param = "name optional type variadic", Binding = "name attr",
   TypeName = "path* args*", TypeBool = "value", TypeString = "value", TypeNil = "", TypeError = "",
-  TypeArray = "element", TypeMap = "key value", TypeUnion = "members*",
+  TypeArray = "element", TypeMap = "key value", TypeRecord = "fields*", TypeUnion = "members*",
   TypeOptional = "inner", TypeMut = "inner", TypeFunction = "typeparams* params* rets",
   PType = "name optional variadic type", Narrows = "param type asserts",
   TypeParam = "name constraints*",
@@ -1388,6 +1400,13 @@ local WALK <const>: {string: function(Ast.Node, Visit)} = {
     if n.kind == "TypeMap" then
       visit(n.key)
       visit(n.value)
+    end
+  end,
+  TypeRecord = function(n: Ast.Node, visit: Visit)
+    if n.kind == "TypeRecord" then
+      for _, field in ipairs(n.fields) do
+        visit(field)
+      end
     end
   end,
   TypeUnion = function(n: Ast.Node, visit: Visit)

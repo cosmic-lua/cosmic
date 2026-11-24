@@ -99,28 +99,28 @@ local function test_help_lists_each_option_a_verb_parses(tmp: string)
   -- `cosmic docs` asked nothing lists the modules there are.
   local index = verbs_fixture.expect(tmp, "docs", { "docs" }, 0).stdout
   assert(index:find("\ncosmic.fs  ", 1, true), index)
-  -- It shows the options under the verb's field too.
-  local docs = verbs_fixture.expect(tmp, "docs", { "docs", "Cli.test" }, 0).stdout
+  -- It shows the options under the verb's module too.
+  local docs = verbs_fixture.expect(tmp, "docs", { "docs", "cosmic.cli.test" }, 0).stdout
   assert(docs:find("\n  options:\n", 1, true) and docs:find("\n    --jobs <n> ", 1, true) and
       docs:find("\n    --all ", 1, true), docs)
   -- And a search finds a verb by what one of its options does, though
   -- no doc comment says it: "launcher" is only in `build --host`'s.
   local found = verbs_fixture.expect(tmp, "docs", { "docs", "native", "launcher" }, 0).stdout
-  assert(found:find("Cli.build", 1, true), found)
+  assert(found:find("cosmic.cli.build", 1, true), found)
   -- Its words may be split between the prose and the options.
   local split = verbs_fixture.expect(tmp, "docs", { "docs", "timeout", "processor" }, 0).stdout
-  assert(split:find("Cli.test", 1, true), split)
+  assert(split:find("cosmic.cli.test", 1, true), split)
   -- A word joined by "_" is those words in a row, as FTS5 reads it, and
   -- the verb's own name counts, as it does in the index.
   local joined = verbs_fixture.expect(tmp, "docs", { "docs", "COSMIC_TEST_TIMEOUT" }, 0).stdout
-  assert(joined:find("Cli.test", 1, true), joined)
+  assert(joined:find("cosmic.cli.test", 1, true), joined)
   -- Where the variable is declared (cosmic.env) it answers too, first.
   assert(joined:find("Env.Name.COSMIC_TEST_TIMEOUT", 1, true), joined)
   local named = verbs_fixture.expect(tmp, "docs", { "docs", "cli", "launcher" }, 0).stdout
-  assert(named:find("Cli.build", 1, true), named)
+  assert(named:find("cosmic.cli.build", 1, true), named)
   -- A word neither holds finds no verb.
   local none = verbs_fixture.expect(tmp, "docs", { "docs", "launcher", "zzzqqq" }, 1).stdout
-  assert(not none:find("Cli.build", 1, true), none)
+  assert(not none:find("cosmic.cli.build", 1, true), none)
 end
 
 local function test_help_of_a_verb_is_that_verb_alone(tmp: string)
@@ -148,6 +148,32 @@ local function test_help_gives_the_exit_code_of_a_refused_chunk(tmp: string)
   for verb, want in pairs({ standalone = said, eval = refused }) do
     local out = verbs_fixture.expect(tmp, "help", { "help", verb }, 0).stdout:gsub("%s+", " ")
     assert(out:find(want, 1, true) ~= nil, verb .. ": " .. out)
+  end
+end
+
+--- `cosmic run` refuses a verb's name as its file, asks for help as every verb does, and hands any other
+--- word to the file run, whose messages name a Lua file or a missing one; `eval --help` is `help eval`.
+local function test_run_and_eval_are_read_as_their_pages_say(tmp: string)
+  for _, word in ipairs({ "test", "help" }) do
+    local r = verbs_fixture.run(tmp, { "run", word })
+    assert(r.code == 2 and r.stderr:find("run takes a file to run", 1, true) ~= nil, word .. ": " .. r.stderr)
+  end
+  local lua, plain = verbs_fixture.run(tmp, { "run", "x.lua" }), verbs_fixture.run(tmp, { "x.lua" })
+  assert(lua.code == plain.code and lua.stderr == plain.stderr, lua.stderr .. plain.stderr)
+  local asks: {{string}} = { { "run", "--help" }, { "eval", "-h" }, { "-e", "--help" } }
+  for _, words in ipairs(asks) do
+    local page = if words[1] == "run" then "run" else "eval" end
+    local r, shown = verbs_fixture.run(tmp, words), verbs_fixture.run(tmp, { "help", page })
+    assert(r.code == 0 and r.stdout == shown.stdout and r.stdout ~= "", table.concat(words, " ") .. ": " .. r.stderr)
+  end
+end
+
+--- `help` refuses its own line in the form every verb does, ending in its usage.
+local function test_help_refuses_its_line_ending_in_its_usage(tmp: string)
+  for _, words in ipairs({ { "help", "--zz" }, { "help", "fix", "test" }, { "help", "tset" } }) do
+    local r = verbs_fixture.run(tmp, words)
+    local form = "^cosmic: help: [^\n]+; usage: cosmic help %[verb | exit | <verb> <subcommand>%]\n$"
+    assert(r.code == 2 and r.stderr:find(form) ~= nil, table.concat(words, " ") .. ": " .. r.stderr)
   end
 end
 
@@ -187,7 +213,7 @@ local function test_help_is_a_short_index_of_every_verb(tmp: string)
   assert(not all:find("--jobs", 1, true), all)
   local bare_run = verbs_fixture.expect(tmp, "help", {}, 0)
   local bare = bare_run.stdout
-  assert(bare_run.stderr:find("^help: %d+ verbs, %d+ ms\n$") ~= nil, bare_run.stderr)
+  assert(bare_run.stderr == "", bare_run.stderr)
   assert(all:find("(print stays)", 1, true), all)
   local asked = verbs_fixture.expect(tmp, "help", { "help", "--help" }, 0).stdout
   assert(asked:find("\nMore:\n", 1, true), asked)
@@ -478,19 +504,36 @@ local function test_a_verb_takes_a_negative_number_as_a_word(tmp: string)
   assert(drawn.code == 0 and drawn.stdout == "-5\n", drawn.stdout .. drawn.stderr)
 end
 
---- A verb whose line is its own to read is not refused by Flags.dispatch first: `todos`, which rebuilds a stale tool before it reads its line, refuses an option
---- in its own words, as a `fresh` verb does.
-local function test_a_verb_that_reads_its_own_line_is_not_refused_first(tmp: string)
+--- A verb whose line is its own to read (`todos`, which rebuilds a stale tool before it reads its line, and `bom`)
+--- refuses an option in the form Flags.dispatch gives every other verb: `cosmic: <verb>: <why>; usage: <line>`.
+local function test_a_verb_that_reads_its_own_line_refuses_it_as_the_others_do(tmp: string)
   verbs_fixture.write_tree(tmp)
   for _, verb in ipairs({ "todos", "bom" }) do
     local refused = verbs_fixture.run(tmp, { verb, "--zzqq" })
-    assert(refused.code == 2 and refused.stderr:find("no such option: --zzqq", 1, true) ~= nil and
-        not refused.stderr:find("; usage: cosmic " .. verb, 1, true), verb .. ": " .. refused.stderr)
+    local form = "^cosmic: " .. verb .. ": no such option: %-%-zzqq; usage: cosmic " .. verb .. " [^\n]+\n$"
+    assert(refused.code == 2 and refused.stderr:find(form) ~= nil, verb .. ": " .. refused.stderr)
   end
 end
 
+--- Whether the tool these tests start is a checkout's own ([`tree.checkout`]): it is unsandboxed, where the
+--- tool runs from its checkout's build directory, and is not in the sandbox, where that checkout is out of sight.
+--- Only a tool that is no checkout's own skips build.reboot, as a release does.
+local function checkouts_own_tool(tmp: string): boolean
+  local started = this_program.program({ "-e",
+    'local Fs = require("cosmic.fs") local own = require("build.tree").checkout(require("cosmic.store").meta(' ..
+      '"built_from")) local _, _ = Fs.put(Fs.stdout, tostring(own ~= nil))' },
+    { env = this_program.environment(), cwd = tmp, stdout = "capture", stderr = "capture",
+      timeout_ns = Clock.seconds(30) })
+  local r = assert(Child.run(started.argv, started.options))
+  assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
+  return r.stdout == "true"
+end
+
 --- `help <verb>` and `<verb> --help` read that verb's spec alone: the modules of the other verbs are not loaded.
+--- On a tool that is no checkout's own, nor are build.reboot and the build modules build/docs.tl requires only
+--- where it reads a projection or checks the tool is fresh.
 local function test_one_verbs_help_loads_no_other_verb(tmp: string)
+  local own = checkouts_own_tool(tmp)
   for _, words in ipairs({ { "help", "hash" }, { "hash", "--help" } }) do
     local env = this_program.environment()
     env["COSMIC_TRACE_REQUIRE"] = "1"
@@ -500,8 +543,35 @@ local function test_one_verbs_help_loads_no_other_verb(tmp: string)
     assert(r.ok and (r.stdout or ""):find("cosmic hash", 1, true) ~= nil, tostring(r.stdout) .. tostring(r.stderr))
     local traced = r.stderr or ""
     assert(traced:find(" build.hash ", 1, true), "no trace of build.hash: " .. traced:sub(1, 400))
-    for _, name in ipairs({ "build.test", "build.fix", "build.lsp", "build.sql", "build.archive" }) do
+    local absent: mut {string} = { "build.test", "build.fix", "build.lsp", "build.sql", "build.archive" }
+    if not own then
+      for _, name in ipairs({ "build.reboot", "build.rebuild", "build.work", "build.writer" }) do
+        absent[#absent + 1] = name
+      end
+    end
+    for _, name in ipairs(absent) do
       assert(not traced:find(" " .. name .. " ", 1, true), table.concat(words, " ") .. " loaded " .. name)
     end
   end
+end
+
+--- A verb that is not bare, fresh or `reads` asks build.reboot's checkout check only of a tool that is a
+--- checkout's own, so on any other `build` in a directory with no program loads no build.reboot. A refused line
+--- (exit 2) would load it all the same, for the stale-tool check after a refusal.
+local function test_a_tool_of_no_checkout_loads_no_reboot(tmp: string)
+  if checkouts_own_tool(tmp) then
+    Test.skip("the tool is its checkout's own, which build.reboot holds to that checkout")
+  end
+  local spec = assert(verb_list.find("build"))
+  assert(not spec.bare and spec.fresh ~= true and spec.reads ~= true, "build no longer reaches the checkout check")
+  local env = this_program.environment()
+  env["COSMIC_TRACE_REQUIRE"] = "1"
+  local started = this_program.program({ "build", "missing.tl" }, { env = env, cwd = tmp,
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
+  local r = assert(Child.run(started.argv, started.options))
+  local traced = r.stderr or ""
+  assert(r.code == 1, tostring(r.code) .. ": " .. traced:sub(-400))
+  assert(traced:find("no cmd/<name>/main.tl", 1, true), traced:sub(-400))
+  assert(traced:find(" build.embed ", 1, true), "no trace of build.embed: " .. traced:sub(1, 400))
+  assert(not traced:find(" build.reboot ", 1, true), "build loaded build.reboot")
 end

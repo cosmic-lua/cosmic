@@ -275,3 +275,29 @@ end
 local function test_a_settle_trims_a_file_to_its_bound(tmp: string)
   assert(rows_after(tmp, "verdicts-checked.db", 16400) == 16384, "a checked file kept another number")
 end
+
+--- A row remembered where it is spelled is kept as the settle packs one it is not told of, and comes back whole:
+--- a path with a space, the "-" identity, no lines and an instruction ordinal alike.
+local function test_a_remembered_row_is_kept_as_its_text_is(tmp: string)
+  local cache = assert(shared_verdicts.open(tmp .. "/cache/verdicts.db"))
+  local heads: {string} = { "a b/x.tl 0123456789abcdef", "core/x.c -", "m.tl 0123456789abcdee" }
+  local lists: {{integer}} = { { 3, 4, 5, 16777217 }, { 10, 12 }, {} }
+  local remembered, told = "", ""
+  for i, head in ipairs(heads) do
+    local lines = Array.at(lists, i)
+    local spelled = table.concat(lines, ",")
+    remembered = remembered .. head .. "\t" .. spelled .. "\n"
+    shared_verdicts.remember(head .. "\t" .. spelled .. "\n", head, lines)
+    told = told .. head .. "y\t" .. spelled .. "\n"
+  end
+  local kept: mut {shared_verdicts.Kept} = {
+    { key = "remembered", test = "t_test.tl test_a", hits = remembered, elapsed_ns = 1 },
+    { key = "told", test = "t_test.tl test_b", hits = told, elapsed_ns = 1 },
+  }
+  assert(shared_verdicts.settle(cache, "first", { kept = kept, used = {}, failed = {} }, Clock.now_ns()))
+  local a = assert(shared_verdicts.declared(cache, "remembered"))
+  local b = assert(shared_verdicts.declared(cache, "told"))
+  assert(in_full(a.kept) == remembered, in_full(a.kept))
+  assert(in_full(b.kept) == told, in_full(b.kept))
+  shared_verdicts.close(cache)
+end

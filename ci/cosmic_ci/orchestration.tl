@@ -1178,7 +1178,7 @@ local function checked_suite(c: Context, target: string, work: string,
   local expected = tostring(offset) .. "\t" .. tostring(length) .. "\t" .. digest .. "\n"
   -- That the checked artifact runs the checked core: its runtime
   -- context as a chunk run with no tree around it (`cosmic -e`) sees it,
-  -- which builds and writes nothing.
+  -- which builds nothing.
   local context = work .. "/checked-context.txt"
   s = capture_small(c, "checked runtime context", { cosmic, "-e",
     "local Store = require('cosmic.store') print(Store.meta('runtime_context'), " ..

@@ -29,7 +29,7 @@ local QUERIES: {Query} = {
   { query = "run a program", reaches = { "Child.run" } },
   { query = "parse json", reaches = { "Json.decode" } },
   { query = "write a test", reaches = { "Layout", "cosmic.layout", "cosmic.test" } },
-  { query = "sleep", reaches = { "Clock.sleep_ns" } },
+  { query = "sleep", reaches = { "Clock.sleep" } },
   { query = "http get", reaches = { "Http.get" } },
   { query = "sha256", reaches = { "Hash." } },
   { query = "temporary directory", reaches = { "Fs.mkdtemp" } },

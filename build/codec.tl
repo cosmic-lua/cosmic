@@ -43,7 +43,7 @@
 --- of its bytes before it refuses. An invalid character is refused as
 --- soon as its chunk is read.
 
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.codec")
 local Codec = require("cosmic.codec")
 local Flags = require("cosmic.flags")
 local Stream = require("cosmic.stream")
@@ -351,7 +351,7 @@ function verb.decoder(name: verb.Name): verb.Coder
   end
 end
 
-local spec = Cli.verbs.codec.spec or {} -- checked: literal_needs_type, map_field
+local spec = Verb.spec or {}
 
 local usage = "cosmic codec <hex|base64|base64url> [-d] [--wrap N] [--lenient] [<file>|-]"
 

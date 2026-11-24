@@ -74,7 +74,8 @@ local function post(body: string, fn: function(req: Web.Request): Web.Response, 
                     chunked?: boolean): Web.Response
   local app = Web.app{ routes = { Web.post("/x", fn) }, sink = { line = function(_self: Web.Sink, _text: string)
   end } }
-  local raw: Server.Request = { gone = function(): boolean return false end, method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
+  local raw: Server.Request = { gone = function(): boolean return false end,
+    wait_gone = function(_?: integer): boolean return false end, method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
     headers = { host = "x", ["content-type"] = content_type or FORM_TYPE },
     body = Stream.from_string(body), length = if chunked ~= true then #body else nil end }
   return app.handle(raw)
@@ -338,7 +339,8 @@ local function test_a_body_not_read_by_length_is_not_pulled_past_the_limit()
     assert(bad ~= nil and bad.status == 413, "the limit comes before the preamble cap")
     return Web.empty()
   end) } }
-  local raw: Server.Request = { gone = function(): boolean return false end, method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
+  local raw: Server.Request = { gone = function(): boolean return false end,
+    wait_gone = function(_?: integer): boolean return false end, method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
     headers = { host = "x", ["content-type"] = FORM_TYPE }, body = body }
   assert(app.handle(raw).status == 204)
   assert(pulled <= 20000, pulled)
@@ -439,7 +441,8 @@ local function test_a_slow_or_failing_source_is_408_or_400(tmp: string)
       got = Input.multipart(req, { dir = tmp }).invalid
       return Web.empty()
     end) } }
-    local raw: Server.Request = { gone = function(): boolean return false end, method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
+    local raw: Server.Request = { gone = function(): boolean return false end,
+      wait_gone = function(_?: integer): boolean return false end, method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
       headers = { host = "x", ["content-type"] = FORM_TYPE }, body = body }
     assert(app.handle(raw).status == 204)
     local refused = assert(got, "the read was never refused")
@@ -549,7 +552,7 @@ end
 local function killed_while_waiting(fn: function(req: Web.Request), first: string)
   local app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
     fn(req)
-    local _, _ = Poll.delay(Clock.seconds(30))
+    local _, _ = Clock.sleep(Clock.seconds(30))
     return Web.empty()
   end) } }
   local at: integer = 0
@@ -557,16 +560,17 @@ local function killed_while_waiting(fn: function(req: Web.Request), first: strin
     read = function(_self: Stream.Reader, _max?: integer): string?, string
       at = at + 1
       if at == 1 then return first, "" end
-      local _, _ = Poll.delay(Clock.seconds(30))
+      local _, _ = Clock.sleep(Clock.seconds(30))
       return nil, "gone"
     end,
     close = function(_self: Stream.Reader): boolean, string return true, "" end,
   }
-  local raw: Server.Request = { gone = function(): boolean return false end, method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
+  local raw: Server.Request = { gone = function(): boolean return false end,
+    wait_gone = function(_?: integer): boolean return false end, method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
     headers = { host = "x", ["content-type"] = FORM_TYPE }, body = body }
   Poll.run(function()
     local task = Poll.spawn(function() app.handle(raw) end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     task:kill()
   end)
 end
@@ -587,14 +591,15 @@ local function test_a_task_killed_in_the_handler_after_the_read_leaves_no_files(
   local app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
     local m = assert(Input.multipart(req, { dir = tmp }).value)
     assert(#assert(Fs.list(tmp)) == 1 and m.files["f"] ~= nil)
-    local _, _ = Poll.delay(Clock.seconds(30))
+    local _, _ = Clock.sleep(Clock.seconds(30))
     return Web.empty()
   end) } }
-  local raw: Server.Request = { gone = function(): boolean return false end, method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
+  local raw: Server.Request = { gone = function(): boolean return false end,
+    wait_gone = function(_?: integer): boolean return false end, method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
     headers = { host = "x", ["content-type"] = FORM_TYPE }, body = Stream.from_string(text), length = #text }
   Poll.run(function()
     local task = Poll.spawn(function() app.handle(raw) end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     task:kill()
   end)
   assert(#assert(Fs.list(tmp)) == 0, "the app closes a request's bodies when its task is killed")

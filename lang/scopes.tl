@@ -991,6 +991,10 @@ ty = function(t: Ast.Type)
   elseif (t.kind == "TypeMap") then
     ty(t.key)
     ty(t.value)
+  elseif (t.kind == "TypeRecord") then
+    for _, field in ipairs(t.fields) do
+      ty(field.type)
+    end
   elseif (t.kind == "TypeUnion") then
     walk_types(t.members)
   elseif (t.kind == "TypeOptional") then

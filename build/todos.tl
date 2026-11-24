@@ -22,7 +22,7 @@
 
 local Child = require("cosmic.child")
 local Signal = require("cosmic.signal")
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.todos")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
@@ -773,7 +773,7 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
   local started = Clock.monotonic_ns()
   local found_root, root_trouble = Fs.absolute(at or ".")
   if found_root == nil then
-    log:complain(tostring(root_trouble))
+    log:complain("todos: " .. tostring(root_trouble))
     return 1
   end
   local root: string = found_root
@@ -786,9 +786,9 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
   if code ~= nil then
     return code
   end
-  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.todos.spec)) -- checked: map_field
+  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Verb.spec))
   if parsed == nil then
-    log:complain("todos: " .. parse_trouble)
+    log:complain("todos: " .. parse_trouble .. "; usage: cosmic todos " .. tostring(Verb.usage))
     return 2
   end
   local oldest = parsed.set["--oldest"] == true
@@ -798,7 +798,7 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
 
   local standing, standing_trouble = reboot.standing(root, seen)
   if standing == nil then
-    log:complain(standing_trouble)
+    log:complain("todos: " .. standing_trouble)
     return 1
   end
   -- Made again where it is of another schema and no run holds it, as a
@@ -811,7 +811,7 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
   if not reboot.unchecked(root) then
     local opening, open_trouble = work.try_open_remaking(root)
     if opening == nil then
-      log:complain(open_trouble)
+      log:complain("todos: " .. open_trouble)
       return 1
     end
     handle, other = opening.handle, opening.other_schema
@@ -827,7 +827,7 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
     local staged, stage_trouble = work.stage(handle, standing)
     if staged == nil then
       local _, _ = work.abort(handle)
-      log:complain(stage_trouble)
+      log:complain("todos: " .. stage_trouble)
       return 1
     end
     db = handle.db
@@ -882,7 +882,7 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
     else
       local _, _ = db:close()
     end
-    log:complain(trouble)
+    log:complain("todos: " .. trouble)
     return 1
   end
   local listing, list_trouble: todos.Listing?, string
@@ -897,20 +897,20 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
   local all, blamed = listing.todos, listing.blamed
   local misses, misses_trouble = misses_of(db)
   if misses == nil then
-    return failed("todos: " .. misses_trouble)
+    return failed(misses_trouble)
   end
   local ranks: {integer:integer}? = nil
   if query ~= "" then
     local found, search_trouble = todos.search(db, query)
     if found == nil then
-      return failed("todos: " .. search_trouble)
+      return failed(search_trouble)
     end
     ranks = found
   end
   if handle ~= nil then
     local closed, close_trouble = work.close(handle)
     if not closed then
-      log:complain(close_trouble)
+      log:complain("todos: " .. close_trouble)
       return 1
     end
   else

@@ -27,10 +27,6 @@ local sent = agent_fixture.sent
 local said = agent_fixture.said
 local header = agent_fixture.header
 local text_reply = agent_fixture.text_reply
-local function events(): Agent.Events, agent_fixture.Seen
-  local seen = agent_fixture.events()
-  return seen.events, seen
-end
 local bash_call = agent_fixture.bash_call
 local function kept(replies: {Json.Value}, messages?: {Json.Value}, model?: string): Agent.Session, Api,
                     Sqlite.Handle
@@ -49,17 +45,19 @@ local function test_the_loop_runs_tools_until_the_turn_ends()
     }, stop_reason = "tool_use" },
     text_reply("done"),
   })
-  local s = Agent.session({ model = Agent.MODELS.opus, effort = "high", sign = keyed("k"), base_url = "https://api.test",
+  local s = Agent.new({ model = Agent.MODELS.opus, effort = "high", sign = keyed("k"), base_url = "https://api.test",
     system = "sys", cwd = dir, send = send })
-  local ev, seen = events()
-  local ok, why = Agent.prompt(s, "make out.txt", ev)
+  local seen = agent_fixture.events()
+  s.on = seen.on
+  local ok, why = s:prompt("make out.txt")
   assert(ok, why)
   assert(slurp(dir .. "/out.txt") == "made")
   assert(#a.sent == 2 and seen.texts[1] == "writing" and seen.texts[2] == "done" and seen.tools[1] == "write")
   local first = sent(a, 1)
   assert(first["model"] == "claude-opus-5-5" and first["system"] == "sys" and first["fallbacks"] == "default")
+  -- The tools offered by default run no program: no bash, no jobs.
   local tools, _ = Json.to_array(first["tools"])
-  assert(tools ~= nil and #tools == 7)
+  assert(tools ~= nil and #tools == 5 and not assert(Json.encode(tools)):find('"name":"bash"', 1, true))
   local h = header(a, 1)
   assert(h["x-api-key"] == "k" and h["anthropic-version"] == "2026-10-21", h["x-api-key"])
   assert(h["anthropic-beta"] == "server-side-fallback-2026-07-01,cache-diagnosis-2026-04-07,compact-2026-01-12", h["anthropic-beta"])
@@ -74,8 +72,8 @@ local function test_the_loop_runs_tools_until_the_turn_ends()
   assert(#s.messages == 4)
   -- A chat goes on from where it was.
   local b, send2 = api({ text_reply("again") })
-  s.config.send = send2
-  assert(Agent.prompt(s, "more", ev))
+  s.send = send2
+  assert(s:prompt("more"))
   local again, _ = Json.to_array(sent(b, 1)["messages"])
   assert(again ~= nil and #again == 5)
 end
@@ -83,10 +81,9 @@ end
 local function test_the_loop_says_why_it_stops()
   local function once(replies: {Json.Value}, sign?: Auth.Sign): boolean, string, Api
     local a, send = api(replies)
-    local s = Agent.session({ model = Agent.MODELS.sonnet, effort = "low", sign = sign or keyed("k"),
+    local s = Agent.new({ model = Agent.MODELS.sonnet, effort = "low", sign = sign or keyed("k"),
       base_url = "https://api.test", system = "", cwd = "/", send = send })
-    local ev, _ = events()
-    local ok, why = Agent.prompt(s, "hi", ev)
+    local ok, why = s:prompt("hi")
     return ok, why, a
   end
   local ok, why = once({ text_reply("no", "refusal") })
@@ -128,11 +125,11 @@ local function test_each_request_is_kept_with_its_usage_and_cost()
         ephemeral_1h_input_tokens = 1000 } } }
   local s, a_kept, db = kept({ reply, "down" }, nil, "claude-opus-5-5")
   local seen: mut {Sessions.Request} = {}
-  local base, _ = events()
-  local ev: Agent.Events = { text = base.text, tool = base.tool, result = base.result,
-    request = function(r: Sessions.Request) seen[#seen + 1] = r end }
-  assert(Agent.prompt(s, "go", ev))
-  assert(not Agent.prompt(s, "again", ev))
+  s.on = function(e: Agent.Event)
+    if e.kind == "request" then seen[#seen + 1] = e.request end
+  end
+  assert(s:prompt("go"))
+  assert(not s:prompt("again"))
   -- 1000 x $4 + 2000 x $20 + 100000 x $0.20 + 2000 x $5 + 1000 x $8, a million tokens each.
   local cost = (4000 + 40000 + 20000 + 10000 + 8000) / 1e6
   local first = assert(seen[1])
@@ -161,7 +158,7 @@ local function test_each_request_is_kept_with_its_usage_and_cost()
   -- A reply the API will not diagnose against: the request goes again naming none.
   local s2, a2 = kept({ "400 diagnostics.previous_message_id: not found", text_reply("ok") })
   s2.last_reply = "msg_gone"
-  assert(Agent.prompt(s2, "go", ev))
+  assert(s2:prompt("go"))
   assert(#a2.sent == 2 and said_whole(a2, 1):find('"previous_message_id":"msg_gone"', 1, true) ~= nil)
   assert(said_whole(a2, 2):find('"previous_message_id":null', 1, true) ~= nil, said_whole(a2, 2))
   -- The headers sent, less the key; and how soon the reply began.
@@ -201,35 +198,36 @@ local function test_a_turn_left_unfinished_is_resumed()
   local s, a, db = kept({ text_reply("finished") }, { { role = "user", content = "go" }, asked })
   -- The first call ended and was kept; the second never did.
   assert(Sessions.output(db, assert(s.id), { tool = "bash", input = "{}", text = "one\n", is_error = false, call = "t1" }))
-  assert(Agent.settle(s))
+  assert(s:settle())
   local third = s.messages[3]
   assert(third ~= nil)
   local answers = assert(Json.encode(third))
   assert(answers:find('"content":"one\\n"', 1, true) ~= nil, answers)
   assert(answers:find("Interrupted", 1, true) ~= nil, answers)
-  assert(Agent.unfinished(s))
-  local ev, seen = events()
-  assert(Agent.resume(s, ev))
-  assert(#a.sent == 1 and seen.texts[1] == "finished" and not Agent.unfinished(s))
-  local ok, why = Agent.resume(s, ev)
+  assert(s:unfinished())
+  local seen = agent_fixture.events()
+  s.on = seen.on
+  assert(s:resume())
+  assert(#a.sent == 1 and seen.texts[1] == "finished" and not s:unfinished())
+  local ok, why = s:resume()
   assert(not ok and why == "no unfinished turn", why)
   -- A turn is started again at most RESTARTS times.
   s, a, db = kept({ "down", "down", "down", "down", "down", "down" }, { { role = "user", content = "go" } })
-  for _ = 1, RESTARTS do assert(not Agent.resume(s, ev)) end
-  ok, why = Agent.resume(s, ev)
+  for _ = 1, RESTARTS do assert(not s:resume()) end
+  ok, why = s:resume()
   assert(not ok and why:find("5 times", 1, true) ~= nil and #a.sent == RESTARTS, why)
   local loaded = assert(Sessions.load(db, assert(s.id)))
   assert(loaded.restarts == RESTARTS and not loaded.ended)
   -- A turn the model ended, empty or refused, is not taken up again.
   s = kept({ { content = Json.array(), stop_reason = "end_turn" }, text_reply("no", "refusal") })
-  assert(Agent.prompt(s, "go", ev) and not Agent.unfinished(s))
-  assert(not Agent.prompt(s, "again", ev) and not Agent.unfinished(s))
-  ok, why = Agent.prompt(s, "  ", ev)
+  assert(s:prompt("go") and not s:unfinished())
+  assert(not s:prompt("again") and not s:unfinished())
+  ok, why = s:prompt("  ")
   assert(not ok and why == "the prompt is blank", why)
   s, a, db = kept({ "down", "down", "down", "down", "down", "down" }, { { role = "user", content = "go" } })
-  for _ = 1, RESTARTS do assert(not Agent.resume(s, ev)) end
+  for _ = 1, RESTARTS do assert(not s:resume()) end
   -- A new prompt starts the count again.
   local _, fine = api({ text_reply("fine") })
-  s.config.send = fine
-  assert(Agent.prompt(s, "again", ev) and s.restarts == 0)
+  s.send = fine
+  assert(s:prompt("again") and s.restarts == 0)
 end

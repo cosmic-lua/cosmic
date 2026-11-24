@@ -68,7 +68,7 @@ local Agent = require("cosmic.agent")
 local AgentMcp = require("cosmic.agent.mcp")
 local Auth = require("cosmic.agent.auth")
 local Child = require("cosmic.child")
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.agent")
 local Clock = require("cosmic.clock")
 local Doc = require("cosmic.doc")
 local Env = require("cosmic.env")
@@ -85,10 +85,10 @@ local Proc = require("cosmic.proc")
 local Prompt = require("cosmic.agent.prompt")
 local Sandbox = require("cosmic.sandbox")
 local Sessions = require("cosmic.agent.sessions")
+local Show = require("cosmic.agent.show")
 local Signal = require("cosmic.signal")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local String = require("cosmic.string")
 local Tools = require("cosmic.agent.tools")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
@@ -131,7 +131,7 @@ local record verb
   end
 end
 
-local spec = assert(assert(Cli.verbs["agent"]).spec)
+local spec = assert(Verb.spec)
 
 local USAGE <const> = "cosmic agent <ask|chat|resume|rpc|sessions|prompt|policy> [options] [words...]"
 
@@ -225,28 +225,11 @@ local standard: verb.Io = {
   env = Env.get,
 }
 
---- Shortens `text` to one line of at most 80 bytes.
-local function brief(text: string): string
-  local line = text:gsub("\n.*", " ...")
-  if #line > 80 then line = String.cut(line, 77) .. "..." end
-  return line
-end
-
 --- `n` tokens, short: 950, 12.3k, 1.2M.
 local function tokens(n: integer): string
   if n < 1000 then return tostring(n) end
   if n < 1000000 then return string.format("%.1fk", n / 1000) end
   return string.format("%.1fM", n / 1000000)
-end
-
---- What the tool's call shows: the first of its input that says most.
-local function shown(input: Tools.Object): string
-  for _, k in ipairs({ "command", "path" }) do
-    local v = input[k]
-    if v is string then return brief(v) end
-  end
-  local text, _ = Json.encode(input)
-  return brief(text or "")
 end
 
 --- The build that sends each request: the start of this binary's SHA-256,
@@ -410,31 +393,15 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
     if started == nil then return nil, why end
     id = started
   end
-  local s = Agent.session({ model = model, effort = effort, sign = sign, base_url = base, cwd = here,
-    send = r.io.send, system = Prompt.build(here, Prompt.contexts(here), { servers = servers, library = library() }), policy = policy, jobs = Jobs.new(),
-    worker = Worker.new(), mcp = AgentMcp.new(servers, here), build = build() }, held)
-  s.db, s.id, s.restarts, s.ended = db, id, restarts, ended
-  local settled, settle_why = Agent.settle(s)
+  local tools = Tools.all()
+  local s = Agent.new({ model = model, effort = effort, sign = sign, base_url = base, cwd = here, tools = tools,
+    send = r.io.send, system = Prompt.build(here, Prompt.contexts(here), { servers = servers, library = library(),
+      tools = tools }),
+    sandbox = policy, jobs = Jobs.new(), worker = Worker.new(), mcp = AgentMcp.new(servers, here), build = build(),
+    messages = held, db = db, id = id, restarts = restarts, ended = ended })
+  local settled, settle_why = s:settle()
   if not settled then return nil, settle_why end
   return s, ""
-end
-
---- Ends the worker of `s` and its background jobs, each output not kept yet kept.
-local function end_jobs(s: Agent.Session)
-  local worker = s.config.worker
-  if worker ~= nil then Worker.close(worker) end
-  local mcp = s.config.mcp
-  if mcp ~= nil then AgentMcp.close(mcp) end
-  local set = s.config.jobs
-  if set == nil then return end
-  Jobs.close(set, function(job: Jobs.Job, output: string)
-    local db, id = s.db, s.id
-    if db == nil or id == nil then return end
-    local input, _ = Json.encode({ command = job.command, background = true })
-    local result = job.result
-    local _, _ = Sessions.output(db, id, { tool = "bash", input = input or "{}", text = output,
-      is_error = result == nil or not result.ok })
-  end)
 end
 
 --- Runs `go` with a session from `got`: its exit status.
@@ -451,21 +418,10 @@ local function with_session(r: Run, name: string, got: Flags.Parsed, go: functio
     r.complain(name .. ": " .. session_why)
   else
     code = go(s)
-    end_jobs(s)
+    s:close()
   end
   local _, _ = db:close()
   return code
-end
-
---- The events that print the model's words, and each call to standard error.
-local function shown_events(r: Run): Agent.Events
-  return {
-    text = function(text: string) r.io.out(text) end,
-    tool = function(name: string, input: Tools.Object) r.io.err(name .. " " .. shown(input)) end,
-    result = function(name: string, result: Tools.Result)
-      if result.is_error then r.io.err(name .. " failed: " .. brief(result.text)) end
-    end,
-  }
 end
 
 --- Prints `event` as a line of JSON.
@@ -483,73 +439,55 @@ local function emit_end(r: Run, ok: boolean, trouble: string)
   end
 end
 
---- The events that print each as a line of JSON.
-local function json_events(r: Run): Agent.Events
-  return {
-    text = function(_: string) end,
-    tool = function(name: string, input: Tools.Object)
-      emit(r, { type = "tool", name = name, input = input })
-    end,
-    result = function(name: string, result: Tools.Result)
-      emit(r, { type = "result", name = name, is_error = result.is_error })
-    end,
-    message = function(message: Json.Value) emit(r, { type = "message", message = message }) end,
-    request = function(q: Sessions.Request)
-      local usage: mut {string: Json.Value} = { model = q.served or q.model, status = q.status, ms = q.ms }
-      local function put(k: string, v?: integer)
-        if v ~= nil then usage[k] = v end
-      end
-      put("input_tokens", q.input_tokens)
-      put("output_tokens", q.output_tokens)
-      put("cache_read", q.cache_read)
-      put("cache_write_5m", q.cache_write_5m)
-      put("cache_write_1h", q.cache_write_1h)
-      local cost = q.cost
-      if cost ~= nil then usage["cost"] = cost end
-      emit(r, { type = "request", request = usage })
-    end,
-  }
-end
+--- What a turn does: an agent's `prompt` or `resume`.
+local type Go = function(Agent.Session): (boolean, string)
 
---- What a turn does: [`Agent.prompt`]'s or [`Agent.resume`]'s work.
-local type Go = function(Agent.Session, Agent.Events): (boolean, string)
-
---- Runs `go` on `s` with `events`, the signals held: Ctrl-C stops the
---- turn. `poll` reads what is typed meanwhile into `steers`, and says
---- whether the user stopped the turn.
-local function turn(r: Run, s: Agent.Session, events: Agent.Events, go: Go, poll?: function(): boolean,
+--- Runs `go` on `s` with `on` hearing its events, the signals held:
+--- Ctrl-C stops the turn. `poll` reads what is typed meanwhile into
+--- `steers`, and says whether the user stopped the turn. The agent's
+--- `on`, `steering` and `stopping` are as they were after.
+local function turn(r: Run, s: Agent.Session, on: function(event: Agent.Event), go: Go, poll?: function(): boolean,
                     steers?: mut {string}): boolean, string
   local held_signals = r.io.hold()
   local held: mut {string} = steers or {}
-  local e: Agent.Events = {
-    text = events.text, tool = events.tool, result = events.result, message = events.message,
-    request = events.request,
-    steering = function(): {string}
-      if poll ~= nil then poll() end
-      local out: mut {string} = {}
-      for i, t in ipairs(held) do
-        out[i] = t
-      end
-      for i = #held, 1, -1 do table.remove(held, i) end
-      return out
-    end,
-    stopped = function(): boolean
-      local asked = poll ~= nil and poll()
-      return asked or held_signals.caught() ~= 0
-    end,
-  }
-  local ok, why = go(s, e)
+  local was_on, was_steering, was_stopping = s.on, s.steering, s.stopping
+  s.on = on
+  s.steering = function(): {string}
+    if poll ~= nil then poll() end
+    local out: mut {string} = {}
+    for i, t in ipairs(held) do
+      out[i] = t
+    end
+    for i = #held, 1, -1 do table.remove(held, i) end
+    return out
+  end
+  s.stopping = function(): boolean
+    local asked = poll ~= nil and poll()
+    return asked or held_signals.caught() ~= 0
+  end
+  local ok, why = go(s)
+  s.on, s.steering, s.stopping = was_on, was_steering, was_stopping
+  local lost = s.on_failed
+  if lost ~= nil then
+    r.io.err("cosmic: agent: an event could not be shown: " .. lost)
+    s.on_failed = nil
+  end
   -- A signal but Ctrl-C ends the run as the hold ends: the jobs first.
   local caught = held_signals.caught()
-  if caught ~= 0 and caught ~= 2 then end_jobs(s) end
+  if caught ~= 0 and caught ~= 2 then s:close() end
   held_signals.release()
   if not ok then return false, why end
   return true, ""
 end
 
+--- The turn that resumes the unfinished one.
+local function resuming(s: Agent.Session): boolean, string
+  return s:resume()
+end
+
 local function prompting(text: string): Go
-  return function(s: Agent.Session, e: Agent.Events): boolean, string
-    return Agent.prompt(s, text, e)
+  return function(s: Agent.Session): boolean, string
+    return s:prompt(text)
   end
 end
 
@@ -561,12 +499,12 @@ local function ask(r: Run, got: Flags.Parsed): integer
     return bare.refused
   end
   local json = got.set["--json"] == true
-  local events = if json then json_events(r) else shown_events(r) end
+  local events = if json then Show.json(r.io.out) else Show.text(r.io.out, r.io.err) end
   return with_session(r, "ask", got, function(s: Agent.Session): integer
     if json then emit(r, { type = "session", id = s.id or 0 }) end
     -- A turn the last run left unfinished is finished first.
-    if Agent.unfinished(s) then
-      local ok, trouble = turn(r, s, events, Agent.resume)
+    if s:unfinished() then
+      local ok, trouble = turn(r, s, events, resuming)
       if json then emit_end(r, ok, trouble) end
       if not ok then
         r.complain("ask: the unfinished turn: " .. trouble)
@@ -588,7 +526,7 @@ local function chat(r: Run, got: Flags.Parsed): integer
     r.complain("chat: takes no words; type the prompts")
     return bare.refused
   end
-  local events = shown_events(r)
+  local events = Show.text(r.io.out, r.io.err)
   return with_session(r, "chat", got, function(s: Agent.Session): integer
     local later: mut {string} = {}
     local steers: mut {string} = {}
@@ -608,8 +546,8 @@ local function chat(r: Run, got: Flags.Parsed): integer
         end
       end
     end
-    if Agent.unfinished(s) then
-      local ok, trouble = turn(r, s, events, Agent.resume, poll, steers)
+    if s:unfinished() then
+      local ok, trouble = turn(r, s, events, resuming, poll, steers)
       if not ok then r.complain("chat: the unfinished turn: " .. trouble) end
     end
     while true do
@@ -629,11 +567,11 @@ local function resume(r: Run, got: Flags.Parsed): integer
     return bare.refused
   end
   return with_session(r, "resume", got, function(s: Agent.Session): integer
-    if not Agent.unfinished(s) then
+    if not s:unfinished() then
       r.complain("resume: session " .. tostring(s.id) .. " has no unfinished turn")
       return bare.ok
     end
-    local ok, trouble = turn(r, s, shown_events(r), Agent.resume)
+    local ok, trouble = turn(r, s, Show.text(r.io.out, r.io.err), resuming)
     if not ok then
       r.complain("resume: " .. trouble)
       return bare.failed
@@ -647,7 +585,7 @@ local function rpc(r: Run, got: Flags.Parsed): integer
     r.complain("rpc: takes no words")
     return bare.refused
   end
-  local events = json_events(r)
+  local events = Show.json(r.io.out)
   return with_session(r, "rpc", got, function(s: Agent.Session): integer
     local queue: mut {{string: Json.Value}} = {}
     local steers: mut {string} = {}
@@ -676,7 +614,7 @@ local function rpc(r: Run, got: Flags.Parsed): integer
         end
       end
     end
-    emit(r, { type = "session", id = s.id or 0, unfinished = Agent.unfinished(s) })
+    emit(r, { type = "session", id = s.id or 0, unfinished = s:unfinished() })
     while true do
       local c = table.remove(queue, 1)
       if c == nil then
@@ -691,7 +629,7 @@ local function rpc(r: Run, got: Flags.Parsed): integer
             not text:match("^%s*$") then
           go = prompting(text)
         elseif kind == "resume" then
-          go = Agent.resume
+          go = resuming
         end
         if go == nil then
           emit(r, { type = "error", error = "not a command: prompt, steer, follow_up (each with text), abort " ..
@@ -729,7 +667,7 @@ local function sessions(r: Run, got: Flags.Parsed): integer
   end
   for _, e in ipairs(list) do
     r.io.out(string.format("%4d  %s  %-17s %3d  %7s  $%.3f  %s", e.id, e.started, e.model, e.messages,
-      tokens(e.context), e.cost, brief(e.first)))
+      tokens(e.context), e.cost, Show.brief(e.first)))
   end
   return bare.ok
 end
@@ -740,7 +678,7 @@ local function prompt(r: Run, got: Flags.Parsed): integer
     return bare.refused
   end
   local here = cwd(r)
-  r.io.out(Prompt.build(here, Prompt.contexts(here), { library = library() }))
+  r.io.out(Prompt.build(here, Prompt.contexts(here), { library = library(), tools = Tools.all() }))
   return bare.ok
 end
 

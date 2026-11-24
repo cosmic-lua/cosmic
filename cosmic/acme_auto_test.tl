@@ -12,7 +12,6 @@ local Fs = require("cosmic.fs")
 local Key = require("cosmic.key")
 local Http = require("cosmic.http")
 local Net = require("cosmic.net")
-local Poll = require("cosmic.poll")
 local Signal = require("cosmic.signal")
 local Stream = require("cosmic.stream")
 local Tls = require("cosmic.tls")
@@ -171,6 +170,7 @@ local function request_of(path: string, host?: string, query?: string, tls?: boo
   local headers: mut {string: string} = {}
   if host ~= nil then headers["host"] = host end
   local req: Server.Request = { gone = function(): boolean return false end,
+    wait_gone = function(_?: integer): boolean return false end,
     method = "GET", target = path, path = path, query = query or "", version = "HTTP/1.1",
     headers = headers, body = Stream.from_string(""), length = 0,
     tls = if tls == true then { version = "TLSv1.3" } else nil end,
@@ -269,7 +269,7 @@ local function test_a_signal_during_the_first_load_is_a_clean_stop()
   local ready = false
   local certs = Tls.certs(function(_min?: integer): {Tls.Pair}?, string
     assert(sys.kill(sys.getpid(), sys.SIGTERM))
-    local _, _ = Poll.delay(Clock.seconds(30))
+    local _, _ = Clock.sleep(Clock.seconds(30))
     return nil, "the source gave up"
   end)
   -- Released below: the server's guard does not deliver it again.

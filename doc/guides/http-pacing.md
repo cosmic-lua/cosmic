@@ -280,7 +280,7 @@ local function wait(ns: integer, stopped: function(): boolean): boolean
   local left = ns
   while left > 0 and not stopped() do
     local slice = math.min(left, Clock.ms(100))
-    assert(Clock.sleep_ns(slice))
+    assert(Clock.sleep(slice))
     left = left - slice
   end
   return ns <= 0 or not stopped()

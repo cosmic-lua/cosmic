@@ -117,7 +117,7 @@ residual below:
 - [`BuildPaths.driver`] itself, where the driver's command line is made
   (`Proc.relaunch()`, and `Proc.executable()` where there is no launcher): it
   starts nothing, and its callers are the ones listed above.
-- `cosmic release --cache` (`cosmic/cli.tl`), which writes the verified binary
+- `cosmic release --cache` (`cosmic/cli/release.tl`), which writes the verified binary
   into the bootstrap cache; it runs no file.
 - Relaunches that run no file standalone (a project, a verb):
   [`cosmic_ci/orchestration.tl`] runs `cosmic test`, `cosmic_ci/cache_trim.tl`

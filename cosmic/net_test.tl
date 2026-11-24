@@ -283,6 +283,52 @@ local function test_a_peer_is_gone_once_it_ends_and_not_while_it_sends()
   assert(client:gone(), "closed here")
 end
 
+--- A wait for the peer to go lasts its time while the peer only
+--- sends, takes none of those bytes, and ends at once when the peer
+--- ends what it sends; outside a task it holds the thread for its time.
+local function test_a_wait_for_the_peer_to_go_ends_at_its_end_and_not_at_its_bytes()
+  local p <close> = pair()
+  local client, accepted = p.client, p.accepted
+  local ok, why = accepted:wait_gone(Clock.ms(20))
+  assert(not ok and why.kind == "timeout", why)
+  Poll.run(function()
+    local answered: boolean? = nil
+    local ended_ns = 0
+    local waiter = Poll.spawn(function()
+      local gone, _ = accepted:wait_gone(Clock.seconds(10))
+      answered, ended_ns = gone, Clock.monotonic_ns()
+    end)
+    assert(client:write("pipelined"))
+    assert(Poll.delay(Clock.ms(100)))
+    assert(answered == nil, "the peer's bytes ended the wait")
+    local shut_ns = Clock.monotonic_ns()
+    assert(client:shutdown("write"))
+    assert(waiter:join(Clock.seconds(5)))
+    assert(answered == true, "the wait never saw the peer end")
+    -- At once on Linux; macOS asks each 250 ms.
+    assert(ended_ns - shut_ns < Clock.ms(500), tostring(ended_ns - shut_ns))
+  end)
+  assert(assert(Stream.read_all(accepted)) == "pipelined")
+end
+
+--- A wait for the peer to go fails once the connection is closed here,
+--- by another task, rather than waiting on a descriptor that is gone.
+local function test_a_wait_for_the_peer_to_go_fails_once_closed_here()
+  local p <close> = pair()
+  local accepted = p.accepted
+  Poll.run(function()
+    local failure = ""
+    local waiter = Poll.spawn(function()
+      local gone, why = accepted:wait_gone()
+      if not gone then failure = why.message end
+    end)
+    assert(Poll.delay(Clock.ms(20)))
+    assert(accepted:close())
+    assert(waiter:join(Clock.seconds(5)))
+    assert(failure == "net: the connection is closed", failure)
+  end)
+end
+
 --- Each end of a TCP connection names the other: the accepted end the
 --- client's address, whose port is the one the client was given and
 --- which differs from the listener's, and the client the listener's.
@@ -637,7 +683,7 @@ local function test_in_a_run_a_waiting_read_ends_when_its_task_is_cancelled()
       answer = why
     end)
     for _ = 1, 3 do
-      assert(Poll.delay(Clock.ms(1)))
+      assert(Clock.sleep(Clock.ms(1)))
       others = others + 1
     end
     reader:cancel()
@@ -663,7 +709,7 @@ local function test_in_a_run_a_read_on_a_connection_closed_under_it_ends()
       assert(data == nil, "the closed connection answered " .. tostring(data))
       answer = why
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     assert(first:close())
     local second_client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
     local second = assert(server:accept())

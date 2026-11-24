@@ -497,7 +497,7 @@ local function test_a_slow_head_and_an_idle_connection_are_closed()
     local request = get("/")
     for i = 1, #request do
       if not slow.conn:write(request:sub(i, i)) then break end
-      local _, _ = Poll.delay(Clock.ms(20))
+      local _, _ = Clock.sleep(Clock.ms(20))
       if Clock.monotonic_ns() - started > Clock.seconds(2) then break end
     end
     local got = reply(slow)
@@ -527,7 +527,7 @@ local function test_stopping_closes_idle_connections_at_once()
     idle_ns = Clock.seconds(60),
     handle = function(req: Server.Request): Server.Reply
       if req.path == "/slow" then
-        while not release do assert(Poll.delay(Clock.ms(5))) end
+        while not release do assert(Clock.sleep(Clock.ms(5))) end
       end
       return { status = 200, body = "ok" }
     end,
@@ -538,7 +538,7 @@ local function test_stopping_closes_idle_connections_at_once()
       assert(reply(idle).status == 200)
       local busy = peer(listening)
       send(busy, get("/slow"))
-      assert(Poll.delay(Clock.ms(20)))
+      assert(Clock.sleep(Clock.ms(20)))
       Poll.spawn(function()
         idle_ended = ended(idle)
         release = true
@@ -881,7 +881,7 @@ local function test_body_ns_bounds_the_drop_and_spares_what_is_in_time()
     local fast <close> = peer(address)
     send(fast, "PUT /read HTTP/1.1\r\nHost: test\r\nContent-Length: 3\r\n\r\nabc")
     assert(reply(fast).body == "abc")
-    local _, _ = Poll.delay(Clock.ms(300))
+    local _, _ = Clock.sleep(Clock.ms(300))
     send(fast, get("/nobody"))
     assert(reply(fast).body == "ok")
     local slow <close> = peer(address)
@@ -890,7 +890,7 @@ local function test_body_ns_bounds_the_drop_and_spares_what_is_in_time()
     local started = Clock.monotonic_ns()
     while Clock.monotonic_ns() - started < Clock.seconds(3) do
       if not slow.conn:write("x") then break end
-      local _, _ = Poll.delay(Clock.ms(30))
+      local _, _ = Clock.sleep(Clock.ms(30))
     end
     assert(vanished(slow), "something followed the reply")
   end, { body_ns = Clock.ms(200), timeout_ns = Clock.seconds(2) })
@@ -909,13 +909,13 @@ end
 local function test_a_slow_handler_reading_a_prompt_body_gets_it()
   local read: string? = nil
   local troubles = serving(function(req: Server.Request): Server.Reply
-    assert(Poll.delay(Clock.ms(500)))
+    assert(Clock.sleep(Clock.ms(500)))
     read = assert(Stream.read_all(req.body))
     return { status = 200, body = read }
   end, function(address: Net.Address)
     local p <close> = peer(address)
     send(p, "PUT / HTTP/1.1\r\nHost: test\r\nContent-Length: 3\r\n\r\n")
-    local _, _ = Poll.delay(Clock.ms(50))
+    local _, _ = Clock.sleep(Clock.ms(50))
     send(p, "abc")
     local got = reply(p)
     assert(got.status == 200 and got.body == "abc", tostring(got.status))
@@ -929,12 +929,12 @@ end
 --- body is dropped in a window of its own before the next request.
 local function test_a_slow_handler_ignoring_a_prompt_body_keeps_the_connection()
   local troubles = serving(function(req: Server.Request): Server.Reply
-    if req.path == "/slow" then assert(Poll.delay(Clock.ms(500))) end
+    if req.path == "/slow" then assert(Clock.sleep(Clock.ms(500))) end
     return { status = 200, body = req.path }
   end, function(address: Net.Address)
     local p <close> = peer(address)
     send(p, "PUT /slow HTTP/1.1\r\nHost: test\r\nContent-Length: 3\r\n\r\n")
-    local _, _ = Poll.delay(Clock.ms(50))
+    local _, _ = Clock.sleep(Clock.ms(50))
     send(p, "abc")
     local first = reply(p)
     assert(first.status == 200 and first.body == "/slow", tostring(first.status))
@@ -993,7 +993,7 @@ local function test_on_stop_runs_after_the_server_has_stopped_taking_work()
   local in_flight: Got? = nil
   local troubles = serving(function(req: Server.Request): Server.Reply
     if req.path == "/slow" then
-      while not release do assert(Poll.delay(Clock.ms(5))) end
+      while not release do assert(Clock.sleep(Clock.ms(5))) end
     end
     return { status = 200, body = "ok" }
   end, function(address: Net.Address)
@@ -1004,7 +1004,7 @@ local function test_on_stop_runs_after_the_server_has_stopped_taking_work()
     local busy = peer(address)
     busy_peer = busy
     send(busy, get("/slow"))
-    assert(Poll.delay(Clock.ms(20)))
+    assert(Clock.sleep(Clock.ms(20)))
     Poll.spawn(function() in_flight = reply(busy) end)
   end, { on_stop = function(_server: Net.Server)
     idle_ended_at_stop = vanished(assert(idle_peer))
@@ -1486,7 +1486,7 @@ local class Watching is Stream.Reader
         self.seen_ns = Clock.monotonic_ns()
         return nil, ""
       end
-      assert(Poll.delay(Clock.ms(20)))
+      assert(Clock.sleep(Clock.ms(20)))
     end
     return nil, ""
   end
@@ -1497,6 +1497,27 @@ local class Watching is Stream.Reader
 end
 
 local EVENTS <const>: {string: string} = { ["Content-Type"] = "text/event-stream" }
+
+--- A streamed body that says "start", then waits on `req.wait_gone` for
+--- up to 3 s, noting when it saw the client gone, and ends.
+local class Waiting is Stream.Reader
+  req: Server.Request
+  mut started: boolean
+  mut seen_ns?: integer
+
+  function read(self, _max_bytes?: integer): string?, string
+    if not self.started then
+      self.started = true
+      return "data: start\n\n", ""
+    end
+    if self.req.wait_gone(Clock.seconds(3)) then self.seen_ns = Clock.monotonic_ns() end
+    return nil, ""
+  end
+
+  function close(self): boolean, string
+    return true, ""
+  end
+end
 
 --- A streamed body that asks `req.gone` sees the client close within a
 --- second, rather than at its next write.
@@ -1513,19 +1534,49 @@ local function test_a_streamed_body_sees_the_client_go_at_once()
     assert(line(p) == "HTTP/1.1 200 OK")
     while not p.buf:find("data: start", 1, true) do assert(more(p)) end
     -- The body asks while the client is still there, and is told no.
-    assert(Poll.delay(Clock.ms(100)))
+    assert(Clock.sleep(Clock.ms(100)))
     assert(not assert(watching).req.gone())
     closed_ns = Clock.monotonic_ns()
     local _, _ = p.conn:close()
     local until_ns = closed_ns + Clock.seconds(2)
     while assert(watching).seen_ns == nil and Clock.monotonic_ns() < until_ns do
-      assert(Poll.delay(Clock.ms(10)))
+      assert(Clock.sleep(Clock.ms(10)))
     end
   end)
   local seen = assert(watching)
   assert(seen.asked > 1, "the body asked before the client went")
   local seen_ns = assert(seen.seen_ns, "the body never saw the client go")
   assert(seen_ns - closed_ns < Clock.seconds(1), tostring(seen_ns - closed_ns))
+end
+
+--- A streamed body waiting on `req.wait_gone` is not woken by a request
+--- the client pipelines, and wakes as the client closes.
+local function test_a_streamed_body_waiting_for_the_client_wakes_as_it_goes()
+  local waiting: Waiting? = nil
+  local closed_ns = 0
+  serving(function(req: Server.Request): Server.Reply
+    if req.path == "/next" then return echo(req) end
+    local made: Waiting = { req = req, started = false, seen_ns = nil, skip = nil }
+    waiting = made
+    return { status = 200, headers = EVENTS, body = made }
+  end, function(address: Net.Address)
+    local p = peer(address)
+    send(p, get("/events"))
+    assert(line(p) == "HTTP/1.1 200 OK")
+    while not p.buf:find("data: start", 1, true) do assert(more(p)) end
+    send(p, get("/next"))
+    assert(Poll.delay(Clock.ms(200)))
+    assert(assert(waiting).seen_ns == nil, "the pipelined request read as the client gone")
+    closed_ns = Clock.monotonic_ns()
+    local _, _ = p.conn:close()
+    local until_ns = closed_ns + Clock.seconds(2)
+    while assert(waiting).seen_ns == nil and Clock.monotonic_ns() < until_ns do
+      assert(Poll.delay(Clock.ms(5)))
+    end
+  end)
+  local seen_ns = assert(assert(waiting).seen_ns, "the body never saw the client go")
+  -- At once on Linux; macOS asks each 250 ms.
+  assert(seen_ns - closed_ns < Clock.ms(500), tostring(seen_ns - closed_ns))
 end
 
 --- A request the client pipelines while a reply streams leaves `gone`

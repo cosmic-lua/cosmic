@@ -6,7 +6,7 @@
 --- test runs again when what it declares changes, and every test runs
 --- under `--all`. Where this host cannot sandbox a worker -- one
 --- nested in this test's own confinement, three deep, which the kernel
---- refuses root (core/syscalls.c's `map_ids`) -- the run says so, and
+--- refuses root (core/sandbox_root.c's `map_ids`) -- the run says so, and
 --- there is nothing more to check, unless the run is held to
 --- sandboxing ([`skip_if_unsandboxed`]): then it fails. A test that runs this
 --- program undeclared is refused it, sandboxed, and one that declares
@@ -483,7 +483,7 @@ local function run_then(tmp: string, root: string, env: {string:string}, out: st
         end
       end
     end
-    if found == "" then assert(Clock.sleep_ns(20000000)) end
+    if found == "" then assert(Clock.sleep(20000000)) end
   end
   assert(found ~= "" or ended, "the test never started")
   if found ~= "" then then_do(found) end
@@ -532,7 +532,7 @@ local function test_moving(tmp: string)
   while not assert(Fs.status(tmp .. "/stop")).exists and Clock.monotonic_ns() < deadline do
     local now, _ = Fs.read("suite/moving.txt")
     assert(now == was, "it moved")
-    assert(Clock.sleep_ns(20000000))
+    assert(Clock.sleep(20000000))
   end
 end
 ]]))
@@ -598,7 +598,7 @@ local function test_b_watching(tmp: string)
   assert(Fs.write(tmp .. "/started", "yes"))
   local deadline = Clock.monotonic_ns() + 20000000000
   while not assert(Fs.status(tmp .. "/stop")).exists and Clock.monotonic_ns() < deadline do
-    assert(Clock.sleep_ns(20000000))
+    assert(Clock.sleep(20000000))
   end
   assert(assert(Fs.status(tmp .. "/stop")).exists, "never told to stop")
 end
@@ -610,7 +610,7 @@ end
   local function stop(dir: string) assert(Fs.write(dir .. "/stop", "")) end
   local moved, moved_ok = run_then(tmp, root, env, tmp .. "/moved.out", { "--jobs", "2" }, function(dir: string)
     -- Time for the quick tests still running beside it to end before the input moves.
-    assert(Clock.sleep_ns(Clock.ms(300)))
+    assert(Clock.sleep(Clock.ms(300)))
     overwrite(root .. "/suite/moving.txt", "two\n")
     stop(dir)
   end)

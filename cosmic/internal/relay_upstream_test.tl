@@ -71,7 +71,7 @@ local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tm
       if state.finished then
         result = state.result
       else
-        assert(Poll.delay(Clock.ms(10)))
+        assert(Clock.sleep(Clock.ms(10)))
       end
     end
     local finished = assert(result)

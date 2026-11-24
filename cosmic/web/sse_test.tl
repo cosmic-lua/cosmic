@@ -87,7 +87,7 @@ local function until_true(done: function(): boolean): boolean
   local deadline = Clock.monotonic_ns() + WAIT_NS
   while not done() do
     if Clock.monotonic_ns() > deadline then return false end
-    assert(Poll.delay(Clock.ms(5)))
+    assert(Clock.sleep(Clock.ms(5)))
   end
   return true
 end
@@ -507,7 +507,7 @@ local function test_a_stream_that_ignores_its_close_is_killed_at_the_grace_and_r
   local closed: mut {string} = {}
   local stuck: Sse.EventSource = { -- checked: literal_shape
     next = function(_self: Sse.EventSource, _t?: integer): Sse.Event?, string
-      local _, _ = Poll.delay(Clock.seconds(60))
+      local _, _ = Clock.sleep(Clock.seconds(60))
       return nil, ""
     end,
     close = function(_self: Sse.EventSource) end,
@@ -661,5 +661,32 @@ local function test_a_quiet_stream_ends_soon_after_its_client_leaves()
     assert(closed[1] == "client", closed[1])
     assert(closed_at - left_at < Clock.seconds(1), tostring(closed_at - left_at))
     assert(assert(queue, "the stream was opened"):closed())
+  end)
+end
+
+--- A stream that ends on its own, on a connection kept open, leaves the
+--- next request on it to be answered whole, and says "end" once, though
+--- its client closes afterwards.
+local function test_a_stream_that_ends_leaves_its_connection_to_the_next_request()
+  local closed: mut {string} = {}
+  local app = Web.app{ routes = {
+    Web.get("/s", function(req: Web.Request): Web.Response
+      local source: Channel.Queue<Sse.Event> = Channel.new()
+      return Sse.EventStream(req, Sse.from_queue(source), { heartbeat_ns = 0, retry_ms = 0, max_age_ns = Clock.ms(80),
+        on_close = function(why: string) closed[#closed + 1] = why end })
+    end),
+    Web.get("/next", function(_req: Web.Request): Web.Response return Web.text("next") end),
+  } }
+  Web.with_server(app, function(client: Web.LoopbackClient)
+    local feed = open(client.host, "/s")
+    assert(chunk(feed) == ":\n\n")
+    assert(chunk(feed) == nil)
+    assert(line(feed) == "", "the chunked body ends with an empty line")
+    assert(feed.conn:write("GET /next HTTP/1.1\r\nHost: " .. client.host .. "\r\n\r\n"))
+    assert(line(feed) == "HTTP/1.1 200 OK")
+    while not feed.buf:find("next", 1, true) do fill(feed) end
+    assert(feed.conn:close())
+    assert(Poll.delay(Clock.ms(100)))
+    assert(#closed == 1 and closed[1] == "end", table.concat(closed, ","))
   end)
 end

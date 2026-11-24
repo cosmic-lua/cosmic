@@ -95,7 +95,7 @@ local Fs = require("cosmic.fs")
 local Signal = require("cosmic.signal")
 local guard = assert(Signal.guard())
 assert(Fs.put(1, "ready"))
-while guard:cancelled() == 0 do Clock.sleep_ns(Clock.ms(1)) end
+while guard:cancelled() == 0 do local _, _ = Clock.sleep(Clock.ms(1)) end
 assert(Fs.put(1, "last"))
 local released, _ = guard:release()
 assert(released ~= 0)]])
@@ -170,7 +170,7 @@ local function test_a_parked_reader_refuses_drain_until_its_task_is_killed()
     { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream" })
   Poll.run(function()
     local reader = Poll.spawn(function() local _, _ = assert(h.stdout_stream):read() end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     Test.raises(function() h:drain(options(Stream.collect(), nil, 0)) end, "already being consumed")
     reader:kill()
     assert(h:drain(options(Stream.collect(), nil, 0)).kind == "timeout")
@@ -183,7 +183,7 @@ local function test_cooperative_cancel_releases_drain_ownership()
   Poll.run(function()
     local got: Child.DrainResult? = nil
     local task = Poll.spawn(function() got = h:drain(options(Stream.collect())) end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     task:cancel()
     assert(task:join())
     local got_value = got
@@ -199,7 +199,7 @@ local function test_a_new_signal_wakes_a_parked_drain_without_taking_it()
   Poll.run(function()
     local got: Child.DrainResult? = nil
     local task = Poll.spawn(function() got = h:drain(options(Stream.collect())) end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     assert(sys.kill(sys.getpid(), sys.SIGTERM))
     assert(task:join())
     local got_value = got
@@ -219,7 +219,7 @@ local function test_closing_the_captured_guard_under_another_ends_the_wait()
   Poll.run(function()
     local got: Child.DrainResult? = nil
     local task = Poll.spawn(function() got = h:drain(options(Stream.collect())) end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     local inner = assert(Signal.guard())
     do
       local released, _ = outer:release()
@@ -242,7 +242,7 @@ local function test_an_explicit_handle_close_wakes_drain_before_cleanup_finishes
   Poll.run(function()
     local got: Child.DrainResult? = nil
     local task = Poll.spawn(function() got = h:drain(options(Stream.collect())) end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     assert(h:close())
     assert(task:join())
     local got_value = got
@@ -255,7 +255,7 @@ local function test_a_parked_drain_refuses_another_read_and_drain()
     { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream" })
   Poll.run(function()
     local task = Poll.spawn(function() h:drain(options(Stream.collect())) end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     Test.raises(function() assert(h.stdout_stream):read() end)
     Test.raises(function() h:drain(options(Stream.collect(), nil, 0)) end)
     task:kill()
@@ -284,13 +284,13 @@ local function test_killing_a_task_in_a_yielding_sink_releases_ownership()
   local writing: boolean = false
   sink.write = function(_self: Stream.Collector, _data: string): boolean, string -- checked: field_fixed
     writing = true
-    local paused, why = Poll.delay(Clock.seconds(10))
+    local paused, why = Clock.sleep(Clock.seconds(10))
     if not paused then return false, why.message end
     return true, ""
   end
   Poll.run(function()
     local task = Poll.spawn(function() h:drain(options(sink)) end)
-    while not writing do assert(Poll.delay(0)) end
+    while not writing do assert(Clock.sleep(0)) end
     task:kill()
     assert(h:drain(options(Stream.collect())).kind == "failed")
     local data, why = assert(h.stdout_stream):read()
@@ -359,7 +359,7 @@ local function test_escaped_writer_is_drained_after_the_leader_exits()
   local h <close> = escaped([[
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-Clock.sleep_ns(Clock.ms(50)) assert(Fs.put(1, "late"))]])
+local _, _ = Clock.sleep(Clock.ms(50)) assert(Fs.put(1, "late"))]])
   local out = Stream.collect()
   assert(finish(h, options(out)) == 4 and out:result() == "late")
   assert(assert(h:wait()).ok)
@@ -367,7 +367,7 @@ Clock.sleep_ns(Clock.ms(50)) assert(Fs.put(1, "late"))]])
 end
 
 local function test_silent_escaped_writer_obeys_deadline_without_ending_child()
-  local h <close> = escaped('require("cosmic.clock").sleep_ns(require("cosmic.clock").seconds(10))')
+  local h <close> = escaped('local _, _ = require("cosmic.clock").sleep(require("cosmic.clock").seconds(10))')
   local got = h:drain(options(Stream.collect(), nil, Clock.ms(20)))
   assert(got ~= nil and got.kind == "timeout" and got.bytes == 0) -- checked: compare_disjoint
   Child.end_strays()
@@ -398,7 +398,7 @@ assert(Fs.take(0, 1)) assert(Fs.put(1, "finished"))]],
     local task = Poll.spawn(function()
       Poll.shielded(function() got = h:drain(options(sink)) end)
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     task:cancel()
     assert(assert(h.stdin_stream):close())
     assert(task:join())
@@ -438,7 +438,7 @@ assert(Fs.put(1, "output")) assert(Fs.put(2, "error"))]],
 end
 
 local function test_reader_abandonment_of_escaped_writer_is_not_drain_eof()
-  local h <close> = escaped('require("cosmic.clock").sleep_ns(require("cosmic.clock").seconds(10))')
+  local h <close> = escaped('local _, _ = require("cosmic.clock").sleep(require("cosmic.clock").seconds(10))')
   assert(assert(h:wait()).ok)
   local reader = assert(h.stdout_stream)
   local data, why = reader:read()

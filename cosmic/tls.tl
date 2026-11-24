@@ -55,7 +55,6 @@
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
-local Poll = require("cosmic.poll")
 local type raw_tls = require("cosmic.internal.tls")
 
 local raw = require("cosmic.internal.tls")
@@ -235,7 +234,7 @@ local class Certs
     while not stopping() do
       local wait = math.min(math.max(self.due_ns - Clock.now_ns(), 0), WAIT_MOST_NS)
       if wait > 0 then
-        local waited, _ = Poll.delay(wait)
+        local waited, _ = Clock.sleep(wait)
         if not waited then return end
       else
         local ok, why = self:load(if self.life_ns > 0 then self.life_ns // 2 else nil end)
@@ -252,7 +251,7 @@ local class Certs
             stale = true
             report("tls: the source answered certificates already due for renewal; serving them, and asking again")
           end
-          local waited, _ = Poll.delay(retry)
+          local waited, _ = Clock.sleep(retry)
           if not waited then return end
           retry = math.min(retry * 2, RETRY_MOST_NS)
         end

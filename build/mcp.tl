@@ -18,7 +18,7 @@
 --- that is an error, 2 a command line it refuses, 5 a write that failed. Complaints go to standard error as
 --- `cosmic: mcp: ...`. Its `spec` (build/verb_spec.tl) is `bare`.
 
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.mcp")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Failure = require("cosmic.failure")
@@ -28,6 +28,7 @@ local McpClient = require("cosmic.mcp.client")
 local McpJson = require("cosmic.mcp.json")
 local Net = require("cosmic.net")
 local Proc = require("cosmic.proc")
+local Url = require("cosmic.url")
 local String = require("cosmic.string")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
@@ -47,7 +48,7 @@ local record verb
   end
 end
 
-local spec = assert(assert(Cli.verbs["mcp"]).spec)
+local spec = assert(Verb.spec)
 
 local usage = "cosmic mcp <discover|tools|resources|templates|prompts|call <tool> [json]|read <uri>|" ..
   "prompt <name> [json]> [--url URL [--token-env NAME]] [--timeout seconds] [-- program args...]"
@@ -153,9 +154,10 @@ local function session_of(to: verb.Io, request: Request): (McpClient.Session) | 
     local headers: mut {string: string} = {}
     local name = request.token_env
     if name ~= nil then
-      local host = url:match("^[Hh][Tt][Tt][Pp]://%[([^%]]+)%]") or url:match("^[Hh][Tt][Tt][Pp]://([^/:?#]+)")
-      if host ~= nil and not Net.is_loopback(host) then
-        return nil, Failure.new("--token-env sends the token in the clear over http:// to " .. host ..
+      local parts, unread = Url.parse(url)
+      if parts == nil then return nil, Failure.new("--url " .. unread.message) end
+      if parts.scheme == "http" and not Net.is_loopback(parts.host) then
+        return nil, Failure.new("--token-env sends the token in the clear over http:// to " .. parts.host ..
             ": use https://, or a loopback host")
       end
       local token = to.env(name)

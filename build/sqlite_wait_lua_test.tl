@@ -46,7 +46,7 @@ local sys = require("cosmic.sys")
 
 print("ready")
 local _, _ = Fs.take(Fs.stdin, 1)
-Clock.sleep_ns(%d)
+local _, _ = Clock.sleep(%d)
 assert(sys.kill(%d, sys.SIGTERM))
 ]]):format(Clock.ms(100), sys.getpid()))
   assert(Stream.lines(assert(sender.stdout_stream)):read() == "ready")

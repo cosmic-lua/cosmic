@@ -911,7 +911,7 @@ function importer.derive(handle: work.Handle, shared?: importer.Shared,
     end
     local reserved = reserved_status.is_dir
     if reserved then
-      return nil, "cosmic: the 'cosmic' directory is reserved to cosmic's own tree, which only the tool built from it reads; " ..
+      return nil, "the 'cosmic' directory is reserved to cosmic's own tree, which only the tool built from it reads; " ..
         "run bin/cosmic, which runs that tool"
     end
     local claimed, trouble = db:text_rows(

@@ -719,9 +719,11 @@ static int session_handshake (lua_State *L) {
   struct session *s = checked_session(L);
   int code = mbedtls_ssl_handshake(&s->ssl);
   if (code != 0) return unfinished(L, s, code, true);
-  /* Checked again here: mbedtls trusts a self-issued certificate found
-   * among the roots without calling `verified`, so an address it does
-   * not name would pass. */
+  /* Checked again here, though `verified` refuses it first: mbedtls
+   * calls it for a self-issued certificate it finds among the roots too
+   * (cosmic/tls_test.tl holds a read, a write and a handshake to that),
+   * and this holds a handshake that this call drives to the address
+   * whatever a later mbedtls does there. */
   const mbedtls_x509_crt *peer = mbedtls_ssl_get_peer_cert(&s->ssl);
   if (s->config->client && s->config->verify && s->ip_size > 0 &&
       (peer == NULL || !names_ip(peer, s->ip, s->ip_size))) {

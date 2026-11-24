@@ -146,6 +146,8 @@ local record Codes
     "require_unknown"
     -- a module that returns what no declaration describes
     "export_not_declared"
+    -- an entry point that returns what the run cannot call with the command line's words
+    "entry_signature"
     -- flow
     -- a function that answers values, or is declared `never`, whose end is reachable
     "missing_return"
@@ -240,7 +242,7 @@ Codes.codes = {
   "cast_refused", "is_on_record", "is_disjoint", "class_scope", "close_not_closable", "setmetatable_call", "enum_member",
   "literal_missing", "literal_unknown", "literal_repeated",
   "literal_needs_type", "literal_ambiguous", "literal_shape", "literal_spread", "arms_differ", "array_of_optional", "require_unknown",
-  "export_not_declared", "missing_return", "not_assigned", "unreachable", "narrowing_dropped", "narrows_unproved",
+  "export_not_declared", "entry_signature", "missing_return", "not_assigned", "unreachable", "narrowing_dropped", "narrows_unproved",
   "assign_repeated", "iterator_extra", "iterator_variables", "pattern_malformed", "format_malformed", "pack_malformed",
   "gsub_key", "paren_is",
   "unchecked_binding",
@@ -637,6 +639,13 @@ Codes.catalog = {
     why = "a module returns a declaration, a name whose type is written, or a function with a written signature, " ..
       "so an interface never depends on a body",
     fix = "return a record, class, interface or enum, or a local declared with its type",
+  },
+  {
+    code = "entry_signature", rule = "calls take the arguments the function declares",
+    why = "a program's `cmd/<name>/main.tl` returns a function, and a file run on its own a function or a record with a " ..
+      "`main` function, which the run calls with the command line's words, `{string}`, and whose first value it reads " ..
+      "as the exit code: a parameter of another type, or a value that is no exit code, fails only when it runs",
+    fix = "declare it `function(argv: {string}): integer`, or take no parameters",
   },
   {
     code = "missing_return", rule = "returns are checked against the declared list",

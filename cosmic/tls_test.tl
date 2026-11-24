@@ -143,7 +143,7 @@ local function test_a_renewal_asks_for_half_the_life_and_a_cancel_ends_keep()
       end)
     end)
     -- The renewal happens before the first wait; the next is years away.
-    local _, _ = Poll.delay(Clock.ms(10))
+    local _, _ = Clock.sleep(Clock.ms(10))
     keeper:cancel()
     local joined, _ = keeper:join(Clock.seconds(10))
     assert(joined, "a cancelled wait ends keep")
@@ -165,4 +165,43 @@ local function test_a_replaced_configuration_is_collected()
   -- Twenty configurations held would be more than this.
   assert(collectgarbage("count") - before < 64, "the replaced configurations were collected")
   assert(certs:config() ~= nil)
+end
+
+--- A client's session to an IP address, that trusts the self-issued `d.pem`
+--- (for `localhost` alone) as a root, is refused the server's `d.pem`: it
+--- names no address. mbedtls calls the session's verify callback for a
+--- certificate it finds among the roots too, which refuses it, whether a
+--- read, a write or the handshake drives the handshake. The two ends talk over a socket pair in this one
+--- thread, each a step at a time.
+local function test_a_self_issued_root_that_names_no_address_is_refused_by_a_read_too()
+  local raw = require("cosmic.internal.tls")
+  local process = require("cosmic.internal.process")
+  local sys = require("cosmic.sys")
+  local pair: Tls.Pair = { cert = fixture("d.pem"), key = fixture("a.key") }
+  local served = assert(raw.config({ pair }))
+  local trusting = assert(raw.client(fixture("d.pem")))
+  for _, first in ipairs({ "read", "write", "handshake" }) do
+    local ends = assert(process.stream_pair())
+    local near, far = assert(ends[1]), assert(ends[2])
+    assert(sys.set_nonblocking(near, true) and sys.set_nonblocking(far, true))
+    local server <close> = assert(raw.session(served, near))
+    local client <close> = assert(raw.session(trusting, far, "127.0.0.1"))
+    local why, stop = "", raw.READ
+    for _ = 1, 100 do
+      local _, _, _ = server:handshake()
+      if first == "read" then
+        local _, said, stopped = client:read(1)
+        why, stop = said, stopped
+      elseif first == "write" then
+        local _, said, stopped = client:write("x", 1)
+        why, stop = said, stopped
+      else
+        local _, said, stopped = client:handshake()
+        why, stop = said, stopped
+      end
+      if stop == raw.FAILED then break end
+    end
+    assert(stop == raw.FAILED and why:find("does not match with the expected CN", 1, true) ~= nil, first .. ": " .. why)
+    assert(sys.close(near) and sys.close(far))
+  end
 end

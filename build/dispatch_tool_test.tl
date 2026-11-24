@@ -3,6 +3,7 @@
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
+local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local test_child = require("build.test_child")
 local this_program = require("build.this_program")
@@ -10,13 +11,26 @@ local this_program = require("build.this_program")
 --- The program itself, started with `-e`.
 Test.policy{ profiles = { "cosmic" } }
 
---- The child of the test below: the names of the modules loaded when `-e` runs a chunk (the test module's own are among them).
-test_child.register("loaded", function(_args: {string}): integer
+--- Prints the names of the modules loaded, on one line.
+local function print_loaded()
   local names: mut {string} = {}
   for name in pairs(package.loaded) do names[#names + 1] = tostring(name) end
   table.sort(names, function(a: string, b: string): boolean return a < b end)
   print(table.concat(names, " "))
+end
+
+--- The child of the test below: the names of the modules loaded when `-e` runs a chunk (the test module's own are among them).
+test_child.register("loaded", function(_args: {string}): integer
+  print_loaded()
   return 0
+end)
+
+--- The child of [`test_a_verb_loads_its_own_cli_module_alone`]: runs `cosmic rand int 1 1` in this process, then
+--- prints the names of the modules loaded.
+test_child.register("verb_loaded", function(_args: {string}): integer
+  local code = require("build.dispatch").main({ "rand", "int", "1", "1" })
+  print_loaded()
+  return code
 end)
 
 --- The modules of the verbs ([`build.verb_list`]) and what only they read: `-e` loads the checker it
@@ -45,6 +59,20 @@ local function test_e_loads_none_of_the_verbs(tmp: string)
   end
 end
 
+--- A verb's command line loads that verb's module of [`cosmic.cli`] alone: [`cosmic.cli`] loads every verb's.
+local function test_a_verb_loads_its_own_cli_module_alone(tmp: string)
+  local started = this_program.program(test_child.words(tmp, "build.dispatch_tool_test", "verb_loaded"),
+    { env = {}, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
+  local r = assert(Child.run(started.argv, started.options))
+  assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
+  local loaded = " " .. ((r.stdout or ""):gsub("\n", " ")) .. " "
+  local clis: mut {string} = {}
+  for name in loaded:gmatch("%S+") do
+    if name == "cosmic.cli" or name:sub(1, 11) == "cosmic.cli." then clis[#clis + 1] = name end
+  end
+  assert(#clis == 1 and clis[1] == "cosmic.cli.rand", "`cosmic rand` loads " .. table.concat(clis, ", "))
+end
+
 --- Runs `-e` with `chunk` and `args` and answers the child's result.
 local function evaluate(tmp: string, chunk: string, args?: {string}): Child.Result
   local words: mut {string} = { "-e", chunk }
@@ -70,6 +98,33 @@ end
 local function test_e_hands_the_words_to_the_chunk_and_exits_with_what_it_returns(tmp: string)
   local r = evaluate(tmp, 'print(select("#", ...), ...) return 3', { "a", "b" })
   assert(r.code == 3 and r.stdout == "2\ta\tb\n", tostring(r.code) .. tostring(r.stdout) .. tostring(r.stderr))
+end
+
+--- The child's result for `words`, run in `tmp`.
+local function ran(tmp: string, words: {string}): Child.Result
+  local started = this_program.program(words, { env = { COSMIC_STANDALONE = "1" }, cwd = tmp, stdout = "capture",
+    stderr = "capture", timeout_ns = Clock.seconds(30) })
+  return (assert(Child.run(started.argv, started.options)))
+end
+
+--- `eval`, `version` and `run` are verbs as `cosmic help` lists them, each the same as its short form.
+local function test_eval_version_and_run_are_typed_by_their_names(tmp: string)
+  local e = ran(tmp, { "eval", 'print(...) return 3', "a" })
+  assert(e.code == 3 and e.stdout == "a\n", tostring(e.code) .. tostring(e.stdout) .. tostring(e.stderr))
+  local named, short = ran(tmp, { "version" }), ran(tmp, { "--version" })
+  assert(named.code == 0 and named.stdout == short.stdout and (named.stdout or ""):find("^cosmic %x+\n$") ~= nil,
+    tostring(named.stdout) .. tostring(named.stderr))
+  assert(Fs.write(tmp .. "/hi.tl", 'print("hi " .. tostring(arg[1]))\n'))
+  local runs: {{string}} = { { "run", "hi.tl", "x" }, { "run", "./hi.tl", "x" }, { "run", "--standalone", "hi.tl", "x" } }
+  for _, words in ipairs(runs) do
+    local r = ran(tmp, words)
+    assert(r.code == 0 and r.stdout == "hi x\n", table.concat(words, " ") .. ": " .. tostring(r.stderr))
+  end
+  local refused: {{string}} = { { "run" }, { "run", "--bogus" } }
+  for _, words in ipairs(refused) do
+    local r = ran(tmp, words)
+    assert(r.code == 2 and says(r, "run takes a file to run"), table.concat(words, " ") .. ": " .. tostring(r.stderr))
+  end
 end
 
 --- A chunk the checker refuses does not run at all: nothing it prints, and the checker's own message, with
@@ -150,4 +205,23 @@ local function test_e_without_a_chunk_is_a_usage_error(tmp: string)
     stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.code == 2 and says(r, "usage: cosmic -e"), tostring(r.stderr))
+end
+
+--- A test's child runs from a closure store, which records no boot hash: no build names the sources it checks the chunk
+--- against, so a kept compile would outlive an edit of them. It keeps none, and checks the chunk on every run. (A
+--- release keeps one: ci/fixtures/product_test.tl.)
+local function test_e_keeps_no_compile_where_the_program_records_no_boot_hash(tmp: string)
+  local Store = require("cosmic.store")
+  assert(Store.meta("boot_hash") == nil, "a test's closure store records a boot hash")
+  local chunk = 'local exit_status = require("build.exit_status") print(exit_status.uncompiled) return 0'
+  local env = { XDG_CACHE_HOME = tmp .. "/cache", COSMIC_TRACE_REQUIRE = "1" }
+  for round = 1, 2 do
+    local started = this_program.program({ "-e", chunk }, { env = env, cwd = tmp, stdout = "capture",
+      stderr = "capture", timeout_ns = Clock.seconds(30) })
+    local r = assert(Child.run(started.argv, started.options))
+    assert(r.ok and r.stdout == "4\n", tostring(round) .. tostring(r.stdout) .. tostring(r.stderr))
+    assert(says(r, " build.pipeline "), ("run %d of the chunk loaded no checker"):format(round))
+  end
+  local kept, _ = Fs.list(tmp .. "/cache/cosmic/standalone")
+  assert(kept == nil or #kept == 0, "a compile is kept")
 end

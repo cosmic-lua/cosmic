@@ -61,7 +61,7 @@
 --- line it refuses, 5 a write that failed. Complaints go to standard error as
 --- `cosmic: tailscale: ...`. Its `spec` (build/verb_spec.tl) is `bare`.
 
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.tailscale")
 local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
@@ -111,7 +111,7 @@ local record verb
   end
 end
 
-local spec = assert(assert(Cli.verbs["tailscale"]).spec)
+local spec = assert(Verb.spec)
 
 local usage = "cosmic tailscale [--socket <path>] status [--json] | whois [--json] <address|name> | " ..
   "cert [--cert-file <file|->] [--key-file <file|->] [--min-validity <duration>] [domain] | " ..
@@ -796,7 +796,7 @@ local function file_get(to: verb.Io, complain: function(line: string), ts: Tails
     -- A daemon that answers at once, as one that holds no call does, is
     -- asked again a second later, not at once.
     if Clock.monotonic_ns() - asked < 1000000000 then
-      local _, _ = Clock.sleep_ns(1000000000)
+      local _, _ = Clock.sleep(1000000000)
     end
   end
   local code = bare.ok

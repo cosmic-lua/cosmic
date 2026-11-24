@@ -9,7 +9,7 @@
 --- first word that is no option, or the one after a `--`, is the program,
 --- and every word after it is the program's argument, untouched
 --- ([`verb.program_slot`]). The words before it are what [`Flags.parse`] reads,
---- against the options [`cosmic.cli`] names, so `--opt value` and
+--- against the options [`cosmic.cli.sandbox`] names, so `--opt value` and
 --- `--opt=value` are both taken and help lists exactly what is read.
 ---
 --- THE POLICY is each flag's field of a [`Sandbox.Policy`], written as the
@@ -66,7 +66,7 @@
 
 local Array = require("cosmic.array")
 local Child = require("cosmic.child")
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.sandbox")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
@@ -112,7 +112,7 @@ local NOT_EXECUTABLE <const> = 126
 --- The exit status of a program that is not there.
 local NOT_FOUND <const> = 127
 
-local spec = assert(Cli.verbs["sandbox"]).spec or {}
+local spec = Verb.spec or {}
 
 --- The longest `--timeout`, a year, well inside what a start accepts.
 local MOST_SECONDS <const> = 31536000

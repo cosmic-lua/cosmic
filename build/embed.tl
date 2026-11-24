@@ -26,7 +26,7 @@
 --- ([`embed.tree_tool`]).
 
 local build_paths = require("build.paths")
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.build")
 local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
@@ -1238,7 +1238,7 @@ end
 --- @param carried the `built_from` the tool carries, as [`tree.standing`] takes it
 function embed.run(argv: {string}, at?: string, carried?: string): integer
   local started = Clock.monotonic_ns()
-  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.build.spec)) -- checked: map_field
+  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Verb.spec))
   if parsed == nil then
     log:complain("build: " .. parse_trouble)
     return 2
@@ -1251,7 +1251,7 @@ function embed.run(argv: {string}, at?: string, carried?: string): integer
   end
   local root, root_trouble = Fs.absolute(at or ".")
   if root == nil then
-    log:complain(tostring(root_trouble))
+    log:complain("build: " .. tostring(root_trouble))
     return 1
   end
   local out: string? = nil
@@ -1266,7 +1266,7 @@ function embed.run(argv: {string}, at?: string, carried?: string): integer
   end
   local standing, standing_trouble = tree.standing(root, carried)
   if standing == nil then
-    log:complain(standing_trouble)
+    log:complain("build: " .. standing_trouble)
     return 1
   end
   if standing.own then return run_own(argv, root, parsed, out, started) end
@@ -1287,7 +1287,7 @@ function embed.run(argv: {string}, at?: string, carried?: string): integer
     end
   end
   if names == nil then
-    log:complain(trouble)
+    log:complain("build: " .. trouble)
     if refused then log:complain(report.refusal) end
     for _, line in ipairs(report.unbuilt) do log:complain(line) end
     for _, line in ipairs(report.removed) do log:complain(line) end
@@ -1305,7 +1305,7 @@ function embed.run(argv: {string}, at?: string, carried?: string): integer
   end
   if refused then
     -- A failed run has no `build: ` summary ([`verb_spec.Spec`]'s `summarizes_failure`); it says what it wrote.
-    log:complain("not every file compiled: wrote " .. (if #outputs > 0 then table.concat(outputs, ", ") else "no executable" end) ..
+    log:complain("build: not every file compiled: wrote " .. (if #outputs > 0 then table.concat(outputs, ", ") else "no executable" end) ..
         (if #report.unbuilt > 0 then ", and held out " .. tostring(#report.unbuilt) .. " program(s)" else "" end) ..
         ", " .. clock.took(started))
     return exit_status.uncompiled

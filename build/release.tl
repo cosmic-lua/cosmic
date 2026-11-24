@@ -89,7 +89,7 @@
 --- not the ones the pin and bin/cosmic-bootstrap name.
 
 local bare = require("build.bare")
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.release")
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Env = require("cosmic.env")
@@ -148,9 +148,9 @@ local record verb
   pin_text: function(tag: string, commit: string, digest: string): string
 end
 
-local spec <const> = assert((assert(Cli.verbs["release"])).spec)
+local spec <const> = assert(Verb.spec)
 
-local usage = "cosmic release [--commit <hex>] [--until <time>] " ..
+local usage = "usage: cosmic release [--commit <hex>] [--until <time>] " ..
   "[--list [-n <count>] | -o <file> | --cache] [--pin <file> | --launcher <file>] [--json]"
 
 local repository <const> = "cosmic-lua/cosmic"
@@ -378,7 +378,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     -- The API's answer names the digest each download is checked
     -- against, so it trusts the minimal roots (and $SSL_CERT_FILE's),
     -- not every root the binary carries, as `cosmic refresh` does.
-    return { timeout_ns = Http.FOREVER, script = script, headers = headers, follow = headers == nil, sha256 = sha256,
+    return { timeout_ns = Http.FOREVER, script = script, headers = headers, follow = headers == nil,
+      digests = if sha256 ~= nil then { ["sha256"] = sha256 } else nil end,
       redirect_protocols = https_only, cancelled = cancelled or never, roots = "minimal" }
   end
 

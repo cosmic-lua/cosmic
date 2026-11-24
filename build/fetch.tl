@@ -81,7 +81,7 @@
 
 local bare = require("build.bare")
 local Signal = require("cosmic.signal")
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.fetch")
 local Codec = require("cosmic.codec")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
@@ -122,7 +122,7 @@ local record verb
   refusal: function(why: string, protocols: {string}?): string
 end
 
-local spec = Cli.verbs.fetch.spec or {} -- checked: literal_needs_type, map_field
+local spec = Verb.spec or {}
 
 local usage = "cosmic fetch <url[#sha256=<hex>]> [-o <file>] [--sha256 <hex>] [--sha512 <hex>] " ..
   "[--allow-downgrade] [--head [--json]] [--roots <set>] [--cacert <file>] [--pin <pin>]"
@@ -363,7 +363,11 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
 
   if target ~= nil then
-    options.sha256, options.sha512 = wants.sha256, wants.sha512 -- checked: field_fixed*2, map_field*2
+    local digests: mut {Hash.Algorithm:string} = {}
+    local s256, s512 = wants["sha256"], wants["sha512"]
+    if s256 ~= nil then digests["sha256"] = s256 end
+    if s512 ~= nil then digests["sha512"] = s512 end
+    options.digests = digests -- checked: field_fixed
     local function download(interrupted: function(): boolean): integer
       options.cancelled = to.cancelled or interrupted -- checked: field_fixed
       local result = Http.download_result(url, target, options)

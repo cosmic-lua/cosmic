@@ -18,15 +18,15 @@ local record agent_fixture
     sent: mut {{string: Json.Value}}
     bodies: mut {string}
     headers: mut {{string: string}}
-    --- Sends a request to it, as Agent.Config's `send`.
+    --- Sends a request to it, as an agent's `send`.
     send: Agent.Send
   end
   --- What the model said and the tools it called, in order.
   record Seen
     texts: mut {string}
     tools: mut {string}
-    --- The events that note them.
-    events: Agent.Events
+    --- What notes them, to set as an agent's `on`.
+    on: function(event: Agent.Event)
   end
   --- A session kept in a database of its own, and the API it sends to.
   record Kept
@@ -209,11 +209,13 @@ end
 function agent_fixture.events(): Seen
   local texts: mut {string} = {}
   local tools: mut {string} = {}
-  return { texts = texts, tools = tools, events = {
-    text = function(t: string) texts[#texts + 1] = t end,
-    tool = function(name: string, _: Tools.Object) tools[#tools + 1] = name end,
-    result = function(_: string, _: Tools.Result) end,
-  } }
+  return { texts = texts, tools = tools, on = function(e: Agent.Event)
+    if e.kind == "text" then
+      texts[#texts + 1] = e.text
+    elseif e.kind == "tool" then
+      tools[#tools + 1] = e.name
+    end
+  end }
 end
 
 --- A tool call `id` of bash, running `command`.
@@ -225,9 +227,9 @@ end
 function agent_fixture.kept(replies: {Json.Value}, messages?: {Json.Value}, model?: string): agent_fixture.Kept
   local db = assert(Sessions.open(agent_fixture.scratch() .. "/sessions.db"))
   local a = agent_fixture.api(replies)
-  local s = Agent.session({ model = model or "m", effort = "low", sign = agent_fixture.keyed("k"),
-    base_url = "https://api.test", system = "", cwd = "/", send = a.send }, messages)
-  s.db, s.id = db, assert(Sessions.start(db, "/", "m", 0))
+  local s = Agent.new({ model = model or "m", effort = "low", sign = agent_fixture.keyed("k"),
+    base_url = "https://api.test", system = "", cwd = "/", send = a.send, messages = messages, tools = Tools.all(),
+    db = db, id = assert(Sessions.start(db, "/", "m", 0)) })
   for _, m in ipairs(messages or {}) do assert(Sessions.add(db, assert(s.id), m, "m")) end
   return { session = s, api = a, db = db }
 end

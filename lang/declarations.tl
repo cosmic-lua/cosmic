@@ -99,6 +99,8 @@ local record Declarations
     "float_key"
     -- a map keyed by a type that is no key
     "key_type"
+    -- a record type in braces that holds a type parameter
+    "shape_generic"
     -- a field or method named twice
     "repeated_field"
     -- an enum value written twice
@@ -235,6 +237,10 @@ local record Declarations
     chunk: Ast.Chunk
     scoped: Scopes.Scoped
     dialect: Ast.Dialect
+    --- Whether it is an entry point: what it returns, a function or a record with a `main` function, is called with
+    --- the command line's words, `{string}` (build/dispatch.tl's `run`; a built program's main module must be a
+    --- function, core/main.c). Its returns are held to that ([`lang.check`]'s `entry_signature`).
+    entry?: boolean
   end
 
   --- What lowering a module made.
@@ -372,7 +378,7 @@ end
 
 Declarations.codes = {
   "interface_disagrees", "super_not_interface", "super_cycle", "listing_too_large", "untagged_union",
-  "array_of_optional", "float_key", "key_type", "repeated_field", "repeated_value", "type_arguments",
+  "array_of_optional", "float_key", "key_type", "shape_generic", "repeated_field", "repeated_value", "type_arguments",
   "type_too_deep", "alias_cycle", "bound_not_interface", "bound_as_type", "lists_overlap", "bound_not_met", "outer_type_parameter", "member_missing",
   "param_untyped", "metamethod_signature", "class_metamethod", "optional_metamethod", "thread_type",
   "unused_type_parameter", "metamethod_unknown", "array_part_map", "store_refused",
@@ -429,6 +435,12 @@ Declarations.catalog = {
       "identity: a union or an optional has more than one way to be equal, and `any` and a function none the " ..
       "program can name; a type parameter is one of those only where `Key` or an interface bounds it",
     fix = "key by one of those types, or by an enum that names the keys; bound a type parameter by `Key` (`<K is Key>`)",
+  },
+  {
+    code = "shape_generic", rule = "records are not maps",
+    why = "a record type in braces is one type wherever it is written, so its fields cannot name a type parameter of " ..
+      "the function or declaration around it",
+    fix = "declare a generic record (`local record R<T> ... end`) and name it with its arguments",
   },
   {
     code = "repeated_field", rule = "distinct names",
@@ -1595,6 +1607,22 @@ lower_type = function(ctx: Ctx, t: Ast.Type): Type
     out = Types.literal(store, t.value)
   elseif t.kind == "TypeArray" or t.kind == "TypeMap" then
     out = lower_collection(ctx, t, false)
+  elseif t.kind == "TypeRecord" then
+    local fields: mut {Types.Field} = {}
+    local open = false
+    for _, f in ipairs(t.fields) do
+      local lowered = lower_type(ctx, f.type)
+      ctx.types[f.id] = lowered
+      open = open or lowered.open > 0
+      fields[#fields + 1] = { name = assert(f.name), type = lowered, omittable = f.optional }
+    end
+    if open then
+      report_at(ctx, "shape_generic", t, "a record type in braces cannot hold a type parameter: it is one type wherever it " ..
+          "is written", "declare a generic record (`local record R<T> ... end`) and name it here with its arguments")
+      out = store.invalid
+    else
+      out = Types.shape(store, fields)
+    end
   elseif (t.kind == "TypeMut") then
     out = lower_collection(ctx, t.inner, true)
     ctx.types[t.inner.id] = out
@@ -1647,7 +1675,7 @@ local TRANSPARENT <const>: {string: boolean} = { Chunk = true, Block = true }
 
 --- Kinds the walks do not enter: the types (lowered where they are written) and the parts of them.
 local SKIP <const>: {string: boolean} = {
-  TypeName = true, TypeBool = true, TypeString = true, TypeNil = true, TypeError = true, TypeArray = true, TypeMap = true,
+  TypeName = true, TypeBool = true, TypeString = true, TypeNil = true, TypeError = true, TypeArray = true, TypeMap = true, TypeRecord = true,
   TypeUnion = true, TypeOptional = true, TypeMut = true, TypeFunction = true, PType = true, Narrows = true,
   TypeParam = true, Rets = true, Binding = true, EnumValue = true, Param = true,
 }
