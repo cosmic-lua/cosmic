@@ -1,8 +1,8 @@
 --- @public
 --- What a snippet that cosmic agent's `run` tool runs asks of the agent itself: the calls the worker cannot make in
---- its sandbox, which the agent answers in its own process. Each call goes out to the agent as a line beside the
---- snippet's answer, and the snippet waits for the reply; the agent checks each call as it checks a tool's input, and
---- answers only what it serves.
+--- its sandbox, which the agent makes in its own process. Each call goes out to the agent as a line beside the
+--- snippet's own reply, and the snippet waits for the agent's reply; the agent checks each call as it checks a tool's
+--- input, and makes only the calls it offers.
 ---
 ---     local Host = require("cosmic.agent.host")
 ---     local rows, why = Host.sql("SELECT tool, count(*) AS n FROM outputs WHERE session = ?1 GROUP BY tool")
@@ -16,9 +16,9 @@
 ---     print(assert(notes.search({ query = "teal" })).text)
 ---
 --- [`Host.declaration`] shows that module's Teal. Beneath it, [`Host.servers`] names the servers, [`Host.tools`]
---- lists a server's tools, and [`Host.mcp`] calls one with any arguments, answering what the server sent.
+--- lists a server's tools, and [`Host.mcp`] calls one with any arguments, returning what the server sent.
 ---
---- Outside a worker no agent answers, and each call fails so.
+--- Outside a worker no agent replies, and each call fails so.
 
 local Failure = require("cosmic.failure")
 local Json = require("cosmic.json")
@@ -30,7 +30,7 @@ local record Host
   --- name each with `AS`.
   type Row = {string: Json.Value}
 
-  --- What a tool of an MCP server answered, as [`Host.tool`] reads it.
+  --- What a tool of an MCP server responded with, as [`Host.tool`] reads it.
   record Result
     --- The text of its text blocks, one after another, each on lines of its own.
     text: string
@@ -63,7 +63,7 @@ function Host.call(name: string, args: Json.Value): (Json.Value) | (nil, Failure
 end
 
 --- The rows of one read-only SQLite statement on the agent's sessions.db, as the sql tool runs it (its tables are
---- named there; `?1` is the session's id), or why there are none. The agent answers at most 512KB of JSON, and a
+--- named there; `?1` is the session's id), or why there are none. The agent replies with at most 512KB of JSON, and a
 --- query of more fails: narrow it with LIMIT and OFFSET, or substr() for a long text.
 function Host.sql(query: string): ({Host.Row}) | (nil, Failure)
   local answer, why = Host.call("sql", { query = query })
@@ -83,7 +83,7 @@ function Host.sql(query: string): ({Host.Row}) | (nil, Failure)
   return rows
 end
 
---- The agent's answer to `name` with `args` as a list of objects, or why there is none.
+--- The agent's reply to `name` with `args` as a list of objects, or why there is none.
 local function objects(name: string, args: Json.Value): ({{string: Json.Value}}) | (nil, Failure)
   local answer, why = Host.call(name, args)
   if answer == nil then return nil, why end
@@ -114,9 +114,10 @@ function Host.tools(server: string): ({{string: Json.Value}}) | (nil, Failure)
   return objects("mcp.tools", { server = server })
 end
 
---- What the tool `tool` of the MCP server `server` answered `arguments`: its `content` (a list of blocks, a text one
---- `{type = "text", text = ...}`), its `structuredContent` where it gives one, and `isError` true where the tool ran
---- and failed. A call the server refused, or one that got no answer, is a failure. The agent answers at most 512KB.
+--- The response of the tool `tool` of the MCP server `server` to `arguments`: its `content` (a list of blocks, a text
+--- one `{type = "text", text = ...}`), its `structuredContent` where it gives one, and `isError` true where the tool
+--- ran and failed. A call the server refused, or one that got no response, is a failure. The agent replies with at most
+--- 512KB.
 function Host.mcp(server: string, tool: string, arguments?: {string: Json.Value}): ({string: Json.Value}) | (nil, Failure)
   local answer, why = Host.call("mcp.call", { server = server, tool = tool, arguments = arguments or {} })
   if answer == nil then return nil, why end
@@ -146,9 +147,10 @@ local function without_nulls(value: Json.Value): Json.Value
   return value
 end
 
---- What the tool `tool` of the MCP server `server` answered `arguments`, read: the text of its blocks, the blocks, and
---- its `structuredContent`. A tool that ran and failed (`isError`) is a failure, its text the message, as is a call the
---- server refused or one that got no answer. The functions of `require("mcp.<server>")` call it ([`cosmic.agent.mcp_module`]).
+--- The response of the tool `tool` of the MCP server `server` to `arguments`, read: the text of its blocks, the blocks,
+--- and its `structuredContent`. A tool that ran and failed (`isError`) is a failure, its text the message, as is a call
+--- the server refused or one that got no response. The functions of `require("mcp.<server>")` call it
+--- ([`cosmic.agent.mcp_module`]).
 function Host.tool(server: string, tool: string, arguments?: {string: Json.Value}): (Host.Result) | (nil, Failure)
   local answer, why = Host.mcp(server, tool, arguments)
   if answer == nil then return nil, why end
@@ -171,9 +173,9 @@ function Host.tool(server: string, tool: string, arguments?: {string: Json.Value
   return { text = text, content = content, structured = without_nulls(structured) }
 end
 
---- The `structuredContent` the tool `tool` of the MCP server `server` answered `arguments`, its null members taken out,
---- as [`Host.tool`] calls it: for a tool that lists an `outputSchema`, which the client holds its answer to. An answer
---- with none is a failure.
+--- The `structuredContent` of the response of the tool `tool` of the MCP server `server` to `arguments`, its null
+--- members taken out, as [`Host.tool`] calls it: for a tool that lists an `outputSchema`, which the client holds its
+--- response to. A response with none is a failure.
 function Host.structured(server: string, tool: string, arguments?: {string: Json.Value}): (Json.Value) | (nil, Failure)
   local result, why = Host.tool(server, tool, arguments)
   if result == nil then return nil, why end

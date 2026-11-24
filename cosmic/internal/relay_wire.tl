@@ -1,23 +1,23 @@
---- What the sandbox relay reads from the program it confines, and what it
---- answers: an HTTP CONNECT request head, a SOCKS5 greeting, sub-negotiation
+--- What the sandbox relay reads from the program it confines, and how it
+--- replies: an HTTP CONNECT request head, a SOCKS5 greeting, sub-negotiation
 --- and request, and the server name in a TLS ClientHello. The program is
 --- untrusted, so each reader is a pure function of the bytes it is given: it
 --- never raises, reads nothing past a length field it has checked, and refuses
 --- by naming why. It opens no socket and resolves nothing.
 ---
 --- A reader is an object fed the bytes as they arrive (`reader:feed(chunk)`).
---- It answers `more` until the bytes decide it, then `done` with `consumed`,
+--- Its `feed` returns `more` until the bytes decide it, then `done` with `consumed`,
 --- the count of bytes of everything fed so far that the request took (what
---- follows is the tunnel's, not the request's), or a refusal. The answer is
---- final: a later feed answers it again. A prefix is refused only when every
---- longer input is refused for the same reason, and an input answers the same
---- wherever its feeds split (cosmic/internal/relay_wire_fuzz_test.tl). Total work is
---- linear in the bytes fed: the HTTP and TLS readers keep an offset and
---- the unfinished line or record, never reading a byte twice; a SOCKS message
---- is at most 513 bytes, so its reader re-reads what it holds, which is
---- bounded by that and not by what the program sends.
+--- follows is the tunnel's, not the request's), or a refusal. The result is
+--- final: a later feed returns it again. A prefix is refused only when every
+--- longer input is refused for the same reason, and `feed` returns the same
+--- for an input wherever its feeds split (cosmic/internal/relay_wire_fuzz_test.tl).
+--- Total work is linear in the bytes fed: the HTTP and TLS readers keep an offset
+--- and the unfinished line or record, never reading a byte twice; a SOCKS message is
+--- at most 513 bytes, so its reader re-reads what it holds, which is bounded by that
+--- and not by what the program sends.
 ---
---- A host the readers answer is one of three kinds: a DNS name (labels of
+--- A host the readers return is one of three kinds: a DNS name (labels of
 --- letters, digits and inner hyphens, 63 bytes at most, 253 in all,
 --- lower-cased, a trailing dot removed, and no final label that inet_aton
 --- would read as a number), a dotted IPv4 address (decimal octets, no leading
@@ -37,10 +37,10 @@
 --- one, after a HelloRetryRequest or a renegotiation, is outside what it
 --- sees; the relay's tunnel carries it unread. A hello that carries an
 --- Encrypted Client Hello or an encrypted-SNI extension names only a public
---- name in its server_name, so it answers `encrypted_sni` and no name. Clients
---- that send ECH as GREASE (Chrome and other BoringSSL-based clients do, to a
---- server that offers none) are indistinguishable from real ones, so the
---- relay's policy for that status decides whether they connect.
+--- name in its server_name, so its reader returns `encrypted_sni` and no name.
+--- Clients that send ECH as GREASE (Chrome and other BoringSSL-based clients
+--- do, to a server that offers none) are indistinguishable from real ones, so
+--- the relay's policy for that status decides whether they connect.
 
 local String = require("cosmic.string")
 local Grant = require("cosmic.relay.grant")
@@ -69,7 +69,7 @@ local record relay_wire
     consumed: integer
     --- When `refused`, why, worded to be shown to the program.
     reason?: string
-    --- When `refused`, the status line's code to answer with.
+    --- When `refused`, the status line's code to reply with.
     http_status?: integer
     --- When `done`, the host, in the form the module's header describes.
     host?: string
@@ -84,11 +84,11 @@ local record relay_wire
 
   --- Reads a CONNECT head from the bytes fed to it.
   interface ConnectReader
-    --- Feeds the next bytes and answers what all fed so far say.
+    --- Feeds the next bytes and returns what all fed so far say.
     feed: function(ConnectReader, chunk: string): Connect
   end
 
-  --- The SOCKS5 method selection, answered with [`socks_method_reply`].
+  --- The SOCKS5 method selection, replied to with [`socks_method_reply`].
   record SocksGreeting
     --- How far the bytes have decided it.
     status: Status
@@ -105,11 +105,11 @@ local record relay_wire
 
   --- Reads a SOCKS5 greeting from the bytes fed to it.
   interface SocksGreetingReader
-    --- Feeds the next bytes and answers what all fed so far say.
+    --- Feeds the next bytes and returns what all fed so far say.
     feed: function(SocksGreetingReader, chunk: string): SocksGreeting
   end
 
-  --- A SOCKS5 username and password (RFC 1929), answered with
+  --- A SOCKS5 username and password (RFC 1929), replied to with
   --- [`socks_auth_reply`].
   record SocksAuth
     --- How far the bytes have decided it.
@@ -126,11 +126,11 @@ local record relay_wire
 
   --- Reads a username and password from the bytes fed to it.
   interface SocksAuthReader
-    --- Feeds the next bytes and answers what all fed so far say.
+    --- Feeds the next bytes and returns what all fed so far say.
     feed: function(SocksAuthReader, chunk: string): SocksAuth
   end
 
-  --- The replies a SOCKS5 server answers a request with.
+  --- The replies a SOCKS5 server may send to a request.
   enum SocksReply
     "succeeded"
     "failure"
@@ -149,9 +149,9 @@ local record relay_wire
     status: Status
     --- Bytes of everything fed that the message took, when `done`.
     consumed: integer
-    --- When `refused`, why, and the reply to answer with.
+    --- When `refused`, why, and the reply to send.
     reason?: string
-    --- The reply to answer with.
+    --- The reply to send.
     reply?: SocksReply
     --- When `done`, the host.
     host?: string
@@ -163,16 +163,16 @@ local record relay_wire
 
   --- Reads a SOCKS5 request from the bytes fed to it.
   interface SocksRequestReader
-    --- Feeds the next bytes and answers what all fed so far say.
+    --- Feeds the next bytes and returns what all fed so far say.
     feed: function(SocksRequestReader, chunk: string): SocksRequest
   end
 
-  --- The SOCKS5 server's choice of a method, the answer to a client's
+  --- The SOCKS5 server's choice of a method, the reply to a client's
   --- greeting.
   record SocksMethodAnswer
     --- How far the bytes have decided it.
     status: Status
-    --- Bytes of the answer, when `done`.
+    --- Bytes of the reply, when `done`.
     consumed: integer
     --- When `refused`, why.
     reason?: string
@@ -185,16 +185,16 @@ local record relay_wire
 
   --- Reads a SOCKS5 server's method choice from the bytes fed to it.
   interface SocksMethodReader
-    --- Feeds the next bytes and answers what all fed so far say.
+    --- Feeds the next bytes and returns what all fed so far say.
     feed: function(SocksMethodReader, chunk: string): SocksMethodAnswer
   end
 
   --- The SOCKS5 server's verdict on a username and password (RFC 1929),
-  --- the answer to [`socks_client_auth`].
+  --- the reply to [`socks_client_auth`].
   record SocksAuthAnswer
     --- How far the bytes have decided it.
     status: Status
-    --- Bytes of the answer, when `done`.
+    --- Bytes of the reply, when `done`.
     consumed: integer
     --- When `refused`, why.
     reason?: string
@@ -206,15 +206,15 @@ local record relay_wire
   --- Reads a SOCKS5 server's verdict on a username and password from the
   --- bytes fed to it.
   interface SocksAuthStatusReader
-    --- Feeds the next bytes and answers what all fed so far say.
+    --- Feeds the next bytes and returns what all fed so far say.
     feed: function(SocksAuthStatusReader, chunk: string): SocksAuthAnswer
   end
 
-  --- A SOCKS5 server's answer to a CONNECT request.
+  --- A SOCKS5 server's reply to a CONNECT request.
   record SocksAnswer
     --- How far the bytes have decided it.
     status: Status
-    --- Bytes of the answer, when `done`: what follows is the tunnel's.
+    --- Bytes of the reply, when `done`: what follows is the tunnel's.
     consumed: integer
     --- When `refused`, why.
     reason?: string
@@ -226,9 +226,9 @@ local record relay_wire
     reply?: SocksReply
   end
 
-  --- Reads a SOCKS5 server's answer to a request from the bytes fed to it.
+  --- Reads a SOCKS5 server's reply to a request from the bytes fed to it.
   interface SocksAnswerReader
-    --- Feeds the next bytes and answers what all fed so far say.
+    --- Feeds the next bytes and returns what all fed so far say.
     feed: function(SocksAnswerReader, chunk: string): SocksAnswer
   end
 
@@ -265,7 +265,7 @@ local record relay_wire
 
   --- Reads a ClientHello from the bytes fed to it.
   interface HelloReader
-    --- Feeds the next bytes and answers what all fed so far say.
+    --- Feeds the next bytes and returns what all fed so far say.
     feed: function(HelloReader, chunk: string): Hello
   end
 end
@@ -456,7 +456,7 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
       String.counted(MAX_LINE, "byte")), if st.first then 414 else 431 end))
   end
 
-  --- What a whole line, ending at position `at`, decides: an answer, or
+  --- What a whole line, ending at position `at`, decides: a result, or
   --- nil to go on.
   local function line(content: string, at: integer): relay_wire.Connect?
     if st.first then
@@ -791,7 +791,7 @@ end
 
 --- A reader of a message of at most a few hundred bytes: it holds what it
 --- is fed and reads it again, which costs at most that many bytes a feed
---- and nothing once it has answered.
+--- and nothing once it has decided.
 local record Held<T>
   mut held: string
   mut final?: T
@@ -956,7 +956,7 @@ for name, code in pairs(SOCKS_CODES) do
   SOCKS_REPLIES[code] = name
 end
 
---- The server's answer to a request at the start of `buf`, whole: the reply
+--- The server's reply to a request at the start of `buf`, whole: the reply
 --- code and the bound address it carries, which is read to find where the
 --- tunnel begins and kept for nothing.
 local function read_answer(buf: string): relay_wire.SocksAnswer
@@ -1028,10 +1028,10 @@ function relay_wire.socks_auth_status_reader(): relay_wire.SocksAuthStatusReader
   end }
 end
 
---- Reads the SOCKS5 server's answer to a request from the bytes fed to it,
+--- Reads the SOCKS5 server's reply to a request from the bytes fed to it,
 --- through its bound address (an IPv4 or IPv6 address or a domain name,
 --- then a port), so that what is left of what was fed is the tunnel's. A
---- reply code that is no success is a `done` answer with its `code`: the
+--- reply code that is no success is a `done` result with its `code`: the
 --- reader judges the message's shape, not the server's verdict. Refused for
 --- another version, a nonzero reserved byte or an address type the
 --- protocol does not define. The message is at most 262 bytes, so the
@@ -1233,7 +1233,7 @@ end
 
 --- Reads the TLS ClientHello from the bytes fed to it, which may arrive in
 --- pieces and span handshake records (up to 64 of them, 16384 bytes of hello),
---- and answers the server name it carries, lower-cased and by the rules of
+--- and finds the server name it carries, lower-cased and by the rules of
 --- the module's header. The hello is judged only whole, and only the first;
 --- `consumed` ends with the record its last byte is in, which must end with
 --- it.
@@ -1263,7 +1263,7 @@ function relay_wire.hello_reader(): relay_wire.HelloReader
   end
 
   --- Takes the whole record at `data`'s `pos`, of `length` payload bytes:
-  --- an answer once the hello is complete or refused, else nil.
+  --- a result once the hello is complete or refused, else nil.
   local function take(data: string, pos: integer, length: integer): relay_wire.Hello?
     st.records = st.records + 1
     if st.records > MAX_RECORDS then

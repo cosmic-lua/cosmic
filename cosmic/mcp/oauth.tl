@@ -2,7 +2,7 @@
 --- [`McpClient.http`] signs in to a server that is an OAuth 2.1
 --- resource server, as [`McpClient.HttpOptions.oauth`] asks.
 ---
---- A request the server answers 401 starts a sign-in:
+--- A 401 from the server starts a sign-in:
 ---
 --- 1. The server's protected resource metadata (RFC 9728), from the
 ---    `resource_metadata` its challenge names, or its well-known URL.
@@ -42,7 +42,7 @@
 --- a remote server cannot aim the client at this machine's services.
 --- The access token is sent only to the endpoint, and the refresh token
 --- only to the token endpoint of the issuer that gave it; no redirect is
---- followed. The listener for the redirect answers a request at another
+--- followed. The listener for the redirect responds to a request at another
 --- path, or one with another `state` (a page that guesses the port), and
 --- keeps waiting; each connection has 5 seconds to send its request.
 --- [`McpOAuth.Options.store`] keeps tokens between runs: what it writes is a
@@ -112,7 +112,7 @@ local record McpOAuth
   record Auth
     --- The `Authorization` header to send, or nil before a sign-in.
     authorization: function(): string?
-    --- After an answer of `status` (401 or 403) with the challenge
+    --- After a response of `status` (401 or 403) with the challenge
     --- `header`: refreshes (where `may_refresh`), signs in or steps up,
     --- for the request to be sent again; how, or why it cannot be.
     challenged: function(status: integer, header?: string, may_refresh?: boolean): (Remedy) | (nil, Failure)
@@ -179,8 +179,8 @@ local function origin_of(parts: Url.Parts): string
   return parts.scheme .. "://" .. host .. (if parts.port ~= nil then ":" .. tostring(parts.port) else "" end)
 end
 
---- What a GET of a metadata document found: the document, or none there (a 4xx: many servers answer 401 or 403
---- for a path they do not serve, and the next URL is to be tried).
+--- What a GET of a metadata document found: the document, or none there (a 4xx: many servers respond 401 or
+--- 403 for a path they do not serve, and the next URL is to be tried).
 local record Fetched
   doc?: {string: Json.Value}
 end
@@ -352,8 +352,8 @@ local function request_of(conn: Net.Conn): Message.Request?
 end
 
 --- The code of the redirect to `listener` that carries `state`, taken before `deadline_ns`. A request at another
---- path, or with another state (a page that guesses the port), is answered and the wait goes on; the redirect
---- with this state ends it, its `iss` checked against `server`.
+--- path, or with another state (a page that guesses the port), gets a response and the wait goes on; the
+--- redirect with this state ends it, its `iss` checked against `server`.
 local function callback(listener: Net.Listener, deadline_ns: integer, state: string, server: Issuer):
     (string) | (nil, Failure)
   while true do
@@ -422,7 +422,7 @@ local function union(a: {string}, b: {string}): {string}
   return out
 end
 
---- The tokens a token endpoint's answer `got` holds, asked for with `scopes`.
+--- The tokens a token endpoint's response `got` holds, asked for with `scopes`.
 local function tokens_of(got: Http.Body, scopes: {string}, server: Issuer, refresh?: string): (McpOAuth.Tokens) | (nil, Failure)
   local decoded, bad = Json.decode(got.body)
   local doc = if decoded ~= nil then Json.object_of(decoded) else nil end

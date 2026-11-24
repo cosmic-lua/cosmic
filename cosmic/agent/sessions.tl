@@ -27,7 +27,7 @@
 ---                   request_headers: as JSON, less any that may hold a
 ---                   credential; build: the cosmic that sent it); what
 ---                   came back (status, error, served: the model that
----                   answered, stop_reason, request_id, headers: the
+---                   responded, stop_reason, request_id, headers: the
 ---                   reply's, as JSON, less credentials, first_ms: how
 ---                   soon its content began, reply: the whole message,
 ---                   put back together from the stream, or the stream
@@ -37,7 +37,7 @@
 ---                   USD at the list prices it knows, NULL for
 ---                   another model or a reply with no usage); after a
 ---                   fallback, the token counts are the attempt that
----                   answered, and cost sums every attempt at its own
+---                   succeeded, and cost sums every attempt at its own
 ---                   model's price (an upper bound: some declines before
 ---                   output are not billed), a compaction's included;
 ---                   cache_miss and cache_missed: why the cache missed
@@ -169,7 +169,7 @@ local record Sessions
     mut reply?: string
   end
 
-  --- What answered a tool call, as the model read it.
+  --- The result of a tool call, as the model read it.
   record Answer
     --- What the model read.
     text: string
@@ -330,8 +330,8 @@ function Sessions.shown(db: Sqlite.Handle, id: integer, text: string): boolean, 
   return answered, ""
 end
 
---- What answered the tool call `call` in session `id`, as the model
---- read it: nil where nothing did (why is "" then).
+--- The result of the tool call `call` in session `id`, as the model
+--- read it: nil where there is none (why is "" then).
 function Sessions.answer(db: Sqlite.Handle, id: integer, call: string): Sessions.Answer?, string
   local found, why = db:map([[SELECT coalesce(shown, text), is_error FROM outputs
     WHERE session = ?1 AND call = ?2 ORDER BY id DESC LIMIT 1]], { { integer = id }, { text = call } },

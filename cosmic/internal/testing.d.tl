@@ -21,7 +21,7 @@ local record testing
   --- code does after it handles a refusal runs as it would.
   fail_allocations: function(after: integer, once?: boolean)
 
-  --- Grants every allocation again, and answers how many were refused
+  --- Grants every allocation again, and returns how many were refused
   --- since [`fail_allocations`], Lua's and the C heap's together, and how
   --- many were granted.
   allow_allocations: function(): integer, integer
@@ -53,7 +53,7 @@ local record testing
 
   --- Arms the fault point `point` (core/fault.h) to fail once, after
   --- letting `skip` calls through it (default 0); with no `point`,
-  --- disarms. Either way, answers whether the point armed before was
+  --- disarms. Either way, returns whether the point armed before was
   --- left unfired. The points are "curl_multi_init", "curl_easy_init",
   --- "curl_multi_add_handle", "curl_multi_poll", "curl_multi_perform",
   --- "curl_slist_append" and "curl_easy_setopt(CURLOPT_<NAME>)" for
@@ -83,14 +83,14 @@ local record testing
   --- The int8 dot product that [`cosmic.vector`]'s `"int8"` corpus scores
   --- with, real in every core: "generic", or on x86_64 "avx512_vnni" or
   --- "avx_vnni", the widest the CPU has until told otherwise. Given a
-  --- name, switches to it and answers it; raises on an unknown name or
+  --- name, switches to it and returns it; raises on an unknown name or
   --- one this CPU lacks. The sums are exact integers, so no kernel
-  --- changes an answer: this is for tests that compare them.
+  --- changes a result: this is for tests that compare them.
   vector_kernel: function(name?: string): string
 
   --- The calls a sandbox's own setup makes, made raw in every core (not
   --- instruments), so a test can ask whether a program inside one is
-  --- refused them: each answers true, or false, a message and the
+  --- refused them: each returns true, or false, a message and the
   --- errno, and ENOSYS off Linux.
 
   --- mount(2): `source`, `fstype` and `data` may be nil, for none, and

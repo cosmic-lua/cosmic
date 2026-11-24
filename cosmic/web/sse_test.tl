@@ -665,7 +665,7 @@ local function test_a_quiet_stream_ends_soon_after_its_client_leaves()
 end
 
 --- A stream that ends on its own, on a connection kept open, leaves the
---- next request on it to be answered whole, and says "end" once, though
+--- next request on it to get its whole response, and says "end" once, though
 --- its client closes afterwards.
 local function test_a_stream_that_ends_leaves_its_connection_to_the_next_request()
   local closed: mut {string} = {}

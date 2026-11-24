@@ -309,7 +309,7 @@ local function test_an_upload_above_the_servers_body_limit_is_the_servers_413()
     reached = true
     return Web.text(tostring(Input.multipart(req, { max_bytes = 16 * 1024 * 1024 }).invalid))
   end) } }
-  -- Only the head goes out: the server answers 413 on the Content-Length
+  -- Only the head goes out: the server sends 413 on the Content-Length
   -- and closes, so a client still writing the body would meet EPIPE.
   local head = "POST /up HTTP/1.1\r\nHost: x\r\n" ..
     "Content-Type: multipart/form-data; boundary=xx\r\n" ..

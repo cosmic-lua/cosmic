@@ -28,7 +28,7 @@ local record Echo
 end
 local ECHO <const> = Shape.record_of("Echo")
 
---- What the echo app answered, checked against what it sends.
+--- What the echo app sent back, checked as an [`Echo`].
 local function echoed(res: Web.TestResponse): Echo
   local value, reason = res:json()
   assert(value ~= nil, reason)

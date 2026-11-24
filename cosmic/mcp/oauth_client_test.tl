@@ -157,7 +157,7 @@ local function client(resource: string, opened: mut {integer}, tamper?: function
         local location = assert(got.headers["location"], got.body)
         if tamper ~= nil then location = tamper(location) end
         -- Before the first client's first redirect: a connection that sends nothing (held 5 s), a request at another path, and one with a forged
-        -- state; the listener answers each and keeps waiting for the real one.
+        -- state; the listener responds to each and keeps waiting for the real one.
         if tamper ~= nil or opened[1] ~= 1 then
           local _, _ = Http.request("GET", location, { timeout_ns = WAIT })
           return

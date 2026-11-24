@@ -1,7 +1,7 @@
 --- @public
 --- The module a snippet of cosmic agent's `run` tool requires to call an MCP server's tools as typed functions: for the
 --- server `notes`, `require("mcp.notes")`. Each tool is a function of the module, its arguments a record made of the
---- tool's `inputSchema`, and its answer a record made of its `outputSchema` where it lists one, or a [`Host.Result`]:
+--- tool's `inputSchema`, and its result a record made of its `outputSchema` where it lists one, or a [`Host.Result`]:
 ---
 ---     local notes = require("mcp.notes")
 ---     local found = assert(notes.search({ query = "teal" }))
@@ -33,7 +33,7 @@ local record McpModule
     name: string
     --- The name of the tool it calls, as the server lists it.
     tool: string
-    --- Whether it answers the tool's `structuredContent` ([`Host.structured`]), not a [`Host.Result`] ([`Host.tool`]).
+    --- Whether it gives the tool's `structuredContent` ([`Host.structured`]), not a [`Host.Result`] ([`Host.tool`]).
     structured: boolean
     --- The tool's `inputSchema`, which [`McpModule.shaped`] reads its arguments by.
     input: {string: Json.Value}
@@ -194,7 +194,7 @@ local function function_name(name: string): string
   return out
 end
 
---- The module of `server`'s `tools`, as [`Host.tools`] answers them.
+--- The module of `server`'s `tools`, as [`Host.tools`] returns them.
 function McpModule.made(server: string, tools: {{string: Json.Value}}): McpModule.Made
   local local_name = if teal_name(server) then server else "server" end
   local records: Records = { lines = {}, taken = {}, output = false }

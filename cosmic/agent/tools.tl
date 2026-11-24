@@ -17,12 +17,12 @@
 ---       stderr together; it keeps the last 2000 lines or 50KB, and saves
 ---       the whole as an output when it cuts; no timeout unless the model
 ---       gives one, in seconds; background: true starts it as a job and
----       answers at once, with the job's id
+---       returns at once, with the job's id
 ---     run    code, timeout?
 ---       checks and runs a snippet of Teal in the session's worker
 ---       (`cosmic docs cosmic.agent.worker`), under the same sandbox:
 ---       what it printed, its last 8KB, and the JSON of what it
----       returned; a refused snippet's answer is the checker's lines;
+---       returned; a refused snippet's result is the checker's lines;
 ---       120 seconds unless the model says, after which the worker ends
 ---     jobs   id?, wait?, kill?
 ---       no id: each job, its state, seconds run and command; with id:
@@ -88,7 +88,7 @@ local record Tools
   --- A JSON object.
   type Object = {string: Json.Value}
 
-  --- What a tool answers: the text the model reads, and whether it is
+  --- The result of a tool: the text the model reads, and whether it is
   --- an error.
   record Result
     --- What the model reads.
@@ -652,8 +652,8 @@ local function sql(input: Tools.Object, context: Tools.Context): Tools.Result
   return r
 end
 
---- The most bytes of the JSON of the rows a snippet's sql call is answered: well within the line of 1MB the
---- worker's answer may be, should the snippet return them.
+--- The most bytes of the JSON of the rows a snippet's sql call gets: well within the line of 1MB the
+--- worker's reply may be, should the snippet return them.
 local MAX_REPLY <const> = 512 * 1024
 
 --- The rows of `query` on `db`, each an object of its columns, for a snippet's sql call; `?1` is `session`. It stops
@@ -721,7 +721,7 @@ local function objects_of(db: Sqlite.Handle, query: string, session: integer?, o
   return Json.array(rows)
 end
 
---- What answers the calls a snippet of `context` makes of the agent: sql alone, as the sql tool runs it.
+--- What handles the calls a snippet of `context` makes of the agent: sql alone, as the sql tool runs it.
 local function served(context: Tools.Context): Worker.Serve
   return function(name: string, args: Json.Value, budget: Worker.Budget): (Json.Value) | (nil, Failure)
     local fields, _ = Json.to_object(args)

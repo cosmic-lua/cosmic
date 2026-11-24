@@ -500,9 +500,10 @@ local function test_a_chunked_body_over_the_limit_is_413_without_reading_it_all(
   assert(pulled < 10, "the read stopped one byte past the limit")
 end
 
---- The status [`Input.form`] answers for a chunked request whose body reader
---- fails with `why` on its first read, and the body_failure left after, and
---- what a second read with a larger limit answers.
+--- The status of the refusal [`Input.form`] returns for a chunked request
+--- whose body reader fails with `why` on its first read, and the
+--- body_failure left after, and the status a second read with a larger
+--- limit returns.
 local function failing_body(why: string): integer, integer
   local reader: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string

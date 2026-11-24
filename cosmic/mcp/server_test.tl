@@ -1,6 +1,6 @@
---- [`cosmic.mcp.server`] answering messages as text, over stdio, and to
---- [`cosmic.mcp.client`] through a pipe in memory, where each line the
---- client writes is answered before it reads.
+--- [`cosmic.mcp.server`] responding to messages as text, over stdio,
+--- and to [`cosmic.mcp.client`] through a pipe in memory, where each
+--- line the client writes gets its response before it reads.
 
 local Client = require("cosmic.mcp.client")
 local Clock = require("cosmic.clock")
@@ -185,7 +185,7 @@ local function test_a_spec_that_does_not_hold_raises()
   end, "x-mcp-header")
 end
 
---- A tool that promises a structure: `answer` is what its handler answers.
+--- A tool that promises a structure: `answer` is what its handler returns.
 local function measured(answer: Mcp.ToolResult, troubles: mut {string}): Server.Instance
   return Server.new{ info = { name = "m", version = "1" }, tools = { {
     tool = {
@@ -249,7 +249,7 @@ local function test_stdio_answers_a_line_for_each_request()
   assert(decoded(assert(lines[1]))["id"] == 1 and decoded(assert(lines[2]))["id"] == 2)
 end
 
---- What a server answered and the client has not read yet.
+--- What a server sent and the client has not read yet.
 local record Pipe
   mut pending: string
 end
@@ -268,8 +268,8 @@ local class PipeReader is Stream.Reader
   function close(self): boolean, string return true, "" end
 end
 
---- The client's end of the pipe it writes: each line is answered as it
---- is written.
+--- The client's end of the pipe it writes: each line gets its response
+--- as it is written.
 local class PipeWriter is Stream.Writer
   pipe: Pipe
   mut server: Server.Instance
@@ -293,7 +293,7 @@ local function piped(server: Server.Instance, opts?: Client.Options): Client.Ses
   return Client.stdio(reader, writer, opts)
 end
 
---- A server of the tool `measure`, which answers `answer`, promising `promised` where given.
+--- A server of the tool `measure`, which returns `answer`, promising `promised` where given.
 local function promising(answer: Mcp.ToolResult, promised?: {string: Json.Value}): Server.Instance
   return Server.new{ info = { name = "m", version = "1" }, tools = { {
     tool = { name = "measure", inputSchema = Mcp.object_schema({}), outputSchema = promised },
@@ -463,7 +463,7 @@ local function test_over_stdio_progress_comes_before_the_answer_and_a_cancel_end
       "r" .. tostring(m["id"]) end
   end
   local order = table.concat(kinds, " ")
-  -- Two notices of progress for request 1 before its answer, none for 3, which asked for none; 2 is not answered.
+  -- Two notices of progress for request 1 before its response, none for 3, which asked for none; 2 gets no response.
   assert(order:find("pt pt r1", 1, true) ~= nil and order:find("r2", 1, true) == nil and order:find("r3", 1, true) ~= nil, order)
   assert(#seen == 1, table.concat(seen, "; "))
 end
@@ -545,7 +545,7 @@ local function test_a_stdio_client_hears_progress_and_cancels()
   assert(#seen == 1, table.concat(seen, "; "))
 end
 
---- Waits in a run until `ready` answers true, a millisecond at a time, for at most 20 seconds.
+--- Waits in a run until `ready` returns true, a millisecond at a time, for at most 20 seconds.
 local function until_true(ready: function(): boolean)
   for _ = 1, 20000 do
     if ready() then return end
@@ -555,8 +555,8 @@ local function until_true(ready: function(): boolean)
 end
 
 --- A subscription over stdio hears the acknowledgment first, then a notice of each change it asked for, while
---- other calls of the session go on. The server's end answers it true; a cancelled one tells the server, and the
---- session goes on after it.
+--- other calls of the session go on. The server's end makes it return true; a cancelled one tells the server,
+--- and the session goes on after it.
 local function test_a_stdio_subscription_hears_changes_while_calls_go_on()
   Poll.run(function()
     local up, down = duct(), duct()
@@ -651,9 +651,9 @@ local function greeter(rounds: mut {integer}): Server.Instance
   }
 end
 
---- A tool asks for input: the client's `elicit` answers, and the call is asked again with the answer and the
---- state the handler kept. An answer that does not hold to the form is asked for again; a client that gives no
---- `elicit` fails the call, and one that declares nothing is never asked.
+--- A tool asks for input: the client's `elicit` returns the person's input, and the call is asked again with it
+--- and the state the handler kept. Input that does not hold to the form is asked for again; a client that gives
+--- no `elicit` fails the call, and one that declares nothing is never asked.
 local function test_a_tool_asks_the_person_and_the_client_answers()
   local rounds: mut {integer} = {}
   local asked: mut {string} = {}

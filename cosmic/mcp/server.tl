@@ -1,5 +1,5 @@
 --- A Model Context Protocol server ([`cosmic.mcp`], revision 2026-07-28):
---- the tools, resources and prompts a program offers, answered over
+--- the tools, resources and prompts a program offers, reached over
 --- stdio ([`McpServer.Instance.serve_stdio`]) or Streamable HTTP ([`McpServer.Instance.handler`],
 --- under [`cosmic.http.server`]).
 ---
@@ -25,26 +25,26 @@
 ---     }
 ---     assert(server:serve_stdio())
 ---
---- Each request is answered on its own, as the protocol is stateless: a
+--- Each request gets a response of its own, as the protocol is stateless: a
 --- request names its protocol version and the client's capabilities in
 --- its `_meta`, and one that does not, or names a version other than
---- [`Mcp.VERSION`], is refused. `server/discover` answers what the
+--- [`Mcp.VERSION`], is refused. `server/discover` responds with what the
 --- server is; a client's `initialize`, from an earlier revision, is
 --- refused naming the version spoken.
 ---
 --- A tool's handler is given its arguments once they hold to the tool's
 --- `inputSchema` ([`cosmic.jsonschema`], compiled by [`McpServer.new`],
---- which raises for a schema it cannot check); arguments that do not are
---- answered as a result with `isError` that says where they fail, and the
+--- which raises for a schema it cannot check); arguments that do not
+--- get a result with `isError` that says where they fail, and the
 --- handler is not called. An argument sent as `null` is [`Json.null`],
 --- for the schema and the handler both, not absent: `{"x": null}` is not
---- `{}`. A tool that runs and fails answers its failure,
+--- `{}`. A tool that runs and fails returns its failure,
 --- which the client is sent as a result with `isError`, for the model to
---- read; a handler that raises is answered as an internal error, its words
+--- read; a handler that raises gets an internal error in response, its words
 --- withheld from the client and given to [`McpServer.Spec.on_error`]. A
---- tool with an `outputSchema` answers `structuredContent` that holds to it
+--- tool with an `outputSchema` returns `structuredContent` that holds to it
 --- ([`Mcp.structured`]) in each result that is not an error; one that does
---- not is answered as an internal error too, so a client never reads a
+--- not gets an internal error too, so a client never reads a
 --- structure the tool did not promise.
 ---
 --- Security: over HTTP every request passes `authorize` or `oauth`, one
@@ -90,7 +90,7 @@ local wire = require("cosmic.mcp.wire")
 local type HttpServer = require("cosmic.http.server")
 
 local record McpServer
-  --- What a handler knows of the request it answers.
+  --- What a handler knows of the request it handles.
   record Call
     --- How the client names itself, nil where it does not. Nothing
     --- verifies it: show it, log it, never decide by it.
@@ -106,34 +106,34 @@ local record McpServer
     grant?: Grant
     --- Tells the client how far the request has come, where it asked to
     --- be told (a `progressToken` in its `_meta`) over a transport that
-    --- carries a notice before the answer: [`McpServer.Instance.serve_stdio`],
-    --- or an HTTP request that accepts `text/event-stream`. `progress`
-    --- must grow with each call; a call that does not grow it, one with
-    --- a value that is not finite, and one after the request is answered
-    --- or cancelled, send nothing, and a `message` past 4 KiB is left
-    --- out. Over HTTP a notice the client has not read when the next
-    --- comes is replaced by it. Elsewhere it does nothing.
+    --- carries a notice before the response:
+    --- [`McpServer.Instance.serve_stdio`], or an HTTP request that accepts
+    --- `text/event-stream`. `progress` must grow with each call; a call that
+    --- does not grow it, one with a value that is not finite, and one after
+    --- the response is sent or the request cancelled, send nothing, and a
+    --- `message` past 4 KiB is left out. Over HTTP a notice the client has not
+    --- read when the next comes is replaced by it. Elsewhere it does nothing.
     progress: function(progress: number, total?: number, message?: string)
     --- Whether the client has cancelled the request: over stdio with
     --- `notifications/cancelled`, over HTTP by closing the response's
     --- stream. The handler's task is cancelled then too, so each wait in
     --- it (a child's, a socket's) fails with [`Poll.CANCELLED`]; what the
-    --- handler answers after is not sent.
+    --- handler returns after is not sent.
     cancelled: function(): boolean
-    --- The person's answer to `elicitation`, asked under `key` (1 to 64
+    --- The person's reply to `elicitation`, asked under `key` (1 to 64
     --- bytes, one for each thing the handler asks): a tool call, a
     --- prompt's get or a resource's read may ask the client for input
-    --- before it answers. Where the request carries the answer, as the
+    --- before it returns. Where the request carries the reply, as the
     --- client's retry does, it is given, an accepted form's content held
-    --- to `requestedSchema`. Where it does not, the answer is nil and a
+    --- to `requestedSchema`. Where it does not, the result is nil and a
     --- Failure the handler returns as it is (`return nil, why`): the
-    --- server then answers that it needs input, with each elicitation
+    --- server then responds that it needs input, with each elicitation
     --- the handler asked for, and the client asks again with the
-    --- answers. A client that cannot be asked in that mode is a Failure
-    --- of its own, for the handler to answer as an error or work
+    --- replies. A client that cannot be asked in that mode is a Failure
+    --- of its own, for the handler to return as an error or work
     --- around. The protocol is stateless, so the handler runs again
     --- from its start on the retry: what it must carry over, it gives
-    --- `keep`. The answer is the client's word, and a client may send
+    --- `keep`. The reply is the client's word, and a client may send
     --- one unasked: an `accept` of a `url` says the person says they are
     --- done there, so check at the far end (the sign-in, the payment)
     --- that they are. A form that is not flat, or a URL that is not
@@ -156,12 +156,12 @@ local record McpServer
     --- The tool, as `tools/list` lists it.
     tool: Mcp.Tool
     --- Runs the tool on `arguments`, as the client sent them once they hold
-    --- to the tool's `inputSchema`. A failure answered is sent as a result
+    --- to the tool's `inputSchema`. A failure returned is sent as a result
     --- with `isError`, its words for the model to read.
     call: function(arguments: {string: Json.Value}, call: Call): (Mcp.ToolResult) | (nil, Failure)
     --- The scopes an access token must grant for a call of the tool,
     --- where the endpoint is a resource server ([`HttpSpec.oauth`]): a
-    --- call without them is answered 403, naming them all, for the client
+    --- call without them gets 403, naming them all, for the client
     --- to ask for more. Over stdio, and over HTTP without `oauth`, they
     --- are not checked.
     scopes?: {string}
@@ -177,13 +177,13 @@ local record McpServer
     --- the server's own files, sockets and environment among them. Required: a tool that needs nothing still names
     --- the program it runs (`profiles = { "cosmic" }` for this program, or `"system"`).
     policy: Sandbox.Policy
-    --- How long one call may run (60 seconds); one that runs past it is ended and answered as an error.
+    --- How long one call may run (60 seconds); one that runs past it is ended and gets an error response.
     timeout_ns?: integer
-    --- The most bytes of output a call keeps (1 MiB); more is answered as an error.
+    --- The most bytes of output a call keeps (1 MiB); a call with more gets an error response.
     output_limit?: integer
     --- The directory it starts in, absolute, granted or not by `policy`; this process's when nil.
     cwd?: string
-    --- How many calls may run at once (4); a call past them is answered as an error.
+    --- How many calls may run at once (4); a call past them gets an error response.
     concurrency?: integer
   end
 
@@ -204,7 +204,7 @@ local record McpServer
     get: function(arguments: {string: string}, call: Call): (Mcp.PromptResult) | (nil, Failure)
   end
 
-  --- Who may share a list the server answers: "private" for the caller
+  --- Who may share a list the server responds with: "private" for the caller
   --- alone, "public" for a cache between too.
   enum CacheScope
     "public"
@@ -243,7 +243,7 @@ local record McpServer
     --- Values for one argument of a prompt or one variable of a
     --- resource template, as typed so far (`completion/complete`). The
     --- server checks first that the prompt or template is one of its own
-    --- and the argument one it names, and answers at most
+    --- and the argument one it names, and responds with at most
     --- [`Mcp.MAX_COMPLETIONS`] values, saying where there were more.
     --- `asked.context` holds what the client sent, unchecked. A
     --- completion may not ask the person for input: `call.elicit` fails.
@@ -271,13 +271,13 @@ local record McpServer
 
   --- What [`McpServer.Instance.handler`] serves over HTTP.
   record HttpSpec
-    --- Whether the request may be answered: false is answered 401.
+    --- Whether the request may go on: a request it returns false for gets 401.
     --- [`McpServer.bearer`] checks a token; [`McpServer.anyone`] lets each in.
     --- One of `authorize` and `oauth` is given, not both.
     authorize?: function(HttpServer.Request): boolean
     --- Makes the endpoint an OAuth 2.1 resource server, as the
     --- protocol's authorization has it: a request needs an access token
-    --- `verify` takes, and one without is answered 401 with a
+    --- `verify` takes, and one without gets 401 with a
     --- `WWW-Authenticate` that names where to find the authorization
     --- servers (the protected resource metadata, served at
     --- `/.well-known/oauth-protected-resource` and the endpoint's path).
@@ -288,7 +288,7 @@ local record McpServer
     --- which a browser always sends where it matters, is let through
     --- to `authorize`.
     origins?: {string}
-    --- The path the endpoint answers ("/mcp"); any other is 404.
+    --- The endpoint's path ("/mcp"); any other is 404.
     path?: string
     --- Who asks, for a request `authorize` let in: what a handler
     --- `keep`s for a request is bound to, so another caller cannot send
@@ -300,7 +300,7 @@ local record McpServer
   end
 
   --- Who a request's access token stands for, and what it grants: what
-  --- [`OAuth.verify`] answers.
+  --- [`OAuth.verify`] returns.
   record Grant
     --- The authorization server that issued the token (`iss`).
     issuer: string
@@ -363,16 +363,16 @@ local record McpServer
 
   --- A server [`McpServer.new`] made.
   interface Instance
-    --- The answer to `text`, one JSON-RPC message, as either transport
+    --- The response to `text`, one JSON-RPC message, as either transport
     --- sends it: the response's text, nil for a notification, and the
     --- HTTP status it goes with. `http` is the request it came in over
     --- HTTP.
     answer: function(Instance, text: string, http?: HttpServer.Request): Answer
     --- Serves the protocol over stdio: a message a line from `input`
-    --- (stdin), and each answer a line to `output` (stdout), until
-    --- `input` ends and the requests in flight are answered, when it
-    --- answers true. Each request runs in a task of its own, up to 32 at
-    --- once, so an answer may come before one to an earlier request, a
+    --- (stdin), and each response a line to `output` (stdout), until
+    --- `input` ends and the requests in flight have their responses, when
+    --- it returns true. Each request runs in a task of its own, up to 32
+    --- at once, so a response may come before one to an earlier request, a
     --- notice of progress goes out as the handler makes it, and
     --- `notifications/cancelled` cancels the request it names. Called
     --- outside a [`Poll.run`], it runs one of its own. A line longer than
@@ -380,17 +380,17 @@ local record McpServer
     --- with false and why. Write nothing else to stdout meanwhile: it is
     --- the protocol's alone, and a log goes to stderr.
     serve_stdio: function(Instance, input?: Stream.Reader, output?: Stream.Writer): (true) | (false, Failure)
-    --- A handler for [`cosmic.http.server`] that answers Streamable HTTP at `spec.path`: one POST a message, each answered as
+    --- A handler for [`cosmic.http.server`] that speaks Streamable HTTP at `spec.path`: one POST a message, each response
     --- `application/json`. In order, a request is refused 403 for an
     --- `Origin` not in `spec.origins`, 404 for another path, 405 for a
     --- method other than POST, 401 where `spec.authorize` says no, 415 for a
     --- body that is not `application/json`, 406 for an `Accept` that takes
     --- no JSON, and 400 for headers that disagree with the body
     --- (`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, and each
-    --- `Mcp-Param-` a tool's schema names). A notification is answered 202.
+    --- `Mcp-Param-` a tool's schema names). A notification gets 202.
     --- A request with a `progressToken` from a client whose `Accept` names
-    --- `text/event-stream` is answered as an event stream: each notice of
-    --- progress an event, then the answer. A client that closes it
+    --- `text/event-stream` gets an event stream in response: each notice of
+    --- progress an event, then the response. A client that closes it
     --- cancels the request, which the server finds at the next event it
     --- writes, a comment every 5 seconds where there is nothing else.
     ---
@@ -402,7 +402,7 @@ local record McpServer
     ---       handle = server:handler{ authorize = McpServer.bearer(token) },
     ---     })
     handler: function(Instance, spec: HttpSpec): function(HttpServer.Request): HttpServer.Reply
-    --- Serves as a program's main, by its command line `argv` from slot `from` (1 when nil), and answers the exit
+    --- Serves as a program's main, by its command line `argv` from slot `from` (1 when nil), and returns the exit
     --- status: 0 when stdin ended or the server stopped, 1 when serving failed, and 2 for a command line it refuses,
     --- with why on stderr. With no options it serves stdio ([`McpServer.Instance.serve_stdio`]). `--http host:port`
     --- serves Streamable HTTP there instead ([`McpServer.Instance.handler`]; the host numeric, port 0 for any),
@@ -428,7 +428,7 @@ local record McpServer
     --- Tells each subscription that named the resource `uri` that it
     --- changed (`notifications/resources/updated`), for it to read again.
     resource_updated: function(Instance, uri: string)
-    --- Ends every subscription open, each answered as a graceful end, so
+    --- Ends every subscription open, each with a graceful end, so
     --- its client knows not to listen again at once: for a server about to
     --- stop.
     end_subscriptions: function(Instance)
@@ -469,7 +469,7 @@ local record Listener
   id: Json.Value
   send: function(text: string)
   wake: Poll.Notifier
-  --- The server ended it, to be answered as a graceful end.
+  --- The server ended it, so its client is sent a graceful end.
   mut ended: boolean
 end
 
@@ -650,7 +650,7 @@ local function refusal(code: integer, message: string, data?: Json.Value): Refus
   return { code = code, message = message, data = data }
 end
 
---- The HTTP status an answer of `code` goes with.
+--- The HTTP status a response of `code` goes with.
 local function status_of(code: integer): integer
   if code == Mcp.METHOD_NOT_FOUND then return 404 end
   if code == Mcp.INTERNAL_ERROR then return 500 end
@@ -763,7 +763,7 @@ local function has_resources(self: State): boolean
   return #self.resources > 0 or #self.templates > 0 or self.spec.read ~= nil or self.offered["resources"] == true
 end
 
---- The capabilities `server/discover` answers.
+--- The capabilities `server/discover` responds with.
 local function capabilities(self: State): Json.Value
   local c: mut {string: Json.Value} = {}
   if has_tools(self) then c["tools"] = { listChanged = true } end
@@ -806,16 +806,16 @@ local raised <const> = refusal(Mcp.INTERNAL_ERROR, "the server failed to answer"
 local MAX_KEPT <const> = 64 * 1024
 local MAX_ASKED <const> = 16
 
---- What a request that may need input carries and gathers: the client's answers, what the handler asks, what it
+--- What a request that may need input carries and gathers: the client's replies, what the handler asks, what it
 --- keeps.
 local record Inputs
-  --- The client's answers, by key, as the retry carries them.
+  --- The client's replies, by key, as the retry carries them.
   given: {string: Json.Value}
   --- The elicitations asked this round, by key, as they are sent.
   asked: mut {string: Json.Value}
   mut count: integer
   mut kept?: string
-  --- What `elicit` answers for an answer not yet given: a handler that returns it has the server ask for input.
+  --- The failure `elicit` gives for a reply not yet given: a handler that passes it back has the server ask for input.
   needed: Failure
   --- What the sealed state is bound to: the method, what it names, and who asks.
   context: string
@@ -886,7 +886,7 @@ local function flat_form(schema: {string: Json.Value}): string
   return ""
 end
 
---- The client's answer to `elicitation`, or why there is none yet, as [`McpServer.Call.elicit`] says.
+--- The client's reply to `elicitation`, or why there is none yet, as [`McpServer.Call.elicit`] says.
 local function elicit(inputs: Inputs, declared: {string: Json.Value}, key: string,
                       elicitation: Mcp.Elicitation): (Mcp.Elicited) | (nil, Failure)
   if #key < 1 or #key > 64 then error("mcp: elicit: key must be 1 to 64 bytes", 3) end
@@ -918,7 +918,7 @@ local function elicit(inputs: Inputs, declared: {string: Json.Value}, key: strin
       local held, _ = compiled:check(content or {})
       fits = held
     end
-    -- An answer that does not fit is asked for again, as the protocol has a server do.
+    -- A reply that does not fit is asked for again, as the protocol has a server do.
     if answer ~= nil and fits then return answer end
   end
   if inputs.asked[key] == nil then
@@ -1167,7 +1167,7 @@ end
 
 local LEGACY <const>: Shape.Typed<Legacy> = Shape.record_of("Legacy")
 
---- Whether the server answers `method`: discovery always, and the
+--- Whether the server handles `method`: discovery always, and the
 --- methods of each feature it has.
 local function offers(self: State, method: string): boolean
   if method == "server/discover" then return true end
@@ -1185,14 +1185,14 @@ end
 
 --- One request as it runs: what its client asked to be told of it, and whether the client cancelled it.
 local record Flight
-  --- Where a notice of it goes, a message's text; nil where the transport sends nothing before the answer. A
+  --- Where a notice of it goes, a message's text; nil where the transport sends nothing before the response. A
   --- `lossy` notice (progress) may be replaced by the next where the client has not read it yet.
   mut emit?: function(text: string, lossy: boolean)
   --- The `progressToken` its `_meta` names.
   mut token?: Json.Value
   --- The last progress sent.
   mut last?: number
-  --- Answered or cancelled: no notice of it is sent after.
+  --- Its response sent, or it cancelled: no notice of it is sent after.
   mut done: boolean
   mut cancelled: boolean
   --- Who asks, as [`McpServer.HttpSpec.principal`] names them: what state a handler keeps is bound to; nil over
@@ -1270,7 +1270,7 @@ local function announce(self: State, wants: function(Filter): boolean, method: s
 end
 
 --- `subscriptions/listen`: the subscription's acknowledgment, then each notice it asked for until the client
---- cancels it (no answer is sent then) or the server ends it, answered as a graceful end.
+--- cancels it (no response is sent then) or the server ends it, with a graceful end.
 local function listen(self: State, params: any, flight: Flight, id: string): (Json.Value) | (nil, Refusal)
   local emit = flight.emit
   if emit == nil then
@@ -1337,7 +1337,7 @@ local function listen(self: State, params: any, flight: Flight, id: string): (Js
   }
 end
 
---- The answer to the request of `method` with `params`.
+--- The response to the request of `method` with `params`.
 local function dispatch(self: State, method: string, params: any, flight: Flight, id: string,
                         http?: HttpServer.Request): (Json.Value) | (nil, Refusal)
   if method == "initialize" then
@@ -1439,7 +1439,7 @@ local function dispatch(self: State, method: string, params: any, flight: Flight
   return nil, refusal(Mcp.METHOD_NOT_FOUND, "Method not found: " .. method)
 end
 
---- The answer to the message `message`, from HTTP's `http` where given.
+--- The response to the message `message`, from HTTP's `http` where given.
 local function answer_message(self: State, message: wire.Message, http?: HttpServer.Request, flight?: Flight): McpServer.Answer
   local method = message.method
   if method == nil then
@@ -1461,14 +1461,14 @@ local function answer_message(self: State, message: wire.Message, http?: HttpSer
   end
   local body = wire.response(id, answered)
   if body == nil then
-    -- A string a handler answered is not UTF-8, which JSON cannot hold.
+    -- A string a handler returned is not UTF-8, which JSON cannot hold.
     report(self, method, "the answer could not be encoded as JSON")
     return { body = wire.error(id, Mcp.INTERNAL_ERROR, raised.message), status = 500 }
   end
   return { body = body, status = 200 }
 end
 
---- The answer to `text`, one JSON-RPC message.
+--- The response to `text`, one JSON-RPC message.
 local function answer(self: State, text: string, http?: HttpServer.Request): McpServer.Answer
   local message, why = wire.message(text)
   if message == nil then
@@ -1826,10 +1826,10 @@ local KEEPALIVE_NS <const> = 5 * 1000000000
 --- client too slow to keep up is told by its end to start again.
 local MAX_QUEUED <const> = 256
 
---- The body of a request answered as an event stream: its notices, then its answer, then the end. A notice of
---- progress not yet read when the next comes is dropped for it, so a client that reads slowly holds the server to
---- one; the others (a subscription's) are queued, to [`MAX_QUEUED`]. Closed before the answer (the client gone,
---- the server stopping), it cancels the request.
+--- The body of a request whose response is an event stream: its notices, then the response, then the end. A
+--- notice of progress not yet read when the next comes is dropped for it, so a client that reads slowly holds the
+--- server to one; the others (a subscription's) are queued, to [`MAX_QUEUED`]. Closed before the response (the
+--- client gone, the server stopping), it cancels the request.
 local class EventReader is Stream.Reader
   notifier: Poll.Notifier
   flight: Flight
@@ -1900,7 +1900,7 @@ local class EventReader is Stream.Reader
   end
 end
 
---- `message` answered as an event stream, its handler in a task of its own.
+--- `message` with its response sent as an event stream, its handler in a task of its own.
 local function streamed(self: State, message: wire.Message, req: HttpServer.Request, principal: string,
                         grant?: McpServer.Grant): HttpServer.Reply
   local notifier = Poll.notifier()
@@ -1924,7 +1924,7 @@ local function streamed(self: State, message: wire.Message, req: HttpServer.Requ
   body.task = Poll.spawn(function()
     local said = answer_message(self, message, req, flight)
     if flight.cancelled then return end
-    -- An answer always comes: a request with none (a notification) is not streamed.
+    -- A response always comes: a request with none (a notification) is not streamed.
     body.answer = said.body or wire.error(message.id, Mcp.INTERNAL_ERROR, raised.message)
     notifier:notify_all()
   end)
@@ -1947,7 +1947,7 @@ local function loopback(host: string): boolean
   return host == "localhost" or host == "127.0.0.1" or host == "::1" or host == "[::1]"
 end
 
---- What a resource server answers beside its endpoint: where its metadata is, and the metadata.
+--- What a resource server publishes beside its endpoint: where its metadata is, and the metadata.
 local record Protected
   oauth: McpServer.OAuth
   --- The path the metadata is served at, and its whole URL.
@@ -2000,8 +2000,8 @@ local function quoted(text: string): string
   return '"' .. text:gsub('[\\"]', "\\%0") .. '"'
 end
 
---- The answer that challenges a request: 401 for a token missing or refused, 403 for one that grants too little;
---- `scopes` are what to ask for.
+--- The response that challenges a request: 401 for a token missing or refused, 403 for one that grants too
+--- little; `scopes` are what to ask for.
 local function challenge(p: Protected, status: integer, err?: string, scopes?: {string}, words?: string): HttpServer.Reply
   local parts: mut {string} = { "resource_metadata=" .. quoted(p.url) }
   if err ~= nil then parts[#parts + 1] = "error=" .. quoted(err) end
@@ -2034,7 +2034,7 @@ local function holds(oauth: McpServer.OAuth, granted: {string}, needed: string):
   return false
 end
 
---- The handler [`McpServer.Instance.handler`] answers.
+--- The handler [`McpServer.Instance.handler`] returns.
 local function handler(self: State, spec: McpServer.HttpSpec): function(HttpServer.Request): HttpServer.Reply
   local path = spec.path or "/mcp"
   local origins = spec.origins or {}

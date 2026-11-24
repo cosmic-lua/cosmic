@@ -120,7 +120,7 @@ local record sqlite
     --- the previous step's failure, in which case the statement is
     --- rewound all the same. See [`Statement.rewind`] to keep the bindings.
     reset: function(Statement): boolean, string
-    --- As [`Statement.reset`], but answers SQLite's codes as
+    --- As [`Statement.reset`], but returns SQLite's codes as
     --- [`Statement.step_result`] does. A statement stopped before its end
     --- in autocommit commits at its reset, so a failure there is its own.
     reset_result: function(Statement): ExecResult
@@ -230,7 +230,7 @@ local record sqlite
     --- `"sql_length"`, `"length"`, `"column"`, `"expr_depth"`,
     --- `"compound_select"`, `"vdbe_op"`, `"function_arg"`,
     --- `"like_pattern_length"`, `"variable_number"`, `"trigger_depth"`,
-    --- `"worker_threads"`), and answers the value it had. A negative
+    --- `"worker_threads"`), and returns the value it had. A negative
     --- `value` changes nothing, so it reads the limit. A value above the
     --- library's own ceiling raises, naming the ceiling, as does an
     --- unknown name. `"attached"` starts at 10 and may be raised to 125.
