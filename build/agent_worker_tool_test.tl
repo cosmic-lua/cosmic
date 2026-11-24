@@ -476,6 +476,25 @@ return assert(again[1])["n"]
   local _, _ = db:close()
 end
 
+--- A snippet reads one kept output whole by the id its note names (Host.output), and an id with no output raises.
+local function test_a_snippet_reads_a_kept_output_by_its_id()
+  local w = set_of_worker()
+  local dir = assert(Fs.mkdtemp("agent-worker-"))
+  local db = assert(Sessions.open(dir .. "/sessions.db"))
+  local id = assert(Sessions.start(db, "/", "m", 0))
+  local kept = assert(Sessions.output(db, id, { tool = "run", input = "{}", text = "first\nsecond\n", is_error = false }))
+  local context: Tools.Context = { cwd = dir, worker = w, db = db, session = id }
+  local code = "local Host = require(\"cosmic.agent.host\")\n" ..
+    "print(#Host.output(" .. tostring(kept) .. "))\n" ..
+    "local _, why = pcall(Host.output, " .. tostring(kept + 1) .. ")\nprint(tostring(why))\n"
+  local ran = Tools.run("run", { code = code }, context)
+  assert(not ran.is_error, ran.text)
+  assert(ran.text:find("13\n", 1, true) == 1, ran.text)
+  assert(ran.text:find("host: output: no output " .. tostring(kept + 1) .. " in sessions.db", 1, true) ~= nil, ran.text)
+  Worker.close(w)
+  local _, _ = db:close()
+end
+
 --- What a query answers is held to JSON and to the reply's limit: no infinity, one column of a name, and control
 --- characters counted as their escapes.
 local function test_a_snippets_query_answer_is_held_to_json_and_its_limit()

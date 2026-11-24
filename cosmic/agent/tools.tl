@@ -1078,8 +1078,8 @@ local ALL <const>: {Tools.Tool} = {
   {
     name = "run",
     snippet = "Run a checked cosmic program in place of many tool calls",
-    guidelines = { "Each tool's whole output is kept in sessions.db: read what was cut, or seen before, with " ..
-        "Host.history in run rather than running a command again." },
+    guidelines = { "Each tool's whole output is kept in sessions.db: read a cut one whole with Host.output(id), " ..
+        "or find what was seen before with Host.history, rather than running a command or fetching again." },
     -- The words are the text template run_text.tmpl (cosmic.template).
     description = RunText.render({ kb = RUN_BYTES // 1024, tables = KEPT_TABLES }),
     schema = schema({

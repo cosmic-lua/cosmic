@@ -600,6 +600,19 @@ function Host.history(query: string): {Host.Row}
   return value
 end
 
+--- The whole text of output `id` of sessions.db: what a tool's call gave, kept whole where the model was shown
+--- only its start and end, as the note under it says ("kept as output 17"). Raises where it fails, as "host: ...".
+function Host.output(id: integer): string
+  local rows, why = history_of("SELECT text FROM outputs WHERE id = " .. tostring(id))
+  if rows == nil then error(tostring(why), 2) end
+  local row = rows[1]
+  local text = if row ~= nil then row["text"] else nil end
+  if not (text is string) then
+    error("host: output: no output " .. tostring(id) .. " in sessions.db", 2)
+  end
+  return text
+end
+
 --- The MCP servers the agent was given: each one's `name`, `reached` and `description`; none where it was
 --- given none. Raises where it fails, as "host: ...".
 function Host.servers(): {{string: Json.Value}}

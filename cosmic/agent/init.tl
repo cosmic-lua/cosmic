@@ -54,7 +54,7 @@
 --- and sends the whole conversation still, and the server reads it
 --- from the last compaction block on, so a request after one costs
 --- what the summary and the turns since cost. What the summary leaves
---- out is still in sessions.db, where Host.history in run finds it.
+--- out is still in sessions.db, where Host.output in run reads it.
 ---
 --- Each request asks the API (beta headers): to fall back to another
 --- model where one refuses (server-side-fallback-2026-07-01); to say
@@ -667,7 +667,7 @@ local function record(s: Agent.Session, call: string, tool: string, input: Tools
   -- What sql says is kept already, and it says where to find more.
   if result.raw == nil or tool == "sql" then return result.text, "" end
   local how = if Tools.find(s.tools, "sql") ~= nil then "use sql"
-    elseif Tools.find(s.tools, "run") ~= nil then "read it with Host.history in run"
+    elseif Tools.find(s.tools, "run") ~= nil then "read it in run with Host.output(" .. tostring(output) .. ")"
     else "" end
   if how == "" then return result.text, "" end
   local shown = result.text .. "\n\n[The whole output is kept as output " .. tostring(output) .. ": " .. how .. ".]"
