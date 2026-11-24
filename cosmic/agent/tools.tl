@@ -127,6 +127,9 @@ local record Tools
     --- Whether the user stopped the turn: a tool that waits asks it, and
     --- ends its wait when it says so.
     stopped?: function(): boolean
+    --- When the turn's time runs out ([`Clock.monotonic_ns`]), where its
+    --- budget limits it: a command that waits is ended then. Nil for no limit.
+    deadline_ns?: integer
     --- Whether a snippet of run may run programs ([`Worker.Options`] `commands`): only where bash is offered too.
     --- A worker keeps what it was started with: one started with programs, then given a list with no bash, runs
     --- them still until it is closed.
@@ -437,6 +440,11 @@ end
 --- Runs `command` with bash, or sh where there is none, in `context`, for at most `timeout_ns`: stdout and stderr
 --- captured together.
 local function shell(command: string, timeout_ns: integer, context: Tools.Context): Child.Result?, string
+  local deadline = context.deadline_ns
+  if deadline ~= nil then
+    local left = math.max(deadline - Clock.monotonic_ns(), 1)
+    if timeout_ns == Child.FOREVER or left < timeout_ns then timeout_ns = left end
+  end
   local found, _ = Proc.find("bash")
   local res, why = Child.run({ found or "/bin/sh", "-c", command }, { cwd = context.cwd, stdin = "null",
     stdout = "capture", stderr = "stdout", policy = context.policy, timeout_ns = timeout_ns })
@@ -1044,7 +1052,7 @@ local ALL <const>: {Tools.Tool} = {
       "capture).\n" ..
       "- Host.sort(list, by?) -> {string}, by the key `by(item)` gives where given; Host.uniq(keys) -> {string: integer}, each key's count; Host.top(counts, " ..
       "n?) -> {{key, count}}, most first, ties by key.\n" ..
-      "- Host.bash(command) -> {output, ok, code}; Host.edit(path, {{old = ..., new = ...}}) -> integer; " ..
+      "- Host.bash(command) -> {output, ok, code}; " ..
       "Host.sql(query) -> rows; Host.store(key, value) / Host.load(key).value.\n" ..
       "- Host.fetch(url, {method?, headers?, body?}?) -> {status, headers, body}: no redirect followed, public " ..
       "addresses only, in a session with --network.\n" ..

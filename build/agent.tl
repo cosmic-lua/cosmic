@@ -144,6 +144,7 @@ local USAGE <const> = "cosmic agent <ask|chat|resume|rpc|sessions|prompt|policy>
 local SESSION_OPTIONS <const>: {string: boolean} = {
   ["--model"] = true, ["--effort"] = true, ["--continue"] = true, ["--session"] = true,
   ["--sandbox"] = true, ["--network"] = true, ["--grant"] = true, ["--mcp"] = true, ["--tools"] = true,
+  ["--budget"] = true,
 }
 local SANDBOX_OPTIONS <const>: {string: boolean} = { ["--sandbox"] = true, ["--network"] = true, ["--grant"] = true }
 local ASK_OPTIONS <const>: mut {string: boolean} = { ["--json"] = true }
@@ -361,12 +362,64 @@ local function policy_of(r: Run, got: Flags.Parsed, here: string): Sandbox.Polic
     network = got.set["--network"] == true, grants = grants })
 end
 
+-- What each unit of --budget's time is, in seconds.
+local SECONDS_OF <const>: {string: number} = { [""] = 1, s = 1, m = 60, h = 3600 }
+
+--- The budget `text` names, as `--budget` takes it: limits joined by
+--- commas, each tokens=N, cost=USD, turns=N or time=N (seconds, or with
+--- s, m or h), such as `cost=0.50,time=10m`. Nil and why where it names
+--- none, one twice, or a value not a positive number.
+local function budget_of(text: string): Agent.Budget?, string
+  local most_tokens, turns: integer?, integer? = nil, nil
+  local cost, seconds: number?, number? = nil, nil
+  local named: mut {string: boolean} = {}
+  local usage = "--budget takes limits joined by commas: tokens=N, cost=USD, turns=N, time=N[s|m|h]"
+  for part in text:gmatch("[^,]+") do
+    local key, value = part:match("^%s*(%a+)=(.-)%s*$")
+    if key == nil or value == nil then return nil, usage .. "; not one: " .. part end
+    if named[key] == true then return nil, "--budget names " .. key .. " twice" end
+    named[key] = true
+    if key == "tokens" or key == "turns" then
+      local n = if value:match("^[1-9]%d*$") then math.tointeger(tonumber(value)) else nil end
+      if n == nil then
+        return nil, "--budget " .. key .. " takes a positive whole number: " .. value
+      end
+      if key == "tokens" then most_tokens = n else turns = n end
+    elseif key == "cost" then
+      local n = if value:match("^%d*%.?%d+$") then tonumber(value) else nil end
+      if n == nil or n <= 0 then
+        return nil, "--budget cost takes a positive number of USD: " .. value
+      end
+      cost = n
+    elseif key == "time" then
+      local amount, unit = value:match("^(%d*%.?%d+)([smh]?)$")
+      local n = if amount ~= nil then tonumber(amount) else nil end
+      local per = if unit ~= nil then SECONDS_OF[unit] else nil end
+      if n == nil or per == nil or n <= 0 then
+        return nil, "--budget time takes a positive number of seconds, or of s, m or h: " .. value
+      end
+      seconds = n * per
+    else
+      return nil, usage .. "; not a limit: " .. key
+    end
+  end
+  if next(named) == nil then return nil, usage end
+  return { tokens = most_tokens, cost = cost, turns = turns, seconds = seconds }, ""
+end
+
 --- A session from the options of `got`, kept in `db`, or nil and why.
 --- Where `newest`, no session named is the newest in the directory.
 local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boolean): Agent.Session?, string
   local effort = got.values["--effort"] or Agent.EFFORT
   if EFFORTS[effort] ~= true then
     return nil, "--effort is one of low, medium, high, xhigh, max"
+  end
+  local budget: Agent.Budget? = nil
+  local limits = got.values["--budget"]
+  if limits ~= nil then
+    local b, budget_why = budget_of(limits)
+    if b == nil then return nil, budget_why end
+    budget = b
   end
   local name = got.values["--model"] or Agent.MODEL
   local model = if name == "opus" then Agent.MODELS.opus elseif name == "sonnet" then Agent.MODELS.sonnet else nil end
@@ -412,7 +465,11 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
   local s = Agent.new({ model = model, effort = effort, sign = sign, base_url = base, cwd = here,
     send = r.io.send, system = Prompt.build(here, Prompt.contexts(here), { servers = servers, tools = offered }),
     sandbox = policy, jobs = Jobs.new(), worker = Worker.new(), mcp = AgentMcp.new(servers, here), build = build(),
-    tools = offered, messages = held, db = db, id = id, restarts = restarts, ended = ended })
+    tools = offered, messages = held, db = db, id = id, restarts = restarts, ended = ended, budget = budget })
+  if budget ~= nil and budget.cost ~= nil and Agent.cost(model, {}) == nil then
+    s:close()
+    return nil, "--budget cost: no price is known for " .. model .. ", so its cost cannot be counted"
+  end
   local settled, settle_why = s:settle()
   if not settled then return nil, settle_why end
   return s, ""
