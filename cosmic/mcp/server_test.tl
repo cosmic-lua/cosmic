@@ -862,3 +862,32 @@ local function test_template_variables_are_read_from_each_expression()
   assert(table.concat(names, " ") == "a b c d e f g h i j", table.concat(names, " "))
   assert(#wire.template_variables("plain") == 0)
 end
+
+local function test_a_null_argument_is_a_value_the_schema_and_the_handler_see()
+  local seen: mut {Json.Value} = {}
+  local server = Server.new{ info = { name = "nulls", version = "1" }, tools = { {
+    tool = { name = "maybe", inputSchema = {
+      type = "object",
+      properties = { x = { type = Json.array({ "string", "null" }) } },
+      required = Json.array({ "x" }),
+    } },
+    call = function(args: {string: Json.Value}, _: Server.Call): (Mcp.ToolResult) | (nil, Failure)
+      local x = args["x"]
+      seen[#seen + 1] = if x ~= nil then x else "absent" end
+      return Mcp.result({ "ok" })
+    end,
+  } } }
+  local said = decoded(server:answer(request(1, "tools/call", '"name":"maybe","arguments":{"x":null}')).body)
+  local result = object(said["result"])
+  assert(result["isError"] ~= true, tostring(said["result"]))
+  assert(seen[1] == Json.null, "the handler is given null, not nothing")
+  -- Absent is not null: the schema requires x.
+  local absent = object(decoded(server:answer(request(2, "tools/call", '"name":"maybe","arguments":{}')).body)["result"])
+  assert(absent["isError"] == true and #seen == 1)
+  -- A prompt's arguments are strings: a null one is absent, as before.
+  local greeted = decoded(adder():answer(request(4, "prompts/get", '"name":"greet","arguments":{"who":"Will","x":null}')).body)
+  assert(greeted["result"] ~= nil, tostring(greeted["error"]))
+  -- Elsewhere a null member is absent, as before: a null cursor is no cursor.
+  local listed = decoded(server:answer(request(3, "tools/list", '"cursor":null')).body)
+  assert(listed["result"] ~= nil, tostring(listed["error"]))
+end

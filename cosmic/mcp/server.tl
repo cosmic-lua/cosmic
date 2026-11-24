@@ -36,7 +36,9 @@
 --- `inputSchema` ([`cosmic.jsonschema`], compiled by [`McpServer.new`],
 --- which raises for a schema it cannot check); arguments that do not are
 --- answered as a result with `isError` that says where they fail, and the
---- handler is not called. A tool that runs and fails answers its failure,
+--- handler is not called. An argument sent as `null` is [`Json.null`],
+--- for the schema and the handler both, not absent: `{"x": null}` is not
+--- `{}`. A tool that runs and fails answers its failure,
 --- which the client is sent as a result with `isError`, for the model to
 --- read; a handler that raises is answered as an internal error, its words
 --- withheld from the client and given to [`McpServer.Spec.on_error`]. A
