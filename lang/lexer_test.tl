@@ -459,7 +459,18 @@ end
 
 local function test_bang_says_what_to_write()
   assert(only_error("a != b").fix == "write `~=` for \"not equal\"")
-  assert(only_error("!a").fix == "write `not` for negation")
+  assert(only_error("f() != b").fix == "write `~=` for \"not equal\"")
+  assert(only_error("!a").fix == "write `not` for negation; the `!` of `e!` follows its value")
+end
+
+--- A `!` written on a name, a call or an index is a token: the "must" of `e!`.
+local function test_a_bang_on_what_it_follows_is_a_token()
+  for _, source in ipairs({ "f()!", "t[1]!", "x!", "f() !" }) do
+    local lexed = lex(source)
+    assert(#lexed.errors == 0, source)
+    local last = Lexer.token(lexed.tokens, Lexer.count(lexed.tokens) - 1)
+    assert(last.kind == "op" and last.text == "!", source)
+  end
 end
 
 local function test_a_non_ascii_character_is_one_error_token()

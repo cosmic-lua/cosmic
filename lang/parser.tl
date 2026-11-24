@@ -1620,6 +1620,13 @@ parse_prefix = function(): Ast.Exp
         kind = "String", id = 0, first = at, last = at, value = assert(S.tokens.value[at]), long = Lexer.long(S.tokens, at),
       }
       e = { kind = "Call", id = 0, first = first, last = S.pos - 1, callee = e, args = { string_arg } }
+    elseif t == "!" and S.kind == "op" and same_line(S.pos) then
+      -- `e!` is `assert(e)`, read so by every stage after this one: the value, or a raise with the reason a
+      -- `T | (nil, Failure)` call gave. The `assert` is written nowhere, so its name holds no token: an empty range
+      -- before `e`.
+      advance()
+      local must: Ast.Name = { kind = "Name", id = 0, first = first, last = first - 1, text = "assert" }
+      e = { kind = "Call", id = 0, first = first, last = S.pos - 1, callee = must, args = { e } }
     else
       break
     end

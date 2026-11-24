@@ -181,6 +181,13 @@ local function test_a_source_with_an_error_is_refused_in_the_parsers_words()
   assert(table_one == nil)
 end
 
+--- The `!` of `e!` closes on `e`, and what follows it is spaced as after a call.
+local function test_a_must_closes_on_its_value()
+  lays("x = f() !\n", "x = f()!\n")
+  lays("x = f()!:g() .. t[1]!\n", "x = f()!:g() .. t[1]!\n")
+  lays("print(a, f()!)\n", "print(a, f()!)\n")
+end
+
 --- A `;` that ends a statement is deleted, and a statement after one on its line begins a line.
 local function test_a_statements_semicolon_is_deleted()
   lays("x = 1;\n", "x = 1\n")

@@ -56,6 +56,18 @@ local function test_a_test_of_the_first_local_narrows_the_failure()
   refused("local n, why = parse(\"4\")\nif n ~= nil then\n  print(#why)\nend\n", "nil_not_allowed")
 end
 
+--- `e!` is `assert(e)`: the value of a `(T) | (nil, E)` call, or a raise with its reason; on a value that may be nil,
+--- the value. It reads on as a call does, and the failure list is no value without it.
+local function test_a_must_takes_the_value_or_raises()
+  stands("local n: integer = parse(\"4\")!\nprint(n + 1)\n", "5")
+  stands("print(parse(\"4\")! * 2, parse(\"7\")! + 1)\n", "8\t8")
+  stands("local t: {string: integer} = { a = 1 }\nprint(t[\"a\"]! + 1)\n", "2")
+  stands("local ok, why = pcall(function(): integer return parse(\"x\")! end)\n" ..
+      "print(ok, tostring(why):find(\"not a number: x\", 1, true) ~= nil)\n", "false\ttrue")
+  assert(type_of("local seen = parse(\"4\")!\n", "seen") == "integer")
+  refused("print(parse(\"4\") + 1)\n", "alternatives_as_value")
+end
+
 local function test_each_form_of_the_test_narrows()
   stands("local n, why = parse(\"x\")\nif nil == n then\n  print(#why)\nend\n", "15")
   stands("local n, why = parse(\"4\")\nassert(n ~= nil)\nprint(n + 1)\n", "5")

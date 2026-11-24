@@ -1314,6 +1314,9 @@ the grammar is Teal's, made smaller and explicit.
   an integer enum is also the table of them, with `E.of(n): E?` and
   `E.name(v): string`. a module returns one of them, or a local
   declared with its type.
+- `e!`, written on a name, a call or an index, is `assert(e)`: the
+  value of a call that answers `T` or `nil, Failure`, or a raise with
+  the reason; on a value that may be nil, the value.
 - an optional type is `T?`, and an optional field `name?: T`.
   `T | nil` is refused.
 - a field is fixed unless declared `mut`. a collection parameter is a

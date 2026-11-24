@@ -871,6 +871,12 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
         mark_end(tokens, n + 1, line, x, last - pos + 1, end_y, end_x)
         line, line_start = yend, yend_start
       end
+    elseif b == 33 and sub(source, pos + 1, pos + 1) ~= "=" and
+        (kinds[n] == "identifier" or kinds[n] == ")" or kinds[n] == "]") then
+      -- A `!` after a name, a call or an index is the "must" of the value: `Fs.read(p)!`. Where it stands is the
+      -- token before it, not the space between, so the tokens lex alike however they are spaced.
+      kind = "op"
+      text = "!"
     else
       -- A byte that begins no token.
       if b >= 128 then
@@ -881,7 +887,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
       local x = pos - line_start + 1
       local fix = "delete it; a character outside Lua's syntax can stand only inside a string or a comment"
       if b == 33 then
-        fix = if byte(source, pos + 1) == 61 then "write `~=` for \"not equal\"" else "write `not` for negation" end -- untyped: call
+        fix = if byte(source, pos + 1) == 61 then "write `~=` for \"not equal\"" else "write `not` for negation; the `!` of `e!` follows its value" end -- untyped: call
       elseif b >= 128 then
         if text == "\239\187\191" then
           fix = if pos == 1 then "delete the byte order mark at the start of the file" else
