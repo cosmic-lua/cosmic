@@ -871,10 +871,10 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
         mark_end(tokens, n + 1, line, x, last - pos + 1, end_y, end_x)
         line, line_start = yend, yend_start
       end
-    elseif b == 33 and sub(source, pos + 1, pos + 1) ~= "=" and
+    elseif b == 33 and sub(source, pos + 1, pos + 1) ~= "=" and ys[n] == line and
         (kinds[n] == "identifier" or kinds[n] == ")" or kinds[n] == "]") then
-      -- A `!` after a name, a call or an index is the "must" of the value: `Fs.read(p)!`. Where it stands is the
-      -- token before it, not the space between, so the tokens lex alike however they are spaced.
+      -- A `!` after a name, a call or an index on its line is the "must" of the value: `Fs.read(p)!`. What it
+      -- follows is the token before it, not the space between, so the tokens lex alike however a line spaces them.
       kind = "op"
       text = "!"
     else

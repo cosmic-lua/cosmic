@@ -465,6 +465,7 @@ end
 
 --- A `!` written on a name, a call or an index is a token: the "must" of `e!`.
 local function test_a_bang_on_what_it_follows_is_a_token()
+  assert(only_error("x\n!y").fix:find("write `not`", 1, true) ~= nil)
   for _, source in ipairs({ "f()!", "t[1]!", "x!", "f() !" }) do
     local lexed = lex(source)
     assert(#lexed.errors == 0, source)
