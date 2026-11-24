@@ -533,7 +533,12 @@ function Agent.spent_in(db: Sqlite.Handle, marker: string): Agent.Spent?
   local helpers: mut {string: integer} = {}
   for _, snippet in ipairs(snippets or {}) do
     local seen: mut {string: boolean} = {}
-    for name in snippet:text(1):gmatch("%f[%w_]Host%.([%l_][%w_]*)") do
+    -- The code as the snippet has it, not its JSON, where `\nHost.x` would hide a helper that starts a line.
+    local input = snippet:text(1)
+    local fields, _ = Json.decode_object(input)
+    local code = fields and fields["code"]
+    local text = if code is string then code else input end
+    for name in text:gmatch("%f[%w_]Host%.([%l_][%w_]*)") do
       if seen[name] == nil then
         seen[name] = true
         helpers[name] = (helpers[name] or 0) + 1
