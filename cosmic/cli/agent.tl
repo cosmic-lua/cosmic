@@ -41,6 +41,9 @@
 --- - `--model opus|sonnet` picks the latest of each (default opus).
 --- - `--effort low|medium|high|xhigh|max` sets how hard it thinks
 ---   (default medium).
+--- - `--budget tokens=N,cost=USD,turns=N,time=N[s|m|h]` caps what each
+---   turn may spend, any of the four. The first limit reached ends the
+---   turn for good, and the agent says which.
 --- - `--continue` goes on with the newest session in the directory.
 ---   `--session <id>` goes on with any session.
 ---
@@ -112,6 +115,7 @@ local command: Flags.Command = {
   spec = {
     ["--model"] = { value = "name", about = "ask, chat, resume, rpc: opus or sonnet, the latest of each (default opus)" },
     ["--effort"] = { value = "level", about = "ask, chat, resume, rpc: low, medium, high, xhigh or max (default medium)" },
+    ["--budget"] = { value = "limits", about = "ask, chat, resume, rpc: the most each turn may spend, such as tokens=200000,cost=0.50,turns=20,time=10m; the first reached ends it" },
     ["--continue"] = { about = "ask, chat, rpc: go on with the newest session in this directory" },
     ["--session"] = { value = "id", about = "ask, chat, resume, rpc: go on with the session of this id" },
     ["--json"] = { about = "ask: print each event as a line of JSON, not the model's words" },
