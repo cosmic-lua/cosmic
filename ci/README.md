@@ -431,8 +431,12 @@ are where CI answers for everything. A branch's push runs nothing.
   format over the paths the pull request changed since its merge base with
   main (driver.tl changed-paths, `fix --check --changed`, which lays out
   only those and makes every check spanning files, the markers held to
-  that base among them, over the whole tree). No suite, and it saves
-  nothing.
+  that base among them, over the whole tree). Where a path it changed
+  reaches the launcher and startup fixtures (the list in
+  `cosmic_ci/changed_paths.tl`: `build/launcher.tl`, `core/startup.c`,
+  `ci/fixtures/` and the like), or the paths changed are not known, it
+  also builds the artifacts and runs those fixtures, which nothing else
+  before main's push runs. No suite, and it saves nothing.
 - **the merge queue** (`merge_group`) runs linux-x86_64's leg alone, as
   two jobs at once, each booting the tree: `linux-x86_64` (part `suite`)
   runs the native suite and its boundary and probes the sandbox;

@@ -507,8 +507,9 @@ bool cosmic_startup_adopt (const struct cosmic_startup *startup,
                                              selected->length,
                                              selected->sha256)) {
     /* A warm launch leaves a cached core's digest to this one pass, so a
-     * cached core damaged in place stops here, and is removed so the next
-     * launch extracts it again. A core run from anywhere else is named. */
+     * cached core damaged with no later time than its stamp's stops here,
+     * and is removed so the next launch extracts it again. A core run from
+     * anywhere else is named. */
     if (stamped)
       return fail_adoption(artifact, core_fd, -1, error,
                            entry_refusal(stamp_directory, stamp,

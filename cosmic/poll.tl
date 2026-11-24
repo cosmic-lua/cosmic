@@ -116,8 +116,8 @@ local record Poll
 
   --- The words of a wait that ran past its `timeout_ns`: the message of
   --- the "timeout" Failure a wait here answers, and the reason a module
-  --- that still answers its failure in words ([`cosmic.child`],
-  --- [`cosmic.net`]'s methods) gives for one.
+  --- that still answers its failure in words ([`cosmic.child`], a
+  --- [`cosmic.net`] connection's methods) gives for one.
   TIMEOUT: string
   --- The words of a wait whose task was cancelled, as `TIMEOUT` is.
   CANCELLED: string

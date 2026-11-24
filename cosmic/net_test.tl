@@ -143,7 +143,7 @@ local function test_a_timeout_waits_the_nanoseconds_it_is_given()
   bounded(Clock.monotonic_ns() - began, "a read")
   began = Clock.monotonic_ns()
   local conn, accept_why = p.server:accept(Clock.ms(100))
-  assert(conn == nil and accept_why == Poll.TIMEOUT, accept_why)
+  assert(conn == nil and accept_why.kind == "timeout", accept_why)
   bounded(Clock.monotonic_ns() - began, "an accept")
   Poll.run(function()
     local at = Clock.monotonic_ns()
@@ -152,7 +152,7 @@ local function test_a_timeout_waits_the_nanoseconds_it_is_given()
     bounded(Clock.monotonic_ns() - at, "a read in a run")
     at = Clock.monotonic_ns()
     local taken, taken_why = p.server:accept(Clock.ms(100))
-    assert(taken == nil and taken_why == Poll.TIMEOUT, taken_why)
+    assert(taken == nil and taken_why.kind == "timeout", taken_why)
     bounded(Clock.monotonic_ns() - at, "an accept in a run")
   end)
   -- A nanosecond rounds up to a wait of a millisecond, which ends.
@@ -207,10 +207,10 @@ end
 local function test_accept_with_no_one_connecting_times_out()
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(60) }))
   local conn, why = server:accept(Clock.ms(20))
-  assert(conn == nil and why == Poll.TIMEOUT, why)
+  assert(conn == nil and why.kind == "timeout", why)
   server:set_timeout(0)
   conn, why = server:accept()
-  assert(conn == nil and why == Poll.TIMEOUT, why)
+  assert(conn == nil and why ~= nil and why.kind == "timeout", why)
 end
 
 --- A signal a guard catches ends a wait at once, as it ends
@@ -224,7 +224,7 @@ local function test_a_caught_signal_ends_a_wait()
   local data, read_why = accepted:read()
   local caught = assert(guard:release())
   assert(caught == sys.SIGINT, tostring(caught))
-  assert(conn == nil and why == "interrupted", why)
+  assert(conn == nil and why.kind == "cancelled" and why.message == "interrupted", why)
   assert(data == nil and read_why == "interrupted", read_why)
   assert(client:close())
 end
@@ -385,7 +385,7 @@ local function test_close_removes_the_socket_file_it_made(tmp: string)
   assert(not assert(Fs.status(path)).exists, "the socket file was left")
   assert(server:close())
   local conn, why = server:accept()
-  assert(conn == nil and why == "net: the listener is closed", why)
+  assert(conn == nil and why.message == "net: the listener is closed", why)
 end
 
 --- A name another file took since the listener made its own is not the
@@ -682,7 +682,7 @@ local function test_in_a_run_waits_time_out_as_they_do_out_of_one()
   local p <close> = pair()
   Poll.run(function()
     local conn, why = p.server:accept(Clock.ms(10))
-    assert(conn == nil and why == Poll.TIMEOUT, why)
+    assert(conn == nil and why.kind == "timeout", why)
     p.accepted:set_timeout(Clock.ms(10))
     local data, read_why = p.accepted:read()
     assert(data == nil and read_why == Poll.TIMEOUT, read_why)
@@ -717,7 +717,7 @@ local function test_a_close_local_holds_a_listener()
     assert(client:close())
   end
   local conn, why = assert(listener):accept()
-  assert(conn == nil and why == "net: the listener is closed", why)
+  assert(conn == nil and why.message == "net: the listener is closed", why)
 end
 
 --- The loopback is a socket file, or a host of 127.0.0.0/8 or ::1, read

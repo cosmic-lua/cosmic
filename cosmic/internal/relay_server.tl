@@ -1203,8 +1203,8 @@ local function accept_loop(run: Running, listener: Net.Listener, protocol: strin
     else
       local conn, why = listener:accept()
       if conn == nil then
-        if run.stopping or why == Poll.CANCELLED then return end
-        run.log("accept failed: " .. why)
+        if run.stopping or why.kind == "cancelled" then return end
+        run.log("accept failed: " .. tostring(why))
         local ok, _ = Clock.sleep(Clock.ms(50))
         if not ok then return end
       else

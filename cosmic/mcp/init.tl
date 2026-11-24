@@ -315,6 +315,33 @@ local record Mcp
     messages: {PromptMessage}
   end
 
+  --- What `completion/complete` asks: values for one argument of a
+  --- prompt, or one variable of a resource template, as typed so far.
+  --- It names exactly one of `prompt` and `template`.
+  record Completing
+    --- The prompt's name, for one of its arguments.
+    prompt?: string
+    --- The resource template's `uriTemplate`, for one of its variables.
+    template?: string
+    --- The argument's or the variable's name.
+    argument: string
+    --- What is typed of it so far.
+    value: string
+    --- The values of the other arguments or variables already chosen.
+    context?: {string: string}
+  end
+
+  --- What `completion/complete` answers: values that fit what is typed,
+  --- best first.
+  record Completion
+    --- At most [`Mcp.MAX_COMPLETIONS`] values.
+    values: {string}
+    --- How many values fit in all, where the server knows.
+    total?: integer
+    --- Whether more fit than `values` holds.
+    has_more?: boolean
+  end
+
   --- Whether a feature's list can change while the server runs.
   record ListChanged
     --- True where the server tells a subscriber the list changed.
@@ -338,6 +365,8 @@ local record Mcp
     resources?: ResourcesCapability
     --- Present where it offers prompts.
     prompts?: ListChanged
+    --- Present, and empty, where it completes arguments.
+    completions?: {string: any}
   end
 
   --- What `server/discover` answers: the versions the server speaks,
@@ -388,6 +417,8 @@ local record Mcp
   --- The most bytes of one message either end reads (4 MiB): a peer
   --- that sends more is refused, not buffered.
   MAX_MESSAGE_BYTES: integer
+  --- The most values one `completion/complete` answers (100).
+  MAX_COMPLETIONS: integer
 end
 
 Mcp.VERSION = "2026-07-28"
@@ -400,6 +431,7 @@ Mcp.HEADER_MISMATCH = -32020
 Mcp.MISSING_CAPABILITY = -32021
 Mcp.UNSUPPORTED_VERSION = -32022
 Mcp.MAX_MESSAGE_BYTES = 4 * 1024 * 1024
+Mcp.MAX_COMPLETIONS = 100
 
 --- A block of text.
 function Mcp.text(text: string): Mcp.Content

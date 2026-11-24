@@ -88,7 +88,7 @@ local function serving_packets(reply: ReplyTo, body: function(opts: Mdns.Options
     local device <close> = assert(Net.datagram(Net.udp(LOOPBACK, 0)))
     local responder = Poll.spawn(function()
       while true do
-        local packet = device:receive()
+        local packet, _ = device:receive()
         if packet == nil then return end
         local query, _ = Dns.decode(packet.data)
         if query ~= nil then
@@ -393,7 +393,7 @@ local function test_a_search_nothing_answers_ends_at_its_time_limit_having_asked
   assert(elapsed >= Clock.ms(400) and elapsed < Clock.seconds(10), tostring(elapsed))
   local questions = 0
   while true do
-    local packet = silent:receive(0)
+    local packet, _ = silent:receive(0)
     if packet == nil then break end
     assert(asks(assert(Dns.decode(packet.data)), HTTP, Dns.PTR))
     questions = questions + 1
@@ -407,7 +407,7 @@ local function test_a_time_limit_of_nothing_asks_nothing()
   local found = assert(Mdns.browse(HTTP, { address = LOOPBACK, port = assert(silent.address.port), timeout_ns = 0 }))
   assert(#found == 0)
   local packet, why = silent:receive(0)
-  assert(packet == nil and why == Poll.TIMEOUT, why)
+  assert(packet == nil and why.kind == "timeout", why)
 end
 
 --- Datagrams that must add nothing to a browse for `_http._tcp`, as answers to `query`.
@@ -677,7 +677,7 @@ local function serving_group(group: string, reply: Reply, body: function(opts: M
     assert(out:set_multicast({ via = LOOPBACK, hops = 1, loop = true }))
     local responder = Poll.spawn(function()
       while true do
-        local packet = device:receive()
+        local packet, _ = device:receive()
         if packet == nil then return end
         local query, _ = Dns.decode(packet.data)
         -- The group carries the responder's own answers back to it.
@@ -755,7 +755,7 @@ end
 --- that lie, then from `from` with the true ones, both sent to `to`, or to whoever asked.
 local function answering_twice(device: Net.Datagram, elsewhere: Net.Datagram, from: Net.Datagram, to?: Net.Address)
   while true do
-    local packet = device:receive()
+    local packet, _ = device:receive()
     if packet == nil then return end
     local query = assert(Dns.decode(packet.data))
     if not query.response then
@@ -838,7 +838,7 @@ local function test_the_socket_is_closed_when_found_raises()
     local asked_from = 0
     local responder = Poll.spawn(function()
       while true do
-        local packet = device:receive()
+        local packet, _ = device:receive()
         if packet == nil then return end
         local query = assert(Dns.decode(packet.data))
         asked_from = assert(packet.address.port)
@@ -916,7 +916,7 @@ local function test_a_host_nothing_answers_for_resolves_to_no_address()
   assert(#addresses == 0)
   local questions = 0
   while true do
-    local packet = silent:receive(0)
+    local packet, _ = silent:receive(0)
     if packet == nil then break end
     questions = questions + 1
   end

@@ -49,14 +49,47 @@ local record Flags
     --- without it, and [`Flags.help`] marks it. An empty value
     --- (`--out=`) counts as given.
     required?: boolean
+    --- Other spellings of the option (`{ "-r" }` for "--raw"). A line may give any of them;
+    --- [`Flags.Parsed`] holds the option under its spec name alone, and help shows them on its row,
+    --- one-dash spellings first ("-r, --raw"). An alias that is no option, that names another option,
+    --- or that is "-h" or "--help" raises.
+    aliases?: {string}
+    --- The values the option takes, for one that takes a value. [`Flags.parse`] refuses any other
+    --- ("--level takes L, M, Q or H, not Z"), and help lists them after what the option does.
+    choices?: {string}
+    --- That the value is a whole number, within the range's bounds: [`Flags.parse`] refuses any
+    --- other ("-n takes a whole number from 1 to 100, not 0"), holds it in [`Flags.Parsed`]'s
+    --- `integers`, and help shows the bounds.
+    integer?: Range
+    --- The value the option has when the line gives none, for one that takes a value. [`Flags.parse`]
+    --- puts it in `values` (and `integers`), but not in `all` or `given`, which hold what the line
+    --- gave; help shows it ("default: M"). One that the option's `choices` or `integer` refuse, or
+    --- one on a `required` option, raises.
+    default?: string
+  end
+
+  -- TODO: move the other verbs' value checks onto `choices` and `integer` (qr, codec, release, sandbox,
+  -- test, build, sql, lsp), their "(default ...)" text onto `default`, and json's -r and codec's -d onto
+  -- `aliases`; each still words its own refusal of a bad value. Wait for the docs thread's move of each
+  -- verb's spec to cosmic/cli/<verb>.tl, and the six verbs to `subcommands`.
+
+  --- The bounds of a whole number an option takes, each inclusive; no bound where nil.
+  record Range
+    --- The least whole number taken.
+    min?: integer
+    --- The greatest whole number taken.
+    max?: integer
   end
 
   --- What a command line held.
   record Parsed
     --- Each option given that takes no value.
     set: mut {string:boolean}
-    --- Each option given with a value, by name; the last one given wins.
+    --- Each option given with a value, by name; the last one given wins. An option the line does
+    --- not give holds its `default`, where its spec gives one.
     values: mut {string:string}
+    --- The value of each option in `values` whose spec says it is an `integer`, as one.
+    integers: mut {string:integer}
     --- Each option given with a value, by name: every value it was
     --- given, in order, for an option that may be repeated.
     all: mut {string: mut {string}}
@@ -247,6 +280,54 @@ local function is_required(entry: boolean | Flags.Option): boolean
   return entry.required == true
 end
 
+--- `words` joined as a sentence lists them: "a", "a or b", "a, b or c".
+local function either(words: {string}): string
+  if #words <= 1 then
+    return words[1] or ""
+  end
+  return table.concat(words, ", ", 1, #words - 1) .. " or " .. words[#words]
+end
+
+--- What a whole number within `range` is, as a refusal and help say it: "a whole number from 1
+--- to 9", "at least 1", "at most 9", or none.
+local function range_text(range: Flags.Range): string
+  local min, max = range.min, range.max
+  if min ~= nil and max ~= nil then
+    return "a whole number from " .. tostring(min) .. " to " .. tostring(max)
+  elseif min ~= nil then
+    return "a whole number, at least " .. tostring(min)
+  elseif max ~= nil then
+    return "a whole number, at most " .. tostring(max)
+  end
+  return "a whole number"
+end
+
+--- Why the option `name` refuses `value`, by its `choices` or `integer`; "" when it takes it, and
+--- the whole number it is when the option is an `integer`.
+local function refusal_of(name: string, entry: Flags.Option, value: string): string, integer?
+  local shown = if value == "" then "\"\"" else value end
+  local choices = entry.choices
+  if choices ~= nil then
+    local found = false
+    for _, choice in ipairs(choices) do
+      if choice == value then found = true end
+    end
+    if not found then
+      return name .. " takes " .. either(choices) .. ", not " .. shown, nil
+    end
+  end
+  local range = entry.integer
+  if range ~= nil then
+    local number = math.tointeger(tonumber(value))
+    if number == nil or value:find("^[+-]?%d+$") == nil or (range.min ~= nil and number < range.min) or
+        (range.max ~= nil and number > range.max) then
+      return name .. " takes " .. range_text(range) .. ", not " .. shown, nil
+    end
+    return "", number
+  end
+  return "", nil
+end
+
 --- The names of `names` a mistyped `word` most likely meant, likeliest
 --- first, at most three; none when nothing is near. The rule the
 --- refusals of [`Flags.parse`] and [`Flags.dispatch`] end "did you mean"
@@ -339,24 +420,59 @@ end
 --- name beside the spec's when a mistyped option is near one.
 local function read(argv: {string}, from: integer, spec: {string:boolean | Flags.Option},
                     also: {string}): Flags.Parsed?, string
+  local function nameable(name: string): boolean
+    return name:sub(1, 1) == "-" and name ~= "-" and name ~= "--" and name:find("=", 2, true) == nil
+  end
+  -- Each name a line may give, by the spec name it stands for.
+  local named: mut {string:string} = {}
   for name in pairs(spec) do
-    if name:sub(1, 1) ~= "-" or name == "-" or name == "--" or name:find("=", 2, true) ~= nil then
+    if not nameable(name) then
       error("flags: " .. name .. " is not an option a spec can name", 3)
     end
-    local entry = spec[name]
-    if entry is Flags.Option and entry.value == "" then
-      error("flags: " .. name .. "'s value name is empty", 3)
+    named[name] = name
+  end
+  for name, entry in pairs(spec) do
+    if entry is Flags.Option then
+      if entry.value == "" then
+        error("flags: " .. name .. "'s value name is empty", 3)
+      end
+      if (entry.choices ~= nil or entry.integer ~= nil or entry.default ~= nil) and entry.value == nil then
+        error("flags: " .. name .. " has choices, an integer range or a default, and takes no value", 3)
+      end
+      if entry.choices ~= nil and #entry.choices == 0 then
+        error("flags: " .. name .. "'s choices are empty", 3)
+      end
+      if entry.choices ~= nil and entry.integer ~= nil then
+        error("flags: " .. name .. " has both choices and an integer range", 3)
+      end
+      local range = entry.integer
+      if range ~= nil and range.min ~= nil and range.max ~= nil and range.min > range.max then
+        error("flags: " .. name .. "'s integer range is empty", 3)
+      end
+      if entry.default ~= nil and entry.required == true then
+        error("flags: " .. name .. " is required and has a default", 3)
+      end
+      local default = entry.default
+      if default ~= nil and refusal_of(name, entry, default) ~= "" then
+        error("flags: " .. name .. "'s default " .. default .. " is not a value it takes", 3)
+      end
+      for _, alias in ipairs(entry.aliases or {}) do
+        if not nameable(alias) or named[alias] ~= nil or alias == "-h" or alias == "--help" then
+          error("flags: " .. name .. "'s alias " .. alias .. " is not an option of its own", 3)
+        end
+        named[alias] = name
+      end
     end
   end
   local known: mut {string} = {}
-  for name in pairs(spec) do known[#known + 1] = name end
+  for name in pairs(named) do known[#known + 1] = name end
   for _, name in ipairs(also) do known[#known + 1] = name end
   -- Whether the spec names an option that begins with a digit ("-1"), which then is what such a word is.
   local digits = false
-  for name in pairs(spec) do
+  for name in pairs(named) do
     if name:match("^%-%d") ~= nil then digits = true end
   end
-  local parsed: Flags.Parsed = { set = {}, values = {}, all = {}, given = {}, words = {} }
+  local parsed: Flags.Parsed = { set = {}, values = {}, integers = {}, all = {}, given = {}, words = {} }
   local cursor: integer = from
   local function flag(name: string)
     parsed.set[name] = true
@@ -365,16 +481,25 @@ local function read(argv: {string}, from: integer, spec: {string:boolean | Flags
   -- Records `name`'s value: `value` when the word held it, otherwise
   -- the next word, which must not look like an option. `same` is how a
   -- value is attached to `name` in one word, for the refusal to show.
-  local function valued(name: string, value: string?, same: string): string
+  -- `typed` is how the line spelled `name`, an alias or the name itself, for a refusal to show.
+  local function valued(name: string, value: string?, same: string, typed: string): string
     if value == nil then
       cursor = cursor + 1
       value = argv[cursor]
       if value == nil then
-        return name .. " needs a value"
+        return typed .. " needs a value"
       elseif looks_like_option(value) and (digits or value:match("^%-%d") == nil) then
-        return name .. " needs a value, not " .. value .. "; give one that " ..
-          "begins with \"-\" as " .. name .. same .. value
+        return typed .. " needs a value, not " .. value .. "; give one that " ..
+          "begins with \"-\" as " .. typed .. same .. value
       end
+    end
+    local entry = spec[name]
+    if entry is Flags.Option then
+      local why, number = refusal_of(typed, entry, value)
+      if why ~= "" then
+        return why
+      end
+      if number ~= nil then parsed.integers[name] = number end
     end
     parsed.values[name] = value
     local list = parsed.all[name]
@@ -391,7 +516,7 @@ local function read(argv: {string}, from: integer, spec: {string:boolean | Flags
   -- cluster, as "-n=3" is.
   local function whole(word: string): boolean
     local name = word:match("^(%-[^=]+)=")
-    return name ~= nil and #name > 2 and spec[name] ~= nil
+    return name ~= nil and #name > 2 and named[name] ~= nil
   end
   local options = true
   while argv[cursor] ~= nil do
@@ -400,39 +525,41 @@ local function read(argv: {string}, from: integer, spec: {string:boolean | Flags
       parsed.words[#parsed.words + 1] = word
     elseif word == "--" then
       options = false
-    elseif word:sub(2, 2) == "-" or spec[word] ~= nil or whole(word) then
-      local name, value = word:match("^(%-%-?[^=]+)=(.*)$")
-      if name == nil then name = word end
+    elseif word:sub(2, 2) == "-" or named[word] ~= nil or whole(word) then
+      local typed, value = word:match("^(%-%-?[^=]+)=(.*)$")
+      if typed == nil then typed = word end
+      local name = named[typed] or typed
       local entry = spec[name]
       if entry == nil then
         return nil, "no such option: " .. name .. meant(name, known)
       elseif takes_value(entry) then
-        local trouble = valued(name, value, if #name > 2 then "=" else "" end)
+        local trouble = valued(name, value, if #typed > 2 then "=" else "" end, typed)
         if trouble ~= "" then
           return nil, trouble
         end
       elseif value ~= nil then
-        return nil, name .. " takes no value"
+        return nil, typed .. " takes no value"
       else
         flag(name)
       end
-    elseif spec[word:sub(1, 2)] == nil then
+    elseif named[word:sub(1, 2)] == nil then
       return nil, "no such option: " .. word .. meant(word, known)
     else
       local at = 2
       while at <= #word do
         local letter = word:sub(at, at)
-        local name = "-" .. letter
+        local typed = "-" .. letter
+        local name = named[typed] or typed
         local entry = spec[name]
         if letter == "=" then
           return nil, "-" .. word:sub(at - 1, at - 1) .. " takes no value"
         elseif not letter:match("^%w$") then
           return nil, "no such option: " .. word .. meant(word, known)
         elseif entry == nil then
-          return nil, "no such option: " .. name .. " in " .. word .. meant(word, known)
+          return nil, "no such option: " .. typed .. " in " .. word .. meant(word, known)
         elseif takes_value(entry) then
           local rest = word:sub(at + 1)
-          local trouble = valued(name, if rest ~= "" then rest else nil end, "")
+          local trouble = valued(name, if rest ~= "" then rest else nil end, "", typed)
           if trouble ~= "" then
             return nil, trouble
           end
@@ -454,6 +581,14 @@ local function read(argv: {string}, from: integer, spec: {string:boolean | Flags
   local first = missing[1]
   if first ~= nil then
     return nil, first .. " is required"
+  end
+  for name, entry in pairs(spec) do
+    if entry is Flags.Option and entry.default ~= nil and parsed.values[name] == nil then
+      local default = entry.default
+      parsed.values[name] = default
+      local _, number = refusal_of(name, entry, default)
+      if number ~= nil then parsed.integers[name] = number end
+    end
   end
   return parsed, ""
 end
@@ -493,9 +628,14 @@ end
 --- ("-1", "-0.5"; not "-inf") or a word that begins with "-" and a digit
 --- ("-90m") -- so a mistyped option ("--jobs --chek")
 --- is never read as a value. A value that begins with "-" is given in
---- the same word: "--jobs=--x", "-std=-x", "-n--x". A spec key that is
---- not an option ("x", "-", "--"), or that holds an "=" no word could
---- reach ("--a=b"), raises, as does an [`Option`] whose `value` is "".
+--- the same word: "--jobs=--x", "-std=-x", "-n--x". It refuses a value
+--- outside an option's `choices` or `integer` range too ("-n takes a whole
+--- number from 1 to 9, not 0"). An alias is read as the option it spells,
+--- and an option the line does not give holds its `default`. A spec key
+--- that is not an option ("x", "-", "--"), or that holds an "=" no word
+--- could reach ("--a=b"), raises, as does an [`Option`] whose `value` is
+--- "", and one whose `aliases`, `choices`, `integer` or `default` the
+--- [`Option`] fields' own text says raise.
 --- @param argv {string} The command line: the words after the program's name, as typed
 --- @param from integer The first slot to read
 --- @param spec {string:boolean|Option} Each option, and whether it takes a value
@@ -659,15 +799,36 @@ local function option_rows(spec: {string:boolean | Flags.Option}): {Row}
   for _, name in ipairs(names) do
     local entry = spec[name]
     local head = name
+    if entry is Flags.Option and entry.aliases ~= nil and #entry.aliases > 0 then
+      local spellings: mut {string} = {}
+      for _, alias in ipairs(entry.aliases) do spellings[#spellings + 1] = alias end
+      spellings[#spellings + 1] = name
+      table.sort(spellings, function(a: string, b: string): boolean
+        local long_a, long_b = a:sub(2, 2) == "-", b:sub(2, 2) == "-"
+        if long_a ~= long_b then return long_b end
+        if a == name or b == name then return a == name end
+        return a < b
+      end)
+      head = table.concat(spellings, ", ")
+    end
     local value = if entry is Flags.Option then entry.value else nil end
     if value ~= nil then
-      head = name .. " <" .. value .. ">"
+      head = head .. " <" .. value .. ">"
     elseif entry == true then
-      head = name .. " <value>"
+      head = head .. " <value>"
     end
     local about = if entry is Flags.Option then entry.about else nil end
-    if entry ~= nil and is_required(entry) then
-      about = if about ~= nil and about ~= "" then about .. " (required)" else "(required)" end
+    local notes: mut {string} = {}
+    if entry is Flags.Option then
+      if entry.choices ~= nil then notes[#notes + 1] = either(entry.choices) end
+      local range = entry.integer
+      if range ~= nil then notes[#notes + 1] = range_text(range) end
+      if entry.default ~= nil then notes[#notes + 1] = "default: " .. entry.default end
+    end
+    if entry ~= nil and is_required(entry) then notes[#notes + 1] = "required" end
+    if #notes > 0 then
+      local said = "(" .. table.concat(notes, "; ") .. ")"
+      about = if about ~= nil and about ~= "" then about .. " " .. said else said end
     end
     rows[#rows + 1] = { head = head, about = about }
   end

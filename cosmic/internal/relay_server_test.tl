@@ -51,7 +51,7 @@ local function origin(handle: function(conn: Net.Conn, seen: Origin)): Origin
   }
   local acceptor = Poll.spawn(function()
     while true do
-      local conn = listener:accept()
+      local conn, _ = listener:accept()
       if conn == nil then
         return
       end

@@ -219,7 +219,7 @@ end
 local function echoing(listener: Net.Listener, count: Tally): Poll.Task
   return Poll.spawn(function()
     while true do
-      local conn = listener:accept()
+      local conn, _ = listener:accept()
       if conn == nil then return end
       count.connections = count.connections + 1
       Poll.spawn(function()
