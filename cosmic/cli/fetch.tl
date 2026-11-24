@@ -7,7 +7,11 @@
 --- `cosmic fetch <url> | cosmic json '$.items'` reads it. With `-o`, the
 --- body is written to a temporary file beside the target. The file is
 --- renamed into place only when the whole body is in and its digest
---- matches. So a failed digest leaves nothing at the target.
+--- matches. So a failed digest leaves nothing at the target. A device,
+--- a FIFO or `/dev/stdout` (`-o /dev/null`, a named pipe) is written in
+--- place, as standard output is, never replaced by a regular file. A FIFO
+--- with no reader holds the fetch until one opens it, as a shell's `>`
+--- does.
 ---
 --- Digests:
 ---
@@ -94,7 +98,8 @@ local command: Flags.Command = {
       about = "print the body, or save it",
       usage = "<url[#sha256=<hex>]>",
       spec = fetch_spec({
-        ["-o"] = { value = "file", about = "write the body to file, renamed into place once complete and verified" },
+        ["-o"] = { value = "file", about = "write the body to file, renamed into place once complete and verified " ..
+            "(a device or FIFO is written in place)" },
         ["--sha256"] = { value = "hex", about = "fail unless the body has this sha256; on stdout, buffer until verified" },
         ["--sha512"] = { value = "hex", about = "fail unless the body has this sha512 (also checked with --sha256)" },
       }),
