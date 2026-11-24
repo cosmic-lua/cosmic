@@ -9,6 +9,9 @@
 --- - [`Sandbox.merge`] joins policies into one: it resolves `profiles`,
 ---   joins the letters of a path, unions the lists, and refuses two values
 ---   for one `set_env` name or one limit.
+--- - [`Sandbox.intersect`] is what stacked layers hold: only what each
+---   allows. [`Sandbox.held`] is that for this process's restrictions.
+--- - [`Sandbox.allows`] says whether a policy gives letters at a path.
 --- - [`Sandbox.profile`] is what a named profile holds on this host:
 ---   "system", "cosmic" and "proc".
 --- - [`Sandbox.loaders`] is what a program needs read and run to start.
@@ -188,6 +191,61 @@ end
 ---     print(merged.grants[1].letters, table.concat(merged.promises, ",")) -- rx  fork,jit
 function Sandbox.merge(...: Sandbox.Policy): Sandbox.Policy?, string
   return rules.merge(...)
+end
+
+--- What the policies given hold a program to stacked: only what every
+--- one allows, as the kernel holds a process to every Landlock ruleset and
+--- seccomp filter made. [`Sandbox.merge`] builds one layer, a union;
+--- this is the meet of layers, the policy a child started under it, or a
+--- process restricted by each in turn ([`Sandbox.restrict`]), really has.
+--- Each is merged first. A path is reached with the letters every layer
+--- gives it; `promises`, `env` and `loopback` are the members every layer
+--- names; a `connect` target is what each layer's targets reach; `isolate`
+--- is the union, since more isolation is less right; `tmp` holds only
+--- where each layer has it; a limit is the lowest given. What is not a
+--- right, which the start sets up, joins as a merge joins it: `set_env`,
+--- and one `user`, `group` and `database`, refused where layers
+--- disagree. A grant with `from` meets only a grant of its own path and
+--- source. Nil and why for no layer, or one [`Sandbox.merge`] refuses.
+---
+---     local a = { grants = { { path = "/srv", letters = "rwx" } }, connect = { "*:443" } }
+---     local b = { grants = { { path = "/srv/data", letters = "r" } }, connect = { "api.github.com:*" } }
+---     local both = assert(Sandbox.intersect(a, b))
+---     print(both.grants[1].path, both.grants[1].letters, both.connect[1]) -- /srv/data  r  api.github.com:443
+function Sandbox.intersect(...: Sandbox.Policy): Sandbox.Policy?, string
+  return rules.intersect(...)
+end
+
+--- Whether `policy` lets a program do each of `letters` at `path`, as
+--- Landlock reads its grants: true where a grant of `path`, or of a
+--- directory above it, gives every letter; false and why otherwise. The
+--- policy is merged first, so it may name `profiles`. `path` is compared
+--- as written, cleaned: to check a real file, resolve its links first,
+--- since the kernel reads the path it opens. A second layer for code
+--- that runs in a process no kernel layer holds, never the only one.
+---
+---     local p = { grants = { { path = "/srv", letters = "rw" } } }
+---     print((Sandbox.allows(p, "/srv/a/b", "r")), (Sandbox.allows(p, "/etc", "r"))) -- true  false
+function Sandbox.allows(policy: Sandbox.Policy, path: string, letters: string): boolean, string
+  local merged, why = rules.merge(policy)
+  if merged == nil then return false, why end
+  return rules.allows(merged, path, letters)
+end
+
+--- The policies [`Sandbox.restrict`] has held this process to, merged,
+--- in the order it was given them.
+local restricted: mut {Sandbox.Policy} = {}
+
+--- What this process is held to by [`Sandbox.restrict`]: the
+--- intersection of every policy it was restricted to ([`Sandbox.intersect`]),
+--- or nil for none. A process started under a policy by [`Child.start`]
+--- is held to that policy too, which this does not know.
+---
+---     print(Sandbox.held()) -- nil, in a process never restricted
+function Sandbox.held(): Sandbox.Policy?
+  if #restricted == 0 then return nil end
+  local held, _ = rules.intersect(table.unpack(restricted))
+  return held
 end
 
 --- The rlimits a policy's `limits` hold each of its processes to, by the
@@ -581,7 +639,12 @@ function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOpti
   end
   local logged = store_unheld()
   if logged ~= "" then return denied(logged) end
-  if rules.on_macos() then return held_by_seatbelt(policy, kept) end
+  if rules.on_macos() then
+    local done, seatbelt_why = held_by_seatbelt(policy, kept)
+    if not done then return false, seatbelt_why end
+    restricted[#restricted + 1] = merged
+    return true, ""
+  end
   local grants: mut {raw_process.Grant} = {}
   for _, grant in ipairs(merged.grants or {}) do
     grants[#grants + 1] = { path = grant.path, access = grant.letters }
@@ -598,6 +661,7 @@ function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOpti
     end
     return denied(held)
   end
+  restricted[#restricted + 1] = merged
   return true, ""
 end
 
