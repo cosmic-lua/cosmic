@@ -4,6 +4,7 @@
 --- process ([`build.invoke`]), which read every module's rows.
 
 local Cli = require("cosmic.cli")
+local exit_status = require("build.exit_status")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -132,6 +133,17 @@ local function test_help_of_a_verb_is_that_verb_alone(tmp: string)
     local out = verbs_fixture.expect(tmp, "help", { "help", verb }, 0).stdout
     assert(out:sub(1, 14) == "usage: cosmic ", verb .. ": " .. out)
     assert(out:find("\n\nTakes ", 1, true) or out:find("\n\nPrints only", 1, true), verb .. ": " .. out)
+  end
+end
+
+--- A chunk or file the checker refuses exits [`exit_status.uncompiled`], as
+--- [`build/standalone_tool_test.tl`] holds it to; the help of `--standalone --check` and `-e` says so.
+local function test_help_gives_the_exit_code_of_a_refused_chunk(tmp: string)
+  local said = "and exits " .. tostring(exit_status.uncompiled) .. ","
+  local refused = "it exits " .. tostring(exit_status.uncompiled) .. ","
+  for verb, want in pairs({ standalone = said, eval = refused }) do
+    local out = verbs_fixture.expect(tmp, "help", { "help", verb }, 0).stdout:gsub("%s+", " ")
+    assert(out:find(want, 1, true) ~= nil, verb .. ": " .. out)
   end
 end
 

@@ -9,7 +9,7 @@
 ---     local app = Web.app{
 ---       routes = {
 ---         Web.get("/", function(req: Web.Request): Web.Response
----           local who = assert(Web.tailnet_identity(req))
+---           local who = assert(Web.who(req).tailnet)
 ---           return Web.text("hello " .. who.display_name)
 ---         end),
 ---         Web.get("/admin", function(_: Web.Request): Web.Response
@@ -21,7 +21,7 @@
 ---
 --- [`Web.tailnet`] asks the daemon who the connection's far end is
 --- ([`cosmic.tailscale.Client.whois_result`]) and keeps the answer on the request, where
---- [`Web.tailnet_identity`] reads it and [`Web.require_cap`] tests it. It
+--- [`Web.who`] reads it and [`Web.require_cap`] tests it. It
 --- answers by itself:
 ---
 --- - 403 to a request from no node of the tailnet, unless `required` is
@@ -76,6 +76,7 @@ local Json = require("cosmic.json")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
+local Identities = require("cosmic.web.identity")
 local Request = require("cosmic.web.request")
 local Response = require("cosmic.web.response")
 local Tailscale = require("cosmic.tailscale")
@@ -104,34 +105,10 @@ end
 local record Tailnet
   --- Where [`serving`] serves an app, and what it presents.
   type Reached = Reached
-  --- Where [`Identity`] came from.
-  enum Source
-    --- The daemon's whois of the connection's far end.
-    "whois"
-    --- The headers of `tailscale serve`, from a loopback peer (with
-    --- `serve`) or at the socket the daemon's Serve passes requests to.
-    "serve"
-  end
-
-  --- Who a request comes from, as [`Web.tailnet_identity`] answers it.
-  record Identity
-    --- The name a person logs in as; `tagged-devices` for a tagged node.
-    login_name: string
-    --- The name to show a person.
-    display_name: string
-    --- Where their picture is, when they have one.
-    picture_url?: string
-    --- The node the request came from; nil behind `tailscale serve`,
-    --- whose headers name the user alone.
-    node?: Tailscale.Node
-    --- Whether the node is tagged, so that no person is behind it.
-    tagged: boolean
-    --- The capabilities the policy grants the peer on this node, each
-    --- name to the values of its grants: as [`cosmic.tailscale.WhoIs.caps`].
-    caps: {string: {Json.Value}}
-    --- Where it came from.
-    source: Source
-  end
+  --- Where [`Identity`] came from: see [`cosmic.web.identity.TailnetSource`].
+  type Source = Identities.TailnetSource
+  --- Who a request comes from: see [`cosmic.web.identity.Tailnet`].
+  type Identity = Identities.Tailnet
 
   --- What [`Web.tailnet`] takes; every field is optional.
   record Options
@@ -159,7 +136,7 @@ local record Tailnet
 end
 
 --- The key a request's identity is kept under.
-local IDENTITY: Types.Key<Tailnet.Identity> = Request.key("tailnet.identity")
+local IDENTITY: Types.Key<Tailnet.Identity> = Identities.TAILNET
 
 --- The key that marks a request Funnel brought from the internet.
 local FUNNEL: Types.Key<boolean> = Request.key("tailnet.funnel")
@@ -398,12 +375,6 @@ function Tailnet.middleware(opts?: Tailnet.Options): Types.Middleware
       return inner(req)
     end
   end
-end
-
---- The identity [`Web.tailnet`] found for `req`, or nil where it found none
---- (or does not run).
-function Tailnet.identity(req: Types.Request): Tailnet.Identity?
-  return req:get(IDENTITY)
 end
 
 --- Whether [`Web.tailnet`] found that Funnel brought `req` from the

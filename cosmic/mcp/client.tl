@@ -950,32 +950,6 @@ local OWN_HEADERS <const>: {string: boolean} = {
   ["content-type"] = true, accept = true, ["mcp-protocol-version"] = true, ["mcp-method"] = true, ["mcp-name"] = true,
 }
 
---- The JSON-RPC messages an event stream holds, each the data of one
---- event: its `data:` lines joined by newlines.
-local function events(body: string): {string}
-  local out: mut {string} = {}
-  local data: mut {string} = {}
-  local function flush()
-    if #data > 0 then
-      local joined = table.concat(data, "\n")
-      out[#out + 1] = joined
-      data = {}
-    end
-  end
-  -- A line ends at CRLF, LF or CR; an event, at a blank line, and one
-  -- the stream ends inside is dropped, as the event stream format has it.
-  local text = body:gsub("\r\n", "\n"):gsub("\r", "\n")
-  for line in text:gmatch("([^\n]*)\n") do
-    if line == "" then
-      flush()
-    else
-      local field, value = line:match("^([^:]*):? ?(.*)$")
-      if field == "data" and value ~= nil then data[#data + 1] = value end
-    end
-  end
-  return out
-end
-
 --- The response to `id` among `messages`, the text of each; with
 --- `lenient`, one that is not a message is passed over (an event a server
 --- or a proxy sends that is not the protocol's), else it fails.
@@ -993,51 +967,6 @@ local function response_in(messages: {string}, id: string, lenient: boolean): (w
   return false
 end
 
---- Reads an event stream as it comes: each event's data once the event is whole. Each chunk is looked at once,
---- and what is held joined only when an event ends, so a stream sent a byte at a time costs no more than one sent
---- whole.
-local class EventSplitter
-  --- The chunks since the last whole event, their line ends made LF.
-  mut parts: mut {string}
-  mut size: integer
-  --- The last byte held, so a blank line split between two chunks is found.
-  mut last: string
-  --- A CR that ended the last chunk, which may be the first half of a CRLF.
-  mut cr: boolean
-
-  --- The data of each event `chunk` completes, or nil where an event is longer than a message may be.
-  function feed(self, chunk: string): {string}?
-    local c = if self.cr then "\r" .. chunk else chunk end
-    self.cr = c:sub(-1) == "\r"
-    if self.cr then c = c:sub(1, -2) end
-    c = c:gsub("\r\n", "\n"):gsub("\r", "\n")
-    if c == "" then return {} end
-    if (self.last .. c):find("\n\n", 1, true) == nil then
-      self.parts[#self.parts + 1] = c
-      self.size = self.size + #c
-      self.last = c:sub(-1)
-      if self.size > Mcp.MAX_MESSAGE_BYTES then return nil end
-      return {}
-    end
-    self.parts[#self.parts + 1] = c
-    local text = table.concat(self.parts)
-    local last = 0
-    local at = 1
-    while true do
-      local found = text:find("\n\n", at, true)
-      if found == nil then break end
-      last = found + 1
-      at = found + 1
-    end
-    local rest = text:sub(last + 1)
-    self.parts = { rest }
-    self.size = #rest
-    self.last = if rest ~= "" then rest:sub(-1) else "\n" end
-    if self.size > Mcp.MAX_MESSAGE_BYTES then return nil end
-    return events(text:sub(1, last))
-  end
-end
-
 --- The failure of `req` that `trouble`, the words of a transport, says: of kind "cancelled" where its task was
 --- cancelled.
 local function trouble_of(req: Request, trouble: string): Failure
@@ -1049,14 +978,11 @@ end
 --- The response to `req` read from `response`, an event stream, giving `req`'s `on_progress` each notice of its
 --- progress as it comes.
 local function streamed_response(response: Http.Response, req: Request): (wire.Message | false) | (nil, Failure)
-  local splitter: EventSplitter = { parts = {}, size = 0, last = "", cr = false }
+  local splitter = wire.splitter()
   while true do
     local chunk, trouble = response:read()
-    if chunk == nil then
-      if trouble ~= "" then return nil, trouble_of(req, trouble) end
-      return false
-    end
-    local datas = splitter:feed(chunk)
+    if chunk == nil and trouble ~= "" then return nil, trouble_of(req, trouble) end
+    local datas = if chunk ~= nil then splitter.feed(chunk) else splitter.finish() end
     if datas == nil then
       return nil, Failure.new("mcp: " .. req.method .. ": an event is longer than a message may be")
     end
@@ -1067,6 +993,7 @@ local function streamed_response(response: Http.Response, req: Request): (wire.M
         if message.method == nil and message.id == req.id then return message end
       end
     end
+    if chunk == nil then return false end
   end
 end
 
@@ -1075,7 +1002,7 @@ local function http_response(got: Http.Body, id: string, method: string): (wire.
   local kind = ((got.headers["content-type"] or ""):match("^%s*([^;%s]+)") or ""):lower()
   local messages: {string} = {}
   if kind == "text/event-stream" then
-    messages = events(got.body)
+    messages = wire.events(got.body)
   elseif kind == "application/json" then
     messages = { got.body }
   end

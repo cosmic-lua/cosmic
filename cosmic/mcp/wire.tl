@@ -11,6 +11,26 @@ local Mcp = require("cosmic.mcp")
 local Shape = require("cosmic.shape")
 
 local record wire
+  --- Reads an event stream as it comes ([`wire.splitter`]).
+  record Splitter
+    --- The data of each event `chunk` completes, in order, or nil where
+    --- an event is longer than a message may be.
+    feed: function(chunk: string): {string}?
+    --- The data of each event the stream's end completes: a CR held at
+    --- the end of the last chunk, in case a LF came next, ends a line.
+    finish: function(): {string}
+  end
+
+  --- What a `WWW-Authenticate: Bearer` challenge says ([`wire.challenge`]).
+  record Challenge
+    --- Where the server's protected resource metadata is.
+    resource_metadata?: string
+    --- The scopes to ask for.
+    scope?: {string}
+    --- Why: `invalid_token`, `insufficient_scope`.
+    error?: string
+  end
+
   --- The parts of one JSON-RPC message.
   record Message
     --- The id, encoded as JSON (`1`, `"a"`), nil for a notification and
@@ -199,6 +219,212 @@ function wire.message(text: string): (wire.Message) | (nil, Failure)
     err = said
   end
   return { id = id, method = envelope.method, params = envelope.params, result = envelope.result, error = err }
+end
+
+--- The byte order mark a stream may start with (U+FEFF in UTF-8).
+local BOM <const> = "\239\187\191"
+
+--- The data of each whole event in `text_in`, a stream's text from an event's start.
+local function events_of(text_in: string): {string}
+  local out: mut {string} = {}
+  local data: mut {string} = {}
+  local function flush()
+    if #data > 0 then
+      local joined = table.concat(data, "\n")
+      out[#out + 1] = joined
+      data = {}
+    end
+  end
+  -- A line ends at CRLF, LF or CR; an event, at a blank line, and one
+  -- the stream ends inside is dropped, as the event stream format has it.
+  local text = text_in:gsub("\r\n", "\n"):gsub("\r", "\n")
+  for line in text:gmatch("([^\n]*)\n") do
+    if line == "" then
+      flush()
+    else
+      local field, value = line:match("^([^:]*):? ?(.*)$")
+      if field == "data" and value ~= nil then data[#data + 1] = value end
+    end
+  end
+  return out
+end
+
+--- The JSON-RPC messages an event stream holds, each the data of one
+--- event: its `data:` lines joined by newlines.
+function wire.events(body: string): {string}
+  -- A byte order mark that starts the stream is not its text.
+  return events_of(if body:sub(1, #BOM) == BOM then body:sub(#BOM + 1) else body end)
+end
+
+--- A reader of an event stream as it comes: each event's data once the
+--- event is whole. Each chunk is looked at once, and what is held joined
+--- only when an event ends, so a stream sent a byte at a time costs no
+--- more than one sent whole. However the stream is cut into chunks, the
+--- events are those [`wire.events`] reads of it whole.
+function wire.splitter(): wire.Splitter
+  -- The chunks since the last whole event, their line ends made LF, and their size.
+  local parts: mut {string} = {}
+  local size = 0
+  -- The last byte held, so a blank line split between two chunks is found.
+  local last_byte = ""
+  -- A CR that ended the last chunk, which may be the first half of a CRLF.
+  local cr = false
+  -- The bytes the stream starts with, held until they can be told from a byte order mark; nil once they are.
+  local head: string? = ""
+  local function feed(given: string): {string}?
+    local chunk = given
+    local h = head
+    if h ~= nil then
+      local start = h .. given
+      if #start < #BOM and BOM:sub(1, #start) == start then
+        head = start
+        return {}
+      end
+      head = nil
+      chunk = if start:sub(1, #BOM) == BOM then start:sub(#BOM + 1) else start end
+    end
+    local c = if cr then "\r" .. chunk else chunk end
+    cr = c:sub(-1) == "\r"
+    if cr then c = c:sub(1, -2) end
+    c = c:gsub("\r\n", "\n"):gsub("\r", "\n")
+    if c == "" then return {} end
+    if (last_byte .. c):find("\n\n", 1, true) == nil then
+      parts[#parts + 1] = c
+      size = size + #c
+      last_byte = c:sub(-1)
+      if size > Mcp.MAX_MESSAGE_BYTES then return nil end
+      return {}
+    end
+    parts[#parts + 1] = c
+    local text = table.concat(parts)
+    local last = 0
+    local at = 1
+    while true do
+      local found = text:find("\n\n", at, true)
+      if found == nil then break end
+      last = found + 1
+      at = found + 1
+    end
+    local rest = text:sub(last + 1)
+    parts = { rest }
+    size = #rest
+    last_byte = if rest ~= "" then rest:sub(-1) else "\n" end
+    if size > Mcp.MAX_MESSAGE_BYTES then return nil end
+    return events_of(text:sub(1, last))
+  end
+  local function finish(): {string}
+    if not cr then return {} end
+    cr = false
+    -- The held CR ends a line. The stream is over, so nothing is held to refuse.
+    return feed("\n") or {}
+  end
+  return { feed = feed, finish = finish }
+end
+
+--- The parameters of the `Bearer` challenge in the `WWW-Authenticate`
+--- header `header`, or nil where it has none. The header is read as
+--- RFC 9110 has it: challenges split by commas, each a scheme and then a
+--- token68 or `name=value` parameters, a quoted value's escapes undone.
+--- Only the parameters of the `Bearer` challenge are kept, so a word
+--- inside another scheme's value, or another scheme's parameters, are not
+--- read as its own.
+function wire.challenge(header: string): wire.Challenge?
+  local n = #header
+  local i = 1
+  -- Whether a Bearer challenge was read, and whether the parameters now read are its own.
+  local found, mine = false, false
+  -- Whether a scheme was just read, with no comma since: a lone token then is its token68.
+  local fresh = false
+  local params: mut {string: string} = {}
+  local function skip(set: string)
+    while i <= n and header:sub(i, i):find(set) ~= nil do i = i + 1 end
+  end
+  -- The quoted string at `i`, its escapes undone; one the header ends inside ends with it.
+  local function quoted(): string
+    local out: mut {string} = {}
+    i = i + 1
+    while i <= n do
+      local c = header:sub(i, i)
+      if c == "\\" then
+        out[#out + 1] = header:sub(i + 1, i + 1)
+        i = i + 2
+      elseif c == '"' then
+        i = i + 1
+        break
+      else
+        out[#out + 1] = c
+        i = i + 1
+      end
+    end
+    return table.concat(out)
+  end
+  while i <= n do
+    local before = i
+    skip("[ \t]")
+    if header:sub(i, i) == "," then
+      fresh = false
+      i = i + 1
+      skip("[ \t,]")
+    end
+    local s, e = header:find("^[!#$%%&'*+%-.^_`|~%w]+", i)
+    if s == nil or e == nil then
+      -- Neither a token nor a comma: a byte no challenge holds, or a quoted string where no parameter stands,
+      -- passed over whole, so no word inside it is read as a scheme.
+      if i == before then
+        if header:sub(i, i) == '"' then
+          local _ = quoted()
+        else
+          i = i + 1
+        end
+        fresh = false
+      end
+    else
+      local token = header:sub(s, e)
+      i = e + 1
+      skip("[ \t]")
+      local eq = header:sub(i, i) == "="
+      -- `name=value`, not the trailing `=`s of a token68 (`abc==`, `abc=` at a comma or the end).
+      local param = false
+      if eq then
+        local after = header:find("[^ \t]", i + 1)
+        param = after ~= nil and header:sub(after, after) ~= "," and header:sub(after, after) ~= "="
+      end
+      if param then
+        i = i + 1
+        skip("[ \t]")
+        local value: string
+        if header:sub(i, i) == '"' then
+          value = quoted()
+        else
+          local v = header:match("^[^%s,]*", i) or ""
+          i = i + #v
+          value = v
+        end
+        local key = token:lower()
+        if mine and params[key] == nil then params[key] = value end
+        fresh = false
+      elseif fresh then
+        -- The token68 of the scheme just read, read again from its start: it may hold a `/`, which a token does
+        -- not, and end in `=`s that pad it.
+        local _, last = header:find("^[%w%-._~+/]+=*", s)
+        if last ~= nil and last + 1 > i then i = last + 1 end
+        fresh = false
+      else
+        mine = token:lower() == "bearer" and not found
+        if mine then found = true end
+        fresh = true
+      end
+    end
+  end
+  if not found then return nil end
+  local scope: {string}? = nil
+  local said = params["scope"]
+  if said ~= nil then
+    local list: mut {string} = {}
+    for each in said:gmatch("%S+") do list[#list + 1] = each end
+    scope = list
+  end
+  return { resource_metadata = params["resource_metadata"], scope = scope, error = params["error"] }
 end
 
 --- The text of the response to the request `id` (encoded) answering

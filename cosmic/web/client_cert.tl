@@ -9,7 +9,7 @@
 ---     local app = Web.app{
 ---       routes = {
 ---         Web.get("/", function(req: Web.Request): Web.Response
----           local peer = assert(Web.client_cert(req))
+---           local peer = assert(Web.who(req).client_cert)
 ---           return Web.text("hello " .. (peer.uris[1] or peer.subject))
 ---         end),
 ---       },
