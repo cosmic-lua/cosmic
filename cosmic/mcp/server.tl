@@ -1818,12 +1818,13 @@ local function allowed_origin(origin: string, allowed: {string}): boolean
   return false
 end
 
---- How long an event stream goes with nothing to say before it says a comment, so a client gone is found at a
---- comment's write and its request cancelled: the HTTP server sees a client go only when it writes. A request's
---- stream says one each second, so a call its client gave up on (by closing) is cancelled within about two; a
---- subscription's, which waits for hours, each 5 s.
-local KEEPALIVE_NS <const> = 1000000000
-local LISTEN_KEEPALIVE_NS <const> = 5 * 1000000000
+--- How long an event stream goes with nothing to say before it says a comment, so a proxy between keeps the
+--- connection open.
+local KEEPALIVE_NS <const> = 5 * 1000000000
+
+--- How often a quiet event stream asks whether its client (one that closed, or half-closed its sending side) has gone ([`cosmic.http.server.Request`]'s `gone`), so a call
+--- its client gave up on (by closing) is cancelled within about this long.
+local GONE_NS <const> = 250 * 1000000
 
 --- The most notices an event stream holds for a client that has not read them; past it the stream ends, as a
 --- client too slow to keep up is told by its end to start again.
@@ -1833,10 +1834,6 @@ local MAX_QUEUED <const> = 256
 --- progress not yet read when the next comes is dropped for it, so a client that reads slowly holds the server to
 --- one; the others (a subscription's) are queued, to [`MAX_QUEUED`]. Closed before the answer (the client gone,
 --- the server stopping), it cancels the request.
--- TODO: wait in slices of about 250 ms, ask `req.gone()` between them and
--- close where it is true, so a client gone is found at once and its request
--- cancelled; then keepalive comments can go back to 5 s. Waits on the MCP
--- known-limits PR, which changes these lines.
 local class EventReader is Stream.Reader
   notifier: Poll.Notifier
   flight: Flight
@@ -1848,8 +1845,8 @@ local class EventReader is Stream.Reader
   mut answer?: string
   mut task?: Poll.Task
   mut finished: boolean
-  --- How long it goes with nothing to say before a comment.
-  keepalive_ns: integer
+  --- Whether the client has gone: the request's `gone`.
+  gone: function(): boolean
   --- When the stream ends, its grant's time past, in nanoseconds since the epoch; nil: never by time.
   ends_ns?: integer
 
@@ -1872,21 +1869,31 @@ local class EventReader is Stream.Reader
         return "event: message\ndata: " .. final .. "\n\n", ""
       end
       if self.finished then return nil, "" end
-      local wait_ns = self.keepalive_ns
-      local ends_ns = self.ends_ns
-      if ends_ns ~= nil then
-        local left = ends_ns - Clock.now_ns()
-        if left <= 0 then
-          -- The token it was opened with is past its time: the client asks again with a new one.
+      -- TODO: wait on the notifier and on the connection's hang-up together,
+      -- rather than waking each GONE_NS to ask `gone`, once cosmic.poll can
+      -- wait on a notifier and a descriptor at once (and HttpServer.Request
+      -- hands out what to wait on).
+      local quiet_ns = Clock.monotonic_ns() + KEEPALIVE_NS
+      while true do
+        local wait_ns = math.min(GONE_NS, quiet_ns - Clock.monotonic_ns())
+        local ends_ns = self.ends_ns
+        if ends_ns ~= nil then
+          local left = ends_ns - Clock.now_ns()
+          if left <= 0 then
+            -- The token it was opened with is past its time: the client asks again with a new one.
+            local _, _ = self:close()
+            return nil, ""
+          end
+          if left < wait_ns then wait_ns = left end
+        end
+        local ok, why = self.notifier:wait(math.max(wait_ns, 0))
+        if ok then break end
+        if why.kind ~= "timeout" then return nil, why.message end
+        if self.gone() then
           local _, _ = self:close()
           return nil, ""
         end
-        if left < wait_ns then wait_ns = left end
-      end
-      local ok, why = self.notifier:wait(wait_ns)
-      if not ok then
-        if why.kind ~= "timeout" then return nil, why.message end
-        return ": working\n\n", ""
+        if Clock.monotonic_ns() >= quiet_ns then return ": working\n\n", "" end
       end
     end
   end
@@ -1912,7 +1919,7 @@ local function streamed(self: State, message: wire.Message, req: HttpServer.Requ
   local expires = if grant ~= nil then grant.expires else nil end
   local body: EventReader = { notifier = notifier, flight = flight, queue = {}, head = 1, tail = 1, finished = false,
     latest = nil, answer = nil, task = nil, skip = nil,
-    keepalive_ns = if message.method == "subscriptions/listen" then LISTEN_KEEPALIVE_NS else KEEPALIVE_NS end,
+    gone = req.gone,
     ends_ns = if expires ~= nil then expires * 1000000000 else nil end }
   flight.emit = function(text: string, lossy: boolean)
     if body.finished then return end
