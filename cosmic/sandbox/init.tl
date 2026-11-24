@@ -550,6 +550,9 @@ function Sandbox.loaders(path: string, cwd?: string): {string}?, string
     if next_file == nil and real == "/bin/sh" and rules.on_macos() then
       -- macOS's /bin/sh is a stub that runs the shell /private/var/select/sh
       -- names (bash, unless the admin chose another), as an exec of its own.
+      -- TODO: follow the other macOS stubs that exec a tool of their own,
+      -- the xcrun shims (/usr/bin/git, /usr/bin/python3), which an r-only
+      -- "system" profile does not let run the tool they find.
       local variant, _ = sys.realpath(SH_VARIANT)
       if variant ~= nil and variant ~= real then next_file = variant end
     end

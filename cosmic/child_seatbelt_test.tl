@@ -225,14 +225,14 @@ local function test_a_program_the_policy_lets_be_written_fails_the_start_naming_
   SeatbeltFixture.macos_only()
   local granted = files(tmp)
   local started = assert(Child.run({ CAT, granted }, { timeout_ns = Child.FOREVER, stdout = "capture",
-    policy = { grants = { { path = granted, letters = "r" } } } }))
+    policy = { profiles = { "system" }, grants = { { path = granted, letters = "r" } } } }))
   assert(started.ok and started.stdout == "granted-bytes", started.stdout)
   assert(Fs.mkdirs(tmp .. "/w"))
   local copy = tmp .. "/w/cat"
   assert(Fs.write(copy, assert(Fs.read(CAT))))
   assert(Fs.chmod(copy, 493))
   local child, why = Child.start({ copy, granted }, { timeout_ns = Child.FOREVER,
-    policy = { grants = { { path = granted, letters = "r" }, { path = tmp .. "/w", letters = "rwc" } } } })
+    policy = { profiles = { "system" }, grants = { { path = granted, letters = "r" }, { path = tmp .. "/w", letters = "rwc" } } } })
   assert(child == nil)
   assert(why.message:find("^child: start: sandbox: ") and why.message:find("is not granted x", 1, true), why)
 end
