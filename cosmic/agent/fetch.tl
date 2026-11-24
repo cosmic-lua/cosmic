@@ -72,7 +72,9 @@ function AgentFetch.fetch(request: AgentFetch.Request, options?: AgentFetch.Opti
   local script = if options ~= nil then options.script else nil end
   local res, why = Http.open(request.url, { method = request.method, headers = request.headers, body = request.body,
     follow = false, timeout_ns = Clock.seconds(seconds), script = script })
-  if res == nil then return nil, Failure.new("host: fetch: " .. request.url .. ": " .. why) end
+  if res == nil then
+    return nil, Failure.new("host: fetch: " .. request.url .. ": " .. tostring(why))
+  end
   -- One byte past the most tells a body that is longer from one that is just so long.
   local body, read_why = Stream.read_up_to(res, AgentFetch.MOST_BYTES + 1)
   local _, _ = res:close()
