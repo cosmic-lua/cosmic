@@ -383,6 +383,24 @@ local record Serving
   idle: mut {Net.Conn: boolean}
 end
 
+--- The second [`now_date`] last formatted, and its Date.
+local record Dated
+  mut second: integer
+  mut text: string
+end
+local dated: Dated = { second = math.mininteger, text = "" }
+
+--- The Date of a reply sent now (RFC 9110 6.6.1), formatted once a
+--- second, as a busy server would otherwise format it for each reply.
+local function now_date(): string
+  local now = Clock.now_ns()
+  local second = now // 1000000000
+  if second ~= dated.second then
+    dated.second, dated.text = second, Time.format_http(now)
+  end
+  return dated.text
+end
+
 --- Gives `trouble` to the spec's [`Server.ServeSpec.on_error`], or stderr.
 local function report(s: Serving, trouble: string)
   local on_error = s.spec.on_error
@@ -407,7 +425,7 @@ local function answer(s: Serving, conn: Net.Conn, head: wire.Head?, status: inte
   local _ = wire.send(conn, {
     status = status, headers = { ["Content-Type"] = "text/plain; charset=utf-8" },
     body = text .. "\n", close = true, method = if head ~= nil then head.method else "GET" end,
-    version = if head ~= nil then head.version else "HTTP/1.1" end, date = Time.format_http(Clock.now_ns()),
+    version = if head ~= nil then head.version else "HTTP/1.1" end, date = now_date(),
   })
 end
 
@@ -874,7 +892,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
       status = given.status, headers = given.headers, body = given.body,
       length = given.length,
       close = close, method = head.method, version = head.version,
-      date = Time.format_http(Clock.now_ns()),
+      date = now_date(),
     })
   end
   local sending, sent = xpcall(send_reply, traced, conn)
