@@ -30,33 +30,23 @@ local function test_the_prompt_lists_tools_rules_context_and_cwd()
   assert(Prompt.build("/", {}):find("project_context", 1, true) == nil)
 end
 
-local function test_the_prompt_names_the_library_but_tooling_each_with_the_start_of_its_first_sentence()
-  local long = string.rep("word ", 40)
-  local p = Prompt.build("/", {}, { library = {
-    { module = "cosmic.fs", text = "Files and\n directories.", closed = "" },
-    { module = "cosmic.web.route", text = "Routes.", closed = "" },
-    { module = "cosmic.test", text = "Tests.", closed = "" },
-    { module = "cosmic.long", text = long, closed = "" },
-    { module = "cosmic.bare", text = "", closed = "" },
-  } })
-  assert(p:find("<stdlib>", 1, true) ~= nil, p)
-  assert(p:find("\n- cosmic.fs: Files and directories.\n", 1, true) ~= nil, p)
-  assert(p:find("cosmic.web.route:", 1, true) == nil and p:find("cosmic.test:", 1, true) == nil, p)
-  local line = assert(p:match("\n(%- cosmic%.long: [^\n]*)"))
-  assert(#line <= 90 + #"- cosmic.long: " and line:sub(-7) == "word...", line)
-  assert(p:find("\n- cosmic.bare\n", 1, true) ~= nil, p)
-  assert(Prompt.build("/", {}):find("<stdlib>", 1, true) == nil)
+--- Code mode adds nothing to the system prompt: what a snippet may do is in the run tool's description.
+local function test_code_mode_adds_no_section_to_the_prompt()
+  local p = Prompt.build("/", {})
+  assert(p:find("<stdlib>", 1, true) == nil and p:find("Host.", 1, true) == nil, p)
+end
+
+--- A session that offers some tools alone names those, and their rules; with no bash, files are run's.
+local function test_the_prompt_names_only_the_tools_offered()
+  local all = Prompt.build("/w", {}, { tools = Tools.all() })
+  assert(all:find("- bash: ", 1, true) ~= nil and all:find("<rules>\n- Use bash for file operations", 1, true) ~= nil, all)
+  local some = Prompt.build("/w", {}, { tools = Tools.only(Tools.all(), { "run", "read" }) })
+  assert(some:find("- bash: ", 1, true) == nil and some:find("- edit: ", 1, true) == nil, some)
+  assert(some:find("- run: ", 1, true) ~= nil and some:find("- read: ", 1, true) ~= nil, some)
+  assert(some:find("Use run for file operations: no program runs here", 1, true) ~= nil, some)
+  assert(some:find("Use bash for", 1, true) == nil and some:find("Use write only", 1, true) == nil, some)
   -- The default tools offer no bash, and the rules name none; the rules for every tool stay.
   local quiet = Prompt.build("/", {})
   assert(quiet:find("bash", 1, true) == nil and quiet:find("- Tools may run in a sandbox", 1, true) ~= nil, quiet)
-  assert(Prompt.build("/", {}, { tools = Tools.all() }):find("<rules>\n- Use bash for file operations", 1, true) ~= nil)
   assert(Prompt.build("/", {}, { tools = {} }):find("<tools>", 1, true) == nil)
-  -- With no space to cut at, the cut ends at a character's end.
-  local wide = Prompt.build("/", {}, { library = { { module = "cosmic.wide", text = string.rep("é", 60), closed = "" } } })
-  local wide_line = assert(wide:match("\n%- cosmic%.wide: ([^\n]*)"))
-  assert(wide_line == string.rep("é", 43) .. "...", wide_line)
-  -- The library comes before the project's instructions, the same for every project.
-  local both = Prompt.build("/", { { path = "/AGENTS.md", content = "mine" } }, { library = {
-    { module = "cosmic.fs", text = "Files.", closed = "" } } })
-  assert(assert(both:find("<stdlib>", 1, true)) < assert(both:find("<project_context>", 1, true)), both)
 end

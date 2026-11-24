@@ -1139,7 +1139,7 @@ function fix.read_off(file: string, chunk: Ast.Chunk, source: string, facts: mut
   if compared(file) then ready[file] = candidates_from(chunk, source) end
   if plurals ~= nil then
     while file:sub(1, 2) == "./" do file = file:sub(3) end
-    local found = tree_checks.plurals_in(file, source, chunk)
+    local found = tree_checks.plurals_in(file, source)
     if found ~= nil then plurals[file] = found end
   end
 end
@@ -1521,7 +1521,7 @@ local function lay_out_teal(ctx: Fix)
         chunk = done.chunk
         local text = done.text
         fix.read_off(file, chunk, text, facts, ready, plurals)
-        if plurals ~= nil then tree_checks.knows_parse(text, file, chunk) end
+        if plurals ~= nil then tree_checks.knows_requires(text, file, chunk) end
       end
     end
   end

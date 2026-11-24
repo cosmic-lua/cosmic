@@ -10,6 +10,7 @@ local schema = require("build.schema")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
+local TypeWatch = require("build.type_watch")
 
 --- `store`: both read every module's rows through [`Store.databases()`].
 Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
@@ -175,7 +176,7 @@ local function test_seal_takes_a_reserved_name_from_the_binary(tmp: string)
   -- TODO: check this on a checked run too. It waits on a way to read the
   -- tree's projection and the binary's own modules there, as the checked
   -- worker is given the checked ones (build/test.tl's TODO on the same).
-  if Test.mode().types_checked then
+  if TypeWatch.checked() then
     Test.skip("a checked run's modules carry checks, so their bytecode is not the binary's")
   end
   attach(tmp)

@@ -28,8 +28,8 @@ local function test_raises_answers_the_message_and_refuses_otherwise()
 end
 
 --- `module`'s table, whose fields a runner installs, as its untyped self.
-local function fields_of(module: any): mut {string:any}
-  if module is mut {string:any} then return module end -- checked: is_on_record
+local function fields_of(module: any): {string:any}
+  if module is {string:any} then return module end -- checked: is_on_record
   error("fields_of: the module is not a table with string keys", 2)
 end
 
@@ -53,19 +53,6 @@ local function test_skip_raises_what_the_runner_answers()
   module.__runner = own -- checked: map_field
   assert(not ok and raised == ending, tostring(raised))
   assert(#given == 1 and given[1] == "no kernel")
-end
-
---- `mode` answers what the runner says of the run. Run under stand-in
---- runners, put back as it was.
-local function test_mode_reads_what_the_runner_says()
-  local module = fields_of(Test)
-  local own = rawget(module, "__runner")
-  rawset(module, "__runner", { types_checked = true })
-  local checked = Test.mode().types_checked
-  rawset(module, "__runner", { types_checked = false })
-  local plain = Test.mode().types_checked
-  rawset(module, "__runner", own)
-  assert(checked and not plain)
 end
 
 --- The child of the test below: a process of its own, in which this module's top level has run, and its `policy` with it.

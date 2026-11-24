@@ -8,7 +8,6 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local fanout = require("build.compile_fanout")
 local Sqlite = require("cosmic.sqlite")
-local SyntaxNode = require("build.syntax_node")
 local fixture = require("build.docs_fixture")
 local rebuild = require("build.rebuild")
 local symbols = require("cosmic.internal.symbols")
@@ -475,29 +474,6 @@ local function test_a_test_returning_early_is_refused(dir: string)
   assert(#found == 2, table.concat(found, "\n"))
   assert(found[1]:find("^build/bare_test.tl:3: test_bare returns early %(`return`%)"), found[1])
   assert(found[2]:find("^build/guard_test.tl:3: test_guarded returns early %(`if ... then return end`%)"), found[2])
-end
-
---- The early returns `fix` found in its own parse of a file are the ones the check reports, as a parse of its own would
---- find them; a parse of other text than the file now holds is not read.
-local function test_early_returns_read_the_parse_fix_made_of_the_same_text(dir: string)
-  assert(Fs.mkdirs(dir .. "/build"))
-  local early = "local function test_early()\n  assert(true)\n  return\nend\n"
-  assert(Fs.write(dir .. "/build/early_test.tl", early))
-  local chunk = assert(SyntaxNode.parse(early, "build/early_test.tl"))
-  tree_checks.knows_parse(early, "build/early_test.tl", chunk)
-  local found = tree_checks.test_returns(dir)
-  assert(#found == 1, table.concat(found, "\n"))
-  assert(found[1]:find("^build/early_test.tl:3: test_early returns early"), found[1])
-  -- The file changes after the parse: the check reads the new text.
-  local fine = "local function test_early()\n  assert(true)\nend\n"
-  assert(Fs.write(dir .. "/build/early_test.tl", fine))
-  found = tree_checks.test_returns(dir)
-  assert(#found == 0, table.concat(found, "\n"))
-  -- A parse of the fine text that saw no early return is read for it: the same findings, from the same text.
-  local fine_chunk = assert(SyntaxNode.parse(fine, "build/early_test.tl"))
-  tree_checks.knows_parse(fine, "build/early_test.tl", fine_chunk)
-  found = tree_checks.test_returns(dir)
-  assert(#found == 0, table.concat(found, "\n"))
 end
 
 --- A helper written token for token in two files, one a test or a fixture, is refused with both files and lines,

@@ -1552,12 +1552,10 @@ local function plural_lines(sources: {{string}}, excused: {string: string}, read
   return out, found
 end
 
---- What [`plurals`] finds in `source`, the text of `file` (its path from the tree's root), read off `chunk`, the
---- caller's parse of it, or parsed here, so that the checks need not parse it again; nil for a file they do not read,
---- and for one that cannot be read, which [`plurals`] then says.
-function tree_checks.plurals_in(file: string, source: string, chunk?: Ast.Chunk): tree_checks.Plurals?
+--- What [`plurals`] finds in `source`, the text of `file` (its path from the tree's root), parsed here so that the checks
+--- need not parse it again; nil for a file they do not read, and for one that cannot be read, which [`plurals`] then says.
+function tree_checks.plurals_in(file: string, source: string): tree_checks.Plurals?
   if not plural_file(file) then return nil end
-  if chunk ~= nil then return { source = source, sites = PluralSites.of_chunk(chunk) } end
   local sites, _ = plural_sites(source, file)
   if sites == nil then return nil end
   return { source = source, sites = sites }
@@ -1986,23 +1984,17 @@ end
 
 --- What [`parsed_requires`] returned for each text, by its digest and its dialect, which a path ending in `.d.tl`
 --- says: the checks of one run each index the tree ([`tree_of`]), and parsing every file is most of the work of
---- one. `fix` tells it what its own parse of each file found ([`tree_checks.knows_parse`]).
+--- one. `fix` tells it what its own parse of each file found ([`tree_checks.knows_requires`]).
 local requires_known: mut {string: {string}} = {}
-
---- The early returns ([`TestReturns`]) of each test file's text, keyed as `requires_known` is, as `fix`'s own parse
---- found them ([`tree_checks.knows_parse`]), for [`tree_checks.test_returns`] to read rather than parse it again.
-local returns_known: mut {string: {{string}}} = {}
 
 local function requires_key(digest: string, file: string): string
   return digest .. (if file:find("%.d%.tl$") ~= nil then " decl" else " tl" end)
 end
 
---- Keeps what `chunk`, the parse of `source` as the text of `file`, requires, and a test file's early returns, for
---- the checks later in the run to read rather than parse the file again.
-function tree_checks.knows_parse(source: string, file: string, chunk: Ast.Chunk)
-  local key = requires_key(Hash.hex_sha256(source), file)
-  requires_known[key] = SyntaxNode.requires(chunk)
-  if file:match("_test%.tl$") ~= nil then returns_known[key] = TestReturns.of_chunk(chunk) end
+--- Keeps what `chunk`, the parse of `source` as the text of `file`, requires, for the checks that index the tree
+--- later in the run to read rather than parse the file again.
+function tree_checks.knows_requires(source: string, file: string, chunk: Ast.Chunk)
+  requires_known[requires_key(Hash.hex_sha256(source), file)] = SyntaxNode.requires(chunk)
 end
 
 local function required_modules(source: string, file: string, digest: string): {string}
@@ -2606,17 +2598,11 @@ function tree_checks.test_returns(root: string): {string}
   for _, entry in ipairs(sources) do
     local file, text = entry[1], entry[2]
     if file ~= nil and text ~= nil and file:match("_test%.tl$") ~= nil and text:find("return", 1, true) ~= nil then
-      local sites = returns_known[requires_key(Hash.hex_sha256(text), file)]
-      local parse_trouble = ""
-      if sites == nil then
-        local chunk, refusal = SyntaxNode.parse(text, file)
-        if chunk ~= nil then sites = TestReturns.of_chunk(chunk) end
-        parse_trouble = refusal
-      end
-      if sites == nil then
+      local chunk, parse_trouble = SyntaxNode.parse(text, file)
+      if chunk == nil then
         out[#out + 1] = file .. ": cannot read it to check its early returns: " .. parse_trouble
       else
-        for _, site in ipairs(sites) do
+        for _, site in ipairs(TestReturns.of_chunk(chunk)) do
           out[#out + 1] = file .. ":" .. tostring(site[1]) .. ": " .. tostring(site[2]) .. " returns early (`" ..
             tostring(site[3]) .. "`), which passes having checked nothing: declare `requires`, or call " ..
             "`Test.skip(reason)` (doc/testing.md, \"skipping\"), after which nothing runs"
