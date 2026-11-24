@@ -1,5 +1,6 @@
 #include "sqlite.h"
 
+#include <ctype.h>
 #include <errno.h>
 #include <limits.h>
 #include <stdbool.h>
@@ -75,9 +76,21 @@ struct handle {
    * authorizer action it last refused, 0 for none. */
   bool reads_only;
   int denied;
+  /* Set as a call that may park begins ([`begin_parkable_wait`]): its
+   * caller is a coroutine that can yield, so the busy handler waits for
+   * no lock (`parked` then set) and the Lua wrapper waits by
+   * Clock.sleep, which parks a task of Poll.run, and runs it again. */
+  bool parks;
+  bool parked;
+  /* The statement whose step parked at a lock and has not run since: a
+   * task waits in it. Until it steps on, is rewound or is finalized, a
+   * step of another statement that would start a run, and an exec, wait
+   * their turn ([`turn_taken`]): run between the parked task's tries,
+   * one would land inside its transaction, or it inside theirs. */
+  struct statement *parked_on;
 };
 
-enum { STOP_NONE, STOP_TIME, STOP_SIGNAL };
+enum { STOP_NONE, STOP_TIME, STOP_SIGNAL, STOP_TURN };
 
 /* How many virtual machine steps go between two looks at the clock: a
  * look is a vDSO read, small beside a thousand steps. */
@@ -92,6 +105,13 @@ struct statement {
    * it until `release` hands it to the cache. */
   char *sql;
   size_t len;
+  /* Whether a step of this run has answered a row: a BUSY after one is
+   * not parked, since the step run again would start the rows over. */
+  bool rowed;
+  /* Whether its BUSY may park: no PRAGMA, since a checkpoint (`PRAGMA
+   * wal_checkpoint`) calls the busy handler and answers its row as busy
+   * when the handler declines, with no BUSY to try again on. */
+  bool parkable;
 };
 
 /* A budget belongs to one call, not one locking event: SQLite can ask
@@ -99,6 +119,8 @@ struct statement {
  * clock is read only if the installed handler actually meets a lock. */
 static void begin_wait (struct handle *h) {
   h->denied = 0;
+  h->parks = false;
+  h->parked = false;
   h->run_deadline_ms = h->run_ms < 0 ? -1 : cosmic_deadline_ms(h->run_ms);
   h->stop = STOP_NONE;
   if (h->busy_ms < 0) return;
@@ -107,15 +129,56 @@ static void begin_wait (struct handle *h) {
   h->cancelled = false;
 }
 
+/* As begin_wait, for a call whose BUSY the Lua wrapper waits out and
+ * runs again itself: unless the argument at `blocks` is true, where `L`
+ * can yield the busy handler holds the thread for nothing
+ * ([`wait_busy`]). The wrapper asks this only where it can park the
+ * caller, a task of Poll.run; another coroutine it runs again with
+ * `blocks` true, and that call waits here as any other. */
+static void begin_parkable_wait (lua_State *L, struct handle *h, int blocks) {
+  begin_wait(h);
+  h->parks = !lua_toboolean(L, blocks) && lua_isyieldable(L);
+}
+
 static int wait_busy (void *context, int previous) {
   (void)previous;
   struct handle *h = context;
+  if (h->parks) {
+    h->parked = true;
+    return 0;
+  }
   if (h->deadline_ms < 0) {
     h->deadline_ms = cosmic_deadline_ms(h->busy_ms);
   }
   int status = cosmic_paused(h->deadline_ms, &h->pause_ms);
   if (status == EINTR) h->cancelled = true;
   return status == 0;
+}
+
+/* Whether a call on `h` that starts a run must wait for the statement
+ * parked on it (`parked_on` in struct handle); when it must, the call answers BUSY with
+ * this reason ([`stopped_reason`]) and parks as `parks` says. */
+static bool turn_taken (struct handle *h, const struct statement *s) {
+  if (h->parked_on == NULL || h->parked_on == s) return false;
+  h->stop = STOP_TURN;
+  h->parked = h->parks;
+  h->cancelled = false;
+  return true;
+}
+
+/* After a step of `s` on `h`: it holds the turn where it parked, and
+ * gives it back where it ran on. */
+static void settle (struct handle *h, struct statement *s, int rc) {
+  if ((rc & 0xff) == SQLITE_BUSY && h->parked) {
+    h->parked_on = s;
+  } else if (h->parked_on == s) {
+    h->parked_on = NULL;
+  }
+}
+
+/* `s` rewound or let go of: a turn it held is given back. */
+static void unpark (struct statement *s) {
+  if (s->owner != NULL && s->owner->parked_on == s) s->owner->parked_on = NULL;
 }
 
 /* SQLite's progress handler, installed by [`handle_time_limit`]: stops
@@ -138,6 +201,8 @@ static int progress (void *context) {
 /* What a call the progress handler stopped failed for, in place of
  * SQLite's "interrupted", or NULL for any other failure. */
 static const char *stopped_reason (const struct handle *h, int rc) {
+  if (h != NULL && h->stop == STOP_TURN && (rc & 0xff) == SQLITE_BUSY)
+    return "another task waits at a lock in a call on this handle; this call waits its turn";
   if (h == NULL || (rc & 0xff) != SQLITE_INTERRUPT) return NULL;
   if (h->stop == STOP_TIME) return "the call ran past its time limit (handle:time_limit)";
   if (h->stop == STOP_SIGNAL) return "the call was stopped by a signal the guard caught";
@@ -316,6 +381,8 @@ struct outcome {
   int extended;
   bool cancelled;
   bool timed_out;
+  /* A BUSY the busy handler did not wait for: see `parks` in struct handle. */
+  bool parked;
   struct cosmic_guard *message;
 };
 
@@ -328,6 +395,7 @@ static void capture (lua_State *L, struct outcome *out, sqlite3 *db, int rc,
   out->cancelled = h != NULL && ((out->code == SQLITE_BUSY && h->cancelled) ||
                                  (out->code == SQLITE_INTERRUPT && h->stop == STOP_SIGNAL));
   out->timed_out = h != NULL && out->code == SQLITE_INTERRUPT && h->stop == STOP_TIME;
+  out->parked = h != NULL && out->code == SQLITE_BUSY && h->parked;
   if (rc != SQLITE_OK) {
     const char *stopped = stopped_reason(h, rc);
     const char *reason = stopped != NULL ? stopped : db == NULL ? sqlite3_errstr(rc) : sqlite3_errmsg(db);
@@ -363,6 +431,10 @@ static void push_outcome (lua_State *L, const struct outcome *out, bool payload)
   if (out->timed_out) {
     lua_pushboolean(L, 1);
     lua_setfield(L, -2, "timed_out");
+  }
+  if (out->parked) {
+    lua_pushboolean(L, 1);
+    lua_setfield(L, -2, "parked");
   }
 }
 
@@ -712,6 +784,9 @@ static int open_database (lua_State *L, bool result) {
   h->cached = 0;
   h->reads_only = false;
   h->denied = 0;
+  h->parks = false;
+  h->parked = false;
+  h->parked_on = NULL;
   luaL_setmetatable(L, HANDLE_TYPE);
 
   /* The program's own file named through a descriptor of it
@@ -789,6 +864,13 @@ static int handle_exec (lua_State *L) {
     lua_pushstring(L, "SQL contains an embedded NUL byte");
     return 2;
   }
+  if (h->parked_on != NULL) {
+    begin_wait(h);
+    turn_taken(h, NULL);
+    lua_pushboolean(L, 0);
+    lua_pushstring(L, stopped_reason(h, SQLITE_BUSY));
+    return 2;
+  }
   /* No message of exec's own: it would be a copy of the connection's,
    * held in a local across the push that can raise. */
   int rc = execute(h, sql);
@@ -812,6 +894,13 @@ static int handle_exec_result (lua_State *L) {
   struct outcome out = {0};
   out.message = cosmic_guard_push(L, release_message);
   struct handle *h = checked_handle(L);
+  if (h->parked_on != NULL) {
+    begin_wait(h);
+    turn_taken(h, NULL);
+    capture(L, &out, NULL, SQLITE_BUSY, h);
+    push_outcome(L, &out, false);
+    return 1;
+  }
   int rc = execute(h, sql);
   capture(L, &out, h->db, rc, h);
   push_outcome(L, &out, false);
@@ -927,8 +1016,31 @@ static sqlite3_stmt *take_cached (struct handle *h, const char *sql, size_t len,
   return NULL;
 }
 
+/* Whether `sql` begins with the keyword PRAGMA, past spaces and
+ * comments. */
+static bool is_pragma (const char *sql, size_t len) {
+  size_t i = 0;
+  while (i < len) {
+    if (isspace((unsigned char)sql[i])) {
+      i++;
+    } else if (i + 1 < len && sql[i] == '-' && sql[i + 1] == '-') {
+      while (i < len && sql[i] != '\n') i++;
+    } else if (i + 1 < len && sql[i] == '/' && sql[i + 1] == '*') {
+      i += 2;
+      while (i + 1 < len && !(sql[i] == '*' && sql[i + 1] == '/')) i++;
+      i += 2;
+    } else {
+      break;
+    }
+  }
+  if (i > len || len - i < 6 || sqlite3_strnicmp(sql + i, "pragma", 6) != 0) return false;
+  return len - i == 6 || !(isalnum((unsigned char)sql[i + 6]) || sql[i + 6] == '_');
+}
+
 static int prepare_statement (lua_State *L, bool result, bool cached) {
   checked_handle(L);
+  /* The argument `blocks` holds its place under what this pushes. */
+  if (result) lua_settop(L, 3);
   size_t len;
   const char *sql = luaL_checklstring(L, 2, &len);
   if (len > INT_MAX) {
@@ -952,6 +1064,8 @@ static int prepare_statement (lua_State *L, bool result, bool cached) {
   s->owner = NULL;
   s->sql = NULL;
   s->len = 0;
+  s->rowed = false;
+  s->parkable = !is_pragma(sql, len);
   luaL_setmetatable(L, STATEMENT_TYPE);
   /* The statement holds a reference to its handle, so the handle cannot
    * be collected while a statement is still open on it. */
@@ -960,7 +1074,11 @@ static int prepare_statement (lua_State *L, bool result, bool cached) {
   struct handle *h = checked_handle(L);
   s->owner = h;
   s->db = h->db;
-  begin_wait(h);
+  if (result) {
+    begin_parkable_wait(L, h, 3);
+  } else {
+    begin_wait(h);
+  }
   /* A cached prepare keeps its SQL for `release`; the copy is made before
    * SQLite is asked, so a failure to make it leaves nothing prepared. */
   if (cached && keeps_statements(h) && keepable(sql, len)) {
@@ -1034,6 +1152,16 @@ static int prepare_statement (lua_State *L, bool result, bool cached) {
   return cosmic_succeeded(L);
 }
 
+/* wait_ns(): how long a call on the handle waits at another
+ * connection's lock, in nanoseconds, 0 for no wait: what the Lua wrapper
+ * waits out where the busy handler did not ([`begin_parkable_wait`]). */
+static int handle_wait_ns (lua_State *L) {
+  struct handle *h = checked_handle(L);
+  int64_t ms = h->borrowed || h->busy_ms < 0 ? 0 : h->busy_ms;
+  lua_pushinteger(L, (lua_Integer)ms * 1000000);
+  return 1;
+}
+
 static int handle_prepare (lua_State *L) {
   return prepare_statement(L, false, false);
 }
@@ -1097,6 +1225,9 @@ void cosmic_sqlite_push_borrowed (lua_State *L, sqlite3 *db) {
   h->cached = 0;
   h->reads_only = false;
   h->denied = 0;
+  h->parks = false;
+  h->parked = false;
+  h->parked_on = NULL;
   luaL_setmetatable(L, HANDLE_TYPE);
 }
 
@@ -1551,11 +1682,21 @@ static int statement_bind_all (lua_State *L) {
   return 0;
 }
 
+/* wait_ns(): the statement's handle's wait_ns. */
+static int statement_wait_ns (lua_State *L) {
+  struct statement *s = checked_statement(L);
+  const struct handle *h = s->owner;
+  int64_t ms = h == NULL || h->borrowed || h->busy_ms < 0 ? 0 : h->busy_ms;
+  lua_pushinteger(L, (lua_Integer)ms * 1000000);
+  return 1;
+}
+
 /* The empty guard is cached across successful rows. Detach it before
  * allocating a failure record: a finalizer can re-enter this statement,
  * but must never reuse the guard that owns this call's captured message. */
 static int statement_step_result (lua_State *L) {
   checked_statement(L);
+  lua_settop(L, 2);
   lua_getiuservalue(L, 1, 2);
   bool marked = false;
   if (lua_isnil(L, -1)) {
@@ -1569,13 +1710,26 @@ static int statement_step_result (lua_State *L) {
   struct outcome out = {0};
   out.message = lua_touserdata(L, guard_index);
   struct statement *s = checked_statement(L);
-  begin_wait(s->owner);
-  int rc = sqlite3_step(s->stmt);
+  struct handle *h = s->owner;
+  begin_parkable_wait(L, h, 2);
+  if (s->rowed || !s->parkable) h->parks = false;
+  /* A step on in a run's rows starts no transaction and waits for none. */
+  bool waits = !s->rowed && turn_taken(h, s);
+  int rc = SQLITE_BUSY;
+  if (!waits) {
+    rc = sqlite3_step(s->stmt);
+    settle(h, s, rc);
+    if (rc == SQLITE_ROW) {
+      s->rowed = true;
+    } else if (rc == SQLITE_DONE) {
+      s->rowed = false;
+    }
+  }
   if (rc == SQLITE_ROW || rc == SQLITE_DONE) {
     lua_pushstring(L, rc == SQLITE_ROW ? "row" : "done");
     return 1;
   }
-  capture(L, &out, s->db, rc, s->owner);
+  capture(L, &out, waits ? NULL : s->db, rc, h);
   lua_pushnil(L);
   lua_setiuservalue(L, 1, 2);
   if (!marked) lua_toclose(L, guard_index);
@@ -1587,6 +1741,8 @@ static int statement_step (lua_State *L) {
   struct statement *s = checked_statement(L);
   begin_wait(s->owner);
   int rc = sqlite3_step(s->stmt);
+  if (rc == SQLITE_ROW) s->rowed = true;
+  if (rc == SQLITE_DONE) s->rowed = false;
   if (rc == SQLITE_ROW) {
     lua_pushstring(L, "row");
     return cosmic_succeeded(L);
@@ -1688,6 +1844,8 @@ static int rewound (lua_State *L, int clear) {
   if (clear) {
     sqlite3_clear_bindings(s->stmt);
   }
+  s->rowed = false;
+  unpark(s);
   int rc = sqlite3_reset(s->stmt);
   if (rc != SQLITE_OK) {
     return failed_effect(L, s->db, rc);
@@ -1709,6 +1867,8 @@ static int statement_reset_result (lua_State *L) {
   struct statement *s = checked_statement(L);
   begin_wait(s->owner);
   sqlite3_clear_bindings(s->stmt);
+  s->rowed = false;
+  unpark(s);
   int rc = sqlite3_reset(s->stmt);
   capture(L, &out, s->db, rc, NULL);
   push_outcome(L, &out, false);
@@ -1724,6 +1884,7 @@ static int statement_finalize (lua_State *L) {
   /* A disowned connection's statement is let go of as its handle is: to
    * finalize one that is writing would roll its statement back through
    * the descriptors the two processes share. */
+  if (s->stmt != NULL) unpark(s);
   if (s->stmt != NULL && !disowned(s->owner)) {
     begin_wait(s->owner);
     sqlite3_finalize(s->stmt);
@@ -1748,6 +1909,8 @@ static int statement_release (lua_State *L) {
   }
   begin_wait(h);
   /* The reset answers the last step's failure, which was answered then. */
+  s->rowed = false;
+  unpark(s);
   sqlite3_reset(s->stmt);
   sqlite3_clear_bindings(s->stmt);
   if (h->cached == CACHED_STATEMENTS) {
@@ -1836,6 +1999,7 @@ static const luaL_Reg handle_methods[] = {
   {"last_insert_rowid", handle_last_insert_rowid},
   {"limit", handle_limit},
   {"busy_timeout", handle_busy_timeout},
+  {"wait_ns", handle_wait_ns},
   {"time_limit", handle_time_limit},
   {"reads_only", handle_reads_only},
   {"in_transaction", handle_in_transaction},
@@ -1865,6 +2029,7 @@ static const luaL_Reg statement_methods[] = {
   {"bytes", statement_bytes},
   {"reset", statement_reset},
   {"reset_result", statement_reset_result},
+  {"wait_ns", statement_wait_ns},
   {"rewind", statement_rewind},
   {"finalize", statement_finalize},
   {"release", statement_release},
