@@ -89,6 +89,7 @@ local Show = require("cosmic.agent.show")
 local Signal = require("cosmic.signal")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local Tools = require("cosmic.agent.tools")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 
@@ -392,8 +393,10 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
     if started == nil then return nil, why end
     id = started
   end
-  local s = Agent.new({ model = model, effort = effort, sign = sign, base_url = base, cwd = here,
-    send = r.io.send, system = Prompt.build(here, Prompt.contexts(here), { servers = servers, library = library() }),
+  local tools = Tools.all()
+  local s = Agent.new({ model = model, effort = effort, sign = sign, base_url = base, cwd = here, tools = tools,
+    send = r.io.send, system = Prompt.build(here, Prompt.contexts(here), { servers = servers, library = library(),
+      tools = tools }),
     sandbox = policy, jobs = Jobs.new(), worker = Worker.new(), mcp = AgentMcp.new(servers, here), build = build(),
     messages = held, db = db, id = id, restarts = restarts, ended = ended })
   local settled, settle_why = s:settle()
@@ -670,7 +673,7 @@ local function prompt(r: Run, got: Flags.Parsed): integer
     return bare.refused
   end
   local here = cwd(r)
-  r.io.out(Prompt.build(here, Prompt.contexts(here), { library = library() }))
+  r.io.out(Prompt.build(here, Prompt.contexts(here), { library = library(), tools = Tools.all() }))
   return bare.ok
 end
 

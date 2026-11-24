@@ -15,7 +15,7 @@
 ---
 --- An agent is a value with fields: what [`Agent.new`] gives each is a
 --- default to read and to change between prompts (the model, the effort,
---- the system prompt, the sandbox), and `on`, `steering` and `stopping`
+--- the tools, the system prompt, the sandbox), and `on`, `steering` and `stopping`
 --- are how a program of its own hears the agent and steers it
 --- ([`Agent.Event`], [`cosmic.agent.show`]).
 ---
@@ -110,8 +110,10 @@ local record Agent
     effort?: string
     --- The API's root; https://api.anthropic.com by default.
     base_url?: string
-    --- The system prompt; [`Prompt.build`]'s for `cwd` by default, which
-    --- names no MCP server: build one with `servers` when you give `mcp`.
+    --- The tools the model is offered (cosmic.agent.tools); [`Tools.default`]'s, with no bash, by default.
+    tools?: {Tools.Tool}
+    --- The system prompt; [`Prompt.build`]'s for `cwd` and `tools` by default,
+    --- which names no MCP server: build one with `servers` and `tools` when you give `mcp`.
     system?: string
     --- What opens a request; Http.open by default.
     send?: Send
@@ -214,7 +216,7 @@ local record Agent
 
   --- An agent: one conversation, how it calls the API, and how it is
   --- heard. What [`Agent.new`] gave `model`, `effort`, `sign`,
-  --- `base_url`, `system`, `send`, `sandbox`, `jobs`, `worker`, `mcp` and
+  --- `base_url`, `tools`, `system`, `send`, `sandbox`, `jobs`, `worker`, `mcp` and
   --- `build` is a default: change it between prompts. `on`, `steering`
   --- and `stopping` are the caller's to set. The rest is the agent's
   --- state, kept as it goes: read it, but leave it to the agent.
@@ -227,6 +229,11 @@ local record Agent
     mut sign: Auth.Sign
     --- The API's root; https://api.anthropic.com where nil.
     mut base_url?: string
+    --- The tools the model is offered, read at each request: a call to
+    --- one not here is answered as not found. The system prompt is not
+    --- built again when they change: set `system` to
+    --- `Prompt.build(cwd, Prompt.contexts(cwd), { tools = tools })` too.
+    mut tools: {Tools.Tool}
     --- The system prompt.
     mut system: string
     --- Where the tools run from.
@@ -408,7 +415,11 @@ local function record(s: Agent.Session, call: string, tool: string, input: Tools
   if output == nil then return nil, why end
   -- What sql says is kept already, and it says where to find more.
   if result.raw == nil or tool == "sql" then return result.text, "" end
-  local shown = result.text .. "\n\n[The whole output is kept as output " .. tostring(output) .. ": use sql.]"
+  local how = if Tools.find(s.tools, "sql") ~= nil then "use sql"
+    elseif Tools.find(s.tools, "run") ~= nil then "use require(\"cosmic.agent.host\").sql in run"
+    else "" end
+  if how == "" then return result.text, "" end
+  local shown = result.text .. "\n\n[The whole output is kept as output " .. tostring(output) .. ": " .. how .. ".]"
   local kept, shown_why = Sessions.shown(db, output, shown)
   if not kept then return nil, shown_why end
   return shown, ""
@@ -420,7 +431,7 @@ local function request_body(s: Agent.Session): Json.Value
     model = s.model,
     max_tokens = MAX_TOKENS,
     system = s.system,
-    tools = Tools.definitions(),
+    tools = Tools.definitions(s.tools),
     messages = Json.array(s.messages),
     stream = true,
     thinking = { type = "adaptive" },
@@ -730,9 +741,10 @@ local function loop(s: Agent.Session): boolean, string
           local given = input or {}
           local on = s.on
           if on ~= nil then on({ kind = "tool", name = called, input = given }) end
-          local result = Tools.run(called, given, { cwd = s.cwd, db = s.db, session = s.id,
+          local context: Tools.Context = { cwd = s.cwd, db = s.db, session = s.id,
             policy = s.sandbox, jobs = s.jobs, worker = s.worker,
-            mcp = s.mcp, stopped = function(): boolean return stopped(s) end })
+            mcp = s.mcp, stopped = function(): boolean return stopped(s) end, tools = s.tools }
+          local result = Tools.dispatch(s.tools, called, given, context)
           local shown, record_why = record(s, call_id, called, given, result)
           if shown == nil then failed = record_why end
           if on ~= nil then on({ kind = "result", name = called, result = result }) end
@@ -825,6 +837,7 @@ local class AgentSession is Agent.Session
   mut effort: string
   mut sign: Auth.Sign
   mut base_url?: string
+  mut tools: {Tools.Tool}
   mut system: string
   cwd: string
   mut send?: Agent.Send
@@ -874,9 +887,12 @@ end
 function Agent.new(options: Agent.Options): Agent.Session
   local held: mut {Json.Value} = {}
   for _, m in ipairs(options.messages or {}) do held[#held + 1] = m end
+  local tools: mut {Tools.Tool} = {}
+  for _, t in ipairs(options.tools or Tools.default()) do tools[#tools + 1] = t end
   local agent: AgentSession = {
     model = options.model or Agent.MODELS.opus, effort = options.effort or Agent.EFFORT, sign = options.sign, base_url = options.base_url,
-    system = options.system or Prompt.build(options.cwd, Prompt.contexts(options.cwd)), cwd = options.cwd,
+    tools = tools,
+    system = options.system or Prompt.build(options.cwd, Prompt.contexts(options.cwd), { tools = tools }), cwd = options.cwd,
     send = options.send, sandbox = options.sandbox, jobs = options.jobs, worker = options.worker,
     mcp = options.mcp, build = options.build, messages = held, db = options.db, id = options.id,
     restarts = options.restarts or 0, ended = options.ended == true, stopped = false,
