@@ -49,6 +49,20 @@ local function test_a_code_copied_indented_and_in_color_reads_back(tmp: string)
   assert(read.code == 0 and read.out == "https://example.com/\n" and read.err == "", read.out .. read.err)
 end
 
+--- Through the binary: `--read` points at `read`, a text after `--` may start with "read", and `read` has a help
+--- page of its own.
+local function test_read_is_a_command_and_read_as_text_follows_two_dashes(tmp: string)
+  local moved = tool_fixture.cosmic(tmp, { "qr", "--read" }, "")
+  assert(moved.code == 2 and moved.err:find("no such option: --read; `cosmic qr read [file|-]` reads a code back", 1, true) ~= nil,
+    moved.err)
+  local drawn = tool_fixture.cosmic(tmp, { "qr", "--", "read", "me" })
+  assert(drawn.code == 0, drawn.err)
+  local back = tool_fixture.cosmic(tmp, { "qr", "read" }, drawn.out)
+  assert(back.code == 0 and back.out == "read me\n", back.out .. back.err)
+  local help = tool_fixture.cosmic(tmp, { "help", "qr", "read" })
+  assert(help.code == 0 and help.out:find("usage: cosmic qr read [file|-]\n", 1, true) == 1, help.out)
+end
+
 local function test_help_names_the_verb_and_its_options(tmp: string)
   local ran = tool_fixture.cosmic(tmp, { "qr", "--help" })
   assert(ran.code == 0, ran.err)

@@ -1,4 +1,4 @@
---- `cosmic qr [options] [text...]`: prints the QR code of a text, to show
+--- `cosmic qr [options] [text...]` (or `cosmic qr read [file|-]`): prints the QR code of a text, to show
 --- an address to a phone with nothing installed. The text is the words,
 --- joined by spaces. With no words, it is standard input, less one newline
 --- at its end. A text that starts with `-`, or with the word `read`,
@@ -74,6 +74,7 @@ local command: Flags.Command = {
         ["--svg"] = { value = "file|-", about = "write an SVG image to the file, or print it" },
         ["--scale"] = { value = "n", about = "svg: pixels a module, 1 to 1000 (default 8)" },
         ["--title"] = { value = "text", about = "svg: what it shows, for a screen reader" },
+        ["--read"] = { moved = "`cosmic qr read [file|-]` reads a code back" },
       },
     },
     read = {

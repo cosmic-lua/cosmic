@@ -99,14 +99,7 @@ local function arguments(argv: {string}): Request?, string
       reading = file }, ""
   end
   local parsed, trouble = Flags.parse(argv, 2, spec)
-  if parsed == nil then
-    for _, word in ipairs(argv) do
-      if word == "--read" then
-        return nil, trouble .. "; `cosmic qr read [file|-]` reads a code back"
-      end
-    end
-    return nil, trouble
-  end
+  if parsed == nil then return nil, trouble end
   local request: Request = { level = "M", max_version = 40, quiet = 4, invert = parsed.set["--invert"] == true,
     ascii = parsed.set["--ascii"] == true, color = parsed.set["--color"] == true, scale = 8,
     svg = parsed.values["--svg"], title = parsed.values["--title"] }
@@ -259,7 +252,7 @@ verb.spec = {
   tests = { "build.qr_test", "build.qr_tool_test" },
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
-  takes = "options and the text",
+  takes = "options and the text, or read and a file",
   exits = "`qr` prints the code, its SVG or the text it read, and nothing after; it exits 1 when the text is too large for a code or a drawing holds no code it can read, 2 when it refuses its command line, 5 when it cannot read its input or a write fails.",
   passthrough = "its output is data for a pipe, so its exit status is the verdict (build/qr_test.tl)",
 }
