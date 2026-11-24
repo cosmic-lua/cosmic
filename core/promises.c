@@ -310,7 +310,7 @@ static const struct grant basics[] = {
   A(sendmsg), A(recvmsg), A(sendmmsg), A(recvmmsg), A(shutdown),
   A(setsockopt), A(getsockopt),
   /* Files: Landlock holds the paths, and the filter holds a mode to none
-   * with a setuid, setgid or sticky bit. truncate, and O_TRUNC in an
+   * with a setuid or setgid bit. truncate, and O_TRUNC in an
    * access mode that does not write, wait on COSMIC_HELD_TRUNCATE. */
   R(open, OPEN), R(openat, OPENAT), R(creat, MODE1), R(openat2, ENOSYS),
   A(stat), A(fstat), A(lstat), A(newfstatat), A(statx), A(statfs), A(fstatfs),
@@ -396,7 +396,7 @@ static const struct grant jit_calls[] = {
   A(memfd_create),
 };
 
-/* `fattr`: a file's mode (never with a setuid, setgid or sticky bit),
+/* `fattr`: a file's mode (never with a setuid or setgid bit),
  * times, owner and extended attributes. */
 static const struct grant fattr_calls[] = {
   R(chmod, MODE1), R(fchmod, MODE1), R(fchmodat, MODE2), R(fchmodat2, MODE2),
@@ -452,7 +452,10 @@ static const struct grant fattr_calls[] = {
 #define O_TMPFILE_BIT 0x400000u
 /* What sets a call of x86_64's x32 numbers apart. */
 #define X32_CALL_BIT 0x40000000u
-#define SPECIAL_MODE_BITS 0xe00u
+/* The setuid and setgid bits, which run a program with its owner's or
+ * group's authority. The sticky bit gives none: on a directory it only
+ * keeps others from renaming or removing a file they do not own. */
+#define SPECIAL_MODE_BITS 0xc00u
 #define FILE_TYPE_BITS 0xf000u
 #define TYPE_REGULAR 0x8000u
 #define TYPE_FIFO 0x1000u
