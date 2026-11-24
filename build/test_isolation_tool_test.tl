@@ -110,6 +110,7 @@ local function test_limits_must_be_positive_whole_numbers(tmp: string)
   result = invoke(root, output, { "--jobs", "x", "suite/fine_test.tl" })
   assert(result.code == 2, assert(Fs.read(output)))
   local env = environment()
+  env["FUZZ_SECONDS"] = nil
   env["COSMIC_TEST_TIMEOUT"] = "soon"
   result = invoke(root, output, { "suite/fine_test.tl" }, env)
   assert(result.code == 2, assert(Fs.read(output)))
@@ -118,6 +119,18 @@ local function test_limits_must_be_positive_whole_numbers(tmp: string)
   -- fine_test, and short of this test's own deadline, so a hang there is
   -- told by the nested run.
   env["COSMIC_TEST_TIMEOUT"] = "20"
+  result = invoke(root, output, { "suite/fine_test.tl" }, env)
+  assert(result.ok, assert(Fs.read(output)))
+  -- A deadline named no longer than FUZZ_SECONDS would end a fuzz test
+  -- before it reports, and is refused with the deadline that fits.
+  env["FUZZ_SECONDS"] = "20"
+  result = invoke(root, output, { "suite/fine_test.tl" }, env)
+  assert(result.code == 2, assert(Fs.read(output)))
+  local said = assert(Fs.read(output))
+  assert(said:find("COSMIC_TEST_TIMEOUT=20 is no longer than FUZZ_SECONDS=20", 1, true), said)
+  assert(said:find("give --timeout 200", 1, true), said)
+  -- Unnamed, the deadline is ten times FUZZ_SECONDS.
+  env["COSMIC_TEST_TIMEOUT"] = nil
   result = invoke(root, output, { "suite/fine_test.tl" }, env)
   assert(result.ok, assert(Fs.read(output)))
 end

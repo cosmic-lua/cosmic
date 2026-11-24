@@ -893,7 +893,11 @@ seeded source. A check must hold for all of them. The module doc of
   default): past them, with 64 inputs drawn, it stops, says how many it
   drew and is held to those. The weekly `fuzz.yml` sets 120, for the
   properties whose every input costs a tenth of a second or more.
-  Prefer it to a `max_iters` guessed from a measurement.
+  Prefer it to a `max_iters` guessed from a measurement. Where it is set,
+  a test's deadline is ten times it unless `--timeout` or
+  `COSMIC_TEST_TIMEOUT` names one, and a deadline named no longer than
+  it is refused: a property must have time to shrink and report what
+  failed.
 - A failure is shrunk and kept in the test's directory.
 - `FUZZ_CASE=<property>:<case>` checks the one input a report names.
   `FUZZ_SEED=<seed> FUZZ_ITERS=<iteration>` reruns the way to it.

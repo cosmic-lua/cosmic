@@ -7,7 +7,8 @@
 --- started with the test's module, name, and temporary directory, in a
 --- process group of its own, with its standard streams captured and a
 --- deadline -- `--timeout SECONDS`, or `COSMIC_TEST_TIMEOUT`, 30 by
---- default -- past which the whole group is ended and the test fails.
+--- default, or ten times `FUZZ_SECONDS` where that is set -- past which
+--- the whole group is ended and the test fails.
 --- Up to `--jobs N` workers run at once, one more than the processors by default.
 --- A worker reports over a pipe what it hit and whether the test
 --- passed; this process alone opens the build database and writes
@@ -223,6 +224,13 @@ local timeout_variable <const>: Env.Name = "COSMIC_TEST_TIMEOUT"
 --- takes about a second, so this leaves a loaded CI host ample room
 --- while still ending a hung test well inside any whole-run budget.
 local default_timeout_s = 30
+--- The variable a fuzz property's seconds of drawing are read from
+--- (build/fuzz/init.tl).
+local fuzz_seconds_variable <const>: Env.Name = "FUZZ_SECONDS"
+--- How many times FUZZ_SECONDS a test's deadline is where FUZZ_SECONDS is
+--- set and no deadline is named: room to draw, shrink what failed (up to
+--- 2000 more checks) and report it, as fuzz.yml's 1200 s does for 120.
+local fuzz_deadline_factor <const> = 10
 
 --- A selector without its trailing slashes and leading "./".
 local function normalized(selector: string): string
@@ -2175,6 +2183,24 @@ local function limits_of(values: {string:string}): State.Limits?, string
     local jobs, trouble = positive(jobs_flag, "--jobs")
     if jobs == nil then return nil, trouble end
     limits.jobs = jobs
+  end
+  -- A fuzz property may draw for FUZZ_SECONDS, then shrink what failed
+  -- and report it (build/fuzz/init.tl): a deadline under that ends the
+  -- test before it says what it found.
+  local fuzz_seconds = math.tointeger(tonumber(Env.read(fuzz_seconds_variable) or ""))
+  if fuzz_seconds ~= nil and fuzz_seconds > 0 then
+    local wanted = math.min(fuzz_seconds * fuzz_deadline_factor, most_seconds)
+    local given = if timeout_flag ~= nil then "--timeout " .. timeout_flag
+      elseif from_env ~= nil and from_env ~= "" then timeout_variable .. "=" .. from_env
+      else nil end
+    if given == nil then
+      limits.timeout_ns = math.max(limits.timeout_ns, Clock.seconds(wanted))
+    elseif limits.timeout_ns <= Clock.seconds(fuzz_seconds) then
+      return nil, ("%s is no longer than %s=%d: a fuzz property may draw inputs for that long, and its test " ..
+        "would time out before it shrinks and reports what failed; give --timeout %d (ten times %s, as " ..
+        "fuzz.yml gives 1200 for 120), or leave the deadline unset and it is that"):format(given,
+          fuzz_seconds_variable, fuzz_seconds, wanted, fuzz_seconds_variable)
+    end
   end
   return limits, ""
 end
