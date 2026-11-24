@@ -7,7 +7,8 @@ Host (cosmic.agent.host), Fs (cosmic.fs) and Json (cosmic.json) need no require.
 - Host.grep(pattern, paths, plain?) -> {{"{{"}}path, line, text}}: the lines that hold a pattern (`%d`, `%.`, `[^/]+`; no regex).
 - Host.sed(path, pattern, replacement, plain?) -> integer: replaces every match, line by line (`%1` a capture).
 - Host.sort(list, by?) -> mut {string}, a new list, by the key `by(item)` gives where given; Host.uniq(keys) -> {string: integer}, each key's count; Host.top(counts, n?) -> {{"{{"}}key, count}}, most first, ties by key.
-- Host.bash(command) -> {output, ok, code}; Host.sql(query) -> rows; Host.store(key, value) / Host.load(key).value.
+- Host.bash(command) -> {output, ok, code}; Host.store(key, value) / Host.load(key).value.
+- Host.history(query) -> {row}: one read-only SQLite statement on sessions.db, where every session and each tool's whole output is kept, for what was cut or seen before. {{.tables}}
 - Host.fetch(url, {method?, headers?, body?}?) -> {status, headers, body}: no redirect followed; public addresses with --network, and the targets of --connect.
 - JSON is read typed, into records rather than walked with Json.get: unless you know each field's type, print the start of one body first (`print(body:sub(1, 600))`); then declare records to match it, at the snippet's top level, and decode into them (`local Shape = require("cosmic.shape")`, `local record Item name: string count: integer end`, `local record Page items: {Item} next?: integer end`, `local page = assert(Shape.decode_into(body, Shape.record_of("Page").spec))`); a key the record does not name is dropped.
 - Host.sqlite(path, statement, {values}?) -> {row}: one SQL statement on a SQLite file, made where missing (`?1` binds the first value; with no values, a script of several); a row's column is `row["name"]`. Host.sha256(path) -> hex.

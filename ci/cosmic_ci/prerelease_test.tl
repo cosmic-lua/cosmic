@@ -40,17 +40,30 @@ local function refused(expected: string, action: function())
   assert(tostring(why):find(expected, 1, true), "refused otherwise: " .. tostring(why))
 end
 
---- The smoke run's tool reads and runs itself and writes its cache, and
---- nothing else: not the files whose lines set a later step's environment,
---- nor the driver that step runs; of the job's variables it gets PATH and
---- HOME alone.
+--- The smoke run's tool reads and runs itself and the programs its launcher
+--- runs, and writes its cache, and nothing else: not the files whose lines
+--- set a later step's environment, nor the driver that step runs; of the
+--- job's variables it gets PATH and HOME alone.
 local function test_the_smoke_policy_grants_the_tool_and_its_cache_alone()
   local policy = Prerelease.smoke_policy("/runner/release/cosmic", "/tmp/smoke-cache")
+  local launcher: {string: boolean} = { uname = true, id = true, mkdir = true, stat = true, mktemp = true, dd = true,
+    head = true, sha256sum = true, chmod = true, ln = true, rm = true, rmdir = true }
+  local granted: mut {string: boolean} = {}
   local grants: mut {string} = {}
-  for _, grant in ipairs(policy.grants or {}) do
+  for at, grant in ipairs(policy.grants or {}) do
+    if at > 2 then
+      local program = grant.path:match("^/usr/bin/(%w+)$") or grant.path:match("^/bin/(%w+)$")
+      local kernel = grant.path == "/proc/sys/kernel/ostype" or grant.path == "/proc/sys/kernel/arch"
+      assert((program ~= nil and launcher[program] == true and grant.letters == "rx") or
+          (kernel and grant.letters == "r"), grant.path .. " " .. grant.letters)
+      if program ~= nil then granted[program] = true end
+    end
     grants[#grants + 1] = grant.path .. " " .. grant.letters
   end
-  assert(table.concat(grants, ",") == "/runner/release/cosmic rx,/tmp/smoke-cache rwxc", table.concat(grants, ","))
+  assert(table.concat(grants, ",", 1, 2) == "/runner/release/cosmic rx,/tmp/smoke-cache rwxc", table.concat(grants, ","))
+  for name in pairs(launcher) do
+    assert(granted[name] == true, "the launcher's " .. name .. " is not granted")
+  end
   assert(table.concat(policy.env or {}, ",") == "PATH,HOME")
   assert(table.concat(policy.profiles or {}, ",") == "system")
   assert((policy.set_env or {})["COSMIC_PORTABLE_CACHE"] == "/tmp/smoke-cache")
@@ -69,7 +82,10 @@ local function test_the_smoke_policy_keeps_a_program_from_writing_elsewhere(tmp:
   local result, why = Child.run({ shell, "-c", "echo BASH_ENV=/x >> \"$1\"", "sh", outside },
     { timeout_ns = Child.FOREVER, policy = Prerelease.smoke_policy(shell, cache), stderr = "capture" })
   assert(result ~= nil, why)
-  assert(not result.ok, "the write was allowed")
+  -- Linux's shell says "Permission denied", and macOS's "Operation not permitted".
+  local said = result.stderr or ""
+  assert(not result.ok and (said:find("ermission denied", 1, true) ~= nil or said:find("not permitted", 1, true) ~= nil),
+    "the write was allowed, or refused otherwise: " .. said)
   assert(assert(Fs.read(outside)) == "kept\n")
 end
 

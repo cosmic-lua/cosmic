@@ -118,8 +118,6 @@ end
 --- unless a sweep ran in the day before. What cannot be removed stays for the next sweep. A run that writes or dates
 --- an entry between the sweep's look and its removal loses it, and the next run compiles it again: the key names
 --- the bytes, so nothing else is lost.
--- TODO: keep an entry the pinned bootstrap (ci/cosmic-driver.pin) reads, which it does not date, once that pin names
--- a release that dates its kept compiles: until then bin/zig's build/zig.tl compiles afresh each month.
 local function sweep(dir: string)
   local now = seconds_now()
   local swept = dir .. "/" .. swept_name

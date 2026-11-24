@@ -227,14 +227,39 @@ end
 
 local required <const> = StepEnv.required
 
+--- The programs the tool's launcher (build/launcher.tl, whose build/launcher_test.tl lists them) runs on its first
+--- start, which unpacks its core: the "system" profile lets them be read, and a grant of `x` alone lets them run.
+--- Its shell, the script's interpreter, comes with the start.
+local launcher_programs <const> = { "uname", "id", "mkdir", "stat", "mktemp", "dd", "head", "sha256sum", "chmod",
+  "ln", "rm", "rmdir" }
+
 --- The policy [`Prerelease.smoke`] runs the tool at `path` under, its cores unpacked in `cache`: it reads and runs
---- `path` and writes `cache`, and nothing else, so it cannot touch the files whose lines
---- set the environment of the job's later steps (`GITHUB_ENV`, `GITHUB_PATH`), the publishing one among them, nor
---- the driver that step runs; of the job's variables it gets `PATH` and `HOME` alone.
+--- `path` and the programs its launcher runs, of those under /bin and /usr/bin, writes `cache`, and nothing else, so
+--- it cannot touch the files whose lines set the environment of the job's later steps (`GITHUB_ENV`,
+--- `GITHUB_PATH`), the publishing one among them, nor the driver that step runs; of the job's variables it gets
+--- `PATH` and `HOME` alone.
 function Prerelease.smoke_policy(path: string, cache: string): Sandbox.Policy
+  local grants: mut {Sandbox.Grant} = { { path = path, letters = "rx" }, { path = cache, letters = "rwxc" } }
+  for _, name in ipairs(launcher_programs) do
+    for _, dir in ipairs({ "/bin/", "/usr/bin/" }) do
+      local program = dir .. name
+      local found, _ = Fs.status(program)
+      if found ~= nil and found.exists then
+        table.insert(grants, { path = program, letters = "rx" })
+      end
+    end
+  end
+  -- The kernel's names of the OS and machine, which the launcher reads in uname's place.
+  for _, name in ipairs({ "ostype", "arch" }) do
+    local file = "/proc/sys/kernel/" .. name
+    local found, _ = Fs.status(file)
+    if found ~= nil and found.exists then
+      table.insert(grants, { path = file, letters = "r" })
+    end
+  end
   return {
     profiles = { "system" },
-    grants = { { path = path, letters = "rx" }, { path = cache, letters = "rwxc" } },
+    grants = grants,
     env = { "PATH", "HOME" },
     set_env = { COSMIC_PORTABLE_CACHE = cache },
     -- The launcher is a shell script that unpacks its core and marks it

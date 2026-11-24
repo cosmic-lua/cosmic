@@ -458,15 +458,18 @@ local bound_warn_percent <const> = 75
 --- `bound_ns` says of that: a line naming both and the share, and from
 --- `bound_warn_percent` a second line, a warning GitHub shows on the
 --- run's page (`::warning::`). Whole seconds, the share rounded down.
-function Orchestration.bound_lines(name: string, elapsed_ns: integer, bound_ns: integer): {string}
+--- `kind` names what ran, "fixture" by default ("suite" for a suite).
+function Orchestration.bound_lines(name: string, elapsed_ns: integer, bound_ns: integer,
+                                   kind?: string): {string}
   assert(bound_ns > 0, "a fixture's bound is more than nothing")
+  local what = kind or "fixture"
   local second = Clock.seconds(1)
   local share = elapsed_ns * 100 // bound_ns
   local said = tostring(elapsed_ns // second) .. " s of its " .. tostring(bound_ns // second) ..
     " s bound (" .. tostring(share) .. "%)"
-  local lines: mut {string} = { "fixture: " .. name .. ": took " .. said }
+  local lines: mut {string} = { what .. ": " .. name .. ": took " .. said }
   if share >= bound_warn_percent then
-    lines[#lines + 1] = "::warning::fixture " .. name .. " took " .. said ..
+    lines[#lines + 1] = "::warning::" .. what .. " " .. name .. " took " .. said ..
       "; it fails at its bound, so make it cheaper or raise the bound before it does"
   end
   return lines
@@ -474,8 +477,8 @@ end
 
 --- Says [`Orchestration.bound_lines`] on stderr, and puts a warning on
 --- the run's summary page too. Fails nothing: the log is for reading.
-local function say_bound(name: string, started_ns: integer, bound_ns: integer)
-  local lines = Orchestration.bound_lines(name, Clock.monotonic_ns() - started_ns, bound_ns)
+local function say_bound(name: string, started_ns: integer, bound_ns: integer, kind?: string)
+  local lines = Orchestration.bound_lines(name, Clock.monotonic_ns() - started_ns, bound_ns, kind)
   for _, line in ipairs(lines) do
     local _, _ = Fs.put(Fs.stderr, line .. "\n")
   end
@@ -726,25 +729,20 @@ local performance_test_timeout_ns <const> = Clock.seconds(150)
 -- without that reparse; it is still sized for it.
 local checked_compile_timeout_ns <const> = Clock.seconds(300)
 
--- A whole `cosmic test` run of every test, sandboxed (about 4750 tests
--- in October 2026), is what a change to core/ runs, as no verdict stands
--- for it, and what a merge-queue run that moved build/harness_epoch.tl
--- ran, 12 of the 22 queue runs on October 9 (a change to the harness now
--- misses every key and runs as much). Its time follows
--- the runner more than the tree. On alpine-x86_64 each whole suite took
--- 192 to 309 s on runners where the driver's own tests took 73 to 120 s;
--- on one where they took 135 s (37991854997), the local suite took 385 s
--- and the portable suite, the step after it, ran past 450 s, the bound
--- then. The bound is 1.6 times that, the slowest run seen, as #2834 sized
--- it: were both of a leg's suites to take it whole, the leg would end in
--- about 36 of the job's 45 minutes. Each test gets far less than the
--- whole run, so a test that hangs is ended and named by the runner, not
--- hidden under a cancelled run.
--- TODO: the suite's growth, and a slow runner, against this bound go
--- unseen until a run meets it: warn from `suite` when a run uses over 75%
--- of the bound, or run the whole suite on a schedule and report its
--- elapsed time against it.
-local suite_timeout_ns <const> = Clock.seconds(720)
+-- A whole `cosmic test` run of every test, sandboxed, is what a change to
+-- core/ runs, as no verdict stands for it, and what a run whose keys
+-- moved (the harness, the runtime) runs. Its time follows the runner and
+-- the number of tests: with about 10500 tests, a passing linux-x86_64
+-- queue suite took about 690 s. The bound is 1.6 times the slowest
+-- passing run, rounded up. A queue job runs one suite; a full leg runs
+-- two (macOS three, with the darwin suite), so a leg whose suites all
+-- neared it would meet the job's 60 minutes first: the bound is for one
+-- slow suite, not all. Each test gets far less than the whole run, so a
+-- test that hangs is ended and named by the runner, not hidden under a
+-- cancelled run. Each suite says its time against the bound, and warns
+-- from 75% of it ([`Orchestration.bound_lines`]), so its growth is seen
+-- before a run meets it.
+local suite_timeout_ns <const> = Clock.seconds(1200)
 local suite_test_timeout_s <const> = "10"
 
 --- Copies the files of `source` (modules, and where `data` the JSON
@@ -1357,6 +1355,14 @@ local function snapshot(c: Context, diagnostics: string, label: string,
   return integrity.status
 end
 
+--- What a suite called `name` that met `suite_timeout_ns` says of it:
+--- the whole run's bound, not a test's.
+local function suite_timed_out(name: string): string
+  return name .. " suite: timed out (status 124): it ran past its " ..
+    tostring(suite_timeout_ns // Clock.seconds(1)) ..
+    " s bound (suite_timeout_ns in ci/cosmic_ci/orchestration.tl), not past a test's\n"
+end
+
 --- One suite of `c`'s candidate, run by `executable`, `env` added to
 --- its environment.
 local function suite(c: Context, name: string, executable: string,
@@ -1370,8 +1376,10 @@ local function suite(c: Context, name: string, executable: string,
   local words = with_census(run.words)
   local argv: mut {string} = { executable }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
+  local began = Clock.monotonic_ns()
   local status = logged(c, name .. " suite", argv, out, err,
     suite_timeout_ns, c.root, values)
+  say_bound(name, began, suite_timeout_ns, "suite")
   record_suite(c, name, status, out)
   write(diagnostics .. "/" .. name .. "-test.status", tostring(status) .. "\n")
   local snapped: Snapped = { status = 1 }
@@ -1383,7 +1391,7 @@ local function suite(c: Context, name: string, executable: string,
     local _, _ = Fs.put(Fs.stderr, tostring(snap_answer) .. "\n")
   end
   if status == 124 then
-    local _, _ = Fs.put(Fs.stderr, name .. " suite: timed out (status 124)\n")
+    local _, _ = Fs.put(Fs.stderr, suite_timed_out(name))
   elseif status ~= 0 then
     local _, _ = Fs.put(Fs.stderr,
       name .. " suite: failed (status " .. tostring(status) .. ")\n")
@@ -1555,10 +1563,14 @@ local function phase_darwin_suite(p: PlatformContext): integer
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   mkdir(p.local_diagnostics)
   local out = p.local_diagnostics .. "/darwin-test.out"
+  local began = Clock.monotonic_ns()
   local status = logged(c, "darwin suite", argv, out,
     p.local_diagnostics .. "/darwin-test.err", suite_timeout_ns, c.root, values)
+  say_bound("darwin", began, suite_timeout_ns, "suite")
   record_suite(c, "darwin", status, out)
-  if status ~= 0 then
+  if status == 124 then
+    local _, _ = Fs.put(Fs.stderr, suite_timed_out("darwin"))
+  elseif status ~= 0 then
     local _, _ = Fs.put(Fs.stderr, "darwin suite: failed (status " .. tostring(status) .. ")\n")
   end
   return status
