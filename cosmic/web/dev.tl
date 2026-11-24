@@ -44,6 +44,7 @@
 local Assets = require("cosmic.web.assets")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
+local DevTag = require("cosmic.web.dev_tag")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Headers = require("cosmic.web.headers")
@@ -207,8 +208,8 @@ local SCRIPT <const> = [==[
 
 --- The tag that loads the script, with `nonce` when the request drew one.
 local function tag(nonce: string?): string
-  if nonce == nil or nonce == "" then return '<script src="/_web/dev.js" defer></script>' end
-  return '<script src="/_web/dev.js" nonce="' .. Html.raw_attr(Html.escape_attr(nonce)) .. '" defer></script>'
+  -- The markup is the template dev_tag.tmpl (cosmic.template).
+  return Html.raw(DevTag.render({ nonce = if nonce ~= "" then nonce else nil end }))
 end
 
 --- Raises where `value` is present and under `least`.

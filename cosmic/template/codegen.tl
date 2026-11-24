@@ -14,6 +14,7 @@
 ---     url_local string | html.SafeUrl             `html.local_href` (a same-origin reference), likewise
 ---     urlpart string | number | html.SafeUrlPart  `html.url_part`, after literal text in a URL
 ---     json  html.SafeJson                         entity-escaped JSON text, the whole value
+---     url_trusted html.SafeResourceUrl            `<script src>`, `<link href>`: attribute-escaped, the whole value
 ---     selector string | number                    `html.escape_css_attr`: an identifier in a CSS selector
 ---     rtext string | number                       `<title>`, `<textarea>`: escaped, no markup
 ---     ftext string | number                       text in `<svg>`, `<math>`, `<select>`: likewise
@@ -91,7 +92,7 @@ for _, word in ipairs({
 end
 
 --- The helpers, in the order they are declared.
-local HELPER_ORDER <const>: {types.Slot} = { "plain", "text", "rtext", "ftext", "attr", "url", "url_local", "urlpart", "json", "selector" }
+local HELPER_ORDER <const>: {types.Slot} = { "plain", "text", "rtext", "ftext", "attr", "url", "url_local", "urlpart", "json", "selector", "url_trusted" }
 
 --- A name the template takes, and whether the loop or `with` that made
 --- it has read it.
@@ -256,6 +257,8 @@ local function accepts(g: Gen, ctx: types.Slot): string
     return "string | " .. g.html .. ".SafeUrl"
   elseif ctx == "json" then
     return g.html .. ".SafeJson"
+  elseif ctx == "url_trusted" then
+    return g.html .. ".SafeResourceUrl"
   elseif ctx == "urlpart" then
     return "string | number | " .. g.html .. ".SafeUrlPart"
   elseif ctx == "attr" then
@@ -282,6 +285,8 @@ local function slot_statement(g: Gen, ctx: types.Slot, expr: string): string
     helper_name = "_json"
   elseif ctx == "selector" then
     helper_name = "_sel"
+  elseif ctx == "url_trusted" then
+    helper_name = "_turl"
   elseif ctx == "urlpart" then
     helper_name = "_part"
   elseif ctx == "attr" then
@@ -473,6 +478,9 @@ local function helper(g: Gen, ctx: types.Slot): string
   elseif ctx == "json" then
     return "local function _json(v: " .. html .. ".SafeJson): string " ..
       "return " .. html .. ".raw(" .. html .. ".escape(" .. html .. ".raw_json(v))) end"
+  elseif ctx == "url_trusted" then
+    return "local function _turl(v: " .. html .. ".SafeResourceUrl): string " ..
+      "return " .. html .. ".raw_attr(" .. html .. ".escape_attr(" .. html .. ".raw_resource_url(v))) end"
   elseif ctx == "selector" then
     return "local function _sel(v: string | number): string " ..
       "return " .. html .. ".raw_attr(" .. html .. ".escape_css_attr(v)) end"

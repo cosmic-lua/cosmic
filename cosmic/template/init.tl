@@ -95,7 +95,14 @@
 --- or the legacy `hx-ws` (a socket URL after `connect:`),
 --- in `hx-vals`, `hx-headers` or `hx-request` unless the template says
 --- `{{use htmx}}` (they are JSON that htmx may run), in `<script>` or `<style>`, and a few like them
---- (cosmic/template/markup.tl lists them). An `html` template must also end in plain text, since its
+--- (cosmic/template/markup.tl lists them). In a `<script>`, `nonce` and
+--- `integrity` take a string as any attribute does, and `src` takes a
+--- slot only as the whole value and only a [`html.SafeResourceUrl`]
+--- (`<script src="{{.js}}" nonce="{{.nonce}}" defer></script>`), as does
+--- the `href` of a `<link>`: only [`html.trust_resource_url`] makes one,
+--- since no allowlist can say a script or a stylesheet is the program's,
+--- so a `SafeUrl` from [`html.href`] does not stand in for it.
+--- An `html` template must also end in plain text, since its
 --- `SafeHtml` can go into another's text slot. `{{mode text}}` returns a
 --- `string` and escapes nothing, for anything that is not HTML; a slot
 --- there takes a string or a number.

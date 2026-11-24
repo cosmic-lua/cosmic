@@ -195,6 +195,21 @@ local function test_the_functions_refuse_what_is_not_theirs()
   assert(not attempt(Html.trust_url, {})) -- checked: literal_needs_type
 end
 
+--- A resource URL is a type of its own: a SafeUrl, which `href` makes from
+--- data, is not one, and its raw function takes nothing else.
+local function test_a_resource_url_is_made_by_trust_resource_url_alone()
+  local resource = Html.trust_resource_url("/static/app.js")
+  assert(Html.raw_resource_url(resource) == "/static/app.js")
+  local url = untyped(Html.href("https://example.com/x.js"))
+  local ok, why = attempt(Html.raw_resource_url, url)
+  assert(not ok and tostring(why):find("SafeResourceUrl expected", 1, true) ~= nil, tostring(why))
+  assert(not attempt(Html.raw_url, untyped(resource)))
+  assert(not attempt(Html.raw_resource_url, "x"))
+  local table_value: {string} = {}
+  assert(not attempt(Html.trust_resource_url, table_value))
+  assert(metatable_of(untyped(resource)) == false)
+end
+
 --- What `href` makes of `input`, as a table of (input, allowed)
 --- pairs: `allowed` is whether the text
 --- must come back as it went in, and false that it must be `about:invalid`.

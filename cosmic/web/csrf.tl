@@ -59,6 +59,8 @@
 --- token does the work. A refusal of an htmx request says to reload the page.
 --- @public
 
+local CsrfField = require("cosmic.web.csrf_field")
+local CsrfMeta = require("cosmic.web.csrf_meta")
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
 local Html = require("cosmic.html")
@@ -158,8 +160,8 @@ end
 --- @param req Types.Request The request
 --- @return Html.SafeHtml The `<input>`
 function Csrf.field(req: Types.Request): Html.SafeHtml
-  -- A token is base64url: nothing in it needs escaping.
-  return Html.trust('<input type="hidden" name="' .. Csrf.FIELD .. '" value="' .. Csrf.token(req) .. '">')
+  -- The markup is the template csrf_field.tmpl (cosmic.template).
+  return CsrfField.render({ name = Csrf.FIELD, token = Csrf.token(req) })
 end
 
 --- A `<meta name="csrf-token">` tag with this request's token, for a script
@@ -168,7 +170,8 @@ end
 --- @param req Types.Request The request
 --- @return Html.SafeHtml The tag
 function Csrf.meta(req: Types.Request): Html.SafeHtml
-  return Html.trust('<meta name="csrf-token" content="' .. Csrf.token(req) .. '">')
+  -- The markup is the template csrf_meta.tmpl (cosmic.template).
+  return CsrfMeta.render({ name = Csrf.FIELD, token = Csrf.token(req) })
 end
 
 --- The JSON object `{"X-CSRF-Token": "..."}` for an `hx-headers` attribute,

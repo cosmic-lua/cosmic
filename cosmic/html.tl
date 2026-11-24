@@ -10,13 +10,18 @@
 ---   [`Html.href`] (from data, through an allowlist) or [`Html.trust_url`].
 ---   It is not escaped for an attribute: the page does that where it
 ---   puts the URL in one.
+--- - [`Html.SafeResourceUrl`] is a URL the page loads and runs or styles
+---   itself by (a `<script>`'s `src`, a `<link>`'s `href`), made only by
+---   [`Html.trust_resource_url`]: no allowlist can say that a script is the
+---   program's, so a [`Html.SafeUrl`] from data does not stand in for one.
 --- - [`Html.SafeUrlPart`] is percent-escaped text for a URL after literal
 ---   text (a path segment or a query), made by [`Html.url_part`] or
 ---   [`Html.url_query`].
 --- - [`Html.SafeJson`] is JSON text for an attribute such as `hx-vals`,
 ---   made by [`Html.json`] or [`Html.json_text`]. It has no unchecked door.
 --- - [`Html.raw`], [`Html.raw_attr`], [`Html.raw_url`],
----   [`Html.raw_url_part`] and [`Html.raw_json`] are the way back to the
+---   [`Html.raw_resource_url`], [`Html.raw_url_part`] and [`Html.raw_json`]
+---   are the way back to the
 ---   string.
 ---
 ---     local item = Html.escape("Fish & Chips")
@@ -60,6 +65,11 @@ local record Html
   --- by [`Html.href`] or [`Html.trust_url`]. Its text is a URL, not
   --- attribute-escaped.
   type SafeUrl = raw_html.SafeUrl
+
+  --- A URL of a script or stylesheet the page loads. Opaque: a value is
+  --- made by [`Html.trust_resource_url`] alone. Its text is not
+  --- attribute-escaped.
+  type SafeResourceUrl = raw_html.SafeResourceUrl
 
   --- Percent-escaped text that is safe in a URL attribute after literal
   --- text: a path segment, from [`Html.url_part`], or a query, from
@@ -140,8 +150,9 @@ function Html.href(s: string): Html.SafeUrl
   return raw.href(s)
 end
 
---- `s` as a URL that is already safe, unchecked: the one way to put a
---- URL you wrote into a page without the allowlist.
+--- `s` as a URL that is already safe, unchecked: the one way to make a
+--- [`Html.SafeUrl`] without the allowlist. A script's or a stylesheet's
+--- URL is a [`Html.SafeResourceUrl`] ([`Html.trust_resource_url`]).
 function Html.trust_url(s: string): Html.SafeUrl
   return raw.trust_url(s)
 end
@@ -149,6 +160,20 @@ end
 --- The string a [`Html.SafeUrl`] holds.
 function Html.raw_url(x: Html.SafeUrl): string
   return raw.raw_url(x)
+end
+
+--- `s` as the URL of a script or stylesheet the page loads, unchecked: the
+--- program vouches that what it names is its own. The one way to fill the
+--- `src` of a `<script>` or the `href` of a `<link>` in a template.
+---
+---     Html.raw_resource_url(Html.trust_resource_url("/static/app.js")) -- "/static/app.js"
+function Html.trust_resource_url(s: string): Html.SafeResourceUrl
+  return raw.trust_resource_url(s)
+end
+
+--- The string a [`Html.SafeResourceUrl`] holds.
+function Html.raw_resource_url(x: Html.SafeResourceUrl): string
+  return raw.raw_resource_url(x)
 end
 
 --- `s` as a URL that may only be a relative reference on this origin, for
