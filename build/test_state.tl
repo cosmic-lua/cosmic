@@ -357,7 +357,7 @@ local record test_state
     --- and the scratch directory it was made for: a later worker of the
     --- module takes it rebound to its own ([`test_sandbox.rebind`]).
     plans: mut {string:PlanMade}
-    --- A module's hit lines as a `coverage_by_test` row holds them, and the
+    --- A module's hit lines as a `hits_by_test` row holds them, and the
     --- lines `take_hits` has folded into `hits`, each by the table
     --- [`worker.decode`] shares among the reports that held them. Per run:
     --- a table folded into another run's `hits` is not in this one's.

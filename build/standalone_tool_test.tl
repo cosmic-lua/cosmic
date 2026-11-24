@@ -1,13 +1,11 @@
 --- `cosmic --standalone`, run as this program: a file's path and
---- arguments, its exit status, and the compile cache it keeps. These
---- start this program, its core and retained descriptor, only to run a
+--- arguments and its exit status (the compile cache it keeps is in
+--- `standalone_cache_tool_test.tl`). These start this program, its core and retained descriptor, only to run a
 --- file standalone, so they declare `lua`; the in-process compiles are in `standalone_test.tl`.
 
-local Array = require("cosmic.array")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local this_program = require("build.this_program")
-local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local _ = require("build.standalone")
 local Clock = require("cosmic.clock")
@@ -41,36 +39,6 @@ return Script
   assert(result.stdout == script .. "|one,two\n", tostring(result.stdout))
   local names = assert(Fs.list(tmp))
   assert(#names == 1 and names[1] == "script.tl", "a standalone run wrote beside the file")
-end
-
---- The compile cache is trusted when read back, so it is kept only in
---- a directory no one else can write: never a `/tmp` fallback when no
---- cache home is set, and not in one others could have planted Lua in.
-local function test_the_compile_cache_is_kept_only_where_others_cannot_write(tmp: string)
-  local script = tmp .. "/script.tl"
-  assert(Fs.write(script, "return function(_argv: {string}): integer return 3 end\n"))
-  local function run(env: {string:string}): integer
-    local started = this_program.program({ "--standalone", script }, {
-      env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
-    })
-    local result = assert(Child.run(started.argv, started.options))
-    local code = result.code
-    assert(code ~= nil, "a signal ended the run: " .. tostring(result.signal))
-    return code
-  end
-  local cache = tmp .. "/cache"
-  assert(run({ XDG_CACHE_HOME = cache }) == 3)
-  local kept = assert(Fs.list(cache .. "/cosmic/standalone"))
-  assert(#kept == 1, tostring(#kept))
-  local name = Array.at(kept, 1)
-  local st = assert(Fs.stat(cache .. "/cosmic/standalone/" .. name))
-  assert(st.mode & 0x1ff == 0x180, tostring(st.mode))
-  -- a planted file in a directory others can write is never run
-  assert(Fs.write(cache .. "/cosmic/standalone/" .. name, "return function() return 9 end"))
-  assert(sys.chmod(cache .. "/cosmic/standalone", 0x1ff))
-  assert(run({ XDG_CACHE_HOME = cache }) == 3)
-  -- with no cache home at all, it still runs, compiling afresh
-  assert(run({}) == 3)
 end
 
 --- What main returns is judged as a file run's is: a whole number
@@ -230,4 +198,20 @@ end
   assert(result.code == 0 and result.stdout == "one,two\n", tostring(result.stderr))
   local names = assert(Fs.list(dir))
   assert(#names == 1 and names[1] == "script.tl", "a standalone run wrote beside the file")
+end
+
+--- A test's child runs from its closure store, which records no boot hash: no build names the sources it checks a
+--- file against, so it keeps no compile, and a file run there is checked afresh each time. (One that records one keeps
+--- it: `standalone_cache_tool_test.tl`.)
+local function test_a_run_with_no_boot_hash_keeps_no_compile(tmp: string)
+  assert(require("cosmic.store").meta("boot_hash") == nil, "a test's closure store records a boot hash")
+  local script = tmp .. "/script.tl"
+  assert(Fs.write(script, "return function(_argv: {string}): integer return 3 end\n"))
+  local started = this_program.program({ "--standalone", script }, {
+    env = { XDG_CACHE_HOME = tmp .. "/cache" }, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
+  })
+  local result = assert(Child.run(started.argv, started.options))
+  assert(result.code == 3, tostring(result.code) .. tostring(result.stderr))
+  local kept, _ = Fs.list(tmp .. "/cache/cosmic/standalone")
+  assert(kept == nil or #kept == 0, "a compile is kept")
 end

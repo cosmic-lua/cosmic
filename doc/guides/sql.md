@@ -82,14 +82,14 @@ assert(version == 2)
 local Sqlite = require("cosmic.sqlite")
 
 local db = assert(Sqlite.memory())
-local rows = assert(db:text_rows([[
+local row = assert(db:one([[
   SELECT sqrt(16), median(value), decimal_add('0.1', '0.2'), 'v1.2' REGEXP '^v[0-9.]+$'
   FROM generate_series(1, 4)]]))
-print(table.concat(assert(rows[1]):texts(), " "))
+print(row:number(1), row:number(2), row:text(3), row:integer(4))
 ```
 
 ```output
-4.0 2.5 0.3 1
+4.0	2.5	0.3	1
 ```
 
 ## quoting
@@ -612,15 +612,15 @@ core.
 local Sqlite = require("cosmic.sqlite")
 
 local db = assert(Sqlite.memory())
-local rows = assert(db:text_rows([[
+local row = assert(db:one([[
   SELECT group_concat(value, ','), sha1('abc'), uuid_str(uuid_blob('{A0EEBC99-9C0B-4EF8-BB6D-6BB9BD380A11}')),
     decimal_mul('1.10', '3')
   FROM generate_series(0, 20, 10)]]))
-print(table.concat(assert(rows[1]):texts(), " "))
+print(row:text(1), row:text(2), row:text(3), row:text(4))
 ```
 
 ```output
-0,10,20 a9993e364706816aba3e25717850c26c9cd0d89d a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11 3.3
+0,10,20	a9993e364706816aba3e25717850c26c9cd0d89d	a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11	3.3
 ```
 
 - `generate_series(START, STOP, STEP)`: a table of the integers from START

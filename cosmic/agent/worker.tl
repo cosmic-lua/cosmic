@@ -15,13 +15,17 @@
 --- (the JSON of what it returned, where it returned one, at most 64KB); `ok` false and `error`, for one that raised; or
 --- `error` alone, for a request it could not read. What a snippet writes to standard output and standard error goes to
 --- the worker's standard error, a pipe this module reads while the snippet runs, between the request's marks
---- ([`Worker.mark`]): an answer of `ok` gains `output`, the last 64KB of it as UTF-8, and `cut` true where more was
---- written. Only the end is held, so a snippet that prints without end fills no file. Before its answer, a snippet may call the
+--- ([`Worker.mark`]): an answer of `ok` gains `output`, all of it as UTF-8 where it is 64KB or less, else its first
+--- 16KB and its last 48KB with a line between them of how many bytes were cut, `cut` true then, and `head_bytes` and
+--- `tail_bytes`, the length of each part; and `bytes`, how much was written. Only its start and its end are held, so a
+--- snippet that prints without end fills no file. Before its answer, a snippet may call the
 --- agent ([`cosmic.agent.host`]): a line `{"id":1,"call":"sql","args":{...}}`, which [`Worker.Options.serve`] answers
 --- in the agent and the reply goes back on the worker's input, `{"reply":...}` or `{"failed":"..."}`. A snippet sets no global, which the checker
---- refuses; what it keeps for the next it writes to a file. Its standard input is /dev/null.
+--- refuses; what it keeps for the next it keeps with [`Host.store`], or writes to a file. Its standard input is /dev/null.
 ---
---- Under a policy the worker is held as bash is, with two changes: it is granted this program's own file (read and
+--- Under a policy the worker is held as bash is, with these changes. Where it runs no commands
+--- ([`Worker.Options.commands`] false), on Linux it keeps no right to run a file but this program's own, and has no
+--- fork promise, so no program runs; on macOS it keeps them (Seatbelt's `x` maps libraries too). Beside that: it is granted this program's own file (read and
 --- run), which it runs as, and it is not given the nest promise, beside which this program cannot be started again, so
 --- Landlock holds its files too. Its environment is the policy's alone, so no key of the user's reaches it. With no
 --- policy (`--sandbox off`) it has the agent's whole environment, the API key included, as bash does then.
@@ -45,8 +49,8 @@ local record Worker
   --- id keeps one request's marks from ending another's; a snippet that prints its own end mark ends its own output.
   mark: function(kind: string, id: integer): string
 
-  --- The last [`Worker.OUTPUT_BYTES`] of `text`, from a character's start, as UTF-8.
-  tail: function(text: string): string
+  --- The last `most` bytes of `text`, [`Worker.OUTPUT_BYTES`] by default, from a character's start, as UTF-8.
+  tail: function(text: string, most?: integer): string
 
   --- What one snippet runs with.
   record Options
@@ -61,6 +65,11 @@ local record Worker
     --- The agent's reply to a call the snippet makes ([`cosmic.agent.host`]), or why it has none; nil to serve no
     --- call. It runs in the agent, outside the sandbox: it checks what it is given as a tool checks its input.
     serve?: Worker.Serve
+    --- Whether a snippet may run programs (Host.bash, cosmic.child): false holds the worker to no new process and
+    --- no file run, by its policy, so that what it does is only what the agent serves it and its grants allow. That
+    --- holds on Linux under a policy: on macOS, or with no policy, a snippet may still run a program. Only the first
+    --- snippet's starts the worker; nil is true.
+    commands?: boolean
   end
 
   --- What answers a snippet's call `name` with `args`.
@@ -134,10 +143,28 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
     local merged, why = Sandbox.merge(given, { profiles = { "cosmic" } })
     if merged == nil then return nil, Failure.new("worker: " .. why) end
     local promises: mut {Sandbox.Promise} = {}
+    local runs = opts.commands ~= false
     for _, promise in ipairs(merged.promises or {}) do
-      if promise ~= "nest" then promises[#promises + 1] = promise end
+      if promise ~= "nest" and (runs or promise ~= "fork") then
+        promises[#promises + 1] = promise
+      end
     end
-    policy = { grants = merged.grants, isolate = merged.isolate, promises = promises, connect = merged.connect,
+    local grants: mut {Sandbox.Grant} = {}
+    -- The worker is this program, which its start runs as its core where the policy grants it `x` ("cosmic").
+    local self, _ = Proc.executable()
+    -- On macOS `x` lets dyld map a library as well as run a file, so it stays: with no `fork` the worker starts no
+    -- process there either, though it could still become another program.
+    -- TODO: hold an x grant on macOS as map-only (Seatbelt's file-map-executable alone) once a grant can say so.
+    local strip = not runs and not Sandbox.on_macos()
+    for _, grant in ipairs(merged.grants or {}) do
+      -- With no commands, no other grant runs a file, so the worker cannot become another program either; as this
+      -- one, it is held as it was, with no process to start. A grant of `x` alone is then no grant.
+      local letters = if strip and grant.path ~= self then (grant.letters:gsub("x", "")) else grant.letters end
+      if letters ~= "" then
+        grants[#grants + 1] = { path = grant.path, letters = letters, from = grant.from }
+      end
+    end
+    policy = { grants = grants, isolate = merged.isolate, promises = promises, connect = merged.connect,
       loopback = merged.loopback, env = merged.env, set_env = merged.set_env, set_env_digests = merged.set_env_digests,
       tmp = merged.tmp, limits = merged.limits, user = merged.user, group = merged.group, database = merged.database }
   end
@@ -157,38 +184,87 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
   return lines
 end
 
+--- The reply to the call `message` a snippet made, as `serve` answers it: `{"reply":...}` or `{"failed":"..."}`, with
+--- the call's `call_id`.
+local function reply_to(message: {string: Json.Value}, serve: Worker.Serve?, budget: Worker.Budget): string
+  local call = message["call"]
+  local reply: mut {string: Json.Value}
+  if not (call is string) then
+    reply = { failed = "a call is named by a string" }
+  elseif serve == nil then
+    reply = { failed = "the agent serves no call to this worker" }
+  else
+    local args = message["args"]
+    local value, why = serve(call, if args == nil then Json.null else args end, budget)
+    reply = if value == nil then { failed = tostring(why) } else { reply = value } end
+  end
+  local call_id = message["call_id"]
+  if call_id ~= nil then reply["call_id"] = call_id end
+  local text, encode_why = Json.encode(reply)
+  if text == nil then
+    local failed: mut {string: Json.Value} = { failed = "the reply is no JSON: " .. tostring(encode_why) }
+    if call_id ~= nil then failed["call_id"] = call_id end
+    text = assert(Json.encode(failed))
+  end
+  return text
+end
+
 --- The worker's answer to the request `id`, read from `lines`, each call it makes before it answered by `serve` and
---- replied to on `writer`: or why there is none, which ends the worker.
+--- replied to on `writer`: or why there is none, which ends the worker. Each call is served in a task of its own, so
+--- calls a snippet makes from tasks of its own are served at once; each reply goes out whole, one at a time.
 local function answer_of(lines: Stream.Lines, writer: Stream.Writer, id: integer, serve: Worker.Serve?,
                          budget: Worker.Budget): Worker.Answer?, string
-  while true do
-    local line, read_why = lines:read()
-    if line == nil then
-      return nil, "it ended" .. (if read_why ~= "" then ": " .. read_why else "" end)
+  local answer: Worker.Answer? = nil
+  local trouble = ""
+  Poll.within(function()
+    local serving: mut {Poll.Task} = {}
+    local writing = false
+    local done = false
+    local written = Poll.notifier()
+    while true do
+      local line, read_why = lines:read()
+      if line == nil then
+        trouble = "it ended" .. (if read_why ~= "" then ": " .. read_why else "" end)
+        break
+      end
+      local message, decode_why = Json.decode_object(line, { null_value = Json.null })
+      if message == nil then
+        trouble = "its answer is no JSON object: " .. tostring(decode_why)
+        break
+      end
+      -- A line for another request (one the snippet wrote where the answers go) puts every later one out of step.
+      if message["id"] ~= id then
+        trouble = "it answered another request than this one"
+        break
+      end
+      if message["call"] == nil then
+        answer = message
+        break
+      end
+      local task = Poll.spawn(function()
+        local text = reply_to(message, serve, budget)
+        while writing and not done do local _, _ = written:wait() end
+        -- Once the snippet answered, no reply goes out: one cut short would be read as the next request.
+        if done then return end
+        writing = true
+        -- A worker that ended is read as ended next. Shielded: a reply cut short when the snippet answers would be read
+        -- as the start of the next request.
+        Poll.shielded(function() local _, _ = writer:write(text .. "\n") end)
+        writing = false
+        written:notify_all()
+      end)
+      serving[#serving + 1] = task
     end
-    local message, decode_why = Json.decode_object(line, { null_value = Json.null })
-    if message == nil then return nil, "its answer is no JSON object: " .. tostring(decode_why) end
-    -- A line for another request (one the snippet wrote where the answers go) puts every later one out of step.
-    if message["id"] ~= id then return nil, "it answered another request than this one" end
-    local call = message["call"]
-    if call == nil then return message, "" end
-    local reply: {string: Json.Value}
-    if not (call is string) then
-      reply = { failed = "a call is named by a string" }
-    elseif serve == nil then
-      reply = { failed = "the agent serves no call to this worker" }
-    else
-      local args = message["args"]
-      local value, why = serve(call, if args == nil then Json.null else args end, budget)
-      reply = if value == nil then { failed = tostring(why) } else { reply = value } end
-    end
-    local text, encode_why = Json.encode(reply)
-    if text == nil then
-      text = assert(Json.encode({ failed = "the reply is no JSON: " .. tostring(encode_why) }))
-    end
-    local wrote, write_why = writer:write(text .. "\n")
-    if not wrote then return nil, "it ended: " .. write_why end
-  end
+    done = true
+    -- Shielded: a cancelled run (a timeout, a stop) still waits for the calls it served to end.
+    Poll.shielded(function()
+      for _, task in ipairs(serving) do task:cancel() end
+      for _, task in ipairs(serving) do local _, _ = task:join() end
+    end)
+  end)
+  local got = answer
+  if got == nil then return nil, trouble end
+  return got, ""
 end
 
 --- The mark of `kind` ("start" or "end") of the output of the request `id`.
@@ -196,10 +272,11 @@ function Worker.mark(kind: string, id: integer): string
   return "\0\0cosmic agent worker: " .. kind .. " " .. tostring(id) .. "\0\0"
 end
 
---- The last [`Worker.OUTPUT_BYTES`] of `text`, from a character's start, as UTF-8.
-function Worker.tail(text: string): string
-  if #text <= Worker.OUTPUT_BYTES then return String.as_utf8(text) end
-  local from = #text - Worker.OUTPUT_BYTES + 1
+--- The last `most` bytes of `text`, [`Worker.OUTPUT_BYTES`] by default, from a character's start, as UTF-8.
+function Worker.tail(text: string, most?: integer): string
+  local top = most or Worker.OUTPUT_BYTES
+  if #text <= top then return String.as_utf8(text) end
+  local from = #text - top + 1
   while from <= #text and (text:byte(from) or 0) & 0xC0 == 0x80 do from = from + 1 end
   return String.as_utf8(text:sub(from))
 end
@@ -220,10 +297,27 @@ local record Output
   mut cut: boolean
   --- What came before the start mark, its last bytes: what the worker wrote as it failed to start.
   mut before: string
+  --- The first [`HEAD_BYTES`] after the start mark, held once bytes are let go.
+  mut head: string
+  --- How many bytes after the start mark were let go.
+  mut dropped: integer
 end
 
 --- How many bytes an output holds past what an answer does: one more tells it was cut, and a mark cut in two is held.
 local HOLD_MORE <const> = 64
+
+--- The most bytes of the start of a snippet's output an answer holds, where the whole is more than it holds: the
+--- rest, TAIL_BYTES, is the end, and between them a line says how much was cut.
+local HEAD_BYTES <const> = 16 * 1024
+local TAIL_BYTES <const> = 48 * 1024
+
+--- The last `most` bytes of `text`, from a character's start.
+local function last(text: string, most: integer): string
+  if #text <= most then return text end
+  local from = #text - most + 1
+  while from <= #text and (text:byte(from) or 0) & 0xC0 == 0x80 do from = from + 1 end
+  return text:sub(from)
+end
 
 --- How many bytes of what came before the start mark a failure tells.
 local TOLD <const> = 1024
@@ -251,6 +345,9 @@ local function took(output: Output, chunk: string)
   -- Cut back only past twice what is held, so that a run of small chunks does not copy the whole each time.
   local hold = Worker.OUTPUT_BYTES + HOLD_MORE
   if #text > 2 * hold or (output.ended and #text > hold) then
+    -- What was held until now is the start of the output: nothing was let go before.
+    if not output.cut then output.head = String.cut(text, HEAD_BYTES) end
+    output.dropped = output.dropped + #text - hold
     text = text:sub(-hold)
     output.cut = true
   end
@@ -266,7 +363,7 @@ function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worke
   local reader = assert(set.output)
   local id = set.next
   local output: Output = { start = Worker.mark("start", id), finish = Worker.mark("end", id), started = false,
-    ended = false, kept = "", cut = false, before = "" }
+    ended = false, kept = "", cut = false, before = "", head = "", dropped = 0 }
   set.next = id + 1
   local request, encode_why = Json.encode({ id = id, code = code })
   if request == nil then return nil, Failure.new("worker: " .. tostring(encode_why)) end
@@ -352,8 +449,22 @@ function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worke
     end
     local with: mut {string: Json.Value} = {}
     for k, v in pairs(got) do with[k] = v end
-    with["output"] = Worker.tail(output.kept)
-    if output.cut or #output.kept > Worker.OUTPUT_BYTES then with["cut"] = true end
+    local total = output.dropped + #output.kept
+    if total <= Worker.OUTPUT_BYTES then
+      with["output"] = String.as_utf8(output.kept)
+    else
+      -- Its start and its end, and between them how much was cut, counted in the bytes written; `head_bytes` and
+      -- `tail_bytes` tell where each part is, as UTF-8, so that what shows less of it cuts from each.
+      local raw_head = String.cut(if output.cut then output.head else output.kept end, HEAD_BYTES)
+      local raw_tail = last(output.kept, TAIL_BYTES)
+      local head, tail = String.as_utf8(raw_head), String.as_utf8(raw_tail)
+      with["output"] = head .. (if head:sub(-1) == "\n" then "" else "\n" end) .. "[... " ..
+        String.counted(total - #raw_head - #raw_tail, "byte") .. " cut ...]\n" .. tail
+      with["cut"] = true
+      with["head_bytes"] = #head
+      with["tail_bytes"] = #tail
+    end
+    with["bytes"] = total
     return with
   end
   return got

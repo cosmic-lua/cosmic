@@ -866,7 +866,8 @@ local function loop(s: Agent.Session): boolean, string
           else
             local context: Tools.Context = { cwd = s.cwd, db = s.db, session = s.id,
               policy = s.sandbox, jobs = s.jobs, worker = s.worker,
-              mcp = s.mcp, stopped = asking, tools = s.tools }
+              mcp = s.mcp, stopped = asking, tools = s.tools,
+              commands = Tools.find(s.tools, "bash") ~= nil }
             result = Tools.dispatch(s.tools, called, given, context)
             if tool ~= nil then result = afterward(s, asked_call, result) end
           end

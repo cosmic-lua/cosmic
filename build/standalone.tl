@@ -25,7 +25,13 @@
 --- [`Fs.cache_dir`] vouches no other user can write -- a directory of
 --- this user's own, 0700 when made, never a shared fallback such as
 --- `/tmp` -- and each file is written 0600; with no such directory
---- (neither variable set, say) every run compiles afresh.
+--- (neither variable set, say), or a binary that records no boot hash
+--- (a test's closure store), every run compiles afresh. A kept compile
+--- is removed thirty days after its use was last dated, as
+--- [`build.cache_lifetime`] removes a build directory: a run that reads
+--- one dates its use (the file's modification time) when that is over a
+--- day old, so one read in the last 29 days stays, and a run that
+--- compiles afresh sweeps the directory, at most once a day.
 ---
 --- The file may require `cosmic.*` modules only -- the binary's own,
 --- typed from its own sources -- and a `require` of anything else is
@@ -51,6 +57,7 @@ local Globals = require("cosmic.internal.globals")
 local exit_status = require("build.exit_status")
 local type importer = require("build.importer")
 local log = require("build.logger").log
+local sys = require("cosmic.sys")
 
 local record standalone
   --- A loaded chunk, or the entry point one returns.
@@ -58,17 +65,14 @@ local record standalone
 end
 
 --- Where a clean compile of `source` by this binary is kept: nil when
---- there is no cache directory [`Fs.cache_dir`] will vouch for, and so
---- no cache; nil too for a chunk that takes the tool's own modules (`own`)
---- where the binary records no boot hash. A database with no boot hash (a
---- test's closure store) names no build its sources are fixed in, so a key
---- without one would outlive an edit of the modules it was checked against.
+--- there is no cache directory [`Fs.cache_dir`] will vouch for, or the
+--- binary records no boot hash, and so no cache. A database with no boot
+--- hash (a test's closure store) names no build its sources are fixed in,
+--- so a key without one would outlive an edit of the modules the source was
+--- checked against.
 local function cached_path(source: string, variables?: {string:string}, own?: boolean): string?
   local boot = Store.meta("boot_hash") or ""
-  -- TODO: keep no file's compile either where boot is "", once
-  -- build/standalone_tool_test.tl's cache test runs a tool that records a
-  -- boot hash: a file run in a test's child is keyed as stale as a chunk.
-  if own == true and boot == "" then
+  if boot == "" then
     return nil
   end
   local dir, _ = Fs.cache_dir("standalone", { environment = variables })
@@ -80,6 +84,61 @@ local function cached_path(source: string, variables?: {string:string}, own?: bo
   local kind = if own == true then "own" else "file" end
   local key = Hash.hex_sha256(boot .. "\0grammar-new\0" .. kind .. "\0" .. source)
   return dir .. "/" .. key .. ".lua"
+end
+
+--- Thirty days, in seconds: how long a kept compile no run used lives, as a build directory does
+--- ([`build.cache_lifetime`]).
+local kept_s <const> = 30 * 24 * 3600
+
+--- A day, in seconds: how old a kept compile's date of use gets before a run that reads it dates it again, and how
+--- long a sweep spares the directory.
+local day_s <const> = 24 * 3600
+
+--- The file whose modification time dates the last sweep of the directory.
+local swept_name <const> = ".swept"
+
+--- The time, in whole seconds, by sys alone: a cache hit loads no more modules for it.
+local function seconds_now(): integer
+  local ns, _ = sys.clock_gettime(sys.CLOCK_REALTIME)
+  return (ns or 0) // 1000000000
+end
+
+--- Dates the use of the kept compile at `path` now, where its date is over a day old: one stat on most runs, and a
+--- write once a day.
+local function used(path: string)
+  local st, _ = sys.lstat(path)
+  local now = seconds_now()
+  if st ~= nil and st.kind == "file" and now - st.mtime > day_s then
+    local _, _ = Fs.set_mtime(path, now)
+  end
+end
+
+--- Removes from `dir` each kept compile (a SHA-256 in lower-case hex, then `.lua`, a regular file) whose use was last
+--- dated over thirty days ago, and each temporary a killed write of one left ([`Fs.write`]'s `.writing.` name) as old,
+--- unless a sweep ran in the day before. What cannot be removed stays for the next sweep. A run that writes or dates
+--- an entry between the sweep's look and its removal loses it, and the next run compiles it again: the key names
+--- the bytes, so nothing else is lost.
+-- TODO: keep an entry the pinned bootstrap (ci/cosmic-driver.pin) reads, which it does not date, once that pin names
+-- a release that dates its kept compiles: until then bin/zig's build/zig.tl compiles afresh each month.
+local function sweep(dir: string)
+  local now = seconds_now()
+  local swept = dir .. "/" .. swept_name
+  local last, _ = sys.lstat(swept)
+  if last ~= nil and last.kind == "file" and now - last.mtime >= 0 and now - last.mtime < day_s then
+    return
+  end
+  local wrote, _ = Fs.write(swept, "", 0x180)
+  if not wrote then return end
+  local names, _ = Fs.list(dir)
+  for _, name in ipairs(names or {}) do
+    local key = name:match("^([0-9a-f]+)%.lua$") or name:match("^([0-9a-f]+)%.lua%.writing%.")
+    if key ~= nil and #key == 64 then
+      local st, _ = sys.lstat(dir .. "/" .. name)
+      if st ~= nil and st.kind == "file" and now - st.mtime > kept_s then
+        local _, _ = Fs.remove(dir .. "/" .. name)
+      end
+    end
+  end
 end
 
 --- The Lua of a `require` that answers each of `modules` by its name, and asks `load_module` for any other.
@@ -116,7 +175,7 @@ end
 --- checker ([`build.pipeline`]) holds the file to no ceiling and takes `cosmic.*` from this binary. With `own`, as `cosmic -e` asks, the file
 --- may also require the tool's own modules, which the checker types from their sources ([`build.standard_text`]'s `own`):
 --- the binary's database holds those as it holds the standard library's, so its Lua is kept as a file's is, under a
---- key of its own kind, where the binary records a boot hash ([`cached_path`]).
+--- key of its own kind ([`cached_path`]).
 function standalone.code(file: string, source: string, variables?: {string:string}, own?: boolean,
                          outcome?: importer.Outcome): string?, string
   local cached = cached_path(source, variables, own)
@@ -125,6 +184,7 @@ function standalone.code(file: string, source: string, variables?: {string:strin
     -- A cache that cannot be read is a miss.
     local read, _ = Fs.read(cached)
     code = read
+    if read ~= nil then used(cached) end
   end
   if code == nil then
     -- What the checker reads besides the file is the declarations of the standard library (and for `own` the tool's
@@ -148,6 +208,7 @@ function standalone.code(file: string, source: string, variables?: {string:strin
     code = generated
     if cached ~= nil then
       local _, _ = Fs.write(cached, code, 0x180)
+      sweep((assert(cached:match("^(.*)/[^/]+$"))))
     end
   end
   return code, ""

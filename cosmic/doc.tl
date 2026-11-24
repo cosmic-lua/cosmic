@@ -255,10 +255,10 @@ local function entries_of(rows: Sqlite.Rows): mut {Doc.Entry}
   for _, row in ipairs(rows) do
     out[#out + 1] = {
       module = row:text(1), symbol = row:text(2), source_symbol = row:text(3),
-      exported = row:text(4) == "1", kind = row:text(5), signature = row:text(6),
-      text = row:text(7), file = row:text(8), line = math.tointeger(tonumber(row:text(9))) or 0,
-      uses = math.tointeger(tonumber(row:text(10))) or 0, links = 0,
-      examples = math.tointeger(tonumber(row:text(11))) or 0,
+      exported = row:integer(4) == 1, kind = row:text(5), signature = row:text(6),
+      text = row:text(7), file = row:text(8), line = row:integer(9),
+      uses = row:integer(10), links = 0,
+      examples = row:integer(11),
       related = {},
     }
   end
@@ -276,7 +276,7 @@ local function examples_for(db: Sqlite.Handle, public: boolean, module: string,
   if symbol == "" then
     return {}, ""
   end
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT e.name, e.text, e.file, e.line, e.source FROM examples_fts " ..
       "JOIN examples e ON e.id = examples_fts.rowid " ..
       "WHERE e.module = ?1 AND examples_fts MATCH ?2 " ..
@@ -290,7 +290,7 @@ local function examples_for(db: Sqlite.Handle, public: boolean, module: string,
   local out: mut {Doc.Example} = {}
   for _, row in ipairs(rows) do
     out[#out + 1] = { name = row:text(1), text = row:text(2), file = row:text(3),
-      line = math.tointeger(tonumber(row:text(4))) or 0, source = row:text(5) }
+      line = row:integer(4), source = row:text(5) }
   end
   return out, ""
 end
@@ -490,7 +490,7 @@ end
 --- never one, whatever database is read, as in [`Doc.index`], so a bare
 --- name means what a user of a library means by it.
 local function modules_ending(db: Sqlite.Handle, query: string): {Doc.Entry}?, string
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT " .. columns .. " FROM docs d WHERE " .. symbols.module_ending_where("d") ..
       " ORDER BY d.module LIKE 'cosmic.%', d.module, d.id",
     { text(query) })
@@ -506,7 +506,7 @@ end
 --- hold it). `module` is the module's whole name.
 local function module_symbol(db: Sqlite.Handle, public: boolean,
                              module: string): {Doc.Entry}?, string
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND " ..
       symbols.shown_in(db, "d", public) .. " ORDER BY d.exported DESC, d.id LIMIT 1",
     { text(module) })
@@ -523,7 +523,7 @@ local function named(db: Sqlite.Handle, public: boolean, query: string): {Doc.En
   -- TODO: a function a record declares as a field and its file defines has two rows of one source symbol (`years` and
   -- `RunDb.years`), so `cosmic docs` shows it twice. Fix: the build writes one row for it, and this
   -- answers once, as a link to it resolves once; nothing blocks it.
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT " .. columns .. " FROM docs d WHERE " .. symbols.named_where("d") ..
       " AND " .. symbols.shown_in(db, "d", public) .. " ORDER BY d.module, d.id",
     { text(query) })
@@ -546,7 +546,7 @@ local function named_all(db: Sqlite.Handle, public: boolean,
     args[index] = text(name)
   end
   local listed = table.concat(placeholders, ", ")
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT " .. columns .. " FROM docs d WHERE (d.symbol IN (" .. listed .. ") OR (d.symbol = '' AND d.module IN (" ..
       listed .. "))) AND " ..
       symbols.shown_in(db, "d", public) .. " ORDER BY d.module, d.id",
@@ -577,7 +577,7 @@ end
 --- of a nested record (its `__close`) is that record's, as its other
 --- fields are.
 local function declared_in(db: Sqlite.Handle, public: boolean, module: string): {Doc.Entry}?, string
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 " ..
       "AND d.symbol <> '' AND (d.kind NOT IN ('field', 'value', 'metamethod') OR " ..
       "(d.kind = 'metamethod' AND d.symbol NOT LIKE '%.%') OR " ..
@@ -599,7 +599,7 @@ end
 --- public source, as it is from every other view of it.
 local function members_of(db: Sqlite.Handle, public: boolean,
                           module: string): {Doc.Entry}?, string
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND " ..
       "d.kind IN ('field', 'value') AND " .. symbols.shown_in(db, "d", public) ..
       " ORDER BY d.id",
@@ -614,7 +614,7 @@ end
 --- a module declares at its top: one of them says what a module is for
 --- when its opening comment sits on it rather than above it.
 local function modules_of(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT " .. columns .. " FROM docs d WHERE (d.symbol = '' OR " ..
       "(d.kind = 'record' AND d.symbol NOT LIKE '%.%' AND d.text <> '')) AND " ..
       symbols.shown_in(db, "d", public) .. " ORDER BY d.module, d.line",
@@ -693,7 +693,7 @@ end
 --- ("unlink", "getpid") most likely wanted instead.
 local function stand_ins(db: Sqlite.Handle, public: boolean,
                          name: string): {Doc.Entry}?, string
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT " .. columns .. " FROM docs d WHERE d.module <> 'cosmic.sys' " ..
       "AND d.kind IN ('function', 'method') AND d.exported = 1 AND lower(d.text) GLOB ?1 AND " ..
       symbols.shown_in(db, "d", public) .. " ORDER BY d.module, d.id LIMIT 20",
@@ -717,7 +717,7 @@ local function scoped(db: Sqlite.Handle, public: boolean, qualifier: string,
   local member = qualifier .. "[.:]*"
   local fts = fts_query(name)
   if fts ~= "" then
-    local rows, trouble = db:text_rows(
+    local rows, trouble = db:rows(
       "SELECT " .. columns .. " FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid " ..
         "WHERE docs_fts MATCH ?1 AND d.source_symbol GLOB ?4 AND d.exported = 1 AND " ..
         symbols.shown_in(db, "d", public) ..
@@ -731,7 +731,7 @@ local function scoped(db: Sqlite.Handle, public: boolean, qualifier: string,
       return entries_of(rows), ""
     end
   end
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT " .. columns .. " FROM docs d WHERE d.source_symbol GLOB ?1 " ..
       "AND d.kind IN ('function', 'method') AND d.exported = 1 AND " ..
       symbols.shown_in(db, "d", public) .. " ORDER BY d.module, d.id",
@@ -773,7 +773,7 @@ local function partly_searched(db: Sqlite.Handle, public: boolean,
   local matched: mut {integer:integer} = {}
   local score: mut {integer:number} = {}
   for _, word in ipairs(words) do
-    local rows, trouble = db:text_rows(
+    local rows, trouble = db:rows(
       "SELECT d.id, bm25(docs_fts, " .. DOCS_WEIGHTS .. ") FROM docs_fts " ..
         "JOIN docs d ON d.id = docs_fts.rowid WHERE docs_fts MATCH ?1 AND " ..
         symbols.shown_in(db, "d", public), { text('"' .. word .. '"') })
@@ -781,9 +781,9 @@ local function partly_searched(db: Sqlite.Handle, public: boolean,
       return nil, tostring(trouble)
     end
     for _, row in ipairs(rows) do
-      local id = math.tointeger(tonumber(row:text(1))) or 0
+      local id = row:integer(1)
       matched[id] = (matched[id] or 0) + 1
-      score[id] = (score[id] or 0) + (tonumber(row:text(2)) or 0)
+      score[id] = (score[id] or 0) + row:number(2)
     end
   end
   local ids: mut {integer} = {}
@@ -805,7 +805,7 @@ local function partly_searched(db: Sqlite.Handle, public: boolean,
     return {}, ""
   end
   -- The ids are integers this function read, so they are safe to spell out.
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT " .. columns .. ", d.id FROM docs d WHERE d.id IN (" ..
       table.concat(ids, ",") .. ")", {})
   if rows == nil then
@@ -813,7 +813,7 @@ local function partly_searched(db: Sqlite.Handle, public: boolean,
   end
   local by_id: mut {integer:Sqlite.Row} = {}
   for _, row in ipairs(rows) do
-    by_id[math.tointeger(tonumber(row:text(row:count()))) or 0] = row
+    by_id[row:integer(row:count())] = row
   end
   local out: mut {Sqlite.Row} = {}
   for _, id in ipairs(ids) do
@@ -897,7 +897,7 @@ local function searched_docs(db: Sqlite.Handle, public: boolean,
     binds[#binds + 1] = text(table.concat(typed, " "))
     phrase = "instr(replace(lower(d.text), char(10), ' '), ?" .. tostring(#binds) .. ") > 0 DESC, "
   end
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT " .. columns .. ", d.id FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid " ..
       "WHERE docs_fts MATCH ?1 AND " .. symbols.shown_in(db, "d", public) ..
       " ORDER BY " .. stands_in .. "lower(d.symbol) IN (" .. table.concat(hits, ", ") ..
@@ -930,7 +930,7 @@ end
 --- the symbols it calls: its source cannot say which of several calls is
 --- its subject.
 local function searched_examples(db: Sqlite.Handle, public: boolean, fts: string): {Doc.Entry}?, string
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT e.module, e.name, e.text, e.file, e.line, e.source FROM examples_fts " ..
       "JOIN examples e ON e.id = examples_fts.rowid " ..
       "WHERE examples_fts MATCH ?1 AND " .. symbols.public_only("e.module", public) ..
@@ -945,10 +945,10 @@ local function searched_examples(db: Sqlite.Handle, public: boolean, fts: string
     out[#out + 1] = { module = row:text(1), symbol = "Example." .. row:text(2),
       source_symbol = "Example." .. row:text(2), exported = true, kind = "example",
       signature = "", text = row:text(3),
-      file = row:text(4), line = math.tointeger(tonumber(row:text(5))) or 0,
+      file = row:text(4), line = row:integer(5),
       uses = 0, links = 0, examples = 0,
       related = { { name = row:text(2), text = row:text(3), file = row:text(4),
-        line = math.tointeger(tonumber(row:text(5))) or 0, source = row:text(6) } },
+        line = row:integer(5), source = row:text(6) } },
     }
   end
   return out, ""
@@ -957,7 +957,7 @@ end
 --- Raises where `db` is a test's pure store, which leaves the documentation out: it would answer every query as
 --- nothing found, or as a table it lacks, and a test would pass on the first.
 local function refuse_pure(db: Sqlite.Handle)
-  local pure, _ = db:text_rows("SELECT 1 FROM meta WHERE key = 'pure_store'")
+  local pure, _ = db:rows("SELECT 1 FROM meta WHERE key = 'pure_store'")
   if pure ~= nil and #pure > 0 then
     error("the `docs` of the store is withheld, so no documentation can be read from it: a test that looks " ..
         "documentation up declares `Test.policy { store_text = true }`", 0)
@@ -967,7 +967,7 @@ end
 --- Whether `db` holds the shipped tables at all: a database built
 --- before they existed answers no query here.
 local function has_docs(db: Sqlite.Handle): boolean?, string
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'docs'")
   if rows == nil then return nil, tostring(trouble) end
   return #rows > 0, ""
@@ -989,7 +989,7 @@ end
 --- Whether `db` holds `links`: a database built before it existed has
 --- no links to answer with.
 local function has_links(db: Sqlite.Handle): boolean?, string
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'links'")
   if rows == nil then return nil, tostring(trouble) end
   return #rows > 0, ""
@@ -1087,7 +1087,7 @@ local function guide_sections(db: Sqlite.Handle, public: boolean, query: string)
   if public then
     guides = symbols.guide_module("d.module")
   end
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT " .. columns .. " FROM docs d WHERE d.symbol = '' AND d.kind = 'module' AND " ..
       guides .. " ORDER BY d.module")
   if rows == nil then
@@ -1182,12 +1182,12 @@ end
 --- Whether `db` holds the `catalog` and the index over it: a database built before the codes of the checker were written to
 --- it has none to answer with.
 local function has_catalog(db: Sqlite.Handle): boolean?, string
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name IN ('catalog', 'catalog_fts')")
   if rows == nil then return nil, tostring(trouble) end
   local held = false
   for _, row in ipairs(rows) do
-    held = row:text(1) == "2"
+    held = row:integer(1) == 2
   end
   return held, ""
 end
@@ -1207,8 +1207,9 @@ local function coded_entries(view: Doc.View, join: string, where: string, binds:
       return nil, held_trouble
     end
     if held then
-      local rows, trouble = db:text_rows(
-        "SELECT c.module, c.symbol, c.symbol, '1', 'code', '', c.text, c.file, c.line, 0, 0 FROM catalog c " .. join ..
+      local rows, trouble = db:rows(
+        "SELECT c.module, ifnull(c.symbol, ''), ifnull(c.symbol, ''), 1, 'code', '', ifnull(c.text, ''), c.file, " ..
+          "c.line, 0, 0 FROM catalog c " .. join ..
           " WHERE c.kind = 'code' AND " .. where .. " ORDER BY c.id LIMIT " .. tostring(limit),
         binds)
       if rows == nil then
@@ -1248,7 +1249,7 @@ end
 --- [`Doc.exact`] reads one (`fs` for [`cosmic.fs`]). A public source
 --- has no link to a file of its own tree.
 local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {Doc.Use}?, string
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT module, symbol, from_module, from_file, line FROM uses u WHERE " ..
       symbols.used_where("u") .. " AND " ..
       symbols.public_only("module", public) .. " AND " ..
@@ -1260,7 +1261,7 @@ local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {Doc.
   local out: mut {Doc.Use} = {}
   for _, row in ipairs(rows) do
     out[#out + 1] = { module = row:text(1), symbol = row:text(2), from_module = row:text(3),
-      from_file = row:text(4), line = math.tointeger(tonumber(row:text(5))) or 0,
+      from_file = row:text(4), line = row:integer(5),
       link = false, path = "", anchor = "" }
   end
   local linked, linked_trouble = has_links(db)
@@ -1276,7 +1277,7 @@ local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {Doc.
   if before ~= nil and after ~= nil then
     path, anchor = before, after:lower()
   end
-  local link_rows, link_trouble = db:text_rows(
+  local link_rows, link_trouble = db:rows(
     "SELECT module, symbol, from_module, from_file, line, path, anchor FROM links l WHERE " ..
       "((kind = 'symbol' AND (" .. symbols.used_where("l") .. " OR (l.symbol = '' AND " ..
       "l.module = ?1) OR (?5 = 1 AND " .. symbols.module_ending_where("l") .. ")) AND " ..
@@ -1292,7 +1293,7 @@ local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {Doc.
   end
   for _, row in ipairs(link_rows) do
     out[#out + 1] = { module = row:text(1), symbol = row:text(2), from_module = row:text(3),
-      from_file = row:text(4), line = math.tointeger(tonumber(row:text(5))) or 0,
+      from_file = row:text(4), line = row:integer(5),
       link = true, path = row:text(6), anchor = row:text(7) }
   end
   return out, ""
@@ -1384,7 +1385,7 @@ end
 --- row records it ([`alias_members.value_record`]); nil when it returns
 --- its record by name, or has no row of its own.
 local function value_record(db: Sqlite.Handle, module: string): string?, string
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT signature FROM docs WHERE module = ?1 AND symbol = '' AND kind = 'module' " ..
       "ORDER BY id LIMIT 1", { text(module) })
   if rows == nil then
@@ -1445,7 +1446,7 @@ local function count_uses(view: Doc.View, module: string,
       return nil, documented_trouble
     end
     if documented then
-      local rows, trouble = db:text_rows(
+      local rows, trouble = db:rows(
         "SELECT from_module, from_file, line FROM uses " ..
           "WHERE module = ?1 AND symbol = ?2",
         { text(module), text(symbol) })
@@ -1458,7 +1459,7 @@ local function count_uses(view: Doc.View, module: string,
           (is_public(view, module) and is_public(view, from_module))
         if counted and view.owners[from_module] == index then
           local position = module .. "\n" .. symbol .. "\n" .. from_module ..
-            "\n" .. row:text(2) .. "\n" .. row:text(3)
+            "\n" .. row:text(2) .. "\n" .. tostring(row:integer(3))
           if seen[position] ~= true then
             seen[position] = true
             total = total + 1
@@ -1489,7 +1490,7 @@ local function count_links(view: Doc.View, module: string,
       return nil, linked_trouble
     end
     if linked then
-      local rows, trouble = db:text_rows(
+      local rows, trouble = db:rows(
         "SELECT from_module, from_file, line FROM links " ..
           "WHERE kind = 'symbol' AND module = ?1 AND symbol = ?2",
         { text(module), text(symbol) })
@@ -1501,7 +1502,7 @@ local function count_links(view: Doc.View, module: string,
         local counted = view.public[index] ~= true or
           (is_public(view, module) and is_public(view, from_module))
         -- One place per line, as [`Doc.uses`] lists them.
-        local position = row:text(2) .. "\n" .. row:text(3)
+        local position = row:text(2) .. "\n" .. tostring(row:integer(3))
         if counted and answers_for(view, index, from_module) and seen[position] ~= true then
           seen[position] = true
           total = total + 1
@@ -1550,7 +1551,7 @@ local function view_text(databases: {Sqlite.Handle}, public?: {boolean}): Doc.Vi
   end
   local owners: mut {string: integer} = {}
   for index, db in ipairs(databases) do
-    local rows, trouble = db:text_rows(symbols.owned_modules(""))
+    local rows, trouble = db:rows(symbols.owned_modules(""))
     if rows == nil then
       refuse_pure(db)
       return nil, tostring(trouble)
@@ -1600,7 +1601,7 @@ local function scope_to_program(db: Sqlite.Handle, pages?: string): Sqlite.Handl
   if main == nil or projection == nil then return db, "" end
   local name = main:match("^cmd%.([^%.]+)%.main$")
   if name == nil then return db, "" end
-  local held, held_trouble = db:text_rows("SELECT 1 FROM main.modules WHERE path = ?1", { text(main) })
+  local held, held_trouble = db:rows("SELECT 1 FROM main.modules WHERE path = ?1", { text(main) })
   if held == nil then return nil, tostring(held_trouble) end
   if #held == 0 then return db, "" end
   -- Opened by its path, as the store attached it: a build that replaced the file since is read in its place.
@@ -1618,7 +1619,7 @@ local function scope_to_program(db: Sqlite.Handle, pages?: string): Sqlite.Handl
   local paged = "(m.path = " .. Sqlite.literal(pages or "") .. " AND m.kind = 'module' AND " ..
     "instr('/' || m.file, '/internal/') = 0 AND (m.path NOT GLOB 'cmd.*' OR substr(m.path, 1, " .. tostring(#own) ..
     ") = " .. Sqlite.literal(own) .. "))"
-  local docs_columns, columns_trouble = opened:text_rows("SELECT name FROM pragma_table_info('docs', 'main')")
+  local docs_columns, columns_trouble = opened:rows("SELECT name FROM pragma_table_info('docs', 'main')")
   if docs_columns == nil then return failed(tostring(columns_trouble)) end
   local names: mut {string} = {}
   local selected: mut {string} = {}
@@ -1633,7 +1634,7 @@ local function scope_to_program(db: Sqlite.Handle, pages?: string): Sqlite.Handl
       selected[#selected + 1] = column_name
     end
   end
-  local indexes, indexes_trouble = opened:text_rows(
+  local indexes, indexes_trouble = opened:rows(
     "SELECT name, sql FROM main.sqlite_master WHERE name IN ('catalog_fts', 'docs_fts', 'docs_words', " ..
       "'examples_fts') ORDER BY name")
   if indexes == nil then return failed(tostring(indexes_trouble)) end
@@ -1661,7 +1662,7 @@ local function scope_to_program(db: Sqlite.Handle, pages?: string): Sqlite.Handl
   end
   -- Each stored table and its indexes, made again in `temp`.
   for _, table_name in ipairs({ "catalog", "docs", "examples" }) do
-    local definitions, definitions_trouble = opened:text_rows(
+    local definitions, definitions_trouble = opened:rows(
       "SELECT type, sql FROM main.sqlite_master WHERE tbl_name = ?1 AND type IN ('table', 'index') AND " ..
         "sql IS NOT NULL ORDER BY type = 'index', name", { text(table_name) })
     if definitions == nil then return failed(tostring(definitions_trouble)) end
@@ -1761,7 +1762,7 @@ local function program_text(databases: {Sqlite.Handle}, program: string, command
       if symbols.is_library_module(module) then of_library[index] = true end
     end
     if of_library[index] == true then
-      local rows, rows_trouble = db:text_rows("SELECT path FROM modules WHERE " ..
+      local rows, rows_trouble = db:rows("SELECT path FROM modules WHERE " ..
           symbols.guide_module("path"))
       if rows == nil then
         return nil, tostring(rows_trouble)
@@ -1810,7 +1811,7 @@ local function guide_text(view: Doc.View, name: string): string?, string
   if owner == nil or not symbols.is_public_guide(module) then
     return nil, ""
   end
-  local rows, trouble = database_of(view, owner):text_rows(
+  local rows, trouble = database_of(view, owner):rows(
     "SELECT text FROM docs WHERE module = ?1 AND symbol = '' ORDER BY id LIMIT 1", { text(module) })
   if rows == nil then
     return nil, tostring(trouble)
@@ -1970,7 +1971,7 @@ local function documented_word(view: Doc.View, word: string): boolean?, string
       return nil, documented_trouble
     end
     if documented then
-      local rows, trouble = db:text_rows("SELECT 1 FROM docs_fts WHERE docs_fts MATCH ?1 LIMIT 1",
+      local rows, trouble = db:rows("SELECT 1 FROM docs_fts WHERE docs_fts MATCH ?1 LIMIT 1",
         { text('"' .. word .. '"') })
       if rows == nil then
         return nil, tostring(trouble)
@@ -1999,13 +2000,13 @@ local function nearest_word(view: Doc.View, word: string): string?, string
   end
   local carried: mut {string: integer} = {}
   for _, db in ipairs(view.databases) do
-    local listed, listed_trouble = db:text_rows(
+    local listed, listed_trouble = db:rows(
       "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'docs_words'")
     if listed == nil then
       return nil, tostring(listed_trouble)
     end
     if #listed > 0 then
-      local rows, trouble = db:text_rows(
+      local rows, trouble = db:rows(
         "SELECT word, rows FROM docs_words WHERE length(word) BETWEEN ?1 AND ?2",
         { { integer = #lower - reach }, { integer = #lower + reach } })
       if rows == nil then
@@ -2013,7 +2014,7 @@ local function nearest_word(view: Doc.View, word: string): string?, string
       end
       for _, row in ipairs(rows) do
         local listed_word = row:text(1)
-        carried[listed_word] = (carried[listed_word] or 0) + (math.tointeger(tonumber(row:text(2))) or 0)
+        carried[listed_word] = (carried[listed_word] or 0) + (row:integer(2))
       end
     end
   end
@@ -2513,7 +2514,7 @@ local function member_of(view: Doc.View, module: string, name: string): {Doc.Ent
   local db = database_of(view, owner)
   local shown = symbols.shown_in(db, "d", view.public[owner] == true)
   local dotted = name:gsub(":", ".")
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT " .. columns .. " FROM docs d WHERE " .. symbols.member_where("d") .. " AND " ..
       shown .. " ORDER BY d.id", { text(module), text(dotted) })
   if rows == nil then
@@ -2528,7 +2529,7 @@ local function member_of(view: Doc.View, module: string, name: string): {Doc.Ent
     return nil, record_trouble
   end
   if record ~= nil then
-    local typed, typed_trouble = db:text_rows(
+    local typed, typed_trouble = db:rows(
       "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND d.exported = 1 AND " ..
         "replace(d.source_symbol, ':', '.') = ?2 AND " .. shown .. " ORDER BY d.id",
       { text(module), text(record .. "." .. dotted) })
@@ -2630,7 +2631,7 @@ end
 local function member_uses(db: Sqlite.Handle, public: boolean, module: string, symbol: string,
                            used: string): {Doc.Use}?, string
   local out: mut {Doc.Use} = {}
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT from_module, from_file, line FROM uses WHERE module = ?1 AND symbol = ?2 AND " ..
       symbols.public_only("module", public) .. " AND " ..
       symbols.public_only("from_module", public), { text(module), text(used) })
@@ -2639,7 +2640,7 @@ local function member_uses(db: Sqlite.Handle, public: boolean, module: string, s
   end
   for _, row in ipairs(rows) do
     out[#out + 1] = { module = module, symbol = used, from_module = row:text(1), from_file = row:text(2),
-      line = math.tointeger(tonumber(row:text(3))) or 0, link = false, path = "", anchor = "" }
+      line = row:integer(3), link = false, path = "", anchor = "" }
   end
   local linked, linked_trouble = has_links(db)
   if linked == nil then
@@ -2648,7 +2649,7 @@ local function member_uses(db: Sqlite.Handle, public: boolean, module: string, s
   if not linked then
     return out, ""
   end
-  local links, links_trouble = db:text_rows(
+  local links, links_trouble = db:rows(
     "SELECT from_module, from_file, line FROM links WHERE kind = 'symbol' AND module = ?1 " ..
       "AND symbol = ?2 AND " .. symbols.public_only("module", public) .. " AND " ..
       symbols.public_only("from_module", public) .. " ORDER BY from_file, line, column",
@@ -2658,7 +2659,7 @@ local function member_uses(db: Sqlite.Handle, public: boolean, module: string, s
   end
   for _, row in ipairs(links) do
     out[#out + 1] = { module = module, symbol = symbol, from_module = row:text(1), from_file = row:text(2),
-      line = math.tointeger(tonumber(row:text(3))) or 0, link = true, path = "", anchor = "" }
+      line = row:integer(3), link = true, path = "", anchor = "" }
   end
   return out, ""
 end
@@ -2826,7 +2827,7 @@ local function first_declared(view: Doc.View, sql: string,
       return nil, documented_trouble
     end
     if documented then
-      local rows, trouble = db:text_rows(sql, args)
+      local rows, trouble = db:rows(sql, args)
       if rows == nil then
         return nil, tostring(trouble)
       end
@@ -2849,7 +2850,7 @@ local function members_under(view: Doc.View, target: Doc.Entry): {Doc.Entry}?, s
       return nil, documented_trouble
     end
     if documented then
-      local rows, trouble = db:text_rows(
+      local rows, trouble = db:rows(
         "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND " ..
           "((d.kind IN ('field', 'value') AND d.source_symbol GLOB ?2) OR " ..
           "(d.kind = 'method' AND d.source_symbol GLOB ?3)) ORDER BY d.id",
@@ -3668,7 +3669,7 @@ local function member_text(view: Doc.View, module: string, name: string): Doc.En
   end
   local declared, declared_trouble = across(view,
     function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
-      local rows, rows_trouble = db:text_rows(
+      local rows, rows_trouble = db:rows(
         "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND " ..
           "(d.symbol = ?2 OR d.source_symbol GLOB '*.' || ?2) AND " .. symbols.shown_in(db, "d", public) ..
           " ORDER BY length(d.source_symbol), d.id LIMIT 1",
