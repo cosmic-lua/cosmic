@@ -12,7 +12,8 @@
 --- one conversation, until `/exit` or the end of standard input. `resume`
 --- finishes the turn a run left unfinished. `rpc` runs one session for
 --- another program. `sessions` lists the newest sessions in the working
---- directory, `prompt` prints the system prompt the model reads, and
+--- directory, `prompt` prints the system prompt the model reads (then the
+--- working directory, which follows it past its cache mark), and
 --- `policy` the sandbox the tools would run under (`policy clear-home`
 --- empties the commands' kept home).
 ---
@@ -672,7 +673,8 @@ local function prompt(r: Run, got: Flags.Parsed): integer
     r.complain("prompt: --tools: " .. why)
     return bare.refused
   end
-  r.io.out(Prompt.build(here, Prompt.contexts(here), { tools = offered }))
+  -- The system prompt, then the working directory that follows it.
+  r.io.out(Prompt.build(here, Prompt.contexts(here), { tools = offered }) .. "\n\n" .. Prompt.where(here))
   return bare.ok
 end
 
