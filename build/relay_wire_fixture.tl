@@ -159,7 +159,7 @@ function relay_wire_fixture.read_exact(conn: Net.Conn, count: integer): string
   local out = ""
   while #out < count do
     local data, why = conn:read(count - #out)
-    assert(data ~= nil, "the connection ended with " .. tostring(#out) .. " read of " .. tostring(count) .. " wanted: " .. why)
+    assert(data ~= nil and data ~= false, "the connection ended with " .. tostring(#out) .. " read of " .. tostring(count) .. " wanted: " .. tostring(why))
     out = out .. data
   end
   return out

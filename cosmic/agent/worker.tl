@@ -223,8 +223,8 @@ local function answer_of(lines: Stream.Lines, writer: Stream.Writer, id: integer
     local written = Poll.notifier()
     while true do
       local line, read_why = lines:read()
-      if line == nil then
-        trouble = "it ended" .. (if read_why ~= "" then ": " .. read_why else "" end)
+      if line == nil or line == false then
+        trouble = "it ended" .. (if line == nil then ": " .. tostring(read_why) else "" end)
         break
       end
       local message, decode_why = Json.decode_object(line, { null_value = Json.null })
@@ -394,7 +394,7 @@ function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worke
     local printed = Poll.spawn(function()
       while not output.ended do
         local chunk, _ = reader:read()
-        if chunk == nil then return end
+        if chunk == nil or chunk == false then return end
         took(output, chunk)
       end
     end)

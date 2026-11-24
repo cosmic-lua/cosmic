@@ -9,6 +9,7 @@
 --- at or past the 4 GiB mark) and in each entry's extra field (a size
 --- or a local header offset at or past 4 GiB).
 
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Compress = require("cosmic.compress")
@@ -340,11 +341,11 @@ local class SpanReader is Stream.Reader
   mut held?: string
   mut failed?: string
 
-  function read(self, max_bytes?: integer): string?, string
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     local failed = self.failed
-    if failed then return nil, failed end
+    if failed then return nil, Failure.new(failed) end
     local left = self.left
-    if left <= 0 then return nil, "" end
+    if left <= 0 then return false end
     local want = max_bytes or chunk_size
     if want > left then want = left end
     local chunk: string
@@ -359,18 +360,18 @@ local class SpanReader is Stream.Reader
       local got, trouble = self.pread(self.pos, want)
       if got == nil then
         self.failed = trouble
-        return nil, trouble
+        return nil, Failure.new(trouble)
       end
       if #got == 0 then
         local why = "zip: entry body runs past the end of the file"
         self.failed = why
-        return nil, why
+        return nil, Failure.new(why)
       end
       chunk = got
     end
     self.pos = self.pos + #chunk
     self.left = left - #chunk
-    return chunk, ""
+    return chunk
   end
 
   function close(self): boolean, string
@@ -390,36 +391,40 @@ local class CheckedReader is Stream.Reader
   size: integer
   mut seen: integer
   mut state?: integer
-  mut failed?: string
+  --- The failure every read answers after the first, its kind kept.
+  mut failed?: Failure
 
-  function read(self, max_bytes?: integer): string?, string
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     local failed = self.failed
-    if failed then return nil, failed end
+    if failed ~= nil then return nil, failed end
     local chunk, trouble = self.inner:read(max_bytes)
     if chunk == nil then
+      self.failed = trouble
+      return nil, trouble
+    end
+    if chunk == false then
       local why: string
-      if trouble ~= "" then
-        why = trouble
-      elseif self.seen ~= self.size then
+      if self.seen ~= self.size then
         why = "zip: size mismatch: " .. String.counted(self.seen, "byte") .. ", recorded " ..
           String.counted(self.size, "byte")
       elseif (self.state or 0) ~= self.crc then
         why = "zip: crc32 mismatch"
       else
-        return nil, ""
+        return false
       end
-      self.failed = why
-      return nil, why
+      local failure = Failure.new(why)
+      self.failed = failure
+      return nil, failure
     end
     local seen = self.seen + #chunk
     self.seen = seen
     if seen > self.size then
-      local why = "zip: entry is larger than its recorded size of " .. String.counted(self.size, "byte")
-      self.failed = why
-      return nil, why
+      local failure = Failure.new("zip: entry is larger than its recorded size of " .. String.counted(self.size, "byte"))
+      self.failed = failure
+      return nil, failure
     end
     self.state = sums.crc32(chunk, self.state)
-    return chunk, ""
+    return chunk
   end
 
   function close(self): boolean, string

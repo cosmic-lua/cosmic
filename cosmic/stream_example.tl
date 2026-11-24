@@ -14,10 +14,11 @@ local sys = require("cosmic.sys")
 local Example = {} -- checked: literal_needs_type
 
 --- Bytes already in memory, read as a stream: at most `max_bytes` bytes a
---- `read`, and nil and `""` at the end.
+--- `read`, and `false` at the end.
 function Example.from_string()
   local r = Stream.from_string("hello, world")
-  local first = assert(r:read(5))
+  local first, why = r:read(5)
+  assert(first is string, tostring(why))
   print(first)
   assert(first == "hello", first)
   local rest = assert(Stream.read_all(r))
@@ -53,7 +54,7 @@ function Example.from_fd()
   local waiting = Stream.from_fd(quiet, { nonblocking = true, timeout_ns = Clock.ms(20) })
   local chunk, why = waiting:read()
   print(why)
-  assert(chunk == nil and why == Poll.TIMEOUT, why)
+  assert(chunk == nil and why.kind == "timeout", why)
   assert(Fs.close(quiet))
   assert(Fs.close(writer))
   assert(Fs.remove_tree(dir))

@@ -9,6 +9,22 @@ local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
+--- The next chunk of `reader`: raises where it ended or failed.
+local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
+  local chunk, why = reader:read(max_bytes)
+  if chunk == nil then error(tostring(why), 2) end
+  if chunk == false then error("the stream ended", 2) end
+  return chunk
+end
+
+--- The next line of `lines`: raises where they ended or failed.
+local function line_of(lines: Stream.Lines): string
+  local line, why = lines:read()
+  if line == nil then error(tostring(why), 2) end
+  if line == false then error("the lines ended", 2) end
+  return line
+end
+
 --- The tests on TCP listen on the worker's own loopback; those of a unix
 --- socket make their own file.
 Test.policy{ loopback = { "127.0.0.1" } }
@@ -42,10 +58,10 @@ local function test_a_connection_carries_bytes_both_ways_to_the_end()
   assert(client:write("hello\nworld\n"))
   assert(client:shutdown("write"))
   local lines = Stream.lines(accepted)
-  assert(lines:read() == "hello")
-  assert(lines:read() == "world")
+  assert(line_of(lines) == "hello")
+  assert(line_of(lines) == "world")
   local last, why = lines:read()
-  assert(last == nil and why == "", why)
+  assert(last == false, why)
   assert(accepted:write("answered"))
   assert(accepted:close())
   assert(assert(Stream.read_all(client)) == "answered")
@@ -63,7 +79,7 @@ local function test_a_connection_held_by_a_close_local_is_closed_with_its_scope(
     assert(held:write("sent"))
   end
   local chunk, why = kept:read()
-  assert(chunk == nil and why == "net: the connection is closed", why)
+  assert(chunk == nil and tostring(why) == "net: the connection is closed", why)
   assert(assert(Stream.read_all(client)) == "sent")
   assert(kept:close(), "a second close is as safe as the first")
 end
@@ -78,7 +94,7 @@ local function test_a_write_waits_while_the_peer_does_not_read()
   assert(not ok and why == Poll.TIMEOUT, why)
   local again, sticky = client:write("more")
   assert(not again and sticky == Poll.TIMEOUT, sticky)
-  local got = assert(accepted:read(10))
+  local got = chunk_of(accepted, 10)
   assert(got == string.rep("x", #got) and #got <= 10)
 end
 
@@ -90,11 +106,11 @@ local function test_a_read_that_times_out_leaves_the_connection_usable()
   local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
   local accepted <close> = assert(server:accept())
   local data, why = accepted:read()
-  assert(data == nil and why == Poll.TIMEOUT, why)
+  assert(data == nil and why.kind == "timeout", why)
   assert(accepted:write("still here"))
-  assert(assert(client:read()) == "still here")
+  assert(chunk_of(client) == "still here")
   assert(client:write("late"))
-  assert(assert(accepted:read()) == "late")
+  assert(chunk_of(accepted) == "late")
 end
 
 --- A timeout no wait can last is refused where it is set, naming the
@@ -118,7 +134,7 @@ local function test_a_timeout_out_of_range_is_refused()
   p.client:set_timeout(Clock.ms(10))
   Test.raises(function() p.client:set_timeout(-1) end)
   local data, read_why = p.client:read()
-  assert(data == nil and read_why == Poll.TIMEOUT, read_why)
+  assert(data == nil and read_why.kind == "timeout", read_why)
   Test.raises(function() local _, _ = Net.connect(p.server.address, { timeout_ns = -1 }) end)
   Test.raises(function()
     local _, _ = Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Poll.MOST_NS + 1 })
@@ -139,7 +155,7 @@ local function test_a_timeout_waits_the_nanoseconds_it_is_given()
   end
   local began = Clock.monotonic_ns()
   local data, why = p.accepted:read()
-  assert(data == nil and why == Poll.TIMEOUT, why)
+  assert(data == nil and why.kind == "timeout", why)
   bounded(Clock.monotonic_ns() - began, "a read")
   began = Clock.monotonic_ns()
   local conn, accept_why = p.server:accept(Clock.ms(100))
@@ -148,7 +164,7 @@ local function test_a_timeout_waits_the_nanoseconds_it_is_given()
   Poll.run(function()
     local at = Clock.monotonic_ns()
     local got, got_why = p.accepted:read()
-    assert(got == nil and got_why == Poll.TIMEOUT, got_why)
+    assert(got == nil and got_why.kind == "timeout", got_why)
     bounded(Clock.monotonic_ns() - at, "a read in a run")
     at = Clock.monotonic_ns()
     local taken, taken_why = p.server:accept(Clock.ms(100))
@@ -158,7 +174,7 @@ local function test_a_timeout_waits_the_nanoseconds_it_is_given()
   -- A nanosecond rounds up to a wait of a millisecond, which ends.
   p.accepted:set_timeout(1)
   local brief, brief_why = p.accepted:read()
-  assert(brief == nil and brief_why == Poll.TIMEOUT, brief_why)
+  assert(brief == nil and brief_why.kind == "timeout", brief_why)
 end
 
 --- A unix listener whose backlog is full, no one accepting.
@@ -225,7 +241,7 @@ local function test_a_caught_signal_ends_a_wait()
   local caught = assert(guard:release())
   assert(caught == sys.SIGINT, tostring(caught))
   assert(conn == nil and why.kind == "cancelled" and why.message == "interrupted", why)
-  assert(data == nil and read_why == "interrupted", read_why)
+  assert(data == nil and tostring(read_why) == "interrupted", read_why)
   assert(client:close())
 end
 
@@ -251,7 +267,7 @@ local function test_a_closed_connection_says_so_and_closes_again()
   assert(client:abort())
   assert(client:close())
   local data, why = client:read()
-  assert(data == nil and why == "net: the connection is closed", why)
+  assert(data == nil and tostring(why) == "net: the connection is closed", why)
   local ok, trouble = client:write("x")
   assert(not ok and trouble == "net: the connection is closed", trouble)
   local shut, shut_trouble = client:shutdown("write")
@@ -540,7 +556,7 @@ local function test_a_long_path_is_reached_from_its_directory(tmp: string)
     local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
     local accepted <close> = assert(server:accept())
     assert(client:write("far"))
-    assert(assert(accepted:read()) == "far")
+    assert(chunk_of(accepted) == "far")
     assert(sys.getcwd() == was)
   end
   assert(not assert(Fs.status(path)).exists, "the socket file was left")
@@ -621,7 +637,7 @@ local function test_a_listener_past_path_max_serves_and_removes_its_file(tmp: st
     assert(client ~= nil, connect_trouble)
     local accepted = assert(server:accept())
     assert(client:write("deep"))
-    assert(assert(accepted:read()) == "deep")
+    assert(chunk_of(accepted) == "deep")
     assert(accepted:close())
     assert(client:close())
     assert(server:close())
@@ -648,7 +664,7 @@ local function test_in_a_run_a_server_serves_connections_at_once()
       for _ = 1, 3 do
         local conn = assert(server:accept())
         Poll.spawn(function()
-          local line = assert(Stream.lines(conn):read())
+          local line = line_of(Stream.lines(conn))
           assert(conn:write("re " .. line .. "\n"))
           assert(conn:close())
         end)
@@ -662,7 +678,7 @@ local function test_in_a_run_a_server_serves_connections_at_once()
       -- The loop above filled `clients` 1 to 3.
       local client = Array.at(clients, i)
       assert(client:write("c" .. tostring(i) .. "\n"))
-      local appended = assert(Stream.lines(client):read())
+      local appended = line_of(Stream.lines(client))
       answered[#answered + 1] = appended
       assert(client:close())
     end
@@ -680,7 +696,7 @@ local function test_in_a_run_a_waiting_read_ends_when_its_task_is_cancelled()
     local reader = Poll.spawn(function()
       local data, why = p.accepted:read()
       assert(data == nil)
-      answer = why
+      answer = tostring(why)
     end)
     for _ = 1, 3 do
       assert(Clock.sleep(Clock.ms(1)))
@@ -691,7 +707,7 @@ local function test_in_a_run_a_waiting_read_ends_when_its_task_is_cancelled()
   end)
   assert(others == 3 and answer == Poll.CANCELLED, answer)
   assert(p.client:write("after"))
-  assert(p.accepted:read() == "after", "the connection is usable after the run")
+  assert(chunk_of(p.accepted) == "after", "the connection is usable after the run")
 end
 
 --- A read waiting in a task whose connection another task closes ends
@@ -707,7 +723,7 @@ local function test_in_a_run_a_read_on_a_connection_closed_under_it_ends()
     local reader = Poll.spawn(function()
       local data, why = first:read()
       assert(data == nil, "the closed connection answered " .. tostring(data))
-      answer = why
+      answer = tostring(why)
     end)
     assert(Clock.sleep(0))
     assert(first:close())
@@ -715,7 +731,7 @@ local function test_in_a_run_a_read_on_a_connection_closed_under_it_ends()
     local second = assert(server:accept())
     assert(second_client:write("second's"))
     assert(reader:join(Clock.seconds(5)))
-    later = assert(second:read())
+    later = chunk_of(second)
     assert(second:close())
   end)
   assert(answer == "net: the connection is closed", answer)
@@ -736,8 +752,8 @@ local function test_in_a_run_a_write_waits_while_another_task_drains()
     Poll.spawn(function()
       while true do
         local data, why = p.accepted:read()
-        if data == nil then
-          assert(why == "", why)
+        assert(data ~= nil, tostring(why))
+        if data == false then
           break
         end
         got = got + #data
@@ -785,7 +801,7 @@ local function test_in_a_run_waits_time_out_as_they_do_out_of_one()
     assert(conn == nil and why.kind == "timeout", why)
     p.accepted:set_timeout(Clock.ms(10))
     local data, read_why = p.accepted:read()
-    assert(data == nil and read_why == Poll.TIMEOUT, read_why)
+    assert(data == nil and read_why.kind == "timeout", read_why)
   end)
 end
 

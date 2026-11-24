@@ -95,12 +95,12 @@ end
 local function answered(conn: Net.Conn, relay: string, feed: function(string): string, integer, string?): string?, string
   while true do
     local data, why = conn:read(CHUNK)
+    if data == false then return nil, "the relay closed the connection before it answered" end
     if data == nil then
-      if why == "" then return nil, "the relay closed the connection before it answered" end
-      if why == Poll.TIMEOUT then
+      if why.kind == "timeout" then
         return nil, "the relay at " .. relay .. " did not answer in time"
       end
-      return nil, "reading from the relay: " .. why
+      return nil, "reading from the relay: " .. tostring(why)
     end
     local status, consumed, reason = feed(data)
     if status == "refused" then return nil, reason or "the relay refused its answer" end
@@ -242,9 +242,9 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io, trac
       end
       trace("down: waiting for the relay")
       local more, why = conn:read(CHUNK)
-      trace("down: read " .. (if more ~= nil then plural.count(#more, "byte") else "end or failure: " .. tostring(why) end))
-      if more == nil then
-        if why ~= "" then return fail("reading from the relay: " .. why) end
+      trace("down: read " .. (if more is string then plural.count(#more, "byte") else "end or failure: " .. tostring(why) end))
+      if more == nil then return fail("reading from the relay: " .. tostring(why)) end
+      if more == false then
         -- The far side has ended what it sends: ours hears it as the end of
         -- standard output.
         far_ended = true

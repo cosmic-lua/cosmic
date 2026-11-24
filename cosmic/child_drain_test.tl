@@ -10,6 +10,14 @@ local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 local this_program = require("build.this_program")
 
+--- The next chunk of `reader`: raises where it ended or failed.
+local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
+  local chunk, why = reader:read(max_bytes)
+  if chunk == nil then error(tostring(why), 2) end
+  if chunk == false then error("the stream ended", 2) end
+  return chunk
+end
+
 --- Each child only runs a chunk through this program's core.
 Test.policy{ profiles = { "cosmic" } }
 
@@ -35,7 +43,7 @@ end
 
 local function test_prefix_reader_and_repeated_drain_do_not_replay()
   local h <close> = start('assert(require("cosmic.fs").put(1, "abcdefghij"))')
-  assert(assert(h.stdout_stream):read(3) == "abc")
+  assert(chunk_of(assert(h.stdout_stream), 3) == "abc")
   local out = Stream.collect()
   assert(finish(h, options(out, 2)) == 7)
   assert(out:result() == "defghij")
@@ -99,12 +107,12 @@ while guard:cancelled() == 0 do local _, _ = Clock.sleep(Clock.ms(1)) end
 assert(Fs.put(1, "last"))
 local released, _ = guard:release()
 assert(released ~= 0)]])
-  assert(assert(h.stdout_stream):read() == "ready")
+  assert(chunk_of(assert(h.stdout_stream)) == "ready")
   local guard = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
   local reader = assert(h.stdout_stream)
   local data, old = reader:read()
-  assert(data == nil and old ~= "")
+  assert(data == nil)
   local out = Stream.collect()
   local got = h:drain(options(out))
   assert(got ~= nil and got.kind == "interrupted" and got.bytes == 0) -- checked: compare_disjoint
@@ -116,7 +124,7 @@ assert(released ~= 0)]])
   assert(h:stop(sys.SIGTERM))
   assert(finish(h, options(out)) == 4 and out:result() == "last")
   local again, why = reader:read()
-  assert(again == nil and why == old)
+  assert(again == nil and tostring(why) == tostring(old))
   do
     local released, _ = guard:release()
     assert(released == sys.SIGTERM)
@@ -256,12 +264,12 @@ local function test_a_parked_drain_refuses_another_read_and_drain()
   Poll.run(function()
     local task = Poll.spawn(function() h:drain(options(Stream.collect())) end)
     assert(Clock.sleep(0))
-    Test.raises(function() assert(h.stdout_stream):read() end)
+    Test.raises(function() local _, _ = assert(h.stdout_stream):read() end)
     Test.raises(function() h:drain(options(Stream.collect(), nil, 0)) end)
     task:kill()
     assert(assert(h.stdin_stream):close())
-    local data, why = assert(h.stdout_stream):read()
-    assert(data == nil and why == "")
+    local data, _ = assert(h.stdout_stream):read()
+    assert(data == false)
   end)
 end
 
@@ -293,8 +301,8 @@ local function test_killing_a_task_in_a_yielding_sink_releases_ownership()
     while not writing do assert(Clock.sleep(0)) end
     task:kill()
     assert(h:drain(options(Stream.collect())).kind == "failed")
-    local data, why = assert(h.stdout_stream):read()
-    assert(data == nil and why ~= "")
+    local data, _ = assert(h.stdout_stream):read()
+    assert(data == nil)
   end)
 end
 
@@ -321,7 +329,7 @@ local function test_saved_source_failure_follows_prefix_and_wins_at_exact_limit(
   assert(second.kind == "failed" and second.bytes == 4)
   assert(second.reason == "read: cancelled-looking real error" and out:result() == "abcdef")
   local data, failure = assert(h.stdout_stream):read()
-  assert(data == nil and failure == second.reason)
+  assert(data == nil and tostring(failure) == second.reason)
 end
 
 local function test_merged_stderr_uses_only_stdout_sink()
@@ -390,6 +398,7 @@ end
 local function test_shielded_drain_continues_after_task_cancel()
   local h <close> = start([[
 local Fs = require("cosmic.fs")
+
 assert(Fs.take(0, 1)) assert(Fs.put(1, "finished"))]],
     { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream" })
   Poll.run(function()
@@ -441,12 +450,12 @@ local function test_reader_abandonment_of_escaped_writer_is_not_drain_eof()
   local h <close> = escaped('local _, _ = require("cosmic.clock").sleep(require("cosmic.clock").seconds(10))')
   assert(assert(h:wait()).ok)
   local reader = assert(h.stdout_stream)
-  local data, why = reader:read()
-  assert(data == nil and why == "")
+  local data, _ = reader:read()
+  assert(data == false)
   local got = h:drain(options(Stream.collect()))
   assert(got ~= nil and got.kind == "failed" and got.reason == "child: the reader is closed") -- checked: compare_disjoint
-  data, why = reader:read()
-  assert(data == nil and why == "", "ordinary Reader retains its legacy EOF")
+  data, _ = reader:read()
+  assert(data == false, "ordinary Reader retains its legacy EOF")
   Child.end_strays()
 end
 

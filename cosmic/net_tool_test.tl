@@ -16,6 +16,14 @@ local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local Clock = require("cosmic.clock")
 
+--- The next line of `lines`: raises where they ended or failed.
+local function line_of(lines: Stream.Lines): string
+  local line, why = lines:read()
+  if line == nil then error(tostring(why), 2) end
+  if line == false then error("the lines ended", 2) end
+  return line
+end
+
 --- The program itself, which the test starts, running a file `--standalone`
 --- ([`build.standalone`]).
 Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" } }
@@ -71,7 +79,7 @@ local function test_a_protocol_runs_a_child_under_the_server_s_guard()
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local conn <close> = assert(Net.connect(Array.at(addresses, 1), { timeout_ns = Clock.seconds(30) }))
-      answer = assert(Stream.lines(conn):read())
+      answer = line_of(Stream.lines(conn))
       server:stop()
     end,
   })
@@ -123,12 +131,14 @@ local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
+
 return function(argv: {string}): integer
   local seen: mut {string: boolean} = { started = false }
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     serve = function(conn: Net.Conn)
-      local line = assert(Stream.lines(conn):read())
+      local line, line_why = Stream.lines(conn):read()
+      if line == nil or line == false then error(tostring(line_why)) end
       seen["started"] = true
       assert(Clock.sleep(Clock.ms(100)))
       assert(conn:write(line .. "\n"))
@@ -139,7 +149,8 @@ return function(argv: {string}): integer
       while seen["started"] ~= true do assert(Clock.sleep(Clock.ms(1))) end
       server:stop()
       assert(sys.kill(sys.getpid(), sys.SIGTERM))
-      local answer = assert(Stream.lines(conn):read())
+      local answer, answer_why = Stream.lines(conn):read()
+      if answer == nil or answer == false then error(tostring(answer_why)) end
       assert(Fs.write((argv[1] or "") .. "/report", answer))
       local _, _ = conn:close()
     end,

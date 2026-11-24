@@ -663,7 +663,12 @@ local function open(url: string, opts: Http.Options): Agent.Reply?, string
   if res == nil then return nil, tostring(why) end
   return {
     status = res.status, headers = res.headers,
-    read = function(): string?, string return res:read() end,
+    read = function(): string?, string
+      local piece, failed = res:read()
+      if piece == nil then return nil, tostring(failed) end
+      if piece == false then return nil, "" end
+      return piece, ""
+    end,
     close = function() local _, _ = res:close() end,
   }, ""
 end

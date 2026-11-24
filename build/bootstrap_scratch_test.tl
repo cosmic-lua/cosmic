@@ -9,6 +9,14 @@ local Patch = require("build.patch")
 local ZigFetch = require("build.zig_fetch")
 local this_program = require("build.this_program")
 
+--- The next line of `lines`: raises where they ended or failed.
+local function line_of(lines: Stream.Lines): string
+  local line, why = lines:read()
+  if line == nil then error(tostring(why), 2) end
+  if line == false then error("the lines ended", 2) end
+  return line
+end
+
 Test.policy{ profiles = { "cosmic" } }
 
 local function holder(path: string): Child.Handle
@@ -23,7 +31,7 @@ local _, _ = Fs.take(Fs.stdin, 1)
   local command = this_program.program({ "-e", script:format(path) },
     { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream", stderr = "capture" })
   local child = assert(Child.start(command.argv, command.options))
-  assert(Stream.lines(assert(child.stdout_stream)):read() == "held")
+  assert(line_of(Stream.lines(assert(child.stdout_stream))) == "held")
   return child
 end
 
@@ -94,12 +102,12 @@ require("build.zig_fetch").install(cache, cache .. "/install", "v", "host", nil)
     local command = this_program.program({ "-e", body }, { timeout_ns = Child.FOREVER, stdout = "stream", stderr = "capture" })
     local child = assert(Child.start(command.argv, command.options))
     local lines = Stream.lines(assert(child.stdout_stream))
-    assert(lines:read() == "started")
+    assert(line_of(lines) == "started")
     local result, _ = Child.wait_any({ child }, Clock.ms(100))
     assert(result == nil, "creation bypassed the held gate")
     assert(table.concat(assert(Fs.list(cache)), " ") == ".scratch-gate")
     release(gate)
-    assert(lines:read() == "finished")
+    assert(line_of(lines) == "finished")
     assert(assert(child:wait(finish_ns)).ok)
     for _, name in ipairs((assert(Fs.list(cache)))) do
       assert(not name:match("^%.scratch%."), "a completed install retained scratch")
@@ -115,6 +123,7 @@ local function test_concurrent_patch_installs_publish_only_whole_payloads(tmp: s
   local cache = tmp .. "/cache"
   local script = [[
 local Fs = require("cosmic.fs")
+
 local path = assert(require("build.patch").prepare(%q, "lib", %q))
 assert(assert(Fs.read(path .. "/file")) == "whole")
 assert(not assert(Fs.status(path .. "/owner")).exists)

@@ -29,8 +29,8 @@ local function redirecting(location: string, body: function(base: string))
       if not conn:handshake() then return end
       local seen = ""
       while not seen:find("\r\n\r\n", 1, true) do
-        local chunk = conn:read()
-        if chunk == nil then return end
+        local chunk, _ = conn:read()
+        if chunk == nil or chunk == false then return end
         seen = seen .. chunk
       end
       local _, _ = conn:write("HTTP/1.1 302 Found\r\nLocation: " .. location ..

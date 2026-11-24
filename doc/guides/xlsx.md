@@ -282,10 +282,8 @@ for _, sheet in ipairs(Xml.children(assert(Xml.child(workbook, "sheets")), "shee
   end
   while true do
     local chunk, trouble = body:read(64 * 1024)
-    if chunk == nil then
-      assert(trouble == "", trouble)
-      break
-    end
+    if chunk == nil then error(tostring(trouble)) end
+    if chunk == false then break end
     show((assert(p:feed(chunk))))
   end
   show((assert(p:finish())))

@@ -5,9 +5,9 @@
 ---
 --- A Reader's `read` returns a non-empty chunk of at most `max_bytes` bytes
 --- -- or, when `max_bytes` is omitted, of whatever size suits that Reader
---- (the rest of a string, 64 KiB of a file) -- or nil and `""` at end
---- of file, or nil and an error. An error is sticky: every later
---- `read` returns the same error rather than a false end of file.
+--- (the rest of a string, 64 KiB of a file) -- or `false` at end of
+--- file, or nil and a [`Failure`]. A failure is sticky: every later
+--- `read` returns the same failure rather than a spurious end of file.
 --- A Writer's `write` takes one chunk at a time; `close` commits what
 --- was written, `abort` discards it where that means anything (a
 --- [`Stream.create`] file is never renamed into place), and a `write`
@@ -35,13 +35,13 @@ local type raw_compress = require("cosmic.internal.compress")
 -- they make a test double that implements the interface instead of patching a real one.
 local record Stream
   interface Reader
-    --- The next chunk of at most `max_bytes` bytes, or nil and `""` at the
-    --- end, or nil and an error; see the module's description.
-    -- TODO: a `max_bytes` below 1 answers nil and "", a false end of
+    --- The next chunk of at most `max_bytes` bytes, `false` at the end,
+    --- or nil and a [`Failure`]; see the module's description.
+    -- TODO: a `max_bytes` below 1 answers `false`, a spurious end of
     -- the stream, from Stream.from_string's and Stream.prepend's Readers
     -- (so from a Lines' `rest` holding bytes read ahead); raise on it in
     -- every Reader here instead, as Stream.lines does on its own.
-    read: function(Reader, max_bytes?: integer): string?, string
+    read: function(Reader, max_bytes?: integer): (string | false) | (nil, Failure)
     --- Releases what the Reader holds. Safe to call more than once.
     close: function(Reader): boolean, string
 
@@ -82,7 +82,8 @@ local record Stream
     nonblocking?: boolean
     --- The longest one `read` or one `write` waits in all, in
     --- nanoseconds, from its call; nil for no limit. A call that runs
-    --- out of it fails with [`Poll.TIMEOUT`], and the stream stays
+    --- out of it fails (a read with a [`Failure`] of kind "timeout", a
+    --- write with [`Poll.TIMEOUT`]), and the stream stays
     --- usable: a read took nothing, and a write says how much it wrote
     --- (`written` of [`Stream.FdWriter`]). A value outside what [`Poll.checked_ns`]
     --- allows raises.
@@ -150,13 +151,13 @@ local record Stream
 
   --- The lines of a Reader, one at a time: see [`Stream.lines`].
   interface Lines
-    --- The next line, without its "\n", and ""; nil and "" after the
-    --- last; nil and why when the Reader failed or a line ran past the
+    --- The next line, without its "\n"; `false` after the last; nil and
+    --- a [`Failure`] when the Reader failed or a line ran past the
     --- limit, the same again on every later read. A read the Reader
-    --- ends with [`Poll.TIMEOUT`] or [`Poll.CANCELLED`] answers nil and
-    --- that, and leaves the lines usable: the part of a line read so far
+    --- ends with a Failure of kind "timeout" or "cancelled" answers nil
+    --- and that, and leaves the lines usable: the part of a line read so far
     --- is kept for the next read.
-    read: function(Lines): string?, string
+    read: function(Lines): (string | false) | (nil, Failure)
     --- An iterator for a `for` loop over the lines still to come. It
     --- ends at the last one, at a failure, or at a timeout or a cancel,
     --- which `failure` then says.
@@ -357,6 +358,15 @@ local function refuse(why: string): nil, string
 end
 
 local closed_reader <const> = "stream: the reader is closed"
+
+--- The [`Failure`] for the words a read failed with: kind "timeout" for
+--- [`Poll.TIMEOUT`], "cancelled" for [`Poll.CANCELLED`] and for
+--- "interrupted" (a signal a [`Signal.guard`] caught), else "other".
+local function failure_of(why: string): Failure
+  if why == Poll.TIMEOUT then return Failure.timeout(why) end
+  if why == Poll.CANCELLED or why == "interrupted" then return Failure.cancelled(why) end
+  return Failure.new(why)
+end
 local closed_writer <const> = "stream: the writer is closed"
 
 -- How an object of this module is made. A Reader or Writer is a record of
@@ -398,17 +408,17 @@ local class FromStringReader is Stream.Reader
   mut at: integer
   mut closed: boolean
 
-  function read(self, max_bytes?: integer): string?, string
-    if self.closed then return nil, closed_reader end
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
+    if self.closed then return nil, failure_of(closed_reader) end
     local data, at = self.data, self.at
-    if at > #data then return nil, "" end
+    if at > #data then return false end
     local want = max_bytes or (#data - at + 1)
-    if want <= 0 then return nil, "" end
+    if want <= 0 then return false end
     -- Clamped before it is added, so a huge `max_bytes` cannot wrap `stop`.
     if want > #data - at + 1 then want = #data - at + 1 end
     local stop = at + want - 1
     self.at = stop + 1
-    return data:sub(at, stop), ""
+    return data:sub(at, stop)
   end
 
   function close(self): boolean, string
@@ -493,11 +503,11 @@ local class FdReader is Stream.Reader
   mut size?: integer
   skip?: function(FdReader, n: integer): boolean, string
 
-  function read(self, max_bytes?: integer): string?, string
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     local failed = self.failed
-    if failed then return nil, failed end
-    if self.closed then return nil, closed_reader end
-    if self.ended then return nil, "" end
+    if failed then return nil, failure_of(failed) end
+    if self.closed then return nil, failure_of(closed_reader) end
+    if self.ended then return false end
     local fd, opts = self.fd, self.opts
     local deadline: integer? = nil
     local timeout = opts.timeout_ns
@@ -505,21 +515,21 @@ local class FdReader is Stream.Reader
     while true do
       local data, trouble, errno = sys.read(fd, max_bytes or chunk_size)
       if data ~= nil then
-        if #data > 0 then return data, "" end
+        if #data > 0 then return data end
         self.ended = true
         local _, _ = release(self)
-        return nil, ""
+        return false
       end
       if not (opts.nonblocking == true and (errno == sys.EAGAIN or errno == sys.EINTR)) then
         local why = if trouble ~= "" then trouble else "stream: read failed" end
         self.failed = why
-        return nil, why
+        return nil, failure_of(why)
       end
       local ready, why = wait_for(fd, sys.POLLIN, opts, deadline)
       if not ready then
-        if resumable(why) then return nil, why end
+        if resumable(why) then return nil, failure_of(why) end
         self.failed = why
-        return nil, why
+        return nil, failure_of(why)
       end
     end
   end
@@ -584,13 +594,13 @@ end
 ---
 --- Over a descriptor in non-blocking mode, `opts.nonblocking` makes a
 --- read that finds nothing wait for data, as [`Stream.FdOptions`] says,
---- and `opts.timeout_ns` bounds that wait: the read then fails with
---- [`Poll.TIMEOUT`], and may be called again. A deadline or a cancelled
+--- and `opts.timeout_ns` bounds that wait: the read then fails with a
+--- [`Failure`] of kind "timeout", and may be called again. A deadline or a cancelled
 --- task is the one failure that is not sticky.
 ---
 ---     local r = Stream.from_fd(fd, { nonblocking = true, timeout_ns = Clock.ms(50) })
 ---     local chunk, why = r:read()
----     if chunk == nil and why == Poll.TIMEOUT then print("nothing for 50 ms") end
+---     if chunk == nil and why.kind == "timeout" then print("nothing for 50 ms") end
 function Stream.from_fd(fd: integer, opts?: Stream.FdOptions): Stream.Reader
   return make_fd_reader(fd, false, fd_options(opts, 2))
 end
@@ -632,8 +642,8 @@ local function step(self: TransformReader): string?, string
     return codec:finish()
   end
   local chunk, trouble = self.source:read(chunk_size)
-  if chunk == nil then
-    if trouble ~= "" then return nil, trouble end
+  if chunk == nil then return nil, tostring(trouble) end
+  if chunk == false then
     self.at_eof = true
     return "", ""
   end
@@ -656,31 +666,31 @@ local class TransformReader is Stream.Reader
   mut failed?: string
   mut closed: boolean
 
-  function read(self, max_bytes?: integer): string?, string
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     local failed = self.failed
-    if failed then return nil, failed end
-    if self.closed then return nil, closed_reader end
+    if failed then return nil, failure_of(failed) end
+    if self.closed then return nil, failure_of(closed_reader) end
     while self.at > #self.batch and not self.finished do
       local out, trouble = step(self)
       if out == nil then
         local why = if trouble ~= "" then trouble else "stream: codec failed" end
         self.failed = why
         self.batch, self.at = "", 1
-        return nil, why
+        return nil, failure_of(why)
       end
       self.batch, self.at = out, 1
     end
     local batch, at = self.batch, self.at
-    if at > #batch then return nil, "" end
+    if at > #batch then return false end
     local want = max_bytes or chunk_size
     local avail = #batch - at + 1
     if want >= avail then
       local piece = if at == 1 then batch else batch:sub(at) end
       self.batch, self.at = "", 1
-      return piece, ""
+      return piece
     end
     self.at = at + want
-    return batch:sub(at, at + want - 1), ""
+    return batch:sub(at, at + want - 1)
   end
 
   function close(self): boolean, string
@@ -706,15 +716,16 @@ local class LimitReader is Stream.Reader
   mut left: integer
   mut closed: boolean
 
-  function read(self, max_bytes?: integer): string?, string
-    if self.closed then return nil, closed_reader end
-    if self.left <= 0 then return nil, "" end
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
+    if self.closed then return nil, failure_of(closed_reader) end
+    if self.left <= 0 then return false end
     local want = max_bytes or chunk_size
     if want > self.left then want = self.left end
     local chunk, trouble = self.source:read(want)
     if chunk == nil then return nil, trouble end
+    if chunk == false then return false end
     self.left = self.left - #chunk
-    return chunk, ""
+    return chunk
   end
 
   function close(self): boolean, string
@@ -737,15 +748,15 @@ local class PrependReader is Stream.Reader
   mut at: integer
   mut closed: boolean
 
-  function read(self, max_bytes?: integer): string?, string
-    if self.closed then return nil, closed_reader end
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
+    if self.closed then return nil, failure_of(closed_reader) end
     local prefix, at = self.prefix, self.at
     if at <= #prefix then
       local want = max_bytes or (#prefix - at + 1)
-      if want <= 0 then return nil, "" end
+      if want <= 0 then return false end
       local chunk = prefix:sub(at, at + want - 1)
       self.at = at + #chunk
-      return chunk, ""
+      return chunk
     end
     return self.source:read(max_bytes)
   end
@@ -771,8 +782,8 @@ end
 local function read_up_to_text(reader: Stream.Reader, n: integer): string?, string
   if n <= 0 then return "", "" end
   local first, trouble = reader:read(n)
-  if first == nil then
-    if trouble ~= "" then return nil, trouble end
+  if first == nil then return nil, tostring(trouble) end
+  if first == false then
     return "", ""
   end
   if #first >= n then return first, "" end
@@ -780,8 +791,8 @@ local function read_up_to_text(reader: Stream.Reader, n: integer): string?, stri
   local got = #first
   while got < n do
     local chunk, rtrouble = reader:read(n - got)
-    if chunk == nil then
-      if rtrouble ~= "" then return nil, rtrouble end
+    if chunk == nil then return nil, tostring(rtrouble) end
+    if chunk == false then
       break
     end
     parts[#parts + 1] = chunk
@@ -831,8 +842,8 @@ local function skip_text(reader: Stream.Reader, n: integer): boolean, string
     local want = left
     if want > chunk_size then want = chunk_size end
     local chunk, trouble = reader:read(want)
-    if chunk == nil then
-      if trouble ~= "" then return false, trouble end
+    if chunk == nil then return false, tostring(trouble) end
+    if chunk == false then
       return false, "stream: truncated: skipping " .. String.counted(n, "byte")
     end
     left = left - #chunk
@@ -854,8 +865,8 @@ local function read_all_text(reader: Stream.Reader): string?, string
   local parts: mut {string} = {}
   while true do
     local chunk, trouble = reader:read(chunk_size)
-    if chunk == nil then
-      if trouble ~= "" then return nil, trouble end
+    if chunk == nil then return nil, tostring(trouble) end
+    if chunk == false then
       return table.concat(parts), ""
     end
     parts[#parts + 1] = chunk
@@ -942,9 +953,10 @@ local class SpentReader is Stream.Reader
   why: string
   mut closed: boolean
 
-  function read(self, _max_bytes?: integer): string?, string
-    if self.closed then return nil, closed_reader end
-    return nil, self.why
+  function read(self, _max_bytes?: integer): (string | false) | (nil, Failure)
+    if self.closed then return nil, failure_of(closed_reader) end
+    if self.why == "" then return false end
+    return nil, failure_of(self.why)
   end
 
   function close(self): boolean, string
@@ -959,10 +971,11 @@ local function too_long(self: LineReader): string
 end
 
 -- Ends the lines with `why`, which every later read answers too.
-local function fail(self: LineReader, why: string): nil, string
-  self.failed = why
+local function fail(self: LineReader, why: string, given?: Failure): Failure
+  local failure = given or failure_of(why)
+  self.failed, self.held_failure = why, failure
   self.chunk, self.at, self.parts, self.held = "", 1, {}, 0
-  return nil, why
+  return failure
 end
 
 local class LineReader is Stream.Lines
@@ -978,21 +991,28 @@ local class LineReader is Stream.Lines
   mut held: integer
   mut ended: boolean
   mut failed: string
+  --- The failure every read answers once `failed` is set: the
+  --- Reader's own, its kind kept.
+  mut held_failure?: Failure
   -- Why the last read stopped short and may be made again: a timeout or a cancel; "" after one that did not.
   mut paused: string
   -- Set once `rest` has given the stream away.
   mut rested: boolean
 
-  function read(self): string?, string
+  function read(self): (string | false) | (nil, Failure)
     if self.rested then error(rested, 2) end
-    if self.failed ~= "" then return nil, self.failed end
+    if self.failed ~= "" then
+      local failure = self.held_failure
+      if failure ~= nil then return nil, failure end
+      return nil, failure_of(self.failed)
+    end
     self.paused = ""
     local limit = self.limit
     while true do
       local chunk, at = self.chunk, self.at
       local newline = chunk:find("\n", at, true)
       if newline ~= nil then
-        if self.held + newline - at > limit then return fail(self, too_long(self)) end
+        if self.held + newline - at > limit then return nil, fail(self, too_long(self)) end
         local line = chunk:sub(at, newline - 1)
         self.at = newline + 1
         if self.held > 0 then
@@ -1000,29 +1020,32 @@ local class LineReader is Stream.Lines
           line = table.concat(self.parts)
           self.parts, self.held = {}, 0
         end
-        return line, ""
+        return line
       end
       if at <= #chunk then
         self.held = self.held + #chunk - at + 1
-        if self.held > limit then return fail(self, too_long(self)) end
+        if self.held > limit then return nil, fail(self, too_long(self)) end
         table.insert(self.parts, if at == 1 then chunk else chunk:sub(at) end)
       end
       self.chunk, self.at = "", 1
       if self.ended then
-        if self.held == 0 then return nil, "" end
+        if self.held == 0 then return false end
         local line = table.concat(self.parts)
         self.parts, self.held = {}, 0
-        return line, ""
+        return line
       end
-      -- A Reader answers a non-empty chunk or nil, so each round moves.
+      -- A Reader answers a non-empty chunk, `false` or nil, so each round moves.
       local read, trouble = self.source:read(chunk_size)
       if read == nil then
         -- A deadline or a cancelled task took nothing: what is held stays, for the next read.
-        if resumable(trouble) then
-          self.paused = trouble
+        -- A wait that ran out or was cancelled resumes; a caught signal
+        -- ("interrupted", also of kind "cancelled") does not.
+        if trouble.message == Poll.TIMEOUT or trouble.message == Poll.CANCELLED then
+          self.paused = trouble.message
           return nil, trouble
         end
-        if trouble ~= "" then return fail(self, trouble) end
+        return nil, fail(self, tostring(trouble), trouble)
+      elseif read == false then
         self.ended = true
       else
         self.chunk = read
@@ -1034,6 +1057,7 @@ local class LineReader is Stream.Lines
     if self.rested then error(rested, 2) end
     return function(): string?
       local line, _ = self:read()
+      if line == false then return nil end
       return line
     end
   end
@@ -1087,7 +1111,7 @@ function Stream.lines(reader: Stream.Reader, max_bytes?: integer): Stream.Lines
     error("stream: max_bytes must be at least 1", 2)
   end
   local lines: LineReader = { source = reader, limit = limit,
-    chunk = "", at = 1, parts = {}, held = 0, ended = false, failed = "", paused = "",
+    chunk = "", at = 1, parts = {}, held = 0, ended = false, failed = "", held_failure = nil, paused = "",
     rested = false }
   return lines
 end
@@ -1097,8 +1121,8 @@ local function copy_text(reader: Stream.Reader, writer: Stream.Writer): integer?
   local total = 0
   while true do
     local chunk, trouble = reader:read(chunk_size)
-    if chunk == nil then
-      if trouble ~= "" then return nil, trouble end
+    if chunk == nil then return nil, tostring(trouble) end
+    if chunk == false then
       return total, ""
     end
     total = total + #chunk
@@ -1126,8 +1150,8 @@ local function copy_n_text(reader: Stream.Reader, writer: Stream.Writer, n: inte
     local want = left
     if want > chunk_size then want = chunk_size end
     local chunk, trouble = reader:read(want)
-    if chunk == nil then
-      if trouble ~= "" then return false, trouble end
+    if chunk == nil then return false, tostring(trouble) end
+    if chunk == false then
       return false, "stream: truncated before its stated size: wanted " ..
         String.counted(n, "byte") .. ", got " .. tostring(n - left)
     end
