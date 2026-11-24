@@ -29,6 +29,9 @@ local record SourceParse
     --- Whether its top-level `local function test_*` are called from outside the file (a test module), so that they are
     --- not unused.
     mut tests: boolean
+    --- Whether it is an entry point, called with the command line's words ([`Declarations.Input.entry`]): a program's
+    --- `cmd/<name>/main.tl`, or a file checked as it is run alone.
+    entry: boolean
     --- The other names a `require` may give it: only a declaration file of the globals has any
     --- ([`SourceParse.declarations`]); a module of an index ([`SourceParse.index`]) answers to its whole name alone.
     mut aliases: mut {string}
@@ -41,6 +44,8 @@ local record SourceParse
   --- What a caller knows of a file of an index that its name does not say: whether it is a test module.
   record Extra
     tests: boolean
+    --- Whether it is an entry point ([`SourceParse.Source.entry`]), where its name does not say so.
+    entry?: boolean
   end
 
   --- What a caller knows of the file `file`, whose text is `text`.
@@ -94,7 +99,7 @@ local record SourceParse
 
   --- A source with every word given.
   make: function(module: string, filename: string, text: string, dialect: Ast.Dialect, checked: boolean,
-    aliases: mut {string}, tests: boolean, pinned: string): Source
+    aliases: mut {string}, tests: boolean, pinned: string, entry?: boolean): Source
 
   --- A source with the defaults: checked, no alias, and a test module only where `tests`.
   source: function(module: string, filename: string, text: string, dialect: Ast.Dialect, tests?: boolean): Source
@@ -153,10 +158,10 @@ local record SourceParse
 end
 
 function SourceParse.make(module: string, filename: string, text: string, dialect: Ast.Dialect, checked: boolean,
-                          aliases: mut {string}, tests: boolean, pinned: string): SourceParse.Source
+                          aliases: mut {string}, tests: boolean, pinned: string, entry?: boolean): SourceParse.Source
   return {
     module = module, filename = filename, text = text, dialect = dialect,
-    checked = checked, tests = tests, aliases = aliases, pinned = pinned,
+    checked = checked, tests = tests, aliases = aliases, pinned = pinned, entry = entry == true,
   }
 end
 
@@ -222,7 +227,8 @@ function SourceParse.index(entries: {{string}}, skip: function(path: string): bo
       end
       local module = entry[3] or Declarations.module_of(file)
       local source = make(module, file, text, dialect, true, {},
-        extra.tests or file:match("_test%.tl$") ~= nil, entry[4] or "")
+        extra.tests or file:match("_test%.tl$") ~= nil, entry[4] or "",
+        extra.entry == true or (dialect == "tl" and module:match("^cmd%.[^.]+%.main$") ~= nil))
       index.sources[#index.sources + 1] = source
       if index.by_module[source.module] == nil then
         index.by_module[source.module] = source
