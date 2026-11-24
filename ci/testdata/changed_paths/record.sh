@@ -8,8 +8,9 @@
 # is the same hash each time), is diffed against that base as the driver
 # does, `git diff --no-renames --name-only -z <base> HEAD --`, once for each
 # change the test makes: edited.z (an edit, a removal and an added path
-# holding a space), none.z (an empty commit) and linebreak.z (those with a
-# path holding a line break too). `base` holds the commit's hash.
+# holding a space), none.z (an empty commit), linebreak.z (those with a
+# path holding a line break too) and reaches.z (those with a path the
+# launcher and startup fixtures check, core/startup.c). `base` holds the commit's hash.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
@@ -42,3 +43,4 @@ change nothing none
 edit; change edited edited
 edit; printf 'return 3\n' > "$work/two
 lines.tl"; change linebreak linebreak
+edit; mkdir -p "$work/core"; echo 'int x;' > "$work/core/startup.c"; change reaches reaches
