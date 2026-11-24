@@ -21,9 +21,9 @@
 --- lower-case letters, digits and `_`, from a letter. `description` says what the server is for, which the model
 --- reads.
 ---
---- A server's responses are untrusted input, as its tools' descriptions are: the snippet and the model read them. So
---- is the end of its standard error, which a call that gets no response tells, with the values of the environment
---- variables its policy passes put as their names.
+--- What a server answers is untrusted input, as its tools' descriptions are: the snippet and the model read it. So is
+--- the end of its standard error, which a call that gets no answer tells, with the values of the environment variables
+--- its policy passes put as their names.
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -72,7 +72,7 @@ local record AgentMcp
     --- The servers whose standard error a call out reads, by name ([`draining`]): one reads at a time.
     drained: mut {string: boolean}
     --- The last part of what each server started over stdio wrote to its standard error, by name: read while a call
-    --- to it is out, and told where a call gets no response.
+    --- to it is out, and told where a call gets no answer.
     tails: mut {string: string}
   end
 end
@@ -84,7 +84,7 @@ local HTTP_TIMEOUT <const> = 120 * 1000000000
 local TAIL <const> = 4096
 local TOLD <const> = 1024
 
---- How long a server that gave no response is read for what it wrote last.
+--- How long a server that gave no answer is read for what it wrote last.
 local LAST_READ <const> = Clock.ms(100)
 --- The policy a server with a command runs under, before its config's.
 local function default_policy(): Sandbox.Policy
@@ -158,7 +158,7 @@ local function server_of(name: string, entry: Json.Value): AgentMcp.Server?, str
     if decoded == nil then return nil, about .. ".policy: " .. why end
     given = decoded
   end
-  local merged, merge_why = Sandbox.merge(default_policy(), given)
+  local merged, merge_why = Sandbox.union(default_policy(), given)
   if merged == nil then return nil, about .. ".policy: " .. merge_why end
   return { name = name, command = argv, policy = merged, description = description }, ""
 end
@@ -298,9 +298,8 @@ local function told_of(server: AgentMcp.Server?, text: string): string
   return (String.as_utf8(out):gsub("[%z\1-\8\11-\31\127]", ""))
 end
 
---- Why a call to the server `name` of `set` got no response, `why`, and the end of what it wrote to its standard
---- error, read until it ends or LAST_READ passes: a server that ended has said why there. What it wrote is untrusted
---- input.
+--- Why a call to the server `name` of `set` got no answer, `why`, and the end of what it wrote to its standard error,
+--- read until it ends or LAST_READ passes: a server that ended has said why there. What it wrote is untrusted input.
 local function unanswered(set: AgentMcp.Set, name: string, why: string): string
   -- Where a call beside it reads the server's standard error, that call keeps the tail.
   if set.drained[name] ~= true then draining(set, name, nil, LAST_READ) end
@@ -310,7 +309,7 @@ local function unanswered(set: AgentMcp.Set, name: string, why: string): string
   return why .. "; the end of its standard error: " .. told_of(set.servers[name], told)
 end
 
---- Ends the server `name` of `set`, where it was started: a call that failed with no response may have left it out of
+--- Ends the server `name` of `set`, where it was started: a call that failed with no answer may have left it out of
 --- step, and the next starts it again.
 local function ended(set: AgentMcp.Set, name: string)
   local session, handle = set.sessions[name], set.handles[name]
@@ -320,7 +319,7 @@ local function ended(set: AgentMcp.Set, name: string)
   if handle ~= nil then local _, _ = handle:close() end
 end
 
---- `value`, a record or a list of records the client returned, as the text of its JSON.
+--- `value`, a record or a list of records the client answered, as the text of its JSON.
 local function json_text(value: any): (string) | (nil, Failure)
   return Json.encode_any(value)
 end
@@ -372,7 +371,7 @@ function AgentMcp.tools(set: AgentMcp.Set, name: string): ({Json.Value}) | (nil,
   return Json.decode_array(text, { null_value = Json.null })
 end
 
---- What the tool `tool` of the server `name` gave for `arguments`, as a JSON object: its content, structuredContent
+--- What the tool `tool` of the server `name` answered `arguments`, as a JSON object: its content, structuredContent
 --- and isError, as the server sent them.
 function AgentMcp.call(set: AgentMcp.Set, name: string, tool: string, arguments: {string: Json.Value}):
     ({string: Json.Value}) | (nil, Failure)

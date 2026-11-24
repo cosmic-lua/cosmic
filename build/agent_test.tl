@@ -47,8 +47,8 @@ local home = ""
 
 local KEYED <const>: {string: string} = { ANTHROPIC_API_KEY = "k", ANTHROPIC_BASE_URL = "https://api.test" }
 
---- How a run waits for each line typed: `wait` returns, call by call, whether a line
---- came, and moves `now` on by what it waited.
+--- How a run waits for each line typed: `wait` answers each call in turn
+--- (true where a line came), and moves `now` on by what it waited.
 local record Waited
   answers: {boolean}
   mut now: integer
@@ -153,6 +153,10 @@ local function test_budget_ends_a_turn()
     { content = { agent_fixture.bash_call("t1", "true") }, stop_reason = "tool_use" }, text_reply("never") })
   assert(r.code ~= 0 and #a.sent == 1 and r.err:find("the turn's budget is spent: 1 request, of 1", 1, true) ~= nil,
     r.err)
+  assert(r.err:find("go on with `cosmic agent ask %-%-session %d+ 'go on'` and a larger %-%-budget") ~= nil, r.err)
+  -- A prompt with a budget is kept as blocks, and the sessions list still shows its words.
+  local listed = cli({ "sessions" }, KEYED, {})
+  assert(listed.out:find("%$0%.000%s+go\n?$") ~= nil, listed.out)
   for _, bad in ipairs({ "", "turns=0", "turns=1.5", "cost=-1", "cost=x", "time=10d", "time=0", "speed=1",
       "turns=1,turns=2", "turns" }) do
     r, a = cli({ "ask", "--budget", bad, "go" }, KEYED, {})
@@ -170,7 +174,7 @@ local function test_ask_and_chat()
     text_reply("hi back"),
   })
   assert(r.code == 0 and r.out == "hi back", r.out .. r.err)
-  assert(r.err:find("bash true", 1, true) ~= nil, r.err)
+  assert(r.err:find("bash\n    $ true", 1, true) ~= nil, r.err)
   assert(said(a, 1):find('"hello there"', 1, true) ~= nil, said(a, 1))
   r, a = cli({ "ask" }, KEYED, { text_reply("ok") })
   assert(r.code == 0 and said(a, 1):find("from stdin", 1, true) ~= nil)
@@ -257,7 +261,8 @@ local function test_sessions_are_kept_and_go_on()
   assert(again ~= nil and #again == 3 and said(a, 1):find('"first"', 1, true) ~= nil, said(a, 1))
   local list = cli({ "sessions" }, KEYED, {})
   assert(list.code == 0 and list.out:find("claude%-sonnet%-5%-5%s+4%s+0%s+%$0%.000%s+first") ~= nil, list.out)
-  local id = list.out:match("^%s*(%d+)")
+  assert(list.out:find("^%s*id%s+started%s+model%s+msgs%s+context%s+cost%s+first prompt\n") ~= nil, list.out)
+  local id = list.out:match("\n%s*(%d+)")
   assert(id ~= nil)
   r, a = cli({ "ask", "--session", id, "third" }, KEYED, { text_reply("three") })
   local third, _ = Json.to_array(sent(a, 1)["messages"])
@@ -284,6 +289,12 @@ local function test_the_sandbox_on_the_command_line()
   local seen = cli({ "policy", "--network", "--grant", outside .. ":rw" }, KEYED, {})
   assert(seen.code == 0 and seen.out:find("network: *:*", 1, true) ~= nil, seen.out .. seen.err)
   assert(seen.out:find("rw    " .. assert(Fs.absolute(outside)), 1, true) ~= nil, seen.out)
+  local local_one = cli({ "policy", "--connect", "127.0.0.1:8123", "--connect", "[::1]:*" }, KEYED, {})
+  assert(local_one.out:find("network: 127.0.0.1:8123 [::1]:*", 1, true) ~= nil, local_one.out .. local_one.err)
+  local bad = cli({ "policy", "--connect", "*.example.com:443" }, KEYED, {})
+  assert(bad.code ~= 0 and bad.err:find("--connect *.example.com:443: ", 1, true) ~= nil, bad.err)
+  assert(cli({ "ask", "--sandbox", "off", "--connect", "127.0.0.1:1", "x" }, KEYED, {}).err:find("--sandbox off", 1,
+    true) ~= nil)
   assert(seen.out:find("home: ", 1, true) ~= nil, seen.out)
   assert(cli({ "policy", "--sandbox", "off" }, KEYED, {}).out:find("no sandbox", 1, true) ~= nil)
   assert(cli({ "policy", "what" }, KEYED, {}).code == Flags.REFUSED)

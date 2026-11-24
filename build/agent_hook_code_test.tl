@@ -1,5 +1,5 @@
 --- A snippet's calls of the agent (sql, store, mcp) go through the agent's guard and amend, as `before` and `after`
---- see the model's calls: a blocked one raises in the snippet, and an amended result is what it reads.
+--- see the model's calls: a blocked one raises in the snippet, and an amended answer is what it reads.
 local Agent = require("cosmic.agent")
 local agent_fixture = require("build.agent_fixture")
 local Fs = require("cosmic.fs")
@@ -108,7 +108,7 @@ local function test_an_agents_after_sees_a_snippets_answers()
   end
   assert(s:prompt("go"))
   local answer = agent_fixture.said(a, 2)
-  -- The snippet read what after made of the store's reply, and returned it.
+  -- The snippet read what after made of the store's answer, and returned it.
   assert(answer:find("[redacted]", 1, true) ~= nil, answer)
   assert(table.concat(callers, " ") == "store.put:code store.get:code run:model", table.concat(callers, " "))
   s:close()

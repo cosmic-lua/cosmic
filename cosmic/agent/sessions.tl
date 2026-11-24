@@ -27,7 +27,7 @@
 ---                   request_headers: as JSON, less any that may hold a
 ---                   credential; build: the cosmic that sent it); what
 ---                   came back (status, error, served: the model that
----                   responded, stop_reason, request_id, headers: the
+---                   answered, stop_reason, request_id, headers: the
 ---                   reply's, as JSON, less credentials, first_ms: how
 ---                   soon its content began, reply: the whole message,
 ---                   put back together from the stream, or the stream
@@ -37,7 +37,7 @@
 ---                   USD at the list prices it knows, NULL for
 ---                   another model or a reply with no usage); after a
 ---                   fallback, the token counts are the attempt that
----                   succeeded, and cost sums every attempt at its own
+---                   answered, and cost sums every attempt at its own
 ---                   model's price (an upper bound: some declines before
 ---                   output are not billed), a compaction's included;
 ---                   cache_miss and cache_missed: why the cache missed
@@ -177,7 +177,7 @@ local record Sessions
     mut reply?: string
   end
 
-  --- The result of a tool call, as the model read it.
+  --- What answered a tool call, as the model read it.
   record Answer
     --- What the model read.
     text: string
@@ -385,8 +385,8 @@ function Sessions.kept(db: Sqlite.Handle, id: integer, key: string): string?, st
   return row:text(1), ""
 end
 
---- The output of the tool call `call` in session `id`, as the model
---- read it: nil where there is none (why is "" then).
+--- What answered the tool call `call` in session `id`, as the model
+--- read it: nil where nothing did (why is "" then).
 function Sessions.answer(db: Sqlite.Handle, id: integer, call: string): Sessions.Answer?, string
   local found, why = db:map([[SELECT coalesce(shown, text), is_error FROM outputs
     WHERE session = ?1 AND call = ?2 ORDER BY id DESC LIMIT 1]], { { integer = id }, { text = call } },
@@ -452,6 +452,10 @@ local function words(text: string): string
   local m, _ = Json.decode_object(text)
   local content = m and m["content"]
   if content is string then return content end
+  -- A prompt with a budget is a list of blocks: the first holds the words.
+  local first = Json.object_of((Json.array_of(content) or {})[1])
+  local said = first and first["text"]
+  if said is string then return said end
   return ""
 end
 

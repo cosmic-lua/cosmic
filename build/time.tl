@@ -317,7 +317,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     if host[1] == nil then
       local zone, why = to.local_zone()
       if zone == nil then
-        complain("the host's time zone: " .. plain(tostring(why)) .. "; name one with --zone, --from or --to")
+        complain("the host's time zone: " .. plain(tostring(why)) .. "; name one with --zone or --local-zone")
         return nil
       end
       host[1] = zone
@@ -372,12 +372,12 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
 
   if sub == "convert" then
-    local from = zone_of("--from")
+    local from = zone_of("--local-zone")
     if from == nil then return bare.refused end
     local convert_word = assert(parsed.words[1], "convert takes one word, which the arity check holds it to")
     local zoned = read_time(convert_word, from)
     if zoned == nil then return bare.refused end
-    local target = zone_of("--to")
+    local target = zone_of("--zone")
     if target == nil then return bare.refused end
     return print_seen({ ns = zoned.ns, zone = target })
   end

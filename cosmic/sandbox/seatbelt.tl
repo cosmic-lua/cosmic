@@ -381,7 +381,7 @@ end
 
 --- The grants `policy` gives on macOS before the host is read: its own
 --- and, for the "system" profile, [`Seatbelt.compile`]'s list of macOS's
---- paths (not Linux's, which [`Sandbox.merge`] gives), each whether or not
+--- paths (not Linux's, which [`Sandbox.union`] gives), each whether or not
 --- this host has it. For a check of which paths a policy reaches.
 function Seatbelt.grants(policy: rules.Policy): {rules.Grant}
   local out: mut {rules.Grant} = {}

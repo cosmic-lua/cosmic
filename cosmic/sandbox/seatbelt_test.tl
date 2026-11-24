@@ -299,7 +299,7 @@ end
 local function test_system_profile_means_the_same_raw_merged_and_through_json()
   local raw: Sandbox.Policy = { profiles = { "system" } }
   local profile = rules.system_profile("darwin", function(_: string): boolean return true end)
-  local merged = assert(Sandbox.merge(profile))
+  local merged = assert(Sandbox.union(profile))
   local decoded = assert(PolicyJson.decode(PolicyJson.encode(merged)))
   local paths: mut {string:Seatbelt.Path} = {}
   for _, grant in ipairs(Seatbelt.grants(raw)) do

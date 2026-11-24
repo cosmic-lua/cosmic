@@ -267,21 +267,21 @@ local function test_a_compacting_reply_is_not_kept_warm()
 end
 
 --- A turn's budget: the first limit reached ends it for good, the tool
---- calls of its last reply given results that say stopped, and the next prompt gets
+--- calls of its last reply answered as stopped, and the next prompt gets
 --- a budget of its own.
 local function test_a_turn_ends_where_its_budget_is_spent()
   local function calling(id: string, n: integer): Json.Value
     return { content = { bash_call(id, "true") }, stop_reason = "tool_use",
       usage = { input_tokens = n, output_tokens = n, cache_read_input_tokens = n, cache_creation_input_tokens = n } }
   end
-  -- turns: the reply of the last request asks for a tool, which gets a result, not a run.
+  -- turns: the reply of the last request asks for a tool, which is answered, not run.
   local s, a = kept({ calling("t1", 10), calling("t2", 10), text_reply("never") }, nil, "claude-sonnet-5-5")
   s.budget = { turns = 2 }
   local seen = agent_fixture.events()
   s.on = seen.on
   local ok, why = s:prompt("go")
   assert(not ok and why == Agent.BUDGET_SPENT .. ": 2 requests, of 2", why)
-  assert(#a.sent == 2 and #seen.tools == 1 and not s:unfinished())
+  assert(#a.sent == 2 and #seen.tools == 1 and not s:unfinished() and s.spent)
   local answered = s.messages[#s.messages]
   assert(answered ~= nil)
   local last = assert(Json.encode(answered))
@@ -313,7 +313,47 @@ local function test_a_turn_ends_where_its_budget_is_spent()
   -- A turn that ends inside its budget is a turn like any other; each prompt has its own.
   s, a = kept({ text_reply("one"), text_reply("two") })
   s.budget = { turns = 1 }
-  assert(s:prompt("go") and s:prompt("again") and #a.sent == 2)
+  assert(s:prompt("go") and s:prompt("again") and #a.sent == 2 and not s.spent)
+end
+
+--- Words in a reply that also calls a tool are told as on the way (`calls`); the turn's last words are not.
+local function test_words_on_the_way_are_told_apart()
+  local s, _ = kept({ { content = { { type = "text", text = "looking" }, bash_call("t1", "true") },
+    stop_reason = "tool_use" }, text_reply("done") })
+  local told: mut {string} = {}
+  s.on = function(e: Agent.Event)
+    if e.kind == "text" then
+      local line = e.text .. "=" .. tostring(e.calls == true)
+      told[#told + 1] = line
+    end
+  end
+  assert(s:prompt("go"))
+  assert(table.concat(told, " ") == "looking=true done=false", table.concat(told, " "))
+end
+
+--- The model reads its budget beside the prompt, and a note to finish
+--- once a limit is mostly spent; a prompt with no budget is its words alone.
+local function test_the_model_reads_its_budget()
+  local function calling(id: string): Json.Value
+    return { content = { bash_call(id, "true") }, stop_reason = "tool_use" }
+  end
+  local s, a = kept({ calling("t1"), calling("t2"), text_reply("done") }, nil, "claude-sonnet-5-5")
+  s.budget = { turns = 3, cost = 0.5 }
+  assert(s:prompt("go"))
+  local function text_of(n: integer): string
+    local messages = assert(a.sent[n])["messages"]
+    assert(messages ~= nil)
+    return assert(Json.encode(messages))
+  end
+  local first = text_of(1)
+  assert(first:find('"text":"go"', 1, true) ~= nil, first)
+  assert(first:find("This turn's budget: 3 requests, $0.50.", 1, true) ~= nil, first)
+  assert(text_of(2):find("Budget: spent", 1, true) == nil, text_of(2))
+  assert(text_of(3):find("Budget: spent 2 of 3 requests, $0.00 of $0.50. The next reply may be the last", 1, true) ~=
+      nil, text_of(3))
+  s, a = kept({ text_reply("one") })
+  assert(s:prompt("go"))
+  assert(text_of(1):find('"content":"go"', 1, true) ~= nil and text_of(1):find("budget", 1, true) == nil, text_of(1))
 end
 
 local function test_a_turn_left_unfinished_is_resumed()

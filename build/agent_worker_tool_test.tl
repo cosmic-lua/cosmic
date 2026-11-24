@@ -1,5 +1,5 @@
 --- `cosmic agent worker` as the run tool drives it ([`cosmic.agent.worker`]): one process that checks and runs one
---- snippet after another, replying to each as its own.
+--- snippet after another, answering each as its own.
 local AgentMcp = require("cosmic.agent.mcp")
 local Clock = require("cosmic.clock")
 local Failure = require("cosmic.failure")
@@ -125,7 +125,7 @@ local function test_the_run_tool_shows_what_a_snippet_printed_returned_and_was_r
   assert(not long.is_error and long.text:find("Output cut", 1, true) ~= nil and long.text:find("line 4000\n", 1, true) ~= nil and
       long.text:find("\nline 1\n", 1, true) ~= nil and long.text:find("line 2000\n", 1, true) == nil and
       long.text:find(" cut ...]\n", 1, true) ~= nil and #long.text < 8400 and long.raw ~= nil, long.text:sub(1, 200))
-  -- Past 64KB, the count is of all that was cut, not of what the worker's reply held.
+  -- Past 64KB, the count is of all that was cut, not of what the worker answered.
   local huge = Tools.run("run", { code = "for i = 1, 40000 do print(\"line \" .. tostring(i)) end\n" }, context)
   local cut_bytes = tonumber(huge.text:match("%[%.%.%. (%d+) bytes cut %.%.%.%]")) or 0
   assert(not huge.is_error and cut_bytes > 400000 and huge.text:find("line 40000\n", 1, true) ~= nil, huge.text:sub(1, 300))
@@ -202,7 +202,7 @@ local function test_a_snippet_that_prints_without_end_runs_to_its_timeout()
   Worker.close(w)
 end
 
---- What a program an earlier snippet started writes after that snippet finished is not the next snippet's output,
+--- What a program an earlier snippet started writes after that snippet answered is not the next snippet's output,
 --- nor is a snippet's end mark another's.
 local function test_a_late_write_and_a_snippets_own_mark_are_not_the_next_snippets_output()
   -- macOS has no setsid program, so the shell could leave nothing behind that outlives its group.
@@ -213,7 +213,7 @@ local function test_a_late_write_and_a_snippets_own_mark_are_not_the_next_snippe
   local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
   -- The shell leaves a program behind in a session of its own, which outlives the shell's group and writes once the
-  -- snippet finished.
+  -- snippet answered.
   -- The left one runs in the background of the shell, not as a leader of its group, so setsid makes its session at
   -- once with no fork of its own and no -f, which busybox's setsid (Alpine's) has not. Child.run ends what is left of
   -- its group when the shell exits, so the shell waits, up to 5 s, for the left one, past setsid, to say it is up.
@@ -225,7 +225,7 @@ local function test_a_late_write_and_a_snippets_own_mark_are_not_the_next_snippe
     "print(\"now\")\n"
   local first = run(w, late, nil, dir)
   assert(first["ok"] == true and first["output"] == "now\n", shown(first))
-  -- The left program writes once the snippet finished, when told to.
+  -- The left program writes once the snippet answered, when told to.
   assert(Fs.write(dir .. "/go", ""))
   local deadline = Clock.monotonic_ns() + Clock.seconds(5)
   local wrote, _ = Fs.read(dir .. "/wrote")
@@ -310,7 +310,7 @@ print(ok)
   Worker.close(w)
 end
 
---- A reply out of step, one that is no JSON, and a worker that ends are each told, and the worker ended.
+--- An answer out of step, one that is no JSON, and a worker that ends are each told, and the worker ended.
 local function test_a_worker_that_answers_wrong_or_ends_is_ended_and_told()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
   local cases: {{string}} = {
@@ -424,7 +424,7 @@ print(tostring(long))
   Worker.close(w)
 end
 
---- A snippet queries sessions.db through the agent, which runs it read-only, as the sql tool does, and replies with its rows.
+--- A snippet queries sessions.db through the agent, which answers it read-only, as the sql tool does, row by row.
 local function test_a_snippet_queries_the_sessions_through_the_agent()
   local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
@@ -460,7 +460,7 @@ return assert(again[1])["n"]
   local _, _ = db:close()
 end
 
---- The rows a query yields are held to JSON and to the reply's limit: no infinity, one column of a name, and control
+--- What a query answers is held to JSON and to the reply's limit: no infinity, one column of a name, and control
 --- characters counted as their escapes.
 local function test_a_snippets_query_answer_is_held_to_json_and_its_limit()
   local w = set_of_worker()
@@ -524,7 +524,7 @@ local function test_a_snippets_endless_query_step_is_stopped_at_its_time()
   local _, _ = db:close()
 end
 
---- Outside a worker no agent responds to a call.
+--- Outside a worker no agent answers a call.
 local function test_a_snippet_calls_an_mcp_servers_tools_as_typed_functions()
   local dir = assert(Fs.mkdtemp("agent-worker-mcp-module-"))
   local script = dir .. "/server.tl"
@@ -641,7 +641,7 @@ print(missing)
   -- Both tools named sum are found, and the one of no such word is not.
   assert(text:find("sum\tadder.sum_up=sum-up,adder.sum_up_2=sum.up\t0\n", 1, true) ~= nil or
       text:find("sum\tadder.sum_up_2=sum.up,adder.sum_up=sum-up\t0\n", 1, true) ~= nil, text)
-  -- Tasks of a snippet call one server at once, each getting its own reply.
+  -- Tasks of a snippet call one server at once, each answered its own.
   local at_once = [[
 local adder = require("mcp.adder")
 local Poll = require("cosmic.poll")

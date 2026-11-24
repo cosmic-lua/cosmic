@@ -297,7 +297,7 @@ local record Options
   sandbox?: Sandbox
   --- A [`cosmic.sandbox`] policy the child is held to, met or the start
   --- fails (nil, and a message naming what is missing and how to give it).
-  --- The policy is merged ([`Sandbox.merge`], which resolves its
+  --- The policy is merged ([`Sandbox.union`], which resolves its
   --- `profiles`), and then:
   ---
   --- - `grants` are the only paths the child reaches, by Landlock (by the
@@ -3118,7 +3118,7 @@ end
 --- directory. Nil and why when it cannot. It acquires nothing: `tmp`'s
 --- directory is [`make_tmp`]'s.
 local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, online: boolean): Held?, string
-  local joined, why = Rules.merge(policy)
+  local joined, why = Rules.union(policy)
   if joined == nil then return nil, why end
   local trouble = unmet(joined)
   if trouble ~= "" then return nil, "sandbox: " .. trouble end
@@ -3263,7 +3263,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
       end
     end
     if #start_grants > 0 then
-      local widened, widen_trouble = Rules.merge(merged, { grants = start_grants })
+      local widened, widen_trouble = Rules.union(merged, { grants = start_grants })
       if widened == nil then return nil, widen_trouble end
       merged = widened
       local over = unmet(merged)
@@ -3491,7 +3491,7 @@ end
 --- It acquires nothing.
 local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Policy, pty?: Pty,
                                 serves_relay?: integer): Held?, string
-  local joined, why = Rules.merge(policy)
+  local joined, why = Rules.union(policy)
   if joined == nil then return nil, why end
   local credentials = seatbelt_credentials(joined)
   if credentials ~= "" then return nil, "sandbox: " .. credentials end
@@ -3564,7 +3564,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
       end
     end
     policy = with_grants(policy, start_grants)
-    local widened, widen_trouble = Rules.merge(merged, { grants = start_grants })
+    local widened, widen_trouble = Rules.union(merged, { grants = start_grants })
     if widened == nil then return nil, widen_trouble end
     merged = widened
   end
@@ -3862,7 +3862,7 @@ local function prepare_relay(connect: {string}, opts: Options, seatbelt: boolean
   config.log = if log == "null" then "null" else "stderr" end
   config.token = token
   -- `program.digest` is the hex SHA-256 [`Store.seal`] hashed the file to,
-  -- which is what `$.database.sha256` holds; [`Rules.merge`] checks it anyway.
+  -- which is what `$.database.sha256` holds; [`Rules.union`] checks it anyway.
   local policy = RelayStart.policy(program.path, program.digest, seatbelt)
   return { dir = program.dir, policy = policy, config = RelayConfig.encode(config), log = log,
     handover = handover, seatbelt = seatbelt, token = token, port = port }, ""

@@ -1,9 +1,9 @@
 --- @public
 --- What a snippet that cosmic agent's `run` tool runs asks of the agent itself: the calls the worker cannot make in
---- its sandbox, which the agent makes in its own process. Each call goes out to the agent as a line beside the
---- snippet's result, and the snippet waits for the reply; the agent checks each call as it checks a tool's input, and
---- replies with a failure to a call it does not offer. Each call of Host raises where it fails, with a message that
---- begins "host:", so a snippet reads its value with no assert:
+--- its sandbox, which the agent answers in its own process. Each call goes out to the agent as a line beside the
+--- snippet's answer, and the snippet waits for the reply; the agent checks each call as it checks a tool's input, and
+--- answers only what it serves. Each call of Host raises where it fails, with a message that begins "host:", so a
+--- snippet reads its value with no assert:
 ---
 ---     local Host = require("cosmic.agent.host")
 ---     local rows = Host.sql("SELECT tool, count(*) AS n FROM outputs WHERE session = ?1 GROUP BY tool")
@@ -23,7 +23,7 @@
 ---     print(Host.describe("github", "list_issues"))
 ---
 --- [`Host.declaration`] shows a whole module's Teal. Beneath it, [`Host.servers`] names the servers, [`Host.tools`]
---- lists a server's tools, and [`Host.mcp`] calls one with any arguments, returning what the server sent.
+--- lists a server's tools, and [`Host.mcp`] calls one with any arguments, answering what the server sent.
 ---
 --- [`Host.modules`] lists the modules a snippet may require, and [`Host.docs`] prints the docs of one, or of a
 --- function, as `cosmic docs` does: both read this binary's docs, with no call to the agent.
@@ -32,7 +32,7 @@
 --- with the session: a resumed session reads it again.
 ---
 --- The agent's own bash tool is there too, run in the snippet's sandbox, with a result a snippet reads as a value:
---- [`Host.bash`] runs a command and returns its output and how it ended:
+--- [`Host.bash`] runs a command and answers its output and how it ended:
 ---
 ---     local ran = Host.bash("git status --short")
 ---     for line in ran.output:gmatch("[^\n]+") do print(line) end
@@ -49,7 +49,7 @@
 --- [`Host.sqlite`], ...) are [`cosmic.shell`]'s calls, run in the snippet's own process, raising where they fail.
 --- A file is edited with [`Host.lines`] and [`Host.write`], or with [`Host.sed`].
 ---
---- Outside a worker no agent replies, and each call raises so.
+--- Outside a worker no agent answers, and each call raises so.
 
 local AgentFetch = require("cosmic.agent.fetch")
 local Child = require("cosmic.child")
@@ -71,7 +71,7 @@ local record Host
   --- name each with `AS`.
   type Row = {string: Json.Value}
 
-  --- What a tool of an MCP server responded with, as [`Host.tool`] reads it.
+  --- What a tool of an MCP server answered, as [`Host.tool`] reads it.
   record Result
     --- The text of its text blocks, one after another, each on lines of its own.
     text: string
@@ -91,7 +91,7 @@ local record Host
     tool: string
     --- The start of its description, on one line.
     about: string
-    --- The Teal of its function, with the records it takes and returns ([`Host.describe`]).
+    --- The Teal of its function, with the records it takes and answers ([`Host.describe`]).
     teal: string
   end
 
@@ -161,11 +161,11 @@ local record Host
     skipped: {string}
   end
 
-  --- What [`Host.search`] looks in, and how much it returns.
+  --- What [`Host.search`] looks in, and how much it answers.
   record SearchOptions
     --- The one server to search; nil for every server.
     server?: string
-    --- The most tools it returns, 1 or more: 8 by default.
+    --- The most tools it answers, 1 or more: 8 by default.
     limit?: integer
   end
 
@@ -192,7 +192,7 @@ function Host.call(name: string, args: Json.Value): (Json.Value) | (nil, Failure
 end
 
 --- The rows of one read-only SQLite statement on the agent's sessions.db, as the sql tool runs it (its tables are
---- named there; `?1` is the session's id), or why there are none. The agent replies with at most 512KB of JSON, and a
+--- named there; `?1` is the session's id), or why there are none. The agent answers at most 512KB of JSON, and a
 --- query of more fails: narrow it with LIMIT and OFFSET, or substr() for a long text.
 local function sql_of(query: string): ({Host.Row}) | (nil, Failure)
   local answer, why = Host.call("sql", { query = query })
@@ -212,7 +212,7 @@ local function sql_of(query: string): ({Host.Row}) | (nil, Failure)
   return rows
 end
 
---- The agent's reply to `name` with `args` as a list of objects, or why there is none.
+--- The agent's answer to `name` with `args` as a list of objects, or why there is none.
 local function objects(name: string, args: Json.Value): ({{string: Json.Value}}) | (nil, Failure)
   local answer, why = Host.call(name, args)
   if answer == nil then return nil, why end
@@ -243,10 +243,9 @@ local function tools_of(server: string): ({{string: Json.Value}}) | (nil, Failur
   return objects("mcp.tools", { server = server })
 end
 
---- The response of the tool `tool` of the MCP server `server` to `arguments`: its `content` (a list of blocks, a text
---- one `{type = "text", text = ...}`), its `structuredContent` where it gives one, and `isError` true where the tool
---- ran and failed. A call the server refused, or one that got no response, is a failure. The agent replies with at
---- most 512KB.
+--- What the tool `tool` of the MCP server `server` answered `arguments`: its `content` (a list of blocks, a text one
+--- `{type = "text", text = ...}`), its `structuredContent` where it gives one, and `isError` true where the tool ran
+--- and failed. A call the server refused, or one that got no answer, is a failure. The agent answers at most 512KB.
 local function mcp_of(server: string, tool: string, arguments?: {string: Json.Value}): ({string: Json.Value}) | (nil, Failure)
   local answer, why = Host.call("mcp.call", { server = server, tool = tool, arguments = arguments or {} })
   if answer == nil then return nil, why end
@@ -276,9 +275,9 @@ local function without_nulls(value: Json.Value): Json.Value
   return value
 end
 
---- The response of the tool `tool` of the MCP server `server` to `arguments`, read: the text of its blocks, the blocks,
---- and its `structuredContent`. A tool that ran and failed (`isError`) is a failure, its text the message, as is a call
---- the server refused or one that got no response. The functions of `require("mcp.<server>")` call it ([`cosmic.agent.mcp_module`]).
+--- What the tool `tool` of the MCP server `server` answered `arguments`, read: the text of its blocks, the blocks, and
+--- its `structuredContent`. A tool that ran and failed (`isError`) is a failure, its text the message, as is a call the
+--- server refused or one that got no answer. The functions of `require("mcp.<server>")` call it ([`cosmic.agent.mcp_module`]).
 local function tool_of(server: string, tool: string, arguments?: {string: Json.Value}): (Host.Result) | (nil, Failure)
   local answer, why = mcp_of(server, tool, arguments)
   if answer == nil then return nil, why end
@@ -301,9 +300,9 @@ local function tool_of(server: string, tool: string, arguments?: {string: Json.V
   return { text = text, content = content, structured = without_nulls(structured) }
 end
 
---- The `structuredContent` of the response of the tool `tool` of the MCP server `server` to `arguments`, its null
---- members taken out, as [`Host.tool`] calls it: for a tool that lists an `outputSchema`, which the client holds its
---- response to. A response with none is a failure.
+--- The `structuredContent` the tool `tool` of the MCP server `server` answered `arguments`, its null members taken out,
+--- as [`Host.tool`] calls it: for a tool that lists an `outputSchema`, which the client holds its answer to. An answer
+--- with none is a failure.
 local function structured_of(server: string, tool: string, arguments?: {string: Json.Value}): (Json.Value) | (nil, Failure)
   local result, why = tool_of(server, tool, arguments)
   if result == nil then return nil, why end
@@ -389,7 +388,7 @@ local function search_of(query: string, options?: Host.SearchOptions): (Host.Sea
 end
 
 --- The Teal of the one function of `require("mcp." .. server)` that calls the tool `tool`, named as the server lists
---- it or as the module does, with the records it takes and returns, as [`Host.declaration`] shows the whole module.
+--- it or as the module does, with the records it takes and answers, as [`Host.declaration`] shows the whole module.
 --- A plain string, to print: where there is none, it says why.
 function Host.describe(server: string, tool: string): string
   local tools, why = tools_of(server)
@@ -421,8 +420,8 @@ end
 local MOST_SECONDS <const> = 24 * 24 * 60 * 60
 
 --- Runs `command` with bash, or sh where there is none, in the snippet's own sandbox and directory, as the bash tool
---- does: what it wrote to standard output and standard error, together, and how it ended. It returns for a command
---- that exits other than 0 all the same, `ok` false; a call fails for a command that could not start, or for a timeout
+--- does: what it wrote to standard output and standard error, together, and how it ended. A command that exits other
+--- than 0 is answered all the same, `ok` false; a call fails for a command that could not start, or for a timeout
 --- outside 1 to 24 days. A command still running when the snippet ends ends with its worker.
 local function bash_of(command: string, options?: Host.BashOptions): (Host.Ran) | (nil, Failure)
   local seconds = if options ~= nil then options.timeout else nil end
@@ -490,7 +489,7 @@ function Host.docs(query: string): string
 end
 
 -- The helpers below raise where they fail, so a snippet needs no assert: what raises ends the snippet, and the
--- error is its result.
+-- error is what it answers.
 
 --- Raises `why` as the failure of the call `name`, at the snippet's line.
 local function raise(name: string, why: Failure): never
@@ -542,7 +541,7 @@ function Host.grep(pattern: string, paths: {string}, plain?: boolean): {Host.Hit
   return hits
 end
 
---- Replaces `pattern` in the file `path`, and returns how many ([`Shell.sed`]); raises where it
+--- Replaces `pattern` in the file `path`, and answers how many ([`Shell.sed`]); raises where it
 --- cannot be read or written, or the pattern is malformed.
 function Host.sed(path: string, pattern: string, replacement: string, plain?: boolean): integer
   local count, why = Shell.sed(path, pattern, replacement, plain)
@@ -616,7 +615,7 @@ function Host.tools(server: string): {{string: Json.Value}}
   return value
 end
 
---- The response of the tool `tool` of the MCP server `server` to `arguments`, as the server sent it:
+--- What the tool `tool` of the MCP server `server` answered `arguments`, as the server sent it:
 --- `content`, `structuredContent` and `isError`. Raises where it fails, as "host: ...".
 function Host.mcp(server: string, tool: string, arguments?: {string: Json.Value}): {string: Json.Value}
   local value, why = mcp_of(server, tool, arguments)
@@ -624,7 +623,7 @@ function Host.mcp(server: string, tool: string, arguments?: {string: Json.Value}
   return value
 end
 
---- The response of the tool `tool` of the MCP server `server` to `arguments`, read: its text, blocks and
+--- What the tool `tool` of the MCP server `server` answered `arguments`, read: its text, blocks and
 --- `structuredContent`; a tool that ran and failed (`isError`) raises with its text. Raises where it fails, as "host: ...".
 function Host.tool(server: string, tool: string, arguments?: {string: Json.Value}): Host.Result
   local value, why = tool_of(server, tool, arguments)
@@ -632,8 +631,8 @@ function Host.tool(server: string, tool: string, arguments?: {string: Json.Value
   return value
 end
 
---- The `structuredContent` of the response of the tool `tool` of the MCP server `server` to `arguments`,
---- its nulls taken out; a response with none raises. Raises where it fails, as "host: ...".
+--- The `structuredContent` the tool `tool` of the MCP server `server` answered `arguments`, its nulls
+--- taken out; an answer with none raises. Raises where it fails, as "host: ...".
 function Host.structured(server: string, tool: string, arguments?: {string: Json.Value}): Json.Value
   local value, why = structured_of(server, tool, arguments)
   if value == nil then error(tostring(why), 2) end
@@ -656,7 +655,7 @@ function Host.load(key: string): Host.Loaded
 end
 
 --- Runs `command` with bash in the snippet's sandbox and directory, as the bash tool does: its output and how it
---- ended. It returns for a command that exits other than 0, `ok` false, and raises for one that cannot start. Raises where it fails, as "host: ...".
+--- ended. A command that exits other than 0 is answered, `ok` false; one that cannot start raises. Raises where it fails, as "host: ...".
 function Host.bash(command: string, options?: Host.BashOptions): Host.Ran
   local value, why = bash_of(command, options)
   if value == nil then error(tostring(why), 2) end
@@ -665,8 +664,8 @@ end
 
 --- The response to a request of `url`, which follows no redirect
 --- ([`cosmic.agent.fetch`]): made from the snippet's sandbox, which reaches no network in a session started without
---- --network, and no loopback, private or link-local address in one with it. It returns a response of any status;
---- a request that gets none raises.
+--- --network or --connect, and no loopback, private or link-local address but those --connect names. A response of
+--- any status is answered; a request that gets none raises.
 function Host.fetch(url: string, options?: Host.FetchOptions): Host.Fetched
   local o: Host.FetchOptions = options or {}
   local got, why = AgentFetch.fetch({ url = url, method = o.method, headers = o.headers, body = o.body,

@@ -13,6 +13,7 @@ local Net = require("cosmic.net")
 local Shape = require("cosmic.shape")
 local Test = require("cosmic.test")
 local fetch = require("build.fetch")
+local sys = require("cosmic.sys")
 
 Test.policy{ loopback = { "127.0.0.1" } }
 
@@ -69,6 +70,34 @@ local function test_the_body_goes_to_a_file_and_nothing_to_standard_output(tmp: 
   assert(ran.code == 0, ran.err)
   assert(ran.out == "", ran.out)
   assert(assert(Fs.read(path)) == "hello")
+end
+
+--- `-o` a FIFO (or a device, `/dev/null`) takes the body in place, as
+--- standard output does: the rename an `-o` file takes would put a
+--- regular file where it was. A link to one is refused and left.
+local function test_the_body_goes_into_a_fifo_in_place(tmp: string)
+  local pipe = tmp .. "/pipe"
+  assert(sys.mkfifo(pipe))
+  -- A reader that waits for no writer, so the verb's open does not wait.
+  local reader = assert(sys.open(pipe, sys.O_RDONLY | sys.O_NONBLOCK))
+  local ran = run({ url, "-o", pipe, "--sha256", Hash.hex_sha256("hello") }, { reply("200 OK", "", "hello") })
+  assert(ran.code == 0 and ran.out == "", ran.err)
+  assert(assert(sys.read(reader, 16)) == "hello")
+  -- Streamed with no digest; with a wrong one, nothing reaches it.
+  ran = run({ url, "-o", pipe }, { reply("200 OK", "", "streamed") })
+  assert(ran.code == 0, ran.err)
+  assert(assert(sys.read(reader, 16)) == "streamed")
+  ran = run({ url, "-o", pipe, "--sha256", string.rep("0", 64) }, { reply("200 OK", "", "hello") })
+  assert(ran.code == 1 and ran.err:find("sha256 mismatch", 1, true) ~= nil, ran.err)
+  local after, _ = sys.read(reader, 16)
+  assert(after ~= "hello", "a body that failed its digest reached the FIFO")
+  assert(sys.close(reader))
+  assert(assert(sys.lstat(pipe)).kind == "fifo", "the FIFO was replaced")
+  local link = tmp .. "/null"
+  assert(sys.symlink("/dev/null", link))
+  local linked = run({ url, "-o", link }, { reply("200 OK", "", "hello") })
+  assert(linked.code == 5 and linked.err:find("a link to a character device", 1, true) ~= nil, linked.err)
+  assert(assert(sys.lstat(link)).kind == "link", "the link was replaced")
 end
 
 local function test_a_matching_digest_delivers_the_body(tmp: string)

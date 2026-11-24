@@ -1,4 +1,4 @@
---- [`cosmic.agent.fetch`]: what a snippet's Host.fetch asks for, and how its result reads, over canned replies.
+--- [`cosmic.agent.fetch`]: what a snippet's Host.fetch asks for, and how its answer reads, over canned replies.
 local AgentFetch = require("cosmic.agent.fetch")
 
 local OK <const> = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\nhi"
@@ -7,7 +7,7 @@ local MOVED <const> = "HTTP/1.1 302 Found\r\nLocation: http://169.254.169.254/\r
 local function test_a_request_is_answered_and_a_redirect_is_not_followed()
   local got = assert(AgentFetch.fetch({ url = "http://example.com/" }, { script = { OK } }))
   assert(got.status == 200 and got.body == "hi" and got.headers["content-type"] == "text/plain" and not got.cut)
-  -- The fetch returns the redirect and does not follow it: its one canned reply is all the request read.
+  -- The redirect is answered, not followed: its one canned reply is all the request read.
   local moved = assert(AgentFetch.fetch({ url = "http://example.com/" }, { script = { MOVED, OK } }))
   assert(moved.status == 302 and moved.headers["location"] == "http://169.254.169.254/")
 end

@@ -79,7 +79,7 @@ end
 ---     agent.before = Check.paths({ grants = { { path = cwd, letters = "rwc" }, { path = "/usr", letters = "r" } } })
 function Check.paths(policy: Sandbox.Policy): Agent.Before
   return function(call: Agent.Call): string?
-    -- As the tools ask: each action of a path at the real name the one before returned.
+    -- As the tools ask: each action of a path at the real name the one before answered.
     local real_of: mut {string: string} = {}
     for _, t in ipairs(call.paths) do
       local real, why = Sandbox.permits(policy, real_of[t.path] or t.path, t.action, call.cwd)

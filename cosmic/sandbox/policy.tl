@@ -83,7 +83,7 @@ local record rules
   --- What a program is held to; every field is optional, and what a policy
   --- leaves out it does not have.
   record Policy
-    --- Named policies to join in, by [`Sandbox.merge`]: "system", "programs", "cosmic", "proc".
+    --- Named policies to join in, by [`Sandbox.union`]: "system", "programs", "cosmic", "proc".
     profiles?: {string}
     --- The paths the program reaches.
     grants?: {Grant}
@@ -178,7 +178,7 @@ local record rules
   --- A database a policy names: its absolute `path`, and the SHA-256 of
   --- its bytes (`sha256`, 64 lowercase hex digits) where the policy is to
   --- run only on a file of that digest. The two travel together through
-  --- copies, [`Sandbox.merge`] and [`PolicyJson.encode`], so a digest is never
+  --- copies, [`Sandbox.union`] and [`PolicyJson.encode`], so a digest is never
   --- apart from the path it was taken at. With no `sha256` the policy
   --- names a file and not its content: [`Sandbox.database`] takes the
   --- digest of one now.
@@ -603,7 +603,7 @@ function rules.database(path: string): rules.Database?, string
   return { path = path, sha256 = Hash.hex_sha256(bytes) }, ""
 end
 
---- What the policies given hold together: [`Sandbox.merge`], which says
+--- What the policies given hold together: [`Sandbox.union`], which says
 --- how.
 function rules.merge(...: rules.Policy): rules.Policy?, string
   local flat: mut {rules.Policy} = {}

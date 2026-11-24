@@ -7,7 +7,7 @@ local type Failure = require("cosmic.failure")
 local Poll = require("cosmic.poll")
 local Test = require("cosmic.test")
 
---- A server that never responds, and one that ends saying why: the system's programs.
+--- A server that never answers, and one that ends saying why: the system's programs.
 Test.policy{ profiles = { "system" } }
 
 --- The servers of the config `text`, or why there are none, as a test reads it.
@@ -97,8 +97,8 @@ local function test_a_program_the_tools_could_write_is_not_run(tmp: string)
   assert(set.handles["a"] == nil)
 end
 
---- A call cut off before its response (the snippet's time ran out) ends its server, which may be out of step, and
---- the next call starts another, rather than read the response the first was owed.
+--- A call cut off before its answer (the snippet's time ran out) ends its server, which may be out of step, and the
+--- next call starts another, rather than read the answer the first was owed.
 local function test_a_call_cut_off_ends_its_server(tmp: string)
   local usr, _ = Fs.status("/usr/bin/sleep")
   local sleep = if usr ~= nil and usr.exists then "/usr/bin/sleep" else "/bin/sleep" end

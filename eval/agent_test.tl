@@ -90,6 +90,9 @@ local function test_runs_are_graded_against_the_truth_of_an_untouched_copy()
         helpers = { bash = 1, grep = 2 } }
     end,
     put = function(_: string, _: string) error("no task here has a server") end,
+    serve = function(_: {string}, _: string, _: string, _: integer): (string, function()) | (nil, string)
+      error("no task here has a site")
+    end,
   }
   local written: mut {string: string} = {}
   local results = Agent.execute(o, system, "k", { HARNESS_ANTHROPIC_API_KEY = "k", PATH = "/bin" },
@@ -149,7 +152,11 @@ local function test_a_task_of_a_server_gives_each_run_the_server()
   local server = assert(task.server)
   assert(server.name == "inventory" and server.source:find("serve_stdio", 1, true) ~= nil)
   local _, items = server.data:gsub("\n", "")
-  assert(items == 240 and server.data == assert(assert(Agent.tasks[#Agent.tasks]).server).data)
+  local listed: Agent.Task? = nil
+  for _, t in ipairs(Agent.tasks) do
+    if t.name == "mcp-low" then listed = t end
+  end
+  assert(items == 240 and server.data == assert(assert(listed).server).data)
   local made = 0
   local put: mut {string: string} = {}
   local truths, configs, opened = 0, 0, 0
@@ -182,6 +189,9 @@ local function test_a_task_of_a_server_gives_each_run_the_server()
     end,
     spent = function(_: string, _: string): Agent.Spent? return nil end,
     put = function(path: string, text: string) put[path] = text end,
+    serve = function(_: {string}, _: string, _: string, _: integer): (string, function()) | (nil, string)
+      error("no task here has a site")
+    end,
   }
   local results = Agent.execute(o, system, "k", {}, function(_: string, _: string) end)
   assert(#results == 2 and truths == 1 and configs == 2 and opened == 2)
@@ -193,4 +203,83 @@ local function test_a_task_of_a_server_gives_each_run_the_server()
     end
   end
   assert(laid == 2)
+end
+
+--- A task of a web API starts its program for each run, gives the run --connect to the port it said, puts its URL
+--- in the prompt, and ends it once the run ends; its truth reads the API's data from `$data`.
+local function test_a_task_of_a_site_gives_each_run_the_site()
+  local o = options({ "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--tasks", "web-low", "--reps", "2" })
+  local task = assert(o.tasks[1])
+  local site = assert(task.site)
+  assert(site.source:find("Server.serve", 1, true) ~= nil and task.prompt:find("{url}", 1, true) ~= nil)
+  local made = 0
+  local put: mut {string: string} = {}
+  local truths, asked, started, stopped = 0, 0, 0, 0
+  local system: Agent.System = {
+    fresh = function(prefix: string): string
+      made = made + 1
+      return "/tmp/" .. prefix .. tostring(made)
+    end,
+    run = function(argv: {string}, _: string, _: {string: string}?, _: integer): Agent.Output
+      if argv[1] == "bash" and (argv[3] or ""):find("^data='/tmp/data%-web%-low%-%d+/data%.tsv'; awk") ~= nil then
+        truths = truths + 1
+        return { code = 0, stdout = "i0001 0\n", stderr = "" }
+      end
+      if argv[1] == "/c" then
+        assert(started == stopped + 1, "the site serves while the run asks")
+        assert(argv[6] == "--connect" and argv[7] == "127.0.0.1:" .. tostring(40000 + started),
+          table.concat(argv, " "))
+        local prompt = assert(argv[8])
+        assert(prompt:find("at http://127.0.0.1:" .. tostring(40000 + started) .. " answers", 1, true) ~= nil, prompt)
+        asked = asked + 1
+      end
+      return { code = 0, stdout = "", stderr = "" }
+    end,
+    spent = function(_: string, _: string): Agent.Spent? return nil end,
+    put = function(path: string, text: string) put[path] = text end,
+    serve = function(argv: {string}, cwd: string, ready: string, _: integer): (string, function()) | (nil, string)
+      assert(argv[1] == "/c" and argv[2] == "--standalone" and argv[3] == cwd .. "/site.tl", table.concat(argv, " "))
+      assert(argv[4] == cwd .. "/data.tsv" and argv[5] == ready and ready == cwd .. "/port")
+      assert(put[cwd .. "/site.tl"] == site.source and put[cwd .. "/data.tsv"] == site.data)
+      started = started + 1
+      return tostring(40000 + started), function() stopped = stopped + 1 end
+    end,
+  }
+  local results = Agent.execute(o, system, "k", {}, function(_: string, _: string) end)
+  assert(#results == 2 and truths == 1 and asked == 2 and started == 2 and stopped == 2)
+end
+
+--- A web API that does not start fails the run that needed it, which never asks the agent, and the rest go on.
+local function test_a_site_that_does_not_start_fails_its_run()
+  local o = options({ "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--tasks", "web-low", "--reps", "2" })
+  local made, asked, served = 0, 0, 0
+  local written: mut {string: string} = {}
+  local system: Agent.System = {
+    fresh = function(prefix: string): string
+      made = made + 1
+      return "/tmp/" .. prefix .. tostring(made)
+    end,
+    run = function(argv: {string}, _: string, _: {string: string}?, _: integer): Agent.Output
+      if argv[1] == "/c" then asked = asked + 1 end
+      -- The truth has a line; the check finds no answer.txt.
+      if argv[1] == "bash" and (argv[3] or ""):find("^data=") ~= nil then
+        return { code = 0, stdout = "i0001 0\n", stderr = "" }
+      end
+      return { code = 0, stdout = "", stderr = "" }
+    end,
+    spent = function(_: string, _: string): Agent.Spent? return nil end,
+    put = function(_: string, _: string) end,
+    serve = function(_: {string}, _: string, _: string, _: integer): (string, function()) | (nil, string)
+      served = served + 1
+      return nil, "it ended before it served"
+    end,
+  }
+  local results = Agent.execute(o, system, "k", {}, function(path: string, text: string)
+    written[path] = text
+  end)
+  assert(#results == 2 and served == 2 and asked == 0)
+  assert(results[1].grade == "fail" and results[2].grade == "fail")
+  local answer = assert(written["/o/t/web-low-1.txt"])
+  assert(answer:find("exit: 127\n", 1, true) ~= nil and
+      answer:find("--- stderr\nthe web API did not start: it ended before it served\n", 1, true) ~= nil, answer)
 end

@@ -42,6 +42,13 @@
 ---   with the types stored, and a sample row.
 --- - The error for a missing column or table names the ones there are.
 ---
+--- A `--from` file that opens with SQLite's header is a database, not
+--- data, whatever its extension: `cosmic sql --from sessions.db` reads it
+--- as `--db sessions.db` does. Give it alone: it joins no data file, and
+--- takes no `name=`, `--as`, `--at` or `--raw`. With no statement, `--from`
+--- or `--db` on a database, or `--build`, lists each table and view with
+--- its row count and its columns' declared types.
+---
 --- A CSV or TSV file (RFC 4180, with quotes) has a header line that names
 --- the columns, in order, and one row per record. A record with more or
 --- fewer fields than the header is refused, and its line is named. A
@@ -104,10 +111,12 @@ local Flags = require("cosmic.flags")
 
 local command: Flags.Command = {
   about = "read-only SQL on a database or data files",
-  usage = "[--from <file|-> [--as <fmt>] [--at <path>]]... ['<statement>']",
+  usage = "[--db <path> | --build | --store | --from <file|-> [--as <fmt>] [--at <path>] [--raw]...] " ..
+    "[--to csv|ndjson] ['<statement>']",
   examples = {
     { line = "--from sales.csv 'SELECT region, sum(amount) FROM sales GROUP BY region'", about = "query a CSV file" },
     { line = "--from accounts.json", about = "list a file's columns and a sample row" },
+    { line = "--from sessions.db", about = "list a SQLite database's tables, columns and row counts" },
     { line = "--build 'SELECT count(*) FROM modules'", about = "query the build database" },
   },
   spec = {
@@ -115,7 +124,7 @@ local command: Flags.Command = {
     ["--build"] = { about = "run against the build directory's build.db" },
     ["--store"] = { about = "run against the binary's own; only PRAGMA data_version" },
     ["--from"] = { value = "file", about = "load a data file (`-` for standard input) as a table " ..
-        "named for its stem, or `name=file`; repeat for a join" },
+        "named for its stem, or `name=file`; repeat for a join. A SQLite database is read as itself, as --db reads it" },
     ["--as"] = { value = "format", about = "read the --from before it as json, ndjson, csv " ..
         "or tsv, rather than by its extension" },
     ["--raw"] = { about = "keep every cell of the csv or tsv --from before it as text: " ..

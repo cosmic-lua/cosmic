@@ -996,3 +996,72 @@ local function test_walk_takes_a_bare_skip(tmp: string)
   local named = assert(Fs.walk(tmp .. "/a", { skip = skip }))
   assert(#bare == 1 and bare[1] == "kept.txt" and #named == 1 and named[1] == "kept.txt")
 end
+
+--- A FIFO, a device, or a link to one is never replaced by the rename
+--- that `write` and `create` take: as root, `-o /dev/null` once turned
+--- /dev/null into a regular file. Each is refused, naming the path, and
+--- is left as it was.
+local function test_write_refuses_to_replace_a_fifo_or_a_link_to_a_device(tmp: string)
+  local pipe = tmp .. "/pipe"
+  assert(sys.mkfifo(pipe))
+  local wrote, trouble = Fs.write(pipe, "data")
+  assert(not wrote and tostring(trouble) == pipe ..
+      ": a FIFO, which writing a file here would replace with a regular file", tostring(trouble))
+  local made, made_trouble = Fs.create(pipe)
+  assert(made == nil and tostring(made_trouble) == tostring(trouble), tostring(made_trouble))
+  assert(assert(sys.lstat(pipe)).kind == "fifo", "the FIFO was replaced")
+  local link = tmp .. "/null"
+  assert(sys.symlink("/dev/null", link))
+  local linked, link_trouble = Fs.write(link, "data")
+  assert(not linked and tostring(link_trouble) == link ..
+      ": a link to a character device, which writing a file here would replace with a regular file; " ..
+      "name the character device itself", tostring(link_trouble))
+  assert(assert(sys.lstat(link)).kind == "link", "the link was replaced")
+  assert(#assert(Fs.list(tmp)) == 2, "a temporary file was left behind")
+  -- A link to a regular file is replaced, as ever: a planted link is never followed.
+  assert(Fs.write(tmp .. "/real", "real"))
+  assert(sys.symlink(tmp .. "/real", tmp .. "/to-real"))
+  assert(Fs.write(tmp .. "/to-real", "new"))
+  assert(assert(sys.lstat(tmp .. "/to-real")).kind == "file")
+  assert(assert(Fs.read(tmp .. "/real")) == "real")
+end
+
+--- `output` writes a device, a FIFO or one of the process's own
+--- descriptors in place, never a planted link to one, and anything else
+--- as `create` does.
+local function test_output_writes_a_fifo_in_place(tmp: string)
+  local function in_place(path: string): boolean
+    local answer, why = Fs.in_place(path)
+    assert(answer ~= nil, tostring(why))
+    return answer
+  end
+  local pipe = tmp .. "/pipe"
+  assert(sys.mkfifo(pipe))
+  assert(sys.symlink(pipe, tmp .. "/link"))
+  assert(Fs.write(tmp .. "/file", "f"))
+  assert(in_place(pipe) and in_place("/dev/null"))
+  for _, name in ipairs({ "/link", "/file", "/missing" }) do
+    assert(not in_place(tmp .. name), name)
+  end
+  -- A reader that waits for no writer, so the open does not wait.
+  local reader = assert(sys.open(pipe, sys.O_RDONLY | sys.O_NONBLOCK))
+  assert(Fs.write_output(pipe, "hello"))
+  assert(assert(sys.read(reader, 16)) == "hello")
+  local file = assert(Fs.output(pipe))
+  assert(file:write("more"))
+  -- A FIFO's sync is no failure.
+  assert(file:sync())
+  assert(file:close())
+  assert(assert(sys.read(reader, 16)) == "more")
+  assert(sys.close(reader))
+  assert(assert(sys.lstat(pipe)).kind == "fifo")
+  -- Anything else is written as `write` writes it.
+  assert(Fs.write_output(tmp .. "/file", "new"))
+  assert(assert(Fs.read(tmp .. "/file")) == "new")
+  local linked, link_trouble = Fs.write_output(tmp .. "/link", "x")
+  assert(not linked and tostring(link_trouble):find("a link to a FIFO", 1, true) ~= nil, tostring(link_trouble))
+  assert(Fs.write_output("/dev/null", "discarded"))
+  -- `/dev/stdout` is the process's own: `create` refuses to replace it.
+  local made, made_trouble = Fs.create("/dev/stdout")
+  assert(made == nil and tostring(made_trouble):find("own descriptors", 1, true) ~= nil, tostring(made_trouble))
+end

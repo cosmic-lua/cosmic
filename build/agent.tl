@@ -25,8 +25,8 @@
 --- and ends with the session. The tools cannot reach that directory, so
 --- no tool chooses what a later session starts.
 ---
---- The model's words go to standard output, and each tool call to
---- standard error. `ask --json` and `rpc` print events instead, one JSON
+--- The turn's answer goes to standard output. Each tool call, and what
+--- the model says on the way, go to standard error. `ask --json` and `rpc` print events instead, one JSON
 --- object a line, each after what it tells of is kept:
 ---
 ---     {"type":"session","id":7}            the session (rpc adds
@@ -74,6 +74,7 @@ local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local Grant = require("cosmic.relay.grant")
 local Hash = require("cosmic.hash")
 local Jobs = require("cosmic.agent.jobs")
 local Worker = require("cosmic.agent.worker")
@@ -334,12 +335,18 @@ local function policy_of(r: Run, got: Flags.Parsed, here: string): Sandbox.Polic
     if real == nil then return nil, "--grant " .. given_grant .. ": " .. tostring(real_why) end
     grants[#grants + 1] = { path = real, letters = letters or "r" }
   end
-  if got.values["--sandbox"] == "off" and (#grants > 0 or got.set["--network"] == true) then
-    return nil, "--network and --grant hold a sandbox, which --sandbox off has none of"
+  local connect: mut {string} = {}
+  for _, target in ipairs(got.all["--connect"] or {}) do
+    local parsed, parse_why = Grant.parse(target)
+    if parsed == nil then return nil, "--connect " .. target .. ": " .. tostring(parse_why) end
+    connect[#connect + 1] = parsed.text
+  end
+  if got.values["--sandbox"] == "off" and (#grants > 0 or #connect > 0 or got.set["--network"] == true) then
+    return nil, "--network, --connect and --grant hold a sandbox, which --sandbox off has none of"
   end
   return Policy.of(here, { mode = got.values["--sandbox"] or "write", home = sandbox_home(r),
     path = r.io.env("PATH"), user_home = r.io.env("HOME"), kept_out = kept_out(r, got.values["--mcp"]),
-    network = got.set["--network"] == true, grants = grants })
+    network = got.set["--network"] == true, connect = connect, grants = grants })
 end
 
 -- What each unit of --budget's time is, in seconds.
@@ -619,7 +626,11 @@ local function ask(r: Run, got: Flags.Parsed): integer
     local ok, trouble = turn(r, s, events, prompting(text))
     if json then emit_end(r, ok, trouble) end
     if not ok then
-      r.complain("ask: " .. trouble)
+      -- A spent turn is over: resume finds nothing to finish, and a new prompt goes on.
+      local next_step = if s.spent then
+        "; go on with `cosmic agent ask --session " .. tostring(s.id or 0) .. " 'go on'` and a larger --budget" else
+        "" end
+      r.complain("ask: " .. trouble .. next_step)
       return bare.failed
     end
     return bare.ok
@@ -780,9 +791,15 @@ local function sessions(r: Run, got: Flags.Parsed): integer
     r.complain("sessions: " .. list_why)
     return bare.failed
   end
+  if #list == 0 then
+    r.io.err("sessions: none in " .. cwd(r))
+    return bare.ok
+  end
+  r.io.out(string.format("%4s  %-19s  %-17s  %4s  %7s  %7s  %s", "id", "started", "model", "msgs", "context", "cost",
+    "first prompt"))
   for _, e in ipairs(list) do
-    r.io.out(string.format("%4d  %s  %-17s %3d  %7s  $%.3f  %s", e.id, e.started, e.model, e.messages,
-      tokens(e.context), e.cost, Show.brief(e.first)))
+    r.io.out(string.format("%4d  %-19s  %-17s  %4d  %7s  %7s  %s", e.id, e.started, e.model, e.messages,
+      tokens(e.context), string.format("$%.3f", e.cost), Show.brief(e.first)))
   end
   return bare.ok
 end
@@ -837,7 +854,7 @@ local function policy(r: Run, got: Flags.Parsed): integer
     r.io.out("--sandbox off: no sandbox; the tools have your user's rights")
     return bare.ok
   end
-  local merged, merged_why = Sandbox.merge(p)
+  local merged, merged_why = Sandbox.union(p)
   if merged == nil then
     r.complain("policy: " .. merged_why)
     return bare.failed

@@ -12,7 +12,7 @@ local Sqlite = require("cosmic.sqlite")
 local Tools = require("cosmic.agent.tools")
 
 local record agent_fixture
-  --- A Messages API that responds with `replies` in turn, keeping each request.
+  --- A Messages API that answers `replies` in turn, keeping each request.
   record Api
     replies: {string}
     sent: mut {{string: Json.Value}}
@@ -143,7 +143,7 @@ local function streamed(reply: string): function(): string?, string
   end
 end
 
---- The API, responding to each request with the next of `replies`: a
+--- The API, answering each request with the next of `replies`: a
 --- message, streamed, or a string not JSON, sent whole with status 500.
 function agent_fixture.api(replies: {Json.Value}): Api
   local texts: mut {string} = {}
@@ -164,7 +164,7 @@ function agent_fixture.api(replies: {Json.Value}): Api
     if reply == nil then return nil, "no more replies" end
     if reply:sub(1, 1) ~= "{" then
       local whole: string? = reply
-      -- "400 ..." is sent as 400, anything else as 500.
+      -- "400 ..." answers 400, anything else 500.
       local status = if reply:sub(1, 4) == "400 " then 400 else 500 end
       return { status = status, headers = {}, close = function() end, read = function(): string?, string
         local piece = whole
@@ -174,7 +174,7 @@ function agent_fixture.api(replies: {Json.Value}): Api
     end
     local h: {string: string} = { ["request-id"] = "req_1", ["anthropic-ratelimit-tokens-remaining"] = "9",
       ["server"] = "x", ["set-cookie"] = "c" }
-    -- A request not streamed (a warm one) gets the reply whole.
+    -- A request not streamed (a warm one) is answered with the reply whole.
     if body["stream"] == false then
       local whole: string? = reply
       return { status = 200, headers = h, close = function() end, read = function(): string?, string

@@ -131,6 +131,8 @@ local exempt_on: {string: {string: string}} = {
     ["core/promises.c:cosmic_promises_apply"] = "Darwin has no seccomp: spawn_program refuses a start with " ..
       "promises, ENOSYS, before any child could install a filter; a Linux run enters it " ..
       "(core/promises_child_test.tl)",
+    ["core/spawn.c:resolve_root"] = "runs only for an unveiled or offline start, which spawn refuses " ..
+      "off Linux, ENOSYS, before it; a Linux run enters it (cosmic/child_policy_isolate_test.tl)",
   },
 }
 

@@ -42,7 +42,8 @@
 --- - `--effort low|medium|high|xhigh|max` sets how hard it thinks
 ---   (default medium).
 --- - `--budget tokens=N,cost=USD,turns=N,time=N[s|m|h]` caps what each
----   turn may spend, any of the four. The first limit reached ends the
+---   turn may spend, any of the four; turns counts requests. The model
+---   reads the limits with the prompt. The first limit reached ends the
 ---   turn for good, and the agent says which.
 --- - `--continue` goes on with the newest session in the directory.
 ---   `--session <id>` goes on with any session.
@@ -86,12 +87,19 @@
 ---   your API key included.
 --- - `--network` lets the tools reach the network: Host.fetch, and bash
 ---   where it is offered.
+--- - `--connect host:port` lets them reach one more target. An address
+---   written out, loopback or private too (`--connect 127.0.0.1:8123`),
+---   is reached directly; a name reaches only public addresses, as
+---   `--network` does. A port of `*` opens every port of the host.
+---   Behind an `https_proxy`, an address `no_proxy` does not name is
+---   asked of the proxy, which reaches its own host's loopback.
 --- - `--grant path[:rwxc]` adds a path.
 ---
 --- Output and sessions:
 ---
---- - The model's words go to standard output, and each tool call to
----   standard error.
+--- - The turn's answer goes to standard output. Each tool call (run's
+---   code, edit's changes as a diff), and what the model says on the way,
+---   go to standard error.
 --- - Everything is kept in sessions.db, in `$XDG_DATA_HOME/cosmic/agent`
 ---   (or `~/.local/share/cosmic/agent`), before it is shown: each
 ---   message, each tool's whole output, and each request with its usage
@@ -113,6 +121,8 @@ local session: Flags.Option = { value = "id", about = "go on with the session of
 local sandbox: Flags.Option = { value = "mode", about = "what the tools may change",
   choices = { "write", "read", "off" }, default = "write" }
 local network: Flags.Option = { about = "let bash and snippets (Host.fetch, cosmic.http) reach the network" }
+local connect: Flags.Option = { value = "host:port", about = "let the tools reach this target too: an address " ..
+    "written out may be loopback or private (127.0.0.1:8123); a port of * opens every port" }
 local grant: Flags.Option = { value = "path[:rwxc]", about = "let the tools reach this path too, read alone unless letters say more" }
 local tools: Flags.Option = { value = "names", about = "the tools the model is shown, such as run,read,edit,write,bash, " ..
     "all, or default (every tool but bash and jobs, which run no program)" }
@@ -125,7 +135,7 @@ local mcp: Flags.Option = { value = "file",
 local function session_spec(): mut {string: Flags.Option}
   return {
     ["--model"] = model, ["--effort"] = effort, ["--continue"] = continue_, ["--session"] = session,
-    ["--sandbox"] = sandbox, ["--network"] = network, ["--grant"] = grant, ["--mcp"] = mcp, ["--tools"] = tools,
+    ["--sandbox"] = sandbox, ["--network"] = network, ["--connect"] = connect, ["--grant"] = grant, ["--mcp"] = mcp, ["--tools"] = tools,
     ["--budget"] = budget,
   }
 end
@@ -159,7 +169,7 @@ local command: Flags.Command = {
     prompt = { about = "the system prompt the model reads", spec = { ["--tools"] = tools } },
     policy = { about = "the sandbox the tools would run under here; clear-home empties their kept home",
       usage = "[options] [clear-home]",
-      spec = { ["--sandbox"] = sandbox, ["--network"] = network, ["--grant"] = grant } },
+      spec = { ["--sandbox"] = sandbox, ["--network"] = network, ["--connect"] = connect, ["--grant"] = grant } },
     worker = { about = "the process that runs the snippets; the agent starts it" },
   },
 }
