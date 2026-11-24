@@ -708,7 +708,8 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
   return lines, ""
 end
 
-local usage <const> = "cosmic refresh -o <path> [--binary <path>] [--<dataset> <file>...] [dataset...]"
+--- The usage line a refusal ends with: the spec's ([`Flags.usage`]).
+local usage <const> = Flags.usage(Verb, "cosmic refresh")
 
 --- `cosmic refresh`'s command line: see [`cosmic.cli.refresh`].
 local function run(argv: {string}): integer

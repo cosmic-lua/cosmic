@@ -129,7 +129,7 @@ local head_command = assert(commands["head"], "fetch has a head")
 
 --- The usage line of `command`, as `cosmic help fetch` prints it.
 local function usage_of(command: Flags.Command, called: string): string
-  return Flags.help(command, called):match("^[^\n]*") or ""
+  return Flags.usage(command, called)
 end
 
 --- The digests a fetch can be held to: the flag `--<name>`, the fragment

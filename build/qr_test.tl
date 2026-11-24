@@ -102,7 +102,7 @@ local function test_a_command_line_it_refuses_is_exit_2()
     local ran = run(words)
     local line = table.concat(words, " ")
     assert(ran.code == 2 and ran.out == "", line)
-    assert(ran.err:find("^cosmic: qr: ") ~= nil and ran.err:find("; cosmic qr ", 1, true) ~= nil, line .. ": " .. ran.err)
+    assert(ran.err:find("^cosmic: qr: ") ~= nil and ran.err:find("; usage: cosmic qr ", 1, true) ~= nil, line .. ": " .. ran.err)
   end
 end
 

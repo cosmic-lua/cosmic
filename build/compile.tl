@@ -57,7 +57,8 @@ end
 
 local spec = Verb.spec or {}
 
-local usage = "cosmic compile [--errors] [--root <dir>] [-o <dir>] <file.tl>..."
+--- The usage line a refusal ends with: the spec's ([`Flags.usage`]).
+local usage <const> = Flags.usage(Verb, "cosmic compile")
 
 --- What a command line asks for.
 local record Request

@@ -52,8 +52,8 @@ end
 
 local spec = assert(Verb.spec)
 
-local usage = "cosmic qr [--level L|M|Q|H] [--max-version N] [--border N] [--invert] [--ascii] [--color] " ..
-  "[--svg <file|-> [--scale N] [--title T]] [--] [text...] | cosmic qr --read [file|-]"
+--- The usage line a refusal ends with: the spec's ([`Flags.usage`]).
+local usage <const> = Flags.usage(Verb, "cosmic qr")
 
 local LEVELS <const>: {string: Qr.Level} = { L = "L", M = "M", Q = "Q", H = "H" }
 

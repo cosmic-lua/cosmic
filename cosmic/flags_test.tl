@@ -940,6 +940,15 @@ end
 
 --- A command whose subcommand typed by no word runs for a line that names none shows that subcommand's options
 --- as its own: `prog fetch [options] <url>` takes them.
+--- Flags.usage is help's first line: the name, then the usage, or the name alone.
+local function test_usage_is_the_first_line_of_help()
+  local command: Flags.Command = { usage = "[options] <file>", spec = { ["-v"] = { about = "say more" } },
+    run = function(_: Flags.Parsed): integer return 0 end }
+  assert(Flags.usage(command, "prog count") == "usage: prog count [options] <file>")
+  assert(Flags.help(command, "prog count"):find(Flags.usage(command, "prog count") .. "\n", 1, true) == 1)
+  assert(Flags.usage({ run = function(_: Flags.Parsed): integer return 0 end }, "prog") == "usage: prog")
+end
+
 local function test_help_shows_the_options_of_a_subcommand_typed_by_no_word()
   local command: Flags.Command = {
     about = "gets a URL",

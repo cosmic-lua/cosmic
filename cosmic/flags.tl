@@ -886,6 +886,20 @@ local function usage_of(command: Flags.Command): string
   return if next(command.spec or {}) ~= nil then "[options]" else "" end
 end
 
+--- The usage line of `command`, as its help's first line and every refusal's end give it:
+--- "usage: prog count [options] <file>".
+--- @param command Command The command
+--- @param name string What the line calls it: the program, and the command's own word after it when it has one
+---   ("prog count"); not empty, or this raises
+--- @return string The line, with no newline
+function Flags.usage(command: Flags.Command, name: string): string
+  if name == "" then
+    error("flags: usage's name is empty", 2)
+  end
+  local usage = usage_of(command)
+  return "usage: " .. (if usage ~= "" then name .. " " .. usage else name end)
+end
+
 --- The line `command` is typed as, for its help: `program`, the word that runs it (`name`, or its `typed`), and
 --- its usage ([`usage_of`]).
 local function typed_line(program: string, name: string, command: Flags.Command): string
@@ -976,8 +990,7 @@ function Flags.help(command: Flags.Command, name: string, width?: integer): stri
       for option_name, option in pairs(sub.spec or {}) do spec[option_name] = option end
     end
   end
-  local usage = usage_of(command)
-  local parts: mut {string} = { "usage: " .. (if usage ~= "" then name .. " " .. usage else name end) }
+  local parts: mut {string} = { Flags.usage(command, name) }
   local about = command.about
   if about ~= nil and about ~= "" then
     if width ~= nil and columns(about) > width and about:find("\n", 1, true) == nil and
@@ -1637,7 +1650,7 @@ function Flags.dispatch(argv: {string}, from: integer,
   end
   local parsed, why = read(own, first, spec, { "--help" })
   if parsed == nil then
-    local usage_line = Flags.help(command, called(program, name, command)):match("^[^\n]*") or ""
+    local usage_line = Flags.usage(command, called(program, name, command))
     -- A command typed by no word is not named in its refusal: the line never said it.
     local label = if command.typed == "" then "" else name .. ": " end
     return nil, label .. why .. "; " .. usage_line

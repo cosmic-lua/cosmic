@@ -279,7 +279,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
   local command: Flags.Command = described
   if named then
-    usage = Flags.help(command, "cosmic release " .. command_name):match("^[^\n]*") or usage
+    usage = Flags.usage(command, "cosmic release " .. command_name)
   end
   local function refuse(why: string): integer
     complain((if named then command_name .. ": " else "" end) .. why .. "; " .. usage)

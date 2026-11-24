@@ -551,7 +551,7 @@ local function run(argv: {string}): integer
   local described = subcommands[command]
   local usage = "usage: cosmic bom " .. tostring(Verb.usage)
   if described ~= nil and named then
-    usage = Flags.help(described, "cosmic bom " .. command):match("^[^\n]*") or usage
+    usage = Flags.usage(described, "cosmic bom " .. command)
   end
   if described == nil then
     log:complain("bom: no such subcommand: " .. command .. "; " .. usage)
