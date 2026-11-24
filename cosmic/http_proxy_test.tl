@@ -24,8 +24,9 @@ return function(argv: {string}): integer
 end
 ]]
 
---- What the program prints for `url` with `http_proxy` set to `proxy`.
-local function got_with(proxy: string, url: string): string
+--- What the program prints for `url` with the proxy variable `variable`
+--- (`http_proxy` where nil) set to `proxy`.
+local function got_with(proxy: string, url: string, variable?: string): string
   local tmp = assert(Fs.mkdtemp("proxy-"))
   assert(Fs.write(tmp .. "/get.tl", GET))
   local relaunch = assert(Proc.relaunch())
@@ -34,7 +35,8 @@ local function got_with(proxy: string, url: string): string
   for _, name in ipairs({ "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy" }) do
     env[name] = nil
   end
-  env["http_proxy"] = proxy
+  env["http_proxy"] = nil
+  env[variable or "http_proxy"] = proxy
   env["COSMIC_TEST_SANDBOX"] = "0"
   local argv: mut {string} = { table.unpack(relaunch.argv) }
   argv[#argv + 1] = tmp .. "/get.tl"
@@ -53,13 +55,21 @@ local function test_a_loopback_request_skips_a_proxy_elsewhere_and_keeps_one_her
       return { status = 200, body = if proxied then "proxied" else "direct" end }
     end,
     on_ready = function(addresses: {Net.Address}, running: Net.Server)
-      local origin = "http://127.0.0.1:" .. tostring(assert(addresses[1]).port) .. "/"
+      local port = tostring(assert(addresses[1]).port)
+      local origin = "http://127.0.0.1:" .. port .. "/"
       local here = "http://127.0.0.1:" .. tostring(assert(addresses[2]).port)
-      local away = got_with("http://192.0.2.1:9", origin)
-      local kept = got_with(here, origin)
+      local said: mut {string: string} = {}
+      said["away"] = got_with("http://192.0.2.1:9", origin)
+      said["all"] = got_with("socks5h://192.0.2.1:9", origin, "all_proxy")
+      said["named"] = got_with("192.0.2.1:9", "http://localhost:" .. port .. "/")
+      said["under"] = got_with("http://192.0.2.1:9", "http://app.localhost.:" .. port .. "/")
+      said["bare"] = got_with("http://192.0.2.1:9", "127.0.0.1:" .. port .. "/")
+      said["kept"] = got_with(here, origin)
       running:stop()
-      assert(away == "200 direct", away)
-      assert(kept == "200 proxied", kept)
+      for _, case in ipairs({ "away", "all", "named", "under", "bare" }) do
+        assert(said[case] == "200 direct", case .. ": " .. tostring(said[case]))
+      end
+      assert(said["kept"] == "200 proxied", said["kept"])
     end,
   })
 end

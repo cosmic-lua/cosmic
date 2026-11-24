@@ -1324,23 +1324,33 @@ static CURLcode set_method (struct transfer *t, const struct request *r,
 }
 
 /* Whether `host`, as a parsed URL holds it (an IPv6 address in
- * brackets), is this machine: 127/8, ::1, IPv4-mapped 127/8, or
- * "localhost", which curl resolves to loopback itself. */
+ * brackets), is this machine: 127/8, ::1, IPv4-mapped 127/8, the
+ * unspecified 0.0.0.0 and ::, which reach it too, or a name curl
+ * resolves to loopback itself without asking DNS: "localhost" and any
+ * name under it, with or without a trailing dot. */
 static bool loopback_host (const char *host) {
   char inner[64];
   size_t n = strlen(host);
-  if (strcasecmp(host, "localhost") == 0) return true;
+  size_t name = n > 0 && host[n - 1] == '.' ? n - 1 : n;
+  if ((name == 9 && strncasecmp(host, "localhost", 9) == 0) ||
+      (name > 10 && strncasecmp(host + name - 10, ".localhost", 10) == 0)) {
+    return true;
+  }
   if (n >= 2 && host[0] == '[' && host[n - 1] == ']' && n - 2 < sizeof inner) {
     memcpy(inner, host + 1, n - 2);
     inner[n - 2] = '\0';
     host = inner;
   }
   unsigned char a[16];
-  if (inet_pton(AF_INET, host, a) == 1) return a[0] == 127;
+  if (inet_pton(AF_INET, host, a) == 1) {
+    return a[0] == 127 || (a[0] == 0 && a[1] == 0 && a[2] == 0 && a[3] == 0);
+  }
   if (inet_pton(AF_INET6, host, a) != 1) return false;
   static const unsigned char one[16] = {[15] = 1};
+  static const unsigned char any[16] = {0};
   static const unsigned char mapped[12] = {[10] = 0xff, [11] = 0xff};
-  return memcmp(a, one, 16) == 0 || (memcmp(a, mapped, 12) == 0 && a[12] == 127);
+  return memcmp(a, one, 16) == 0 || memcmp(a, any, 16) == 0 ||
+         (memcmp(a, mapped, 12) == 0 && a[12] == 127);
 }
 
 /* The host `url` names, for the caller to curl_free; NULL where it
@@ -1348,8 +1358,8 @@ static bool loopback_host (const char *host) {
 static char *host_of (const char *url) {
   CURLU *u = curl_url();
   char *host = NULL;
-  if (u != NULL && curl_url_set(u, CURLUPART_URL, url, CURLU_GUESS_SCHEME) == CURLUE_OK &&
-      curl_url_get(u, CURLUPART_HOST, &host, 0) != CURLUE_OK) {
+  if (u != NULL && curl_url_set(u, CURLUPART_URL, url, CURLU_GUESS_SCHEME | CURLU_NON_SUPPORT_SCHEME) ==
+      CURLUE_OK && curl_url_get(u, CURLUPART_HOST, &host, 0) != CURLUE_OK) {
     host = NULL;
   }
   curl_url_cleanup(u);
@@ -1385,7 +1395,9 @@ static bool skips_proxy (const char *url) {
   char *scheme = NULL;
   char *host = NULL;
   bool skips = false;
-  if (u != NULL && curl_url_set(u, CURLUPART_URL, url, 0) == CURLUE_OK &&
+  /* As curl reads it: a URL with no scheme is http. */
+  if (u != NULL &&
+      curl_url_set(u, CURLUPART_URL, url, CURLU_GUESS_SCHEME | CURLU_NON_SUPPORT_SCHEME) == CURLUE_OK &&
       curl_url_get(u, CURLUPART_SCHEME, &scheme, 0) == CURLUE_OK &&
       curl_url_get(u, CURLUPART_HOST, &host, 0) == CURLUE_OK && loopback_host(host)) {
     const char *proxy = env_proxy(scheme);
