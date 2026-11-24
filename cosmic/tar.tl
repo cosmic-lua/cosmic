@@ -391,19 +391,17 @@ local class BufferedReader is Stream.Reader
     return buf:sub(at, at + n - 1)
   end
 
-  function skip(self, n: integer): boolean, string -- declared: interface_disagrees
+  function skip(self, n: integer): (true) | (false, Failure) -- declared: interface_disagrees
     local avail = #self.buf - self.at + 1
     if n <= avail then
       self.at = self.at + n
-      return true, ""
+      return true
     end
     self.buf, self.at = "", 1
-    local skipped, why = Stream.skip(self.raw, n - avail)
-    if not skipped then return false, tostring(why) end
-    return true, ""
+    return Stream.skip(self.raw, n - avail)
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.buf, self.at = "", 1
     return self.raw:close()
   end
@@ -450,9 +448,9 @@ local class BodyReader is Stream.Reader
     return chunk
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.closed = true
-    return true, ""
+    return true
   end
 end
 
@@ -586,7 +584,9 @@ local class EntryReader is Tar.Reader
     self.closed = true
     self.generation = self.generation + 1
     self.current = nil
-    return self.raw:close()
+    local ok, why = self.raw:close()
+    if not ok then return false, tostring(why) end
+    return true, ""
   end
 end
 
@@ -680,16 +680,18 @@ end
 local class BodyWriter is Stream.Writer
   sink: Stream.Sticky
 
-  function write(self, data: string): boolean, string
-    return self.sink:put(data)
+  function write(self, data: string): (true) | (false, Failure)
+    local ok, why = self.sink:put(data)
+    if not ok then return false, Failure.new(why) end
+    return true
   end
 
-  function close(self): boolean, string
-    return true, ""
+  function close(self): (true) | (false, Failure)
+    return true
   end
 
-  function abort(self): boolean, string
-    return true, ""
+  function abort(self): (true) | (false, Failure)
+    return true
   end
 end
 

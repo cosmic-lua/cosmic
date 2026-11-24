@@ -139,7 +139,7 @@ local function test_a_write_that_expires_reports_the_bytes_written(tmp: string)
   local before = Clock.monotonic_ns()
   local ok, why = w:write(body)
   local elapsed = Clock.monotonic_ns() - before
-  assert(not ok and why == Poll.TIMEOUT, tostring(why))
+  assert(not ok and tostring(why) == Poll.TIMEOUT, tostring(why))
   assert(elapsed >= Clock.ms(59) and elapsed < Clock.seconds(5),
     "timed out after " .. tostring(elapsed // Clock.ms(1)) .. " ms")
   local went = w:written()
@@ -158,12 +158,12 @@ end
 local function test_a_failed_write_is_sticky()
   local w = Stream.to_fd(1 << 20)
   local ok, why = w:write("x")
-  assert(not ok and why ~= "", tostring(why))
+  assert(not ok and tostring(why) ~= "", tostring(why))
   local again, again_why = w:write("y")
-  assert(not again and again_why == why, tostring(again_why))
+  assert(not again and tostring(again_why) == tostring(why), tostring(again_why))
   assert(w:close())
   local late, late_why = w:write("z")
-  assert(not late and late_why:find("closed", 1, true) ~= nil, tostring(late_why))
+  assert(not late and tostring(late_why):find("closed", 1, true) ~= nil, tostring(late_why))
 end
 
 --- A `wait` the caller gives is asked for the descriptor and the events
@@ -192,15 +192,15 @@ local function test_a_wait_the_caller_gives_replaces_the_poll(tmp: string)
   fail = Poll.CANCELLED
   local filled = string.rep("x", support.OVER_A_PIPE)
   local ok, why = w:write(filled)
-  assert(not ok and why == Poll.CANCELLED, tostring(why))
+  assert(not ok and tostring(why) == Poll.CANCELLED, tostring(why))
   asked = calls
   fail = "the pipe is wanted elsewhere"
   local stuck, stuck_why = w:write(filled)
-  assert(not stuck and stuck_why == fail, tostring(stuck_why))
+  assert(not stuck and tostring(stuck_why) == fail, tostring(stuck_why))
   assert(calls > asked)
   fail = nil
   local sticky, sticky_why = w:write("y")
-  assert(not sticky and sticky_why == "the pipe is wanted elsewhere", tostring(sticky_why))
+  assert(not sticky and tostring(sticky_why) == "the pipe is wanted elsewhere", tostring(sticky_why))
   assert(sys.close(reader))
   assert(sys.close(writer))
 end

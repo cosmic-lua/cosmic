@@ -394,7 +394,7 @@ local function counted(source: Stream.Reader, limit: integer): Stream.Reader, fu
       if passed > limit then return nil, Failure.new(OVER_LIMIT) end
       return chunk
     end,
-    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
   return reader, function(): integer return passed end
 end
@@ -550,7 +550,7 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
           end
           local wrote, wwhy = writer:write(chunk)
           if not wrote then
-            verdict, detail = "disk", wwhy
+            verdict, detail = "disk", tostring(wwhy)
             break
           end
           local more, more_why = part.body:read(CHUNK)
@@ -563,7 +563,7 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
         if verdict == "ok" and rwhy ~= "" then verdict, detail = "source", rwhy end
         if verdict == "ok" then
           local closed, cwhy = writer:close()
-          if not closed then verdict, detail = "disk", cwhy end
+          if not closed then verdict, detail = "disk", tostring(cwhy) end
         else
           local _, _ = writer:abort()
         end
@@ -627,9 +627,9 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
       read = function(_self: Stream.Reader, _max?: integer): (string | false) | (nil, Failure)
         return false
       end,
-      close = function(_self: Stream.Reader): boolean, string
+      close = function(_self: Stream.Reader): (true) | (false, Failure)
         m:discard()
-        return true, ""
+        return true
       end,
     }
     req.bodies[#req.bodies + 1] = cleanup

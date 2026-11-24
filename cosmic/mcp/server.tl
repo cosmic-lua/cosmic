@@ -1504,7 +1504,7 @@ local class WaitingReader is Stream.Reader
     return self.inner:read(max_bytes)
   end
 
-  function close(self): boolean, string return self.inner:close() end
+  function close(self): (true) | (false, Failure) return self.inner:close() end
 end
 
 --- A request a stdio server is running.
@@ -1563,14 +1563,15 @@ local function serve_lines(self: State, lines: Stream.Lines, writer: Stream.Writ
     end
     if failure ~= nil then return end
     writing = true
-    local ok, why = true, ""
+    local trouble: Failure? = nil
     Poll.shielded(function()
-      ok, why = writer:write(text .. "\n")
+      local wrote, why = writer:write(text .. "\n")
+      if not wrote then trouble = why end
     end)
     writing = false
     turn:notify_one()
-    if not ok then
-      failure = Failure.new("mcp: " .. why)
+    if trouble ~= nil then
+      failure = Failure.new("mcp: " .. tostring(trouble))
       wake:notify_all()
     end
   end
@@ -1894,7 +1895,7 @@ local class EventReader is Stream.Reader
     end
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     if not self.finished then
       self.finished = true
       self.flight.cancelled = true
@@ -1905,7 +1906,7 @@ local class EventReader is Stream.Reader
       self.notifier:notify_all()
     end
     self.queue, self.head, self.tail, self.latest, self.answer = {}, 1, 1, nil, nil
-    return true, ""
+    return true
   end
 end
 

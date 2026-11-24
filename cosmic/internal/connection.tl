@@ -103,7 +103,7 @@ local class SocketConn is Duplex
   --- Internal: see `read_failure`.
   mut write_failure: string
   --- Never present: [`Stream.skip`] reads and discards a connection's bytes.
-  skip?: function(SocketConn, n: integer): boolean, string
+  skip?: function(SocketConn, n: integer): (true) | (false, Failure)
   --- Internal: the TLS session every read and write goes through, on a
   --- connection a TLS listener accepted or [`start_tls`] secured; nil
   --- for one in the clear. No caller reads or writes it.
@@ -188,13 +188,13 @@ local class SocketConn is Duplex
     end
   end
 
-  --- Sends all of `data`, waiting as the peer takes it. False and
-  --- [`Poll.TIMEOUT`], "interrupted", "cancelled" (in a task of [`Poll.run`])
-  --- or why not may leave part of it sent,
+  --- Sends all of `data`, waiting as the peer takes it. False and a
+  --- [`Failure`] (kind "timeout" for a deadline, "cancelled" for
+  --- "interrupted" or a task of [`Poll.run`] cancelled) may leave part of it sent,
   --- so it is every write's after; reading is left be.
-  function write(self, data: string): boolean, string
-    if not self.open then return false, "net: the connection is closed" end
-    if self.write_failure ~= "" then return false, self.write_failure end
+  function write(self, data: string): (true) | (false, Failure)
+    if not self.open then return false, failure_of("net: the connection is closed") end
+    if self.write_failure ~= "" then return false, failure_of(self.write_failure) end
     local fd = self.fd
     local from = 1
     local session = self.session
@@ -207,17 +207,17 @@ local class SocketConn is Duplex
         elseif stop == tls.FAILED or stop == tls.ENDED then
           local trouble = if stop == tls.ENDED then "tls: the peer ended the session" else why end
           self.write_failure = trouble
-          return false, trouble
+          return false, failure_of(trouble)
         else
           local ready, waiting = waited(fd, stop == tls.WRITE, left(deadline))
           if not ready then
             self.write_failure = waiting
-            return false, waiting
+            return false, failure_of(waiting)
           end
-          if not self.open then return false, "net: the connection is closed" end
+          if not self.open then return false, failure_of("net: the connection is closed") end
         end
       end
-      return true, ""
+      return true
     end
     -- One deadline for the call, as over TLS: a peer that takes a byte
     -- each wait would hold the write for ever.
@@ -228,17 +228,17 @@ local class SocketConn is Duplex
         from = from + sent
       elseif errno ~= raw.EAGAIN then
         self.write_failure = why
-        return false, why
+        return false, failure_of(why)
       else
         local ready, waiting = waited(fd, true, left(deadline))
         if not ready then
           self.write_failure = waiting
-          return false, waiting
+          return false, failure_of(waiting)
         end
-        if not self.open then return false, "net: the connection is closed" end
+        if not self.open then return false, failure_of("net: the connection is closed") end
       end
     end
-    return true, ""
+    return true
   end
 
   --- Completes the TLS handshake of a connection a TLS listener
@@ -457,8 +457,8 @@ local class SocketConn is Duplex
   end
 
   --- Closes the connection. Safe to call more than once.
-  function close(self): boolean, string
-    if not self.open then return true, "" end
+  function close(self): (true) | (false, Failure)
+    if not self.open then return true end
     self.open = false
     Poll.closing(self.fd)
     local session = self.session
@@ -468,12 +468,12 @@ local class SocketConn is Duplex
       session:free()
     end
     local ok, why = self.socket:close()
-    if not ok then return false, why end
-    return true, ""
+    if not ok then return false, failure_of(why) end
+    return true
   end
 
   --- The same as `close`: nothing sent can be taken back.
-  function abort(self): boolean, string
+  function abort(self): (true) | (false, Failure)
     return self:close()
   end
 

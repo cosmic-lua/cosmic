@@ -10,7 +10,7 @@ local record chunked_reader_fixture
 end
 
 local class Chunked is Stream.Reader
-  skip?: function(Chunked, n: integer): boolean, string
+  skip?: function(Chunked, n: integer): (true) | (false, Failure)
   text: string
   mut at: integer
   size: integer
@@ -26,22 +26,22 @@ local class Chunked is Stream.Reader
     return chunk
   end
 
-  function close(self): boolean, string
-    return true, ""
+  function close(self): (true) | (false, Failure)
+    return true
   end
 end
 
 --- Skips `n` bytes as an in-memory Reader does: failing on a negative
 --- count and on running past the end, which leaves the Reader at the end.
-local function skip(self: Chunked, n: integer): boolean, string
-  if n < 0 then return false, "stream: skip of a negative count" end
+local function skip(self: Chunked, n: integer): (true) | (false, Failure)
+  if n < 0 then return false, Failure.new("stream: skip of a negative count") end
   -- Compared this way round, so a huge `n` cannot wrap `at + n`.
   if n > #self.text + 1 - self.at then
     self.at = #self.text + 1
-    return false, "stream: skip past the end of the data"
+    return false, Failure.new("stream: skip past the end of the data")
   end
   self.at = self.at + n
-  return true, ""
+  return true
 end
 
 --- A Reader that answers `text` in chunks of `size` bytes, then `last`
@@ -56,7 +56,7 @@ function chunked_reader_fixture.chunked(text: string, size: integer, last?: stri
 end
 
 local class Dripped is Stream.Reader
-  skip?: function(Dripped, n: integer): boolean, string
+  skip?: function(Dripped, n: integer): (true) | (false, Failure)
   inner: Stream.Reader
   most: integer
 
@@ -64,17 +64,14 @@ local class Dripped is Stream.Reader
     return self.inner:read(math.min(self.most, max_bytes or self.most))
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     return self.inner:close()
   end
 end
 
 --- Skips `n` bytes of what `self` hands out, as the reader it wraps does.
-local function dripped_skip(self: Dripped, n: integer): boolean, string
-  if self.inner.skip ~= nil then return self.inner:skip(n) end
-  local ok, why = Stream.skip(self.inner, n)
-  if not ok then return false, tostring(why) end
-  return true, ""
+local function dripped_skip(self: Dripped, n: integer): (true) | (false, Failure)
+  return Stream.skip(self.inner, n)
 end
 
 --- A Reader over `text` that hands out at most `n` bytes a read.

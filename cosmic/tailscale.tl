@@ -832,7 +832,7 @@ local function sent(endpoint: Endpoint, default_ns: integer, method: string, pat
   if conn == nil then return nil, "tailscale: " .. tostring(why) end
   conn:set_timeout(left())
   local wrote, refused = conn:write(request)
-  if not wrote then return nil, "tailscale: " .. refused end
+  if not wrote then return nil, "tailscale: " .. tostring(refused) end
   local reader = Message.response_reader({ body_bytes = REPLY_BYTES })
   while true do
     conn:set_timeout(left())
@@ -1031,7 +1031,7 @@ local class FileReader is Stream.Reader
   --- Internal: set by `close`.
   mut closed: boolean
   --- Not offered: a file is read in order.
-  skip?: function(FileReader, integer): boolean, string
+  skip?: function(FileReader, integer): (true) | (false, Failure)
 
   --- The next bytes of the file, at most `max_bytes` (64 KiB by
   --- default); `false` at its end, or nil and a [`Failure`]. A connection that
@@ -1060,8 +1060,8 @@ local class FileReader is Stream.Reader
   end
 
   --- Ends the transfer, and the connection. Safe to call more than once.
-  function close(self): boolean, string
-    if self.closed then return true, "" end
+  function close(self): (true) | (false, Failure)
+    if self.closed then return true end
     self.closed = true
     return self.conn:close()
   end
@@ -1156,7 +1156,7 @@ local function exchanged(endpoint: Endpoint, wait_ns: integer, method: string, p
     end
   end
   local wrote, refused = conn:write(head)
-  if not wrote then return failed(refused) end
+  if not wrote then return failed(tostring(refused)) end
   if body ~= nil then
     local sent_bytes = 0
     while true do
@@ -1174,10 +1174,10 @@ local function exchanged(endpoint: Endpoint, wait_ns: integer, method: string, p
         local early, said = answered()
         if early ~= nil then
           local _, _ = early.conn:close()
-          return failed(lost)
+          return failed(tostring(lost))
         end
         if replied then return nil, said end
-        return failed(lost)
+        return failed(tostring(lost))
       end
     end
     if sent_bytes ~= (size or 0) then
@@ -1212,7 +1212,7 @@ local class Events
   end
 
   --- Ends the stream. Safe to call more than once.
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.closed = true
     return self.response:close()
   end
@@ -1257,7 +1257,7 @@ local class Serving
 
   --- Takes the configuration down: the daemon drops it once the
   --- stream ends. Safe to call more than once.
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     return self.events:close()
   end
 

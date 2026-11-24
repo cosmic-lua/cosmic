@@ -665,7 +665,7 @@ local function send_until_answered(lb: Testing.Loopback, bytes: string): string
   local from = 1
   while from <= #bytes do
     local sent, why = lb.conn:write(bytes:sub(from, from + SEND_SLICE - 1))
-    if not sent then return why end
+    if not sent then return tostring(why) end
     from = from + SEND_SLICE
     if from <= #bytes then
       -- A wait of none still yields the run, so the server's task reads.

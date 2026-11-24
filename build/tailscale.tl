@@ -836,7 +836,7 @@ local function file_get(to: verb.Io, complain: function(line: string), ts: Tails
         copied, trouble = copied_got, if copied_got == nil then tostring(trouble_failure) else "" end
         if copied ~= nil then
           local closed, lost = writer:close()
-          if not closed then copied, trouble = nil, lost end
+          if not closed then copied, trouble = nil, tostring(lost) end
         else
           local _, _ = writer:abort()
         end
