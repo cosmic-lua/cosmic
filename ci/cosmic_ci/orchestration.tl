@@ -714,25 +714,20 @@ local performance_test_timeout_ns <const> = Clock.seconds(150)
 -- without that reparse; it is still sized for it.
 local checked_compile_timeout_ns <const> = Clock.seconds(300)
 
--- A whole `cosmic test` run of every test, sandboxed (about 4750 tests
--- in October 2026), is what a change to core/ runs, as no verdict stands
--- for it, and what a merge-queue run that moved build/harness_epoch.tl
--- ran, 12 of the 22 queue runs on October 9 (a change to the harness now
--- misses every key and runs as much). Its time follows
--- the runner more than the tree. On alpine-x86_64 each whole suite took
--- 192 to 309 s on runners where the driver's own tests took 73 to 120 s;
--- on one where they took 135 s (37991854997), the local suite took 385 s
--- and the portable suite, the step after it, ran past 450 s, the bound
--- then. The bound is 1.6 times that, the slowest run seen, as #2834 sized
--- it: were both of a leg's suites to take it whole, the leg would end in
--- about 36 of the job's 45 minutes. Each test gets far less than the
--- whole run, so a test that hangs is ended and named by the runner, not
--- hidden under a cancelled run.
--- TODO: the suite's growth, and a slow runner, against this bound go
--- unseen until a run meets it: warn from `suite` when a run uses over 75%
--- of the bound, or run the whole suite on a schedule and report its
--- elapsed time against it.
-local suite_timeout_ns <const> = Clock.seconds(720)
+-- A whole `cosmic test` run of every test, sandboxed, is what a change to
+-- core/ runs, as no verdict stands for it, and what every merge-queue run
+-- runs (its verdicts never stand). Its time follows the runner and the
+-- number of tests. On 2026-11-24, with about 10470 tests, a passing
+-- linux-x86_64 queue run's suite step took 693 s (45456650778), and three
+-- queue runs that would have passed (45456908979, 45461568363, 45462021235)
+-- met the bound then, 720 s, with 2 to 450 tests left. The bound is 1.6
+-- times the slowest passing run, as #2834 sized it, rounded up: were both
+-- of a leg's suites to take it whole, the leg would end in about 45 of the
+-- job's 60 minutes. Each test gets far less than the whole run, so a test
+-- that hangs is ended and named by the runner, not hidden under a
+-- cancelled run. A run that takes over three quarters of the bound says so
+-- ([`suite`]), so its growth is seen before a run meets it.
+local suite_timeout_ns <const> = Clock.seconds(1200)
 local suite_test_timeout_s <const> = "10"
 
 --- Copies the files of `source` (modules, and where `data` the JSON
@@ -1354,8 +1349,14 @@ local function suite(c: Context, name: string, executable: string,
   local words = with_census(run.words)
   local argv: mut {string} = { executable }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
+  local began = Clock.monotonic_ns()
   local status = logged(c, name .. " suite", argv, out, err,
     suite_timeout_ns, c.root, values)
+  local took = Clock.monotonic_ns() - began
+  if status ~= 124 and took * 4 > suite_timeout_ns * 3 then
+    local _, _ = Fs.put(Fs.stderr, string.format("%s suite: took %d s, over three quarters of its %d s bound " ..
+        "(suite_timeout_ns in ci/cosmic_ci/orchestration.tl)\n", name, took // 1000000000, suite_timeout_ns // 1000000000))
+  end
   record_suite(c, name, status, out)
   write(diagnostics .. "/" .. name .. "-test.status", tostring(status) .. "\n")
   local snapped: Snapped = { status = 1 }
@@ -1367,7 +1368,8 @@ local function suite(c: Context, name: string, executable: string,
     local _, _ = Fs.put(Fs.stderr, tostring(snap_answer) .. "\n")
   end
   if status == 124 then
-    local _, _ = Fs.put(Fs.stderr, name .. " suite: timed out (status 124)\n")
+    local _, _ = Fs.put(Fs.stderr, string.format("%s suite: timed out (status 124): it ran past its %d s bound " ..
+        "(suite_timeout_ns in ci/cosmic_ci/orchestration.tl), not past a test's\n", name, suite_timeout_ns // 1000000000))
   elseif status ~= 0 then
     local _, _ = Fs.put(Fs.stderr,
       name .. " suite: failed (status " .. tostring(status) .. ")\n")
