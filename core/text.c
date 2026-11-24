@@ -21,7 +21,7 @@ static int text_lines (lua_State *L) {
     at = nl + 1;
   }
   if (len > 0 && text[len - 1] != '\n') count++;
-  if (count > INT32_MAX) return luaL_error(L, "lines: %zu lines are past the most a list holds", count);
+  if (count > INT32_MAX) return luaL_error(L, "lines: %I lines are past the most a list holds", (lua_Integer)count);
   lua_createtable(L, (int)count, 0);
   const char *at = text, *end = text + len;
   lua_Integer i = 0;
@@ -79,7 +79,9 @@ static int bytes_order (const unsigned char *a, const unsigned char *b, size_t n
     memcpy(&x, a, 8);
     memcpy(&y, b, 8);
     if (x != y) {
-#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#if !defined(__BYTE_ORDER__)
+#error "core/text.c compares words by the byte order __BYTE_ORDER__ names"
+#elif __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
       x = __builtin_bswap64(x);
       y = __builtin_bswap64(y);
 #endif
@@ -123,18 +125,21 @@ static void merge_sort (struct item *items, struct item *spare, size_t n) {
   if (from != items) memcpy(items, from, n * sizeof *items);
 }
 
+/* luaL_error's format is lua_pushfstring's, which has no %zu or %llu: a
+ * count goes as %I, a lua_Integer. */
+
 /* `sort(list)`: a new list of the strings of `list`, sorted by their bytes.
  * Raises where an item is not a string. */
 static int text_sort (lua_State *L) {
   luaL_checktype(L, 1, LUA_TTABLE);
   lua_Unsigned n = lua_rawlen(L, 1);
   if (n > INT32_MAX || n > SIZE_MAX / (2 * sizeof(struct item)))
-    return luaL_error(L, "sort: a list of %llu items is past the most it sorts", (unsigned long long)n);
+    return luaL_error(L, "sort: a list of %I items is past the most it sorts", (lua_Integer)n);
   /* Userdata, so the collector frees it however this call ends. */
   struct item *items = lua_newuserdatauv(L, 2 * (size_t)n * sizeof *items, 0);
   for (lua_Unsigned k = 0; k < n; k++) {
     if (lua_rawgeti(L, 1, (lua_Integer)k + 1) != LUA_TSTRING)
-      return luaL_error(L, "sort: item %llu is a %s, not a string", (unsigned long long)k + 1,
+      return luaL_error(L, "sort: item %I is a %s, not a string", (lua_Integer)k + 1,
         luaL_typename(L, -1));
     items[k].bytes = lua_tolstring(L, -1, &items[k].len);
     items[k].at = (lua_Integer)k + 1;
