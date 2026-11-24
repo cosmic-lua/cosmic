@@ -12,18 +12,19 @@
 ---
 --- [`Poll.run`] runs its function as the first task, and returns once every
 --- task has ended. A task waits by calling `wait` (`readable` and
---- `writable` are calls to it), `delay` or a Task's `join`, each of which
+--- `writable` are calls to it) or a Task's `join`, each of which
 --- returns true once what it waits for happens, or false and a
 --- [`Failure`] of kind "timeout" once its `timeout_ns` passes first, or of
 --- kind "cancelled" once the task is cancelled; `ready` waits on
 --- several descriptors at once, and returns what each had, as
---- [`sys.poll`] does, or nil and the same Failures; a Task's `kill`
+--- [`sys.poll`] does, or nil and the same Failures; [`Clock.sleep`]
+--- waits a span, failing "cancelled" too; a Task's `kill`
 --- ends one outright, for a task that goes on after its waits fail.
---- `wait` is the one that goes on where there is no task to wait in --
+--- `wait` and [`Clock.sleep`] go on where there is no task to wait in --
 --- outside a run, in a coroutine of its own, in a finalizer -- holding
---- the thread in [`sys.poll`] until it returns, so a module waits with
+--- the thread until they return, so a module waits with
 --- one call wherever it runs; the others raise there. In a `<close>`
---- handler of a task the run ends, `wait` raises too. Nothing else
+--- handler of a task the run ends, `wait` and [`Clock.sleep`] raise too. Nothing else
 --- here waits: a call that blocks the thread (a blocking read, a
 --- SQLite query) holds every task until it returns. [`cosmic.http`]'s
 --- requests wait through the run, as [`cosmic.net`]'s waits do.
@@ -96,7 +97,7 @@ local record Poll
     --- when nil): true once one came, false and a Failure of kind "timeout"
     --- once `timeout_ns` passes first, false and a Failure of kind "cancelled" once
     --- the task is cancelled. Waiters are woken in the order they began
-    --- to wait. Like [`Poll.delay`] it raises outside a task, and in a
+    --- to wait. Like [`Poll.ready`] it raises outside a task, and in a
     --- `<close>` handler of a task being ended.
     wait: function(Notifier, timeout_ns?: integer): (true) | (false, Failure)
     --- Wakes the task that has waited longest, if any: a no-op when none
@@ -794,16 +795,13 @@ function Poll.ready(fds: {integer}, events: {integer}, timeout_ns?: integer): ({
   return had
 end
 
--- TODO: once ci/cosmic-driver.pin names a release with Clock.sleep, move eval/check/grade.tl and
--- eval/check/testdata/relay_api_test.tl to it and make this
--- internal: Clock.sleep calls it in a task.
-
---- Waits `ns` nanoseconds while the other tasks run: true once
---- they have passed, false and a Failure of kind "cancelled" once the task is
---- cancelled first.
-function Poll.delay(ns: integer): (true) | (false, Failure)
-  local task = current("Poll.delay", 2)
-  Poll.checked_ns(ns, "poll", "ns", 2)
+--- Waits `ns` nanoseconds, at most [`Poll.MOST_NS`], while the other
+--- tasks run: true once they have passed, false and a Failure of kind
+--- "cancelled" once the task is cancelled first. [`Clock.sleep`] calls it
+--- through [`Waits.delay`], whose caller a raise blames: in a `<close>`
+--- handler of a task being killed, as every wait of a task raises there.
+local function delay(ns: integer): (true) | (false, Failure)
+  local task = current("Clock.sleep", 4)
   local ok, why = park(task, { task = task, expiry_ok = true }, ns)
   return answered(ok, why)
 end
@@ -1054,17 +1052,17 @@ end
 
 Waits.parks = function(): boolean
   local task = own_task()
-  return task ~= nil and not task.killed and coroutine.isyieldable()
+  return task ~= nil and (task.killed or coroutine.isyieldable())
 end
 
 Waits.delay = function(ns: integer): (true) | (false, Failure)
   local left = ns
   while left > Poll.MOST_NS do
-    local waited, why = Poll.delay(Poll.MOST_NS)
+    local waited, why = delay(Poll.MOST_NS)
     if not waited then return false, why end
     left = left - Poll.MOST_NS
   end
-  return Poll.delay(left)
+  return delay(left)
 end
 
 --- Starts `main` as the first task and runs the loop until every task

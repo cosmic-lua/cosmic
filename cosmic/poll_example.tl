@@ -81,12 +81,12 @@ function Example.writable()
 end
 
 --- Sleeping tasks wake in the order of their times, not their starts.
-function Example.delay()
+function Example.sleep()
   local woke: mut {integer} = {}
   Poll.run(function()
     for _, ms in ipairs({ 20, 5 }) do
       Poll.spawn(function()
-        assert(Poll.delay(Clock.ms(ms)))
+        assert(Clock.sleep(Clock.ms(ms)))
         woke[#woke + 1] = ms
       end)
     end

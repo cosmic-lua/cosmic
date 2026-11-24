@@ -401,12 +401,8 @@ local class SocketConn is Duplex
         if not ok then return false, why end
       else
         local slice = if rest ~= nil then math.min(rest, GONE_SLICE_NS) else GONE_SLICE_NS end
-        if Poll.in_task() and coroutine.isyieldable() then
-          local ok, why = Poll.delay(slice)
-          if not ok then return false, why end
-        else
-          local _, _ = Clock.sleep(slice)
-        end
+        local ok, why = Clock.sleep(slice)
+        if not ok then return false, why end
       end
     end
   end
