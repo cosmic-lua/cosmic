@@ -373,6 +373,10 @@ function Body.read(self: Body, max_bytes?: integer): string?, string
     self.pending = self.prologue
     self.prologue = ""
   end
+  -- TODO: end the stream the moment its client goes: wait on the source
+  -- in slices of about 250 ms and end where `req.raw.gone()` is true, once
+  -- the MCP known-limits PR has merged and MCP's EventReader does the same
+  -- (one change for both, from the thread that added Request.gone).
   while self.pending == "" do
     local timeout = if self.heartbeat_ns > 0 then self.heartbeat_ns else nil end
     local self_deadline = self.deadline
