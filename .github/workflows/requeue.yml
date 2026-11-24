@@ -3,12 +3,13 @@
 {
   name: "requeue",
 
-  # The merge queue sometimes drops an entry about when that entry's own
-  # run passes, and does not put it back; its auto-merge goes with it, so
-  # the pull request waits for a person. After each merge queue run of ci
+  # The merge queue sometimes drops an entry just as that entry's own run
+  # passes, and does not put it back; its auto-merge goes with it, so the
+  # pull request waits for a person. After each merge queue run of ci
   # that passed, this puts its pull request back in the queue where the
-  # queue itself took it out after that run began, its head is the one the
-  # queue took, and this job put it back fewer than twice
+  # queue itself took it out after that run began, its head is a branch
+  # of this repository tested before it was last added, and this job put
+  # it back fewer than twice
   # (cosmic_ci/requeue.tl). It acts
   # as the whilpbot App, with only the permissions an enqueue needs: a
   # token of the workflow's own would start no queue run. A workflow_run
@@ -27,12 +28,17 @@
 
   jobs: {
     requeue: {
-      if: "github.repository == 'cosmic-lua/cosmic' && github.event.workflow_run.event == 'merge_group' && github.event.workflow_run.conclusion == 'success'",
+      # A first attempt only: a run made again keeps the time it was first
+      # made, so the removal for its first attempt's failure would look
+      # like its own.
+      if: "github.repository == 'cosmic-lua/cosmic' && github.event.workflow_run.event == 'merge_group' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.run_attempt == 1",
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 10,
-      # One at a time: two queue runs of one pull request have two
-      # branches, and both would put it back.
-      concurrency: {group: "requeue", "cancel-in-progress": false},
+      # One job per queue branch: a group shared by every pull request
+      # holds one pending job, so a third run ending at once would cancel
+      # the second's job. Two entries of one pull request have two
+      # branches; the second job to read finds it queued again.
+      concurrency: {group: "requeue-${{ github.event.workflow_run.head_branch }}", "cancel-in-progress": false},
       steps: [
         {
           name: "mint the whilpbot token",

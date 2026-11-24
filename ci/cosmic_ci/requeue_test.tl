@@ -6,14 +6,23 @@ local bot <const> = "whilpbot[bot]"
 --- When the triggering run was made.
 local started <const> = "2026-11-24T00:30:00Z"
 
+--- A pull request's head as REST answers it: the commit `sha` of
+--- `repository`'s branch `ref` ("owner/repo" and "claude/x" by default;
+--- "" for a fork that is gone).
+local function head_text(sha: string, ref?: string, repository?: string): string
+  local repo = repository or "owner/repo"
+  local named = if repo == "" then "null" else '{"full_name":"' .. repo .. '"}' end
+  return '{"sha":"' .. sha .. '","ref":"' .. (ref or "claude/x") .. '","repo":' .. named .. "}"
+end
+
 --- A pull request as REST answers it, with the JSON values `fields`
 --- gives in place of the defaults (open, not a draft, not merged,
---- mergeable, head "head1").
+--- mergeable, head "head1" of this repository's branch "claude/x").
 local function pull_text(fields?: {string:string}): string
   local given = fields or {}
   local parts: mut {string} = {}
   for _, field in ipairs({ { "node_id", '"PR_1"' }, { "state", '"open"' }, { "draft", "false" },
-      { "merged", "false" }, { "mergeable_state", '"blocked"' }, { "head", '{"sha":"head1"}' } }) do
+      { "merged", "false" }, { "mergeable_state", '"blocked"' }, { "head", head_text("head1") } }) do
     local name = assert(field[1])
     parts[#parts + 1] = '"' .. name .. '":' .. (given[name] or assert(field[2]))
   end
@@ -32,12 +41,16 @@ local function joined(...: string): string
   return table.concat({ ... }, ",")
 end
 
---- A runs answer of `runs`, each "branch@created_at".
+--- A runs answer of `runs`, each "branch@created_at" of this
+--- repository, or "repository:branch@created_at".
 local function runs_text(...: string): string
   local items: mut {string} = {}
   for _, run in ipairs({ ... }) do
-    local branch, at = run:match("^(.*)@(.*)$")
-    items[#items + 1] = '{"head_branch":"' .. assert(branch) .. '","created_at":"' .. assert(at) .. '"}'
+    local named, at = run:match("^(.*)@(.*)$")
+    local repository, branch = assert(named):match("^([^:]*):(.*)$")
+    if repository == nil then repository, branch = "owner/repo", named end
+    items[#items + 1] = '{"head_branch":"' .. assert(branch) .. '","head_repository":{"full_name":"' ..
+      repository .. '"},"created_at":"' .. assert(at) .. '"}'
   end
   return '{"workflow_runs":[' .. table.concat(items, ",") .. "]}"
 end
@@ -117,7 +130,7 @@ end
 
 --- The enqueue names the pull request's id and the head the queue took.
 local function test_the_enqueue_names_the_pull_request_and_its_head()
-  local c, _ = fake(pull_text({ node_id = '"PR_9"', head = '{"sha":"head9"}' }),
+  local c, _ = fake(pull_text({ node_id = '"PR_9"', head = head_text("head9") }),
     { timelines = { joined(added_by_person, removed_by_queue) } })
   local body = ""
   local send = c.client.send
@@ -176,6 +189,15 @@ local function test_a_pull_request_stays_out_where_it_should()
       "gh-readonly-queue/main/pr-4038-bbb@2026-11-24T00:35:00Z"), why = "a later queue run of it began" },
     { events = dropped, tested = runs_text("claude/x@2026-11-24T00:45:00Z"), why = "pushed after it was last added" },
     { events = dropped, tested = runs_text(), why = "no pull request run of ci tested its head" },
+    { events = dropped, tested = runs_text("claude/other@2026-11-24T00:05:00Z"), why = "tested its head on its branch" },
+    { events = dropped, tested = runs_text("fork/repo:claude/x@2026-11-24T00:05:00Z"),
+      why = "tested its head on its branch" },
+    { pull = pull_text({ head = head_text("head1", "claude/x", "fork/repo") }), events = dropped,
+      why = "its head is not a branch of owner/repo" },
+    { pull = pull_text({ head = head_text("head1", "claude/x", "") }), events = dropped,
+      why = "its head is not a branch of owner/repo" },
+    { pull = pull_text({ merged = "true" }), events = dropped, why = "it is merged" },
+    { events = joined(dropped, event("closed", "2026-11-24T00:41:00Z", "whilp")), why = "it was closed" },
     { pull = pull_text({ state = '"closed"', merged = "true" }), events = dropped, why = "it is merged" },
     { pull = pull_text({ state = '"closed"' }), events = dropped, why = "it is closed" },
     { pull = pull_text({ draft = "true" }), events = dropped, why = "it is a draft" },
@@ -197,6 +219,20 @@ local function test_a_pull_request_stays_out_where_it_should()
       "gh-readonly-queue/main/pr-4038-ddd@2026-11-24T00:01:00Z") })
   local said = Requeue.follow(c)
   assert(said:find("is back in the merge queue", 1, true) ~= nil, said)
+  -- A force push before it was last added, a close undone by a reopen,
+  -- and a later run of its head beside the first: each goes back.
+  local pushed = event("head_ref_force_pushed", "2026-11-24T00:12:00Z", "whilp")
+  local closed = joined(event("closed", "2026-11-24T00:13:00Z", "whilp"), event("reopened", "2026-11-24T00:14:00Z", "whilp"))
+  for _, case in ipairs({
+      { joined(pushed, added_by_person, removed_by_queue), "" },
+      { joined(closed, added_by_person, removed_by_queue), "" },
+      { joined(added_by_person, removed_by_queue), runs_text("claude/x@2026-11-24T00:05:00Z", "claude/x@2026-11-24T00:45:00Z") },
+  }) do
+    local tested = if case[2] == "" then nil else case[2] end
+    local back, _ = fake(pull_text(), { timelines = { assert(case[1]) }, tested = tested })
+    said = Requeue.follow(back)
+    assert(said:find("is back in the merge queue", 1, true) ~= nil, said)
+  end
 end
 
 --- Nothing follows a run that is not a passing queue run of main.

@@ -12,9 +12,10 @@
 --- - the queue's last event of it is a removal, made by the queue itself
 ---   (`queue_bot`), not by a person, after this run began, and no other
 ---   queue run of it began after this one: the removal is this run's;
---- - its head was first tested by a pull request run of ci before it was
----   last added, and not force-pushed since, so it is the head the queue
----   took: the queue squashes, so this run's commit does not name it;
+--- - its head is a branch of this repository, first tested by a pull
+---   request run of ci from that branch before it was last added, and not
+---   force-pushed since, so it is the head the queue took: the queue
+---   squashes, so this run's commit does not name it;
 --- - this job's App ([`Context.bot`]) has added it fewer than `most`
 ---   times, so a queue that drops it each time cannot hold it in a loop.
 ---
@@ -27,6 +28,15 @@
 --- STARTED (when it was made), the triggering run's
 --- (github.event.workflow_run), REPOSITORY, and BOT, the App's login, with
 --- the client GH_TOKEN makes. A request GitHub refuses fails the job.
+--- requeue.yml follows a run's first attempt only: a run made again keeps
+--- the time it was first made, so a removal for its first attempt's
+--- failure would look like this run's.
+---
+--- A removal that comes after its reads ([`tries`]) is not followed.
+-- TODO: follow a removal that comes later than `tries` reads, once a
+-- queue event can start a workflow (GitHub has no trigger for a merge
+-- queue's removal of an entry); until then such a pull request waits for
+-- a person.
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -69,8 +79,14 @@ local record Pull
   draft: boolean
   merged: boolean
   mergeable_state?: string
+  record Repository
+    full_name: string
+  end
   record Head
     sha: string
+    ref: string
+    --- Nil where the fork it was in is gone.
+    repo?: Repository
   end
   head: Head
 end
@@ -88,8 +104,12 @@ end
 local EVENT <const> = Shape.record_of("Event")
 
 --- What `follow` reads of a `.../actions/runs` answer.
+local record RunRepository
+  full_name: string
+end
 local record Run
   head_branch?: string
+  head_repository?: RunRepository
   created_at: string
 end
 local record Runs
@@ -141,10 +161,10 @@ local function kept_out(events: {Event}, c: Requeue.Context): string?, string
   return nil, added_at
 end
 
---- Why the runs of ci say the pull request `number`, whose head is
---- `head` and which was last added at `added_at`, stays out; nil where
---- they do not.
-local function runs_say(c: Requeue.Context, number: string, head: string, added_at: string): string?
+--- Why the runs of ci say the pull request `number`, whose head is the
+--- commit `head` of this repository's branch `ref` and which was last
+--- added at `added_at`, stays out; nil where they do not.
+local function runs_say(c: Requeue.Context, number: string, head: string, ref: string, added_at: string): string?
   local base = "repos/" .. c.repository .. "/actions/workflows/ci.yml/runs"
   local queued_text = assert(GithubApi.get(c.client, base .. "?event=merge_group&per_page=100"))
   local queued = assert(RUNS:decode_into(queued_text))
@@ -158,9 +178,15 @@ local function runs_say(c: Requeue.Context, number: string, head: string, added_
   local tested = assert(RUNS:decode_into(tested_text))
   local first: string? = nil
   for _, run in ipairs(tested.workflow_runs) do
-    if first == nil or run.created_at < first then first = run.created_at end
+    -- Only a run of its own branch: another branch's run of the same
+    -- commit says nothing of when this one's head moved to it.
+    local from = run.head_repository
+    if run.head_branch == ref and from ~= nil and from.full_name == c.repository and
+        (first == nil or run.created_at < first) then
+      first = run.created_at
+    end
   end
-  if first == nil then return "no pull request run of ci tested its head" end
+  if first == nil then return "no pull request run of ci tested its head on its branch" end
   if first > added_at then return "its head was pushed after it was last added" end
   return nil
 end
@@ -218,13 +244,18 @@ function Requeue.follow(c: Requeue.Context): string
       why = "it is a draft"
     elseif read.mergeable_state == "dirty" then
       why = "it is in conflict with main"
+    elseif read.head.repo == nil or assert(read.head.repo).full_name ~= c.repository then
+      why = "its head is not a branch of " .. c.repository
     else
       why, added_at = kept_out(timeline(c, number), c)
     end
     if why ~= "queued" then break end
   end
   if why == "queued" then why = "it is still in the queue" end
-  if why == nil then why = runs_say(c, number, assert(pull).head.sha, added_at) end
+  if why == nil then
+    local head = assert(pull).head
+    why = runs_say(c, number, head.sha, head.ref, added_at)
+  end
   if why ~= nil then return "#" .. number .. " stays as it is: " .. why end
   local taken = assert(pull)
   local asked: EnqueueRequest = { query = enqueue_mutation,
