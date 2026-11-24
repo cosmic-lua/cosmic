@@ -389,6 +389,19 @@ attempt failed, it re-runs the failed jobs once. It reads `REPOSITORY`,
 `GITHUB_OUTPUT` and `GH_TOKEN`; [`cosmic_ci/prerelease_sweep_test.tl`]
 drives it against a fake client.
 
+`requeue` is requeue.yml's, which runs after each merge queue run of ci
+that passed and acts as the whilpbot App (a token of the workflow's own
+would start no queue run). The queue sometimes drops an entry about when
+that entry's own run passes, and does not put it back; the entry's
+auto-merge goes with it. [`cosmic_ci/requeue.tl`] reads the pull request
+the run tested, its timeline and the runs of ci, and puts it back in the
+queue where it is open, not a draft and not in conflict, the queue itself
+took it out after that run began and began no later run of it, its head
+was tested by a pull request run before it was last added, and this job
+put it back fewer than twice; a pull request still in the queue is read
+again a few times first. [`cosmic_ci/requeue_test.tl`] drives it against a fake
+client.
+
 `fuzz` and `fuzz-cancelled` are fuzz.yml's, and record no operation.
 `fuzz` runs the sanitized tool (`sanitized/bin/cosmic` in the build
 directory `build/paths.tl` names) as `test --all` from `GITHUB_WORKSPACE`
@@ -697,6 +710,8 @@ the first tried once, with the clearing and sleeping step between them.
 [`cosmic_ci/host_id.tl`]: cosmic_ci/host_id.tl
 [`cosmic_ci/orchestration.tl`]: cosmic_ci/orchestration.tl
 [`cosmic_ci/queue_verdicts.tl`]: cosmic_ci/queue_verdicts.tl
+[`cosmic_ci/requeue.tl`]: cosmic_ci/requeue.tl
+[`cosmic_ci/requeue_test.tl`]: cosmic_ci/requeue_test.tl
 [`Fixture.figure`]: cosmic_ci/fixture.tl
 [`Islands.complaint`]: cosmic_ci/islands.tl
 [`Islands.paths`]: cosmic_ci/islands.tl
