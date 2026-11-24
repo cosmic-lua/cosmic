@@ -68,6 +68,7 @@ extern int clone (int (*)(void *), void *, int, void *, ...);
 
 #include "check.h"
 #include "coverage.h"
+#include "profile.h"
 #include "fail.h"
 #include "fault.h"
 #include "guard.h"
@@ -204,6 +205,7 @@ COSMIC_SYSCALL(environ, 0) {
 COSMIC_SYSCALL(exit, 1) {
   int status = cosmic_optint(L, 1, 0);
   cosmic_coverage_report(); /* _exit runs no atexit handler */
+  cosmic_profile_report();
   _exit(status); /* exits: the process boundary has no caller to return to */
 }
 
@@ -707,6 +709,7 @@ COSMIC_SYSCALL(execve, 3) {
   struct rlimit raised;
   bool lowered = getrlimit(RLIMIT_NOFILE, &raised) == 0 && restore_descriptor_limit(0);
   cosmic_coverage_report(); /* nothing of this image remains to report later */
+  cosmic_profile_report();
   if (sigpipe_ignored_here) signal(SIGPIPE, SIG_DFL);
   execve(path, argv, given);
   int number = errno;
@@ -4080,18 +4083,679 @@ COSMIC_SYSCALL(restrict_self, 2) {
 #endif
 }
 
+/* What `spawn`'s descriptor arguments ask: the standard streams
+ * (arguments 5 to 7) and the map of the rest (argument 9). `source[t]`
+ * is the parent descriptor the child sees as t, or -1: for 0..2 that
+ * means inherit, above that it means closed. `*top` is the highest child
+ * descriptor named, at least 2. Raises for a malformed argument; answers
+ * 0, or the errno of a descriptor named that is not open. */
+static int read_descriptors (lua_State *L, int *source, int *top) {
+  for (int i = 0; i <= CHILD_FD_MAX; i++) source[i] = -1;
+  source[0] = stream_source(L, 5);
+  source[1] = stream_source(L, 6);
+  source[2] = stream_source(L, 7);
+  *top = 2;
+  if (!lua_isnoneornil(L, 9)) {
+    luaL_checktype(L, 9, LUA_TTABLE);
+    lua_pushnil(L);
+    while (lua_next(L, 9) != 0) {
+      if (!lua_isinteger(L, -2) || !lua_isinteger(L, -1))
+        return luaL_argerror(L, 9, "descriptors must map integers to integers");
+      lua_Integer target = lua_tointeger(L, -2);
+      lua_Integer value = lua_tointeger(L, -1);
+      if (target < 3 || target > CHILD_FD_MAX)
+        return luaL_argerror(L, 9, "a child descriptor must be 3 to 255");
+      if (value < 0 || value > INT_MAX)
+        return luaL_argerror(L, 9, "descriptor is out of range");
+      if (!handed_on(L, target, value)) cosmic_argfd(L, 9, value);
+      source[target] = (int)value;
+      if (target > *top) *top = (int)target;
+      lua_pop(L, 1);
+    }
+  }
+  for (int t = 0; t <= *top; t++) {
+    if (source[t] >= 0 && fcntl(source[t], F_GETFD) < 0) return errno;
+  }
+  return 0;
+}
+
+/* What `spawn`'s sandbox (argument 10) and credentials (argument 11)
+ * ask, read and checked before anything is made for the child. The
+ * strings it points at are those of the tables given, which stay on the
+ * stack for the call. */
+struct spawn_options {
+  int promising;
+  unsigned promise_bits;
+  /* The socket families the child may make (COSMIC_SOCKETS_ bits). */
+  unsigned sockets;
+  struct spawn_rlimit rlimits[SPAWN_RLIMIT_MAX];
+  int rlimit_count;
+  int granting;
+  int grant_count;
+  const char *grant_paths[GRANT_MAX];
+  unsigned grant_letters[GRANT_MAX];
+  /* Each unveiled path, the name it is bound at instead of its own or
+   * NULL, and what is said of it. */
+  int unveiling;
+  int unveil_count;
+  const char *unveiled[UNVEIL_MAX];
+  const char *unveiled_at[UNVEIL_MAX];
+  int unveiled_writable[UNVEIL_MAX];
+  int unveiled_noexec[UNVEIL_MAX];
+  int unveiled_idmap[UNVEIL_MAX];
+  int idmapping;
+  int offline;
+  int online;
+  int noexec_scratch;
+  /* The relay's channel, or -1 for none, and its two ports. */
+  int relay_channel;
+  int relay_ports[2];
+#if defined(__APPLE__)
+  /* Where the profile's text and its parameters, names and values
+   * alternating, are: in the strings of the tables given. */
+  const char *seatbelt_profile;
+  const char *seatbelt_words[2 * SEATBELT_PARAMETER_MAX];
+  int seatbelt_count;
+#endif
+  int strict;
+  int proc_only;
+  unsigned long tmp_bytes;
+  int tmp_exec;
+  /* The user and group an unveiled child gives root up for. */
+  int dropping;
+  uid_t drop_uid;
+  gid_t drop_gid;
+  /* The user and group a child that is not sandboxed runs as. */
+  int credentials;
+  uid_t credential_user;
+  gid_t credential_group;
+};
+
+/* The name an unveiled path is bound at, the string at -1 (`what`
+ * names it in an error): absolute, plain, not /, beneath no /.old (the
+ * root's own, where the old root is put aside as it pivots), and not
+ * one another path is bound at already. */
+static const char *bound_name (lua_State *L, const struct spawn_options *o, const char *what,
+                               const char *refused, const char *old_refused) {
+  const char *name = plain_string(L, -1, what);
+  size_t length = strlen(name);
+  if (!plain_name(name) || length < 2 || name[length - 1] == '/')
+    luaL_argerror(L, 10, refused);
+  if (strcmp(name, "/.old") == 0 || strncmp(name, "/.old/", 6) == 0)
+    luaL_argerror(L, 10, old_refused);
+  for (int j = 0; j < o->unveil_count; j++) {
+    if (o->unveiled_at[j] != NULL && strcmp(o->unveiled_at[j], name) == 0)
+      luaL_argerror(L, 10, "two paths are bound at one name");
+  }
+  return name;
+}
+
+/* Reads the sandbox's `unveil`, the table on top, into `o`. Raises for a
+ * malformed one. */
+static void read_unveil (lua_State *L, struct spawn_options *o) {
+  o->unveiling = 1;
+  for (int w = 0; w < 2; w++) {
+    lua_pushstring(L, w == 0 ? "reads" : "writes");
+    lua_rawget(L, -2);
+    if (!lua_isnil(L, -1)) {
+      if (!lua_istable(L, -1)) luaL_argerror(L, 10, "unveiled paths must be a list");
+      lua_Integer n = (lua_Integer)lua_rawlen(L, -1);
+      for (lua_Integer i = 1; i <= n; i++) {
+        lua_rawgeti(L, -1, i);
+        const char *unveil_path = plain_string(L, -1, "unveiled path");
+        if (unveil_path[0] != '/') luaL_argerror(L, 10, "an unveiled path must be absolute");
+        if (o->unveil_count >= UNVEIL_MAX) luaL_argerror(L, 10, "too many unveiled paths");
+        o->unveiled[o->unveil_count] = unveil_path;
+        o->unveiled_at[o->unveil_count] = NULL;
+        o->unveiled_writable[o->unveil_count] = w;
+        o->unveiled_noexec[o->unveil_count] = 0;
+        o->unveiled_idmap[o->unveil_count] = 0;
+        o->unveil_count++;
+        lua_pop(L, 1);
+      }
+    }
+    lua_pop(L, 1);
+  }
+  /* Paths with more said of each than `reads` and `writes` can: where
+   * it is bound, and whether it may not execute. */
+  lua_pushliteral(L, "binds");
+  lua_rawget(L, -2);
+  if (!lua_isnil(L, -1)) {
+    if (!lua_istable(L, -1)) luaL_argerror(L, 10, "unveil's binds must be a list");
+    lua_Integer n = (lua_Integer)lua_rawlen(L, -1);
+    for (lua_Integer i = 1; i <= n; i++) {
+      lua_rawgeti(L, -1, i);
+      if (!lua_istable(L, -1)) luaL_argerror(L, 10, "a bind is a table");
+      if (o->unveil_count >= UNVEIL_MAX) luaL_argerror(L, 10, "too many unveiled paths");
+      lua_pushliteral(L, "path");
+      lua_rawget(L, -2);
+      const char *bind_path = plain_string(L, -1, "a bind's path");
+      if (bind_path[0] != '/') luaL_argerror(L, 10, "a bind's path must be absolute");
+      lua_pushliteral(L, "at");
+      lua_rawget(L, -3);
+      const char *bind_at = NULL;
+      if (!lua_isnil(L, -1))
+        bind_at = bound_name(L, o, "the name a bind is at",
+                             "a bind is at an absolute name, plain, and not /",
+                             "a bind is at no name beneath /.old");
+      int at = o->unveil_count;
+      lua_pushliteral(L, "writable");
+      lua_rawget(L, -4);
+      o->unveiled_writable[at] = lua_toboolean(L, -1);
+      lua_pushliteral(L, "noexec");
+      lua_rawget(L, -5);
+      o->unveiled_noexec[at] = lua_toboolean(L, -1);
+      lua_pushliteral(L, "idmap");
+      lua_rawget(L, -6);
+      o->unveiled_idmap[at] = lua_toboolean(L, -1);
+      if (o->unveiled_idmap[at]) o->idmapping = 1;
+      o->unveiled[at] = bind_path;
+      o->unveiled_at[at] = bind_at;
+      o->unveil_count++;
+      lua_pop(L, 6);
+    }
+  }
+  lua_pop(L, 1);
+  lua_pushliteral(L, "tmp");
+  lua_rawget(L, -2);
+  if (!lua_isnil(L, -1)) {
+    if (!lua_isinteger(L, -1) || lua_tointeger(L, -1) < 1)
+      luaL_argerror(L, 10, "unveil's tmp is a size in bytes, at least 1");
+    o->tmp_bytes = (unsigned long)lua_tointeger(L, -1);
+  }
+  lua_pop(L, 1);
+  lua_pushliteral(L, "tmp_exec");
+  lua_rawget(L, -2);
+  if (!lua_isnil(L, -1)) {
+    if (!lua_isboolean(L, -1)) luaL_argerror(L, 10, "unveil's tmp_exec must be a boolean");
+    o->tmp_exec = lua_toboolean(L, -1);
+  }
+  lua_pop(L, 1);
+  /* The name each path given is bound at instead of its own. */
+  lua_pushliteral(L, "at");
+  lua_rawget(L, -2);
+  if (!lua_isnil(L, -1)) {
+    if (!lua_istable(L, -1)) luaL_argerror(L, 10, "unveil's at must be a table");
+    lua_pushnil(L);
+    while (lua_next(L, -2) != 0) {
+      const char *given = plain_string(L, -2, "a path unveil's at names");
+      const char *name = bound_name(L, o, "the name a path is bound at",
+                                    "a path is bound at an absolute name, plain, and not /",
+                                    "a path is bound at no name beneath /.old");
+      int found = 0;
+      for (int i = 0; i < o->unveil_count; i++) {
+        if (strcmp(o->unveiled[i], given) == 0) {
+          o->unveiled_at[i] = name;
+          found = 1;
+        }
+      }
+      if (!found) luaL_argerror(L, 10, "unveil's at names a path not unveiled");
+      lua_pop(L, 1);
+    }
+  }
+  lua_pop(L, 1);
+}
+
+/* Reads the sandbox's `relay`, the table on top, into `o`. Raises for a
+ * malformed one; answers 0, or the errno of a channel that is not open. */
+static int read_relay (lua_State *L, struct spawn_options *o) {
+  lua_pushliteral(L, "fd");
+  lua_rawget(L, -2);
+  if (!lua_isinteger(L, -1)) return luaL_argerror(L, 10, "relay's fd must be a descriptor");
+  lua_Integer channel = lua_tointeger(L, -1);
+  /* Below 3 it would be a stdio descriptor the child may leave inherited. */
+  if (channel < 3 || channel > INT_MAX)
+    return luaL_argerror(L, 10, "relay's fd is out of range: 3 or more");
+  cosmic_argfd(L, 10, channel);
+  o->relay_channel = (int)channel;
+  lua_pop(L, 1);
+  lua_pushliteral(L, "ports");
+  lua_rawget(L, -2);
+  if (!lua_isnil(L, -1)) {
+    if (!lua_istable(L, -1) || lua_rawlen(L, -1) != 2)
+      return luaL_argerror(L, 10, "relay's ports are two ports");
+    for (int i = 0; i < 2; i++) {
+      lua_rawgeti(L, -1, i + 1);
+      if (!lua_isinteger(L, -1)) return luaL_argerror(L, 10, "a relay port is an integer");
+      lua_Integer port = lua_tointeger(L, -1);
+      if (port < 1 || port > 65535) return luaL_argerror(L, 10, "a relay port is 1 to 65535");
+      o->relay_ports[i] = (int)port;
+      lua_pop(L, 1);
+    }
+    if (o->relay_ports[0] == o->relay_ports[1])
+      return luaL_argerror(L, 10, "a relay's two ports differ");
+  }
+  lua_pop(L, 1);
+  if (!o->offline)
+    return luaL_argerror(L, 10, "relay requires offline: its listeners are bound in the "
+                         "network namespace of the child's own");
+  if (fcntl(o->relay_channel, F_GETFD) < 0) return errno;
+  return 0;
+}
+
+/* The boolean `key` of the sandbox, false where it is nil. Raises for
+ * any other value. */
+static int sandbox_flag (lua_State *L, const char *key, const char *refused) {
+  lua_pushstring(L, key);
+  lua_rawget(L, 10);
+  if (!lua_isnil(L, -1) && !lua_isboolean(L, -1)) luaL_argerror(L, 10, refused);
+  int value = lua_toboolean(L, -1);
+  lua_pop(L, 1);
+  return value;
+}
+
+#if defined(__APPLE__)
+/* Reads the sandbox's `seatbelt`, the table on top, into `o`. Raises for
+ * a malformed one; answers 0, or the results it pushed where this
+ * process cannot give a child a profile of its own. */
+static int read_seatbelt (lua_State *L, struct spawn_options *o) {
+  if (!lua_istable(L, -1))
+    return luaL_argerror(L, 10, "seatbelt must be a table of a profile and its parameters");
+  lua_pushliteral(L, "profile");
+  lua_rawget(L, -2);
+  o->seatbelt_profile = plain_string(L, -1, "a seatbelt profile");
+  if (o->seatbelt_profile[0] == '\0') return luaL_argerror(L, 10, "a seatbelt profile is empty");
+  /* Before anything is made for the child: the trampoline's profile
+   * would be a second one in a process this one's profile holds. */
+  int unknown = 0;
+  int holding = seatbelt_holding(&unknown);
+  if (holding != 0) {
+    lua_pushnil(L);
+    if (holding > 0)
+      lua_pushliteral(L, "this process is held by a Seatbelt profile, one it applied "
+                      "(Sandbox.restrict) or was started under, and macOS applies no "
+                      "second profile to a child of it: start the child without a "
+                      "policy, held by this process's own profile");
+    else
+      lua_pushfstring(L, "whether a Seatbelt profile holds this process cannot be told "
+                      "(sandbox_check: %s), and a child's profile would be a second one "
+                      "where one does", cosmic_errno_describe(unknown, NULL));
+    lua_pushinteger(L, holding > 0 ? EPERM : unknown);
+    return 3;
+  }
+  lua_pushliteral(L, "parameters");
+  lua_rawget(L, -3);
+  if (!lua_isnil(L, -1)) {
+    if (!lua_istable(L, -1))
+      return luaL_argerror(L, 10, "a seatbelt's parameters are a table of names and values");
+    lua_pushnil(L);
+    while (lua_next(L, -2) != 0) {
+      if (lua_type(L, -2) != LUA_TSTRING)
+        return luaL_argerror(L, 10, "a seatbelt parameter's name must be a string");
+      if (o->seatbelt_count >= 2 * SEATBELT_PARAMETER_MAX)
+        return luaL_argerror(L, 10, "too many seatbelt parameters");
+      o->seatbelt_words[o->seatbelt_count++] = plain_string(L, -2, "a seatbelt parameter's name");
+      o->seatbelt_words[o->seatbelt_count++] = plain_string(L, -1, "a seatbelt parameter's value");
+      lua_pop(L, 1);
+    }
+  }
+  lua_pop(L, 2);
+  return 0;
+}
+#endif
+
+/* Reads `spawn`'s sandbox, argument 10, into `o`, and checks the options
+ * against each other. Raises for a malformed or contradictory one;
+ * answers 0, or the results it pushed for a start refused. */
+static int read_sandbox (lua_State *L, struct spawn_options *o) {
+  luaL_checktype(L, 10, LUA_TTABLE);
+  /* Options a caller once had, refused rather than passed over: a child
+   * started without the hold its caller asked for would run unconfined. */
+  static const char *const gone[] = { "ruleset", "pledge" };
+  for (size_t i = 0; i < sizeof gone / sizeof gone[0]; i++) {
+    lua_pushstring(L, gone[i]);
+    int given = lua_rawget(L, 10) != LUA_TNIL;
+    lua_pop(L, 1);
+    if (given)
+      return luaL_argerror(L, 10, "a sandbox's `ruleset` and `pledge` are gone: hold the child "
+                                  "with `grants` and `promises`");
+  }
+  lua_pushliteral(L, "promises");
+  lua_rawget(L, 10);
+  if (!lua_isnil(L, -1)) {
+    if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "promises must be a list");
+    o->promising = 1;
+    o->promise_bits = read_promises(L, lua_gettop(L), 10);
+  }
+  lua_pop(L, 1);
+  lua_pushliteral(L, "sockets");
+  lua_rawget(L, 10);
+  if (!lua_isnil(L, -1)) {
+    if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "sockets must be a list");
+    if (!o->promising) return luaL_argerror(L, 10, "sockets require promises");
+    lua_Integer families = (lua_Integer)lua_rawlen(L, -1);
+    for (lua_Integer i = 1; i <= families; i++) {
+      lua_rawgeti(L, -1, i);
+      const char *family = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+      if (strcmp(family, "unix") == 0) o->sockets |= COSMIC_SOCKETS_UNIX;
+      else if (strcmp(family, "inet") == 0) o->sockets |= COSMIC_SOCKETS_INET;
+      else return luaL_argerror(L, 10, "a socket family is \"unix\" or \"inet\"");
+      lua_pop(L, 1);
+    }
+  }
+  lua_pop(L, 1);
+  o->strict = sandbox_flag(L, "strict", "strict must be a boolean");
+  o->proc_only = sandbox_flag(L, "proc", "proc must be a boolean");
+  lua_pushliteral(L, "rlimits");
+  lua_rawget(L, 10);
+  if (!lua_isnil(L, -1)) {
+    if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "rlimits must be a table");
+    o->rlimit_count = read_rlimits(L, lua_gettop(L), 10, o->rlimits);
+  }
+  lua_pop(L, 1);
+  lua_pushliteral(L, "seatbelt");
+  lua_rawget(L, 10);
+  if (!lua_isnil(L, -1)) {
+#if defined(__APPLE__)
+    int refused = read_seatbelt(L, o);
+    if (refused != 0) return refused;
+#else
+    return luaL_argerror(L, 10, "seatbelt is macOS's: this system holds a child by Landlock "
+                         "and seccomp");
+#endif
+  }
+  lua_pop(L, 1);
+  lua_pushliteral(L, "grants");
+  lua_rawget(L, 10);
+  if (!lua_isnil(L, -1)) {
+    if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "grants must be a list");
+    o->granting = 1;
+    o->grant_count = read_grants(L, lua_gettop(L), 10, o->grant_paths, o->grant_letters);
+  }
+  lua_pop(L, 1);
+  lua_pushliteral(L, "unveil");
+  lua_rawget(L, 10);
+  if (!lua_isnil(L, -1)) {
+    if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "unveil must be a table");
+    read_unveil(L, o);
+  }
+  lua_pop(L, 1);
+  o->noexec_scratch = sandbox_flag(L, "noexec_scratch", "noexec_scratch must be a boolean");
+  if (o->noexec_scratch && !o->unveiling)
+    return luaL_argerror(L, 10, "noexec_scratch requires unveil");
+  lua_pushliteral(L, "offline");
+  lua_rawget(L, 10);
+  o->offline = lua_toboolean(L, -1);
+  lua_pop(L, 1);
+  o->online = sandbox_flag(L, "online", "online must be a boolean");
+  lua_pushliteral(L, "relay");
+  lua_rawget(L, 10);
+  if (!lua_isnil(L, -1)) {
+    if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "relay must be a table");
+    int error = read_relay(L, o);
+    if (error != 0) return cosmic_fail(L, error);
+  }
+  lua_pop(L, 1);
+  lua_pushliteral(L, "user");
+  lua_rawget(L, 10);
+  lua_pushliteral(L, "group");
+  lua_rawget(L, 10);
+  if (!lua_isnil(L, -2) || !lua_isnil(L, -1)) {
+    if (!lua_isinteger(L, -2) || !lua_isinteger(L, -1))
+      return luaL_argerror(L, 10, "a user and its group are integers, each with the other");
+    lua_Integer user = lua_tointeger(L, -2), group = lua_tointeger(L, -1);
+    if (user <= 0 || user >= (lua_Integer)UINT32_MAX || group <= 0 ||
+        group >= (lua_Integer)UINT32_MAX)
+      return luaL_argerror(L, 10, "a user and its group are 1 to 4294967294");
+    if (!o->unveiling && !o->proc_only)
+      return luaL_argerror(L, 10, "a user is given with unveil or proc");
+    o->dropping = 1;
+    o->drop_uid = (uid_t)user;
+    o->drop_gid = (gid_t)group;
+  }
+  lua_pop(L, 2);
+  if (o->idmapping && !o->dropping) return luaL_argerror(L, 10, "a bind's idmap requires a user");
+  if (o->proc_only && o->unveiling) return luaL_argerror(L, 10, "proc and unveil exclude each other");
+  if (o->tmp_bytes != 0 && !o->unveiling) return luaL_argerror(L, 10, "unveil's tmp requires unveil");
+  if (o->tmp_bytes != 0 && !o->strict) return luaL_argerror(L, 10, "unveil's tmp requires strict");
+  if (o->tmp_exec && o->tmp_bytes == 0) return luaL_argerror(L, 10, "unveil's tmp_exec requires tmp");
+  if (o->online && o->offline) return luaL_argerror(L, 10, "online and offline exclude each other");
+  if (o->online && o->sockets != COSMIC_SOCKETS_INET)
+    return luaL_argerror(L, 10, "online needs sockets of \"inet\" alone: it is what it gives");
+  if (o->sockets != 0 && !o->offline && !o->online)
+    return luaL_argerror(L, 10, "sockets require offline, the network namespace that holds them, "
+                         "or online, which says nothing does");
+  /* What `nest` leaves to the child's own root and pid namespace: its files, which Landlock
+   * would hold but for the mounts it refuses, and its signals, which the filter lets reach
+   * any pid. */
+  if ((o->promise_bits & COSMIC_PROMISE_NEST) && !(o->strict && o->unveiling))
+    return luaL_argerror(L, 10, "the \"nest\" promise needs strict and unveil: the root and "
+                         "pid namespace of its own that hold its files and signals");
+  /* A pid namespace and a procfs of its own are an unveiled child's, with no paths to bind. */
+  if (o->proc_only) o->unveiling = 1;
+  return 0;
+}
+
+/* Reads `spawn`'s credentials, argument 11, into `o`. Raises for
+ * malformed ones, or ones a sandbox excludes. */
+static void read_credentials (lua_State *L, struct spawn_options *o) {
+  luaL_checktype(L, 11, LUA_TTABLE);
+  lua_pushliteral(L, "user");
+  lua_rawget(L, 11);
+  lua_pushliteral(L, "group");
+  lua_rawget(L, 11);
+  if (!lua_isinteger(L, -2) || !lua_isinteger(L, -1))
+    luaL_argerror(L, 11, "credentials need integer user and group");
+  lua_Integer user = lua_tointeger(L, -2), group = lua_tointeger(L, -1);
+  if (user <= 0 || user >= (lua_Integer)UINT32_MAX || group <= 0 ||
+      group >= (lua_Integer)UINT32_MAX)
+    luaL_argerror(L, 11, "credentials user and group are 1 to 4294967294");
+  if (o->unveiling || o->offline || o->dropping)
+    luaL_argerror(L, 11, "credentials exclude sandbox unveil, offline, user and group");
+  o->credentials = 1;
+  o->credential_user = (uid_t)user;
+  o->credential_group = (gid_t)group;
+  lua_pop(L, 2);
+}
+
+/* Where an unveiled or offline child's root is made, and what is put
+ * in it: the buffers `struct spawn_plan` points into, which last
+ * until the child has started or failed to. */
+struct spawn_root {
+  char root_dir[PATH_MAX];
+  char *resolved;
+  char *resolved_paths[UNVEIL_MAX];
+  char *given_names[UNVEIL_MAX];
+  char path_abs[PATH_MAX];
+  char cwd_abs[PATH_MAX];
+};
+
+/* What an unveiled child resolves in a root of its own is resolved here
+ * first, while this process's filesystem is still the one its names
+ * mean: each unveiled path with no link or `..` left in it, a shorter
+ * before a longer so one inside another lands on top of it; the program
+ * and the directory to run in made absolute from this one's; and an
+ * empty directory to build the root on. Made last, after everything
+ * that can fail. Answers 0, or the errno it failed with, having freed
+ * what it made (`r->root_dir` is then empty). `*path_given` and
+ * `*cwd_given` are pointed at `r`'s copies where they are made absolute. */
+static int resolve_root (const char **path_given, const char **cwd_given, struct spawn_options *o,
+                         struct spawn_root *r) {
+  const char *path = *path_given, *cwd = *cwd_given;
+  int prepare_error = 0;
+  char here[PATH_MAX];
+  if (getcwd(here, sizeof here) == NULL) prepare_error = errno;
+  if (!prepare_error && path[0] != '/') {
+    int length = snprintf(r->path_abs, sizeof r->path_abs, "%s/%s", here, path);
+    if (length < 0 || (size_t)length >= sizeof r->path_abs) prepare_error = ENAMETOOLONG;
+    path = r->path_abs;
+  }
+  if (!prepare_error && (cwd == NULL || cwd[0] != '/')) {
+    int length = snprintf(r->cwd_abs, sizeof r->cwd_abs, "%s/%s", here, cwd == NULL ? "." : cwd);
+    if (length < 0 || (size_t)length >= sizeof r->cwd_abs) prepare_error = ENAMETOOLONG;
+    cwd = r->cwd_abs;
+  }
+  /* TODO: bind each path from the descriptor [`grants_ruleset`] opened for
+   * its grant (a mount of /proc/self/fd/<n>), not from its path
+   * resolved again here, so a grant's one resolution makes the Landlock
+   * rule, the bind and the report, as the sandbox design has it, once
+   * `spawn` hands [`build_root`] the grants' descriptors and answers the
+   * resolutions it made. A link a host process swaps in between the two
+   * resolutions fails closed: the rule is on the file the grant named,
+   * so Landlock refuses what the swapped path holds. */
+  if (!prepare_error && o->unveil_count > 0) {
+    r->resolved = malloc((size_t)o->unveil_count * 2 * PATH_MAX);
+    if (r->resolved == NULL) prepare_error = ENOMEM;
+    for (int i = 0; !prepare_error && i < o->unveil_count; i++) {
+      r->resolved_paths[i] = r->resolved + (size_t)i * 2 * PATH_MAX;
+      r->given_names[i] = NULL;
+      if (realpath(o->unveiled[i], r->resolved_paths[i]) == NULL) {
+        prepare_error = errno;
+        break;
+      }
+      /* The name given, less a trailing slash, where it differs. */
+      size_t n = strlen(o->unveiled[i]);
+      while (n > 1 && o->unveiled[i][n - 1] == '/') n--;
+      if (n >= PATH_MAX) {
+        prepare_error = ENAMETOOLONG;
+        break;
+      }
+      char *name = r->resolved_paths[i] + PATH_MAX;
+      memcpy(name, o->unveiled[i], n);
+      name[n] = '\0';
+      if (o->unveiled_at[i] == NULL && plain_name(name) && strcmp(name, r->resolved_paths[i]) != 0)
+        r->given_names[i] = name;
+    }
+    /* Each where it is placed, a shorter first, so one placed inside
+     * another lands on top of it. */
+    for (int i = 1; !prepare_error && i < o->unveil_count; i++) {
+      for (int j = i; j > 0 &&
+                      strlen(o->unveiled_at[j] != NULL ? o->unveiled_at[j] : r->resolved_paths[j]) <
+                      strlen(o->unveiled_at[j - 1] != NULL ? o->unveiled_at[j - 1] : r->resolved_paths[j - 1]);
+           j--) {
+        char *p = r->resolved_paths[j];
+        r->resolved_paths[j] = r->resolved_paths[j - 1];
+        r->resolved_paths[j - 1] = p;
+        char *q = r->given_names[j];
+        r->given_names[j] = r->given_names[j - 1];
+        r->given_names[j - 1] = q;
+        const char *a = o->unveiled_at[j];
+        o->unveiled_at[j] = o->unveiled_at[j - 1];
+        o->unveiled_at[j - 1] = a;
+        int w = o->unveiled_writable[j];
+        o->unveiled_writable[j] = o->unveiled_writable[j - 1];
+        o->unveiled_writable[j - 1] = w;
+        int x = o->unveiled_noexec[j];
+        o->unveiled_noexec[j] = o->unveiled_noexec[j - 1];
+        o->unveiled_noexec[j - 1] = x;
+        int m = o->unveiled_idmap[j];
+        o->unveiled_idmap[j] = o->unveiled_idmap[j - 1];
+        o->unveiled_idmap[j - 1] = m;
+      }
+    }
+  }
+  if (!prepare_error && o->noexec_scratch) {
+    for (int i = 0; i < o->unveil_count; i++) {
+      const char *placed = o->unveiled_at[i] != NULL ? o->unveiled_at[i] : r->resolved_paths[i];
+      const char *name = r->given_names[i];
+      if (strcmp(placed, "/") == 0 || strcmp(placed, "/noexec") == 0 ||
+          strncmp(placed, "/noexec/", 8) == 0 ||
+          (name != NULL && (strcmp(name, "/noexec") == 0 ||
+                           strncmp(name, "/noexec/", 8) == 0))) {
+        prepare_error = EINVAL;
+        break;
+      }
+    }
+  }
+  if (!prepare_error && o->unveiling && !o->proc_only) {
+    const char *base = getenv("TMPDIR");
+    if (base == NULL || base[0] != '/') base = "/tmp";
+    int length = snprintf(r->root_dir, sizeof r->root_dir, "%s/cosmic-root-XXXXXX", base);
+    if (length < 0 || (size_t)length >= sizeof r->root_dir) prepare_error = ENAMETOOLONG;
+    else if (mkdtemp(r->root_dir) == NULL) prepare_error = errno;
+    if (prepare_error) r->root_dir[0] = '\0';
+  }
+  *path_given = path;
+  *cwd_given = cwd;
+  if (prepare_error) {
+    free(r->resolved);
+    r->resolved = NULL;
+  }
+  return prepare_error;
+}
+
+/* What `spawn` answers once the child has started or failed to: it
+ * reads the errno the child wrote to `status_read` before its exec, if
+ * it wrote one, closes `status_read` and removes the empty `root_dir`.
+ * `pid` is the child running the program (an unveiled start's
+ * program), or -1. */
+static int spawn_answer (lua_State *L, int status_read, pid_t pid, const char *root_dir,
+                         const struct spawn_options *o, const char *idmap_path) {
+#if !defined(__linux__)
+  (void)idmap_path;
+#endif
+  int child_error = 0;
+  size_t received = 0;
+  int read_error = 0;
+  while (received < sizeof child_error) {
+    ssize_t got = read(status_read, (char *)&child_error + received,
+                       sizeof child_error - received);
+    if (got > 0) { received += (size_t)got; continue; }
+    if (got == 0) break;
+    if (errno == EINTR) continue;
+    read_error = errno;
+    break;
+  }
+#if defined(__APPLE__)
+  /* A trampoline that was refused says why after the errno
+   * ([`trampoline_fail`]), and ends: its text is read to the end. */
+  char detail[TRAMPOLINE_MESSAGE_MAX + 1];
+  size_t detail_length = 0;
+  while (received == sizeof child_error && child_error != 0 && detail_length < TRAMPOLINE_MESSAGE_MAX) {
+    ssize_t got = read(status_read, detail + detail_length, TRAMPOLINE_MESSAGE_MAX - detail_length);
+    if (got > 0) { detail_length += (size_t)got; continue; }
+    if (got < 0 && errno == EINTR) continue;
+    break;
+  }
+#endif
+  close(status_read);
+  if (root_dir[0] != '\0') rmdir(root_dir);
+  if (received != 0 || read_error != 0 || pid < 0) {
+    int ignored; while (pid > 0 && waitpid(pid, &ignored, 0) < 0 && errno == EINTR) {}
+#if defined(__linux__)
+    if (pid > 0) sandbox_reaped(pid);
+#endif
+    int number = received == sizeof child_error ? child_error : (read_error != 0 ? read_error : EIO);
+#if defined(__linux__)
+    int stage = number >> STAGE_SHIFT;
+    if ((o->strict || stage == STAGE_RELAY || stage == STAGE_TRUNCATION) && stage != 0) {
+      char message[PATH_MAX + 512];
+      staged_message(number >> STAGE_SHIFT, number & ((1 << STAGE_SHIFT) - 1),
+                     idmap_path[0] != '\0' ? idmap_path : NULL, message, sizeof message);
+      lua_pushnil(L);
+      lua_pushstring(L, message);
+      lua_pushinteger(L, number & ((1 << STAGE_SHIFT) - 1));
+      return 3;
+    }
+#endif
+#if defined(__APPLE__)
+    if (detail_length > 0) {
+      lua_pushnil(L);
+      lua_pushlstring(L, detail, detail_length);
+      lua_pushinteger(L, number);
+      return 3;
+    }
+#endif
+    if (o->granting && number == EACCES) {
+      /* The likeliest cause: the program, or the loader or interpreter
+       * it names, was not granted `rx`. */
+      lua_pushnil(L);
+      lua_pushfstring(L, "%s: a child held to `grants` needs an `rx` grant for its program, and "
+                      "for the interpreter or loader that program names", cosmic_errno_describe(number, NULL));
+      lua_pushinteger(L, number);
+      return 3;
+    }
+    return cosmic_fail(L, number);
+  }
+  lua_pushinteger(L, (lua_Integer)pid);
+  return 1;
+}
+
 COSMIC_SYSCALL(spawn, 12) {
   const char *path = plain_string(L, 1, "path");
   luaL_checktype(L, 2, LUA_TTABLE);
   if (!lua_isnoneornil(L, 3)) luaL_checktype(L, 3, LUA_TTABLE);
   const char *cwd = lua_isnoneornil(L, 4) ? NULL : plain_string(L, 4, "cwd");
-  /* source[t] is the parent descriptor the child sees as t, or -1: for
-   * 0..2 that means inherit, above that it means closed. */
-  int source[CHILD_FD_MAX + 1];
-  for (int i = 0; i <= CHILD_FD_MAX; i++) source[i] = -1;
-  source[0] = stream_source(L, 5);
-  source[1] = stream_source(L, 6);
-  source[2] = stream_source(L, 7);
   int process_group = lua_toboolean(L, 8);
   if (!lua_isnoneornil(L, 12) && lua_type(L, 12) != LUA_TBOOLEAN && lua_type(L, 12) != LUA_TSTRING)
     return luaL_argerror(L, 12, "terminal must be a boolean or the slave's path");
@@ -4107,437 +4771,47 @@ COSMIC_SYSCALL(spawn, 12) {
     if (terminal_path[0] == '\0') return luaL_argerror(L, 12, "the terminal's path is empty");
   }
 #endif
-  int top = 2;
-  if (!lua_isnoneornil(L, 9)) {
-    luaL_checktype(L, 9, LUA_TTABLE);
-    lua_pushnil(L);
-    while (lua_next(L, 9) != 0) {
-      if (!lua_isinteger(L, -2) || !lua_isinteger(L, -1))
-        return luaL_argerror(L, 9, "descriptors must map integers to integers");
-      lua_Integer target = lua_tointeger(L, -2);
-      lua_Integer value = lua_tointeger(L, -1);
-      if (target < 3 || target > CHILD_FD_MAX)
-        return luaL_argerror(L, 9, "a child descriptor must be 3 to 255");
-      if (value < 0 || value > INT_MAX)
-        return luaL_argerror(L, 9, "descriptor is out of range");
-      if (!handed_on(L, target, value)) cosmic_argfd(L, 9, value);
-      source[target] = (int)value;
-      if (target > top) top = (int)target;
-      lua_pop(L, 1);
-    }
+  int source[CHILD_FD_MAX + 1];
+  int top;
+  int descriptor_error = read_descriptors(L, source, &top);
+  if (descriptor_error != 0) return cosmic_fail(L, descriptor_error);
+  struct spawn_options o;
+  memset(&o, 0, sizeof o);
+  o.relay_channel = -1;
+  o.relay_ports[0] = 3128;
+  o.relay_ports[1] = 1080;
+  if (!lua_isnoneornil(L, 10)) {
+    int refused = read_sandbox(L, &o);
+    if (refused != 0) return refused;
   }
-  for (int t = 0; t <= top; t++) {
-    if (source[t] >= 0 && fcntl(source[t], F_GETFD) < 0)
-      return cosmic_fail(L, errno);
-  }
+  if (!lua_isnoneornil(L, 11)) read_credentials(L, &o);
+  /* The Landlock ruleset `grants` make, built below, or -1. */
   int confine = -1;
-  int promising = 0;
-  unsigned promise_bits = 0;
-  struct spawn_rlimit rlimits[SPAWN_RLIMIT_MAX];
-  int rlimit_count = 0;
-  const char *grant_paths[GRANT_MAX];
-  unsigned grant_letters[GRANT_MAX];
-  int granting = 0, grant_count = 0;
-  const char *unveiled[UNVEIL_MAX];
-  const char *unveiled_at[UNVEIL_MAX];
-  int unveiled_writable[UNVEIL_MAX];
-  int unveiling = 0, unveil_count = 0, offline = 0, online = 0, noexec_scratch = 0;
-  int relay_channel = -1;
-  int relay_ports[2] = { 3128, 1080 };
-  int unveiled_noexec[UNVEIL_MAX];
-  int unveiled_idmap[UNVEIL_MAX];
+  /* An idmapped bind's mount descriptors, and the index of the path whose
+   * mount the child could not make, as `struct spawn_plan` has them. */
   int idmap_fds[UNVEIL_MAX];
   int idmap_failed = -1;
   char idmap_path[PATH_MAX];
   idmap_path[0] = '\0';
-  int idmapping = 0;
-#if defined(__APPLE__)
-  /* Where the profile's text and its parameters, names and values
-   * alternating, are: in the strings of the tables given. */
-  const char *seatbelt_profile = NULL;
-  const char *seatbelt_words[2 * SEATBELT_PARAMETER_MAX];
-  int seatbelt_count = 0;
-#endif
-  int strict = 0, proc_only = 0;
-  unsigned sockets = 0;
-  unsigned long tmp_bytes = 0;
-  int tmp_exec = 0;
-  int dropping = 0;
-  uid_t drop_uid = 0;
-  gid_t drop_gid = 0;
-  if (!lua_isnoneornil(L, 10)) {
-    luaL_checktype(L, 10, LUA_TTABLE);
-    /* Options a caller once had, refused rather than passed over: a child
-     * started without the hold its caller asked for would run unconfined. */
-    static const char *const gone[] = { "ruleset", "pledge" };
-    for (size_t i = 0; i < sizeof gone / sizeof gone[0]; i++) {
-      lua_pushstring(L, gone[i]);
-      int given = lua_rawget(L, 10) != LUA_TNIL;
-      lua_pop(L, 1);
-      if (given)
-        return luaL_argerror(L, 10, "a sandbox's `ruleset` and `pledge` are gone: hold the child "
-                                    "with `grants` and `promises`");
-    }
-    lua_pushliteral(L, "promises");
-    lua_rawget(L, 10);
-    if (!lua_isnil(L, -1)) {
-      if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "promises must be a list");
-      promising = 1;
-      promise_bits = read_promises(L, lua_gettop(L), 10);
-    }
-    lua_pop(L, 1);
-    lua_pushliteral(L, "sockets");
-    lua_rawget(L, 10);
-    if (!lua_isnil(L, -1)) {
-      if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "sockets must be a list");
-      if (!promising) return luaL_argerror(L, 10, "sockets require promises");
-      lua_Integer families = (lua_Integer)lua_rawlen(L, -1);
-      for (lua_Integer i = 1; i <= families; i++) {
-        lua_rawgeti(L, -1, i);
-        const char *family = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
-        if (strcmp(family, "unix") == 0) sockets |= COSMIC_SOCKETS_UNIX;
-        else if (strcmp(family, "inet") == 0) sockets |= COSMIC_SOCKETS_INET;
-        else return luaL_argerror(L, 10, "a socket family is \"unix\" or \"inet\"");
-        lua_pop(L, 1);
-      }
-    }
-    lua_pop(L, 1);
-    lua_pushliteral(L, "strict");
-    lua_rawget(L, 10);
-    if (!lua_isnil(L, -1) && !lua_isboolean(L, -1))
-      return luaL_argerror(L, 10, "strict must be a boolean");
-    strict = lua_toboolean(L, -1);
-    lua_pop(L, 1);
-    lua_pushliteral(L, "proc");
-    lua_rawget(L, 10);
-    if (!lua_isnil(L, -1) && !lua_isboolean(L, -1))
-      return luaL_argerror(L, 10, "proc must be a boolean");
-    proc_only = lua_toboolean(L, -1);
-    lua_pop(L, 1);
-    lua_pushliteral(L, "rlimits");
-    lua_rawget(L, 10);
-    if (!lua_isnil(L, -1)) {
-      if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "rlimits must be a table");
-      rlimit_count = read_rlimits(L, lua_gettop(L), 10, rlimits);
-    }
-    lua_pop(L, 1);
-    lua_pushliteral(L, "seatbelt");
-    lua_rawget(L, 10);
-    if (!lua_isnil(L, -1)) {
-#if defined(__APPLE__)
-      if (!lua_istable(L, -1))
-        return luaL_argerror(L, 10, "seatbelt must be a table of a profile and its parameters");
-      lua_pushliteral(L, "profile");
-      lua_rawget(L, -2);
-      seatbelt_profile = plain_string(L, -1, "a seatbelt profile");
-      if (seatbelt_profile[0] == '\0') return luaL_argerror(L, 10, "a seatbelt profile is empty");
-      /* Before anything is made for the child: the trampoline's profile
-       * would be a second one in a process this one's profile holds. */
-      int unknown = 0;
-      int holding = seatbelt_holding(&unknown);
-      if (holding != 0) {
-        lua_pushnil(L);
-        if (holding > 0)
-          lua_pushliteral(L, "this process is held by a Seatbelt profile, one it applied "
-                          "(Sandbox.restrict) or was started under, and macOS applies no "
-                          "second profile to a child of it: start the child without a "
-                          "policy, held by this process's own profile");
-        else
-          lua_pushfstring(L, "whether a Seatbelt profile holds this process cannot be told "
-                          "(sandbox_check: %s), and a child's profile would be a second one "
-                          "where one does", cosmic_errno_describe(unknown, NULL));
-        lua_pushinteger(L, holding > 0 ? EPERM : unknown);
-        return 3;
-      }
-      lua_pushliteral(L, "parameters");
-      lua_rawget(L, -3);
-      if (!lua_isnil(L, -1)) {
-        if (!lua_istable(L, -1))
-          return luaL_argerror(L, 10, "a seatbelt's parameters are a table of names and values");
-        lua_pushnil(L);
-        while (lua_next(L, -2) != 0) {
-          if (lua_type(L, -2) != LUA_TSTRING)
-            return luaL_argerror(L, 10, "a seatbelt parameter's name must be a string");
-          if (seatbelt_count >= 2 * SEATBELT_PARAMETER_MAX)
-            return luaL_argerror(L, 10, "too many seatbelt parameters");
-          seatbelt_words[seatbelt_count++] = plain_string(L, -2, "a seatbelt parameter's name");
-          seatbelt_words[seatbelt_count++] = plain_string(L, -1, "a seatbelt parameter's value");
-          lua_pop(L, 1);
-        }
-      }
-      lua_pop(L, 2);
-#else
-      return luaL_argerror(L, 10, "seatbelt is macOS's: this system holds a child by Landlock "
-                           "and seccomp");
-#endif
-    }
-    lua_pop(L, 1);
-    lua_pushliteral(L, "grants");
-    lua_rawget(L, 10);
-    if (!lua_isnil(L, -1)) {
-      if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "grants must be a list");
-      granting = 1;
-      grant_count = read_grants(L, lua_gettop(L), 10, grant_paths, grant_letters);
-    }
-    lua_pop(L, 1);
-    lua_pushliteral(L, "unveil");
-    lua_rawget(L, 10);
-    if (!lua_isnil(L, -1)) {
-      if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "unveil must be a table");
-      unveiling = 1;
-      for (int w = 0; w < 2; w++) {
-        lua_pushstring(L, w == 0 ? "reads" : "writes");
-        lua_rawget(L, -2);
-        if (!lua_isnil(L, -1)) {
-          if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "unveiled paths must be a list");
-          lua_Integer n = (lua_Integer)lua_rawlen(L, -1);
-          for (lua_Integer i = 1; i <= n; i++) {
-            lua_rawgeti(L, -1, i);
-            const char *unveil_path = plain_string(L, -1, "unveiled path");
-            if (unveil_path[0] != '/')
-              return luaL_argerror(L, 10, "an unveiled path must be absolute");
-            if (unveil_count >= UNVEIL_MAX)
-              return luaL_argerror(L, 10, "too many unveiled paths");
-            unveiled[unveil_count] = unveil_path;
-            unveiled_at[unveil_count] = NULL;
-            unveiled_writable[unveil_count] = w;
-            unveiled_noexec[unveil_count] = 0;
-            unveiled_idmap[unveil_count] = 0;
-            unveil_count++;
-            lua_pop(L, 1);
-          }
-        }
-        lua_pop(L, 1);
-      }
-      /* Paths with more said of each than `reads` and `writes` can: where
-       * it is bound, and whether it may not execute. */
-      lua_pushliteral(L, "binds");
-      lua_rawget(L, -2);
-      if (!lua_isnil(L, -1)) {
-        if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "unveil's binds must be a list");
-        lua_Integer n = (lua_Integer)lua_rawlen(L, -1);
-        for (lua_Integer i = 1; i <= n; i++) {
-          lua_rawgeti(L, -1, i);
-          if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "a bind is a table");
-          if (unveil_count >= UNVEIL_MAX) return luaL_argerror(L, 10, "too many unveiled paths");
-          lua_pushliteral(L, "path");
-          lua_rawget(L, -2);
-          const char *bind_path = plain_string(L, -1, "a bind's path");
-          if (bind_path[0] != '/') return luaL_argerror(L, 10, "a bind's path must be absolute");
-          lua_pushliteral(L, "at");
-          lua_rawget(L, -3);
-          const char *bind_at = NULL;
-          if (!lua_isnil(L, -1)) {
-            bind_at = plain_string(L, -1, "the name a bind is at");
-            size_t length = strlen(bind_at);
-            if (!plain_name(bind_at) || length < 2 || bind_at[length - 1] == '/')
-              return luaL_argerror(L, 10, "a bind is at an absolute name, plain, and not /");
-            if (strcmp(bind_at, "/.old") == 0 || strncmp(bind_at, "/.old/", 6) == 0)
-              return luaL_argerror(L, 10, "a bind is at no name beneath /.old");
-            for (int j = 0; j < unveil_count; j++) {
-              if (unveiled_at[j] != NULL && strcmp(unveiled_at[j], bind_at) == 0)
-                return luaL_argerror(L, 10, "two paths are bound at one name");
-            }
-          }
-          lua_pushliteral(L, "writable");
-          lua_rawget(L, -4);
-          unveiled_writable[unveil_count] = lua_toboolean(L, -1);
-          lua_pushliteral(L, "noexec");
-          lua_rawget(L, -5);
-          unveiled_noexec[unveil_count] = lua_toboolean(L, -1);
-          lua_pushliteral(L, "idmap");
-          lua_rawget(L, -6);
-          unveiled_idmap[unveil_count] = lua_toboolean(L, -1);
-          if (unveiled_idmap[unveil_count]) idmapping = 1;
-          unveiled[unveil_count] = bind_path;
-          unveiled_at[unveil_count] = bind_at;
-          unveil_count++;
-          lua_pop(L, 6);
-        }
-      }
-      lua_pop(L, 1);
-      lua_pushliteral(L, "tmp");
-      lua_rawget(L, -2);
-      if (!lua_isnil(L, -1)) {
-        if (!lua_isinteger(L, -1) || lua_tointeger(L, -1) < 1)
-          return luaL_argerror(L, 10, "unveil's tmp is a size in bytes, at least 1");
-        tmp_bytes = (unsigned long)lua_tointeger(L, -1);
-      }
-      lua_pop(L, 1);
-      lua_pushliteral(L, "tmp_exec");
-      lua_rawget(L, -2);
-      if (!lua_isnil(L, -1)) {
-        if (!lua_isboolean(L, -1)) return luaL_argerror(L, 10, "unveil's tmp_exec must be a boolean");
-        tmp_exec = lua_toboolean(L, -1);
-      }
-      lua_pop(L, 1);
-      /* The name each path given is bound at instead of its own. */
-      lua_pushliteral(L, "at");
-      lua_rawget(L, -2);
-      if (!lua_isnil(L, -1)) {
-        if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "unveil's at must be a table");
-        lua_pushnil(L);
-        while (lua_next(L, -2) != 0) {
-          const char *given = plain_string(L, -2, "a path unveil's at names");
-          const char *name = plain_string(L, -1, "the name a path is bound at");
-          size_t length = strlen(name);
-          if (!plain_name(name) || length < 2 || name[length - 1] == '/')
-            return luaL_argerror(L, 10, "a path is bound at an absolute name, plain, and not /");
-          /* The root's own: where the old root is put aside as it pivots. */
-          if (strcmp(name, "/.old") == 0 || strncmp(name, "/.old/", 6) == 0)
-            return luaL_argerror(L, 10, "a path is bound at no name beneath /.old");
-          for (int i = 0; i < unveil_count; i++) {
-            if (unveiled_at[i] != NULL && strcmp(unveiled_at[i], name) == 0)
-              return luaL_argerror(L, 10, "two paths are bound at one name");
-          }
-          int found = 0;
-          for (int i = 0; i < unveil_count; i++) {
-            if (strcmp(unveiled[i], given) == 0) {
-              unveiled_at[i] = name;
-              found = 1;
-            }
-          }
-          if (!found) return luaL_argerror(L, 10, "unveil's at names a path not unveiled");
-          lua_pop(L, 1);
-        }
-      }
-      lua_pop(L, 1);
-    }
-    lua_pop(L, 1);
-    lua_pushliteral(L, "noexec_scratch");
-    lua_rawget(L, 10);
-    if (!lua_isnil(L, -1) && !lua_isboolean(L, -1))
-      return luaL_argerror(L, 10, "noexec_scratch must be a boolean");
-    noexec_scratch = lua_toboolean(L, -1);
-    lua_pop(L, 1);
-    if (noexec_scratch && !unveiling)
-      return luaL_argerror(L, 10, "noexec_scratch requires unveil");
-    lua_pushliteral(L, "offline");
-    lua_rawget(L, 10);
-    offline = lua_toboolean(L, -1);
-    lua_pop(L, 1);
-    lua_pushliteral(L, "online");
-    lua_rawget(L, 10);
-    if (!lua_isnil(L, -1) && !lua_isboolean(L, -1))
-      return luaL_argerror(L, 10, "online must be a boolean");
-    online = lua_toboolean(L, -1);
-    lua_pop(L, 1);
-    lua_pushliteral(L, "relay");
-    lua_rawget(L, 10);
-    if (!lua_isnil(L, -1)) {
-      if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "relay must be a table");
-      lua_pushliteral(L, "fd");
-      lua_rawget(L, -2);
-      if (!lua_isinteger(L, -1)) return luaL_argerror(L, 10, "relay's fd must be a descriptor");
-      lua_Integer channel = lua_tointeger(L, -1);
-      /* Below 3 it would be a stdio descriptor the child may leave inherited. */
-      if (channel < 3 || channel > INT_MAX)
-        return luaL_argerror(L, 10, "relay's fd is out of range: 3 or more");
-      cosmic_argfd(L, 10, channel);
-      relay_channel = (int)channel;
-      lua_pop(L, 1);
-      lua_pushliteral(L, "ports");
-      lua_rawget(L, -2);
-      if (!lua_isnil(L, -1)) {
-        if (!lua_istable(L, -1) || lua_rawlen(L, -1) != 2)
-          return luaL_argerror(L, 10, "relay's ports are two ports");
-        for (int i = 0; i < 2; i++) {
-          lua_rawgeti(L, -1, i + 1);
-          if (!lua_isinteger(L, -1)) return luaL_argerror(L, 10, "a relay port is an integer");
-          lua_Integer port = lua_tointeger(L, -1);
-          if (port < 1 || port > 65535)
-            return luaL_argerror(L, 10, "a relay port is 1 to 65535");
-          relay_ports[i] = (int)port;
-          lua_pop(L, 1);
-        }
-        if (relay_ports[0] == relay_ports[1])
-          return luaL_argerror(L, 10, "a relay's two ports differ");
-      }
-      lua_pop(L, 1);
-      if (!offline)
-        return luaL_argerror(L, 10, "relay requires offline: its listeners are bound in the "
-                             "network namespace of the child's own");
-      if (fcntl(relay_channel, F_GETFD) < 0) return cosmic_fail(L, errno);
-    }
-    lua_pop(L, 1);
-    lua_pushliteral(L, "user");
-    lua_rawget(L, 10);
-    lua_pushliteral(L, "group");
-    lua_rawget(L, 10);
-    if (!lua_isnil(L, -2) || !lua_isnil(L, -1)) {
-      if (!lua_isinteger(L, -2) || !lua_isinteger(L, -1))
-        return luaL_argerror(L, 10, "a user and its group are integers, each with the other");
-      lua_Integer user = lua_tointeger(L, -2), group = lua_tointeger(L, -1);
-      if (user <= 0 || user >= (lua_Integer)UINT32_MAX || group <= 0 ||
-          group >= (lua_Integer)UINT32_MAX)
-        return luaL_argerror(L, 10, "a user and its group are 1 to 4294967294");
-      if (!unveiling && !proc_only)
-        return luaL_argerror(L, 10, "a user is given with unveil or proc");
-      dropping = 1;
-      drop_uid = (uid_t)user;
-      drop_gid = (gid_t)group;
-    }
-    lua_pop(L, 2);
-    if (idmapping && !dropping) return luaL_argerror(L, 10, "a bind's idmap requires a user");
-    if (proc_only && unveiling) return luaL_argerror(L, 10, "proc and unveil exclude each other");
-    if (tmp_bytes != 0 && !unveiling) return luaL_argerror(L, 10, "unveil's tmp requires unveil");
-    if (tmp_bytes != 0 && !strict) return luaL_argerror(L, 10, "unveil's tmp requires strict");
-    if (tmp_exec && tmp_bytes == 0) return luaL_argerror(L, 10, "unveil's tmp_exec requires tmp");
-    if (online && offline) return luaL_argerror(L, 10, "online and offline exclude each other");
-    if (online && sockets != COSMIC_SOCKETS_INET)
-      return luaL_argerror(L, 10, "online needs sockets of \"inet\" alone: it is what it gives");
-    if (sockets != 0 && !offline && !online)
-      return luaL_argerror(L, 10, "sockets require offline, the network namespace that holds them, "
-                           "or online, which says nothing does");
-    /* What `nest` leaves to the child's own root and pid namespace: its files, which Landlock
-     * would hold but for the mounts it refuses, and its signals, which the filter lets reach
-     * any pid. */
-    if ((promise_bits & COSMIC_PROMISE_NEST) && !(strict && unveiling))
-      return luaL_argerror(L, 10, "the \"nest\" promise needs strict and unveil: the root and "
-                           "pid namespace of its own that hold its files and signals");
-    /* A pid namespace and a procfs of its own are an unveiled child's, with no paths to bind. */
-    if (proc_only) unveiling = 1;
-  }
-  int credentials = !lua_isnoneornil(L, 11);
-  uid_t credential_user = 0;
-  gid_t credential_group = 0;
-  if (credentials) {
-    luaL_checktype(L, 11, LUA_TTABLE);
-    lua_pushliteral(L, "user");
-    lua_rawget(L, 11);
-    lua_pushliteral(L, "group");
-    lua_rawget(L, 11);
-    if (!lua_isinteger(L, -2) || !lua_isinteger(L, -1))
-      return luaL_argerror(L, 11, "credentials need integer user and group");
-    lua_Integer user = lua_tointeger(L, -2), group = lua_tointeger(L, -1);
-    if (user <= 0 || user >= (lua_Integer)UINT32_MAX || group <= 0 ||
-        group >= (lua_Integer)UINT32_MAX)
-      return luaL_argerror(L, 11, "credentials user and group are 1 to 4294967294");
-    if (unveiling || offline || dropping)
-      return luaL_argerror(L, 11, "credentials exclude sandbox unveil, offline, user and group");
-    credential_user = (uid_t)user;
-    credential_group = (gid_t)group;
-    lua_pop(L, 2);
-  }
 #if defined(__linux__)
   int credential_dumpable = -1;
-  if (credentials) {
+  if (o.credentials) {
     credential_dumpable = prctl(PR_GET_DUMPABLE, 0, 0, 0, 0);
     if (credential_dumpable < 0) return cosmic_fail(L, errno);
     if (credential_dumpable != 0 && credential_dumpable != 1) return cosmic_fail(L, ENOTSUP);
   }
 #endif
 #if !defined(__linux__)
-  if (unveiling || offline || credentials || granting) return cosmic_fail(L, ENOSYS);
+  if (o.unveiling || o.offline || o.credentials || o.granting) return cosmic_fail(L, ENOSYS);
 #else
-  if (unveiling && !sandbox_room()) return cosmic_fail(L, errno);
+  if (o.unveiling && !sandbox_room()) return cosmic_fail(L, errno);
 #endif
   /* The child maps its own ids, or, giving root up, the user and group
    * it runs as; its namespace is mapped from outside then, with root's
    * beside them ([`map_from_outside`]). */
   unsigned long own_uid = (unsigned long)geteuid(), own_gid = (unsigned long)getegid();
-  unsigned long child_uid = dropping ? (unsigned long)drop_uid : own_uid;
-  unsigned long child_gid = dropping ? (unsigned long)drop_gid : own_gid;
+  unsigned long child_uid = o.dropping ? (unsigned long)o.drop_uid : own_uid;
+  unsigned long child_gid = o.dropping ? (unsigned long)o.drop_gid : own_gid;
   char uid_map[64], gid_map[64], outer_uid_map[96], outer_gid_map[96];
   snprintf(uid_map, sizeof uid_map, "%lu %lu 1\n", child_uid, child_uid);
   snprintf(gid_map, sizeof gid_map, "%lu %lu 1\n", child_gid, child_gid);
@@ -4599,7 +4873,7 @@ COSMIC_SYSCALL(spawn, 12) {
 
   int status_pipe[2];
   if (pipe(status_pipe) != 0) {
-    int number = errno; if (!lua_isnoneornil(L, 3)) free_environment(envp, envc); free(argv);
+    int number = errno; if (envp != COSMIC_ENVIRON) free_environment(envp, envc); free(argv);
     return cosmic_fail(L, number);
   }
   /* Move both ends clear of every descriptor the child is handed, so
@@ -4628,128 +4902,28 @@ COSMIC_SYSCALL(spawn, 12) {
   if (status_read < 0 || status_write < 0) {
     if (status_read >= 0) close(status_read);
     if (status_write >= 0) close(status_write);
-    if (!lua_isnoneornil(L, 3)) free_environment(envp, envc);
+    if (envp != COSMIC_ENVIRON) free_environment(envp, envc);
     free(argv);
     return cosmic_fail(L, promote_error);
   }
-  /* What an unveiled child resolves in a root of its own is resolved here
-   * first, while this process's filesystem is still the one its names
-   * mean: each unveiled path with no link or `..` left in it, a shorter
-   * before a longer so one inside another lands on top of it; the program
-   * and the directory to run in made absolute from this one's; and an
-   * empty directory to build the root on. Made last, after everything
-   * that can fail, and released once the child has started or failed to. */
-  char root_dir[PATH_MAX];
-  root_dir[0] = '\0';
-  char *resolved = NULL;
-  char *resolved_paths[UNVEIL_MAX], *given_names[UNVEIL_MAX];
-  char path_abs[PATH_MAX], cwd_abs[PATH_MAX];
-  if (unveiling || offline) {
-    int prepare_error = 0;
-    char here[PATH_MAX];
-    if (getcwd(here, sizeof here) == NULL) prepare_error = errno;
-    if (!prepare_error && path[0] != '/') {
-      int length = snprintf(path_abs, sizeof path_abs, "%s/%s", here, path);
-      if (length < 0 || (size_t)length >= sizeof path_abs) prepare_error = ENAMETOOLONG;
-      path = path_abs;
-    }
-    if (!prepare_error && (cwd == NULL || cwd[0] != '/')) {
-      int length = snprintf(cwd_abs, sizeof cwd_abs, "%s/%s", here, cwd == NULL ? "." : cwd);
-      if (length < 0 || (size_t)length >= sizeof cwd_abs) prepare_error = ENAMETOOLONG;
-      cwd = cwd_abs;
-    }
-    /* TODO: bind each path from the descriptor [`grants_ruleset`] opened for
-     * its grant (a mount of /proc/self/fd/<n>), not from its path
-     * resolved again here, so a grant's one resolution makes the Landlock
-     * rule, the bind and the report, as the sandbox design has it, once
-     * `spawn` hands [`build_root`] the grants' descriptors and answers the
-     * resolutions it made. A link a host process swaps in between the two
-     * resolutions fails closed: the rule is on the file the grant named,
-     * so Landlock refuses what the swapped path holds. */
-    if (!prepare_error && unveil_count > 0) {
-      resolved = malloc((size_t)unveil_count * 2 * PATH_MAX);
-      if (resolved == NULL) prepare_error = ENOMEM;
-      for (int i = 0; !prepare_error && i < unveil_count; i++) {
-        resolved_paths[i] = resolved + (size_t)i * 2 * PATH_MAX;
-        given_names[i] = NULL;
-        if (realpath(unveiled[i], resolved_paths[i]) == NULL) {
-          prepare_error = errno;
-          break;
-        }
-        /* The name given, less a trailing slash, where it differs. */
-        size_t n = strlen(unveiled[i]);
-        while (n > 1 && unveiled[i][n - 1] == '/') n--;
-        if (n >= PATH_MAX) {
-          prepare_error = ENAMETOOLONG;
-          break;
-        }
-        char *name = resolved_paths[i] + PATH_MAX;
-        memcpy(name, unveiled[i], n);
-        name[n] = '\0';
-        if (unveiled_at[i] == NULL && plain_name(name) && strcmp(name, resolved_paths[i]) != 0)
-          given_names[i] = name;
-      }
-      /* Each where it is placed, a shorter first, so one placed inside
-       * another lands on top of it. */
-      for (int i = 1; !prepare_error && i < unveil_count; i++) {
-        for (int j = i; j > 0 &&
-                        strlen(unveiled_at[j] != NULL ? unveiled_at[j] : resolved_paths[j]) <
-                        strlen(unveiled_at[j - 1] != NULL ? unveiled_at[j - 1] : resolved_paths[j - 1]);
-             j--) {
-          char *p = resolved_paths[j];
-          resolved_paths[j] = resolved_paths[j - 1];
-          resolved_paths[j - 1] = p;
-          char *q = given_names[j];
-          given_names[j] = given_names[j - 1];
-          given_names[j - 1] = q;
-          const char *a = unveiled_at[j];
-          unveiled_at[j] = unveiled_at[j - 1];
-          unveiled_at[j - 1] = a;
-          int w = unveiled_writable[j];
-          unveiled_writable[j] = unveiled_writable[j - 1];
-          unveiled_writable[j - 1] = w;
-          int x = unveiled_noexec[j];
-          unveiled_noexec[j] = unveiled_noexec[j - 1];
-          unveiled_noexec[j - 1] = x;
-          int m = unveiled_idmap[j];
-          unveiled_idmap[j] = unveiled_idmap[j - 1];
-          unveiled_idmap[j - 1] = m;
-        }
-      }
-    }
-    if (!prepare_error && noexec_scratch) {
-      for (int i = 0; i < unveil_count; i++) {
-        const char *placed = unveiled_at[i] != NULL ? unveiled_at[i] : resolved_paths[i];
-        const char *name = given_names[i];
-        if (strcmp(placed, "/") == 0 || strcmp(placed, "/noexec") == 0 ||
-            strncmp(placed, "/noexec/", 8) == 0 ||
-            (name != NULL && (strcmp(name, "/noexec") == 0 ||
-                             strncmp(name, "/noexec/", 8) == 0))) {
-          prepare_error = EINVAL;
-          break;
-        }
-      }
-    }
-    if (!prepare_error && unveiling && !proc_only) {
-      const char *base = getenv("TMPDIR");
-      if (base == NULL || base[0] != '/') base = "/tmp";
-      int length = snprintf(root_dir, sizeof root_dir, "%s/cosmic-root-XXXXXX", base);
-      if (length < 0 || (size_t)length >= sizeof root_dir) prepare_error = ENAMETOOLONG;
-      else if (mkdtemp(root_dir) == NULL) prepare_error = errno;
-      if (prepare_error) root_dir[0] = '\0';
-    }
+  struct spawn_root root;
+  root.root_dir[0] = '\0';
+  root.resolved = NULL;
+  if (o.unveiling || o.offline) {
+    int prepare_error = resolve_root(&path, &cwd, &o, &root);
     if (prepare_error) {
-      free(resolved);
       close(status_read);
       close(status_write);
-      if (!lua_isnoneornil(L, 3)) free_environment(envp, envc);
+      if (envp != COSMIC_ENVIRON) free_environment(envp, envc);
       free(argv);
       return cosmic_fail(L, prepare_error);
     }
   }
+  char *root_dir = root.root_dir;
+  char **resolved_paths = root.resolved_paths, **given_names = root.given_names;
   int unmap_root = 0;
 #if defined(__linux__)
-  unmap_root = (unveiling || offline) && inner_user_namespace() && geteuid() == 0;
+  unmap_root = (o.unveiling || o.offline) && inner_user_namespace() && geteuid() == 0;
 #endif
   /* Built last of what can fail, so the one cleanup below serves it: a
    * ruleset to close is the only thing past here that is not the
@@ -4792,26 +4966,26 @@ COSMIC_SYSCALL(spawn, 12) {
    *   makes beside it is another of its own, never the host's.
    * A descriptor handed that is a connected socket reaches what it was
    * connected to, as it would from any start: the caller handed it. */
-  int nesting = (promise_bits & COSMIC_PROMISE_NEST) != 0;
-  int unix_tmp = (granting || nesting) && strict && unveiling && !proc_only && offline &&
+  int nesting = (o.promise_bits & COSMIC_PROMISE_NEST) != 0;
+  int unix_tmp = (o.granting || nesting) && o.strict && o.unveiling && !o.proc_only && o.offline &&
                  close_range_works() &&
-                 root_shows_no_socket(resolved_paths, unveiled_at, unveil_count, source, top);
-  if (granting) {
+                 root_shows_no_socket(resolved_paths, o.unveiled_at, o.unveil_count, source, top);
+  if (o.granting) {
     /* A `u` grant's socket is the one a bind may show. */
-    for (int i = 0; i < unveil_count; i++) {
-      for (int j = 0; j < grant_count; j++) {
+    for (int i = 0; i < o.unveil_count; i++) {
+      for (int j = 0; j < o.grant_count; j++) {
         char real[PATH_MAX];
-        if ((grant_letters[j] & GRANT_UNIX) && realpath(grant_paths[j], real) != NULL &&
+        if ((o.grant_letters[j] & GRANT_UNIX) && realpath(o.grant_paths[j], real) != NULL &&
             strcmp(real, resolved_paths[i]) == 0)
           unveiled_unix[i] = 1;
       }
     }
     long version = syscall(SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
-    unix_guard = strict && unveiling && !proc_only && offline && version < LANDLOCK_ABI_RESOLVE_UNIX &&
-                 (unix_tmp || (sockets & COSMIC_SOCKETS_UNIX) != 0);
-    confine = grants_ruleset(grant_paths, grant_letters, grant_count,
-                             (sockets & COSMIC_SOCKETS_INET) != 0, strict && unveiling && !proc_only,
-                             offline, unix_tmp, grant_message, sizeof grant_message, &grant_error,
+    unix_guard = o.strict && o.unveiling && !o.proc_only && o.offline && version < LANDLOCK_ABI_RESOLVE_UNIX &&
+                 (unix_tmp || (o.sockets & COSMIC_SOCKETS_UNIX) != 0);
+    confine = grants_ruleset(o.grant_paths, o.grant_letters, o.grant_count,
+                             (o.sockets & COSMIC_SOCKETS_INET) != 0, o.strict && o.unveiling && !o.proc_only,
+                             o.offline, unix_tmp, grant_message, sizeof grant_message, &grant_error,
                              &held);
   }
   if (nesting && unix_tmp) {
@@ -4823,17 +4997,16 @@ COSMIC_SYSCALL(spawn, 12) {
    * initial one's, so it cannot raise a hard limit, nor for those of the
    * owner of a network namespace it did not make, so it cannot change
    * one; and for an unveiled child a pid namespace of its own. */
-  if (unveiling || offline) held |= COSMIC_HELD_LIMITS | COSMIC_HELD_NETWORK;
-  if (unveiling) held |= COSMIC_HELD_PIDS;
+  if (o.unveiling || o.offline) held |= COSMIC_HELD_LIMITS | COSMIC_HELD_NETWORK;
+  if (o.unveiling) held |= COSMIC_HELD_PIDS;
 #endif
-  (void)grant_count; /* only the Linux build holds a child to its grants */
   if (grant_error != 0) {
     close(status_read);
     close(status_write);
     if (root_dir[0] != '\0') rmdir(root_dir);
-    if (!lua_isnoneornil(L, 3)) free_environment(envp, envc);
+    if (envp != COSMIC_ENVIRON) free_environment(envp, envc);
     free(argv);
-    free(resolved);
+    free(root.resolved);
     lua_pushnil(L);
     lua_pushstring(L, grant_message);
     lua_pushinteger(L, grant_error);
@@ -4844,26 +5017,26 @@ COSMIC_SYSCALL(spawn, 12) {
     .path = path, .argv = argv, .envp = given, .cwd = cwd, .source = source, .top = top,
     .status_read = status_read, .status_write = status_write,
     .descriptor_limit = descriptor_limit, .process_group = process_group, .terminal = terminal,
-    .credentials = credentials, .user = credential_user, .group = credential_group,
+    .credentials = o.credentials, .user = o.credential_user, .group = o.credential_group,
     .confine = confine,
-    .promising = promising, .promises = promise_bits, .held = held,
-    .rlimit_count = rlimit_count, .rlimits = rlimits,
+    .promising = o.promising, .promises = o.promise_bits, .held = held,
+    .rlimit_count = o.rlimit_count, .rlimits = o.rlimits,
 #if defined(__APPLE__)
-    .seatbelt_profile = seatbelt_profile, .seatbelt_parameters = seatbelt_words,
-    .seatbelt_parameter_count = seatbelt_count, .terminal_path = terminal_path,
+    .seatbelt_profile = o.seatbelt_profile, .seatbelt_parameters = o.seatbelt_words,
+    .seatbelt_parameter_count = o.seatbelt_count, .terminal_path = terminal_path,
 #endif
-    .unveiling = unveiling, .offline = offline, .noexec_scratch = noexec_scratch,
-    .relay_channel = relay_channel, .relay_ports = { relay_ports[0], relay_ports[1] },
-    .strict = strict, .proc_only = proc_only, .tmp_bytes = tmp_bytes, .tmp_exec = tmp_exec, .unix_guard = unix_guard,
+    .unveiling = o.unveiling, .offline = o.offline, .noexec_scratch = o.noexec_scratch,
+    .relay_channel = o.relay_channel, .relay_ports = { o.relay_ports[0], o.relay_ports[1] },
+    .strict = o.strict, .proc_only = o.proc_only, .tmp_bytes = o.tmp_bytes, .tmp_exec = o.tmp_exec, .unix_guard = unix_guard,
     .unveiled_unix = unveiled_unix,
-    .sockets = sockets,
-    .unveiled_noexec = unveiled_noexec, .root_dir = root_dir,
-    .resolved_paths = resolved_paths, .given_names = given_names, .bound_at = unveiled_at,
-    .unveiled_writable = unveiled_writable, .unveil_count = unveil_count,
-    .unveiled_idmap = idmapping ? unveiled_idmap : NULL, .idmap_fds = idmapping ? idmap_fds : NULL,
+    .sockets = o.sockets,
+    .unveiled_noexec = o.unveiled_noexec, .root_dir = root_dir,
+    .resolved_paths = resolved_paths, .given_names = given_names, .bound_at = o.unveiled_at,
+    .unveiled_writable = o.unveiled_writable, .unveil_count = o.unveil_count,
+    .unveiled_idmap = o.idmapping ? o.unveiled_idmap : NULL, .idmap_fds = o.idmapping ? idmap_fds : NULL,
     .idmap_failed = &idmap_failed,
     .uid_map = uid_map, .gid_map = gid_map, .unmap_root = unmap_root,
-    .dropping = dropping, .drop_uid = drop_uid, .drop_gid = drop_gid,
+    .dropping = o.dropping, .drop_uid = o.drop_uid, .drop_gid = o.drop_gid,
     .outer_uid_map = outer_uid_map, .outer_gid_map = outer_gid_map,
   };
   pid_t program = -1;
@@ -4879,15 +5052,15 @@ COSMIC_SYSCALL(spawn, 12) {
    * and the child set it ([`start_program`]): whatever it was here, it is
    * put back once the child has exec'd. */
 #if defined(__linux__)
-  int dumpable = dropping ? prctl(PR_GET_DUMPABLE, 0, 0, 0, 0) : -1;
+  int dumpable = o.dropping ? prctl(PR_GET_DUMPABLE, 0, 0, 0, 0) : -1;
 #endif
   pid_t pid = start_child(&plan, &fork_error);
   /* The child has its own copy of the ruleset's descriptor from its
    * start, or never started. */
-  if (granting) close(confine);
+  if (o.granting) close(confine);
 #if defined(__linux__)
   int restore_error = 0;
-  if (credentials) {
+  if (o.credentials) {
     int current = prctl(PR_GET_DUMPABLE, 0, 0, 0, 0);
     if (current < 0) restore_error = errno;
     else if (current != credential_dumpable &&
@@ -4900,11 +5073,11 @@ COSMIC_SYSCALL(spawn, 12) {
 #endif
   close(status_write);
   if (given != envp) free(given);
-  if (!lua_isnoneornil(L, 3)) free_environment(envp, envc);
+  if (envp != COSMIC_ENVIRON) free_environment(envp, envc);
   free(argv);
-  if (idmap_failed >= 0 && idmap_failed < unveil_count)
+  if (idmap_failed >= 0 && idmap_failed < o.unveil_count)
     snprintf(idmap_path, sizeof idmap_path, "%s", resolved_paths[idmap_failed]);
-  free(resolved);
+  free(root.resolved);
 #if defined(__linux__)
   if (restore_error != 0) {
     /* Exec may already have succeeded. Keep ownership until the child
@@ -4925,7 +5098,7 @@ COSMIC_SYSCALL(spawn, 12) {
   }
   /* An unveiled child has ended once it started its program, which is
    * this process's child in its place ([`start_unveiled`]), or failed to. */
-  if (unveiling) {
+  if (o.unveiling) {
     int ignored; while (waitpid(pid, &ignored, 0) < 0 && errno == EINTR) {}
     pid = program;
 #if defined(__linux__)
@@ -4943,71 +5116,7 @@ COSMIC_SYSCALL(spawn, 12) {
 #endif
   }
 
-  int child_error = 0;
-  size_t received = 0;
-  int read_error = 0;
-  while (received < sizeof child_error) {
-    ssize_t got = read(status_read, (char *)&child_error + received,
-                       sizeof child_error - received);
-    if (got > 0) { received += (size_t)got; continue; }
-    if (got == 0) break;
-    if (errno == EINTR) continue;
-    read_error = errno;
-    break;
-  }
-#if defined(__APPLE__)
-  /* A trampoline that was refused says why after the errno
-   * ([`trampoline_fail`]), and ends: its text is read to the end. */
-  char detail[TRAMPOLINE_MESSAGE_MAX + 1];
-  size_t detail_length = 0;
-  while (received == sizeof child_error && child_error != 0 && detail_length < TRAMPOLINE_MESSAGE_MAX) {
-    ssize_t got = read(status_read, detail + detail_length, TRAMPOLINE_MESSAGE_MAX - detail_length);
-    if (got > 0) { detail_length += (size_t)got; continue; }
-    if (got < 0 && errno == EINTR) continue;
-    break;
-  }
-#endif
-  close(status_read);
-  if (root_dir[0] != '\0') rmdir(root_dir);
-  if (received != 0 || read_error != 0 || pid < 0) {
-    int ignored; while (pid > 0 && waitpid(pid, &ignored, 0) < 0 && errno == EINTR) {}
-#if defined(__linux__)
-    if (pid > 0) sandbox_reaped(pid);
-#endif
-    int number = received == sizeof child_error ? child_error : (read_error != 0 ? read_error : EIO);
-#if defined(__linux__)
-    int stage = number >> STAGE_SHIFT;
-    if ((strict || stage == STAGE_RELAY || stage == STAGE_TRUNCATION) && stage != 0) {
-      char message[PATH_MAX + 512];
-      staged_message(number >> STAGE_SHIFT, number & ((1 << STAGE_SHIFT) - 1),
-                     idmap_path[0] != '\0' ? idmap_path : NULL, message, sizeof message);
-      lua_pushnil(L);
-      lua_pushstring(L, message);
-      lua_pushinteger(L, number & ((1 << STAGE_SHIFT) - 1));
-      return 3;
-    }
-#endif
-#if defined(__APPLE__)
-    if (detail_length > 0) {
-      lua_pushnil(L);
-      lua_pushlstring(L, detail, detail_length);
-      lua_pushinteger(L, number);
-      return 3;
-    }
-#endif
-    if (granting && number == EACCES) {
-      /* The likeliest cause: the program, or the loader or interpreter
-       * it names, was not granted `rx`. */
-      lua_pushnil(L);
-      lua_pushfstring(L, "%s: a child held to `grants` needs an `rx` grant for its program, and "
-                      "for the interpreter or loader that program names", cosmic_errno_describe(number, NULL));
-      lua_pushinteger(L, number);
-      return 3;
-    }
-    return cosmic_fail(L, number);
-  }
-  lua_pushinteger(L, (lua_Integer)pid);
-  return 1;
+  return spawn_answer(L, status_read, pid, root_dir, &o, idmap_path);
 }
 
 COSMIC_SYSCALL(waitpid, 2) {

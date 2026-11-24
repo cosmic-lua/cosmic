@@ -288,6 +288,27 @@ local function test_chunked_bodies_both_ways()
   end)
 end
 
+--- A streamed reply goes out as it is written: ten chunked replies one
+--- after another on one connection take a few milliseconds. With Nagle's
+--- algorithm on, each reply's body would wait for the client's delayed
+--- ACK, about 40 ms on Linux, and ten would take some 400 ms.
+local function test_streamed_replies_on_one_connection_are_not_held_back()
+  local troubles = serving(function(_: Server.Request): Server.Reply
+    return { status = 200, headers = { ["Content-Type"] = "text/plain" }, body = Stream.from_string("streamed\n") }
+  end, function(address: Net.Address)
+    local p <close> = peer(address)
+    local began = Clock.monotonic_ns()
+    for _ = 1, 10 do
+      send(p, get("/s"))
+      local got = reply(p)
+      assert(got.headers["transfer-encoding"] == "chunked" and got.body == "streamed\n", got.body)
+    end
+    local took = Clock.monotonic_ns() - began
+    assert(took < Clock.ms(300), ("ten streamed replies took %d ms"):format(took // Clock.ms(1)))
+  end)
+  assert(#troubles == 0, troubles[1])
+end
+
 --- `Expect: 100-continue` is answered `100 Continue` when the handler
 --- first reads the body, and only then; a declared body past the
 --- limit is refused at once, with no 100; and a handler that never

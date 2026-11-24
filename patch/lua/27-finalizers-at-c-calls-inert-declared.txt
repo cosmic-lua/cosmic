@@ -1,0 +1,9 @@
+file: src/lgc.h
+note: luaC_inert and luaC_setinert (patch/lua/26-finalizers-at-c-calls-inert-gc.txt), for lvm.c and lapi.c.
+--- find
+LUAI_FUNC void luaC_runfinalizers (lua_State *L);
+--- replace
+LUAI_FUNC void luaC_runfinalizers (lua_State *L);
+LUAI_FUNC int luaC_inert (lua_CFunction f);
+LUAI_FUNC int luaC_setinert (lua_CFunction f);
+--- end
