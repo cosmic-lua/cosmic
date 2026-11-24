@@ -106,6 +106,34 @@ local function test_runs_are_graded_against_the_truth_of_an_untouched_copy()
   assert(answer:find("grade: fail\n", 1, true) == 1 and answer:find("--- left\ny.tl:2\n--- truth\nx.tl:1\n", 1, true) ~= nil,
     answer)
   local report = Agent.report(o, results)
+  local want = table.concat({
+    "# cosmic agent evals",
+    "",
+    "Model sonnet; runs of each task with each tool: 1; fixture /f. Each number is the mean of a run.",
+    "",
+    "Effort: bad low; the agent's default for the rest.",
+    "",
+    "## all tasks",
+    "",
+    "- good: 1 of 1 passed (1 unfit on this fixture, left out); $0.5000, 30 cache read, 40 cache write, 20 out a run; $0.500 in all",
+    "- bad: 0 of 1 passed (1 unfit on this fixture, left out); $0.0000, 0 cache read, 0 cache write, 0 out a run; $0.000 in all",
+    "",
+    "## todos",
+    "",
+    "- good: 1 of 1 passed; 3.0 requests, $0.500, 3 s wall (2 s in requests); tokens 10 in, 20 out, 30 cache read (5 by the first request), 40 cache write; 4.0 tool calls, 1.0 of them run, 1.0 refused",
+    "  - refused for: semicolon 1",
+    "  - snippets naming each Host helper: grep 2.0, bash 1.0",
+    "- bad: 0 of 1 passed; 0.0 requests, $0.000, 3 s wall (0 s in requests); tokens 0 in, 0 out, 0 cache read (0 by the first request), 0 cache write; 0.0 tool calls, 0.0 of them run, 0.0 refused",
+    "",
+    "## rename",
+    "",
+    "- good: unfit on this fixture; 3.0 requests, $0.500, 3 s wall (2 s in requests); tokens 10 in, 20 out, 30 cache read (5 by the first request), 40 cache write; 4.0 tool calls, 1.0 of them run, 1.0 refused",
+    "  - refused for: semicolon 1",
+    "  - snippets naming each Host helper: grep 2.0, bash 1.0",
+    "- bad: unfit on this fixture; 0.0 requests, $0.000, 3 s wall (0 s in requests); tokens 0 in, 0 out, 0 cache read (0 by the first request), 0 cache write; 0.0 tool calls, 0.0 of them run, 0.0 refused",
+    "",
+  }, "\n")
+  assert(report == want, report)
   assert(report:find("## todos\n\n- good: 1 of 1 passed; 3.0 requests, $0.500, 3 s wall (2 s in requests)", 1, true) ~= nil, report)
   assert(report:find("30 cache read (5 by the first request)", 1, true) ~= nil and
       report:find("1.0 of them run, 1.0 refused\n  - refused for: semicolon 1\n" ..
