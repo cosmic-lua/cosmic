@@ -49,7 +49,7 @@ local function test_the_value_resume_sends_and_the_value_yield_gives_are_held_to
   refused(COUNTER .. "local r = coroutine.resume(counter, 1)\n", "overload_none")
   refused(COUNTER .. "local r = coroutine.resume(counter)\n", "overload_none")
   refused("local gen = coroutine.create(function(y: Yielder<integer, nil>)\nend)\nlocal r = coroutine.resume(gen, 1)\n", "overload_none")
-  -- The handle yields the type of the coroutine and answers the type it is sent.
+  -- The handle yields the type of the coroutine and returns the type it is sent.
   refused("local bad = coroutine.create(function(y: Yielder<integer, string>, first: string)\n  y:yield(\"x\")\nend)\n", "not_assignable")
   refused("local bad = coroutine.create(function(y: Yielder<integer, string>, first: string)\n  local n: integer = y:yield(1)\nend)\n",
     "not_assignable")

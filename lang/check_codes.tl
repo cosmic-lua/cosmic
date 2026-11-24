@@ -73,15 +73,15 @@ local record Codes
     "return_arity"
     -- a return in a function that returns nothing, or never
     "return_unexpected"
-    -- a call that answers nothing, used as a value
+    -- a call that returns nothing, used as a value
     "no_value"
     -- a call with several return lists, used as a value
     "alternatives_as_value"
-    -- a call with several return lists, as a statement that drops which one it answered
+    -- a call with several return lists, as a statement that drops which one it returned
     "failure_ignored"
-    -- a list a `match` call may answer that no arm takes
+    -- a list a `match` call may return that no arm takes
     "match_missing"
-    -- a `match` arm no list the call answers reaches
+    -- a `match` arm no list the call returns reaches
     "match_redundant"
     -- a `match` pattern that tests or binds what the lists do not have
     "match_pattern"
@@ -149,7 +149,7 @@ local record Codes
     -- an entry point that returns what the run cannot call with the command line's words
     "entry_signature"
     -- flow
-    -- a function that answers values, or is declared `never`, whose end is reachable
+    -- a function that returns values, or is declared `never`, whose end is reachable
     "missing_return"
     -- a local read before every path assigns it
     "not_assigned"
@@ -163,7 +163,7 @@ local record Codes
     "assign_repeated"
     -- a generic `for` with a fourth expression after `in`, which Lua takes as the value to close
     "iterator_extra"
-    -- a generic `for` that names more variables than its iterator answers values
+    -- a generic `for` that names more variables than its iterator returns values
     "iterator_variables"
     -- a literal pattern, replacement, format or key table of the string library that Lua raises on
     "pattern_malformed"

@@ -53,7 +53,7 @@ local record Laid
 end
 
 --- Lays out a new arena at `dir` for `task`, with eval/ at `eval`,
---- answering the arena's absolute path. `dir` must not exist yet, and
+--- returning the arena's absolute path. `dir` must not exist yet, and
 --- must be outside the repository eval/ sits in, links resolved.
 function Arena.lay(eval: string, task: string, binary: string, dir: string): string?, string
   local task_text, task_trouble = Arena.task_text(eval, task)

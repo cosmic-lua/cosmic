@@ -669,19 +669,19 @@ local function test_the_needless_default_of_a_call_is_replaced_by_parentheses_no
   local method = first_error("local function f(x: string): string\n  local s = x:gsub(\"a\", \"b\") or \"\"\n  return s\nend\n",
     "condition_type")
   assert(has(method.fix, "with `(x:gsub(\"a\", \"b\"))`"), method.fix)
-  -- A call that answers one value loses nothing to the deletion.
+  -- A call that returns one value loses nothing to the deletion.
   local one = first_error("local function f(x: string): string\n  local s = x:upper() or \"\"\n  return s\nend\n",
     "condition_type")
   assert(has(one.fix, "delete `or ...`") and not has(one.fix, "replace"), one.fix)
   local tailed = first_error("local function g(): string, string...\n  return \"a\"\nend\n" ..
       "local function f(): string\n  return g() or \"\"\nend\n", "condition_type")
   assert(has(tailed.fix, "with `(g())`"), tailed.fix)
-  -- A call already in parentheses answers one value: the default goes.
+  -- A call already in parentheses returns one value: the default goes.
   local paren = first_error("local function f(x: string): string\n  return (x:upper()) or \"\"\nend\n", "condition_type")
   assert(has(paren.fix, "delete `or ...`"), paren.fix)
 end
 
---- A return of a call that answers more values than the function does says to cut it with parentheses.
+--- A return of a call that returns more values than the function does says to cut it with parentheses.
 local function test_a_return_of_a_call_with_values_to_spare_is_told_to_parenthesize_it()
   local e = first_error("local function f(x: string): string\n  return string.gsub(x, \" \", \"\")\nend\n", "return_arity")
   assert(has(e.fix, "`string.gsub(x, \" \", \"\")` is the last value and answers 2 values"), e.fix)
@@ -938,7 +938,7 @@ local function test_a_literal_that_leaves_out_an_optional_field_tells_it_from_a_
 end
 
 --- A fix that tests a value for nil writes the statement the place takes: a raise in the module's chunk and in a
---- function whose results take no nil, `return nil, "..."` where it may answer that, and `return` where it answers nothing.
+--- function whose results take no nil, `return nil, "..."` where it may return that, and `return` where it returns nothing.
 local function test_a_nil_test_in_a_fix_fits_the_function_it_is_in()
   local head = "local t: {string: string} = {}\n"
   local top = error_of(head .. "local v = t[\"a\"]\nlocal n: string = v\nprint(n)\n", "nil_not_allowed")
@@ -983,7 +983,7 @@ local function test_two_generic_functions_of_one_type_named_apart_are_shown_with
   assert(has(unbound.msg, "its type parameter `Item`"), unbound.msg)
 end
 
---- A function that may answer nil alone returns nil in the fix; one whose results take no nil raises.
+--- A function that may return nil alone returns nil in the fix; one whose results take no nil raises.
 local function test_a_nil_test_in_a_fix_returns_nil_or_raises_as_the_results_take()
   local head = "local t: {string: string} = {}\n"
   local optional = error_of(head .. "local function f(): string?\n  local v = t[\"a\"]\n  local n: string = v\n" ..
@@ -2400,15 +2400,15 @@ local function test_a_generic_for_closes_only_a_fourth_value_it_can_see_and_take
     -- three expressions are an iterator, a state and a control value
     codes_of(head .. "for x in f, nil, nil do\n  print(x)\nend\n"),
     codes_of(head .. "for x in f, nil, 1 do\n  print(x)\nend\n"),
-    -- a call that answers four values: the fourth is the value to close, unless it is nil
+    -- a call that returns four values: the fourth is the value to close, unless it is nil
     codes_of(four("integer")),
     codes_of(four("nil")),
-    -- an iterator that answers a `...` tail, or nil alone, takes any number of names
+    -- an iterator that returns a `...` tail, or nil alone, takes any number of names
     codes_of("local function tail(): function(): integer...\n  return function(): integer... return 1, 2 end\nend\n" ..
         "for a, b, c, d in tail() do\n  print(a, b, c, d)\nend\n"),
     codes_of("local function none(): function(): nil\n  return function(): nil return nil end\nend\n" ..
         "for a, b in none() do\n  print(a, b)\nend\n"),
-    -- the most of the lists an iterator answers sets the names it may take
+    -- the most of the lists an iterator returns sets the names it may take
     codes_of("local function more(): function(): (true, integer) | (false, string, boolean)\n" ..
         "  return function(): (true, integer) return true, 1 end\nend\nfor a, b, c in more() do\n  print(a, b, c)\nend\n"),
     codes_of("local function more(): function(): (true, integer) | (false, string, boolean)\n" ..
@@ -2417,12 +2417,12 @@ local function test_a_generic_for_closes_only_a_fourth_value_it_can_see_and_take
   assert(table.concat(said, " | ") == " |  | iterator_extra |  |  |  |  | iterator_variables", table.concat(said, " | "))
 end
 
---- An iterator that ends after two values, and a function that answers it with `values` after it.
+--- An iterator that ends after two values, and a function that returns it with `values` after it.
 local COUNTED <const> = "local type Step = function(state: nil, control: integer?): integer?\n" ..
   "local function st(_state: nil, control: integer?): integer?\n  if control == nil then\n    return 1\n  elseif control == 1 then\n" ..
   "    return 0\n  end\n  return nil\nend\n"
 
---- A loop over `explist`, where `mk` answers `answer` as `values`.
+--- A loop over `explist`, where `mk` returns `answer` as `values`.
 local record Looped
   values: string
   answer: string
@@ -2580,7 +2580,7 @@ local function test_the_types_a_literal_gives_are_held_to_the_arguments_and_the_
     codes_of("print(string.pack(\"z\", 1))\n"),
     codes_of("print(string.format(\"%d %x %f %e %s %q\", 1, 2, 3, 4.5, \"t\", false))\n"),
     codes_of("print(string.pack(\"i4 d z\", 1, 2.5, \"s\"))\n"),
-    -- a value too many is no value Lua uses, and a call that answers fewer than the format takes is told
+    -- a value too many is no value Lua uses, and a call that returns fewer than the format takes is told
     codes_of("print(string.format(\"%d\", 1, 2))\n"),
     codes_of("local function f(): integer\n  return 1\nend\nprint(string.format(\"%d %d\", f()))\n"),
     codes_of("local function f(): (integer, integer)\n  return 1, 2\nend\nprint(string.format(\"%d %d\", f()))\n"),
@@ -2603,7 +2603,7 @@ local function test_the_types_a_literal_gives_are_held_to_the_arguments_and_the_
     codes_of("local find = string.find\nprint(find(\"abc\", \"%b(\"))\n"),
     codes_of("local fmt = string.format\nprint(fmt(\"%d\", \"x\"))\n"),
     codes_of("local fmt = string.format\nfmt = string.format\nprint(fmt(\"%d\", \"x\"))\n"),
-    -- the type of a format that is wrong is not told twice, a plain `find` has no captures, a pattern with none answers the match
+    -- the type of a format that is wrong is not told twice, a plain `find` has no captures, a pattern with none returns the match
     codes_of("local a, b, c = string.unpack(\"i4 y\", \"x\")\nprint(a, b, c)\n"),
     codes_of("local _, _, c = (\"abc\"):find(\"()\", 1, true)\nif c ~= nil then\n  local s: string = c\n  print(s)\nend\n"),
     codes_of("local m = (\"abc\"):match(\"b\")\nif m ~= nil then\n  print(m:upper())\nend\n"),

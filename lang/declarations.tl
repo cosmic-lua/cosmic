@@ -33,9 +33,9 @@
 ---   holds its fields, its methods and its functions (`function C.m(...)`) in one namespace, since the
 ---   table of its methods is the metatable of its values.
 --- - optional fields: a field that may be nil is never a metamethod (`optional_metamethod`).
---- - classes: a method named for a metamethod, other than `__close` (which takes the value, and the error object as `any` if it likes, and answers
----   nothing), `__tostring` (which also answers a `string`) and `__lt` and `__le` (which take the value and another
----   of the class and answer a `boolean`), and a function of a class with such a name: `class_metamethod`,
+--- - classes: a method named for a metamethod, other than `__close` (which takes the value, and the error object as `any` if it likes, and returns
+---   nothing), `__tostring` (which also returns a `string`) and `__lt` and `__le` (which take the value and another
+---   of the class and return a `boolean`), and a function of a class with such a name: `class_metamethod`,
 ---   `metamethod_signature`.
 --- - the form of a type: the count of type arguments (`type_arguments`), a type that nests deeper
 ---   than a store allows (`type_too_deep`), an alias that reaches itself (`alias_cycle`), except in the element of an
@@ -125,9 +125,9 @@ local record Declarations
     "member_missing"
     -- a parameter of a method with no type
     "param_untyped"
-    -- a `__close` that takes more than the value and the error object or answers one, a `__gc` that takes more than the
-    -- value or answers one, a `__tostring` that does not answer a
-    -- string, or a `__lt` or `__le` that takes other than two values of the class or does not answer a boolean
+    -- a `__close` that takes more than the value and the error object or returns one, a `__gc` that takes more than the
+    -- value or returns one, a `__tostring` that does not return a
+    -- string, or a `__lt` or `__le` that takes other than two values of the class or does not return a boolean
     "metamethod_signature"
     -- a method or function of a class named for a metamethod other than `__close`, `__gc`, `__tostring`, `__lt` and `__le`
     "class_metamethod"
@@ -281,13 +281,13 @@ local record Declarations
     mut fn_names?: mut {integer: {string}}
   end
 
-  --- A check that waits for the declarations it reads: it answers whether it ran.
+  --- A check that waits for the declarations it reads: it returns whether it ran.
   record Waiting
     module: string
     run: function(): boolean
   end
 
-  --- Declares a module the program lacks, with [`Declarations.Program.declare`], and answers whether it did.
+  --- Declares a module the program lacks, with [`Declarations.Program.declare`], and returns whether it did.
   type Provider = function(Program, module: string): boolean
 
   --- The store and what every module lowered into it.
@@ -305,8 +305,8 @@ local record Declarations
     -- TODO: declare the generated bindings ([`cosmic.sys`], [`cosmic.internal.process`],
     -- [`cosmic.internal.socket`]) as files of the tree, once the checker reads them from declaration files, and drop this.
     external: {string: boolean}
-    --- The names of the language's own modules, which the binary answers a `require` of with its own module and no module of
-    --- the program can stand for: a `require` of one the program lacks is a global to use directly.
+    --- The names of the language's own modules: a `require` of one resolves to the binary's own module, which no module
+    --- of the program can stand for, and a `require` of one the program lacks is a global to use directly.
     library: {string: boolean}
     --- Asked for a module that a type name imports and the program lacks.
     provider?: Provider
@@ -350,7 +350,7 @@ local record Declarations
 
   --- Takes the modules `modules` out of the program as if they had never been declared: their declarations, aliases, the
   --- checks that wait for them and what the program derived from them, and the types of the store that name a declaration
-  --- of theirs. Answers false and changes nothing where one of them declares a global, which a module that does not require
+  --- of theirs. Returns false and changes nothing where one of them declares a global, which a module that does not require
   --- it may name. The caller names every module that requires one of `modules`, through others that require it, as well
   --- ([`Declarations.Program.lower`] then takes them again): a type of a module left that names a forgotten declaration is
   --- dead, and the store refuses it.
@@ -366,7 +366,7 @@ local record Declarations
   inherited: function(store: Store, judge: Relation.Judge, decl: Types.Decl): {Types.Field}
 
   --- Whether `made`, the type of a method named `__close`, is what Lua calls at the end of a `<close>` local's block:
-  --- a function that takes the value (and may take the error object Lua passes, declared `any`) and answers nothing.
+  --- a function that takes the value (and may take the error object Lua passes, declared `any`) and returns nothing.
   close_is_callable: function(made: Type): boolean
 
   --- Every [`Code`], in the order the enum lists them.
@@ -875,7 +875,7 @@ local function tainted(ctx: Ctx, t: Type): boolean
   return found
 end
 
---- Runs `build`, which makes a type, and answers `invalid` and an error for the refusal of a store:
+--- Runs `build`, which makes a type, and returns `invalid` and an error for the refusal of a store:
 --- a type that nests too deep, or another.
 local function attempt(ctx: Ctx, node: Ast.Node, build: function(): Type): Type
   local box: mut {Type} = {}
@@ -1729,7 +1729,7 @@ local function decl_kind(node: Ast.Node): Types.DeclKind?
   return DECL_KINDS[node.kind]
 end
 
---- Makes the entry of the declaration `node` standing at `place`, declares it in the store, and answers
+--- Makes the entry of the declaration `node` standing at `place`, declares it in the store, and returns
 --- the place its members stand at, or nil where it could not be declared.
 local function declare_one(ctx: Ctx, node: Ast.Node, place: Place, seen: mut {string: boolean}): Place?
   local program = ctx.program
@@ -1972,7 +1972,7 @@ local function lower_fn(ctx: Ctx, fn: Ast.Fn, tparams: {Types.TParam}, typeparam
   end
 end
 
---- Claims `name` for the member `node` of the declaration being built: answers whether it is new, or an
+--- Claims `name` for the member `node` of the declaration being built: returns whether it is new, or an
 --- overload of a declaration file; reports it where it repeats one.
 local function claim(ctx: Ctx, build: Build, node: Ast.Node, binding: Ast.Binding, overload: boolean): boolean
   local name = binding.name
@@ -2008,8 +2008,8 @@ local METAMETHODS <const>: {string: boolean} = {
 }
 
 --- Whether `made`, the type of a method named `__close`, is what Lua calls at the end of a `<close>` block and drops the
---- answer of: it takes the value and, if it likes, the error object Lua passes as a second argument (declared `any`), and
---- it answers nothing. A class's declaration and a userdata record's are held to this one rule.
+--- result of: it takes the value and, if it likes, the error object Lua passes as a second argument (declared `any`), and
+--- it returns nothing. A class's declaration and a userdata record's are held to this one rule.
 function Declarations.close_is_callable(made: Type): boolean
   if made.tag ~= "fn" then
     return false
@@ -2021,9 +2021,9 @@ function Declarations.close_is_callable(made: Type): boolean
 end
 
 --- Holds the method `m` of a class, of function type `made`, to what its name means when it is `__close` (it
---- takes the value and may take the error object, and answers nothing), `__tostring` (it takes the value alone and
---- answers a `string`) or `__lt` or `__le` (it takes the value and another of the class and answers a `boolean`, for
---- `<`, `>`, `<=` and `>=`) or `__gc` (it takes the value alone and answers nothing), and refuses a name of any other
+--- takes the value and may take the error object, and returns nothing), `__tostring` (it takes the value alone and
+--- returns a `string`) or `__lt` or `__le` (it takes the value and another of the class and returns a `boolean`, for
+--- `<`, `>`, `<=` and `>=`) or `__gc` (it takes the value alone and returns nothing), and refuses a name of any other
 --- metamethod.
 local function check_metamethod(ctx: Ctx, build: Build, m: Ast.Method, made: Type)
   local name = m.name.name
@@ -2064,7 +2064,7 @@ local function check_metamethod(ctx: Ctx, build: Build, m: Ast.Method, made: Typ
     return
   end
   if name == "__gc" then
-    -- Lua calls a finalizer with the value alone and drops what it answers; it runs only at a call the checker does not
+    -- Lua calls a finalizer with the value alone and drops what it returns; it runs only at a call the checker does not
     -- count as inert (patch/lua/19-finalizers-at-calls-gc.txt), so no fact about lengths spans one.
     local alt = made.rets[1]
     if #made.params ~= 1 or made.rest ~= nil or #made.rets ~= 1 or alt == nil or #alt.items ~= 0 or alt.tail ~= nil then
@@ -2202,7 +2202,7 @@ end
 -- Static functions ---------------------------------------------------------------------
 
 --- Lowers the signature of the statement `function R.m(...)`, which stands outside the declaration `R`: its
---- type parameters are the one binder, and no type parameter of the code around it is in scope. Answers its
+--- type parameters are the one binder, and no type parameter of the code around it is in scope. Returns its
 --- function type, or `invalid` where a parameter has no type.
 local function lower_static(ctx: Ctx, f: Ast.Function): Type
   local saved = ctx.frames
@@ -2336,7 +2336,7 @@ local function finish_build(ctx: Ctx, build: Build, frames_names: {{string}}) --
   queue_checks(ctx, build, frames_names)
 end
 
---- Lowers a record, interface or class: its type parameters, what it lists, its fields and methods. Answers
+--- Lowers a record, interface or class: its type parameters, what it lists, its fields and methods. Returns
 --- the nodes to walk next: the declarations nested in it and the bodies of its methods.
 local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
   local entry = ctx.entry_of[base_of(node).id]
@@ -2514,7 +2514,7 @@ local function undefined_message(why: any): boolean
   return tostring(why):find("relation: .* is not defined") ~= nil
 end
 
---- Agreement of a declaration with the interfaces it lists. Answers false where a declaration it reads is
+--- Agreement of a declaration with the interfaces it lists. Returns false where a declaration it reads is
 --- not defined yet.
 local function check_listing(ctx: Ctx, build: Build, names: {{string}}): boolean
   local program = ctx.program
@@ -2733,7 +2733,7 @@ function Declarations.inherited(store: Store, judge: Relation.Judge, decl: Types
   return out
 end
 
---- Checks that the records of a union have a tag. Answers false where a body is not defined yet.
+--- Checks that the records of a union have a tag. Returns false where a body is not defined yet.
 local function check_union(ctx: Ctx, site: UnionSite): boolean
   local records: mut {Named} = {}
   for _, m in ipairs(site.type.members) do

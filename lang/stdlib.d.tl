@@ -3,7 +3,7 @@
 -- the checker takes without proof.
 -- Auditing or changing a declaration is an edit of this file.
 --
--- A function that answers nil where Lua does says so (`string.find`, `tonumber`, `math.tointeger`), one that changes a
+-- A function that returns nil where Lua does says so (`string.find`, `tonumber`, `math.tointeger`), one that changes a
 -- collection it is given takes it `mut`, and one that the fork types by a special case in its checker (`assert`,
 -- `math.abs`) is declared by overloads, and `math.max` and `math.min` over a `Numeric` type parameter. `pcall`, `xpcall` and the `coroutine` library are typed over
 -- `Coroutine<Y, R, S>`, which the language has no other form for.
@@ -16,7 +16,7 @@ do
     yield: function(yielder: Yielder<Y, S>, value: Y): S
   end
 
-  -- A coroutine: `Y` is what it yields, `R` what it answers when its body returns and `S` what it is sent.
+  -- A coroutine: `Y` is what it yields, `R` what `resume` returns when its body returns and `S` what it is sent.
   global record Coroutine<Y, R, S>
     userdata
   end
@@ -40,7 +40,7 @@ do
     close: function<Y, R, S>(co: Coroutine<Y, R, S>): (true) | (false, any)
 
     -- One overload for each form a body takes (a handle and a value, a handle, neither) and for each number of values it
-    -- answers (none, one).
+    -- returns (none, one).
     create: function<Y, S>(f: function(Yielder<Y, S>, S)): Coroutine<Y, nil, S>
     create: function<Y, R, S>(f: function(Yielder<Y, S>, S): R): Coroutine<Y, R, S>
     create: function<Y>(f: function(Yielder<Y, nil>)): Coroutine<Y, nil, nil>
@@ -72,7 +72,7 @@ do
 
   global record debug
     -- The opaque value of a function's upvalue or a userdata's user value: no type of the language names a userdata, so
-    -- the functions of `debug` that take or answer one say this.
+    -- the functions of `debug` that take or return one say this.
     record Userdata
       userdata
     end
@@ -329,8 +329,8 @@ do
     char: function(...: integer): string
     dump: function(f: function(...: any): (any), strip?: boolean): string
     -- The new checker types the captures of `find`, `match` and `gmatch` and the arguments of a `gsub` callback from a literal
-    -- pattern (lang/check.tl, [`Calls.refine`]): a position capture `()` is an integer, and these declarations are the
-    -- answer for a pattern that is no literal, where every capture is a string.
+    -- pattern (lang/check.tl, [`Calls.refine`]): a position capture `()` is an integer, and these declarations hold
+    -- for a pattern that is no literal, where every capture is a string.
     find: function(s: string, pattern: string, init?: integer, plain?: boolean): integer?, integer?, string...
     format: function(formatstring: string, ...: any): string
     gmatch: function(s: string, pattern: string, init?: integer): (function(): string...)
@@ -425,7 +425,7 @@ do
 
     type XpcallMsghFunction = function(any): any...
 
-    -- What `type` answers: the name of a value's basic type, so a comparison with another name (`type(x) == "int"`) is
+    -- What `type` returns: the name of a value's basic type, so a comparison with another name (`type(x) == "int"`) is
     -- refused (`enum_member`). An integer and a float are both "number": `math.type` tells them apart.
     enum Type
       "nil" "boolean" "number" "string" "table" "function" "thread" "userdata"
@@ -454,7 +454,7 @@ do
     -- A chunk given no environment is loaded as text and reads a table of its own: the base functions that reach nothing
     -- else and share no state with the host (not `collectgarbage` or `warn`), and copies of `coroutine`, `math`, `string`,
     -- `table` and `utf8` without `string.dump`, `math.random` and `math.randomseed`. A chunk that assigns into a library
-    -- changes its copy; `getmetatable("x")` answers a copy of the string metatable. A method call on a string,
+    -- changes its copy; `getmetatable("x")` returns a copy of the string metatable. A method call on a string,
     -- `("x"):rep(2)`, goes through the real metatable to the host's own library, which the chunk cannot change (so
     -- `("x").dump` reaches the host's `string.dump`, which is harmless: the chunk can load text alone). `print` writes
     -- to the host's standard output. The chunk
@@ -489,11 +489,11 @@ do
     next: function<A>(t: {A}, index?: integer): (integer?, A?)
 
     pairs: function<K is Key, V>(t: {K:V}): (function(t: {K:V}, index?: K):(K, V), {K:V}, K)
-    -- One overload for each number of values passed on (0 to 6 for `pcall`, 0 to 3 for `xpcall`) and answered (0 to 3): the
-    -- result is `(true, R...) | (false, any)`, and for `xpcall` `(false, H | string)`, what the message handler answers or
-    -- the string Lua answers when the handler itself raises.
+    -- One overload for each number of values passed on (0 to 6 for `pcall`, 0 to 3 for `xpcall`) and returned (0 to 3): the
+    -- result is `(true, R...) | (false, any)`, and for `xpcall` `(false, H | string)`, what the message handler returns or
+    -- the string Lua gives when the handler itself raises.
     --
-    -- TODO: accept a function that answers `T...` as an argument of `pcall` and `xpcall`, once the grammar spells a list
+    -- TODO: accept a function that returns `T...` as an argument of `pcall` and `xpcall`, once the grammar spells a list
     -- with a tail among alternatives (`plist`): `(true, R...) | (false, any)`
     -- cannot be written until then, and a call that passes one is `overload_none`.
     pcall: function(f: (function())): (true) | (false, any)

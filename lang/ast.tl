@@ -1027,7 +1027,7 @@ local record Ast
   --- node or a scalar, 1 for a list, 2 for a list of lists.
   depths: {string: {integer}}
 
-  --- Numbers the nodes of `chunk` in pre-order, from 1, and answers how many there are. It
+  --- Numbers the nodes of `chunk` in pre-order, from 1, and returns how many there are. It
   --- keeps its own stack, so a chain of any length is numbered.
   number: function(chunk: Chunk): integer
 

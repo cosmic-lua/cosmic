@@ -424,7 +424,7 @@ end
 
 -- programs that run -------------------------------------------------------------------------------------------------
 
---- Runs `lua`, the text of a program, and answers what it returns; nil and why where it does not load.
+--- Runs `lua`, the text of a program, and returns what the program returns; nil and why where it does not load.
 local function execute(lua: string): {any}?, string
   local env: {string: any} = { select = select, table = table, math = math, type = type } -- checked: any_use*3, overload_value
   local chunk, why = load(lua, "=r", "t", env)
@@ -434,7 +434,7 @@ local function execute(lua: string): {any}?, string
   return { chunk() }, ""
 end
 
---- Runs the generator's Lua for `source`, a program of the new grammar, and answers what it returns.
+--- Runs the generator's Lua for `source`, a program of the new grammar, and returns what that Lua returns.
 local function generated_run(source: string): {any}?, string
   local parsed = Parser.parse(Lexer.lex(source, "r.tl"), "r.tl", "tl")
   if #parsed.errors > 0 then

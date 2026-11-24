@@ -1,6 +1,6 @@
 --- The lexer of the new checker's grammar: Lua 5.5's tokens with the grammar's changes.
 ---
---- `lex` reads a whole source and answers its tokens and its errors. It
+--- `lex` reads a whole source and returns its tokens and its errors. It
 --- never raises and does not stop at a problem: an unterminated string or
 --- long comment, a stray byte, a malformed number or a bad escape is a token
 --- of kind `$ERR$` with an [`Error`], and lexing goes on, so one run reports
@@ -143,11 +143,11 @@ local record Lexer
   --- tree has millions of tokens. `kind`, `text`, `offset` and `y` hold every
   --- token, and a reader that goes over the tokens reads them as arrays. One
   --- that looks at a token here and there asks [`Lexer.kind`], [`Lexer.text`],
-  --- [`Lexer.offset`], [`Lexer.y`] and the functions beside them, which answer
+  --- [`Lexer.offset`], [`Lexer.y`] and the functions beside them, which return
   --- what an array read cannot: a value that is there. A field a token seldom
   --- has is a map from the token number, and is read through the function
-  --- that answers its absence ([`Lexer.yend`], [`Lexer.xend`],
-  --- [`Lexer.long`]). A column is derived ([`Lexer.x`]). [`Lexer.token`]
+  --- that returns a default where it is absent ([`Lexer.yend`],
+  --- [`Lexer.xend`], [`Lexer.long`]). A column is derived ([`Lexer.x`]). [`Lexer.token`]
   --- copies one token out as a [`Token`].
   record Tokens
     kind: mut {Kind}
@@ -192,8 +192,8 @@ local record Lexer
     length: integer
   end
 
-  --- What `lex` answers. A record, not two results: an exported function
-  --- answers one (build.syntax_contracts).
+  --- What `lex` returns. A record, not two results: an exported function
+  --- returns one (build.syntax_contracts).
   record Lexed
     --- Every token in source order, the last an `$EOF$`.
     tokens: Tokens
@@ -491,7 +491,7 @@ local function check_escape(source: string, s: integer): integer, string
 end
 
 --- Reads a short string that is not a plain run of bytes between its quotes.
---- Answers where its closing quote is (0 when the line ends first), the
+--- Returns where its closing quote is (0 when the line ends first), the
 --- last byte the token holds, and the place of its first bad escape (0 when
 --- every one is good), its length and what to do about it.
 local function read_string(source: string, pos: integer, quote: integer

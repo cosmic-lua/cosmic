@@ -392,7 +392,7 @@ local function test_an_invariant_position_requires_the_exact_type_and_a_function
   stands("local function show(a: Animal)\n  print(a.name)\nend\nlocal d: Dog = { name = \"d\" }\neach({ d }, show)\n", "d")
 end
 
--- The shape of [`cosmic.shape`]: a spec names the type of what it checks, so that no annotation chooses the type of an answer
+-- The shape of [`cosmic.shape`]: a spec names the type of what it checks, so that no annotation chooses the type of a result
 -- and a list whose elements may be missing cannot be an array.
 local SPEC <const> = [[
 local record Spec<T>
@@ -421,19 +421,19 @@ local function test_a_spec_gives_the_type_of_its_answer_and_a_list_of_optional_e
   refused(SPEC .. "local xs: {string}? = into(list(INT))\n", "not_assignable")
   -- an array holds no hole, so a list of elements that may be missing does not compile
   refused(SPEC .. "local xs = list(optional(INT))\nprint(xs)\n", "array_of_optional")
-  -- its answer is a map, which has no length and whose read is optional
+  -- its result is a map, which has no length and whose read is optional
   stands(SPEC .. "local slots = into(sparse_list(optional(INT)))\nprint(slots == nil)\n", "true")
   refused(SPEC .. "local slots = into(sparse_list(optional(INT)))\nif slots ~= nil and #slots > 0 then print(slots[1]) end\n",
     "operand_type")
   refused(SPEC .. "local slots = into(sparse_list(optional(INT)))\nif slots ~= nil then local n: integer = slots[1] print(n) end\n",
     "index_may_be_nil")
-  -- a spec only answers its type, so it is covariant: a spec of a string is a spec of a string that may be nil, and
-  -- its sparse list is a map of strings
+  -- a spec's `check` only returns its type, so it is covariant: a spec of a string is a spec of a string that may be nil,
+  -- and its sparse list is a map of strings
   refused(SPEC .. "local xs = sparse_list(STR)\nlocal m: {integer: string}? = into(xs)\nprint(m)\n", "")
 end
 
 -- The check `record_of` takes is a function the checker types too: a call that passes one of its own, by whatever route it
--- is written, names the type the check answers and no other.
+-- is written, names the type the check returns and no other.
 local function test_a_record_check_passed_to_record_of_must_answer_its_record()
   local head = SPEC .. "local record Typed<T>\n  make: function(strict: boolean): Spec<T>\nend\n" ..
     "local function record_of<T>(_name: string, make: function(strict: boolean): Spec<T>): Typed<T>\n" ..
@@ -445,13 +445,13 @@ local function test_a_record_check_passed_to_record_of_must_answer_its_record()
       "  return INT\nend)\nprint(type(t))\n", "table")
 end
 
--- A spec is a check, so one written by hand is a function the checker types: it answers its `T` or it does not compile,
+-- A spec is a check, so one written by hand is a function the checker types: it returns its `T` or it does not compile,
 -- and no spec of one type is a spec of another.
 local function test_a_spec_written_by_hand_must_answer_its_type()
-  -- a check that answers a string is no check of an integer
+  -- a check that returns a string is no check of an integer
   refused(SPEC .. "local f: Spec<integer> = { check = function(_v: any, _p: string): string?, string return nil, \"\" end }\n",
     "not_assignable")
-  -- nor can it answer the untrusted value it was handed
+  -- nor can it return the untrusted value it was handed
   refused(SPEC .. "local f: Spec<integer> = { check = function(v: any, _p: string): integer?, string return v, \"\" end }\n",
     "any_use")
   -- nor take a cast to say so
@@ -462,12 +462,12 @@ local function test_a_spec_written_by_hand_must_answer_its_type()
       "local b: Spec<{integer}> = a\n", "not_assignable")
   -- a node beside the check is a field the record does not have
   refused(SPEC .. "local f: Spec<integer> = { node = 1, check = function(_v: any, _p: string): integer?, string return nil, \"\" end }\n", "literal_unknown")
-  -- one that answers its type is one
+  -- one that returns its type is one
   stands(SPEC .. "local f: Spec<integer> = { check = function(v: any, _p: string): integer?, string\n" ..
       "  if v is integer then return v, \"\" end\n  return nil, \"no\"\nend }\nprint(into(f))\n", "nil")
 end
 
--- A generic function passed where a function is wanted is instantiated from the values the callee passes it, so what it answers
+-- A generic function passed where a function is wanted is instantiated from the values the callee passes it, so what it returns
 -- is a type, not a parameter nothing fixes (`invalid`, which every type accepts); and an overload whose type parameter
 -- nothing solves is no candidate. On main the `pcall`, `xpcall`, `coroutine.wrap` and `coroutine.create` cases below are
 -- accepted (the result is `invalid`); the `Box` case and the `pcall` of a function that is not generic are refused there
@@ -531,12 +531,12 @@ end
 
 -- A generic function passed to an overloaded callee, taken from the values the callee passes it, says which bound a type
 -- fails to meet, where it used to be `overload_none`.
--- It is the answer only where it is why the call fails: a function of another arity is rejected as it is, with or without it.
+-- It is the reason only where it is why the call fails: a function of another arity is rejected as it is, with or without it.
 local function test_a_bound_a_passed_generic_function_does_not_meet_is_bound_unmet()
   local head = "local interface Named\n  name: string\nend\nlocal record Plain\n  title: string\nend\n" ..
     "local function label<T is Named>(x: T): string\n  return x.name\nend\nlocal p: Plain = { title = \"ann\" }\n"
   refused(head .. "local ok, r = pcall(label, p)\nprint(ok, r)\n", "bound_unmet")
-  -- a bound that is not the only failure is not the answer: declaring `Plain is Named` would still leave this call refused
+  -- a bound that is not the only failure is not the reason: declaring `Plain is Named` would still leave this call refused
   refused(head .. "local ok, r = pcall(label, p, 5)\nprint(ok, r)\n", "overload_none")
   -- nor when another argument is refused too: declaring the bound would leave the call refused
   refused(head .. "local function wide(a: integer, b: integer): string\n  return \"\"\nend\nlocal ok, r = xpcall(label, wide, p)\nprint(ok, r)\n",
@@ -623,7 +623,7 @@ local function overloads(call: string): Programs.Run
 end
 
 -- Two overloads that each reach `bound_unmet` with different bounds: the order of the overloads does not say which the
--- call meant, so the call is `overload_none`, as it is without the waiver. Overloads that say alike are one answer.
+-- call meant, so the call is `overload_none`, as it is without the waiver. Overloads that say alike are one reason.
 local function test_two_overloads_that_reach_different_bounds_name_none()
   local r = overloads("m.f(label, note, sname, p)\n")
   assert(Programs.codes(r) == "overload_none" and #r.errors == 1, Programs.codes(r))
@@ -636,7 +636,7 @@ local function test_a_chain_of_passed_generic_functions_is_waived_to_its_end()
   local e = chain.errors[1]
   assert(Programs.codes(chain) == "bound_unmet" and #chain.errors == 1 and e ~= nil and e.msg:find("argument 1", 1, true) ~= nil and
       e.msg:find("argument 2", 1, true) ~= nil and e.msg:find("argument 3", 1, true) ~= nil, Programs.codes(chain))
-  -- `mk` answers a `Person`, which meets the bound: only the first argument fails it
+  -- `mk` returns a `Person`, which meets the bound: only the first argument fails it
   local cut = overloads("m.y(mk, ident, sname, p)\n")
   local c = cut.errors[1]
   assert(Programs.codes(cut) == "bound_unmet" and #cut.errors == 1 and c ~= nil and c.msg:find("argument 1", 1, true) ~= nil and
@@ -688,7 +688,7 @@ local SUM <const> = "local function sum<N is Numeric>(xs: {N}, zero: N): N\n  lo
 
 --- A parameter bounded by `Ordered` compares two of its values; a number type, a string type, or a class that declares
 --- `__lt` and `__le` meets it, and the call
---- answers the argument's type.
+--- returns the argument's type.
 local function test_a_parameter_bounded_by_ordered_compares_its_values()
   stands(MAX .. "print(max(1, 2), max(2.5, 1.5), max(\"a\", \"b\"))\n", "2\t2.5\tb")
   assert(type_of(MAX .. "local s = max(\"a\", \"b\")\n", "s") == "string")
@@ -713,7 +713,7 @@ local function test_ordered_refuses_a_type_that_mixes_numbers_and_strings()
       "a type whose values are all numbers or all strings", 1, true) ~= nil, e.msg)
 end
 
---- A parameter bounded by `Numeric` takes arithmetic, which answers its own type with itself or an integer, a number
+--- A parameter bounded by `Numeric` takes arithmetic, which gives its own type with itself or an integer, a number
 --- with a float or by `/`; it compares with a number too.
 local function test_a_parameter_bounded_by_numeric_takes_arithmetic_of_its_own_type()
   stands(SUM .. "print(sum({ 1, 2 }, 0), sum({ 1.5 }, 0.0))\n", "4\t2.0")
@@ -768,7 +768,7 @@ local function test_an_alias_of_a_builtin_bound_is_refused_even_when_declared_af
   assert(table.concat(listed.before, " "):find("bound_as_type", 1, true) ~= nil, table.concat(listed.before, " "))
 end
 
---- A `Numeric` value is a `number`, and `math.max` and `math.min` answer the type of their arguments.
+--- A `Numeric` value is a `number`, and `math.max` and `math.min` return the type of their arguments.
 local function test_a_numeric_parameter_is_a_number_and_math_max_keeps_its_type()
   stands("local function f<N is Numeric>(a: N, b: N): number\n  local m: N = math.max(a, b)\n  return m\nend\n" ..
       "print(f(1, 2), f(0.5, 0.25))\n", "2\t0.5")
@@ -882,7 +882,7 @@ local function test_a_parameter_with_several_bounds_takes_what_each_gives()
   assert(Array.at(flag.errors, 1).msg:find("which is bounded by `Ordered`", 1, true) ~= nil, Array.at(flag.errors, 1).msg)
 end
 
---- What a call is expected to answer does not fix a parameter where it fails the parameter's bounds: the arguments do.
+--- What a call is expected to return does not fix a parameter where it fails the parameter's bounds: the arguments do.
 local function test_an_expected_type_that_fails_the_bounds_does_not_fix_the_parameter()
   stands(SORTED .. "local names: {string | integer} = sorted_set({ \"pear\", \"fig\" })\nprint(names[1])\n", "fig")
 end
@@ -943,7 +943,7 @@ local SOME_HEAD <const> = "local function first<T is Some>(xs: {T}): (T) | (nil,
 local function test_a_type_parameter_bounded_by_some_is_never_nil()
   Programs.stands(SOME_HEAD .. "local v, why = first({ 3 })\nif v == nil then\n  error(why)\nend\n" ..
       "local w, _ = first({ { \"a\" } })\nprint(v + 1, w ~= nil, wrap(\"s\"))\n", "4\ttrue\ts")
-  -- A closed source answers `false`, not a failure, beside its values.
+  -- A closed source returns `false`, not a failure, beside its values.
   Programs.stands("local function next_of<T is Some>(xs: {T}, i: integer): (T | false) | (nil, string)\n" ..
       "  local x = xs[i]\n  if x == nil then\n    return false\n  end\n  return x\nend\n" ..
       "local x, _ = next_of({ 7 }, 1)\nlocal y, _ = next_of({ 7 }, 2)\nprint(x, y)\n", "7\tfalse")
@@ -996,7 +996,7 @@ local function test_a_generic_function_in_a_field_that_may_be_nil_is_narrowed_an
 end
 
 local function test_a_generic_function_whose_result_nothing_solves_is_no_function_of_a_fixed_result()
-  -- `trust` answers a real value of `T` through its cast, so `T` is no `never` that would drop
+  -- `trust` returns a real value of `T` through its cast, so `T` is no `never` that would drop
   -- the result alternatives of the type wanted.
   local trust = "local function trust<T>(v: any): T\n  return v as T -- checked: cast_refused\nend\n"
   Programs.refused(trust .. "local function use(f: function(any): (true, string) | (false, string)): string\n" ..

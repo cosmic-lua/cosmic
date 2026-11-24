@@ -1,5 +1,5 @@
 --- The standard library's declarations as the new checker reads them ([`lang/stdlib.d.tl`] and [`lang/prelude.d.tl`]): a
---- function that answers nil where Lua does is declared so, a use of its result is held to that, and a callback of
+--- function that returns nil where Lua does is declared so, a use of its result is held to that, and a callback of
 --- `string.gsub` is typed by its arity. The fork's own reading is pinned by build/stdlib_declarations_test.tl.
 local Fs = require("cosmic.fs")
 local Programs = require("lang.check_programs")
@@ -144,7 +144,7 @@ local function test_a_function_that_answers_nil_where_lua_does_is_declared_so()
   same("table", "move", "function<T>(mut {T}, integer, integer, integer): mut {T}",
     "function<T>({T}, integer, integer, integer, mut {T}): mut {T}")
   same("StandardLibrary", "rawset", "function<T is Key, U>(mut {T: U}, T, U): mut {T: U}")
-  -- `assert` answers its argument without the nil, and its message too where one is given
+  -- `assert` returns its argument without the nil, and its message too where one is given
   same("StandardLibrary", "assert", "function<T>(T?): T", "function<T, U>(T?, U, ...: any): T, U, any...")
   -- the numbers a function takes are numbers, and a call with none is refused
   same("math", "abs", "function(integer): integer", "function(number): number")
@@ -162,7 +162,7 @@ local function test_a_function_that_answers_nil_where_lua_does_is_declared_so()
   same("FILE", "flush", "function(FILE): boolean?, string?, integer?")
   same("FILE", "setvbuf", "function(FILE, FILE.SetVBufMode, p3?: integer): boolean?, string?, integer?")
   same("FILE", "write", "function(FILE, ...: number | string): FILE?, string?, integer?")
-  -- `os.execute` always answers its three values, the status among them
+  -- `os.execute` always returns its three values, the status among them
   same("os", "execute", "function(string): boolean?, string, integer")
   same("os", "rename", "function(string, string): boolean?, string?, integer?")
   same("package", "searchpath", "function(string, string, p3?: string, p4?: string): string?, string?")
@@ -181,7 +181,7 @@ local function test_a_function_that_answers_nil_where_lua_does_is_declared_so()
     "function(integer, integer, any): string?")
   same("debug", "traceback", "function<T, U, V>(Coroutine<T, U, V>, p2?: string, p3?: integer): string",
     "function(p1?: string, p2?: integer): string", "function(any): any")
-  -- no type of the language names a userdata, so the functions that take or answer one say `debug.Userdata`
+  -- no type of the language names a userdata, so the functions that take or return one say `debug.Userdata`
   same("debug", "getuservalue", "function(debug.Userdata, p2?: integer): any, boolean")
   same("debug", "setuservalue", "function(debug.Userdata, any, integer): debug.Userdata")
   same("debug", "upvalueid", "function((function(...: any): any...), integer): debug.Userdata?")
@@ -282,7 +282,7 @@ local function test_a_match_answers_the_captures_it_found_and_load_a_chunk_or_ni
     { source = "local sure: string = s:match(\"b\")", codes = "nil_not_allowed" },
     { source = "local chunk, why = load(\"return 1\")", codes = "" },
     { source = "local called = load(\"return 1\") called()", codes = "nil_not_allowed" },
-    -- a call that succeeds answers its first value alone: the later ones are nil
+    -- a call that succeeds returns its first value alone: the later ones are nil
     { source = "local file, failure = io.open(\"x\") local told: string = failure", codes = "nil_not_allowed" },
     { source = "local count, position = utf8.len(\"x\") local at: integer = position", codes = "nil_not_allowed" },
     { source = "local made, message = load(\"x\") local said: string = message", codes = "nil_not_allowed" },
@@ -303,11 +303,11 @@ local function test_a_gsub_callback_is_typed_by_the_number_of_captures_it_takes(
     { source = "local a2 = s:gsub(\"b\", function(): string return \"x\" end)", codes = "" },
     { source = "local a3 = s:gsub(\"(a)(b)\", function(x: string, y: string): string return x .. y end)", codes = "" },
     { source = "local a4 = s:gsub(\"(a)(b)(c)\", function(x: string, y: string, z: string): number return 1 end)", codes = "" },
-    -- a callback may keep the match by answering nil
+    -- a callback may keep the match by returning nil
     { source = "local a5 = s:gsub(\"b\", function(c: string): string? return nil end)", codes = "" },
     -- a function that is not a literal passes the same way
     { source = "local function upper(c: string): string return c:upper() end local a6 = s:gsub(\"b\", upper)", codes = "" },
-    -- a callback of the wrong parameter type, one that answers a value no replacement is, and one that takes more
+    -- a callback of the wrong parameter type, one that returns a value no replacement is, and one that takes more
     -- captures than an overload does
     { source = "local a7 = s:gsub(\"b\", function(c: integer): string return \"\" end)", codes = "not_assignable" },
     { source = "local a8 = s:gsub(\"b\", function(c: string): boolean return true end)", codes = "not_assignable" },

@@ -4,7 +4,7 @@
 --- the nil flag admit nil; a `mut` collection is invariant and a view is not below it; the laws of a
 --- union hold (a type is below its union, a union is below a type when each member is, a type is below
 --- a union when below a member); the relation is transitive; a refusal comes with a reason that
---- agrees with the answer, names a pair that is not related, and is the same in a judge that has
+--- agrees with the result, names a pair that is not related, and is the same in a judge that has
 --- settled other pairs and in another store. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
 --- (build/fuzz/init.tl).
 local Array = require("cosmic.array")
@@ -45,7 +45,7 @@ local function use(w: World, name: string, args?: {Type}): Type
   return Programs.named(w, name, args)
 end
 
---- `f` with each parameter type changed by `on_param` and each type it answers by `on_item`. A
+--- `f` with each parameter type changed by `on_param` and each type it returns by `on_item`. A
 --- generic function is as it was, since only an identical one is related to it.
 local function map_fn(
     w: World, f: Types.Fn, on_param: function(Type): Type, on_item: function(Type): Type
@@ -142,7 +142,7 @@ weaken = function(w: World, t: Type, salt: integer): Type -- checked: not_assign
       return weaken(w, item, next_salt)
     end)
     if #t.rets == 0 and #t.tparams == 0 then
-      -- a function that never returns is below the same function that answers nothing
+      -- a function that never returns is below the same function that returns nothing
       local params: mut {Types.Param} = {}
       for i, p in ipairs(t.params) do
         params[i] = { type = p.type, omittable = p.omittable }
@@ -894,7 +894,7 @@ local function in_list(alt: Types.Alt?, kind: Relation.StepKind): Type?
   return nil
 end
 
---- Follows `path` from the pair `a` and `b` and answers the pair it reaches, or nil and why not. `start` is the
+--- Follows `path` from the pair `a` and `b` and returns the pair it reaches, or nil and why not. `start` is the
 --- alternative of the function given where the path begins inside a list. "skip" says that the
 --- replay does not follow that step, and is not a failure.
 local function replay(

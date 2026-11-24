@@ -35,7 +35,7 @@ local record RelationPrograms
   --- `function(params): returns`: one alternative.
   func: function(w: World, params: {Types.Type}, returns: {Types.Type}): Types.Type
 
-  --- `function(params)`, which answers nothing.
+  --- `function(params)`, which returns nothing.
   nothing: function(w: World, params: {Types.Type}): Types.Type
 
   --- The kinds and positions of the steps of a refusal, as `parameter 1 > element`.
@@ -44,14 +44,14 @@ local record RelationPrograms
   --- `t` as an error would print it.
   shown: function(t: Types.Type): string
 
-  --- Whether `a` is below `b`. It fails if the answer and the reason disagree.
+  --- Whether `a` is below `b`. It fails if the result and the reason disagree.
   below: function(w: World, a: Types.Type, b: Types.Type): boolean
 
   --- The reason `a` is not below `b`. It fails if `a` is below `b`.
   refusal: function(w: World, a: Types.Type, b: Types.Type): Relation.Refusal
 
   --- Fails unless `a` is not below `b` for the rule `code`, at `path` (as [`RelationPrograms.steps`]
-  --- writes it, "" for none). Answers the reason.
+  --- writes it, "" for none). Returns the reason.
   refused: function(w: World, a: Types.Type, b: Types.Type, code: Relation.Code, path?: string): Relation.Refusal
 
   --- The code of a refusal, or "" for none.
