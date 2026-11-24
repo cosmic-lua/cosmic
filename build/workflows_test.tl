@@ -1521,6 +1521,11 @@ local QUEUE_SKIPS <const> = "github.event_name != 'merge_group' && github.event_
 --- What a pull request skips beside.
 local PR_SKIPS <const> = "github.event_name != 'pull_request'"
 
+--- What a pull request runs where a path it changed reaches the launcher
+--- and startup fixtures (driver.tl changed-paths).
+local PR_FIXTURES <const> = "(" .. QUEUE_SKIPS .. ") || (github.event_name == 'pull_request' && " ..
+  "steps.changed.outputs.fixtures != 'skip')"
+
 --- The format check's runs: linux-x86_64's, on every run but main's push
 --- and the daily one.
 local FORMAT_RUNS <const> = "matrix.leg == 'linux-x86_64' && matrix.part != 'suite' && github.event_name != 'push' && " ..
@@ -1554,9 +1559,12 @@ local function test_the_merge_queue_runs_the_native_suite_and_the_format_check_a
   local steps = job_of(jobs, "platform").steps
   local in_queue = phases_unless(steps, QUEUE_SKIPS)
   assert(in_queue == "boot local-suite local-boundary format darwin-suite sandbox", "the queue's leg runs " .. in_queue)
-  for _, name in ipairs({ "build local portable and checked artifacts", "run runtime, launcher, rebuild, and identity regressions",
-      "run the product suite from fresh tracked source", "attest the exact executed product bytes", "upload the attested product" }) do
+  for _, name in ipairs({ "run the product suite from fresh tracked source", "attest the exact executed product bytes",
+      "upload the attested product" }) do
     assert(step_named(steps, name)["if"] == QUEUE_SKIPS, name .. " runs in the merge queue")
+  end
+  for _, name in ipairs({ "build local portable and checked artifacts", "run runtime, launcher, rebuild, and identity regressions" }) do
+    assert(step_named(steps, name)["if"] == PR_FIXTURES, name .. " runs in the merge queue, or ungated on a pull request")
   end
   for _, name in ipairs({ "checked", "narrowing" }) do
     assert(job_of(jobs, name)["if"] == QUEUE_SKIPS, name .. " runs in the merge queue")
@@ -1947,13 +1955,25 @@ end
 --- and checks its format over the paths the pull request changed since its
 --- merge base with main (`fix --check --changed`, every check spanning files
 --- over the whole tree), the markers held to that base, and checks the
---- bootstrap's scripts. No suite, no saved cache, and no other job.
+--- bootstrap's scripts; and, where a path it changed reaches them, the launcher and startup
+--- fixtures and the artifacts they run. No suite, no saved cache, and no other job.
 local function test_a_pull_request_runs_the_light_check_alone()
   local ci = ci_workflow()
   assert(ci["on"]["pull_request"] ~= nil, "a pull request runs nothing")
   local steps = job_of(ci.jobs, "platform").steps
   local phases = phases_unless(steps, PR_SKIPS)
   assert(phases == "boot format", "a pull request's leg runs " .. phases)
+  -- Beside, where a path it changed reaches them, or the paths changed are not known, the launcher and startup
+  -- fixtures and the artifacts they run, which the steps before them make.
+  local gated: mut {string} = {}
+  for _, step in ipairs(steps) do
+    local phase = (step.run or ""):match("driver%.tl platform ([%w-]+)")
+    if step["if"] == PR_FIXTURES then gated[#gated + 1] = phase or "?" end
+  end
+  assert(table.concat(gated, " ") == "assemble fixtures", "a pull request gates " .. table.concat(gated, " "))
+  local _, at_changed = step_running(steps, "driver.tl changed-paths")
+  local _, at_assemble = step_running(steps, "driver.tl platform assemble")
+  assert(at_changed < at_assemble, "the fixtures' gate is read before the step that names the paths changed")
   local changed = step_named(steps, "name the paths the commit changed")
   assert(changed["if"] == "matrix.leg == 'linux-x86_64' && matrix.part != 'suite' && (github.event_name == 'merge_group' || " ..
       "github.event_name == 'pull_request') && " ..

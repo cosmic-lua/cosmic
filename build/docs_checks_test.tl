@@ -134,6 +134,42 @@ local function test_a_missing_doc_comment_is_named_and_can_be_excused(dir: strin
     table.concat(found, "\n"))
 end
 
+--- Held to some files, as a narrowed `cosmic fix <paths>` holds it, the
+--- check names what their modules miss and says nothing of the others':
+--- neither an undocumented function nor an exemption gone stale.
+local function test_held_to_some_files_it_judges_their_modules_alone(dir: string)
+  local db = fixture.database(dir, {
+    ["cosmic/thing.tl"] = source(
+      "--- Things.",
+      "local record Thing",
+      "end",
+      "function Thing.bare(): integer",
+      "  return 1",
+      "end",
+      "return Thing"),
+    ["cosmic/other.tl"] = source(
+      "--- Parts.",
+      "local record Part",
+      "end",
+      "function Part.loose(): integer",
+      "  return 1",
+      "end",
+      "return Part"),
+  })
+  local stale: docs_checks.Exempt = { surfaces = {}, undocumented = {
+    ["cosmic.thing.Thing.gone"] = "removed", ["cosmic.other.Part.gone"] = "removed" } }
+  local found = docs_checks.rendered(db, stale, { ["cosmic/other.tl"] = true })
+  assert(#found == 2 and #mentioning(found, "cosmic.other.Part.loose: no doc comment") == 1 and
+      #mentioning(found, "cosmic.other.Part.gone: excused") == 1, table.concat(found, "\n"))
+  found = docs_checks.rendered(db, stale, { ["cosmic/thing.tl"] = true })
+  assert(#found == 2 and #mentioning(found, "cosmic.thing.Thing.bare: no doc comment") == 1 and
+      #mentioning(found, "cosmic.thing.Thing.gone: excused") == 1, table.concat(found, "\n"))
+  found = docs_checks.rendered(db, stale, { ["cosmic/elsewhere.tl"] = true })
+  assert(#found == 0, table.concat(found, "\n"))
+  -- Over every file, it names all four.
+  assert(#docs_checks.rendered(db, stale) == 4)
+end
+
 --- A member a module keeps to itself, and a `local` type only such a
 --- member names, are not on the page.
 local function test_what_a_module_keeps_to_itself_is_not_shown(dir: string)

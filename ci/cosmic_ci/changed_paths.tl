@@ -12,7 +12,10 @@
 --- commit into the checkout (from origin, with the credentials
 --- actions/checkout keeps), writes every path HEAD adds, changes or
 --- removes since it to OUT, one a line, and `paths=<OUT>` to
---- $GITHUB_OUTPUT (standard output, for a run by hand). Where it cannot
+--- $GITHUB_OUTPUT (standard output, for a run by hand). It also writes
+--- `fixtures=skip` where none of the paths is one the launcher and startup
+--- fixtures check, which a pull request then skips; where it cannot list
+--- the paths it writes no `fixtures=skip`, and they run. Where it cannot
 --- -- no base, a fetch or a diff that fails, a path holding a line break,
 --- more than LIMIT paths (400, past which the whole tree's check costs
 --- about as much) -- it writes neither, and the check covers the whole
@@ -47,11 +50,41 @@ local record ChangedPaths
   live_git: function(env: {string:string}): Git
   --- The step, in `env`, with `git` and `host`'s outputs and lines.
   changed_paths: function(env: {string:string}, host: Github.Host, git: Git): integer
+  --- The first of `listed`'s paths (each ended by a NUL) that the launcher and
+  --- startup fixtures check, or nil where none is.
+  reaching_fixtures: function(listed: string): string?
   --- `driver.tl changed-paths`, in the process's environment.
   command: function(argv: {string}): integer
 end
 
 local whole <const> = StepEnv.whole
+
+-- What the fixtures check, from the launcher that starts a portable
+-- tool to the identity a rebuild keys its cache on, what only they read
+-- (test/portable/), and the steps that run them: a path named here, or one under a directory named (ending in
+-- `/`).
+local fixture_paths <const>: {string} = {
+  "build/artifact.tl", "build/code_identity.tl", "build/identity.tl", "build/launcher.tl", "build/pinned_launcher.tl",
+  "build/rebuild.tl", "build/rebuild_lock.tl",
+  "core/portable.c", "core/portable.h", "core/startup.c", "core/startup.h", "core/startup_hook.c", "core/unzstd.c",
+  "core/unzstd.h",
+  "test/portable/", "ci/fixtures/", "ci/testdata/portable/", ".github/workflows/ci.yml",
+  "ci/cosmic_ci/artifact_row.tl", "ci/cosmic_ci/changed_paths.tl", "ci/cosmic_ci/fixture.tl",
+  "ci/cosmic_ci/launcher_fixture.tl",
+  "ci/cosmic_ci/launcher_setup.tl", "ci/cosmic_ci/orchestration.tl", "ci/cosmic_ci/product_setup.tl",
+  "ci/cosmic_ci/runtime_setup.tl",
+}
+
+function ChangedPaths.reaching_fixtures(listed: string): string?
+  for path in listed:gmatch("[^%z]+") do
+    for _, named in ipairs(fixture_paths) do
+      if path == named or (named:sub(-1) == "/" and path:sub(1, #named) == named) then
+        return path
+      end
+    end
+  end
+  return nil
+end
 
 -- No test runs this, since no test runs the system's git: the tests hold
 -- the argv through a recorded git, and finding git, the time limit and a
@@ -112,6 +145,12 @@ function ChangedPaths.changed_paths(env: {string:string}, host: Github.Host, git
   end
   host.output("paths=" .. out)
   host.print("the format check lays out the " .. Plural.count(paths, "path") .. " changed since " .. base)
+  local reached = ChangedPaths.reaching_fixtures(listed)
+  if reached == nil then
+    host.output("fixtures=skip")
+  else
+    host.print("the launcher and startup fixtures run: " .. reached .. " changed")
+  end
   return 0
 end
 
