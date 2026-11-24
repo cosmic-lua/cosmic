@@ -83,7 +83,7 @@ local function test_nest_hands_no_directory_nor_half_open_file(tmp: string)
       local _, _ = handle:close()
       return ""
     end
-    return why
+    return tostring(why)
   end
   local why = start(policy, { [3] = dir })
   assert(why:find("descriptor 3", 1, true) and why:find("directory", 1, true) and
@@ -116,6 +116,6 @@ local function test_nest_refuses_the_runtimes_own_descriptors_rather_than_raisin
   if handle ~= nil then
     local _, _ = handle:close()
   end
-  assert(handle == nil and why:find("retains of its own", 1, true) ~= nil and -- checked: or_mix
-      why:find("nest", 1, true), tostring(why))
+  assert(handle == nil and why.message:find("retains of its own", 1, true) ~= nil and -- checked: or_mix
+      why.message:find("nest", 1, true), tostring(why))
 end

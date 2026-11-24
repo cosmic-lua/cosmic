@@ -78,7 +78,7 @@ elseif arg[1] == "inherited" then
   end
   local child, refusal = Child.start_on_pty(program, opts, { streams = streams })
   assert(child == nil, "a terminal this process holds reached a policy child")
-  assert_terminal_refusal(nil, refusal, slot)
+  assert_terminal_refusal(nil, tostring(refusal), slot)
   print("inherited: PASS")
   sys.exit(0)
 else
@@ -108,12 +108,12 @@ else
         stdout = if number == 1 then pty.slave else "null" end,
         stderr = if number == 2 then pty.slave else "null" end }
       local child, trouble = Child.start({ "/bin/sh", "-c", "exit 0" }, options)
-      assert_terminal_refusal(child, trouble, "stdio[" .. tostring(number) .. "]")
+      assert_terminal_refusal(child, tostring(trouble), "stdio[" .. tostring(number) .. "]")
     end
     local child, trouble = Child.start({ "/bin/sh", "-c", "exit 0" }, { timeout_ns = Child.FOREVER,
       policy = { profiles = { "system" } },
       stdin = "null", stdout = "null", stderr = "null", fds = { [3] = pty.slave } })
-    assert_terminal_refusal(child, trouble, "fds[3]")
+    assert_terminal_refusal(child, tostring(trouble), "fds[3]")
     assert(sys.close(pty.slave))
     assert(sys.close(pty.master))
 
@@ -132,14 +132,16 @@ else
         timeout_ns = opts.timeout_ns, sandbox = opts.sandbox, policy = held_policy.policy, cwd = held_policy.cwd }
       local started, refusal = Child.start_on_pty(program, held, { streams = streams })
       assert(started == nil)
-      assert_terminal_refusal(nil, refusal, slot)
+      assert_terminal_refusal(nil, tostring(refusal), slot)
     end
     refused_on_pty({ timeout_ns = Child.FOREVER, stdin = real.slave }, { 1 }, "stdio[0]")
     refused_on_pty({ timeout_ns = Child.FOREVER, stdout = real.slave }, { 0 }, "stdio[1]")
     refused_on_pty({ timeout_ns = Child.FOREVER, stderr = real.slave }, { 0 }, "stdio[2]")
     refused_on_pty({ timeout_ns = Child.FOREVER, stdout = "null", stderr = "null", fds = { [3] = real.slave } },
       { 0 }, "fds[3]")
-    local also, also_why = pcall(Child.start_on_pty, program, { timeout_ns = Child.FOREVER, stdin = real.slave }, { streams = { 0 } })
+    local also, also_why = pcall(function()
+      local _, _ = Child.start_on_pty(program, { timeout_ns = Child.FOREVER, stdin = real.slave }, { streams = { 0 } })
+    end)
     assert(not also and tostring(also_why):find("takes no stdin, input, stdout or stderr of its own", 1, true) ~= nil,
       tostring(also_why))
 

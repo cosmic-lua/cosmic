@@ -65,8 +65,8 @@ local function test_a_policy_runs_a_sealed_database_under_a_sandbox(tmp: string)
   local result, why = Child.run({ executable, executable }, { policy = { database = { path = path } },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   if result == nil then
-    assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
-    Test.skip(why)
+    assert(ChildPolicy.unsandboxable(tostring(why)), "the start was refused: " .. tostring(why))
+    Test.skip(tostring(why))
     return
   end
   assert(result.ok, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
@@ -90,20 +90,20 @@ local function test_a_database_policy_refuses_another_program_and_this_ones_own_
   fixture.seal(tmp, path)
   local executable = assert(Proc.executable())
   local other, why = Child.start({ "/bin/sh", "-c", "true" }, { timeout_ns = Child.FOREVER, policy = { database = { path = path } } })
-  assert(other == nil and why:find("is not this program", 1, true) ~= nil, tostring(why))
+  assert(other == nil and why.message:find("is not this program", 1, true) ~= nil, tostring(why))
   local file, file_why = Child.start({ executable, "x" }, { timeout_ns = Child.FOREVER, policy = { database = { path = path },
     grants = { { path = executable, letters = "r" } } } })
-  assert(file == nil and file_why:find("own file", 1, true) ~= nil, tostring(file_why))
+  assert(file == nil and file_why.message:find("own file", 1, true) ~= nil, tostring(file_why))
   local above, above_why = Child.start({ executable, "x" }, { timeout_ns = Child.FOREVER, policy = { database = { path = path },
     grants = { { path = assert(executable:match("^(.*)/[^/]+$")), letters = "r" } } } })
-  assert(above == nil and above_why:find("own file", 1, true) ~= nil, tostring(above_why))
+  assert(above == nil and above_why.message:find("own file", 1, true) ~= nil, tostring(above_why))
   -- The profile that grants the program's file is left out beside a
   -- database, so it refuses nothing.
   local profiled, profile_why = Child.run({ executable, executable },
     { policy = { database = { path = path }, profiles = { "cosmic" } }, stdout = "capture",
       stderr = "capture", timeout_ns = Clock.seconds(30) })
   if profiled == nil then
-    assert(ChildPolicy.unsandboxable(profile_why), tostring(profile_why))
+    assert(ChildPolicy.unsandboxable(tostring(profile_why)), tostring(profile_why))
   else
     assert(profiled.ok, tostring(profiled.stderr))
   end
@@ -125,7 +125,7 @@ local function test_a_decoded_policy_refuses_a_database_that_changed_since(tmp: 
   local bytes = assert(Fs.read(path))
   assert(Fs.write(path, bytes .. "x"))
   local started, why = Child.start({ executable, executable }, { timeout_ns = Child.FOREVER, policy = policy })
-  assert(started == nil and why:find("has changed since", 1, true) ~= nil, tostring(why))
+  assert(started == nil and why.message:find("has changed since", 1, true) ~= nil, tostring(why))
 end
 
 --- Mode 0666 in decimal.
@@ -153,8 +153,8 @@ local function under_nest(tmp: string, mode: string, policy: Sandbox.Policy): {s
     { policy = nested, cwd = tmp, stdout = "capture", stderr = "capture",
       timeout_ns = Clock.seconds(60) })
   if result == nil then
-    assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
-    Test.skip(why)
+    assert(ChildPolicy.unsandboxable(tostring(why)), "the start was refused: " .. tostring(why))
+    Test.skip(tostring(why))
   end
   local held = assert(result, "Test.skip ends the test where the start is refused")
   assert(held.ok, "exit " .. tostring(held.code) .. ": " .. tostring(held.stderr))

@@ -81,7 +81,7 @@ local function test_a_file_and_dash_are_read(tmp: string)
   assert(run({ "base64", path }).out == "Zm9vYmFy\n")
   assert(run({ "base64", "-" }, "foobar").out == "Zm9vYmFy\n")
   local missing = run({ "base64", tmp .. "/nope" })
-  assert(missing.code == 2 and missing.out == "" and missing.err:find("^cosmic: codec: ") ~= nil, missing.err)
+  assert(missing.code == 5 and missing.out == "" and missing.err:find("^cosmic: codec: ") ~= nil, missing.err)
 end
 
 local function test_wrap_breaks_lines_and_defaults_to_none()
@@ -111,13 +111,13 @@ local function test_decoding_ignores_ascii_whitespace()
   assert(run({ "base64url", "-d" }, "Zm9v\nYg\n").out == "foob")
   assert(run({ "base64", "-d" }, "Zg =\n=").out == "f")
   -- Not ASCII whitespace: NUL, and a non-breaking space.
-  assert(run({ "base64", "-d" }, "Zm9v\0").code == 2)
-  assert(run({ "hex", "-d" }, "66\xc2\xa06f").code == 2)
+  assert(run({ "base64", "-d" }, "Zm9v\0").code == 5)
+  assert(run({ "hex", "-d" }, "66\xc2\xa06f").code == 5)
 end
 
 local function refusal(words: {string}, text: string): string
   local ran = run(words, text)
-  assert(ran.code == 2 and ran.out == "", ("%s %q: %d %q"):format(table.concat(words, " "), text, ran.code, ran.out))
+  assert(ran.code == 5 and ran.out == "", ("%s %q: %d %q"):format(table.concat(words, " "), text, ran.code, ran.out))
   assert(ran.err:find("^cosmic: codec: standard input: "), ran.err)
   return ran.err
 end
@@ -150,11 +150,11 @@ local function test_lenient_accepts_the_other_padding_spelling()
   assert(run({ "base64url", "-d", "--lenient" }, "Zg==").out == "f")
   assert(run({ "base64url", "-d", "--lenient" }, "Zm8=").out == "fo")
   -- Still strict about everything else.
-  assert(run({ "base64", "-d", "--lenient" }, "Zm9vY").code == 2)
-  assert(run({ "base64", "-d", "--lenient" }, "Zh").code == 2)
-  assert(run({ "base64", "-d", "--lenient" }, "Zg=").code == 2)
-  assert(run({ "base64url", "-d", "--lenient" }, "Zg=").code == 2)
-  assert(run({ "base64url", "-d", "--lenient" }, "Z=g").code == 2)
+  assert(run({ "base64", "-d", "--lenient" }, "Zm9vY").code == 5)
+  assert(run({ "base64", "-d", "--lenient" }, "Zh").code == 5)
+  assert(run({ "base64", "-d", "--lenient" }, "Zg=").code == 5)
+  assert(run({ "base64url", "-d", "--lenient" }, "Zg=").code == 5)
+  assert(run({ "base64url", "-d", "--lenient" }, "Z=g").code == 5)
   assert(run({ "hex", "-d", "--lenient" }, "66").code == 2)
   assert(run({ "hex", "--lenient" }, "66").code == 2)
 end
@@ -170,7 +170,7 @@ local function test_a_command_line_it_cannot_read_exits_2()
   assert(run({ "base32" }).err:find("hex, base64, base64url", 1, true))
 end
 
-local function test_a_failed_write_exits_2_and_says_so()
+local function test_a_failed_write_exits_5_and_says_so()
   for _, words in ipairs({ { "hex" }, { "base64", "-d" } } as {{string}}) do -- checked: cast_refused
     local complaints = ""
     local argv: mut {string} = { "codec" }
@@ -180,7 +180,7 @@ local function test_a_failed_write_exits_2_and_says_so()
       err = function(line: string) complaints = complaints .. line .. "\n" end,
       stdin = function(): string?, string return "Zm9v", "" end,
     })
-    assert(code == 2, code)
+    assert(code == 5, code)
     assert(complaints == "cosmic: codec: standard output: No space left on device\n", complaints)
   end
 end
@@ -262,13 +262,13 @@ local function test_a_fault_past_the_first_chunk_names_its_offset_in_the_input()
   local text = string.rep("Zm9v\n", 30000) .. "Zm-v\n"
   local at = #text - 3 -- the "-", 0-based
   local ran = run({ "base64", "-d" }, text)
-  assert(ran.code == 2 and ran.err:find(("byte 0x2d at offset %d is not in the base64 alphabet"):format(at), 1, true) ~= nil,
+  assert(ran.code == 5 and ran.err:find(("byte 0x2d at offset %d is not in the base64 alphabet"):format(at), 1, true) ~= nil,
     ran.err)
   -- What was decoded before the fault, less the chunk it lies in, was written.
   assert(#ran.out > 0 and ran.out == ("foo"):rep(#ran.out // 3), #ran.out)
   -- A fault only the end of the text shows is found at the end.
   local short = run({ "base64", "-d" }, string.rep("Zm9v", 20000) .. "Zg")
-  assert(short.code == 2 and #short.out > 0, short.code)
+  assert(short.code == 5 and #short.out > 0, short.code)
   assert(short.err:find("multiple of 4 (at offset 80001)", 1, true), short.err)
 end
 
@@ -310,9 +310,9 @@ end
 local function test_short_reads_do_not_release_what_a_refusal_would_take_back()
   -- A pipe gives a few bytes a read; only a whole chunk of them is held.
   local refused = run_trickled({ "base64", "-d" }, "QUJDREVG!!!!")
-  assert(refused.code == 2 and refused.out == "", refused.out)
+  assert(refused.code == 5 and refused.out == "", refused.out)
   local short = run_trickled({ "base64", "-d" }, "QUJDREVGR")
-  assert(short.code == 2 and short.out == "" and short.err:find("length 9", 1, true) ~= nil, short.out .. short.err)
+  assert(short.code == 5 and short.out == "" and short.err:find("length 9", 1, true) ~= nil, short.out .. short.err)
   local fine = run_trickled({ "base64", "-d" }, "QUJD REVG\nR0hJ")
   assert(fine.code == 0 and fine.out == "ABCDEFGHI", fine.err)
   local encoded = run_trickled({ "hex", "--wrap", "4" }, "hello")
@@ -353,7 +353,7 @@ local function test_no_input_given_is_an_error_not_a_crash()
     out = function(_text: string): boolean, string return true, "" end,
     err = function(line: string) complaint = line end,
   })
-  assert(code == 2 and complaint:find("^cosmic: codec: ") ~= nil, complaint)
+  assert(code == 5 and complaint:find("^cosmic: codec: ") ~= nil, complaint)
 end
 
 local NAMES <const>: {codec.Name} = { "hex", "base64", "base64url" }
@@ -503,6 +503,10 @@ local function test_a_long_stream_takes_bounded_memory()
   local rounds = 32 -- 2 MiB of input through each encoding, and back
   local warm = 6
   for _, name in ipairs(NAMES) do
+    -- The encoding's tables are built at first use: a throwaway round
+    -- builds them before the base is taken.
+    local warm_text = assert(codec.encoder(name):update(chunk))
+    assert(codec.decoder(name):update(warm_text))
     local enc, dec = codec.encoder(name), codec.decoder(name)
     collectgarbage()
     collectgarbage()

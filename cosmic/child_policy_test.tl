@@ -43,8 +43,8 @@ local function under(program: string, policy: Sandbox.Policy, script: string, op
   local options: Child.Options = { ...(opts or { timeout_ns = Child.FOREVER }), policy = policy, stdout = "capture", stderr = "stdout" }
   local result, why = Child.run({ program, script }, options)
   if result == nil then
-    assert(unsandboxable(why), "the start was refused: " .. why)
-    Test.skip(why)
+    assert(unsandboxable(tostring(why)), "the start was refused: " .. tostring(why))
+    Test.skip(tostring(why))
   end
   local held = assert(result, "Test.skip ends the test where the start is refused")
   return { code = held.code or -1, signal = held.signal or -1, said = held.stdout or "",
@@ -92,11 +92,11 @@ local function test_a_grant_of_a_path_that_is_not_there_fails_naming_it(tmp: str
   local policy: Sandbox.Policy = { grants = itself(probe, { { path = tmp .. "/absent", letters = "r" } }) }
   local result, why = Child.run({ probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = policy })
   assert(result == nil)
-  if unsandboxable(why) then
-    Test.skip(why)
+  if unsandboxable(tostring(why)) then
+    Test.skip(tostring(why))
     return
   end
-  assert(why:find("absent", 1, true), why)
+  assert(why.message:find("absent", 1, true), why)
 end
 
 local function test_a_grant_on_the_directory_above_a_program_gives_it_both_r_and_x(tmp: string)
@@ -113,8 +113,8 @@ local function test_an_interpreter_that_is_granted_too_runs_the_script(tmp: stri
     { path = probe, letters = "rx" } } }
   local ran, trouble = Child.run({ tmp .. "/scripts/run" }, { timeout_ns = Child.FOREVER, policy = policy, stdout = "capture" })
   if ran == nil then
-    assert(unsandboxable(trouble), trouble)
-    Test.skip(trouble)
+    assert(unsandboxable(tostring(trouble)), trouble)
+    Test.skip(tostring(trouble))
     return
   end
   assert(ran.stdout == "scripted\n", ran.stdout)
@@ -128,8 +128,8 @@ local function test_a_program_named_through_a_link_is_granted_by_what_it_leads_t
   local result, trouble = Child.run({ tmp .. "/bin/tool", "print hi" },
     { timeout_ns = Child.FOREVER, policy = { grants = itself(probe) }, stdout = "capture" })
   if result == nil then
-    assert(unsandboxable(trouble), trouble)
-    Test.skip(trouble)
+    assert(unsandboxable(tostring(trouble)), trouble)
+    Test.skip(tostring(trouble))
     return
   end
   assert(result.stdout == "hi\n", result.stdout)
@@ -194,8 +194,8 @@ local function test_tmp_is_removed_after_a_child_ended_for_its_timeout(tmp: stri
   local handle, why = Child.start({ probe, "write $TMPDIR/f x; sleep-forever" },
     { timeout_ns = Child.FOREVER, policy = policy, stdout = "null", stderr = "null" })
   if handle == nil then
-    assert(unsandboxable(why), why)
-    Test.skip(why)
+    assert(unsandboxable(tostring(why)), why)
+    Test.skip(tostring(why))
     return
   end
   assert(#sandbox_directories() == 1, "expected the child's one directory")
@@ -209,8 +209,8 @@ local function test_a_start_that_fails_leaves_no_tmp_behind(tmp: string)
   local policy: Sandbox.Policy = { grants = itself(probe, { { path = tmp .. "/absent", letters = "r" } }), tmp = true }
   local none, why = Child.start({ probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = policy })
   assert(none == nil)
-  if unsandboxable(why) then
-    Test.skip(why)
+  if unsandboxable(tostring(why)) then
+    Test.skip(tostring(why))
     return
   end
   assert(#sandbox_directories() == 0, "a failed start left its directory behind")
@@ -252,11 +252,11 @@ local function test_a_limit_above_this_processs_hard_limit_fails_the_start(tmp: 
     assert(result.ok, "the start succeeded, and the child failed")
     return
   end
-  if unsandboxable(why) then
-    Test.skip(why)
+  if unsandboxable(tostring(why)) then
+    Test.skip(tostring(why))
     return
   end
-  assert(why:find("^child: start: ") and why:find("not permitted", 1, true), why)
+  assert(why.message:find("^child: start: ") and why.message:find("not permitted", 1, true), why)
 end
 
 local function test_without_fattr_no_promise_lets_a_child_change_a_mode(tmp: string)

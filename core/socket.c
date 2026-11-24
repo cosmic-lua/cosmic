@@ -26,6 +26,7 @@
 #include <arpa/inet.h>
 #include <net/if.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <time.h>
 #include <unistd.h>
 #if defined(__APPLE__)
@@ -310,8 +311,20 @@ static int made (int fd) {
   return 0;
 }
 
+/* Turns Nagle's algorithm off on `fd` where it is a TCP socket: cosmic
+ * writes what it means to send now, and a small write held until the
+ * peer's delayed ACK (40 ms or more on Linux, about 100 on macOS) costs a
+ * chunked reply, a server-sent event or a TLS 1.2 handshake flight that
+ * wait each time. A socket of another family has no such option, and its
+ * refusal is passed over, as is a TCP one's on a connection already reset
+ * (macOS answers EINVAL). */
+static void undelayed (int fd) {
+  int on = 1;
+  (void)setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &on, sizeof on);
+}
+
 /* A new socket of `family` and `type`, made as `made` says, or -1 with
- * errno set. */
+ * errno set. A TCP one is [`undelayed`]. */
 static int new_socket (int family, int type) {
 #if defined(SOCK_CLOEXEC)
   int fd = socket(family, type | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
@@ -325,6 +338,7 @@ static int new_socket (int family, int type) {
     errno = failure;
     return -1;
   }
+  if (type == SOCK_STREAM && (family == AF_INET || family == AF_INET6)) undelayed(fd);
   return fd;
 }
 
@@ -626,6 +640,10 @@ COSMIC_SYSCALL(accept, 1) {
     released(owned);
     return cosmic_fail(L, failure);
   }
+  /* A listener made elsewhere (adopted, or the sandbox's relay) may lack
+   * TCP_NODELAY, which an accepted socket inherits; a unix connection
+   * refuses it, which is passed over. */
+  undelayed(owned->fd);
   return 1;
 }
 

@@ -175,3 +175,22 @@ local function test_the_product_keeps_a_chunks_compile_under_its_own_key(tmp: st
   assert(file.result.code == 4 and not Fixture.read(file.out):find("ran", 1, true),
     "a file spelled as a chunk's key ran: " .. tostring(file.result.code))
 end
+
+--- The product runs from outside the build directory of the checkout it
+--- was built from. So in a project it is held to no tree, as a release is.
+--- `help`'s index then starts without build.reboot and the build modules
+--- it requires.
+local function test_the_product_answers_help_without_the_reboot_guard(tmp: string)
+  local product = Fixture.placed("product")
+  local diagnostics = tmp .. "/logs"
+  Fixture.mkdir(tmp .. "/run")
+  local helped = Fixture.run("help-traced", { product .. "/cosmic", "help" },
+    tmp .. "/run", diagnostics, { COSMIC_PORTABLE_CACHE = tmp .. "/cache",
+      COSMIC_TRACE_REQUIRE = "1" })
+  Fixture.contains(helped.out, "cosmic help")
+  local traced = Fixture.read(helped.err)
+  assert(traced:find("require: build.dispatch", 1, true),
+    "help printed no require trace: " .. traced:sub(1, 400))
+  assert(not traced:find("build.reboot", 1, true),
+    "the product's help loaded build.reboot")
+end

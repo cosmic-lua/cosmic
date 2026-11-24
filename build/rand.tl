@@ -30,9 +30,9 @@
 --- targets only as far as their `log` and `pow` do.
 ---
 --- Like `cosmic json` it prints no summary: its standard output is
---- data for a pipe. Exit 0 is ok, 2 a command line, a file or a request
---- it refuses (a failed write to standard output included), 1 the
---- operating system's entropy source failing. Complaints go to standard
+--- data for a pipe. Exit 0 is ok, 2 a command line it refuses, 5 a file it
+--- cannot read, a request it cannot meet, a failed write to standard
+--- output or the operating system's entropy source failing. Complaints go to standard
 --- error as `cosmic: rand: ...`. Its `spec` (build/verb_spec.tl) is `bare`.
 ---
 --- UUIDs. Version 4 is 122 bits of entropy. Version 7 (RFC 9562) is the
@@ -48,7 +48,7 @@
 --- the clock overtakes them. Only one run is ordered: two runs in one
 --- millisecond can draw either way.
 --- A clock that reads before 1970 has no version 7 layout: the request
---- is refused, exit 2. [`Rand.uuid_maker`] makes both versions, and a
+--- could not be done, exit 5. [`Rand.uuid_maker`] makes both versions, and a
 --- program draws its own with [`Rand.uuid`].
 ---
 --- Lines (`pick`, `shuffle`) end at "\n", and a "\r" before it is
@@ -247,8 +247,9 @@ local function lines_of(text: string): {string}
 end
 
 --- `cosmic rand <subcommand> ...`: prints what it draws, and returns the
---- exit code: 0 ok, 1 the entropy source failed, 2 a command line, a
---- file or a request it refuses, or a standard output that took no write.
+--- exit code: 0 ok, 2 a command line it refuses, 5 a file it cannot read, a
+--- request it cannot meet, a standard output that took no write, or an entropy
+--- source that failed.
 --- @param argv the command line, `rand` at slot 1
 --- @param io where text is read and written and bytes drawn; the process's own when nil
 function verb.run(argv: {string}, io?: verb.Io): integer
@@ -369,17 +370,17 @@ function verb.run(argv: {string}, io?: verb.Io): integer
         if text == nil then
           flush()
           complain((why:gsub("^rand: ", "")))
-          return 2
+          return bare.undone
         end
         if not emit(text) then
-          return 2
+          return bare.undone
         end
       end
     elseif command == "token" then
       local bytes = secret(request.bytes)
       local text = if request.encoding == "hex" then Codec.hex(bytes) else Codec.base64url(bytes) end
       if not emit(text) then
-        return 2
+        return bare.undone
       end
     elseif command == "int" then
       local low_word = assert(request.words[1], "int takes two bounds, which the arity check holds it to")
@@ -387,28 +388,28 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       local lo, hi = integer_of(low_word), integer_of(high_word)
       if lo == nil or hi == nil then
         complain("the bounds are whole numbers, not " .. low_word .. " and " .. high_word)
-        return 2
+        return bare.refused
       end
       if lo > hi then
         complain(("the low bound %d is above the high bound %d"):format(lo, hi))
-        return 2
+        return bare.refused
       end
       for _ = 1, request.count or 1 do
         if not emit(tostring(source.int(lo, hi))) then
-          return 2
+          return bare.undone
         end
       end
     elseif command == "normal" then
       for _ = 1, request.count or 1 do
         if not emit(("%.17g"):format(source.normal(request.mean, request.stddev))) then
-          return 2
+          return bare.undone
         end
       end
     elseif command == "gamma" then
       local shape = assert(request.shape, "gamma needs a shape, which the argument check holds it to")
       for _ = 1, request.count or 1 do
         if not emit(("%.17g"):format(source.gamma(shape, request.scale))) then
-          return 2
+          return bare.undone
         end
       end
     else
@@ -423,7 +424,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       end
       if text == nil then
         complain(why)
-        return 2
+        return bare.undone
       end
       local lines = lines_of(text)
       local count = #lines
@@ -438,7 +439,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
         wanted = request.count or 1
         if wanted > count then
           complain(("cannot pick %d of %s"):format(wanted, plural.count(count, "line")))
-          return 2
+          return bare.undone
         end
       end
       for slot = 1, wanted do
@@ -447,11 +448,11 @@ function verb.run(argv: {string}, io?: verb.Io): integer
         local at_other = assert(items[other], "a slot drawn up to the end is a line")
         items[slot], items[other] = at_other, at_slot
         if not emit(at_other) then
-          return 2
+          return bare.undone
         end
       end
     end
-    if not flush() then return 2 end
+    if not flush() then return bare.undone end
     return 0
   end
 
@@ -460,7 +461,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     local drawn_broken = drawn.broken
     if drawn_broken ~= nil then
       complain("the operating system's entropy source failed: " .. drawn_broken)
-      return 1
+      return bare.undone
     end
     error(result, 0)
   end
@@ -476,7 +477,7 @@ verb.spec = {
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "a subcommand and its words",
-  exits = "`rand` prints what it draws and nothing after; it exits 1 when the entropy source failed, 2 when it refuses its command line or a write fails.",
+  exits = "`rand` prints what it draws and nothing after; it exits 2 when it refuses its command line, 5 when it cannot read a file, a write fails or the entropy source failed.",
   passthrough = "its output is data for a pipe, so its exit status is the verdict (build/rand_test.tl)",
 }
 

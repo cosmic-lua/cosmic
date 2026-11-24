@@ -30,7 +30,7 @@ local SH <const> = "/bin/sh"
 --- operation and path of each refusal, which says what a profile lacks.
 --- Empty where the log cannot be read.
 local function denials(): string
-  local result = Child.run({ "/usr/bin/log", "show", "--last", "1m", "--style", "compact",
+  local result, _ = Child.run({ "/usr/bin/log", "show", "--last", "1m", "--style", "compact",
     "--predicate", "eventMessage CONTAINS \"Sandbox: cat(\" OR eventMessage CONTAINS \"Sandbox: sh(\" " ..
       "OR eventMessage CONTAINS \"Sandbox: cosmic\" OR eventMessage CONTAINS \"Sandbox: bash(\" " ..
       "OR eventMessage CONTAINS \"Sandbox: test(\" OR process == \"cat\" OR process == \"sh\"" }, { stdout = "capture", stderr = "capture",
@@ -104,7 +104,7 @@ local function test_another_user_is_refused_before_a_child_starts()
   if sys.getuid() == 0 then Test.skip("root is refused") end
   local handle, why = Child.start({ "/bin/true" }, { timeout_ns = Child.FOREVER, policy = { profiles = { "system" },
     user = sys.getuid() + 1 }, stdin = "null", stdout = "null", stderr = "null" })
-  assert(handle == nil and why:find("cannot change them", 1, true) ~= nil, why)
+  assert(handle == nil and why.message:find("cannot change them", 1, true) ~= nil, why)
 end
 
 --- The "system" profile means one thing whether the policy is started
@@ -164,7 +164,7 @@ end
 local function refusal(policy: Sandbox.Policy): string
   local child, why = Child.start({ CAT }, { timeout_ns = Child.FOREVER, policy = policy })
   assert(child == nil, "the start was not refused")
-  return why
+  return tostring(why)
 end
 
 local function test_what_seatbelt_cannot_hold_fails_the_start_with_its_own_refusal(tmp: string)
@@ -223,7 +223,7 @@ local function test_a_program_nobody_granted_fails_the_start_naming_the_grant(tm
   local granted = files(tmp)
   local child, why = Child.start({ CAT, granted }, { timeout_ns = Child.FOREVER, policy = { grants = { { path = granted, letters = "r" } } } })
   assert(child == nil)
-  assert(why:find("^child: start: sandbox: ") and why:find("not granted r and x", 1, true), why)
+  assert(why.message:find("^child: start: sandbox: ") and why.message:find("not granted r and x", 1, true), why)
 end
 
 local function test_the_environment_the_policy_gives_is_the_whole_environment(tmp: string)
@@ -306,7 +306,7 @@ local function test_a_policy_start_that_keeps_the_callers_group_is_refused(tmp: 
   local child, why = Child.start({ CAT, granted }, { timeout_ns = Child.FOREVER, process_group = false,
     policy = { profiles = { "system" }, grants = { { path = granted, letters = "r" } } } })
   assert(child == nil, "a start that keeps the caller's group ran")
-  assert(why:find("process_group = false is refused", 1, true), why)
+  assert(why.message:find("process_group = false is refused", 1, true), why)
 end
 
 --- The process table a test starts a child through hands its twelfth

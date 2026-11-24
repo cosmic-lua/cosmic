@@ -263,7 +263,9 @@ local function live(guard: Signal.Guard): Review.Host
     run = function(argv: {string}): Child.Result?, string
       local whole, trouble = found(argv)
       if whole == nil then return nil, trouble end
-      return Child.run(whole, { timeout_ns = Clock.minutes(1) })
+      local result, why = Child.run(whole, { timeout_ns = Clock.minutes(1) })
+      if result == nil then return nil, tostring(why) end
+      return result, ""
     end,
     start = function(argv: {string}, env: {string:string}, cwd: string, log: string): Started?, string
       local whole, missing = found(argv)
@@ -272,7 +274,7 @@ local function live(guard: Signal.Guard): Review.Host
       if fd == nil then return nil, tostring(unopened) end
       local handle, trouble = Child.start(whole, { env = env, cwd = cwd, timeout_ns = AGENT_NS, stderr = fd })
       local _, _ = Fs.close(fd)
-      if handle == nil then return nil, trouble end
+      if handle == nil then return nil, tostring(trouble) end
       return {
         wait = function(ns: integer): Child.Result?, string
           local done, waited = Child.wait_any({ handle }, ns)

@@ -84,7 +84,7 @@ function Process.start(label: string, argv: {string}, cwd: string,
     end
     local _, _ = Fs.close(out_fd)
     local _, _ = Fs.close(err_fd)
-    error(label .. ": " .. trouble)
+    error(label .. ": " .. tostring(trouble))
   end
   return { label = label, handle = handle, out_fd = out_fd, err_fd = err_fd,
     input_fd = input_fd, out = out, err = err, closed = false }

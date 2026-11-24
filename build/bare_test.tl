@@ -32,11 +32,11 @@ local function test_a_lost_write_complains_once_and_answers_false()
   assert(#lines == 1 and lines[1] == "cosmic: hash: standard output: Broken pipe", lines[1])
 end
 
-local function test_written_is_zero_or_two()
+local function test_written_is_zero_or_five()
   local lines: mut {string} = {}
   local complain = bare.complainer("rand", function(line: string) lines[#lines + 1] = line end)
   assert(bare.written(complain, true, "") == 0 and #lines == 0)
-  assert(bare.written(complain, false, "No space left on device") == 2)
+  assert(bare.written(complain, false, "No space left on device") == 5)
   assert(lines[1] == "cosmic: rand: standard output: No space left on device", lines[1])
 end
 

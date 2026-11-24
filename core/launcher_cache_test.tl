@@ -316,3 +316,42 @@ local function test_an_entry_newer_than_its_stamp_is_repaired(tmp: string)
     tostring(r.stderr))
   assert(assert(Fs.read(entry)) == bytes, "the repair did not restore the entry")
 end
+
+--- Startup checks an entry's mode itself, so a start with no launcher before it, as [`Proc.relaunch`] starts one,
+--- refuses and removes an entry that is not mode 0500, on every host. The next launch extracts it again.
+local function test_a_direct_start_of_an_entry_of_another_mode_removes_it(tmp: string)
+  relaunch_or_skip()
+  local program = assert(Proc.executable())
+  local cache = tmp .. "/cache"
+  assert(Fs.write(tmp .. "/ok.tl", "return function(): integer print('ok') return 0 end\n"))
+  launch(program, cache, tmp)
+  assert(Fs.write(tmp .. "/again.tl", [[
+local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
+local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
+return function(): integer
+  local again = assert(Proc.relaunch())
+  assert(Fs.chmod(assert(again.argv[1]), 0x1c0))
+  local argv: mut {string} = {}
+  for _, word in ipairs(again.argv) do argv[#argv + 1] = word end
+  argv[#argv + 1] = "-e"
+  argv[#argv + 1] = "print('ran')"
+  local r = assert(Child.run(argv, { env = again.env, fds = again.fds, stdout = "capture", stderr = "capture",
+    timeout_ns = Clock.seconds(30) }))
+  local _, _ = Fs.put(Fs.stdout, tostring(r.code) .. "\n" .. (r.stdout or "") .. (r.stderr or ""))
+  return 0
+end
+]]))
+  local env = environment()
+  env["COSMIC_PORTABLE_CACHE"] = cache
+  local r = assert(Child.run({ program, "again.tl" }, { env = env, cwd = tmp,
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
+  local out = r.stdout or ""
+  assert(r.ok and out:find("is not mode 0500 (mode 700); removed it", 1, true) ~= nil and
+      out:sub(1, 2) ~= "0\n" and out:find("\nran\n", 1, true) == nil, out .. tostring(r.stderr))
+  for _, name in ipairs((assert(Fs.list(cache)))) do
+    assert(name:sub(1, 5) ~= "core-", "the refused entry is left: " .. name)
+  end
+  launch(program, cache, tmp)
+end

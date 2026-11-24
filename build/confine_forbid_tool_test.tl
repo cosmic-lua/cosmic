@@ -39,7 +39,7 @@ local ok, why = confine.forbid_running(confine.itself(), %s)
 assert(ok, why)
 local function ran(argv: {string}): string
   local result, trouble = Child.run(argv, { timeout_ns = Child.FOREVER })
-  if result == nil then return trouble end
+  if result == nil then return tostring(trouble) end
   return "ran " .. tostring(result.code)
 end
 local out = {

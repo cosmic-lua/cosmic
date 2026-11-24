@@ -82,8 +82,8 @@
 ---
 --- It prints no summary: its output is data for a pipe. Exits 0 when it
 --- did what was asked, 1 when it could not (no connection, no matching
---- release, a release that fails verification, a write that failed), 2
---- for a command line it refused.
+--- release, a release that fails verification), 2 for a command line it
+--- refused, 5 for a write to standard output that failed.
 ---
 --- The repository is cosmic-lua/cosmic, fixed: a fork's releases are
 --- not the ones the pin and bin/cosmic-bootstrap name.
@@ -712,7 +712,7 @@ verb.spec = {
   bare = true,
   takes = "the criteria a release must meet",
   exits = "`release` prints the release, the list or the cached path and nothing after, and exits 0 when it " ..
-    "did what was asked, 1 when it could not, 2 for a command line it refused.",
+    "did what was asked, 1 when it could not, 2 for a command line it refused, 5 when its output could not be written.",
   passthrough = "every case reaches GitHub's API, so build/release_test.tl holds it over a scripted transport",
 }
 

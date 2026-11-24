@@ -1018,7 +1018,7 @@ function closure_store.extract(whole: string, path: string): boolean, string
       { text(whole) })
     if not attached then return false, tostring(attach_trouble) end
     local statements = {
-      "PRAGMA journal_mode = OFF",
+      "PRAGMA main.journal_mode = MEMORY",
       "PRAGMA synchronous = OFF",
       "CREATE TABLE main.uses (module TEXT NOT NULL, symbol TEXT NOT NULL, " ..
         "from_module TEXT NOT NULL, from_file TEXT NOT NULL, line INTEGER NOT NULL, " ..
