@@ -81,6 +81,9 @@ eval 'exec '"$cosmic_artifact_fd"'<"$cosmic_artifact"' ||
   portable_die 'cannot open the portable artifact'
 @ADOPT_HOOK@
 
+# 1 only for the leaf the launcher names under HOME, the one start whose
+# leaf and parents it makes itself; see the warm start below.
+cosmic_cache_own=0
 if [ "${COSMIC_PORTABLE_CACHE+x}" = x ]; then
   cosmic_cache=${COSMIC_PORTABLE_CACHE-}
   case $cosmic_cache in
@@ -89,7 +92,14 @@ if [ "${COSMIC_PORTABLE_CACHE+x}" = x ]; then
   esac
 else
   case ${XDG_CACHE_HOME-} in
-    /*) cosmic_cache=$XDG_CACHE_HOME/cosmic/cores ;;
+    /*)
+      cosmic_cache=$XDG_CACHE_HOME/cosmic/cores
+      # The default spelled out (cosmic agent's policy sets it so) is the
+      # leaf under HOME too.
+      case ${HOME-} in
+        /*) if [ "$XDG_CACHE_HOME" = "$HOME/.cache" ]; then cosmic_cache_own=1; fi ;;
+      esac
+      ;;
     *)
       case ${HOME-} in
         /*)
@@ -97,6 +107,7 @@ else
             Darwin) cosmic_cache=$HOME/Library/Caches/cosmic/cores ;;
             *) cosmic_cache=$HOME/.cache/cosmic/cores ;;
           esac
+          cosmic_cache_own=1
           ;;
         *)
           # No absolute HOME: a leaf of its own directly in the temp
@@ -175,13 +186,22 @@ portable_exec_failed() {
 # the launcher gives it. On Linux what is run is the file opened, through
 # /proc/self/fd, which holds even where an ancestor of the leaf is another's
 # to rename; macOS refuses execve of /dev/fd/N, so there the entry is run by
-# its name, as the path below runs it on both. The entry is not newer than
+# its name, as the path below runs it on both. A sticky bit still lets anyone
+# who can write the leaf add a hard link to another file this user owns under
+# an absent name, and no builtin reads a mode, so only the leaf under HOME
+# starts here: HOME is this user's own, and the launcher makes the leaf
+# private. One this user has since opened to others there is this user's
+# choice, refused by startup only once what it holds has run. A leaf named by
+# COSMIC_PORTABLE_CACHE, by any other XDG_CACHE_HOME, or one in the temp
+# directory may be another's to write, so it takes the path below, which
+# reads its mode, on every start. The entry is not newer than
 # its stamp. Startup stamps an entry only once a second has passed since it
 # last changed, so a healthy entry is older than its stamp, and an entry
 # written since, such as one damaged in place, is newer and takes the path
 # below, which hashes and repairs it before it runs. A write that sets the
 # old time back, or one in the stamp's own second where test(1) compares
-# whole seconds (BusyBox), still reaches startup. What these builtins cannot
+# whole seconds (BusyBox, and bash 3.2, macOS's /bin/sh), still reaches
+# startup. What these builtins cannot
 # see -- the leaf's mode, the entry's, and whether the entry answers all its
 # stamp records -- startup checks before anything else runs
 # (core/startup.c), and it removes an entry it refuses, so the next start
@@ -194,7 +214,8 @@ case $cosmic_os in
   Darwin) cosmic_run=$cosmic_core ;;
   *) cosmic_run=/proc/self/fd/$cosmic_core_fd ;;
 esac
-if [ -d "$cosmic_cache" ] && [ ! -L "$cosmic_cache" ] && [ -O "$cosmic_cache" ] &&
+if [ "$cosmic_cache_own" = 1 ] &&
+   [ -d "$cosmic_cache" ] && [ ! -L "$cosmic_cache" ] && [ -O "$cosmic_cache" ] &&
    [ -k "$cosmic_cache" ] &&
    [ -f "$cosmic_core" ] && [ ! -L "$cosmic_core" ] &&
    [ -f "$cosmic_stamp" ] && [ ! -L "$cosmic_stamp" ] &&
@@ -300,10 +321,11 @@ case $portable_mode in
   *5??) cosmic_cache_writable=0 ;;
   *) portable_die "cache leaf owner needs mode 7 or 5, not $portable_mode: $cosmic_cache (run chmod u=rwx '$cosmic_cache', or name a directory only you control in COSMIC_PORTABLE_CACHE)" ;;
 esac
-# A leaf with no sticky bit takes this path on every start, as the warm one
-# above needs the bit: it is given one here, once. Where a filter refuses the
-# bit (a sandbox's), the leaf stays as it is and only the warm start is lost.
-if [ "$cosmic_cache_writable" = 1 ] && [ ! -k "$cosmic_cache" ]; then
+# The leaf under HOME takes this path on every start while it has no sticky
+# bit, as the warm one above needs the bit: it is given one here, once. Where
+# it cannot be given one (a read-only file system), the leaf stays as it is,
+# and every start pays this path and the chmod.
+if [ "$cosmic_cache_own" = 1 ] && [ ! -k "$cosmic_cache" ]; then
   chmod +t "$cosmic_cache" 2>/dev/null || :
 fi
 

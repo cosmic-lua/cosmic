@@ -48,10 +48,23 @@ local function environment(): mut {string:string}
   return env
 end
 
+--- Names `cache` to a launch in `env`: a leaf that ends in /.cache/cosmic/cores as the default one under HOME, the
+--- only leaf a warm start takes (build/launcher.tl), and any other by COSMIC_PORTABLE_CACHE.
+local function name_leaf(env: mut {string:string}, cache: string)
+  local home = cache:match("^(.*)/%.cache/cosmic/cores$")
+  if home ~= nil then
+    env["HOME"] = home
+    env["COSMIC_PORTABLE_CACHE"] = nil
+    env["XDG_CACHE_HOME"] = nil
+  else
+    env["COSMIC_PORTABLE_CACHE"] = cache
+  end
+end
+
 --- Launches this artifact with `cache` as its cache leaf.
 local function launch(program: string, cache: string, dir: string)
   local env = environment()
-  env["COSMIC_PORTABLE_CACHE"] = cache
+  name_leaf(env, cache)
   local r = assert(Child.run({ program, "ok.tl" }, { env = env, cwd = dir,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok and r.stdout == "ok\n", tostring(r.stderr))
@@ -98,7 +111,7 @@ local function launch_with_mode(program: string, tmp: string, name: string, mode
   assert(Fs.write(tmp .. "/ok.tl", "return function(): integer print('ok') return 0 end\n"))
   local env: mut {string:string} = {}
   for key, value in pairs(environment()) do env[key] = value end
-  env["COSMIC_PORTABLE_CACHE"] = cache
+  name_leaf(env, cache)
   local r = assert(Child.run({ program, "ok.tl" }, { env = env, cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   -- The test's directory is removed afterwards, by a user who cannot list
@@ -171,10 +184,10 @@ local function test_a_setgid_leaf_is_judged_without_the_bit(tmp: string)
   assert(not w.ok and w.code == 126 and werr:find("writable by group or others", 1, true) ~= nil, werr)
 end
 
---- Launches this artifact with `cache` as its cache leaf and a PATH that finds `uname` alone, so a launch that
---- runs any other program (`stat`, `sha256sum`) fails. A warm start runs none: where the kernel names the machine
---- (outside a sandbox, whose /proc has no sys/), not even `uname`.
-local function launch_bare(program: string, cache: string, dir: string): Child.Result
+--- Launches this artifact with `cache` as its cache leaf, `extra` added to its environment, and a PATH that finds
+--- `uname` alone, so a launch that runs any other program (`stat`, `sha256sum`) fails. A warm start runs none: where
+--- the kernel names the machine (outside a sandbox, whose /proc has no sys/), not even `uname`.
+local function launch_bare(program: string, cache: string, dir: string, extra?: {string:string}): Child.Result
   local bare = dir .. "/only-uname"
   if not assert(Fs.status(bare)).exists then
     assert(Fs.mkdirs(bare))
@@ -182,13 +195,16 @@ local function launch_bare(program: string, cache: string, dir: string): Child.R
     assert(Fs.symlink(uname, bare .. "/uname"))
   end
   local env = environment()
-  env["COSMIC_PORTABLE_CACHE"] = cache
+  name_leaf(env, cache)
   env["PATH"] = bare
+  for name, value in pairs(extra or {}) do env[name] = value end
   return (assert(Child.run({ program, "ok.tl" }, { env = env, cwd = dir,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })))
 end
 
---- A cache leaf of a warm entry, stamped: skipped off Linux, whose launcher's cold path runs other programs.
+--- The default cache leaf under HOME of a warm entry, stamped: skipped off Linux, whose launcher's cold path runs other programs.
+-- TODO: hold macOS's warm start (the entry run by name, the Library/Caches leaf, bash 3.2's test) to these tests once
+-- a macOS worker runs them: the stamp's launches and [`name_leaf`] know Linux's paths and tools alone.
 local function stamped_cache(tmp: string): (string, string)
   relaunch_or_skip()
   local names = sys.uname()
@@ -196,7 +212,7 @@ local function stamped_cache(tmp: string): (string, string)
     Test.skip("the stamp's launches use Linux's tools")
   end
   local program = assert(Proc.executable())
-  local cache = tmp .. "/cache"
+  local cache = tmp .. "/home/.cache/cosmic/cores"
   assert(Fs.write(tmp .. "/ok.tl", "return function(): integer print('ok') return 0 end\n"))
   launch(program, cache, tmp)
   assert(Clock.sleep(1100000000))
@@ -233,8 +249,27 @@ local function test_a_warm_start_refuses_a_leaf_others_can_write(tmp: string)
       err:find("chmod go-w", 1, true) ~= nil, err)
 end
 
---- A leaf with no sticky bit, as one made before the warm start needed it, takes the full path, which gives it
---- the bit, so the next start is warm.
+--- A sticky leaf other than the default one under HOME takes the full path, which reads its mode, as no builtin
+--- can see whether another user can write the leaf and add a hard link to a file this user owns.
+local function test_a_named_leaf_never_starts_warm(tmp: string)
+  local program, cache = stamped_cache(tmp)
+  local home = assert(cache:match("^(.*)/%.cache/cosmic/cores$"))
+  local spelled = launch_bare(program, cache, tmp, { XDG_CACHE_HOME = home .. "/.cache" })
+  assert(spelled.ok and spelled.stdout == "ok\n", "XDG_CACHE_HOME=$HOME/.cache did not start warm: " ..
+      tostring(spelled.stderr))
+  assert(Fs.mkdirs(tmp .. "/xdg/cosmic"))
+  assert(Fs.rename(cache, tmp .. "/xdg/cosmic/cores"))
+  local other = launch_bare(program, cache, tmp, { XDG_CACHE_HOME = tmp .. "/xdg" })
+  assert(not other.ok and (other.stderr or ""):find("cannot inspect cache leaf", 1, true) ~= nil,
+    "a leaf XDG_CACHE_HOME names started warm: " .. tostring(other.stderr))
+  local named = tmp .. "/named"
+  assert(Fs.rename(tmp .. "/xdg/cosmic/cores", named))
+  local r = launch_bare(program, named, tmp)
+  assert(not r.ok and (r.stderr or ""):find("cannot inspect cache leaf", 1, true) ~= nil,
+    "a named leaf started warm: " .. tostring(r.stderr))
+end
+
+--- The default leaf with no sticky bit takes the full path, which gives it the bit, so the next start is warm.
 local function test_a_leaf_with_no_sticky_bit_is_given_one(tmp: string)
   local program, cache = stamped_cache(tmp)
   assert(Fs.chmod(cache, 0x1c0))
@@ -267,7 +302,7 @@ local function test_an_entry_with_no_run_bit_is_repaired(tmp: string)
   local entry = entry_of(cache)
   assert(Fs.chmod(entry, 0x180))
   local env = environment()
-  env["COSMIC_PORTABLE_CACHE"] = cache
+  name_leaf(env, cache)
   local r = assert(Child.run({ program, "ok.tl" }, { env = env, cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok and r.stdout == "ok\n" and (r.stderr or ""):find("mode is not 0500; repairing", 1, true) ~= nil,
@@ -323,7 +358,7 @@ local function test_an_entry_newer_than_its_stamp_is_repaired(tmp: string)
   overwrite(entry, bytes:sub(1, #bytes - 1) .. (if bytes:sub(-1) == "x" then "y" else "x" end))
   assert(Fs.set_mtime(entry, assert(sys.lstat(stamp)).mtime + 1))
   local env = environment()
-  env["COSMIC_PORTABLE_CACHE"] = cache
+  name_leaf(env, cache)
   local r = assert(Child.run({ program, "ok.tl" }, { env = env, cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok and r.stdout == "ok\n" and (r.stderr or ""):find("digest differs; repairing", 1, true) ~= nil,
@@ -358,7 +393,7 @@ return function(): integer
 end
 ]]))
   local env = environment()
-  env["COSMIC_PORTABLE_CACHE"] = cache
+  name_leaf(env, cache)
   local r = assert(Child.run({ program, "again.tl" }, { env = env, cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   local out = r.stdout or ""
