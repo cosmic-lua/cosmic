@@ -484,21 +484,19 @@ local function stub_trouble(m: Module, built: Pipeline.Built, result: Driver.Out
 end
 
 --- Whether the declarations of the module `result` is of stand: it parsed, it returns what a declaration describes, and no
---- error of its scopes or its declarations lies outside the body of a function.
---
--- TODO: pass over the errors a marker holds, once [`Driver.Build.held`] answers which findings its markers held and not
--- only the lines of the rest: a module of cosmic's own tree with a marked error outside a function body builds, and reads
--- here as one whose declarations do not stand, so a module that requires it beside a refused one is left unchecked.
-local function declarations_stand(result: Driver.Outcome): boolean
+--- error of its scopes or its declarations lies outside the body of a function. `unheld` is what of its errors its markers
+--- do not hold ([`Driver.unheld`]): an error a marker holds is one the module builds with, and leaves its declarations as
+--- they stand when it builds.
+local function declarations_stand(result: Driver.Outcome, unheld: Driver.Unheld): boolean
   if result.broken then
     return false
   end
-  for _, e in ipairs(result.bodies) do
+  for _, e in ipairs(unheld.bodies) do
     if e.code == "export_not_declared" then
       return false
     end
   end
-  if #result.scope_errors == 0 and #result.declared == 0 then
+  if #unheld.scope_errors == 0 and #unheld.declared == 0 then
     return true
   end
   local tokens = result.chunk.tokens
@@ -521,7 +519,7 @@ local function declarations_stand(result: Driver.Outcome): boolean
       to[#to + 1] = close
     end
   end)
-  for _, list in ipairs({ result.scope_errors, result.declared }) do
+  for _, list in ipairs({ unheld.scope_errors, unheld.declared }) do
     for _, e in ipairs(list) do
       local inside = false
       for i, start in ipairs(from) do
@@ -538,18 +536,18 @@ local function declarations_stand(result: Driver.Outcome): boolean
 end
 
 --- Whether a module that requires the module `result` is of can be checked against it ([`Pipeline.Built.standing`]): its
---- declarations stand, and no error lies in a `return`.
+--- declarations stand, and no error its markers do not hold lies in a `return`.
 --
 -- TODO: tell an error that leaves the declarations in doubt from one that does not by what the checker compared (a value
 -- against a declared result or parameter), once an error carries the declaration it was judged by ([`Driver.Problem`] has
 -- the call of a refused argument alone): an error in a body that uses a parameter as another type than it declares, or a
 -- field its record does not declare, is mended in the declaration as often, and is not seen here. The refusal of the module
 -- checked says it holds of the declarations as written ([`build.importer`]).
-local function interface_stands(result: Driver.Outcome): boolean
-  if not declarations_stand(result) then
+local function interface_stands(result: Driver.Outcome, unheld: Driver.Unheld): boolean
+  if not declarations_stand(result, unheld) then
     return false
   end
-  if #result.bodies == 0 then
+  if #unheld.bodies == 0 then
     return true
   end
   local tokens = result.chunk.tokens
@@ -559,7 +557,7 @@ local function interface_stands(result: Driver.Outcome): boolean
       local base = Node.base(n)
       local start = Lexer.offset(tokens, base.first)
       local finish = Lexer.offset(tokens, base.last) + #Lexer.text(tokens, base.last)
-      for _, e in ipairs(result.bodies) do
+      for _, e in ipairs(unheld.bodies) do
         if e.offset >= start and e.offset < finish then
           doubted = true
         end
@@ -574,7 +572,8 @@ end
 --- code are told ([`SyntaxContracts.check`]'s `errors`), and none where the declarations of the module do not stand
 --- (the types every rule reads) or the discipline does not hold it.
 local function breaches_of_refused(m: Module, built: Pipeline.Built, result: Driver.Outcome): {string}
-  if not declarations_stand(result) or not built.types or not Rules.applies(m.kind, m.generated) then
+  if not declarations_stand(result, Driver.unheld(result, built.project ~= true)) or not built.types or
+      not Rules.applies(m.kind, m.generated) then
     return {}
   end
   local subject = Report.of(built.build.program, result)
@@ -738,7 +737,7 @@ local function note_standing(m: Module, built: Pipeline.Built)
   if not built.build:retired(m.path) then
     result = built.build:result(m.path, true)
   end
-  built.standing[m.path] = result ~= nil and interface_stands(result)
+  built.standing[m.path] = result ~= nil and interface_stands(result, Driver.unheld(result, built.project ~= true))
 end
 
 function Pipeline.generate(m: Module, built: Pipeline.Built, facts?: boolean, judged?: boolean,
