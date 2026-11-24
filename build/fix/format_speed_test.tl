@@ -18,7 +18,7 @@ Test.policy{
 --- times (the layout, the reads of the source and of its layout, and the layout of that layout), writes two layouts
 --- and compares two trees; it costs about 16 times lexing and parsing it once, and this allows three times that. A run
 --- that checks types ([`Test.mode`]) slows the formatter's code more than the parser's: there it costs about 34 times,
---- and this allows three times that.
+--- and CI's checked-narrowing jobs have seen 58 times; this allows 100.
 local function budget(): integer
   return if Test.mode().types_checked then 100 else 50 end
 end
