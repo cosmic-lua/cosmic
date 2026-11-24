@@ -12,7 +12,8 @@
 --- Names are written as GNU writes them. A name with a backslash, a newline
 --- or a carriage return starts its line with `\` and has `\\`, `\n` and `\r` in
 --- it; all three read back. To hash a file named `-` or `check`, give it as
---- `./-` or `./check`.
+--- `./-` or `./check`. `check` is a command only as the first word:
+--- `cosmic hash -a md5 check SUMS` digests the files `check` and `SUMS`.
 ---
 --- `cosmic hash check <sums>` (`-` for standard input) verifies a sums file in
 --- that format: text and `*` binary markers, escaped names, and blank
@@ -34,7 +35,7 @@
 --- trailing newline too, with a warning (write the file with
 --- `printf %s`). Use the file: a key on the command line shows in `ps`
 --- and in the shell's history. Every algorithm has an HMAC, which also
---- streams. `--json` names it `hmac-sha256` and so on, and `--check`
+--- streams. `--json` names it `hmac-sha256` and so on, and `check`
 --- verifies HMACs when it is given a key.
 ---
 --- `cosmic hash` prints no summary: its output is data. It exits 0 when
@@ -61,7 +62,7 @@ end
 
 local command: Flags.Command = {
   about = "digest files, or check a sums file",
-  usage = "[check] [options] [file|-]...",
+  usage = "[options] [file|-]... | check [options] <sums|->",
   examples = {
     { line = "notes.txt", about = "the SHA-256 of a file" },
     { line = "-a sha512 notes.txt", about = "another algorithm" },
@@ -71,7 +72,7 @@ local command: Flags.Command = {
     digest = {
       typed = "",
       -- A line that names no command runs this one, so its usage is the verb's.
-      usage = "[check] [options] [file|-]...",
+      usage = "[options] [file|-]... | check [options] <sums|->",
       about = "print the digest of each file, or of standard input",
       spec = shared({ ["--json"] = { about = "print an array of {path, algorithm, digest}" } }),
     },

@@ -227,7 +227,18 @@ local function arguments(argv: {string}): Request?, string
   local command = if checking then check_command else digest_command end
   local spec = assert(command.spec, "each command has options")
   local parsed, trouble = Flags.parse(argv, if checking then 3 else 2 end, spec)
-  if parsed == nil then return nil, trouble end
+  if parsed == nil then
+    -- The spellings before `-a` and `check`, pointed at what replaced them.
+    for _, word in ipairs(argv) do
+      local retired = word:match("^%-%-([%w-]+)$")
+      if retired == "check" then
+        return nil, trouble .. "; `cosmic hash check <sums>` checks a sums file"
+      elseif retired ~= nil and SIZE[retired] ~= nil then
+        return nil, trouble .. "; name the algorithm with -a " .. retired
+      end
+    end
+    return nil, trouble
+  end
   local named = parsed.values["--algorithm"]
   local algorithm: Algorithm = "sha256"
   for _, name in ipairs(ALGORITHMS) do
@@ -239,7 +250,8 @@ local function arguments(argv: {string}): Request?, string
   }
   if checking then
     if #parsed.words ~= 1 then
-      return nil, "takes one sums file, or - for standard input, not " .. plural.count(#parsed.words, "word")
+      return nil, "takes one sums file, or - for standard input, but was given " ..
+        (if #parsed.words == 0 then "none" else plural.count(#parsed.words, "word") end)
     end
     local sums = assert(parsed.words[1])
     if sums == "" then return nil, bare.empty_file end

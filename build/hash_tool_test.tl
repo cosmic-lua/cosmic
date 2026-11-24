@@ -22,6 +22,13 @@ local function test_it_reads_standard_input_and_prints_no_summary(tmp: string)
   assert(dash.out == "a9993e364706816aba3e25717850c26c9cd0d89d  -\n", dash.out)
 end
 
+--- `check` has a help page of its own, and `cosmic hash` with no words passes the dispatcher's check of its line.
+local function test_check_has_its_own_help(tmp: string)
+  local help = tool_fixture.cosmic(tmp, { "help", "hash", "check" })
+  assert(help.code == 0 and help.out:find("usage: cosmic hash check [options] <sums|->\n", 1, true) == 1, help.out)
+  assert(help.out:find("--quiet", 1, true) ~= nil and help.out:find("--json", 1, true) == nil, help.out)
+end
+
 local function test_check_exits_1_on_a_failure_and_2_on_a_usage_error(tmp: string)
   assert(Fs.write(tmp .. "/a", "abc"))
   assert(Fs.write(tmp .. "/sums", ABC .. "  a\n" .. ABC .. "  b\n"))

@@ -355,6 +355,18 @@ local function test_a_bad_command_line_exits_2_and_prints_nothing(tmp: string)
   assert(run({ "-a", "sha9", a }).err:find("-a takes md5, sha1,", 1, true))
   assert(run({ "check", sums, a }).err:find("cosmic: hash: check: takes one sums file", 1, true))
   assert(run({ "check", sums, a }).err:find("; usage: cosmic hash check [options] <sums|->", 1, true))
+  assert(run({ "check" }).err:find("but was given none", 1, true))
+  -- The spellings before `-a` and `check` point at what replaced them.
+  assert(run({ "--check", sums }).err:find("`cosmic hash check <sums>` checks a sums file", 1, true))
+  assert(run({ "--sha512", a }).err:find("name the algorithm with -a sha512", 1, true))
+end
+
+--- `check` is a command only as the first word, and `./check` is the file of that name.
+local function test_a_file_named_check_is_hashed_as_dot_check(tmp: string)
+  local named = file(tmp, "check", "abc")
+  local here = Fs.dirname(named)
+  local ran = run({ here .. "/./check" })
+  assert(ran.code == 0 and ran.out == abc("sha256") .. "  " .. here .. "/./check\n", ran.out .. ran.err)
 end
 
 local function test_a_failed_write_exits_5_in_every_mode(tmp: string)
