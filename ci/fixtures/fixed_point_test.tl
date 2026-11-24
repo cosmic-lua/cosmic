@@ -110,9 +110,11 @@ end
 -- that names the tree it is built from, which is the case's. The second
 -- rebuild is done by a tool the first built, so this holds only when a
 -- tool built by a rebuild compiles and writes what a boot does.
--- `settles` is whether `file` is in the writer's identity (`build.identity`'s
+-- `settles` is whether the edit moves the writer's identity (`build.identity`'s
 -- `writer_modules`), the compiler's (`compiler_modules`) or the code that
--- works out the tool's stamps (build.stamps' `code_of`): then each
+-- works out the tool's stamps (build.stamps' `code_of`): the first two hash a
+-- module's code text, so only an edit to its code moves them, and the third
+-- its source, so a comment does too. Then each
 -- rebuilt tool finds its database built by other code than its own and
 -- builds it again once (`build.reboot`). Outside all three, neither does.
 --
@@ -223,6 +225,12 @@ local function commented(source: string): string
   return source .. "-- a fixed-point fixture\n"
 end
 
+-- A statement put before a module's code: an edit to its code text (build/code_text.tl), which an identity hashes
+-- where a comment moves none.
+local function coded(source: string): string
+  return "local _ = \"a fixed-point fixture\"\n" .. source
+end
+
 -- The runner starts a file's tests in the order they are declared, as
 -- many at once as it has workers. The first case that shares compiles
 -- (`outside`) fills the group's file; one that starts after it ends
@@ -250,7 +258,7 @@ end
 -- that redefine the identity alike compile under the redefined identity
 -- what the first already had.
 local function test_a_rebuilt_compiler_lands_on_the_booted_tool(tmp: string)
-  run_fixed_point_case(tmp, "compiler", "build/plans.tl", commented, true, false)
+  run_fixed_point_case(tmp, "compiler", "build/plans.tl", coded, true, false)
 end
 
 -- `build.todos` is in neither identity, nor in the code a compile is
@@ -316,7 +324,7 @@ end
 
 -- `build.clock` is in the writer's identity and not the compiler's.
 local function test_a_rebuilt_writer_lands_on_the_booted_tool(tmp: string)
-  run_fixed_point_case(tmp, "writer", "build/clock.tl", commented, true, true)
+  run_fixed_point_case(tmp, "writer", "build/clock.tl", coded, true, true)
 end
 
 -- An edit to what the tool's fingerprint covers (`build.identity`'s

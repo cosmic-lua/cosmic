@@ -3,7 +3,10 @@
 --- more. `cosmic help <verb>`
 --- prints that verb's usage, summary, options, examples and full text. `cosmic help
 --- exit` prints the exit codes and summary every verb shares.
---- `cosmic <verb> --help` is `cosmic help <verb>`
+--- `cosmic <verb> --help` is `cosmic help <verb>`. `cosmic help
+--- <verb> <subcommand>...` prints a subcommand's own help, at any
+--- depth (`cosmic help tailscale file get`), as do `cosmic <verb>
+--- <subcommand>... --help` and `cosmic <verb> help <subcommand>...`.
 --- @public
 
 local Flags = require("cosmic.flags")

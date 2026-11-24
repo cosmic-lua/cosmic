@@ -784,34 +784,37 @@ local function evaluate(argv: {string}): integer
 end
 
 --- The ending of each refusal of `help`'s own line, as Flags.dispatch ends every other verb's.
-local help_usage <const> = "; usage: cosmic help [verb | exit | <verb> <subcommand>]"
+local help_usage <const> = "; usage: cosmic help [verb | exit | <verb> <subcommand>...]"
 
 --- `cosmic help [verb | exit]`: the index, or one verb's full text, or the
 --- exit codes, with no summary after it.
 --- @param asked the verb `cosmic <verb> --help` asked about, or nil to
 ---   read the words after `help` itself
---- @param asked_sub the verb's subcommand `cosmic <verb> <sub> --help` asked about, or nil
-local function help(argv: {string}, asked: string?, asked_sub?: string): integer
+--- @param asked_subs the words of the verb's subcommand `cosmic <verb> <sub>... --help` asked about, if any
+local function help(argv: {string}, asked: string?, asked_subs?: {string}): integer
   local Cli = require("cosmic.cli")
   local verb_list = require("build.verb_list")
   -- Cache maintenance must remain usable when this directory's candidate
   -- cannot build. Its help comes from this binary too, without opening a
   -- candidate database or passing through the stale-tool guard.
-  if asked == "cache" or (asked == nil and argv[2] == "cache" and argv[3] == nil) then
+  if (asked == "cache" and #(asked_subs or {}) == 0) or (asked == nil and argv[2] == "cache" and argv[3] == nil) then
     local spec = assert(verb_list.find("cache"))
     log:say(verb_text("cache", spec, verb_help({ "cache" }, true).cache) .. "\n") -- checked: map_field
     return 0
   end
   -- The staleness guard `test` applies: a fingerprint compare when the
   -- tool is fresh. A verb's help reads build.docs, so an edit to it must
-  -- rebuild.
-  local code = stale_exit(argv, true)
+  -- rebuild. A cache subcommand's help is this binary's alone, as above.
+  local cache_asked = asked == "cache" or (asked == nil and argv[2] == "cache")
+  local code = if cache_asked then nil else stale_exit(argv, true) end
   if code ~= nil then
     return code
   end
   local words: mut {string} = {}
   if asked ~= nil then words[#words + 1] = asked end
-  if asked ~= nil and asked_sub ~= nil then words[#words + 1] = asked_sub end
+  if asked ~= nil then
+    for _, word in ipairs(asked_subs or {}) do words[#words + 1] = word end
+  end
   if asked == nil then
     local line = argv
     local second = argv[2]
@@ -835,25 +838,32 @@ local function help(argv: {string}, asked: string?, asked_sub?: string): integer
   local requested = words[1]
   local asked_verb = if requested ~= nil then Cli.verbs[requested] else nil end
   local subcommands = if asked_verb ~= nil then asked_verb.subcommands else nil end
-  if #words == 2 and requested ~= nil and subcommands ~= nil then
-    -- `cosmic help time add`: the subcommand's own help, as cosmic.flags writes it.
-    local word = words[2]
-    local sub = subcommands[word]
-    if sub == nil then
-      local names: mut {string} = {}
-      for name in pairs(subcommands) do names[#names + 1] = name end
-      log:complain("help: " .. requested .. " has no command " .. word .. meant(word, names) .. help_usage)
-      return 2
+  if #words >= 2 and requested ~= nil and subcommands ~= nil then
+    -- `cosmic help time add`, `cosmic help tailscale file get`: the subcommand's own help, as cosmic.flags
+    -- writes it.
+    local level: {string:flags.Command} = subcommands
+    local named = typed_name(requested)
+    local sub: flags.Command = assert(asked_verb)
+    for slot = 2, #words do
+      local word = assert(words[slot])
+      local found = level[word]
+      if found == nil then
+        local names: mut {string} = {}
+        for name in pairs(level) do names[#names + 1] = name end
+        log:complain("help: " .. named .. " has no command " .. word .. meant(word, names) .. help_usage)
+        return 2
+      end
+      -- A subcommand typed by no word is called as its parent alone.
+      sub, named = found, if found.typed == "" then named else named .. " " .. word end
+      local deeper = found.subcommands
+      if deeper == nil and slot < #words then
+        log:complain("help: " .. named .. " has no commands of its own, so not " .. assert(words[slot + 1]) .. help_usage)
+        return 2
+      end
+      level = deeper or {}
     end
-    -- A subcommand typed by no word is called as the verb alone.
-    local called = if sub.typed == "" then typed_name(requested) else typed_name(requested) .. " " .. word end
-    log:say(require("cosmic.flags").help(sub, called, page_width) .. "\n")
+    log:say(require("cosmic.flags").help(sub, named, page_width) .. "\n")
     return 0
-  end
-  if #words > 2 and subcommands ~= nil then
-    log:complain("help: one subcommand of " .. tostring(requested) .. " at a time, not " .. tostring(#words - 1) ..
-        help_usage)
-    return 2
   end
   if #words > 1 then
     log:complain("help: one verb at a time, not " .. tostring(#words) .. help_usage)
@@ -1054,8 +1064,8 @@ function Dispatch.main(argv: {string}): integer
   -- delete each verb's own parse of it. Flags.dispatch reads the line of a verb typed by its name already
   -- ([`line_refusal`]), so their refusals are one rule's; until the verbs take what it read, a line is parsed
   -- twice, to the same result. It waits on two things. Most verbs offer `run(argv, io?)` to their tests, which
-  -- would each hand over a parsed line instead; and a verb that says more of its usage than one line (`time`,
-  -- `sql`: a line a subcommand) needs its subcommands in its cosmic/cli/<verb>.tl first, as `rand` has them. A
+  -- would each hand over a parsed line instead; and `sql`, which says more of its usage than one line (a line a
+  -- subcommand), needs its subcommands in cosmic/cli/sql.tl first, as `time` has them. A
   -- `fresh` verb and `todos` keep reading their own lines whatever is done: they rebuild a stale tool first.
   -- `-e`, `--standalone` and `--version` stay outside Flags.dispatch on purpose: they load neither cosmic.flags
   -- nor cosmic.cli (build/dispatch_tool_test.tl holds `-e` to it), being what runs when the tree cannot build.
@@ -1095,11 +1105,20 @@ function Dispatch.main(argv: {string}): integer
     -- `cosmic <verb> --help` is `cosmic help <verb>`, and `cosmic <verb> <sub> --help` and
     -- `cosmic <verb> help <sub>` are `cosmic help <verb> <sub>`.
     local asked = verb
-    local second = if asks_sub_help then own[3] else own[2] end
-    local asked_sub = if verb_subcommands ~= nil and second ~= nil and second:sub(1, 1) ~= "-" then second else nil end
-    if asked_sub ~= nil and default_sub ~= nil and verb_subcommands ~= nil and verb_subcommands[asked_sub] == nil then
-      -- A word no subcommand is named by is the default subcommand's (`cosmic fetch <url> --help`).
-      asked_sub = nil
+    -- The words that name subcommands, down from the verb, and the first one that names none. A word no
+    -- subcommand is named by is a default subcommand's, where a level has one (`cosmic fetch <url> --help`).
+    local asked_subs: mut {string} = {}
+    local level = verb_subcommands
+    local first = if asks_sub_help then 3 else 2 end
+    local slot = first
+    while level ~= nil do
+      local typed = own[slot]
+      if typed == nil or typed:sub(1, 1) == "-" then break end
+      local found = level[typed]
+      if found == nil and slot == first and default_sub ~= nil then break end
+      asked_subs[#asked_subs + 1] = typed
+      level = if found ~= nil then found.subcommands else nil end
+      slot = slot + 1
     end
     typed_by_name = false
     local own_spec = assert(help_spec, "help's spec is set before a verb is dispatched")
@@ -1107,7 +1126,7 @@ function Dispatch.main(argv: {string}): integer
     chosen = {
       name = "help",
       run = function(line: {string}): integer
-        return help(line, asked, asked_sub)
+        return help(line, asked, asked_subs)
       end,
       bare = own_spec.bare,
       reads = own_spec.reads,

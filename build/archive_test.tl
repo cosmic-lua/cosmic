@@ -764,7 +764,11 @@ local function test_a_command_line_that_is_not_one_is_refused(tmp: string)
     local ran = run(words)
     assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. " exited " .. tostring(ran.code))
     assert(ran.err:find("cosmic: archive: ", 1, true) == 1, ran.err)
-    assert(ran.err:find("cosmic archive list", 1, true), ran.err)
+    -- The usage is the subcommand's own, or the verb's where none is named.
+    local sub = words[1]
+    local usage = if sub ~= nil and sub ~= "bogus" then "; usage: cosmic archive " .. sub .. " " else
+      "; usage: cosmic archive <create|extract|list> ...\n" end
+    assert(ran.err:find(usage, 1, true), ran.err)
   end
 end
 
