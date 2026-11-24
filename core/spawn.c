@@ -1932,7 +1932,8 @@ static int task_thread_count (int *error) {
 }
 #endif
 
-/* How many signal guards are open, counted where they are opened below. */
+/* How many signal guards are open (`guard_child_signals`), which a
+ * fork refuses while any is. */
 static int child_guard_depth;
 
 COSMIC_SYSCALL(fork, 1) {
@@ -2032,9 +2033,8 @@ _Static_assert(SIGINT < SIGNAL_STAMP_UNIT && SIGTERM < SIGNAL_STAMP_UNIT,
  * waits on the read end. */
 static volatile sig_atomic_t child_signal_wake = -1;
 static int child_signal_read_end = -1;
-/* How many guards are open: the first installs the handler, and the
- * last restores what the first found. */
-static int child_guard_depth;
+/* `child_guard_depth`, above, counts the open guards: the first installs
+ * the handler, and the last restores what the first found. */
 /* The stamp the innermost guard last read, which [`cosmic_signal_caught`]
  * asks after. */
 static long long child_signal_read_to;

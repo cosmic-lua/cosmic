@@ -889,16 +889,18 @@ static void inspected_forget (int *fd, const struct stat *before, bool directory
  * errno, with `what` naming the one that could not be opened. A handle the
  * program closed and put another file in the place of is let go and made
  * again, which fails once Landlock holds the process: the restriction then
- * fails closed rather than trust it. */
+ * fails closed rather than trust it. A copy a fork gave is let go so too
+ * before the rest are closed, so a file the program put in its number --
+ * one it names in fds, as a restriction asks -- stays open. */
 static int inspected_open (const char **what) {
   pid_t self = getpid();
-  if (inspected.pid == self) {
-    inspected_forget(&inspected.tasks, &inspected.identity[0], true);
-    inspected_forget(&inspected.descriptors, &inspected.identity[1], true);
-    inspected_forget(&inspected.children, &inspected.identity[2], false);
-    if (inspected.tasks >= 0 && inspected.descriptors >= 0 && inspected.children >= 0) return 0;
-    /* What is left of the three is still ours. */
-  }
+  inspected_forget(&inspected.tasks, &inspected.identity[0], true);
+  inspected_forget(&inspected.descriptors, &inspected.identity[1], true);
+  inspected_forget(&inspected.children, &inspected.identity[2], false);
+  if (inspected.pid == self && inspected.tasks >= 0 && inspected.descriptors >= 0 &&
+      inspected.children >= 0)
+    return 0;
+  /* What is left of the three still names what it did. */
   inspected_close();
   inspected.pid = self;
   *what = "/proc/self/task";
