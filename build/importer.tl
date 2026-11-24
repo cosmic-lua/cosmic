@@ -1031,23 +1031,23 @@ local function prepare_cache(handle: work.Handle, tool: string): Cache?, string
   local touch, touch_trouble = db:prepare(
     "UPDATE compiled SET seen = ?2 WHERE key = ?1 AND seen >= 0")
   if touch == nil then
-    look:finalize()
+    look:close()
     return nil, tostring(touch_trouble)
   end
   local put, put_trouble = db:prepare(
     "INSERT OR REPLACE INTO compiled (key, tool, lua, bytecode, seen, fact_wraps, parameter_checks) " ..
       "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")
   if put == nil then
-    look:finalize()
-    touch:finalize()
+    look:close()
+    touch:close()
     return nil, tostring(put_trouble)
   end
   local plan, plan_trouble = db:prepare(
     "INSERT INTO plan (path, key, ordinal) VALUES (?1, ?2, ?3)")
   if plan == nil then
-    look:finalize()
-    touch:finalize()
-    put:finalize()
+    look:close()
+    touch:close()
+    put:close()
     return nil, tostring(plan_trouble)
   end
   return { run = handle.run, tool = tool, look = look, touch = touch,
@@ -1055,10 +1055,10 @@ local function prepare_cache(handle: work.Handle, tool: string): Cache?, string
 end
 
 local function finish_cache(cache: Cache)
-  cache.look:finalize()
-  cache.touch:finalize()
-  cache.put:finalize()
-  cache.plan:finalize()
+  cache.look:close()
+  cache.touch:close()
+  cache.put:close()
+  cache.plan:close()
 end
 
 --- How many runs a compile stays cached after the last one that used
@@ -1073,46 +1073,24 @@ local kept_runs = 100
 --- on every run cost most of an idle run.
 local refresh_after = 10
 
-local once = bind.once
-
 --- Whether a compile stands under `key`, marked as used by this run (see
 --- `refresh_after`). Its Lua is not read: no caller of a compile asked
 --- for that of a module it did not make ([`build.module`]'s `lua`).
 local function cached_stands(cache: Cache, key: string): boolean, string
-  local look = cache.look
-  local bound, bind_trouble = look:bind_text(1, key)
-  if not bound then
-    return false, bind_trouble
-  end
-  local state, trouble = look:step()
-  if state == nil then
-    return false, trouble
-  end
-  local stands = false
-  local stale = false
+  local row, trouble = cache.look:one({ key })
   cache.wraps, cache.checks = 0, 0
-  if state == "row" then
-    stands = true
-    stale = look:integer(0) < cache.run - refresh_after
-    cache.wraps, cache.checks = look:integer(1), look:integer(2)
+  if row == nil then
+    if trouble ~= nil then return false, tostring(trouble) end
+    return false, ""
   end
-  local reset, reset_trouble = look:reset()
-  if not reset then
-    return false, reset_trouble
-  end
-  if stale then
-    local touch = cache.touch
-    bound, bind_trouble = touch:bind_text(1, key)
-    if bound then bound, bind_trouble = touch:bind_integer(2, cache.run) end
-    if not bound then
-      return false, bind_trouble
-    end
-    local touched, touch_trouble = once(touch)
+  cache.wraps, cache.checks = row:integer(2), row:integer(3)
+  if row:integer(1) < cache.run - refresh_after then
+    local touched, touch_trouble = cache.touch:run({ key, cache.run })
     if not touched then
-      return false, touch_trouble
+      return false, tostring(touch_trouble)
     end
   end
-  return stands, ""
+  return true, ""
 end
 
 --- Puts one compile in the cache under its key, and the module in
@@ -1121,32 +1099,17 @@ local function remember(cache: Cache, path: string, key: string, ordinal: intege
                         lua: string?, bytecode: string?,
                         refused: boolean, fact_wraps: integer, parameter_checks: integer): boolean, string
   if lua ~= nil and bytecode ~= nil then
-    local put = cache.put
-    local bound, bind_trouble = put:bind_text(1, key)
-    if bound then bound, bind_trouble = put:bind_text(2, cache.tool) end
-    if bound then bound, bind_trouble = put:bind_text(3, lua) end
-    if bound then bound, bind_trouble = put:bind_blob(4, bytecode) end
-    if bound then
-      bound, bind_trouble = put:bind_integer(5, if refused then -1 else cache.run end)
-    end
-    if bound then bound, bind_trouble = put:bind_integer(6, fact_wraps) end
-    if bound then bound, bind_trouble = put:bind_integer(7, parameter_checks) end
-    if not bound then
-      return false, bind_trouble
-    end
-    local kept, put_trouble = once(put)
+    local kept, put_trouble = cache.put:run({ key, cache.tool, lua, Sqlite.blob(bytecode),
+      if refused then -1 else cache.run end, fact_wraps, parameter_checks })
     if not kept then
-      return false, put_trouble
+      return false, tostring(put_trouble)
     end
   end
-  local plan = cache.plan
-  local bound, bind_trouble = plan:bind_text(1, path)
-  if bound then bound, bind_trouble = plan:bind_text(2, key) end
-  if bound then bound, bind_trouble = plan:bind_integer(3, ordinal) end
-  if not bound then
-    return false, bind_trouble
+  local planned, plan_trouble = cache.plan:run({ path, key, ordinal })
+  if not planned then
+    return false, tostring(plan_trouble)
   end
-  return once(plan)
+  return true, ""
 end
 
 --- What [`compile_derived`] keeps as it compiles, for the closure

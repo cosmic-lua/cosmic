@@ -19,7 +19,7 @@ local function test_a_handle_opened_before_is_refused_and_one_opened_after_is_no
   local before = assert(Sqlite.open(path, { writable = true }))
   assert(before:exec("CREATE TABLE t (n INTEGER)"))
   assert(before:exec("INSERT INTO t VALUES (7)"))
-  local statement = assert(before:prepare("SELECT n FROM t"))
+  local statement = assert(before.connection:prepare("SELECT n FROM t"))
   -- In a copy, so the worker's own connections stay its own.
   local pid, trouble = process.fork(false)
   if pid == nil then Test.skip("this host forks no copy of the process: " .. trouble) end
@@ -58,7 +58,7 @@ local function test_a_process_that_disowns_is_refused_what_it_opened_before(tmp:
   local path = tmp .. "/b.db"
   local before = assert(Sqlite.open(path, { writable = true }))
   assert(before:exec("CREATE TABLE t (n INTEGER)"))
-  local statement = assert(before:prepare("SELECT n FROM t"))
+  local statement = assert(before.connection:prepare("SELECT n FROM t"))
   Sqlite.disown()
   assert(refused(function() local _, _ = before:exec("SELECT 1") end))
   assert(refused(function() local _, _ = statement:step() end))

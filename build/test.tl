@@ -791,27 +791,23 @@ function test.write_module_coverage(handle: Sqlite.Handle,
   local into_modules: Sqlite.Statement = prepared_modules
   local prepared_hits, hits_trouble = handle:prepare("INSERT OR IGNORE INTO temp.run_hits (path, line) VALUES (?1, ?2)")
   if prepared_hits == nil then
-    into_modules:finalize()
+    into_modules:close()
     return nil, tostring(hits_trouble)
   end
   local into_hits: Sqlite.Statement = prepared_hits
   local filled, fill_trouble = each(function(path: string, hash: string): boolean, string
-    local ok, trouble = into_modules:bind_text(1, path)
-    if ok then ok, trouble = into_modules:bind_text(2, hash) end
-    if ok then ok, trouble = bind.once(into_modules) end
-    if not ok then return false, trouble end
+    local ok, trouble = into_modules:run({ path, hash })
+    if not ok then return false, tostring(trouble) end
     for line, hit in pairs(hits[path] or {}) do
       if hit then
-        ok, trouble = into_hits:bind_text(1, path)
-        if ok then ok, trouble = into_hits:bind_integer(2, line) end
-        if ok then ok, trouble = bind.once(into_hits) end
-        if not ok then return false, trouble end
+        ok, trouble = into_hits:run({ path, line })
+        if not ok then return false, tostring(trouble) end
       end
     end
     return true, ""
   end)
-  into_modules:finalize()
-  into_hits:finalize()
+  into_modules:close()
+  into_hits:close()
   if not filled then return nil, fill_trouble end
   local missing, missing_trouble = handle:text_rows(
     "SELECT m.path FROM temp.run_modules m LEFT JOIN executable e ON e.source_hash = m.source_hash " ..
@@ -885,7 +881,7 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
   local per_test, test_trouble = handle:prepare(
     "INSERT INTO coverage_by_test (ran_at_ns, test, hits) VALUES (?1, ?2, ?3)")
   if per_test == nil then
-    coverage:finalize()
+    coverage:close()
     return 0, 0, tostring(test_trouble)
   end
   -- The core's own C sits among the modules by path: a core that
@@ -951,44 +947,18 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
           end
         end
         totals.lines = totals.lines + #lines
-        local ok, write_trouble = coverage:bind_integer(1, run_at_ns)
-        if ok then ok, write_trouble = coverage:bind_text(2, path) end
-        if ok then
-          ok, write_trouble = coverage:bind_text(3, "[" .. table.concat(lines, ",") .. "]")
-        end
-        if ok then ok, write_trouble = coverage:bind_text(4, table.concat(flags)) end
+        local ok, write_trouble = coverage:run({ run_at_ns, path, "[" .. table.concat(lines, ",") .. "]",
+          table.concat(flags) })
         if not ok then
-          return false, write_trouble
-        end
-        local state, failure = coverage:step()
-        if state == nil then
-          return false, failure
-        end
-        ok, write_trouble = coverage:reset()
-        if not ok then
-          return false, write_trouble
+          return false, tostring(write_trouble)
         end
       end
     end
     for _, test_row in ipairs(test_rows) do
       local test_name = test_row.key
-      local ok, write_trouble = per_test:bind_integer(1, run_at_ns)
-      if ok then
-        ok, write_trouble = per_test:bind_text(2, test_name)
-      end
-      if ok then
-        ok, write_trouble = per_test:bind_text(3, test_row.value)
-      end
+      local ok, write_trouble = per_test:run({ run_at_ns, test_name, test_row.value })
       if not ok then
-        return false, write_trouble
-      end
-      local state, failure = per_test:step()
-      if state == nil then
-        return false, failure
-      end
-      ok, write_trouble = per_test:reset()
-      if not ok then
-        return false, write_trouble
+        return false, tostring(write_trouble)
       end
     end
     return true, ""
@@ -999,8 +969,8 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
   -- recording transaction.
   local made, trouble = false, ""
   local called, raised = pcall(function() made, trouble = write_rows() end)
-  coverage:finalize()
-  per_test:finalize()
+  coverage:close()
+  per_test:close()
   if not called then
     return 0, 0, tostring(raised)
   end

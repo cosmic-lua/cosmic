@@ -130,7 +130,7 @@ local record sqlite
     --- and fails as [`Statement.reset`] does.
     ---
     --- ```
-    --- local insert = assert(db:prepare("INSERT INTO t (owner, n) VALUES (?1, ?2)"))
+    --- local insert = assert(connection:prepare("INSERT INTO t (owner, n) VALUES (?1, ?2)"))
     --- assert(insert:bind_text(1, "me"))
     --- for n = 1, 3 do
     ---   assert(insert:bind_integer(2, n))
@@ -259,6 +259,9 @@ local record sqlite
   disown: function()
   --- The SQLite library's version, such as "3.54.1".
   version: string
+  --- `x` as SQLite writes a REAL as text: what `CAST(x AS TEXT)` and a
+  --- column's text answer for it.
+  number_text: function(x: number): string
   --- The one read-only empty Value, which binds NULL.
   NULL: Value
 end

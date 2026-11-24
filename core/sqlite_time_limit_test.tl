@@ -12,7 +12,7 @@ local function test_a_call_past_its_time_limit_is_stopped_and_the_handle_goes_on
   local db = assert(Sqlite.open(":memory:"))
   db:time_limit(Clock.ms(100))
   local started = Clock.monotonic_ns()
-  local statement = assert(db:prepare(ENDLESS))
+  local statement = assert(db.connection:prepare(ENDLESS))
   local step, why = statement:step()
   assert(step == nil and tostring(why):find("ran past its time limit", 1, true) ~= nil, tostring(why))
   statement:finalize()

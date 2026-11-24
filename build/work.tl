@@ -1461,30 +1461,27 @@ end
 
 local function known_in(db: Sqlite.Handle,
                         table_name: string): {string:Known}?, string
-  local statement, trouble = db:prepare(
-    "SELECT path, size, mtime_ns, ino, dev, mtime_ns IS NULL, ctime_ns, ctime_ns IS NULL FROM " .. table_name)
-  if statement == nil then
+  local rows, trouble = db:query(
+    -- A NULL reads as 0, as SQLite's own integer of one does.
+    "SELECT path, ifnull(size, 0), ifnull(mtime_ns, 0), ifnull(ino, 0), ifnull(dev, 0), mtime_ns IS NULL, " ..
+      "ifnull(ctime_ns, 0), ctime_ns IS NULL FROM " .. table_name)
+  if rows == nil then
     return nil, tostring(trouble)
   end
   local out: mut {string:Known} = {}
-  while true do
-    local state, failure = statement:step()
-    if state == nil then
-      statement:finalize()
-      return nil, failure
-    end
-    if state == "done" then
-      break
-    end
-    out[statement:bytes(0)] = {
-      size = statement:integer(1),
-      mtime_ns = if statement:integer(5) == 0 then statement:integer(2) else nil end,
-      ctime_ns = if statement:integer(7) == 0 then statement:integer(6) else nil end,
-      ino = statement:integer(3),
-      dev = statement:integer(4),
+  for row in rows:each() do
+    out[row:bytes(1)] = {
+      size = row:integer(2),
+      mtime_ns = if row:integer(6) == 0 then row:integer(3) else nil end,
+      ctime_ns = if row:integer(8) == 0 then row:integer(7) else nil end,
+      ino = row:integer(4),
+      dev = row:integer(5),
     }
   end
-  statement:finalize()
+  local failure = rows:failure()
+  if failure ~= nil then
+    return nil, tostring(failure)
+  end
   return out, ""
 end
 
@@ -1508,8 +1505,6 @@ local puts: {string:string} = {
 
 --- The largest file `scanned` reads for TODOs.
 local scanned_limit = 1024 * 1024
-
-local once = bind.once
 
 --- How long a file's modification and change times must be in the past before
 --- a stat is trusted to stand for its bytes.
@@ -1590,31 +1585,19 @@ end
 --- only once it has settled, its bytes, and their hash.
 local function put_row(put: Sqlite.Statement, file: string, st: sys.Stat,
                        mtime_ns: integer, settled: boolean,
-                       data: string, sha256: string): boolean, string
-  local bound, trouble = put:bind_text(1, file)
-  if bound then bound, trouble = put:bind_integer(2, st.size) end
-  if bound then
-    if settled then
-      bound, trouble = put:bind_integer(3, mtime_ns)
-    else
-      bound, trouble = put:bind_null(3)
-    end
+                       data: string, sha256: string, kind?: string): boolean, string
+  local changed: Sqlite.Param = Sqlite.NULL
+  if settled and st.ctime_ns ~= nil then -- checked: compare_disjoint
+    changed = Clock.seconds(st.ctime) + st.ctime_ns
   end
-  if bound then bound, trouble = put:bind_integer(4, st.ino) end
-  if bound then bound, trouble = put:bind_integer(5, st.dev) end
-  if bound then bound, trouble = put:bind_blob(6, data) end
-  if bound then bound, trouble = put:bind_text(7, sha256) end
-  if bound then
-    if settled and st.ctime_ns ~= nil then -- checked: compare_disjoint
-      bound, trouble = put:bind_integer(9, Clock.seconds(st.ctime) + st.ctime_ns)
-    else
-      bound, trouble = put:bind_null(9)
-    end
+  local tag: Sqlite.Param = Sqlite.NULL
+  if kind ~= nil then tag = kind end
+  local ok, trouble = put:run({ file, st.size, if settled then mtime_ns else Sqlite.NULL end, st.ino, st.dev,
+    Sqlite.blob(data), sha256, tag, changed })
+  if not ok then
+    return false, file .. ": " .. tostring(trouble)
   end
-  if not bound then
-    return false, file .. ": " .. trouble
-  end
-  return once(put)
+  return true, ""
 end
 
 --- Whether a file is a patch record ([`build/patch.tl`]): a `.txt` in
@@ -1647,24 +1630,17 @@ local function put_todos(put: Sqlite.Statement, miss: Sqlite.Statement, data: st
   local record = todo_scan.scan_record(data)
   if record == nil then
     for _, near in ipairs(todo_scan.misses(data)) do
-      local ok, trouble = miss:bind_text(1, sha256)
-      if ok then ok, trouble = miss:bind_integer(2, near.line) end
-      if ok then ok, trouble = miss:bind_text(3, near.spelling) end
-      if ok then ok, trouble = once(miss) end
+      local ok, trouble = miss:run({ sha256, near.line, near.spelling })
       if not ok then
-        return false, trouble
+        return false, tostring(trouble)
       end
     end
   end
   local scanned = record or todo_scan.scan(data)
   for _, found in ipairs(scanned) do
-    local ok, trouble = put:bind_text(1, sha256)
-    if ok then ok, trouble = put:bind_integer(2, found.line) end
-    if ok then ok, trouble = put:bind_integer(3, found.last) end
-    if ok then ok, trouble = put:bind_text(4, found.text) end
-    if ok then ok, trouble = once(put) end
+    local ok, trouble = put:run({ sha256, found.line, found.last, found.text })
     if not ok then
-      return false, trouble
+      return false, tostring(trouble)
     end
   end
   return true, ""
@@ -1673,7 +1649,7 @@ end
 --- Finalizes every statement `stage` prepared, by the `puts` key.
 local function finish(put: {string:Sqlite.Statement})
   for _, statement in pairs(put) do
-    statement:finalize()
+    statement:close()
   end
 end
 
@@ -1970,11 +1946,11 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
           end
         end
         local stat, content: sys.Stat, string = st, data
-        local function write(wanted: boolean, statement: Sqlite.Statement): boolean, string
+        local function write(wanted: boolean, statement: Sqlite.Statement, kind?: string): boolean, string
           if not wanted then
             return true, ""
           end
-          return put_row(statement, file, stat, mtime_ns, settled, content, sha256)
+          return put_row(statement, file, stat, mtime_ns, settled, content, sha256, kind)
         end
         local ok, why = write(write_files, put_files)
         if ok then
@@ -1985,10 +1961,7 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
         end
         if ok and write_linked and link_kind ~= nil then
           texts[file] = data
-          ok, why = put_linked:bind_text(8, link_kind)
-          if ok then
-            ok, why = write(true, put_linked)
-          end
+          ok, why = write(true, put_linked, link_kind)
         end
         if not ok then
           finish(put)
@@ -2014,32 +1987,15 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
       local mtime_ns = Clock.seconds(st.mtime) + st.mtime_ns
       local ctime_ns = if st.ctime_ns ~= nil then Clock.seconds(st.ctime) + st.ctime_ns else nil end -- checked: compare_disjoint
       local settled = ctime_ns ~= nil and math.max(mtime_ns, ctime_ns) < now - settle_ns
-      local saved, why = discovery_put:bind_text(1, path)
-      if saved then saved, why = discovery_put:bind_integer(2, st.size) end
-      if saved then
-        if settled then
-          saved, why = discovery_put:bind_integer(3, mtime_ns)
-        else
-          saved, why = discovery_put:bind_null(3)
-        end
-      end
-      if saved then
-        if settled then
-          saved, why = discovery_put:bind_integer(4, ctime_ns or 0)
-        else
-          saved, why = discovery_put:bind_null(4)
-        end
-      end
-      if saved then saved, why = discovery_put:bind_integer(5, st.ino) end
-      if saved then saved, why = discovery_put:bind_integer(6, st.dev) end
-      if saved then saved, why = once(discovery_put) end
+      local saved, why = discovery_put:run({ path, st.size, if settled then mtime_ns else Sqlite.NULL end,
+        if settled then ctime_ns or 0 else Sqlite.NULL end, st.ino, st.dev })
       if not saved then
-        discovery_put:finalize()
+        discovery_put:close()
         finish(put)
-        return nil, why
+        return nil, tostring(why)
       end
     end
-    discovery_put:finalize()
+    discovery_put:close()
   end
   finish(put)
   for _, table_name in ipairs({ "files", "tool", "scanned", "linked" }) do
