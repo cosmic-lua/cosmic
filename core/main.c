@@ -273,8 +273,11 @@ static bool source_position (lua_State *L, const char *message) {
       size_t stream_len = (size_t)sqlite3_column_bytes(stmt, 1);
       size_t source_len = 0;
       if (stream != NULL &&
-          cosmic_inflate_raw(stream, stream_len, SIZE_MAX, &source,
-                             &source_len) != NULL) {
+          cosmic_inflate_raw(stream, stream_len,
+                             /* the store's own limit: no more than the
+                              * database holds as one value */
+                             (size_t)sqlite3_limit(db, SQLITE_LIMIT_LENGTH, -1),
+                             &source, &source_len) != NULL) {
         source = NULL;
       }
       const char *p = source == NULL ? "" : (const char *)source;
