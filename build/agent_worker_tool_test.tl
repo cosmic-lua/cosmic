@@ -769,12 +769,12 @@ local function test_a_snippet_reads_json_into_records()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
   local context: Tools.Context = { cwd = dir, worker = w }
   local ran = Tools.run("run", { code = "local Shape = require(\"cosmic.shape\")\n" ..
-      "local record Item id: integer stock: integer end\n" ..
+      "local record Item name: string count: integer end\n" ..
       "local record Page items: {Item} next?: integer end\n" ..
-      "local body = '{\"items\": [{\"id\": 7, \"stock\": 2, \"name\": \"x\"}], \"next\": 2}'\n" ..
+      "local body = '{\"items\": [{\"name\": \"x\", \"count\": 2, \"id\": 7}], \"next\": 2}'\n" ..
       "local page = assert(Shape.decode_into(body, Shape.record_of(\"Page\").spec))\n" ..
-      "for _, item in ipairs(page.items) do print(item.id + item.stock) end\n" ..
+      "for _, item in ipairs(page.items) do print(item.name .. tostring(item.count)) end\n" ..
       "if page.next ~= nil then print(\"next \" .. tostring(page.next)) end\n" }, context)
-  assert(not ran.is_error and ran.text:find("^9\nnext 2\n") ~= nil, ran.text)
+  assert(not ran.is_error and ran.text:find("^x2\nnext 2\n") ~= nil, ran.text)
   Worker.close(w)
 end
