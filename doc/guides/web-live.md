@@ -16,8 +16,8 @@ what [web apps](web.md) says about routes and templates.
   slow client costs only its own queue: when the queue is full the
   subscription is cut off and the browser reconnects.
 - A **stream** ([`Sse.EventStream`]) responds to a request with a
-  `text/event-stream` body read from a subscription. It ends within
-  about 250 ms of its client leaving, and sends a heartbeat so a proxy
+  `text/event-stream` body read from a subscription. It ends as soon
+  as its client leaves, and sends a heartbeat so a proxy
   keeps the connection open.
 - An **event** names itself (`event:`), may carry an id (`id:`) and has
   data. [`Sse.html`] makes one whose data is markup, typed

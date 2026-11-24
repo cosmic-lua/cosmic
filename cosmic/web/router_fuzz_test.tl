@@ -149,7 +149,8 @@ local function test_the_app_answers_any_path_with_a_sane_status(tmp: string)
     requires = { "ok", "redirect", "refused" },
     shares = { ok = 0.1, redirect = 0.05 },
     check = function(input: string): boolean, string
-      local raw: Server.Request = { gone = function(): boolean return false end, method = "GET", target = input, path = input, query = "", version = "HTTP/1.1",
+      local raw: Server.Request = { gone = function(): boolean return false end,
+        wait_gone = function(_?: integer): boolean return false end, method = "GET", target = input, path = input, query = "", version = "HTTP/1.1",
         headers = { host = "x" }, body = Stream.from_string(""), length = 0 }
       local res = app.handle(raw)
       if res.status ~= 200 and res.status ~= 308 and res.status ~= 400 and res.status ~= 404 then
@@ -222,7 +223,8 @@ local function test_a_path_and_its_reescaped_spelling_reach_the_same_outcome(tmp
   }
   local function answer(path: string): string
     seen = {}
-    local raw: Server.Request = { gone = function(): boolean return false end, method = "GET", target = path, path = path, query = "", version = "HTTP/1.1",
+    local raw: Server.Request = { gone = function(): boolean return false end,
+      wait_gone = function(_?: integer): boolean return false end, method = "GET", target = path, path = path, query = "", version = "HTTP/1.1",
       headers = { host = "x" }, body = Stream.from_string(""), length = 0 }
     local res = app.handle(raw)
     return ("%d|%s|%s"):format(res.status, Web.header(res, "Location") or "-", table.concat(seen, ";"))

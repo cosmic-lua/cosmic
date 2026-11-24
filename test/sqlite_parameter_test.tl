@@ -34,8 +34,8 @@ local function test_mismatched_parameters_do_not_execute()
     says: string
   end
   local mismatched: {Case} = {
-    { values = {}, says = "sqlite: parameter 1 has no value (use {} for NULL)" },
-    { values = { { integer = 1 } }, says = "sqlite: parameter 2 has no value (use {} for NULL)" },
+    { values = {}, says = "sqlite: parameter 1 has no value (Sqlite.NULL binds NULL)" },
+    { values = { { integer = 1 } }, says = "sqlite: parameter 2 has no value (Sqlite.NULL binds NULL)" },
     { values = { {}, {}, {} }, says = "sqlite: values holds a parameter 3, and the statement has 2" },
   }
   for _, case in ipairs(mismatched) do
@@ -60,8 +60,8 @@ local function test_malformed_values_raise_and_do_not_execute()
     says: string
   end
   local malformed: {Case} = {
-    { values = { { integer = 1, text = "one" }, {} }, says = "parameter 1 has more than one Value field" },
-    { values = { { texts = { "a\0b" } }, {} }, says = "element 1 of parameter 1's texts holds a NUL" },
+    { values = { { integer = 1, text = "one" }, {} }, says = "parameter 1: a Value has at most one named field" },
+    { values = { { texts = { "a\0b" } }, {} }, says = "parameter 1: element 1 of a texts Value holds a NUL" },
   }
   for _, case in ipairs(malformed) do
     local values = case.values
@@ -143,5 +143,113 @@ local function test_carray_reads_no_array_sql_names()
     local rows = assert(db:text_rows("SELECT count(*) FROM carray(?1, 3, 'int64')", { value }))
     assert(first_row(rows):text(1) == "0", first_row(rows):text(1))
   end
+  assert(db:close())
+end
+
+--- A plain value binds by its own type: an integer as an integer, a
+--- float as a real, a string as text and a boolean as 1 or 0.
+--- [`Sqlite.blob`] binds bytes as a blob and [`Sqlite.NULL`] binds NULL.
+local function test_plain_values_bind_by_their_type()
+  local db = assert(Sqlite.memory())
+  local rows = assert(db:rows(
+    "SELECT typeof(?1), ?1, typeof(?2), ?2, typeof(?3), ?3, typeof(?4), ?4, ?5, typeof(?6), ?6, ?7 IS NULL",
+    { 9007199254740993, 1.25, "a\0b", true, false, Sqlite.blob("a\0b"), Sqlite.NULL }))
+  local row = first_row(rows)
+  assert(row:text(1) == "integer" and row:integer(2) == 9007199254740993)
+  assert(row:text(3) == "real" and row:number(4) == 1.25)
+  assert(row:text(5) == "text" and row:text(6) == "a\0b")
+  assert(row:text(7) == "integer" and row:integer(8) == 1 and row:integer(9) == 0)
+  assert(row:text(10) == "blob" and row:blob(11) == "a\0b")
+  assert(row:integer(12) == 1)
+  -- A plain string and a tagged one bind alike; a blob of the same bytes differs.
+  rows = assert(db:rows("SELECT ?1 = ?2, ?1 = ?3", { "x", { text = "x" }, Sqlite.blob("x") }))
+  assert(first_row(rows):integer(1) == 1 and first_row(rows):integer(2) == 0)
+  assert(db:close())
+end
+
+--- A gap in the list, or a position past the last parameter, answers why
+--- (RANGE); a value of no shape a parameter takes, or a key that is no
+--- position, raises at the caller. Either way the statement is released,
+--- so the handle still closes and the same SQL runs again.
+local function test_plain_values_refused_release_the_statement()
+  local db = assert(Sqlite.memory())
+  local sql = "SELECT ?1, ?2"
+  local rows, why = db:rows(sql, { 1, 2, 3 })
+  assert(rows == nil and why.code == Sqlite.RANGE, tostring(why))
+  -- Made in a chunk of its own, since no type the checker accepts holds
+  -- these values; each call there is a line of the chunk "probe".
+  local probe = assert(load([[
+    local db, sql = ...
+    local gap_rows, gap_why = db:rows(sql, { 1, nil, 3 })
+    local called, raised = pcall(function() local r = db:rows(sql, { 1, print }); return r end)
+    local keyed, named = pcall(function() local r = db:rows(sql, { 1, 2, name = "x" }); return r end)
+    return gap_rows == nil and gap_why.code, called, tostring(raised), keyed, tostring(named)
+  ]], "=probe"))
+  local gap_code, called, raised, keyed, named = probe(db, sql)
+  assert(gap_code == Sqlite.RANGE, tostring(gap_code))
+  assert(called == false and tostring(raised):find("^probe:3: sqlite: parameter 2 is a function") ~= nil, tostring(raised))
+  assert(keyed == false and tostring(named):find("^probe:4: sqlite: values holds a key") ~= nil, tostring(named))
+  rows = assert(db:rows(sql, { 1, 2 }))
+  assert(first_row(rows):integer(2) == 2)
+  assert(db:close())
+end
+
+--- A cached statement whose binding failed part way is released with its
+--- bindings cleared, so the same SQL runs again with what it is given.
+local function test_a_statement_refused_part_way_runs_again_clean()
+  local db = assert(Sqlite.memory())
+  local sql = "SELECT ?1, ?2 IS NULL"
+  local gap: {Sqlite.Param} = { 7 }
+  local rows, why = db:rows(sql, gap)
+  assert(rows == nil and why.code == Sqlite.RANGE, tostring(why))
+  rows = assert(db:rows(sql, { 8, Sqlite.NULL }))
+  assert(first_row(rows):integer(1) == 8 and first_row(rows):integer(2) == 1)
+  assert(db:close())
+end
+
+--- A list binds through `run` as an array that carray() reads, and a
+--- float that holds a whole number binds as a real.
+local function test_lists_and_whole_floats_bind_as_given()
+  local db = assert(Sqlite.memory())
+  assert(db:exec("CREATE TABLE t (n)"))
+  assert(db:run("INSERT INTO t SELECT value FROM carray(?1)", { { integers = { 1, 2, 3 } } }))
+  local rows = assert(db:rows("SELECT count(*), typeof(?1) FROM t", { 2.0 }))
+  assert(first_row(rows):integer(1) == 3 and first_row(rows):text(2) == "real")
+  assert(db:close())
+end
+
+--- A key that is no position raises whatever else the list holds, and
+--- the highest position past the last parameter is the one named.
+local function test_extra_keys_are_named_whatever_their_order()
+  local db = assert(Sqlite.memory())
+  local probe = assert(load([[
+    local db = ...
+    local named, why = pcall(function() local r = db:rows("SELECT ?1, ?2", { 1, 2, 3, name = "x" }); return r end)
+    local rows, past = db:rows("SELECT ?1, ?2", { 1, 2, [7] = 3, [100] = 1 })
+    return named, tostring(why), rows == nil and past.message
+  ]], "=probe"))
+  local named, why, past = probe(db)
+  assert(named == false and tostring(why):find("^probe:2: sqlite: values holds a key") ~= nil, tostring(why))
+  assert(past == "sqlite: values holds a parameter 100, and the statement has 2", tostring(past))
+  assert(db:close())
+end
+
+--- Sqlite.NULL is read-only, and a Value whose fields come through a
+--- metatable raises rather than binding NULL.
+local function test_null_is_read_only_and_a_value_has_no_metatable()
+  local db = assert(Sqlite.memory())
+  local probe = assert(load([[
+    local db, null = ...
+    local wrote, written = pcall(function() null.integer = 1 end)
+    local inherited = setmetatable({}, { __index = { integer = 5 } })
+    local bound, why = pcall(function() local r = db:rows("SELECT ?1", { inherited }); return r end)
+    return wrote, tostring(written), bound, tostring(why)
+  ]], "=probe"))
+  local wrote, written, bound, why = probe(db, Sqlite.NULL)
+  assert(wrote == false and tostring(written):find("Sqlite.NULL is read-only", 1, true) ~= nil, tostring(written))
+  assert(bound == false and tostring(why):find("^probe:4: sqlite: parameter 1 is a table with a metatable") ~= nil,
+    tostring(why))
+  local rows = assert(db:rows("SELECT ?1 IS NULL", { Sqlite.NULL }))
+  assert(first_row(rows):integer(1) == 1)
   assert(db:close())
 end

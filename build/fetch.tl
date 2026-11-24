@@ -363,7 +363,11 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
 
   if target ~= nil then
-    options.sha256, options.sha512 = wants.sha256, wants.sha512 -- checked: field_fixed*2, map_field*2
+    local digests: mut {Hash.Algorithm:string} = {}
+    local s256, s512 = wants["sha256"], wants["sha512"]
+    if s256 ~= nil then digests["sha256"] = s256 end
+    if s512 ~= nil then digests["sha512"] = s512 end
+    options.digests = digests -- checked: field_fixed
     local function download(interrupted: function(): boolean): integer
       options.cancelled = to.cancelled or interrupted -- checked: field_fixed
       local result = Http.download_result(url, target, options)

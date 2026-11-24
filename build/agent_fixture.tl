@@ -228,7 +228,7 @@ function agent_fixture.kept(replies: {Json.Value}, messages?: {Json.Value}, mode
   local db = assert(Sessions.open(agent_fixture.scratch() .. "/sessions.db"))
   local a = agent_fixture.api(replies)
   local s = Agent.new({ model = model or "m", effort = "low", sign = agent_fixture.keyed("k"),
-    base_url = "https://api.test", system = "", cwd = "/", send = a.send, messages = messages,
+    base_url = "https://api.test", system = "", cwd = "/", send = a.send, messages = messages, tools = Tools.all(),
     db = db, id = assert(Sessions.start(db, "/", "m", 0)) })
   for _, m in ipairs(messages or {}) do assert(Sessions.add(db, assert(s.id), m, "m")) end
   return { session = s, api = a, db = db }

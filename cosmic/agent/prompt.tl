@@ -27,6 +27,8 @@ local record Prompt
     --- The modules of the standard library, as [`Doc.index`] lists them: each `cosmic.<name>` a snippet may
     --- require, but those of tooling, with the start of its first sentence.
     library?: {Doc.Summary}
+    --- The tools the model is offered, each a line and its rules; [`Tools.default`] where nil, as an agent's.
+    tools?: {Tools.Tool}
   end
 end
 
@@ -107,19 +109,24 @@ end
 function Prompt.build(cwd: string, contexts: {Prompt.Context}, options?: Prompt.Options): string
   local servers = if options ~= nil then options.servers else nil end
   local library = if options ~= nil then options.library else nil end
+  local offered = if options ~= nil and options.tools ~= nil then options.tools else Tools.default() end
   local tools: mut {string} = {}
-  local rules: mut {string} = { "- Use bash for file operations like ls, rg, find" }
-  for _, t in ipairs(Tools.list) do
+  local rules: mut {string} = {}
+  if Tools.find(offered, "bash") ~= nil then
+    rules[1] = "- Use bash for file operations like ls, rg, find"
+  end
+  for _, t in ipairs(offered) do
     tools[#tools + 1] = "- " .. t.name .. ": " .. t.snippet
     for _, g in ipairs(t.guidelines) do rules[#rules + 1] = "- " .. g end
   end
+  rules[#rules + 1] = "- Tools may run in a sandbox: where one is refused (a read-only file system, a path " ..
+    "not there, no network), say so rather than working around it."
+  rules[#rules + 1] = "- Check a change with the project's own checks and tests before calling it done, and say what you ran."
   rules[#rules + 1] = "- Be concise in your responses"
   rules[#rules + 1] = "- Show file paths clearly when working with files"
-  local parts: mut {string} = {
-    PREAMBLE,
-    section("tools", table.concat(tools, "\n")),
-    section("rules", table.concat(rules, "\n")),
-  }
+  local parts: mut {string} = { PREAMBLE }
+  if #tools > 0 then parts[#parts + 1] = section("tools", table.concat(tools, "\n")) end
+  parts[#parts + 1] = section("rules", table.concat(rules, "\n"))
   -- The library before the project's instructions: the same for every project, it joins the prefix they share.
   local modules = library_lines(library or {})
   if #modules > 0 then

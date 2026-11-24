@@ -283,8 +283,9 @@ SyntaxCodes.catalog = {
   },
   {
     code = "inline_record", stage = "parser", rule = LEFT_OUT,
-    why = "a record is declared and named, so that two uses of it are one type; braces hold an array `{T}` or a map `{K: V}`",
-    fix = "declare the record (`local record R ... end`) and name it here",
+    why = "a record type in braces names each field once (`{ a: A, b?: B }`): a key that is a type is a map's, and a map " ..
+      "has one key type and one value type (`{K: V}`)",
+    fix = "write a name before each `:`, once each, or `{K: V}` for a map",
   },
   {
     code = "generic_function_literal", stage = "parser", rule = LEFT_OUT,

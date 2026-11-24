@@ -8,7 +8,7 @@
 ---     local put = assert(Http.request("PUT", "https://example.com/item",
 ---       { timeout_ns = Clock.seconds(30), headers = { ["Content-Type"] = "text/plain" }, body = "new" }))
 ---     local ok, trouble = Http.download(
----       "https://example.com/big.zip", "big.zip", { timeout_ns = Clock.minutes(10), sha256 = "..." })
+---       "https://example.com/big.zip", "big.zip", { timeout_ns = Clock.minutes(10), digests = { ["sha256"] = "..." } })
 ---
 --- Every request states `timeout_ns`, how long the whole of it may take
 --- ([`Http.FOREVER`] for a stream meant to run until it is closed): a
@@ -254,7 +254,7 @@ local record Http
   --- it ([`Http.FOREVER`] for no bound): one without it raises. The
   --- transfer counts them in milliseconds, and `low_speed_ns` in whole
   --- seconds, each rounded up, so no span but 0 is read as none.
-  --- `sha256`, `sha512` and `sha3_256` are read only by
+  --- `digests`, `sha256`, `sha512` and `sha3_256` are read only by
   --- [`Http.download_result`] and [`Http.download`], and so is `cancelled`
   --- but for the waits of `retry`, which it ends too.
   ---
@@ -348,6 +348,12 @@ local record Http
   --- returned as `nil, err`: a method that is no HTTP token, a header
   --- name or value holding CR, LF or NUL (or a name that is empty or
   --- holds ':'), a URL holding NUL or one curl rejects.
+  -- TODO: once ci/cosmic-driver.pin names a release that has such types,
+  -- split these options by call, so `method` is Http.open's alone, `body`
+  -- is absent from Http.get's type and the download fields from the rest:
+  -- ci/cosmic_ci/github_api.tl sets `method` for Http.open, and
+  -- build/zig_fetch.tl types a download's options as Http.Options, on the
+  -- pinned release.
   record Options
     --- The HTTP method, case-sensitive; GET, or POST when there is a `body`.
     method?: string
@@ -393,7 +399,7 @@ local record Http
     --- corrupt data, or bytes after the compressed data, fail the read,
     --- naming the coding. `headers` stay as the server
     --- sent them, so a Content-Length counts the bytes before decoding;
-    --- a download's `sha256` and `sha512` are of the bytes after it.
+    --- a download's `digests` are of the bytes after it.
     --- False by default, so a body comes as the server sent it.
     decompress?: boolean
     --- Tests only: canned replies, one per connection, in place of the
@@ -415,14 +421,23 @@ local record Http
     --- Public key pins, `sha256//<base64>`, one of which the server's
     --- key must match.
     pin?: string | {string}
-    --- Download only: the expected sha256, sha512 and sha3-256, as hex.
-    --- Each given is computed while the body is written and must match,
-    --- or the download fails naming the algorithm, the digest wanted and
-    --- the one got, leaving no file.
+    --- Download only: the digests the body must have, as hex in either
+    --- case, by algorithm: any [`Hash.Algorithm`], as
+    --- `{ ["sha256"] = "..." }`. Each is computed while the body is
+    --- written and must match, or the download fails naming the
+    --- algorithm, the digest wanted and the one got, leaving no file. An
+    --- empty digest raises.
+    digests?: {Hash.Algorithm:string}
+    -- TODO: once ci/cosmic-driver.pin names a release with `digests`, move
+    -- build/vendor.tl, build/zig_fetch.tl and build/seeded_boot.tl to it and
+    -- delete `sha256`, `sha512` and `sha3_256`, which they set on the pinned
+    -- release.
+    --- Download only: `digests["sha256"]`, but an empty one is no check.
+    --- Giving it and a different `digests["sha256"]` raises.
     sha256?: string
-    --- Download only: see `sha256`.
+    --- Download only: `digests["sha512"]`, as `sha256` is.
     sha512?: string
-    --- Download only: see `sha256`; sqlite.org publishes this one alone.
+    --- Download only: `digests["sha3-256"]`, as `sha256` is.
     sha3_256?: string
     --- Download only: asked before each chunk is read and once
     --- more when the body is complete, before it is renamed into place;
@@ -1357,32 +1372,87 @@ local class PendingDownload
   end
 end
 
+--- An algorithm and the hex digest a download must have by it.
+local record Given
+  algorithm: Hash.Algorithm
+  wanted: string
+end
+
+--- The level of a download's public entry point's caller, from
+--- [`wanted_digests`], which `downloading` calls first.
+local DIGESTS_CALLER <const> = 4
+
+--- Every [`Hash.Algorithm`], ranked in the order a download checks
+--- them, so the first mismatch reported is the same each time: sha256,
+--- sha512 and sha3-256 first, as when they were the only three.
+local DIGEST_RANKS <const>: {string:integer} = {
+  ["sha256"] = 1, ["sha512"] = 2, ["sha3-256"] = 3, ["md5"] = 4, ["sha1"] = 5,
+  ["sha224"] = 6, ["sha384"] = 7, ["sha3-224"] = 8, ["sha3-384"] = 9, ["sha3-512"] = 10,
+}
+
+--- One of the single digest fields that `digests` replaces.
+local record Single
+  field: string
+  algorithm: Hash.Algorithm
+  value: string?
+end
+
+--- The digests a download is held to, from `opts.digests` and the
+--- three single fields, in [`DIGEST_RANKS`]' order. Raises, blaming the
+--- public entry point's caller, on an empty digest, an algorithm
+--- [`Hash`] does not know, or a single field and a `digests` entry that
+--- differ.
+local function wanted_digests(opts: Http.Options): {Given}
+  local by: mut {Hash.Algorithm:string} = {}
+  for algorithm, hex in pairs(opts.digests or {}) do
+    if DIGEST_RANKS[algorithm] == nil then
+      error(("http: opts.digests names %s, which is no Hash.Algorithm"):format(tostring(algorithm)), DIGESTS_CALLER)
+    end
+    if hex == "" then
+      error(("http: opts.digests[%q] must be a digest in hex, not empty"):format(algorithm), DIGESTS_CALLER)
+    end
+    by[algorithm] = hex:lower()
+  end
+  local singles: {Single} = {
+    { field = "sha256", algorithm = "sha256", value = opts.sha256 },
+    { field = "sha512", algorithm = "sha512", value = opts.sha512 },
+    { field = "sha3_256", algorithm = "sha3-256", value = opts.sha3_256 },
+  }
+  for _, single in ipairs(singles) do
+    local value = single.value
+    if value ~= nil and value ~= "" then
+      local hex = value:lower()
+      local already = by[single.algorithm]
+      if already ~= nil and already ~= hex then
+        error(("http: opts.%s and opts.digests[%q] differ; give one"):format(single.field, single.algorithm),
+          DIGESTS_CALLER)
+      end
+      by[single.algorithm] = hex
+    end
+  end
+  local out: mut {Given} = {}
+  for algorithm, hex in pairs(by) do out[#out + 1] = { algorithm = algorithm, wanted = hex } end
+  table.sort(out, function(a: Given, b: Given): boolean
+    return assert(DIGEST_RANKS[a.algorithm]) < assert(DIGEST_RANKS[b.algorithm])
+  end)
+  return out
+end
+
 --- [`Http.download_result`]'s work, which each public entry point that
 --- downloads calls itself (`CALLER`).
 local function downloading(url: string, path: string,
                            opts: Http.Options): Http.DownloadResult
-  local record Given
-    algorithm: Hash.Algorithm
-    wanted: string
-  end
   local record Check
     algorithm: Hash.Algorithm
     hex: string
     hashing: Stream.Hashing
   end
-  local given: {Given} = {
-    { algorithm = "sha256", wanted = opts.sha256 or "" },
-    { algorithm = "sha512", wanted = opts.sha512 or "" },
-    { algorithm = "sha3-256", wanted = opts.sha3_256 or "" },
-  }
+  local given: {Given} = wanted_digests(opts)
   local checks: mut {Check} = {}
   for _, pair in ipairs(given) do
-    local algorithm, wanted = pair.algorithm, pair.wanted
-    if wanted ~= "" then
-      local hashing, trouble = Stream.hashing(algorithm)
-      if hashing == nil then return { kind = "failed", reason = tostring(trouble) } end
-      checks[#checks + 1] = { algorithm = algorithm, hex = wanted:lower(), hashing = hashing }
-    end
+    local hashing, trouble = Stream.hashing(pair.algorithm)
+    if hashing == nil then return { kind = "failed", reason = tostring(trouble) } end
+    checks[#checks + 1] = { algorithm = pair.algorithm, hex = pair.wanted, hashing = hashing }
   end
   local pending <close>: PendingDownload = { response = nil, file = nil }
   -- `opts` is checked here, so a refusal is raised at `CALLER`; the open
@@ -1434,7 +1504,7 @@ end
 --- to a fresh temporary file beside it ([`Stream.create`]'s, so two
 --- downloads never share one and a planted symlink is never followed)
 --- and renaming into place only once the transfer is complete, synced to
---- disk and, when `opts.sha256`, `opts.sha512` or `opts.sha3_256` is
+--- disk and, when `opts.digests` is
 --- given, verified: a reader never sees a partial file at the final name. Fails on a
 --- non-2xx status (a redirect `opts.follow` already took does not count)
 --- or a checksum mismatch, and removes the temporary file on every
