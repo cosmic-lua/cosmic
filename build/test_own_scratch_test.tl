@@ -1,7 +1,7 @@
 --- A worker whose module declares nothing that puts a directory of the host
 --- in its root (build/test_sandbox.tl's `own_scratch`) makes a unix socket
 --- under the policy path, below Landlock ABI 9 too: its root shows files and
---- its own /tmp alone, which holds one (core/syscalls.c's
+--- its own /tmp alone, which holds one (core/sandbox_rules.c's
 --- `root_shows_no_socket`), and its network is a namespace of its own, which
 --- a declared loopback address gives it. This module declares that and
 --- nothing else, and does not skip where the socket is refused

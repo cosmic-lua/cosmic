@@ -54,7 +54,7 @@ end
 --- printed `text` shared no verdicts. Only a run whose workers are
 --- sandboxed shares any. The workers nest in this test's own sandbox,
 --- which a host may refuse (the kernel lets root nest one only two deep:
---- core/syscalls.c's `map_ids`); the case then says it is skipped: CI's
+--- core/sandbox_root.c's `map_ids`); the case then says it is skipped: CI's
 --- unprivileged runners nest them.
 local function skip_unless_shared(text: string)
   if text:find("; sandboxed", 1, true) ~= nil then return end

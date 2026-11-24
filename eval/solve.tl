@@ -341,7 +341,7 @@ function Solve.main(argv: {string}): integer
   local env = Solve.environment(host, arena, program.path)
   local unveil = Solve.unveil(arena, program, Solve.host_reads(env), exists)
   -- Where the kernel refuses the sandbox a procfs of its own, cosmic.child
-  -- binds the host's /proc read-only instead (core/syscalls.c's
+  -- binds the host's /proc read-only instead (core/sandbox_root.c's
   -- place_proc), and through it the solver could read every host
   -- process's environment and reach the checkout by /proc/<pid>/root.
   -- This process is outside the sandbox's pid namespace, so its pid
@@ -350,7 +350,7 @@ function Solve.main(argv: {string}): integer
   -- init's and the probe's, which refuses a sound sandbox: safe, and
   -- the manual launch remains.
   -- TODO: ask cosmic.child whether the sandbox's /proc is its own
-  -- (core/syscalls.c's build_root knows, as own_proc) once it reports
+  -- (core/sandbox_root.c's build_root knows, as own_proc) once it reports
   -- that, in place of this probe.
   local probe, probe_trouble = Child.run(Solve.proc_probe(Proc.pid()), { env = {},
     cwd = arena .. "/project", stdin = "null", stdout = "null", stderr = "null",

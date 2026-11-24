@@ -144,7 +144,7 @@ confine.system_paths = system_paths
 --- host's identity alone.
 -- TODO: keep a confined process from the host's state where the kernel
 -- refuses it a procfs of its own and it has the host's /proc (a
--- container masking parts of it: core/syscalls.c's `place_proc`), which
+-- container masking parts of it: core/sandbox_root.c's `place_proc`), which
 -- it can read there without that entering the key: refused, as the
 -- TODO there asks, once no container the tree is tested in masks /proc.
 local runtime_paths: {string} = { "/dev/null", "/dev/zero", "/dev/full", "/dev/urandom", "/proc" }
@@ -693,7 +693,7 @@ end
 --- worker: the line of `text` that says so, for [`Test.skip`] where a test
 --- whose assertion is about a sandbox (the workers of a `cosmic test` it
 --- starts, nested in its own sandbox, which the kernel lets root nest
---- only two deep -- core/syscalls.c's `map_ids`) finds the host refused
+--- only two deep -- core/sandbox_root.c's `map_ids`) finds the host refused
 --- it. Such a test skips only where the platform could give the sandbox
 --- ([`sandbox_platform`]); the skip ends the test.
 --- @param text what the run printed
@@ -878,7 +878,7 @@ end
 --- this process may execute (`access`, its X_OK). One that is not fails
 --- at exec, sandbox or none.
 -- TODO: take a relative program from the directory the child starts in,
--- as exec does for a spawn given no sandbox, once core/syscalls.c's
+-- as exec does for a spawn given no sandbox, once core/spawn.c's
 -- spawn makes it absolute from there for a sandboxed one too: today it
 -- does from this process's, so `Child.run({ "script" }, { cwd = dir })`
 -- runs dir/script unconfined but, confined, this process's ./script.
@@ -1156,12 +1156,12 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
         -- leads: the same directory, under which the core this program
         -- runs on (`itself`) is bound, or which the launcher makes.
         -- TODO: give a confined process each link on a path it was given
-        -- as the host has it (core/syscalls.c's unveil links a name only
+        -- as the host has it (core/spawn.c's unveil links a name only
         -- at its last part, where the launcher refuses a link for its
         -- cache), and declare in `itself` the cache a launcher finds by
         -- default, from XDG_CACHE_HOME or HOME: a default cache reached
         -- through a link is still not there.
-        -- TODO: drop this renaming (and [`led_to`]) once core/syscalls.c's
+        -- TODO: drop this renaming (and [`led_to`]) once core/spawn.c's
         -- unveil gives a confined process each link on a path as the
         -- host has it (the TODO above): only the sandbox's own tests
         -- confine now, but one of them run where COSMIC_PORTABLE_CACHE

@@ -267,7 +267,7 @@ return function(argv: {string}): integer
     -- kqueue refusing a child that has already exited, ESRCH), until
     -- /proc shows it a zombie, where there is a /proc.
     -- TODO: on Darwin the watch may be readable a moment before waitpid
-    -- can reap the child (core/syscalls.c's `exit_watch` TODO); once
+    -- can reap the child (core/spawn.c's `exit_watch` TODO); once
     -- that is settled, this wait is exact there too.
     if done._exit_fd >= 0 then
       assert(Poll.readable(done._exit_fd, Clock.seconds(8)))
