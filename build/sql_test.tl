@@ -595,7 +595,7 @@ local function test_a_missing_file_names_its_path_once_and_usage_shows_as_and_at
   assert(code == 1 and count == 1, written.err[1])
   code, written = run(dir, { "--from" })
   assert(code == 2 and support.nth(written.err, 1):find("--from needs a value", 1, true) ~= nil, written.err[1])
-  assert(support.nth(written.err, 1):find("[--as json|ndjson|csv|tsv] [--at '<path>'] [--raw]", 1, true), written.err[1])
+  assert(support.nth(written.err, 1):find("; usage: cosmic sql [--from <file|-> [--as <fmt>] [--at <path>]]...", 1, true), written.err[1])
   assert(Fs.remove_tree(dir))
 end
 

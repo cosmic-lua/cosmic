@@ -72,7 +72,8 @@ end
 
 local spec = Verb.spec or {}
 
-local usage = "cosmic json [--flat | --exists | --keys | --shape | --compact | -r] [--] [<path>] [<file>|-]" ..
+--- The usage line a refusal ends with: the spec's ([`Flags.usage`]).
+local usage <const> = Flags.usage(Verb, "cosmic json") ..
   "; a file whose name begins with $ is written ./name, or follows --"
 
 --- Whether a lone word is the path and not the file: a JSONPath query

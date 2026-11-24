@@ -52,8 +52,8 @@ end
 
 local spec = assert(Verb.spec)
 
-local usage = "cosmic qr [--level L|M|Q|H] [--max-version N] [--quiet N] [--invert] [--ascii] [--color] " ..
-  "[--svg <file|-> [--scale N] [--title T]] [--] [text...] | cosmic qr --read [file|-]"
+--- The usage line a refusal ends with: the spec's ([`Flags.usage`]).
+local usage <const> = Flags.usage(Verb, "cosmic qr")
 
 local LEVELS <const>: {string: Qr.Level} = { L = "L", M = "M", Q = "Q", H = "H" }
 
@@ -106,7 +106,7 @@ local function arguments(argv: {string}): Request?, string
     if named == nil then return nil, "--level is L, M, Q or H, not " .. level end
     request.level = named
   end
-  local bounds: {{string | integer}} = { { "--max-version", 1, 40 }, { "--quiet", 0, 16 }, { "--scale", 1, 1000 } }
+  local bounds: {{string | integer}} = { { "--max-version", 1, 40 }, { "--border", 0, 16 }, { "--scale", 1, 1000 } }
   for _, bound in ipairs(bounds) do
     local name, lo, hi = bound[1], bound[2], bound[3]
     assert(name is string and lo is integer and hi is integer)
@@ -118,7 +118,7 @@ local function arguments(argv: {string}): Request?, string
       end
       if name == "--max-version" then
         request.max_version = n
-      elseif name == "--quiet" then
+      elseif name == "--border" then
         request.quiet = n
       else
         request.scale = n
@@ -212,9 +212,13 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     text = read:gsub("\r?\n$", "", 1)
   end
   if text == "" then
-    complain("the text is empty; give the text or pipe it in")
     -- An empty word is the command line's; an empty standard input is the data's.
-    return if request.text ~= nil then bare.refused else bare.undone end
+    if request.text ~= nil then
+      complain("the text is empty; give the text or pipe it in; " .. usage)
+      return bare.refused
+    end
+    complain("the text is empty; give the text or pipe it in")
+    return bare.undone
   end
   local code, why = Qr.encode(text, { level = request.level, max_version = request.max_version })
   if code == nil then

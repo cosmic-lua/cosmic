@@ -24,7 +24,7 @@ local record Ran
   err: string
 end
 
---- What `--head --json` prints.
+--- What `fetch head --json` prints.
 local record Head
   status: integer
   url: string
@@ -127,7 +127,7 @@ local function test_a_redirect_loop_fails()
 end
 
 local function test_head_prints_the_status_and_headers()
-  local ran = run({ "--head", url }, { reply("200 OK", "X-One: 1\r\nA-Two: b\r\n", "body") })
+  local ran = run({ "head", url }, { reply("200 OK", "X-One: 1\r\nA-Two: b\r\n", "body") })
   assert(ran.code == 0, ran.err)
   assert(ran.out:find("^HTTP 200\n"), ran.out)
   assert(ran.out:find("x-one: 1\n", 1, true) and ran.out:find("a-two: b\n", 1, true), ran.out)
@@ -137,7 +137,7 @@ local function test_head_prints_the_status_and_headers()
 end
 
 local function test_head_json_prints_an_object()
-  local ran = run({ "--head", "--json", url }, { reply("200 OK", "X-One: 1\r\n", "body") })
+  local ran = run({ "head", "--json", url }, { reply("200 OK", "X-One: 1\r\n", "body") })
   assert(ran.code == 0, ran.err)
   local object, why = HEAD:decode_into(ran.out)
   assert(object ~= nil, tostring(why) .. ": " .. ran.out)
@@ -147,7 +147,7 @@ local function test_head_json_prints_an_object()
 end
 
 local function test_head_prints_then_fails_on_a_bad_status()
-  local ran = run({ "--head", url }, { reply("404 Not Found", "X-One: 1\r\n") })
+  local ran = run({ "head", url }, { reply("404 Not Found", "X-One: 1\r\n") })
   assert(ran.code == 1, tostring(ran.code))
   assert(ran.out:find("^HTTP 404\n"), ran.out)
   assert(ran.err:find("HTTP 404", 1, true), ran.err)
@@ -157,7 +157,7 @@ local function test_a_bad_url_or_command_line_is_a_usage_error()
   for _, words in ipairs({ -- checked: cast_refused
       { "notaurl" }, { "ftp://example.com/x" }, { "http://" }, { "http://@/" }, { "http://:80/" }, { "http://u:p@:80/x" }, {}, { url, "extra" }, -- checked: literal_needs_type
       { url, "--bogus" }, { url, "--sha256", "abc" }, { url, "--json" },
-      { url, "--head", "-o", "x" }, { url, "-o", "" },
+      { "head", url, "-o", "x" }, { "head" }, { url, "-o", "" },
   } as {{string}}) do
     local ran = run(words, {})
     assert(ran.code == 2, table.concat(words, " ") .. " exited " .. tostring(ran.code) .. ": " .. ran.err)
@@ -184,7 +184,7 @@ local function test_a_failed_write_to_standard_output_exits_five()
   local ran = run({ url }, { reply("200 OK", "", "hello") }, "no space left")
   assert(ran.code == 5, tostring(ran.code))
   assert(ran.err:find("standard output: no space left", 1, true), ran.err)
-  local head = run({ "--head", url }, { reply("200 OK", "") }, "broken pipe")
+  local head = run({ "head", url }, { reply("200 OK", "") }, "broken pipe")
   assert(head.code == 5, tostring(head.code))
   local verified = run({ "--sha256", Hash.hex_sha256("hello"), url },
     { reply("200 OK", "", "hello") }, "broken pipe")
@@ -203,12 +203,12 @@ local function test_credentials_never_reach_a_message_or_the_json(tmp: string)
   local mismatch = run({ secret, "-o", tmp .. "/y", "--sha256", string.rep("0", 64) },
     { reply("200 OK", "", "hello") })
   assert(mismatch.code == 1 and not mismatch.err:find("hunter2", 1, true), mismatch.err)
-  local json = run({ "--head", "--json", secret }, { reply("200 OK", "") })
+  local json = run({ "head", "--json", secret }, { reply("200 OK", "") })
   assert(json.code == 0 and not json.out:find("hunter2", 1, true), json.out)
   -- libcurl 8.23.0 leaves userinfo out of the effective URL, the URL's own and a redirect's
   -- (CVE-2026-94266), so what the JSON shows is without it before `redact_url` sees it.
   assert(json.out:find('"url": "http://cosmic.test/data"', 1, true), json.out)
-  local moved = run({ "--head", "--json", "http://cosmic.test/data" }, {
+  local moved = run({ "head", "--json", "http://cosmic.test/data" }, {
     reply("302 Found", "Location: http://user:hunter2@cosmic.test/final\r\n"), reply("200 OK", "") })
   assert(moved.code == 0 and not moved.out:find("hunter2", 1, true), moved.out .. moved.err)
   assert(moved.out:find('"url": "http://cosmic.test/final"', 1, true), moved.out)
@@ -217,7 +217,7 @@ local function test_credentials_never_reach_a_message_or_the_json(tmp: string)
 end
 
 local function test_head_escapes_control_bytes_in_header_values()
-  local ran = run({ "--head", url }, { reply("200 OK", "X-Evil: a\027[31mb\1c\127d\te\r\n") })
+  local ran = run({ "head", url }, { reply("200 OK", "X-Evil: a\027[31mb\1c\127d\te\r\n") })
   assert(ran.code == 0, ran.err)
   assert(not ran.out:find("\027", 1, true), "an escape byte reached the terminal")
   assert(ran.out:find("x-evil: a\\x1B[31mb\\x01c\\x7Fd\te\n", 1, true), ran.out)
@@ -354,7 +354,7 @@ local function test_the_sum_aliases_work()
 end
 
 local function test_the_fragment_never_reaches_the_request_or_a_message()
-  local ran = run({ "--head", "--json", url .. "#frag" }, { reply("200 OK", "") })
+  local ran = run({ "head", "--json", url .. "#frag" }, { reply("200 OK", "") })
   assert(ran.code == 0, ran.err)
   assert(not ran.out:find("#", 1, true), ran.out)
   local secret = string.rep("a", 64)
@@ -415,7 +415,7 @@ local function test_an_unrecognized_fragment_is_dropped()
   end
   local mixed = run({ url .. "#egg=x&sha256=" .. Hash.hex_sha256("hello") }, { reply("200 OK", "", "hello") })
   assert(mixed.code == 0, mixed.err)
-  local head = run({ "--head", url .. "#sha256=" .. Hash.hex_sha256("x") }, { reply("200 OK", "") })
+  local head = run({ "head", url .. "#sha256=" .. Hash.hex_sha256("x") }, { reply("200 OK", "") })
   assert(head.code == 2, head.err)
 end
 
@@ -486,7 +486,7 @@ local function test_trust_flags_reach_the_request(tmp: string)
     assert(ran.code == 0 and ran.out == "hello", table.concat(words, " ") .. ": " .. ran.err)
   end
   -- Digests, with or without colons, take the shape whatever they name.
-  local digests = run({ "--roots", string.rep("ab:", 31) .. "ab," .. Hash.hex_sha256("x"), "--head", url },
+  local digests = run({ "head", "--roots", string.rep("ab:", 31) .. "ab," .. Hash.hex_sha256("x"), url },
     { reply("200 OK", "") })
   assert(digests.code ~= 2, digests.err)
 end

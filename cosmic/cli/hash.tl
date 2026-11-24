@@ -47,7 +47,7 @@ local Flags = require("cosmic.flags")
 
 local command: Flags.Command = {
   about = "digest files, or check a sums file",
-  usage = "[file...]",
+  usage = "[options] [file|-]... | --check <sums|-> [options]",
   examples = {
     { line = "notes.txt", about = "the SHA-256 of a file" },
     { line = "--sha512 notes.txt", about = "another algorithm" },

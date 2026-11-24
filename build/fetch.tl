@@ -37,7 +37,7 @@
 --- * A status outside 2xx fails by default, as `curl -f` does, and there
 ---   is no flag to turn that off: an error page piped into `cosmic json`
 ---   or saved as a download is the trap this verb exists to avoid. To
----   read what an error says, `--head` prints the status and headers,
+---   read what an error says, `fetch head` prints the status and headers,
 ---   and then fails on a non-2xx as well.
 --- * A digest with no `-o` buffers the whole body in memory, with no
 ---   cap, and writes it only once the digest matches, rather than
@@ -122,10 +122,15 @@ local record verb
   refusal: function(why: string, protocols: {string}?): string
 end
 
-local spec = Verb.spec or {}
+--- `fetch`'s two commands: `get`, typed by no word, and `head`.
+local commands = assert(Verb.subcommands, "fetch names its commands")
+local get_command = assert(commands["get"], "fetch has a get")
+local head_command = assert(commands["head"], "fetch has a head")
 
-local usage = "cosmic fetch <url[#sha256=<hex>]> [-o <file>] [--sha256 <hex>] [--sha512 <hex>] " ..
-  "[--allow-downgrade] [--head [--json]] [--roots <set>] [--cacert <file>] [--pin <pin>]"
+--- The usage line of `command`, as `cosmic help fetch` prints it.
+local function usage_of(command: Flags.Command, called: string): string
+  return Flags.usage(command, called)
+end
 
 --- The digests a fetch can be held to: the flag `--<name>`, the fragment
 --- keys that name it in a URL (`#sha256=<hex>`, the form pip reads, and
@@ -224,7 +229,7 @@ end
 --- tab and a newline, and 0x7f -- written `\xNN`, so a hostile server's
 --- header cannot inject an escape sequence or a line of its own. A
 --- newline passes because it is harmless here: curl splits header lines
---- at it, and `--head` splits a joined Set-Cookie value at it and
+--- at it, and `fetch head` splits a joined Set-Cookie value at it and
 --- prefixes each piece with the header name, so a newline never starts a
 --- line the server chose.
 local function escaped(text: string): string
@@ -254,11 +259,16 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     end
     say(line)
   end
+  -- `cosmic fetch head <url>` asks for the status and headers; any other line is a GET.
+  local head = argv[2] == "head"
+  local command = if head then head_command else get_command end
+  local usage = usage_of(command, if head then "cosmic fetch head" else "cosmic fetch" end)
   local function refuse(why: string): integer
     complain(why .. "; " .. usage)
     return bare.refused
   end
-  local flags, trouble = Flags.parse(argv, 2, spec)
+  local taken = assert(command.spec, "each command has options")
+  local flags, trouble = Flags.parse(argv, if head then 3 else 2 end, taken)
   if flags == nil then return refuse(trouble) end
   local parsed: Flags.Parsed = flags
   if #parsed.words ~= 1 then
@@ -317,13 +327,9 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       end
     end
   end
-  local head = parsed.set["--head"] == true
   local as_json = parsed.set["--json"] == true
-  if as_json and not head then
-    return refuse("--json shapes what --head prints")
-  end
-  if head and (target ~= nil or next(wants) ~= nil) then
-    return refuse("--head prints no body, so there is nothing for -o or a digest")
+  if head and next(wants) ~= nil then
+    return refuse("head prints no body, so there is nothing for a digest to check")
   end
 
   local roots: (string | {string})? = nil
