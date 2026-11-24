@@ -361,6 +361,27 @@ local function test_a_define_is_refused_where_it_stands_amiss()
   assert(#wrong == 0, table.concat(wrong, "\n"))
 end
 
+local function test_a_stage_is_called_with_its_arguments_after_the_piped_value()
+  local out = compiled(HEAD .. "{{range $x := .items}}{{.a | m.f \"x\\\"y\" 2 -1 0.5 .b $ $x.c}}{{end}}")
+  assert(out:find('_one(m.f(d1.a, "x\\"y", 2, -1, 0.5, d1.b, d, d1.c))', 1, true), out)
+  local cases: {Refusal} = {
+    { source = "{{.a | m.f true}}", line = "2", column = "12", reason = "'true' is not an argument" },
+    { source = "{{.a | m.f $y}}", line = "2", column = "12", reason = "'$y' is not declared here" },
+    { source = "{{.a \"x\" | m.f}}", line = "2", column = "6", reason = "a string is not a value" },
+    { source = "{{. | item \"x\"}}\n{{define item T}}{{end}}", line = "2", column = "7",
+      reason = "takes the value piped to it alone" },
+  }
+  local wrong: mut {string} = {}
+  for _, case in ipairs(cases) do
+    local why = refused(HEAD .. case.source)
+    local want = "t.tmpl:" .. case.line .. ":" .. case.column .. ": "
+    if why:sub(1, #want) ~= want or not why:find(case.reason, 1, true) then
+      wrong[#wrong + 1] = case.source .. " said " .. why .. ", not " .. want .. "..." .. case.reason
+    end
+  end
+  assert(#wrong == 0, table.concat(wrong, "\n"))
+end
+
 local function test_the_same_slots_stand_in_a_text_template()
   compiled("{{type T from m.t}}{{mode text}}\n<script>{{.x}}</script><a href={{.y}} onclick='{{.z}}'>")
 end
@@ -907,7 +928,8 @@ local SYNTAX <const>: {Refusal} = {
   { source = HEAD .. "{{.a |}}", line = "2", column = "6", reason = "expected a function" },
   { source = HEAD .. "{{.a | f}}", line = "2", column = "8", reason = "module.path.func" },
   { source = HEAD .. "{{.a | .b}}", line = "2", column = "8", reason = "module.path.func" },
-  { source = HEAD .. "{{.a | m.f x}}", line = "2", column = "12", reason = "expected |" },
+  { source = HEAD .. "{{.a | m.f x}}", line = "2", column = "12", reason = "'x' is not an argument" },
+  { source = HEAD .. "{{.a x | m.f}}", line = "2", column = "6", reason = "expected |" },
   { source = HEAD .. "{{.a | m..f}}", line = "2", column = "8", reason = "module.path.func" },
   { source = HEAD .. "{{if .a | }}{{end}}", line = "2", column = "9", reason = "expected a function" },
   { source = HEAD .. "{{ -.x}}", line = "2", column = "4", reason = "not a field path" },

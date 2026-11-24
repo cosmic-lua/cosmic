@@ -154,8 +154,26 @@ local record Types
     lines: integer
   end
 
+  --- What an argument of a stage is: a string literal, a number literal,
+  --- or a field path (from dot, `$` or a variable).
+  enum ArgKind
+    "string"
+    "number"
+    "path"
+  end
+
+  --- An argument a stage is given after the value piped to it.
+  record Arg
+    kind: ArgKind
+    --- The string's bytes, or the number as written; "" for a path.
+    text: string
+    --- The path, with no stages, when `kind` is `path`.
+    path?: Pipeline
+  end
+
   --- A pipeline stage: the function `func` of the module `module_path`, or
   --- with `module_path` "", the `{{define}}` `func` of the same template.
+  --- It is called with the value before it, then `args`.
   record Stage
     --- The module's import path, as `require` is given it.
     module_path: string
@@ -165,6 +183,8 @@ local record Types
     line: integer
     --- The column its word starts at.
     col: integer
+    --- The arguments after the piped value, in order.
+    args: {Arg}
   end
 
   --- What a pipeline's path starts from: dot, `$` (the value `render`, or the define it stands in, is

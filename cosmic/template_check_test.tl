@@ -832,6 +832,17 @@ local function test_a_range_else_reads_the_enclosing_dot(tmp: string)
   assert(wrong:find("page.tmpl:3:", 1, true) and wrong:find("name", 1, true), wrong)
 end
 
+local function test_a_stage_takes_arguments_after_the_piped_value(tmp: string)
+  local template = HEAD .. "{{.title | fmt.join \"-\"}} {{.title | fmt.join}} {{.title | fmt.join $.cls}}" ..
+      "{{range .items}} {{.name | fmt.join $.title | fmt.upper}}{{end}}"
+  local got = render(tmp, "args", template, { title = "t<", cls = "c", items = { { name = "a", n = 1 } } })
+  assert(got == "\nt&lt;|- t&lt;|none t&lt;|c A|T&lt;", got)
+  local number = refused(tmp, "args-number", HEAD .. "fine\n{{.title | fmt.join 2}}")
+  assert(number:find("page.tmpl:3:", 1, true) ~= nil, number)
+  local extra = refused(tmp, "args-extra", HEAD .. "fine\n{{.title | fmt.upper \"x\"}}")
+  assert(extra:find("page.tmpl:3:", 1, true) ~= nil, extra)
+end
+
 local function test_a_stage_answering_more_than_one_value_is_refused_in_every_position(tmp: string)
   for index, action in ipairs({ "{{.title | multi.pair}}", "{{.title | multi.pair | fmt.join}}",
       "{{.title | multi.pair | fmt.upper}}", "{{if .title | multi.pair}}x{{end}}",
