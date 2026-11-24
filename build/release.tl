@@ -150,7 +150,7 @@ end
 
 local spec <const> = assert(Verb.spec)
 
-local usage = "cosmic release [--commit <hex>] [--until <time>] " ..
+local usage = "usage: cosmic release [--commit <hex>] [--until <time>] " ..
   "[--list [-n <count>] | -o <file> | --cache] [--pin <file> | --launcher <file>] [--json]"
 
 local repository <const> = "cosmic-lua/cosmic"

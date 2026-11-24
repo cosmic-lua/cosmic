@@ -1,7 +1,9 @@
 --- `cosmic <file.tl> [args...]`: builds the file's tree into the tree's
 --- build directory, then runs the file. The tree is the working directory when
 --- the file is under it, so a file of a project reaches the rest of the
---- project. Otherwise the tree is the file's own directory.
+--- project. Otherwise the tree is the file's own directory. `cosmic run
+--- <file.tl> [args...]` is the same, and `cosmic run --standalone
+--- [--check] <file.tl> [args...]` is `cosmic --standalone`.
 ---
 --- Running the file requires it. If it returns a function, cosmic calls
 --- that function with the words after the file's path (`argv[1]` on; its
