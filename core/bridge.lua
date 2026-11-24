@@ -446,11 +446,12 @@ local function seed_differs_declared()
   return declared, text ~= nil
 end
 
--- The pure libraries, read straight out of the global table. A name the code does not find is nil, which is what plain
--- Lua does.
+-- The pure libraries, read out of the global table. The table itself is the `__index`, not a function that reads it, so
+-- every global a module names (`string`, `ipairs`, `table`) is one lookup in C, not a Lua call. A name `_G` does not
+-- hold goes on to `_G`'s own metatable (core/surface.c's `surface_missing`), as it does for a program: `io`, `os` and
+-- `debug` are stand-ins that raise when read, `dofile` and `loadfile` raise, and any other is nil.
 local function environment_with(require_function)
-  return setmetatable({ require = require_function },
-    { __index = function(_, name) return rawget(_G, name) end })
+  return setmetatable({ require = require_function }, { __index = _G })
 end
 
 -- A `require` over `codes`, a table from module name to `{ file, code }`: a module in it is loaded once, in an

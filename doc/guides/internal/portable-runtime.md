@@ -156,7 +156,7 @@ before changing the cache. The cache parent is the user's trust boundary.
 
 A warm start runs no child process. Where the cache leaf and the entry
 are this user's, neither is a symbolic link, and startup's verified stamp
-stands beside the entry, the shell execs the core at once. Startup then
+stands beside an entry no newer than it, the shell execs the core at once. Startup then
 checks what the shell's builtins cannot see: the leaf is this user's (or
 root's) and no group or others can write it, and the entry is owned so
 and is mode 0500. A leaf that fails is refused; an entry that fails is
@@ -188,14 +188,15 @@ has hashed an entry and a second has passed since the entry last changed,
 startup writes `.verified-<entry>` beside it, recording the entry's size,
 inode, and modification and change seconds. While the entry still answers the
 same, neither the launcher nor startup hashes it. Any write to the entry moves
-its times, so the stamp no longer holds for a damaged core. On Linux the
-warm start runs it, since the shell sees only that the stamp exists:
-startup hashes it, removes it and its stamp, and exits 2 with `cache entry
-<entry> digest differs from the manifest; removed it: run again to extract
-it`. The next start extracts it again. Elsewhere, or where the stamp is
-gone, the launcher hashes the entry before it runs and repairs it. The
-damaged core's own startup judges it on Linux, so damage to startup's code
-can crash it before it speaks; only this user or root can write the entry.
+its times, so the stamp no longer holds for a damaged core, and the entry
+is newer than its stamp. The launcher's warm start runs only an entry no
+newer than its stamp, so the full path hashes a damaged one before it
+runs and repairs it. A write that sets the old modification time back, or lands in
+the second the stamp was written where the shell's `test` compares whole
+seconds (BusyBox), still reaches the warm start on Linux:
+startup hashes the entry, removes it and its stamp, and exits 2 with
+`cache entry <entry> digest differs from the manifest; removed it: run
+again to extract it`, and the next start extracts it again.
 
 A warm start with a verified stamp on Linux runs no utility: the OS and
 machine come from `/proc/sys/kernel`, and the checks are the shell's own

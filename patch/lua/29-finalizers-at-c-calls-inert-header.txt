@@ -1,0 +1,8 @@
+file: src/lua.h
+note: lua_setinert (patch/lua/26-finalizers-at-c-calls-inert-gc.txt). core/surface.c declares it itself, as the core's C is read against the unpatched tree.
+--- find
+LUA_API void      (lua_setallocf) (lua_State *L, lua_Alloc f, void *ud);
+--- replace
+LUA_API void      (lua_setallocf) (lua_State *L, lua_Alloc f, void *ud);
+LUA_API int       (lua_setinert) (lua_State *L, int idx);
+--- end

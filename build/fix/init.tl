@@ -178,8 +178,8 @@ local record fix
     whole: boolean
     --- The named Teal files, in `files` too, that are no input of the project at the root ([`build.identity`]'s
     --- `is_input`: under `bin/`, `vendor/`, a hidden directory, outside the root): the build never reads them, so
-    --- [`fix.chosen`] sets them apart for a check of their own, as `cosmic --standalone` makes one. Only a project
-    --- other than cosmic's own has them; nil is none.
+    --- [`fix.chosen`] sets them apart for a check of their own, as `cosmic --standalone` makes one. In cosmic's own
+    --- tree only a file outside it is one; nil is none.
     alone?: {string}
     --- For a run of `--changed`, everything a run over the whole tree
     --- covers, which the checks spanning files still cover: the asserts
@@ -219,19 +219,35 @@ local function named_as(path: string): string
   return parent .. "/" .. Fs.basename(path)
 end
 
+--- Whether `path` lies in a checkout of cosmic: a directory above it holds `core/` and [`build/importer.tl`], as cosmic's
+--- own tree does.
+local function in_a_checkout(path: string): boolean
+  local dir = Fs.dirname(path)
+  while true do
+    local core, _ = Fs.status(dir .. "/core")
+    local importer, _ = Fs.status(dir .. "/build/importer.tl")
+    if core ~= nil and core.is_dir and importer ~= nil and importer.exists then return true end
+    local parent = Fs.dirname(dir)
+    if parent == dir then return false end
+    dir = parent
+  end
+end
+
 --- Whether the Teal file `path`, named in a project at `root`, is to be checked alone, as it is no input of that project's
 --- build: outside it, under a directory identity never takes ([`identity.is_input`]), or under a hidden one. The path is
 --- judged as named ([`named_as`]): a link inside the build to a file under `bin/` is the build's, which reads it.
 local function checked_alone(root: string, own: boolean, path: string): boolean
   -- TODO: once `fix` can check a file of cosmic's own tree that is no input of it (`ci/`, which is a project of its own, and
-  -- `lang/*.d.tl`) in the project that reads it, ask this of cosmic's own tree too.
-  if own then return false end
+  -- `lang/*.d.tl`) in the project that reads it, ask the rest of this (hidden, `is_input`) of cosmic's own tree too.
   local top, _ = Fs.absolute(root)
   if top == nil then return false end
   local relative, _ = Fs.relative(named_as(path), top)
-  -- Outside the root, which [`Fs.relative`] says by answering nothing.
-  if relative == nil then return true end
-  if relative == ".." or relative:sub(1, 3) == "../" then return true end
+  -- Outside the root, which [`Fs.relative`] says by answering nothing: in cosmic's own tree too, a file there is checked
+  -- alone, not only laid out, unless it is a file of another checkout of cosmic, whose modules a check alone cannot see.
+  if relative == nil or relative == ".." or relative:sub(1, 3) == "../" then
+    return not own or not in_a_checkout(named_as(path))
+  end
+  if own then return false end
   for part in relative:gmatch("[^/]+") do
     if part:sub(1, 1) == "." then return true end
   end
@@ -1734,8 +1750,8 @@ local function hold_named_markers(root: string, files: {string}, findings: mut {
     local named = under(root, file)
     local path = if named ~= nil then (named:gsub("/+", "/")) else nil end
     local source, _ = Fs.read(file)
-    if path ~= nil and path ~= "" and source ~= nil and Markers.mentions(source) then
-      local held = Markers.counts(source, path)
+    if path ~= nil and path ~= "" and source ~= nil and CeilingsBase.mentions(source) then
+      local held = CeilingsBase.counts(source, path)
       if next(held) ~= nil then counts[path] = held end
     end
   end
@@ -1786,8 +1802,8 @@ local function ci_tree(root: string): boolean
 end
 
 --- A run of some paths in cosmic's own tree makes the checks of the tree that cost it a few seconds: the exports
---- earned, the names the docs and help refer to, and the public docs and plurals of the Teal files named. The rest wait for
---- `cosmic fix --check .` (or `--changed`). Each line is the whole tree's check's, so a line
+--- earned, the names the docs and help refer to, and the public docs, rendered docs and plurals of the Teal files
+--- named. The rest wait for `cosmic fix --check .` (or `--changed`). Each line is the whole tree's check's, so a line
 --- may name a file that was not named: a new module's name can break a reference in another. A tree that does not build
 --- has no projection, and its refusal is said already.
 local function named_tree_checks(ctx: Fix, findings: mut {string})
@@ -1819,6 +1835,9 @@ local function named_tree_checks(ctx: Fix, findings: mut {string})
   else
     for _, line in ipairs(docs_checks.references(carried, help)) do
       findings[#findings + 1] = "doc references: " .. line
+    end
+    for _, line in ipairs(docs_checks.rendered(carried, nil, named)) do
+      findings[#findings + 1] = "rendered docs: " .. line
     end
   end
   if carried ~= nil then

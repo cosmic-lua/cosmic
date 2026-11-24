@@ -227,6 +227,14 @@ local record McpServer
     read?: function(uri: string, call: Call): ({Mcp.ResourceContents} | false) | (nil, Failure)
     --- The prompts it offers, in this order.
     prompts?: {PromptSpec}
+    --- Values for one argument of a prompt or one variable of a
+    --- resource template, as typed so far (`completion/complete`). The
+    --- server checks first that the prompt or template is one of its own
+    --- and the argument one it names, and answers at most
+    --- [`Mcp.MAX_COMPLETIONS`] values, saying where there were more.
+    --- `asked.context` holds what the client sent, unchecked. A
+    --- completion may not ask the person for input: `call.elicit` fails.
+    complete?: function(asked: Mcp.Completing, call: Call): (Mcp.Completion) | (nil, Failure)
     --- The most items of a list in one page (100).
     page_size?: integer
     --- How long a client may keep a list or a read before asking
@@ -733,6 +741,10 @@ local function capabilities(self: State): Json.Value
     c["resources"] = { listChanged = true, subscribe = true }
   end
   if #self.prompts > 0 then c["prompts"] = { listChanged = true } end
+  if self.spec.complete ~= nil then
+    local none: {string: Json.Value} = {}
+    c["completions"] = none
+  end
   return c
 end
 
@@ -1059,6 +1071,55 @@ local function get_prompt(self: State, params: any, call: McpServer.Call, inputs
   return result(self, wire.prompt_result(done))
 end
 
+--- Why `asked` names no argument the server knows: a prompt or template not its own, or an argument it does not name.
+local function unknown(self: State, asked: Mcp.Completing): string?
+  local prompt, template = asked.prompt, asked.template
+  if prompt ~= nil then
+    local spec = self.by_prompt[prompt]
+    if spec == nil then return "no such prompt: " .. Json.quote(prompt) end
+    for _, a in ipairs(spec.prompt.arguments or {}) do
+      if a.name == asked.argument then return nil end
+    end
+    return "prompt " .. prompt .. " takes no argument " .. Json.quote(asked.argument)
+  end
+  local uri = assert(template)
+  for _, t in ipairs(self.templates) do
+    if t.uriTemplate == uri then
+      for _, name in ipairs(wire.template_variables(uri)) do
+        if name == asked.argument then return nil end
+      end
+      return "the template " .. uri .. " has no variable " .. Json.quote(asked.argument)
+    end
+  end
+  return "no such resource template: " .. Json.quote(uri)
+end
+
+local function complete(self: State, params: any, call: McpServer.Call): (Json.Value) | (nil, Refusal)
+  local asked, why = wire.completing_of(params)
+  if asked == nil then return nil, refusal(Mcp.INVALID_PARAMS, why) end
+  local wrong = unknown(self, asked)
+  if wrong ~= nil then return nil, refusal(Mcp.INVALID_PARAMS, "completion/complete: " .. wrong) end
+  local handler = assert(self.spec.complete)
+  local answered: Mcp.Completion? = nil
+  local failure: Failure? = nil
+  local ok, trouble = traced(function()
+    local value, failed = handler(asked, call)
+    answered, failure = value, failed
+  end)
+  local what = "completion of " .. asked.argument .. " of " ..
+    (if asked.prompt ~= nil then "prompt " .. assert(asked.prompt) else "template " .. assert(asked.template) end)
+  if not ok then
+    if not call.cancelled() then report(self, what, trouble) end
+    return nil, raised
+  end
+  local done = answered
+  if done == nil then
+    report(self, what, if failure ~= nil then tostring(failure) else "failed" end)
+    return nil, raised
+  end
+  return result(self, wire.completion(done))
+end
+
 local function discover(self: State): Json.Value
   local fields: mut {string: Json.Value} = {
     supportedVersions = wire.strings({ Mcp.VERSION }),
@@ -1085,6 +1146,7 @@ local function offers(self: State, method: string): boolean
     return #self.resources > 0 or #self.templates > 0 or self.spec.read ~= nil
   end
   if method == "prompts/list" or method == "prompts/get" then return #self.prompts > 0 end
+  if method == "completion/complete" then return self.spec.complete ~= nil end
   if method == "subscriptions/listen" then
     return #self.tools > 0 or #self.prompts > 0 or #self.resources > 0 or #self.templates > 0 or self.spec.read ~= nil
   end
@@ -1314,6 +1376,7 @@ local function dispatch(self: State, method: string, params: any, flight: Flight
     progress = progress_of(flight), cancelled = function(): boolean return flight.cancelled end,
     state = state,
     elicit = function(key: string, elicitation: Mcp.Elicitation): (Mcp.Elicited) | (nil, Failure)
+      if not may_ask then return nil, Failure.new("mcp: " .. method .. " may not ask for input") end
       return elicit(inputs, declared, key, elicitation)
     end,
     keep = function(kept: string)
@@ -1338,6 +1401,9 @@ local function dispatch(self: State, method: string, params: any, flight: Flight
   if method == "prompts/list" and #self.prompts > 0 then return list_prompts(self, params) end
   if method == "prompts/get" and #self.prompts > 0 then
     return get_prompt(self, params, call, inputs)
+  end
+  if method == "completion/complete" and self.spec.complete ~= nil then
+    return complete(self, params, call)
   end
   if method == "subscriptions/listen" then return listen(self, params, flight, id) end
   return nil, refusal(Mcp.METHOD_NOT_FOUND, "Method not found: " .. method)
@@ -2187,7 +2253,8 @@ local class Running is McpServer.Instance
     local next_spec: McpServer.Spec = {
       info = spec.info, instructions = spec.instructions, tools = changes.tools or spec.tools,
       resources = changes.resources or spec.resources, templates = changes.templates or spec.templates,
-      read = spec.read, prompts = changes.prompts or spec.prompts, page_size = spec.page_size, ttl_ms = spec.ttl_ms,
+      read = spec.read, prompts = changes.prompts or spec.prompts, complete = spec.complete, page_size = spec.page_size,
+      ttl_ms = spec.ttl_ms,
       cache_scope = spec.cache_scope, on_error = spec.on_error, state_key = old.state_key,
       state_ttl_ms = spec.state_ttl_ms,
     }

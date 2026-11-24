@@ -88,8 +88,9 @@ local function test_help_lists_each_option_a_verb_parses(tmp: string)
         verb .. " " .. name .. " says nothing of what it does")
       local value = entry.value
       local shown = if value ~= nil then name .. " <" .. value .. ">" else name end
-      assert(out:find("\n  " .. shown .. " ", 1, true) or out:find("\n  " .. shown .. "\n", 1, true),
-        verb .. ": " .. out)
+      -- A row with aliases begins with them: "-r, --raw".
+      local row = "[\n ,] " .. shown:gsub("%p", "%%%0") .. "[ \n]"
+      assert(out:find(row) ~= nil, verb .. ": " .. out)
     end
   end
   -- `cosmic docs` asked nothing lists the modules there are.

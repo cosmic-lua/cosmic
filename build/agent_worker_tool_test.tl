@@ -128,6 +128,10 @@ local function test_an_answer_holds_any_bytes_and_a_large_value_and_the_snippet_
   local much = run(w, "for i = 1, 20000 do print(\"line \" .. tostring(i)) end\n")
   local output = tostring(much["output"])
   assert(much["cut"] == true and #output <= 64 * 1024 and output:find("line 20000\n", 1, true) ~= nil, #output)
+  -- Past a read's chunk, only the end is held.
+  local more = run(w, "print(string.rep(\"y\", 3000000))\nprint(\"the end\")\n")
+  local tail = tostring(more["output"])
+  assert(more["cut"] == true and #tail <= 64 * 1024 and tail:sub(-8) == "the end\n" and tail:sub(1, 1) == "y", #tail)
   local Fs_take = "local Fs = require(\"cosmic.fs\")\nlocal got, _ = Fs.take(Fs.stdin, 100)\nreturn got == \"\"\n"
   local read = run(w, Fs_take, 10)
   assert(read["ok"] == true and read["value"] == true, shown(read))

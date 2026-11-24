@@ -160,6 +160,10 @@ local record McpClient
     prompts: function(Session): ({Mcp.Prompt}) | (nil, Failure)
     --- The prompt `name`, filled in from `arguments`.
     prompt: function(Session, name: string, arguments?: {string: string}): (Mcp.PromptResult) | (nil, Failure)
+    --- Values for one argument of a prompt, or one variable of a
+    --- resource template, that fit what `asked` says is typed so far:
+    --- `{ prompt = "review", argument = "language", value = "py" }`.
+    complete: function(Session, asked: Mcp.Completing): (Mcp.Completion) | (nil, Failure)
     --- Subscribes to the changes `wanted` names, giving `on_notice` each
     --- notice as it comes, and `on_ack` what the server agreed to, once,
     --- first: a server leaves out what it cannot tell of. It runs until
@@ -512,6 +516,14 @@ local function prompt(self: State, name: string, arguments?: {string: string}): 
   return wire.prompt_result_of(response.result)
 end
 
+local function complete(self: State, asked: Mcp.Completing): (Mcp.Completion) | (nil, Failure)
+  local params, wrong = wire.completing(asked)
+  if params == nil then return nil, wrong end
+  local response, why = ask(self, "completion/complete", params)
+  if response == nil then return nil, why end
+  return wire.completion_of(response.result)
+end
+
 --- What the acknowledgment of a subscription, `params`, says the server agreed to.
 local function agreed_of(params: any): McpClient.Subscription
   local p, _ = Json.to_object(params)
@@ -599,6 +611,9 @@ local class Running is McpClient.Session
   end
   function prompt(self, name: string, arguments?: {string: string}): (Mcp.PromptResult) | (nil, Failure)
     return prompt(self.state, name, arguments)
+  end
+  function complete(self, asked: Mcp.Completing): (Mcp.Completion) | (nil, Failure)
+    return complete(self.state, asked)
   end
   function close(self): (true) | (false, Failure)
     local s = self.state
