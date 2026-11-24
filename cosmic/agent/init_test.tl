@@ -54,7 +54,12 @@ local function test_the_loop_runs_tools_until_the_turn_ends()
   assert(slurp(dir .. "/out.txt") == "made")
   assert(#a.sent == 2 and seen.texts[1] == "writing" and seen.texts[2] == "done" and seen.tools[1] == "write")
   local first = sent(a, 1)
-  assert(first["model"] == "claude-opus-5-5" and first["system"] == "sys" and first["fallbacks"] == "default")
+  assert(first["model"] == "claude-opus-5-5" and first["fallbacks"] == "default")
+  -- The system prompt is a block with a cache mark of its own, and the working directory a block after it.
+  local whole = assert(Json.encode(first))
+  assert(whole:find('"system":[{"cache_control":{"type":"ephemeral"},"text":"sys","type":"text"},{"text":"<cwd>\\n' ..
+      dir .. '\\n</cwd>","type":"text"}]', 1, true) ~= nil, whole)
+  assert(whole:find('"content":"make out.txt"', 1, true) ~= nil, whole)
   -- The tools offered by default run no program: no bash, no jobs.
   local tools, _ = Json.to_array(first["tools"])
   assert(tools ~= nil and #tools == 5 and not assert(Json.encode(tools)):find('"name":"bash"', 1, true))

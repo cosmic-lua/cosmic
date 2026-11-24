@@ -953,6 +953,21 @@ local function test_a_command_runs_by_its_spelling_or_by_no_word()
   assert(assert(Flags.dispatch({ "help", "version" }, 1, commands, "prog")).help:find("usage: prog --version", 1, true) == 1)
 end
 
+--- An option that moved is refused with where it went, offered to no mistyped name, and left out of help.
+local function test_a_moved_option_says_where_it_went()
+  local moved_spec: {string:boolean | Flags.Option} = {
+    ["--read"] = { moved = "`prog read` reads one back" }, ["-v"] = { about = "say more" },
+  }
+  local refused, why = Flags.parse({ "prog", "--read" }, 2, moved_spec)
+  assert(refused == nil and why == "no such option: --read; `prog read` reads one back", why)
+  local _, near = Flags.parse({ "prog", "--rea" }, 2, moved_spec)
+  assert(near:find("--read", 1, true) == nil, near)
+  local command: Flags.Command = { spec = moved_spec, run = function(_: Flags.Parsed): integer
+    return 0
+  end }
+  assert(Flags.help(command, "prog"):find("--read", 1, true) == nil)
+end
+
 --- Flags.usage is help's first line: the name, then the usage, or the name alone.
 local function test_usage_is_the_first_line_of_help()
   local command: Flags.Command = { usage = "[options] <file>", spec = { ["-v"] = { about = "say more" } },

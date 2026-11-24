@@ -86,6 +86,9 @@ local exempt: {string: string} = {
   ["core/sandbox_root.c:start_program"] = sandbox_only,
   ["core/spawn.c:end_sandbox_init"] = sandbox_started,
   ["core/sandbox_root.c:cosmic_sandbox_init"] = init_only,
+  ["core/sandbox_rules.c:cosmic_boot_layer_apply"] = "runs only at the boot of a cosmic child a policy holds, " ..
+    "which no grant lets write its worker's coverage directory once it has; " ..
+    "cosmic/child_policy_cosmic_test.tl's no-x test sees what it holds",
   ["core/sandbox_root.c:descriptor_kind"] = init_only,
   -- mirrored_mode is inlined into it on every core, so has no entry of
   -- its own; the checked core keeps this one out of line.

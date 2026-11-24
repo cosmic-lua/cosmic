@@ -50,14 +50,14 @@ static sqlite3 *open_artifact (const char *path, int retained_fd,
     return NULL;
   }
   char uri[8192];
-  if (!cosmic_vfs_uri(uri, sizeof uri, path)) {
-    return NULL;
-  }
   sqlite3 *db = NULL;
-  int rc = sqlite3_open_v2(uri, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI,
-                           COSMIC_VFS_NAME);
-  if (rc != SQLITE_OK) {
+  if (!cosmic_vfs_uri(uri, sizeof uri, path) ||
+      sqlite3_open_v2(uri, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI,
+                      COSMIC_VFS_NAME) != SQLITE_OK) {
     sqlite3_close_v2(db);
+    /* The door may still be open on a descriptor the caller now closes:
+     * registering no path shuts it. */
+    (void)cosmic_vfs_register("", -1, 0, 0);
     return NULL;
   }
   return db;
@@ -94,64 +94,54 @@ static int meta_row (sqlite3 *db, const char *key, char *out, size_t size,
 }
 
 /* Opens the database file `path` of a `--database` start, read-only and
- * immutable through the default VFS, and holds the running core to it:
- * the file must be a SQLite database with a `main` meta row, and its
- * `core_sha256` row must be the digest of the core running. Nothing falls
- * back: false, with `*why` naming what is wrong with the file, closes it. */
+ * immutable, and holds the running core to it: the file must be a SQLite
+ * database with a `main` meta row, and its `core_sha256` row must be the
+ * digest of the core running. SQLite reads the descriptor checked here,
+ * through core/vfs.c, and never opens the path again, so a path swapped
+ * after the check reaches nothing. The descriptor is `*held`, for the
+ * caller to close once the database is closed. Nothing falls back: false,
+ * with `*why` naming what is wrong with the file, closes both. */
 static bool open_database (const char *path, struct cosmic_artifact *artifact,
-                           sqlite3 **out, const char **why) {
+                           sqlite3 **out, int *held, const char **why) {
   static char message[256];
   char resolved[COSMIC_ARTIFACT_PATH_CAPACITY];
   /* O_NONBLOCK: opening a FIFO for reading waits for a writer, which a
    * database path must never do. */
   int file = open(path, O_RDONLY | O_CLOEXEC | O_NONBLOCK);
-  struct stat held;
+  struct stat checked;
   if (file < 0) {
     snprintf(message, sizeof message, "%s", strerror(errno));
     *why = message;
     return false;
   }
-  if (fstat(file, &held) != 0 || !S_ISREG(held.st_mode)) {
+  if (fstat(file, &checked) != 0 || !S_ISREG(checked.st_mode)) {
     close(file);
     *why = "it is not a regular file";
     return false;
   }
+  /* The resolved path is the database's name, which a relaunch and the
+   * store's own paths use; the bytes are the descriptor's. */
   if (realpath(path, resolved) == NULL) {
     snprintf(message, sizeof message, "%s", strerror(errno));
     *why = message;
     close(file);
     return false;
   }
-  char uri[8192];
-  if (!cosmic_database_uri(uri, sizeof uri, resolved)) {
+  /* A link swapped between the open and realpath would name another file
+   * than the one SQLite reads, which a relaunch and the store's paths would
+   * then reach. */
+  struct stat resolved_stat;
+  if (stat(resolved, &resolved_stat) != 0 ||
+      resolved_stat.st_dev != checked.st_dev ||
+      resolved_stat.st_ino != checked.st_ino) {
     close(file);
-    *why = "the path is too long";
-    return false;
-  }
-  sqlite3 *db = NULL;
-  int rc = sqlite3_open_v2(uri, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI,
-                           NULL);
-  /* SQLite opens the path again, so the file it holds is the one checked
-   * above only if the path still names it: a path swapped in between is
-   * refused here, the descriptor kept open until now so its inode cannot
-   * be reused meanwhile.
-   * TODO: a path swapped between sqlite3_open_v2 and this stat, and back,
-   * still passes; open SQLite on the checked descriptor itself (a VFS
-   * whose xOpen takes it) to close that. */
-  struct stat named_now;
-  bool same = rc == SQLITE_OK && stat(resolved, &named_now) == 0 &&
-              named_now.st_dev == held.st_dev && named_now.st_ino == held.st_ino;
-  close(file);
-  if (rc != SQLITE_OK) {
-    snprintf(message, sizeof message, "%s",
-             db == NULL ? sqlite3_errstr(rc) : sqlite3_errmsg(db));
-    *why = message;
-    sqlite3_close_v2(db);
-    return false;
-  }
-  if (!same) {
     *why = "the file changed while it was being opened";
-    sqlite3_close_v2(db);
+    return false;
+  }
+  sqlite3 *db = open_artifact(resolved, file, 0, (int64_t)checked.st_size);
+  if (db == NULL) {
+    close(file);
+    *why = "SQLite cannot open it";
     return false;
   }
   char main_name[256], recorded[2 * COSMIC_PORTABLE_SHA256_LENGTH + 2];
@@ -165,11 +155,13 @@ static bool open_database (const char *path, struct cosmic_artifact *artifact,
     snprintf(message, sizeof message, "not a cosmic database: %s", trouble);
     *why = message;
     sqlite3_close_v2(db);
+    close(file);
     return false;
   }
   if (named == 0) {
     *why = "it has no main meta row, so it names no program to run";
     sqlite3_close_v2(db);
+    close(file);
     return false;
   }
   int digest = meta_row(db, "core_sha256", recorded, sizeof recorded, &trouble);
@@ -177,14 +169,17 @@ static bool open_database (const char *path, struct cosmic_artifact *artifact,
     snprintf(message, sizeof message, "not a cosmic database: %s", trouble);
     *why = message;
     sqlite3_close_v2(db);
+    close(file);
     return false;
   }
   if (!cosmic_database_bind(artifact, resolved, digest == 1 ? recorded : NULL,
                             why)) {
     sqlite3_close_v2(db);
+    close(file);
     return false;
   }
   *out = db;
+  *held = file;
   return true;
 }
 
@@ -438,6 +433,24 @@ int cosmic_runtime_entry (const struct cosmic_startup *startup, int argc,
     return complain(adoption_error, NULL);
   }
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_STARTUP_RELEASED);
+#if defined(__linux__)
+  /* A policy's start holds a cosmic child to the policy and the files it
+   * needs to start, this core among them; here, before any module loads,
+   * the core holds itself to the policy alone, so it gives up its own `rx`.
+   * The variable is read once and gone, so a program this one starts is
+   * held to its own start's layer, not this one's again. */
+  const char *layer = getenv(COSMIC_SANDBOX_LAYER);
+  if (layer != NULL) {
+    char message[PATH_MAX + 256];
+    int failure = cosmic_boot_layer_apply(layer, message, sizeof message);
+    unsetenv(COSMIC_SANDBOX_LAYER);
+    if (failure != 0) {
+      cosmic_artifact_close(&artifact);
+      fprintf(stderr, "cosmic: sandbox: the layer its start handed this core: %s\n", message);
+      return 125;
+    }
+  }
+#endif
 
   /* A database start runs the bare core, whose own path is its name. */
   bool carried = startup->kind == COSMIC_STARTUP_PORTABLE ||
@@ -461,9 +474,13 @@ int cosmic_runtime_entry (const struct cosmic_startup *startup, int argc,
   }
 
   sqlite3 *db = NULL;
+  /* The database file of a `--database` start, which its connection reads
+   * through until it is closed. */
+  int database_fd = -1;
   if (startup->kind == COSMIC_STARTUP_DATABASE) {
     const char *trouble = NULL;
-    if (!open_database(startup->database_path, &artifact, &db, &trouble)) {
+    if (!open_database(startup->database_path, &artifact, &db, &database_fd,
+                       &trouble)) {
       cosmic_surface_close(L);
       cosmic_artifact_close(&artifact);
       fprintf(stderr, "cosmic: --database %s: %s\n", startup->database_path,
@@ -516,6 +533,7 @@ int cosmic_runtime_entry (const struct cosmic_startup *startup, int argc,
   cosmic_surface_close(L);
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_LUA_CLOSED);
   sqlite3_close_v2(db);
+  if (database_fd >= 0) close(database_fd);
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_DATABASE_CLOSED);
   cosmic_artifact_close(&artifact);
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_ARTIFACT_CLOSED);

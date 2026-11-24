@@ -127,11 +127,12 @@ static const sqlite3_io_methods cosmic_io_methods = {
   .xDeviceCharacteristics = file_characteristics,
 };
 
-/* The one artifact range this VFS opens, fixed at registration from the
- * validated retained descriptor and never taken from a URI: `off=`/`len=`
- * parameter is refused rather than honored, and a path that is not this
- * one exact artifact is refused too. There is exactly one door, and the
- * first open that succeeds closes it. */
+/* The one range this VFS opens: the database inside the validated
+ * artifact, or the whole file a `--database` start checked. It is fixed at
+ * registration from that descriptor and never taken from a URI: an
+ * `off=`/`len=` parameter is refused rather than honored, and a path that
+ * is not the one registered is refused too. There is exactly one door, and
+ * the first open that succeeds closes it. */
 static char registered_path[4096];
 static sqlite3_int64 registered_offset;
 static sqlite3_int64 registered_length;
@@ -164,7 +165,7 @@ static int vfs_open (sqlite3_vfs *vfs, sqlite3_filename name, sqlite3_file *file
   f->offset = registered_offset;
   f->length = registered_length;
   f->fd = registered_fd;
-  if (f->fd < 0 || f->offset <= 0 || f->length <= 0) {
+  if (f->fd < 0 || f->offset < 0 || f->length < 0) {
     return SQLITE_CANTOPEN;
   }
   if (out_flags != NULL) {
@@ -174,8 +175,8 @@ static int vfs_open (sqlite3_vfs *vfs, sqlite3_filename name, sqlite3_file *file
   /* The door opens once. Left registered, any connection the process
    * opens later -- raw SQL's `ATTACH 'file:<path>?vfs=cosmic'` among
    * them -- would read the program's whole database, past what a test's
-   * key holds. The descriptor itself
-   * stays the artifact's: `f` borrows it until the database closes. */
+   * key holds. The descriptor itself stays startup's: `f` borrows it
+   * until the database closes. */
   registered_path[0] = '\0';
   registered_fd = -1;
   registered_offset = 0;
@@ -311,23 +312,5 @@ bool cosmic_vfs_uri (char *into, size_t room, const char *path) {
     return false;
   }
   memcpy(into + at, tail, written + 1);
-  return true;
-}
-
-bool cosmic_database_uri (char *into, size_t room, const char *path) {
-  static const char scheme[] = "file:";
-  static const char tail[] = "?mode=ro&immutable=1";
-  size_t at = sizeof scheme - 1;
-  if (at + 1 >= room) {
-    return false;
-  }
-  memcpy(into, scheme, at);
-  if (!append_escaped(into, room, &at, path)) {
-    return false;
-  }
-  if (at + sizeof tail > room) {
-    return false;
-  }
-  memcpy(into + at, tail, sizeof tail);
   return true;
 }

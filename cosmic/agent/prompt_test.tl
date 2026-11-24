@@ -10,7 +10,7 @@ Test.policy{ env = { "TMPDIR" } }
 
 local scratch = agent_fixture.scratch
 
-local function test_the_prompt_lists_tools_rules_context_and_cwd()
+local function test_the_prompt_lists_tools_rules_and_context_by_relative_path()
   local dir = scratch()
   assert(Fs.mkdirs(dir .. "/sub"))
   assert(Fs.write(dir .. "/AGENTS.md", "top rules"))
@@ -25,8 +25,18 @@ local function test_the_prompt_lists_tools_rules_context_and_cwd()
   assert(p:find("^You are a coding assistant running inside cosmic agent") ~= nil)
   assert(p:find("<tools>\n- read: Read file contents\n- bash: ", 1, true) ~= nil, p)
   assert(p:find("- Use write only for new files or complete rewrites.", 1, true) ~= nil)
-  assert(p:find('<project_instructions path="' .. dir .. '/AGENTS.md">\ntop rules\n</project_instructions>', 1, true) ~= nil)
-  assert(p:sub(-#dir - 17) == "<cwd>\n" .. dir .. "/sub\n</cwd>", p:sub(-80))
+  assert(p:find('<project_instructions path="../AGENTS.md">\ntop rules\n</project_instructions>', 1, true) ~= nil, p)
+  assert(p:find('<project_instructions path="CLAUDE.md">\nsub rules', 1, true) ~= nil, p)
+  -- No path of the machine: the same prompt in each directory, so it is read from the cache.
+  assert(p:find(dir, 1, true) == nil and p:find("<cwd>", 1, true) == nil, p)
+  local elsewhere = scratch()
+  assert(Fs.mkdirs(elsewhere .. "/sub"))
+  local theirs: {Prompt.Context} = { { path = elsewhere .. "/AGENTS.md", content = "top rules" },
+    { path = elsewhere .. "/sub/CLAUDE.md", content = "sub rules" } }
+  assert(Prompt.build(elsewhere .. "/sub", theirs, { tools = Tools.all() }) == p)
+  assert(Prompt.where(dir) == "<cwd>\n" .. dir .. "\n</cwd>")
+  -- A directory written with a trailing slash names the same files.
+  assert(Prompt.build(elsewhere .. "/sub/", theirs, { tools = Tools.all() }) == p)
   assert(Prompt.build("/", {}):find("project_context", 1, true) == nil)
 end
 

@@ -8,7 +8,7 @@ local Json = require("cosmic.json")
 local Test = require("cosmic.test")
 local Tools = require("cosmic.agent.tools")
 
-Test.policy{ env = { "TMPDIR" } }
+Test.policy{ env = { "TMPDIR" }, profiles = { "system" } }
 
 local keyed = agent_fixture.keyed
 local said = agent_fixture.said
@@ -127,6 +127,13 @@ local function test_paths_are_made_plain_and_checked_as_granted()
       stopped = function(): boolean return false end })
   end
   assert(asked("../b/in.txt") == nil)
+  -- Profiles count, as the sandbox reads them.
+  local system = Check.paths({ profiles = { "system" } })
+  local function read_of(path: string): string?
+    return system({ name = "read", input = none, caller = "model", cwd = "/", paths = paths({ path = path }, "/"),
+      stopped = function(): boolean return false end })
+  end
+  assert(read_of("/usr/lib") == nil and read_of("/root/x") ~= nil, read_of("/usr/lib"))
   assert(asked("../../etc/passwd") == "the agent may not read /etc/passwd", asked("../../etc/passwd"))
 end
 

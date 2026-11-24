@@ -462,6 +462,13 @@ local record Options
   --- root's alone. The relaunch's descriptors are two more `fds` the child
   --- gets; one `fds` names is refused, as is the `nest` promise (a core on a
   --- `database` below has no descriptor, and takes it).
+  --- The core's `rx`, and the "cosmic" profile's, are the start's, not
+  --- the child's: on Linux the core holds itself at boot, before any module
+  --- loads, to the policy's grants without them (a second Landlock layer,
+  --- and the exec filter where no grant is left with `x`), so a child
+  --- whose policy has no `x` runs no program, its own core included, and
+  --- one that starts this program again grants its file by name. Under
+  --- `isolate` file and `nest` the core does not.
   ---
   --- With a `database` (see [`Sandbox.Policy`]) the program is this
   --- program's core run on that file (`core --database <path>`) whatever
@@ -2302,6 +2309,10 @@ local record Held
   --- Whether the policy asks for one: not under `isolate` file, whose
   --- /tmp is a tmpfs of the sandbox's own.
   wants_tmp: boolean
+  --- The grants the core of a cosmic child holds itself to at boot, the
+  --- policy's without the start's `rx` on that core ([`layer_text`]); nil
+  --- for a host program, and under `isolate` file or `nest`.
+  layer?: mut {raw_process.Grant}
   --- Whether it promises `nest`, which no descriptor to a directory or to a
   --- file open for less than both may be handed to ([`nest_descriptors`]).
   nests: boolean
@@ -2371,7 +2382,7 @@ local function ungranted(files: {string}, grants: {Rules.Grant}, cwd?: string): 
     if #missing > 0 then
       local what = if i == 1 then "the program" else "the interpreter the program starts through" end
       return string.format("%s %s is not granted %s: grant it, { path = %q, letters = \"rx\" }, " ..
-          "or add the \"system\" profile for the host's own programs", what, file,
+          "or add the \"programs\" profile for the host's own programs", what, file,
         table.concat(missing, " and "), file)
     end
   end
@@ -2446,6 +2457,30 @@ end
 --- Whether `letters` holds `letter`.
 local function lettered(letters: string, letter: string): boolean
   return letters:find(letter, 1, true) ~= nil
+end
+
+--- Whether the start may grant `file`, a file a host program needs to
+--- start, `rx` when no grant gives it: only a regular file the policy
+--- gives no way to change or replace. A file a grant giving `w` or `c`
+--- covers could be rewritten after the start and then run, as a policy
+--- with no `x` grant never lets, so it needs a grant of `x` of its own;
+--- so does a file at a name a grant with `from` shows another file at,
+--- and, where `tmp` makes the sandbox's own /tmp, one beneath /tmp.
+local function startable(file: string, grants: {Rules.Grant}, cwd?: string, own_tmp?: boolean): boolean
+  local st, _ = sys.stat(file)
+  if st == nil or st.kind ~= "file" then return false end
+  if own_tmp == true and beneath(file, "/tmp") then return false end
+  for _, grant in ipairs(grants) do
+    local at = grant.path
+    if cwd ~= nil and at:sub(1, 1) ~= "/" then at = cwd .. "/" .. at end
+    if grant.from ~= nil then
+      if beneath(file, at) then return false end
+    elseif lettered(grant.letters, "w") or lettered(grant.letters, "c") then
+      local real, _ = sys.realpath(at)
+      if beneath(file, real or at) then return false end
+    end
+  end
+  return true
 end
 
 --- Whether a root of `grants` has the directory `base`, which it does when
@@ -3153,15 +3188,75 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- none, "too many unveiled paths" for the root they are bound into.
   -- The fix: count the grants after adding these two, and refuse with
   -- the count and the most.
+  local core_grant: Rules.Grant?
   if found ~= nil then
     relaunch = found
     local granted = assert(merged.grants)
     granted[#granted + 1] = { path = found.argv[1], letters = "rx" } -- checked: index_may_be_nil, view_written
+    core_grant = granted[#granted]
     -- A core on a database reads it, on its own start and on every
     -- relaunch of its own; the grant is what a start that stays on it
     -- needs, whether the database is the policy's or this process's.
     if found.argv[2] == "--database" then
       granted[#granted + 1] = { path = found.argv[3], letters = "r" } -- checked: index_may_be_nil, view_written
+    end
+  end
+  -- A bare name is found on this process's PATH and run by its real path,
+  -- so what is granted is what runs; a name with a slash is run as written
+  -- (a virtual environment's interpreter link keeps its prefix), and its
+  -- grants are the real path's, which is what the kernel opens.
+  -- TODO: run a link as the link under `isolate` file too, binding it at
+  -- its name (a virtual environment's interpreter), once a bind can place
+  -- a link: a root holds the real path alone, so the program is run by it.
+  local path = argv[1]
+  if relaunch ~= nil then
+    path = relaunch.argv[1]
+  elseif not path:find("/", 1, true) then -- checked: nil_not_allowed
+    local on_path, absent = Proc.find(path) -- checked: nil_not_allowed
+    if on_path == nil then return nil, tostring(absent) end
+    local real, real_trouble = sys.realpath(on_path)
+    if real == nil then return nil, on_path .. ": " .. real_trouble end
+    path = real
+  elseif file then
+    local real, real_trouble = sys.realpath(named(path, base)) -- checked: nil_not_allowed
+    if real == nil then return nil, path .. ": " .. real_trouble end -- checked: nil_not_allowed
+    path = real
+  end
+  local files, loader_trouble = Rules.loaders(path, base) -- checked: nil_not_allowed
+  if files == nil then return nil, loader_trouble end
+  -- What the program needs to start is the starter's need, not a right
+  -- of the program's: the start grants a host program and each
+  -- interpreter its start reads (a `#!` line's, the ELF loader) `rx`, as
+  -- it grants a core above, so a policy names only what the program may
+  -- do once it runs, and the "system" profile reads libraries without
+  -- running them. A file the policy lets the program change is not
+  -- granted ([`startable`]). Landlock checks execve, not mmap: the ELF
+  -- loader this grants runs any program the policy lets be read
+  -- (`ld.so /usr/bin/cat`), so no `x` stops a program started by its
+  -- path, not code the program can read. A relaunched core is granted above, beside a database
+  -- it runs on, whose read-only grant a merge would join with the policy's.
+  if relaunch == nil then
+    -- Only a file no grant gives already, so a policy at the most a start
+    -- takes is not pushed past it by a grant of what it names.
+    -- Under `isolate` file a grant with `from` shows another file at the
+    -- name, so only one without gives the program.
+    local giving: mut {Rules.Grant} = {}
+    for _, grant in ipairs(merged.grants or {}) do
+      if not file or grant.from == nil then giving[#giving + 1] = grant end
+    end
+    local start_grants: mut {Rules.Grant} = {}
+    for _, start_file in ipairs(files) do
+      if ungranted({ start_file }, giving, base) ~= "" and
+          startable(start_file, merged.grants or {}, base, file and merged.tmp == true) then
+        start_grants[#start_grants + 1] = { path = start_file, letters = "rx" }
+      end
+    end
+    if #start_grants > 0 then
+      local widened, widen_trouble = Rules.merge(merged, { grants = start_grants })
+      if widened == nil then return nil, widen_trouble end
+      merged = widened
+      local over = unmet(merged)
+      if over ~= "" then return nil, "sandbox: " .. over end
     end
   end
   local idmap: {integer: boolean} = {}
@@ -3199,29 +3294,6 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     if made == nil then return nil, "sandbox: " .. root_trouble end
     root = made
   end
-  -- A bare name is found on this process's PATH and run by its real path,
-  -- so what is granted is what runs; a name with a slash is run as written
-  -- (a virtual environment's interpreter link keeps its prefix), and its
-  -- grants are the real path's, which is what the kernel opens.
-  -- TODO: run a link as the link under `isolate` file too, binding it at
-  -- its name (a virtual environment's interpreter), once a bind can place
-  -- a link: a root holds the real path alone, so the program is run by it.
-  local path = argv[1]
-  if relaunch ~= nil then
-    path = relaunch.argv[1]
-  elseif not path:find("/", 1, true) then -- checked: nil_not_allowed
-    local on_path, absent = Proc.find(path) -- checked: nil_not_allowed
-    if on_path == nil then return nil, tostring(absent) end
-    local real, real_trouble = sys.realpath(on_path)
-    if real == nil then return nil, on_path .. ": " .. real_trouble end
-    path = real
-  elseif file then
-    local real, real_trouble = sys.realpath(named(path, base)) -- checked: nil_not_allowed
-    if real == nil then return nil, path .. ": " .. real_trouble end -- checked: nil_not_allowed
-    path = real
-  end
-  local files, loader_trouble = Rules.loaders(path, base) -- checked: nil_not_allowed
-  if files == nil then return nil, loader_trouble end
   -- Under `isolate` file the program runs from where the host has it, so
   -- only a grant at its own name gives it: one with `from` shows another.
   local checked = merged.grants or {}
@@ -3240,11 +3312,46 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   end
 
   local grants: mut {raw_process.Grant} = {}
+  -- A cosmic child's core holds itself at boot to the grants without its
+  -- own `rx`, so a policy with no `x` runs no program, the core included.
+  -- Under `isolate` file a grant's name in the root is not its host path,
+  -- and under `nest` no ruleset holds the child.
+  -- TODO: a layer at boot under `isolate` file too, by the names the root
+  -- binds each grant at.
+  -- The "cosmic" profile is the start's too: `rx` on the file this
+  -- program is started by, which a relaunch runs as its core. A policy
+  -- that runs this program again from the child grants it by name.
+  local layer: mut {raw_process.Grant} = {}
+  -- Merging joins the profile's grant with the policy's own by path, so
+  -- it is the start's only where the policy as given names no grant of
+  -- that file itself.
+  local starts: mut {string:boolean} = {}
+  for _, name in ipairs(policy.profiles or {}) do
+    if name == "cosmic" then
+      local own, _ = Proc.executable()
+      if own ~= nil then
+        local real, _ = sys.realpath(own)
+        if real ~= nil then starts[real] = true end
+      end
+    end
+  end
+  for _, grant in ipairs(policy.grants or {}) do
+    local named_at = grant.from or grant.path
+    local cwd = opts.cwd
+    if cwd ~= nil and named_at:sub(1, 1) ~= "/" then named_at = cwd .. "/" .. named_at end
+    local real, _ = sys.realpath(named_at)
+    if real ~= nil then starts[real] = nil end
+  end
   local unix = false
   for _, grant in ipairs(merged.grants or {}) do
     local at = grant.from or grant.path
     if base ~= nil and at:sub(1, 1) ~= "/" then at = base .. "/" .. at end -- checked: compare_disjoint
     grants[#grants + 1] = { path = at, access = grant.letters }
+    -- The child reads each path from where it starts, so it is handed
+    -- the real one, not one relative to this process's directory.
+    local real, _ = sys.realpath(at)
+    local start_only = grant == core_grant or (real ~= nil and starts[real] == true)
+    if not start_only then layer[#layer + 1] = { path = real or at, access = grant.letters } end
     if lettered(grant.letters, "u") then unix = true end
   end
   local env: mut {string:string} = {}
@@ -3326,6 +3433,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     if not holds then return nil, "sandbox: " .. held_why end
   end
   return { path = path, env = env, tmp = "", wants_tmp = merged.tmp == true and not file, -- checked: nil_not_allowed
+    layer = if relaunch ~= nil and not file and not nest then layer else nil end,
     sandbox = sandbox, cwd = if file then base else nil end, user = user, drop = drop, nests = nest,
     argv = run_argv, fds = if relaunch ~= nil then relaunch.fds else nil end,
     relay = if relayed then merged.connect else nil end }, ""
@@ -3342,6 +3450,22 @@ local holds_by_seatbelt <const> = Rules.on_macos
 --- once core/sandbox_root.c carries credentials outside Linux (#2852).
 local function seatbelt_credentials(merged: Rules.Policy): string
   return Seatbelt.credentials_unmet(merged, effective_user(), effective_group())
+end
+
+--- `p` with `extra` grants beside its own, every other field as it is:
+--- the policy a profile is compiled from once the start grants its
+--- program's start files, unmerged, as [`Seatbelt.compile`] takes it.
+local function with_grants(p: Rules.Policy, extra: {Rules.Grant}): Rules.Policy
+  local grants: mut {Rules.Grant} = {}
+  for _, grant in ipairs(p.grants or {}) do grants[#grants + 1] = grant end
+  for _, grant in ipairs(extra) do grants[#grants + 1] = grant end
+  local result: Rules.Policy = {
+    grants = grants, isolate = p.isolate, promises = p.promises,
+    connect = p.connect, loopback = p.loopback, env = p.env, set_env = p.set_env,
+    set_env_digests = p.set_env_digests, tmp = p.tmp, limits = p.limits,
+    user = p.user, group = p.group, database = p.database, profiles = p.profiles,
+  }
+  return result
 end
 
 --- A policy's start on macOS: the profile [`Seatbelt.compile`] makes of
@@ -3404,6 +3528,35 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
       granted[#granted + 1] = { path = sealed, letters = "r" } -- checked: nil_not_allowed, view_written
     end
   end
+  local path = core or argv[1]
+  if core == nil and not path:find("/", 1, true) then -- checked: nil_not_allowed
+    local found, absent = Proc.find(path) -- checked: nil_not_allowed
+    if found == nil then return nil, tostring(absent) end
+    local real, real_trouble = sys.realpath(found)
+    if real == nil then return nil, found .. ": " .. real_trouble end
+    path = real
+  end
+  -- The program, and an interpreter its `#!` line names, are the first to
+  -- fail a profile that does not grant them, as an EPERM of the exec,
+  -- which this says in words.
+  local files, loader_trouble = Rules.loaders(path, opts.cwd) -- checked: nil_not_allowed
+  if files == nil then return nil, loader_trouble end
+  -- As under Landlock, the start grants a host program and the
+  -- interpreters its start reads `rx`: the starter's need, not the
+  -- program's right. A relaunched core is granted above.
+  if relaunch == nil then
+    local start_grants: mut {Rules.Grant} = {}
+    for _, start_file in ipairs(files) do
+      if ungranted({ start_file }, merged.grants or {}, opts.cwd) ~= "" and
+          startable(start_file, merged.grants or {}, opts.cwd) then
+        start_grants[#start_grants + 1] = { path = start_file, letters = "rx" }
+      end
+    end
+    policy = with_grants(policy, start_grants)
+    local widened, widen_trouble = Rules.merge(merged, { grants = start_grants })
+    if widened == nil then return nil, widen_trouble end
+    merged = widened
+  end
   -- TODO: decide whether the profile should let a program getcwd in a
   -- directory it grants nothing of: on the macOS leg a shell (bash as
   -- /bin/sh) started in one prints "shell-init: error retrieving current
@@ -3419,19 +3572,6 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   if relayed then options.relay_port = 65535 end
   local profile, compile_trouble = Seatbelt.compile(policy, options)
   if profile == nil then return nil, "sandbox: " .. compile_trouble end
-  local path = core or argv[1]
-  if core == nil and not path:find("/", 1, true) then -- checked: nil_not_allowed
-    local found, absent = Proc.find(path) -- checked: nil_not_allowed
-    if found == nil then return nil, tostring(absent) end
-    local real, real_trouble = sys.realpath(found)
-    if real == nil then return nil, found .. ": " .. real_trouble end
-    path = real
-  end
-  -- The program, and an interpreter its `#!` line names, are the first to
-  -- fail a profile that does not grant them, as an EPERM of the exec,
-  -- which this says in words.
-  local files, loader_trouble = Rules.loaders(path, opts.cwd) -- checked: nil_not_allowed
-  if files == nil then return nil, loader_trouble end
   local missing = ungranted(files, merged.grants or {}, opts.cwd)
   if missing ~= "" then return nil, "sandbox: " .. missing end
   local env: mut {string:string} = {}
@@ -3481,6 +3621,17 @@ local function relay_held(held: Held, port: integer, token: string): string
   return ""
 end
 
+--- `grants` as the core reads them at boot (core/sandbox_rules.c's
+--- `cosmic_boot_layer_apply`): each "<letters> <length>:<path>" and a
+--- newline, so a path may hold any byte but NUL.
+local function layer_text(grants: {raw_process.Grant}): string
+  local parts: mut {string} = {}
+  for _, grant in ipairs(grants) do
+    parts[#parts + 1] = grant.access .. " " .. tostring(#grant.path) .. ":" .. grant.path .. "\n"
+  end
+  return table.concat(parts)
+end
+
 --- Makes the temporary directory a policy's `tmp` asks for, as an absolute
 --- path whatever TMPDIR is (the child may start in another directory),
 --- grants it `rwc` and names it in TMPDIR; it is the child's user's,
@@ -3508,6 +3659,8 @@ local function make_tmp(held: Held): string
   else
     local grants = assert(held.sandbox.grants)
     grants[#grants + 1] = { path = real, access = "rwc" } -- checked: view_written
+    local layer = held.layer
+    if layer ~= nil then layer[#layer + 1] = { path = real, access = "rwc" } end
   end
   held.env.TMPDIR = real -- checked: map_field
   return ""
@@ -3970,6 +4123,8 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
         return refuse("start: sandbox: " .. why)
       end
     end
+    local layer = held.layer
+    if layer ~= nil then held.env["COSMIC_SANDBOX_LAYER"] = layer_text(layer) end
   end
   -- Nothing but the spawn lies between the directory's making and its
   -- owner, the handle: a spawn that raises (an argument it refuses) must

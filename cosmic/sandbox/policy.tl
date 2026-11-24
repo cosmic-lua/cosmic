@@ -83,7 +83,7 @@ local record rules
   --- What a program is held to; every field is optional, and what a policy
   --- leaves out it does not have.
   record Policy
-    --- Named policies to join in, by [`Sandbox.merge`]: "system", "cosmic", "proc".
+    --- Named policies to join in, by [`Sandbox.merge`]: "system", "programs", "cosmic", "proc".
     profiles?: {string}
     --- The paths the program reaches.
     grants?: {Grant}
@@ -221,7 +221,7 @@ local function env_name_ok(name: string): boolean
   return name ~= "" and not name:find("=", 1, true) and not name:find("\0", 1, true)
 end
 
-local PROFILES <const>: {string} = { "cosmic", "proc", "system" }
+local PROFILES <const>: {string} = { "cosmic", "proc", "programs", "system" }
 
 local function listed(name: string, names: {string}): boolean
   for _, known in ipairs(names) do
@@ -454,12 +454,16 @@ end
 --- The paths of the "system" profile on Linux and what each is for, read and
 --- run, or read, or written, before the host's are filtered to those that exist.
 local LINUX_SYSTEM_PATHS <const>: {{string}} = {
-  -- The programs and libraries of the system, and the loader. Everything
-  -- installed under /usr is reachable, /usr/local included; /opt, /home
-  -- and /var are not. /bin and the /lib directories are links into /usr on
+  -- The programs and libraries of the system, read: a library is mapped
+  -- by the loader, which needs no `x`, and a program a policy runs is
+  -- granted by the start ([`Child.start`]) or by a grant naming it. No
+  -- `x` stops an execve, not code run by mapping what is read (the ELF
+  -- loader runs any program it can read).
+  -- Everything installed under /usr is reachable, /usr/local included;
+  -- /opt, /home and /var are not. /bin and the /lib directories are links into /usr on
   -- a merged-usr host, and are granted where they are directories of their own.
-  { "/usr", "rx" }, { "/bin", "rx" }, { "/lib", "rx" }, { "/lib32", "rx" },
-  { "/lib64", "rx" }, { "/libx32", "rx" },
+  { "/usr", "r" }, { "/bin", "r" }, { "/lib", "r" }, { "/lib32", "r" },
+  { "/lib64", "r" }, { "/libx32", "r" },
   -- What a libc reads as a program starts: the loader's cache and preload
   -- list, the name-service switch, the accounts (a program asking who it is
   -- runs as), and the time zone.
@@ -474,11 +478,11 @@ local LINUX_SYSTEM_PATHS <const>: {{string}} = {
 --- includes the system frameworks and dyld's cryptexes; no Mach service
 --- or network permission follows merely from reading system libraries.
 local DARWIN_SYSTEM_PATHS <const>: {{string}} = {
-  { "/usr", "rx" }, { "/bin", "rx" }, { "/sbin", "rx" },
-  { "/System/Library", "rx" }, { "/Library/Apple/System/Library", "rx" },
-  { "/System/Cryptexes/App", "rx" }, { "/System/Cryptexes/OS", "rx" },
-  { "/System/Volumes/Preboot/Cryptexes/App/System", "rx" },
-  { "/System/Volumes/Preboot/Cryptexes/OS", "rx" },
+  { "/usr", "r" }, { "/bin", "r" }, { "/sbin", "r" },
+  { "/System/Library", "r" }, { "/Library/Apple/System/Library", "r" },
+  { "/System/Cryptexes/App", "r" }, { "/System/Cryptexes/OS", "r" },
+  { "/System/Volumes/Preboot/Cryptexes/App/System", "r" },
+  { "/System/Volumes/Preboot/Cryptexes/OS", "r" },
   { "/etc/passwd", "r" }, { "/etc/group", "r" }, { "/etc/localtime", "r" },
   { "/private/var/db/timezone", "r" },
   -- dyld's own state: it reads its closures and shared cache map from here.
@@ -491,6 +495,29 @@ local DARWIN_SYSTEM_PATHS <const>: {{string}} = {
   { "/dev/null", "rw" }, { "/dev/dtracehelper", "rw" }, { "/dev/zero", "r" },
   { "/dev/random", "r" }, { "/dev/urandom", "r" },
 }
+
+--- The paths of the "programs" profile on Linux: the host's programs and
+--- the loader they start by, run. "system" reads them; this runs them.
+local LINUX_PROGRAM_PATHS <const>: {{string}} = {
+  { "/usr", "rx" }, { "/bin", "rx" }, { "/sbin", "rx" }, { "/lib", "rx" }, { "/lib32", "rx" },
+  { "/lib64", "rx" }, { "/libx32", "rx" },
+}
+
+--- The paths of the "programs" profile on macOS: the host's programs, run.
+local DARWIN_PROGRAM_PATHS <const>: {{string}} = {
+  { "/usr", "rx" }, { "/bin", "rx" }, { "/sbin", "rx" },
+}
+
+--- The paths of the profile `name`, "system" or "programs", for `host`,
+--- "darwin" or "linux", whether or not this host has them; nil for
+--- another name, whose grants are not a list of host paths.
+function rules.profile_paths(name: string, host: string): {{string}}?
+  if name == "programs" then
+    return if host == "darwin" then DARWIN_PROGRAM_PATHS else LINUX_PROGRAM_PATHS end
+  end
+  if name == "system" then return rules.system_paths(host) end
+  return nil
+end
 
 --- The paths of the "system" profile for `host`, "darwin" or "linux",
 --- whether or not this host has them: the one list [`rules.profile`] and
@@ -513,9 +540,9 @@ end
 --- granted when `exists` finds it, so the same profile fits a host with and
 --- without a /lib64. Apart from [`rules.profile`], which asks this host, only
 --- a test of the other host's list calls it.
-function rules.system_profile(host: string, exists: function(string): boolean): rules.Policy
+function rules.system_profile(host: string, exists: function(string): boolean, name?: string): rules.Policy
   local grants: mut {rules.Grant} = {}
-  for _, entry in ipairs(rules.system_paths(host)) do
+  for _, entry in ipairs(rules.profile_paths(name or "system", host) or {}) do
     local path = assert(entry[1], "a system path entry names its path")
     local letters = assert(entry[2], "a system path entry names its letters")
     if exists(path) then
@@ -560,8 +587,8 @@ end
 --- says how.
 function rules.profile(name: string): rules.Policy?, string
   if name == "proc" then return proc_profile(), "" end
-  if name == "system" then
-    return rules.system_profile(if rules.on_macos() then "darwin" else "linux" end, present), ""
+  if name == "system" or name == "programs" then
+    return rules.system_profile(if rules.on_macos() then "darwin" else "linux" end, present, name), ""
   end
   if name == "cosmic" then return cosmic_profile() end
   return refuse("unknown profile \"" .. tostring(name) .. "\" (known: " ..

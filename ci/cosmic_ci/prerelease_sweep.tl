@@ -1,4 +1,5 @@
---- What prerelease.yml's hourly `sweep` job does (`driver.tl
+--- What prerelease.yml's `sweep` job does, after each push run of main
+--- and each hour (`driver.tl
 --- prerelease-sweep`). A full run of ci that `follow` started with the
 --- job's own token fires no workflow_run when it ends: GitHub starts no
 --- workflow from an event that token caused. So neither `publish` nor

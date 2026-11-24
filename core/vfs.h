@@ -1,7 +1,7 @@
 /*
- * The VFS that reads a database sitting at an offset inside another
- * file. The caller hands it the retained descriptor, offset, and length from
- * the validated portable artifact.
+ * The VFS that reads a database from a range of a descriptor startup has
+ * checked: the database inside the validated portable or host artifact, at
+ * its offset, or the whole file a `--database` start names, from 0.
  */
 
 #ifndef COSMIC_VFS_H
@@ -30,12 +30,5 @@ int cosmic_vfs_register (const char *path, int fd, int64_t offset,
  * and immutable. `path` must be the one [`cosmic_vfs_register`] was given.
  * Returns false when the URI does not fit in `room`. */
 bool cosmic_vfs_uri (char *into, size_t room, const char *path);
-
-/* Writes the `file:` URI that opens `path` through the default VFS,
- * read-only and immutable, for a database file of its own rather than a
- * range of the artifact. Every byte of `path` but an unreserved one or a
- * slash is percent-escaped, so nothing in it is read as URI syntax, a
- * `vfs=` among it. Returns false when the URI does not fit in `room`. */
-bool cosmic_database_uri (char *into, size_t room, const char *path);
 
 #endif

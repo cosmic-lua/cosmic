@@ -237,6 +237,7 @@ local function table_of(parsed: Flags.Parsed): PolicyFields?, string
   if #grants > 0 then policy.grants = grants end
   local profiles: mut {string} = {}
   if parsed.set["--system"] == true then profiles[#profiles + 1] = "system" end
+  if parsed.set["--programs"] == true then profiles[#profiles + 1] = "programs" end
   if parsed.set["--cosmic"] == true then profiles[#profiles + 1] = "cosmic" end
   if #profiles > 0 then policy.profiles = profiles end
   local function some(name: string): {string}?

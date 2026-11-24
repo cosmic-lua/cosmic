@@ -9,6 +9,16 @@ local function test_split_cuts_at_each_newline()
   local lines = Shell.split("a\r\n\nb")
   assert(#lines == 3 and lines[1] == "a\r" and lines[2] == "" and lines[3] == "b")
   assert(#Shell.split("a\n") == 1)
+  assert(#Shell.split("\n\n") == 2 and Shell.split("\n\n")[2] == "")
+end
+
+--- sort orders by bytes, a prefix first and a NUL as the least byte, and leaves its list as it was.
+local function test_sort_orders_by_bytes()
+  local list = { "b", "a\0b", "", "a", "ab", "\255", "a" }
+  local sorted = Shell.sort(list)
+  assert(table.concat(sorted, "|") == "|a|a|a\0b|ab|b|\255", string.format("%q", table.concat(sorted, "|")))
+  assert(list[1] == "b" and #list == 7)
+  assert(#Shell.sort({}) == 0)
 end
 
 --- The file calls read and write as their commands do.

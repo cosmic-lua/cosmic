@@ -66,6 +66,9 @@ local record Flags
     --- gave; help shows it ("default: M"). One that the option's `choices` or `integer` refuse, or
     --- one on a `required` option, raises.
     default?: string
+    --- Where an option that is gone went, for a line that still gives it: [`Flags.parse`] refuses it with
+    --- this after its name ("no such option: --read; `prog read` reads one back"), and help leaves it out.
+    moved?: string
   end
 
   -- TODO: move the other verbs' value checks onto `choices` and `integer` (qr, codec, sandbox,
@@ -471,7 +474,10 @@ local function read(argv: {string}, from: integer, spec: {string:boolean | Flags
     end
   end
   local known: mut {string} = {}
-  for name in pairs(named) do known[#known + 1] = name end
+  for name, spec_name in pairs(named) do
+    local entry = spec[spec_name]
+    if not (entry is Flags.Option and entry.moved ~= nil) then known[#known + 1] = name end
+  end
   for _, name in ipairs(also) do known[#known + 1] = name end
   -- Whether the spec names an option that begins with a digit ("-1"), which then is what such a word is.
   local digits = false
@@ -538,6 +544,8 @@ local function read(argv: {string}, from: integer, spec: {string:boolean | Flags
       local entry = spec[name]
       if entry == nil then
         return nil, "no such option: " .. name .. meant(name, known)
+      elseif entry is Flags.Option and entry.moved ~= nil then
+        return nil, "no such option: " .. typed .. "; " .. entry.moved
       elseif takes_value(entry) then
         local trouble = valued(name, value, if #typed > 2 then "=" else "" end, typed)
         if trouble ~= "" then
@@ -563,6 +571,8 @@ local function read(argv: {string}, from: integer, spec: {string:boolean | Flags
           return nil, "no such option: " .. word .. meant(word, known)
         elseif entry == nil then
           return nil, "no such option: " .. typed .. " in " .. word .. meant(word, known)
+        elseif entry is Flags.Option and entry.moved ~= nil then
+          return nil, "no such option: " .. typed .. "; " .. entry.moved
         elseif takes_value(entry) then
           local rest = word:sub(at + 1)
           local trouble = valued(name, if rest ~= "" then rest else nil end, "", typed)
@@ -795,7 +805,10 @@ end
 --- of its value -- with what it does: sorted by name without its dashes.
 local function option_rows(spec: {string:boolean | Flags.Option}): {Row}
   local names: mut {string} = {}
-  for name in pairs(spec) do names[#names + 1] = name end
+  for name, entry in pairs(spec) do
+    -- An option that moved is refused, not offered.
+    if not (entry is Flags.Option and entry.moved ~= nil) then names[#names + 1] = name end
+  end
   table.sort(names, function(a: string, b: string): boolean
     local bare_a, bare_b = a:gsub("^%-+", ""), b:gsub("^%-+", "")
     if bare_a ~= bare_b then return bare_a < bare_b end

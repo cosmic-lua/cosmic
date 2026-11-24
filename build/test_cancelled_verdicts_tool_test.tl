@@ -74,7 +74,7 @@ local function test_d_unstarted() assert(true) end
   local key = snapshot(cache, "SELECT key FROM " .. declared .. " WHERE test = 'work_test test_b_observed_failure'")
   assert(key ~= "")
   local histories: mut {string:string} = {}
-  for _, name in ipairs({ "runs", "test_runs", "coverage", "hits_by_test" }) do
+  for _, name in ipairs({ "runs", "failures", "test_runs", "coverage", "hits_by_test" }) do
     histories[name] = snapshot(records, "SELECT * FROM " .. name .. " ORDER BY 1")
   end
   local others = snapshot(records, "SELECT * FROM verdicts WHERE key <> '" .. key .. "' ORDER BY key")

@@ -347,8 +347,7 @@ local version <const> = "35"
 --- it; its `ms` stops at that commit and leaves the publication out.
 ---
 --- `runs` is one row per test, keyed by the module and the test's own
---- name inside it, so a later run of the same test replaces its row
---- rather than piling up a history the runner has no use for yet.
+--- name inside it, so a later run of the same test replaces its row.
 --- `key` is what the verdict is a function of, the digest of the
 --- test's declared inputs ([`build.declared_key`]), and, after a space,
 --- the key it is shared under; `run_at_ns` the `cosmic test`
@@ -358,6 +357,12 @@ local version <const> = "35"
 --- answered from a standing verdict it is the elapsed time of the run
 --- that produced that verdict, so `runs` always answers "how long does
 --- this test take", even when most tests are cached.
+---
+--- `failures` is the history `runs` does not keep: a row for each
+--- failure a run recorded, with its `runs` `key` and `message`, the
+--- newest `kept_failures` of each test ([`build.test`]'s
+--- `prune_history`). A failure whose nonempty `key` is that of a later
+--- pass is a flake: the same inputs gave both.
 ---
 --- `verdicts` is one row per key ever seen, with its verdict and the
 --- invocation that produced it, and `seen` the last run that relied on
@@ -602,6 +607,13 @@ for _, statement in ipairs({
                                      run_at_ns INTEGER NOT NULL,
                                      elapsed_ns INTEGER NOT NULL,
                                      PRIMARY KEY (path, test)) WITHOUT ROWID]],
+    [[CREATE TABLE IF NOT EXISTS failures (path TEXT NOT NULL,
+                                         test TEXT NOT NULL,
+                                         message TEXT NOT NULL,
+                                         ran_at_ns INTEGER NOT NULL,
+                                         key TEXT NOT NULL,
+                                         run_at_ns INTEGER NOT NULL,
+                                         PRIMARY KEY (path, test, ran_at_ns)) WITHOUT ROWID]],
     [[CREATE TABLE IF NOT EXISTS verdicts (key TEXT PRIMARY KEY,
                                          passed INTEGER NOT NULL,
                                          run_at_ns INTEGER NOT NULL,

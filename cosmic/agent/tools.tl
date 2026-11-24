@@ -313,6 +313,12 @@ local function read(input: Tools.Object, context: Tools.Context): Tools.Result
   local full = resolve(path, context.cwd)
   local allowed, refused = Policy.allows(context.policy, full, "r")
   if not allowed then return fail(refused) end
+  -- A device or a pipe may never end: only a file is read whole.
+  local status, _ = Fs.status(full)
+  local st = status and status.stat
+  if st ~= nil and st.kind ~= "file" and st.kind ~= "link" then
+    return fail(path .. " is no file (" .. st.kind .. "): read reads files")
+  end
   local body, read_why = Fs.read(full)
   if body == nil then return fail(tostring(read_why)) end
   local line = math.max(offset or 1, 1)
@@ -331,6 +337,8 @@ local function write(input: Tools.Object, context: Tools.Context): Tools.Result
   -- A write replaces the file whole, and may make directories: it creates.
   local allowed, refused = Policy.allows(context.policy, full, "wc")
   if not allowed then return fail(refused) end
+  -- What was checked is what is written: the real name, not a link to it.
+  if context.policy ~= nil then full = Policy.real(full) or full end
   local made, made_why = Fs.mkdirs(Fs.dirname(full))
   if not made then return fail(tostring(made_why)) end
   local wrote, wrote_why = Fs.write(full, content)
@@ -374,6 +382,7 @@ local function edit(input: Tools.Object, context: Tools.Context): Tools.Result
   local full = resolve(path, context.cwd)
   local allowed, refused = Policy.allows(context.policy, full, "rwc")
   if not allowed then return fail(refused) end
+  if context.policy ~= nil then full = Policy.real(full) or full end
   local raw, read_why = Fs.read(full)
   if raw == nil then return fail(tostring(read_why)) end
   local edited, made = AgentEdit.apply(raw, edits, path, "oldText")
@@ -1247,7 +1256,7 @@ end
 
 --- `tools` as the Messages API takes them. The last is a cache breakpoint: the tools come first in a request, and
 --- are the same in every session of a model whatever its directory and prompt, so each session reads them from the
---- cache another wrote, where the system prompt and the messages after them differ.
+--- cache another wrote, where the project's instructions in the system prompt and the messages after them differ.
 function Tools.definitions(tools: {Tools.Tool}): Json.Value
   local out: mut {Json.Value} = {}
   local offers_bash = Tools.find(tools, "bash") ~= nil

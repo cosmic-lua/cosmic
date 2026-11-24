@@ -435,6 +435,20 @@ local function record_run(handle: Sqlite.Handle, path: string, name: string,
   return answered, ""
 end
 
+--- Keeps a failure of the test `name` of `path` in `failures`, which a
+--- later run of it does not replace as it replaces its `runs` row: so a
+--- test that failed once and then passed is still named, with its message.
+--- `key` is as `runs` holds it ([`run_key`]).
+function test.record_failure(handle: Sqlite.Handle, path: string, name: string, message: string,
+                             ran_at_ns: integer, key: string, run_at_ns: integer): boolean, string
+  local kept, why = handle:run(
+    "INSERT OR REPLACE INTO failures (path, test, message, ran_at_ns, key, run_at_ns) " ..
+      "VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+    { text(path), text(name), text(message), { integer = ran_at_ns }, text(key), { integer = run_at_ns } })
+  if not kept then return false, tostring(why) end
+  return true, ""
+end
+
 --- Every test that has a `runs` row, by "path name": each that ran or
 --- stood here before.
 local function previous_runs(handle: Sqlite.Handle): {string:boolean}?, string
@@ -453,10 +467,15 @@ local kept_runs = 10
 --- How many of the newest `test_runs` a `coverage` snapshot is kept for.
 local kept_snapshots = 10
 
+--- How many of each test's newest `failures` rows are kept: per test,
+--- so a run where every test fails drops no other test's history.
+local kept_failures = 10
+
 --- Drops every verdict no run has relied on lately, the
 --- `hits_by_test` rows that only such verdicts credited (and the old `coverage_by_test` rows alike), every
 --- `coverage` snapshot older than the newest `kept_snapshots` runs,
---- and any `test_runs` row no table references any more. A
+--- any `test_runs` row no table references any more, and every
+--- `failures` row older than its test's newest `kept_failures`. A
 --- standing verdict's rows are never dropped out
 --- from under it: only a verdict already gone can lose them.
 function test.prune_history(handle: Sqlite.Handle, run: integer): boolean, string
@@ -486,6 +505,12 @@ function test.prune_history(handle: Sqlite.Handle, run: integer): boolean, strin
       "AND ran_at_ns NOT IN (SELECT ran_at_ns FROM hits_by_test) " ..
       "AND ran_at_ns NOT IN (SELECT ran_at_ns FROM coverage_by_test)")
   if not pruned_runs then return false, tostring(runs_trouble) end
+  local pruned_failures, failures_trouble = handle:exec(
+    "DELETE FROM failures WHERE (path, test, ran_at_ns) IN (SELECT path, test, ran_at_ns FROM " ..
+      "(SELECT path, test, ran_at_ns, row_number() OVER " ..
+      "(PARTITION BY path, test ORDER BY ran_at_ns DESC) AS newer FROM failures) WHERE newer > " ..
+      tostring(kept_failures) .. ")")
+  if not pruned_failures then return false, tostring(failures_trouble) end
   return true, ""
 end
 
@@ -1583,10 +1608,18 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
   -- ([`test_sandbox.Plan`]'s `held`); unsandboxed, nothing does, and the
   -- key trusts its declaration as it trusts the test's own.
   if key == nil and job.unrun ~= true then rec.tally.every = rec.tally.every + 1 end
+  local ran_at_ns, recorded_key = Clock.now_ns(), run_key(key or "", key)
   local saved, save_trouble = record_run(rec.records, job.m.path, job.name, kept_pass,
-    message, Clock.now_ns(), run_key(key or "", key), rec.run_at_ns, elapsed)
+    message, ran_at_ns, recorded_key, rec.run_at_ns, elapsed)
   if not saved then
     rec.errors[#rec.errors + 1] = id .. ": record: " .. save_trouble
+  end
+  -- In the run's transaction, as `runs` is: a run that ends in an error or is cancelled keeps no
+  -- failure of it, as it keeps no row of `runs`.
+  if not passed then
+    local failed, fail_trouble = test.record_failure(rec.records, job.m.path, job.name, message,
+      ran_at_ns, recorded_key, rec.run_at_ns)
+    if not failed then rec.errors[#rec.errors + 1] = id .. ": record: " .. fail_trouble end
   end
   test_key.keep(rec, job, judged, elapsed)
   job.passed = passed
