@@ -2654,7 +2654,8 @@ local function parse_return(): Ast.Stat
   local first = S.pos
   advance()
   local values: {Ast.Exp} = {}
-  if TERMINATOR[S.text] ~= true and S.text ~= "|" then
+  -- `return;` returns nothing, as in Lua: the `;` ends the statement.
+  if TERMINATOR[S.text] ~= true and S.text ~= "|" and S.kind ~= ";" then
     values = parse_explist()
   end
   return { kind = "Return", id = 0, first = first, last = S.pos - 1, values = values }

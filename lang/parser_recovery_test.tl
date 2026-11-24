@@ -381,7 +381,7 @@ end
 --- A `;` ends a statement, as in Lua, and is no statement; one between a table's items is refused, and the rest of
 --- the table is read on.
 local function test_a_semicolon_ends_a_statement_and_a_tables_is_refused()
-  local parsed = parse("x = 1; y = 2;; z = 3;\nif x then f(); end;\nreturn x;")
+  local parsed = parse("x = 1; y = 2;; z = 3;\nif x then f(); return; end;\nreturn x;")
   assert(codes(parsed) == "", codes(parsed))
   assert(#parsed.chunk.body.stats == 5, "three assignments, an if and a return")
   local table_one = parse("t = { 1; 2, 3 }\nu = 1")

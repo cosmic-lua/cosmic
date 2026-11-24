@@ -119,7 +119,7 @@ end
 --- `repaired`): nil unless every error is a `global` in a program and the text with `local` for each parses.
 --
 -- TODO: repair the other errors of the parser whose fix is one spelling for another of the same statement (`T | nil` for
--- `T?`, a `;`, a trailing comma), once each is shown to leave the tree whole and to have a fix that moves no token: the
+-- `T?`, a table's `;`, a trailing comma), once each is shown to leave the tree whole and to have a fix that moves no token: the
 -- parser says which construct it skipped ([`lang.parser`]'s `Error` nodes), and not which error left none.
 local function repaired_of(source: SourceParse.Source, read: SourceParse.Parsed): string?
   local text = read.text
