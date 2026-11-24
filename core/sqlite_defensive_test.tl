@@ -5,7 +5,7 @@
 
 local Sqlite = require("cosmic.sqlite")
 
---- The one text cell `sql` answers on `db`.
+--- The one text cell `sql` returns on `db`.
 local function answer(db: Sqlite.Handle, sql: string): string
   return assert(assert(db:text_rows(sql))[1]):text(1)
 end
@@ -57,4 +57,3 @@ local function test_defensive_false_lets_the_schema_be_written(tmp: string)
   assert(answer(db, "PRAGMA cell_size_check") == "1")
   assert(db:close())
 end
-
