@@ -699,11 +699,11 @@ local own_writable: {string:string} = {
   ["fail-nth"] = "fault injection in its own calls",
   ["make-it-fail"] = "fault injection in its own calls",
   -- Its session's: one of the sandbox's own, since the program and its
-  -- init each start one (core/syscalls.c's `run_program`).
+  -- init each start one (core/sandbox_root.c's `run_program`).
   autogroup = "its own session's autogroup",
   -- Its audit login id: its own process's, but one the host's audit log
   -- names it by, which the kernel lets it set while it is unset (and
-  -- only with CAP_AUDIT_CONTROL once set) -- a gap core/syscalls.c's
+  -- only with CAP_AUDIT_CONTROL once set) -- a gap core/sandbox_root.c's
   -- `place_proc` leaves a TODO for.
   loginuid = "its own, though the host's audit log reads it",
 }
@@ -778,7 +778,7 @@ end
 
 --- Starting and waiting for a confined child costs milliseconds, not the
 --- second `waitpid` gives a sandbox's init to end once its program has
---- (core/syscalls.c's `end_sandbox_init`): a run of `cosmic test` that
+--- (core/spawn.c's `end_sandbox_init`): a run of `cosmic test` that
 --- confines each of its processes, as build/shared_verdicts_tool_test.tl's
 --- nested runs do, would pay that second for every one. A run of a
 --- confined program that exits at once leaves no init behind, and the

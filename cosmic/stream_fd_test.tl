@@ -75,7 +75,7 @@ local function test_a_read_with_a_timeout_in_a_task_lets_the_others_run(tmp: str
     local done = false
     local ticker = Poll.spawn(function()
       while not done do
-        assert(Poll.delay(Clock.ms(5)))
+        assert(Clock.sleep(Clock.ms(5)))
         ticks = ticks + 1
       end
     end)
@@ -107,7 +107,7 @@ local function test_a_write_goes_whole_into_a_slow_reader(tmp: string)
         assert(chunk ~= nil or why == "", tostring(why))
         if chunk == nil then break end
         received[#received + 1] = chunk
-        assert(Poll.delay(Clock.ms(1)))
+        assert(Clock.sleep(Clock.ms(1)))
       end
     end)
     local w = Stream.to_fd(writer, { nonblocking = true })

@@ -39,7 +39,7 @@ return 0
     { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(20) })
   local child = assert(Child.start(command.argv, command.options))
   -- It is waiting on the holder, not failing: it has not finished a quarter of a second in.
-  assert(Clock.sleep_ns(Clock.ms(250)))
+  assert(Clock.sleep(Clock.ms(250)))
   assert(not assert(child:try_wait()).finished, "the open did not wait for the holder")
   assert(holder:exec("COMMIT"))
   assert(holder:close())

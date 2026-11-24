@@ -117,7 +117,7 @@ residual below:
 - [`BuildPaths.driver`] itself, where the driver's command line is made
   (`Proc.relaunch()`, and `Proc.executable()` where there is no launcher): it
   starts nothing, and its callers are the ones listed above.
-- `cosmic release --cache` (`cosmic/cli.tl`), which writes the verified binary
+- `cosmic release --cache` (`cosmic/cli/release.tl`), which writes the verified binary
   into the bootstrap cache; it runs no file.
 - Relaunches that run no file standalone (a project, a verb):
   [`cosmic_ci/orchestration.tl`] runs `cosmic test`, `cosmic_ci/cache_trim.tl`
@@ -225,6 +225,20 @@ an integer exit status; nested commands and in-process steps keep their
 own operation records. A returned failure keeps its status without another
 diagnostic. An exception records exit code 1 and its full text, also written
 to stderr. The operations database stays outside the candidate checkout.
+
+A command that fails says why again where a reader finds it
+([`cosmic_ci/failures.tl`]): the lines of its output that say what failed
+(a test's or the tree check's `FAIL`, a checker's, C compiler's, linker's
+or git's error, an uncovered C function, a timeout) become `::error::`
+annotations and a block of the job's summary page, and are kept in
+`$RUNNER_TEMP/cosmic-ci/failures.txt`. A failed leg's step "say again what
+failed" (`driver.tl failures`) prints them just before the tree is moved
+back, so the log ends near the failure. The phases' build and check
+commands, as a suite does, keep their output in files beside the
+operations database (`said/`), which they say whole once they end. Each
+such command, and each suite and fixture, is named while it runs, in a file of `running/` beside the
+database, so a job cancelled or timed out under it still has the step
+print the end of what that command said.
 
 Each suite a platform phase runs -- the native (`local`) suite, the
 checked and portable suites, and each fixture's `cosmic test` -- writes
@@ -672,6 +686,7 @@ the first tried once, with the clearing and sleeping step between them.
 [`cosmic_ci/github_api.tl`]: cosmic_ci/github_api.tl
 [`cosmic_ci/github_api_test.tl`]: cosmic_ci/github_api_test.tl
 [`cosmic_ci/report_test.tl`]: cosmic_ci/report_test.tl
+[`cosmic_ci/failures.tl`]: cosmic_ci/failures.tl
 [`cosmic_ci/suite_output.tl`]: cosmic_ci/suite_output.tl
 [`cosmic_ci/zig_prune.tl`]: cosmic_ci/zig_prune.tl
 

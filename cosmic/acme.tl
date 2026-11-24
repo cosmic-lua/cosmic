@@ -77,7 +77,6 @@ local Json = require("cosmic.json")
 local Key = require("cosmic.key")
 local String = require("cosmic.string")
 local Fs = require("cosmic.fs")
-local Poll = require("cosmic.poll")
 local Tls = require("cosmic.tls")
 local sys = require("cosmic.sys")
 -- Only the types: a handler is a function and a reply a table, so a
@@ -205,7 +204,7 @@ local record Acme
     account?: string
     --- Sends a request: [`Http.request`] when nil. A test hands its own.
     request?: Request
-    --- Pauses between polls, for nanoseconds: [`Clock.sleep_ns`] when
+    --- Pauses between polls, for nanoseconds: [`Clock.sleep`] when
     --- nil. A test hands one that returns at once.
     pause?: function(ns: integer): boolean, string
     --- [`Acme.Client.wait`]'s options for every wait [`Acme.Client.issue`]
@@ -693,12 +692,9 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
   local request: Acme.Request = opts.request or default_request
   -- In a task of Poll.run the other tasks go on meanwhile.
   local pause_for = opts.pause or function(ns: integer): boolean, string
-    if Poll.in_task() then
-      local paused, why = Poll.delay(ns)
-      if not paused then return false, why.message end
-      return true, ""
-    end
-    return Clock.sleep_ns(ns)
+    local paused, why = Clock.sleep(ns)
+    if not paused then return false, why.message end
+    return true, ""
   end
   local thumbprint = key.public:thumbprint()
   local rate_limit_most = opts.rate_limit_wait_ns or Clock.minutes(1)

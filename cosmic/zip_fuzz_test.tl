@@ -127,6 +127,31 @@ local function walk(input: string): boolean, string
   return true, ""
 end
 
+--- What the reader makes of `input`, a line for each step: the open, each
+--- entry and its body, and the end; for a starved run of it.
+local function trail(input: string): string
+  local lines: mut {string} = {}
+  local zr, trouble = Zip.open_string(input)
+  if zr == nil then return "open: " .. trouble end
+  for _ = 1, 10000 do
+    local e, ntrouble = zr:next()
+    if e == nil then
+      lines[#lines + 1] = "end: " .. tostring(ntrouble)
+      break
+    end
+    lines[#lines + 1] = (("entry %q %d"):format(e.path, e.size):gsub("\n", "n"))
+    local body, otrouble = e:open()
+    if body == nil then
+      lines[#lines + 1] = "body: " .. otrouble
+    else
+      local data, rtrouble = Stream.read_all(body)
+      lines[#lines + 1] = if data ~= nil then ("body %d"):format(#data) else "body: " .. tostring(rtrouble) end
+    end
+  end
+  zr:close()
+  return table.concat(lines, "\n")
+end
+
 local function test_the_reader_is_total_on_mutated_archives(tmp: string)
   Fuzz.run({
     name = "zip reader total",
@@ -136,6 +161,7 @@ local function test_the_reader_is_total_on_mutated_archives(tmp: string)
       return Fuzz.mutate(src, archive, 8)
     end,
     check = walk,
+    starved = trail,
     requires = { "opened", "body read", "zstd body read", "no end record" },
   })
 end

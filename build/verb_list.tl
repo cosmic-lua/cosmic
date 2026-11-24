@@ -6,13 +6,15 @@
 --- root of their tree (`tree_paths`), so a verb not among them loads no
 --- [`build.tree_root`].
 ---
---- Adding a verb takes a module with a `spec`, a line here, and in
---- [`cosmic.cli`] its prose, its `verbs` entry and its place in a group,
+--- Adding a verb takes a module with a `spec`, a line in `loads` and in
+--- `commands`, a module cosmic/cli/<verb>.tl whose overview is its prose,
+--- and in [`cosmic.cli`] its `verbs` entry and its place in a group,
 --- which sets its order in help (build/verb_list_test.tl holds the
 --- verbs here to be those groups name). The spec also names a `guide`
 --- and `tests` (build/tree_checks.tl's `verbs` holds them to the
 --- quickstart and the tree's tests).
 
+local type Flags = require("cosmic.flags")
 local verb_spec = require("build.verb_spec")
 
 local record verb_list
@@ -21,6 +23,10 @@ local record verb_list
 
   --- How to load each verb's spec, by its name.
   loads: {string: Load}
+
+  --- How to load each verb's command ([`cosmic.cli.verbs`]), by its name: every verb, those with no spec too.
+  --- Each loads that verb's module of [`cosmic.cli`] alone, where [`cosmic.cli`] loads them all.
+  commands: {string: function(): Flags.Command}
 
   --- The verbs that run at the root of the tree they are started in ([`build.tree_root`]), each by which of its
   --- words are paths to read from where it was started: all of them ("all"), all but the first ("rest"), only those
@@ -63,6 +69,41 @@ verb_list.loads = {
   release = function(): verb_spec.Spec return require("build.release").spec end,
   sandbox = function(): verb_spec.Spec return require("build.sandbox").spec end,
   agent = function(): verb_spec.Spec return require("build.agent").spec end,
+}
+
+verb_list.commands = {
+  run = function(): Flags.Command return require("cosmic.cli.run") end,
+  standalone = function(): Flags.Command return require("cosmic.cli.standalone") end,
+  eval = function(): Flags.Command return require("cosmic.cli.eval") end,
+  version = function(): Flags.Command return require("cosmic.cli.version") end,
+  sandbox = function(): Flags.Command return require("cosmic.cli.sandbox") end,
+  agent = function(): Flags.Command return require("cosmic.cli.agent") end,
+  test = function(): Flags.Command return require("cosmic.cli.test") end,
+  fix = function(): Flags.Command return require("cosmic.cli.fix") end,
+  build = function(): Flags.Command return require("cosmic.cli.build") end,
+  db = function(): Flags.Command return require("cosmic.cli.db") end,
+  lsp = function(): Flags.Command return require("cosmic.cli.lsp") end,
+  sql = function(): Flags.Command return require("cosmic.cli.sql") end,
+  cache = function(): Flags.Command return require("cosmic.cli.cache") end,
+  json = function(): Flags.Command return require("cosmic.cli.json") end,
+  hash = function(): Flags.Command return require("cosmic.cli.hash") end,
+  codec = function(): Flags.Command return require("cosmic.cli.codec") end,
+  archive = function(): Flags.Command return require("cosmic.cli.archive") end,
+  fetch = function(): Flags.Command return require("cosmic.cli.fetch") end,
+  time = function(): Flags.Command return require("cosmic.cli.time") end,
+  rand = function(): Flags.Command return require("cosmic.cli.rand") end,
+  qr = function(): Flags.Command return require("cosmic.cli.qr") end,
+  acme = function(): Flags.Command return require("cosmic.cli.acme") end,
+  tailscale = function(): Flags.Command return require("cosmic.cli.tailscale") end,
+  mcp = function(): Flags.Command return require("cosmic.cli.mcp") end,
+  compile = function(): Flags.Command return require("cosmic.cli.compile") end,
+  docs = function(): Flags.Command return require("cosmic.cli.docs") end,
+  uses = function(): Flags.Command return require("cosmic.cli.uses") end,
+  todos = function(): Flags.Command return require("cosmic.cli.todos") end,
+  help = function(): Flags.Command return require("cosmic.cli.help") end,
+  bom = function(): Flags.Command return require("cosmic.cli.bom") end,
+  refresh = function(): Flags.Command return require("cosmic.cli.refresh") end,
+  release = function(): Flags.Command return require("cosmic.cli.release") end,
 }
 
 --- Every verb's spec, in help's order ([`cosmic.cli.order`]).

@@ -25,7 +25,7 @@ function Example.run()
   local said: mut {string} = {}
   Poll.run(function()
     Poll.spawn(function()
-      assert(Poll.delay(Clock.ms(20)))
+      assert(Clock.sleep(Clock.ms(20)))
       said[#said + 1] = "later"
     end)
     said[#said + 1] = "first"
@@ -101,10 +101,10 @@ function Example.cancel()
   local waited: mut {string: string} = { answer = "" }
   Poll.run(function()
     local sleeper = Poll.spawn(function()
-      local _, why = Poll.delay(Clock.seconds(60))
+      local _, why = Clock.sleep(Clock.seconds(60))
       waited["answer"] = if why ~= nil then why.kind else "" end
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     sleeper:cancel()
     assert(sleeper:join())
   end)
@@ -120,9 +120,9 @@ function Example.kill()
   Poll.run(function()
     local stubborn = Poll.spawn(function()
       local _ <close> = Defer.new(function() released = true end)
-      while true do local _, _ = Poll.delay(Clock.seconds(60)) end
+      while true do local _, _ = Clock.sleep(Clock.seconds(60)) end
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     stubborn:cancel()
     local _, still = stubborn:join(Clock.ms(10))
     assert(still ~= nil and still.kind == "timeout")
@@ -153,7 +153,7 @@ function Example.notifier()
     for _, job in ipairs({ "a", "b", "c" }) do
       queue[#queue + 1] = job
       notifier:notify_one()
-      assert(Poll.delay(0))
+      assert(Clock.sleep(0))
     end
     assert(consumer:join(Clock.seconds(5)))
   end)

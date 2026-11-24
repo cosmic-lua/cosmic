@@ -99,9 +99,16 @@ local function fixture_lanes(env: {string:string}, cpus: integer): integer?, int
   return lanes.high, lanes.low
 end
 
+--- Fails where the file at `path` holds `text`.
+local function lacks(path: string, text: string)
+  local said = Fixture.read(path)
+  assert(said:find(text, 1, true) == nil, path .. ": holds " .. text .. ":\n" .. said)
+end
+
 --- The self-check holds a write transaction on `ci/`'s `build.db` while
 --- tests run, so `driver.tl` must never run with project root `ci/`
 --- itself: this copies the namespace into its own tmp project first.
+
 local function command(tmp: string): {string}, string
   local host = assert(Proc.executable())
   local here = assert(Fs.absolute("."))
@@ -295,6 +302,9 @@ local function test_platform_protects_paths_and_retains_primary_failure(tmp: str
   assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
   Fixture.copy("testdata/portable/work_db_integrity.tl",
     fake .. "/ci/testdata/portable/work_db_integrity.tl")
+  local build_runner_temp = tmp .. "/build-runner-temp"
+  -- The suite says what names it as running, as it runs (Failures.begin).
+  local running = build_runner_temp .. "/cosmic-ci/running"
   Fixture.write(fake .. "/bin/zig", [[#!/bin/sh
 set -eu
 test ! -e o/build.db
@@ -304,6 +314,8 @@ printf not-a-database > o/build.db
 cat > o/bin/cosmic <<'INNER'
 #!/bin/sh
 if [ "${1-}" = work_db_integrity.tl ]; then mkdir -p o; exit 0; fi
+echo 'test: FAIL  fake_test test_kept: it broke'
+cat ]] .. running .. [[/*
 i=0; while [ "$i" -lt 20000 ]; do printf 'large retained output %s\n' "$i"; i=$((i + 1)); done
 exit 23
 INNER
@@ -324,7 +336,6 @@ chmod 755 o/bin/cosmic
   assert(#assert(Fs.list(protected_runner_temp)) == 0,
     "refused RUNNER_TEMP was not left empty")
 
-  local build_runner_temp = tmp .. "/build-runner-temp"
   assert(Fs.mkdirs(build_runner_temp))
   local work = build_runner_temp .. "/cosmic-ci/platform"
   local build = append(base, { "platform", "build" })
@@ -335,7 +346,17 @@ chmod 755 o/bin/cosmic
       TMPDIR = tmp .. "/temporary",
     }), Clock.seconds(20))
   assert(outcome.result.code == 23, "suite failure was not primary")
-  assert(assert(Fs.stat(work .. "/local-diagnostics/local-test.out")).size > 100000)
+  -- What the failed suite said of its failure is said again at the end.
+  local again = Fixture.call("failures", append(base, { "failures" }), project, tmp .. "/logs",
+    context(fake, build_runner_temp, { TARGET = "x86_64-linux-musl" }))
+  assert(again.result.ok, again.err)
+  Fixture.contains(again.out, "test: FAIL  fake_test test_kept: it broke")
+  -- It was named while it ran, and is not now that it ended.
+  local suite_said = assert(Fs.read(work .. "/local-diagnostics/local-test.out"))
+  assert(suite_said:find("\nlocal suite\n[^\n]*/local%-diagnostics/local%-test%.out\n") ~= nil,
+    suite_said:sub(1, 400))
+  lacks(again.out, "was ended while")
+  assert(#suite_said > 100000)
   assert(assert(Fs.read(work .. "/local-diagnostics/local-test.status")):find("23", 1, true))
   -- Neither of zig's caches is copied into o/: bin/zig uses both where
   -- they were restored, the project cache under the seed
@@ -347,6 +368,55 @@ chmod 755 o/bin/cosmic
   assert(assert(Fs.status(fake .. "/o/poison")).exists == false)
   assert(#assert(Fs.list(tmp .. "/temporary")) == 0,
     "snapshot inspection directory was retained")
+end
+
+--- A failed build's lines that say why are said again at the end of the
+--- job, and a run where nothing failed says it kept none.
+local function test_a_failed_build_is_said_again_at_the_end(tmp: string)
+  local base, project = command(tmp)
+  local fake = tmp .. "/fake"
+  assert(Fs.mkdirs(fake .. "/bin"))
+  assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
+  Fixture.write(fake .. "/bin/zig", "#!/bin/sh\necho 'compiling'\necho 'error: the build broke' >&2\nexit 1\n", 493)
+  local runner_temp = tmp .. "/runner-temp"
+  assert(Fs.mkdirs(runner_temp))
+  local env = context(fake, runner_temp, { TARGET = "x86_64-linux-musl" })
+  local none = Fixture.call("none", append(base, { "failures" }), project, tmp .. "/logs", env)
+  assert(none.result.ok, none.err)
+  Fixture.contains(none.out, "no step kept a line")
+  local built = Fixture.call("build", append(base, { "platform", "build" }), project, tmp .. "/logs", env,
+    Clock.seconds(20))
+  assert(not built.result.ok)
+  -- The build's own output reaches the log, once it ends.
+  Fixture.contains(built.out, "compiling")
+  Fixture.contains(built.err, "error: the build broke")
+  local again = Fixture.call("failures", append(base, { "failures" }), project, tmp .. "/logs", env)
+  assert(again.result.ok, again.err)
+  Fixture.contains(again.out, "error: the build broke")
+  lacks(again.out, "compiling")
+  -- A build a signal ends, saying nothing, is said to have been ended.
+  Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nkill -KILL $$\n", 493)
+  local quiet_temp = tmp .. "/quiet-temp"
+  assert(Fs.mkdirs(quiet_temp))
+  local quiet = context(fake, quiet_temp, { TARGET = "x86_64-linux-musl" })
+  assert(not Fixture.call("killed", append(base, { "platform", "build" }), project, tmp .. "/logs", quiet,
+    Clock.seconds(20)).result.ok)
+  local ended = Fixture.call("ended", append(base, { "failures" }), project, tmp .. "/logs", quiet)
+  assert(ended.result.ok, ended.err)
+  Fixture.contains(ended.out, ": signal")
+  lacks(ended.out, "was ended while")
+  -- A job ended while the build runs (the driver killed under it) has the
+  -- end of what the build said printed by the failures step.
+  Fixture.write(fake .. "/bin/zig", "#!/bin/sh\necho 'compiling still'\nkill -KILL $PPID\nsleep 1\n", 493)
+  local cut_temp = tmp .. "/cut-temp"
+  assert(Fs.mkdirs(cut_temp))
+  local cut = context(fake, cut_temp, { TARGET = "x86_64-linux-musl" })
+  assert(not Fixture.call("cut", append(base, { "platform", "build" }), project, tmp .. "/logs", cut,
+    Clock.seconds(20)).result.ok)
+  local after_cut = Fixture.call("after cut", append(base, { "failures" }), project, tmp .. "/logs", cut)
+  assert(after_cut.result.ok, after_cut.err)
+  Fixture.contains(after_cut.out, "the job was ended while core build and boot ran; the end of what it said:\n" ..
+      "compiling still\n")
 end
 
 --- A local run names a project cache to start from
@@ -1954,6 +2024,53 @@ local function lane_rig(tmp: string): LaneRig
     }
   end
   return { events = events, sink = sink, group = group, serial = serial }
+end
+
+--- A watched group is named as running while it runs and not after,
+--- and a failed one's lines that say why are kept, said again at the end.
+local function test_a_watched_group_is_named_while_it_runs_and_its_failure_kept(tmp: string)
+  local Orchestration = require("cosmic_ci.orchestration")
+  local Failures = require("cosmic_ci.failures")
+  local Seams = require("cosmic_ci.seams")
+  local rig = lane_rig(tmp)
+  local job = tmp .. "/job"
+  assert(Fs.mkdirs(job .. "/cosmic-ci"))
+  local seams = Seams.calls()
+  local get, put = seams.env_get, seams.fs_put
+  local said: mut {string} = {}
+  seams.env_get = function(name: string): string?
+    if name == "RUNNER_TEMP" then return job end
+    if name == "GITHUB_ACTIONS" then return "" end
+    return get(name)
+  end
+  seams.fs_put = function(fd: integer, bytes: string): boolean, string
+    if fd == Fs.stdout then
+      said[#said + 1] = bytes
+      return true, ""
+    end
+    return put(fd, bytes)
+  end
+  local ran, raised = pcall(function()
+    local function files(name: string): function(): (string, string)
+      return function(): (string, string)
+        return tmp .. "/logs/" .. name .. ".out", tmp .. "/logs/" .. name .. ".err"
+      end
+    end
+    -- The other lane's group runs until the failure stops it, and is abandoned.
+    local high = Orchestration.watched_group(rig.group("high", "sleep 30"), "fixture: high", files("high"))
+    local lane = Orchestration.watched_group(rig.group("lane",
+      "cat " .. job .. "/cosmic-ci/running/*; echo 'error: the lane broke' >&2; exit 3"), "fixture: lane", files("lane"))
+    assert(Orchestration.run_groups(high, { lane }, true) == 3)
+    assert(Failures.command({}) == 0)
+  end)
+  seams.env_get, seams.fs_put = get, put
+  assert(ran, tostring(raised))
+  local lane_said = assert(Fs.read(tmp .. "/logs/lane.out"))
+  assert(lane_said:find("fixture: lane\n" .. tmp .. "/logs/lane.out\n", 1, true) ~= nil, lane_said)
+  local printed = table.concat(said)
+  assert(printed:find("error: the lane broke", 1, true) ~= nil, printed)
+  assert(printed:find("was ended while", 1, true) == nil, printed)
+  assert(table.concat(rig.events, " "):find("abandon:high", 1, true) ~= nil, table.concat(rig.events, " "))
 end
 
 local function gone(pid: integer): boolean

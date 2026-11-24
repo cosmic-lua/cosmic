@@ -221,7 +221,7 @@ local function slow_tool(name: string, steps: integer, seen: mut {string}): Serv
       for i = 1, steps do
         call.progress(i, steps, "step " .. tostring(i))
         call.progress(i, steps, "the same again, dropped")
-        local ok, why = Poll.delay(Clock.ms(20))
+        local ok, why = Clock.sleep(Clock.ms(20))
         if not ok or call.cancelled() then
           local said = "cancelled: " .. tostring(why)
           seen[#seen + 1] = said
@@ -255,12 +255,12 @@ local function test_progress_comes_as_events_and_a_closed_stream_cancels()
     local caller = Poll.spawn(function()
       local _, _ = session:call("long", {}, { on_progress = function(_: Mcp.Progress) end })
     end)
-    assert(Poll.delay(Clock.ms(50)))
+    assert(Clock.sleep(Clock.ms(50)))
     caller:cancel()
     local _, _ = caller:join(WAIT)
     for _ = 1, 500 do
       if #seen > 0 then break end
-      assert(Poll.delay(Clock.ms(10)))
+      assert(Clock.sleep(Clock.ms(10)))
     end
     assert(#seen == 1 and assert(seen[1]):find("cancelled", 1, true) ~= nil, table.concat(seen, "; "))
   end)
@@ -285,7 +285,7 @@ local function test_a_subscription_comes_as_events_and_ends_with_the_server()
     end)
     for _ = 1, 2000 do
       if agreed ~= nil then break end
-      assert(Poll.delay(Clock.ms(10)))
+      assert(Clock.sleep(Clock.ms(10)))
     end
     local a = assert(agreed, "the acknowledgment comes first")
     assert(a.tools == true and a.prompts == false and #assert(a.uris) == 0, "it agrees only to what it offers")
@@ -293,7 +293,7 @@ local function test_a_subscription_comes_as_events_and_ends_with_the_server()
     instance:update({ tools = { count_tool() } })
     for _ = 1, 2000 do
       if #notices > 0 then break end
-      assert(Poll.delay(Clock.ms(10)))
+      assert(Clock.sleep(Clock.ms(10)))
     end
     instance:end_subscriptions()
     assert(listener:join(WAIT))
@@ -384,4 +384,53 @@ local function test_the_client_reads_events_sent_a_byte_at_a_time()
     assert(assert(said.content[1]).text == "ok")
     assert(#heard == 2 and heard[1] == 1 and heard[2] == 2, tostring(#heard))
   end)
+end
+
+--- A call whose client closes its connection while the tool works in silence (no progress to write) is cancelled
+--- within a second: the stream asks whether the client has gone, rather than waiting for a write to fail.
+local function test_a_quiet_call_is_cancelled_soon_after_its_client_closes()
+  local cancelled_ns: integer? = nil
+  local quiet: Server.ToolSpec = {
+    tool = { name = "quiet", inputSchema = Mcp.object_schema({}) },
+    call = function(_: {string: Json.Value}, call: Server.Call): (Mcp.ToolResult) | (nil, Failure)
+      local until_ns = Clock.monotonic_ns() + Clock.seconds(10)
+      while Clock.monotonic_ns() < until_ns do
+        local ok, _ = Poll.delay(Clock.ms(10))
+        if not ok or call.cancelled() then
+          cancelled_ns = Clock.monotonic_ns()
+          return nil, Failure.new("cancelled")
+        end
+      end
+      return Mcp.result({ "done" })
+    end,
+  }
+  local instance = Server.new{ info = { name = "quiet", version = "1" }, tools = { quiet } }
+  local closed_ns = 0
+  serving(instance:handler{ authorize = Server.anyone }, function(url: string)
+    local port = assert(math.tointeger(tonumber(url:match(":(%d+)/"))))
+    local body = '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"quiet","arguments":{},' ..
+      '"_meta":{"progressToken":"p","io.modelcontextprotocol/protocolVersion":"2026-07-28",' ..
+      '"io.modelcontextprotocol/clientCapabilities":{}}}}'
+    local conn = assert(Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = WAIT }))
+    assert(conn:write("POST /mcp HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n" ..
+        "Accept: application/json, text/event-stream\r\nMCP-Protocol-Version: " .. Mcp.VERSION .. "\r\n" ..
+        "Mcp-Method: tools/call\r\nMcp-Name: quiet\r\nContent-Length: " .. tostring(#body) .. "\r\n\r\n" .. body))
+    local got = ""
+    while not got:find("\r\n\r\n", 1, true) do
+      local piece, why = conn:read()
+      assert(piece ~= nil, "reading the head: " .. why)
+      got = got .. piece
+    end
+    assert(got:find("^HTTP/1%.1 200") ~= nil and got:find("text/event-stream", 1, true) ~= nil, got)
+    assert(Poll.delay(Clock.ms(300)))
+    assert(cancelled_ns == nil, "the call was cancelled while its client was there")
+    closed_ns = Clock.monotonic_ns()
+    assert(conn:close())
+    local until_ns = closed_ns + Clock.seconds(3)
+    while cancelled_ns == nil and Clock.monotonic_ns() < until_ns do
+      assert(Poll.delay(Clock.ms(10)))
+    end
+  end)
+  local at = assert(cancelled_ns, "the call was never cancelled")
+  assert(at - closed_ns < Clock.seconds(1), tostring(at - closed_ns))
 end

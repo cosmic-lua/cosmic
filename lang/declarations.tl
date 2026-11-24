@@ -235,6 +235,10 @@ local record Declarations
     chunk: Ast.Chunk
     scoped: Scopes.Scoped
     dialect: Ast.Dialect
+    --- Whether it is an entry point: what it returns, a function or a record with a `main` function, is called with
+    --- the command line's words, `{string}` (build/dispatch.tl's `run`; a built program's main module must be a
+    --- function, core/main.c). Its returns are held to that ([`lang.check`]'s `entry_signature`).
+    entry?: boolean
   end
 
   --- What lowering a module made.

@@ -8,9 +8,9 @@ local Example = {} -- checked: literal_needs_type
 
 --- A millisecond's wait, measured on the monotonic clock, which never
 --- jumps the way the wall clock can.
-function Example.sleep_ns()
+function Example.sleep()
   local before = Clock.monotonic_ns()
-  assert(Clock.sleep_ns(Clock.ms(1)))
+  assert(Clock.sleep(Clock.ms(1)))
   local waited = Clock.monotonic_ns() - before
   print(waited >= Clock.ms(1))
   assert(waited >= Clock.ms(1), tostring(waited))
@@ -73,7 +73,7 @@ function Example.span()
     local _pass <close> = Clock.span(spans, "pass")
     do
       local _wait <close> = Clock.span(spans, "wait")
-      assert(Clock.sleep_ns(Clock.ms(1)))
+      assert(Clock.sleep(Clock.ms(1)))
     end
   end
   for _, line in ipairs(Clock.report(spans)) do print(line) end

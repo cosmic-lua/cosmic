@@ -55,6 +55,9 @@ local record worker
     mut elapsed_ns: integer
     mut load_hits: Coverage.Hits
     mut test_hits: Coverage.Hits
+    --- The lines of each module of `test_hits` in ascending order, where the report wrote them so: what the
+    --- runner spells the test's row of ([`build.test`]'s `take_hits`). Shared as `test_hits` is, so never changed.
+    mut test_ordered?: mut {string:{integer}}
     --- The name of every module in the worker's `package.loaded` once
     --- its test has run, sorted: what it ran, which `judge` holds to
     --- what a key holds of it (`loads`).
@@ -1006,6 +1009,9 @@ end
 local record DecodedHit
   path: string
   lines: {integer:boolean}
+  --- The same lines in ascending order, as the report wrote them, which the runner spells a row of without sorting
+  --- them again; nil where the text did not write them ascending.
+  ordered?: {integer}
 end
 local decoded_hits: mut {string:DecodedHit} = {}
 
@@ -1023,15 +1029,22 @@ local function decoded_hit(rest: string): DecodedHit?
     return nil
   end
   local per_line: mut {integer:boolean} = {}
+  local ordered: mut {integer} = {}
+  local ascending, last = true, math.mininteger
   for item in numbers:gmatch("[^,]+") do
     local low, high = item:match("^(%d+)%-(%d+)$")
     if low == nil then low, high = item:match("^(%d+)$"), nil end
     local from = math.tointeger(tonumber(low))
     local to = if high ~= nil then math.tointeger(tonumber(high)) else from end
     if from == nil or to == nil or to < from or to - from >= longest_run then return nil end
-    for number = from, to do per_line[number] = true end
+    if from <= last then ascending = false end
+    last = to
+    for number = from, to do
+      per_line[number] = true
+      ordered[#ordered + 1] = number
+    end
   end
-  local made: DecodedHit = { path = decoded, lines = per_line }
+  local made: DecodedHit = { path = decoded, lines = per_line, ordered = if ascending then ordered else nil end }
   decoded_hits[rest] = made
   return made
 end
@@ -1128,6 +1141,13 @@ function worker.decode(text: string): worker.Report?, string
         local known = decoded_hit(rest)
         if known == nil then return nil, "a malformed hit: " .. line end
         into[known.path] = known.lines
+        -- A module's order is that of its last line, as its lines are: none where that line wrote none.
+        if tag == "test-hit" then
+          local of_test: mut {string:{integer}} = report.test_ordered or {}
+          report.test_ordered = of_test
+          local ordered = known.ordered
+          if ordered ~= nil then of_test[known.path] = ordered else of_test[known.path] = nil end
+        end
       elseif tag == "module" then
         local decoded = unhex(rest)
         if decoded == nil or decoded == "" then return nil, "a malformed module: " .. line end

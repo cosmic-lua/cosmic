@@ -30,7 +30,7 @@
 --- listener holds nothing to the tree after it started. Complaints go to
 --- standard error as `cosmic: lsp: ...`.
 
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.lsp")
 local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
 local Env = require("cosmic.env")
@@ -54,7 +54,7 @@ local record lsp
     state: function(): handoff.Session): integer?
 end
 
-local spec = assert(Cli.verbs["lsp"]).spec or {}
+local spec = Verb.spec or {}
 
 local usage = "cosmic lsp [--stdio] [--listen [host:]port] [--socket path]"
 

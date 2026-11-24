@@ -23,7 +23,7 @@
 --- write that failed. Complaints go to standard error as
 --- `cosmic: qr: ...`. Its `spec` (build/verb_spec.tl) is `bare`.
 
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.qr")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Qr = require("cosmic.qr")
@@ -50,7 +50,7 @@ local record verb
   end
 end
 
-local spec = assert(assert(Cli.verbs["qr"]).spec)
+local spec = assert(Verb.spec)
 
 local usage = "cosmic qr [--level L|M|Q|H] [--max-version N] [--quiet N] [--invert] [--ascii] [--color] " ..
   "[--svg <file|-> [--scale N] [--title T]] [--] [text...] | cosmic qr --read [file|-]"

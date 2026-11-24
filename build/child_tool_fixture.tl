@@ -9,7 +9,7 @@ end
 --- @param ms how long
 --- @return the statement
 function child_tool_fixture.sleeping(ms: integer): string
-  return 'require("cosmic.clock").sleep_ns(require("cosmic.clock").ms(' .. tostring(ms) .. ')) '
+  return 'local _, _ = require("cosmic.clock").sleep(require("cosmic.clock").ms(' .. tostring(ms) .. ')) '
 end
 
 return child_tool_fixture

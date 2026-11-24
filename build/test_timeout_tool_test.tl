@@ -27,7 +27,7 @@ local function project(tmp: string): string
     assert(Fs.write(root .. "/suite/" .. name .. "_test.tl", head .. [[
 
 local function test_sleeps()
-  require("cosmic.clock").sleep_ns(2000000000)
+  local _, _ = require("cosmic.clock").sleep(2000000000)
   assert(true)
 end
 ]]))

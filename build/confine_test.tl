@@ -133,7 +133,7 @@ end
 --- /proc is the host's, read-only, so the process's uid_map write fails.
 --- And a test run as root without CAP_SETFCAP, as in a sandboxed `cosmic
 --- test` worker (build/test_sandbox.tl), starts the process as root
---- unmapped, which the kernel refuses a user namespace (core/syscalls.c's
+--- unmapped, which the kernel refuses a user namespace (core/sandbox_root.c's
 --- `map_ids`).
 local function test_a_worker_sandboxed_to_what_it_needs_starts_and_confines_its_own(tmp: string)
   local lines = sandboxed_worker(tmp)

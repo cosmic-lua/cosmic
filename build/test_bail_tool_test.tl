@@ -31,7 +31,7 @@ local function test_%s()
   assert(require("cosmic.fs").write(%q, "ran"))
   %s
 end
-]], name, if name:sub(1, 2) == "b_" then 'require("cosmic.clock").sleep_ns(1000000000)' else "" end,
+]], name, if name:sub(1, 2) == "b_" then 'local _, _ = require("cosmic.clock").sleep(1000000000)' else "" end,
       marks .. "/" .. name,
       if name:sub(1, 2) == "a_" then 'error("first test failed")' else "assert(true)" end)
   end

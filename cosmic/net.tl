@@ -1263,7 +1263,7 @@ local function accept_loop(s: Serving, a: Accepting)
         a.failing = errno
         report(s, "accepting at " .. named(a.listener.address) .. ": " .. why)
       end
-      local _, _ = Poll.delay(ACCEPT_PAUSE_NS)
+      local _, _ = Clock.sleep(ACCEPT_PAUSE_NS)
     end
   end
   a.task = nil
@@ -1387,7 +1387,7 @@ local function serving(spec: Net.ServeSpec): boolean, string
     stop = function(_self: Net.Server) stop(s) end,
   }
   local waiter = Poll.spawn(function()
-    while not s.stopping do local _, _ = Poll.delay(Poll.MOST_NS) end
+    while not s.stopping do local _, _ = Clock.sleep(Poll.MOST_NS) end
   end)
   s.waiter = waiter
   local on_stop = spec.on_stop
@@ -1573,7 +1573,7 @@ end
 --- a run is in progress, and in a run of its own otherwise, which ends
 --- once every task `body` spawned has. The connections are served only
 --- while `body` waits through the run -- a [`cosmic.net`] wait, a
---- [`Poll.delay`], a join, [`Http.get`] -- so a call in it that holds
+--- [`Clock.sleep`], a join, [`Http.get`] -- so a call in it that holds
 --- the thread is never answered.
 ---
 --- Unlike [`Net.serve`] it holds no failure apart: what `serve` raises

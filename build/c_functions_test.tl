@@ -135,13 +135,13 @@ end
 
 local function test_only_a_functions_own_absent_prerequisite_removes_its_obligation()
   local functions = {
-    fn("core/syscalls.c", 1, "first_child"),
+    fn("core/sandbox_rules.c", 1, "first_child"),
     fn("core/a.c", 1, "ordinary"),
   }
   local tally = c_functions.tally(functions, {}, nil, nil,
     { ["path:/proc/thread-self/children"] = "requires children: absent" })
   assert(tally.exempted == 0 and #tally.unavailable == 1)
-  assert(tally.unavailable[1] == "core/syscalls.c:first_child: requires children: absent")
+  assert(tally.unavailable[1] == "core/sandbox_rules.c:first_child: requires children: absent")
   assert(#tally.unentered == 1 and tally.unentered[1] == "core/a.c:ordinary")
   local unrelated = c_functions.tally(functions, {}, nil, nil, { sandbox = "absent" })
   assert(#unrelated.unavailable == 0 and #unrelated.unentered == 2)
@@ -152,8 +152,8 @@ local function test_only_a_functions_own_absent_prerequisite_removes_its_obligat
 end
 
 local function test_an_entered_function_stays_entered_despite_a_missing_prerequisite()
-  local tally = c_functions.tally({ fn("core/syscalls.c", 1, "first_child") },
-    { ["core/syscalls.c"] = { [1] = true } }, nil, nil,
+  local tally = c_functions.tally({ fn("core/sandbox_rules.c", 1, "first_child") },
+    { ["core/sandbox_rules.c"] = { [1] = true } }, nil, nil,
     { ["path:/proc/thread-self/children"] = "absent" })
   assert(tally.entered == 1 and #tally.unavailable == 0 and #tally.unentered == 0)
 end

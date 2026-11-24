@@ -246,8 +246,8 @@ local function finishing(tmp: string, ms: integer): string
   return 'local Fs = require("cosmic.fs") local Clock = require("cosmic.clock") ' ..
     'local guard = assert(require("cosmic.signal").guard()) ' ..
     'assert(Fs.write("' .. tmp .. '/marks/ready", "x")) ' ..
-    'while guard:cancelled() == 0 do Clock.sleep_ns(Clock.ms(10)) end ' ..
-    'Clock.sleep_ns(Clock.ms(' .. tostring(ms) .. ')) ' ..
+    'while guard:cancelled() == 0 do local _, _ = Clock.sleep(Clock.ms(10)) end ' ..
+    'local _, _ = Clock.sleep(Clock.ms(' .. tostring(ms) .. ')) ' ..
     'assert(Fs.write("' .. tmp .. '/marks/done", "x"))'
 end
 

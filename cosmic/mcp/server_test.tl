@@ -428,7 +428,7 @@ local function stepping(name: string, steps: integer, seen: mut {string}): Serve
       for i = 1, steps do
         call.progress(i, steps)
         call.progress(i - 1, steps, "backwards, dropped")
-        local ok, why = Poll.delay(Clock.ms(10))
+        local ok, why = Clock.sleep(Clock.ms(10))
         if not ok or call.cancelled() then
           local said = "cancelled: " .. tostring(why)
           seen[#seen + 1] = said
@@ -536,7 +536,7 @@ local function test_a_stdio_client_hears_progress_and_cancels()
       local none, why = session:call("long")
       assert(none == nil and tostring(why):find("cancelled", 1, true) ~= nil, tostring(why))
     end)
-    assert(Poll.delay(Clock.ms(30)))
+    assert(Clock.sleep(Clock.ms(30)))
     caller:cancel()
     assert(caller:join(Clock.seconds(20)))
     assert(session:close())
@@ -549,7 +549,7 @@ end
 local function until_true(ready: function(): boolean)
   for _ = 1, 20000 do
     if ready() then return end
-    assert(Poll.delay(Clock.ms(1)))
+    assert(Clock.sleep(Clock.ms(1)))
   end
   error("waited 20 seconds")
 end

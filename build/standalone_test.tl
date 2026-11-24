@@ -178,3 +178,15 @@ local function test_a_file_returns_what_a_declaration_describes(tmp: string)
   local chunk = standalone.compile("-e", "return 3\n", { XDG_CACHE_HOME = tmp .. "/cache" }, true)
   assert(chunk ~= nil and chunk() == 3)
 end
+
+--- A file is an entry point: a function it returns that cannot take the command line's words is refused before it runs.
+--- A chunk of `-e` is called by nothing, so it is not held so.
+local function test_a_file_returns_what_takes_the_command_line(tmp: string)
+  local refused, trouble = compile(tmp, "n.tl", "return function(n: integer): integer\n  return n\nend\n")
+  assert(refused == nil and trouble:find("(entry_signature)", 1, true) ~= nil, tostring(trouble))
+  local taken, _ = compile(tmp, "w.tl", "return function(argv: {string}): integer\n  return #argv\nend\n")
+  assert(taken ~= nil)
+  local chunk = standalone.compile("-e", "return function(n: integer): integer\n  return n\nend\n",
+    { XDG_CACHE_HOME = tmp .. "/cache" }, true)
+  assert(chunk ~= nil)
+end

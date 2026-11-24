@@ -119,7 +119,7 @@ local function test_sql_reads_what_is_kept()
   assert(Tools.run("sql", { query = "ATTACH '" .. copy .. "' AS b" }, ctx).is_error)
   assert(not assert(Fs.status(copy)).exists)
   local write = Tools.run("sql", { query = "DELETE FROM outputs" }, ctx)
-  assert(write.is_error and write.text:find("readonly") ~= nil, write.text)
+  assert(write.is_error and write.text:find("runs only queries", 1, true) ~= nil, write.text)
   assert(Tools.run("sql", { query = "SELECT count(*) FROM outputs" }, ctx).text == "count(*)\n1")
   assert(Tools.run("sql", { query = "SELEC" }, ctx).is_error)
   assert(Tools.run("sql", { query = 1 }, ctx).is_error)
@@ -127,14 +127,14 @@ local function test_sql_reads_what_is_kept()
   local memory = assert(Sessions.open(":memory:"))
   assert(Tools.run("sql", { query = "SELECT 1" }, { cwd = "/", db = memory }).text:find("no file") ~= nil)
   -- A run that ended inside a tool call is settled with an error result.
-  local s = Agent.session({ model = "m", effort = "low", sign = keyed("k"), system = "", cwd = "/" }, {
-    { role = "user", content = "go" },
-    { role = "assistant", content = { { type = "tool_use", id = "t9", name = "bash", input = { command = "x" } } } },
-  })
-  s.db, s.id = db, id
-  assert(Agent.settle(s))
+  local s = Agent.new({ model = "m", effort = "low", sign = keyed("k"), system = "", cwd = "/", db = db, id = id,
+    messages = {
+      { role = "user", content = "go" },
+      { role = "assistant", content = { { type = "tool_use", id = "t9", name = "bash", input = { command = "x" } } } },
+    } })
+  assert(s:settle())
   assert(#s.messages == 3 and assert(Json.encode(s.messages[3])):find('"tool_use_id":"t9"', 1, true) ~= nil)
-  assert(Agent.settle(s) and #s.messages == 3)
+  assert(s:settle() and #s.messages == 3)
   local loaded = assert(Sessions.load(db, id))
   assert(#loaded.messages == 1 and loaded.model == "m")
   local _, _ = db:close()

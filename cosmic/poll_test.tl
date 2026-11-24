@@ -1584,3 +1584,60 @@ local function test_within_in_a_coroutine_of_a_task_calls_f_where_spawn_raises()
   end)
   assert(message ~= "")
 end
+
+local function test_clock_sleep_in_a_task_lets_the_others_run()
+  local seen: mut {string} = {}
+  Poll.run(function()
+    local a = Poll.spawn(function()
+      seen[#seen + 1] = "a1"
+      assert(Clock.sleep(0))
+      seen[#seen + 1] = "a2"
+    end)
+    local b = Poll.spawn(function()
+      seen[#seen + 1] = "b1"
+      assert(Clock.sleep(0))
+      seen[#seen + 1] = "b2"
+    end)
+    assert(a:join())
+    assert(b:join())
+  end)
+  assert(table.concat(seen, " ") == "a1 b1 a2 b2", table.concat(seen, " "))
+end
+
+local function test_clock_sleep_sleeps_the_thread_where_a_task_cannot_park()
+  local under_c: boolean = false
+  local in_close: boolean = false
+  Poll.run(function()
+    local order: mut {integer} = { 2, 1 }
+    table.sort(order, function(x: integer, y: integer): boolean
+      local slept, _ = Clock.sleep(0)
+      under_c = slept
+      return x < y
+    end)
+    local task = Poll.spawn(function()
+      local _ <close> = Defer.new(function()
+        local slept, _ = Clock.sleep(0)
+        in_close = slept
+      end)
+      local _, _ = Clock.sleep(Clock.seconds(1))
+    end)
+    assert(Clock.sleep(0))
+    task:kill()
+  end)
+  assert(under_c, "a sleep under table.sort did not answer true")
+  assert(in_close, "a sleep in a killed task's <close> handler did not answer true")
+end
+
+local function test_clock_sleep_in_a_task_takes_a_span_longer_than_a_delay_does()
+  local why_ended: string = ""
+  Poll.run(function()
+    local task = Poll.spawn(function()
+      local ok, why = Clock.sleep(Poll.MOST_NS + 1)
+      if not ok then why_ended = why.kind end
+    end)
+    assert(Clock.sleep(0))
+    task:cancel()
+    local _, _ = task:join()
+  end)
+  assert(why_ended == "cancelled", why_ended)
+end

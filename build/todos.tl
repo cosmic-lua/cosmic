@@ -22,7 +22,7 @@
 
 local Child = require("cosmic.child")
 local Signal = require("cosmic.signal")
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.todos")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
@@ -786,7 +786,7 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
   if code ~= nil then
     return code
   end
-  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.todos.spec)) -- checked: map_field
+  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Verb.spec))
   if parsed == nil then
     log:complain("todos: " .. parse_trouble)
     return 2

@@ -571,7 +571,7 @@ end
 
 --- A bare name that is a module and a verb answers the module, and the
 --- verb is a see-also line after it: `docs test` shows [`cosmic.test`], then
---- points to [`Cli.test`].
+--- points to [`cosmic.cli.test`].
 local function test_a_short_module_name_leads_and_its_verb_is_a_see_also(dir: string)
   local db = built(dir, {
     ["cosmic/test.tl"] = source(
@@ -581,29 +581,25 @@ local function test_a_short_module_name_leads_and_its_verb_is_a_see_also(dir: st
       "end",
       "",
       "return Test"),
-    ["cosmic/cli.tl"] = source(
-      "--- Verbs.",
+    ["cosmic/cli/test.tl"] = source(
+      "--- Runs tests.",
+      "--- @public",
       "",
-      "local record Cli",
-      "  --- Runs tests.",
-      "  test: string",
-      "end",
+      "local command = { about = \"tests\" }",
       "",
-      "local module: Cli = { test = \"tests\" }",
-      "",
-      "return module"),
+      "return command"),
   })
   local found = assert(Doc.lookup(view({ db }), "test"))
   assert(found.exact and #found == 1, tostring(#found))
   local first, verb = assert(found[1]), assert(found.verb)
   assert(first.module == "cosmic.test" and first.kind == "module", first.module)
-  assert(verb.source_symbol == "Cli.test")
+  assert(verb.module == "cosmic.cli.test" and verb.symbol == "", verb.module)
   local answer = assert(Doc.answer(view({ db }), { "test" }))
   local text = table.concat(answer.lines, "\n")
   local module_at = assert(text:find("cosmic.test (", 1, true))
   local also_at = assert(text:find("See also: the command `cosmic test`", 1, true), text)
   assert(module_at < also_at and not text:find("Runs tests.", 1, true), text)
-  assert(text:find("`cosmic docs Cli.test`", 1, true) and text:find("`cosmic help test`", 1, true), text)
+  assert(text:find("`cosmic docs cosmic.cli.test`", 1, true) and text:find("`cosmic help test`", 1, true), text)
   assert(answer.said == "1 named", answer.said)
 end
 
@@ -613,12 +609,11 @@ end
 local function test_a_non_library_module_of_a_verbs_name_keeps_the_verb_first(dir: string)
   local db = built(dir, {
     ["build/sql.tl"] = source("--- The tool.", "", "local record Sql", "end", "", "return Sql"),
-    ["cosmic/cli.tl"] = source("--- Verbs.", "", "local record Cli", "  --- Runs SQL.", "  sql: string", "end", "",
-      "local module: Cli = { sql = \"x\" }", "", "return module"),
+    ["cosmic/cli/sql.tl"] = source("--- Runs SQL.", "--- @public", "", "local command = { about = \"x\" }", "", "return command"),
   })
   local found = assert(Doc.lookup(view({ db }), "sql"))
   local verb, tool = assert(found[1]), assert(found[2])
-  assert(#found == 2 and verb.source_symbol == "Cli.sql" and tool.module == "build.sql", tostring(#found))
+  assert(#found == 2 and verb.module == "cosmic.cli.sql" and tool.module == "build.sql", tostring(#found))
   assert(found.verb == nil)
   local text = table.concat(assert(Doc.answer(view({ db }), { "sql" })).lines, "\n")
   assert(not text:find("See also", 1, true), text)
@@ -629,11 +624,10 @@ end
 --- first.
 local function test_every_shared_verb_and_module_name_leads_with_the_module(dir: string)
   for _, name in ipairs({ "archive", "codec", "hash", "json", "rand", "sandbox", "test", "time" }) do
-    local verb = "  " .. name .. ": string"
     local db = built(dir, {
       ["cosmic/" .. name .. ".tl"] = source("--- The module.", "", "local record M", "end", "", "return M"),
-      ["cosmic/cli.tl"] = source("--- Verbs.", "", "local record Cli", "  --- The verb.", verb, "end", "",
-        "local module: Cli = { " .. name .. " = \"x\" }", "", "return module"),
+      ["cosmic/cli/" .. name .. ".tl"] = source("--- The verb.", "--- @public", "", "local command = { about = \"x\" }", "",
+        "return command"),
     })
     local found = assert(Doc.lookup(view({ db }), name))
     assert(assert(found[1]).module == "cosmic." .. name and found.verb ~= nil, name)
@@ -2566,8 +2560,7 @@ local function test_a_project_s_public_module_is_not_the_library_s(dir: string)
     { "app.sql", "", "module", "", "The project's queries.", "app/sql.tl", "1" },
   }, {}, nil, { "app.sql" })
   local binary = built(dir, {
-    ["cosmic/cli.tl"] = source("--- Verbs.", "", "local record Cli", "  --- Runs SQL.", "  sql: string", "end", "",
-      "local module: Cli = { sql = \"x\" }", "", "return module"),
+    ["cosmic/cli/sql.tl"] = source("--- Runs SQL.", "--- @public", "", "local command = { about = \"x\" }", "", "return command"),
     ["cosmic/fs.tl"] = source("--- Files.", "", "local record Fs", "end", "", "return Fs"),
   })
   local seen = assert(docs.view({ project, binary }, { false, true }))
@@ -2576,7 +2569,7 @@ local function test_a_project_s_public_module_is_not_the_library_s(dir: string)
   for _, entry in ipairs(found) do
     got[#got + 1] = entry.module .. "|" .. entry.symbol .. "|" .. entry.source_symbol
   end
-  assert(support.nth(found, 1).source_symbol == "Cli.sql", "the verb comes first: " .. table.concat(got, ", "))
+  assert(support.nth(found, 1).module == "cosmic.cli.sql", "the verb comes first: " .. table.concat(got, ", "))
   assert(found.verb == nil, "a project's module of a verb's name stands in for the verb")
   local library = assert(Doc.answer(seen, { "cosmic" }))
   local text = table.concat(library.lines, "\n")

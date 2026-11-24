@@ -26,7 +26,7 @@ local symbols = require("cosmic.internal.symbols")
 
 local record Doc
   --- A command of the program that answers, which a row of `docs` documents: `cosmic test`, documented by the
-  --- `test` field of [`cosmic.cli`]'s record. A lookup of `name` that also names a module points to the command,
+  --- overview of [`cosmic.cli.test`]. A lookup of `name` that also names a module points to the command,
   --- its row's page shows its `usage`, `about`, `options` and `examples` under it, and a search reads them with
   --- the row's own text.
   record Command
@@ -34,7 +34,8 @@ local record Doc
     name: string
     --- The row that documents it, by its `module` and `symbol` as `docs` holds them.
     module: string
-    --- That row's `symbol`: a field's own name where the module returns the record that declares it.
+    --- That row's `symbol`: a field's own name where the module returns the record that declares it, "" for the
+    --- module's own row.
     symbol: string
     --- Its options as its help prints them, nil for a command that takes none.
     options?: string
@@ -532,10 +533,10 @@ local function named(db: Sqlite.Handle, public: boolean, query: string): {Doc.En
   return entries_of(rows), ""
 end
 
---- The rows named exactly by one of `names` (`d.symbol IN (...)`), in
---- one query -- unlike `named`, only the symbol as declared, never a
---- last name or a module's own row, since a caller passing several
---- names already knows exactly what each one is.
+--- The rows named exactly by one of `names` (`d.symbol IN (...)`), and
+--- the own row of each module one of them names in full, in one query.
+--- Unlike `named`, it matches only the symbol as declared, never a last
+--- name: a caller passing several names already knows what each one is.
 local function named_all(db: Sqlite.Handle, public: boolean,
                          names: {string}): {Doc.Entry}?, string
   local placeholders: mut {string} = {}
@@ -544,9 +545,10 @@ local function named_all(db: Sqlite.Handle, public: boolean,
     placeholders[index] = "?" .. tostring(index)
     args[index] = text(name)
   end
+  local listed = table.concat(placeholders, ", ")
   local rows, trouble = db:text_rows(
-    "SELECT " .. columns .. " FROM docs d WHERE d.symbol IN (" ..
-      table.concat(placeholders, ", ") .. ") AND " ..
+    "SELECT " .. columns .. " FROM docs d WHERE (d.symbol IN (" .. listed .. ") OR (d.symbol = '' AND d.module IN (" ..
+      listed .. "))) AND " ..
       symbols.shown_in(db, "d", public) .. " ORDER BY d.module, d.id",
     args)
   if rows == nil then
@@ -1576,11 +1578,6 @@ function Doc.view(databases: {Sqlite.Handle}, public?: {boolean}): (Doc.View) | 
   return value
 end
 
---- The text of `value` as an SQL string literal.
-local function sql_literal(value: string): string
-  return "'" .. (value:gsub("'", "''")) .. "'"
-end
-
 --- Answers the documentation of the project's last build as a `cmd/<name>/main.tl` run from its source would
 --- carry it built ([`build.embed`]), in place of `db`, the store's connection to that build. The run names the
 --- program and the build ([`cosmic.internal.source_run`]'s `main` and `projection`). What it carries: the docs of
@@ -1618,9 +1615,9 @@ local function scope_to_program(db: Sqlite.Handle, pages?: string): Sqlite.Handl
   -- The module the program names as its pages, which its build carries for being named
   -- ([`build.embed`]'s `pages_named`) where it is the project's, and none a program would not carry for its own:
   -- the rule [`embed.database`] holds a build to, which a change to one changes in both.
-  local paged = "(m.path = " .. sql_literal(pages or "") .. " AND m.kind = 'module' AND " ..
+  local paged = "(m.path = " .. Sqlite.literal(pages or "") .. " AND m.kind = 'module' AND " ..
     "instr('/' || m.file, '/internal/') = 0 AND (m.path NOT GLOB 'cmd.*' OR substr(m.path, 1, " .. tostring(#own) ..
-    ") = " .. sql_literal(own) .. "))"
+    ") = " .. Sqlite.literal(own) .. "))"
   local docs_columns, columns_trouble = opened:text_rows("SELECT name FROM pragma_table_info('docs', 'main')")
   if docs_columns == nil then return failed(tostring(columns_trouble)) end
   local names: mut {string} = {}
@@ -1630,7 +1627,7 @@ local function scope_to_program(db: Sqlite.Handle, pages?: string): Sqlite.Handl
     names[#names + 1] = column_name
     if column_name == "module" then
       selected[#selected + 1] = "CASE WHEN substr(module, 1, " .. tostring(#own_guides) .. ") = " ..
-        sql_literal(own_guides) .. " THEN 'doc.guides.' || substr(module, " .. tostring(#own_guides + 1) ..
+        Sqlite.literal(own_guides) .. " THEN 'doc.guides.' || substr(module, " .. tostring(#own_guides + 1) ..
         ") ELSE module END"
     else
       selected[#selected + 1] = column_name
@@ -1648,16 +1645,16 @@ local function scope_to_program(db: Sqlite.Handle, pages?: string): Sqlite.Handl
   for _, made in ipairs({
       "CREATE TEMP TABLE carried (path TEXT PRIMARY KEY) WITHOUT ROWID",
       "CREATE TEMP TABLE public_modules (path TEXT PRIMARY KEY) WITHOUT ROWID",
-      "WITH RECURSIVE carried(path) AS (SELECT " .. sql_literal(main) .. " UNION SELECT path FROM main.modules " ..
-        "WHERE kind = 'module' AND substr(path, 1, " .. tostring(#own) .. ") = " .. sql_literal(own) ..
+      "WITH RECURSIVE carried(path) AS (SELECT " .. Sqlite.literal(main) .. " UNION SELECT path FROM main.modules " ..
+        "WHERE kind = 'module' AND substr(path, 1, " .. tostring(#own) .. ") = " .. Sqlite.literal(own) ..
         " UNION SELECT m.path FROM main.modules m WHERE " .. paged ..
         " UNION SELECT i.requires FROM main.imports i JOIN carried c ON i.path = c.path) " ..
         "INSERT INTO temp.carried (path) SELECT path FROM main.modules WHERE path IN (SELECT path FROM carried) " ..
         "ORDER BY path",
       "INSERT INTO temp.public_modules (path) SELECT m.path FROM main.modules m " ..
         "WHERE m.path IN (SELECT path FROM temp.carried) AND (m.path IN (SELECT path FROM main.public_modules) OR " ..
-        "(substr(m.path, 1, " .. tostring(#own) .. ") = " .. sql_literal(own) .. " AND m.path <> " ..
-        sql_literal(main) .. " AND m.kind = 'module' AND instr('/' || m.file, '/internal/') = 0) OR " .. paged ..
+        "(substr(m.path, 1, " .. tostring(#own) .. ") = " .. Sqlite.literal(own) .. " AND m.path <> " ..
+        Sqlite.literal(main) .. " AND m.kind = 'module' AND instr('/' || m.file, '/internal/') = 0) OR " .. paged ..
         ") ORDER BY m.path",
   }) do
     statements[#statements + 1] = made
@@ -1687,10 +1684,10 @@ local function scope_to_program(db: Sqlite.Handle, pages?: string): Sqlite.Handl
   -- name, and the project's guides' own rows it has none of its own in place of.
   statements[#statements + 1] = "INSERT INTO temp.docs (" .. table.concat(names, ", ") .. ") SELECT " ..
     table.concat(selected, ", ") .. " FROM main.docs d WHERE d.module IN (SELECT path FROM temp.public_modules) OR " ..
-    "(d.symbol = '' AND substr(d.module, 1, " .. tostring(#own_guides) .. ") = " .. sql_literal(own_guides) ..
+    "(d.symbol = '' AND substr(d.module, 1, " .. tostring(#own_guides) .. ") = " .. Sqlite.literal(own_guides) ..
     " AND instr(substr(d.module, " .. tostring(#own_guides + 1) .. "), '.') = 0) OR (d.symbol = '' AND " ..
     symbols.guide_module("d.module") .. " AND NOT EXISTS (SELECT 1 FROM main.docs o WHERE o.symbol = '' AND " ..
-    "o.module = " .. sql_literal(own_guides) .. " || substr(d.module, 12))) ORDER BY d.id"
+    "o.module = " .. Sqlite.literal(own_guides) .. " || substr(d.module, 12))) ORDER BY d.id"
   -- The index of each and the words of those rows: each stored index made again in `temp`, where its content
   -- table is the one above, and the words counted as [`build.schema`]'s `rebuild` counts them, unstemmed.
   for _, row in ipairs(indexes) do
@@ -1875,7 +1872,7 @@ local function tokens_of(written: string): string
 end
 
 --- The commands whose symbol, prose and help together carry every word of `query`, as the entries that document
---- them (`Cli.<verb>` for the tool's): the search reads doc comments, and what a command's help says -- its
+--- them (`cosmic.cli.<verb>` for the tool's): the search reads doc comments, and what a command's help says -- its
 --- `about`, `usage`, `options` and `examples` ([`Doc.Command`]) -- is data, so it is matched here instead, as the
 --- binary answering has it and `render` shows it. Each word is a phrase, as [`fts_query`] quotes it:
 --- `COSMIC_TEST_TIMEOUT` must be those three tokens in a row. They come after what the index found, as the lesser
@@ -1898,7 +1895,7 @@ local function by_help(view: Doc.View, query: string,
   local names: mut {string} = {}
   for _, command in ipairs(view.commands) do
     if command.options ~= nil or command.about ~= nil or command.usage ~= nil or command.examples ~= nil then
-      names[#names + 1] = command.symbol
+      names[#names + 1] = if command.symbol == "" then command.module else command.symbol end
       commands[command.module .. "\n" .. command.symbol] = command
     end
   end
@@ -1952,7 +1949,7 @@ local function by_help(view: Doc.View, query: string,
     local command = commands[key]
     if command ~= nil and held[key] ~= true then
       held[key] = true
-      local said = entry.source_symbol .. "\n" .. entry.signature .. "\n" .. entry.text .. "\n" ..
+      local said = (if entry.symbol == "" then entry.module else entry.source_symbol end) .. "\n" .. entry.signature .. "\n" .. entry.text .. "\n" ..
         (command.about or "") .. "\n" .. typed_rest(command.usage)
       if carries(tokens_of(said)) then
         first[#first + 1] = entry
@@ -2123,9 +2120,24 @@ local function lookup_names(view: Doc.View, query: string, as_respelled?: boolea
     local answers: mut {Doc.Entry} = {}
     local rest: mut {Doc.Entry} = {}
     local verb: Doc.Entry? = nil
+    -- A command a module documents (`cosmic.cli.json` for `cosmic json`) is the verb, not one of the modules.
+    local named_modules: mut {Doc.Entry} = {}
+    local commands: mut {Doc.Entry} = {}
+    for _, entry in ipairs(modules) do
+      local command = command_of(view, entry)
+      if command ~= nil and command.name == query then
+        commands[#commands + 1] = entry
+      else
+        named_modules[#named_modules + 1] = entry
+      end
+    end
+    modules = named_modules
     local library = false
     for _, entry in ipairs(modules) do
       if is_library(view, entry.module) then library = true end
+    end
+    for _, entry in ipairs(commands) do
+      if library then verb = entry else answers[#answers + 1] = entry end
     end
     for _, entry in ipairs(exact) do
       local internal = entry.module:sub(1, 16) == "cosmic.internal." and
@@ -2422,10 +2434,10 @@ local function named_all_text(view: Doc.View, names: {string}): {Doc.Entry}?, st
   return found, ""
 end
 
---- Every one of `names` that names a symbol exactly, in one query per
---- database rather than one lookup per name -- built for a caller
---- that needs several known symbols in one command, such as `cosmic
---- help` listing every verb. `#names == 0` finds nothing without
+--- Every one of `names` that names a symbol exactly, or a module in full
+--- (its own row), in one query per database rather than one lookup per
+--- name -- built for a caller that needs several known symbols in one
+--- command, such as `cosmic help` reading every verb's module. `#names == 0` finds nothing without
 --- querying. A name absent from the result was not found; this never
 --- fails for that, only for real trouble reading a database.
 function Doc.named_all(view: Doc.View, names: {string}): ({Doc.Entry}) | (nil, Failure)
@@ -3353,8 +3365,9 @@ local function page(view: Doc.View, found: Doc.Lookup,
     if verb ~= nil and index == found.modules then
       lines[#lines + 1] = ""
       local program = view.program or "cosmic"
+      local asked = if verb.symbol == "" then verb.module else verb.source_symbol end
       lines[#lines + 1] = "See also: the command `" .. program .. " " .. query .. "` (`" .. docs_command(view) .. " " ..
-        verb.source_symbol .. "`, `" .. program .. " help " .. query .. "`)."
+        asked .. "`, `" .. program .. " help " .. query .. "`)."
     end
   end
   if #found > whole then

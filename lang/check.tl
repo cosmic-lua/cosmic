@@ -9105,7 +9105,75 @@ end
 local function check_return(ctx: Ctx, s: Ast.Return)
   local frame = ctx.frames[#ctx.frames]
   if frame.chunk then -- checked: nil_not_allowed
-    local _ = values_of(ctx, s.values, nil, nil)
+    -- Reports the value `node`, of type `got`, that an entry point returns ([`Declarations.Input.entry`]), where the run
+    -- would refuse it: build/dispatch.tl's `run` calls a function, or a record's `main`, with the command line's words,
+    -- `{string}`, and reads what it returns as the exit code (build/exit_status.tl: nil, a whole number or text naming
+    -- one); a built program's main module must be a function (core/main.c). Here, not at the top, where the main
+    -- chunk holds as many locals as it may.
+    local function entry_return(node: Ast.Exp, got: Type)
+      local store = ctx.store
+      local program = ctx.input.module:match("^cmd%.[^.]+%.main$") ~= nil
+      -- A file run alone that returns nil is a run that calls nothing; a built program refuses one.
+      local value = if program then got else store:non_nil(got) end
+      local what = "the function this entry point returns"
+      local fix = "declare it `function(argv: {string}): integer`"
+      if value.tag == "named" and not program then
+        local members = member_types(ctx, value, "main")
+        if members == nil or #members ~= 1 then
+          -- TODO: hold each `main` of an overloaded declaration, and each member of a union of records.
+          return
+        end
+        value = store:non_nil(put_in(ctx, value, assert(members[1]).type))
+        what = "the `main` of the record this entry point returns"
+        fix = "declare `main` a field of type `function(argv: {string}): integer`, not a method"
+      end
+      if value.tag ~= "fn" then
+        if program then
+          report(ctx, "entry_signature", node, "a built program calls its main module, and this returns " .. tq(ctx, got) ..
+              ", which is no function", "return the function `function(argv: {string}): integer`")
+        end
+        return
+      end
+      if #value.tparams > 0 then
+        -- TODO: hold a generic function as the call with `{string}` would infer it.
+        return
+      end
+      local words = store:array(store.string)
+      local takes = true
+      local params = value.params
+      local p1 = params[1]
+      if p1 ~= nil then
+        local wanted = p1.type
+        -- An array of `any` takes the words whatever the variance of a view of an array.
+        takes = wanted == store.any or (wanted.tag == "array" and wanted.element == store.any) or below(ctx, words, wanted) or below(ctx, store:array(store.string, true), wanted) or
+          below(ctx, store:map(store.integer, store.string), wanted)
+        for i = 2, #params do
+          takes = takes and assert(params[i]).omittable == true
+        end
+      else
+        local rest = value.rest
+        takes = rest == nil or rest == store.any or below(ctx, words, rest)
+      end
+      if not takes then
+        report(ctx, "entry_signature", node, what .. " is " .. tq(ctx, value) ..
+            ", which cannot take the command line's words, `{string}`", fix .. ", or take no parameters")
+        return
+      end
+      local status = store:optional(store:union({ store.number, store.string }))
+      for _, alt in ipairs(value.rets) do
+        local code = alt.items[1] or alt.tail
+        if code ~= nil and code ~= store.any and not below(ctx, code, status) then
+          report(ctx, "entry_signature", node, what .. " is " .. tq(ctx, value) .. ", which answers " .. tq(ctx, code) ..
+              " where the run reads an exit code", "return an `integer` from 0 to 255, or nothing")
+          return
+        end
+      end
+    end
+    local returned = values_of(ctx, s.values, nil, nil)
+    local first, value = returned.types[1], s.values[1]
+    if ctx.input.entry == true and first ~= nil and value ~= nil then
+      entry_return(value, first)
+    end
     local info = ctx.program.modules[ctx.input.module]
     local ok = #s.values == 0 or (info ~= nil and (info.export ~= nil or info.value ~= nil))
     if not ok then
