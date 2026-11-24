@@ -2348,6 +2348,11 @@ local record Held
   --- Under Seatbelt, the profile's parameter that names `tmp`'s directory,
   --- which [`make_tmp`] sets; nil without `tmp`.
   tmp_parameter?: string
+  --- Under Seatbelt, whether the child is a cosmic core that applies its
+  --- profile itself at boot ([`seatbelt_boot_env`]), with no `rx` on
+  --- itself, in place of the trampoline: macOS applies one profile to a
+  --- process, so the start's and the policy's cannot stack as Landlock's do.
+  seatbelt_boot?: boolean
   --- The policy's `connect` targets, which the network relay serves; nil
   --- for a policy with none, which starts no relay.
   relay?: {string}
@@ -3578,6 +3583,11 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   local options, resolve_trouble = Seatbelt.resolve(policy, opts.cwd, own, core, sealed, terminal)
   if options == nil then return nil, "sandbox: " .. resolve_trouble end
   options.serves_relay = serves_relay
+  -- A cosmic child holds itself to the profile at boot, which grants its
+  -- core and this program `r` alone: it runs neither again. The relay is
+  -- held by the trampoline, as its profile is the start's.
+  local booted = relaunch ~= nil and serves_relay == nil
+  options.booted = booted
   -- The relay's port is known once it serves, after this: a port of the
   -- right form lets this compile refuse what the profile cannot hold, with
   -- nothing started, and [`relay_held`] compiles it again with the real one.
@@ -3608,11 +3618,11 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
     if not holds then return nil, "sandbox: " .. held_why end
   end
   local sandbox: raw_process.Sandbox = {
-    seatbelt = { profile = profile.text, parameters = profile.parameters },
+    seatbelt = { profile = profile.text, parameters = profile.parameters, boot = booted },
     rlimits = profile.rlimits,
   }
   return { path = path, env = env, tmp = "", wants_tmp = merged.tmp, tmp_parameter = profile.tmp, -- checked: nil_not_allowed*2
-    sandbox = sandbox, nests = false, seatbelt = true, argv = run_argv,
+    sandbox = sandbox, nests = false, seatbelt = true, seatbelt_boot = booted, argv = run_argv,
     fds = if relaunch ~= nil then relaunch.fds else nil end, relay = if relayed then merged.connect else nil end,
     seatbelt_policy = policy, seatbelt_options = options }, ""
 end
@@ -3631,6 +3641,22 @@ local function relay_held(held: Held, port: integer, token: string): string
     held.env[name] = value
   end
   return ""
+end
+
+--- Hands `held`'s Seatbelt profile and its parameters to the cosmic core
+--- it starts, which applies them at boot (core/main.c), and leaves the
+--- trampoline none to apply (its `boot`). The parameters are each name and value
+--- "<length>:<bytes>", after [`make_tmp`] and [`relay_held`] have
+--- set the last of them.
+local function seatbelt_boot_env(held: Held)
+  local seatbelt = assert(held.sandbox.seatbelt)
+  local words: mut {string} = {}
+  for name, value in pairs(seatbelt.parameters) do
+    words[#words + 1] = tostring(#name) .. ":" .. name .. tostring(#value) .. ":" .. value
+  end
+  table.sort(words)
+  held.env["COSMIC_SEATBELT_PROFILE"] = seatbelt.profile
+  held.env["COSMIC_SEATBELT_PARAMETERS"] = table.concat(words)
 end
 
 --- `grants` as the core reads them at boot (core/sandbox_rules.c's
@@ -4137,6 +4163,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
     end
     local layer = held.layer
     if layer ~= nil then held.env["COSMIC_SANDBOX_LAYER"] = layer_text(layer) end
+    if held.seatbelt_boot == true then seatbelt_boot_env(held) end
   end
   -- Nothing but the spawn lies between the directory's making and its
   -- owner, the handle: a spawn that raises (an argument it refuses) must

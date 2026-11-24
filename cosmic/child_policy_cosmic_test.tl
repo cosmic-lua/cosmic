@@ -134,7 +134,9 @@ end
 --- A policy's grants are what the child may do once it runs: the start's
 --- `rx` on the core, and the "cosmic" profile's on this program, are the
 --- start's, which the core gives up at boot. So a child whose policy has
---- no `x` runs no program, its own core included.
+--- no `x` runs no program, its own core included. On macOS the core
+--- applies the policy's Seatbelt profile itself at boot, in place of the
+--- start, as macOS applies one profile to a process.
 local function test_a_child_with_no_x_cannot_run_its_own_core_again(tmp: string)
   -- TODO: on macOS the trampoline's profile still grants the core `rx`;
   -- the core is to apply the profile itself at boot there too.
@@ -144,8 +146,12 @@ local function test_a_child_with_no_x_cannot_run_its_own_core_again(tmp: string)
   local work = scripted(tmp, table.concat({
     'local Child = require("cosmic.child")',
     'local Proc = require("cosmic.proc")',
+    'local Fs = require("cosmic.fs")',
     'local own: string = assert(Proc.executable())',
-    'for _, program in ipairs({ "/proc/self/exe", own }) do',
+    'local programs: {string} = { own }',
+    'local link, _ = Fs.status("/proc/self/exe")',
+    'if link ~= nil and link.exists then programs = { "/proc/self/exe", own } end',
+    'for _, program in ipairs(programs) do',
     '  local result, why = Child.run({ program, "--version" }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })',
     '  print(if result == nil then "refused: " .. tostring(why) else "ran" end)',
     'end',
@@ -154,5 +160,8 @@ local function test_a_child_with_no_x_cannot_run_its_own_core_again(tmp: string)
     grants = { { path = work, letters = "rwc" } } }, work)
   local out = result.stdout or ""
   local _, refusals = out:gsub("refused: [^\n]*not permitted", "")
-  assert(result.code == 0 and refusals == 2, tostring(result.code) .. ": " .. out .. tostring(result.stderr))
+  local _, lines = out:gsub("\n", "")
+  -- Two on Linux (/proc/self/exe and the core by its path), one on macOS.
+  assert(result.code == 0 and refusals >= 1 and refusals == lines,
+    tostring(result.code) .. ": " .. out .. tostring(result.stderr))
 end

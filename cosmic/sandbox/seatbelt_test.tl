@@ -262,6 +262,30 @@ local function test_a_database_grants_its_core_and_itself_and_not_this_programs_
   end
 end
 
+--- A core that applies its profile at boot runs already: it and this
+--- program are granted `r`, which maps and does not run, unless the
+--- policy's own grant gives `x`.
+local function test_a_booted_core_and_this_program_are_read_and_not_run()
+  local paths: {string:Seatbelt.Path} = {
+    ["/core"] = { path = "/private/core", directory = false },
+    ["/launcher"] = { path = "/private/launcher", directory = false },
+  }
+  local policy: Sandbox.Policy = { profiles = { "cosmic" } }
+  local out = assert(Seatbelt.compile(policy,
+    { paths = paths, core = "/core", executable = "/launcher", booted = true }))
+  assert(not out.text:find("process-exec", 1, true), out.text)
+  assert(out.text:find('(allow file-read* file-map-executable (literal (param "PATH_1")))', 1, true), out.text)
+  assert(out.text:find('(allow file-read* file-map-executable (literal (param "PATH_2")))', 1, true), out.text)
+  local started = assert(Seatbelt.compile(policy,
+    { paths = paths, core = "/core", executable = "/launcher" }))
+  assert(started.text:find("process-exec", 1, true), started.text)
+  local granted: Sandbox.Policy = { profiles = { "cosmic" }, grants = { { path = "/launcher", letters = "rx" } } }
+  local runs = assert(Seatbelt.compile(granted,
+    { paths = paths, core = "/core", executable = "/launcher", booted = true }))
+  local _, execs = runs.text:gsub("process%-exec", "")
+  assert(execs == 1, runs.text)
+end
+
 local function test_a_database_needs_the_core_and_the_file_the_core_runs_on(tmp: string)
   local database, other = tmp .. "/sealed.db", tmp .. "/other.db"
   assert(Fs.write(database, "a regular file"))

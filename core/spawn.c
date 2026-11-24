@@ -245,7 +245,7 @@ static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
       words[at++] = restoring ? numbers[1] : (char *)"-";
       words[at++] = numbers[2];
       words[at++] = numbers[3];
-      words[at++] = (char *)(plan->seatbelt_profile != NULL ? plan->seatbelt_profile : "");
+      words[at++] = (char *)(plan->seatbelt_profile != NULL && !plan->seatbelt_boot ? plan->seatbelt_profile : "");
       words[at++] = (char *)(terminal ? plan->terminal_path : "");
       for (int i = 0; i < plan->rlimit_count; i++) {
         char *resource = numbers[4 + 2 * i], *value = numbers[5 + 2 * i];
@@ -627,6 +627,7 @@ struct spawn_options {
   const char *seatbelt_profile;
   const char *seatbelt_words[2 * SEATBELT_PARAMETER_MAX];
   int seatbelt_count;
+  bool seatbelt_boot;
 #endif
   int strict;
   int proc_only;
@@ -844,6 +845,10 @@ static int read_seatbelt (lua_State *L, struct spawn_options *o) {
     lua_pushinteger(L, holding > 0 ? EPERM : unknown);
     return 3;
   }
+  lua_pushliteral(L, "boot");
+  lua_rawget(L, -3);
+  o->seatbelt_boot = lua_toboolean(L, -1);
+  lua_pop(L, 1);
   lua_pushliteral(L, "parameters");
   lua_rawget(L, -3);
   if (!lua_isnil(L, -1)) {
@@ -1508,7 +1513,8 @@ COSMIC_SYSCALL(spawn, 12) {
     .rlimit_count = o.rlimit_count, .rlimits = o.rlimits,
 #if defined(__APPLE__)
     .seatbelt_profile = o.seatbelt_profile, .seatbelt_parameters = o.seatbelt_words,
-    .seatbelt_parameter_count = o.seatbelt_count, .terminal_path = terminal_path,
+    .seatbelt_parameter_count = o.seatbelt_count, .seatbelt_boot = o.seatbelt_boot,
+    .terminal_path = terminal_path,
 #endif
     .unveiling = o.unveiling, .offline = o.offline, .noexec_scratch = o.noexec_scratch,
     .relay_channel = o.relay_channel, .relay_ports = { o.relay_ports[0], o.relay_ports[1] },

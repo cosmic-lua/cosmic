@@ -162,6 +162,18 @@ bool cosmic_trampoline_asked (int argc, char **argv);
  * reported over the status descriptor and ends this process, never
  * the program (core/sandbox_rules.c). */
 _Noreturn void cosmic_trampoline (int argc, char **argv);
+
+/* The variables a policy's start hands a cosmic child on macOS: the
+ * Seatbelt profile its core applies at boot, in place of the trampoline,
+ * and the profile's parameters, each name and value "<length>:<bytes>". */
+#define COSMIC_SEATBELT_PROFILE "COSMIC_SEATBELT_PROFILE"
+#define COSMIC_SEATBELT_PARAMETERS "COSMIC_SEATBELT_PARAMETERS"
+
+/* Holds this process to the Seatbelt `profile` with `parameters`, as
+ * COSMIC_SEATBELT_PARAMETERS words them (core/sandbox_rules.c). 0, or an
+ * errno with why in `message`. */
+int cosmic_boot_seatbelt_apply (const char *profile, const char *parameters, char *message,
+                                size_t room);
 #endif
 
 #endif
@@ -250,7 +262,7 @@ COSMIC_SYSCALL(stream_pair, 0);
  * ---@field user integer|nil with `unveil` or `proc` and `group`, the user the child runs as in place of this process's root, which must hold CAP_SETUID, CAP_SETGID and CAP_SETFCAP where that user and group are mapped (root, most often), or nil to run as this process's own: its namespace maps root and that user beside it, written from outside by a process of this one's, and its root is built by root there, with what it makes owned by that user, as an unprivileged caller's child's is; then it gives root up for that user and group, with no supplementary group, and, where its /proc is its own, makes a user namespace mapping that user and group alone, as such a caller's child has -- so, as that one can, it confines one of its own at any depth. Neither 0 nor -1. EPERM where this process may not map them
  * ---@field group integer|nil the group the child runs as with `user`, which needs one
  * ---@field promises {string}|nil the promises the child is held to, or nil for no filter: a seccomp allow list (core/promises.c), which answers EPERM to every call the basics and these do not name. The basics are what every program has: memory, time, signals to itself, threads, descriptors, the file calls Landlock holds the paths of (never making a file setuid or setgid), executable mappings of files, execve, a unix stream or seqpacket socketpair and read-only terminal queries. `"fork"` adds fork, vfork and clone without a namespace flag; `"jit"` adds executable memory that is not a file's; `"fattr"` adds changing a file's mode, times, owner and extended attributes (never with a setuid or setgid bit); `"nest"` adds what a program needs to build a sandbox of its own -- unshare of the user, mount, pid, IPC and network namespaces, mount, umount2, pivot_root, open_tree, move_mount, mount_setattr, setrlimit, prctl's PR_CAPBSET_DROP and PR_CAP_AMBIENT, and, beside `"fork"`, clone into those namespaces and with CLONE_PARENT -- and is for a program no Landlock ruleset holds, since the kernel refuses a mount to one. `clone3` and `openat2` answer ENOSYS, a refused ioctl ENOTTY, and socket() is refused unless `sockets` names its family or the child is in a root of its own (`unveil`, strict), a network namespace of its own (`offline`) and either a Landlock ruleset that handles unix sockets by path (ABI 9) or, below it, a root that shows no directory of the host's and no socket file (the start checks the paths and descriptors, and fails if a bound path changes kind), which lets it make a unix socket. A child in a user namespace of its own (`unveil` or `offline`), or whose capabilities lack CAP_SYS_RESOURCE, may set its own limits with setrlimit and prlimit64, which the kernel allows lowering and refuses raising a hard limit; a child in a pid namespace of its own (`unveil`) may name any pid to getpgid, getsid and setpgid. It is built in the child, after Landlock and just before exec, and holds every process the child starts. The signal calls (kill, tkill, tgkill, pidfd_send_signal and the queueing ones) take any pid where the child is held to `grants`, whose ruleset scopes signals (ABI 6): the kernel then refuses a signal to a process outside the child's domain, with EPERM, so a process it forks can signal its own and the child's. Otherwise -- a kernel below ABI 6, or no `grants` -- they take only the pid the child had when it was built, so a process it forks, which has another, cannot signal itself, and its abort() ends by SIGSEGV rather than SIGABRT. `jit` is no boundary against a program that can write a file it can also map (one file mapped shared writable and executable) or against a write through /proc/self/mem. On aarch64 an mprotect adding PROT_EXEC is allowed only with PROT_BTI and without PROT_WRITE, as glibc's loader makes it Linux on x86_64 and aarch64; ENOSYS elsewhere
- * ---@field seatbelt Seatbelt|nil the Seatbelt profile the child is held to, or nil for none: applied by a process of this program that executes the child's program as its last step, so it holds the program and everything it starts, and a refusal of the profile fails the start with its text, never running the program unconfined. macOS only; raises elsewhere, and ENOSYS where the system has no `sandbox_init_with_parameters`
+ * ---@field seatbelt Seatbelt|nil the Seatbelt profile the child is held to, or nil for none: applied by a process of this program that executes the child's program as its last step, so it holds the program and everything it starts, and a refusal of the profile fails the start with its text, never running the program unconfined. Where its `boot` is true the program is a cosmic core, which the trampoline executes with no profile and which applies the profile itself before any module loads, or ends. macOS only; raises elsewhere, and ENOSYS where the system has no `sandbox_init_with_parameters`
  */
 
 /*
@@ -258,6 +270,7 @@ COSMIC_SYSCALL(stream_pair, 0);
  * ---@class Seatbelt
  * ---@field profile string the profile's SBPL text, with no NUL
  * ---@field parameters {string:string} the profile's parameters, by name: values the text names with `(param "NAME")`, so none is part of the text. At most `SEATBELT_PARAMETER_MAX`
+ * ---@field boot boolean|nil true where the program is a cosmic core that applies the profile itself at boot, handed it in COSMIC_SEATBELT_PROFILE and COSMIC_SEATBELT_PARAMETERS: the trampoline then applies none, as macOS applies no second profile. The start still refuses where a profile holds this process
  */
 
 /*

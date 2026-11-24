@@ -481,6 +481,55 @@ _Noreturn void cosmic_trampoline (int argc, char **argv) {
   if (message[0] == '\0' && step[0] != '\0') snprintf(message, sizeof message, "%s", step);
   trampoline_fail(status, failure, message[0] != '\0' ? message : NULL);
 }
+
+/* Reads one "<length>:<bytes>" of `text` at `*at` into `out` (of `room`
+ * bytes, NUL-terminated): true, with `*at` past it, or false for text
+ * of another form or a word longer than `room` holds. */
+static bool boot_word (const char *text, size_t *at, char *out, size_t room) {
+  const char *from = text + *at;
+  if (*from < '0' || *from > '9') return false;
+  size_t length = 0;
+  while (*from >= '0' && *from <= '9') {
+    if (length > (SIZE_MAX - 9) / 10) return false;
+    length = length * 10 + (size_t)(*from - '0');
+    from++;
+  }
+  if (*from != ':' || length >= room || strnlen(from + 1, length) != length) return false;
+  memcpy(out, from + 1, length);
+  out[length] = '\0';
+  *at = (size_t)(from + 1 - text) + length;
+  return true;
+}
+
+int cosmic_boot_seatbelt_apply (const char *profile, const char *parameters, char *message,
+                                size_t room) {
+  static char words[2 * SEATBELT_PARAMETER_MAX][PATH_MAX + 1];
+  const char *list[2 * SEATBELT_PARAMETER_MAX + 1];
+  size_t count = 0, at = 0;
+  if (parameters == NULL) parameters = "";
+  while (parameters[at] != '\0') {
+    if (count >= 2 * SEATBELT_PARAMETER_MAX ||
+        !boot_word(parameters, &at, words[count], sizeof words[count])) {
+      snprintf(message, room, "its parameters are not names and values, each <length>:<bytes>, "
+               "at most %d of each", SEATBELT_PARAMETER_MAX);
+      return EINVAL;
+    }
+    list[count] = words[count];
+    count++;
+  }
+  if (count % 2 != 0) {
+    snprintf(message, room, "its parameters hold a name with no value");
+    return EINVAL;
+  }
+  list[count] = NULL;
+  if (profile[0] == '\0') {
+    snprintf(message, room, "its profile is empty");
+    return EINVAL;
+  }
+  int failure = apply_seatbelt(profile, list, message, room);
+  if (failure == 0) seatbelt_held = true;
+  return failure;
+}
 #endif
 
 #if defined(__linux__)

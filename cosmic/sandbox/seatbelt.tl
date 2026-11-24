@@ -65,6 +65,12 @@ local record Seatbelt
     --- `x` it may map as a library and not run. Only the start of the relay
     --- sets it.
     mut serves_relay?: integer
+    --- Whether the core applies the profile itself at boot (a cosmic
+    --- child, past the start): `core` and the "cosmic" profile's
+    --- `executable` are then granted `r`, not `rx`, since the core runs
+    --- already, and so the program cannot run its core, or this program,
+    --- again unless a grant of the policy gives it `x`.
+    mut booted?: boolean
   end
 
   --- Text to pass to sandbox_init_with_parameters, values kept outside
@@ -168,7 +174,7 @@ end
 --- none is interpolated into SBPL. The "system" profile is macOS's even
 --- when compiling on another host; "cosmic" names `options.executable`,
 --- unless the policy has a `database`: the program is then that core and
---- file alone, `options.core` (`rx`) and `options.database` (`r`), which the
+--- file alone, `options.core` (`rx`, or `r` where `options.booted`) and `options.database` (`r`), which the
 --- policy's own `database` must be. A policy's `tmp` is granted `rwc` through
 --- the parameter [`Seatbelt.Profile`]'s `tmp` names, which the caller sets.
 --- A policy's `connect` is reached through the network relay alone, at
@@ -227,7 +233,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
       if executable == nil then
         return refuse("profile cosmic needs this program's executable")
       end
-      trouble = add(executable, "rx")
+      trouble = add(executable, if options ~= nil and options.booted == true then "r" else "rx" end)
       if trouble ~= "" then return refuse(trouble) end
     end
   end
@@ -247,7 +253,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     end
   end
   if options_core ~= nil then
-    trouble = add(options_core, "rx")
+    trouble = add(options_core, if options ~= nil and options.booted == true then "r" else "rx" end)
     if trouble ~= "" then return refuse(trouble) end
   end
   if options_database ~= nil then
