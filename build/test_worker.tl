@@ -2328,6 +2328,8 @@ function worker.run(argv: {string}): integer
     -- Where the files above the project are, for a module that declares
     -- some ([`Test.parent`]).
     parent = env_get("COSMIC_TEST_PARENT"),
+    -- What makes the same work cost more in this run ([`Test.mode`]).
+    types_checked = env_get("COSMIC_TEST_TYPES") == "1",
     skipped = function(reason: string): {string:string}
       local seen = false
       for _, given in ipairs(reasons) do

@@ -881,6 +881,11 @@ the checked verdicts of earlier runs, as the legs' suites stand on theirs
 (ci/README.md's `checked-narrowing`). `bin/cosmic test --check-types` runs
 it anywhere.
 
+The wraps slow some code more than other code, so a speed test that
+holds one piece of work to a multiple of another ([`lang.speed`]) reads
+[`Test.mode`]'s `types_checked` and gives that run a limit of its own
+([`build/fix/format_speed_test.tl`]'s `budget`).
+
 ## fuzz tests
 
 A parser that reads untrusted bytes gets a `*_fuzz_test.tl` beside it,
@@ -1312,6 +1317,7 @@ Other rules:
 [`build/dispatch_sites.tl`]: ../build/dispatch_sites.tl
 [`build/dispatched_features_test.tl`]: ../build/dispatched_features_test.tl
 [`build/fact_hook_tool_test.tl`]: ../build/fact_hook_tool_test.tl
+[`build/fix/format_speed_test.tl`]: ../build/fix/format_speed_test.tl
 [`build/harness_epoch_test.tl`]: ../build/harness_epoch_test.tl
 [`build/rebuild_lock_tool_test.tl`]: ../build/rebuild_lock_tool_test.tl
 [`build/stamp.tl`]: ../build/stamp.tl
@@ -1348,11 +1354,13 @@ Other rules:
 [`lang.check_programs`]: ../lang/check_programs.tl
 [`lang.codegen`]: ../lang/codegen.tl
 [`lang.fact_wraps`]: ../lang/fact_wraps.tl
+[`lang.speed`]: ../lang/speed.tl
 [`lang/check_assigned_fuzz_test.tl`]: ../lang/check_assigned_fuzz_test.tl
 [`lang/check_flow_fuzz_test.tl`]: ../lang/check_flow_fuzz_test.tl
 [`lang/check_total_fuzz_test.tl`]: ../lang/check_total_fuzz_test.tl
 [`Store.withheld`]: ../cosmic/store.tl
 [`sys.cpu_features`]: ../core/syscalls.h
+[`Test.mode`]: ../cosmic/test.tl
 [`Test.passed_unchecked`]: ../cosmic/test.tl
 [`Test.policy`]: ../cosmic/test.tl
 [`Test.skip`]: ../cosmic/test.tl
