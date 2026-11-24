@@ -31,7 +31,6 @@ local Codec = require("cosmic.codec")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
-local Json = require("cosmic.json")
 local Stream = require("cosmic.stream")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
@@ -333,6 +332,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
         complain(why)
         code = bare.refused
       elseif request.json then
+        -- Only `--json` writes JSON, so only it loads the module.
+        local Json = require("cosmic.json")
         local row, refused = Json.encode({ path = name, algorithm = label, digest = digest }, { pretty = false })
         if row == nil then
           complain(Json.quote(name) .. ": --json cannot write this path: " .. tostring(refused))
