@@ -925,6 +925,23 @@ local function test_coverage_is_kept_for_the_newest_ten_runs_only()
   assert(db:close())
 end
 
+--- A run keeps each test's newest ten failures, whatever another test's
+--- count.
+local function test_failures_keep_each_tests_newest_ten()
+  local db = assert(Sqlite.open(":memory:", { writable = true }))
+  for _, statement in ipairs(work.schema) do assert(db:exec(statement)) end
+  assert(test.record_failure(db, "a_test", "test_x", "boom", 1, "k", 1))
+  for at = 2, 30 do assert(test.record_failure(db, "a_test", "test_y", "again", at, "k", at)) end
+  assert(test.prune_history(db, 100))
+  local kept = assert(db:text_rows(
+    "SELECT test, count(*), min(ran_at_ns), max(ran_at_ns) FROM failures GROUP BY test ORDER BY test"))
+  assert(#kept == 2, "failures kept of " .. tostring(#kept) .. " tests")
+  local x, y = assert(kept[1]):texts(), assert(kept[2]):texts()
+  assert(table.concat(x, " ") == "test_x 1 1 1", "test_x kept: " .. table.concat(x, " "))
+  assert(table.concat(y, " ") == "test_y 10 21 30", "test_y kept: " .. table.concat(y, " "))
+  assert(db:close())
+end
+
 --- A module that declares loopback addresses requires `loopback` without
 --- writing it, once where it writes it too; one that declares none, or
 --- no policy at all, requires only what it writes.
