@@ -16,7 +16,7 @@ local _ = require("build.standalone")
 local type _ = require("cosmic.mcp.server")
 local this_program = require("build.this_program")
 
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "/bin/sh", letters = "r" }, { path = "/bin/sleep", letters = "r" }, { path = "/usr/bin/sleep", letters = "r" } } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "/bin/sh", letters = "r" }, { path = "/bin/sleep", letters = "r" }, { path = "/usr/bin/sleep", letters = "r" }, { path = "/usr/bin/setsid", letters = "r" } } }
 
 --- The worker, as `cosmic agent worker` runs it, in a child of this module.
 test_child.register("worker", function(_args: {string}): integer
@@ -37,8 +37,8 @@ local function shown(answer: Worker.Answer): string
   return text or "?"
 end
 
-local function run(w: Worker.Set, code: string, seconds?: integer): Worker.Answer
-  local dir = assert(Fs.mkdtemp("agent-worker-"))
+local function run(w: Worker.Set, code: string, seconds?: integer, cwd?: string): Worker.Answer
+  local dir = cwd or assert(Fs.mkdtemp("agent-worker-"))
   return assert(Worker.run(w, code, { cwd = dir, seconds = seconds or 60 }))
 end
 
@@ -139,22 +139,42 @@ local function test_an_answer_holds_any_bytes_and_a_large_value_and_the_snippet_
   Worker.close(w)
 end
 
---- A snippet that prints without end runs to its timeout, its output read as it goes and none of it held but the end:
---- no file grows. What a program it started writes after it answered is not the next snippet's.
-local function test_a_snippet_that_prints_without_end_runs_to_its_timeout_and_a_late_write_is_dropped()
+--- A snippet that prints without end runs to its timeout, the worker read as it writes. What a program an earlier
+--- snippet started writes after that snippet answered is not the next snippet's output, nor is a snippet's end mark
+--- another's.
+local function test_a_late_write_and_a_snippets_own_mark_are_not_the_next_snippets_output()
   local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
   local answer, why = Worker.run(w, "while true do print(string.rep(\"z\", 4096)) end\n", { cwd = dir, seconds = 2 })
   assert(answer == nil and tostring(why):find("ran past 2 seconds", 1, true) ~= nil, tostring(why))
+  -- The shell leaves a program behind in a session of its own, which outlives the shell's group and writes once the
+  -- snippet answered.
   local late = "local Child = require(\"cosmic.child\")\n" ..
-    "local _ = assert(Child.start({ \"/bin/sh\", \"-c\", \"sleep 0.5; echo late\" },\n" ..
-    "  { stdout = \"inherit\", stderr = \"inherit\", timeout_ns = Child.FOREVER }))\n" ..
+    "local _ = assert(Child.run({ \"/usr/bin/setsid\", \"-f\", \"/bin/sh\", \"-c\", " ..
+    "\"sleep 0.5; echo late; echo late > wrote\" },\n" ..
+    "  { stdout = \"inherit\", stderr = \"inherit\", timeout_ns = 10 * 1000000000 }))\n" ..
     "print(\"now\")\n"
-  local first = run(w, late)
+  local first = run(w, late, nil, dir)
   assert(first["ok"] == true and first["output"] == "now\n", shown(first))
-  local _, _ = Clock.sleep_ns(Clock.seconds(1))
-  local after = run(w, "print(\"next\")\n")
+  local deadline = Clock.monotonic_ns() + Clock.seconds(10)
+  local wrote, _ = Fs.read(dir .. "/wrote")
+  while wrote == nil and Clock.monotonic_ns() < deadline do
+    local _, _ = Clock.sleep_ns(Clock.ms(50))
+    local again, _ = Fs.read(dir .. "/wrote")
+    wrote = again
+  end
+  -- Past the file, the echo to the pipe came first.
+  assert(wrote == "late\n", "the late program wrote")
+  local after = run(w, "print(\"next\")\n", nil, dir)
   assert(after["ok"] == true and after["output"] == "next\n", shown(after))
+  -- A snippet that prints another request's end mark ends no output but its own.
+  local spoof = "local Worker = require(\"cosmic.agent.worker\")\n" ..
+    "print(\"a\" .. Worker.mark(\"end\", 99) .. Worker.mark(\"start\", 5) .. \"b\")\n"
+  local own = run(w, spoof, nil, dir)
+  assert(own["ok"] == true and tostring(own["output"]):sub(1, 1) == "a" and tostring(own["output"]):sub(-2) == "b\n",
+    shown(own))
+  local last = run(w, "print(\"last\")\n", nil, dir)
+  assert(last["ok"] == true and last["output"] == "last\n", shown(last))
   Worker.close(w)
 end
 

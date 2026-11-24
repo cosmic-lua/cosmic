@@ -14,8 +14,8 @@
 --- the request's `id` and one of: `refused`, the checker's lines, for a snippet that did not run; `ok` true and `value`
 --- (the JSON of what it returned, where it returned one, at most 64KB); `ok` false and `error`, for one that raised; or
 --- `error` alone, for a request it could not read. What a snippet writes to standard output and standard error goes to
---- the worker's standard error, a pipe this module reads while the snippet runs, between [`Worker.MARK_START`] and
---- [`Worker.MARK_END`]: an answer of `ok` gains `output`, the last 64KB of it as UTF-8, and `cut` true where more was
+--- the worker's standard error, a pipe this module reads while the snippet runs, between the request's marks
+--- ([`Worker.mark`]): an answer of `ok` gains `output`, the last 64KB of it as UTF-8, and `cut` true where more was
 --- written. Only the end is held, so a snippet that prints without end fills no file. Before its answer, a snippet may call the
 --- agent ([`cosmic.agent.host`]): a line `{"id":1,"call":"sql","args":{...}}`, which [`Worker.Options.serve`] answers
 --- in the agent and the reply goes back on the worker's input, `{"reply":...}` or `{"failed":"..."}`. A snippet sets no global, which the checker
@@ -39,11 +39,14 @@ local Stream = require("cosmic.stream")
 local record Worker
   --- The most bytes of a snippet's output an answer holds: 64KB.
   OUTPUT_BYTES: integer
-  --- What the worker writes on its output before a request's, which ends what came before: a program an earlier
-  --- snippet started may still write.
-  MARK_START: string
-  --- What the worker writes on its output after a request's.
-  MARK_END: string
+
+  --- What the worker writes on its output before (`kind` "start") and after ("end") the output of the request `id`.
+  --- What comes before the start is not that request's: a program an earlier snippet started may still write. The
+  --- id keeps one request's marks from ending another's; a snippet that prints its own end mark ends its own output.
+  mark: function(kind: string, id: integer): string
+
+  --- The last [`Worker.OUTPUT_BYTES`] of `text`, from a character's start, as UTF-8.
+  tail: function(text: string): string
 
   --- What one snippet runs with.
   record Options
@@ -188,7 +191,10 @@ local function answer_of(lines: Stream.Lines, writer: Stream.Writer, id: integer
   end
 end
 
---- The last [`Worker.OUTPUT_BYTES`] of `text`, from a character's start, as UTF-8.
+function Worker.mark(kind: string, id: integer): string
+  return "\0\0cosmic agent worker: " .. kind .. " " .. tostring(id) .. "\0\0"
+end
+
 function Worker.tail(text: string): string
   if #text <= Worker.OUTPUT_BYTES then return String.as_utf8(text) end
   local from = #text - Worker.OUTPUT_BYTES + 1
@@ -196,36 +202,53 @@ function Worker.tail(text: string): string
   return String.as_utf8(text:sub(from))
 end
 
---- A request's output, as it is read: what came after its start mark, at most its last [`Worker.OUTPUT_BYTES`] and a
---- few, and whether more came.
+--- A request's output, as it is read.
 local record Output
+  --- Its marks ([`Worker.mark`]).
+  start: string
+  finish: string
+  --- Whether its start mark was read.
   mut started: boolean
+  --- Whether its end mark was read.
   mut ended: boolean
+  --- What came after its start mark: before the end mark, its last bytes alone, past what an answer holds by a mark's
+  --- length, which may be the start of a mark cut in two; before the start mark, those bytes alone.
   mut kept: string
+  --- Whether bytes after the start mark were let go.
   mut cut: boolean
+  --- What came before the start mark, its last bytes: what the worker wrote as it failed to start.
+  mut before: string
 end
 
---- `output` with `chunk` read: what comes before the start mark dropped, what comes after the end mark too, and only the
---- end kept, with a mark's length beside it, which may be the start of a mark cut in two.
+--- How many bytes an output holds past what an answer does: one more tells it was cut, and a mark cut in two is held.
+local HOLD_MORE <const> = 64
+
+--- How many bytes of what came before the start mark a failure tells.
+local TOLD <const> = 1024
+
+--- `output` with `chunk` read: what comes before its start mark dropped, after its end mark too, and only the end held.
 local function took(output: Output, chunk: string)
   local text = output.kept .. chunk
   if not output.started then
-    local _, at = text:find(Worker.MARK_START, 1, true)
+    local _, at = text:find(output.start, 1, true)
     if at == nil then
-      output.kept = text:sub(-(#Worker.MARK_START - 1))
+      output.before = (output.before .. chunk):sub(-TOLD)
+      output.kept = text:sub(-(#output.start - 1))
       return
     end
     output.started = true
     text = text:sub(at + 1)
+    output.kept = ""
   end
-  local ends = text:find(Worker.MARK_END, 1, true)
+  -- The end mark is looked for only where it can begin: in what was held but a mark's length, and in the chunk.
+  local ends = text:find(output.finish, math.max(1, #output.kept - #output.finish + 2), true)
   if ends ~= nil then
     text = text:sub(1, ends - 1)
     output.ended = true
   end
-  -- 4 more than an answer holds, so that a character cut at the start is told apart from one more byte.
-  local hold = Worker.OUTPUT_BYTES + 4 + (if output.ended then 0 else #Worker.MARK_END - 1 end)
-  if #text > hold then
+  -- Cut back only past twice what is held, so that a run of small chunks does not copy the whole each time.
+  local hold = Worker.OUTPUT_BYTES + HOLD_MORE
+  if #text > 2 * hold or (output.ended and #text > hold) then
     text = text:sub(-hold)
     output.cut = true
   end
@@ -239,8 +262,9 @@ function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worke
   if lines == nil then return nil, why end
   local writer = assert(set.writer)
   local reader = assert(set.output)
-  local output: Output = { started = false, ended = false, kept = "", cut = false }
   local id = set.next
+  local output: Output = { start = Worker.mark("start", id), finish = Worker.mark("end", id), started = false,
+    ended = false, kept = "", cut = false, before = "" }
   set.next = id + 1
   local request, encode_why = Json.encode({ id = id, code = code })
   if request == nil then return nil, Failure.new("worker: " .. tostring(encode_why)) end
@@ -293,9 +317,15 @@ function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worke
         break
       end
     end
-    -- The worker marks the end of the output before it answers, so it is near once the answer is in.
-    if answer ~= nil and not timed_out and not halted then
-      local _, _ = printed:join(OUTPUT_WAIT)
+    -- The worker marks the end of the output before it answers, so it is near once the answer is in; an answer to a
+    -- request the worker could not read has no output.
+    local given = answer
+    if given ~= nil and given["ok"] ~= nil and not timed_out and not halted then
+      local waited = Clock.monotonic_ns() + OUTPUT_WAIT
+      while not output.ended and Clock.monotonic_ns() < waited and not (stopped ~= nil and stopped()) do
+        local done, _ = printed:join(STOP_CHECK)
+        if done then break end
+      end
     end
     printed:cancel()
     local _, _ = printed:join()
@@ -308,7 +338,10 @@ function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worke
       return nil, Failure.new("the snippet ran past " .. String.counted(seconds or 0, "second") .. "; the worker was ended, " ..
           "and the next run starts a new one")
     end
-    return nil, Failure.new("worker: " .. trouble .. "; the next run starts a new one")
+    -- TODO: tell the end of a snippet's output when it ran past its timeout or was stopped: it is in hand.
+    local said = if output.before ~= "" and not output.started then "; it wrote: " ..
+      (String.as_utf8(output.before):gsub("[%z\1-\8\11-\31\127]", "")) else "" end
+    return nil, Failure.new("worker: " .. trouble .. said .. "; the next run starts a new one")
   end
   if got["ok"] ~= nil then
     if not output.ended then
@@ -325,7 +358,5 @@ function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worke
 end
 
 Worker.OUTPUT_BYTES = 64 * 1024
-Worker.MARK_START = "\0\0cosmic agent worker: start\0\0"
-Worker.MARK_END = "\0\0cosmic agent worker: end\0\0"
 
 return Worker

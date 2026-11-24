@@ -52,8 +52,9 @@ local type Answer = {string: Json.Value}
 
 --- Where a snippet's output goes while it runs.
 local record Capture
-  --- Runs `f` with descriptors 1 and 2 pointed at the agent's output pipe: what `f` answered.
-  run: function(Capture, f: function(): Answer): Answer
+  --- Runs `f` with descriptors 1 and 2 pointed at the agent's output pipe, between the marks of the request `id`
+  --- ([`Worker.mark`]): what `f` answered.
+  run: function(Capture, id: integer, f: function(): Answer): Answer
 end
 
 --- The most bytes of the JSON of what a snippet returned an answer holds: well within the line of 1MB the agent reads an
@@ -232,7 +233,8 @@ local function answer_to(kept: Pipeline.Kept, modules: Modules, capture: Capture
   local chunk, load_trouble = standalone.loaded_with(SNIPPET, lua, values)
   if chunk == nil then return failed(id, load_trouble) end
   local ran: mut {string: Json.Value} = {}
-  local answer = capture:run(function(): Answer
+  -- The agent sends each request an integer id, which marks its output.
+  local answer = capture:run(if id is integer then id else 0 end, function(): Answer
     local done, value = pcall(function(): any return (chunk()) end)
     if not done then return { ok = false, error = String.as_utf8(tostring(value)) } end
     if value == nil then return { ok = true } end
@@ -249,12 +251,14 @@ end
 --- file holds what a snippet prints without end.
 local function capture_on(output: integer, null: integer): Capture
   return {
-    run = function(_self: Capture, f: function(): Answer): Answer
+    run = function(_self: Capture, id: integer, f: function(): Answer): Answer
+      local _, _ = Fs.put(output, Worker.mark("start", id))
       local _, _ = sys.dup2(output, 1)
       local _, _ = sys.dup2(output, 2)
       local answer = f()
       local _, _ = sys.dup2(null, 1)
       local _, _ = sys.dup2(null, 2)
+      local _, _ = Fs.put(output, Worker.mark("end", id))
       return answer
     end,
   }
@@ -267,7 +271,7 @@ function worker.main(): integer
     return 1
   end
   -- The requests come in on a copy of standard input, the answers go out on a copy of standard output, and a
-  -- snippet's output on a copy of standard error ([`Worker.MARK_START`]); descriptors 0, 1 and 2 are /dev/null, but 1
+  -- snippet's output on a copy of standard error ([`Worker.mark`]); descriptors 0, 1 and 2 are /dev/null, but 1
   -- and 2 while a snippet runs.
   local input, input_why = sys.dup(0)
   local out, out_why = sys.dup(1)
@@ -294,11 +298,7 @@ function worker.main(): integer
   while true do
     local line = line_of(channel)
     if line == nil then break end
-    -- What comes on the output between the marks is this request's: before the start, a program an earlier snippet
-    -- started may still write.
-    local _, _ = Fs.put(output, Worker.MARK_START)
     local answer = answer_to(kept, modules, capture, channel, line)
-    local _, _ = Fs.put(output, Worker.MARK_END)
     local text, encode_why = Json.encode(answer)
     if text == nil then
       local id = answer["id"]
