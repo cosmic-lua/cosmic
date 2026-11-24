@@ -7,6 +7,8 @@
 --- findings of its own is refused for what it holds, and its line is its diagnostic. One with none has the line of a file
 --- left out, which says that it was checked.
 
+local AnalysisSchema = require("build.analysis_schema")
+
 local record refusals
   --- The refusals a run shows, sorted out ([`refusals.cascade`]).
   record Cascade
@@ -139,6 +141,33 @@ function refusals.text(lines: {string}, roots: {string:{integer}}): string
   if collapsed ~= nil then out[#out + 1] = collapsed end
   if counted ~= nil then out[#out + 1] = counted end
   return table.concat(out, "\n")
+end
+
+--- Whether `file` is a test or test support, which a tool carries none of and no module it carries may require
+--- ([`build.positions`]).
+local function test_side(file: string): boolean
+  return AnalysisSchema.kind_of(file) == "test" or AnalysisSchema.is_support(file)
+end
+
+--- Whether every refusal of `lines`, and every file `roots` holds out ([`importer.Result`]'s `refusal_roots`), is of a
+--- test or test support: the modules a tool carries all built, so a tool written from them is whole, and the run that
+--- names a refused test says why it fails. False where there is no refusal, or `roots` is nil, as a result from before
+--- it was kept.
+function refusals.tests_only(lines: {string}, roots?: {string:{integer}}): boolean
+  if #lines == 0 or roots == nil then return false end
+  for _, line in ipairs(lines) do
+    if not test_side(file_of(line)) then return false end
+  end
+  for file in pairs(roots) do
+    if not test_side(file) then return false end
+  end
+  return true
+end
+
+--- What a boot says after [`refusals.text`] where it writes the tool all the same ([`refusals.tests_only`]).
+function refusals.written_without_tests(): string
+  return "only tests and test support are refused, which the tool carries none of, so the tool is written; " ..
+    "a run of them fails until they build"
 end
 
 return refusals
