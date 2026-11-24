@@ -108,7 +108,7 @@ end
 --- An arm64 macOS arm that says it was chosen, and goes no further.
 local chosen_mac = "  'Darwin arm64') portable_die 'chose the macOS core' ;;"
 
---- Where /proc/sys/kernel does not answer, bash's own OSTYPE and HOSTTYPE name a Mac with no `uname` run (whose
+--- Where /proc/sys/kernel cannot be read, bash's own OSTYPE and HOSTTYPE name a Mac with no `uname` run (whose
 --- stub fails here); a machine they do not name still asks `uname -sm`.
 local function test_bash_names_a_mac_with_no_uname(tmp: string)
   local script = tmp .. "/launcher"

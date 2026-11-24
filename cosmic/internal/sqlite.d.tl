@@ -260,7 +260,7 @@ local record sqlite
   --- The SQLite library's version, such as "3.54.1".
   version: string
   --- `x` as SQLite writes a REAL as text: what `CAST(x AS TEXT)` and a
-  --- column's text answer for it.
+  --- column's text give for it.
   number_text: function(x: number): string
   --- The one read-only empty Value, which binds NULL.
   NULL: Value
