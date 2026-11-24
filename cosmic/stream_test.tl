@@ -3,10 +3,36 @@
 
 local Clock = require("cosmic.clock")
 local Compress = require("cosmic.compress")
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
+
+--- The next chunk of `reader`: raises where it ended or failed.
+local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
+  local chunk, why = reader:read(max_bytes)
+  if chunk == nil then error(tostring(why), 2) end
+  if chunk == false then error("the stream ended", 2) end
+  return chunk
+end
+
+--- The next line of `lines`: raises where they ended or failed.
+local function line_of(lines: Stream.Lines): string
+  local line, why = lines:read()
+  if line == nil then error(tostring(why), 2) end
+  if line == false then error("the lines ended", 2) end
+  return line
+end
+
+--- The [`Failure`] for the words a read failed with: kind "timeout" for
+--- [`Poll.TIMEOUT`], "cancelled" for [`Poll.CANCELLED`] and for
+--- "interrupted" (a signal a [`Signal.guard`] caught), else "other".
+local function failure_of(why: string): Failure
+  if why == Poll.TIMEOUT then return Failure.timeout(why) end
+  if why == Poll.CANCELLED or why == "interrupted" then return Failure.cancelled(why) end
+  return Failure.new(why)
+end
 
 --- A plain-table stand-in for a [`cosmic.compress`] codec.
 local record Fake is Stream.Transform
@@ -32,8 +58,8 @@ local function drain(reader: Stream.Reader, max_bytes?: integer): string
   local parts: mut {string} = {}
   while true do
     local chunk, trouble = reader:read(max_bytes)
-    assert(trouble == "", trouble)
-    if chunk == nil then break end
+    assert(trouble == nil, tostring(trouble))
+    if chunk == nil or chunk == false then break end
     parts[#parts + 1] = chunk
   end
   return table.concat(parts)
@@ -42,51 +68,51 @@ end
 local function test_from_string_reads_the_whole_thing_and_then_eof()
   local r = Stream.from_string("hello world")
   assert(drain(r) == "hello world")
-  local chunk, trouble = r:read()
-  assert(chunk == nil and trouble == "")
+  local chunk, _ = r:read()
+  assert(chunk == false)
 end
 
 local function test_from_string_honors_max_bytes()
   local r = Stream.from_string("abcdefgh")
-  assert(r:read(3) == "abc")
-  assert(r:read(3) == "def")
-  assert(r:read(3) == "gh")
-  local chunk, trouble = r:read(3)
-  assert(chunk == nil and trouble == "")
+  assert(chunk_of(r, 3) == "abc")
+  assert(chunk_of(r, 3) == "def")
+  assert(chunk_of(r, 3) == "gh")
+  local chunk, _ = r:read(3)
+  assert(chunk == false)
 end
 
 local function test_from_string_empty_is_immediate_eof()
   local r = Stream.from_string("")
-  local chunk, trouble = r:read()
-  assert(chunk == nil and trouble == "")
+  local chunk, _ = r:read()
+  assert(chunk == false)
 end
 
 local function test_from_string_refuses_a_skip_so_large_it_would_wrap()
   local r = Stream.from_string("abcdefgh")
-  assert(r:read(2) == "ab")
+  assert(chunk_of(r, 2) == "ab")
   assert(r.skip ~= nil)
   local skipped, why = r:skip(math.maxinteger)
-  assert(skipped == false and why ~= "", why)
-  local chunk, trouble = r:read()
-  assert(chunk == nil and trouble == "")
+  assert(skipped == false and tostring(why) ~= "", why)
+  local chunk, _ = r:read()
+  assert(chunk == false)
 end
 
 local function test_from_string_reads_the_rest_for_a_read_so_large_it_would_wrap()
   local r = Stream.from_string("abcdefgh")
-  assert(r:read(2) == "ab")
+  assert(chunk_of(r, 2) == "ab")
   local rest, trouble = r:read(math.maxinteger)
   assert(rest == "cdefgh", tostring(rest) .. " " .. tostring(trouble))
-  local after, atrouble = r:read()
-  assert(after == nil and atrouble == "")
+  local after, _ = r:read()
+  assert(after == false)
 end
 
 local function test_from_string_refuses_a_negative_skip()
   local r = Stream.from_string("abcdefgh")
-  assert(r:read(4) == "abcd")
+  assert(chunk_of(r, 4) == "abcd")
   assert(r.skip ~= nil)
   local skipped, why = r:skip(-2)
-  assert(skipped == false and why ~= "", why)
-  assert(r:read(1) == "e")
+  assert(skipped == false and tostring(why) ~= "", why)
+  assert(chunk_of(r, 1) == "e")
 end
 
 local function test_open_reads_a_file_and_closes_at_eof(tmp: string)
@@ -95,8 +121,8 @@ local function test_open_reads_a_file_and_closes_at_eof(tmp: string)
   local r = assert(Stream.open(path))
   assert(drain(r, 5) == "some file contents")
   -- a second read past eof is fine and stays eof
-  local chunk, trouble = r:read()
-  assert(chunk == nil and trouble == "")
+  local chunk, _ = r:read()
+  assert(chunk == false)
 end
 
 local function test_open_missing_file_fails(tmp: string)
@@ -118,8 +144,8 @@ local function test_limit_stops_early_and_leaves_the_rest_unread()
   local underlying = Stream.from_string("0123456789")
   local limited = Stream.limit(underlying, 4)
   assert(drain(limited) == "0123")
-  local chunk, trouble = limited:read()
-  assert(chunk == nil and trouble == "")
+  local chunk, _ = limited:read()
+  assert(chunk == false)
   -- the underlying reader picks up right where the limit left off
   assert(drain(underlying) == "456789")
 end
@@ -134,7 +160,7 @@ local function test_read_exact_reads_precisely_that_many_bytes()
   local r = Stream.from_string("abcdefgh")
   local chunk, trouble = Stream.read_exact(r, 5)
   assert(chunk == "abcde" and trouble == nil)
-  assert(r:read() == "fgh")
+  assert(chunk_of(r) == "fgh")
 end
 
 local function test_read_exact_fails_short_of_the_target()
@@ -181,13 +207,13 @@ local function test_a_closed_writer_and_a_closed_reader_say_which_they_are(tmp: 
   for i, w in ipairs(writers) do
     assert(w:close())
     local ok, why = w:write("x")
-    assert(not ok and why:find("stream: the writer is closed", 1, true) == 1, tostring(i) .. ": " .. why)
+    assert(not ok and tostring(why):find("stream: the writer is closed", 1, true) == 1, tostring(i) .. ": " .. tostring(why))
   end
   assert(Fs.close(fd))
   local reader = Stream.from_string("abc")
   assert(reader:close())
   local data, why = reader:read()
-  assert(data == nil and why == "stream: the reader is closed", why)
+  assert(data == nil and tostring(why) == "stream: the reader is closed", why)
 end
 
 local function test_create_renames_into_place_only_on_close(tmp: string)
@@ -211,7 +237,7 @@ local function test_create_leaves_no_temp_file_when_write_fails(tmp: string)
   local w = assert(Stream.create(path))
   local ok, why = w:write("data")
   sys.write = real_write -- checked: field_fixed
-  assert(not ok and why == path .. ": injected failure", why)
+  assert(not ok and tostring(why) == path .. ": injected failure", why)
   local closed, trouble = w:close()
   assert(not closed and trouble == why, trouble)
   assert(not assert(Fs.status(path)).exists)
@@ -291,13 +317,13 @@ local function test_transform_writer_drains_a_decoder_in_bounded_writes()
   local total: integer = 0
   local largest: integer = 0
   local sink: Stream.Writer = { -- checked: literal_shape
-    write = function(_s: Stream.Writer, d: string): boolean, string
+    write = function(_s: Stream.Writer, d: string): (true) | (false, Failure)
       total = total + #d
       if #d > largest then largest = #d end
-      return true, ""
+      return true
     end,
-    close = function(_s: Stream.Writer): boolean, string return true, "" end,
-    abort = function(_s: Stream.Writer): boolean, string return true, "" end,
+    close = function(_s: Stream.Writer): (true) | (false, Failure) return true end,
+    abort = function(_s: Stream.Writer): (true) | (false, Failure) return true end,
   }
   local w = Stream.transform_writer(sink, (assert(Compress.decoder("zlib"))))
   assert(w:write(packed))
@@ -343,10 +369,10 @@ local function test_a_codec_error_is_sticky_rather_than_a_later_false_eof()
   local inflater = assert(Compress.decoder("gzip"))
   local r = Stream.transform(Stream.from_string(string.rep("x", 100)), inflater)
   local first, trouble = r:read()
-  assert(first == nil and trouble ~= "")
+  assert(first == nil)
   for _ = 1, 3 do
     local again, again_trouble = r:read()
-    assert(again == nil and again_trouble == trouble, again_trouble)
+    assert(again == nil and tostring(again_trouble) == tostring(trouble), again_trouble)
   end
 end
 
@@ -360,14 +386,15 @@ local function test_a_truncated_compressed_stream_fails_at_its_end_every_time()
   while true do
     local chunk, why = r:read()
     if chunk == nil then
-      trouble = why
+      trouble = tostring(why)
       break
     end
+    if chunk == false then break end
     parts[#parts + 1] = chunk
   end
   assert(trouble ~= "", "a truncated gzip stream ended cleanly")
   local again, again_trouble = r:read()
-  assert(again == nil and again_trouble == trouble, again_trouble)
+  assert(again == nil and tostring(again_trouble) == trouble, again_trouble)
 end
 
 local function test_a_file_reader_skips_by_seeking_and_refuses_to_pass_the_end(tmp: string)
@@ -376,25 +403,25 @@ local function test_a_file_reader_skips_by_seeking_and_refuses_to_pass_the_end(t
   local r = assert(Stream.open(path))
   assert(r.skip ~= nil)
   assert(r:skip(3))
-  assert(r:read(2) == "34")
+  assert(chunk_of(r, 2) == "34")
   assert(Stream.skip(r, 2))
-  assert(r:read() == "789")
+  assert(chunk_of(r) == "789")
   local skipped, trouble = r:skip(1)
-  assert(not skipped and trouble:find("end", 1, true) ~= nil, trouble)
+  assert(not skipped and tostring(trouble):find("end", 1, true) ~= nil, trouble)
   assert(r:close())
 end
 
 local function test_prepend_yields_the_prefix_then_the_reader()
   local r = Stream.prepend("abc", Stream.from_string("defg"))
-  assert(r:read(2) == "ab")
-  assert(r:read() == "c")
-  assert(r:read(3) == "def")
-  assert(r:read() == "g")
+  assert(chunk_of(r, 2) == "ab")
+  assert(chunk_of(r) == "c")
+  assert(chunk_of(r, 3) == "def")
+  assert(chunk_of(r) == "g")
   local done, trouble = r:read()
-  assert(done == nil and trouble == "", trouble)
+  assert(done == false, trouble)
   assert(r:close())
-  local none, why = r:read()
-  assert(none == nil and why ~= "")
+  local none, _ = r:read()
+  assert(none == nil)
 end
 
 local function test_prepend_of_nothing_is_the_reader_and_close_closes_it()
@@ -402,15 +429,15 @@ local function test_prepend_of_nothing_is_the_reader_and_close_closes_it()
   local r = Stream.prepend("", inner)
   assert(assert(Stream.read_all(r)) == "xy")
   assert(r:close())
-  local none, why = inner:read()
-  assert(none == nil and why ~= "")
+  local none, _ = inner:read()
+  assert(none == nil)
 end
 
 local function test_skip_falls_back_to_reading_for_a_reader_that_cannot_seek()
   local r = Stream.limit(Stream.from_string("abcdef"), 6)
   assert(r.skip == nil)
   assert(Stream.skip(r, 4))
-  assert(r:read() == "ef")
+  assert(chunk_of(r) == "ef")
   local skipped, _ = Stream.skip(Stream.limit(Stream.from_string("ab"), 2), 3)
   assert(not skipped)
 end
@@ -421,8 +448,8 @@ local function test_a_reader_refuses_reads_after_close(tmp: string)
   local r = assert(Stream.open(path))
   assert(r:close())
   assert(r:close()) -- idempotent
-  local chunk, trouble = r:read()
-  assert(chunk == nil and trouble ~= "")
+  local chunk, _ = r:read()
+  assert(chunk == nil)
 end
 
 --- A file's `sync` goes through the Writer `create` returns, so a caller
@@ -455,14 +482,23 @@ local function test_writers_refuse_writes_after_close(tmp: string)
   local w = assert(Stream.create(tmp .. "/f"))
   assert(w:close())
   assert(w:close()) -- idempotent
-  assert(not w:write("late"))
+  do
+    local ok, _ = w:write("late")
+    assert(not ok)
+  end
   local c = Stream.collect()
   assert(c:close())
-  assert(not c:write("late"))
+  do
+    local ok, _ = c:write("late")
+    assert(not ok)
+  end
   local fd = assert(Fs.open_write(tmp .. "/g"))
   local f = Stream.to_fd(fd)
   assert(f:close())
-  assert(not f:write("late"))
+  do
+    local ok, _ = f:write("late")
+    assert(not ok)
+  end
   assert(Fs.close(fd))
 end
 
@@ -487,7 +523,10 @@ local function test_tee_feeds_a_hashing_writer_beside_the_real_one()
   assert(c:result() == "hello world")
   assert(assert(h:digest()) == Hash.sha256("hello world"))
   assert(assert(h:digest()) == Hash.sha256("hello world")) -- asking again is fine
-  assert(not h:write("more"))
+  do
+    local ok, _ = h:write("more")
+    assert(not ok)
+  end
 end
 
 local function test_hashing_with_a_key_answers_the_hmac_and_none_means_plain()
@@ -500,7 +539,10 @@ local function test_hashing_with_a_key_answers_the_hmac_and_none_means_plain()
       assert(h:write("world"))
       assert(assert(h:digest()) == Hash.hmac(algorithm, key, "hello world"), algorithm .. " " .. tostring(#key))
       assert(assert(h:digest()) == Hash.hmac(algorithm, key, "hello world")) -- again
-      assert(not h:write("more"))
+      do
+        local ok, _ = h:write("more")
+        assert(not ok)
+      end
     end
     local plain = assert(Stream.hashing(algorithm, nil))
     assert(plain:write("abc"))
@@ -522,7 +564,7 @@ local function test_transform_writer_aborts_its_writer_when_the_codec_fails_to_f
   local w = Stream.transform_writer(assert(Stream.create(path)), codec)
   assert(w:write("data"))
   local ok, trouble = w:close()
-  assert(not ok and trouble:find("injected", 1, true) ~= nil, trouble)
+  assert(not ok and tostring(trouble):find("injected", 1, true) ~= nil, trouble)
   assert(not assert(Fs.status(path)).exists)
   local left = assert(Fs.list(tmp))
   assert(#left == 0, table.concat(left, ","))
@@ -583,21 +625,21 @@ local class Recorded is Stream.Writer
   --- The byte count at which a write is refused, nil for none.
   limit?: integer
 
-  function write(self, data: string): boolean, string
+  function write(self, data: string): (true) | (false, Failure)
     local limit = self.limit
-    if limit ~= nil and #self.got + #data >= limit then return false, "sink full" end
+    if limit ~= nil and #self.got + #data >= limit then return false, failure_of("sink full") end
     self.got = self.got .. data
-    return true, ""
+    return true
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.ended = "closed"
-    return true, ""
+    return true
   end
 
-  function abort(self): boolean, string
+  function abort(self): (true) | (false, Failure)
     self.ended = "aborted"
-    return true, ""
+    return true
   end
 end
 
@@ -657,14 +699,17 @@ local function test_transform_writer_hold_writes_nothing_of_a_stream_the_codec_c
   local w = Stream.transform_writer(out, strict(true), { hold = 1 })
   assert(w:write("ab"))
   local ok, trouble = w:close()
-  assert(not ok and trouble == "cut short", trouble)
+  assert(not ok and tostring(trouble) == "cut short", trouble)
   assert(out.got == "" and out.ended == "aborted")
   -- Without the hold the same run has let its text out before the cut.
   out = recording()
   w = Stream.transform_writer(out, strict(true))
   assert(w:write("ab"))
   assert(out.got == "AB")
-  assert(not w:close())
+  do
+    local closed, _ = w:close()
+    assert(not closed)
+  end
   assert(out.ended == "aborted")
 end
 
@@ -673,14 +718,14 @@ local function test_transform_writer_hold_writes_nothing_when_a_write_is_refused
   local w = Stream.transform_writer(out, strict(), { hold = 1 })
   assert(w:write("ab"))
   local ok, trouble = w:write("c!")
-  assert(not ok and trouble == "bang", trouble)
+  assert(not ok and tostring(trouble) == "bang", trouble)
   assert(out.got == "", "a refused write released the one before it")
   -- The refusal is kept: later writes and `close` answer it, and `close`
   -- aborts the writer without finishing the codec.
   ok, trouble = w:write("de")
-  assert(not ok and trouble == "bang", trouble)
+  assert(not ok and tostring(trouble) == "bang", trouble)
   ok, trouble = w:close()
-  assert(not ok and trouble == "bang", trouble)
+  assert(not ok and tostring(trouble) == "bang", trouble)
   assert(out.got == "" and out.ended == "aborted")
 end
 
@@ -689,9 +734,15 @@ local function test_transform_writer_hold_keeps_what_an_earlier_write_released()
   local w = Stream.transform_writer(out, strict(), { hold = 1 })
   assert(w:write("ab"))
   assert(w:write("cd"))
-  assert(not w:write("!"))
+  do
+    local ok, _ = w:write("!")
+    assert(not ok)
+  end
   assert(out.got == "AB", out.got)
-  assert(not w:close())
+  do
+    local ok, _ = w:close()
+    assert(not ok)
+  end
   assert(out.got == "AB" and out.ended == "aborted")
 end
 
@@ -701,7 +752,7 @@ local function test_transform_writer_hold_is_dropped_by_abort()
   assert(w:write("ab"))
   assert(w:abort())
   assert(out.got == "" and out.ended == "aborted")
-  local ok = w:write("cd")
+  local ok, _ = w:write("cd")
   assert(not ok)
 end
 
@@ -717,9 +768,9 @@ local function test_transform_writer_hold_reports_a_sink_that_fails_as_a_write_i
   local w = Stream.transform_writer(out, strict(), { hold = 1 })
   assert(w:write("a"))
   local ok, trouble = w:write("bc")
-  assert(not ok and trouble == "sink full", trouble)
+  assert(not ok and tostring(trouble) == "sink full", trouble)
   ok, trouble = w:close()
-  assert(not ok and trouble == "sink full", trouble)
+  assert(not ok and tostring(trouble) == "sink full", trouble)
   assert(out.got == "" and out.ended == "aborted")
 end
 
@@ -728,7 +779,7 @@ local function test_transform_writer_hold_reports_a_sink_that_fails_at_the_commi
   local w = Stream.transform_writer(out, strict(), { hold = 1 })
   assert(w:write("ab"))
   local ok, trouble = w:close()
-  assert(not ok and trouble == "sink full", trouble)
+  assert(not ok and tostring(trouble) == "sink full", trouble)
   assert(out.got == "" and out.ended == "aborted")
 end
 
@@ -739,14 +790,14 @@ local function test_transform_writer_hold_closes_once()
   assert(w:close())
   assert(w:close())
   assert(out.got == "AB.")
-  local ok = w:write("cd")
+  local ok, _ = w:write("cd")
   assert(not ok)
   -- A close that failed answers its failure again.
   w = Stream.transform_writer(recording(), strict(true), { hold = 1 })
   assert(w:write("ab"))
   local _, first = w:close()
   local again, second = w:close()
-  assert(again == false and second == first and first == "cut short", second)
+  assert(again == false and second == first and tostring(first) == "cut short", second)
 end
 
 local function test_transform_writer_hold_reports_a_drain_that_fails_mid_write()
@@ -764,9 +815,12 @@ local function test_transform_writer_hold_reports_a_drain_that_fails_mid_write()
   local out = recording()
   local w = Stream.transform_writer(out, t, { hold = 1 })
   local ok, trouble = w:write("ab")
-  assert(not ok and trouble == "drain failed", trouble)
+  assert(not ok and tostring(trouble) == "drain failed", trouble)
   assert(out.got == "")
-  assert(not w:close() and out.ended == "aborted")
+  do
+    local closed, _ = w:close()
+    assert(not closed and out.ended == "aborted")
+  end
 end
 
 local function test_transform_writer_hold_does_not_count_an_empty_write()
@@ -859,7 +913,8 @@ local function all_lines(reader: Stream.Reader, max_bytes?: integer): {string}, 
   local got: mut {string} = {}
   while true do
     local line, trouble = lines:read()
-    if line == nil then return got, trouble end
+    if line == nil then return got, tostring(trouble) end
+    if line == false then return got, "" end
     got[#got + 1] = line
   end
 end
@@ -868,10 +923,10 @@ end
 local function trickle(s: string, size?: integer): Stream.Reader
   local inner = Stream.from_string(s)
   local r: Stream.Reader = { -- checked: literal_shape
-    read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
+    read = function(_self: Stream.Reader, _max_bytes?: integer): (string | false) | (nil, Failure)
       return inner:read(size or 1)
     end,
-    close = function(_self: Stream.Reader): boolean, string
+    close = function(_self: Stream.Reader): (true) | (false, Failure)
       return inner:close()
     end,
   }
@@ -908,11 +963,11 @@ local function test_lines_hold_a_line_to_the_limit()
   end
   for _, text in ipairs({ "ok\n123456\nafter", "ok\n123456" }) do
     local lines = Stream.lines(trickle(text), 5)
-    assert(lines:read() == "ok")
+    assert(line_of(lines) == "ok")
     local line, why = lines:read()
-    assert(line == nil and why:find("longer than 5 bytes", 1, true) ~= nil, why)
+    assert(line == nil and tostring(why):find("longer than 5 bytes", 1, true) ~= nil, why)
     local again, again_why = lines:read()
-    assert(again == nil and again_why == why)
+    assert(again == nil and tostring(again_why) == tostring(why))
   end
   for _, bad in ipairs({ 0, -1 }) do
     assert(not pcall(Stream.lines, Stream.from_string(""), bad)) -- checked: alternatives_as_value
@@ -957,12 +1012,13 @@ end
 local function test_lines_stop_at_a_reader_failure()
   local inner = Stream.from_string("a\nb")
   local r: Stream.Reader = { -- checked: literal_shape
-    read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
+    read = function(_self: Stream.Reader, max_bytes?: integer): (string | false) | (nil, Failure)
       local chunk, trouble = inner:read(max_bytes)
-      if chunk == nil and trouble == "" then return nil, "boom" end
-      return chunk, trouble
+      if chunk == nil then return nil, trouble end
+      if chunk == false then return nil, Failure.new("boom") end
+      return chunk
     end,
-    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
   local lines = Stream.lines(r)
   local seen: mut {string} = {}
@@ -977,17 +1033,17 @@ local class Paused is Stream.Reader
   why: string
   mut at: integer
 
-  function read(self, _max_bytes?: integer): string?, string
+  function read(self, _max_bytes?: integer): (string | false) | (nil, Failure)
     self.at = self.at + 1
     local chunk = self.chunks[self.at]
-    if chunk == nil then return nil, "" end
-    if chunk == "" then return nil, self.why end
-    return chunk, ""
+    if chunk == nil then return false end
+    if chunk == "" then return nil, failure_of(self.why) end
+    return chunk
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.at = #self.chunks
-    return true, ""
+    return true
   end
 end
 
@@ -998,12 +1054,13 @@ local function test_lines_survive_a_timeout_or_a_cancel()
     local r: Paused = { chunks = { "par", "", "tial\nnext\n" }, why = why, at = 0, skip = nil }
     local lines = Stream.lines(r)
     local line, trouble = lines:read()
-    assert(line == nil and trouble == why, trouble)
+    assert(line == nil and tostring(trouble) == why, trouble)
     assert(lines:failure() == why, "a loop that stops here is not taken for the end")
-    assert(lines:read() == "partial")
+    assert(line_of(lines) == "partial")
     assert(lines:failure() == "", lines:failure())
-    assert(lines:read() == "next")
-    assert(lines:read() == nil)
+    assert(line_of(lines) == "next")
+    local last, _ = lines:read()
+    assert(last == false)
   end
 end
 
@@ -1024,8 +1081,9 @@ local function test_each_gives_the_lines_read_gives()
     local by_read: mut {string} = {}
     local reading = Stream.lines(make(text), 9)
     while true do
-      local line, _ = reading:read()
-      if line == nil then break end
+      local line, why = reading:read()
+      assert(line ~= nil, tostring(why))
+      if line == false then break end
       by_read[#by_read + 1] = line
     end
     local by_each: mut {string} = {}
@@ -1040,7 +1098,7 @@ local function test_each_gives_the_lines_read_gives()
     assert(long:failure():find("longer than 5 bytes", 1, true) ~= nil, long:failure())
     local mixed = Stream.lines(make("a\nb\nc\nd\ne\n"))
     local next_line = mixed:each()
-    assert(next_line() == "a" and mixed:read() == "b" and next_line() == "c")
+    assert(next_line() == "a" and line_of(mixed) == "b" and next_line() == "c")
     local after, _ = Stream.read_all(mixed:rest())
     assert(after == "d\ne\n", after)
   end
@@ -1064,13 +1122,13 @@ local function test_rest_gives_the_bytes_after_the_last_line()
     local text, count, want = case.text, case.count, case.want
     for _, reader in ipairs({ Stream.from_string(text), trickle(text) }) do
       local lines = Stream.lines(reader)
-      for _ = 1, count do assert(lines:read() ~= nil) end
+      for _ = 1, count do local _ = line_of(lines) end
       local rest = lines:rest()
       local got = assert(Stream.read_all(rest))
       assert(got == want, string.format("%q after %d: %q", text:sub(1, 20), count,
         got:sub(1, 20)))
       local after, trouble = rest:read()
-      assert(after == nil and trouble == "", trouble)
+      assert(after == false, trouble)
     end
   end
 end
@@ -1081,33 +1139,34 @@ local function test_rest_after_the_last_line_reads_nothing_more()
   local inner = Stream.from_string("a\nb")
   local ended: boolean = false
   local r: Stream.Reader = { -- checked: literal_shape
-    read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
+    read = function(_self: Stream.Reader, max_bytes?: integer): (string | false) | (nil, Failure)
       assert(not ended, "read past the end")
       local chunk, trouble = inner:read(max_bytes)
-      if chunk == nil then ended = true end
-      return chunk, trouble
+      if chunk == nil then return nil, trouble end
+      if chunk == false then ended = true end
+      return chunk
     end,
-    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
   local lines = Stream.lines(r)
   local seen: mut {string} = {}
   for line in lines:each() do seen[#seen + 1] = line end
   assert(table.concat(seen, "|") == "a|b")
   local chunk, trouble = lines:rest():read()
-  assert(chunk == nil and trouble == "", trouble)
+  assert(chunk == false, trouble)
 end
 
 --- A failure stays: `rest` of failed lines answers it on every read,
 --- and gives none of the bytes past it.
 local function test_rest_after_a_failure_answers_the_failure()
   local lines = Stream.lines(trickle("ok\n123456\nafter"), 5)
-  assert(lines:read() == "ok")
+  assert(line_of(lines) == "ok")
   local _, why = lines:read()
-  assert(why:find("longer than 5 bytes", 1, true) ~= nil, why)
+  assert(tostring(why):find("longer than 5 bytes", 1, true) ~= nil, why)
   local rest = lines:rest()
   for _ = 1, 2 do
     local chunk, trouble = rest:read()
-    assert(chunk == nil and trouble == why, trouble)
+    assert(chunk == nil and tostring(trouble) == tostring(why), trouble)
   end
 end
 
@@ -1117,17 +1176,18 @@ local function test_rest_after_a_raise_keeps_the_start_of_a_line()
   local answers: {string | boolean} = { "a\npar", false, "tial\nbody" }
   local next_answer: integer = 0
   local r: Stream.Reader = { -- checked: literal_shape
-    read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
+    read = function(_self: Stream.Reader, _max_bytes?: integer): (string | false) | (nil, Failure)
       next_answer = next_answer + 1
       local answer = answers[next_answer]
       if answer == false then error("raised") end
-      return answer as string, "" -- checked: cast_refused
+      if answer == nil then return false end
+      return answer as string -- checked: cast_refused
     end,
-    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
   local lines = Stream.lines(r)
-  assert(lines:read() == "a")
-  Test.raises(function() lines:read() end)
+  assert(line_of(lines) == "a")
+  Test.raises(function() local _, _ = lines:read() end)
   local got = assert(Stream.read_all(lines:rest()))
   assert(got == "partial\nbody", got)
 end
@@ -1139,19 +1199,19 @@ local function test_rest_ends_the_lines_and_closes_the_reader()
   local closes: integer = 0
   local inner = Stream.from_string("a\nb\n")
   local r: Stream.Reader = { -- checked: literal_shape
-    read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
+    read = function(_self: Stream.Reader, max_bytes?: integer): (string | false) | (nil, Failure)
       return inner:read(max_bytes)
     end,
-    close = function(_self: Stream.Reader): boolean, string
+    close = function(_self: Stream.Reader): (true) | (false, Failure)
       closes = closes + 1
-      return true, ""
+      return true
     end,
   }
   local lines = Stream.lines(r)
-  assert(lines:read() == "a")
+  assert(line_of(lines) == "a")
   local rest = lines:rest()
   for _, call in ipairs({
-      function() lines:read() end,
+      function() local _, _ = lines:read() end,
       function() lines:rest() end,
       function()
         for _ in lines:each() do end
@@ -1175,20 +1235,20 @@ local class Failing is Stream.Writer
   mut writes: integer
   fails_at: integer
 
-  function write(self, _data: string): boolean, string
+  function write(self, _data: string): (true) | (false, Failure)
     self.writes = self.writes + 1
-    if self.writes >= self.fails_at then return false, "disk full" end
-    return true, ""
+    if self.writes >= self.fails_at then return false, failure_of("disk full") end
+    return true
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.closes = self.closes + 1
-    return true, ""
+    return true
   end
 
-  function abort(self): boolean, string
+  function abort(self): (true) | (false, Failure)
     self.aborts = self.aborts + 1
-    return true, ""
+    return true
   end
 end
 
@@ -1202,12 +1262,14 @@ end
 local function chunked(chunks: {string}, failure: string): Stream.Reader
   local at: integer = 0
   local r: Stream.Reader = { -- checked: literal_shape
-    read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
+    read = function(_self: Stream.Reader, _max_bytes?: integer): (string | false) | (nil, Failure)
       at = at + 1
-      if chunks[at] == nil then return nil, failure end
-      return chunks[at], ""
+      local chunk = chunks[at]
+      if chunk ~= nil then return chunk end
+      if failure == "" then return false end
+      return nil, Failure.new(failure)
     end,
-    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
   return r
 end

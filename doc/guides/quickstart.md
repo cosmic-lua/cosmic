@@ -270,7 +270,7 @@ its options.
 
 - `cosmic rand uuid` prints a UUID, and `cosmic rand token` a random
   token. A program draws one with [`Rand.uuid`].
-- `cosmic time convert 2026-03-08T12:00Z --to America/New_York` converts
+- `cosmic time convert 2026-03-08T12:00Z --zone America/New_York` converts
   a time. Its answers are the same on every host.
 - `cosmic codec base64 <file>` encodes a file, and `-d` decodes it.
 - `cosmic archive list release.tar.gz` lists an archive, and `cosmic

@@ -7,6 +7,7 @@
 
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local Clock = require("cosmic.clock")
 local Json = require("cosmic.json")
 local Test = require("cosmic.test")
 local agent = require("build.agent")
@@ -46,12 +47,20 @@ local home = ""
 
 local KEYED <const>: {string: string} = { ANTHROPIC_API_KEY = "k", ANTHROPIC_BASE_URL = "https://api.test" }
 
+--- How a run waits for each line typed: `wait` answers each call in turn
+--- (true where a line came), and moves `now` on by what it waited.
+local record Waited
+  answers: {boolean}
+  mut now: integer
+  mut asked: integer
+end
+
 --- Runs `cosmic agent` with `argv`, `env` (and HOME), the API's
 --- `replies`, the lines `typed` at each prompt, and the lines
 --- `meanwhile` typed while the model works (standard input a terminal
 --- where it is given).
 local function cli(argv: {string}, env: {string: string}, replies: {Json.Value}, typed?: {string},
-                   meanwhile?: {string}): Ran, Api
+                   meanwhile?: {string}, waited?: Waited): Ran, Api
   if home == "" then home = scratch() end
   local a = agent_fixture.api(replies)
   local early: mut {string} = {}
@@ -83,6 +92,13 @@ local function cli(argv: {string}, env: {string: string}, replies: {Json.Value},
       return { caught = function(): integer return 0 end, release = function() end }
     end,
     tty = function(): boolean return meanwhile ~= nil end,
+    wait = if waited == nil then nil else function(ns: integer): boolean
+      waited.asked = waited.asked + 1
+      local came = waited.answers[waited.asked]
+      if came ~= true then waited.now = waited.now + ns end
+      return came == true
+    end end,
+    now = if waited == nil then nil else function(): integer return waited.now end end,
     env = function(name: string): string?
       if name == "HOME" then return home end
       return env[name]
@@ -90,6 +106,62 @@ local function cli(argv: {string}, env: {string: string}, replies: {Json.Value},
     send = a.send,
   })
   return { code = code, out = table.concat(out, "\n"), err = table.concat(err, "\n") }, a
+end
+
+--- While chat waits for a line, a warm request goes out every 4.5
+--- minutes, asking for nothing, and none after an hour idle.
+local function test_chat_keeps_the_cache_warm_while_it_waits()
+  local warm: Json.Value = { id = "msg_w", model = "m", content = Json.array(), stop_reason = "max_tokens",
+    usage = { input_tokens = 0, output_tokens = 0, cache_read_input_tokens = 10 } }
+  -- The first wait after a turn sees two warm requests, then a line; the
+  -- second sees no line, and warm requests stop at the hour: 13 of them.
+  local replies: mut {Json.Value} = { text_reply("one"), warm, warm, text_reply("two") }
+  for _ = 1, 13 do replies[#replies + 1] = warm end
+  local answers: mut {boolean} = { false, false, true }
+  for _ = 1, 20 do answers[#answers + 1] = false end
+  local waited: Waited = { answers = answers, now = Clock.now_ns(), asked = 0 }
+  local r, a = cli({ "chat" }, KEYED, replies, { "first", "second" }, nil, waited)
+  assert(r.code == 0 and r.out == "one\ntwo" and r.err == "", r.out .. r.err)
+  -- Before the first prompt nothing was sent, so nothing waited.
+  assert(#a.sent == 17 and waited.asked == 3 + 14, tostring(#a.sent) .. " " .. tostring(waited.asked))
+  for _, i in ipairs({ 2, 3, 5, 17 }) do
+    local w = sent(a, i)
+    local messages = assert(Json.to_array(w["messages"]))
+    assert(w["max_tokens"] == 0 and w["stream"] == false, said(a, i))
+    -- To the user's last word: the model's reply is left out.
+    assert(#messages == (if i < 4 then 1 else 3 end), said(a, i))
+  end
+  -- --keep-warm 0 sends none; a value not whole minutes is refused.
+  r, a = cli({ "chat", "--keep-warm", "0" }, KEYED, { text_reply("one") }, { "first" }, nil,
+    { answers = { false }, now = Clock.now_ns(), asked = 0 })
+  assert(r.code == 0 and #a.sent == 1, r.err)
+  assert(cli({ "chat", "--keep-warm", "1.5" }, KEYED, {}).code == Flags.REFUSED)
+  -- rpc tells each warm request as a request event.
+  r, a = cli({ "rpc" }, KEYED, { text_reply("one"), warm }, { '{"type":"prompt","text":"first"}' }, nil,
+    { answers = { false, true }, now = Clock.now_ns(), asked = 0 })
+  assert(r.code == 0 and #a.sent == 2 and r.out:find('"warm":true', 1, true) ~= nil, r.out .. r.err)
+  -- A warm request the API refuses is said, and no more are sent.
+  r, a = cli({ "chat" }, KEYED, { text_reply("one"), "400 bad" }, { "first" }, nil,
+    { answers = { false, false }, now = Clock.now_ns(), asked = 0 })
+  assert(r.code == 0 and #a.sent == 2 and r.err:find("chat: keeping the cache warm: HTTP 400: 400 bad", 1, true) ~= nil,
+    r.err)
+end
+
+--- --budget caps each turn; a limit it cannot read is refused before any request.
+local function test_budget_ends_a_turn()
+  local r, a = cli({ "ask", "--budget", "turns=1,cost=2.5,time=10m,tokens=1000000", "go" }, KEYED, {
+    { content = { agent_fixture.bash_call("t1", "true") }, stop_reason = "tool_use" }, text_reply("never") })
+  assert(r.code ~= 0 and #a.sent == 1 and r.err:find("the turn's budget is spent: 1 request, of 1", 1, true) ~= nil,
+    r.err)
+  assert(r.err:find("go on with `cosmic agent ask %-%-session %d+ 'go on'` and a larger %-%-budget") ~= nil, r.err)
+  -- A prompt with a budget is kept as blocks, and the sessions list still shows its words.
+  local listed = cli({ "sessions" }, KEYED, {})
+  assert(listed.out:find("%$0%.000%s+go\n?$") ~= nil, listed.out)
+  for _, bad in ipairs({ "", "turns=0", "turns=1.5", "cost=-1", "cost=x", "time=10d", "time=0", "speed=1",
+      "turns=1,turns=2", "turns" }) do
+    r, a = cli({ "ask", "--budget", bad, "go" }, KEYED, {})
+    assert(r.code ~= 0 and #a.sent == 0 and r.err:find("--budget", 1, true) ~= nil, bad .. ": " .. r.err)
+  end
 end
 
 local function test_ask_and_chat()
@@ -102,7 +174,7 @@ local function test_ask_and_chat()
     text_reply("hi back"),
   })
   assert(r.code == 0 and r.out == "hi back", r.out .. r.err)
-  assert(r.err:find("bash true", 1, true) ~= nil, r.err)
+  assert(r.err:find("bash\n    $ true", 1, true) ~= nil, r.err)
   assert(said(a, 1):find('"hello there"', 1, true) ~= nil, said(a, 1))
   r, a = cli({ "ask" }, KEYED, { text_reply("ok") })
   assert(r.code == 0 and said(a, 1):find("from stdin", 1, true) ~= nil)
@@ -189,7 +261,8 @@ local function test_sessions_are_kept_and_go_on()
   assert(again ~= nil and #again == 3 and said(a, 1):find('"first"', 1, true) ~= nil, said(a, 1))
   local list = cli({ "sessions" }, KEYED, {})
   assert(list.code == 0 and list.out:find("claude%-sonnet%-5%-5%s+4%s+0%s+%$0%.000%s+first") ~= nil, list.out)
-  local id = list.out:match("^%s*(%d+)")
+  assert(list.out:find("^%s*id%s+started%s+model%s+msgs%s+context%s+cost%s+first prompt\n") ~= nil, list.out)
+  local id = list.out:match("\n%s*(%d+)")
   assert(id ~= nil)
   r, a = cli({ "ask", "--session", id, "third" }, KEYED, { text_reply("three") })
   local third, _ = Json.to_array(sent(a, 1)["messages"])
@@ -216,6 +289,12 @@ local function test_the_sandbox_on_the_command_line()
   local seen = cli({ "policy", "--network", "--grant", outside .. ":rw" }, KEYED, {})
   assert(seen.code == 0 and seen.out:find("network: *:*", 1, true) ~= nil, seen.out .. seen.err)
   assert(seen.out:find("rw    " .. assert(Fs.absolute(outside)), 1, true) ~= nil, seen.out)
+  local local_one = cli({ "policy", "--connect", "127.0.0.1:8123", "--connect", "[::1]:*" }, KEYED, {})
+  assert(local_one.out:find("network: 127.0.0.1:8123 [::1]:*", 1, true) ~= nil, local_one.out .. local_one.err)
+  local bad = cli({ "policy", "--connect", "*.example.com:443" }, KEYED, {})
+  assert(bad.code ~= 0 and bad.err:find("--connect *.example.com:443: ", 1, true) ~= nil, bad.err)
+  assert(cli({ "ask", "--sandbox", "off", "--connect", "127.0.0.1:1", "x" }, KEYED, {}).err:find("--sandbox off", 1,
+    true) ~= nil)
   assert(seen.out:find("home: ", 1, true) ~= nil, seen.out)
   assert(cli({ "policy", "--sandbox", "off" }, KEYED, {}).out:find("no sandbox", 1, true) ~= nil)
   assert(cli({ "policy", "what" }, KEYED, {}).code == Flags.REFUSED)
@@ -255,10 +334,14 @@ local function test_the_command_line_is_refused_where_it_should_be()
   home = scratch()
   local none = cli({}, KEYED, {})
   assert(none.code == Flags.REFUSED and none.err:find("name ask, chat", 1, true) ~= nil, none.err)
-  assert(cli({ "nope" }, KEYED, {}).err:find("no subcommand nope", 1, true) ~= nil)
-  assert(cli({ "sessions", "--json" }, KEYED, {}).err:find("not an option of sessions", 1, true) ~= nil)
+  assert(cli({ "nope" }, KEYED, {}).err:find("no such command: nope", 1, true) ~= nil)
+  assert(cli({ "sessions", "--json" }, KEYED, {}).err:find("sessions: no such option: --json", 1, true) ~= nil)
   assert(cli({ "chat", "--json" }, KEYED, {}).code == Flags.REFUSED)
   assert(cli({ "ask", "--chek", "x" }, KEYED, {}).code == Flags.REFUSED)
+  local effort = cli({ "ask", "--effort", "huge", "x" }, KEYED, {})
+  assert(effort.err:find("ask: --effort takes low, medium, high, xhigh or max, not huge", 1, true) ~= nil, effort.err)
+  local model = cli({ "chat", "--model", "haiku" }, KEYED, {})
+  assert(model.err:find("chat: --model takes opus or sonnet, not haiku", 1, true) ~= nil, model.err)
   local p = cli({ "prompt" }, {}, {})
   assert(p.code == 0 and p.out:find("<cwd>", 1, true) ~= nil and p.out:find("cosmic agent", 1, true) ~= nil, p.out)
   -- By default the model is shown no tool that runs a program.
@@ -266,7 +349,11 @@ local function test_the_command_line_is_refused_where_it_should_be()
       p.out:find("- jobs: ", 1, true) == nil, p.out)
   local every = cli({ "prompt", "--tools", "all" }, {}, {})
   assert(every.code == 0 and every.out:find("- bash: ", 1, true) ~= nil, every.out)
-  assert(cli({ "prompt", "x" }, {}, {}).code == Flags.REFUSED)
+  local extra = cli({ "prompt", "x" }, {}, {})
+  assert(extra.code == Flags.REFUSED and extra.err:find("prompt: takes no words; usage: cosmic agent prompt", 1, true) ~=
+      nil, extra.err)
+  local chat = cli({ "chat", "--json" }, KEYED, {})
+  assert(chat.err:find("; usage: cosmic agent chat [options]", 1, true) ~= nil, chat.err)
   local shown = cli({ "prompt", "--tools", "run,read" }, {}, {})
   assert(shown.code == 0 and shown.out:find("- run: ", 1, true) ~= nil and shown.out:find("- bash: ", 1, true) == nil,
     shown.out)

@@ -227,10 +227,11 @@ CREATE TABLE shapes (id INTEGER PRIMARY KEY, digest BLOB NOT NULL UNIQUE, body T
 ]]
 
 --- The id of the last reply kept for session `id`, which the next
---- request names for its cache diagnosis; nil where there is none.
+--- request names for its cache diagnosis; nil where there is none. A
+--- warm request's (max_tokens 0) is not one: the next names the reply before it.
 function Sessions.last_reply(db: Sqlite.Handle, id: integer): string?
   local rows, _ = db:rows([[SELECT reply ->> '$.id' AS reply_id FROM requests
-    WHERE session = ?1 AND status = 200 AND json_valid(reply) ORDER BY id DESC LIMIT 1]], { { integer = id } })
+    WHERE session = ?1 AND status = 200 AND max_tokens > 0 AND json_valid(reply) ORDER BY id DESC LIMIT 1]], { { integer = id } })
   local row = (rows or {})[1]
   if row == nil or row:is_null(1) then return nil end
   return row:text(1)
@@ -451,6 +452,10 @@ local function words(text: string): string
   local m, _ = Json.decode_object(text)
   local content = m and m["content"]
   if content is string then return content end
+  -- A prompt with a budget is a list of blocks: the first holds the words.
+  local first = Json.object_of((Json.array_of(content) or {})[1])
+  local said = first and first["text"]
+  if said is string then return said end
   return ""
 end
 

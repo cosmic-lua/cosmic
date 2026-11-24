@@ -158,7 +158,7 @@ local function server_of(name: string, entry: Json.Value): AgentMcp.Server?, str
     if decoded == nil then return nil, about .. ".policy: " .. why end
     given = decoded
   end
-  local merged, merge_why = Sandbox.merge(default_policy(), given)
+  local merged, merge_why = Sandbox.union(default_policy(), given)
   if merged == nil then return nil, about .. ".policy: " .. merge_why end
   return { name = name, command = argv, policy = merged, description = description }, ""
 end
@@ -265,7 +265,7 @@ local function draining(set: AgentMcp.Set, name: string, f?: function(), wait_ns
     local drain = Poll.spawn(function()
       while true do
         local chunk, _ = reader:read()
-        if chunk == nil then return end
+        if chunk == nil or chunk == false then return end
         local kept = (set.tails[name] or "") .. chunk
         set.tails[name] = if #kept > TAIL then kept:sub(-TAIL) else kept end
       end

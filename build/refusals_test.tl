@@ -105,3 +105,24 @@ local function test_a_dependent_with_a_finding_of_its_own_is_a_root_that_rests_o
   assert(#chosen.roots == 2 and chosen.roots[1] == lines[1] and chosen.roots[2] == lines[2] and #chosen.dependents == 0,
     table.concat(chosen.roots, "|"))
 end
+
+--- A tree whose refusals are all of tests and test support writes a tool; one refused module the tool carries, a file
+--- that requires one, a refusal of no file a root holds, or no refusal at all, does not.
+local function test_only_tests_and_test_support_refused_leave_the_tool_whole()
+  local lines = {
+    "build/one_test.tl: the compiler refused it\nbuild/one_test.tl:1:1: wrong (code): fix",
+    "test/helper.tl: the compiler refused it\ntest/helper.tl:1:1: wrong (code): fix",
+    "build/two_test.tl: not compiled: it requires test.helper, which did not build",
+  }
+  local roots = { ["build/one_test.tl"] = { 1 }, ["test/helper.tl"] = { 2 }, ["build/two_test.tl"] = { 2 } }
+  assert(refusals.tests_only(lines, roots))
+  assert(not refusals.tests_only(lines, nil), "a result with no roots")
+  assert(not refusals.tests_only({}, {}), "no refusal")
+  local carried, carried_roots = tree()
+  assert(not refusals.tests_only(carried, carried_roots), "a module the tool carries")
+  local first = assert(lines[1])
+  local more: {string} = { first, "build/fixture.tl: the compiler refused it" }
+  assert(not refusals.tests_only(more, { ["build/one_test.tl"] = { 1 } }), "a line of a module the tool carries")
+  assert(not refusals.tests_only({ first }, { ["build/one_test.tl"] = { 1 }, ["build/mid.tl"] = { 1 } }),
+    "a module the tool carries held out")
+end

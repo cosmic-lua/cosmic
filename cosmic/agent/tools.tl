@@ -81,7 +81,7 @@ local Jobs = require("cosmic.agent.jobs")
 local Failure = require("cosmic.failure")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
-local Policy = require("cosmic.agent.policy")
+local RunText = require("cosmic.agent.run_text")
 local Sandbox = require("cosmic.sandbox")
 local Sessions = require("cosmic.agent.sessions")
 local Sqlite = require("cosmic.sqlite")
@@ -107,8 +107,9 @@ local record Tools
   --- Where a tool runs: the working directory, the database of the
   --- sessions kept and the current one's id (nil where none is). The
   --- sandbox is not put on a tool from outside: a tool of your own that
-  --- reads or writes a path asks `Policy.allows(context.policy, path,
-  --- mode)` first, as read, write and edit do (cosmic.agent.policy).
+  --- reads or writes a path asks `Sandbox.permits(context.policy, path,
+  --- action, context.cwd)` first and opens the real name it answers, as
+  --- read, write and edit do.
   record Context
     --- The working directory, which a relative path is from.
     cwd: string
@@ -127,6 +128,9 @@ local record Tools
     --- Whether the user stopped the turn: a tool that waits asks it, and
     --- ends its wait when it says so.
     stopped?: function(): boolean
+    --- When the turn's time runs out ([`Clock.monotonic_ns`]), where its
+    --- budget limits it: a command that waits is ended then. Nil for no limit.
+    deadline_ns?: integer
     --- Whether a snippet of run may run programs ([`Worker.Options`] `commands`): only where bash is offered too.
     --- A worker keeps what it was started with: one started with programs, then given a list with no bash, runs
     --- them still until it is closed.
@@ -154,14 +158,14 @@ local record Tools
     amend?: function(name: string, input: Object, result: Result): Result
   end
 
-  --- A path a call touches, and how: the letters of a grant
-  --- (cosmic.sandbox), r to read, w to write, c to create.
+  --- A path a call touches, and how: one of [`Sandbox.permits`]'s actions.
+  --- A call that does more than one thing to a path touches it once for each.
   record Touch
     --- The absolute path, with no `.` or `..` in it, but its links not
-    --- followed: check it with [`Policy.allows`], which follows them.
+    --- followed: check it with [`Sandbox.permits`], which follows them.
     path: string
-    --- r, w and c, as it needs them.
-    letters: string
+    --- "read", "write", "run", "create" or "remove".
+    action: string
   end
 
   --- One tool: what the model reads of it, and what does it. Make one of
@@ -304,15 +308,34 @@ local function page(body: string, offset?: integer, limit?: integer, hint?: stri
   return ok(text)
 end
 
+--- The real name `context.policy` lets the tools do each of `actions` at
+--- ([`Sandbox.permits`]), the name to open, so what is checked is what is
+--- changed; `full` itself where there is no policy. Nil and why where one
+--- is refused.
+local function permitted(context: Tools.Context, full: string, actions: {string}): string?, string
+  local policy = context.policy
+  if policy == nil then return full, "" end
+  -- Each action of the real name the one before answered: a link is
+  -- checked, and written, at its target.
+  local real = full
+  for _, action in ipairs(actions) do
+    local checked, why = Sandbox.permits(policy, real, action, context.cwd)
+    if checked == nil then
+      return nil, "The sandbox does not let the agent " .. action .. " " .. full .. ": " .. why
+    end
+    real = checked
+  end
+  return real, ""
+end
+
 local function read(input: Tools.Object, context: Tools.Context): Tools.Result
   local path, why = text_of(input, "path")
   if path == nil then return fail(why) end
   local offset, offset_why = count(input, "offset")
   local limit, limit_why = count(input, "limit")
   if offset_why ~= "" or limit_why ~= "" then return fail(offset_why .. limit_why) end
-  local full = resolve(path, context.cwd)
-  local allowed, refused = Policy.allows(context.policy, full, "r")
-  if not allowed then return fail(refused) end
+  local full, refused = permitted(context, resolve(path, context.cwd), { "read" })
+  if full == nil then return fail(refused) end
   -- A device or a pipe may never end: only a file is read whole.
   local status, _ = Fs.status(full)
   local st = status and status.stat
@@ -333,12 +356,23 @@ local function write(input: Tools.Object, context: Tools.Context): Tools.Result
   local path, why = text_of(input, "path")
   local content, content_why = text_of(input, "content")
   if path == nil or content == nil then return fail(why .. content_why) end
-  local full = resolve(path, context.cwd)
-  -- A write replaces the file whole, and may make directories: it creates.
-  local allowed, refused = Policy.allows(context.policy, full, "wc")
-  if not allowed then return fail(refused) end
-  -- What was checked is what is written: the real name, not a link to it.
-  if context.policy ~= nil then full = Policy.real(full) or full end
+  -- A write makes a new file and renames it over the old (Fs.write), and may make directories: it creates.
+  local full, refused = permitted(context, resolve(path, context.cwd), { "write", "create" })
+  if full == nil then return fail(refused) end
+  -- Each directory the write makes is made in the one above it: each asks c there, not only the last.
+  local policy = context.policy
+  if policy ~= nil then
+    local dir = Fs.dirname(full)
+    while dir ~= Fs.dirname(dir) do
+      local status, _ = Fs.status(dir)
+      if status ~= nil and status.exists then break end
+      local made_here, why_not = Sandbox.permits(policy, dir, "create", context.cwd)
+      if made_here == nil then
+        return fail("The sandbox does not let the agent create " .. dir .. ": " .. why_not)
+      end
+      dir = Fs.dirname(dir)
+    end
+  end
   local made, made_why = Fs.mkdirs(Fs.dirname(full))
   if not made then return fail(tostring(made_why)) end
   local wrote, wrote_why = Fs.write(full, content)
@@ -348,7 +382,9 @@ end
 
 --- The replacements `input` asks for: its `edits`, and the one of its
 --- own `oldText` and `newText` that some models send.
-local function edits_of(input: Tools.Object): {AgentEdit.Replacement}?, string
+--- The replacements of an edit call's `input`, in each shape models send: `edits` a list, one object or a JSON
+--- string of either, or `oldText` and `newText` at the top; or nil and why.
+function Tools.replacements(input: Tools.Object): {AgentEdit.Replacement}?, string
   local out: mut {AgentEdit.Replacement} = {}
   local list = input["edits"]
   if list is string then
@@ -377,12 +413,10 @@ end
 local function edit(input: Tools.Object, context: Tools.Context): Tools.Result
   local path, why = text_of(input, "path")
   if path == nil then return fail(why) end
-  local edits, edits_why = edits_of(input)
+  local edits, edits_why = Tools.replacements(input)
   if edits == nil then return fail(edits_why) end
-  local full = resolve(path, context.cwd)
-  local allowed, refused = Policy.allows(context.policy, full, "rwc")
-  if not allowed then return fail(refused) end
-  if context.policy ~= nil then full = Policy.real(full) or full end
+  local full, refused = permitted(context, resolve(path, context.cwd), { "read", "write", "create" })
+  if full == nil then return fail(refused) end
   local raw, read_why = Fs.read(full)
   if raw == nil then return fail(tostring(read_why)) end
   local edited, made = AgentEdit.apply(raw, edits, path, "oldText")
@@ -437,6 +471,11 @@ end
 --- Runs `command` with bash, or sh where there is none, in `context`, for at most `timeout_ns`: stdout and stderr
 --- captured together.
 local function shell(command: string, timeout_ns: integer, context: Tools.Context): Child.Result?, string
+  local deadline = context.deadline_ns
+  if deadline ~= nil then
+    local left = math.max(deadline - Clock.monotonic_ns(), 1)
+    if timeout_ns == Child.FOREVER or left < timeout_ns then timeout_ns = left end
+  end
   local found, _ = Proc.find("bash")
   local res, why = Child.run({ found or "/bin/sh", "-c", command }, { cwd = context.cwd, stdin = "null",
     stdout = "capture", stderr = "stdout", policy = context.policy, timeout_ns = timeout_ns })
@@ -975,8 +1014,8 @@ local function schema(properties: {string: Json.Value}, required: {string}): Too
   return { type = "object", properties = properties, required = Json.array(names) }
 end
 
---- What a tool of one `path` touches: that path, with `letters`.
-local function touches(letters: string): function(input: Tools.Object, cwd: string): {Tools.Touch}
+--- What a tool of one `path` touches: that path, once for each of `actions`.
+local function touches(actions: {string}): function(input: Tools.Object, cwd: string): {Tools.Touch}
   return function(input: Tools.Object, cwd: string): {Tools.Touch}
     local path = input["path"]
     if not path is string then return {} end
@@ -988,7 +1027,11 @@ local function touches(letters: string): function(input: Tools.Object, cwd: stri
         parts[#parts + 1] = part
       end
     end
-    return { { path = "/" .. table.concat(parts, "/"), letters = letters } }
+    local out: mut {Tools.Touch} = {}
+    for _, action in ipairs(actions) do
+      out[#out + 1] = { path = "/" .. table.concat(parts, "/"), action = action }
+    end
+    return out
   end
 end
 
@@ -1006,7 +1049,7 @@ local ALL <const>: {Tools.Tool} = {
       limit = integer_field("Maximum number of lines to read"),
     }, { "path" }),
     run = read,
-    paths = touches("r"),
+    paths = touches({ "read" }),
   },
   {
     name = "bash",
@@ -1028,55 +1071,8 @@ local ALL <const>: {Tools.Tool} = {
     name = "run",
     snippet = "Run a checked cosmic program in place of many tool calls",
     guidelines = {},
-    description = "Run a program in cosmic, a typed language of its own with a library of its own (its syntax is much like " ..
-      "Lua's), in a worker kept for the session, under the session's sandbox: one program in place of many tool calls, " ..
-      "printing only what you need; its locals end with it. It is " ..
-      "type-checked first: a refusal runs nothing, costs a turn, and gives the fix. Returns what it printed (its " ..
-      "start and end past " .. tostring(RUN_BYTES // 1024) .. "KB) and the JSON of what it returned.\n\n" ..
-      "Host (cosmic.agent.host), Fs (cosmic.fs) and Json (cosmic.json) need no require. Host's calls do as the " ..
-      "commands they are named for, and raise where they fail, so they need no assert:\n" ..
-      "- Host.find(dir, suffix?) -> {string}: every file under dir, sorted (`Host.find(\"src\", \".tl\")`).\n" ..
-      "- Host.cat(path) -> string; Host.lines(path) -> {string}; Host.wc(path) -> integer, its newlines as `wc -l`; " ..
-      "Host.write(path, text or {lines}); Host.exists(path) -> boolean.\n" ..
-      "- Host.grep(pattern, paths, plain?) -> {{path, line, text}}: the lines that hold a pattern " ..
-      "(`%d`, `%.`, `[^/]+`; no regex).\n" ..
-      "- Host.sed(path, pattern, replacement, plain?) -> integer: replaces every match, line by line (`%1` a " ..
-      "capture).\n" ..
-      "- Host.sort(list, by?) -> {string}, by the key `by(item)` gives where given; Host.uniq(keys) -> {string: integer}, each key's count; Host.top(counts, " ..
-      "n?) -> {{key, count}}, most first, ties by key.\n" ..
-      "- Host.bash(command) -> {output, ok, code}; Host.edit(path, {{old = ..., new = ...}}) -> integer; " ..
-      "Host.sql(query) -> rows; Host.store(key, value) / Host.load(key).value.\n" ..
-      "- Host.fetch(url, {method?, headers?, body?}?) -> {status, headers, body}: no redirect followed, public " ..
-      "addresses only, in a session with --network.\n" ..
-      "- Host.sqlite(path, statement, {values}?) -> {row}: one SQL statement on a SQLite file, made where missing " ..
-      "(`?1` binds the first value; with no values, a script of several); a row's column is `row[\"name\"]`. " ..
-      "Host.sha256(path) -> hex.\n" ..
-      "- print(Host.modules()) lists the cosmic.* modules a snippet may require (not io or os); " ..
-      "print(Host.docs(\"cosmic.fs\")) shows one. Their calls that may fail answer a value, or nil and why: take it " ..
-      "with assert (`local text = assert(Fs.read(path))`), as a statement too (`assert(Fs.write(path, text))`).\n\n" ..
-      "The checker refuses, so write:\n" ..
-      "- A table you fill is declared: `local out: mut {string} = {}`, `local n: mut {string: integer} = {}`; " ..
-      "append with `out[#out + 1] = v`.\n" ..
-      "- A local that starts nil is optional: `local cursor: string? = nil`; test it with `if cursor ~= nil " ..
-      "then`. A local of a plain type is never compared with nil.\n" ..
-      "- A local function declares its parameters and results: `local function f(x: integer): string`.\n" ..
-      "- A read that may be nil (`t[i]`, `m[k]`, `s:match(...)`, `tonumber(s)`) is tested, given a default " ..
-      "(`m[k] or 0`) or taken with assert(...). Walk a list with ipairs, a map with pairs.\n" ..
-      "- A condition is a boolean or an optional of no boolean: `if s ~= \"\" then`; for a {string: boolean} " ..
-      "set, `if seen[k] == nil then`.\n" ..
-      "- `..` joins strings: `tostring(n)`; `%d` takes an integer: `math.floor(x)`.\n" ..
-      "- `if c then a else b end`, with its `end` even inside a call, in place of `c and a or b`.\n" ..
-      "- `{key: string, count: integer}` is a record type, `{string: integer}` a map, and `mut {{key: string}}` " ..
-      "a list one may add to. Host.top answers `{Host.Count}`.\n" ..
-      "- The first n of a list: `for i, v in ipairs(list) do if i > n then break end ... end`.\n" ..
-      "- Records, not tuples (`{A, B}`); `T?`, not `T | nil`; no `;`; no goto.\n\n" ..
-      "For example:\n" ..
-      "local exts: mut {string} = {}\n" ..
-      "for _, path in ipairs(Host.find(\".\")) do\n" ..
-      "  local ext = path:match(\"%.(%w+)$\")\n" ..
-      "  if ext ~= nil then exts[#exts + 1] = ext end\n" ..
-      "end\n" ..
-      "for _, c in ipairs(Host.top(Host.uniq(exts))) do print(c.key .. \" \" .. tostring(c.count)) end",
+    -- The words are the text template run_text.tmpl (cosmic.template).
+    description = RunText.render({ kb = RUN_BYTES // 1024 }),
     schema = schema({
       code = string_field("The cosmic program, as the body of a file"),
       timeout = integer_field("Seconds, " .. tostring(RUN_SECONDS) .. " by default, 0 for none; past it the " ..
@@ -1129,7 +1125,7 @@ local ALL <const>: {Tools.Tool} = {
       },
     }, { "path", "edits" }),
     run = edit,
-    paths = touches("rwc"),
+    paths = touches({ "read", "write", "create" }),
   },
   {
     name = "write",
@@ -1142,7 +1138,7 @@ local ALL <const>: {Tools.Tool} = {
       content = string_field("Content to write to the file"),
     }, { "path", "content" }),
     run = write,
-    paths = touches("wc"),
+    paths = touches({ "write", "create" }),
   },
   {
     name = "sql",
@@ -1256,7 +1252,7 @@ end
 
 --- `tools` as the Messages API takes them. The last is a cache breakpoint: the tools come first in a request, and
 --- are the same in every session of a model whatever its directory and prompt, so each session reads them from the
---- cache another wrote, where the system prompt and the messages after them differ.
+--- cache another wrote, where the project's instructions in the system prompt and the messages after them differ.
 function Tools.definitions(tools: {Tools.Tool}): Json.Value
   local out: mut {Json.Value} = {}
   local offers_bash = Tools.find(tools, "bash") ~= nil

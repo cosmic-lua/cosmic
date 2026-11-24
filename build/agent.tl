@@ -12,7 +12,8 @@
 --- one conversation, until `/exit` or the end of standard input. `resume`
 --- finishes the turn a run left unfinished. `rpc` runs one session for
 --- another program. `sessions` lists the newest sessions in the working
---- directory, `prompt` prints the system prompt the model reads, and
+--- directory, `prompt` prints the system prompt the model reads (then the
+--- working directory, which follows it past its cache mark), and
 --- `policy` the sandbox the tools would run under (`policy clear-home`
 --- empties the commands' kept home).
 ---
@@ -24,8 +25,8 @@
 --- and ends with the session. The tools cannot reach that directory, so
 --- no tool chooses what a later session starts.
 ---
---- The model's words go to standard output, and each tool call to
---- standard error. `ask --json` and `rpc` print events instead, one JSON
+--- The turn's answer goes to standard output. Each tool call, and what
+--- the model says on the way, go to standard error. `ask --json` and `rpc` print events instead, one JSON
 --- object a line, each after what it tells of is kept:
 ---
 ---     {"type":"session","id":7}            the session (rpc adds
@@ -73,6 +74,7 @@ local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local Grant = require("cosmic.relay.grant")
 local Hash = require("cosmic.hash")
 local Jobs = require("cosmic.agent.jobs")
 local Worker = require("cosmic.agent.worker")
@@ -113,6 +115,12 @@ local record verb
     --- The next line typed, `prompt` shown first where standard input
     --- is a terminal: nil at its end.
     read_line: function(prompt: string): string?
+    --- Waits at most `ns` nanoseconds for a whole line, or the end, on
+    --- standard input: whether one came, for [`read_line`] to take. Nil
+    --- where nothing waits: [`read_line`] alone is used.
+    wait?: function(ns: integer): boolean
+    --- The time, as [`Clock.now_ns`] gives it; nil for that.
+    now?: function(): integer
     --- All of standard input.
     read_all: function(): string
     --- The next whole line typed while the model works, without
@@ -129,24 +137,7 @@ local record verb
   end
 end
 
-local spec = assert(Verb.spec)
-
-local USAGE <const> = "cosmic agent <ask|chat|resume|rpc|sessions|prompt|policy> [options] [words...]"
-
---- The options each subcommand takes; the rest of the spec is refused.
-local SESSION_OPTIONS <const>: {string: boolean} = {
-  ["--model"] = true, ["--effort"] = true, ["--continue"] = true, ["--session"] = true,
-  ["--sandbox"] = true, ["--network"] = true, ["--grant"] = true, ["--mcp"] = true, ["--tools"] = true,
-}
-local SANDBOX_OPTIONS <const>: {string: boolean} = { ["--sandbox"] = true, ["--network"] = true, ["--grant"] = true }
-local ASK_OPTIONS <const>: mut {string: boolean} = { ["--json"] = true }
-for k, v in pairs(SESSION_OPTIONS) do ASK_OPTIONS[k] = v end
-local TAKES <const>: {string: {string: boolean}} = {
-  ask = ASK_OPTIONS, chat = SESSION_OPTIONS, resume = SESSION_OPTIONS, rpc = SESSION_OPTIONS, sessions = {},
-  prompt = { ["--tools"] = true }, policy = SANDBOX_OPTIONS, worker = {},
-}
-
-local EFFORTS <const>: {string: boolean} = { low = true, medium = true, high = true, xhigh = true, max = true }
+local subcommands = Verb.subcommands or {}
 
 -- What standard input holds past the last line read.
 local pending = ""
@@ -169,6 +160,21 @@ local function read_line(prompt: string): string?
     end
     pending = pending .. chunk
   end
+end
+
+local function wait(ns: integer): boolean
+  local deadline = Clock.now_ns() + ns
+  while pending:find("\n", 1, true) == nil do
+    local left = deadline - Clock.now_ns()
+    if left <= 0 then return false end
+    local ready, _ = Poll.readable(Fs.stdin, left)
+    if not ready then return false end
+    local chunk, _ = Fs.take(Fs.stdin, 4096)
+    -- The end is for read_line to see.
+    if chunk == nil or chunk == "" then return true end
+    pending = pending .. chunk
+  end
+  return true
 end
 
 local function typed(): string?
@@ -216,6 +222,7 @@ local standard: verb.Io = {
   out = function(line: string) local _, _ = bare.out(line .. "\n") end,
   err = bare.err,
   read_line = read_line,
+  wait = wait,
   read_all = read_all,
   typed = typed,
   hold = hold,
@@ -328,20 +335,75 @@ local function policy_of(r: Run, got: Flags.Parsed, here: string): Sandbox.Polic
     if real == nil then return nil, "--grant " .. given_grant .. ": " .. tostring(real_why) end
     grants[#grants + 1] = { path = real, letters = letters or "r" }
   end
-  if got.values["--sandbox"] == "off" and (#grants > 0 or got.set["--network"] == true) then
-    return nil, "--network and --grant hold a sandbox, which --sandbox off has none of"
+  local connect: mut {string} = {}
+  for _, target in ipairs(got.all["--connect"] or {}) do
+    local parsed, parse_why = Grant.parse(target)
+    if parsed == nil then return nil, "--connect " .. target .. ": " .. tostring(parse_why) end
+    connect[#connect + 1] = parsed.text
+  end
+  if got.values["--sandbox"] == "off" and (#grants > 0 or #connect > 0 or got.set["--network"] == true) then
+    return nil, "--network, --connect and --grant hold a sandbox, which --sandbox off has none of"
   end
   return Policy.of(here, { mode = got.values["--sandbox"] or "write", home = sandbox_home(r),
     path = r.io.env("PATH"), user_home = r.io.env("HOME"), kept_out = kept_out(r, got.values["--mcp"]),
-    network = got.set["--network"] == true, grants = grants })
+    network = got.set["--network"] == true, connect = connect, grants = grants })
+end
+
+-- What each unit of --budget's time is, in seconds.
+local SECONDS_OF <const>: {string: number} = { [""] = 1, s = 1, m = 60, h = 3600 }
+
+--- The budget `text` names, as `--budget` takes it: limits joined by
+--- commas, each tokens=N, cost=USD, turns=N or time=N (seconds, or with
+--- s, m or h), such as `cost=0.50,time=10m`. Nil and why where it names
+--- none, one twice, or a value not a positive number.
+local function budget_of(text: string): Agent.Budget?, string
+  local most_tokens, turns: integer?, integer? = nil, nil
+  local cost, seconds: number?, number? = nil, nil
+  local named: mut {string: boolean} = {}
+  local usage = "--budget takes limits joined by commas: tokens=N, cost=USD, turns=N, time=N[s|m|h]"
+  for part in text:gmatch("[^,]+") do
+    local key, value = part:match("^%s*(%a+)=(.-)%s*$")
+    if key == nil or value == nil then return nil, usage .. "; not one: " .. part end
+    if named[key] == true then return nil, "--budget names " .. key .. " twice" end
+    named[key] = true
+    if key == "tokens" or key == "turns" then
+      local n = if value:match("^[1-9]%d*$") then math.tointeger(tonumber(value)) else nil end
+      if n == nil then
+        return nil, "--budget " .. key .. " takes a positive whole number: " .. value
+      end
+      if key == "tokens" then most_tokens = n else turns = n end
+    elseif key == "cost" then
+      local n = if value:match("^%d*%.?%d+$") then tonumber(value) else nil end
+      if n == nil or n <= 0 then
+        return nil, "--budget cost takes a positive number of USD: " .. value
+      end
+      cost = n
+    elseif key == "time" then
+      local amount, unit = value:match("^(%d*%.?%d+)([smh]?)$")
+      local n = if amount ~= nil then tonumber(amount) else nil end
+      local per = if unit ~= nil then SECONDS_OF[unit] else nil end
+      if n == nil or per == nil or n <= 0 then
+        return nil, "--budget time takes a positive number of seconds, or of s, m or h: " .. value
+      end
+      seconds = n * per
+    else
+      return nil, usage .. "; not a limit: " .. key
+    end
+  end
+  if next(named) == nil then return nil, usage end
+  return { tokens = most_tokens, cost = cost, turns = turns, seconds = seconds }, ""
 end
 
 --- A session from the options of `got`, kept in `db`, or nil and why.
 --- Where `newest`, no session named is the newest in the directory.
 local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boolean): Agent.Session?, string
   local effort = got.values["--effort"] or Agent.EFFORT
-  if EFFORTS[effort] ~= true then
-    return nil, "--effort is one of low, medium, high, xhigh, max"
+  local budget: Agent.Budget? = nil
+  local limits = got.values["--budget"]
+  if limits ~= nil then
+    local b, budget_why = budget_of(limits)
+    if b == nil then return nil, budget_why end
+    budget = b
   end
   local name = got.values["--model"] or Agent.MODEL
   local model = if name == "opus" then Agent.MODELS.opus elseif name == "sonnet" then Agent.MODELS.sonnet else nil end
@@ -386,14 +448,75 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
   end
   local s = Agent.new({ model = model, effort = effort, sign = sign, base_url = base, cwd = here,
     send = r.io.send, system = Prompt.build(here, Prompt.contexts(here), { servers = servers, tools = offered }),
-    sandbox = policy, jobs = Jobs.new(), worker = Worker.new(), mcp = AgentMcp.new(servers, here), build = build(),
-    tools = offered, messages = held, db = db, id = id, restarts = restarts, ended = ended })
+    sandbox = if policy == nil then nil else { policy } end, jobs = Jobs.new(), worker = Worker.new(), mcp = AgentMcp.new(servers, here), build = build(),
+    tools = offered, messages = held, db = db, id = id, restarts = restarts, ended = ended, budget = budget })
+  if budget ~= nil and budget.cost ~= nil and Agent.cost(model, {}) == nil then
+    s:close()
+    return nil, "--budget cost: no price is known for " .. model .. ", so its cost cannot be counted"
+  end
   local settled, settle_why = s:settle()
   if not settled then return nil, settle_why end
   return s, ""
 end
 
 --- Runs `go` with a session from `got`: its exit status.
+-- The cache keeps a request's prefix 5 minutes from when it was sent: a
+-- warm request goes out at 4.5, while the user is idle for at most
+-- `--keep-warm` minutes (60 unless given). Each costs 0.05x of the
+-- conversation's input price, where a miss writes it all again at
+-- 1.25x: an hour of them costs about half of one miss.
+local WARM_EVERY <const> = Clock.seconds(270)
+local WARM_FOR <const> = 60
+
+--- How long `got` says to keep the cache warm while idle, in
+--- nanoseconds (0 for not at all): nil and why for a value not a
+--- whole number of minutes.
+local function warm_for(got: Flags.Parsed): integer?, string
+  local given = got.values["--keep-warm"]
+  if given == nil then return Clock.minutes(WARM_FOR), "" end
+  if not given:match("^%d+$") then
+    return nil, "--keep-warm takes whole minutes, such as 60, or 0 for never: " .. given
+  end
+  return Clock.minutes(assert(math.tointeger(tonumber(given)))), ""
+end
+
+--- The next line `r` reads, `prompt` shown first, keeping `s`'s cache
+--- warm while it waits, for at most `keep` nanoseconds: nil at the
+--- input's end. Each warm request is told to `on`.
+local function next_line(r: Run, s: Agent.Session, name: string, prompt: string, keep: integer,
+                         on?: function(event: Agent.Event)): string?
+  local waits = r.io.wait
+  local sent = s.sent_ns
+  if waits == nil or sent == nil or keep <= 0 then return r.io.read_line(prompt) end
+  local clock = r.io.now or Clock.now_ns
+  local idle = clock()
+  -- When the next warm request is due, on `clock`: the last request was
+  -- sent `Clock.now_ns() - sent` ago.
+  local due = idle + WARM_EVERY - (Clock.now_ns() - sent)
+  local shown = r.io.tty()
+  if shown then local _, _ = bare.out(prompt) end
+  while true do
+    local now = clock()
+    if now - idle >= keep then break end
+    if due > now then
+      if waits(math.min(due, idle + keep) - now) then break end
+    else
+      local before = s.on
+      s.on = on
+      local ok, why = s:warm()
+      s.on = before
+      if not ok then
+        r.complain(name .. ": keeping the cache warm: " .. why)
+        -- The complaint took the prompt's line.
+        if shown then local _, _ = bare.out(prompt) end
+        break
+      end
+      due = clock() + WARM_EVERY
+    end
+  end
+  return r.io.read_line("")
+end
+
 local function with_session(r: Run, name: string, got: Flags.Parsed, go: function(s: Agent.Session): integer,
                             newest?: boolean): integer
   local db, why = store(r)
@@ -484,7 +607,7 @@ local function ask(r: Run, got: Flags.Parsed): integer
   local text = table.concat(got.words, " ")
   if text == "" then text = r.io.read_all() end
   if text:match("^%s*$") then
-    r.complain("ask: give a prompt, as words or on standard input")
+    r.complain("ask: give a prompt, as words or on standard input; " .. Flags.usage(Verb, "cosmic agent", { "ask" }))
     return bare.refused
   end
   local json = got.set["--json"] == true
@@ -503,7 +626,11 @@ local function ask(r: Run, got: Flags.Parsed): integer
     local ok, trouble = turn(r, s, events, prompting(text))
     if json then emit_end(r, ok, trouble) end
     if not ok then
-      r.complain("ask: " .. trouble)
+      -- A spent turn is over: resume finds nothing to finish, and a new prompt goes on.
+      local next_step = if s.spent then
+        "; go on with `cosmic agent ask --session " .. tostring(s.id or 0) .. " 'go on'` and a larger --budget" else
+        "" end
+      r.complain("ask: " .. trouble .. next_step)
       return bare.failed
     end
     return bare.ok
@@ -512,7 +639,12 @@ end
 
 local function chat(r: Run, got: Flags.Parsed): integer
   if #got.words > 0 then
-    r.complain("chat: takes no words; type the prompts")
+    r.complain("chat: takes no words; type the prompts; " .. Flags.usage(Verb, "cosmic agent", { "chat" }))
+    return bare.refused
+  end
+  local keep, keep_why = warm_for(got)
+  if keep == nil then
+    r.complain("chat: " .. keep_why)
     return bare.refused
   end
   local events = Show.text(r.io.out, r.io.err)
@@ -540,7 +672,7 @@ local function chat(r: Run, got: Flags.Parsed): integer
       if not ok then r.complain("chat: the unfinished turn: " .. trouble) end
     end
     while true do
-      local line = table.remove(steers, 1) or table.remove(later, 1) or r.io.read_line("> ")
+      local line = table.remove(steers, 1) or table.remove(later, 1) or next_line(r, s, "chat", "> ", keep)
       if line == nil or line == "/exit" then return bare.ok end
       if not line:match("^%s*$") then
         local ok, trouble = turn(r, s, events, prompting(line), poll, steers)
@@ -552,7 +684,7 @@ end
 
 local function resume(r: Run, got: Flags.Parsed): integer
   if #got.words > 0 then
-    r.complain("resume: takes no words")
+    r.complain("resume: takes no words; " .. Flags.usage(Verb, "cosmic agent", { "resume" }))
     return bare.refused
   end
   return with_session(r, "resume", got, function(s: Agent.Session): integer
@@ -571,7 +703,12 @@ end
 
 local function rpc(r: Run, got: Flags.Parsed): integer
   if #got.words > 0 then
-    r.complain("rpc: takes no words")
+    r.complain("rpc: takes no words; " .. Flags.usage(Verb, "cosmic agent", { "rpc" }))
+    return bare.refused
+  end
+  local keep, keep_why = warm_for(got)
+  if keep == nil then
+    r.complain("rpc: " .. keep_why)
     return bare.refused
   end
   local events = Show.json(r.io.out)
@@ -607,7 +744,7 @@ local function rpc(r: Run, got: Flags.Parsed): integer
     while true do
       local c = table.remove(queue, 1)
       if c == nil then
-        local line = r.io.read_line("")
+        local line = next_line(r, s, "rpc", "", keep, events)
         if line == nil then return bare.ok end
         c = command(line)
       end
@@ -640,7 +777,7 @@ end
 
 local function sessions(r: Run, got: Flags.Parsed): integer
   if #got.words > 0 then
-    r.complain("sessions: takes no words")
+    r.complain("sessions: takes no words; " .. Flags.usage(Verb, "cosmic agent", { "sessions" }))
     return bare.refused
   end
   local db, why = store(r)
@@ -654,16 +791,22 @@ local function sessions(r: Run, got: Flags.Parsed): integer
     r.complain("sessions: " .. list_why)
     return bare.failed
   end
+  if #list == 0 then
+    r.io.err("sessions: none in " .. cwd(r))
+    return bare.ok
+  end
+  r.io.out(string.format("%4s  %-19s  %-17s  %4s  %7s  %7s  %s", "id", "started", "model", "msgs", "context", "cost",
+    "first prompt"))
   for _, e in ipairs(list) do
-    r.io.out(string.format("%4d  %s  %-17s %3d  %7s  $%.3f  %s", e.id, e.started, e.model, e.messages,
-      tokens(e.context), e.cost, Show.brief(e.first)))
+    r.io.out(string.format("%4d  %-19s  %-17s  %4d  %7s  %7s  %s", e.id, e.started, e.model, e.messages,
+      tokens(e.context), string.format("$%.3f", e.cost), Show.brief(e.first)))
   end
   return bare.ok
 end
 
 local function prompt(r: Run, got: Flags.Parsed): integer
   if #got.words > 0 then
-    r.complain("prompt: takes no words")
+    r.complain("prompt: takes no words; " .. Flags.usage(Verb, "cosmic agent", { "prompt" }))
     return bare.refused
   end
   local here = cwd(r)
@@ -672,7 +815,8 @@ local function prompt(r: Run, got: Flags.Parsed): integer
     r.complain("prompt: --tools: " .. why)
     return bare.refused
   end
-  r.io.out(Prompt.build(here, Prompt.contexts(here), { tools = offered }))
+  -- The system prompt, then the working directory that follows it.
+  r.io.out(Prompt.build(here, Prompt.contexts(here), { tools = offered }) .. "\n\n" .. Prompt.where(here))
   return bare.ok
 end
 
@@ -698,7 +842,7 @@ end
 local function policy(r: Run, got: Flags.Parsed): integer
   if got.words[1] == "clear-home" and #got.words == 1 then return clear_home(r) end
   if #got.words > 0 then
-    r.complain("policy: takes no words but clear-home")
+    r.complain("policy: takes no words but clear-home; " .. Flags.usage(Verb, "cosmic agent", { "policy" }))
     return bare.refused
   end
   local p, why = policy_of(r, got, cwd(r))
@@ -710,7 +854,7 @@ local function policy(r: Run, got: Flags.Parsed): integer
     r.io.out("--sandbox off: no sandbox; the tools have your user's rights")
     return bare.ok
   end
-  local merged, merged_why = Sandbox.merge(p)
+  local merged, merged_why = Sandbox.union(p)
   if merged == nil then
     r.complain("policy: " .. merged_why)
     return bare.failed
@@ -738,25 +882,19 @@ local SUBCOMMANDS <const>: {string: function(Run, Flags.Parsed): integer} = {
 function verb.run(argv: {string}, io?: verb.Io): integer
   local to = io or standard
   local complain = bare.complainer("agent", to.err)
-  local got, trouble = Flags.parse(argv, 2, spec)
+  local sub = argv[2]
+  local described = if sub == nil then nil else subcommands[sub] end
+  if sub == nil or described == nil then
+    complain((if sub == nil then "name ask, chat, resume, rpc, sessions, prompt, policy or worker" else
+      "no such command: " .. sub end) .. "; " .. Flags.usage(Verb, "cosmic agent"))
+    return bare.refused
+  end
+  local got, trouble = Flags.parse(argv, 3, described.spec or {})
   if got == nil then
-    complain(trouble .. "; " .. USAGE)
+    complain(sub .. ": " .. trouble .. "; " .. Flags.usage(Verb, "cosmic agent", { sub }))
     return bare.refused
   end
   local parsed: Flags.Parsed = got
-  local sub = table.remove(parsed.words, 1)
-  local takes = if sub == nil then nil else TAKES[sub] end
-  if sub == nil or takes == nil then
-    complain((if sub == nil then "name ask, chat, resume, rpc, sessions, prompt or policy" else
-      "no subcommand " .. sub end) .. "; " .. USAGE)
-    return bare.refused
-  end
-  for _, name in ipairs(parsed.given) do
-    if takes[name] ~= true then
-      complain(name .. " is not an option of " .. sub .. "; " .. USAGE)
-      return bare.refused
-    end
-  end
   local environment: mut {string: string} = {}
   for _, name in ipairs({ "HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME" }) do
     local value = to.env(name)
@@ -774,7 +912,7 @@ verb.spec = {
   tests = { "build.agent_test" },
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
-  takes = "ask, chat, resume, rpc, sessions, prompt or policy, and its options",
+  takes = "ask, chat, resume, rpc, sessions, prompt, policy or worker, and its options",
   exits = "`agent` prints the model's words or its events, and nothing after; it exits 0 when it did what was asked, 1 when an ask or resume turn failed or the sessions database could not be opened, 2 when it refuses its command line or cannot start a session.",
   passthrough = "its output is the model's words, so its exit status is the verdict (build/agent_test.tl)",
 }

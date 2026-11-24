@@ -9,6 +9,7 @@
 --- [`Stream.Reader`]/[`Stream.Writer`] before it reaches this module --
 --- see [`cosmic.archive`].
 
+local Failure = require("cosmic.failure")
 local Stream = require("cosmic.stream")
 local String = require("cosmic.string")
 
@@ -372,36 +373,35 @@ local class BufferedReader is Stream.Reader
   mut buf: string
   mut at: integer
 
-  function read(self, max_bytes?: integer): string?, string
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     local buf, at = self.buf, self.at
     local avail = #buf - at + 1
     if avail <= 0 then
       if max_bytes ~= nil and max_bytes >= READ_AHEAD then return self.raw:read(max_bytes) end
       local chunk, trouble = self.raw:read(READ_AHEAD)
       if chunk == nil then return nil, trouble end
+      if chunk == false then return false end
       buf, at, avail = chunk, 1, #chunk
       self.buf = buf
     end
     local n = max_bytes or avail
     if n > avail then n = avail end
     self.at = at + n
-    if at == 1 and n == #buf then return buf, "" end
-    return buf:sub(at, at + n - 1), ""
+    if at == 1 and n == #buf then return buf end
+    return buf:sub(at, at + n - 1)
   end
 
-  function skip(self, n: integer): boolean, string -- declared: interface_disagrees
+  function skip(self, n: integer): (true) | (false, Failure) -- declared: interface_disagrees
     local avail = #self.buf - self.at + 1
     if n <= avail then
       self.at = self.at + n
-      return true, ""
+      return true
     end
     self.buf, self.at = "", 1
-    local skipped, why = Stream.skip(self.raw, n - avail)
-    if not skipped then return false, tostring(why) end
-    return true, ""
+    return Stream.skip(self.raw, n - avail)
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.buf, self.at = "", 1
     return self.raw:close()
   end
@@ -417,35 +417,40 @@ local class BodyReader is Stream.Reader
   state: EntryReader
   generation: integer
   mut left: integer
-  mut failed?: string
+  --- The failure every read answers after the first, its kind kept.
+  mut failed?: Failure
   mut closed: boolean
 
-  function read(self, max_bytes?: integer): string?, string
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     local failed = self.failed
-    if failed then return nil, failed end
-    if self.closed then return refuse("the entry body is closed") end
+    if failed ~= nil then return nil, failed end
+    if self.closed then return nil, Failure.new("tar: the entry body is closed") end
     local state = self.state
     if self.generation ~= state.generation then
-      return refuse("entry is no longer current")
+      return nil, Failure.new("tar: entry is no longer current")
     end
     local left = self.left
-    if left <= 0 then return nil, "" end
+    if left <= 0 then return false end
     local want = max_bytes or chunk_size
     if want > left then want = left end
     local chunk, rtrouble = state.src:read(want)
     if chunk == nil then
-      local why = if rtrouble ~= "" then rtrouble else "tar: truncated archive" end
-      self.failed = why
-      return nil, why
+      self.failed = rtrouble
+      return nil, rtrouble
+    end
+    if chunk == false then
+      local truncated = Failure.new("tar: truncated archive")
+      self.failed = truncated
+      return nil, truncated
     end
     self.left = left - #chunk
     state.pending_skip = state.pending_skip - #chunk
-    return chunk, ""
+    return chunk
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.closed = true
-    return true, ""
+    return true
   end
 end
 
@@ -579,7 +584,9 @@ local class EntryReader is Tar.Reader
     self.closed = true
     self.generation = self.generation + 1
     self.current = nil
-    return self.raw:close()
+    local ok, why = self.raw:close()
+    if not ok then return false, tostring(why) end
+    return true, ""
   end
 end
 
@@ -673,16 +680,18 @@ end
 local class BodyWriter is Stream.Writer
   sink: Stream.Sticky
 
-  function write(self, data: string): boolean, string
-    return self.sink:put(data)
+  function write(self, data: string): (true) | (false, Failure)
+    local ok, why = self.sink:put(data)
+    if not ok then return false, Failure.new(why) end
+    return true
   end
 
-  function close(self): boolean, string
-    return true, ""
+  function close(self): (true) | (false, Failure)
+    return true
   end
 
-  function abort(self): boolean, string
-    return true, ""
+  function abort(self): (true) | (false, Failure)
+    return true
   end
 end
 

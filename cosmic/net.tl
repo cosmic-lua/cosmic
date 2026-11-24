@@ -29,9 +29,10 @@
 --- [`Poll.TIMEOUT`], and ends with
 --- "interrupted", within a tenth of a second, when the innermost open
 --- [`Signal.guard`] catches SIGINT or SIGTERM, as [`cosmic.http`]'s do
---- outside a task. A listener's and a UDP socket's methods answer these as
---- a [`Failure`] with the same message: of kind "timeout" for a timeout,
---- "cancelled" for "interrupted" and "cancelled".
+--- outside a task. A listener's and a UDP socket's methods, and a
+--- connection's `read`, `write` and `close`, answer these as a [`Failure`] with the same
+--- message: of kind "timeout" for a timeout, "cancelled" for
+--- "interrupted" and "cancelled".
 ---
 --- In a task of [`Poll.run`] ([`cosmic.poll`]), a wait to connect, to
 --- accept, to read or to write waits through the run, so its other

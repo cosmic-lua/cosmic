@@ -30,7 +30,7 @@ end
 --- that its value changed and not what it is, and decoding the text gives a
 --- policy that encodes to it again.
 function Example.encode()
-  local merged = assert(Sandbox.merge({ promises = { "jit", "fork" }, set_env = { TOKEN = "s3cret" } }))
+  local merged = assert(Sandbox.union({ promises = { "jit", "fork" }, set_env = { TOKEN = "s3cret" } }))
   local text = PolicyJson.encode(merged)
   print(text) -- {"promises":["fork","jit"],"set_env_digests":{"TOKEN":"..."}}
   assert(text:find('"promises":["fork","jit"]', 1, true) ~= nil and not text:find("s3cret", 1, true))

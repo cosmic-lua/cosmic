@@ -111,6 +111,31 @@ local record Agent
   --- Opens one request: Http.open's work, so a test can stand in.
   type Send = function(url: string, opts: Http.Options): Reply?, string
 
+  --- The most one turn ([`Agent.Session.prompt`], or `resume`) may
+  --- spend: each field nil for no limit. The first limit reached ends the
+  --- turn for good, the tool calls of its last reply answered as
+  --- stopped, with why ([`Agent.BUDGET_SPENT`]). Tokens, cost and turns
+  --- are counted when each request comes back, so the request that
+  --- reaches a limit is the last; the time is counted from the turn's
+  --- start, and a tool that runs past it is stopped as the user stops one
+  --- (bash's command is ended as at its timeout). A turn resumed
+  --- ([`Agent.Session.resume`]) counts from nothing again. The model
+  --- reads the limits beside the turn's prompt. Once a limit is mostly
+  --- spent (a quarter left, or one request), a note with the tool results
+  --- tells it to finish.
+  record Budget
+    --- Tokens new to each request of the turn: input, cache writes and
+    --- output. Cache reads are left out: each counts the whole prefix
+    --- again, which `cost` weighs at its price.
+    tokens?: integer
+    --- USD, at [`Agent.cost`]'s prices; a model with no price counts nothing.
+    cost?: number
+    --- Requests: the model's turns.
+    turns?: integer
+    --- Seconds of wall clock.
+    seconds?: number
+  end
+
   --- What [`Agent.new`] makes an agent with. Each field but `sign` and
   --- `cwd` has a default, and each is a field of the agent after.
   record Options
@@ -129,10 +154,15 @@ local record Agent
     --- The system prompt; [`Prompt.build`]'s for `cwd` and `tools` by default,
     --- which names no MCP server: build one with `servers` and `tools` when you give `mcp`.
     system?: string
+    --- What the system prompt is followed by, in a block past its cache mark; [`Prompt.where`]'s for `cwd`
+    --- by default, "" for nothing. The working directory is here, not in `system`, so `system` is the same
+    --- in each directory and read from the cache that a session elsewhere wrote.
+    where?: string
     --- What opens a request; Http.open by default.
     send?: Send
-    --- What the tools are held to (cosmic.agent.policy); nil for nothing.
-    sandbox?: Sandbox.Policy
+    --- The layers the tools are held to (cosmic.agent.policy), each held stacked: only what every layer lets
+    --- them do ([`Sandbox.intersect`]); nil or {} for nothing.
+    sandbox?: {Sandbox.Policy}
     --- The background jobs the tools start (cosmic.agent.jobs); nil for none.
     jobs?: Jobs.Set
     --- The worker the run tool sends its snippets to (cosmic.agent.worker); nil for none.
@@ -151,6 +181,8 @@ local record Agent
     restarts?: integer
     --- Whether its last turn ended for good, as kept; false by default, so a conversation that ends with the user's word is unfinished.
     ended?: boolean
+    --- The most each turn may spend; nil for no limit.
+    budget?: Budget
   end
 
   --- The kind of a [`Agent.TextEvent`].
@@ -170,6 +202,9 @@ local record Agent
     kind: TextKind
     --- What it said.
     text: string
+    --- True where the message that holds it also calls a tool: words on
+    --- the way, not the turn's answer.
+    calls?: boolean
   end
 
   --- The model called the tool `name` with `input`.
@@ -321,14 +356,17 @@ local record Agent
     --- built again when they change: set `system` to
     --- `Prompt.build(cwd, Prompt.contexts(cwd), { tools = tools })` too.
     mut tools: {Tools.Tool}
-    --- The system prompt.
+    --- The system prompt, sent as a block with a cache mark of its own.
     mut system: string
+    --- What follows the system prompt, past its cache mark: the working directory; "" for nothing.
+    mut where: string
     --- Where the tools run from.
     cwd: string
     --- What opens a request; Http.open where nil.
     mut send?: Send
-    --- What the tools are held to (cosmic.agent.policy); nil for nothing.
-    mut sandbox?: Sandbox.Policy
+    --- The layers the tools are held to (cosmic.agent.policy), stacked as [`Sandbox.intersect`] joins them at
+    --- each call; nil or {} for nothing. A call is blocked when they do not join.
+    mut sandbox?: {Sandbox.Policy}
     --- The background jobs the tools start (cosmic.agent.jobs); nil for none.
     mut jobs?: Jobs.Set
     --- The worker the run tool sends its snippets to (cosmic.agent.worker); nil for none.
@@ -367,10 +405,20 @@ local record Agent
     --- Whether the user stopped the last turn this run ran (`stopping`
     --- said so): the agent sets it.
     mut stopped: boolean
+    --- Whether the last turn this run ran ended as its budget was spent
+    --- ([`Agent.BUDGET_SPENT`]): the agent sets it.
+    mut spent: boolean
     --- The id of the last reply, which the next request names for its
     --- cache diagnosis; nil until one came, or was read from where it is
     --- kept; "" where the API refused the one named, so none is named.
     mut last_reply?: string
+    --- When the last request was sent ([`Clock.now_ns`]), one of `warm`'s
+    --- too, where it came back whole and did not compact: the cache keeps
+    --- what it read or wrote 5 minutes from then. Nil where none was, or
+    --- the last failed or compacted, as `warm` would only repeat it.
+    mut sent_ns?: integer
+    --- The most each turn may spend ([`Agent.Budget`]); nil for no limit.
+    mut budget?: Budget
 
     --- Adds `text` as the user's, and runs the loop until the model ends
     --- its turn: true, or false and why. Why is the API's trouble, the
@@ -393,6 +441,13 @@ local record Agent
     --- whose output was kept with that output, one that never ended as
     --- interrupted, not run again.
     settle: function(Session): boolean, string
+    --- Sends the conversation as the last request sent it, to the user's
+    --- last word, asking for no reply: the cache keeps it 5 minutes more,
+    --- for 0.05x of its input price, where writing it again costs 1.25x.
+    --- Call it while the user is idle, before 5 minutes pass from
+    --- `sent_ns`: true, or false and why. Nothing is sent, and true
+    --- comes back, where `sent_ns` is nil.
+    warm: function(Session): boolean, string
     --- Ends the worker, the MCP servers and the background jobs, each
     --- job's output not kept yet kept. The database is the caller's to
     --- close. Safe to call more than once; the agent is not to be
@@ -413,11 +468,15 @@ local record Agent
   MODEL: string
   --- The effort, unless one is named.
   EFFORT: string
+  --- What a turn that spent its budget ends with, before a colon and
+  --- the limit it reached.
+  BUDGET_SPENT: string
 end
 
 Agent.MODELS = { opus = "claude-opus-5-5", sonnet = "claude-sonnet-5-5" }
 Agent.MODEL = "opus"
 Agent.EFFORT = "medium"
+Agent.BUDGET_SPENT = "the turn's budget is spent"
 --- How often a turn is started again before resume gives up on it.
 local RESTARTS <const> = 5
 --- Why a turn ended, where the user stopped it.
@@ -451,6 +510,69 @@ local function tell(s: Agent.Session, event: Agent.Event)
   if on == nil then return end
   local ran, err = pcall(on, event)
   if not ran and s.on_failed == nil then s.on_failed = told(err) end
+end
+
+--- What `layers` hold stacked, and "": nil for no sandbox where `layers` is nil; nil and why for no layer, or
+--- layers that do not join. A profile every layer names stays a profile, as one layer's does: Child.start reads the
+--- "cosmic" profile's `rx` on this program as the start's alone, which a grant of it is not.
+local function joined(layers?: {Sandbox.Policy}): Sandbox.Policy?, string
+  if layers == nil then return nil, "" end
+  if #layers == 0 then return nil, "the sandbox has no layer: give nil for none" end
+  if #layers == 1 then return layers[1], "" end
+  local common: mut {string} = {}
+  for _, name in ipairs(layers[1].profiles or {}) do
+    local everywhere = true
+    for _, layer in ipairs(layers) do
+      local named = false
+      for _, other in ipairs(layer.profiles or {}) do
+        if other == name then named = true end
+      end
+      if not named then everywhere = false end
+    end
+    if everywhere then common[#common + 1] = name end
+  end
+  local stripped: mut {Sandbox.Policy} = {}
+  for _, layer in ipairs(layers) do
+    local rest: mut {string} = {}
+    for _, name in ipairs(layer.profiles or {}) do
+      local shared = false
+      for _, held in ipairs(common) do
+        if held == name then shared = true end
+      end
+      if not shared then rest[#rest + 1] = name end
+    end
+    stripped[#stripped + 1] = { ...layer, profiles = rest }
+  end
+  local policy, why = Sandbox.intersect(table.unpack(stripped))
+  if policy == nil then return nil, "the sandbox's layers do not join: " .. why end
+  if #common > 0 then return { ...policy, profiles = common }, "" end
+  return policy, ""
+end
+
+--- [`joined`] of `s.sandbox`, kept while its layers are the same: the worker runs on under the policy it was
+--- started with, and starts again under another.
+local record Joined
+  from: {Sandbox.Policy}
+  policy?: Sandbox.Policy
+end
+local JOINED: mut {Agent.Session: Joined} = setmetatable({}, { __mode = "k" })
+
+local function held_policy(s: Agent.Session): Sandbox.Policy?, string
+  local layers = s.sandbox
+  local kept = JOINED[s]
+  if layers ~= nil and kept ~= nil and #kept.from == #layers then
+    local same = true
+    for i, layer in ipairs(layers) do
+      if kept.from[i] ~= layer then same = false end
+    end
+    if same then return kept.policy, "" end
+  end
+  local policy, why = joined(layers)
+  if policy == nil and why ~= "" then return nil, why end
+  local copy: mut {Sandbox.Policy} = {}
+  for _, layer in ipairs(layers or {}) do copy[#copy + 1] = layer end
+  if layers ~= nil then JOINED[s] = { from = copy, policy = policy } else JOINED[s] = nil end
+  return policy, ""
 end
 
 --- What `before` of `s` says of `call`: nil to run it, or why not.
@@ -559,7 +681,6 @@ local function request_body(s: Agent.Session): Json.Value
   local body: mut {string: Json.Value} = {
     model = s.model,
     max_tokens = MAX_TOKENS,
-    system = s.system,
     tools = Tools.definitions(s.tools),
     messages = Json.array(s.messages),
     stream = true,
@@ -572,6 +693,16 @@ local function request_body(s: Agent.Session): Json.Value
     -- compaction block), and later requests are read from there on.
     context_management = { edits = Json.array({ { type = "compact_20260112" } }) },
   }
+  -- The system prompt has a cache mark of its own, as the tools have:
+  -- both are read by each session whose project has the same
+  -- instructions, whatever its directory and messages. The working
+  -- directory comes after the mark. The API takes no empty block.
+  local system: mut {Json.Value} = {}
+  if s.system ~= "" then
+    system[#system + 1] = { type = "text", text = s.system, cache_control = { type = "ephemeral" } }
+  end
+  if s.where ~= "" then system[#system + 1] = { type = "text", text = s.where } end
+  if #system > 0 then body["system"] = Json.array(system) end
   -- The reply says why the cache missed, against the last reply; naming
   -- none still asks, so that the API keeps this one to name next.
   local last = s.last_reply
@@ -663,9 +794,31 @@ local function open(url: string, opts: Http.Options): Agent.Reply?, string
   if res == nil then return nil, tostring(why) end
   return {
     status = res.status, headers = res.headers,
-    read = function(): string?, string return res:read() end,
+    read = function(): string?, string
+      local piece, failed = res:read()
+      if piece == nil then return nil, tostring(failed) end
+      if piece == false then return nil, "" end
+      return piece, ""
+    end,
     close = function() local _, _ = res:close() end,
   }, ""
+end
+
+--- Fills in `r` with what `reply` says it used, and what that cost.
+local function counted(s: Agent.Session, r: Sessions.Request, reply: {string: Json.Value})
+  local usage, _ = Json.to_object(reply["usage"])
+  if usage == nil then return end
+  r.input_tokens = count_of(usage["input_tokens"]) or 0
+  r.output_tokens = count_of(usage["output_tokens"]) or 0
+  r.cache_read = count_of(usage["cache_read_input_tokens"]) or 0
+  local write = count_of(usage["cache_creation_input_tokens"]) or 0
+  r.cache_write_5m, r.cache_write_1h = write, 0
+  local split, _ = Json.to_object(usage["cache_creation"])
+  if split ~= nil then
+    r.cache_write_5m = count_of(split["ephemeral_5m_input_tokens"]) or 0
+    r.cache_write_1h = count_of(split["ephemeral_1h_input_tokens"]) or 0
+  end
+  r.cost = Agent.billed(r.served or s.model, usage)
 end
 
 --- A request of `s`'s, as it is to be kept: what `call` fills in.
@@ -675,10 +828,25 @@ local function request_of(s: Agent.Session): Sessions.Request
     build = s.build }
 end
 
+--- Whether `reply` begins anew from a compaction block: a request after
+--- it reads from there on, not what came before.
+local function compacted(reply: {string: Json.Value}): boolean
+  local content, _ = Json.to_array(reply["content"])
+  for _, block in ipairs(content or {}) do
+    local b, _ = Json.to_object(block)
+    if b ~= nil and b["type"] == "compaction" then return true end
+  end
+  return false
+end
+
 --- Sends `s`'s conversation once, as `r`, which it fills in with what
---- came back: the reply, or nil and why.
-local function call(s: Agent.Session, r: Sessions.Request): {string: Json.Value}?, string
+--- came back: the reply, or nil and why. With `warming`, the first
+--- `warming` messages alone, asking for no reply, unstreamed: a warm
+--- request, whose reply the next request does not name.
+local function call(s: Agent.Session, r: Sessions.Request, warming?: integer): {string: Json.Value}?, string
   local started = Clock.now_ns()
+  -- Kept warm only from a request that came back whole and did not compact.
+  s.sent_ns = nil
   local function failed(why: string): {string: Json.Value}?, string
     r.error, r.ms = why, (Clock.now_ns() - started) // Clock.ms(1)
     return nil, why
@@ -688,6 +856,21 @@ local function call(s: Agent.Session, r: Sessions.Request): {string: Json.Value}
     s.last_reply = Sessions.last_reply(db, id)
   end
   local body = request_body(s)
+  if warming ~= nil then
+    local whole, _ = Json.to_object(body)
+    local warm: mut {string: Json.Value} = {}
+    for k, v in pairs(whole or {}) do warm[k] = v end
+    local sent: mut {Json.Value} = {}
+    for i, m in ipairs(s.messages) do
+      if i > warming then break end
+      sent[#sent + 1] = m
+    end
+    -- No tokens asked for, which the API takes only unstreamed: it reads
+    -- the prefix (from the cache) and answers nothing.
+    warm["messages"], warm["max_tokens"], warm["stream"] = Json.array(sent), 0, false
+    body = warm
+    r.max_tokens = 0
+  end
   local text, why = Json.encode(body)
   if text == nil then return failed(tostring(why)) end
   -- The body less what is kept elsewhere: the messages, the system
@@ -728,10 +911,30 @@ local function call(s: Agent.Session, r: Sessions.Request): {string: Json.Value}
     if got.status == 400 and named ~= nil and named ~= "" and
         (said:find("previous_message_id", 1, true) ~= nil or said:find("diagnostics", 1, true) ~= nil) then
       s.last_reply = ""
-      return call(s, r)
+      return call(s, r, warming)
     end
     r.reply = said
     return failed("HTTP " .. tostring(got.status) .. ": " .. said)
+  end
+  if warming ~= nil then
+    local parts: mut {string} = {}
+    while true do
+      local chunk, _ = got.read()
+      if chunk == nil then break end
+      parts[#parts + 1] = chunk
+    end
+    got.close()
+    local said = table.concat(parts)
+    r.reply = said
+    local reply, bad = Json.decode_object(said)
+    if reply == nil then return failed("the reply is not a JSON object: " .. tostring(bad)) end
+    r.ms = (Clock.now_ns() - started) // Clock.ms(1)
+    local served, stop = reply["model"], reply["stop_reason"]
+    r.served = if served is string then served else nil end
+    r.stop_reason = if stop is string then stop else nil end
+    counted(s, r, reply)
+    s.sent_ns = started
+    return reply, ""
   end
   -- What came, kept as it came where it cannot be put back together.
   local raw: mut {string} = {}
@@ -757,20 +960,8 @@ local function call(s: Agent.Session, r: Sessions.Request): {string: Json.Value}
   local served, stop = reply["model"], reply["stop_reason"]
   r.served = if served is string then served else nil end
   r.stop_reason = if stop is string then stop else nil end
-  local usage, _ = Json.to_object(reply["usage"])
-  if usage ~= nil then
-    r.input_tokens = count_of(usage["input_tokens"]) or 0
-    r.output_tokens = count_of(usage["output_tokens"]) or 0
-    r.cache_read = count_of(usage["cache_read_input_tokens"]) or 0
-    local write = count_of(usage["cache_creation_input_tokens"]) or 0
-    r.cache_write_5m, r.cache_write_1h = write, 0
-    local split, _ = Json.to_object(usage["cache_creation"])
-    if split ~= nil then
-      r.cache_write_5m = count_of(split["ephemeral_5m_input_tokens"]) or 0
-      r.cache_write_1h = count_of(split["ephemeral_1h_input_tokens"]) or 0
-    end
-    r.cost = Agent.billed(r.served or s.model, usage)
-  end
+  counted(s, r, reply)
+  if not compacted(reply) then s.sent_ns = started end
   return reply, ""
 end
 
@@ -782,6 +973,27 @@ local function keep_request(s: Agent.Session, r: Sessions.Request): boolean, str
     if kept == nil then return false, why end
   end
   tell(s, { kind = "request", request = r })
+  return true, ""
+end
+
+--- Sends `s`'s conversation as its last request sent it, asking for no
+--- reply, and keeps that request: true, or false and why.
+local function warm(s: Agent.Session): boolean, string
+  if s.sent_ns == nil then return true, "" end
+  -- The last request ended at the user's last word: the API takes no
+  -- conversation that ends in the model's.
+  local last = #s.messages
+  while last > 0 do
+    local m, _ = Json.to_object(s.messages[last])
+    if m ~= nil and m["role"] == "user" then break end
+    last = last - 1
+  end
+  if last == 0 then return true, "" end
+  local r = request_of(s)
+  local reply, why = call(s, r, last)
+  local kept, keep_why = keep_request(s, r)
+  if reply == nil then return false, why end
+  if not kept then return false, keep_why end
   return true, ""
 end
 
@@ -816,12 +1028,119 @@ local function stop(s: Agent.Session): boolean, string
   return finish(s, false, STOPPED)
 end
 
---- Runs the loop from where `s` is, until the model ends its turn.
+--- What a turn spent so far, against [`Agent.Budget`].
+local record Spent
+  mut tokens: integer
+  mut cost: number
+  mut turns: integer
+  started: integer
+end
+
+--- Adds request `r` to `spent`.
+local function spend(spent: Spent, r: Sessions.Request)
+  spent.turns = spent.turns + 1
+  -- What is new to each request: a cache read counts the whole prefix
+  -- again each time, which the cost weighs at its price.
+  spent.tokens = spent.tokens + (r.input_tokens or 0) + (r.output_tokens or 0) + (r.cache_write_5m or 0) +
+    (r.cache_write_1h or 0)
+  spent.cost = spent.cost + (r.cost or 0)
+end
+
+--- Why `s`'s turn may go no further, having spent `spent`: nil where
+--- each limit of its budget is still ahead.
+local function spent_why(s: Agent.Session, spent: Spent): string?
+  local b = s.budget
+  if b == nil then return nil end
+  local limit = b.tokens
+  if limit ~= nil and spent.tokens >= limit then
+    return Agent.BUDGET_SPENT .. ": " .. String.counted(spent.tokens, "token") .. ", of " .. tostring(limit)
+  end
+  local most = b.cost
+  if most ~= nil and spent.cost >= most then
+    return Agent.BUDGET_SPENT .. ": " .. string.format("$%.4f, of $%.4f", spent.cost, most)
+  end
+  local turns = b.turns
+  if turns ~= nil and spent.turns >= turns then
+    return Agent.BUDGET_SPENT .. ": " .. String.counted(spent.turns, "request") .. ", of " .. tostring(turns)
+  end
+  local seconds = b.seconds
+  local took = (Clock.monotonic_ns() - spent.started) / 1e9
+  if seconds ~= nil and took >= seconds then
+    return Agent.BUDGET_SPENT .. ": " .. string.format("%.1f s, of %g s", took, seconds)
+  end
+  return nil
+end
+
+--- `usd` as the budget notes show it: cents, or tenths of a cent below a dime.
+local function dollars(usd: number): string
+  return string.format(if usd ~= 0 and usd < 0.1 then "$%.4f" else "$%.2f" end, usd)
+end
+
+--- The limits of budget `b`, each with what `spent` used of it where given: "2 of 6 requests, $0.04 of $0.25".
+local function budget_text(b: Agent.Budget, spent?: Spent): string
+  local parts: mut {string} = {}
+  local function put(used: string?, most: string)
+    parts[#parts + 1] = if used ~= nil then used .. " of " .. most else most end
+  end
+  local tokens, cost, turns, seconds = b.tokens, b.cost, b.turns, b.seconds
+  if turns ~= nil then
+    put(if spent ~= nil then tostring(spent.turns) else nil end, String.counted(turns, "request"))
+  end
+  if tokens ~= nil then
+    put(if spent ~= nil then tostring(spent.tokens) else nil end, String.counted(tokens, "token"))
+  end
+  if cost ~= nil then
+    put(if spent ~= nil then dollars(spent.cost) else nil end, dollars(cost))
+  end
+  if seconds ~= nil then
+    local took = if spent ~= nil then string.format("%.0f s", (Clock.monotonic_ns() - spent.started) / 1e9) else nil end
+    put(took, string.format("%g s", seconds))
+  end
+  return table.concat(parts, ", ")
+end
+
+--- What the model reads at the start of a turn with budget `b`, so it plans to finish within it.
+local function budget_note(b: Agent.Budget): string
+  return "This turn's budget: " .. budget_text(b) .. ". The turn ends when the first of these is spent, " ..
+    "so plan to finish within it."
+end
+
+--- What the model reads with its tool results once `s`'s turn has spent most of a limit (the next request may be
+--- the last), else nil.
+local function nearly_spent(s: Agent.Session, spent: Spent): string?
+  local b = s.budget
+  if b == nil then return nil end
+  local near = false
+  local function over(used: number, most?: number)
+    if most ~= nil and used >= 0.75 * most then near = true end
+  end
+  local turns = b.turns
+  if turns ~= nil and spent.turns + 1 >= turns then near = true end
+  over(spent.tokens, b.tokens)
+  over(spent.cost, b.cost)
+  over((Clock.monotonic_ns() - spent.started) / 1e9, b.seconds)
+  if not near then return nil end
+  return "Budget: spent " .. budget_text(b, spent) .. ". The next reply may be the last: finish now with what " ..
+    "you have."
+end
+
+--- Runs the loop from where `s` is, until the model ends its turn, or
+--- its budget is spent.
 local function loop(s: Agent.Session): boolean, string
+  local spent: Spent = { tokens = 0, cost = 0.0, turns = 0, started = Clock.monotonic_ns() }
+  local budget = s.budget
+  local most_seconds = if budget ~= nil then budget.seconds else nil end
+  local deadline = if most_seconds ~= nil then spent.started + math.floor(most_seconds * 1e9) else nil end
   while true do
     if stopped(s) then return stop(s) end
+    local over = spent_why(s, spent)
+    if over ~= nil then
+      s.spent = true
+      return finish(s, false, over)
+    end
     local request = request_of(s)
     local reply, why = call(s, request)
+    spend(spent, request)
     if reply == nil then
       local _, _ = keep_request(s, request)
       if stopped(s) then return stop(s) end
@@ -843,23 +1162,38 @@ local function loop(s: Agent.Session): boolean, string
     local results: mut {Json.Value} = {}
     local sent: mut {string} = {}
     local halted, failed = false, ""
+    -- Why the budget halted the turn, where it did rather than the user.
+    local spent_reason: string? = nil
+    local calls = false
+    for _, item in ipairs(content or {}) do
+      local block, _ = Json.to_object(item)
+      if block ~= nil and block["type"] == "tool_use" then calls = true end
+    end
     for _, item in ipairs(content or {}) do
       local block, _ = Json.to_object(item)
       local kind = block and block["type"]
       local said_text = block and block["text"]
       local name = block and block["name"]
       if kind == "text" and said_text is string then
-        tell(s, { kind = "text", text = said_text })
+        tell(s, { kind = "text", text = said_text, calls = calls })
       elseif block ~= nil and kind == "tool_use" then
         local id = block["id"]
         local call_id = if id is string then id else "" end
-        if not halted and failed == "" and stopped(s) then halted = true end
+        if not halted and failed == "" then
+          if stopped(s) then
+            halted = true
+          else
+            spent_reason = spent_why(s, spent)
+            halted = spent_reason ~= nil
+          end
+        end
         if #sent == 0 and not halted and failed == "" then
           for _, t in ipairs(steering(s)) do sent[#sent + 1] = t end
         end
         if halted or failed ~= "" or #sent > 0 then
           -- Answered all the same: the API takes no tool call left without its result.
-          local why_not = if halted then "Stopped: the user stopped the turn." elseif failed ~= "" then
+          local why_not = if halted and spent_reason ~= nil then "Stopped: " .. spent_reason .. "."
+            elseif halted then "Stopped: the user stopped the turn." elseif failed ~= "" then
             "Not run: the agent could not keep what came before." else "Skipped: the user sent a message instead." end
           results[#results + 1] = { type = "tool_result", tool_use_id = call_id, content = why_not, is_error = true }
         else
@@ -867,7 +1201,8 @@ local function loop(s: Agent.Session): boolean, string
           local input, _ = Json.to_object(block["input"])
           local given = input or {}
           tell(s, { kind = "tool", name = called, input = given })
-          local asking = function(): boolean return stopped(s) end
+          -- A tool that runs past the turn's time is stopped as the user stops one.
+          local asking = function(): boolean return stopped(s) or spent_why(s, spent) ~= nil end
           local tool = Tools.find(s.tools, called)
           local paths = tool and tool.paths
           local touched: {Tools.Touch} = {}
@@ -879,14 +1214,16 @@ local function loop(s: Agent.Session): boolean, string
           local asked_call: Agent.Call = { name = called, input = given, caller = "model", cwd = s.cwd, id = s.id,
             paths = touched, stopped = asking }
           local result: Tools.Result
+          local policy, unjoined = held_policy(s)
+          if reason == nil and unjoined ~= "" then reason = unjoined end
           if reason == nil and tool ~= nil then reason = blocked(s, asked_call) end
           if reason ~= nil then
             result = { text = "Blocked: " .. reason, is_error = true }
             tell(s, { kind = "blocked", name = called, caller = "model", input = given, reason = reason })
           else
             local context: Tools.Context = { cwd = s.cwd, db = s.db, session = s.id,
-              policy = s.sandbox, jobs = s.jobs, worker = s.worker,
-              mcp = s.mcp, stopped = asking, tools = s.tools,
+              policy = policy, jobs = s.jobs, worker = s.worker,
+              mcp = s.mcp, stopped = asking, deadline_ns = deadline, tools = s.tools,
               commands = Tools.find(s.tools, "bash") ~= nil,
               guard = if s.before == nil then nil else function(host: string, args: Tools.Object): string?
                 local by_code: Agent.Call = { name = host, input = args, caller = "code", cwd = s.cwd, id = s.id,
@@ -918,6 +1255,9 @@ local function loop(s: Agent.Session): boolean, string
       for _, t in ipairs(steering(s)) do sent[#sent + 1] = t end
     end
     for _, t in ipairs(sent) do results[#results + 1] = { type = "text", text = t } end
+    -- None where the budget is spent already: the turn ends next, and a later prompt would read it stale.
+    local near = if #results > 0 and not halted and spent_why(s, spent) == nil then nearly_spent(s, spent) else nil end
+    if near ~= nil then results[#results + 1] = { type = "text", text = near } end
     -- Each tool call is answered before any stop, so the session stays one the API takes.
     if #results > 0 then
       local answers: Json.Value = { role = "user", content = Json.array(results) }
@@ -929,6 +1269,10 @@ local function loop(s: Agent.Session): boolean, string
       end
     end
     if failed ~= "" then return false, failed end
+    if halted and spent_reason ~= nil then
+      s.spent = true
+      return finish(s, false, spent_reason)
+    end
     if halted then return stop(s) end
     local stop_reason = reply["stop_reason"]
     if stop_reason == "refusal" then return finish(s, false, "the model refused") end
@@ -947,10 +1291,14 @@ end
 --- Adds `text` to `s` as the user's, and runs the loop until the model ends its turn.
 local function prompt(s: Agent.Session, text: string): boolean, string
   if text:match("^%s*$") then return false, "the prompt is blank" end
-  s.stopped = false
+  s.stopped, s.spent = false, false
   local marked, mark_why = mark(s, 0, false)
   if not marked then return false, mark_why end
-  local kept, keep_why = add(s, { role = "user", content = text })
+  local budget = s.budget
+  -- The budget goes in the turn's message, not the system prompt, so the cache holds whatever the budget.
+  local content: Json.Value = if budget == nil then text else
+    Json.array({ { type = "text", text = text }, { type = "text", text = budget_note(budget) } }) end
+  local kept, keep_why = add(s, { role = "user", content = content })
   if not kept then return false, keep_why end
   return loop(s)
 end
@@ -967,7 +1315,7 @@ local function resume(s: Agent.Session): boolean, string
   if s.restarts >= RESTARTS then
     return false, "the turn was started again " .. String.counted(s.restarts, "time") .. "; give a prompt to go on"
   end
-  s.stopped = false
+  s.stopped, s.spent = false, false
   local marked, mark_why = mark(s, s.restarts + 1, false)
   if not marked then return false, mark_why end
   return loop(s)
@@ -1000,9 +1348,10 @@ local class AgentSession is Agent.Session
   mut base_url?: string
   mut tools: {Tools.Tool}
   mut system: string
+  mut where: string
   cwd: string
   mut send?: Agent.Send
-  mut sandbox?: Sandbox.Policy
+  mut sandbox?: {Sandbox.Policy}
   mut jobs?: Jobs.Set
   mut worker?: Worker.Set
   mut mcp?: AgentMcp.Set
@@ -1019,7 +1368,10 @@ local class AgentSession is Agent.Session
   mut restarts: integer
   mut ended: boolean
   mut stopped: boolean
+  mut spent: boolean
   mut last_reply?: string
+  mut sent_ns?: integer
+  mut budget?: Agent.Budget
 
   function prompt(self, text: string): boolean, string
     return prompt(self, text)
@@ -1035,6 +1387,10 @@ local class AgentSession is Agent.Session
 
   function settle(self): boolean, string
     return settle(self)
+  end
+
+  function warm(self): boolean, string
+    return warm(self)
   end
 
   function close(self)
@@ -1056,11 +1412,13 @@ function Agent.new(options: Agent.Options): Agent.Session
   local agent: AgentSession = {
     model = options.model or Agent.MODELS.opus, effort = options.effort or Agent.EFFORT, sign = options.sign, base_url = options.base_url,
     tools = tools,
-    system = options.system or Prompt.build(options.cwd, Prompt.contexts(options.cwd), { tools = tools }), cwd = options.cwd,
+    system = options.system or Prompt.build(options.cwd, Prompt.contexts(options.cwd), { tools = tools }),
+    where = options.where or Prompt.where(options.cwd), cwd = options.cwd,
     send = options.send, sandbox = options.sandbox, jobs = options.jobs, worker = options.worker,
     mcp = options.mcp, build = options.build, messages = held, db = options.db, id = options.id,
-    restarts = options.restarts or 0, ended = options.ended == true, stopped = false,
+    restarts = options.restarts or 0, ended = options.ended == true, stopped = false, spent = false,
     on = nil, before = nil, after = nil, on_failed = nil, steering = nil, stopping = nil, last_reply = nil,
+    sent_ns = nil, budget = options.budget,
   }
   return agent
 end

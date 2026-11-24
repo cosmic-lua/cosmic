@@ -7,8 +7,10 @@
 
 local Array = require("cosmic.array")
 local Failure = require("cosmic.failure")
+local Flags = require("cosmic.flags")
 local Time = require("cosmic.time")
 local time_verb = require("build.time")
+local Verb = require("cosmic.cli.time")
 
 local NS <const> = 1000000000
 
@@ -66,7 +68,7 @@ local function test_now_has_four_formats()
   assert(said({ "now", "--format", "epoch" }) == "1772971200\n")
   assert(said({ "now", "--format", "rfc3339", "--zone", "UTC" }) == "2026-03-08T12:00:00+00:00\n")
   local bad = run({ "now", "--format", "unix" })
-  assert(bad.code == 2 and bad.out == "" and bad.err:find("--format is rfc3339", 1, true) ~= nil, bad.err)
+  assert(bad.code == 2 and bad.out == "" and bad.err:find("now: --format takes rfc3339, date, http or epoch, not unix", 1, true) ~= nil, bad.err)
 end
 
 local function test_now_json_is_a_record_of_the_moment()
@@ -80,19 +82,19 @@ end
 
 local function test_convert_follows_daylight_saving_time()
   local function ny(text: string): string
-    return said({ "convert", text, "--to", "America/New_York" })
+    return said({ "convert", text, "--zone", "America/New_York" })
   end
   assert(ny("2026-03-08T06:59:59Z") == "2026-03-08T01:59:59-05:00\n")
   assert(ny("2026-03-08T07:00:00Z") == "2026-03-08T03:00:00-04:00\n")
   assert(ny("2026-11-01T05:59:59Z") == "2026-11-01T01:59:59-04:00\n")
   assert(ny("2026-11-01T06:00:00Z") == "2026-11-01T01:00:00-05:00\n")
-  assert(said({ "convert", "2026-07-01T12:00:00+02:00", "--to", "Asia/Kolkata" }) == "2026-07-01T15:30:00+05:30\n")
+  assert(said({ "convert", "2026-07-01T12:00:00+02:00", "--zone", "Asia/Kolkata" }) == "2026-07-01T15:30:00+05:30\n")
   assert(said({ "convert", "2026-07-01T12:00:00Z" }) == "2026-07-01T21:00:00+09:00\n")
 end
 
 local function test_a_time_in_a_gap_lands_after_it_by_default()
   local function gap(...: string): string
-    local words: mut {string} = { "convert", "2026-03-08T02:30", "--from", "America/New_York", "--to", "UTC" }
+    local words: mut {string} = { "convert", "2026-03-08T02:30", "--local-zone", "America/New_York", "--zone", "UTC" }
     for _, word in ipairs({ ... }) do words[#words + 1] = word end
     return said(words)
   end
@@ -101,14 +103,14 @@ local function test_a_time_in_a_gap_lands_after_it_by_default()
   assert(gap("--disambiguate", "compatible") == "2026-03-08T07:30:00+00:00\n")
   assert(gap("--disambiguate", "later") == "2026-03-08T07:30:00+00:00\n")
   assert(gap("--disambiguate", "earlier") == "2026-03-08T06:30:00+00:00\n")
-  local rejected = run({ "convert", "2026-03-08T02:30", "--from", "America/New_York", "--disambiguate", "reject" })
+  local rejected = run({ "convert", "2026-03-08T02:30", "--local-zone", "America/New_York", "--disambiguate", "reject" })
   assert(rejected.code == 2 and rejected.out == "", rejected.out)
   assert(rejected.err:find("does not exist in America/New_York", 1, true), rejected.err)
 end
 
 local function test_a_time_in_an_overlap_is_the_earlier_by_default()
   local function overlap(...: string): string
-    local words: mut {string} = { "convert", "2026-11-01T01:30", "--from", "America/New_York", "--to", "UTC" }
+    local words: mut {string} = { "convert", "2026-11-01T01:30", "--local-zone", "America/New_York", "--zone", "UTC" }
     for _, word in ipairs({ ... }) do words[#words + 1] = word end
     return said(words)
   end
@@ -116,21 +118,21 @@ local function test_a_time_in_an_overlap_is_the_earlier_by_default()
   assert(overlap() == "2026-11-01T05:30:00+00:00\n")
   assert(overlap("--disambiguate", "earlier") == "2026-11-01T05:30:00+00:00\n")
   assert(overlap("--disambiguate", "later") == "2026-11-01T06:30:00+00:00\n")
-  local rejected = run({ "convert", "2026-11-01T01:30", "--from", "America/New_York", "--disambiguate", "reject" })
+  local rejected = run({ "convert", "2026-11-01T01:30", "--local-zone", "America/New_York", "--disambiguate", "reject" })
   assert(rejected.code == 2 and rejected.err:find("happens twice", 1, true) ~= nil, rejected.err)
   -- An offset in the text says which one it is.
-  assert(said({ "convert", "2026-11-01T01:30:00-05:00", "--to", "UTC", "--disambiguate", "reject" }) ==
+  assert(said({ "convert", "2026-11-01T01:30:00-05:00", "--zone", "UTC", "--disambiguate", "reject" }) ==
       "2026-11-01T06:30:00+00:00\n")
 end
 
 local function test_convert_reads_epoch_dates_and_local_times()
-  assert(said({ "convert", "@1700000000", "--to", "Europe/Berlin" }) == "2023-11-14T23:13:20+01:00\n")
-  assert(said({ "convert", "@1700000000.5", "--to", "UTC" }) == "2023-11-14T22:13:20.5+00:00\n")
-  assert(said({ "convert", "@-1", "--to", "UTC", "--format", "epoch" }) == "-1\n")
-  assert(said({ "convert", "@-1.5", "--to", "UTC", "--format", "epoch" }) == "-1.5\n")
-  assert(said({ "convert", "2026-05-01", "--from", "Asia/Tokyo", "--to", "UTC" }) == "2026-04-30T15:00:00+00:00\n")
-  assert(said({ "convert", "2026-05-01T09:30:15", "--to", "UTC" }) == "2026-05-01T00:30:15+00:00\n")
-  assert(said({ "convert", "2026-05-01T09:30", "--from", "Europe/Berlin", "--to", "UTC" }) ==
+  assert(said({ "convert", "@1700000000", "--zone", "Europe/Berlin" }) == "2023-11-14T23:13:20+01:00\n")
+  assert(said({ "convert", "@1700000000.5", "--zone", "UTC" }) == "2023-11-14T22:13:20.5+00:00\n")
+  assert(said({ "convert", "@-1", "--zone", "UTC", "--format", "epoch" }) == "-1\n")
+  assert(said({ "convert", "@-1.5", "--zone", "UTC", "--format", "epoch" }) == "-1.5\n")
+  assert(said({ "convert", "2026-05-01", "--local-zone", "Asia/Tokyo", "--zone", "UTC" }) == "2026-04-30T15:00:00+00:00\n")
+  assert(said({ "convert", "2026-05-01T09:30:15", "--zone", "UTC" }) == "2026-05-01T00:30:15+00:00\n")
+  assert(said({ "convert", "2026-05-01T09:30", "--local-zone", "Europe/Berlin", "--zone", "UTC" }) ==
       "2026-05-01T07:30:00+00:00\n")
   assert(said({ "convert", "2026-05-01T00:00:00Z[Europe/Berlin]" }) == "2026-05-01T09:00:00+09:00\n")
 end
@@ -235,7 +237,7 @@ local function test_add_and_between_json()
   local between = said({ "between", "2026-01-01", "2026-01-11", "--days", "--json", "--zone", "UTC" })
   assert(between:find('"unit": "days"', 1, true) and between:find('"value": 10', 1, true), between)
   assert(between:find('"from": {', 1, true) and between:find('"to": {', 1, true), between)
-  local offset = said({ "convert", "2026-03-08T12:00:00+05:30", "--to", "UTC", "--json" })
+  local offset = said({ "convert", "2026-03-08T12:00:00+05:30", "--zone", "UTC", "--json" })
   assert(offset:find('"epoch": 1772951400', 1, true), offset)
 end
 
@@ -248,8 +250,8 @@ end
 
 local function test_a_bad_zone_is_refused()
   for _, words in ipairs({
-      { "now", "--zone", "Mars/Base" }, { "convert", "@0", "--to", "Nowhere" },
-      { "convert", "2026-01-01T00:00", "--from", "../etc/passwd" }, { "add", "@0", "1d", "--zone", "" },
+      { "now", "--zone", "Mars/Base" }, { "convert", "@0", "--zone", "Nowhere" },
+      { "convert", "2026-01-01T00:00", "--local-zone", "../etc/passwd" }, { "add", "@0", "1d", "--zone", "" },
       { "between", "@0", "@1", "--zone", "Europe/Atlantis" },
   }) do
     local ran = run(words)
@@ -283,13 +285,17 @@ end
 local function test_a_command_line_it_cannot_read_is_refused()
   for _, words in ipairs({
       {}, { "later" }, { "now", "extra" }, { "convert" }, { "convert", "@0", "@1" }, { "add", "@0" }, -- checked: literal_needs_type
-      { "between", "@0" }, { "now", "--days" }, { "convert", "@0", "--zone", "UTC" }, { "now", "--bogus" },
+      { "between", "@0" }, { "now", "--days" }, { "convert", "@0", "--to", "UTC" }, { "now", "--bogus" },
       { "between", "@0", "@1", "--days", "--months" }, { "now", "--json", "--format", "epoch" },
       { "convert", "@0", "--disambiguate", "sometimes" }, { "add", "@0", "1d", "--from", "UTC" },
   }) do
     local ran = run(words)
     assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. ": " .. tostring(ran.code) .. ran.out)
-    assert(ran.err:find("cosmic: time: ", 1, true) and ran.err:find("cosmic time now", 1, true), ran.err)
+    -- The usage is the subcommand's own, or the verb's where none is named.
+    local sub = words[1]
+    local usage = if sub ~= nil and sub ~= "later" then "; usage: cosmic time " .. sub .. " " else
+      "; usage: cosmic time <add|between|convert|now> ...\n" end
+    assert(ran.err:find("cosmic: time: ", 1, true) ~= nil and ran.err:find(usage, 1, true) ~= nil, ran.err)
   end
 end
 
@@ -301,13 +307,13 @@ local function test_a_failed_write_exits_5()
 end
 
 local function test_rfc_3339_without_seconds_converts()
-  assert(said({ "convert", "2026-03-08T12:00Z", "--to", "America/New_York" }) == "2026-03-08T08:00:00-04:00\n")
-  assert(said({ "convert", "2026-03-08T12:00+05:30", "--to", "UTC" }) == "2026-03-08T06:30:00+00:00\n")
+  assert(said({ "convert", "2026-03-08T12:00Z", "--zone", "America/New_York" }) == "2026-03-08T08:00:00-04:00\n")
+  assert(said({ "convert", "2026-03-08T12:00+05:30", "--zone", "UTC" }) == "2026-03-08T06:30:00+00:00\n")
 end
 
 local function test_a_dash_digit_option_value_is_the_users_own_word()
-  for _, words in ipairs({ { "now", "--zone", "-3" }, { "convert", "@0", "--to", "-1" },
-      { "convert", "@0", "--from", "-2" }, { "now", "--format", "-1" } }) do
+  for _, words in ipairs({ { "now", "--zone", "-3" }, { "convert", "@0", "--zone", "-1" },
+      { "convert", "@0", "--local-zone", "-2" }, { "now", "--format", "-1" } }) do
     local ran = run(words)
     assert(ran.code == 2 and ran.out == "", table.concat(words, " "))
     assert(ran.err:find(" -", 1, true) ~= nil and not ran.err:find("\1", 1, true), ran.err)
@@ -324,12 +330,19 @@ local function test_the_two_overflow_messages_agree_and_json_names_utc_plainly()
   assert(said({ "now", "--json", "--zone", "Etc/UTC" }):find('"zone": "UTC"', 1, true))
 end
 
-local function test_the_usage_lists_every_option_of_each_subcommand()
+--- A refusal with no subcommand names each one, and each one's help lists the options it takes.
+local function test_each_subcommand_lists_its_own_options()
   local ran = run({})
-  assert(ran.code == 2)
-  for _, name in ipairs({ "--zone", "--format", "--json", "--from", "--to", "--disambiguate", "--days",
-      "--months", "--seconds", "--clamp" }) do
-    assert(ran.err:find(name, 1, true), name)
+  assert(ran.code == 2 and ran.err:find("usage: cosmic time <add|between|convert|now> ...", 1, true) ~= nil, ran.err)
+  local takes: {string:{string}} = {
+    now = { "--zone", "--format", "--json" },
+    convert = { "--local-zone", "--zone", "--format", "--json", "--disambiguate" },
+    between = { "--zone", "--days", "--months", "--seconds", "--json", "--disambiguate" },
+    add = { "--zone", "--format", "--json", "--clamp", "--disambiguate" },
+  }
+  for sub, names in pairs(takes) do
+    local help = Flags.help(assert((Verb.subcommands or {})[sub]), "cosmic time " .. sub)
+    for _, name in ipairs(names) do assert(help:find(name, 1, true), sub .. ": " .. name) end
   end
 end
 
@@ -416,4 +429,12 @@ local function test_a_bad_input_is_refused_naming_the_forms()
   end
   local _, why = time_verb.parse_input("yesterday")
   assert(why:find("RFC 3339", 1, true) and why:find("@<epoch", 1, true), why)
+end
+
+local function test_the_old_convert_zone_names_say_where_they_went()
+  for old, hint in pairs({ ["--from"] = "--local-zone names", ["--to"] = "--zone names" }) do
+    local ran = run({ "convert", "@0", old, "UTC" })
+    assert(ran.code == 2 and ran.out == "", old)
+    assert(ran.err:find("no such option: " .. old .. "; " .. hint, 1, true) ~= nil, ran.err)
+  end
 end

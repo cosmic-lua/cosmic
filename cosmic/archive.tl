@@ -154,8 +154,8 @@ local class DrainingReader is Stream.ArchiveReader
       self.finished = true
       while true do
         local chunk, dtrouble = self.source:read()
-        if chunk == nil then
-          if dtrouble ~= "" then return nil, dtrouble end
+        if chunk == nil then return nil, tostring(dtrouble) end
+        if chunk == false then
           break
         end
       end
@@ -619,10 +619,10 @@ local function extract_from(from: string | Archive.Reader, dest: string,
       local left = math.min(entry_limit - size, total_limit - tally - size)
       if left < want then want = left + 1 end
       local chunk, rtrouble = body:read(want)
+      if chunk == false then break end
       if chunk == nil then
-        if rtrouble == "" then break end
         local _, _ = w:abort()
-        return false, rtrouble
+        return false, tostring(rtrouble)
       end
       size = size + #chunk
       if size > entry_limit or tally + size > total_limit then
@@ -633,11 +633,11 @@ local function extract_from(from: string | Archive.Reader, dest: string,
       local ok, wtrouble = w:write(chunk)
       if not ok then
         local _, _ = w:abort()
-        return false, wtrouble
+        return false, tostring(wtrouble)
       end
     end
     local ok, wtrouble = w:close()
-    if not ok then return false, wtrouble end
+    if not ok then return false, tostring(wtrouble) end
     tally = tally + size
     local _, _ = Fs.set_mtime(dest_path, entry.mtime)
     return true, ""

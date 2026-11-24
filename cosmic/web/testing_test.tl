@@ -5,6 +5,7 @@ local Stream = require("cosmic.stream")
 local Web = require("cosmic.web")
 local Shape = require("cosmic.shape")
 local Test = require("cosmic.test")
+local type Failure = require("cosmic.failure")
 
 --- An app that echoes what a request carried.
 local function echo(): Web.App
@@ -133,12 +134,12 @@ local function test_a_reader_body_is_read_whole_or_left_as_a_stream_or_closed_fo
   local function reader(): Stream.Reader
     local inner = Stream.from_string("streamed")
     return { -- checked: literal_shape
-      read = function(_self: Stream.Reader, max?: integer): string?, string
+      read = function(_self: Stream.Reader, max?: integer): (string | false) | (nil, Failure)
         return inner:read(max)
       end,
-      close = function(_self: Stream.Reader): boolean, string
+      close = function(_self: Stream.Reader): (true) | (false, Failure)
         closed = closed + 1
-        return true, ""
+        return true
       end,
     }
   end
@@ -169,12 +170,12 @@ local function test_the_client_fails_a_reply_the_server_would_answer_500_for()
       return { status = 204, body = "oops" }
     end),
     Web.get("/reader", function(_req: Web.Request): Web.Response
-      return { status = 204, body = { read = function(_s: Stream.Reader, _m?: integer): string?, string -- checked: literal_shape
-        return nil, ""
+      return { status = 204, body = { read = function(_s: Stream.Reader, _m?: integer): (string | false) | (nil, Failure) -- checked: literal_shape
+        return false
       end,
-        close = function(_s: Stream.Reader): boolean, string
+        close = function(_s: Stream.Reader): (true) | (false, Failure)
           closed = true
-          return true, ""
+          return true
         end } }
     end),
   } }

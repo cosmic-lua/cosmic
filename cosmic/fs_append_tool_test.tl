@@ -4,6 +4,15 @@ local type _ = require("cosmic.sys")
 local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
+local type Stream = require("cosmic.stream")
+
+--- The next chunk of `reader`: raises where it ended or failed.
+local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
+  local chunk, why = reader:read(max_bytes)
+  if chunk == nil then error(tostring(why), 2) end
+  if chunk == false then error("the stream ended", 2) end
+  return chunk
+end
 
 Test.policy{ profiles = { "cosmic" } }
 
@@ -11,6 +20,7 @@ local function appender(tmp: string, name: string): Child.Handle
   local script = string.format("local name = %q\n", name) .. [[
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
+
 assert(sys.write(1, "ready"))
 assert(sys.read(0, 1) == "g")
 for i = 1, 1000 do
@@ -29,8 +39,8 @@ end
 local function test_append_concurrent_processes_preserve_both_ordered_streams(tmp: string)
   local first <close> = appender(tmp, "a")
   local second <close> = appender(tmp, "b")
-  assert(assert(first.stdout_stream):read(5) == "ready")
-  assert(assert(second.stdout_stream):read(5) == "ready")
+  assert(chunk_of(assert(first.stdout_stream), 5) == "ready")
+  assert(chunk_of(assert(second.stdout_stream), 5) == "ready")
   assert(assert(first.stdin_stream):write("g"))
   assert(assert(second.stdin_stream):write("g"))
   local a = assert(first:wait(Clock.seconds(10)))

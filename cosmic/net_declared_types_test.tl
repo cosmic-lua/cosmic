@@ -10,6 +10,15 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Test = require("cosmic.test")
 local TypeWatch = require("build.type_watch")
+local type Stream = require("cosmic.stream")
+
+--- The next chunk of `reader`: raises where it ended or failed.
+local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
+  local chunk, why = reader:read(max_bytes)
+  if chunk == nil then error(tostring(why), 2) end
+  if chunk == false then error("the stream ended", 2) end
+  return chunk
+end
 
 Test.policy{ loopback = { "127.0.0.1" } }
 
@@ -22,8 +31,9 @@ local function test_a_connection_with_no_timeout_is_as_declared()
     accepted:set_timeout(nil)
     server:set_timeout(nil)
     assert(client:write("x"))
-    assert(accepted:read(1) == "x")
-    assert(accepted:close() and client:close())
+    assert(chunk_of(accepted, 1) == "x")
+    assert(accepted:close())
+    assert(client:close())
     assert(server:close())
     -- Connected in a task, where the socket is handed on to the caller.
     local ahead = assert(Net.listen(Net.tcp("127.0.0.1", 0)))

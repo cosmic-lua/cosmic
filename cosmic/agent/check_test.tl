@@ -71,7 +71,7 @@ local function test_checks_block_calls_and_after_changes_results()
   -- after sees each call that ran, with the paths it touches.
   local first = assert(seen[1])
   assert(#seen == 1 and first.name == "read" and first.caller == "model" and first.cwd == dir)
-  assert(#first.paths == 1 and first.paths[1].path == dir .. "/a.txt" and first.paths[1].letters == "r")
+  assert(#first.paths == 1 and first.paths[1].path == dir .. "/a.txt" and first.paths[1].action == "read")
   -- An error in on is kept, and the turn goes on.
   assert((s.on_failed or ""):find("a bug in the UI", 1, true) ~= nil, s.on_failed)
 end
@@ -116,10 +116,12 @@ local function test_paths_are_made_plain_and_checked_as_granted()
   local read = assert(Tools.find(Tools.all(), "read"))
   local paths = assert(read.paths)
   local touched = assert(paths({ path = "../x/./y.txt" }, "/a/b")[1])
-  assert(touched.path == "/a/x/y.txt" and touched.letters == "r", touched.path)
+  assert(touched.path == "/a/x/y.txt" and touched.action == "read", touched.path)
   assert(assert(paths({ path = "/../../etc/passwd" }, "/a")[1]).path == "/etc/passwd")
   local edit = assert(assert(Tools.find(Tools.all(), "edit")).paths)
-  assert(assert(edit({ path = "f" }, "/a")[1]).letters == "rwc")
+  local edited = edit({ path = "f" }, "/a")
+  assert(#edited == 3 and assert(edited[1]).action == "read" and assert(edited[2]).action == "write" and
+      assert(edited[3]).action == "create")
   local check = Check.paths({ grants = { { path = "/a/b", letters = "r" } } })
   local none: {string: Json.Value} = {}
   local function asked(path: string): string?
@@ -134,7 +136,18 @@ local function test_paths_are_made_plain_and_checked_as_granted()
       stopped = function(): boolean return false end })
   end
   assert(read_of("/usr/lib") == nil and read_of("/root/x") ~= nil, read_of("/usr/lib"))
-  assert(asked("../../etc/passwd") == "the agent may not read /etc/passwd", asked("../../etc/passwd"))
+  local passwd = asked("../../etc/passwd") or ""
+  assert(passwd:find("^the agent may not read /etc/passwd: ") ~= nil, passwd)
+  -- A write through a link is checked as the tool asks: create of the target's directory.
+  local inside, outside = scratch(), scratch()
+  assert(Fs.write(outside .. "/f", "x"))
+  assert(Fs.symlink(outside .. "/f", inside .. "/l"))
+  local held = Check.paths({ grants = { { path = inside, letters = "rwc" }, { path = outside .. "/f", letters = "rw" } } })
+  local write = assert(assert(Tools.find(Tools.all(), "write")).paths)
+  local through = held({ name = "write", input = none, caller = "model", cwd = inside,
+    paths = write({ path = "l" }, inside), stopped = function(): boolean return false end }) or ""
+  local refusal = "the agent may not create " .. inside .. "/l: "
+  assert(through:sub(1, #refusal) == refusal, through)
 end
 
 local function test_ask_blocks_what_the_user_says_no_to()

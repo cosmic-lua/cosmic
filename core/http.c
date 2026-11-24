@@ -1382,6 +1382,17 @@ static const char *env_proxy (const char *scheme) {
   return got != NULL && *got != '\0' ? got : NULL;
 }
 
+/* Whether the environment's proxy for `scheme` is on this machine:
+ * false for none, and for one that cannot be read. */
+static bool loopback_proxy (const char *scheme) {
+  const char *proxy = env_proxy(scheme);
+  if (proxy == NULL) return false;
+  char *at = host_of(proxy);
+  bool loopback = at != NULL && loopback_host(at);
+  curl_free(at);
+  return loopback;
+}
+
 /* Whether a request to `url` must not take the environment's proxy:
  * its host is this machine and the proxy is not, so the request, and
  * a token in its headers, would leave the machine, in the clear for
@@ -1400,12 +1411,7 @@ static bool skips_proxy (const char *url) {
       curl_url_set(u, CURLUPART_URL, url, CURLU_GUESS_SCHEME | CURLU_NON_SUPPORT_SCHEME) == CURLUE_OK &&
       curl_url_get(u, CURLUPART_SCHEME, &scheme, 0) == CURLUE_OK &&
       curl_url_get(u, CURLUPART_HOST, &host, 0) == CURLUE_OK && loopback_host(host)) {
-    const char *proxy = env_proxy(scheme);
-    if (proxy != NULL) {
-      char *at = host_of(proxy);
-      skips = at == NULL || !loopback_host(at);
-      curl_free(at);
-    }
+    skips = env_proxy(scheme) != NULL && !loopback_proxy(scheme);
   }
   curl_free(scheme);
   curl_free(host);
@@ -1441,6 +1447,11 @@ static CURLcode configure (struct transfer *t, const struct request *r,
    * sets by that name replaces it. */
   SET(CURLOPT_USERAGENT, "cosmic");
   if (skips_proxy(r->url)) SET(CURLOPT_PROXY, "");
+  /* A proxy on this machine, such as a sandbox's relay, may take only
+   * CONNECT: send http through it as a tunnel too, not as a request
+   * for the proxy to make. A proxy elsewhere keeps the plain form,
+   * since many take CONNECT only to port 443. */
+  else if (loopback_proxy("http")) SET(CURLOPT_HTTPPROXYTUNNEL, 1L);
   if (r->ca_blob != NULL) {
     /* curl parses the blob into each connection's own chain, and keys
      * connection reuse and TLS session resumption on it, so a request

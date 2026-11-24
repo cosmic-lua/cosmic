@@ -6,6 +6,7 @@ local Input = require("cosmic.web.input")
 local Session = require("cosmic.web.session")
 local Stream = require("cosmic.stream")
 local Web = require("cosmic.web")
+local type Failure = require("cosmic.failure")
 
 local SELF <const> = "http://testserver"
 
@@ -450,10 +451,10 @@ local function test_a_cookieless_post_is_refused_before_its_body_is_read()
   local read: integer = 0
   local app = make_app({ exempt = function(req: Web.Request): boolean
     local inner = req.raw.body
-    req.raw.body = { read = function(_self: Stream.Reader, max_bytes?: integer): string?, string -- checked: literal_shape
+    req.raw.body = { read = function(_self: Stream.Reader, max_bytes?: integer): (string | false) | (nil, Failure) -- checked: literal_shape
       read = read + 1
       return inner:read(max_bytes)
-    end, close = function(_self: Stream.Reader): boolean, string
+    end, close = function(_self: Stream.Reader): (true) | (false, Failure)
       return inner:close()
     end }
     return false

@@ -78,6 +78,31 @@ local version = assert(db:migrate({
 assert(version == 2)
 ```
 
+`local schema Name [[DDL]]` names the tables a database holds, for a
+program whose schema does not change. `open` and `memory` take it as
+`schema`: a new file opened `writable` gets the tables, and a file that
+does not hold them, column for column, fails at open and names what
+differs. The handle they give is of the type `Name`, and the checker
+reads the SQL sent to it against the DDL, wherever it goes: a table or
+column the DDL does not create, a values list of the wrong length, and
+`row:text(1)` of an `INTEGER` column of a `STRICT` table are refused
+where they are written.
+
+```teal
+local Sqlite = require("cosmic.sqlite")
+
+local schema Notes [[
+  CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL);
+]]
+
+local function add(db: Notes, body: string)
+  assert(db:run("INSERT INTO notes (body) VALUES (?1)", { body }))
+end
+
+local db = assert(Sqlite.memory({ schema = Notes }))
+add(db, "hi")
+```
+
 ```teal
 local Sqlite = require("cosmic.sqlite")
 

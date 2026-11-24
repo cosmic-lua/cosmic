@@ -1,4 +1,4 @@
---- `cosmic agent <ask|chat|resume|rpc|sessions|prompt|policy> ...`: a
+--- `cosmic agent <ask|chat|policy|prompt|resume|rpc|sessions|worker> ...`: a
 --- small coding agent, after pi. It is Claude, with tools that read,
 --- write and edit files, run commands in the foreground or as background
 --- jobs, check and run snippets of Teal in a worker kept for the session,
@@ -23,6 +23,12 @@
 --- - `rpc` runs one session for another program. It reads commands as
 ---   JSON lines on standard input and writes events on standard output.
 ---   A failed turn does not end the session.
+--- - While `chat` or `rpc` waits for a line, it sends the last request
+---   again every 4.5 minutes, asking for no reply, for up to an hour
+---   (`--keep-warm`). The API then keeps the conversation in its cache:
+---   each such request costs 0.05x of the conversation's input price, and
+---   the cache miss it saves costs 1.25x. rpc tells each as a request
+---   event, with `"warm": true`.
 --- - `sessions` lists the newest sessions in this directory.
 --- - `prompt` prints the system prompt that the model reads.
 --- - `policy` prints, path by path, the sandbox that the tools would run
@@ -35,6 +41,10 @@
 --- - `--model opus|sonnet` picks the latest of each (default opus).
 --- - `--effort low|medium|high|xhigh|max` sets how hard it thinks
 ---   (default medium).
+--- - `--budget tokens=N,cost=USD,turns=N,time=N[s|m|h]` caps what each
+---   turn may spend, any of the four; turns counts requests. The model
+---   reads the limits with the prompt. The first limit reached ends the
+---   turn for good, and the agent says which.
 --- - `--continue` goes on with the newest session in the directory.
 ---   `--session <id>` goes on with any session.
 ---
@@ -77,12 +87,19 @@
 ---   your API key included.
 --- - `--network` lets the tools reach the network: Host.fetch, and bash
 ---   where it is offered.
+--- - `--connect host:port` lets them reach one more target. An address
+---   written out, loopback or private too (`--connect 127.0.0.1:8123`),
+---   is reached directly; a name reaches only public addresses, as
+---   `--network` does. A port of `*` opens every port of the host.
+---   Behind an `https_proxy`, an address `no_proxy` does not name is
+---   asked of the proxy, which reaches its own host's loopback.
 --- - `--grant path[:rwxc]` adds a path.
 ---
 --- Output and sessions:
 ---
---- - The model's words go to standard output, and each tool call to
----   standard error.
+--- - The turn's answer goes to standard output. Each tool call (run's
+---   code, edit's changes as a diff), and what the model says on the way,
+---   go to standard error.
 --- - Everything is kept in sessions.db, in `$XDG_DATA_HOME/cosmic/agent`
 ---   (or `~/.local/share/cosmic/agent`), before it is shown: each
 ---   message, each tool's whole output, and each request with its usage
@@ -95,25 +112,65 @@
 
 local Flags = require("cosmic.flags")
 
+local model: Flags.Option = { value = "name", about = "the latest of opus or sonnet (default opus, or the session's own)",
+  choices = { "opus", "sonnet" } }
+local effort: Flags.Option = { value = "level", about = "how hard it thinks (default medium, as cosmic.agent sets it)",
+  choices = { "low", "medium", "high", "xhigh", "max" } }
+local continue_: Flags.Option = { about = "go on with the newest session in this directory" }
+local session: Flags.Option = { value = "id", about = "go on with the session of this id" }
+local sandbox: Flags.Option = { value = "mode", about = "what the tools may change",
+  choices = { "write", "read", "off" }, default = "write" }
+local network: Flags.Option = { about = "let bash and snippets (Host.fetch, cosmic.http) reach the network" }
+local connect: Flags.Option = { value = "host:port", about = "let the tools reach this target too: an address " ..
+    "written out may be loopback or private (127.0.0.1:8123); a port of * opens every port" }
+local grant: Flags.Option = { value = "path[:rwxc]", about = "let the tools reach this path too, read alone unless letters say more" }
+local tools: Flags.Option = { value = "names", about = "the tools the model is shown, such as run,read,edit,write,bash, " ..
+    "all, or default (every tool but bash and jobs, which run no program)" }
+local budget: Flags.Option = { value = "limits",
+  about = "the most each turn may spend, such as tokens=200000,cost=0.50,turns=20,time=10m; the first reached ends it" }
+local mcp: Flags.Option = { value = "file",
+  about = "the MCP servers snippets may call (default ~/.config/cosmic/mcp.json; see cosmic.agent.mcp)" }
+
+--- The options of a command that runs a session.
+local function session_spec(): mut {string: Flags.Option}
+  return {
+    ["--model"] = model, ["--effort"] = effort, ["--continue"] = continue_, ["--session"] = session,
+    ["--sandbox"] = sandbox, ["--network"] = network, ["--connect"] = connect, ["--grant"] = grant, ["--mcp"] = mcp, ["--tools"] = tools,
+    ["--budget"] = budget,
+  }
+end
+
+--- The options of a session that waits for its next prompt: chat's and rpc's.
+local function waiting_spec(): mut {string: Flags.Option}
+  local spec = session_spec()
+  spec["--keep-warm"] = { value = "minutes",
+    about = "keep the conversation in the API's cache this long while idle (default 60; 0 for never)" }
+  return spec
+end
+
+local ask_spec = session_spec()
+ask_spec["--json"] = { about = "print each event as a line of JSON, not the model's words" }
+
 local command: Flags.Command = {
   about = "a coding agent, Claude, held to a sandbox",
-  usage = "<ask|chat|resume|rpc|sessions|prompt|policy> [options] [words...]",
+  usage = "<ask|chat|policy|prompt|resume|rpc|sessions|worker> ...",
   examples = {
     { line = "ask 'what does this repository do?'", about = "ask Claude about this directory" },
     { line = "chat", about = "a conversation, a prompt a line" },
     { line = "sessions", about = "list the kept sessions" },
   },
-  spec = {
-    ["--model"] = { value = "name", about = "ask, chat, resume, rpc: opus or sonnet, the latest of each (default opus)" },
-    ["--effort"] = { value = "level", about = "ask, chat, resume, rpc: low, medium, high, xhigh or max (default medium)" },
-    ["--continue"] = { about = "ask, chat, rpc: go on with the newest session in this directory" },
-    ["--session"] = { value = "id", about = "ask, chat, resume, rpc: go on with the session of this id" },
-    ["--json"] = { about = "ask: print each event as a line of JSON, not the model's words" },
-    ["--sandbox"] = { value = "mode", about = "write (the default), read or off: what the tools may change" },
-    ["--network"] = { about = "let bash and snippets (Host.fetch, cosmic.http) reach the network" },
-    ["--grant"] = { value = "path[:rwxc]", about = "let the tools reach this path too, read alone unless letters say more" },
-    ["--mcp"] = { value = "file", about = "ask, chat, resume, rpc: the MCP servers snippets may call (default ~/.config/cosmic/mcp.json; see cosmic.agent.mcp)" },
-    ["--tools"] = { value = "names", about = "ask, chat, resume, rpc, prompt: the tools the model is shown, such as run,read,edit,write,bash, all, or default (every tool but bash and jobs, which run no program)" },
+  subcommands = {
+    ask = { about = "run one prompt to the end: the words, else all of standard input",
+      usage = "[options] [prompt...]", spec = ask_spec },
+    chat = { about = "a conversation, a prompt a line, until /exit", spec = waiting_spec() },
+    resume = { about = "finish the turn a run left unfinished", spec = session_spec() },
+    rpc = { about = "one session for another program, as JSON lines", spec = waiting_spec() },
+    sessions = { about = "the newest sessions in this directory" },
+    prompt = { about = "the system prompt the model reads", spec = { ["--tools"] = tools } },
+    policy = { about = "the sandbox the tools would run under here; clear-home empties their kept home",
+      usage = "[options] [clear-home]",
+      spec = { ["--sandbox"] = sandbox, ["--network"] = network, ["--connect"] = connect, ["--grant"] = grant } },
+    worker = { about = "the process that runs the snippets; the agent starts it" },
   },
 }
 

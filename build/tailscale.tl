@@ -111,30 +111,13 @@ local record verb
   end
 end
 
-local spec = assert(Verb.spec)
+--- The subcommands, each with the options it takes, as [`cosmic.cli.tailscale`] describes them.
+local subcommands = Verb.subcommands or {}
 
-local usage = "cosmic tailscale [--socket <path>] status [--json] | whois [--json] <address|name> | " ..
-  "cert [--cert-file <file|->] [--key-file <file|->] [--min-validity <duration>] [domain] | " ..
-  "ping [--kind disco|ICMP|TSMP|peerapi] [--json] <address|name> | " ..
-  "file targets [--json] | file send [--name <name>] <file|-> <target> | file list [--json] | " ..
-  "file get [--wait] [--conflict skip|overwrite|rename] [--keep] <dir>"
-
---- The options each subcommand takes, beside `--socket`, which all do.
-local TAKES <const>: {string: {string: boolean}} = {
-  status = { ["--json"] = true },
-  whois = { ["--json"] = true },
-  cert = { ["--cert-file"] = true, ["--key-file"] = true, ["--min-validity"] = true },
-  ping = { ["--kind"] = true, ["--json"] = true },
-  file = { ["--json"] = true, ["--name"] = true, ["--wait"] = true, ["--conflict"] = true, ["--keep"] = true },
-}
-
---- The options each `file` action takes.
-local FILE_TAKES <const>: {string: {string: boolean}} = {
-  targets = { ["--json"] = true },
-  send = { ["--name"] = true },
-  list = { ["--json"] = true },
-  get = { ["--wait"] = true, ["--conflict"] = true, ["--keep"] = true },
-}
+--- The usage line of the subcommand the words name, outermost first, which a refusal ends with.
+local function usage(...: string): string
+  return Flags.usage(Verb, "cosmic tailscale", { ... })
+end
 
 local KINDS <const>: {string: Tailscale.PingKind} = {
   disco = "disco", ICMP = "ICMP", TSMP = "TSMP", peerapi = "peerapi",
@@ -367,7 +350,7 @@ end
 local function show_status(to: verb.Io, complain: function(line: string), ts: Tailscale.Client,
                            parsed: Flags.Parsed): integer
   if #parsed.words > 0 then
-    complain("status takes no words; " .. usage)
+    complain("status takes no words; " .. usage("status"))
     return bare.refused
   end
   local status, why = ts:status()
@@ -403,7 +386,7 @@ end
 local function show_whois(to: verb.Io, complain: function(line: string), ts: Tailscale.Client,
                           parsed: Flags.Parsed): integer
   if #parsed.words ~= 1 then
-    complain(("whois takes one address, not %d; %s"):format(#parsed.words, usage))
+    complain(("whois takes one address, not %d; %s"):format(#parsed.words, usage("whois")))
     return bare.refused
   end
   local address, unknown = address_of(ts, assert(parsed.words[1]))
@@ -454,26 +437,26 @@ end
 local function validity(complain: function(line: string), text: string): integer?
   local d, why = Time.parse_duration(text)
   if d == nil then
-    complain("--min-validity: " .. tostring(why) .. "; " .. usage)
+    complain("--min-validity: " .. tostring(why) .. "; " .. usage("cert"))
     return nil
   end
   if (d.years or 0) ~= 0 or (d.months or 0) ~= 0 then
-    complain("--min-validity is days, hours, minutes and seconds, not years or months: " .. text)
+    complain("--min-validity is days, hours, minutes and seconds, not years or months: " .. text .. "; " .. usage("cert"))
     return nil
   end
   local days, rest = d.days or 0, d.ns or 0
   if days < 0 or rest < 0 then
-    complain("--min-validity is not negative: " .. text)
+    complain("--min-validity is not negative: " .. text .. "; " .. usage("cert"))
     return nil
   end
   -- Past what nanoseconds hold, and no certificate lives so long.
   if days > (math.maxinteger - rest) // DAY_NS then
-    complain("--min-validity is too long: " .. text)
+    complain("--min-validity is too long: " .. text .. "; " .. usage("cert"))
     return nil
   end
   local ns = days * DAY_NS + rest
   if ns < 0 then
-    complain("--min-validity is not negative: " .. text)
+    complain("--min-validity is not negative: " .. text .. "; " .. usage("cert"))
     return nil
   end
   return ns
@@ -491,7 +474,7 @@ end
 local function write_cert(to: verb.Io, complain: function(line: string), ts: Tailscale.Client,
                           parsed: Flags.Parsed): integer
   if #parsed.words > 1 then
-    complain(("cert takes at most one domain, not %d; %s"):format(#parsed.words, usage))
+    complain(("cert takes at most one domain, not %d; %s"):format(#parsed.words, usage("cert")))
     return bare.refused
   end
   local min_validity: integer? = nil
@@ -502,18 +485,18 @@ local function write_cert(to: verb.Io, complain: function(line: string), ts: Tai
   end
   local cert_file, key_file = parsed.values["--cert-file"], parsed.values["--key-file"]
   if cert_file == "" or key_file == "" then
-    complain(bare.empty_file .. "; " .. usage)
+    complain(bare.empty_file .. "; " .. usage("cert"))
     return bare.refused
   end
   if cert_file ~= nil and cert_file == key_file and cert_file ~= "-" then
-    complain("--cert-file and --key-file name one file, which the key would write over")
+    complain("--cert-file and --key-file name one file, which the key would write over; " .. usage("cert"))
     return bare.refused
   end
   local domain = parsed.words[1]
   if domain ~= nil then
     domain = domain:gsub("%.$", "")
     if domain == "" or domain:match("^[%w.-]+$") == nil then
-      complain("no such domain " .. string.format("%q", parsed.words[1]) .. "; " .. usage)
+      complain("no such domain " .. string.format("%q", parsed.words[1]) .. "; " .. usage("cert"))
       return bare.refused
     end
   else
@@ -579,15 +562,11 @@ end
 local function show_ping(to: verb.Io, complain: function(line: string), ts: Tailscale.Client,
                          parsed: Flags.Parsed): integer
   if #parsed.words ~= 1 then
-    complain(("ping takes one address, not %d; %s"):format(#parsed.words, usage))
+    complain(("ping takes one address, not %d; %s"):format(#parsed.words, usage("ping")))
     return bare.refused
   end
-  local kind_word = parsed.values["--kind"] or "disco"
-  local kind = KINDS[kind_word]
-  if kind == nil then
-    complain("--kind is disco, ICMP, TSMP or peerapi, not " .. kind_word)
-    return bare.refused
-  end
+  -- The option's choices, which Flags.parse holds it to, are KINDS' keys.
+  local kind = assert(KINDS[parsed.values["--kind"] or "disco"], "--kind takes only its choices")
   local address, unknown = address_of(ts, assert(parsed.words[1]))
   if address == nil then
     complain(unknown)
@@ -641,7 +620,7 @@ end
 local function file_targets(to: verb.Io, complain: function(line: string), ts: Tailscale.Client,
                             parsed: Flags.Parsed): integer
   if #parsed.words > 0 then
-    complain("file targets takes no words; " .. usage)
+    complain("file targets takes no words; " .. usage("file", "targets"))
     return bare.refused
   end
   local targets, why = ts:file_targets()
@@ -673,22 +652,22 @@ end
 local function file_send(to: verb.Io, complain: function(line: string), ts: Tailscale.Client,
                          parsed: Flags.Parsed): integer
   if #parsed.words ~= 2 then
-    complain("file send takes a file and a target, not " .. plural.count(#parsed.words, "word") .. "; " .. usage)
+    complain("file send takes a file and a target, not " .. plural.count(#parsed.words, "word") .. "; " .. usage("file", "send"))
     return bare.refused
   end
   local path, word = assert(parsed.words[1]), assert(parsed.words[2])
   if path == "" then
-    complain(bare.empty_file .. "; " .. usage)
+    complain(bare.empty_file .. "; " .. usage("file", "send"))
     return bare.refused
   end
   local name = parsed.values["--name"] or (if path == "-" then nil else path:match("([^/]+)/*$") end)
   if name == nil then
-    complain("a file sent from standard input needs --name; " .. usage)
+    complain("a file sent from standard input needs --name; " .. usage("file", "send"))
     return bare.refused
   end
   if not Tailscale.file_name_ok(name) then
     complain("no file may go as " .. string.format("%q", name) ..
-        ": a name is one path element, with no control byte or backslash, not ending in .partial or .deleted")
+        ": a name is one path element, with no control byte or backslash, not ending in .partial or .deleted; " .. usage("file", "send"))
     return bare.refused
   end
   local body: Stream.Reader
@@ -733,7 +712,7 @@ end
 local function file_list(to: verb.Io, complain: function(line: string), ts: Tailscale.Client,
                          parsed: Flags.Parsed): integer
   if #parsed.words > 0 then
-    complain("file list takes no words; " .. usage)
+    complain("file list takes no words; " .. usage("file", "list"))
     return bare.refused
   end
   local files, why = ts:waiting_files()
@@ -769,7 +748,7 @@ end
 local function file_get(to: verb.Io, complain: function(line: string), ts: Tailscale.Client,
                         parsed: Flags.Parsed): integer
   if #parsed.words ~= 1 then
-    complain(("file get takes one directory, not %d; %s"):format(#parsed.words, usage))
+    complain(("file get takes one directory, not %d; %s"):format(#parsed.words, usage("file", "get")))
     return bare.refused
   end
   local dir = assert(parsed.words[1]):gsub("/+$", "")
@@ -778,11 +757,8 @@ local function file_get(to: verb.Io, complain: function(line: string), ts: Tails
     complain(dir .. ": not a directory")
     return bare.refused
   end
+  -- One of the option's choices, which Flags.parse holds it to.
   local conflict = parsed.values["--conflict"] or "skip"
-  if conflict ~= "skip" and conflict ~= "overwrite" and conflict ~= "rename" then
-    complain("--conflict is skip, overwrite or rename, not " .. conflict)
-    return bare.refused
-  end
   local files: {Tailscale.WaitingFile}
   while true do
     local asked = Clock.monotonic_ns()
@@ -836,7 +812,7 @@ local function file_get(to: verb.Io, complain: function(line: string), ts: Tails
         copied, trouble = copied_got, if copied_got == nil then tostring(trouble_failure) else "" end
         if copied ~= nil then
           local closed, lost = writer:close()
-          if not closed then copied, trouble = nil, lost end
+          if not closed then copied, trouble = nil, tostring(lost) end
         else
           local _, _ = writer:abort()
         end
@@ -863,31 +839,51 @@ local function file_get(to: verb.Io, complain: function(line: string), ts: Tails
   return code
 end
 
+--- A command line read against the subcommand it names: the `file` action too, where it names `file`.
+local record Line
+  flags: Flags.Parsed
+  command: string
+  action: string
+end
+
 local FILE_ACTIONS <const>: {string: function(verb.Io, function(string), Tailscale.Client, Flags.Parsed): integer} = {
   targets = file_targets, send = file_send, list = file_list, get = file_get,
 }
 
 --- `cosmic tailscale file <targets|send|list|get> ...`: Taildrop.
 local function file_action(to: verb.Io, complain: function(line: string), ts: Tailscale.Client,
-                           parsed: Flags.Parsed): integer
-  local action = table.remove(parsed.words, 1)
-  local takes = if action == nil then nil else FILE_TAKES[action] end
-  if action == nil or takes == nil then
-    complain((if action == nil then "name file targets, send, list or get" else "no file action " .. action end) ..
-        "; " .. usage)
-    return bare.refused
+                           parsed: Line): integer
+  return assert(FILE_ACTIONS[parsed.action])(to, complain, ts, parsed.flags)
+end
+
+--- The command line `argv` read against the subcommand it names, or nil and why it is refused.
+local function line_of(argv: {string}): Line?, string
+  local sub = argv[2]
+  local described = if sub ~= nil then subcommands[sub] else nil end
+  if sub == nil or described == nil then
+    return nil, if sub == nil then "name status, whois, cert, ping or file" else "no subcommand " .. sub end
   end
-  for _, name in ipairs(parsed.given) do
-    if name ~= "--socket" and takes[name] ~= true then
-      complain(name .. " is not an option of file " .. action .. "; " .. usage)
-      return bare.refused
+  local action, from = "", 3
+  local nested = described.subcommands
+  if nested ~= nil then
+    action = argv[3] or ""
+    local inner = nested[action]
+    if inner == nil then
+      return nil, if action == "" then "name file targets, send, list or get" else "no file action " .. action end
     end
+    described, from = inner, 4
   end
-  return assert(FILE_ACTIONS[action])(to, complain, ts, parsed)
+  local none: {string:boolean | Flags.Option} = {}
+  local parsed, trouble = Flags.parse(argv, from, described.spec or none)
+  if parsed == nil then
+    local named = if action ~= "" then sub .. " " .. action else sub end
+    return nil, named .. ": " .. trouble
+  end
+  return { flags = parsed, command = sub, action = action }, ""
 end
 
 local SUBCOMMANDS <const>: {string: function(verb.Io, function(string), Tailscale.Client, Flags.Parsed): integer} = {
-  status = show_status, whois = show_whois, cert = write_cert, ping = show_ping, file = file_action,
+  status = show_status, whois = show_whois, cert = write_cert, ping = show_ping,
 }
 
 --- `cosmic tailscale <status|whois|cert|ping> ...`: asks the daemon and
@@ -900,27 +896,16 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local said = bare.complainer("tailscale", to.err)
   -- A complaint can name a peer or a file it sent.
   local function complain(line: string) said(safe(line)) end
-  local got, trouble = Flags.parse(argv, 2, spec)
+  local got, trouble = line_of(argv)
   if got == nil then
-    complain(trouble .. "; " .. usage)
+    complain(trouble .. "; " .. usage(argv[2] or "", argv[3] or ""))
     return bare.refused
   end
-  local parsed: Flags.Parsed = got
-  local sub = table.remove(parsed.words, 1)
-  local takes = if sub == nil then nil else TAKES[sub] end
-  if sub == nil or takes == nil then
-    complain((if sub == nil then "name status, whois, cert, ping or file" else "no subcommand " .. sub end) .. "; " .. usage)
-    return bare.refused
-  end
-  for _, name in ipairs(parsed.given) do
-    if name ~= "--socket" and takes[name] ~= true then
-      complain(name .. " is not an option of " .. sub .. "; " .. usage)
-      return bare.refused
-    end
-  end
+  local line: Line = got
+  local parsed = line.flags
   local socket = parsed.values["--socket"]
   if socket == "" then
-    complain(bare.empty_file .. "; " .. usage)
+    complain(bare.empty_file .. "; " .. usage(line.command, line.action))
     return bare.refused
   end
   local ts, why = to.connect({ socket = socket })
@@ -928,7 +913,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     complain((why:gsub("^tailscale: ", "")))
     return bare.failed
   end
-  return assert(SUBCOMMANDS[sub])(to, complain, ts, parsed)
+  if line.action ~= "" then return file_action(to, complain, ts, line) end
+  return assert(SUBCOMMANDS[line.command])(to, complain, ts, parsed)
 end
 
 --- The `tailscale` verb as [`build/verb_list.tl`] lists it. It reads no

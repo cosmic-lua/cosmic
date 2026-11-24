@@ -87,13 +87,19 @@ local function test_help_lists_each_option_a_verb_parses(tmp: string)
     local options = command.spec or {}
     local out = verbs_fixture.expect(tmp, "help", { "help", verb }, 0).stdout
     for name, entry in pairs(options) do
-      assert(entry is Flags.Option and entry.about ~= nil and entry.about ~= "",
-        verb .. " " .. name .. " says nothing of what it does")
+      assert(entry is Flags.Option, verb .. " " .. name .. " is not an option")
       local value = entry.value
       local shown = if value ~= nil then name .. " <" .. value .. ">" else name end
       -- A row with aliases begins with them: "-r, --raw".
       local row = "[\n ,] " .. shown:gsub("%p", "%%%0") .. "[ \n]"
-      assert(out:find(row) ~= nil, verb .. ": " .. out)
+      if entry.moved ~= nil then
+        -- An old spelling is refused, so help leaves it out.
+        assert(entry.moved ~= "", verb .. " " .. name .. " says nothing of where it went")
+        assert(out:find(row) == nil, verb .. ": " .. name .. " is shown: " .. out)
+      else
+        assert(entry.about ~= nil and entry.about ~= "", verb .. " " .. name .. " says nothing of what it does")
+        assert(out:find(row) ~= nil, verb .. ": " .. out)
+      end
     end
   end
   -- `cosmic docs` asked nothing lists the modules there are.
@@ -172,7 +178,7 @@ end
 local function test_help_refuses_its_line_ending_in_its_usage(tmp: string)
   for _, words in ipairs({ { "help", "--zz" }, { "help", "fix", "test" }, { "help", "tset" } }) do
     local r = verbs_fixture.run(tmp, words)
-    local form = "^cosmic: help: [^\n]+; usage: cosmic help %[verb | exit | <verb> <subcommand>%]\n$"
+    local form = "^cosmic: help: [^\n]+; usage: cosmic help %[verb | exit | <verb> <subcommand>%.%.%.%]\n$"
     assert(r.code == 2 and r.stderr:find(form) ~= nil, table.concat(words, " ") .. ": " .. r.stderr)
   end
 end

@@ -297,7 +297,7 @@ local record Options
   sandbox?: Sandbox
   --- A [`cosmic.sandbox`] policy the child is held to, met or the start
   --- fails (nil, and a message naming what is missing and how to give it).
-  --- The policy is merged ([`Sandbox.merge`], which resolves its
+  --- The policy is merged ([`Sandbox.union`], which resolves its
   --- `profiles`), and then:
   ---
   --- - `grants` are the only paths the child reaches, by Landlock (by the
@@ -1443,27 +1443,32 @@ local class PipeReader is Stream.Reader
   --- allocation.
   owner: Consumption
 
-  function read(self, max_bytes?: integer): string?, string
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     if max_bytes ~= nil and max_bytes < 1 then
       error("child: read's max_bytes must be positive", 2)
     end
     local pipe = self.pipe
     if pipe.consuming then error("child: output is already being consumed", 2) end
-    if self.failed ~= "" then return nil, self.failed end
-    if self.closed then return nil, closed_reader end
-    if pipe.size ~= 0 then return take_chunk(pipe, max_bytes or CHUNK), "" end
-    return waiting_read(self, max_bytes)
+    if self.failed ~= "" then return nil, failure_of(self.failed) end
+    if self.closed then return nil, failure_of(closed_reader) end
+    if pipe.size ~= 0 then return take_chunk(pipe, max_bytes or CHUNK) end
+    local chunk, why = waiting_read(self, max_bytes)
+    if chunk == nil then
+      if why == "" then return false end
+      return nil, failure_of(why)
+    end
+    return chunk
   end
 
-  function close(self): boolean, string
-    if self.closed then return true, "" end
+  function close(self): (true) | (false, Failure)
+    if self.closed then return true end
     self.closed = true
     local pipe = self.pipe
     pipe.reader_closed = true
     -- The child's next write to it fails, as it would into `head`.
     end_stream(pipe)
     pipe.chunks, pipe.queue, pipe.head, pipe.tail, pipe.size = {}, {}, 1, 0, 0
-    return true, ""
+    return true
   end
 end
 
@@ -1486,25 +1491,30 @@ local class FeedWriter is Stream.Writer
   mut closed: boolean
   mut into?: Stream.Writer
 
-  function write(self, data: string): boolean, string
-    if self.closed then return false, closed_writer end
+  function write(self, data: string): (true) | (false, Failure)
+    if self.closed then return false, failure_of(closed_writer) end
     -- Only a settled child's stdin is closed from under its writer.
-    if self.child._feed_fd ~= self.fd then return false, EXITED end
-    return assert(self.into):write(data)
+    if self.child._feed_fd ~= self.fd then return false, failure_of(EXITED) end
+    local ok, why = assert(self.into):write(data)
+    if ok then return true end
+    -- The words of a signal the child's guard caught come up through
+    -- the stream's wait, which knows only its own: kind them here.
+    if why.kind == "other" then return false, failure_of(why.message) end
+    return false, why
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.closed = true
     local child, fd = self.child, self.fd
-    if child._feed_fd == nil then return true, "" end
+    if child._feed_fd == nil then return true end
     child._feed_fd = nil
     Poll.closing(fd)
     local ok, trouble = sys.close(fd)
-    if not ok then return false, trouble end
-    return true, ""
+    if not ok then return false, failure_of(trouble) end
+    return true
   end
 
-  function abort(self): boolean, string
+  function abort(self): (true) | (false, Failure)
     return self:close()
   end
 end
@@ -1646,8 +1656,9 @@ local function drain(self: Handle, opts: DrainOptions): DrainResult
         owner.discard = true
         local ok, why = sinks[index]:write(chunk) -- checked: nil_not_allowed
         if not ok then
-          owner.reason = why
-          return result("failed", why)
+          local text = tostring(why)
+          owner.reason = text
+          return result("failed", text)
         end
         owner.discard = false
         moved = true
@@ -2464,12 +2475,13 @@ end
 --- gives no way to change or replace. A file a grant giving `w` or `c`
 --- covers could be rewritten after the start and then run, as a policy
 --- with no `x` grant never lets, so it needs a grant of `x` of its own;
---- so does a file at a name a grant with `from` shows another file at,
---- and, where `tmp` makes the sandbox's own /tmp, one beneath /tmp.
-local function startable(file: string, grants: {Rules.Grant}, cwd?: string, own_tmp?: boolean): boolean
+--- so does a file at a name a grant with `from` shows another file at.
+--- A file beneath /tmp where `tmp` makes the sandbox's own /tmp needs no
+--- rule of its own: it is bound in at its name over that tmpfs, and the
+--- rule holds its inode alone, so a file made at the name gets no `x`.
+local function startable(file: string, grants: {Rules.Grant}, cwd?: string): boolean
   local st, _ = sys.stat(file)
   if st == nil or st.kind ~= "file" then return false end
-  if own_tmp == true and beneath(file, "/tmp") then return false end
   for _, grant in ipairs(grants) do
     local at = grant.path
     if cwd ~= nil and at:sub(1, 1) ~= "/" then at = cwd .. "/" .. at end
@@ -3107,7 +3119,7 @@ end
 --- directory. Nil and why when it cannot. It acquires nothing: `tmp`'s
 --- directory is [`make_tmp`]'s.
 local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, online: boolean): Held?, string
-  local joined, why = Rules.merge(policy)
+  local joined, why = Rules.union(policy)
   if joined == nil then return nil, why end
   local trouble = unmet(joined)
   if trouble ~= "" then return nil, "sandbox: " .. trouble end
@@ -3247,12 +3259,12 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     local start_grants: mut {Rules.Grant} = {}
     for _, start_file in ipairs(files) do
       if ungranted({ start_file }, giving, base) ~= "" and
-          startable(start_file, merged.grants or {}, base, file and merged.tmp == true) then
+          startable(start_file, merged.grants or {}, base) then
         start_grants[#start_grants + 1] = { path = start_file, letters = "rx" }
       end
     end
     if #start_grants > 0 then
-      local widened, widen_trouble = Rules.merge(merged, { grants = start_grants })
+      local widened, widen_trouble = Rules.union(merged, { grants = start_grants })
       if widened == nil then return nil, widen_trouble end
       merged = widened
       local over = unmet(merged)
@@ -3480,7 +3492,7 @@ end
 --- It acquires nothing.
 local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Policy, pty?: Pty,
                                 serves_relay?: integer): Held?, string
-  local joined, why = Rules.merge(policy)
+  local joined, why = Rules.union(policy)
   if joined == nil then return nil, why end
   local credentials = seatbelt_credentials(joined)
   if credentials ~= "" then return nil, "sandbox: " .. credentials end
@@ -3553,7 +3565,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
       end
     end
     policy = with_grants(policy, start_grants)
-    local widened, widen_trouble = Rules.merge(merged, { grants = start_grants })
+    local widened, widen_trouble = Rules.union(merged, { grants = start_grants })
     if widened == nil then return nil, widen_trouble end
     merged = widened
   end
@@ -3851,7 +3863,7 @@ local function prepare_relay(connect: {string}, opts: Options, seatbelt: boolean
   config.log = if log == "null" then "null" else "stderr" end
   config.token = token
   -- `program.digest` is the hex SHA-256 [`Store.seal`] hashed the file to,
-  -- which is what `$.database.sha256` holds; [`Rules.merge`] checks it anyway.
+  -- which is what `$.database.sha256` holds; [`Rules.union`] checks it anyway.
   local policy = RelayStart.policy(program.path, program.digest, seatbelt)
   return { dir = program.dir, policy = policy, config = RelayConfig.encode(config), log = log,
     handover = handover, seatbelt = seatbelt, token = token, port = port }, ""
@@ -3898,11 +3910,11 @@ end
 local function relay_says(launch: RelayLaunch, wanted: string, log: RelayLog | integer): boolean, string
   local line, read_trouble = launch.lines:read()
   if line == wanted then return true, "" end
-  if line ~= nil then
+  if line is string then
     kill_relay(launch.handle)
     return false, (line:gsub("^error: ", ""))
   end
-  return false, relay_ended(launch.handle, read_trouble, log)
+  return false, relay_ended(launch.handle, if read_trouble ~= nil then tostring(read_trouble) else "" end, log)
 end
 
 --- Waits for the relay to say it serves, which it does once the program's
@@ -4267,7 +4279,7 @@ begin_relay = function(prep: RelayPrep, channel: integer?): RelayLaunch?, string
   local written, write_trouble = feed:write(prep.config .. "\n")
   if not written then
     kill_relay(relay)
-    return nil, "the relay would not take its config: " .. write_trouble
+    return nil, "the relay would not take its config: " .. tostring(write_trouble)
   end
   local launch: RelayLaunch = { handle = relay, lines = Stream.lines(reader) }
   local began, why = relay_says(launch, "opened", prep.log)

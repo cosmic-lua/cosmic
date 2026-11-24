@@ -62,8 +62,8 @@ local function waiting(tmp: string, script: string, env?: {string:string}): Chil
   local said = ""
   local stderr = assert(child.stderr_stream)
   while not said:find("waiting for it", 1, true) do
-    local chunk = stderr:read()
-    if chunk == nil or chunk == "" then break end
+    local chunk, _ = stderr:read()
+    if chunk == nil or chunk == false or chunk == "" then break end
     said = said .. chunk
   end
   return child, said
@@ -288,8 +288,8 @@ local function test_a_build_whose_file_is_replaced_while_it_waits_to_log_opens_t
   assert(held:close())
   local stderr = assert(child.stderr_stream)
   while true do
-    local chunk = stderr:read()
-    if chunk == nil or chunk == "" then break end
+    local chunk, _ = stderr:read()
+    if chunk == nil or chunk == false or chunk == "" then break end
     said = said .. chunk
   end
   local result = assert(child:wait(Clock.seconds(60)))

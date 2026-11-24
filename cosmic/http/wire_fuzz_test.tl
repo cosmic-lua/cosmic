@@ -11,6 +11,7 @@
 local Fuzz = require("build.fuzz")
 local Stream = require("cosmic.stream")
 local wire = require("cosmic.http.wire")
+local type Failure = require("cosmic.failure")
 
 local LIMITS <const>: wire.Limits = { head_bytes = 512, body_bytes = 256 }
 
@@ -164,18 +165,18 @@ local class Pieces is Stream.Reader
   mut at: integer
   mut next_size: integer
 
-  function read(self, max_bytes?: integer): string?, string
-    if self.at > #self.data then return nil, "" end
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
+    if self.at > #self.data then return false end
     local n = self.sizes[self.next_size] or #self.data
     self.next_size = self.next_size + 1
     if max_bytes ~= nil and max_bytes < n then n = max_bytes end
     local piece = self.data:sub(self.at, self.at + n - 1)
     self.at = self.at + #piece
-    return piece, ""
+    return piece
   end
 
-  function close(self): boolean, string
-    return true, ""
+  function close(self): (true) | (false, Failure)
+    return true
   end
 end
 

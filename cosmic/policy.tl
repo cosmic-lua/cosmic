@@ -37,7 +37,7 @@ local DATABASE <const> = FieldPath.field(FieldPath.root, "database")
 --- in both cases, a shape that is wrong (`$.limits.open_files: want integer,
 --- got string`) or a content that is (`$.grants[0].letters: ...`), arrays
 --- counted from 0.
---- A hand-built [`Sandbox.Policy`] is judged by [`Sandbox.merge`]
+--- A hand-built [`Sandbox.Policy`] is judged by [`Sandbox.union`]
 --- instead, which takes any order of letters and writes them in this one.
 --- A `database` is `{"path": ..., "sha256": ...}`: the file must be there
 --- and hash to that, or the policy is refused. The digest is kept with the
@@ -88,17 +88,17 @@ end
 --- hashes to the digest, so encoding never rebases a checked database, or
 --- if it is unreadable. What a profile names is a path of this host, so an
 --- encoding that resolved one is one host's. Raises for a policy that
---- is not merged -- one with `profiles`, or [`Sandbox.merge`] would refuse
+--- is not merged -- one with `profiles`, or [`Sandbox.union`] would refuse
 --- -- since text cannot say what was dropped.
 ---
----     local text = PolicyJson.encode(assert(Sandbox.merge({ tmp = true, set_env = { MODE = "fast" } })))
+---     local text = PolicyJson.encode(assert(Sandbox.union({ tmp = true, set_env = { MODE = "fast" } })))
 ---     print(text) -- {"set_env_digests":{"MODE":"..."},"tmp":true}
 function PolicyJson.encode(p: Sandbox.Policy): string
   local profiles = p.profiles
   if profiles ~= nil and #profiles > 0 then
-    error("sandbox: encode takes a merged policy: resolve profiles with Sandbox.merge first", 2)
+    error("sandbox: encode takes a merged policy: resolve profiles with Sandbox.union first", 2)
   end
-  local made, why = Sandbox.merge(p)
+  local made, why = Sandbox.union(p)
   if made == nil then error(why, 2) end
   local merged: Sandbox.Policy = made
   local digests: mut {string:string} = {}

@@ -3,6 +3,7 @@ local Net = require("cosmic.net")
 local Server = require("cosmic.http.server")
 local Stream = require("cosmic.stream")
 local Web = require("cosmic.web")
+local type Failure = require("cosmic.failure")
 
 --- An app with one route that records the request it was given.
 local function recording(spec?: Web.AppSpec): Web.App, mut {Web.Request}
@@ -63,10 +64,10 @@ local function test_a_failed_body_read_answers_nil_and_why()
     return Web.text("ok")
   end) } }
   local broken: Stream.Reader = { -- checked: literal_shape
-    read = function(_self: Stream.Reader, _max?: integer): string?, string
-      return nil, "http: the body is over the limit"
+    read = function(_self: Stream.Reader, _max?: integer): (string | false) | (nil, Failure)
+      return nil, Failure.new("http: the body is over the limit")
     end,
-    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
   local raw: Server.Request = { gone = function(): boolean return false end,
     wait_gone = function(_?: integer): boolean return false end, method = "POST", target = "/", path = "/", query = "", version = "HTTP/1.1",
@@ -240,11 +241,11 @@ local function test_a_failed_body_read_is_remembered()
     return Web.text("ok")
   end) } }
   local body: Stream.Reader = { -- checked: literal_shape
-    read = function(_self: Stream.Reader, _max?: integer): string?, string
+    read = function(_self: Stream.Reader, _max?: integer): (string | false) | (nil, Failure)
       reads = reads + 1
-      return nil, "the client went away"
+      return nil, Failure.new("the client went away")
     end,
-    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
   local raw: Server.Request = { gone = function(): boolean return false end,
     wait_gone = function(_?: integer): boolean return false end, method = "POST", target = "/", path = "/", query = "", version = "HTTP/1.1",

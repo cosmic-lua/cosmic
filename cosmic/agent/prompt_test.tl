@@ -1,6 +1,7 @@
 --- The system prompt: its tools, rules, project context and directory.
 
 local agent_fixture = require("build.agent_fixture")
+local AgentMcp = require("cosmic.agent.mcp")
 local Fs = require("cosmic.fs")
 local Prompt = require("cosmic.agent.prompt")
 local Test = require("cosmic.test")
@@ -10,7 +11,7 @@ Test.policy{ env = { "TMPDIR" } }
 
 local scratch = agent_fixture.scratch
 
-local function test_the_prompt_lists_tools_rules_context_and_cwd()
+local function test_the_prompt_lists_tools_rules_and_context_by_relative_path()
   local dir = scratch()
   assert(Fs.mkdirs(dir .. "/sub"))
   assert(Fs.write(dir .. "/AGENTS.md", "top rules"))
@@ -25,8 +26,18 @@ local function test_the_prompt_lists_tools_rules_context_and_cwd()
   assert(p:find("^You are a coding assistant running inside cosmic agent") ~= nil)
   assert(p:find("<tools>\n- read: Read file contents\n- bash: ", 1, true) ~= nil, p)
   assert(p:find("- Use write only for new files or complete rewrites.", 1, true) ~= nil)
-  assert(p:find('<project_instructions path="' .. dir .. '/AGENTS.md">\ntop rules\n</project_instructions>', 1, true) ~= nil)
-  assert(p:sub(-#dir - 17) == "<cwd>\n" .. dir .. "/sub\n</cwd>", p:sub(-80))
+  assert(p:find('<project_instructions path="../AGENTS.md">\ntop rules\n</project_instructions>', 1, true) ~= nil, p)
+  assert(p:find('<project_instructions path="CLAUDE.md">\nsub rules', 1, true) ~= nil, p)
+  -- No path of the machine: the same prompt in each directory, so it is read from the cache.
+  assert(p:find(dir, 1, true) == nil and p:find("<cwd>", 1, true) == nil, p)
+  local elsewhere = scratch()
+  assert(Fs.mkdirs(elsewhere .. "/sub"))
+  local theirs: {Prompt.Context} = { { path = elsewhere .. "/AGENTS.md", content = "top rules" },
+    { path = elsewhere .. "/sub/CLAUDE.md", content = "sub rules" } }
+  assert(Prompt.build(elsewhere .. "/sub", theirs, { tools = Tools.all() }) == p)
+  assert(Prompt.where(dir) == "<cwd>\n" .. dir .. "\n</cwd>")
+  -- A directory written with a trailing slash names the same files.
+  assert(Prompt.build(elsewhere .. "/sub/", theirs, { tools = Tools.all() }) == p)
   assert(Prompt.build("/", {}):find("project_context", 1, true) == nil)
 end
 
@@ -49,4 +60,40 @@ local function test_the_prompt_names_only_the_tools_offered()
   local quiet = Prompt.build("/", {})
   assert(quiet:find("bash", 1, true) == nil and quiet:find("- Tools may run in a sandbox", 1, true) ~= nil, quiet)
   assert(Prompt.build("/", {}, { tools = {} }):find("<tools>", 1, true) == nil)
+end
+
+-- The whole prompt, byte for byte: the template's trim markers decide each
+-- blank line, which the tests above, by parts, would not see.
+local function test_the_prompt_is_exactly_its_sections()
+  local read = assert(Tools.find(Tools.all(), "read"))
+  local contexts: {Prompt.Context} = { { path = "/w/AGENTS.md", content = "top" }, { path = "/w/a/CLAUDE.md", content = "sub" } }
+  local servers: {AgentMcp.Server} = { { name = "gh", description = "GitHub\n  tools" }, { name = "plain" } }
+  local guidelines: mut {string} = {}
+  for _, g in ipairs(read.guidelines) do guidelines[#guidelines + 1] = "\n- " .. g end
+  local p = Prompt.build("/w/a", contexts, { tools = { read }, servers = servers })
+  local intro = "MCP servers a snippet of run may call: "
+  local at = assert(p:find(intro, 1, true))
+  local stop = assert(p:find("until cursor == nil\n", at, true))
+  local want = "You are a coding assistant running inside cosmic agent, the coding agent of cosmic. " ..
+    "Help users inspect files, run commands, and modify code.\n\n" ..
+    "<tools>\n- read: " .. read.snippet .. "\n</tools>\n\n" ..
+    "<rules>" .. table.concat(guidelines) ..
+    "\n- Tools may run in a sandbox: where one is refused (a read-only file system, a path not there, no network), " ..
+    "say so rather than working around it." ..
+    "\n- No program runs here, so the project's own tests cannot: say a change is unchecked by them." ..
+    "\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>\n\n" ..
+    "<project_context>\nProject-specific instructions and guidelines:\n\n" ..
+    "<project_instructions path=\"../AGENTS.md\">\ntop\n</project_instructions>\n\n" ..
+    "<project_instructions path=\"CLAUDE.md\">\nsub\n</project_instructions>\n</project_context>\n\n" ..
+    "<mcp_servers>\n" .. p:sub(at, stop + #"until cursor == nil") ..
+    "- gh: GitHub tools\n- plain\n</mcp_servers>"
+  assert(p == want, p)
+  -- No tools: no tools section, and the rules a tool brings are gone.
+  local bare = Prompt.build("/w/a", {}, { tools = {} })
+  assert(bare == "You are a coding assistant running inside cosmic agent, the coding agent of cosmic. " ..
+      "Help users inspect files, run commands, and modify code.\n\n<rules>" ..
+      "\n- Tools may run in a sandbox: where one is refused (a read-only file system, a path not there, no network), " ..
+      "say so rather than working around it." ..
+      "\n- No program runs here, so the project's own tests cannot: say a change is unchecked by them." ..
+      "\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>", bare)
 end

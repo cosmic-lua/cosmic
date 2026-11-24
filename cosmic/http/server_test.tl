@@ -4,11 +4,29 @@
 
 local Clock = require("cosmic.clock")
 local Compress = require("cosmic.compress")
+local Failure = require("cosmic.failure")
 local Server = require("cosmic.http.server")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
+
+--- The next chunk of `reader`: raises where it ended or failed.
+local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
+  local chunk, why = reader:read(max_bytes)
+  if chunk == nil then error(tostring(why), 2) end
+  if chunk == false then error("the stream ended", 2) end
+  return chunk
+end
+
+--- The [`Failure`] for the words a read failed with: kind "timeout" for
+--- [`Poll.TIMEOUT`], "cancelled" for [`Poll.CANCELLED`] and for
+--- "interrupted" (a signal a [`Signal.guard`] caught), else "other".
+local function failure_of(why: string): Failure
+  if why == Poll.TIMEOUT then return Failure.timeout(why) end
+  if why == Poll.CANCELLED or why == "interrupted" then return Failure.cancelled(why) end
+  return Failure.new(why)
+end
 
 Test.policy{ loopback = { "127.0.0.1" } }
 
@@ -40,8 +58,8 @@ end
 --- Reads more into `p.buf`: false at the connection's end.
 local function more(p: Peer): boolean
   local piece, why = p.conn:read()
-  if piece == nil then
-    assert(why == "", "reading: " .. why)
+  assert(piece ~= nil, "reading: " .. tostring(why))
+  if piece == false then
     return false
   end
   p.buf = p.buf .. piece
@@ -104,8 +122,8 @@ end
 --- Whether the server has closed the connection, all it sent read.
 local function ended(p: Peer): boolean
   if p.buf ~= "" then return false end
-  local piece, why = p.conn:read()
-  return piece == nil and why == ""
+  local piece, _ = p.conn:read()
+  return piece == false
 end
 
 --- Whether the connection has ended with nothing more sent to read,
@@ -114,7 +132,7 @@ end
 local function vanished(p: Peer): boolean
   if p.buf ~= "" then return false end
   local piece, _ = p.conn:read()
-  return piece == nil
+  return piece == nil or piece == false
 end
 
 local function send(p: Peer, data: string)
@@ -225,14 +243,14 @@ local class Watched is Stream.Reader
   mut read_from: boolean
   mut closed: boolean
 
-  function read(self, _max_bytes?: integer): string?, string
+  function read(self, _max_bytes?: integer): (string | false) | (nil, Failure)
     self.read_from = true
-    return nil, ""
+    return false
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.closed = true
-    return true, ""
+    return true
   end
 end
 
@@ -369,7 +387,7 @@ local function test_each_limit_is_answered()
     send(second, get("/"))
     second.conn:set_timeout(Clock.ms(100))
     local nothing, why = second.conn:read()
-    assert(nothing == nil and why == Poll.TIMEOUT, why)
+    assert(nothing == nil and why.kind == "timeout", why)
     second.conn:set_timeout(Clock.seconds(5))
     send(first, "ok")
     assert(reply(first).body == "ok")
@@ -498,7 +516,8 @@ local function test_a_slow_head_and_an_idle_connection_are_closed()
     local started = Clock.monotonic_ns()
     local request = get("/")
     for i = 1, #request do
-      if not slow.conn:write(request:sub(i, i)) then break end
+      local wrote, _ = slow.conn:write(request:sub(i, i))
+      if not wrote then break end
       local _, _ = Clock.sleep(Clock.ms(20))
       if Clock.monotonic_ns() - started > Clock.seconds(2) then break end
     end
@@ -570,7 +589,7 @@ local function test_a_large_string_body_reaches_a_slow_reader()
     local got = 0
     while true do
       local piece, _ = slow.conn:read(128 * 1024)
-      if piece == nil then break end
+      if piece == nil or piece == false then break end
       got = got + #piece
       assert(Poll.delay(Clock.ms(5)))
     end
@@ -621,7 +640,7 @@ end
 local function test_a_body_left_unread_is_dropped_before_the_next_request()
   serving(function(req: Server.Request): Server.Reply
     if req.path == "/part" then
-      local piece = assert(req.body:read(3))
+      local piece = chunk_of(req.body, 3)
       return { status = 200, body = piece }
     end
     if req.path == "/none" then return { status = 200, body = "none" } end
@@ -716,13 +735,13 @@ end
 local class Raising is Stream.Reader
   mut closed: boolean
 
-  function read(self, _max_bytes?: integer): string?, string
+  function read(self, _max_bytes?: integer): (string | false) | (nil, Failure)
     error("the body broke")
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.closed = true
-    return true, ""
+    return true
   end
 end
 
@@ -749,14 +768,14 @@ local class Lenient is Stream.Reader
   source: Stream.Reader
 
   --- Reads every failure as the end.
-  function read(self, max_bytes?: integer): string?, string
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     local piece, _ = self.source:read(max_bytes)
-    if piece == nil then return nil, "" end
-    return piece, ""
+    if piece == nil then return false end
+    return piece
   end
 
-  function close(self): boolean, string
-    return true, ""
+  function close(self): (true) | (false, Failure)
+    return true
   end
 end
 
@@ -910,13 +929,14 @@ local function test_a_body_slower_than_body_ns_is_answered_408()
     -- BSD, so how late the 408 is read must not set whether it arrives.
     p.conn:set_timeout(Clock.ms(30))
     for _ = 1, 40 do
-      if not p.conn:write("x") then break end
+      local wrote, _ = p.conn:write("x")
+      if not wrote then break end
       local piece, why = p.conn:read()
-      if piece ~= nil then
+      if piece is string then
         p.buf = p.buf .. piece
         break
       end
-      assert(why == Poll.TIMEOUT, "reading: " .. why)
+      assert(piece == nil and why.kind == "timeout", "reading: " .. tostring(why))
       if Clock.monotonic_ns() - started > Clock.seconds(3) then break end
     end
     p.conn:set_timeout(Clock.seconds(5))
@@ -950,7 +970,8 @@ local function test_body_ns_bounds_the_drop_and_spares_what_is_in_time()
     assert(reply(slow).body == "ok")
     local started = Clock.monotonic_ns()
     while Clock.monotonic_ns() - started < Clock.seconds(3) do
-      if not slow.conn:write("x") then break end
+      local wrote, _ = slow.conn:write("x")
+      if not wrote then break end
       local _, _ = Clock.sleep(Clock.ms(30))
     end
     assert(vanished(slow), "something followed the reply")
@@ -1391,8 +1412,8 @@ local function test_a_client_refusing_identity_is_answered_406()
     assert(reply(p).body == "tiny")
   end, { compress = true })
   assert(#troubles == 0, troubles[1])
-  local piece, why = refused_body:read()
-  assert(piece == nil and why ~= "", "the refused Reader was closed")
+  local piece, _ = refused_body:read()
+  assert(piece == nil, "the refused Reader was closed")
 end
 
 --- A Reader body is compressed as it is read, and goes chunked whether
@@ -1502,8 +1523,8 @@ local function test_a_compressed_reader_that_fails_midway_is_closed_and_reported
     while more(p) do end
     local _, _ = p.conn:close()
   end, { compress = true })
-  local piece, why = source:read()
-  assert(piece == nil and why ~= "", "the Reader under the compressor was closed")
+  local piece, _ = source:read()
+  assert(piece == nil, "the Reader under the compressor was closed")
   assert(#troubles == 1 and trouble_at(troubles, 1):find("the reply's body", 1, true) ~= nil, troubles[1])
 end
 
@@ -1521,8 +1542,8 @@ local function test_a_compressed_reader_on_a_head_is_closed()
     assert(got.headers["transfer-encoding"] == "chunked")
     local _, _ = p.conn:close()
   end, { compress = true })
-  local piece, why = source:read()
-  assert(piece == nil and why ~= "", "the Reader was closed unread")
+  local piece, _ = source:read()
+  assert(piece == nil, "the Reader was closed unread")
   assert(#troubles == 0, troubles[1])
 end
 
@@ -1535,25 +1556,25 @@ local class Watching is Stream.Reader
   mut seen_ns?: integer
   mut asked: integer
 
-  function read(self, _max_bytes?: integer): string?, string
+  function read(self, _max_bytes?: integer): (string | false) | (nil, Failure)
     if not self.started then
       self.started = true
-      return "data: start\n\n", ""
+      return "data: start\n\n"
     end
     local until_ns = Clock.monotonic_ns() + Clock.seconds(3)
     while Clock.monotonic_ns() < until_ns do
       self.asked = self.asked + 1
       if self.req.gone() then
         self.seen_ns = Clock.monotonic_ns()
-        return nil, ""
+        return false
       end
       assert(Clock.sleep(Clock.ms(20)))
     end
-    return nil, ""
+    return false
   end
 
-  function close(self): boolean, string
-    return true, ""
+  function close(self): (true) | (false, Failure)
+    return true
   end
 end
 
@@ -1566,17 +1587,17 @@ local class Waiting is Stream.Reader
   mut started: boolean
   mut seen_ns?: integer
 
-  function read(self, _max_bytes?: integer): string?, string
+  function read(self, _max_bytes?: integer): (string | false) | (nil, Failure)
     if not self.started then
       self.started = true
-      return "data: start\n\n", ""
+      return "data: start\n\n"
     end
     if self.req.wait_gone(Clock.seconds(3)) then self.seen_ns = Clock.monotonic_ns() end
-    return nil, ""
+    return false
   end
 
-  function close(self): boolean, string
-    return true, ""
+  function close(self): (true) | (false, Failure)
+    return true
   end
 end
 
@@ -1618,22 +1639,22 @@ local class Quiet is Stream.Reader
   mut started: boolean
   mut closed_ns?: integer
 
-  function read(self, _max_bytes?: integer): string?, string
+  function read(self, _max_bytes?: integer): (string | false) | (nil, Failure)
     if not self.started then
       self.started = true
-      return "data: start\n\n", ""
+      return "data: start\n\n"
     end
     while self.closed_ns == nil do
       local ok, why = self.notifier:wait(Clock.seconds(5))
-      if not ok then return nil, why.message end
+      if not ok then return nil, failure_of(why.message) end
     end
-    return nil, ""
+    return false
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     if self.closed_ns == nil then self.closed_ns = Clock.monotonic_ns() end
     self.notifier:notify_all()
-    return true, ""
+    return true
   end
 end
 
@@ -1676,15 +1697,17 @@ end
 local class Slow is Stream.Reader
   mut at: integer
 
-  function read(self, _max_bytes?: integer): string?, string
+  function read(self, _max_bytes?: integer): (string | false) | (nil, Failure)
     self.at = self.at + 1
-    if self.at > 3 then return nil, "" end
+    if self.at > 3 then return false end
     if self.at > 1 then assert(Poll.delay(Clock.ms(30))) end
-    return ({ "one ", "two ", "three" })[self.at], ""
+    local piece = ({ "one ", "two ", "three" })[self.at]
+    if piece == nil then return false end
+    return piece
   end
 
-  function close(self): boolean, string
-    return true, ""
+  function close(self): (true) | (false, Failure)
+    return true
   end
 end
 

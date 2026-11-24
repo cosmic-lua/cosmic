@@ -4,10 +4,10 @@
 --- ([`Child.run`]'s `policy`), and so does run's worker, which is also
 --- granted this program's own file and refused the nest promise
 --- (`cosmic docs cosmic.agent.worker`); read, write and edit, which run in
---- the agent itself, check each path against its grants.
+--- the agent itself, ask [`Sandbox.permits`] of each path.
 ---
 ---     local p = assert(Policy.of("/work", { mode = "write", network = false, grants = {} }))
----     assert(Policy.allows(p, "/work/a.txt", "w"))
+---     assert(Sandbox.permits(p, "/work/a.txt", "write"))
 ---
 --- The tools run in a sandbox (cosmic.sandbox), unless --sandbox off.
 --- `cosmic agent policy` prints the one they would run under here, path by
@@ -20,8 +20,14 @@
 ---     --sandbox read    the working directory and the home are read and
 ---                       run in alone
 ---     --sandbox off     no sandbox: the tools have your user's rights,
----                       and --network and --grant are refused
----     --network         bash may reach the network (none by default)
+---                       and --network, --connect and --grant are refused
+---     --network         bash may reach the network (none by default):
+---                       public addresses alone
+---     --connect host:port   one more target, given again for each: an
+---                       address written out may be loopback or private
+---                       (`127.0.0.1:8123`), a name reaches public
+---                       addresses alone, and a port of `*` opens every
+---                       port
 ---     --grant path[:rwxc]   one more path, read alone unless the letters
 ---                       say more: w writes, x runs, c creates and removes;
 ---                       given again for each path
@@ -98,8 +104,13 @@ local record Policy
     --- "write" (the default): the working directory read and written;
     --- "read": read alone; "off": no sandbox.
     mode: string
-    --- Whether bash may reach the network.
+    --- Whether bash may reach the network: every name, by the grant `*:*`.
     network: boolean
+    --- More `connect` targets, `host:port` ([`cosmic.relay.grant`]): an
+    --- address written out here, loopback or private too, may be reached,
+    --- as `--connect 127.0.0.1:8123` lets a local server be; a name
+    --- reaches public addresses alone.
+    connect?: {string}
     --- More paths, each with its letters of "rwxc".
     grants: {Sandbox.Grant}
     --- A home of the sandbox's own, kept from one session to the next:
@@ -292,6 +303,16 @@ local function program_dirs(path: string, user_home: string?, guarded: {string},
   return kept
 end
 
+--- The `connect` targets `config` grants: `*:*` for network, then its
+--- own; nil for none.
+local function connect_of(config: Policy.Config): {string}?
+  local out: mut {string} = {}
+  if config.network then out[#out + 1] = "*:*" end
+  for _, target in ipairs(config.connect or {}) do out[#out + 1] = target end
+  if #out == 0 then return nil end
+  return out
+end
+
 --- The policy `config` asks for in `cwd`: nil and "" for mode off, or
 --- nil and why where it cannot be made.
 function Policy.of(cwd: string, config: Policy.Config): Sandbox.Policy?, string
@@ -361,14 +382,14 @@ function Policy.of(cwd: string, config: Policy.Config): Sandbox.Policy?, string
     promises = if linux then { "fork", "fattr", "jit", "nest" } else { "fork", "fattr", "jit" } end,
     env = if config.path ~= nil then { "LANG", "LC_ALL", "TERM" } else { "PATH", "LANG", "LC_ALL", "TERM" } end,
     set_env = env_of(linux, home, if config.path ~= nil then real_path(config.path) else nil end),
-    connect = if config.network then { "*:*" } else nil end,
+    connect = connect_of(config),
     -- On Linux a root of its own: what it was not granted is not there,
     -- and it owns what it was, whoever runs the agent. macOS has no
     -- namespaces to give it one.
     isolate = if linux then { "file" } else nil end,
     limits = if counts then { processes = PROCESSES } else nil end,
   }
-  local merged, why = Sandbox.merge(own)
+  local merged, why = Sandbox.union(own)
   if merged == nil then return nil, why end
   return merged, ""
 end
@@ -430,66 +451,6 @@ function Policy.describe(p: Sandbox.Policy, home?: string): {string}
   table.sort(names)
   for _, k in ipairs(names) do out[#out + 1] = string.format("env set: %s=%s", k, set[k]) end
   return out
-end
-
---- The real name of the absolute `path`, links followed: the real name
---- of the nearest directory above it that is there, and the rest, where
---- it is not there yet; nil where a `.` or `..` is in what is not there,
---- which could leave a grant. The tools write to this name, so what they
---- check is what they change.
-function Policy.real(path: string): string?
-  local real: string? = nil
-  local rest, at = "", path
-  while real == nil do
-    local found, _ = Fs.absolute(at)
-    real = found
-    if real == nil then
-      local name = Fs.basename(at)
-      if name == ".." or name == "." or at == Fs.dirname(at) then return nil end
-      rest = "/" .. name .. rest
-      at = Fs.dirname(at)
-    end
-  end
-  return (if real == "/" then "" else real end) .. rest
-end
-
---- Whether `p` (nil: no sandbox) lets the tools do each of `letters`
---- ("r", "w", "c") at the absolute `path`: true, or false and why. The
---- path is checked as its real name ([`Policy.real`]), against `p`'s
---- grants and profiles, each grant as its real name too, as
---- [`Sandbox.allows`] reads them; `c` is asked of the directory the file
---- is made in, as Landlock grants it, and the rest of the file itself.
---- A grant that maps a path from another (`from`) is passed over: the
---- tools run outside the sandbox, where its path is not what it grants.
---- /proc is refused whatever `p` grants: there it is the agent's own,
---- keys and all, not a command's in a namespace of its own.
-function Policy.allows(p: Sandbox.Policy?, path: string, letters: string): boolean, string
-  if p == nil then return true, "" end
-  local verb = if letters == "r" then "read" else "write" end
-  local refused = string.format("The sandbox does not let the agent %s %s (cosmic docs cosmic.agent.policy)", verb, path)
-  local real = Policy.real(path)
-  if real == nil then return false, refused end
-  if real == "/proc" or real:sub(1, 6) == "/proc/" then return false, refused end
-  local merged, merge_why = Sandbox.merge(p)
-  if merged == nil then return false, "The agent's sandbox is no policy: " .. merge_why end
-  local grants: mut {Sandbox.Grant} = {}
-  for _, g in ipairs(merged.grants or {}) do
-    if g.from == nil then
-      local resolved, _ = Fs.absolute(g.path)
-      grants[#grants + 1] = { path = resolved or g.path, letters = g.letters }
-    end
-  end
-  local held: Sandbox.Policy = { grants = grants }
-  local own = letters:gsub("c", "")
-  if own ~= "" then
-    local allowed, _ = Sandbox.allows(held, real, own)
-    if not allowed then return false, refused end
-  end
-  if letters:find("c", 1, true) ~= nil then
-    local allowed, _ = Sandbox.allows(held, Fs.dirname(real), "c")
-    if not allowed then return false, refused end
-  end
-  return true, ""
 end
 
 return Policy

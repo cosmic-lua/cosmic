@@ -1,4 +1,5 @@
 local Array = require("cosmic.array")
+local type Failure = require("cosmic.failure")
 --- Proves the zip reader and writer against each other, and against a
 --- fixture made once, ahead of time, by the system `zip` -- a mix of
 --- stored and deflated entries and a symlink -- embedded as base64 so
@@ -515,13 +516,13 @@ end
 local function repeating(chunk: string, rounds: integer, each?: function(integer)): Stream.Reader
   local n: integer = 0
   local r: Stream.Reader = { -- checked: literal_shape
-    read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
-      if n >= rounds then return nil, "" end
+    read = function(_self: Stream.Reader, _max_bytes?: integer): (string | false) | (nil, Failure)
+      if n >= rounds then return false end
       n = n + 1
       if each ~= nil then each(n) end
-      return chunk, ""
+      return chunk
     end,
-    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
   return r
 end
@@ -584,12 +585,12 @@ end
 local function recording(): Stream.Writer, {string}
   local pieces: mut {string} = {}
   local w: Stream.Writer = { -- checked: literal_shape
-    write = function(_self: Stream.Writer, data: string): boolean, string
+    write = function(_self: Stream.Writer, data: string): (true) | (false, Failure)
       pieces[#pieces + 1] = data
-      return true, ""
+      return true
     end,
-    close = function(_self: Stream.Writer): boolean, string return true, "" end,
-    abort = function(_self: Stream.Writer): boolean, string return true, "" end,
+    close = function(_self: Stream.Writer): (true) | (false, Failure) return true end,
+    abort = function(_self: Stream.Writer): (true) | (false, Failure) return true end,
   }
   return w, pieces
 end
@@ -661,10 +662,10 @@ end
 local function test_a_failing_body_fails_and_aborts_the_writer()
   local w = Zip.writer(Stream.collect())
   local bad: Stream.Reader = { -- checked: literal_shape
-    read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
-      return nil, "disk on fire"
+    read = function(_self: Stream.Reader, _max_bytes?: integer): (string | false) | (nil, Failure)
+      return nil, Failure.new("disk on fire")
     end,
-    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
   local ok, trouble = w:add_file("f", bad)
   assert(not ok and trouble == "zip: add_file: disk on fire", trouble)
@@ -685,12 +686,12 @@ local function test_a_streamed_body_takes_bounded_memory()
   for _, method in ipairs({ "deflate", "store" } as {Zip.Method}) do -- checked: cast_refused
     local written: integer = 0
     local sink: Stream.Writer = { -- checked: literal_shape
-      write = function(_self: Stream.Writer, data: string): boolean, string
+      write = function(_self: Stream.Writer, data: string): (true) | (false, Failure)
         written = written + #data
-        return true, ""
+        return true
       end,
-      close = function(_self: Stream.Writer): boolean, string return true, "" end,
-      abort = function(_self: Stream.Writer): boolean, string return true, "" end,
+      close = function(_self: Stream.Writer): (true) | (false, Failure) return true end,
+      abort = function(_self: Stream.Writer): (true) | (false, Failure) return true end,
     }
     collectgarbage()
     collectgarbage()
@@ -828,10 +829,10 @@ end
 --- A failing Writer's own words are what the writer answers, as they
 --- are; a failing body Reader's are told what the writer was doing.
 local function test_a_failing_underlying_writer_is_answered_as_it_said_it()
-  local function closed(_self: Stream.Writer): boolean, string return true, "" end
+  local function closed(_self: Stream.Writer): (true) | (false, Failure) return true end
   local full: Stream.Writer = { -- checked: literal_shape
-    write = function(_self: Stream.Writer, _data: string): boolean, string
-      return false, "disk full"
+    write = function(_self: Stream.Writer, _data: string): (true) | (false, Failure)
+      return false, Failure.new("disk full")
     end,
     close = closed, abort = closed,
   }
@@ -1122,18 +1123,18 @@ local function test_file_writer_holds_the_archive_while_open()
   assert(body:write("abc"))
   assert(body:close())
   local late, lwhy = body:write("more")
-  assert(not late and lwhy == "zip: a.txt: the entry is closed", lwhy)
+  assert(not late and tostring(lwhy) == "zip: a.txt: the entry is closed", lwhy)
   assert(w:close())
 
   local short = Zip.writer(Stream.collect())
   local promised = assert(short:file_writer("p.txt", { size = 10 }))
   assert(promised:write("123"))
   local ended, ewhy = promised:close()
-  assert(not ended and ewhy == "zip: p.txt: body is 3 bytes, not 10 bytes", ewhy)
+  assert(not ended and tostring(ewhy) == "zip: p.txt: body is 3 bytes, not 10 bytes", ewhy)
   local again, awhy = promised:close()
-  assert(not again and awhy == ewhy, awhy)
+  assert(not again and tostring(awhy) == tostring(ewhy), awhy)
   local shut, shwhy = short:close()
-  assert(not shut and shwhy == ewhy, shwhy)
+  assert(not shut and shwhy == tostring(ewhy), shwhy)
 
   local kept = Stream.collect()
   local abandoned = Zip.writer(kept)
@@ -1148,7 +1149,7 @@ local function test_file_writer_holds_the_archive_while_open()
   local orphan = assert(gone:file_writer("o.txt"))
   assert(gone:abort())
   local wrote, wwhy = orphan:write("x")
-  assert(not wrote and wwhy == "zip: the writer is closed", wwhy)
+  assert(not wrote and tostring(wwhy) == "zip: the writer is closed", wwhy)
   local finished, fwhy = orphan:close()
-  assert(not finished and fwhy == "zip: the writer is closed", fwhy)
+  assert(not finished and tostring(fwhy) == "zip: the writer is closed", fwhy)
 end

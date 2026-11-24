@@ -8,6 +8,7 @@
 --- cases that start nothing -- a refused option, a refused stream, a
 --- guard -- are in cosmic/child_test.tl.
 
+local type Failure = require("cosmic.failure")
 local Child = require("cosmic.child")
 local Signal = require("cosmic.signal")
 local Clock = require("cosmic.clock")
@@ -18,6 +19,14 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local fixture = require("build.child_lua_fixture")
 local support = require("build.test_support_fixture")
+
+--- The next chunk of `reader`: raises where it ended or failed.
+local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
+  local chunk, why = reader:read(max_bytes)
+  if chunk == nil then error(tostring(why), 2) end
+  if chunk == false then error("the stream ended", 2) end
+  return chunk
+end
 
 --- What the tests read: /proc, where a test finds a child's processes;
 --- and the program itself, started past its launcher so that no host
@@ -315,15 +324,18 @@ local function test_streams_are_read_and_written_while_the_child_runs()
   local stdout = assert(h.stdout_stream)
   local stdin = assert(h.stdin_stream)
   assert(h.stderr_stream == nil)
-  assert(assert(stdout:read()) == "first")
+  assert(chunk_of(stdout) == "first")
   assert(stdin:write("go\n"))
   assert(stdin:close())
   assert(read_all(stdout) == "second-go")
-  local chunk, trouble = stdout:read()
-  assert(chunk == nil and trouble == "")
+  local chunk, _ = stdout:read()
+  assert(chunk == false)
   local r = assert(h:wait(Clock.seconds(5)))
   assert(r.ok and r.stdout == nil and r.captured[1] == nil)
-  assert(not stdin:write("late"))
+  do
+    local ok, _ = stdin:write("late")
+    assert(not ok)
+  end
 end
 
 --- Reading stdout services stderr meanwhile, so a child that fills
@@ -416,10 +428,10 @@ local function test_closing_a_streamed_output_ends_a_writer()
   local h = assert(Child.start(lua(FS .. 'while true do local put, _ = Fs.put(1, "0123456789") if not put then break end end return 1', nil,
     { timeout_ns = Child.FOREVER, stdout = "stream", stderr = "null" })))
   local stdout = assert(h.stdout_stream)
-  assert(stdout:read(10))
+  chunk_of(stdout, 10)
   assert(stdout:close())
-  local chunk, trouble = stdout:read()
-  assert(chunk == nil and trouble ~= "")
+  local chunk, _ = stdout:read()
+  assert(chunk == nil)
   local r = assert(h:wait(Clock.seconds(5)))
   assert(not r.timed_out, "the writer was left blocked on the closed pipe")
 end
@@ -445,14 +457,17 @@ local function test_writing_to_a_gone_stdin_stream_fails()
     { timeout_ns = Child.FOREVER, stdin = "stream" })))
   local stdin = assert(h.stdin_stream)
   local chunk = string.rep("x", 1 << 20)
-  local ok, trouble = true, ""
+  local trouble: Failure? = nil
   for _ = 1, 8 do
-    ok, trouble = stdin:write(chunk)
-    if not ok then break end
+    local wrote, why = stdin:write(chunk)
+    if not wrote then
+      trouble = why
+      break
+    end
   end
-  assert(not ok and trouble ~= "")
+  assert(trouble ~= nil)
   local again, again_trouble = stdin:write("x")
-  assert(not again and again_trouble == trouble)
+  assert(not again and tostring(again_trouble) == tostring(trouble))
   assert(h:close())
 end
 
@@ -474,7 +489,7 @@ local function test_a_wait_holds_a_streamed_output_to_its_limit()
   local queued = 0
   for _, stream in ipairs(h._streams or {}) do queued = queued + stream.size end
   assert(queued <= 1024, "the wait queued " .. tostring(queued) .. " bytes")
-  local chunk = assert(assert(h.stdout_stream):read())
+  local chunk = chunk_of(assert(h.stdout_stream))
   assert(#chunk > 0)
   assert(h:close())
   -- The reader reads what was queued, then ends with the pipe closed.
@@ -485,7 +500,7 @@ end
 local function test_a_streamed_read_of_nothing_is_refused()
   local h = assert(Child.start(lua(FS .. 'local _, _ = Fs.put(1, "x")', nil, { timeout_ns = Child.FOREVER, stdout = "stream" })))
   local stdout = assert(h.stdout_stream)
-  Test.raises(function() stdout:read(0) end)
+  Test.raises(function() local _, _ = stdout:read(0) end)
   assert(read_all(stdout) == "x")
   assert(assert(h:wait(Clock.seconds(5))).ok)
 end
@@ -497,10 +512,10 @@ local function test_a_stdin_stream_write_after_the_wait_says_why()
   local stdin = assert(h.stdin_stream)
   assert(assert(h:wait(Clock.seconds(5))).ok)
   local wrote, trouble = stdin:write("late")
-  assert(not wrote and trouble == "child: the child has exited", trouble)
+  assert(not wrote and tostring(trouble) == "child: the child has exited", trouble)
   assert(stdin:close())
   local again, again_trouble = stdin:write("later")
-  assert(not again and again_trouble:find("closed", 1, true) ~= nil, again_trouble)
+  assert(not again and tostring(again_trouble):find("closed", 1, true) ~= nil, again_trouble)
 end
 
 local function test_try_wait_services_a_chatty_child()
@@ -740,7 +755,7 @@ local function test_a_stream_write_ends_a_child_past_its_start_timeout()
   local writer = h.stdin_stream as Stream.Writer -- checked: cast_refused
   local wrote, trouble = writer:write(string.rep("x", 4 * 1024 * 1024))
   assert(not wrote, "a write to a child that never reads went through")
-  assert(about(began, Clock.ms(150)), ms_since(began) .. ": " .. trouble)
+  assert(about(began, Clock.ms(150)), ms_since(began) .. ": " .. tostring(trouble))
   local r = assert(h:wait())
   assert(r.timed_out)
 end

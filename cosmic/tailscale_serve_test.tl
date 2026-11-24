@@ -16,6 +16,7 @@ local Tailscale = require("cosmic.tailscale")
 local Test = require("cosmic.test")
 local _ = require("build.standalone")
 local this_program = require("build.this_program")
+local type Failure = require("cosmic.failure")
 
 Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" }, requires = { "unix_socket" } }
 
@@ -73,22 +74,22 @@ local class Watch is Stream.Reader
   session: string
   mut started: boolean
   mut ended: boolean
-  skip?: function(Watch, integer): boolean, string
+  skip?: function(Watch, integer): (true) | (false, Failure)
 
-  function read(self, _max_bytes?: integer): string?, string
+  function read(self, _max_bytes?: integer): (string | false) | (nil, Failure)
     if not self.started then
       self.started = true
       if self.daemon.quirks.sessionless == true then
-        return '{"Version":"1.90.0","State":6}\n', ""
+        return '{"Version":"1.90.0","State":6}\n'
       end
-      return '{"Version":"1.90.0","State":6,"SessionID":"' .. self.session .. '"}\n', ""
+      return '{"Version":"1.90.0","State":6,"SessionID":"' .. self.session .. '"}\n'
     end
     local _, _ = Clock.sleep(Clock.ms(20))
-    return "\n", ""
+    return "\n"
   end
 
-  function close(self): boolean, string
-    if self.ended then return true, "" end
+  function close(self): (true) | (false, Failure)
+    if self.ended then return true end
     self.ended = true
     local d = self.daemon
     d.open = d.open - 1
@@ -111,7 +112,7 @@ local class Watch is Stream.Reader
       d.etag = d.etag + 1
     end
     d.lines[#d.lines + 1] = "ended " .. self.session
-    return true, ""
+    return true
   end
 end
 

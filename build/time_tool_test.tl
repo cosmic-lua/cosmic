@@ -45,7 +45,7 @@ local function test_the_host_zone_is_the_default_the_zone_option_overrides(tmp: 
   assert(cosmic(tmp, { "time", "convert", "@0" }).out == "1970-01-01T09:00:00+09:00\n")
   assert(cosmic(tmp, { "time", "convert", "@0" }, "America/New_York").out == "1969-12-31T19:00:00-05:00\n")
   assert(cosmic(tmp, { "time", "convert", "@0" }, "").out == "1970-01-01T00:00:00+00:00\n")
-  assert(cosmic(tmp, { "time", "convert", "@0", "--to", "Europe/Berlin" }).out == "1970-01-01T01:00:00+01:00\n")
+  assert(cosmic(tmp, { "time", "convert", "@0", "--zone", "Europe/Berlin" }).out == "1970-01-01T01:00:00+01:00\n")
 end
 
 local function test_the_exit_status_is_the_verdict(tmp: string)
@@ -57,11 +57,11 @@ local function test_the_exit_status_is_the_verdict(tmp: string)
   local negative = cosmic(tmp, { "time", "add", "2026-03-08T00:00:00Z", "-1d" })
   -- The text's own zone (here UTC) is the calendar it moves along.
   assert(negative.code == 0 and negative.out == "2026-03-07T00:00:00+00:00\n", negative.out)
-  local bad = cosmic(tmp, { "time", "convert", "@0", "--to", "Mars/Base" })
+  local bad = cosmic(tmp, { "time", "convert", "@0", "--zone", "Mars/Base" })
   assert(bad.code == 2 and bad.out == "", bad.out)
   assert(not bad.err:find("time: FAIL", 1, true), bad.err)
   local usage = cosmic(tmp, { "time", "--bogus" })
-  assert(usage.code == 2 and usage.out == "" and usage.err:find("no such option: --bogus", 1, true) ~= nil, usage.err)
+  assert(usage.code == 2 and usage.out == "" and usage.err:find("no such command: --bogus", 1, true) ~= nil, usage.err)
 end
 
 --- Help reads the store's docs, which a test not declaring `store` is not

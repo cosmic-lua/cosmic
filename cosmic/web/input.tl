@@ -71,6 +71,7 @@ local Stream = require("cosmic.stream")
 local String = require("cosmic.string")
 local Types = require("cosmic.web.types")
 local Url = require("cosmic.url")
+local type Failure = require("cosmic.failure")
 
 local record Input
   --- One refused field: see [`Types.FieldError`].
@@ -385,14 +386,15 @@ end
 local function counted(source: Stream.Reader, limit: integer): Stream.Reader, function(): integer
   local passed: integer = 0
   local reader: Stream.Reader = { -- checked: literal_shape
-    read = function(_self: Stream.Reader, max?: integer): string?, string
+    read = function(_self: Stream.Reader, max?: integer): (string | false) | (nil, Failure)
       local chunk, why = source:read(math.min(max or CHUNK, limit + 1 - passed))
       if chunk == nil then return nil, why end
+      if chunk == false then return false end
       passed = passed + #chunk
-      if passed > limit then return nil, OVER_LIMIT end
-      return chunk, ""
+      if passed > limit then return nil, Failure.new(OVER_LIMIT) end
+      return chunk
     end,
-    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
   return reader, function(): integer return passed end
 end
@@ -520,8 +522,8 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
       -- file input is a part with no filename and no bytes, which keeps
       -- nothing and makes no directory.
       local first, fwhy = part.body:read(CHUNK)
-      if first == nil and fwhy ~= "" then return stop_with(multipart_failed(fwhy, limit)) end
-      if first ~= nil or part.filename ~= "" then
+      if first == nil then return stop_with(multipart_failed(tostring(fwhy), limit)) end
+      if first ~= false or part.filename ~= "" then
         local into: string
         if dir == nil then
           local made_dir, trouble = Fs.mkdtemp("cosmic-upload-")
@@ -538,9 +540,9 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
         spooling.writer = writer
         local size = 0
         local verdict, detail = "ok", ""
-        local chunk: string? = first
+        local chunk: string | false = first
         local rwhy = ""
-        while chunk ~= nil do
+        while chunk ~= false do
           size = size + #chunk
           if size > max_file then
             verdict = "over"
@@ -548,15 +550,20 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
           end
           local wrote, wwhy = writer:write(chunk)
           if not wrote then
-            verdict, detail = "disk", wwhy
+            verdict, detail = "disk", tostring(wwhy)
             break
           end
-          chunk, rwhy = part.body:read(CHUNK)
+          local more, more_why = part.body:read(CHUNK)
+          if more == nil then
+            rwhy = tostring(more_why)
+            break
+          end
+          chunk = more
         end
         if verdict == "ok" and rwhy ~= "" then verdict, detail = "source", rwhy end
         if verdict == "ok" then
           local closed, cwhy = writer:close()
-          if not closed then verdict, detail = "disk", cwhy end
+          if not closed then verdict, detail = "disk", tostring(cwhy) end
         else
           local _, _ = writer:abort()
         end
@@ -579,8 +586,8 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
       local size = 0
       while true do
         local chunk, rwhy = part.body:read(CHUNK)
-        if chunk == nil then
-          if rwhy ~= "" then return stop_with(multipart_failed(rwhy, limit)) end
+        if chunk == nil then return stop_with(multipart_failed(tostring(rwhy), limit)) end
+        if chunk == false then
           break
         end
         size = size + #chunk
@@ -617,10 +624,12 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
     -- TODO: once the app can run a hook after the reply is written, remove
     -- the files there, so a handler may answer with a stream over an upload.
     local cleanup: Stream.Reader = { -- checked: literal_shape
-      read = function(_self: Stream.Reader, _max?: integer): string?, string return nil, "" end,
-      close = function(_self: Stream.Reader): boolean, string
+      read = function(_self: Stream.Reader, _max?: integer): (string | false) | (nil, Failure)
+        return false
+      end,
+      close = function(_self: Stream.Reader): (true) | (false, Failure)
         m:discard()
-        return true, ""
+        return true
       end,
     }
     req.bodies[#req.bodies + 1] = cleanup

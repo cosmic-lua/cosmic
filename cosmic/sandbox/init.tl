@@ -6,12 +6,15 @@
 --- one (`Child.start(argv, { timeout_ns = limit, policy = p })`), and a policy is met or the
 --- program does not start: there is no best-effort mode.
 ---
---- - [`Sandbox.merge`] joins policies into one: it resolves `profiles`,
+--- - [`Sandbox.union`] joins policies into one: it resolves `profiles`,
 ---   joins the letters of a path, unions the lists, and refuses two values
 ---   for one `set_env` name or one limit.
 --- - [`Sandbox.intersect`] is what stacked layers hold: only what each
 ---   allows. [`Sandbox.held`] is that for this process's restrictions.
 --- - [`Sandbox.allows`] says whether a policy gives letters at a path.
+--- - [`Sandbox.permits`] says whether a policy lets a program read, write,
+---   run, create or remove a path by its real name ([`Sandbox.real`]), for
+---   code that acts for a held program outside the sandbox.
 --- - [`Sandbox.profile`] is what a named profile holds on this host:
 ---   "system", "programs", "cosmic" and "proc".
 --- - [`Sandbox.loaders`] is what a program needs read and run to start.
@@ -25,7 +28,7 @@
 --- policy does not carry a JSON reader and a schema checker.
 ---
 ---     local policy = { grants = { { path = "data", letters = "r" } }, tmp = true }
----     local merged = assert(Sandbox.merge(policy, { promises = { "fork" } }))
+---     local merged = assert(Sandbox.union(policy, { promises = { "fork" } }))
 ---     print(merged.grants[1].path, merged.promises[1]) -- data  fork
 ---
 --- Nothing here raises on a policy's contents: a failure answers `nil`
@@ -44,6 +47,7 @@
 --- ([`Seatbelt.compile`]); the module that writes it, [`cosmic.sandbox.seatbelt`],
 --- is required by its own name.
 
+local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local rules = require("cosmic.sandbox.policy")
 local Seatbelt = require("cosmic.sandbox.seatbelt")
@@ -113,7 +117,7 @@ end
 --- unknown profile, a letter outside "rwxcu", a malformed address, a
 --- ".." in a path. With `exact`, a grant's `letters` must also be in the
 --- order of "rwxcu", each once, as the text [`PolicyJson.decode`] reads is;
---- [`Sandbox.merge`] takes any order and writes this one.
+--- [`Sandbox.union`] takes any order and writes this one.
 ---
 ---     local ok, why = Sandbox.check({ grants = { { path = "x", letters = "xr" } } }, true)
 ---     print(ok, why) -- false  sandbox: $.grants[0].letters: "xr" is not in the order of "rwxcu", each letter once: "rx"
@@ -135,7 +139,7 @@ end
 --- and the same devices), the list a policy naming "system" is held to
 --- there without being merged, so the profile means the same given
 --- directly, merged or through [`PolicyJson.decode`]. The list is the
---- running host's, read when the profile is resolved ([`Sandbox.merge`],
+--- running host's, read when the profile is resolved ([`Sandbox.union`],
 --- or here), so a policy merged on one OS and started on another carries
 --- the first host's paths; "programs" runs the host's programs: `rx`
 --- on /usr, /bin, /sbin and the library directories, which hold the loader
@@ -195,15 +199,15 @@ end
 ---
 ---     local a = { grants = { { path = "/srv", letters = "x" } }, promises = { "fork" } }
 ---     local b = { grants = { { path = "/srv", letters = "r" } }, promises = { "fork", "jit" } }
----     local merged = assert(Sandbox.merge(a, b))
+---     local merged = assert(Sandbox.union(a, b))
 ---     print(merged.grants[1].letters, table.concat(merged.promises, ",")) -- rx  fork,jit
-function Sandbox.merge(...: Sandbox.Policy): Sandbox.Policy?, string
+function Sandbox.union(...: Sandbox.Policy): Sandbox.Policy?, string
   return rules.merge(...)
 end
 
 --- What the policies given hold a program to stacked: only what every
 --- one allows, as the kernel holds a process to every Landlock ruleset and
---- seccomp filter made. [`Sandbox.merge`] builds one layer, a union;
+--- seccomp filter made. [`Sandbox.union`] builds one layer;
 --- this is the meet of layers, the policy a child started under it, or a
 --- process restricted by each in turn ([`Sandbox.restrict`]), really has.
 --- Each is merged first. A path is reached with the letters every layer
@@ -211,10 +215,10 @@ end
 --- names; a `connect` target is what each layer's targets reach; `isolate`
 --- is the union, since more isolation is less right; `tmp` holds only
 --- where each layer has it; a limit is the lowest given. What is not a
---- right, which the start sets up, joins as a merge joins it: `set_env`,
+--- right, which the start sets up, joins as a union joins it: `set_env`,
 --- and one `user`, `group` and `database`, refused where layers
 --- disagree. A grant with `from` meets only a grant of its own path and
---- source. Nil and why for no layer, or one [`Sandbox.merge`] refuses.
+--- source. Nil and why for no layer, or one [`Sandbox.union`] refuses.
 ---
 --- Paths are met as written, cleaned, while the kernel meets the files
 --- they name: a link (`/lib` to `/usr/lib`) or a relative path read from
@@ -249,6 +253,167 @@ function Sandbox.allows(policy: Sandbox.Policy, path: string, letters: string): 
   local merged, why = rules.merge(policy)
   if merged == nil then return false, why end
   return rules.allows(merged, path, letters)
+end
+
+--- The real name of the absolute `path`, links followed: the real name
+--- of the nearest directory above it that is there, and the rest, where
+--- it is not there yet. Nil and why for a path that is not absolute, a
+--- `.` or `..` in what is not there, or a name in it that is there but
+--- does not resolve (a dangling link, which a create would follow out of
+--- a grant).
+---
+---     print(Sandbox.real("/tmp/not-yet/file")) -- /private/tmp/not-yet/file on macOS
+function Sandbox.real(path: string): string?, string
+  if path:sub(1, 1) ~= "/" then return nil, "sandbox: " .. path .. " is not an absolute path" end
+  local real: string? = nil
+  local rest, at = "", path
+  while real == nil do
+    local found, _ = Fs.absolute(at)
+    real = found
+    if real == nil then
+      local name = Fs.basename(at)
+      if name == ".." or name == "." then
+        return nil, "sandbox: " .. path .. ": a " .. name .. " below the files that are there names no real path"
+      end
+      if at == Fs.dirname(at) then
+        return nil, "sandbox: " .. path .. ": no directory above it resolves"
+      end
+      local there, _ = sys.lstat(at)
+      if there ~= nil then
+        return nil, "sandbox: " .. at .. " is there and does not resolve, as a dangling link does"
+      end
+      rest = "/" .. name .. rest
+      at = Fs.dirname(at)
+    end
+  end
+  return (if real == "/" then "" else real end) .. rest, ""
+end
+
+--- The letter [`Sandbox.permits`] asks for each of its actions, and
+--- whether it is asked of the directory that holds the name.
+local ACTIONS <const>: {string:{letter: string, directory: boolean}} = {
+  read = { letter = "r", directory = false }, write = { letter = "w", directory = false },
+  run = { letter = "x", directory = false }, create = { letter = "c", directory = true },
+  remove = { letter = "c", directory = true },
+}
+
+--- Whether `policy` lets a program held by it do `action` at the absolute
+--- `path`: the real name it checked, or nil and why.
+--- `action` is "read", "write", "run", "create" or "remove". "create" and
+--- "remove" ask `c` of the directory that holds the name, as Landlock
+--- grants it, and do not follow a link that is the last name, as unlink
+--- and a create of the name do not; "write" of a name not there yet asks
+--- `w` and `c` of its directory, since writing it makes it, and a grant
+--- of the name alone named the file that was there. Every other name is
+--- checked by its real name ([`Sandbox.real`]), so a link out of a grant
+--- is checked at its target, and a dangling link is refused.
+---
+--- Each grant is resolved by its real name as this is called, a relative
+--- one from `cwd` (this process's working directory where nil), while
+--- the kernel resolved it once, as the program started: give the policy
+--- with the real names the start had where the program may change what
+--- a grant's path names. The policy is merged first ([`Sandbox.union`]);
+--- one that does not merge permits nothing. A grant with `from`, and a
+--- grant of "/tmp" itself where the policy isolates files and has a
+--- `tmp` of its own, name other files inside the sandbox than outside,
+--- so they permit nothing here, and a refusal names them; a grant
+--- beneath /tmp is the host's directory, bound in, so it counts; /proc is refused, since outside a pid namespace of its own it is
+--- this process's.
+---
+--- For code that acts for a held program in a process no kernel layer
+--- holds, as a second layer, never the only one: the program runs beside
+--- it and can change a name between the check and its use, so open the
+--- real name this answers and follow no link there. [`Sandbox.allows`] is
+--- the plain rule under it.
+---
+---     local policy = { grants = { { path = "/srv/data", letters = "rwc" } } }
+---     print(Sandbox.permits(policy, "/srv/data/new.txt", "create")) -- /srv/data/new.txt
+---     print(Sandbox.permits(policy, "/srv/other", "read")) -- nil  sandbox: ...
+function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, cwd?: string): string?, string
+  local asked = ACTIONS[action]
+  if asked == nil then
+    return nil, string.format("sandbox: %q is no action: read, write, run, create or remove", action)
+  end
+  local merged, why = rules.merge(policy)
+  if merged == nil then return nil, why end
+  local letter, of_directory = asked.letter, asked.directory
+  local creates = false
+  local real = ""
+  if of_directory or action == "write" then
+    local name = Fs.basename(path)
+    local holder, holder_why = Sandbox.real(Fs.dirname(path))
+    if holder == nil then return nil, holder_why end
+    if name == "." or name == ".." or name == "" or name == "/" then
+      return nil, "sandbox: " .. path .. " names no file in a directory"
+    end
+    real = holder .. "/" .. name
+    if action == "write" then
+      local there, _ = sys.lstat(real)
+      if there == nil then
+        creates = true
+      else
+        local resolved, resolve_why = Sandbox.real(path)
+        if resolved == nil then return nil, resolve_why end
+        real = resolved
+      end
+    end
+  else
+    local resolved, resolve_why = Sandbox.real(path)
+    if resolved == nil then return nil, resolve_why end
+    real = resolved
+  end
+  local named = if real == "" then "/" else real end
+  if named == "/proc" or named:sub(1, 6) == "/proc/" then
+    return nil, "sandbox: " .. named .. ": /proc is this process's own outside a sandbox's pid namespace"
+  end
+  local isolated_tmp = false
+  for _, kind in ipairs(merged.isolate or {}) do
+    if kind == "file" and merged.tmp == true then isolated_tmp = true end
+  end
+  local base = cwd
+  if base == nil then
+    local here, _ = sys.getcwd()
+    base = here
+  end
+  -- A new name has no grant of its own yet: its `w`, as its `c`, comes
+  -- from its directory's.
+  local checked = if of_directory or creates then Fs.dirname(named) else named end
+  local grants: mut {Sandbox.Grant} = {}
+  local skipped: mut {string} = {}
+  for _, grant in ipairs(merged.grants or {}) do
+    local at = grant.path
+    if at:sub(1, 1) ~= "/" and base ~= nil then
+      at = base .. (if base:sub(-1) == "/" then "" else "/" end) .. at
+    end
+    -- The start reads "/tmp" and "tmp" alike as the letters of its own /tmp.
+    local own_tmp = isolated_tmp and grant.from == nil and (grant.path == "/tmp" or grant.path == "tmp")
+    if grant.from ~= nil or own_tmp then
+      -- Its real name, as `checked` is one: /tmp is /private/tmp on macOS.
+      local real_at, _ = Sandbox.real(at)
+      local held = real_at or at
+      local covers = held == "" or held == "/" or checked == held or checked:sub(1, #held + 1) == held .. "/"
+      if covers then
+        local why_skipped = if own_tmp then "is the sandbox's own /tmp" else "has from" end
+        skipped[#skipped + 1] = string.format("%q %s", grant.path, why_skipped)
+      end
+    else
+      local resolved, _ = Fs.absolute(at)
+      grants[#grants + 1] = { path = resolved or at, letters = grant.letters }
+    end
+  end
+  local allowed, allow_why = rules.allows({ grants = grants }, checked, letter)
+  if allowed and creates then
+    -- Opening a new name to write it needs w on it and c in its directory.
+    allowed, allow_why = rules.allows({ grants = grants }, checked, "c")
+  end
+  if not allowed then
+    local note = ""
+    if #skipped > 0 then
+      note = " (" .. table.concat(skipped, ", ") .. ", so names other files inside the sandbox)"
+    end
+    return nil, string.format("sandbox: the policy does not permit %s %s: %s%s", action, named, allow_why, note)
+  end
+  return named, ""
 end
 
 --- The policies [`Sandbox.restrict`] has held this process to, merged,
@@ -374,13 +539,17 @@ local function interpreter_of(path: string): string?
   return found
 end
 
+--- The link macOS's /bin/sh reads to find the shell it runs.
+local SH_VARIANT <const> = "/private/var/select/sh"
+
 --- What the program at `path` needs to start, as real paths with no link
 --- left in them: the program itself first, then the interpreter its `#!`
 --- line or its ELF header (PT_INTERP) names, then that one's, as far as the
 --- kernel follows. The files a policy must grant `r` and `x` for the
 --- program to start at all. `path` is relative to `cwd` (this process's
 --- directory when nil). Nil and why when the program or an interpreter it
---- names does not exist.
+--- names does not exist. On macOS /bin/sh is followed by the shell it
+--- runs, the one /private/var/select/sh names.
 ---
 --- A script that starts with `#!/usr/bin/env python3` names /usr/bin/env;
 --- the program env then finds is its own start, which this cannot know.
@@ -404,6 +573,15 @@ function Sandbox.loaders(path: string, cwd?: string): {string}?, string
     seen[real] = true
     files[#files + 1] = real
     local next_file = interpreter_of(real)
+    if next_file == nil and real == "/bin/sh" and rules.on_macos() then
+      -- macOS's /bin/sh is a stub that runs the shell /private/var/select/sh
+      -- names (bash, unless the admin chose another), as an exec of its own.
+      -- TODO: follow the other macOS stubs that exec a tool of their own,
+      -- the xcrun shims (/usr/bin/git, /usr/bin/python3), which an r-only
+      -- "system" profile does not let run the tool they find.
+      local variant, _ = sys.realpath(SH_VARIANT)
+      if variant ~= nil and variant ~= real then next_file = variant end
+    end
     if next_file == nil then break end
     at = next_file
   end
@@ -565,7 +743,7 @@ end
 --- [`Seatbelt.compile`] makes of it, with [`runtime_grants`] beside its
 --- own, applied to this process with its limits. `policy` is the caller's,
 --- which [`not_in_process`] passed: the profile resolves "system" to
---- macOS's paths, not the Linux ones [`Sandbox.merge`] gives.
+--- macOS's paths, not the Linux ones [`Sandbox.union`] gives.
 local function held_by_seatbelt(policy: Sandbox.Policy, kept: {integer}): boolean, string
   local grants: mut {Sandbox.Grant} = {}
   for _, grant in ipairs(policy.grants or {}) do grants[#grants + 1] = grant end
@@ -596,7 +774,7 @@ end
 --- rlimits the resources, set first, since the filter refuses setrlimit
 --- to a process that holds CAP_SYS_RESOURCE.
 --- Nothing lifts it, and the process cannot start a program its grants
---- do not let run. The policy is merged first ([`Sandbox.merge`]), so it
+--- do not let run. The policy is merged first ([`Sandbox.union`]), so it
 --- may name `profiles`, and its limits have a child's defaults: no core
 --- dump and 1024 open files (this process's own hard limit where that
 --- is lower); a limit is only ever lowered, never
@@ -666,7 +844,7 @@ end
 --- profile would be a second one; a child started without one is held by
 --- this process's. Elsewhere it fails, saying so.
 function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOptions): boolean, string
-  local merged, why = Sandbox.merge(policy)
+  local merged, why = Sandbox.union(policy)
   if merged == nil then return false, why end
   local trouble = not_in_process(merged)
   if trouble ~= "" then return denied(trouble) end

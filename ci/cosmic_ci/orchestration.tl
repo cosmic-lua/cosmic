@@ -100,8 +100,8 @@ local function write(path: string, data: string) assert(Fs.write(path, data)) en
 --- The events whose run a suite may stand on verdicts in (`stands`): a
 --- push, main's or a branch's, and the merge queue's run, which restores main's
 --- verdicts (ci.yml's "restore test verdicts") and so runs only what its
---- merge moved from what main's last run reached; main's push of
---- linux-x86_64 takes the queue's verdicts of its commit too
+--- merge moved from what main's last run reached; main's push of each
+--- leg takes that leg's queue verdicts of its commit too
 --- (cosmic_ci/queue_verdicts.tl). ci.yml gives main's daily scheduled
 --- run and a manual run `push` as well; the weekly run and a manual run
 --- with `every_test` are the backstop, running every test.
@@ -329,6 +329,18 @@ local function with_census(words: {string}): {string}
     out[#out + 1] = word
     if at == 1 then out[#out + 1] = "--census" end
   end
+  return out
+end
+
+--- `words`, a suite's command, run as the share `share` (`I/N`) of its
+--- tests (`cosmic test --shard`); `words` itself where `share` is nil or
+--- empty.
+function Orchestration.with_share(words: {string}, share?: string): {string}
+  if share == nil or share == "" then return words end
+  local out: mut {string} = {}
+  for _, word in ipairs(words) do out[#out + 1] = word end
+  out[#out + 1] = "--shard"
+  out[#out + 1] = share
   return out
 end
 
@@ -1264,7 +1276,11 @@ local function checked_suite(c: Context, target: string, work: string,
   for _, word in ipairs(with_census(checked_run.words)) do
     checked_argv[#checked_argv + 1] = word
   end
-  s = logged(c, "checked suite", checked_argv,
+  -- The merge queue runs the suite in shares, each a job of its own
+  -- (COSMIC_CI_CHECKED_SHARD, `I/N`; ci.yml's `checked`). A share does not
+  -- check the C functions, which only a whole run answers; main's push
+  -- and the full runs run it whole.
+  s = logged(c, "checked suite", Orchestration.with_share(checked_argv, named("COSMIC_CI_CHECKED_SHARD")),
     diagnostics .. "/checked-test.out", diagnostics .. "/checked-test.err",
     checked_suite_timeout_ns, c.root, checked_run.env)
   record_suite(c, "checked", s, diagnostics .. "/checked-test.out")

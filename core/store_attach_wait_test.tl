@@ -9,6 +9,14 @@ local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
+--- The next line of `lines`: raises where they ended or failed.
+local function line_of(lines: Stream.Lines): string
+  local line, why = lines:read()
+  if line == nil then error(tostring(why), 2) end
+  if line == false then error("the lines ended", 2) end
+  return line
+end
+
 Test.policy{ profiles = { "cosmic" } }
 
 --- A process that holds `path` locked against readers until its stdin
@@ -18,6 +26,7 @@ local function holder(path: string, hold_ns: integer): Child.Handle
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+
 local db = assert(Sqlite.open(%q, { writable = true }))
 assert(db:exec("BEGIN EXCLUSIVE; INSERT INTO t VALUES ('held')"))
 print("held")
@@ -27,7 +36,7 @@ assert(db:exec("COMMIT"))
 assert(db:close())
 ]]):format(path, hold_ns) }, { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream", stderr = "capture" })
   local child = assert(Child.start(command.argv, command.options))
-  assert(Stream.lines(assert(child.stdout_stream)):read() == "held")
+  assert(line_of(Stream.lines(assert(child.stdout_stream))) == "held")
   return child
 end
 

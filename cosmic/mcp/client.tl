@@ -722,14 +722,17 @@ local function write_line(link: Link, text: string): (true) | (false, Failure)
     if why ~= nil then return false, why end
   end
   link.writing = true
-  local ok, trouble = true, ""
+  local trouble: Failure? = nil
   whole(function()
-    ok, trouble = link.writer:write(text .. "\n")
+    local wrote, why = link.writer:write(text .. "\n")
+    if not wrote then trouble = why end
   end)
   link.writing = false
   -- Each waiting writer looks again, so the turn is never lost to one whose task was cancelled meanwhile.
   for _, turn in ipairs(link.writers) do turn:notify_one() end
-  if not ok then return false, Failure.new("mcp: writing to the server: " .. trouble) end
+  if trouble ~= nil then
+    return false, Failure.new("mcp: writing to the server: " .. tostring(trouble))
+  end
   return true
 end
 
@@ -778,12 +781,12 @@ end
 local function read_one(link: Link): boolean
   local line, trouble = link.lines:read()
   if line == nil then
-    if trouble == Poll.CANCELLED or trouble == Poll.TIMEOUT then return false end
-    if trouble ~= "" then
-      break_link(link, Failure.new("mcp: reading from the server: " .. trouble))
-    else
-      break_link(link, Failure.new("mcp: the server closed its output"))
-    end
+    if trouble.message == Poll.CANCELLED or trouble.message == Poll.TIMEOUT then return false end
+    break_link(link, Failure.new("mcp: reading from the server: " .. tostring(trouble)))
+    return false
+  end
+  if line == false then
+    break_link(link, Failure.new("mcp: the server closed its output"))
     return false
   end
   if line:find("%S") ~= nil then
@@ -922,7 +925,7 @@ function McpClient.stdio(reader: Stream.Reader, writer: Stream.Writer, opts?: Mc
   return session(stdio_send(lines, writer), opts, false,
     function(): (true) | (false, Failure)
       local ok, why = writer:close()
-      if not ok then return false, Failure.new("mcp: " .. why) end
+      if not ok then return false, Failure.new("mcp: " .. tostring(why)) end
       return true
     end)
 end
@@ -1001,8 +1004,8 @@ local function streamed_response(response: Http.Response, req: Request): (wire.M
   local splitter = wire.splitter()
   while true do
     local chunk, trouble = response:read()
-    if chunk == nil and trouble ~= "" then return nil, trouble_of(req, trouble) end
-    local datas = if chunk ~= nil then splitter.feed(chunk) else splitter.finish() end
+    if chunk == nil then return nil, trouble_of(req, tostring(trouble)) end
+    local datas = if chunk == false then splitter.finish() else splitter.feed(chunk) end
     if datas == nil then
       return nil, Failure.new("mcp: " .. req.method .. ": an event is longer than a message may be")
     end
@@ -1013,7 +1016,7 @@ local function streamed_response(response: Http.Response, req: Request): (wire.M
         if message.method == nil and message.id == req.id then return message end
       end
     end
-    if chunk == nil then return false end
+    if chunk == false then return false end
   end
 end
 

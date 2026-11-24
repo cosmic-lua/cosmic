@@ -7,6 +7,14 @@ local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
+--- The next line of `lines`: raises where they ended or failed.
+local function line_of(lines: Stream.Lines): string
+  local line, why = lines:read()
+  if line == nil then error(tostring(why), 2) end
+  if line == false then error("the lines ended", 2) end
+  return line
+end
+
 Test.policy{ profiles = { "cosmic" } }
 
 local function test_exec_result_reports_busy_then_acquires_after_the_holder_exits(tmp: string)
@@ -23,7 +31,7 @@ assert(db:close())
   local command = this_program.program({ "-e", script:format(path) },
     { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream", stderr = "capture" })
   local child <close> = assert(Child.start(command.argv, command.options))
-  assert(Stream.lines(assert(child.stdout_stream)):read() == "held")
+  assert(line_of(Stream.lines(assert(child.stdout_stream))) == "held")
   local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("PRAGMA busy_timeout = 0"))
   local busy = db:exec_result("BEGIN IMMEDIATE")
@@ -43,6 +51,7 @@ end
 local function test_typed_steps_allocate_no_result_per_successful_row()
   local script = [[
 local Sqlite = require("cosmic.sqlite")
+
 local db = assert(Sqlite.memory())
 local statement = assert(db.connection:prepare("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<10000) SELECT x FROM n"))
 collectgarbage("collect")

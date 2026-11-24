@@ -60,8 +60,8 @@
   # A newer manual run supersedes a branch's. Main's pushes run one at a
   # time and to the end, so their saves land in commit order and each
   # completed run can publish a prerelease (the relay, relay.yml, saves
-  # apart, and a push that main moved past leaves linux-x86_64's saves to
-  # it: "ask whether main moved past this commit"); the scheduled run
+  # apart, and a push that main moved past leaves each leg's saves to it:
+  # "ask whether main moved past this commit"); the scheduled run
   # and a manual one take groups of their own, so no push cancels them or
   # is cancelled by them.
   concurrency: {
@@ -71,12 +71,18 @@
 
   jobs: { # A platform leg: the native suite on its host, and, on main's runs,
     # the complete product, its regressions and its portable suite, the
-    # bytes it ran uploaded for the join. The merge queue runs
-    # linux-x86_64's native suite and the tree's format check, and no more:
-    # a light, fast gate, as two jobs at once, each booting the tree, beside
-    # the `driver` job's check of the pinned CI driver: one after the
-    # other, the two took some 15 minutes. A pull request runs
-    # lighter still, linux-x86_64's boot and the format check of what it
+    # bytes it ran uploaded for the join. The merge queue runs what main's
+    # push runs, so a commit that breaks a push breaks its queue entry
+    # first: the same three legs and the checked jobs, and the `driver`
+    # job's check of the pinned CI driver. Each queue leg is two jobs at
+    # once, so an entry takes about as long as the longer half: its
+    # native suite (part `suite`), and assemble, the regressions, the
+    # portable suite and the product (part `product`); the tree's format
+    # check is a job of its own beside linux-x86_64's. The queue also runs
+    # macOS's native suite (part `suite`, no product), which a push does
+    # not: macOS failures blocked prereleases, and the daily run was the
+    # first to meet them. A pull request runs
+    # a light gate, linux-x86_64's boot and the format check of what it
     # changed (and the launcher fixtures, where it reaches them). A push to main runs
     # three legs whole, all but macOS; the daily scheduled run and a
     # manual run run all four, macOS among them.
@@ -94,9 +100,12 @@
         # (.github/scripts/leg-container.sh); macOS has none. `leg` is the
         # host a job is (its caches, its verdicts, COSMIC_WORKER), `name`
         # the job's own; `part` is what of the leg it runs: `all`, or in the
-        # queue the native `suite` alone or the `format` check alone.
+        # queue `suite` (the native suite, its boundary, the darwin suite,
+        # the sandbox probe and the credential proofs), `product` (assemble,
+        # the regressions, the portable suite, the attestation and the
+        # product) or `format` (linux-x86_64's format check alone).
         matrix: {
-          include: "${{ fromJSON(github.event_name == 'pull_request' && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}]' || github.event_name == 'merge_group' && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"suite\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-x86_64-format\", \"leg\": \"linux-x86_64\", \"part\": \"format\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}]' || github.event_name == 'push' && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}]' || '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"macos-aarch64\", \"leg\": \"macos-aarch64\", \"part\": \"all\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}]') }}",
+          include: "${{ fromJSON(github.event_name == 'pull_request' && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}]' || github.event_name == 'merge_group' && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"suite\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-x86_64-product\", \"leg\": \"linux-x86_64\", \"part\": \"product\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-x86_64-format\", \"leg\": \"linux-x86_64\", \"part\": \"format\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"suite\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64-product\", \"leg\": \"linux-aarch64\", \"part\": \"product\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"suite\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}, {\"name\": \"alpine-x86_64-product\", \"leg\": \"alpine-x86_64\", \"part\": \"product\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}, {\"name\": \"macos-aarch64\", \"leg\": \"macos-aarch64\", \"part\": \"suite\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}]' || github.event_name == 'push' && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}]' || '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"macos-aarch64\", \"leg\": \"macos-aarch64\", \"part\": \"all\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}]') }}",
         },
       },
       "runs-on": "${{ matrix.runner }}",
@@ -259,14 +268,14 @@
         # verdicts that run reached, so its suites run only the tests
         # whose keys differ (cosmic_ci/queue_verdicts.tl): without them it
         # stood on main's last cache, one commit or more behind, and ran
-        # its whole native suite again. The queue runs linux-x86_64 alone.
+        # its whole native suite again. Each leg takes its own leg's.
         # A key holds everything its verdict was reached under, so these
         # decide how many tests stand, never whether one is right; none of
         # the three fails the leg.
         {
           name: "find the merge queue's run of this commit",
           id: "queue-run",
-          if: "matrix.leg == 'linux-x86_64' && github.event_name == 'push' && github.ref == 'refs/heads/main'",
+          if: "github.event_name == 'push' && github.ref == 'refs/heads/main'",
           shell: "sh",
           "continue-on-error": true,
           env: {SHA: "${{ github.sha }}", ARTIFACT: "queue-verdicts-${{ matrix.leg }}", GH_TOKEN: "${{ github.token }}"},
@@ -337,7 +346,7 @@
         # took from the queue's check of the commit (cosmic_ci/checks_seal.tl).
         {
           name: "restore the tree checks' memo",
-          if: "matrix.leg == 'linux-x86_64' && matrix.part != 'suite' && github.event_name != 'push' && github.event.schedule != '41 3 * * 1-6'",
+          if: "matrix.leg == 'linux-x86_64' && (matrix.part == 'all' || matrix.part == 'format') && github.event_name != 'push' && github.event.schedule != '41 3 * * 1-6'",
           uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/cache/cosmic/build/checks.db",
@@ -366,7 +375,7 @@
         {
           name: "find the base the markers are held to",
           id: "ceilings-base",
-          if: "matrix.leg == 'linux-x86_64' && matrix.part != 'suite' && github.event_name != 'push' && github.event.schedule != '41 3 * * 1-6'",
+          if: "matrix.leg == 'linux-x86_64' && (matrix.part == 'all' || matrix.part == 'format') && github.event_name != 'push' && github.event.schedule != '41 3 * * 1-6'",
           shell: "sh",
           env: {SHA: "${{ github.sha }}", EVENT: "${{ github.event_name }}", REF: "${{ github.ref }}", BASE_REF: "${{ github.event.merge_group.base_ref }}", PR_BASE_REF: "${{ github.base_ref }}"},
           run: "cosmic-driver cosmic_ci/driver.tl ceilings-base",
@@ -386,7 +395,7 @@
         {
           name: "name the paths the commit changed",
           id: "changed",
-          if: "matrix.leg == 'linux-x86_64' && matrix.part != 'suite' && (github.event_name == 'merge_group' || github.event_name == 'pull_request') && steps.ceilings-base.outputs.sha != ''",
+          if: "matrix.leg == 'linux-x86_64' && (matrix.part == 'all' || matrix.part == 'format') && (github.event_name == 'merge_group' || github.event_name == 'pull_request') && steps.ceilings-base.outputs.sha != ''",
           shell: "sh",
           "continue-on-error": true,
           env: {BASE: "${{ steps.ceilings-base.outputs.sha }}", OUT: "${{ runner.temp }}/changed-paths"},
@@ -424,7 +433,7 @@
         # driver too, each file ci/bootstrap-files.txt lists.
         {
           name: "type-check the bootstrap's scripts on the pinned driver",
-          if: "matrix.leg == 'linux-x86_64' && matrix.part != 'suite' && github.event_name != 'push'",
+          if: "matrix.leg == 'linux-x86_64' && (matrix.part == 'all' || matrix.part == 'format') && github.event_name != 'push'",
           run: "cosmic-driver cosmic_ci/driver.tl check-islands",
         },
         {
@@ -435,18 +444,18 @@
         {
           name: "run release Cosmic's native suite",
           id: "release-suite",
-          if: "github.event_name != 'pull_request' && matrix.part != 'format'",
+          if: "github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'suite')",
           run: "cosmic-driver cosmic_ci/driver.tl platform local-suite",
         },
         {
           name: "verify the delayed native database boundary",
-          if: "github.event_name != 'pull_request' && matrix.part != 'format'",
+          if: "github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'suite')",
           run: "cosmic-driver cosmic_ci/driver.tl platform local-boundary",
         },
         {
           name: "check the tree's format",
           id: "format",
-          if: "matrix.leg == 'linux-x86_64' && matrix.part != 'suite' && github.event_name != 'push' && github.event.schedule != '41 3 * * 1-6'",
+          if: "matrix.leg == 'linux-x86_64' && (matrix.part == 'all' || matrix.part == 'format') && github.event_name != 'push' && github.event.schedule != '41 3 * * 1-6'",
           env: {COSMIC_CI_FORMAT: "run", COSMIC_CI_FORMAT_CHANGED: "${{ steps.changed.outputs.paths }}"},
           run: "cosmic-driver cosmic_ci/driver.tl platform format",
         },
@@ -454,20 +463,20 @@
         # suite's delayed boundary.
         {
           name: "build the credential transition probe",
-          if: "runner.os == 'Linux' && github.event_name != 'merge_group' && github.event_name != 'pull_request'",
+          if: "runner.os == 'Linux' && github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'suite')",
           "working-directory": ".",
           run: ".github/scripts/credentials-build.sh",
         },
         {
           name: "prove the ordinary credential transition",
-          if: "runner.os == 'Linux' && github.event_name != 'merge_group' && github.event_name != 'pull_request'",
+          if: "runner.os == 'Linux' && github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'suite')",
           "working-directory": ".",
           shell: "leg-shell --root {0}",
           run: "sh .github/scripts/credentials-proof.sh",
         },
         {
           name: "prove local runner privilege and ownership boundaries",
-          if: "runner.os == 'Linux' && github.event_name != 'merge_group' && github.event_name != 'pull_request'",
+          if: "runner.os == 'Linux' && github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'suite')",
           "working-directory": ".",
           shell: "leg-shell --root {0}",
           run: "sh .github/scripts/run-local-proof.sh",
@@ -476,24 +485,23 @@
         # (ci/darwin-tests.txt).
         {
           name: "run the darwin suite",
-          if: "github.event_name != 'pull_request' && matrix.part != 'format'",
+          if: "github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'suite')",
           run: "cosmic-driver cosmic_ci/driver.tl platform darwin-suite",
         },
         # Fails where a part of spawn's sandbox a confined test needs did
         # not hold (COSMIC_CI_REQUIRE_SANDBOX, phase_sandbox).
         {
           name: "probe the sandbox a confined test runs in",
-          if: "runner.os == 'Linux' && github.event_name != 'pull_request' && matrix.part != 'format'",
+          if: "runner.os == 'Linux' && github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'suite')",
           run: "cosmic-driver cosmic_ci/driver.tl platform sandbox",
         },
         # A pull request builds them and runs the regressions only where a
         # path it changed reaches what they check, or where the paths
-        # changed are not known (driver.tl changed-paths): the queue runs
-        # neither.
+        # changed are not known (driver.tl changed-paths).
         {
           name: "build local portable and checked artifacts",
           id: "assemble",
-          if: "(github.event_name != 'merge_group' && github.event_name != 'pull_request') || (github.event_name == 'pull_request' && steps.changed.outputs.fixtures != 'skip')",
+          if: "(github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'product')) || (github.event_name == 'pull_request' && steps.changed.outputs.fixtures != 'skip')",
           run: "cosmic-driver cosmic_ci/driver.tl platform assemble",
         },
         # What a save of zig's caches would carry that no build of this tree
@@ -505,13 +513,13 @@
         },
         {
           name: "run runtime, launcher, rebuild, and identity regressions",
-          if: "(github.event_name != 'merge_group' && github.event_name != 'pull_request') || (github.event_name == 'pull_request' && steps.changed.outputs.fixtures != 'skip')",
+          if: "(github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'product')) || (github.event_name == 'pull_request' && steps.changed.outputs.fixtures != 'skip')",
           run: "cosmic-driver cosmic_ci/driver.tl platform fixtures",
         },
         {
           name: "run the product suite from fresh tracked source",
           id: "portable-suite",
-          if: "github.event_name != 'merge_group' && github.event_name != 'pull_request'",
+          if: "github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'product')",
           run: "cosmic-driver cosmic_ci/driver.tl platform portable",
         },
         {
@@ -521,16 +529,16 @@
         },
         {
           name: "attest the exact executed product bytes",
-          if: "github.event_name != 'merge_group' && github.event_name != 'pull_request'",
+          if: "github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'product')",
           run: "cosmic-driver cosmic_ci/driver.tl platform attest",
         },
         # Read by the `ci` join, and by prerelease.yml as main's run ends.
         {
           name: "upload the attested product",
-          if: "github.event_name != 'merge_group' && github.event_name != 'pull_request'",
+          if: "github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'product')",
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
-            name: "portable-product-${{ matrix.name }}",
+            name: "portable-product-${{ matrix.leg }}",
             path: "${{ runner.temp }}/cosmic-ci/platform/product",
             "if-no-files-found": "error",
             "retention-days": 7,
@@ -743,12 +751,23 @@
     # The checked core's suite, the whole suite on the sanitized core
     # (orchestration.tl's checked_suite, bounded by
     # `checked_suite_timeout_ns`), and the bounded performance fixture, on
-    # linux-x86_64's host, beside the legs. Not in the merge queue: main's
-    # push, the scheduled and a manual run. Its verdicts are kept under a
-    # cache name of its own on that host.
+    # linux-x86_64's host, beside the legs. Not on a pull request: the
+    # merge queue, main's push, the scheduled and a manual run. Its verdicts are kept under a
+    # cache name of its own on that host. The queue runs the suite in two
+    # shares at once (`cosmic test --shard`), each its own job, so the
+    # longest job of a queue run is not the suite whole (14 of its 16
+    # minutes); a share saves nothing, and the performance fixture runs
+    # in the first. Elsewhere it is one job, whose run checks the C
+    # functions too, which a share cannot.
     checked: {
-      if: "github.event_name != 'merge_group' && github.event_name != 'pull_request'",
-      name: "linux-x86_64-checked",
+      if: "github.event_name != 'pull_request'",
+      name: "${{ matrix.name }}",
+      strategy: {
+        "fail-fast": false,
+        matrix: {
+          include: "${{ fromJSON(github.event_name == 'pull_request' && '[{\"name\": \"linux-x86_64-checked\", \"shard\": \"\"}]' || github.event_name == 'merge_group' && '[{\"name\": \"linux-x86_64-checked-1\", \"shard\": \"1/2\"}, {\"name\": \"linux-x86_64-checked-2\", \"shard\": \"2/2\"}]' || github.event_name == 'push' && '[{\"name\": \"linux-x86_64-checked\", \"shard\": \"\"}]' || '[{\"name\": \"linux-x86_64-checked\", \"shard\": \"\"}]') }}",
+        },
+      },
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",
       permissions: {contents: "read", packages: "read"},
@@ -757,6 +776,7 @@
         COSMIC_WORKER: "linux-x86_64-checked",
         TARGET: "x86_64-linux-musl",
         COSMIC_CI_CHECKED_SUITE: "run",
+        COSMIC_CI_CHECKED_SHARD: "${{ matrix.shard }}",
         COSMIC_CI_REQUIRE_SANDBOX: "1",
         COSMIC_CI_DECLARED_KEYS: "0",
         COSMIC_CI_EVENT: "${{ (github.event_name == 'schedule' && github.event.schedule != '41 3 * * 0' || github.event_name == 'workflow_dispatch' && !inputs.every_test) && 'push' || github.event_name }}",
@@ -889,6 +909,7 @@
         },
         {
           name: "check performance fixture histories on the checked core",
+          if: "matrix.shard != '2/2'",
           run: "cosmic-driver cosmic_ci/driver.tl platform performance-checked",
         },
         # A run that failed keeps what it restored too (`whole`). Cut to
@@ -910,7 +931,7 @@
           if: "always()",
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
-            name: "ci-driver-linux-x86_64-checked",
+            name: "ci-driver-${{ matrix.name }}",
             path: "${{ runner.temp }}/cosmic-ci/operations.db",
             "if-no-files-found": "ignore",
             "retention-days": 7,
@@ -921,7 +942,7 @@
           if: "failure()",
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
-            name: "platform-diagnostics-linux-x86_64-checked",
+            name: "platform-diagnostics-${{ matrix.name }}",
             path: "${{ runner.temp }}/cosmic-ci/platform/checked-diagnostics",
             "if-no-files-found": "ignore",
             "retention-days": 7,
@@ -982,11 +1003,11 @@
 
     # The whole suite on a checked run (`--check-types`, orchestration.tl's
     # phase_checked_narrowing, bounded by `checked_narrowing_timeout_ns`),
-    # on the release tool, on linux-x86_64's host, beside the legs. Not in
-    # the merge queue. Its verdicts stand apart (`narrowing.db`), under a
+    # on the release tool, on linux-x86_64's host, beside the legs. Not on
+    # a pull request. Its verdicts stand apart (`narrowing.db`), under a
     # cache name of its own.
     narrowing: {
-      if: "github.event_name != 'merge_group' && github.event_name != 'pull_request'",
+      if: "github.event_name != 'pull_request'",
       name: "linux-x86_64-checked-narrowing",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",
@@ -1210,8 +1231,8 @@
       ],
     },
 
-    # The queue's check of the pinned CI driver, beside its two
-    # linux-x86_64 jobs and booting nothing: cosmic_ci's tests, where what the commit
+    # The queue's check of the pinned CI driver, beside its legs and
+    # booting nothing: cosmic_ci's tests, where what the commit
     # changed since main reaches what they read (ci/ and, of the tree
     # around it, .github/workflows/ci.yml alone, their Test.policy
     # grants), or where the paths changed are not known. The other runs
@@ -1315,11 +1336,11 @@
 
     # The one check a ruleset requires: it fails when a leg, the checked
     # suite, the checked narrowing run or the queue's pinned driver check
-    # failed or was cancelled. The checked jobs read as passed in the
-    # merge queue and on a pull request, which skip them; the driver
-    # job's result is read in the queue alone, where it runs. On main's
-    # runs it is the provenance join too, proving the legs attested
-    # identical bytes: a push's three, the scheduled and a manual run's
+    # failed or was cancelled. The checked jobs read as passed on a pull
+    # request, which skips them; the driver job's result is read in the
+    # queue alone, where it runs. On every run but a pull request's it is
+    # the provenance join too, proving the legs attested identical bytes:
+    # the queue's and a push's three, the scheduled and a manual run's
     # four.
     ci: {
       needs: ["platform", "checked", "narrowing", "driver"],
@@ -1332,26 +1353,26 @@
           name: "every job passed",
           env: {
             RESULT: "${{ needs.platform.result }}",
-            CHECKED: "${{ (github.event_name == 'merge_group' || github.event_name == 'pull_request') && 'success' || needs.checked.result }}",
-            NARROWING: "${{ (github.event_name == 'merge_group' || github.event_name == 'pull_request') && 'success' || needs.narrowing.result }}",
+            CHECKED: "${{ github.event_name == 'pull_request' && 'success' || needs.checked.result }}",
+            NARROWING: "${{ github.event_name == 'pull_request' && 'success' || needs.narrowing.result }}",
             DRIVER: "${{ github.event_name == 'merge_group' && needs.driver.result || 'success' }}",
           },
           run: "echo \"legs: $RESULT; checked suite: $CHECKED; checked narrowing: $NARROWING; pinned driver: $DRIVER\"; [ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ] && [ \"$NARROWING\" = success ] && [ \"$DRIVER\" = success ]",
         },
         {
-          if: "github.event_name != 'merge_group' && github.event_name != 'pull_request'",
+          if: "github.event_name != 'pull_request'",
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
         },
         {
           name: "bootstrap the pinned provenance driver",
           id: "driver",
-          if: "github.event_name != 'merge_group' && github.event_name != 'pull_request'",
+          if: "github.event_name != 'pull_request'",
           uses: "./.github/actions/cosmic-driver",
         },
         {
           name: "download the products to compare",
           id: "products-download",
-          if: "github.event_name != 'merge_group' && github.event_name != 'pull_request'",
+          if: "github.event_name != 'pull_request'",
           "continue-on-error": true,
           uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
           with: {pattern: "portable-product-*", path: "${{ runner.temp }}/cosmic-ci/products"},
@@ -1370,9 +1391,9 @@
         },
         {
           name: "compare the Cosmic bytes executed on every native host",
-          if: "github.event_name != 'merge_group' && github.event_name != 'pull_request'",
+          if: "github.event_name != 'pull_request'",
           "working-directory": "ci",
-          env: {COSMIC_CI_PRODUCTS: "${{ github.event_name == 'push' && '3' || '4' }}"},
+          env: {COSMIC_CI_PRODUCTS: "${{ (github.event_name == 'push' || github.event_name == 'merge_group') && '3' || '4' }}"},
           run: "cosmic-driver cosmic_ci/driver.tl provenance",
         },
         {
@@ -1383,7 +1404,7 @@
         },
         {
           name: "preserve provenance operations",
-          if: "always() && github.event_name != 'merge_group' && github.event_name != 'pull_request'",
+          if: "always() && github.event_name != 'pull_request'",
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
             name: "provenance-operations",

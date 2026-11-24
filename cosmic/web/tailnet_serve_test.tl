@@ -18,6 +18,7 @@ local type _Tailscale = require("cosmic.tailscale")
 local type _Web = require("cosmic.web")
 local _ = require("build.standalone")
 local this_program = require("build.this_program")
+local type Failure = require("cosmic.failure")
 
 Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" }, requires = { "unix_socket" } }
 
@@ -76,24 +77,24 @@ local class Watch is Stream.Reader
   daemon: Daemon
   mut started: boolean
   mut ended: boolean
-  skip?: function(Watch, integer): boolean, string
+  skip?: function(Watch, integer): (true) | (false, Failure)
 
-  function read(self, _max_bytes?: integer): string?, string
+  function read(self, _max_bytes?: integer): (string | false) | (nil, Failure)
     if not self.started then
       self.started = true
-      return '{"Version":"1.90.0","State":6,"SessionID":"s1"}\n', ""
+      return '{"Version":"1.90.0","State":6,"SessionID":"s1"}\n'
     end
     local _, _ = Clock.sleep(Clock.ms(20))
-    return "\n", ""
+    return "\n"
   end
 
-  function close(self): boolean, string
-    if self.ended then return true, "" end
+  function close(self): (true) | (false, Failure)
+    if self.ended then return true end
     self.ended = true
     self.daemon.open = self.daemon.open - 1
     self.daemon.config = {}
     self.daemon.lines[#self.daemon.lines + 1] = "dropped"
-    return true, ""
+    return true
   end
 end
 
@@ -104,8 +105,8 @@ local function asked(path: string, headers: string): string
   local got: mut {string} = {}
   while true do
     local chunk, why = conn:read()
-    if chunk == nil then
-      assert(why == "", why)
+    assert(chunk ~= nil, tostring(why))
+    if chunk == false then
       break
     end
     got[#got + 1] = chunk

@@ -9,7 +9,8 @@
 --- It takes http and https alone, and a 3xx is answered, its `location` header with it: a snippet that follows it
 --- makes a new call. Where it may connect is the worker's sandbox's to say, as for any of its connections: a session
 --- with no network reaches none, and with --network the sandbox's relay refuses loopback, private, link-local and
---- the host's own addresses, whatever a name resolves to, and reaches the rest through any proxy the agent was given.
+--- the host's own addresses, whatever a name resolves to, but an address --connect names, and reaches the rest through
+--- any proxy the agent was given.
 
 local Clock = require("cosmic.clock")
 local Failure = require("cosmic.failure")

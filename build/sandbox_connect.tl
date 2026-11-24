@@ -95,12 +95,12 @@ end
 local function answered(conn: Net.Conn, relay: string, feed: function(string): string, integer, string?): string?, string
   while true do
     local data, why = conn:read(CHUNK)
+    if data == false then return nil, "the relay closed the connection before it answered" end
     if data == nil then
-      if why == "" then return nil, "the relay closed the connection before it answered" end
-      if why == Poll.TIMEOUT then
+      if why.kind == "timeout" then
         return nil, "the relay at " .. relay .. " did not answer in time"
       end
-      return nil, "reading from the relay: " .. why
+      return nil, "reading from the relay: " .. tostring(why)
     end
     local status, consumed, reason = feed(data)
     if status == "refused" then return nil, reason or "the relay refused its answer" end
@@ -227,7 +227,7 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io, trac
       if not sent then
         -- Whether this is a fault or the far side's closing is known once
         -- the other task has read to the end of what it sends.
-        write_failed = "writing to the relay: " .. send_why
+        write_failed = "writing to the relay: " .. tostring(send_why)
         return
       end
     end
@@ -242,9 +242,9 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io, trac
       end
       trace("down: waiting for the relay")
       local more, why = conn:read(CHUNK)
-      trace("down: read " .. (if more ~= nil then plural.count(#more, "byte") else "end or failure: " .. tostring(why) end))
-      if more == nil then
-        if why ~= "" then return fail("reading from the relay: " .. why) end
+      trace("down: read " .. (if more is string then plural.count(#more, "byte") else "end or failure: " .. tostring(why) end))
+      if more == nil then return fail("reading from the relay: " .. tostring(why)) end
+      if more == false then
         -- The far side has ended what it sends: ours hears it as the end of
         -- standard output.
         far_ended = true
@@ -329,7 +329,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
     return bare.failed
   end
   local sent, sent_why = conn:write(RelayWire.socks_client_greeting(login ~= nil))
-  if not sent then return fail("writing to the relay: " .. sent_why) end
+  if not sent then return fail("writing to the relay: " .. tostring(sent_why)) end
   trace("greeting sent")
   local method = RelayWire.socks_method_reader(login ~= nil)
   local after_method, method_why = answered(conn, relay, function(chunk: string): string, integer, string?
@@ -341,7 +341,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
   if after_method ~= "" then return fail("the relay answered before it was asked") end
   if login ~= nil then
     local logged, logged_why = conn:write(login)
-    if not logged then return fail("writing to the relay: " .. logged_why) end
+    if not logged then return fail("writing to the relay: " .. tostring(logged_why)) end
     trace("token sent")
     local verdict = RelayWire.socks_auth_status_reader()
     local token_accepted: boolean? = false
@@ -356,7 +356,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
     trace("token accepted")
   end
   local asked, asked_why = conn:write(request)
-  if not asked then return fail("writing to the relay: " .. asked_why) end
+  if not asked then return fail("writing to the relay: " .. tostring(asked_why)) end
   trace("request sent")
   local reader = RelayWire.socks_answer_reader()
   local reply_code: integer? = 0

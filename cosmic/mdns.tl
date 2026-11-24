@@ -180,11 +180,11 @@ local class MdnsResponder
   end
 
   --- Closes the socket, which leaves the group and ends `serve`. Safe to call more than once.
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.closed = true
     local ok, why = self.socket:close()
-    if ok then return true, "" end
-    return false, why.message
+    if ok then return true end
+    return false, why
   end
 
   function __close(self)

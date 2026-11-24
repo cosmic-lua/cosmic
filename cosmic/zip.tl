@@ -9,6 +9,7 @@
 --- at or past the 4 GiB mark) and in each entry's extra field (a size
 --- or a local header offset at or past 4 GiB).
 
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Compress = require("cosmic.compress")
@@ -340,11 +341,11 @@ local class SpanReader is Stream.Reader
   mut held?: string
   mut failed?: string
 
-  function read(self, max_bytes?: integer): string?, string
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     local failed = self.failed
-    if failed then return nil, failed end
+    if failed then return nil, Failure.new(failed) end
     local left = self.left
-    if left <= 0 then return nil, "" end
+    if left <= 0 then return false end
     local want = max_bytes or chunk_size
     if want > left then want = left end
     local chunk: string
@@ -359,24 +360,24 @@ local class SpanReader is Stream.Reader
       local got, trouble = self.pread(self.pos, want)
       if got == nil then
         self.failed = trouble
-        return nil, trouble
+        return nil, Failure.new(trouble)
       end
       if #got == 0 then
         local why = "zip: entry body runs past the end of the file"
         self.failed = why
-        return nil, why
+        return nil, Failure.new(why)
       end
       chunk = got
     end
     self.pos = self.pos + #chunk
     self.left = left - #chunk
-    return chunk, ""
+    return chunk
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.left = 0
     self.held = nil
-    return true, ""
+    return true
   end
 end
 
@@ -390,39 +391,43 @@ local class CheckedReader is Stream.Reader
   size: integer
   mut seen: integer
   mut state?: integer
-  mut failed?: string
+  --- The failure every read answers after the first, its kind kept.
+  mut failed?: Failure
 
-  function read(self, max_bytes?: integer): string?, string
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     local failed = self.failed
-    if failed then return nil, failed end
+    if failed ~= nil then return nil, failed end
     local chunk, trouble = self.inner:read(max_bytes)
     if chunk == nil then
+      self.failed = trouble
+      return nil, trouble
+    end
+    if chunk == false then
       local why: string
-      if trouble ~= "" then
-        why = trouble
-      elseif self.seen ~= self.size then
+      if self.seen ~= self.size then
         why = "zip: size mismatch: " .. String.counted(self.seen, "byte") .. ", recorded " ..
           String.counted(self.size, "byte")
       elseif (self.state or 0) ~= self.crc then
         why = "zip: crc32 mismatch"
       else
-        return nil, ""
+        return false
       end
-      self.failed = why
-      return nil, why
+      local failure = Failure.new(why)
+      self.failed = failure
+      return nil, failure
     end
     local seen = self.seen + #chunk
     self.seen = seen
     if seen > self.size then
-      local why = "zip: entry is larger than its recorded size of " .. String.counted(self.size, "byte")
-      self.failed = why
-      return nil, why
+      local failure = Failure.new("zip: entry is larger than its recorded size of " .. String.counted(self.size, "byte"))
+      self.failed = failure
+      return nil, failure
     end
     self.state = sums.crc32(chunk, self.state)
-    return chunk, ""
+    return chunk
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     return self.inner:close()
   end
 end
@@ -938,6 +943,19 @@ local function emit(self: FeedWriter, data: string): boolean, string
   return self.put(data)
 end
 
+--- Counts and sums `chunk`, compresses it if the body is, and emits it.
+local function feed_chunk(self: FeedWriter, chunk: string): boolean, string
+  local done = self.done
+  done.usize = done.usize + #chunk
+  if not self.wide and done.usize >= U32_MAX then return self.fail(self.too_big) end
+  done.crc = sums.crc32(chunk, done.crc)
+  local encoder = self.encoder
+  if encoder == nil then return emit(self, chunk) end
+  local out, etrouble = encoder:update(chunk)
+  if out == nil then return self.fail(etrouble) end
+  return emit(self, out)
+end
+
 --- What a streamed body is copied to: compressed, if it is, as it goes,
 --- into the writer's sink, counting what it comes to in `done`.
 local class FeedWriter is Stream.Writer
@@ -952,24 +970,18 @@ local class FeedWriter is Stream.Writer
   wide: boolean
   too_big: string
 
-  function write(self, chunk: string): boolean, string
-    local done = self.done
-    done.usize = done.usize + #chunk
-    if not self.wide and done.usize >= U32_MAX then return self.fail(self.too_big) end
-    done.crc = sums.crc32(chunk, done.crc)
-    local encoder = self.encoder
-    if encoder == nil then return emit(self, chunk) end
-    local out, etrouble = encoder:update(chunk)
-    if out == nil then return self.fail(etrouble) end
-    return emit(self, out)
+  function write(self, chunk: string): (true) | (false, Failure)
+    local ok, why = feed_chunk(self, chunk)
+    if not ok then return false, Failure.new(why) end
+    return true
   end
 
-  function close(self): boolean, string
-    return true, ""
+  function close(self): (true) | (false, Failure)
+    return true
   end
 
-  function abort(self): boolean, string
-    return true, ""
+  function abort(self): (true) | (false, Failure)
+    return true
   end
 end
 
@@ -1095,17 +1107,19 @@ local class BodyWriter is Stream.Writer
   --- What the first `close` or `abort` answered: "" for success.
   mut outcome: string
 
-  function write(self, chunk: string): boolean, string
-    if self.ended then return false, "zip: " .. self.streamed.path .. ": the entry is closed" end
+  function write(self, chunk: string): (true) | (false, Failure)
+    if self.ended then
+      return false, Failure.new("zip: " .. self.streamed.path .. ": the entry is closed")
+    end
     local usable, why = self.owner.sink:usable()
-    if not usable then return false, why end
+    if not usable then return false, Failure.new(why) end
     return self.streamed.feed:write(chunk)
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     if self.ended then
-      if self.outcome ~= "" then return false, self.outcome end
-      return true, ""
+      if self.outcome ~= "" then return false, Failure.new(self.outcome) end
+      return true
     end
     self.ended = true
     self.owner.open = nil
@@ -1113,20 +1127,20 @@ local class BodyWriter is Stream.Writer
     if ok then ok, why = finish_streamed(self.owner, self.streamed) end
     if not ok then
       self.outcome = why
-      return false, why
+      return false, Failure.new(why)
     end
-    return true, ""
+    return true
   end
 
-  function abort(self): boolean, string
-    if self.ended then return true, "" end
+  function abort(self): (true) | (false, Failure)
+    if self.ended then return true end
     self.ended = true
     self.owner.open = nil
     -- The entry's header is written already: the archive cannot be whole,
     -- so its own close answers this rather than committing.
     self.outcome = "zip: " .. self.streamed.path .. ": the entry was abandoned"
     local _, _ = self.owner.sink:fail(self.outcome)
-    return true, ""
+    return true
   end
 end
 

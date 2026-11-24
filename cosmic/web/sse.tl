@@ -10,7 +10,7 @@
 ---         Web.get("/events", function(req: Web.Request): Web.Response
 ---           local sub, why = hub:subscribe({ "orders" }, { after = Sse.last_event_id(req) })
 ---           if sub == nil then
----             return Web.text(why, { status = 503, headers = { ["Retry-After"] = "5" } })
+---             return Web.text(tostring(why), { status = 503, headers = { ["Retry-After"] = "5" } })
 ---           end
 ---           return Sse.EventStream(req, sub)
 ---         end),
@@ -30,10 +30,10 @@ local Clock = require("cosmic.clock")
 local Defer = require("cosmic.defer")
 local Html = require("cosmic.html")
 local Json = require("cosmic.json")
-local Poll = require("cosmic.poll")
 local Response = require("cosmic.web.response")
 local Stream = require("cosmic.stream")
 local Types = require("cosmic.web.types")
+local Failure = require("cosmic.failure")
 
 local record Sse
   --- One event. Every field is optional; a field that holds a line ending
@@ -62,15 +62,15 @@ local record Sse
   --- Where a stream gets its events from.
   interface EventSource
     --- The next event, waiting at most `timeout_ns` (no limit when nil):
-    --- nil and [`Poll.TIMEOUT`] when none came in time, nil and "" at the
-    --- end of the stream, and nil and why when it failed, which also ends
-    --- the stream. The stream asks with a timeout no longer than its
-    --- next heartbeat or its end (`max_age_ns`), and none when it has
-    --- neither: the server closes the stream of a client that leaves
+    --- `false` at the end of the stream, nil and a [`Failure`] of kind
+    --- "timeout" when none came in time, and nil and another Failure
+    --- when it failed, which also ends the stream. The stream asks with
+    --- a timeout no longer than its next heartbeat or its end
+    --- (`max_age_ns`), and none when it has neither: the server closes the stream of a client that leaves
     --- ([`cosmic.http.server.Reply`]'s `until_gone`), which closes the
     --- source and wakes the wait. A source whose `close` does not wake its `next` holds such
     --- a stream open until the server kills its task.
-    next: function(EventSource, timeout_ns?: integer): Event?, string
+    next: function(EventSource, timeout_ns?: integer): (Event | false) | (nil, Failure)
     --- Ends the source: a `next` that waits wakes and answers the end.
     --- Safe to call twice, and never waits (the stream calls it from the
     --- app's stop and from a killed task's `<close>`).
@@ -133,9 +133,9 @@ local record Sse
     --- `opts.after` (the request's [`Sse.last_event_id`]) when a ring of
     --- one of the topics still holds it, else `gap` is set and it starts
     --- with a `reset` event. Without `after` it starts with the next
-    --- publish. Nil and why when over a limit ("full") or the hub is
-    --- closed ("closed").
-    subscribe: function(Hub, topics: {string}, opts?: SubscribeOptions): Subscription?, string
+    --- publish. Nil and a [`Failure`] when over a limit (message "full")
+    --- or the hub is closed ("closed").
+    subscribe: function(Hub, topics: {string}, opts?: SubscribeOptions): (Subscription) | (nil, Failure)
     --- How many subscriptions are open, to `topic` when given.
     subscribers: function(Hub, topic?: string): integer
     --- Closes every subscription: their streams end and the browsers
@@ -291,15 +291,12 @@ end
 
 local record QueueSource is Sse.EventSource
   queue: Channel.Queue<Sse.Event>
-  next: function(QueueSource, timeout_ns?: integer): Sse.Event?, string
+  next: function(QueueSource, timeout_ns?: integer): (Sse.Event | false) | (nil, Failure)
   close: function(QueueSource)
 end
 
-function QueueSource.next(self: QueueSource, timeout_ns?: integer): Sse.Event?, string
-  local ev, why = self.queue:receive(timeout_ns)
-  if ev == nil then return nil, why.message end
-  if ev == false then return nil, "" end
-  return ev, ""
+function QueueSource.next(self: QueueSource, timeout_ns?: integer): (Sse.Event | false) | (nil, Failure)
+  return self.queue:receive(timeout_ns)
 end
 
 function QueueSource.close(self: QueueSource)
@@ -330,8 +327,8 @@ local record Body is Stream.Reader
   mut waiting: boolean
   mut guard?: Defer
   mut prologue: string
-  read: function(Body, max_bytes?: integer): string?, string
-  close: function(Body): boolean, string
+  read: function(Body, max_bytes?: integer): (string | false) | (nil, Failure)
+  close: function(Body): (true) | (false, Failure)
 end
 
 --- Ends the stream once: frees its slot (if it took one), closes the
@@ -357,11 +354,11 @@ local function finish(self: Body, why: string)
   end
 end
 
-function Body.read(self: Body, max_bytes?: integer): string?, string
+function Body.read(self: Body, max_bytes?: integer): (string | false) | (nil, Failure)
   if max_bytes ~= nil and (math.type(max_bytes) ~= "integer" or max_bytes < 1) then
     error("sse: read takes a positive integer of bytes", 2)
   end
-  if self.done then return nil, "" end
+  if self.done then return false end
   if not self.started then
     self.started = true
     -- The slot is taken here, as the reply begins, not when the response is
@@ -370,7 +367,7 @@ function Body.read(self: Body, max_bytes?: integer): string?, string
     -- can overshoot it by the few the server has yet to start.
     if self.app:stopping() then
       finish(self, "end")
-      return nil, ""
+      return false
     end
     self.held = true
     self.app.stream_count = self.app.stream_count + 1
@@ -390,12 +387,12 @@ function Body.read(self: Body, max_bytes?: integer): string?, string
       local left = self_deadline - Clock.monotonic_ns()
       if left <= 0 then
         finish(self, "end")
-        return nil, ""
+        return false
       end
       if timeout == nil or left < timeout then timeout = left end
     end
-    local ev: Sse.Event? = nil
-    local why = ""
+    local ev: Sse.Event | false = false
+    local trouble: Failure? = nil
     do
       -- The guard covers only a wait in `source:next`: a task killed there
       -- would otherwise leave the stream open, as the server closes a body
@@ -403,40 +400,42 @@ function Body.read(self: Body, max_bytes?: integer): string?, string
       -- clears `waiting` first, so the guard then does nothing.
       self.waiting = true
       local _guard <close> = assert(self.guard)
-      ev, why = self.source:next(timeout)
+      local got, why = self.source:next(timeout)
+      if got == nil then trouble = why else ev = got end
       self.waiting = false
     end
-    if self.done then return nil, "" end
-    if ev ~= nil then
-      local ok, text = pcall(format_event, ev)
-      if not ok then
-        finish(self, "failed: " .. tostring(text))
-        return nil, ""
+    if self.done then return false end
+    if trouble ~= nil then
+      if trouble.kind ~= "timeout" then
+        finish(self, "failed: " .. tostring(trouble))
+        return false
       end
-      self.pending = text
-    elseif why == Poll.TIMEOUT then
       local deadline = self.deadline
       local now = Clock.monotonic_ns()
       if beat_at ~= nil and now >= beat_at and (deadline == nil or now < deadline) then
         self.pending = HEARTBEAT
       end
-    elseif why == "" then
+    elseif ev == false then
       finish(self, "end")
-      return nil, ""
+      return false
     else
-      finish(self, "failed: " .. why)
-      return nil, ""
+      local ok, text = pcall(format_event, ev)
+      if not ok then
+        finish(self, "failed: " .. tostring(text))
+        return false
+      end
+      self.pending = text
     end
   end
   local take = max_bytes or #self.pending
   local chunk = self.pending:sub(1, take)
   self.pending = self.pending:sub(take + 1)
-  return chunk, ""
+  return chunk
 end
 
-function Body.close(self: Body): boolean, string
+function Body.close(self: Body): (true) | (false, Failure)
   finish(self, "client")
-  return true, ""
+  return true
 end
 
 --- Why `value` is under `least`; nil when it is not, or nil.
@@ -538,17 +537,14 @@ end
 local record Sub is Sse.Subscription
   queue: Channel.Queue<Sse.Event>
   mut detach: function()
-  next: function(Sub, timeout_ns?: integer): Sse.Event?, string
+  next: function(Sub, timeout_ns?: integer): (Sse.Event | false) | (nil, Failure)
   close: function(Sub)
   closed: function(Sub): boolean
   dropped: function(Sub): integer
 end
 
-function Sub.next(self: Sub, timeout_ns?: integer): Sse.Event?, string
-  local ev, why = self.queue:receive(timeout_ns)
-  if ev == nil then return nil, why.message end
-  if ev == false then return nil, "" end
-  return ev, ""
+function Sub.next(self: Sub, timeout_ns?: integer): (Sse.Event | false) | (nil, Failure)
+  return self.queue:receive(timeout_ns)
 end
 
 function Sub.close(self: Sub)
@@ -580,7 +576,7 @@ local record State is Sse.Hub
   mut seq: integer
   mut shut: boolean
   publish: function(State, topic: string, ev: Sse.Event): integer
-  subscribe: function(State, topics: {string}, opts?: Sse.SubscribeOptions): Sse.Subscription?, string
+  subscribe: function(State, topics: {string}, opts?: Sse.SubscribeOptions): (Sse.Subscription) | (nil, Failure)
   subscribers: function(State, topic?: string): integer
   close: function(State)
   attach: function(State, app: Types.App)
@@ -709,7 +705,7 @@ local function head_id(self: State, names: {string}): string?
   return if best ~= nil then best.event.id else nil end
 end
 
-function State.subscribe(self: State, topics: {string}, opts?: Sse.SubscribeOptions): Sse.Subscription?, string
+function State.subscribe(self: State, topics: {string}, opts?: Sse.SubscribeOptions): (Sse.Subscription) | (nil, Failure)
   if not topics is {string} or #topics == 0 then -- checked: is_on_record
     error("sse: subscribe takes a list of topic names", 2)
   end
@@ -727,11 +723,11 @@ function State.subscribe(self: State, topics: {string}, opts?: Sse.SubscribeOpti
     if type(opts) ~= "table" then error("sse: subscribe takes a table of options", 2) end
     if type(opts.after) == "string" and opts.after ~= "" then after = opts.after end
   end
-  if self.shut then return nil, "closed" end
-  if self.max_total ~= nil and self.total >= self.max_total then return nil, "full" end
+  if self.shut then return nil, Failure.new("closed") end
+  if self.max_total ~= nil and self.total >= self.max_total then return nil, Failure.new("full") end
   if self.max_per_topic ~= nil then
     for _, name in ipairs(names) do
-      if self:subscribers(name) >= self.max_per_topic then return nil, "full" end
+      if self:subscribers(name) >= self.max_per_topic then return nil, Failure.new("full") end
     end
   end
   local replay: mut {Sse.Event} = {}
@@ -766,7 +762,7 @@ function State.subscribe(self: State, topics: {string}, opts?: Sse.SubscribeOpti
   end
   self.total = self.total + 1
   for _, name in ipairs(names) do topic_of(self, name).subs[sub] = true end
-  return sub, ""
+  return sub
 end
 
 function State.subscribers(self: State, topic?: string): integer

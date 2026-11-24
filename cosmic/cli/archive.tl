@@ -54,17 +54,32 @@ local Flags = require("cosmic.flags")
 
 local command: Flags.Command = {
   about = "list, extract or create tar and zip files",
-  usage = "<command> ...",
+  usage = "<create|extract|list> ...",
   examples = {
     { line = "list release.tar.gz", about = "list what an archive holds" },
     { line = "extract release.zip -C out", about = "unpack it into out" },
     { line = "create out.tar.gz dir --reproducible", about = "pack a directory" },
   },
-  spec = {
-    ["--json"] = { about = "list: print an array of objects, not lines" },
-    ["-C"] = { value = "dir", about = "extract: unpack into dir (default: the working directory)" },
-    ["--force"] = { about = "extract: replace existing files" },
-    ["--reproducible"] = { about = "create: fix every modification time, so the same tree packs alike" },
+  subcommands = {
+    list = {
+      about = "what an archive holds",
+      usage = "[--json] <file>|-",
+      spec = { ["--json"] = { about = "print an array of objects, not lines" } },
+    },
+    extract = {
+      about = "unpack an archive, or the members named",
+      usage = "[-C <dir>] [--force] <file>|- [<member>...]",
+      spec = {
+        ["-C"] = { value = "dir", about = "unpack into dir", default = "." },
+        ["--force"] = { about = "replace existing files" },
+      },
+    },
+    create = {
+      about = "pack paths into an archive of the kind its name says",
+      usage = "[--reproducible] <out.tar.gz|out.tgz|out.tar.xz|out.txz|out.tar.bz2|out.tbz2|out.tbz|out.tar.zst|" ..
+        "out.tzst|out.tar|out.zip> <path>...",
+      spec = { ["--reproducible"] = { about = "fix every modification time, so the same tree packs alike" } },
+    },
   },
 }
 
