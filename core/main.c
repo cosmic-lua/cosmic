@@ -183,7 +183,7 @@ static bool open_database (const char *path, struct cosmic_artifact *artifact,
   return true;
 }
 
-/* Answers what [`cosmic.errors`]'s `guidance` says beneath the uncaught
+/* Returns what [`cosmic.errors`]'s `guidance` says beneath the uncaught
  * error at 1: the catalog's guidance for it, as lines to print, or
  * nothing. */
 static int ask_guidance (lua_State *L) {
@@ -200,7 +200,7 @@ static int ask_guidance (lua_State *L) {
  * top of the stack, the one policy of a report that is more than its
  * message and line, and leaves the stack as it was. The state is sound
  * after the failed call that raised it; anything that goes wrong asking
- * -- memory, a catalog that will not answer -- prints nothing more. */
+ * -- memory, a catalog that raises -- prints nothing more. */
 static void print_guidance (lua_State *L) {
   int top = lua_gettop(L);
   if (!lua_checkstack(L, 2)) {
@@ -304,7 +304,7 @@ static bool source_position (lua_State *L, const char *message) {
 }
 
 /* The text of the error object at 1 that is no string or number: what
- * its `__tostring` answers (a cosmic.failure's `path: message`), which
+ * its `__tostring` returns (a cosmic.failure's `path: message`), which
  * luaL_tolstring runs, or nil where it has none or it raises. */
 static int error_text (lua_State *L) {
   if (luaL_getmetafield(L, 1, "__tostring") == LUA_TNIL) {
@@ -318,8 +318,8 @@ static int error_text (lua_State *L) {
 
 /* An uncaught error: its message, then where in the Teal source it was
  * raised, then the guidance the catalog holds for it. An error object
- * that is a value with a `__tostring` is reported by the text it
- * answers, or by the error that `__tostring` raised. */
+ * that is a value with a `__tostring` is reported by the text that
+ * `__tostring` returns, or by the error it raised. */
 static int failed (lua_State *L) {
   if (!lua_isstring(L, -1) && lua_checkstack(L, 3)) {
     int top = lua_gettop(L);
@@ -348,7 +348,7 @@ static int failed (lua_State *L) {
 
 /* What the entry hands the Lua side of running main, through one light
  * userdata, which pushing never allocates: everything it needs, and the
- * exit status it answers. */
+ * exit status it sets. */
 struct entry {
   const char *main_name;
   int argc;
@@ -357,11 +357,11 @@ struct entry {
 };
 
 /* Requires the main module, calls what it returns with the command line
- * as a table whose slot 0 is the program's own name, and answers the
- * exit status it returned (`cosmic_tostatus`), refusing one that is
- * not. Every step here can raise -- building the command line on
- * memory, if on nothing else -- so it runs under lua_pcall, and a
- * raise is an uncaught error like any other. */
+ * as a table whose slot 0 is the program's own name, and stores the
+ * exit status that call returned (`cosmic_tostatus`) in `entry->status`,
+ * refusing one that is not. Every step here can raise -- building the
+ * command line on memory, if on nothing else -- so it runs under
+ * lua_pcall, and a raise is an uncaught error like any other. */
 static int enter_main (lua_State *L) {
   struct entry *entry = lua_touserdata(L, 1);
   lua_getglobal(L, "require");

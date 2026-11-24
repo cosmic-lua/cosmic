@@ -3,8 +3,8 @@
  * to beside its Landlock ruleset, as an allow list of system calls. What
  * the basics and the promises asked for do not name is refused with
  * EPERM; a call numbered above the reviewed table, `clone3` and
- * `openat2` answer ENOSYS, so a libc falls back; a refused ioctl answers
- * ENOTTY; a call of another architecture ends the process.
+ * `openat2` fail with ENOSYS, so a libc falls back; a refused ioctl
+ * fails with ENOTTY; a call of another architecture ends the process.
  *
  * The program is a pure function of the promises, the architecture and
  * the process's own pid and what else holds it (COSMIC_HELD_), so
@@ -20,7 +20,7 @@
 #include <stdbool.h>
 
 /* One past the highest call number the tables are reviewed to: a call
- * above it is answered ENOSYS. */
+ * above it fails with ENOSYS. */
 #define PROMISE_CALLS_REVIEWED 472
 
 /* One past the highest call number the headers this core was built with

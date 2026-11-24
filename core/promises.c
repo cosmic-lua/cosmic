@@ -158,7 +158,7 @@ HOST_NUMBER(rt_sigaction)
  * says: a thread-only clone is a fork's, and either is anything's. */
 enum rule {
   RULE_NONE,
-  /* The call answers ENOSYS. */
+  /* The call fails with ENOSYS. */
   RULE_ENOSYS,
   /* mmap, mprotect and memfd_create, which `jit` grants whole. */
   RULE_MMAP,
@@ -220,7 +220,7 @@ struct grant {
  * libc ask before main. The calls that open, create or change a file are
  * here rather than under a promise, since Landlock holds the paths.
  *
- * Every call left out answers EPERM:
+ * Every call left out fails with EPERM:
  * - setrlimit, and a prlimit64 that sets, unless the process cannot raise
  *   a hard limit (COSMIC_HELD_LIMITS): it may then lower its limits, and
  *   raise a soft one to its hard one. A start that sets soft and hard
@@ -239,7 +239,7 @@ struct grant {
  *   the process (COSMIC_HELD_TRUNCATE).
  * - The never-allowed set (ptrace, bpf, io_uring, ...), which no table names.
  *
- * `clone3` and `openat2` answer ENOSYS: the filter cannot read the
+ * `clone3` and `openat2` fail with ENOSYS: the filter cannot read the
  * structure they take, and a libc falls back to clone and openat.
  *
  * The signal calls, tkill among them, take the process's own pid, or any
@@ -492,7 +492,7 @@ struct builder {
   bool full;
 };
 
-/* Appends one instruction, answers where it went (0 when it did not). */
+/* Appends one instruction, returns where it went (0 when it did not). */
 static size_t emit (struct builder *b, uint16_t code, uint8_t jt, uint8_t jf, uint32_t k) {
   if (b->length >= COSMIC_PROMISE_INSNS) {
     b->full = true;
@@ -785,7 +785,7 @@ static void rule_block (struct builder *b, enum rule rule, uint32_t pid, enum co
     case RULE_SOCKET_UNIX_INET_ROUTE:
     /* The families, and of the netlink sockets NETLINK_ROUTE, which a
      * libc lists the interfaces over (getifaddrs). The filter cannot read
-     * what is sent on one: a request that reads is answered to anyone
+     * what is sent on one: a request that reads succeeds for anyone
      * (the links and their hardware addresses, the addresses, routes and
      * neighbours of the network namespace), and one that changes any of
      * them only to a process the kernel finds capable over that
@@ -900,7 +900,7 @@ static void add (uint8_t *rules, const struct grant *table, size_t count) {
 #define ADD(table) add(rules, table, sizeof table / sizeof table[0])
 
 /* Writes to `out`, room for COSMIC_PROMISE_INSNS, the program that holds
- * a process of `arch` and pid `pid` to `promises`, and answers how many
+ * a process of `arch` and pid `pid` to `promises`, and returns how many
  * instructions it is, or 0 where it did not fit. `held` says what else
  * holds the process (core/promises.h's COSMIC_HELD_ bits).
  *
@@ -910,8 +910,8 @@ static void add (uint8_t *rules, const struct grant *table, size_t count) {
  * target: a signal to a process outside the domain -- a parent domain or
  * a process with none (linux/landlock.h) -- is refused with EPERM, and
  * every way of naming a target goes through it: a pid, a thread, a group
- * (negative, or 0), every process (-1, which the kernel answers 0 when it
- * signalled none), a pidfd, and the queueing calls. Without
+ * (negative, or 0), every process (-1, for which the kernel returns 0 when
+ * it signalled none), a pidfd, and the queueing calls. Without
  * COSMIC_HELD_SIGNALS they keep to the process's own pid.
  *
  * `sockets` (COSMIC_SOCKETS_ bits) lets it make a socket of those
@@ -933,7 +933,7 @@ static void add (uint8_t *rules, const struct grant *table, size_t count) {
  * COSMIC_HELD_PIDS lets getpgid, getsid, setpgid and capget (whose header
  * names a pid, which no rule can read) take any pid: in a pid
  * namespace of its own a pid names a process of the sandbox or none (the
- * kernel answers ESRCH), and setpgid reaches only the caller and its
+ * call fails with ESRCH), and setpgid reaches only the caller and its
  * children whichever pid it is given.
  * COSMIC_HELD_TRUNCATE lets truncate through, and O_TRUNC in an open of
  * any access mode, which Landlock refuses from ABI 3 where no grant gives
@@ -1041,9 +1041,9 @@ static size_t program_for (struct cosmic_insn *out, enum cosmic_arch arch,
  * allows every other call. Refused with EPERM: truncate, open and openat
  * with O_TRUNC beside O_RDONLY or the access mode 3, io_uring_setup,
  * whose opens no rule can read, and open_by_handle_at. openat2, whose
- * flags are in a structure, answers ENOSYS, so a libc falls back to
+ * flags are in a structure, fails with ENOSYS, so a libc falls back to
  * openat, and so does a call of x86_64's x32 numbers, which name truncate
- * again. A call of another architecture ends the process. Answers how
+ * again. A call of another architecture ends the process. Returns how
  * many instructions it is. */
 static size_t truncation_program_for (struct cosmic_insn *out, enum cosmic_arch arch) {
   const short *numbers = arch == COSMIC_ARCH_X86_64 ? x86_64_numbers : aarch64_numbers;
@@ -1128,7 +1128,7 @@ const int cosmic_promise_headers_end = 0;
  * this one. A capability of a user namespace the process made reads as
  * held, which refuses where it need not: the caller that made one says so
  * with COSMIC_HELD_LIMITS. Where an earlier filter refuses capget (EPERM,
- * which capget itself never answers), a setrlimit of a limit to the value
+ * which capget itself never fails with), a setrlimit of a limit to the value
  * it has stands in: it succeeds only if that filter allows setrlimit, which
  * it does only after proving the capability absent (or, under `nest`, in a
  * user namespace of its own), and the process only ever loses capabilities.

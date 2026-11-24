@@ -1,7 +1,7 @@
 --- The failure paths of every curl call core/http.c makes, reached
 --- through the checked core's fault points (core/fault.h): each armed
 --- point makes its call report a failure of curl's own shape, and the
---- request must answer `nil` and a message naming the call, leave
+--- request must return `nil` and a message naming the call, leave
 --- nothing behind -- no transfer, no descriptor, no block on the C heap
 --- -- and leave the process-wide state as it found it, so the next
 --- request succeeds.

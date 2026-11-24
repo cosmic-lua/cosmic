@@ -18,7 +18,7 @@ local function forks(): boolean
   return system == "Linux" or system == "Darwin"
 end
 
---- Reaps `pid` and answers its exit status, -1 for one a signal ended.
+--- Reaps `pid` and returns its exit status, -1 for one a signal ended.
 local function status_of(pid: integer): integer
   local status, why = process.waitpid(pid, false)
   assert(status ~= nil, why)
@@ -27,8 +27,8 @@ local function status_of(pid: integer): integer
 end
 
 --- The child is a copy that runs on from the call: it sees the parent's
---- values, answers 0, has a pid of its own, and what it writes to a pipe made
---- before the fork the parent reads.
+--- values, gets 0 from the call, has a pid of its own, and what it writes
+--- to a pipe made before the fork the parent reads.
 local function test_a_fork_runs_on_in_a_copy()
   if not forks() then Test.skip("no fork here") end
   local pipe = assert(process.pipe())

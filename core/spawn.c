@@ -144,7 +144,7 @@ void close_child_descriptors (int from, long limit) {
  * dup2 overwrites a source a later one reads, and a source that is its
  * own target is moved from a copy, as a dup2 onto itself may leave
  * CLOEXEC set. The kernel takes these steps in the child, which shares nothing
- * of this process's memory, and answers an exec's failure as
+ * of this process's memory, and returns an exec's failure as
  * posix_spawn's own, so the status pipe is never written -- but for a
  * start that needs a step posix_spawn has none for: limits, a Seatbelt
  * profile, or a terminal to acquire. That one starts this program as
@@ -170,7 +170,7 @@ static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
     return -1;
   }
   /* Given a directory to change to, macOS's posix_spawn can start a
-   * program a relative path names and still answer ENOENT, so the path
+   * program a relative path names and still fail with ENOENT, so the path
    * is made absolute first, from where the child resolves it. One longer
    * than PATH_MAX that way is refused, ENAMETOOLONG, though its parts
    * fit; and with a relative directory too, one whose start getcwd
@@ -355,7 +355,7 @@ static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
  * ([`spawn_program`]), which covers every step a child takes there.
  * Every signal is blocked across the whole start, not only its first
  * steps, so a child hung in setup -- a chdir or an unveiled path on a
- * FUSE or NFS mount that stopped answering -- holds a SIGTERM sent it
+ * FUSE or NFS mount that stopped responding -- holds a SIGTERM sent it
  * pending for as long as it hangs, and only SIGKILL ends it. */
 static pid_t start_child (struct spawn_plan *plan, int *error) {
   sigset_t every;
@@ -558,7 +558,7 @@ static bool handed_on (lua_State *L, lua_Integer target, lua_Integer fd) {
  * (arguments 5 to 7) and the map of the rest (argument 9). `source[t]`
  * is the parent descriptor the child sees as t, or -1: for 0..2 that
  * means inherit, above that it means closed. `*top` is the highest child
- * descriptor named, at least 2. Raises for a malformed argument; answers
+ * descriptor named, at least 2. Raises for a malformed argument; returns
  * 0, or the errno of a descriptor named that is not open. */
 static int read_descriptors (lua_State *L, int *source, int *top) {
   for (int i = 0; i <= CHILD_FD_MAX; i++) source[i] = -1;
@@ -768,7 +768,7 @@ static void read_unveil (lua_State *L, struct spawn_options *o) {
 }
 
 /* Reads the sandbox's `relay`, the table on top, into `o`. Raises for a
- * malformed one; answers 0, or the errno of a channel that is not open. */
+ * malformed one; returns 0, or the errno of a channel that is not open. */
 static int read_relay (lua_State *L, struct spawn_options *o) {
   lua_pushliteral(L, "fd");
   lua_rawget(L, -2);
@@ -817,7 +817,7 @@ static int sandbox_flag (lua_State *L, const char *key, const char *refused) {
 
 #if defined(__APPLE__)
 /* Reads the sandbox's `seatbelt`, the table on top, into `o`. Raises for
- * a malformed one; answers 0, or the results it pushed where this
+ * a malformed one; returns 0, or the results it pushed where this
  * process cannot give a child a profile of its own. */
 static int read_seatbelt (lua_State *L, struct spawn_options *o) {
   if (!lua_istable(L, -1))
@@ -867,7 +867,7 @@ static int read_seatbelt (lua_State *L, struct spawn_options *o) {
 
 /* Reads `spawn`'s sandbox, argument 10, into `o`, and checks the options
  * against each other. Raises for a malformed or contradictory one;
- * answers 0, or the results it pushed for a start refused. */
+ * returns 0, or the results it pushed for a start refused. */
 static int read_sandbox (lua_State *L, struct spawn_options *o) {
   luaL_checktype(L, 10, LUA_TTABLE);
   /* Options a caller once had, refused rather than passed over: a child
@@ -1037,7 +1037,7 @@ struct spawn_root {
  * before a longer so one inside another lands on top of it; the program
  * and the directory to run in made absolute from this one's; and an
  * empty directory to build the root on. Made last, after everything
- * that can fail. Answers 0, or the errno it failed with, having freed
+ * that can fail. Returns 0, or the errno it failed with, having freed
  * what it made (`r->root_dir` is then empty). `*path_given` and
  * `*cwd_given` are pointed at `r`'s copies where they are made absolute. */
 static int resolve_root (const char **path_given, const char **cwd_given, struct spawn_options *o,
@@ -1060,7 +1060,7 @@ static int resolve_root (const char **path_given, const char **cwd_given, struct
    * its grant (a mount of /proc/self/fd/<n>), not from its path
    * resolved again here, so a grant's one resolution makes the Landlock
    * rule, the bind and the report, as the sandbox design has it, once
-   * `spawn` hands `build_root` (core/sandbox_root.c) the grants' descriptors and answers the
+   * `spawn` hands `build_root` (core/sandbox_root.c) the grants' descriptors and returns the
    * resolutions it made. A link a host process swaps in between the two
    * resolutions fails closed: the rule is on the file the grant named,
    * so Landlock refuses what the swapped path holds. */
@@ -1145,7 +1145,7 @@ static int resolve_root (const char **path_given, const char **cwd_given, struct
   return prepare_error;
 }
 
-/* What `spawn` answers once the child has started or failed to: it
+/* What `spawn` returns once the child has started or failed to: it
  * reads the errno the child wrote to `status_read` before its exec, if
  * it wrote one, closes `status_read` and removes the empty `root_dir`.
  * `pid` is the child running the program (an unveiled start's
@@ -1610,7 +1610,7 @@ COSMIC_SYSCALL(waitpid, 2) {
     return luaL_argerror(L, 1, "pid is out of range");
   pid_t pid = (pid_t)value;
   int nohang = lua_toboolean(L, 2);
-  /* The answer and its keys are made before the wait, and filling a
+  /* The result and its keys are made before the wait, and filling a
    * table sized for them allocates nothing: a child the wait reaped
    * cannot be reaped again, so a raise after it would lose its status. */
   lua_createtable(L, 0, 3);
@@ -1769,7 +1769,7 @@ COSMIC_SYSCALL(relaunch, 2) {
   lua_setfield(L, -2, COSMIC_PORTABLE_ENV_CORE_SHA256);
   lua_setfield(L, -2, "environment");
   /* The descriptor is opened last, into a slot the table already has
-   * room for, so no raise can come between it and the answer. */
+   * room for, so no raise can come between it and the result. */
   lua_pushliteral(L, "core_fd");
   int core_fd = cosmic_executable_fd();
   if (core_fd < 0) return cosmic_fail(L, errno);
@@ -1871,7 +1871,8 @@ COSMIC_SYSCALL(children, 0) {
     if (pids == NULL) return cosmic_fail(L, ENOMEM);
     guard->resource = pids;
     memset(pids, 0, room * sizeof *pids);
-    /* A refusal is answered as no children, with the errno set. */
+    /* proc_listchildpids refuses by returning no children with errno
+     * set, so errno is cleared first. */
     errno = 0;
     int got = proc_listchildpids(getpid(), pids, (int)(room * sizeof *pids));
     if (got <= 0 && errno != 0) return cosmic_fail(L, errno);
@@ -1922,7 +1923,7 @@ static int status_threads (int *error) {
 /* How many threads this process has, as the kernel counts its task's
  * (proc_pidinfo's PROC_PIDTASKINFO), the ones libdispatch started for the
  * C library among them, or -1 with the errno that refused the call in
- * `error`, EIO for an answer cut short. */
+ * `error`, EIO for a result cut short. */
 static int task_thread_count (int *error) {
   struct proc_taskinfo info;
   int got = proc_pidinfo(getpid(), PROC_PIDTASKINFO, 0, &info, (int)sizeof info);

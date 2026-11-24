@@ -81,7 +81,7 @@ end
 
 --- A module the database lacks is not found: nothing of the tree, the
 --- launcher or an artifact stands behind it. What it holds loads, and its
---- own `imports` rows are what [`Store.requires`] answers.
+--- own `imports` rows are what [`Store.requires`] returns.
 local PROBE_MODULES <const> = [==[
 local Store = require("cosmic.store")
 local function say(name, value) print(name .. "\t" .. tostring(value)) end

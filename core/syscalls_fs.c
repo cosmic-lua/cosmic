@@ -74,7 +74,7 @@
 #define COSMIC_CTIME_NANOSECONDS(st) ((st).st_ctim.tv_nsec)
 #endif
 
-/* What a mode says a path is, in the words `stat` and `readdir` answer. */
+/* What a mode says a path is, in the words `stat` and `readdir` return. */
 static const char *mode_kind (mode_t mode) {
   if (S_ISREG(mode)) return "file";
   if (S_ISDIR(mode)) return "dir";
@@ -86,7 +86,7 @@ static const char *mode_kind (mode_t mode) {
   return "other";
 }
 
-/* Whether a directory entry is "." or "..", which no listing answers. */
+/* Whether a directory entry is "." or "..", which no listing includes. */
 static bool is_dot_entry (const char *name) {
   return name[0] == '.' &&
          (name[1] == '\0' || (name[1] == '.' && name[2] == '\0'));
@@ -205,7 +205,7 @@ static bool reaches_descriptor_name (const char *path, bool follow,
  *
  * This stands in for openat2's RESOLVE_NO_MAGICLINKS, which cannot be had
  * under a promises filter: classic BPF cannot read openat2's `struct
- * open_how`, so core/promises.c answers it ENOSYS. */
+ * open_how`, so core/promises.c fails it with ENOSYS. */
 static int walk_without_descriptor_links (const char *path, bool follow, int *found) {
   char rest[PATH_MAX], target[PATH_MAX];
   if (snprintf(rest, sizeof rest, "%s", path) >= (int)sizeof rest) return ENAMETOOLONG;
@@ -308,7 +308,7 @@ static int walk_without_descriptor_links (const char *path, bool follow, int *fo
  * named through /proc/self/cwd/... or /proc/self/root/... too, which are
  * such links: this program's own file is the one file refused that way,
  * and it has a name of its own to be reached by. A walk that fails
- * otherwise answers its own errno, which the call would have met.
+ * otherwise returns its own errno, which the call would have met.
  * Elsewhere -- macOS -- the path is walked by name
  * ([`reaches_descriptor_name`]), and what resolves under /dev or /proc
  * is refused too. */
@@ -445,7 +445,7 @@ COSMIC_SYSCALL(open, 3) {
   return 1;
 }
 
-/* The answer is built before the file is opened, with "fd" already a
+/* The result is built before the file is opened, with "fd" already a
  * key, so that setting the descriptor into it allocates nothing: an
  * allocation that raised while the descriptor was open would leak it. */
 COSMIC_SYSCALL(open_temporary, 2) {
@@ -497,12 +497,12 @@ COSMIC_SYSCALL(close, 1) {
 
 /* How many of `count` bytes one read of `fd` at `offset` (or, when
  * negative, at its own position) asks for, which is what its buffer
- * costs: a count past what the read could answer is never allocated,
+ * costs: a count past what the read could return is never allocated,
  * so a huge count is no out-of-memory and a small file no huge buffer.
- * A regular file answers at most what is left of it -- but never less
- * than READ_SMALL, since a file that says it is empty or small (the
- * ones under /proc) may hold more -- and anything else at most
- * READ_STREAM. A read may always answer short, so a caller that loops
+ * A read of a regular file returns at most what is left of it -- but
+ * never less than READ_SMALL, since a file that says it is empty or
+ * small (the ones under /proc) may hold more -- and anything else at
+ * most READ_STREAM. A read may always return short, so a caller that loops
  * until the empty string sees the same bytes either way. */
 static size_t read_room (int fd, lua_Integer count, off_t offset) {
   if (count <= READ_SMALL) return (size_t)count;
@@ -687,9 +687,9 @@ COSMIC_SYSCALL(chmod, 2) {
   if (syscall(SYS_fchmodat2, probe, "", (mode_t)mode, AT_EMPTY_PATH) != 0) {
     number = errno;
     char name[32];
-    /* A filter that knows no fchmodat2 may answer EPERM, which the
-     * call by name answers again where it is the file's own. Where
-     * that name is not there (no /proc), the first answer stands. */
+    /* A filter that knows no fchmodat2 may fail it with EPERM, which
+     * the call by name fails with again where it is the file's own.
+     * Where that name is not there (no /proc), the first errno stands. */
     if ((number == ENOSYS || number == EPERM) && probe_name(probe, name, sizeof name)) {
       if (chmod(name, (mode_t)mode) == 0) number = 0;
       else if (errno != ENOENT) number = errno;
@@ -755,7 +755,7 @@ COSMIC_SYSCALL(chown, 3) {
 #define REMOVE_PASSES_MAX 64
 
 /* Removes `name` in the directory `parent` and, for a directory, all of
- * it, and answers 0 or an errno. Every step is relative to a descriptor
+ * it, and returns 0 or an errno. Every step is relative to a descriptor
  * and never follows a link -- a directory is opened with O_NOFOLLOW from
  * its parent's descriptor, a link is unlinked as itself -- so a process
  * that swaps an entry for a link to somewhere else while this walks is
@@ -874,7 +874,7 @@ COSMIC_SYSCALL(readdir, 1) {
     }
     /* The entry says what it is for free on every filesystem that
      * matters; a filesystem that does not say is asked with one lstat,
-     * so a link is a link either way, as lstat answers it, and never
+     * so a link is a link either way, as lstat returns it, and never
      * the kind of what it points at. The checked core's fault point
      * stands in for such a filesystem, one entry at a time. */
     unsigned char type = COSMIC_FAULT("readdir_d_type") ? DT_UNKNOWN : entry->d_type;
@@ -1092,7 +1092,7 @@ COSMIC_SYSCALL(access, 2) {
                 "not 0 or R_OK, W_OK and X_OK or'd together");
   if (path == NULL) return cosmic_fail_effect(L, EINVAL);
   /* AT_EACCESS only where the effective ids differ from the real ones,
-   * where alone it changes the answer: musl asks faccessat2 for any
+   * where alone it changes the result: musl asks faccessat2 for any
    * flag, which an older container's seccomp profile refuses with
    * EPERM rather than ENOSYS, so plain faccessat is asked otherwise. */
   int flags = (getuid() != geteuid() || getgid() != getegid()) ? AT_EACCESS : 0;

@@ -18,13 +18,13 @@ local Test = require("cosmic.test")
 Test.policy{ requires = { "checked" }, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- The multi handle is made by the first request of a process, so its
---- failure is walked in a fresh one: a failed curl_multi_init answers
+--- failure is walked in a fresh one: a failed curl_multi_init fails
 --- that request, and the next request makes it again and succeeds.
 test_child.register("multi_init", function(_args: {string}): integer
   local reply = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello"
   testing.fail_at("curl_multi_init")
   -- Http.open gives no shape for which step failed, only a message, which is not parsed: the fault
-  -- being spent (`fail_at()` answers false below) is what says the failure was curl_multi_init's.
+  -- being spent (`fail_at()` returns false below) is what says the failure was curl_multi_init's.
   local first, _ = Http.open("http://cosmic.test/", { timeout_ns = Clock.seconds(60), script = { reply } })
   if first ~= nil then return 11 end
   if testing.fail_at() then return 12 end

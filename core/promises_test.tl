@@ -383,7 +383,7 @@ local function test_a_call_above_the_reviewed_table_answers_ENOSYS()
       assert(got == "ENOSYS", arch .. " call " .. tostring(number) .. " is " .. got)
     end
     -- The highest call reviewed is within the table, so a call there is
-    -- judged, not answered as unknown.
+    -- judged, not treated as unknown.
     local last = verdict(run(insns, audit_of(arch), reviewed - 1, {}))
     assert(last == "EPERM", arch .. " call " .. tostring(reviewed - 1) .. " is " .. last)
   end
@@ -931,7 +931,7 @@ local function test_the_truncation_filter_refuses_truncation_alone()
     call("open", "allow", 0, O_TRUNC | 1), call("openat", "allow", -100, 0, O_TRUNC | 2),
     call("openat", "allow", -100, 0, 0, 0), call("openat", "allow", -100, 0, 3),
     call("openat", "allow", -100, 0, O_CREAT | 1, 0x9ed),
-    -- Every other call is the ruleset's and the kernel's to answer.
+    -- Every other call is the ruleset's and the kernel's to decide.
     call("read", "allow"), call("ptrace", "allow"), call("mount", "allow"),
     call("socket", "allow", 2, 1, 0), call("clone", "allow", 0x10000000), call("fork", "allow"),
   }, options)
@@ -945,7 +945,7 @@ local function test_the_truncation_filter_refuses_truncation_alone()
     end
   end
   -- x32's calls are x86_64's numbers with bit 30 set, so its truncate is
-  -- 76 again: the filter answers every x32 call ENOSYS.
+  -- 76 again: the filter fails every x32 call with ENOSYS.
   local x86 = decode(process.promise_filter({}, "x86_64", options))
   assert(verdict(run(x86, audit_of("x86_64"), 0x40000000 + 76, {})) == "ENOSYS")
   Test.raises(function() process.promise_filter({ "fork" }, "x86_64", options) end)
@@ -1067,7 +1067,7 @@ end
 
 --- Linux's generic table, which aarch64's headers carry a count of, is
 --- reviewed up to the number the tables hold: a header that names more calls
---- names ones no one has judged, which the filter answers ENOSYS
+--- names ones no one has judged, which the filter fails with ENOSYS
 --- until they are added to core/promises_calls.h and judged.
 -- TODO: check x86_64's headers too, once the kernel's x86 uapi
 -- asm/unistd_64.h carries a count of its calls as the generic table's

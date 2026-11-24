@@ -40,7 +40,7 @@ local function finish(child: Child.Handle)
 end
 
 --- A process that sends this one SIGTERM 100 ms after a line on its
---- stdin ([`interrupt`]), answered once it has started and waits for
+--- stdin ([`interrupt`]), returned once it has started and waits for
 --- that line: its start, however slow, comes before the clock.
 local function interrupter(): Child.Handle
   local child = start(([[
@@ -66,7 +66,7 @@ local function test_busy_wait_keeps_the_signal_and_clears_only_the_operations_fl
   local db = assert(Sqlite.open(tmp .. "/db", { writable = true }))
   -- Long past the signal, which the ready handshake leaves only its
   -- 100 ms and a wake-up from, and within CI's 10 s per-test deadline:
-  -- a wait the signal did not end answers BUSY, not cancelled.
+  -- a wait the signal did not end fails with BUSY, not cancelled.
   db:busy_timeout(Clock.seconds(6))
   local guard <close> = assert(Signal.guard())
   local sender <close> = interrupter()

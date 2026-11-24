@@ -1,5 +1,5 @@
 /*
- * The raw calls a sandbox's own setup makes, each answering true, or
+ * The raw calls a sandbox's own setup makes, each returning true, or
  * false, a message and the errno (ENOSYS off Linux), as a binding of a
  * runtime failure does (core/fail.h). Nothing here confines or checks
  * beyond the arguments: a caller without the privilege for one is
