@@ -354,7 +354,7 @@ test: 5 tests passed
 [`Assets.directory`]: ../../cosmic/web/assets.tl
 [`Assets.embedded`]: ../../cosmic/web/assets.tl
 [`Assets.memory`]: ../../cosmic/web/assets.tl
-[`cosmic.child`]: ../../cosmic/child.tl
+[`cosmic.child`]: ../../cosmic/child/init.tl
 [`cosmic.web`]: ../../cosmic/web/init.tl
 [`Dev.app`]: ../../cosmic/web/dev.tl
 [`Server.ServeSpec.compress`]: ../../cosmic/http/server.tl

@@ -1,5 +1,5 @@
 --- [`Child.start`]'s `policy` and the user its child runs as, and the
---- processes it may start (cosmic/child.tl): a caller that is not root meets
+--- processes it may start (cosmic/child/init.tl): a caller that is not root meets
 --- one user, itself, and `limits.processes` is the count of the sandbox's
 --- user namespace. The kernel's own verdict on live children: the child is a
 --- stand-in (build/stand_in.tl), a static program that does what its script

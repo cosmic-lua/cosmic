@@ -16,7 +16,7 @@ local type raw_process = require("cosmic.internal.process")
 
 -- TODO: start each child with cosmic.child's sandbox option and drop this
 -- module's use of the raw process table, once cosmic.child offers spawn's
--- sandbox as a Child option (the TODO in cosmic/child.tl's start).
+-- sandbox as a Child option (the TODO in cosmic/child/init.tl's start).
 local process = require("cosmic.internal.process")
 
 local record SandboxProbe

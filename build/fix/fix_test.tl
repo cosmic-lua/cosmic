@@ -241,7 +241,7 @@ local function test_changed_lays_out_only_the_paths_named(tmp: string)
   assert(fix.narrowed(own, every, { "ci/a.tl" }, { db }).c_widened == nil, "a run that changed no C rule holds every C file")
   -- What only runs clang and zig for a check (cosmic.child), and what only it requires, checks no file; what a
   -- check also requires does.
-  for _, path in ipairs({ "cosmic/child.tl", "cosmic/net.tl", "cosmic/internal/connection.tl", "cosmic/sandbox.tl" }) do
+  for _, path in ipairs({ "cosmic/child/init.tl", "cosmic/child/hold.tl", "cosmic/net.tl", "cosmic/internal/connection.tl", "cosmic/sandbox.tl" }) do
     local runner = fix.narrowed(own, every, { "ci/a.tl", path }, { db })
     assert(runner.widened == nil, path .. ": " .. tostring(runner.widened))
   end

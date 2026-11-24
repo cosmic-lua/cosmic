@@ -249,7 +249,7 @@ print(((said.stderr or "") .. (said.stdout or "")):match("test: %d+ tests? passe
 test: 5 tests passed
 ```
 
-[`cosmic.child`]: ../../cosmic/child.tl
+[`cosmic.child`]: ../../cosmic/child/init.tl
 [`cosmic.web.sse`]: ../../cosmic/web/sse.tl
 [`Html.SafeHtml`]: ../../cosmic/html.tl
 [`Htmx.head`]: ../../cosmic/web/htmx.tl

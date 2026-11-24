@@ -574,7 +574,7 @@ manifest: names the running core
 [`artifact.placeholder`]: ../../../build/artifact.tl
 [`artifact.program`]: ../../../build/artifact.tl
 [`build.artifact.trusted_prefix`]: ../../../build/artifact.tl
-[`Child.start`]: ../../../cosmic/child.tl
+[`Child.start`]: ../../../cosmic/child/init.tl
 [`ci/cosmic_ci/orchestration.tl`]: ../../../ci/cosmic_ci/orchestration.tl
 [`Compress.zstd`]: ../../../cosmic/compress.tl
 [`core/bridge.lua`]: ../../../core/bridge.lua

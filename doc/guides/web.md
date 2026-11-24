@@ -823,7 +823,7 @@ Each guide below builds a small project of its own and can be read alone.
 [`Assets.directory`]: ../../cosmic/web/assets.tl
 [`Assets.embedded`]: ../../cosmic/web/assets.tl
 [`Assets.memory`]: ../../cosmic/web/assets.tl
-[`cosmic.child`]: ../../cosmic/child.tl
+[`cosmic.child`]: ../../cosmic/child/init.tl
 [`cosmic.http.server`]: ../../cosmic/http/server.tl
 [`cosmic.layout`]: ../../cosmic/layout.tl
 [`cosmic.web.htmx`]: ../../cosmic/web/htmx.tl

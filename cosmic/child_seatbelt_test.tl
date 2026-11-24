@@ -1,4 +1,4 @@
---- [`Child.start`]'s `policy` on macOS (cosmic/child.tl), which holds a
+--- [`Child.start`]'s `policy` on macOS (cosmic/child/init.tl), which holds a
 --- child by Seatbelt: a process of this program applies the compiled
 --- profile (cosmic/sandbox/seatbelt.tl) to itself and executes the child's program
 --- last (core/sandbox_rules.c's trampoline). macOS alone has Seatbelt, and no

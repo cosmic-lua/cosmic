@@ -297,9 +297,9 @@ its options.
 - `cosmic docs language` covers the type checker's rules.
 
 [`Acme.client`]: ../../cosmic/acme.tl
-[`Child.start`]: ../../cosmic/child.tl
-[`Child.wait_any`]: ../../cosmic/child.tl
-[`cosmic.child`]: ../../cosmic/child.tl
+[`Child.start`]: ../../cosmic/child/init.tl
+[`Child.wait_any`]: ../../cosmic/child/init.tl
+[`cosmic.child`]: ../../cosmic/child/init.tl
 [`cosmic.fs`]: ../../cosmic/fs.tl
 [`cosmic.hash`]: ../../cosmic/hash.tl
 [`cosmic.sys`]: ../../core/syscalls.h

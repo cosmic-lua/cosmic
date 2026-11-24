@@ -1,5 +1,5 @@
 --- [`Child.start`]'s `policy` and the user its child runs as for a root
---- caller (cosmic/child.tl): a user of a range of its own, never root, the
+--- caller (cosmic/child/init.tl): a user of a range of its own, never root, the
 --- files it cannot use mounted idmapped or refused. The kernel's own verdict
 --- on live children: the child is a stand-in (build/stand_in.tl), a static
 --- program that does what its script says.

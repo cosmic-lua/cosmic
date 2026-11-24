@@ -1888,7 +1888,7 @@ in [roadmap.md](roadmap.md).
 [`core/syscalls.c`]: ../core/syscalls.c
 [`core/syscalls.h`]: ../core/syscalls.h
 [`cosmic.archive`]: ../cosmic/archive.tl
-[`cosmic.child`]: ../cosmic/child.tl
+[`cosmic.child`]: ../cosmic/child/init.tl
 [`cosmic.cipher`]: ../cosmic/cipher.tl
 [`cosmic.clock`]: ../cosmic/clock.tl
 [`cosmic.env`]: ../cosmic/env.tl
@@ -1953,7 +1953,7 @@ in [roadmap.md](roadmap.md).
 [`build/markers.tl`]: ../build/markers.tl
 [`build/positions.tl`]: ../build/positions.tl
 [`build/sandbox_probe.tl`]: ../build/sandbox_probe.tl
-[`Child.start`]: ../cosmic/child.tl
+[`Child.start`]: ../cosmic/child/init.tl
 [`cosmic.codec`]: ../cosmic/codec.tl
 [`cosmic.compress`]: ../cosmic/compress.tl
 [`cosmic.coverage`]: ../cosmic/coverage.tl
