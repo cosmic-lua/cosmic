@@ -595,7 +595,8 @@ LUA_API int lua_setinert (lua_State *L, int idx);
  * call of one runs no pending finalizer, which a call of any other C
  * function does (patch/lua/31-finalizers-at-c-calls-run-call.txt). Every
  * function of `string`, `math` and `utf8`; `table.concat` and
- * `table.unpack`; and the base functions below. False when the VM's
+ * `table.unpack`; and the base functions below. `math.random` and
+ * `math.randomseed` are closures, named by their C function. False when the VM's
  * list is full, which a new function of one of those libraries could
  * make it. */
 bool cosmic_surface_set_inert (lua_State *L, int idx) {

@@ -19,10 +19,11 @@
  * to the standard library could make so (`mark_inert`). */
 lua_State *cosmic_surface_open (const char *logical_executable);
 
-/* Names the light C function at `idx` one whose calls from Lua code run
- * no pending finalizer, as the checker counts it as running no code of
- * the program (patch/lua/26-finalizers-at-c-calls-inert-gc.txt). False
- * when the VM's list is full. */
+/* Names the C function at `idx`, a light one or a closure's, one whose
+ * calls from Lua code run no pending finalizer, as the checker counts it
+ * as running no code of the program
+ * (patch/lua/26-finalizers-at-c-calls-inert-gc.txt). A value that is no
+ * C function is left as it is. False only when the VM's list is full. */
 bool cosmic_surface_set_inert (lua_State *L, int idx);
 
 /* Closes a state cosmic_surface_open made, and frees the big blocks its

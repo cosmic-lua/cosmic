@@ -3,7 +3,7 @@ note: A tail call of a C function runs them the same way, after the caller's upv
 --- find
         if ((n = luaD_pretailcall(L, ci, ra, b, delta)) < 0)  /* Lua function? */
 --- replace
-        if (l_unlikely(G(L)->tobefnz != NULL) && runsfinalizers(s2v(ra))) {
+        if (l_unlikely(G(L)->tobefnz != NULL) && runsfinalizers(L, s2v(ra))) {
           ptrdiff_t f = savestack(L, ra);
           luaC_runfinalizers(L);
           ra = restorestack(L, f);

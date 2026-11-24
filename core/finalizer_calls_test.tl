@@ -7,10 +7,11 @@ local Test = require("cosmic.test")
 
 Test.policy{}
 
---- Runs `body` after arming 1000 finalizable tables, and answers how many finalizers ran in it: the arming loop's own calls
+--- Runs `body` after arming 1000 finalizable tables, and returns how many finalizers ran in it: the arming loop's own calls
 --- of `setmetatable` may run some, which are not counted.
 local function finalized_during(body: string): integer
   local chunk = assert(load([[
+    local random = (...).random
     local ran = 0
     local mt = { __gc = function() ran = ran + 1 end }
     for _ = 1, 1000 do setmetatable({}, mt) end
@@ -19,8 +20,9 @@ local function finalized_during(body: string): integer
     local seen = ran - before
     return seen
   ]], "=finalizer_calls", "t"))
-  local seen = chunk()
-  assert(seen is integer, "the chunk answered no count")
+  -- `math` is given for `math.random`, which the environment `load` gives a chunk leaves out.
+  local seen = chunk(math)
+  assert(seen is integer, "the chunk returned no count")
   return seen
 end
 
@@ -32,10 +34,30 @@ local function test_a_loop_of_calls_of_a_c_function_runs_the_pending_finalizers(
 end
 
 local function test_a_loop_of_calls_the_checker_counts_inert_runs_none()
-  -- `string.rep` and `math.max` run no code of the program, so no finalizer runs at their calls, however much they
+  -- `string.rep` (also as a method), `math.max` and `math.random` (a C closure) run no code of the program, so no finalizer runs at their calls, however much they
   -- allocate (lang/check.tl's [`Tests.inert_callee`]).
   local seen = finalized_during([[
-    for i = 1, 200000 do local s = string.rep("x", 64 + i % 7); s = string.rep(s, 2); math.max(i, 1) end
+    for i = 1, 200000 do
+      local s = string.rep("x", 64 + i % 7); s = s:rep(2); math.max(i, random(3))
+    end
   ]])
   assert(seen == 0, tostring(seen) .. " finalizers ran at calls of inert C functions")
+end
+
+local function test_a_loop_of_calls_of_a_value_whose_call_is_a_c_function_runs_them()
+  local seen = finalized_during([[
+    local callable = setmetatable({}, { __call = rawequal })
+    for _ = 1, 200000 do local s = string.rep("x", 100); callable(s) end
+  ]])
+  assert(seen > 0, "no finalizer ran in a loop of calls of a value whose __call is rawequal")
+end
+
+local function test_a_generic_for_over_a_c_iterator_runs_them()
+  -- `next` is the iterator, called at each step; the body calls only inert functions.
+  local seen = finalized_during([[
+    local t = {}
+    for i = 1, 200000 do t[i] = true end
+    for _ in next, t do local s = string.rep("x", 100); s = s:upper() end
+  ]])
+  assert(seen > 0, "no finalizer ran in a generic for over next")
 end
