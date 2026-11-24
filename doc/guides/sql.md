@@ -78,6 +78,21 @@ local version = assert(db:migrate({
 assert(version == 2)
 ```
 
+`Sqlite.schema(ddl)` names the tables a database holds, for a program
+whose schema does not change. `open` and `memory` take it as `schema`:
+a new file opened `writable` gets the tables, and a file that does not
+hold them, column for column, fails at open and names what differs.
+
+```teal
+local Sqlite = require("cosmic.sqlite")
+
+local Notes <const> = Sqlite.schema([[
+  CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL);
+]])
+local db = assert(Sqlite.memory({ schema = Notes }))
+assert(db:run("INSERT INTO notes (body) VALUES (?1)", { "hi" }))
+```
+
 ```teal
 local Sqlite = require("cosmic.sqlite")
 

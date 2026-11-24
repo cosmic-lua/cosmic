@@ -3,8 +3,9 @@
 --- four legs, the daily scheduled run or a manual one, publishes a
 --- prerelease, so:
 ---
---- - after a push run that passed, where no such run of main started in
----   the last `window` hours, it starts a manual run of main, so a
+--- - after a push run that passed, where no such run of main that
+---   [`counts`] started in the last `window` hours, it starts a manual run
+---   of main, so a
 ---   prerelease follows main within hours, not at the next daily run,
 ---   which GitHub starts hours after its cron line;
 --- - after such a run's first attempt failed, it re-runs the failed jobs
@@ -50,6 +51,9 @@ end
 local record RunItem
   event: string
   created_at: string
+  status: string
+  conclusion?: string
+  run_attempt: integer
 end
 local record RunsAnswer
   workflow_runs: {RunItem}
@@ -120,11 +124,22 @@ local full_events <const>: {string:boolean} = { schedule = true, workflow_dispat
 --- Six hours: at most four runs a day this starts, beside the daily one.
 local default_window <const> = 6 * 3600
 
---- The start of the newest full run of main in `runs`, nil where none.
+--- Whether `run` keeps another full run from starting: any but one that
+--- can publish nothing any more, which failed again, was cancelled or
+--- timed out. A first attempt that failed is tried once more.
+local function counts(run: RunItem): boolean
+  if run.status ~= "completed" then return true end
+  local conclusion = run.conclusion or ""
+  if conclusion == "failure" then return run.run_attempt == 1 end
+  return conclusion ~= "cancelled" and conclusion ~= "timed_out"
+end
+
+--- The start of the newest full run of main in `runs` that [`counts`],
+--- nil where none.
 local function newest_full(runs: {RunItem}): integer?
   local newest: integer? = nil
   for _, run in ipairs(runs) do
-    if full_events[run.event] == true then
+    if full_events[run.event] == true and counts(run) then
       local at = Report.seconds_of(run.created_at)
       if at ~= nil and (newest == nil or at > newest) then newest = at end
     end

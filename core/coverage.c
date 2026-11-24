@@ -307,6 +307,16 @@ void cosmic_coverage_report (void) {
         used += (size_t)wrote;
         continue;
       }
+      if (used == 0) {
+        /* A line longer than the whole buffer: written on its own, so a
+         * flush that frees no room does not repeat forever. */
+        if (dprintf(fd, "%s\t%u\n", cosmic_native_coverage_paths[file],
+                    (unsigned)cosmic_native_coverage_line[block]) < 0) {
+          close(fd);
+          return;
+        }
+        continue;
+      }
       block--; /* did not fit: flush, then write this block again */
     }
     for (size_t at = 0; at < used;) {

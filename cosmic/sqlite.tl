@@ -1326,6 +1326,162 @@ local function handle_of(connection: raw_sqlite.Handle): Handle
   return { connection = connection }
 end
 
+--- A database's tables, declared as the DDL that creates them: see
+--- [`Sqlite.schema`].
+local record Schema
+  --- The DDL, as given.
+  ddl: string
+end
+
+--- One column of a table, as `pragma_table_xinfo` describes it.
+local record Column
+  name: string
+  --- The declared type, in capitals; empty for a column declared with none.
+  declared: string
+  notnull: boolean
+  --- Its place in the primary key, from 1; 0 for a column outside it.
+  key: integer
+  --- 0 for a plain column, 2 or 3 for a generated one (virtual or stored),
+  --- 1 for a virtual table's hidden column.
+  hidden: integer
+end
+
+--- The user tables of `handle`'s main database, by name.
+local TABLES_SQL <const> = "SELECT name FROM main.sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'"
+
+--- The columns of table `name` in `handle`'s main database, in order;
+--- an empty list for a table it lacks.
+local function columns_of(handle: Handle, name: string): ({Column}) | (nil, Failure)
+  -- A view's columns are described too: only a table's count.
+  local rows, why = handle:rows('SELECT name, type, "notnull", pk, hidden FROM pragma_table_xinfo(?1, \'main\') ' ..
+      "WHERE EXISTS (SELECT 1 FROM main.sqlite_schema WHERE type = 'table' AND name = ?1 COLLATE NOCASE)", { name })
+  if rows == nil then return nil, why end
+  local columns: mut {Column} = {}
+  for _, row in ipairs(rows) do
+    -- A type reads the same in capitals or not, and with other spaces.
+    local spaced = (row:text(2):upper():gsub("%s+", " "))
+    local typed = (spaced:gsub(" ?([(),]) ?", "%1"):match("^ ?(.-) ?$"))
+    columns[#columns + 1] = {
+      name = row:text(1), declared = typed or "", notnull = row:integer(3) ~= 0, key = row:integer(4),
+      hidden = row:integer(5),
+    }
+  end
+  return columns
+end
+
+--- `columns` as the open failure names them: `(id INTEGER PRIMARY KEY 1, body TEXT NOT NULL)`.
+local function column_list(columns: {Column}): string
+  local parts: mut {string} = {}
+  for _, column in ipairs(columns) do
+    local words: mut {string} = { column.name }
+    if column.declared ~= "" then words[#words + 1] = column.declared end
+    if column.notnull then words[#words + 1] = "NOT NULL" end
+    if column.key ~= 0 then words[#words + 1] = ("PRIMARY KEY %d"):format(column.key) end
+    if column.hidden == 1 then words[#words + 1] = "HIDDEN" end
+    if column.hidden == 2 then words[#words + 1] = "GENERATED VIRTUAL" end
+    if column.hidden == 3 then words[#words + 1] = "GENERATED STORED" end
+    parts[#parts + 1] = table.concat(words, " ")
+  end
+  return "(" .. table.concat(parts, ", ") .. ")"
+end
+
+--- Whether two column lists are the same, column for column.
+local function same_columns(a: {Column}, b: {Column}): boolean
+  if #a ~= #b then return false end
+  for k, column in ipairs(a) do
+    local other = assert(b[k])
+    if column.name:lower() ~= other.name:lower() or column.declared ~= other.declared or column.notnull ~= other.notnull or
+        column.key ~= other.key or column.hidden ~= other.hidden then
+      return false
+    end
+  end
+  return true
+end
+
+--- The tables a schema's DDL creates: their names in order, and each
+--- one's columns.
+local record SchemaTables
+  mut names: mut {string}
+  mut columns: mut {string: {Column}}
+end
+
+--- What each schema value's DDL creates, read once per value.
+local declared_tables: mut {Schema: SchemaTables} = setmetatable({}, { __mode = "k" })
+
+--- What `schema`'s DDL creates, read by running it in a memory
+--- database the first time: raises, naming why, when SQLite refuses it
+--- or it creates no table.
+local function declared(schema: Schema): SchemaTables
+  local known = declared_tables[schema]
+  if known ~= nil then return known end
+  local opened = sqlite.open_result(":memory:", true, nil, nil, true)
+  if opened.code ~= OK then error("sqlite: schema: " .. tostring(failed(opened)), 0) end
+  local handle <close> = handle_of(opened.handle)
+  -- Nothing but this memory database is written: an `ATTACH` fails.
+  local _ = handle:limit("attached", 0)
+  local ran, why = handle:exec(schema.ddl)
+  if not ran then error("sqlite: schema: the DDL fails: " .. tostring(why), 0) end
+  local rows = assert(handle:rows(TABLES_SQL .. " ORDER BY name"))
+  local found: SchemaTables = { names = {}, columns = {} }
+  for _, row in ipairs(rows) do
+    local name = row:text(1)
+    found.names[#found.names + 1] = name
+    found.columns[name] = assert(columns_of(handle, name))
+  end
+  if #found.names == 0 then error("sqlite: schema: the DDL creates no table", 0) end
+  declared_tables[schema] = found
+  return found
+end
+
+--- Gives `handle`'s database the tables of `schema`, or checks that it
+--- holds them. A database with no schema object at all is new: a
+--- writable handle runs the DDL on it, in one transaction. Then each
+--- table the DDL creates must be in the file with the same columns, in
+--- the same order, of the same declared type, NOT NULL and key.
+local function hold_schema(handle: Handle, path: string, schema: Schema, writable: boolean): (true) | (false, Failure)
+  local wanted = declared(schema)
+  local function objects(): (integer) | (nil, Failure)
+    local row, why = handle:one("SELECT count(*) FROM main.sqlite_schema")
+    if row == nil then return nil, why or Failure.new("sqlite: schema: the count gave no row") end
+    return row:integer(1)
+  end
+  if writable then
+    local count, why = objects()
+    if count == nil then return false, why end
+    if count == 0 then
+      -- Counted again under the write lock: two processes that open a
+      -- new file at once take turns, and the second finds the tables.
+      local made, made_why = handle:transact(function(): (true) | (false, Failure)
+        local now, now_why = objects()
+        if now == nil then return false, now_why end
+        if now ~= 0 then return true end
+        local ran, ran_why = handle:exec(schema.ddl)
+        if ran then return true end
+        local said = ("sqlite: schema: the DDL fails on %s: %s"):format(path, ran_why.message)
+        local code = ran_why.code
+        if code == nil then return false, Failure.new(said) end
+        return false, Failure.coded(said, code, ran_why.extended_code, ran_why.kind)
+      end, "immediate")
+      if not made then return false, made_why end
+    end
+  end
+  local differences: mut {string} = {}
+  for _, name in ipairs(wanted.names) do
+    local has, why = columns_of(handle, name)
+    if has == nil then return false, why end
+    local want = assert(wanted.columns[name])
+    if #has == 0 then
+      differences[#differences + 1] = ("no table %s %s"):format(name, column_list(want))
+    elseif not same_columns(has, want) then
+      differences[#differences + 1] = ("table %s is %s where the schema declares %s"):format(name, column_list(has),
+        column_list(want))
+    end
+  end
+  if #differences == 0 then return true end
+  return false, Failure.new(("sqlite: %s does not hold the schema: %s. A file another program made, or an older " ..
+    "one: open it without the schema to migrate it"):format(path, table.concat(differences, "; ")))
+end
+
 local record Sqlite
   --- An open database, as `open` and `memory` return it, with the
   --- methods that query it: `cosmic docs Sqlite.Handle` lists them.
@@ -1422,7 +1578,21 @@ local record Sqlite
     --- Sets `PRAGMA synchronous` as it opens: see [`Sqlite.Synchronous`].
     --- "normal" is the usual choice with `wal`.
     synchronous?: Synchronous
+    --- The tables the database holds: see [`Sqlite.schema`]. A new file
+    --- opened `writable` gets them; any other open fails when the file
+    --- does not hold them, column for column.
+    schema?: Schema
   end
+
+  --- How [`Sqlite.memory`] makes a database.
+  record MemoryOptions
+    --- The tables the database starts with: see [`Sqlite.schema`].
+    schema?: Schema
+  end
+
+  --- A database's tables, as the DDL that creates them: see
+  --- [`Sqlite.schema`].
+  type Schema = Schema
 
   --- One result row: see [`Handle.rows`].
   type Row = Row
@@ -1544,11 +1714,55 @@ function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): (Sqlite.Handle) |
     local set, why = handle:exec("PRAGMA main.synchronous = " .. syncs)
     if not set then return refused(why) end
   end
+  local schema = opts and opts.schema
+  if schema ~= nil then
+    local holds, why = hold_schema(handle, path, schema, writable == true)
+    if not holds then return refused(why) end
+  end
   if held then
     local holding, why = handle:reads_only()
     if not holding then return refused(why) end
   end
   return handle
+end
+
+--- A schema: the tables a database holds, as the DDL that creates
+--- them. Give it to [`Sqlite.open`] or [`Sqlite.memory`] as `schema`:
+---
+---     local Notes <const> = Sqlite.schema([[
+---       CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL);
+---       CREATE INDEX notes_body ON notes (body);
+---     ]])
+---     local db = assert(Sqlite.open("notes.db", { writable = true, schema = Notes }))
+---
+--- A writable open of a new file (one with no table, index, view or
+--- trigger) runs the DDL on it, in one transaction. Every open then
+--- checks that the file holds each table the DDL creates, with the
+--- same columns in the same order, each of the same name and declared
+--- type (in capitals or not), NOT NULL and primary key place, and fails
+--- naming what differs: an old file fails at open, not at a read deep
+--- inside. Tables the DDL does not create, indexes, views, triggers,
+--- `STRICT` and `WITHOUT ROWID` are not checked; a virtual table's own
+--- tables are, as SQLite makes them. The schema is the database's final
+--- state: to bring an old file to it, open the file without the schema
+--- and [`Handle.migrate`] it.
+---
+--- `schema` runs the DDL once in a memory database, to read the
+--- tables, and raises when SQLite refuses it or it creates no table.
+--- So the DDL creates and does nothing else: an `ATTACH` in it fails
+--- there, and a `BEGIN` fails at the open that runs it on a file. The
+--- checker runs the DDL too, and reads the SQL a program sends to a
+--- handle opened with the schema against it: a table or column it does
+--- not create, or a values list of another length than the SQL binds,
+--- is refused where it is written. That holds for a handle held in a
+--- local the program never assigns, given the schema in a local of the
+--- same module, and SQL that is a literal or joins literals.
+function Sqlite.schema(ddl: string): Sqlite.Schema
+  if ddl:find("\0", 1, true) ~= nil then error("sqlite: a schema's DDL cannot hold a NUL", 2) end
+  local schema: Sqlite.Schema = { ddl = ddl }
+  local read, why = pcall(declared, schema)
+  if not read then error(why, 2) end
+  return schema
 end
 
 --- `bytes` as a parameter value that binds as a blob: a plain string
@@ -1598,9 +1812,10 @@ function Sqlite.disown()
 end
 
 --- A writable database held in memory: it is gone when the handle
---- closes.
-function Sqlite.memory(): (Sqlite.Handle) | (nil, Failure)
-  return Sqlite.open(":memory:", { writable = true })
+--- closes. With `schema` it starts with that schema's tables
+--- ([`Sqlite.schema`]).
+function Sqlite.memory(opts?: Sqlite.MemoryOptions): (Sqlite.Handle) | (nil, Failure)
+  return Sqlite.open(":memory:", { writable = true, schema = opts and opts.schema })
 end
 --- Internal: the handle of a connection the runtime opened, for
 --- [`cosmic.store`] and for tests of the connection itself. No other

@@ -172,8 +172,18 @@ function agent_fixture.api(replies: {Json.Value}): Api
         return piece, ""
       end }, ""
     end
-    return { status = 200, headers = { ["request-id"] = "req_1", ["anthropic-ratelimit-tokens-remaining"] = "9",
-      server = "x", ["set-cookie"] = "c" }, read = streamed(reply), close = function() end }, ""
+    local h: {string: string} = { ["request-id"] = "req_1", ["anthropic-ratelimit-tokens-remaining"] = "9",
+      ["server"] = "x", ["set-cookie"] = "c" }
+    -- A request not streamed (a warm one) is answered with the reply whole.
+    if body["stream"] == false then
+      local whole: string? = reply
+      return { status = 200, headers = h, close = function() end, read = function(): string?, string
+        local piece = whole
+        whole = nil
+        return piece, ""
+      end }, ""
+    end
+    return { status = 200, headers = h, read = streamed(reply), close = function() end }, ""
   end
   return { replies = texts, sent = sent, bodies = bodies, headers = headers, send = send }
 end

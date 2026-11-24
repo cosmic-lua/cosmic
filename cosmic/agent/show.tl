@@ -62,7 +62,8 @@ end
 
 --- The JSON object `cosmic agent ask --json` writes for `e`, or nil for one it writes nothing of (text, which the
 --- message that holds it carries): `{type = "tool", name, input}`, `{type = "result", name, is_error}`, `{type = "blocked", name, caller, reason}`,
---- `{type = "message", message}`, or `{type = "request", request = {model, status, ms, the token counts, cost}}`.
+--- `{type = "message", message}`, or `{type = "request", request = {model, status, ms, the token counts, cost, warm}}`, warm true
+--- for a request that asked for no reply ([`Agent.Session.warm`]).
 function Show.object(e: Agent.Event): Json.Value?
   if e.kind == "tool" then return { type = "tool", name = e.name, input = e.input } end
   if e.kind == "result" then
@@ -85,6 +86,8 @@ function Show.object(e: Agent.Event): Json.Value?
     put("cache_write_1h", q.cache_write_1h)
     local cost = q.cost
     if cost ~= nil then usage["cost"] = cost end
+    -- A warm request asks for no reply (Agent.Session.warm).
+    if q.max_tokens == 0 then usage["warm"] = true end
     return { type = "request", request = usage }
   end
   return nil

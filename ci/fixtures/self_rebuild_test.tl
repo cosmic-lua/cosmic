@@ -528,6 +528,43 @@ local function test_self_rebuild_docs_verb(tmp: string)
     "docs: second invocation reported staleness though the tool is fresh")
 end
 
+-- A tree whose only refusal is a test's still rebuilds the tool: the tool carries no test, so the rebuild says the
+-- refusal and writes it, and the verb goes on with the tree's code. Before, every command refused until the test built.
+local function test_self_rebuild_past_a_refused_test(tmp: string)
+  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  local case_root = tmp .. "/case-refused-test"
+  local tree = case_root .. "/tree"
+  local cache = case_root .. "/cache"
+  local diagnostics = case_root .. "/logs"
+  Fixture.mkdir(diagnostics)
+  archive_tree(tree)
+  local program = place_runtime(fixture_dir, tree)
+  local before_hash = Fixture.hash(program)
+  apply_docs_marker_edit(tree)
+  Fixture.write(tree .. "/build/zz_refused_test.tl",
+    "local function test_refused()\n  local x: integer = \"no\"\n  assert(x)\nend\n")
+
+  local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache })
+  local outcome = Fixture.call_with_environment("refused-test-rebuild",
+    { program, "docs", "cosmic.child" }, tree, diagnostics, values,
+    rebuild_timeout_ns)
+  local err = Fixture.read(outcome.err)
+  assert(outcome.result.code == 0, "refused test: exit status was " ..
+      tostring(outcome.result.code) .. ", want 0: " .. err)
+  Fixture.contains(outcome.out, "step8-docs-marker")
+  Fixture.contains(outcome.err, "build/zz_refused_test.tl")
+  Fixture.contains(outcome.err, "only tests and test support are refused")
+  assert(Fixture.hash(program) ~= before_hash,
+    "refused test: the rebuild did not write the tool")
+
+  local second = Fixture.call_with_environment("refused-test-fresh",
+    { program, "docs", "cosmic.child" }, tree, diagnostics, values)
+  assert(second.result.code == 0, "refused test: second exit status was " ..
+      tostring(second.result.code) .. ", want 0")
+  assert(not Fixture.read(second.err):find("the tool is stale", 1, true),
+    "refused test: the second run found the tool stale, though it was written")
+end
+
 -- Marks `build/fix/init.tl`'s verb with an extra line, as the docs marker
 -- does for `docs`: a `fix` the stale tool ran itself would not print it.
 local function apply_fix_marker_edit(tree: string)

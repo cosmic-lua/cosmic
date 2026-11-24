@@ -273,8 +273,11 @@ static bool source_position (lua_State *L, const char *message) {
       size_t stream_len = (size_t)sqlite3_column_bytes(stmt, 1);
       size_t source_len = 0;
       if (stream != NULL &&
-          cosmic_inflate_raw(stream, stream_len, SIZE_MAX, &source,
-                             &source_len) != NULL) {
+          cosmic_inflate_raw(stream, stream_len,
+                             /* the store's own limit: no more than the
+                              * database holds as one value */
+                             (size_t)sqlite3_limit(db, SQLITE_LIMIT_LENGTH, -1),
+                             &source, &source_len) != NULL) {
         source = NULL;
       }
       const char *p = source == NULL ? "" : (const char *)source;
@@ -433,6 +436,24 @@ int cosmic_runtime_entry (const struct cosmic_startup *startup, int argc,
     return complain(adoption_error, NULL);
   }
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_STARTUP_RELEASED);
+#if defined(__linux__)
+  /* A policy's start holds a cosmic child to the policy and the files it
+   * needs to start, this core among them; here, before any module loads,
+   * the core holds itself to the policy alone, so it gives up its own `rx`.
+   * The variable is read once and gone, so a program this one starts is
+   * held to its own start's layer, not this one's again. */
+  const char *layer = getenv(COSMIC_SANDBOX_LAYER);
+  if (layer != NULL) {
+    char message[PATH_MAX + 256];
+    int failure = cosmic_boot_layer_apply(layer, message, sizeof message);
+    unsetenv(COSMIC_SANDBOX_LAYER);
+    if (failure != 0) {
+      cosmic_artifact_close(&artifact);
+      fprintf(stderr, "cosmic: sandbox: the layer its start handed this core: %s\n", message);
+      return 125;
+    }
+  }
+#endif
 
   /* A database start runs the bare core, whose own path is its name. */
   bool carried = startup->kind == COSMIC_STARTUP_PORTABLE ||

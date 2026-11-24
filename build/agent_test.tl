@@ -7,6 +7,7 @@
 
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local Clock = require("cosmic.clock")
 local Json = require("cosmic.json")
 local Test = require("cosmic.test")
 local agent = require("build.agent")
@@ -46,12 +47,20 @@ local home = ""
 
 local KEYED <const>: {string: string} = { ANTHROPIC_API_KEY = "k", ANTHROPIC_BASE_URL = "https://api.test" }
 
+--- How a run waits for each line typed: `wait` answers each call in turn
+--- (true where a line came), and moves `now` on by what it waited.
+local record Waited
+  answers: {boolean}
+  mut now: integer
+  mut asked: integer
+end
+
 --- Runs `cosmic agent` with `argv`, `env` (and HOME), the API's
 --- `replies`, the lines `typed` at each prompt, and the lines
 --- `meanwhile` typed while the model works (standard input a terminal
 --- where it is given).
 local function cli(argv: {string}, env: {string: string}, replies: {Json.Value}, typed?: {string},
-                   meanwhile?: {string}): Ran, Api
+                   meanwhile?: {string}, waited?: Waited): Ran, Api
   if home == "" then home = scratch() end
   local a = agent_fixture.api(replies)
   local early: mut {string} = {}
@@ -83,6 +92,13 @@ local function cli(argv: {string}, env: {string: string}, replies: {Json.Value},
       return { caught = function(): integer return 0 end, release = function() end }
     end,
     tty = function(): boolean return meanwhile ~= nil end,
+    wait = if waited == nil then nil else function(ns: integer): boolean
+      waited.asked = waited.asked + 1
+      local came = waited.answers[waited.asked]
+      if came ~= true then waited.now = waited.now + ns end
+      return came == true
+    end end,
+    now = if waited == nil then nil else function(): integer return waited.now end end,
     env = function(name: string): string?
       if name == "HOME" then return home end
       return env[name]
@@ -90,6 +106,45 @@ local function cli(argv: {string}, env: {string: string}, replies: {Json.Value},
     send = a.send,
   })
   return { code = code, out = table.concat(out, "\n"), err = table.concat(err, "\n") }, a
+end
+
+--- While chat waits for a line, a warm request goes out every 4.5
+--- minutes, asking for nothing, and none after an hour idle.
+local function test_chat_keeps_the_cache_warm_while_it_waits()
+  local warm: Json.Value = { id = "msg_w", model = "m", content = Json.array(), stop_reason = "max_tokens",
+    usage = { input_tokens = 0, output_tokens = 0, cache_read_input_tokens = 10 } }
+  -- The first wait after a turn sees two warm requests, then a line; the
+  -- second sees no line, and warm requests stop at the hour: 13 of them.
+  local replies: mut {Json.Value} = { text_reply("one"), warm, warm, text_reply("two") }
+  for _ = 1, 13 do replies[#replies + 1] = warm end
+  local answers: mut {boolean} = { false, false, true }
+  for _ = 1, 20 do answers[#answers + 1] = false end
+  local waited: Waited = { answers = answers, now = Clock.now_ns(), asked = 0 }
+  local r, a = cli({ "chat" }, KEYED, replies, { "first", "second" }, nil, waited)
+  assert(r.code == 0 and r.out == "one\ntwo" and r.err == "", r.out .. r.err)
+  -- Before the first prompt nothing was sent, so nothing waited.
+  assert(#a.sent == 17 and waited.asked == 3 + 14, tostring(#a.sent) .. " " .. tostring(waited.asked))
+  for _, i in ipairs({ 2, 3, 5, 17 }) do
+    local w = sent(a, i)
+    local messages = assert(Json.to_array(w["messages"]))
+    assert(w["max_tokens"] == 0 and w["stream"] == false, said(a, i))
+    -- To the user's last word: the model's reply is left out.
+    assert(#messages == (if i < 4 then 1 else 3 end), said(a, i))
+  end
+  -- --keep-warm 0 sends none; a value not whole minutes is refused.
+  r, a = cli({ "chat", "--keep-warm", "0" }, KEYED, { text_reply("one") }, { "first" }, nil,
+    { answers = { false }, now = Clock.now_ns(), asked = 0 })
+  assert(r.code == 0 and #a.sent == 1, r.err)
+  assert(cli({ "chat", "--keep-warm", "1.5" }, KEYED, {}).code == Flags.REFUSED)
+  -- rpc tells each warm request as a request event.
+  r, a = cli({ "rpc" }, KEYED, { text_reply("one"), warm }, { '{"type":"prompt","text":"first"}' }, nil,
+    { answers = { false, true }, now = Clock.now_ns(), asked = 0 })
+  assert(r.code == 0 and #a.sent == 2 and r.out:find('"warm":true', 1, true) ~= nil, r.out .. r.err)
+  -- A warm request the API refuses is said, and no more are sent.
+  r, a = cli({ "chat" }, KEYED, { text_reply("one"), "400 bad" }, { "first" }, nil,
+    { answers = { false, false }, now = Clock.now_ns(), asked = 0 })
+  assert(r.code == 0 and #a.sent == 2 and r.err:find("chat: keeping the cache warm: HTTP 400: 400 bad", 1, true) ~= nil,
+    r.err)
 end
 
 local function test_ask_and_chat()

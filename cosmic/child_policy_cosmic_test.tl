@@ -130,3 +130,29 @@ local function test_a_policy_may_build_the_tree_around_the_file(tmp: string)
   assert(refused.code ~= 0 and tostring(refused.stderr):find("COSMIC_STANDALONE=0", 1, true) ~= nil,
     tostring(refused.code) .. ": " .. tostring(refused.stderr))
 end
+
+--- A policy's grants are what the child may do once it runs: the start's
+--- `rx` on the core, and the "cosmic" profile's on this program, are the
+--- start's, which the core gives up at boot. So a child whose policy has
+--- no `x` runs no program, its own core included.
+local function test_a_child_with_no_x_cannot_run_its_own_core_again(tmp: string)
+  -- TODO: on macOS the trampoline's profile still grants the core `rx`;
+  -- the core is to apply the profile itself at boot there too.
+  if Sandbox.on_macos() then
+    Test.skip("macOS holds a cosmic child by the trampoline's profile, which grants its core rx")
+  end
+  local work = scripted(tmp, table.concat({
+    'local Child = require("cosmic.child")',
+    'local Proc = require("cosmic.proc")',
+    'local own: string = assert(Proc.executable())',
+    'for _, program in ipairs({ "/proc/self/exe", own }) do',
+    '  local result, why = Child.run({ program, "--version" }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })',
+    '  print(if result == nil then "refused: " .. tostring(why) else "ran" end)',
+    'end',
+  }, "\n") .. "\n")
+  local result = ran({ work .. "/run.tl" }, { profiles = { "cosmic" }, promises = { "fork" },
+    grants = { { path = work, letters = "rwc" } } }, work)
+  local out = result.stdout or ""
+  local _, refusals = out:gsub("refused: [^\n]*not permitted", "")
+  assert(result.code == 0 and refusals == 2, tostring(result.code) .. ": " .. out .. tostring(result.stderr))
+end

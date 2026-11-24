@@ -2,8 +2,11 @@
 --- The system prompt of `cosmic agent`, built as pi builds its own: a line
 --- of who the model is, the tools in a line each, the rules the tools
 --- bring, the project's instructions (each AGENTS.md or CLAUDE.md from
---- the root down to the working directory), the MCP servers, and the
---- working directory. Code mode adds no section of its own: what a
+--- the root down to the working directory), and the MCP servers. It
+--- names no path of the machine, only paths relative to the working
+--- directory, so sessions in other directories read it from the cache;
+--- the working directory itself is a block of its own after it
+--- ([`Prompt.where`]). Code mode adds no section of its own: what a
 --- snippet of `run` may do is in that tool's description, so a session
 --- that never runs one pays for little more than the tool.
 
@@ -61,7 +64,28 @@ local function section(name: string, body: string): string
   return "<" .. name .. ">\n" .. body .. "\n</" .. name .. ">"
 end
 
---- The system prompt for `cwd`, with `contexts` as its project's instructions, and `options`' MCP servers where
+--- `path`, a file in `cwd` or in a directory above it, as seen from
+--- `cwd`: its name, after a `../` for each directory up; `path` itself
+--- where it is in neither.
+local function seen_from(path: string, cwd: string): string
+  local dir = Fs.dirname(path)
+  local here, up = (cwd:gsub("(.)/+$", "%1")), ""
+  while here ~= dir do
+    local parent = Fs.dirname(here)
+    if parent == here or parent == "" then return path end
+    here, up = parent, up .. "../"
+  end
+  return up .. Fs.basename(path)
+end
+
+--- What follows the system prompt of a session in `cwd`, past its cache
+--- mark: the working directory, which the system prompt leaves out so
+--- that it is the same in every directory.
+function Prompt.where(cwd: string): string
+  return section("cwd", cwd)
+end
+
+--- The system prompt for `cwd`, with `contexts` as its project's instructions (each named by its path relative to `cwd`), and `options`' MCP servers where
 --- given: each server's name and what it is for, which a snippet calls by `require("mcp.<name>")`.
 function Prompt.build(cwd: string, contexts: {Prompt.Context}, options?: Prompt.Options): string
   local servers = if options ~= nil then options.servers else nil end
@@ -94,7 +118,7 @@ function Prompt.build(cwd: string, contexts: {Prompt.Context}, options?: Prompt.
   if #contexts > 0 then
     local files: mut {string} = { "Project-specific instructions and guidelines:" }
     for _, c in ipairs(contexts) do
-      files[#files + 1] = "<project_instructions path=\"" .. c.path .. "\">\n" .. c.content ..
+      files[#files + 1] = "<project_instructions path=\"" .. seen_from(c.path, cwd) .. "\">\n" .. c.content ..
         "\n</project_instructions>"
     end
     parts[#parts + 1] = section("project_context", table.concat(files, "\n\n"))
@@ -118,7 +142,6 @@ function Prompt.build(cwd: string, contexts: {Prompt.Context}, options?: Prompt.
     end
     parts[#parts + 1] = section("mcp_servers", table.concat(lines, "\n"))
   end
-  parts[#parts + 1] = section("cwd", cwd)
   return table.concat(parts, "\n\n")
 end
 
