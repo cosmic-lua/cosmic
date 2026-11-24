@@ -296,6 +296,22 @@ local function test_a_warm_start_removes_an_entry_of_another_mode(tmp: string)
   launch(program, cache, tmp)
 end
 
+--- An entry of 0555, as root's shared copies are, is refused and removed in a leaf that is not root's: the mode
+--- stands only where root alone writes both.
+local function test_an_entry_of_root_shared_mode_in_a_users_leaf_is_removed(tmp: string)
+  local program, cache = stamped_cache(tmp)
+  local entry = entry_of(cache)
+  if assert(assert(Fs.status(entry)).stat).uid == 0 then
+    Test.skip("root's leaf takes 0555 entries")
+  end
+  assert(Fs.chmod(entry, 0x16d))
+  local r = launch_bare(program, cache, tmp)
+  local err = r.stderr or ""
+  assert(not r.ok and err:find("is not mode 0500 (mode 555); removed it", 1, true) ~= nil, err)
+  assert(not assert(Fs.status(entry)).exists, "the refused entry is left")
+  launch(program, cache, tmp)
+end
+
 --- An entry this user cannot run (0600, as a copy that dropped the bit leaves it) is not taken by the warm start,
 --- whose exec would fail on it each time: the launcher's full path repairs it, and the launch runs.
 local function test_an_entry_with_no_run_bit_is_repaired(tmp: string)

@@ -20,7 +20,7 @@
 ---
 --- "output" is at most 64KB, its last part, as UTF-8 (a byte that begins no character is U+FFFD), and "cut": true
 --- says where more was written; "value" is at most 64KB of JSON, and a note where it is more. A snippet sets no
---- global, which the checker refuses; what it keeps for the next it writes to a file. It ends at the end of standard
+--- global, which the checker refuses; what it keeps for the next it keeps with Host.store, or writes to a file. It ends at the end of standard
 --- input.
 ---
 --- While a snippet runs, each call it makes of the agent ([`cosmic.agent.host`]) goes out as a line too, the request's
@@ -37,6 +37,7 @@ local Host = require("cosmic.agent.host")
 local Json = require("cosmic.json")
 local McpModule = require("cosmic.agent.mcp_module")
 local Pipeline = require("build.pipeline")
+local Poll = require("cosmic.poll")
 local Worker = require("cosmic.agent.worker")
 local String = require("cosmic.string")
 local standalone = require("build.standalone")
@@ -91,6 +92,21 @@ local record Channel
   mut pending: string
   --- The id of the request whose snippet runs, which each of its calls carries.
   mut id: Json.Value
+  --- The id the next call is sent with, which its reply carries.
+  mut next_call: integer
+  --- The replies read for calls that wait, by their call's id; one for a call that was cancelled stays until the next
+  --- request.
+  mut replies: mut {integer: {string: Json.Value}}
+  --- Whether a call reads the input for all that wait: one reads at a time.
+  mut reading: boolean
+  --- Why the input can be read no more, once it cannot.
+  mut ended?: string
+  --- What the calls that wait wait on, in tasks of a run ([`Poll.notifier`]): nil once none waits, so that each run
+  --- makes its own. A task closed as it waits (another task of its run raised) leaves it, and `reading`, as they are,
+  --- until the next request starts them anew.
+  mut arrived?: Poll.Notifier
+  --- How many calls wait for their replies.
+  mut waiting: integer
 end
 
 --- The most bytes of a call's line: well within the line of 1MB the agent reads.
@@ -111,11 +127,66 @@ local function line_of(channel: Channel): string?
   end
 end
 
+--- The reply to the call `call` on `channel`, or why there is none. One waiting call reads the input at a time, and
+--- hands each reply it reads to the call it is for; in a task of a run ([`Poll.run`]) it waits for the input as a
+--- task, so the other tasks send their calls meanwhile, and those wait to be woken.
+local function reply_of(channel: Channel, call: integer): ({string: Json.Value}) | (nil, string)
+  while true do
+    local got = channel.replies[call]
+    if got ~= nil then
+      channel.replies[call] = nil
+      return got
+    end
+    local ended = channel.ended
+    if ended ~= nil then return nil, ended end
+    local arrived = channel.arrived
+    if channel.reading and arrived ~= nil then
+      local woken, why = arrived:wait()
+      if not woken then return nil, tostring(why) end
+    else
+      channel.reading = true
+      -- In a task, each read waits for the input as a task, so that a long reply stalls no other task.
+      if Poll.in_task() then
+        while channel.pending:find("\n", 1, true) == nil do
+          local ready, why = Poll.readable(channel.input)
+          if not ready then
+            -- A cancelled reader hands the reading on.
+            channel.reading = false
+            if arrived ~= nil then arrived:notify_all() end
+            return nil, tostring(why)
+          end
+          local chunk, _ = Fs.take(channel.input, 65536)
+          if chunk == nil or chunk == "" then break end
+          channel.pending = channel.pending .. chunk
+        end
+      end
+      local line = line_of(channel)
+      channel.reading = false
+      if line == nil then
+        channel.ended = "the agent ended"
+      else
+        local reply, reply_why = Json.decode_object(line, { null_value = Json.null })
+        local id = if reply ~= nil then reply["call_id"] else nil end
+        if reply == nil or not (id is integer) then
+          channel.ended = "the agent's reply is no JSON object of a call's id: " .. tostring(reply_why)
+        else
+          channel.replies[id] = reply
+        end
+      end
+      if arrived ~= nil then arrived:notify_all() end
+    end
+  end
+end
+
 --- How a snippet's calls ([`cosmic.agent.host`]) reach the agent on `channel`: a line `{"id":1,"call":"sql",
---- "args":{...}}` out, and the reply, `{"reply":...}` or `{"failed":"..."}`, the next line in.
+--- "call_id":1,"args":{...}}` out, and the reply, `{"call_id":1,"reply":...}` or `{"call_id":1,"failed":"..."}`, in.
+--- Calls made from tasks of one run ([`Poll.run`]) are out at once, and the agent answers each as it can.
 local function transport_of(channel: Channel): Host.Transport
   return function(name: string, args: Json.Value): (Json.Value) | (nil, Failure)
-    local text, why = Json.encode({ id = channel.id, call = name, args = args })
+    local call = channel.next_call
+    channel.next_call = call + 1
+    if Poll.in_task() and channel.arrived == nil then channel.arrived = Poll.notifier() end
+    local text, why = Json.encode({ id = channel.id, call = name, call_id = call, args = args })
     if text == nil then return nil, Failure.new("host: " .. name .. ": " .. tostring(why)) end
     if #text > MAX_CALL then
       return nil, Failure.new("host: " .. name .. ": the call is " .. String.counted(#text, "byte") ..
@@ -125,12 +196,11 @@ local function transport_of(channel: Channel): Host.Transport
     if not sent then
       return nil, Failure.new("host: " .. name .. ": the agent cannot be reached")
     end
-    local line = line_of(channel)
-    if line == nil then return nil, Failure.new("host: " .. name .. ": the agent ended") end
-    local reply, reply_why = Json.decode_object(line, { null_value = Json.null })
-    if reply == nil then
-      return nil, Failure.new("host: " .. name .. ": the agent's reply is no JSON object: " .. tostring(reply_why))
-    end
+    channel.waiting = channel.waiting + 1
+    local reply, reply_why = reply_of(channel, call)
+    channel.waiting = channel.waiting - 1
+    if channel.waiting == 0 then channel.arrived = nil end
+    if reply == nil then return nil, Failure.new("host: " .. name .. ": " .. reply_why) end
     local trouble = reply["failed"]
     if trouble ~= nil then
       return nil, Failure.new("host: " .. name .. ": " .. tostring(trouble))
@@ -149,7 +219,7 @@ local record Modules
 end
 
 --- A function of an MCP server's module, as it runs: what the snippet's checker reads as the tool's own types.
-local type Call = function(arguments?: {string: Json.Value}): (Json.Value) | (nil, Failure)
+local type Call = function(arguments?: {string: Json.Value}): Json.Value
 
 --- `result` as the table a snippet reads as a [`Host.Result`].
 local function result_value(result: Host.Result): Json.Value
@@ -173,13 +243,17 @@ local function value_of_module(server: string, made: McpModule.Made): {string: C
   for _, f in ipairs(made.functions) do
     local tool, input = f.tool, f.input
     if f.structured then
-      out[f.name] = function(arguments?: {string: Json.Value}): (Json.Value) | (nil, Failure)
+      out[f.name] = function(arguments?: {string: Json.Value}): Json.Value
         return Host.structured(server, tool, sent_as(input, arguments))
       end
     else
-      out[f.name] = function(arguments?: {string: Json.Value}): (Json.Value) | (nil, Failure)
-        local result, why = Host.tool(server, tool, sent_as(input, arguments))
-        if result == nil then return nil, why end
+      out[f.name] = function(arguments?: {string: Json.Value}): Json.Value
+        local result: Host.Result = { text = "", content = {} }
+        local ok, why = pcall(function()
+          result = Host.tool(server, tool, sent_as(input, arguments))
+        end)
+        -- Raised again, the failure names the snippet's line, not this file's.
+        if not ok then error((tostring(why):gsub("^[^:\n]+:%d+: ", "")), 2) end
         return result_value(result)
       end
     end
@@ -194,9 +268,10 @@ local function provide(modules: Modules, code: string): string?
   for server in code:gmatch("require%s*%(?%s*[\"']mcp%.([%w_]+)[\"']") do
     local module = "mcp." .. server
     if modules.teal[module] == nil then
-      local tools, why = Host.tools(server)
-      if tools == nil then
-        return SNIPPET .. ": require(" .. Json.quote(module) .. "): " .. tostring(why)
+      local tools: {{string: Json.Value}} = {}
+      local listed, why = pcall(function() tools = Host.tools(server) end)
+      if not listed then
+        return SNIPPET .. ": require(" .. Json.quote(module) .. "): " .. (tostring(why):gsub("^[^:\n]+:%d+: ", ""))
       end
       local made = McpModule.made(server, tools)
       modules.teal[module] = made.teal
@@ -204,6 +279,132 @@ local function provide(modules: Modules, code: string): string?
     end
   end
   return nil
+end
+
+--- `code` with each `;` the checker's `lines` tell of (semicolon) made a space, and the lines that held one, when
+--- each is a `;` and none comes before a `(`, where a space would make two statements one call; nil where there is
+--- none. A `;` only ends a statement, so the snippet means the same without it, and the model's habit costs no
+--- refusal.
+local function without_semicolons(code: string, lines: {string}): (string, {string: boolean}) | (nil)
+  local at: mut {string: boolean} = {}
+  local rows: mut {string: boolean} = {}
+  local told = false
+  for _, line in ipairs(lines) do
+    local row, column = line:match("^run%.tl:(%d+):(%d+): ")
+    if row ~= nil and column ~= nil and line:find("(semicolon)", 1, true) ~= nil then
+      at[row .. ":" .. column] = true
+      rows[row] = true
+      told = true
+    end
+  end
+  if not told then return nil end
+  local out: mut {string} = {}
+  local row, start = 0, 0
+  for line in (code .. "\n"):gmatch("([^\n]*)\n") do
+    row = row + 1
+    local chars: mut {string} = {}
+    for column = 1, #line do
+      local char = line:sub(column, column)
+      if at[tostring(row) .. ":" .. tostring(column)] ~= nil then
+        -- What follows the `;`, past spaces and newlines, would join the expression before it where it is a call's
+        -- argument (`(`, a string, a table) or an index (`[`): there the `;` stays, and is told of.
+        if char ~= ";" or code:find("^%s*[%(\"'{%[]", start + column + 1) ~= nil then return nil end
+        char = " "
+      end
+      chars[#chars + 1] = char
+    end
+    out[#out + 1] = table.concat(chars)
+    start = start + #line + 1
+  end
+  return table.concat(out, "\n"):sub(1, #code), rows
+end
+
+--- The modules a snippet may use with no require, each by the name it is given: where a snippet reads a field of one
+--- ([`Host.cat`], `Fs:...`), the require goes before its first line, on that line, so the lines the checker tells of
+--- stay the snippet's own.
+local PRELUDE <const>: {{string}} = { { "Host", "cosmic.agent.host" }, { "Fs", "cosmic.fs" }, { "Json", "cosmic.json" } }
+
+--- The requires of each [`PRELUDE`] module `code` reads a field of, on one line: "" where it reads none.
+local function prelude_of(code: string): string
+  local bound: mut {string} = {}
+  for _, entry in ipairs(PRELUDE) do
+    local name, module = entry[1] or "", entry[2] or ""
+    if code:find("%f[%w_]" .. name .. "%s*[%.:]") ~= nil then
+      bound[#bound + 1] = "local " .. name .. " = require(\"" .. module .. "\") "
+    end
+  end
+  -- A snippet that begins with `(`, past a comment even, would be read as a call of the last require: `do end` ends
+  -- the prelude first.
+  if #bound > 0 then bound[#bound + 1] = "do end " end
+  return table.concat(bound)
+end
+
+--- What `kept` made of `code`, with a statement's `;` mended ([`without_semicolons`]). Where the mended code is
+--- refused too, its refusal, which tells of what else is wrong; where that tells of a line that held a `;` (one in a
+--- table, say), the first's lines of the `;` before it.
+local function mended_check(kept: Pipeline.Kept, code: string): Pipeline.Alone
+  local made = kept:check(code)
+  if made.code ~= nil then return made end
+  local mended, rows = without_semicolons(code, made.lines)
+  if mended == nil then return made end
+  local again = kept:check(mended)
+  if again.code ~= nil then return again end
+  for _, line in ipairs(again.lines) do
+    local row = line:match("^run%.tl:(%d+):")
+    if row ~= nil and rows[row] == true then
+      local both: mut {string} = {}
+      for _, first in ipairs(made.lines) do
+        if first:find("(semicolon)", 1, true) ~= nil then both[#both + 1] = first end
+      end
+      for _, second in ipairs(again.lines) do both[#both + 1] = second end
+      return { code = nil, lines = both, stages = again.stages }
+    end
+  end
+  return again
+end
+
+--- `lines` with a column of line 1 told as the snippet's own, `width` bytes of prelude before it taken off.
+local function unshifted(lines: {string}, width: integer): {string}
+  local out: mut {string} = {}
+  for _, line in ipairs(lines) do
+    local column, rest = line:match("^run%.tl:1:(%d+):(.*)$")
+    local at = math.tointeger(tonumber(column))
+    local told = if at ~= nil and rest ~= nil and at > width then
+      "run.tl:1:" .. tostring(at - width) .. ":" .. rest else line end
+    -- A place the message names on line 1 is the snippet's too.
+    out[#out + 1] = told:gsub("declared at 1:(%d+)", function(c: string): string
+      local n = math.tointeger(tonumber(c)) or 0
+      return "declared at 1:" .. tostring(if n > width then n - width else n end)
+    end)
+  end
+  return out
+end
+
+--- What `kept` made of `code` and its prelude ([`prelude_of`]). Where that is refused and the snippet alone is not
+--- (it binds a name of the prelude itself), the snippet alone; where both are, the refusal of the
+--- one with the prelude, unless it tells of a name the prelude declares (`declared at 1:C`, C within the prelude).
+local function snippet_check(kept: Pipeline.Kept, code: string): Pipeline.Alone
+  local prelude = prelude_of(code)
+  if prelude == "" then return mended_check(kept, code) end
+  local made = mended_check(kept, prelude .. code)
+  if made.code ~= nil then return made end
+  local alone = mended_check(kept, code)
+  if alone.code ~= nil then return alone end
+  for _, line in ipairs(made.lines) do
+    for column in line:gmatch("declared at 1:(%d+)") do
+      local at = math.tointeger(tonumber(column)) or 0
+      if at <= #prelude then return alone end
+    end
+  end
+  return { code = nil, lines = unshifted(made.lines, #prelude), stages = made.stages }
+end
+
+--- Whether `line` is a reply to a call, not a request: an object with a `call_id` and no `code` at its top. A reply
+--- may hold either word deeper in its value (a column named `code`), so the line is decoded, not searched.
+local function stale(line: string): boolean
+  if line:find("\"call_id\"", 1, true) == nil then return false end
+  local message, _ = Json.decode_object(line)
+  return message ~= nil and message["call_id"] ~= nil and message["code"] == nil
 end
 
 --- The answer to the request `line` holds, checked by `kept` and run within `capture`, its calls sent on `channel`;
@@ -218,9 +419,11 @@ local function answer_to(kept: Pipeline.Kept, modules: Modules, capture: Capture
   local code = request["code"]
   if not (code is string) then return failed(id, "the request has no code") end
   channel.id = id
+  -- Each request starts the calls' state anew: what a cancelled call or a closed task of the last one left goes.
+  channel.replies, channel.reading, channel.arrived, channel.waiting = {}, false, nil, 0
   local trouble = provide(modules, code)
   if trouble ~= nil then return { id = id, refused = Json.array({ trouble }) } end
-  local made = kept:check(code)
+  local made = snippet_check(kept, code)
   local lua = made.code
   if lua == nil then return { id = id, refused = Json.array(made.lines) } end
   -- Each snippet gets tables of its own, so one that sets a function changes it for none after.
@@ -292,21 +495,27 @@ function worker.main(): integer
   options.standard = function(module: string): Driver.Source?
     return made(module) or standard(module)
   end
+  -- A snippet runs once and no one reads it after: an unused name is no reason to refuse it.
+  options.lax = true
   local kept = Pipeline.kept_alone(SNIPPET, options)
-  local channel: Channel = { input = input, out = out, pending = "", id = Json.null }
+  local channel: Channel = { input = input, out = out, pending = "", id = Json.null, next_call = 1, replies = {},
+    reading = false, waiting = 0 }
   Host.connect(transport_of(channel))
   while true do
     local line = line_of(channel)
     if line == nil then break end
-    local answer = answer_to(kept, modules, capture, channel, line)
-    local text, encode_why = Json.encode(answer)
-    if text == nil then
-      local id = answer["id"]
-      text = assert(Json.encode(failed(if id == nil then Json.null else id end, tostring(encode_why))))
+    -- A reply to a call whose snippet answered already (one a task of it left) is no request, and is let go.
+    if not stale(line) then
+      local answer = answer_to(kept, modules, capture, channel, line)
+      local text, encode_why = Json.encode(answer)
+      if text == nil then
+        local id = answer["id"]
+        text = assert(Json.encode(failed(if id == nil then Json.null else id end, tostring(encode_why))))
+      end
+      -- An answer that cannot go out ends the worker, so the agent reads the end, not a wait.
+      local sent, _ = Fs.put(out, text .. "\n")
+      if not sent then break end
     end
-    -- An answer that cannot go out ends the worker, so the agent reads the end, not a wait.
-    local sent, _ = Fs.put(out, text .. "\n")
-    if not sent then break end
   end
   return 0
 end

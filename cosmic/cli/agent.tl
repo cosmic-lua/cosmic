@@ -66,13 +66,17 @@
 ---
 --- The sandbox (`cosmic docs cosmic.agent.policy`):
 ---
---- - The tools can read and change the working directory and run the
----   host's programs. They have a home of their own, which outlives each
----   command. They reach nothing else, not even the network.
+--- - The tools can read and change the working directory. They have a
+---   home of their own, which outlives each command. They reach nothing
+---   else, not even the network.
+--- - With the default tools (no bash), no program runs: on Linux the
+---   sandbox refuses every file but cosmic's own the right to run.
+---   On macOS, or with `--sandbox off`, a snippet may still run one.
 --- - `--sandbox read` lets them change nothing.
 --- - `--sandbox off` runs them with your user's rights and environment,
 ---   your API key included.
---- - `--network` lets bash reach the network.
+--- - `--network` lets the tools reach the network: Host.fetch, and bash
+---   where it is offered.
 --- - `--grant path[:rwxc]` adds a path.
 ---
 --- Output and sessions:
@@ -106,9 +110,10 @@ local command: Flags.Command = {
     ["--session"] = { value = "id", about = "ask, chat, resume, rpc: go on with the session of this id" },
     ["--json"] = { about = "ask: print each event as a line of JSON, not the model's words" },
     ["--sandbox"] = { value = "mode", about = "write (the default), read or off: what the tools may change" },
-    ["--network"] = { about = "let bash reach the network" },
+    ["--network"] = { about = "let bash and snippets (Host.fetch, cosmic.http) reach the network" },
     ["--grant"] = { value = "path[:rwxc]", about = "let the tools reach this path too, read alone unless letters say more" },
     ["--mcp"] = { value = "file", about = "ask, chat, resume, rpc: the MCP servers snippets may call (default ~/.config/cosmic/mcp.json; see cosmic.agent.mcp)" },
+    ["--tools"] = { value = "names", about = "ask, chat, resume, rpc, prompt: the tools the model is shown, such as run,read,edit,write,bash, all, or default (every tool but bash and jobs, which run no program)" },
   },
 }
 
