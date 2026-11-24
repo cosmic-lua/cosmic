@@ -365,18 +365,18 @@ function Policy.of(cwd: string, config: Policy.Config): Sandbox.Policy?, string
   end
   local cert: string? = nil
   local cert_file = config.cert_file
-  -- One that is not there is given as none: a stale variable does not refuse each run.
+  -- One that is not there, or is not a file, is given as none: a stale variable does not refuse each run.
   local real_cert: string? = nil
-  if config.network and cert_file ~= nil and cert_file ~= "" then
+  if (config.network or #(config.connect or {}) > 0) and cert_file ~= nil and cert_file ~= "" then
     local found, _ = Fs.absolute(cert_file)
     real_cert = found
   end
   if cert_file ~= nil and real_cert ~= nil then
     local status, _ = Fs.status(real_cert)
     local st = status and status.stat
-    if st == nil or st.kind ~= "file" then
-      return nil, "SSL_CERT_FILE " .. cert_file .. " is not a file, so the tools are not given it"
-    end
+    if st == nil or st.kind ~= "file" then real_cert = nil end
+  end
+  if cert_file ~= nil and real_cert ~= nil then
     for _, kept in ipairs(config.kept_out or {}) do
       local real_kept, _ = Fs.absolute(kept)
       if Fs.within(real_cert, real_kept or kept) then

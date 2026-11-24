@@ -312,6 +312,9 @@ local function test_sessions_are_kept_and_go_on()
   assert(r.err:find("session " .. newest .. " is in use by another run; started session", 1, true) ~= nil, r.err)
   local busy = cli({ "ask", "--session", newest, "tenth" }, KEYED, {})
   assert(busy.code == Flags.REFUSED and busy.err:find("is in use by another run", 1, true) ~= nil, busy.err)
+  local busy_fork = cli({ "ask", "--fork", "--session", newest, "tenth" }, KEYED, {})
+  assert(busy_fork.code == Flags.REFUSED and busy_fork.err:find("is in use by another run", 1, true) ~= nil,
+    busy_fork.err)
   assert(sys.close(lock))
   -- Every tool's output is kept, and a later session finds it.
   r = cli({ "ask", "run it" }, KEYED, { { content = { { type = "tool_use", id = "t", name = "bash",
@@ -325,6 +328,8 @@ end
 
 local function test_the_sandbox_on_the_command_line()
   home = scratch()
+  local nothing = cli({ "ask", "--new", "--sandbox", "read", "--tools", "edit,write", "x" }, KEYED, {})
+  assert(nothing.code == Flags.REFUSED and nothing.err:find("no tool is left", 1, true) ~= nil, nothing.err)
   local outside = scratch()
   assert(cli({ "ask", "--grant", "/tmp:rwu", "x" }, KEYED, {}).err:find("letters", 1, true) ~= nil)
   assert(cli({ "ask", "--sandbox", "off", "--network", "x" }, KEYED, {}).err:find("--sandbox off", 1, true) ~= nil)

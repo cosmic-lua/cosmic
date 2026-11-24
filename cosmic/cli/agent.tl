@@ -95,8 +95,8 @@
 --- - `--sandbox off` runs them with your user's rights and environment,
 ---   your API key included.
 --- - `--network` lets the tools reach the network: Host.fetch, and bash
----   where it is offered. Your SSL_CERT_FILE goes with it, so a proxy
----   that signs with its own root is trusted.
+---   where it is offered. Your SSL_CERT_FILE goes with it (and with
+---   `--connect`), so a proxy that signs with its own root is trusted.
 --- - `--connect host:port` lets them reach one more target. An address
 ---   written out, loopback or private too (`--connect 127.0.0.1:8123`),
 ---   is reached directly; a name reaches only public addresses, as

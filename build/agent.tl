@@ -1,9 +1,9 @@
 --- `cosmic agent`: a small coding agent, after pi. Claude, through the
 --- Messages API, with tools to read, write and edit files, run commands
 --- (in the foreground or as background jobs), check and run snippets in
---- the cosmic environment, and query what it has kept, held to a sandbox. `cosmic agent
---- worker` is the process that runs the snippets ([`build.agent_worker`]);
---- the agent starts it. [`cosmic.agent`] runs the loop; this reads the
+--- the cosmic environment, and query what it has kept, held to a
+--- sandbox. `cosmic agent worker` is the process that runs the snippets
+--- ([`build.agent_worker`]); the agent starts it. [`cosmic.agent`] runs the loop; this reads the
 --- command line, opens the sessions database and writes what the model
 --- says.
 ---
@@ -418,7 +418,11 @@ local function offered_tools(got: Flags.Parsed): ({Tools.Tool}) | (nil, string)
     local letters = given_grant:match(":([rwxc]+)$")
     if letters ~= nil and letters:find("w", 1, true) ~= nil then return offered end
   end
-  return Tools.without(offered, { "edit", "write" })
+  local kept = Tools.without(offered, { "edit", "write" })
+  if #kept == 0 then
+    return nil, "--sandbox read takes edit and write out, so no tool is left to offer"
+  end
+  return kept
 end
 
 --- Holds session `id` for this run, so no other run appends to it at once: the lock's descriptor, or nil where
@@ -481,8 +485,8 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
   end
   local lock: integer? = nil
   local passed: integer? = nil
-  -- A fork reads the other session alone, and so holds only its own.
-  if id ~= nil and not fork then
+  -- A fork holds the other session while it copies it, so it never copies a turn another run is in.
+  if id ~= nil then
     local fd, hold_why = hold_session(r, id)
     if fd == nil and hold_why ~= "" then return nil, hold_why end
     if fd == nil and asked then
@@ -516,7 +520,7 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
   if offered == nil then return refused("tools: " .. picked_why) end
   local now = Clock.now_ns() // Clock.seconds(1)
   if id == nil then
-    -- A fork is a new session that holds all the other kept, which goes on there alone.
+    -- A fork copies all the other session kept; this run goes on in the copy, and the other is left as it was.
     local started: integer? = nil
     local why = ""
     if forked ~= nil then
@@ -526,6 +530,11 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
     end
     if started == nil then return refused(why) end
     id = started
+    -- Done copying, so the other session is let go.
+    if forked ~= nil and lock ~= nil then
+      local _, _ = sys.close(lock)
+      lock = nil
+    end
     local fd, hold_why = hold_session(r, started)
     if fd == nil then
       return refused(if hold_why ~= "" then hold_why else "session " .. tostring(started) ..
@@ -552,7 +561,10 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
     return refused("--budget cost: no price is known for " .. model .. ", so its cost cannot be counted")
   end
   local settled, settle_why = s:settle()
-  if not settled then return refused(settle_why) end
+  if not settled then
+    s:close()
+    return refused(settle_why)
+  end
   return { session = s, lock = lock }, ""
 end
 

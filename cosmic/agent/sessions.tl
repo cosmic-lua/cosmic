@@ -289,6 +289,9 @@ function Sessions.fork(db: Sqlite.Handle, from: integer, cwd: string, model: str
       SELECT ?2, ?3, ?4, ended FROM sessions WHERE id = ?1]],
       { { integer = from }, { text = cwd }, { integer = seconds }, { text = model } })
     if not ok then return false, why end
+    if db:changes() == 0 then
+      return false, Failure.new("no session " .. tostring(from) .. " to fork")
+    end
     local id = db:last_insert_rowid()
     made = id
     for _, copy in ipairs({
