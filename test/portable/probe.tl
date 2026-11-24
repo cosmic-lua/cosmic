@@ -149,7 +149,7 @@ local function retained_prefix_probe(argv: {string}): integer
     "COSMIC_PORTABLE_ARTIFACT_FD", "COSMIC_PORTABLE_CORE_FD",
     "COSMIC_PORTABLE_TARGET_ID", "COSMIC_PORTABLE_CONFIGURATION_ID",
     "COSMIC_PORTABLE_CORE_OFFSET", "COSMIC_PORTABLE_CORE_LENGTH",
-    "COSMIC_PORTABLE_CORE_SHA256",
+    "COSMIC_PORTABLE_CORE_SHA256", "COSMIC_PORTABLE_CORE_HASHED",
   }
   for _, name in ipairs(private) do
     assert(sys.getenv(name) == nil, name .. " escaped portable startup")

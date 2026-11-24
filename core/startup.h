@@ -31,6 +31,9 @@
 #define COSMIC_PORTABLE_ENV_CORE_OFFSET "COSMIC_PORTABLE_CORE_OFFSET"
 #define COSMIC_PORTABLE_ENV_CORE_LENGTH "COSMIC_PORTABLE_CORE_LENGTH"
 #define COSMIC_PORTABLE_ENV_CORE_SHA256 "COSMIC_PORTABLE_CORE_SHA256"
+/* "1" where the launcher hashed the cache entry it hands over, just before
+ * it ran it; absent otherwise. */
+#define COSMIC_PORTABLE_ENV_CORE_HASHED "COSMIC_PORTABLE_CORE_HASHED"
 
 enum cosmic_startup_kind {
   COSMIC_STARTUP_NATIVE = 1,
@@ -74,6 +77,9 @@ struct cosmic_startup {
   uint64_t launcher_core_offset;
   uint64_t launcher_core_length;
   unsigned char launcher_core_sha256[COSMIC_PORTABLE_SHA256_LENGTH];
+  /* The launcher hashed the cache entry it hands over
+   * (COSMIC_PORTABLE_ENV_CORE_HASHED). */
+  bool launcher_hashed;
   const char *contract_error;
 };
 
