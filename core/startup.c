@@ -142,6 +142,7 @@ void cosmic_startup_portable (struct cosmic_startup *startup,
    * artifact by its path and the core by itself. Naming one alone is no
    * contract. */
   bool by_path = values[0] == NULL && values[1] == NULL;
+  const char *hashed = getenv(COSMIC_PORTABLE_ENV_CORE_HASHED);
   uint64_t artifact_fd = 0, core_fd = 0, target, configuration, offset, length;
   if (!by_path && (!decimal(values[0], INT_MAX, &artifact_fd) || artifact_fd < 3))
     startup->contract_error = "portable artifact descriptor field is invalid";
@@ -161,7 +162,14 @@ void cosmic_startup_portable (struct cosmic_startup *startup,
     startup->contract_error = "portable launcher core length is invalid";
   else if (!hex_digest(values[6], startup->launcher_core_sha256))
     startup->contract_error = "portable launcher core digest is invalid";
+  else if (hashed != NULL && strcmp(hashed, "1") != 0)
+    startup->contract_error = "portable launcher hashed field is invalid";
+  /* Only a launcher hashes what it hands over: a start by path, which no
+   * launcher made, has nothing the word could be true of. */
+  else if (hashed != NULL && by_path)
+    startup->contract_error = "portable launcher hashed field names no handed core";
   else {
+    startup->launcher_hashed = hashed != NULL;
     startup->by_path = by_path;
     startup->artifact_fd = by_path ? -1 : (int)artifact_fd;
     startup->core_fd = by_path ? -1 : (int)core_fd;
@@ -558,9 +566,13 @@ bool cosmic_startup_adopt (const struct cosmic_startup *startup,
     return fail_adoption(artifact, core_fd, -1, error,
                          "executing core length differs from manifest");
   }
-  /* A stamp that holds says the entry was hashed and not written since. */
+  /* A stamp that holds says the entry was hashed and not written since; a
+   * launcher that hashed the entry it hands over says so too. Only a cache
+   * entry, in a leaf cache_refusal found no one else can write, is taken on
+   * the launcher's word. */
   bool fresh = stamped && stamp_holds(stamp, &core_stat);
-  if (!fresh && !cosmic_sha256_range_matches(core_fd, 0,
+  bool hashed = fresh || (stamped && startup->launcher_hashed);
+  if (!hashed && !cosmic_sha256_range_matches(core_fd, 0,
                                              selected->length,
                                              selected->sha256)) {
     /* A warm launch leaves a cached core's digest to this one pass, so a

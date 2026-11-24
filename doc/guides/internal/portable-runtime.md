@@ -175,19 +175,22 @@ start takes the full path: it validates the cache leaf's kind, owner,
 mode, and contents, and repairs what it can.
 
 On a cold start, the launcher copies the selected manifest range to a private
-temporary file, verifies its length and SHA-256 digest, sets its mode, and
-publishes it atomically. A symlink, unexpected entry, wrong owner or mode, or
+temporary file, verifies its SHA-256 digest (which a short copy fails too),
+sets its mode, and publishes it atomically. It then tells startup, with
+`COSMIC_PORTABLE_CORE_HASHED=1`, that it hashed the entry it hands over, so
+startup does not hash it again; startup takes that word only with the
+launcher's descriptors, never on a start by path. A symlink, unexpected entry, wrong owner or mode, or
 short core is repaired, or stops the launch when the cache is read-only.
 
 A compressed core takes a second stage first. The launcher cuts the target's
 decoder stub out of the artifact descriptor it holds, before anything else reads
-it, into a private `.stub.*` file; checks its length and digest; sets mode 0500
+it, into a private `.stub.*` file; checks its digest; sets mode 0500
 and runs it as `stub <descriptor> <offset> <stored length> <length>`, its
 output going to the staging file of the core. The stub ([`core/unzstd.c`])
 reads the range with `pread`, accepts one zstd frame that names its size and
 checksum, and never writes more than the length it is given. The launcher
 reads its exit status (no pipeline hides it), removes the stub, and checks the
-staged core's length and digest as for a raw one. A stub that fails, writes
+staged core's digest as for a raw one. A stub that fails, writes
 the wrong bytes or cannot run (a `noexec` cache, which it names) stops the
 launch, and a signal removes the stub as it does any staged file (the shell
 holds its trap while the stub runs, so the signal takes effect when the stub
@@ -252,8 +255,9 @@ duplicate target and configuration identities.
 
 Startup decodes the trailer and complete manifest from the retained artifact
 descriptor. It proves that the selected entry matches the core compiled for
-this process. It hashes the retained core descriptor and compares its device
-and inode with the executing image. The shell's choice is a request, not
+this process. It hashes the retained core descriptor, unless a stamp that
+holds or the launcher's word says it was hashed, and compares its device and
+inode with the executing image. The shell's choice is a request, not
 authority.
 
 Startup keeps the artifact descriptor for the process lifetime. Rename,

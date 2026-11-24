@@ -13,7 +13,7 @@ local sys = require("cosmic.sys")
 
 --- The program itself, which its tests start through its launcher, and
 --- the host's programs the launcher runs: `sh`, and the `uname`, `id`,
---- `stat`, `mkdir`, `mktemp`, `dd`, `head`, `wc`, `sha256sum`, `chmod`,
+--- `stat`, `mkdir`, `mktemp`, `dd`, `head`, `sha256sum`, `chmod`,
 --- `ln`, `rm` and `rmdir` it calls, and the kernel's names of the OS and
 --- machine it reads in uname's place (build/launcher.tl;
 --- build/launcher_test.tl holds what this module grants to what the
@@ -31,7 +31,6 @@ Test.policy{ profiles = { "cosmic" }, grants = {
   { path = "/bin/mktemp", letters = "r" }, { path = "/usr/bin/mktemp", letters = "r" },
   { path = "/bin/head", letters = "r" }, { path = "/usr/bin/head", letters = "r" },
   { path = "/bin/rm", letters = "r" }, { path = "/usr/bin/rm", letters = "r" },
-  { path = "/bin/wc", letters = "r" }, { path = "/usr/bin/wc", letters = "r" },
   { path = "/bin/dd", letters = "r" }, { path = "/usr/bin/dd", letters = "r" },
   { path = "/bin/chmod", letters = "r" }, { path = "/usr/bin/chmod", letters = "r" },
   { path = "/bin/id", letters = "r" }, { path = "/usr/bin/id", letters = "r" },
@@ -363,6 +362,60 @@ local function test_a_warm_start_removes_a_damaged_entry(tmp: string)
     launch(program, cache, tmp)
     assert(stamps(cache) == 1, "the extracted entry is stamped again")
   end
+end
+
+--- The launcher tells startup it hashed the entry it hands over (COSMIC_PORTABLE_CORE_HASHED) only where it did:
+--- one the environment gives a warm start, which hashed nothing, is not taken, and a damaged entry is still found.
+local function test_a_hashed_word_from_the_environment_is_not_taken(tmp: string)
+  local program, cache = stamped_cache(tmp)
+  local entry = entry_of(cache)
+  local bytes = assert(Fs.read(entry))
+  overwrite(entry, bytes:sub(1, #bytes - 1) .. (if bytes:sub(-1) == "x" then "y" else "x" end))
+  local r = launch_bare(program, cache, tmp, { COSMIC_PORTABLE_CORE_HASHED = "1" })
+  local err = r.stderr or ""
+  assert(not r.ok and err:find("digest differs from the manifest; removed it", 1, true) ~= nil, err)
+end
+
+--- Startup takes the launcher's word that it hashed the entry only from a start the launcher made, with its
+--- descriptors: a start by path, which no launcher made, is refused with the word, as is any word but "1".
+local function test_a_hashed_word_is_taken_only_from_a_launcher(tmp: string)
+  local program, cache = stamped_cache(tmp)
+  assert(Fs.write(tmp .. "/word.tl", [[
+local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
+local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
+local function start(env: {string:string}, fds: {integer:integer}, word: string): string
+  local copy: mut {string:string} = {}
+  for key, value in pairs(env) do copy[key] = value end
+  copy["COSMIC_PORTABLE_CORE_HASHED"] = word
+  local again = assert(Proc.relaunch())
+  local argv: mut {string} = {}
+  for _, part in ipairs(again.argv) do argv[#argv + 1] = part end
+  argv[#argv + 1] = "-e"
+  argv[#argv + 1] = "print('ran')"
+  local r = assert(Child.run(argv, { env = copy, fds = fds, stdout = "capture", stderr = "capture",
+    timeout_ns = Clock.seconds(30) }))
+  return tostring(r.code) .. ":" .. (r.stdout or "") .. (r.stderr or "")
+end
+return function(): integer
+  local again = assert(Proc.relaunch())
+  local by_path: mut {string:string} = {}
+  for key, value in pairs(again.env) do by_path[key] = value end
+  by_path["COSMIC_PORTABLE_ARTIFACT_FD"] = nil
+  by_path["COSMIC_PORTABLE_CORE_FD"] = nil
+  local _, _ = Fs.put(Fs.stdout, start(by_path, {}, "1") .. "\n--\n" .. start(again.env, again.fds, "2"))
+  return 0
+end
+]]))
+  local env = environment()
+  name_leaf(env, cache)
+  local r = assert(Child.run({ program, "word.tl" }, { env = env, cwd = tmp,
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
+  local out = r.stdout or ""
+  assert(r.ok and out:find("hashed field names no handed core", 1, true) ~= nil and
+      out:find("hashed field is invalid", 1, true) ~= nil and out:find("ran\n", 1, true) == nil,
+    out .. tostring(r.stderr))
 end
 
 --- An entry written since its stamp, newer than it, is not taken by the warm start: the launcher's full path hashes
