@@ -139,4 +139,9 @@ local function test_a_token_goes_over_plain_http_only_to_a_loopback_host()
   assert(ran.code == 1 and ran.err:find("in the clear", 1, true) ~= nil and not ran.err:find(TOKEN, 1, true), ran.err)
   local upper = run({ "tools", "--url", "HTTP://192.0.2.1/mcp", "--token-env", "MCP_TOKEN" }, TOKEN)
   assert(upper.code == 1 and upper.err:find("in the clear", 1, true) ~= nil, upper.err)
+  local tricked = run({ "tools", "--url", "http://127.0.0.1:1@192.0.2.1/mcp", "--token-env", "MCP_TOKEN" }, TOKEN)
+  assert(tricked.code == 2 and tricked.err:find("holds credentials", 1, true) ~= nil, tricked.err)
+  local unread = run({ "tools", "--url", "http://127.0.0.1/a b", "--token-env", "MCP_TOKEN" }, TOKEN)
+  assert(unread.code == 1 and unread.err:find("--url", 1, true) ~= nil and not unread.err:find(TOKEN, 1, true),
+    unread.err)
 end
