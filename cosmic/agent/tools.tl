@@ -81,6 +81,7 @@ local Jobs = require("cosmic.agent.jobs")
 local Failure = require("cosmic.failure")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
+local RunText = require("cosmic.agent.run_text")
 local Sandbox = require("cosmic.sandbox")
 local Sessions = require("cosmic.agent.sessions")
 local Sqlite = require("cosmic.sqlite")
@@ -1070,55 +1071,8 @@ local ALL <const>: {Tools.Tool} = {
     name = "run",
     snippet = "Run a checked cosmic program in place of many tool calls",
     guidelines = {},
-    description = "Run a program in cosmic, a typed language of its own with a library of its own (its syntax is much like " ..
-      "Lua's), in a worker kept for the session, under the session's sandbox: one program in place of many tool calls, " ..
-      "printing only what you need; its locals end with it. It is " ..
-      "type-checked first: a refusal runs nothing, costs a turn, and gives the fix. Returns what it printed (its " ..
-      "start and end past " .. tostring(RUN_BYTES // 1024) .. "KB) and the JSON of what it returned.\n\n" ..
-      "Host (cosmic.agent.host), Fs (cosmic.fs) and Json (cosmic.json) need no require. Host's calls do as the " ..
-      "commands they are named for, and raise where they fail, so they need no assert:\n" ..
-      "- Host.find(dir, suffix?) -> {string}: every file under dir, sorted (`Host.find(\"src\", \".tl\")`).\n" ..
-      "- Host.cat(path) -> string; Host.lines(path) -> {string}; Host.wc(path) -> integer, its newlines as `wc -l`; " ..
-      "Host.write(path, text or {lines}); Host.exists(path) -> boolean.\n" ..
-      "- Host.grep(pattern, paths, plain?) -> {{path, line, text}}: the lines that hold a pattern " ..
-      "(`%d`, `%.`, `[^/]+`; no regex).\n" ..
-      "- Host.sed(path, pattern, replacement, plain?) -> integer: replaces every match, line by line (`%1` a " ..
-      "capture).\n" ..
-      "- Host.sort(list, by?) -> {string}, by the key `by(item)` gives where given; Host.uniq(keys) -> {string: integer}, each key's count; Host.top(counts, " ..
-      "n?) -> {{key, count}}, most first, ties by key.\n" ..
-      "- Host.bash(command) -> {output, ok, code}; " ..
-      "Host.sql(query) -> rows; Host.store(key, value) / Host.load(key).value.\n" ..
-      "- Host.fetch(url, {method?, headers?, body?}?) -> {status, headers, body}: no redirect followed; public " ..
-      "addresses with --network, and the targets of --connect.\n" ..
-      "- Host.sqlite(path, statement, {values}?) -> {row}: one SQL statement on a SQLite file, made where missing " ..
-      "(`?1` binds the first value; with no values, a script of several); a row's column is `row[\"name\"]`. " ..
-      "Host.sha256(path) -> hex.\n" ..
-      "- print(Host.modules()) lists the cosmic.* modules a snippet may require (not io or os); " ..
-      "print(Host.docs(\"cosmic.fs\")) shows one. Their calls that may fail answer a value, or nil and why: take it " ..
-      "with assert (`local text = assert(Fs.read(path))`), as a statement too (`assert(Fs.write(path, text))`).\n\n" ..
-      "The checker refuses, so write:\n" ..
-      "- A table you fill is declared: `local out: mut {string} = {}`, `local n: mut {string: integer} = {}`; " ..
-      "append with `out[#out + 1] = v`.\n" ..
-      "- A local that starts nil is optional: `local cursor: string? = nil`; test it with `if cursor ~= nil " ..
-      "then`. A local of a plain type is never compared with nil.\n" ..
-      "- A local function declares its parameters and results: `local function f(x: integer): string`.\n" ..
-      "- A read that may be nil (`t[i]`, `m[k]`, `s:match(...)`, `tonumber(s)`) is tested, given a default " ..
-      "(`m[k] or 0`) or taken with assert(...). Walk a list with ipairs, a map with pairs.\n" ..
-      "- A condition is a boolean or an optional of no boolean: `if s ~= \"\" then`; for a {string: boolean} " ..
-      "set, `if seen[k] == nil then`.\n" ..
-      "- `..` joins strings: `tostring(n)`; `%d` takes an integer: `math.floor(x)`.\n" ..
-      "- `if c then a else b end`, with its `end` even inside a call, in place of `c and a or b`.\n" ..
-      "- `{key: string, count: integer}` is a record type, `{string: integer}` a map, and `mut {{key: string}}` " ..
-      "a list one may add to. Host.top answers `{Host.Count}`.\n" ..
-      "- The first n of a list: `for i, v in ipairs(list) do if i > n then break end ... end`.\n" ..
-      "- Records, not tuples (`{A, B}`); `T?`, not `T | nil`; no `;`; no goto.\n\n" ..
-      "For example:\n" ..
-      "local exts: mut {string} = {}\n" ..
-      "for _, path in ipairs(Host.find(\".\")) do\n" ..
-      "  local ext = path:match(\"%.(%w+)$\")\n" ..
-      "  if ext ~= nil then exts[#exts + 1] = ext end\n" ..
-      "end\n" ..
-      "for _, c in ipairs(Host.top(Host.uniq(exts))) do print(c.key .. \" \" .. tostring(c.count)) end",
+    -- The words are the text template run_text.tmpl (cosmic.template).
+    description = RunText.render({ kb = RUN_BYTES // 1024 }),
     schema = schema({
       code = string_field("The cosmic program, as the body of a file"),
       timeout = integer_field("Seconds, " .. tostring(RUN_SECONDS) .. " by default, 0 for none; past it the " ..
