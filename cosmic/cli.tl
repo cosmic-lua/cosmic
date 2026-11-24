@@ -19,7 +19,9 @@ local record Cli
   --- `cosmic <file.tl> [args...]`: builds the file's tree into the tree's
   --- build directory, then runs the file. The tree is the working directory when
   --- the file is under it, so a file of a project reaches the rest of the
-  --- project. Otherwise the tree is the file's own directory.
+  --- project. Otherwise the tree is the file's own directory. `cosmic run
+  --- <file.tl> [args...]` is the same, and `cosmic run --standalone
+  --- [--check] <file.tl> [args...]` is `cosmic --standalone`.
   ---
   --- Running the file requires it. If it returns a function, cosmic calls
   --- that function with the words after the file's path (`argv[1]` on; its
@@ -98,11 +100,13 @@ local record Cli
   --- `string?`; it prints only what it prints. What it returns is the
   --- exit code, as a built program's is: nothing is 0, a whole number
   --- from 0 to 255, or text naming one, is itself, and anything else is
-  --- complained about and exits 2
+  --- complained about and exits 2. `cosmic eval '<chunk>' [args...]` is the
+  --- same.
   eval: string
   --- `cosmic --version`: prints `cosmic <hex>`, the SHA-256 of the file
   --- this binary runs from -- the digest a release's SHA256SUMS names
-  --- it by and its notes cite -- with nothing built or checked
+  --- it by and its notes cite -- with nothing built or checked. `cosmic
+  --- version` is the same.
   version: string
   --- `cosmic test [options] [selector...]`: builds the tree in the
   --- working directory, then runs every test it defines. A test is one

@@ -148,6 +148,23 @@ local function test_help_gives_the_exit_code_of_a_refused_chunk(tmp: string)
   end
 end
 
+--- `cosmic run` refuses a verb's name as its file, asks for help as every verb does, and hands any other
+--- word to the file run, whose messages name a Lua file or a missing one; `eval --help` is `help eval`.
+local function test_run_and_eval_are_read_as_their_pages_say(tmp: string)
+  for _, word in ipairs({ "test", "help" }) do
+    local r = verbs_fixture.run(tmp, { "run", word })
+    assert(r.code == 2 and r.stderr:find("run takes a file to run", 1, true) ~= nil, word .. ": " .. r.stderr)
+  end
+  local lua, plain = verbs_fixture.run(tmp, { "run", "x.lua" }), verbs_fixture.run(tmp, { "x.lua" })
+  assert(lua.code == plain.code and lua.stderr == plain.stderr, lua.stderr .. plain.stderr)
+  local asks: {{string}} = { { "run", "--help" }, { "eval", "-h" }, { "-e", "--help" } }
+  for _, words in ipairs(asks) do
+    local page = if words[1] == "run" then "run" else "eval" end
+    local r, shown = verbs_fixture.run(tmp, words), verbs_fixture.run(tmp, { "help", page })
+    assert(r.code == 0 and r.stdout == shown.stdout and r.stdout ~= "", table.concat(words, " ") .. ": " .. r.stderr)
+  end
+end
+
 --- Bare `cosmic help` is an index, not the text of every verb.
 local function test_help_is_a_short_index_of_every_verb(tmp: string)
   local all = verbs_fixture.expect(tmp, "help", { "help" }, 0).stdout

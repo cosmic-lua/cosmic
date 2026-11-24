@@ -957,6 +957,29 @@ local RETIRED_FLAGS <const>: {string: string} = {
 --- @param argv the command line, the verb at slot 1
 function Dispatch.main(argv: {string}): integer
   local word = argv[1]
+  -- `run`, `eval` and `version` name the pages `cosmic help run`, `help eval` and `help version`, so each word is
+  -- taken as its page's short form: `eval` as `-e`, `version` as `--version` and `run <file>` as `<file>`.
+  local second_word = argv[2]
+  if (word == "run" or word == "eval" or word == "-e") and (second_word == "--help" or second_word == "-h") then
+    return Dispatch.main({ "help", if word == "run" then "run" else "eval" end })
+  end
+  if word == "eval" or word == "version" then
+    local spelled: mut {string} = { if word == "eval" then "-e" else "--version" end }
+    for slot = 2, #argv do spelled[#spelled + 1] = argv[slot] end
+    argv, word = spelled, spelled[1]
+  elseif word == "run" then
+    -- Any other word goes on as a file run, whose own messages name a missing file, a Lua file or a directory.
+    local file = argv[2]
+    if file == nil or file == "help" or (file:sub(1, 1) == "-" and file ~= "--standalone") or
+        (file ~= "--standalone" and file:sub(-3) ~= ".tl" and spec_of(file) ~= nil) then
+      log:complain("run takes a file to run, `cosmic run <file.tl> [args]`, or `cosmic run --standalone " ..
+          "<file.tl>`, not " .. (if file ~= nil then file else "nothing" end) .. "; see `cosmic help run`")
+      return 2
+    end
+    local shifted: mut {string} = {}
+    for slot = 2, #argv do shifted[#shifted + 1] = argv[slot] end
+    argv, word = shifted, file
+  end
   if word == "-e" then
     -- The one-liner: a checked chunk of Teal, like --standalone with no tree and no staleness.
     return evaluate(argv)
@@ -1026,7 +1049,7 @@ function Dispatch.main(argv: {string}): integer
   end
   -- Whether the verb is typed by its name, and so is a command Flags.dispatch reads the line of: `help`, a file
   -- run and the verbs spelled as options read their own.
-  local typed_by_name = chosen ~= nil and verb ~= "help" and verb ~= "run" and verb:sub(1, 1) ~= "-"
+  local typed_by_name = chosen ~= nil and verb ~= "help" and verb:sub(1, 1) ~= "-"
   local verb_subcommands = if command ~= nil then command.subcommands else nil end
   local asks_sub_help = verb_subcommands ~= nil and own[2] == "help"
   if chosen ~= nil and verb ~= "help" and (asks_sub_help or Flags.asks_help(own, 2, options)) then
@@ -1135,10 +1158,9 @@ function Dispatch.main(argv: {string}): integer
     local exists_status, _ = Fs.status(verb)
     local exists = exists_status ~= nil and exists_status.exists
     if exists ~= true then
-      -- The verbs typed by their names: a file run and the verbs spelled
-      -- as options are typed by none.
-      local untyped: mut {string:boolean} = { run = true }
-      for _, name in pairs(as_option) do untyped[name] = true end
+      -- The verbs typed by their names: all but `standalone`, which is typed `--standalone` (or
+      -- `run --standalone`).
+      local untyped: {string:boolean} = { standalone = true }
       local typed: mut {string} = {}
       for _, known in ipairs(Cli.order) do
         if untyped[known] == nil then typed[#typed + 1] = known end
