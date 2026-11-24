@@ -226,6 +226,17 @@ own operation records. A returned failure keeps its status without another
 diagnostic. An exception records exit code 1 and its full text, also written
 to stderr. The operations database stays outside the candidate checkout.
 
+A command that fails says why again where a reader finds it
+([`cosmic_ci/failures.tl`]): the lines of its output that say what failed
+(a test's or the tree check's `FAIL`, a checker's, C compiler's, linker's
+or git's error, an uncovered C function, a timeout) become `::error::`
+annotations and a block of the job's summary page, and are kept in
+`$RUNNER_TEMP/cosmic-ci/failures.txt`. A failed leg's step "say again what
+failed" (`driver.tl failures`) prints them just before the tree is moved
+back, so the log ends near the failure. The phases' build and check
+commands, as a suite does, keep their output in files beside the
+operations database (`said/`), which they say whole once they end.
+
 Each suite a platform phase runs -- the native (`local`) suite, the
 checked and portable suites, and each fixture's `cosmic test` -- writes
 one row to the operations database's `suite_runs` table once it ends
@@ -659,6 +670,7 @@ the first tried once, with the clearing and sleeping step between them.
 [`cosmic_ci/github_api.tl`]: cosmic_ci/github_api.tl
 [`cosmic_ci/github_api_test.tl`]: cosmic_ci/github_api_test.tl
 [`cosmic_ci/report_test.tl`]: cosmic_ci/report_test.tl
+[`cosmic_ci/failures.tl`]: cosmic_ci/failures.tl
 [`cosmic_ci/suite_output.tl`]: cosmic_ci/suite_output.tl
 [`cosmic_ci/zig_prune.tl`]: cosmic_ci/zig_prune.tl
 

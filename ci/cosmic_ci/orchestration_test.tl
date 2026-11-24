@@ -304,6 +304,7 @@ printf not-a-database > o/build.db
 cat > o/bin/cosmic <<'INNER'
 #!/bin/sh
 if [ "${1-}" = work_db_integrity.tl ]; then mkdir -p o; exit 0; fi
+echo 'test: FAIL  fake_test test_kept: it broke'
 i=0; while [ "$i" -lt 20000 ]; do printf 'large retained output %s\n' "$i"; i=$((i + 1)); done
 exit 23
 INNER
@@ -335,6 +336,11 @@ chmod 755 o/bin/cosmic
       TMPDIR = tmp .. "/temporary",
     }), Clock.seconds(20))
   assert(outcome.result.code == 23, "suite failure was not primary")
+  -- What the failed suite said of its failure is said again at the end.
+  local again = Fixture.call("failures", append(base, { "failures" }), project, tmp .. "/logs",
+    context(fake, build_runner_temp, { TARGET = "x86_64-linux-musl" }))
+  assert(again.result.ok, again.err)
+  Fixture.contains(again.out, "test: FAIL  fake_test test_kept: it broke")
   assert(assert(Fs.stat(work .. "/local-diagnostics/local-test.out")).size > 100000)
   assert(assert(Fs.read(work .. "/local-diagnostics/local-test.status")):find("23", 1, true))
   -- Neither of zig's caches is copied into o/: bin/zig uses both where
@@ -347,6 +353,42 @@ chmod 755 o/bin/cosmic
   assert(assert(Fs.status(fake .. "/o/poison")).exists == false)
   assert(#assert(Fs.list(tmp .. "/temporary")) == 0,
     "snapshot inspection directory was retained")
+end
+
+--- A failed build's lines that say why are said again at the end of the
+--- job, and a run where nothing failed says it kept none.
+local function test_a_failed_build_is_said_again_at_the_end(tmp: string)
+  local base, project = command(tmp)
+  local fake = tmp .. "/fake"
+  assert(Fs.mkdirs(fake .. "/bin"))
+  assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
+  Fixture.write(fake .. "/bin/zig", "#!/bin/sh\necho 'compiling'\necho 'error: the build broke' >&2\nexit 1\n", 493)
+  local runner_temp = tmp .. "/runner-temp"
+  assert(Fs.mkdirs(runner_temp))
+  local env = context(fake, runner_temp, { TARGET = "x86_64-linux-musl" })
+  local none = Fixture.call("none", append(base, { "failures" }), project, tmp .. "/logs", env)
+  assert(none.result.ok, none.err)
+  Fixture.contains(none.out, "no step kept a line")
+  local built = Fixture.call("build", append(base, { "platform", "build" }), project, tmp .. "/logs", env,
+    Clock.seconds(20))
+  assert(not built.result.ok)
+  -- The build's own output reaches the log, once it ends.
+  Fixture.contains(built.out, "compiling")
+  Fixture.contains(built.err, "error: the build broke")
+  local again = Fixture.call("failures", append(base, { "failures" }), project, tmp .. "/logs", env)
+  assert(again.result.ok, again.err)
+  Fixture.contains(again.out, "error: the build broke")
+  assert(again.out:find("compiling", 1, true) == nil, again.out)
+  -- A build a signal ends, saying nothing, is said to have been ended.
+  Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nkill -KILL $$\n", 493)
+  local quiet_temp = tmp .. "/quiet-temp"
+  assert(Fs.mkdirs(quiet_temp))
+  local quiet = context(fake, quiet_temp, { TARGET = "x86_64-linux-musl" })
+  assert(not Fixture.call("killed", append(base, { "platform", "build" }), project, tmp .. "/logs", quiet,
+    Clock.seconds(20)).result.ok)
+  local ended = Fixture.call("ended", append(base, { "failures" }), project, tmp .. "/logs", quiet)
+  assert(ended.result.ok, ended.err)
+  Fixture.contains(ended.out, ": signal")
 end
 
 --- A local run names a project cache to start from
