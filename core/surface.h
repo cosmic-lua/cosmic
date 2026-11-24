@@ -14,8 +14,17 @@
 
 /* Creates the state and opens the surface. `logical_executable` is the path a
  * program can execute to relaunch this same logical artifact. Returns NULL
- * when there is no memory for a state at all. */
+ * when there is no memory for a state at all, or when the VM cannot hold the
+ * list of the C functions whose calls run no finalizer, which only a change
+ * to the standard library could make so (`mark_inert`). */
 lua_State *cosmic_surface_open (const char *logical_executable);
+
+/* Names the C function at `idx`, a light one or a closure's, one whose
+ * calls from Lua code run no pending finalizer, as the checker counts it
+ * as running no code of the program
+ * (patch/lua/26-finalizers-at-c-calls-inert-gc.txt). A value that is no
+ * C function is left as it is. False only when the VM's list is full. */
+bool cosmic_surface_set_inert (lua_State *L, int idx);
 
 /* Closes a state cosmic_surface_open made, and frees the big blocks its
  * allocator kept for reuse. */

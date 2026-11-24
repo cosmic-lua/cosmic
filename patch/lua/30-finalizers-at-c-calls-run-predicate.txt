@@ -1,0 +1,37 @@
+file: src/lvm.c
+note: A Lua function's call of a C function runs the pending finalizers first, unless the function is one lua_setinert named (patch/lua/26-finalizers-at-c-calls-inert-gc.txt): the checker counts any other call as one that may run any code. Only a call the VM makes for OP_CALL, OP_TAILCALL and a generic for's OP_TFORCALL runs them, a value's C '__call' among them: a C function's own lua_call or lua_pcall of another runs none, so a binding that holds a library's state across one (core/xml.c's appends) is never re-entered by a finalizer, and nor is a C metamethod the VM calls for an index or an operator, which the checker counts as no call. A Lua function runs them in luaD_precall (patch/lua/23-finalizers-at-calls-run.txt).
+--- find
+/*
+** {==================================================================
+** Function 'luaV_execute': main interpreter loop
+--- replace
+/*
+** Whether the VM runs the pending finalizers before it calls 'f' for
+** OP_CALL, OP_TAILCALL or OP_TFORCALL: 'f' is a C function lua_setinert
+** did not name, or a value whose '__call' is one
+** (patch/lua/31-finalizers-at-c-calls-run-call.txt). A Lua function, or a
+** '__call' that is one, runs them in luaD_precall.
+*/
+static int runsfinalizers (lua_State *L, const TValue *f) {
+  int links;
+  /* A '__call' may be a value with a '__call' of its own, as
+     luaD_precall's tryfuncTM follows; a chain longer than this is
+     called with none run. */
+  for (links = 0; links < 64; links++) {
+    switch (ttypetag(f)) {
+      case LUA_VLCF: return !luaC_inert(fvalue(f));
+      case LUA_VCCL: return !luaC_inert(clCvalue(f)->f);
+      case LUA_VLCL: return 0;
+      default:
+        f = luaT_gettmbyobj(L, f, TM_CALL);
+        if (notm(f)) return 0;
+    }
+  }
+  return 0;
+}
+
+
+/*
+** {==================================================================
+** Function 'luaV_execute': main interpreter loop
+--- end
