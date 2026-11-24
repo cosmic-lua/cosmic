@@ -262,7 +262,7 @@ local function test_warm_sends_the_last_request_again_asking_for_nothing()
   local bodies: mut {{string: Json.Value}} = {}
   local status, answer = 200, assert(Json.encode({ id = "msg_warm", model = "claude-sonnet-5-5", content = Json.array(),
     stop_reason = "max_tokens", usage = { input_tokens = 0, output_tokens = 0, cache_read_input_tokens = 1000000 } }))
-  s.send = function(url: string, opts: Http.Options): Agent.Reply?, string
+  s.send = function(url: string, opts: Http.OpenOptions): Agent.Reply?, string
     assert(url == "https://api.test/v1/messages" and opts.method == "POST")
     local body = assert(Json.decode_object(opts.body or ""))
     bodies[#bodies + 1] = body

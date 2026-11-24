@@ -47,7 +47,7 @@ end
 
 local function test_an_https_request_refuses_a_redirect_to_http_by_default()
   redirecting("http://127.0.0.1:1/plain", function(base: string)
-    local opts: Http.Options = { timeout_ns = Clock.seconds(20), roots = "none", ca = fixture("ca.pem") }
+    local opts: Http.GetOptions = { timeout_ns = Clock.seconds(20), roots = "none", ca = fixture("ca.pem") }
     local got, why = Http.get(base, opts)
     assert(got == nil and tostring(why):find("disabled (in redirect)", 1, true) ~= nil, why)
     -- Asked for, the hop is attempted: port 1 of loopback refuses it.

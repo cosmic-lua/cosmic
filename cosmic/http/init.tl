@@ -362,21 +362,15 @@ local record Http
   --- returned as `nil, err`: a method that is no HTTP token, a header
   --- name or value holding CR, LF or NUL (or a name that is empty or
   --- holds ':'), a URL holding NUL or one curl rejects.
-  -- TODO: once ci/cosmic-driver.pin names a release that has such types,
-  -- split these options by call, so `method` is Http.open's alone, `body`
-  -- is absent from Http.get's type and the download fields from the rest:
-  -- ci/cosmic_ci/github_api.tl sets `method` for Http.open, and
-  -- build/zig_fetch.tl types a download's options as Http.Options, on the
-  -- pinned release.
-  record Options
-    --- The HTTP method, case-sensitive; GET, or POST when there is a `body`.
-    method?: string
+  ---
+  --- Each call takes its own record of these: [`Http.OpenOptions`],
+  --- [`Http.GetOptions`], [`Http.RequestOptions`] and
+  --- [`Http.DownloadOptions`], each with the fields only it reads.
+  interface Options
     --- Request headers, name to value. A request sends `User-Agent: cosmic`
     --- unless a header here names its own `User-Agent`, in any case; an
     --- empty one sends none.
     headers?: {string:string}
-    --- The request body, sent whole.
-    body?: string
     --- Whether to follow redirects; true by default, false with `via`.
     follow?: boolean
     --- The most redirects followed, 10 by default.
@@ -384,9 +378,6 @@ local record Http
     --- The schemes a redirect may lead to: "https" alone by default
     --- for an https URL, "http" and "https" for an http one.
     redirect_protocols?: {string}
-    --- [`Http.request`] and [`Http.get`] only: the most bytes of the body
-    --- they read, 16 MiB by default.
-    max_bytes?: integer
     --- A unix address to send the request over in place of the network.
     via?: Net.Address
     --- How long connecting may take, in nanoseconds; 30 seconds by default.
@@ -435,18 +426,10 @@ local record Http
     --- Public key pins, `sha256//<base64>`, one of which the server's
     --- key must match.
     pin?: string | {string}
-    --- Download only: the digests the body must have, as hex in either
-    --- case, by algorithm: any [`Hash.Algorithm`], as
-    --- `{ ["sha256"] = "..." }`. Each is computed while the body is
-    --- written and must match, or the download fails naming the
-    --- algorithm, the digest wanted and the one got, leaving no file. An
-    --- empty digest raises.
-    digests?: {Hash.Algorithm:string}
-    --- Asked whether to stop: read by downloads, and by the waits of
-    --- `retry` and `pace`, which it ends with "interrupted" too. In a
-    --- download: asked before each chunk is read and once
-    --- more when the body is complete, before it is renamed into place;
-    --- when it returns true the download stops, removes its temporary
+    --- Asked during the waits of `retry` and `pace`, which it ends, and
+    --- by [`Http.download`] before each chunk is read and once more when
+    --- the body is complete, before it is renamed into place; when it
+    --- returns true there the download stops, removes its temporary
     --- file, never creates `path`, and fails with "interrupted", the
     --- word a caught signal's failure says. It is how a caller holding
     --- a [`Signal.guard`] ends a download on SIGINT while data keeps
@@ -457,6 +440,40 @@ local record Http
     -- whose body never makes them wait: the C waits do not read the
     -- guard when data is already there.
     cancelled?: function(): boolean
+  end
+
+  --- What [`Http.open`] takes: [`Http.Options`], a method and a body.
+  record OpenOptions is Options
+    --- The HTTP method, case-sensitive; GET, or POST when there is a `body`.
+    method?: string
+    --- The request body, sent whole.
+    body?: string
+  end
+
+  --- What [`Http.get`] takes: [`Http.Options`] and a limit on the body.
+  record GetOptions is Options
+    --- The most bytes of the body it reads, 16 MiB by default.
+    max_bytes?: integer
+  end
+
+  --- What [`Http.request`] takes: [`Http.Options`], a body and a limit on
+  --- the response's.
+  record RequestOptions is Options
+    --- The request body, sent whole.
+    body?: string
+    --- The most bytes of the response's body it reads, 16 MiB by default.
+    max_bytes?: integer
+  end
+
+  --- What [`Http.download`] takes: [`Http.Options`] and the digests the
+  --- body must have.
+  record DownloadOptions is Options
+    --- The digests the body must have, as hex in either case, by
+    --- algorithm: any [`Hash.Algorithm`], as `{ ["sha256"] = "..." }`.
+    --- Each is computed while the body is written and must match, or the
+    --- download fails naming the algorithm, the digest wanted and the one
+    --- got, leaving no file. An empty digest raises.
+    digests?: {Hash.Algorithm:string}
   end
 
   --- An open response, and a [`cosmic.stream`] Reader of its body.
@@ -837,6 +854,13 @@ local function pace_of(opts: Http.Options, level: integer): PacerObject?
   error("http: opts.pace must be made by Http.pacer", level)
 end
 
+--- The method and body a request sends, from the options of the call
+--- that takes them.
+local record Sent
+  method?: string
+  body?: string
+end
+
 --- Whether `value` is nil: of what the types say is there, which a Lua
 --- caller may leave out.
 local function absent(value: any): boolean
@@ -847,9 +871,9 @@ end
 --- (and, for `low_speed_ns`, the seconds) it counts them in, its `pin`
 --- as curl takes it, and, with `trusting`, the `ca_blob` of the roots it
 --- chooses ([`Trust.chosen`], [`Trust.pem`]); or nil and why when those cannot
---- be made. `method`, when given, stands in for `opts.method`. `first`,
---- when given, is the entry of `opts.script` the request starts at.
-local function raw_options(given: Http.Options, method?: string,
+--- be made. `sent`, when given, is the method and body. `first`, when
+--- given, is the entry of `opts.script` the request starts at.
+local function raw_options(given: Http.Options, sent?: Sent,
                            trusting?: boolean, first?: integer): raw_http.Options?, string
   local opts: Http.Options = given
   if absent(opts.timeout_ns) or opts.timeout_ns == 0 then
@@ -906,9 +930,9 @@ local function raw_options(given: Http.Options, method?: string,
   end
   return { -- checked: literal_shape
     unix_socket = via and via.path,
-    method = method or opts.method,
+    method = sent and sent.method,
     headers = headers,
-    body = opts.body,
+    body = sent and sent.body,
     follow = follow,
     max_redirects = opts.max_redirects,
     redirect_protocols = opts.redirect_protocols,
@@ -1091,15 +1115,14 @@ local function stated(opts: Http.Options)
 end
 
 --- [`Http.open`]'s work, which each public entry point that opens
---- calls itself (`CALLER`); `method`, when given, stands in for
---- `opts.method`.
-local function opened(url: string, opts: Http.Options, method: string?): Response?, string
-  local sent, refused = sendable(url)
-  if sent == nil then
+--- calls itself (`CALLER`), sending `sent`'s method and body.
+local function opened(url: string, opts: Http.Options, sent: Sent?): Response?, string
+  local escaped, refused = sendable(url)
+  if escaped == nil then
     return nil, refused
   end
-  url = sent
-  local raw, unmade = raw_options(opts, method, true)
+  url = escaped
+  local raw, unmade = raw_options(opts, sent, true)
   if raw == nil then
     return nil, unmade
   end
@@ -1157,7 +1180,7 @@ local function opened(url: string, opts: Http.Options, method: string?): Respons
     end
     attempt = attempt + 1
     if opts.script ~= nil then
-      raw, unmade = raw_options(opts, method, true, first)
+      raw, unmade = raw_options(opts, sent, true, first)
       if raw == nil then return nil, unmade end
     end
   end
@@ -1167,10 +1190,9 @@ end
 --- when `opts.max_bytes` is not given.
 local DEFAULT_MAX_BYTES <const> = 16 << 20
 
---- `opts.max_bytes`, or the default; raises at the caller of the public
---- entry point for one that is no integer of at least 0.
-local function body_limit(opts: Http.Options): integer
-  local given = opts.max_bytes
+--- `given`, an `opts.max_bytes`, or the default; raises at the caller
+--- of the public entry point for one that is no integer of at least 0.
+local function body_limit(given: integer?): integer
   if given == nil then return DEFAULT_MAX_BYTES end
   if math.type(given) ~= "integer" or given < 0 then
     error("http: opts.max_bytes must be an integer of at least 0", 3)
@@ -1245,9 +1267,9 @@ end
 --- signal or `opts.cancelled` stopped it, "timeout" when the wait of a
 --- [`Poll`] task ran out ([`Poll.TIMEOUT`]), else "other". A transfer past `opts.timeout_ns` is
 --- "other" for now, its message curl's ("Operation timed out after ...").
-function Http.open(url: string, opts: Http.Options): (Response) | (nil, Failure)
+function Http.open(url: string, opts: Http.OpenOptions): (Response) | (nil, Failure)
   stated(opts)
-  local response, trouble = opened(url, opts, nil)
+  local response, trouble = opened(url, opts, { method = opts.method, body = opts.body })
   if response == nil then
     return nil, failure_of(trouble)
   end
@@ -1258,20 +1280,10 @@ end
 --- with "GET", `url` escaped as [`Http.open`] escapes it. Fails on a
 --- connection or protocol error the same way [`Http.open`] does; a
 --- non-2xx status is not itself a failure here -- check
---- `result.status`. An `opts.method` other than "GET", or an
---- `opts.body`, raises, naming [`Http.request`], which sends any method
---- and a body.
-function Http.get(url: string, opts: Http.Options): (Http.Body) | (nil, Failure)
+--- `result.status`. [`Http.request`] sends any method, and a body.
+function Http.get(url: string, opts: Http.GetOptions): (Http.Body) | (nil, Failure)
   stated(opts)
-  local method = opts.method
-  if method ~= nil and method ~= "GET" then
-    error(("http: Http.get sends a GET, not %q; send another method with Http.request(method, url, opts)"):
-        format(method), 2)
-  end
-  if opts.body ~= nil then
-    error("http: Http.get sends no body; send one with Http.request(method, url, { timeout_ns = ..., body = ... })", 2)
-  end
-  local limit = body_limit(opts)
+  local limit = body_limit(opts.max_bytes)
   local response, trouble = opened(url, opts, nil)
   if response == nil then
     return nil, failure_of(trouble)
@@ -1296,26 +1308,20 @@ end
 ---     local gone = assert(Http.request("DELETE", "https://example.com/items/1", { timeout_ns = Clock.seconds(30) }))
 ---     print(put.status, gone.status)
 ---
---- An empty `method`, an `opts.method` that differs from it, or an
---- `opts.body` with "GET" or "HEAD" raises: the request would not be
---- the one asked for.
-function Http.request(method: string, url: string, opts: Http.Options): (Http.Body) | (nil, Failure)
+--- An empty `method`, or an `opts.body` with "GET" or "HEAD", raises:
+--- the request would not be the one asked for.
+function Http.request(method: string, url: string, opts: Http.RequestOptions): (Http.Body) | (nil, Failure)
   stated(opts)
   if method == nil or method == "" then -- checked: compare_disjoint
     error("http: Http.request's method is empty; name one, as \"GET\" or \"PUT\"", 2)
-  end
-  local given = opts.method
-  if given ~= nil and given ~= method then
-    error(("http: Http.request was given %q and opts.method %q; leave opts.method out"):
-        format(method, given), 2)
   end
   -- core/http.c's set_method drops a body sent with HEAD, and sends one
   -- with GET as a POST (its TODO says when that changes).
   if opts.body ~= nil and (method == "GET" or method == "HEAD") then
     error(("http: Http.request sends no body with %s"):format(method), 2)
   end
-  local limit = body_limit(opts)
-  local response, trouble = opened(url, opts, method)
+  local limit = body_limit(opts.max_bytes)
+  local response, trouble = opened(url, opts, { method = method, body = opts.body })
   if response == nil then
     return nil, failure_of(trouble)
   end
@@ -1388,7 +1394,7 @@ local DIGEST_RANKS <const>: {string:integer} = {
 --- The digests a download is held to, from `opts.digests`, in
 --- [`DIGEST_RANKS`]' order. Raises, blaming the public entry point's
 --- caller, on an empty digest or an algorithm [`Hash`] does not know.
-local function wanted_digests(opts: Http.Options): {Given}
+local function wanted_digests(opts: Http.DownloadOptions): {Given}
   local by: mut {Hash.Algorithm:string} = {}
   for algorithm, hex in pairs(opts.digests or {}) do
     if DIGEST_RANKS[algorithm] == nil then
@@ -1434,7 +1440,7 @@ end
 
 --- [`Http.download`]'s work.
 local function downloading(url: string, path: string,
-                           opts: Http.Options): DownloadResult
+                           opts: Http.DownloadOptions): DownloadResult
   local record Check
     algorithm: Hash.Algorithm
     hex: string
@@ -1449,11 +1455,12 @@ local function downloading(url: string, path: string,
   end
   local pending <close>: PendingDownload = { response = nil, file = nil }
   -- `opts` is checked here, so a refusal is raised at `CALLER`; the open
-  -- goes through [`Http.open`], which finds nothing more to refuse.
+  -- goes through [`opened`], a level deeper, which finds nothing more to
+  -- refuse.
   local _, _ = raw_options(opts)
-  local response, open_trouble = Http.open(url, opts)
+  local response, open_trouble = opened(url, opts, nil)
   pending.response = response
-  if response == nil then return { kind = "failed", reason = tostring(open_trouble) } end
+  if response == nil then return { kind = "failed", reason = open_trouble } end
   if response.status < 200 or response.status >= 300 then
     return { kind = "http_status", status = response.status, reason = "HTTP " .. tostring(response.status) }
   end
@@ -1511,7 +1518,7 @@ end
 --- `path` and its message naming the algorithm and both digests. Other failures keep their words, of kind
 --- "cancelled" where a signal or `opts.cancelled` stopped it, as
 --- [`Http.open`] gives them.
-function Http.download(url: string, path: string, opts: Http.Options): (true) | (false, Failure)
+function Http.download(url: string, path: string, opts: Http.DownloadOptions): (true) | (false, Failure)
   stated(opts)
   local result = downloading(url, path, opts)
   if result.kind == "downloaded" then return true end

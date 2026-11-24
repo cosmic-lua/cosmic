@@ -233,7 +233,7 @@ refresh.tzdata_rules = {
 --- one choosing "none" does (an intercepting proxy's CA), not every root
 --- the running binary carries, since what it fetches is what a binary
 --- trusts next, and nothing checks it but the connection it came over.
-function refresh.fetching(): Http.Options
+function refresh.fetching(): Http.GetOptions
   return { timeout_ns = Http.FOREVER, roots = "minimal" }
 end
 
