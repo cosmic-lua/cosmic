@@ -322,7 +322,7 @@ local ACTIONS <const>: {string:{letter: string, directory: boolean}} = {
 --- For code that acts for a held program in a process no kernel layer
 --- holds, as a second layer, never the only one: the program runs beside
 --- it and can change a name between the check and its use, so open the
---- real name this answers and follow no link there. [`Sandbox.allows`] is
+--- real name this returns and follow no link there. [`Sandbox.allows`] is
 --- the plain rule under it.
 ---
 ---     local policy = { grants = { { path = "/srv/data", letters = "rwc" } } }

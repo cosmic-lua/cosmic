@@ -757,7 +757,7 @@ local function call(s: Agent.Session, r: Sessions.Request, warming?: integer): {
       sent[#sent + 1] = m
     end
     -- No tokens asked for, which the API takes only unstreamed: it reads
-    -- the prefix (from the cache) and answers nothing.
+    -- the prefix (from the cache) and responds with no text.
     warm["messages"], warm["max_tokens"], warm["stream"] = Json.array(sent), 0, false
     body = warm
     r.max_tokens = 0
