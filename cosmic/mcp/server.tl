@@ -36,7 +36,9 @@
 --- `inputSchema` ([`cosmic.jsonschema`], compiled by [`McpServer.new`],
 --- which raises for a schema it cannot check); arguments that do not are
 --- answered as a result with `isError` that says where they fail, and the
---- handler is not called. A tool that runs and fails answers its failure,
+--- handler is not called. An argument sent as `null` is [`Json.null`],
+--- for the schema and the handler both, not absent: `{"x": null}` is not
+--- `{}`. A tool that runs and fails answers its failure,
 --- which the client is sent as a result with `isError`, for the model to
 --- read; a handler that raises is answered as an internal error, its words
 --- withheld from the client and given to [`McpServer.Spec.on_error`]. A
@@ -209,6 +211,13 @@ local record McpServer
     "private"
   end
 
+  --- A feature a server may offer before it has any of it.
+  enum Feature
+    "tools"
+    "resources"
+    "prompts"
+  end
+
   --- What [`McpServer.new`] serves.
   record Spec
     --- How the server names itself, in `server/discover` and in each
@@ -227,6 +236,10 @@ local record McpServer
     read?: function(uri: string, call: Call): ({Mcp.ResourceContents} | false) | (nil, Failure)
     --- The prompts it offers, in this order.
     prompts?: {PromptSpec}
+    --- The features it offers while it has none of them, so that an
+    --- [`McpServer.Instance.update`] that adds some later is announced
+    --- to a subscription: until then each of their lists is empty.
+    offers?: {Feature}
     --- Values for one argument of a prompt or one variable of a
     --- resource template, as typed so far (`completion/complete`). The
     --- server checks first that the prompt or template is one of its own
@@ -480,6 +493,8 @@ local record State
   mut templates: {Mcp.ResourceTemplate}
   mut prompts: {McpServer.PromptSpec}
   mut by_prompt: {string: McpServer.PromptSpec}
+  --- The features [`McpServer.Spec.offers`] names.
+  offered: {string: boolean}
   page_size: integer
   ttl_ms: integer
   cache_scope: McpServer.CacheScope
@@ -564,6 +579,8 @@ local function state_of(spec: McpServer.Spec): State
     end
     by_prompt[p.prompt.name] = p
   end
+  local offered: mut {string: boolean} = {}
+  for _, feature in ipairs(spec.offers or {}) do offered[feature] = true end
   local page_size = spec.page_size or 100
   if page_size < 1 then refuse("page_size must be at least 1") end
   local ttl_ms = spec.ttl_ms or 0
@@ -581,7 +598,7 @@ local function state_of(spec: McpServer.Spec): State
   if state_ttl_ms < 1 then refuse("state_ttl_ms must be at least 1") end
   return {
     spec = spec, tools = spec.tools or {}, by_tool = by_tool, mirrors = mirrors, inputs = inputs, outputs = outputs,
-    resources = spec.resources or {}, by_uri = by_uri, templates = spec.templates or {},
+    resources = spec.resources or {}, by_uri = by_uri, templates = spec.templates or {}, offered = offered,
     prompts = spec.prompts or {}, by_prompt = by_prompt, page_size = page_size, ttl_ms = ttl_ms,
     cache_scope = spec.cache_scope or "private", hub = { listeners = {} },
     state_key = state_key, state_ttl_ns = Clock.ms(state_ttl_ms),
@@ -733,14 +750,27 @@ local function window(self: State, params: any, count: integer): (Window) | (nil
   return { first = first, last = last, next = if last < count then tostring(last + 1) else nil end }
 end
 
+--- Whether the server offers tools: it has some, or its spec says it does while it has none.
+local function has_tools(self: State): boolean
+  return #self.tools > 0 or self.offered["tools"] == true
+end
+
+local function has_prompts(self: State): boolean
+  return #self.prompts > 0 or self.offered["prompts"] == true
+end
+
+local function has_resources(self: State): boolean
+  return #self.resources > 0 or #self.templates > 0 or self.spec.read ~= nil or self.offered["resources"] == true
+end
+
 --- The capabilities `server/discover` answers.
 local function capabilities(self: State): Json.Value
   local c: mut {string: Json.Value} = {}
-  if #self.tools > 0 then c["tools"] = { listChanged = true } end
-  if #self.resources > 0 or #self.templates > 0 or self.spec.read ~= nil then
+  if has_tools(self) then c["tools"] = { listChanged = true } end
+  if has_resources(self) then
     c["resources"] = { listChanged = true, subscribe = true }
   end
-  if #self.prompts > 0 then c["prompts"] = { listChanged = true } end
+  if has_prompts(self) then c["prompts"] = { listChanged = true } end
   if self.spec.complete ~= nil then
     local none: {string: Json.Value} = {}
     c["completions"] = none
@@ -1141,14 +1171,14 @@ local LEGACY <const>: Shape.Typed<Legacy> = Shape.record_of("Legacy")
 --- methods of each feature it has.
 local function offers(self: State, method: string): boolean
   if method == "server/discover" then return true end
-  if method == "tools/list" or method == "tools/call" then return #self.tools > 0 end
+  if method == "tools/list" or method == "tools/call" then return has_tools(self) end
   if method == "resources/list" or method == "resources/templates/list" or method == "resources/read" then
-    return #self.resources > 0 or #self.templates > 0 or self.spec.read ~= nil
+    return has_resources(self)
   end
-  if method == "prompts/list" or method == "prompts/get" then return #self.prompts > 0 end
+  if method == "prompts/list" or method == "prompts/get" then return has_prompts(self) end
   if method == "completion/complete" then return self.spec.complete ~= nil end
   if method == "subscriptions/listen" then
-    return #self.tools > 0 or #self.prompts > 0 or #self.resources > 0 or #self.templates > 0 or self.spec.read ~= nil
+    return has_tools(self) or has_prompts(self) or has_resources(self)
   end
   return false
 end
@@ -1257,15 +1287,15 @@ local function listen(self: State, params: any, flight: Flight, id: string): (Js
   if #self.hub.listeners >= MAX_LISTENERS then
     return nil, refusal(Mcp.INTERNAL_ERROR, "the server holds " .. String.counted(MAX_LISTENERS, "subscription") .. " already")
   end
-  local has_resources = #self.resources > 0 or #self.templates > 0 or self.spec.read ~= nil
+  local resources = has_resources(self)
   local filter: Filter = {
-    tools = asked.toolsListChanged == true and #self.tools > 0,
-    prompts = asked.promptsListChanged == true and #self.prompts > 0,
-    resources = asked.resourcesListChanged == true and has_resources,
+    tools = asked.toolsListChanged == true and has_tools(self),
+    prompts = asked.promptsListChanged == true and has_prompts(self),
+    resources = asked.resourcesListChanged == true and resources,
     uris = {},
   }
   local agreed_uris: mut {Json.Value} = {}
-  if has_resources then
+  if resources then
     for _, uri in ipairs(uris) do
       if #uri <= MAX_URI_BYTES and utf8.len(uri) ~= nil and filter.uris[uri] == nil then
         filter.uris[uri] = true
@@ -1386,20 +1416,20 @@ local function dispatch(self: State, method: string, params: any, flight: Flight
       inputs.kept = kept
     end }
   if method == "server/discover" then return discover(self) end
-  if method == "tools/list" and #self.tools > 0 then return list_tools(self, params) end
-  if method == "tools/call" and #self.tools > 0 then
+  if method == "tools/list" and has_tools(self) then return list_tools(self, params) end
+  if method == "tools/call" and has_tools(self) then
     return call_tool(self, params, call, inputs)
   end
-  local has_resources = #self.resources > 0 or #self.templates > 0 or self.spec.read ~= nil
-  if method == "resources/list" and has_resources then return list_resources(self, params) end
-  if method == "resources/templates/list" and has_resources then
+  local resources = has_resources(self)
+  if method == "resources/list" and resources then return list_resources(self, params) end
+  if method == "resources/templates/list" and resources then
     return list_templates(self, params)
   end
-  if method == "resources/read" and has_resources then
+  if method == "resources/read" and resources then
     return read_resource(self, params, call, inputs)
   end
-  if method == "prompts/list" and #self.prompts > 0 then return list_prompts(self, params) end
-  if method == "prompts/get" and #self.prompts > 0 then
+  if method == "prompts/list" and has_prompts(self) then return list_prompts(self, params) end
+  if method == "prompts/get" and has_prompts(self) then
     return get_prompt(self, params, call, inputs)
   end
   if method == "completion/complete" and self.spec.complete ~= nil then
@@ -1788,9 +1818,12 @@ local function allowed_origin(origin: string, allowed: {string}): boolean
   return false
 end
 
---- How long an event stream goes with nothing to say before it says a comment, so a client gone is found at the
---- comment's write and its request cancelled.
-local KEEPALIVE_NS <const> = 5 * 1000000000
+--- How long an event stream goes with nothing to say before it says a comment, so a client gone is found at a
+--- comment's write and its request cancelled: the HTTP server sees a client go only when it writes. A request's
+--- stream says one each second, so a call its client gave up on (by closing) is cancelled within about two; a
+--- subscription's, which waits for hours, each 5 s.
+local KEEPALIVE_NS <const> = 1000000000
+local LISTEN_KEEPALIVE_NS <const> = 5 * 1000000000
 
 --- The most notices an event stream holds for a client that has not read them; past it the stream ends, as a
 --- client too slow to keep up is told by its end to start again.
@@ -1811,6 +1844,8 @@ local class EventReader is Stream.Reader
   mut answer?: string
   mut task?: Poll.Task
   mut finished: boolean
+  --- How long it goes with nothing to say before a comment.
+  keepalive_ns: integer
   --- When the stream ends, its grant's time past, in nanoseconds since the epoch; nil: never by time.
   ends_ns?: integer
 
@@ -1833,7 +1868,7 @@ local class EventReader is Stream.Reader
         return "event: message\ndata: " .. final .. "\n\n", ""
       end
       if self.finished then return nil, "" end
-      local wait_ns = KEEPALIVE_NS
+      local wait_ns = self.keepalive_ns
       local ends_ns = self.ends_ns
       if ends_ns ~= nil then
         local left = ends_ns - Clock.now_ns()
@@ -1873,6 +1908,7 @@ local function streamed(self: State, message: wire.Message, req: HttpServer.Requ
   local expires = if grant ~= nil then grant.expires else nil end
   local body: EventReader = { notifier = notifier, flight = flight, queue = {}, head = 1, tail = 1, finished = false,
     latest = nil, answer = nil, task = nil, skip = nil,
+    keepalive_ns = if message.method == "subscriptions/listen" then LISTEN_KEEPALIVE_NS else KEEPALIVE_NS end,
     ends_ns = if expires ~= nil then expires * 1000000000 else nil end }
   flight.emit = function(text: string, lossy: boolean)
     if body.finished then return end
@@ -2249,7 +2285,8 @@ local class Running is McpServer.Instance
     local next_spec: McpServer.Spec = {
       info = spec.info, instructions = spec.instructions, tools = changes.tools or spec.tools,
       resources = changes.resources or spec.resources, templates = changes.templates or spec.templates,
-      read = spec.read, prompts = changes.prompts or spec.prompts, complete = spec.complete, page_size = spec.page_size,
+      read = spec.read, prompts = changes.prompts or spec.prompts, offers = spec.offers, complete = spec.complete,
+      page_size = spec.page_size,
       ttl_ms = spec.ttl_ms,
       cache_scope = spec.cache_scope, on_error = spec.on_error, state_key = old.state_key,
       state_ttl_ms = spec.state_ttl_ms,
