@@ -277,9 +277,12 @@ local function live(guard: Signal.Guard): Review.Host
       if handle == nil then return nil, tostring(trouble) end
       return {
         wait = function(ns: integer): Child.Result?, string
+          -- In words, as the pinned release's handle answers them too.
           local done, waited = Child.wait_any({ handle }, ns)
-          if done == nil then return nil, waited end
-          return done:wait()
+          if done == nil then return nil, tostring(waited) end
+          local result, why = done:wait()
+          if result == nil then return nil, tostring(why) end
+          return result, ""
         end,
         close = function()
           local _, _ = handle:close()

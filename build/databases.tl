@@ -9,10 +9,10 @@ local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local quoted = Sqlite.identifier
 local clock = require("build.clock")
 local narrow = require("build.narrow")
 local plural = require("build.plural")
-local quoted = require("build.sql_name").quoted
 local reboot = require("build.reboot")
 local work = require("build.work")
 

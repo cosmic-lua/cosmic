@@ -399,7 +399,10 @@ function derivation.put_parse(db: Sqlite.Handle, hash: string, requires: {string
           marks[#marks + 1] = "?" .. tostring((index + 1))
           values[#values + 1] = cell
         end
-        local ok, why = db:run("INSERT INTO " .. name .. " VALUES (" ..
+        -- OR REPLACE for `executable` alone: coverage writes a row of its own for a source no parse has
+        -- ([`build.coverage.syntax_lines.executable_cached`]).
+        local verb = if name == "executable" then "INSERT OR REPLACE INTO " else "INSERT INTO " end
+        local ok, why = db:run(verb .. name .. " VALUES (" ..
             table.concat(marks, ", ") .. ")", values)
         if not ok then return false, tostring(why) end
       end

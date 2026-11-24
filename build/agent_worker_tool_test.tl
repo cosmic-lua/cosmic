@@ -177,7 +177,8 @@ return assert(again[1])["n"]
   local ran = Tools.run("run", { code = code }, context)
   assert(not ran.is_error, ran.text)
   assert(ran.text:find("bash\ta\u{FFFD}b\t1.5\ttrue\t" .. tostring(id) .. "\n", 1, true) ~= nil, ran.text)
-  assert(ran.text:find("true\thost: sql: attempt to write", 1, true) ~= nil and ran.text:find("readonly", 1, true) ~= nil, ran.text)
+  assert(ran.text:find("true\thost: sql: not authorized", 1, true) ~= nil and ran.text:find("refuses a write", 1, true) ~= nil,
+    ran.text)
   assert(ran.text:find("Returned: 1", 1, true) ~= nil, ran.text)
   local big = Tools.run("run", { code = "local Host = require(\"cosmic.agent.host\")\n" ..
       "local _, why = Host.sql(\"SELECT printf('%.1000c', 'x') AS x FROM generate_series(1, 1000)\")\n" ..

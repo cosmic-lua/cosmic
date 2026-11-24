@@ -1,6 +1,7 @@
 --- Tests of [`build.syntax_derivation`]: the rows of a parse, read off the tree, that [`build.work`]'s tables hold.
 local Ast = require("lang.ast")
 local Derivation = require("build.syntax_derivation")
+local Executable = require("build.syntax_executable")
 local Fs = require("cosmic.fs")
 local Node = require("build.syntax_node")
 local Sqlite = require("cosmic.sqlite")
@@ -48,6 +49,17 @@ local function test_a_source_that_returns_a_value_gets_its_requires_and_its_stub
   assert(#stubs == 1 and stubs[1] == "h1|1", table.concat(stubs, " "))
   assert(support.nth(rows(handle.db, "SELECT text FROM stubs"), 1):find("return Fs.size()", 1, true) == nil)
   assert(table.concat(rows(handle.db, "SELECT has_return || '|' || export FROM parsed"), " ") == "1|M")
+  assert(work.close(handle))
+end
+
+--- A parse writes which lines could ever run, as coverage reads them, so coverage does not parse the source again.
+local function test_a_parse_writes_the_lines_coverage_counts(tmp: string)
+  local handle = assert(work.open(tmp))
+  local source = "local record R\n  n: integer\nend\n\nlocal function f(): integer\n  return 1\nend\n-- a comment\nreturn f()\n"
+  assert(Derivation.insert(handle.db, "h1", "m.tl", source, parsed(source, "m.tl"), false))
+  local stored = rows(handle.db, "SELECT lines FROM executable WHERE source_hash = 'h1'")
+  assert(#stored == 1 and stored[1] == Executable.joined((assert(Executable.of_source(source, "m.tl")))), stored[1])
+  assert(stored[1] == "6 7 9", stored[1])
   assert(work.close(handle))
 end
 
@@ -166,9 +178,10 @@ local function test_every_table_a_source_fills_gets_its_rows(tmp: string)
     assert(ok, why)
     local new = tables_of(port.db)
     -- Each table the source fills is held, so that no table is empty where the source has rows for it.
-    local filled: {string} = { "parsed", "tests", "test_inputs" }
+    local filled: {string} = { "parsed", "tests", "test_inputs", "executable" }
     if case[3] == "m" then
-      filled = { "parsed", "requires", "catalog", "docs", "refs", "bound", "examples", "links", "stubs", "places" }
+      filled = { "parsed", "requires", "catalog", "docs", "refs", "bound", "examples", "links", "stubs", "places",
+        "executable" }
     end
     for _, name in ipairs(filled) do
       local held = assert(new[name], file .. ": no table " .. name)

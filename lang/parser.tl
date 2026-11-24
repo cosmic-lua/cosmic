@@ -577,7 +577,7 @@ local function close_angle(open: integer): integer
     return S.pos
   end
   close(">", open, "list of type arguments")
-  return S.pos - 1
+  return end_of()
 end
 
 --- The source text of the tokens `first` to `last`, spaced as the source spaces
@@ -900,7 +900,7 @@ local function parse_function_type(): Ast.Type -- checked: not_assigned*2
   if S.text ~= "(" then
     report("bare_function_type", S.pos, "a bare `function` is not a type: found " .. shown(S.pos) .. " where its parameters begin",
       "write the signature: `function(x: T): U`, and `function()` for a function with no parameters")
-    return { kind = "TypeFunction", id = 0, first = first, last = S.pos - 1, typeparams = typeparams, params = params }
+    return { kind = "TypeFunction", id = 0, first = first, last = end_of(), typeparams = typeparams, params = params }
   end
   local open = S.pos
   advance()
@@ -986,7 +986,7 @@ local function parse_collection(): Ast.Type
     node = { kind = "TypeArray", id = 0, first = open, last = S.pos, element = first_type }
   end
   close("}", open, "collection type")
-  base_of(node).last = S.pos - 1
+  base_of(node).last = end_of()
   return node
 end
 
@@ -1026,10 +1026,10 @@ parse_base_inner = function(first: integer, t: string, k: Lexer.Kind): Ast.Type
       report("mut_needs_collection", S.pos, "`mut` applies to an array or a map type, found " .. shown(S.pos) .. " after it",
         "write `mut {T}` or `mut {K: V}`; a field that is reassigned is `mut name: T`")
       local other = parse_base()
-      return { kind = "TypeMut", id = 0, first = first, last = S.pos - 1, inner = other }
+      return { kind = "TypeMut", id = 0, first = first, last = end_of(), inner = other }
     end
     local inner = parse_collection()
-    return { kind = "TypeMut", id = 0, first = first, last = S.pos - 1, inner = inner }
+    return { kind = "TypeMut", id = 0, first = first, last = end_of(), inner = inner }
   elseif t == "nil" then
     advance()
     return { kind = "TypeNil", id = 0, first = first, last = first }
@@ -1947,6 +1947,8 @@ local function parse_supers(owner: string): {Ast.TypeName}, Ast.Type
       break
     end
   end
+  -- A `>>` the last of them used half of is reported here, not read as the first member.
+  settle()
   if S.text == "," then
     report("several_supers", S.pos, (if owner == "interface" then "an " else "a " end) .. owner .. " implements one interface",
       "write one interface after `is`; a new interface that extends both can be implemented instead")
@@ -2478,7 +2480,7 @@ local function parse_match(): Ast.Stat
         advance()
       else
         local pfirst = S.pos
-        local tested = parse_type()
+        local tested = parse_annotation()
         local name: Ast.Binding? = nil
         if S.kind == "identifier" then
           name = binding("the value of the type")
@@ -2850,6 +2852,12 @@ function Parser.parse(lexed: Lexer.Lexed, name: string, dialect: Ast.Dialect): P
   Ast.number(chunk)
   for i, req in ipairs(S.requires) do
     req.node = base_of(S.require_nodes[i]).id -- checked: index_may_be_nil
+  end
+  -- A call that error recovery left out of the tree has no id: its
+  -- require is of no node, so it is not one of the chunk's.
+  for i = #S.requires, 1, -1 do
+    local req = S.requires[i]
+    if req ~= nil and req.node == 0 then table.remove(S.requires, i) end
   end
   local errors = S.errors
   for _, e in ipairs(lexed.errors) do

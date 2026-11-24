@@ -1833,6 +1833,10 @@ local MAX_QUEUED <const> = 256
 --- progress not yet read when the next comes is dropped for it, so a client that reads slowly holds the server to
 --- one; the others (a subscription's) are queued, to [`MAX_QUEUED`]. Closed before the answer (the client gone,
 --- the server stopping), it cancels the request.
+-- TODO: wait in slices of about 250 ms, ask `req.gone()` between them and
+-- close where it is true, so a client gone is found at once and its request
+-- cancelled; then keepalive comments can go back to 5 s. Waits on the MCP
+-- known-limits PR, which changes these lines.
 local class EventReader is Stream.Reader
   notifier: Poll.Notifier
   flight: Flight

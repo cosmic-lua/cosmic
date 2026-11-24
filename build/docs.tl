@@ -16,12 +16,8 @@ local AnalysisSchema = require("build.analysis_schema")
 local clock = require("build.clock")
 local narrow = require("build.narrow")
 local positions = require("build.positions")
-local reboot = require("build.reboot")
 local symbols = require("cosmic.internal.symbols")
 local tree = require("build.tree")
-local rebuild = require("build.rebuild")
-local work = require("build.work")
-local writer = require("build.writer")
 
 local logger = require("build.logger")
 local log = logger.log
@@ -58,7 +54,7 @@ local text = bind.text
 --- `other` wrote ([`writer.other_code`]), is read none of. `root` is the
 --- project it belongs to, where that is known: the directory to build in.
 local function tell_other_code(path: string, other: string, root: string?)
-  if not work.first_time("projection other_code " .. other, path) then return end
+  if not require("build.work").first_time("projection other_code " .. other, path) then return end
   local remedy = "`cosmic test` in the project writes it again"
   local whose = path
   if root ~= nil then
@@ -72,7 +68,7 @@ end
 --- Says once a process, on stderr, that the projection at `path` is read
 --- none of, which code wrote it being unread for `trouble`.
 local function tell_unread_code(path: string, trouble: string)
-  if not work.first_time("projection other_code unread", path) then return end
+  if not require("build.work").first_time("projection other_code unread", path) then return end
   log:complain(path .. ": reading which code wrote it: " .. trouble .. "; reading none of it, " ..
       "and answering from this tool's own databases")
 end
@@ -129,7 +125,7 @@ function docs.databases(store?: {Sqlite.Handle}, at?: string, known?: docs.Known
       -- too, said once: what that code wrote may mean other than this
       -- code takes it to.
       if readable ~= nil then
-        local other, other_trouble = writer.other_code(own, rebuild.compiled_by())
+        local other, other_trouble = require("build.writer").other_code(own, require("build.rebuild").compiled_by())
         if other ~= nil then tell_other_code(own_path, other, project) end
         if other == nil and other_trouble ~= "" then tell_unread_code(own_path, other_trouble) end
         if other ~= nil or other_trouble ~= "" then readable = nil end
@@ -232,9 +228,9 @@ end
 local function stale_note(verb: string, built: boolean, trouble: string, sources: docs.Sources): string
   local why = trouble
   if built then
-    why = rebuild.held()
+    why = require("build.rebuild").held()
     if why == "" then return "" end
-  elseif #rebuild.refused() == 0 then
+  elseif #require("build.rebuild").refused() == 0 then
     log:complain(verb .. ": not rebuilt: " .. trouble)
     why = "not rebuilt"
   end
@@ -252,11 +248,11 @@ local function run(argv: {string}): integer
     log:complain("docs: " .. parse_trouble)
     return 2
   end
-  local exit = reboot.stale_exit(argv, true)
+  local exit = require("build.reboot").stale_exit(argv, true)
   if exit ~= nil then
     return exit
   end
-  local built, build_trouble = rebuild.here("docs")
+  local built, build_trouble = require("build.rebuild").here("docs")
   local started = Clock.monotonic_ns()
   local sources = docs.databases()
   local stale = stale_note("docs", built, build_trouble, sources)
@@ -313,11 +309,11 @@ local function run_uses(argv: {string}): integer
         "or which file (doc/writing.md, doc/writing.md#heading)")
     return 2
   end
-  local exit = reboot.stale_exit(argv, true)
+  local exit = require("build.reboot").stale_exit(argv, true)
   if exit ~= nil then
     return exit
   end
-  local built, build_trouble = rebuild.here("uses")
+  local built, build_trouble = require("build.rebuild").here("uses")
   local started = Clock.monotonic_ns()
   local sources = docs.databases()
   local stale = stale_note("uses", built, build_trouble, sources)

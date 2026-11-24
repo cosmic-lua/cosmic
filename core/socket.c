@@ -836,6 +836,48 @@ COSMIC_SYSCALL(peer, 1) {
   return tcp_pushed(L, &address, "tcp");
 }
 
+/* Linux says a peer's end (FIN) as POLLRDHUP, and POLLHUP once both
+ * directions are shut or the connection is reset; Darwin says the end
+ * as POLLHUP, and has no POLLRDHUP. Either sees it behind bytes still
+ * unread, which a TLS close_notify always is. Both say it too for this
+ * side's own shutdown of reading. */
+#if defined(POLLRDHUP)
+#define PEER_ENDED (POLLHUP | POLLERR | POLLRDHUP)
+#else
+#define PEER_ENDED (POLLHUP | POLLERR)
+#endif
+
+/* Whether the stream socket `fd` has a peer still there: true unless
+ * it is plainly alive, so a descriptor that is no stream socket, or a
+ * poll that fails, says gone. */
+static bool peer_gone (int fd) {
+  int type = 0;
+  socklen_t size = sizeof type;
+  if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &type, &size) != 0 || type != SOCK_STREAM) return true;
+  struct pollfd watched = { fd, POLLIN | PEER_ENDED, 0 };
+  int found;
+  do {
+    found = poll(&watched, 1, 0);
+  } while (found < 0 && errno == EINTR);
+  if (found < 0 || (watched.revents & (POLLNVAL | PEER_ENDED)) != 0) return true;
+  if ((watched.revents & POLLIN) == 0) return false;
+  /* An end or a reset that came after the poll, or a failure Darwin
+   * says only to a read: an end with nothing before it reads as 0
+   * bytes, and a peek takes nothing. */
+  char byte;
+  ssize_t peeked;
+  do {
+    peeked = recv(fd, &byte, 1, MSG_PEEK | MSG_DONTWAIT);
+  } while (peeked < 0 && errno == EINTR);
+  if (peeked > 0) return false;
+  return peeked == 0 || (errno != EAGAIN && errno != EWOULDBLOCK);
+}
+
+COSMIC_SYSCALL(peer_gone, 1) {
+  lua_pushboolean(L, peer_gone(cosmic_checkfd(L, 1)));
+  return 1;
+}
+
 COSMIC_SYSCALL(datagram, 1) {
   struct target target;
   int failure = datagram_address_of(L, 1, &target);

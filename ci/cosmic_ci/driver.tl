@@ -14,6 +14,7 @@ local Orchestration = require("cosmic_ci.orchestration")
 local PlaceTree = require("cosmic_ci.place_tree")
 local Prerelease = require("cosmic_ci.prerelease")
 local PrereleaseFollow = require("cosmic_ci.prerelease_follow")
+local PrereleaseSweep = require("cosmic_ci.prerelease_sweep")
 local Runner = require("cosmic_ci.runner")
 local Report = require("cosmic_ci.report")
 local Review = require("cosmic_ci.review")
@@ -147,6 +148,8 @@ local commands: {string:Command} = {
     usage = "", handler = Prerelease.publish_command },
   ["prerelease-follow"] = { about = "after a run of ci on main, start a full run or retry a failed one, so a prerelease follows main",
     usage = "", handler = PrereleaseFollow.command },
+  ["prerelease-sweep"] = { about = "each hour, publish or retry the newest full run follow started, which fires no workflow_run",
+    usage = "", handler = PrereleaseSweep.command },
   fuzz = { about = "fuzz every property on the checked core, for fuzz.yml",
     usage = "", handler = Fuzz.fuzz },
   ["fuzz-cancelled"] = { about = "say how far a cancelled fuzz run got",

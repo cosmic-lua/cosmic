@@ -26,6 +26,10 @@
  * compiles in (SQLITE_MAX_ATTACHED). */
 #define ATTACHED_DEFAULT 10
 
+/* How long a handle waits at another connection's lock until it is told
+ * otherwise ([`handle_busy_timeout`]), in milliseconds. */
+#define DEFAULT_WAIT_MS 60000
+
 /* How many times this process has disowned its connections
  * ([`sqlite_disown`]). A handle is born of the count at its open, and is
  * disowned once the count has moved on. */
@@ -66,6 +70,10 @@ struct handle {
    * finalizes them first. */
   struct cached cache[CACHED_STATEMENTS];
   int cached;
+  /* Set once [`handle_reads_only`] has held the handle to queries, and the
+   * authorizer action it last refused, 0 for none. */
+  bool reads_only;
+  int denied;
 };
 
 enum { STOP_NONE, STOP_TIME, STOP_SIGNAL };
@@ -89,6 +97,7 @@ struct statement {
  * again with count zero for another statement in the same exec. The
  * clock is read only if the installed handler actually meets a lock. */
 static void begin_wait (struct handle *h) {
+  h->denied = 0;
   h->run_deadline_ms = h->run_ms < 0 ? -1 : cosmic_deadline_ms(h->run_ms);
   h->stop = STOP_NONE;
   if (h->busy_ms < 0) return;
@@ -141,8 +150,110 @@ static int limit_ceiling (sqlite3 *db, int id) {
   return sqlite3_limit(db, id, old);
 }
 
+/* The PRAGMAs a handle held to queries may run: each only reads. Those of
+ * the first list take no argument (one would set them); those of the
+ * second name the table, index or count they read, or nothing. */
+static const char *const bare_pragmas[] = {
+  "application_id", "cell_size_check", "collation_list", "compile_options", "data_version",
+  "database_list", "encoding", "foreign_keys", "freelist_count", "function_list",
+  "journal_mode", "module_list", "page_count", "page_size", "pragma_list", "query_only",
+  "schema_version", "user_version", NULL,
+};
+static const char *const reading_pragmas[] = {
+  "foreign_key_check", "foreign_key_list", "index_info", "index_list", "index_xinfo",
+  "integrity_check", "quick_check", "table_info", "table_list", "table_xinfo", NULL,
+};
+
+static bool listed (const char *const *list, const char *name) {
+  for (int i = 0; list[i] != NULL; i++) {
+    if (sqlite3_stricmp(list[i], name) == 0) return true;
+  }
+  return false;
+}
+
+/* Whether a PRAGMA's value sets a flag on, as SQLite reads one: a handle
+ * held to queries may set query_only again, never take it off. */
+static bool turns_on (const char *value) {
+  return value != NULL && (sqlite3_stricmp(value, "1") == 0 || sqlite3_stricmp(value, "on") == 0 ||
+                           sqlite3_stricmp(value, "true") == 0 || sqlite3_stricmp(value, "yes") == 0);
+}
+
+/* Whether `table` is named as an R*Tree's shadow tables are: SQLite's
+ * R*Tree prepares its writes of them as it connects, for a SELECT too, so
+ * a held handle lets those through the authorizer. Defensive mode refuses
+ * a statement's own write to one, query_only refuses any write as it
+ * runs, and the store's connections are read-only. */
+static bool rtree_shadow (const char *table) {
+  if (table == NULL) return false;
+  size_t n = strlen(table);
+  static const char *const suffixes[] = {"_node", "_rowid", "_parent"};
+  for (size_t i = 0; i < sizeof suffixes / sizeof *suffixes; i++) {
+    size_t k = strlen(suffixes[i]);
+    if (n > k && sqlite3_stricmp(table + n - k, suffixes[i]) == 0) return true;
+  }
+  return false;
+}
+
+static int reads_only (void *denied, int action, const char *first,
+                              const char *second, const char *database,
+                              const char *trigger) {
+  (void)trigger;
+  bool temp = database != NULL && sqlite3_stricmp(database, "temp") == 0;
+  switch (action) {
+    case SQLITE_SELECT:
+    case SQLITE_READ:
+    case SQLITE_FUNCTION:
+    case SQLITE_RECURSIVE:
+    return SQLITE_OK;
+    case SQLITE_PRAGMA:
+    if (first != NULL && (listed(reading_pragmas, first) ||
+                          (second == NULL && listed(bare_pragmas, first)) ||
+                          (sqlite3_stricmp(first, "query_only") == 0 && turns_on(second))))
+      return SQLITE_OK;
+    break;
+    case SQLITE_INSERT:
+    case SQLITE_UPDATE:
+    case SQLITE_DELETE:
+    if (!temp && rtree_shadow(first)) return SQLITE_OK;
+    break;
+    default:
+    break;
+  }
+  /* The first refusal names what the statement was. A CREATE of anything
+   * temporary is asked first as an INSERT into the temp schema's table,
+   * and never again once that is refused. */
+  if (denied != NULL && *(int *)denied == 0)
+    *(int *)denied = action == SQLITE_INSERT && temp ? SQLITE_CREATE_TEMP_TABLE : action;
+  return SQLITE_DENY;
+}
+
+int cosmic_sqlite_hold_to_queries (sqlite3 *db, int *denied) {
+  return sqlite3_set_authorizer(db, reads_only, denied);
+}
+
+/* What a handle held to queries refused, said after SQLite's "not
+ * authorized". */
+static const char *refused_what (int action) {
+  switch (action) {
+    case SQLITE_INSERT:
+    case SQLITE_UPDATE:
+    case SQLITE_DELETE: return "a write";
+    case SQLITE_ATTACH: return "an ATTACH (VACUUM and VACUUM INTO attach one)";
+    case SQLITE_DETACH: return "a DETACH";
+    case SQLITE_PRAGMA: return "a PRAGMA that sets, or that is not one that reads";
+    case SQLITE_TRANSACTION:
+    case SQLITE_SAVEPOINT: return "a transaction";
+    case SQLITE_CREATE_TEMP_TABLE:
+    case SQLITE_CREATE_TEMP_INDEX:
+    case SQLITE_CREATE_TEMP_TRIGGER:
+    case SQLITE_CREATE_TEMP_VIEW:
+    case SQLITE_CREATE_VTABLE: return "a temporary or virtual table";
+    default: return "anything but a query";
+  }
+}
+
 #define TOO_MANY_ATTACHED "too many attached databases"
-#define HINT_SIZE 80
+#define HINT_SIZE 160
 
 /* What SQLite's refusal of an ATTACH past the limit leaves unsaid: that
  * the limit is the connection's to raise, and how far. Empty for any
@@ -210,7 +321,7 @@ struct outcome {
 /* Copy before any Lua allocation: a finalizer can run another operation
  * on this connection, finalize a statement, or close the connection. */
 static void capture (lua_State *L, struct outcome *out, sqlite3 *db, int rc,
-                     const struct handle *h) {
+                     struct handle *h) {
   out->code = rc & 0xff;
   out->extended = rc == SQLITE_OK || db == NULL ? rc : sqlite3_extended_errcode(db);
   out->cancelled = h != NULL && ((out->code == SQLITE_BUSY && h->cancelled) ||
@@ -221,6 +332,11 @@ static void capture (lua_State *L, struct outcome *out, sqlite3 *db, int rc,
     const char *reason = stopped != NULL ? stopped : db == NULL ? sqlite3_errstr(rc) : sqlite3_errmsg(db);
     char hint[HINT_SIZE] = "";
     if (db != NULL) attach_hint(db, reason, hint);
+    if (h != NULL && h->reads_only && out->code == SQLITE_AUTH && h->denied != 0) {
+      snprintf(hint, HINT_SIZE, "; this handle runs only queries (handle:reads_only), and refuses %s",
+               refused_what(h->denied));
+      h->denied = 0;
+    }
     size_t length = strlen(reason);
     size_t size = length + strlen(hint) + 1;
     out->message->resource = cosmic_malloc(size);
@@ -593,6 +709,8 @@ static int open_database (lua_State *L, bool result) {
   h->run_deadline_ms = -1;
   h->stop = STOP_NONE;
   h->cached = 0;
+  h->reads_only = false;
+  h->denied = 0;
   luaL_setmetatable(L, HANDLE_TYPE);
 
   /* The program's own file named through a descriptor of it
@@ -605,8 +723,12 @@ static int open_database (lua_State *L, bool result) {
    * artifact ever begins with its database. */
   int rc = sqlite3_open_v2(name, &h->db, flags, NULL);
   /* Another process may hold the file's lock: two builds of one tree, or a
-   * reader meeting a writer's commit. Wait for it rather than failing. */
-  if (rc == SQLITE_OK) rc = sqlite3_busy_timeout(h->db, 60000);
+   * reader meeting a writer's commit. Wait for it rather than failing, as
+   * [`handle_busy_timeout`] waits, so a guard's signal stops the wait. */
+  if (rc == SQLITE_OK) {
+    h->busy_ms = DEFAULT_WAIT_MS;
+    rc = sqlite3_busy_handler(h->db, wait_busy, h);
+  }
   if (rc == SQLITE_OK) sqlite3_limit(h->db, SQLITE_LIMIT_ATTACHED, ATTACHED_DEFAULT);
   if (rc == SQLITE_OK) rc = cosmic_sqlite_functions(h->db);
   if (rc == SQLITE_OK && !defensive)
@@ -714,6 +836,32 @@ static int handle_time_limit (lua_State *L) {
   h->stop = STOP_NONE;
   sqlite3_progress_handler(h->db, PROGRESS_STEPS, progress, h);
   return 0;
+}
+
+/* Holds the handle to queries for good: SQLite's authorizer refuses, as
+ * each statement is prepared, anything but a SELECT, the functions it
+ * calls and the PRAGMAs that read ([`reads_only`]), and VACUUM, through
+ * the ATTACH it runs; and, a second wall each, `query_only` refuses a
+ * write to any database as it runs, and no database may be attached.
+ * The pragma runs before the authorizer that would refuse it. A borrowed handle's owner has its own rules. */
+static void drop_cached (struct handle *h);
+
+static int handle_reads_only (lua_State *L) {
+  struct handle *h = checked_handle(L);
+  if (h->borrowed)
+    return luaL_error(L, "sqlite: cannot hold a borrowed handle to queries: its owner's rules hold it");
+  if (h->reads_only) return cosmic_done(L);
+  begin_wait(h);
+  int rc = sqlite3_exec(h->db, "PRAGMA query_only = 1", NULL, NULL, NULL);
+  if (rc != SQLITE_OK) return failed_effect(L, h->db, rc);
+  sqlite3_limit(h->db, SQLITE_LIMIT_ATTACHED, 0);
+  rc = cosmic_sqlite_hold_to_queries(h->db, &h->denied);
+  if (rc != SQLITE_OK) return failed_effect(L, h->db, rc);
+  /* A kept statement was prepared before the hold, past the authorizer:
+   * each is prepared again under it. */
+  drop_cached(h);
+  h->reads_only = true;
+  return cosmic_done(L);
 }
 
 static int handle_busy_timeout (lua_State *L) {
@@ -946,6 +1094,8 @@ void cosmic_sqlite_push_borrowed (lua_State *L, sqlite3 *db) {
   h->run_deadline_ms = -1;
   h->stop = STOP_NONE;
   h->cached = 0;
+  h->reads_only = false;
+  h->denied = 0;
   luaL_setmetatable(L, HANDLE_TYPE);
 }
 
@@ -981,6 +1131,8 @@ static int handle_limit (lua_State *L) {
   for (int i = 0; limit_names[i].name != NULL; i++) {
     if (strcmp(name, limit_names[i].name) == 0) {
       int id = limit_names[i].id;
+      if (h->reads_only && id == SQLITE_LIMIT_ATTACHED && value > 0)
+        return luaL_error(L, "sqlite: a handle held to queries (handle:reads_only) attaches nothing");
       int old = sqlite3_limit(h->db, id, value);
       if (value >= 0 && sqlite3_limit(h->db, id, -1) < value) {
         int ceiling = sqlite3_limit(h->db, id, old);
@@ -995,6 +1147,72 @@ static int handle_limit (lua_State *L) {
     }
   }
   return luaL_error(L, "sqlite: no such limit: %s", name); /* a bug, not a failure */
+}
+
+/* Whether a transaction is open on the connection: a BEGIN, or a SAVEPOINT
+ * outside one, not yet committed or rolled back. */
+static int handle_in_transaction (lua_State *L) {
+  struct handle *h = checked_handle(L);
+  lua_pushboolean(L, !sqlite3_get_autocommit(h->db));
+  return 1;
+}
+
+/* Whether the connection's main database is read-only: opened so, or
+ * on a file it may not write. */
+static int handle_read_only (lua_State *L) {
+  struct handle *h = checked_handle(L);
+  lua_pushboolean(L, sqlite3_db_readonly(h->db, "main") == 1);
+  return 1;
+}
+
+/* Copies the mode `PRAGMA journal_mode` answers into `context`, a
+ * buffer of JOURNAL_MODE_SIZE. */
+#define JOURNAL_MODE_SIZE 16
+static int read_journal_mode (void *context, int columns, char **values, char **names) {
+  (void)names;
+  char *mode = context;
+  if (columns > 0 && values[0] != NULL) snprintf(mode, JOURNAL_MODE_SIZE, "%s", values[0]);
+  return 0;
+}
+
+/* Switches the main database to write-ahead mode, and answers the mode it
+ * is in after, as the outcome's `mode`, and whether the database is a
+ * temporary or memory one, as `temporary`. The switch needs the file to
+ * itself for a moment, and SQLite can refuse it as busy without calling
+ * the busy handler, so a busy refusal is tried again until the handle's
+ * wait ([`handle_busy_timeout`]) has passed, or a guard caught a signal. */
+static int handle_wal_result (lua_State *L) {
+  struct outcome out = {0};
+  out.message = cosmic_guard_push(L, release_message);
+  struct handle *h = checked_handle(L);
+  if (h->borrowed)
+    return luaL_error(L, "sqlite: cannot set the journal mode of a borrowed handle: its owner sets it");
+  char mode[JOURNAL_MODE_SIZE] = "";
+  int64_t deadline = h->busy_ms < 0 ? -1 : cosmic_deadline_ms(h->busy_ms);
+  int64_t pause = 1;
+  int rc;
+  /* One budget for the whole call: each try's busy handler waits only
+   * until the call's deadline, and the time limit runs from the first. */
+  begin_wait(h);
+  for (;;) {
+    h->deadline_ms = deadline;
+    rc = sqlite3_exec(h->db, "PRAGMA main.journal_mode = WAL", read_journal_mode, mode, NULL);
+    if ((rc & 0xff) != SQLITE_BUSY || h->cancelled || deadline < 0) break;
+    int status = cosmic_paused(deadline, &pause);
+    if (status == EINTR) h->cancelled = true;
+    if (status != 0) break;
+  }
+  capture(L, &out, h->db, rc, h);
+  /* A temporary or memory database has no file to keep a log beside: it
+   * keeps the journal it has, which is no failure. */
+  const char *file = sqlite3_db_filename(h->db, "main");
+  bool temporary = file == NULL || file[0] == '\0';
+  push_outcome(L, &out, true);
+  lua_pushstring(L, mode);
+  lua_setfield(L, -2, "mode");
+  lua_pushboolean(L, temporary);
+  lua_setfield(L, -2, "temporary");
+  return 1;
 }
 
 static int handle_last_insert_rowid (lua_State *L) {
@@ -1504,6 +1722,10 @@ static const luaL_Reg handle_methods[] = {
   {"limit", handle_limit},
   {"busy_timeout", handle_busy_timeout},
   {"time_limit", handle_time_limit},
+  {"reads_only", handle_reads_only},
+  {"in_transaction", handle_in_transaction},
+  {"read_only", handle_read_only},
+  {"wal_result", handle_wal_result},
   {"prepare_result", handle_prepare_result},
   {"prepare_cached_result", handle_prepare_cached_result},
   {NULL, NULL},

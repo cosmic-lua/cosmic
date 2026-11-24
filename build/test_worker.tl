@@ -1488,8 +1488,11 @@ function worker.judge(judging: worker.Judging): worker.Judgement
         "every worker loads it, name it in build/test_worker.tl's `worker.loads`"
     end
   end
-  if judgement.passed and judging.trouble ~= "" then
+  local remains = result.remains
+  if judgement.passed and remains ~= nil then
     -- The test passed, but what it started outlived it.
+    judgement.passed, judgement.message = false, remains
+  elseif judgement.passed and judging.trouble ~= "" then
     judgement.passed, judgement.message = false, judging.trouble
   end
   -- Only a pass is skipped instead: a failure is one, skip or not.

@@ -7,9 +7,9 @@ local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local quoted = Sqlite.identifier
 local sys = require("cosmic.sys")
 local formats = require("build.cache_formats")
-local quoted = require("build.sql_name").quoted
 
 local record maintenance
   enum Family
