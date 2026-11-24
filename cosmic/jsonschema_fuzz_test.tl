@@ -4,7 +4,8 @@
 --- of the keywords it asserts, and drawn values, show that
 --- [`JsonSchema.compile`] and a schema's `check` answer and never raise,
 --- and that the combinators mean what they say: `not` turns an answer
---- over, and `allOf` with `true` or `anyOf` with `false` changes none.
+--- over, and `allOf` with `true`, `anyOf` or `oneOf` with `false`, and
+--- `if` it `then` `true` `else` `false` change none.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Array = require("cosmic.array")
@@ -85,7 +86,8 @@ function Draw.keyword(src: Fuzz.Source, depth: integer): string
   if k == 22 then return '"items":' .. Draw.schema(src, depth - 1) end
   if k == 23 then return '"prefixItems":' .. Draw.schemas(src, depth - 1) end
   if k == 24 then
-    return '"contains":' .. Draw.schema(src, depth - 1) .. ',"minContains":' .. count(src)
+    local bound = Fuzz.pick(src, { "minContains", "maxContains" })
+    return '"contains":' .. Draw.schema(src, depth - 1) .. ',"' .. bound .. '":' .. count(src)
   end
   if k == 25 then return '"allOf":' .. Draw.schemas(src, depth - 1) end
   if k == 26 then return '"anyOf":' .. Draw.schemas(src, depth - 1) end
@@ -113,7 +115,7 @@ end
 --- Whether a failure is the bound on steps or depth, under which two
 --- schemas that mean the same may answer apart.
 local function bounded(why: string): boolean
-  return String.contains(why, "steps") or String.contains(why, "deep") or String.contains(why, "levels")
+  return String.contains(why, "steps") or String.contains(why, "levels")
 end
 
 --- `text` compiled as a schema, or nil when it is refused.
@@ -147,8 +149,8 @@ local function test_compile_and_check_answer_and_the_combinators_mean_what_they_
   Fuzz.run({
     name = "check a drawn value against a drawn schema",
     dir = tmp,
-    requires = { "compiled", "allowed", "refused" },
-    shares = { compiled = 0.3 },
+    requires = { "compiled", "allowed", "refused", "compared" },
+    shares = { compiled = 0.3, compared = 0.2 },
     gen = function(src: Fuzz.Source): string
       return Fuzz.pack({ Draw.schema(src, 3), value(src, 3), Draw.schema(src, 2) })
     end,
@@ -166,6 +168,7 @@ local function test_compile_and_check_answer_and_the_combinators_mean_what_they_
       local ok, why = answer(s, v)
       Fuzz.label(if ok then "allowed" else "refused" end)
       if not ok and bounded(why) then return true, "" end
+      Fuzz.label("compared")
       local forms: {Form} = {
         { text = "{" .. defs .. '"not":' .. part .. "}", want = not ok },
         { text = "{" .. defs .. '"allOf":[' .. part .. ",true]}", want = ok },
