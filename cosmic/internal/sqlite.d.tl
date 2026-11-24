@@ -111,6 +111,11 @@ local record sqlite
     --- The name of the column at `index`, from zero: its `AS` alias,
     --- or what SQLite calls it without one. Known before any row.
     name: function(Statement, index: integer): string
+    --- Where the column at `index`, from zero, comes from: its table,
+    --- that table's column, and the column's declared type. The table
+    --- and column are nil for an expression (`count(*)`), and the type
+    --- for a column declared with none. Known before any row.
+    origin: function(Statement, index: integer): string?, string?, string?
     --- One of "integer", "number", "text", "blob", "null".
     kind: function(Statement, index: integer): string
     --- The column at `index`, counting from 0, of the current row, as
