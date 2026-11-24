@@ -761,3 +761,20 @@ local function test_a_snippet_uses_sqlite_and_hash()
   assert(ran.text:find("host: sqlite: ", 1, true) ~= nil and ran.text:find("nope", 1, true) ~= nil, ran.text)
   Worker.close(w)
 end
+
+--- JSON of a known shape is read into records, as the run guide shows: a declared record is checked in a snippet
+--- as in a file, and a key the record does not name is dropped.
+local function test_a_snippet_reads_json_into_records()
+  local w = set_of_worker()
+  local dir = assert(Fs.mkdtemp("agent-worker-"))
+  local context: Tools.Context = { cwd = dir, worker = w }
+  local ran = Tools.run("run", { code = "local Shape = require(\"cosmic.shape\")\n" ..
+      "local record Item id: integer stock: integer end\n" ..
+      "local record Page items: {Item} next?: integer end\n" ..
+      "local body = '{\"items\": [{\"id\": 7, \"stock\": 2, \"name\": \"x\"}], \"next\": 2}'\n" ..
+      "local page = assert(Shape.decode_into(body, Shape.record_of(\"Page\").spec))\n" ..
+      "for _, item in ipairs(page.items) do print(item.id + item.stock) end\n" ..
+      "if page.next ~= nil then print(\"next \" .. tostring(page.next)) end\n" }, context)
+  assert(not ran.is_error and ran.text:find("^9\nnext 2\n") ~= nil, ran.text)
+  Worker.close(w)
+end
