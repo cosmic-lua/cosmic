@@ -603,7 +603,7 @@ local function rows_of(db: Sqlite.Handle, query: string, session?: integer): Too
     out[#out + 1] = line
     bytes, rows, lines_used = bytes + 1 + #line, rows + 1, lines_used + 1 + breaks
   end
-  found:close()
+  local _, _ = found:close()
   statement:close()
   local failure = found:failure()
   if failure ~= nil then return fail("sql: " .. tostring(failure)) end
@@ -673,7 +673,7 @@ local function objects_of(db: Sqlite.Handle, query: string, session: integer?, o
   local rows: mut {Json.Value} = {}
   local bytes = 2
   local function refused(trouble: string): (nil, Failure)
-    found:close()
+    local _, _ = found:close()
     statement:close()
     return nil, Failure.new(trouble)
   end

@@ -513,13 +513,13 @@ local function stream(db: Sqlite.Handle, statement: string,
     rows = rows + 1
     local line, refused = write.row(row, width)
     if line == nil then
-      query:close()
+      local _, _ = query:close()
       prepared:close()
       return nil, "row " .. tostring(rows) .. ": " .. refused
     end
     local written, write_trouble = emit(line)
     if not written then
-      query:close()
+      local _, _ = query:close()
       prepared:close()
       return nil, write_trouble
     end

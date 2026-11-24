@@ -329,7 +329,7 @@ function Vector.load(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value},
   if failure == "" and stopped ~= nil then
     failure = tostring(stopped)
   end
-  q:close()
+  local _, _ = q:close()
   if failure ~= "" then
     return nil, failure
   end
@@ -393,7 +393,7 @@ function Vector.load_blocks(db: Sqlite.Handle, sql: string, values?: {Sqlite.Val
   if failure == "" and stopped ~= nil then
     failure = tostring(stopped)
   end
-  q:close()
+  local _, _ = q:close()
   if failure ~= "" then
     return nil, failure
   end
