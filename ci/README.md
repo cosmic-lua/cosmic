@@ -461,8 +461,9 @@ drives it against a fake host.
 
 ### what runs where
 
-The merge queue gates a merge, and is kept light and fast; main's runs
-are where CI answers for everything. A branch's push runs nothing.
+The merge queue gates a merge and runs what main's push runs, so a
+commit that would turn main red fails its queue entry instead; the
+daily and a manual run add macOS. A branch's push runs nothing.
 
 - **a push to a branch** runs no CI. The merge queue tests every change
   before it lands, and the author's local checks (`bin/cosmic fix`,
@@ -481,18 +482,18 @@ are where CI answers for everything. A branch's push runs nothing.
   `ci/fixtures/` and the like), or the paths changed are not known, it
   also builds the artifacts and runs those fixtures, which nothing else
   before main's push runs. No suite, and it saves nothing.
-- **the merge queue** (`merge_group`) runs linux-x86_64's leg alone, as
-  two jobs at once, each booting the tree: `linux-x86_64` (part `suite`)
-  runs the native suite and its boundary and probes the sandbox;
+- **the merge queue** (`merge_group`) runs what a push to main runs:
+  linux-aarch64 and alpine-x86_64 whole, the checked and narrowing jobs,
+  and linux-x86_64 as two jobs at once, each booting the tree:
+  `linux-x86_64` (part `suite`) runs the leg but its format check, and
   `linux-x86_64-format` (part `format`) checks the bootstrap's scripts and
   the tree's format over the paths the commit changed since main, as a
   pull request does. Beside them `linux-x86_64-driver` (the `driver` job)
   boots nothing and checks the pinned CI driver where those paths reach
-  what its tests read (`ci/`, `.github/`). An entry takes as long as the
-  longest of the three jobs. Main moves only through the queue, so its
-  check of what changed holds main's whole tree. Nothing else: no
-  assemble, regressions, portable suite or product, and no checked or
-  narrowing job, which read as passed in the gate, as on a pull request.
+  what its tests read (`ci/`, `.github/`). The gate compares the three
+  products. An entry takes as long as its longest job. Main moves only
+  through the queue, so its check of what changed holds main's whole
+  tree.
 - **a push to main** runs three legs whole, every leg but macOS (the
   native suite, the credential proofs, assemble, the regressions, the
   portable suite, the attestation and the product), the checked core's
@@ -501,9 +502,8 @@ are where CI answers for everything. A branch's push runs nothing.
   (`COSMIC_CI_PRODUCTS=3`). It publishes nothing. It repeats neither
   the format check nor the pinned driver's, which the queue made of the
   very commit; the daily run checks the driver on every leg, and the
-  weekly and a manual run check the whole tree's format too. A failure only these
-  show turns main red after the change has landed, to be fixed or
-  reverted at once.
+  weekly and a manual run check the whole tree's format too. Each leg
+  stands on the verdicts its queue job reached for the commit.
 - **the daily scheduled run** and **a manual run** run all that and the
   macOS leg, and the gate compares the four products, which
   prerelease.yml publishes: a prerelease is tested on all four legs, and
@@ -522,9 +522,9 @@ shares, and none waits on another but the gate. Three things are relayed
 between runs, by the relay (relay.yml), a workflow of its own that runs on
 each push to main a minute after the merge, apart from ci.yml's pushes,
 which wait on each other and save only as they end, 15 to 30 minutes
-later. The merge queue's linux-x86_64 leg, where its native suite passed,
+later. Each of the merge queue's legs, where its native suite passed,
 trims its verdicts to what it used and uploads them with the name of the
-cache its host keeps them in (`queue-verdicts-linux-x86_64`, kept a day;
+cache its host keeps them in (`queue-verdicts-<leg>`, kept a day;
 `driver.tl verdicts-name`). The relay finds that run (`driver.tl
 queue-run`, the job's `actions: read`), restores main's newest verdicts of
 that cache (`driver.tl verdicts-key`), merges the queue's into them
@@ -543,17 +543,17 @@ the relay downloads it, holds it to a memo with rows, and saves it
 (`checks-linux-x86_64-<sha>`, [`cosmic_ci/checks_seal.tl`]). The format
 check of a pull request or a queue entry restores the newest, so the tree
 checks check again only the files its rows do not answer: from cold they
-take some 3.5 minutes. The queue's suite job also uploads the compiles and
-parses it trimmed (`queue-compiles-linux-x86_64`); the relay saves them
-(`compiles-linux-x86_64-queue-<sha>`), and main's push boots on them in
+take some 3.5 minutes. Each queue leg also uploads the compiles and
+parses it trimmed (`queue-compiles-<leg>`); the relay, a job a leg, saves
+them (`compiles-<leg>-queue-<sha>`), and main's push boots on them in
 place of the entry it restored, so a pull request or a queue entry that
 boots soon after a merge takes them rather than compiling the tree from
 cold (about a minute).
 No other markers, products or verdicts pass between
 runs. That costs main's run its wall clock, which no one waits on, rather
 than runner minutes. The queue, which every change waits on, is the one
-exception: its leg is two jobs (above), each the time of a boot and its
-part, beside the pinned driver's check, which boots nothing.
+exception: linux-x86_64's leg is two jobs (above), each the time of a
+boot and its part, beside the pinned driver's check, which boots nothing.
 
 `COSMIC_CI_SAVES` is `true` only for a push to main and the scheduled runs,
 the only runs that save a cache, and is decided in the top-level `env`. The
@@ -561,8 +561,8 @@ driver does not read it (it is `COSMIC_CI_*`, which a suite's workers are
 never given).
 
 The platform job's `include` is an expression that chooses one of four
-lists by the kind of run (linux-x86_64 alone for a pull request, its two
-parts for the queue, every leg but macOS for a push to main, all four
+lists by the kind of run (linux-x86_64 alone for a pull request, every
+leg but macOS for the queue, linux-x86_64's in two parts, and for a push to main, all four
 otherwise), each listing every leg whole: an `include` entry naming a leg
 no dimension holds would start that leg anyway (GitHub adds an entry that
 fits no combination as one of its own). Each entry names the job

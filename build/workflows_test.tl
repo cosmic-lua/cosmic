@@ -329,6 +329,13 @@ local KIND_CHOICE <const> = "^%${{ fromJSON%(github%.event_name == 'pull_request
   "github%.event_name == 'merge_group' && '(%[[^']-%])' || github%.event_name == 'push' && '(%[[^']-%])' || " ..
   "'(%[[^']-%])'%) }}$"
 
+--- What every run but a pull request's runs: the merge queue, main's
+--- push, the scheduled and a manual run.
+local PR_SKIPS <const> = "github.event_name != 'pull_request'"
+--- A leg's steps past its native suite, which every run but a pull
+--- request's runs, and the queue's format job skips.
+local LEG_RUNS <const> = PR_SKIPS .. " && matrix.part != 'format'"
+
 local function strings_of(value: any, what: string): {string}
   local list, err: {string}?, string = Shape.into(value, Shape.list(Shape.string))
   return (assert(list, what .. ": " .. err))
@@ -1349,8 +1356,8 @@ local function test_the_credential_proof_follows_the_native_database_boundary()
     "credential proof wrapper does not compile the transition helper")
   assert(suite < boundary and boundary < compiled and compiled < proved,
     "credential proof setup or dispatch writes across the native database boundary")
-  assert(compile["if"] == "runner.os == 'Linux' && github.event_name != 'merge_group' && github.event_name != 'pull_request'" and proof["if"] == compile["if"],
-    "credential proof must remain required on every Linux leg past the merge queue")
+  assert(compile["if"] == "runner.os == 'Linux' && " .. LEG_RUNS and proof["if"] == compile["if"],
+    "credential proof must remain required on every Linux leg but a pull request's and the format job")
   assert(proof.shell == "leg-shell --root {0}" and proof["continue-on-error"] == nil,
     "credential proof lost its privileged failure gate")
   local runner, ran = step_running(steps, "run-local-proof.sh")
@@ -1471,17 +1478,17 @@ local function test_a_gating_download_is_tried_twice()
   assert(retries > 0, "no retried download found: the test reads nothing")
 end
 
---- The merge queue runs linux-x86_64's leg alone, a light and fast gate; a
---- push to main every leg but macOS, which the daily scheduled run and a
---- manual run add, the runs prerelease.yml publishes from. A leg has the same values whatever the
+--- A pull request runs linux-x86_64's leg alone, a light gate; the merge
+--- queue and a push to main every leg but macOS, which the daily scheduled
+--- run and a manual run add, the runs prerelease.yml publishes from. A leg has the same values whatever the
 --- run, every entry sets the same values, and alpine-x86_64,
 --- linux-x86_64's runner and target in the alpine image, is the only leg in
 --- that image.
 local function test_each_kind_of_run_has_its_legs()
   local pr, queue, push, full = platform_legs("pr"), platform_legs("queue"), platform_legs("push"), platform_legs("full")
   assert(names_of(pr) == "linux-x86_64", "a pull request's legs: " .. names_of(pr))
-  -- The queue runs linux-x86_64's leg as two jobs at once, its native suite in one and the format check in the other.
-  assert(names_of(queue) == "linux-x86_64 linux-x86_64-format", "the queue's legs: " .. names_of(queue))
+  -- The queue runs a push's legs, linux-x86_64's as two jobs at once: the format check in one, the rest in the other.
+  assert(names_of(queue) == "alpine-x86_64 linux-aarch64 linux-x86_64 linux-x86_64-format", "the queue's legs: " .. names_of(queue))
   local suite, format = assert(queue["linux-x86_64"]), assert(queue["linux-x86_64-format"])
   assert(suite["part"] == "suite" and format["part"] == "format" and format["leg"] == "linux-x86_64",
     "the queue's jobs split the leg otherwise")
@@ -1498,7 +1505,8 @@ local function test_each_kind_of_run_has_its_legs()
     assert(count == #keys, name .. " sets other values than " .. table.concat(keys, ", "))
     for _, key in ipairs(keys) do
       assert(leg[key] ~= nil, name .. " has no " .. key)
-      for _, other in ipairs({ pr[name] or leg, push[name] or leg }) do
+      local queued = if name == "linux-x86_64" then leg else queue[name] or leg end
+      for _, other in ipairs({ pr[name] or leg, push[name] or leg, queued }) do
         assert(other[key] == leg[key], name .. "'s " .. key .. " differs between runs")
       end
     end
@@ -1515,15 +1523,9 @@ local function test_each_kind_of_run_has_its_legs()
   assert(assert(platform.strategy)["fail-fast"] == false, "a failed leg cancels the others")
 end
 
---- What only main's runs run (main's push, the weekly and a manual run):
---- not the merge queue, nor a pull request.
-local QUEUE_SKIPS <const> = "github.event_name != 'merge_group' && github.event_name != 'pull_request'"
---- What a pull request skips beside.
-local PR_SKIPS <const> = "github.event_name != 'pull_request'"
-
 --- What a pull request runs where a path it changed reaches the launcher
 --- and startup fixtures (driver.tl changed-paths).
-local PR_FIXTURES <const> = "(" .. QUEUE_SKIPS .. ") || (github.event_name == 'pull_request' && " ..
+local PR_FIXTURES <const> = "(" .. LEG_RUNS .. ") || (github.event_name == 'pull_request' && " ..
   "steps.changed.outputs.fixtures != 'skip')"
 
 --- The format check's runs: linux-x86_64's, on every run but main's push
@@ -1547,27 +1549,28 @@ local function phases_unless(steps: {Step}, skips: string): string
   return table.concat(out, " ")
 end
 
---- In the merge queue, the leg boots, runs its native suite and its
---- boundary, checks the bootstrap's scripts, the tree's format and,
---- where the change reaches its tests, the pinned driver, and probes the
---- sandbox: everything past that (assemble,
---- the regressions, the portable suite, the attestation and the product,
---- the credential proofs) is main's, and so are
---- the checked and narrowing jobs, which the queue skips.
-local function test_the_merge_queue_runs_the_native_suite_and_the_format_check_alone()
+--- The merge queue runs what main's push runs, so a commit that would
+--- break a push breaks its queue entry first: every leg's native suite,
+--- assemble, the fixtures, the regressions, the portable suite, the
+--- attestation and the product, the credential proofs, and the checked
+--- and narrowing jobs. Beside, linux-x86_64's format check runs as a job
+--- of its own, which skips all of that.
+local function test_the_merge_queue_runs_what_mains_push_runs()
   local jobs = ci_workflow().jobs
   local steps = job_of(jobs, "platform").steps
-  local in_queue = phases_unless(steps, QUEUE_SKIPS)
-  assert(in_queue == "boot local-suite local-boundary format darwin-suite sandbox", "the queue's leg runs " .. in_queue)
+  for _, step in ipairs(steps) do
+    assert((step["if"] or ""):find("github.event_name != 'merge_group'", 1, true) == nil,
+      tostring(step.name) .. " is skipped in the merge queue")
+  end
   for _, name in ipairs({ "run the product suite from fresh tracked source", "attest the exact executed product bytes",
       "upload the attested product" }) do
-    assert(step_named(steps, name)["if"] == QUEUE_SKIPS, name .. " runs in the merge queue")
+    assert(step_named(steps, name)["if"] == LEG_RUNS, name .. " is skipped in the merge queue")
   end
   for _, name in ipairs({ "build local portable and checked artifacts", "run runtime, launcher, rebuild, and identity regressions" }) do
-    assert(step_named(steps, name)["if"] == PR_FIXTURES, name .. " runs in the merge queue, or ungated on a pull request")
+    assert(step_named(steps, name)["if"] == PR_FIXTURES, name .. " is skipped in the merge queue, or ungated on a pull request")
   end
   for _, name in ipairs({ "checked", "narrowing" }) do
-    assert(job_of(jobs, name)["if"] == QUEUE_SKIPS, name .. " runs in the merge queue")
+    assert(job_of(jobs, name)["if"] == PR_SKIPS, name .. " is skipped in the merge queue")
   end
   local suite = step_named(steps, "run release Cosmic's native suite")
   -- Skipped on a pull request and in the queue's format job alone.
@@ -1719,8 +1722,9 @@ local function test_the_format_check_takes_the_queues_memo_through_main()
   local held, held_at = step_with_id(relayed, "queue-checks-held")
   local save, save_at = step_named(relayed, "save the tree checks' memo")
   assert(find_at < download_at and download_at < held_at and held_at < save_at, "the memo is relayed out of order")
-  assert(download["if"] == "steps.queue-run.outputs.run != ''" and download["continue-on-error"] == true and
-      param(download, "name") == "queue-checks-linux-x86_64" and
+  -- linux-x86_64's format job alone seals the memo, so the other legs' relays look for none.
+  assert(download["if"] == "matrix.leg == 'linux-x86_64' && steps.queue-run.outputs.run != ''" and
+      download["continue-on-error"] == true and param(download, "name") == "queue-checks-linux-x86_64" and
       param(download, "path") == "${{ runner.temp }}/cache/cosmic/build" and
       param(download, "run-id") == "${{ steps.queue-run.outputs.run }}", "the memo's download")
   assert(held["if"] == "steps.queue-checks.outcome == 'success'" and held["continue-on-error"] == true and
@@ -1786,10 +1790,10 @@ local function test_mains_push_saves_the_queues_compiles_at_once()
   local save, save_at = step_named(relayed, "save the merge queue's compiles and parses")
   assert(relay_find_at < fetched_at and fetched_at < save_at, "the compiles are relayed out of order")
   assert(fetched["if"] == "steps.queue-run.outputs.run != ''" and fetched["continue-on-error"] == true and
-      param(fetched, "name") == "queue-compiles-linux-x86_64" and param(fetched, "path") == dir and
+      param(fetched, "name") == "queue-compiles-${{ matrix.leg }}" and param(fetched, "path") == dir and
       param(fetched, "run-id") == "${{ steps.queue-run.outputs.run }}", "the relay's download of the compiles")
   assert(save["if"] == "steps.queue-compiles.outcome == 'success'" and save["continue-on-error"] == true and
-      param(save, "path") == dir and param(save, "key") == "compiles-linux-x86_64-queue-${{ github.sha }}",
+      param(save, "path") == dir and param(save, "key") == "compiles-${{ matrix.leg }}-queue-${{ github.sha }}",
     "the relay's save of the compiles")
 end
 
@@ -1810,12 +1814,25 @@ local function test_the_relay_saves_the_queues_verdicts_under_the_queues_name()
   assert(concurrency["group"] == "relay" and concurrency["cancel-in-progress"] == false,
     "the relay is not in a group of its own, or is cancelled")
   local job = job_of(relay.jobs, "relay")
+  -- A job a leg the merge queue runs, each relaying its own leg's.
+  local relayed: mut {string} = {}
+  for _, leg in ipairs(strings_of(assert(Json.to_object(assert(assert(job.strategy).matrix)))["leg"], "the relay's legs")) do
+    relayed[#relayed + 1] = leg
+  end
+  table.sort(relayed)
+  local queued: mut {string} = {}
+  for _, leg in pairs(platform_legs("queue")) do
+    if leg["part"] ~= "format" then queued[#queued + 1] = assert(leg["leg"]) end
+  end
+  table.sort(queued)
+  assert(table.concat(relayed, " ") == table.concat(queued, " "),
+    "the relay's legs " .. table.concat(relayed, " ") .. " are not the queue's " .. table.concat(queued, " "))
   assert(map_of(job.permissions)["actions"] == "read" and map_of(job.permissions)["contents"] == "read",
     "the relay's permissions")
   local steps = job.steps
   local find = step_with_id(steps, "queue-run")
   assert(map_of(find.env)["SHA"] == "${{ github.sha }}" and
-      map_of(find.env)["ARTIFACT"] == "queue-verdicts-linux-x86_64", "the relay looks for another run")
+      map_of(find.env)["ARTIFACT"] == "queue-verdicts-${{ matrix.leg }}", "the relay looks for another run")
   local _, find_at = step_with_id(steps, "queue-run")
   local download, download_at = step_with_id(steps, "queue-download")
   local key, key_at = step_with_id(steps, "verdicts-key")
@@ -1824,9 +1841,9 @@ local function test_the_relay_saves_the_queues_verdicts_under_the_queues_name()
   local save, save_at = step_named(steps, "save test verdicts")
   assert(find_at < download_at and download_at < key_at and key_at < restore_at and restore_at < merge_at and
       merge_at < save_at, "the verdicts are relayed out of order")
-  assert(param(download, "name") == "queue-verdicts-linux-x86_64" and
+  assert(param(download, "name") == "queue-verdicts-${{ matrix.leg }}" and
       param(download, "run-id") == "${{ steps.queue-run.outputs.run }}", "the relay's download of the verdicts")
-  assert((key.run or ""):find("driver.tl verdicts-key \"${{ runner.temp }}/queue-verdicts\" linux-x86_64", 1, true) ~= nil,
+  assert((key.run or ""):find("driver.tl verdicts-key \"${{ runner.temp }}/queue-verdicts\" ${{ matrix.leg }}", 1, true) ~= nil,
     "the cache's name is read otherwise")
   local named = "${{ steps.verdicts-key.outputs.verdicts }}"
   assert(param(restore, "key") == named and param(restore, "restore-keys") == named .. "\n" and
@@ -1864,7 +1881,7 @@ local function test_mains_push_takes_the_queues_verdicts_before_its_suites()
   local _, suite_at = step_with_id(steps, "release-suite")
   assert(restore_at < find_at and find_at < download_at and download_at < merge_at and merge_at < suite_at,
     "the queue's verdicts are taken in out of order")
-  assert(find["if"] == "matrix.leg == 'linux-x86_64' && github.event_name == 'push' && github.ref == 'refs/heads/main'" and
+  assert(find["if"] == "github.event_name == 'push' && github.ref == 'refs/heads/main'" and
       map_of(find.env)["SHA"] == "${{ github.sha }}" and
       map_of(find.env)["ARTIFACT"] == "queue-verdicts-${{ matrix.leg }}" and
       (find.run or ""):find("driver.tl queue-run", 1, true) ~= nil,
@@ -1900,16 +1917,15 @@ local function test_the_gate_needs_every_job_and_compares_four_products()
     "the gate needs " .. table.concat(needs_of(gate), ","))
   local env = map_of(assert(gate.steps[1]).env)
   assert(env["RESULT"] == "${{ needs.platform.result }}" and
-      env["CHECKED"] == "${{ (github.event_name == 'merge_group' || github.event_name == 'pull_request') && 'success' || " ..
-      "needs.checked.result }}" and
-      env["NARROWING"] == "${{ (github.event_name == 'merge_group' || github.event_name == 'pull_request') && 'success' || " ..
-      "needs.narrowing.result }}" and
+      env["CHECKED"] == "${{ github.event_name == 'pull_request' && 'success' || needs.checked.result }}" and
+      env["NARROWING"] == "${{ github.event_name == 'pull_request' && 'success' || needs.narrowing.result }}" and
       env["DRIVER"] == "${{ github.event_name == 'merge_group' && needs.driver.result || 'success' }}" and
       (assert(gate.steps[1]).run or ""):find("[ \"$DRIVER\" = success ]", 1, true) ~= nil,
     "the gate reads other results")
   local compare = step_named(gate.steps, "compare the Cosmic bytes executed on every native host")
-  assert(compare["if"] == QUEUE_SKIPS and
-      map_of(compare.env)["COSMIC_CI_PRODUCTS"] == "${{ github.event_name == 'push' && '3' || '4' }}",
+  assert(compare["if"] == PR_SKIPS and
+      map_of(compare.env)["COSMIC_CI_PRODUCTS"] ==
+      "${{ (github.event_name == 'push' || github.event_name == 'merge_group') && '3' || '4' }}",
     "the join compares other than main's products: " .. tostring(map_of(compare.env)["COSMIC_CI_PRODUCTS"]))
   local function count(legs: {string: {string: string}}): integer
     local n = 0
@@ -1917,6 +1933,12 @@ local function test_the_gate_needs_every_job_and_compares_four_products()
     return n
   end
   assert(count(platform_legs("push")) == 3 and count(platform_legs("full")) == 4, "the runs' legs")
+  -- The queue's three products: its format job uploads none.
+  local queued = 0
+  for _, leg in pairs(platform_legs("queue")) do
+    if leg["part"] ~= "format" then queued = queued + 1 end
+  end
+  assert(queued == 3, "the queue's products")
   -- prerelease.yml publishes four lanes, so only from a run of all four:
   -- the scheduled and a manual run of main, never a push. Its `follow`
   -- job alone reads a push's run, which publishes nothing.
@@ -2018,6 +2040,6 @@ local function test_a_pull_request_runs_the_light_check_alone()
   assert(based < moved and listed < moved, "a step fetches from origin after the tree moved, without the checkout's credentials")
   assert(names_of(platform_legs("pr")) == "linux-x86_64", "a pull request's legs")
   for _, name in ipairs({ "checked", "narrowing" }) do
-    assert(job_of(ci.jobs, name)["if"] == QUEUE_SKIPS, name .. " runs on a pull request")
+    assert(job_of(ci.jobs, name)["if"] == PR_SKIPS, name .. " runs on a pull request")
   end
 end

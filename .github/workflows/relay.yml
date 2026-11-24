@@ -28,9 +28,15 @@
   concurrency: {group: "relay", "cancel-in-progress": false},
 
   jobs: {
+    # One job a leg the merge queue runs: each leg's verdicts and compiles
+    # are its own; the tree checks' memo is linux-x86_64's format job's.
     relay: {
-      name: "relay",
+      name: "relay ${{ matrix.leg }}",
       if: "github.repository == 'cosmic-lua/cosmic'",
+      strategy: {
+        "fail-fast": false,
+        matrix: {leg: ["linux-x86_64", "linux-aarch64", "alpine-x86_64"]},
+      },
       defaults: {run: {"working-directory": "ci", shell: "sh"}},
       "runs-on": "ubuntu-24.04",
       # actions: to find and download the merge queue's artifacts.
@@ -48,7 +54,7 @@
           name: "find the merge queue's run of this commit",
           id: "queue-run",
           "continue-on-error": true,
-          env: {SHA: "${{ github.sha }}", ARTIFACT: "queue-verdicts-linux-x86_64", GH_TOKEN: "${{ github.token }}"},
+          env: {SHA: "${{ github.sha }}", ARTIFACT: "queue-verdicts-${{ matrix.leg }}", GH_TOKEN: "${{ github.token }}"},
           run: "cosmic-driver cosmic_ci/driver.tl queue-run",
         },
         # The verdicts, with the name of the cache the queue's host gave
@@ -61,7 +67,7 @@
           "continue-on-error": true,
           uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
           with: {
-            name: "queue-verdicts-linux-x86_64",
+            name: "queue-verdicts-${{ matrix.leg }}",
             path: "${{ runner.temp }}/queue-verdicts",
             "run-id": "${{ steps.queue-run.outputs.run }}",
             "github-token": "${{ github.token }}",
@@ -72,7 +78,7 @@
           id: "verdicts-key",
           if: "steps.queue-download.outcome == 'success'",
           "continue-on-error": true,
-          run: "cosmic-driver cosmic_ci/driver.tl verdicts-key \"${{ runner.temp }}/queue-verdicts\" linux-x86_64",
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-key \"${{ runner.temp }}/queue-verdicts\" ${{ matrix.leg }}",
         },
         {
           name: "restore test verdicts",
@@ -113,7 +119,7 @@
           "continue-on-error": true,
           uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
           with: {
-            name: "queue-compiles-linux-x86_64",
+            name: "queue-compiles-${{ matrix.leg }}",
             path: "${{ runner.temp }}/build-cache",
             "run-id": "${{ steps.queue-run.outputs.run }}",
             "github-token": "${{ github.token }}",
@@ -126,7 +132,7 @@
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/build-cache",
-            key: "compiles-linux-x86_64-queue-${{ github.sha }}",
+            key: "compiles-${{ matrix.leg }}-queue-${{ github.sha }}",
           },
         },
         # The memo of the tree checks, held to a memo with rows: a file
@@ -135,7 +141,7 @@
         {
           name: "download the merge queue's tree checks memo",
           id: "queue-checks",
-          if: "steps.queue-run.outputs.run != ''",
+          if: "matrix.leg == 'linux-x86_64' && steps.queue-run.outputs.run != ''",
           "continue-on-error": true,
           uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
           with: {
