@@ -252,24 +252,39 @@ local function test_a_late_write_and_a_snippets_own_mark_are_not_the_next_snippe
   Worker.close(w)
 end
 
---- Calls a snippet makes from tasks of its own are out at once, and the agent serves each in a task of its own: four
---- calls that each take half a second take about that together, and each gets its own reply.
+--- Calls a snippet makes from tasks of its own are out at once, and the agent serves each in a task of its own: each
+--- of the first four calls is held until all four are being served, which only calls served at once can be, and
+--- each gets its own reply. Held calls wait for the others, never for a time, so a slow core only slows the test.
 local function test_calls_from_a_snippets_tasks_are_served_at_once()
   local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
   local served = 0
+  local held = 0
+  local most_held = 0
   local serve: Worker.Serve = function(name: string, args: Json.Value, _: Worker.Budget): (Json.Value) | (nil, Failure)
     served = served + 1
-    local _, _ = Poll.delay(Clock.ms(500))
+    local n = math.tointeger(args)
+    if n ~= nil and n <= 4 then
+      held = held + 1
+      if held > most_held then most_held = held end
+      -- Calls served one at a time would leave this one alone here until its deadline.
+      local deadline = Clock.monotonic_ns() + Clock.seconds(20)
+      while most_held < 4 and Clock.monotonic_ns() < deadline do
+        -- A cancelled task's delay answers at once: stop, rather than spin to the deadline.
+        local slept, _ = Poll.delay(Clock.ms(10))
+        if not slept then break end
+      end
+      held = held - 1
+    else
+      local _, _ = Poll.delay(Clock.ms(500))
+    end
     if name == "fail" then return nil, Failure.new("refused " .. tostring(args)) end
     return "napped " .. tostring(args)
   end
   local code = [[
-local Clock = require("cosmic.clock")
 local Host = require("cosmic.agent.host")
 local Poll = require("cosmic.poll")
 local got: mut {integer: string} = {}
-local began = Clock.monotonic_ns()
 Poll.run(function()
   for i = 1, 4 do
     local _ = Poll.spawn(function()
@@ -278,14 +293,15 @@ Poll.run(function()
     end)
   end
 end)
-print(got[1], got[2], got[3], got[4], Clock.monotonic_ns() - began < Clock.ms(1500))
+print(got[1], got[2], got[3], got[4])
 local after, _ = Host.call("nap", 5)
 print(tostring(after))
 ]]
   local answer = assert(Worker.run(w, code, { cwd = dir, seconds = 30, serve = serve }))
-  assert(answer["ok"] == true and answer["output"] == "napped 1\tnapped 2\thost: fail: refused 3\tnapped 4\ttrue\n" ..
+  assert(answer["ok"] == true and answer["output"] == "napped 1\tnapped 2\thost: fail: refused 3\tnapped 4\n" ..
       "napped 5\n", shown(answer))
   assert(served == 5, tostring(served))
+  assert(most_held == 4, "the four calls were served at once: at most " .. tostring(most_held) .. " together")
   -- A call a cancelled task left, and one a task closed as another raised, leave the next snippet as it was.
   local left = [[
 local Clock = require("cosmic.clock")

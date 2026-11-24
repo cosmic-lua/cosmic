@@ -228,18 +228,17 @@ start a next PR that depends on this one only once it has merged.
 on a failure, find the cause, fix it in the worktree, re-run the checks
 and push. never skip or disable a test to get green.
 
-the queue's run is a light, fast gate: linux-x86_64's native suite and
-the format check of what the change touched. everything else (the other legs, assemble, the
-regressions and product suite, the checked suite and the checked
-narrowing run) runs on main's push after the merge, and macOS in main's
-daily scheduled run, so a failure only those show turns main red after
-the change lands; fix it, or revert the change, at once. a change to what they prove more than the native suite
-does (ci/, bin/, the core's C, `build.zig`, vendor/ and patch/, the
-harness's epoch, the artifact, launcher and boot modules, a darwin
-branch or anything macOS-specific, code the checked core or a checked run would catch) runs CI on
-its branch first: a manual run (`workflow_dispatch` on the branch, from
-the Actions tab or `gh workflow run ci.yml --ref <branch>`) runs what
-main's run does.
+the queue's run tests what main's push does: every Linux leg (its native
+suite, and beside it assemble, the regressions and the product suite), the
+checked suite, the checked narrowing run, and the format check of what the
+change touched. it also runs macOS's native suite. macOS's product, its
+fixtures and its checked regressions run in main's daily scheduled run
+alone, so a failure only they show turns main's next prerelease red after
+the change lands; fix it, or revert the change, at once. a change macOS may
+answer otherwise there (the core's C, the launcher, the product or its
+fixtures) runs CI on its branch first: a
+manual run (`workflow_dispatch` on the branch, from the Actions tab or
+`gh workflow run ci.yml --ref <branch>`) runs what main's run does.
 
 a queue run tests the change merged with every entry ahead of it, so it
 can fail where the branch's checks passed. when it fails building, on a
