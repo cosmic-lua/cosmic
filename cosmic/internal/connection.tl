@@ -104,9 +104,10 @@ local class SocketConn is Duplex
   mut listener?: raw_socket.Address
 
   --- Sets how long a `read` or a `write` waits, in nanoseconds, from 0;
-  --- nil for no limit. On a connection a TLS listener accepted it bounds
-  --- the whole call, the handshake and every wait for a record's bytes
-  --- with it. A connection starts with the `timeout_ns` it
+  --- nil for no limit. It bounds a whole `write`; and a whole `read` on
+  --- a connection a TLS listener accepted, the handshake and every wait
+  --- for a record's bytes with it, but each wait of a `read` in the
+  --- clear. A connection starts with the `timeout_ns` it
   --- was made with: [`Net.connect`]'s, or its listener's or server's.
   --- A value no wait can last raises, naming `timeout_ns`, at the
   --- caller.
@@ -209,6 +210,9 @@ local class SocketConn is Duplex
       end
       return true, ""
     end
+    -- One deadline for the call, as over TLS: a peer that takes a byte
+    -- each wait would hold the write for ever.
+    local deadline = deadline_of(self.limit)
     while from <= #data do
       local sent, why, errno = raw.send(fd, data, from)
       if sent ~= nil then
@@ -217,7 +221,7 @@ local class SocketConn is Duplex
         self.write_failure = why
         return false, why
       else
-        local ready, waiting = waited(fd, true, self.limit)
+        local ready, waiting = waited(fd, true, left(deadline))
         if not ready then
           self.write_failure = waiting
           return false, waiting
