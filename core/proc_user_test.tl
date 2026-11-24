@@ -60,12 +60,15 @@ local function test_user_releases_buffers_under_every_allocation_refusal()
     local bytes, blocks = testing.c_heap()
     local completed = false
     for after = 0, 10000 do
-      if case.point ~= "" then testing.fail_at(case.point) end
-      testing.fail_allocations(after)
-      local ok, user = pcall(function(): Proc.User?
+      -- Made before allocations are refused: the closure's own allocation
+      -- would fail outside the pcall.
+      local function look(): Proc.User?
         local found, _ = Proc.user(case.name)
         return found
-      end)
+      end
+      if case.point ~= "" then testing.fail_at(case.point) end
+      testing.fail_allocations(after)
+      local ok, user = pcall(look)
       local refused = testing.allow_allocations()
       local _ = testing.fail_at()
       collectgarbage("collect")
