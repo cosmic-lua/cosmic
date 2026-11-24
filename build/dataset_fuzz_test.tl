@@ -220,7 +220,7 @@ local function test_each_key_reads_back_by_its_column(tmp: string)
         do
           if column ~= key then Fuzz.label("renamed") end
           if not key:match("^[%a_][%w_]*$") then Fuzz.label("quoted") end
-          local got, trouble = db:rows('SELECT "' .. column:gsub('"', '""') .. '" FROM t ORDER BY rowid')
+          local got, trouble = db:rows('SELECT ' .. Sqlite.identifier(column) .. ' FROM t ORDER BY rowid')
           if got == nil then return false, column .. ": " .. tostring(trouble) end
           for index, row in ipairs(rows) do
             local want = expected_cell(row[key])
@@ -274,7 +274,7 @@ end
 local function cells_of(db: Sqlite.Handle, columns: {string}): string
   local quoted: mut {string} = {}
   for index, column in ipairs(columns) do
-    quoted[index] = 'quote("' .. column:gsub('"', '""') .. '")'
+    quoted[index] = 'quote(' .. Sqlite.identifier(column) .. ')'
   end
   -- A text with no records makes a table of `_json` alone.
   if #quoted == 0 then

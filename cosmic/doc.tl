@@ -1576,11 +1576,6 @@ function Doc.view(databases: {Sqlite.Handle}, public?: {boolean}): (Doc.View) | 
   return value
 end
 
---- The text of `value` as an SQL string literal.
-local function sql_literal(value: string): string
-  return "'" .. (value:gsub("'", "''")) .. "'"
-end
-
 --- Answers the documentation of the project's last build as a `cmd/<name>/main.tl` run from its source would
 --- carry it built ([`build.embed`]), in place of `db`, the store's connection to that build. The run names the
 --- program and the build ([`cosmic.internal.source_run`]'s `main` and `projection`). What it carries: the docs of
@@ -1618,9 +1613,9 @@ local function scope_to_program(db: Sqlite.Handle, pages?: string): Sqlite.Handl
   -- The module the program names as its pages, which its build carries for being named
   -- ([`build.embed`]'s `pages_named`) where it is the project's, and none a program would not carry for its own:
   -- the rule [`embed.database`] holds a build to, which a change to one changes in both.
-  local paged = "(m.path = " .. sql_literal(pages or "") .. " AND m.kind = 'module' AND " ..
+  local paged = "(m.path = " .. Sqlite.literal(pages or "") .. " AND m.kind = 'module' AND " ..
     "instr('/' || m.file, '/internal/') = 0 AND (m.path NOT GLOB 'cmd.*' OR substr(m.path, 1, " .. tostring(#own) ..
-    ") = " .. sql_literal(own) .. "))"
+    ") = " .. Sqlite.literal(own) .. "))"
   local docs_columns, columns_trouble = opened:text_rows("SELECT name FROM pragma_table_info('docs', 'main')")
   if docs_columns == nil then return failed(tostring(columns_trouble)) end
   local names: mut {string} = {}
@@ -1630,7 +1625,7 @@ local function scope_to_program(db: Sqlite.Handle, pages?: string): Sqlite.Handl
     names[#names + 1] = column_name
     if column_name == "module" then
       selected[#selected + 1] = "CASE WHEN substr(module, 1, " .. tostring(#own_guides) .. ") = " ..
-        sql_literal(own_guides) .. " THEN 'doc.guides.' || substr(module, " .. tostring(#own_guides + 1) ..
+        Sqlite.literal(own_guides) .. " THEN 'doc.guides.' || substr(module, " .. tostring(#own_guides + 1) ..
         ") ELSE module END"
     else
       selected[#selected + 1] = column_name
@@ -1648,16 +1643,16 @@ local function scope_to_program(db: Sqlite.Handle, pages?: string): Sqlite.Handl
   for _, made in ipairs({
       "CREATE TEMP TABLE carried (path TEXT PRIMARY KEY) WITHOUT ROWID",
       "CREATE TEMP TABLE public_modules (path TEXT PRIMARY KEY) WITHOUT ROWID",
-      "WITH RECURSIVE carried(path) AS (SELECT " .. sql_literal(main) .. " UNION SELECT path FROM main.modules " ..
-        "WHERE kind = 'module' AND substr(path, 1, " .. tostring(#own) .. ") = " .. sql_literal(own) ..
+      "WITH RECURSIVE carried(path) AS (SELECT " .. Sqlite.literal(main) .. " UNION SELECT path FROM main.modules " ..
+        "WHERE kind = 'module' AND substr(path, 1, " .. tostring(#own) .. ") = " .. Sqlite.literal(own) ..
         " UNION SELECT m.path FROM main.modules m WHERE " .. paged ..
         " UNION SELECT i.requires FROM main.imports i JOIN carried c ON i.path = c.path) " ..
         "INSERT INTO temp.carried (path) SELECT path FROM main.modules WHERE path IN (SELECT path FROM carried) " ..
         "ORDER BY path",
       "INSERT INTO temp.public_modules (path) SELECT m.path FROM main.modules m " ..
         "WHERE m.path IN (SELECT path FROM temp.carried) AND (m.path IN (SELECT path FROM main.public_modules) OR " ..
-        "(substr(m.path, 1, " .. tostring(#own) .. ") = " .. sql_literal(own) .. " AND m.path <> " ..
-        sql_literal(main) .. " AND m.kind = 'module' AND instr('/' || m.file, '/internal/') = 0) OR " .. paged ..
+        "(substr(m.path, 1, " .. tostring(#own) .. ") = " .. Sqlite.literal(own) .. " AND m.path <> " ..
+        Sqlite.literal(main) .. " AND m.kind = 'module' AND instr('/' || m.file, '/internal/') = 0) OR " .. paged ..
         ") ORDER BY m.path",
   }) do
     statements[#statements + 1] = made
@@ -1687,10 +1682,10 @@ local function scope_to_program(db: Sqlite.Handle, pages?: string): Sqlite.Handl
   -- name, and the project's guides' own rows it has none of its own in place of.
   statements[#statements + 1] = "INSERT INTO temp.docs (" .. table.concat(names, ", ") .. ") SELECT " ..
     table.concat(selected, ", ") .. " FROM main.docs d WHERE d.module IN (SELECT path FROM temp.public_modules) OR " ..
-    "(d.symbol = '' AND substr(d.module, 1, " .. tostring(#own_guides) .. ") = " .. sql_literal(own_guides) ..
+    "(d.symbol = '' AND substr(d.module, 1, " .. tostring(#own_guides) .. ") = " .. Sqlite.literal(own_guides) ..
     " AND instr(substr(d.module, " .. tostring(#own_guides + 1) .. "), '.') = 0) OR (d.symbol = '' AND " ..
     symbols.guide_module("d.module") .. " AND NOT EXISTS (SELECT 1 FROM main.docs o WHERE o.symbol = '' AND " ..
-    "o.module = " .. sql_literal(own_guides) .. " || substr(d.module, 12))) ORDER BY d.id"
+    "o.module = " .. Sqlite.literal(own_guides) .. " || substr(d.module, 12))) ORDER BY d.id"
   -- The index of each and the words of those rows: each stored index made again in `temp`, where its content
   -- table is the one above, and the words counted as [`build.schema`]'s `rebuild` counts them, unstemmed.
   for _, row in ipairs(indexes) do

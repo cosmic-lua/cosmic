@@ -5,6 +5,7 @@ local ContextEnv = require("cosmic_ci.context")
 -- TODO: read the COSMIC_CI_* variables through Env.read once build/ci_tree_test.tl also lets cosmic/env.tl name them (it keeps
 -- the variables a suite forgets out of the tree's sources); they join Env.Name then.
 local Env = require("cosmic.env")
+local Failures = require("cosmic_ci.failures")
 local Fixture = require("cosmic_ci.fixture")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -70,6 +71,12 @@ local record Orchestration
   fixture_lanes: function(env: {string:string}, cpus: integer): Lanes
   run_groups: function(high: Orchestration.Group, low: {Orchestration.Group},
     lanes: boolean): integer
+  --- `group`, named as running from its start until it finishes or is
+  --- abandoned ([`Failures.begin`]), and a failed run's lines kept
+  --- ([`Failures.keep`]) as `phase`'s. `files` returns the files its
+  --- output goes to.
+  watched_group: function(group: Orchestration.Group, phase: string,
+    files: function(): (string, string)): Orchestration.Group
 end
 
 local function mkdir(path: string) assert(Fs.mkdirs(path)) end
@@ -380,17 +387,20 @@ local function operation(c: Context, phase: string, command: {string},
   return Runner.operation(runner, phase, request).code
 end
 
+--- What a failed command's own output may not say: that it timed out,
+--- did not start, or was ended by a signal, as a line Failures.pick keeps.
+local function ended_line(phase: string, outcome: Runner.Outcome): string
+  if outcome.status == "exit" then return "" end
+  local trouble = outcome.trouble
+  return "\nerror: " .. phase .. ": " .. outcome.status .. (if trouble ~= nil then ": " .. trouble else "" end) .. "\n"
+end
+
 -- Work done in this process, recorded as an operation as a command is.
 local function step(c: Context, phase: string,
                     work: function(): boolean, string): integer
   local runner: Runner.Context = { database = c.db, worker = c.worker,
     run = c.run, attempt = c.attempt, candidate = c.root }
   return Runner.step(runner, phase, work).code
-end
-
-local function checked(c: Context, phase: string, command: {string},
-                       timeout?: integer, cwd?: string, env?: {string:string}): integer
-  return operation(c, phase, command, timeout or 0, cwd, env)
 end
 
 --- Says a retained log whole, stdout then stderr (to `to_out` and `to_err`,
@@ -463,13 +473,105 @@ local function say_bound(name: string, started_ns: integer, bound_ns: integer)
   end
 end
 
+--- Runs `request` as `phase` ([`Runner.operation`]), named as running
+--- while it does ([`Failures.during`]): its output goes to `out` and `err`.
+local function named_operation(runner: Runner.Context, phase: string, request: Runner.Request, out: string,
+                               err: string): Runner.Outcome
+  local outcome: Runner.Outcome? = nil
+  Failures.during(phase, out, err, function()
+    outcome = Runner.operation(runner, phase, request)
+  end)
+  return assert(outcome)
+end
+
 local function logged(c: Context, phase: string, command: {string}, out: string,
                       err: string, timeout: integer, cwd?: string, env?: {string:string}): integer
-  local status = operation(c, phase, command, timeout, cwd, env, out, err)
+  local runner, request = request_for(c, command, timeout, cwd, env, out, err)
+  local outcome = named_operation(runner, phase, request, out, err)
   local replay_ok = replay(out, err)
-  if status ~= 0 then return status end
+  if outcome.code ~= 0 then
+    Failures.keep(phase, read_or_empty(out) .. "\n" .. read_or_empty(err) .. ended_line(phase, outcome))
+    return outcome.code
+  end
   assert(replay_ok, "could not replay retained output")
-  return status
+  return outcome.code
+end
+
+--- How many commands this process has kept the output of in files of
+--- `said/`, which names the next one's.
+local record SaidFiles
+  mut count: integer
+end
+local said_files: SaidFiles = { count = 0 }
+
+--- Runs `command`, its output kept in files beside the operations
+--- database and said whole when it ends, as `logged` says a suite's, so a
+--- failure's lines that say why are said again (Failures.keep).
+local function watched(c: Context, phase: string, command: {string},
+                       timeout: integer, cwd?: string, env?: {string:string}): integer
+  local directory = (c.db:gsub("/[^/]*$", "")) .. "/said"
+  mkdir(directory)
+  said_files.count = said_files.count + 1
+  local stem = directory .. "/" .. tostring(said_files.count)
+  local out, err = stem .. ".out", stem .. ".err"
+  local runner, request = request_for(c, command, timeout, cwd, env, out, err)
+  local outcome = named_operation(runner, phase, request, out, err)
+  -- What the log could not be given fails nothing: the command's own
+  -- status decides the step.
+  local _ = replay(out, err)
+  if outcome.code ~= 0 then
+    Failures.keep(phase, read_or_empty(out) .. "\n" .. read_or_empty(err) .. ended_line(phase, outcome))
+  end
+  return outcome.code
+end
+
+--- What [`Failures.begin`] named a watched group's run by, while it runs.
+local record Named
+  mut running?: string
+end
+
+function Orchestration.watched_group(group: Orchestration.Group, phase: string,
+                                     files: function(): (string, string)): Orchestration.Group
+  local held: Named = {}
+  local function done()
+    local name = held.running
+    if name ~= nil then
+      held.running = nil
+      Failures.done(name)
+    end
+  end
+  return {
+    name = group.name,
+    run = group.run,
+    start = function(): Runner.Running
+      -- Named before it starts, so no moment of its run goes unnamed.
+      local out, err = files()
+      held.running = Failures.begin(phase, out, err)
+      local ran, running = pcall(group.start)
+      if not ran then
+        done()
+        error(running, 0)
+      end
+      return running
+    end,
+    finish = function(outcome: Runner.Outcome): integer
+      done()
+      if outcome.code ~= 0 then
+        local out, err = files()
+        Failures.keep(phase, read_or_empty(out) .. "\n" .. read_or_empty(err) .. ended_line(phase, outcome))
+      end
+      return group.finish(outcome)
+    end,
+    abandon = function(outcome: Runner.Outcome)
+      done()
+      group.abandon(outcome)
+    end,
+  }
+end
+
+local function checked(c: Context, phase: string, command: {string},
+                       timeout?: integer, cwd?: string, env?: {string:string}): integer
+  return watched(c, phase, command, timeout or 0, cwd, env)
 end
 
 --- Records the suite `name`'s row (State.suite): how it ended, `code`,
@@ -865,6 +967,11 @@ local record FixtureHeld
   mut started_ns?: integer
 end
 
+--- Where the fixture `name` keeps its output and diagnostics, under `work`.
+local function fixture_diagnostics(work: string, name: string): string
+  return work .. "/fixture-test-diagnostics/" .. name
+end
+
 --- Makes the fixture `spec`'s project (a group's own where `group` is
 --- given, [`Orchestration.fixture_project`]), places its inputs and its diagnostics
 --- directory, and says what to run: `jobs` workers where given, else the
@@ -878,7 +985,7 @@ local function prepare_fixture(c: Context, work: string, spec: FixtureSpec,
   if setup then setup() end
   local project = Orchestration.fixture_project(c.driver, work, group)
   place(project, spec.placements or {})
-  local diagnostics = work .. "/fixture-test-diagnostics/" .. name
+  local diagnostics = fixture_diagnostics(work, name)
   mkdir(diagnostics)
   mkdir(diagnostics .. "/tmp")
   mkdir(diagnostics .. "/figures")
@@ -932,7 +1039,7 @@ local function fixture_group(c: Context, work: string, spec: FixtureSpec,
                              jobs?: integer): Orchestration.Group
   -- The preparation, once the group has started.
   local held: FixtureHeld = {}
-  return {
+  return Orchestration.watched_group({
     name = spec.name,
     run = function(): integer return fixture_run_spec(c, work, spec) end,
     start = function(): Runner.Running
@@ -946,9 +1053,7 @@ local function fixture_group(c: Context, work: string, spec: FixtureSpec,
     finish = function(outcome: Runner.Outcome): integer
       local made = assert(held.prepared, "fixture group finished before it started")
       local replay_ok = replay(made.out, made.err)
-      if outcome.code == 0 then
-        assert(replay_ok, "could not replay retained output")
-      end
+      if outcome.code == 0 then assert(replay_ok, "could not replay retained output") end
       say_bound(spec.name, assert(held.started_ns), spec.timeout_ns)
       Orchestration.say_figures(spec.name, made.figures)
       record_suite(c, "fixture " .. spec.name, outcome.code, made.out)
@@ -961,7 +1066,10 @@ local function fixture_group(c: Context, work: string, spec: FixtureSpec,
         Orchestration.say_figures(spec.name, begun.figures)
       end
     end,
-  }
+  }, "fixture: " .. spec.name, function(): (string, string)
+    local diagnostics = fixture_diagnostics(work, spec.name)
+    return diagnostics .. "/test.out", diagnostics .. "/test.err"
+  end)
 end
 
 -- Copy the exact selected candidate and controller into declared external

@@ -669,6 +669,17 @@
           env: {SHA: "${{ github.sha }}", GH_TOKEN: "${{ github.token }}"},
           run: "cosmic-driver cosmic_ci/driver.tl main-newest",
         },
+        # As late as the tree is in place, so that a failed job's log ends
+        # near why it failed: the lines its failed commands said of that
+        # (cosmic_ci/failures.tl), and where the job was ended under a
+        # command, the end of what that command said. On the runner, since a
+        # leg's container is gone by now.
+        {
+          name: "say again what failed",
+          if: "(failure() || cancelled()) && steps.driver.outcome == 'success'",
+          shell: "sh",
+          run: "cosmic-driver cosmic_ci/driver.tl failures",
+        },
         # Before checkout's post step, whose git refuses the repository at
         # another path, and before the saves, whose paths actions/cache
         # names relative to the workspace (driver.tl place-tree).
@@ -932,6 +943,17 @@
           shell: "sh",
           run: "docker rm -f cosmic-leg || :",
         },
+        # As late as the tree is in place, so that a failed job's log ends
+        # near why it failed: the lines its failed commands said of that
+        # (cosmic_ci/failures.tl), and where the job was ended under a
+        # command, the end of what that command said. On the runner, since a
+        # leg's container is gone by now.
+        {
+          name: "say again what failed",
+          if: "(failure() || cancelled()) && steps.driver.outcome == 'success'",
+          shell: "sh",
+          run: "cosmic-driver cosmic_ci/driver.tl failures",
+        },
         # Before checkout's post step, whose git refuses the repository at
         # another path, and before the saves, whose paths actions/cache
         # names relative to the workspace (driver.tl place-tree).
@@ -1150,6 +1172,17 @@
           "working-directory": "/",
           shell: "sh",
           run: "docker rm -f cosmic-leg || :",
+        },
+        # As late as the tree is in place, so that a failed job's log ends
+        # near why it failed: the lines its failed commands said of that
+        # (cosmic_ci/failures.tl), and where the job was ended under a
+        # command, the end of what that command said. On the runner, since a
+        # leg's container is gone by now.
+        {
+          name: "say again what failed",
+          if: "(failure() || cancelled()) && steps.driver.outcome == 'success'",
+          shell: "sh",
+          run: "cosmic-driver cosmic_ci/driver.tl failures",
         },
         # Before checkout's post step, whose git refuses the repository at
         # another path, and before the saves, whose paths actions/cache

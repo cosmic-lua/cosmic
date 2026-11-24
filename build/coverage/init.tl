@@ -21,8 +21,8 @@ end
 --- so a line never hit can be named and a percentage is a plain count
 --- over the result (`hit`/`#total`). The lines come from
 --- [`syntax_lines.executable_cached`], keyed by `m.source_hash` in `db`'s
---- `executable` table, so a module whose source has not changed since a
---- previous run is not reparsed. A source that fails to parse, which
+--- `executable` table, which the build's parse of the source fills, so a
+--- module is not parsed again for its coverage. A source that fails to parse, which
 --- should not happen since `m` holds only source that compiled earlier in
 --- the run, returns the parse failure rather than a made-up count.
 ---

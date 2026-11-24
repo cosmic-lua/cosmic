@@ -513,15 +513,7 @@ function Csv.table(text: string, opts?: Csv.Options): (Csv.Table) | (nil, Failur
   return { columns = names, rows = rows, lines = began }
 end
 
---- `value` as an SQL string literal, its quotes doubled.
-local function literal(value: string): string
-  return "'" .. value:gsub("'", "''") .. "'"
-end
-
---- `name` as an SQL identifier, its double quotes doubled.
-local function identifier(name: string): string
-  return '"' .. name:gsub('"', '""') .. '"'
-end
+local literal, identifier = Sqlite.literal, Sqlite.identifier
 
 --- An SQL expression for `column`'s cell, typed as `cosmic sql --from`
 --- types a CSV's cells (build/dataset.tl): NULL when empty, an INTEGER or
@@ -572,6 +564,12 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): (Csv
   if delimiter == "\xEF" or delimiter == "\xBB" or delimiter == "\xBF" then
     error("csv: load's delimiter cannot be a byte of the UTF-8 byte order mark, " ..
         "which SQLite's CSV table reads as one", 2)
+  end
+  if name:find("\0", 1, true) ~= nil then
+    return refuse("the table name holds a NUL byte")
+  end
+  if source.json ~= nil and source.json:find("\0", 1, true) ~= nil then
+    return refuse("the JSON column's name holds a NUL byte")
   end
   local parameter: string
   local text, path = source.text, source.path

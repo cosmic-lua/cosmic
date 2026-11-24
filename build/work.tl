@@ -225,14 +225,14 @@ local version <const> = "35"
 --- scope or kind a read of it needs).
 ---
 --- `executable` is [`build.coverage.syntax_lines.executable`]'s answer for one
---- source, keyed by content hash the same way as `parsed`: which lines
---- could ever be hit is a function of the bytes and of that module's rule
---- for what counts as executable. A change to the rule bumps `version`,
---- as a change to what a parse records does for `parsed`. Unlike
---- `parsed`, a row is never pruned. `lines` is every executable line
---- number in ascending order, joined by single spaces (e.g. "1 3 4 9"),
---- rather than one row per line, since a caller always wants the whole
---- set back at once.
+--- source, keyed by content hash as `parsed` is and written by the same
+--- parse ([`build.syntax_derivation`]), so a source parsed here or taken
+--- from another checkout's parse is never parsed again for its coverage.
+--- Its rule is the analyzer's, so a change to it forgets the row with the
+--- rest of the parse. Coverage writes the row of a source that has none.
+--- `lines` is every executable line number in ascending order, joined by
+--- single spaces (e.g. "1 3 4 9"), rather than one row per line, since a
+--- caller always wants the whole set back at once.
 ---
 --- `todos` is every `TODO:` comment [`build.todo_scan`] finds in one
 --- staged file, keyed by the file's content hash like `parsed`: staging
@@ -474,8 +474,6 @@ for _, statement in ipairs(analysis_schema.statements) do
   work.schema[#work.schema + 1] = statement
 end
 for _, statement in ipairs({
-    [[CREATE TABLE IF NOT EXISTS executable (source_hash TEXT PRIMARY KEY,
-                                           lines TEXT NOT NULL) WITHOUT ROWID]],
     [[CREATE TABLE IF NOT EXISTS todos (id INTEGER PRIMARY KEY,
                                       sha256 TEXT NOT NULL,
                                       line INTEGER NOT NULL,

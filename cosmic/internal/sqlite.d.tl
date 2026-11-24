@@ -21,6 +21,15 @@ local record sqlite
     cancelled?: boolean -- declared: interface_disagrees
     timed_out?: boolean
   end
+  record WalResult is Outcome
+    code: integer
+    extended_code: integer
+    reason: string
+    cancelled: boolean
+    timed_out?: boolean
+    mode: string
+    temporary: boolean
+  end
   record OpenResult is Outcome
     handle: Handle
     code: integer
@@ -180,6 +189,19 @@ local record sqlite
     --- guard's signal still stops a call. A negative or noninteger
     --- duration and a borrowed or closed handle raise.
     time_limit: function(Handle, timeout_ns?: integer)
+    --- Holds the handle to queries for good: see [`cosmic.sqlite`]'s
+    --- [`Handle.reads_only`]. A borrowed handle raises.
+    reads_only: function(Handle): boolean, string
+    --- Whether a transaction is open on the connection: a `BEGIN`, or a
+    --- `SAVEPOINT` outside one, not yet committed or rolled back.
+    in_transaction: function(Handle): boolean
+    --- Whether the connection's main database is read-only.
+    read_only: function(Handle): boolean
+    --- Switches the main database to write-ahead mode, trying a busy
+    --- refusal again until the handle's wait has passed, and returns the
+    --- mode it is in after as `mode`, and whether the database is a
+    --- temporary or memory one as `temporary`. A borrowed handle raises.
+    wal_result: function(Handle): WalResult
     --- Compiles `sql`, which must hold exactly one statement.
     prepare: function(Handle, sql: string): Statement?, string
     --- Captures a preparation's outcome before cleanup or another operation.

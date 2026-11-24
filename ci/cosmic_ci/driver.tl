@@ -3,6 +3,7 @@ local Compiles = require("cosmic_ci.compiles")
 local CeilingsBase = require("cosmic_ci.ceilings_base")
 local ChangedPaths = require("cosmic_ci.changed_paths")
 local Context = require("cosmic_ci.context")
+local Failures = require("cosmic_ci.failures")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Fuzz = require("cosmic_ci.fuzz")
@@ -14,6 +15,7 @@ local Orchestration = require("cosmic_ci.orchestration")
 local PlaceTree = require("cosmic_ci.place_tree")
 local Prerelease = require("cosmic_ci.prerelease")
 local PrereleaseFollow = require("cosmic_ci.prerelease_follow")
+local PrereleaseSweep = require("cosmic_ci.prerelease_sweep")
 local Runner = require("cosmic_ci.runner")
 local Report = require("cosmic_ci.report")
 local Review = require("cosmic_ci.review")
@@ -107,6 +109,8 @@ local commands: {string:Command} = {
     usage = "PHASE TIMEOUT_NS -- EXECUTABLE [ARG...]", handler = run },
   summarize = { about = "write the operations recorded so far as a table",
     usage = "", handler = summarize },
+  failures = { about = "say again what the job's failed commands said of why, at the end of its log",
+    usage = "", handler = Failures.command },
   ["compiles-trim"] = { about = "trim the build cache to the compiles used since SINCE, digest it, and count those RESTORED lacks",
     usage = "SINCE [RESTORED]", handler = Compiles.trim_command },
   ["verdicts-trim"] = { about = "trim the test verdicts to those used since SINCE, and digest them",
@@ -147,6 +151,8 @@ local commands: {string:Command} = {
     usage = "", handler = Prerelease.publish_command },
   ["prerelease-follow"] = { about = "after a run of ci on main, start a full run or retry a failed one, so a prerelease follows main",
     usage = "", handler = PrereleaseFollow.command },
+  ["prerelease-sweep"] = { about = "each hour, publish or retry the newest full run follow started, which fires no workflow_run",
+    usage = "", handler = PrereleaseSweep.command },
   fuzz = { about = "fuzz every property on the checked core, for fuzz.yml",
     usage = "", handler = Fuzz.fuzz },
   ["fuzz-cancelled"] = { about = "say how far a cancelled fuzz run got",

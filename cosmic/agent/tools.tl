@@ -578,12 +578,10 @@ local function reader_of(context: Tools.Context, limit_ns?: integer): (Sqlite.Ha
   local main = files[1]
   local file = if main ~= nil then main:text(1) else "" end
   if file == "" then return nil, "the sessions database has no file to read" end
-  local reader, open_why = Sqlite.open(file)
+  -- Held to queries: a read-only open holds for the main database alone, where ATTACH, VACUUM INTO and a temp table
+  -- would still write.
+  local reader, open_why = Sqlite.open(file, { reads_only = true })
   if reader == nil then return nil, tostring(open_why) end
-  -- Read-only holds for the main database alone: ATTACH and VACUUM INTO
-  -- would still write another file, so no database may be attached.
-  reader:limit("attached", 0)
-  local _, _ = reader:exec("PRAGMA query_only = 1")
   -- A query that runs past its time, or one Ctrl-C stops (the turn holds a guard), fails rather than hold the agent.
   reader:time_limit(limit_ns)
   return reader

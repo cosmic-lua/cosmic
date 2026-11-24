@@ -6,11 +6,11 @@
 --- tree, and the tree it would build is whatever directory it was run
 --- from.
 ---
---- The verb opens the database read-only and sets `PRAGMA query_only`
---- before running the statement, so SQLite itself refuses a write;
---- nothing here reads the statement's text to decide what it may do.
---- SQLite prepares exactly one statement, so the pragma cannot be
---- undone ahead of a write in the same call. What the database holds is
+--- The verb opens the database read-only and holds the handle to
+--- queries before running the statement ([`Sqlite.Handle.reads_only`]),
+--- so SQLite itself refuses anything but a query or a PRAGMA that reads
+--- as it prepares it; nothing here reads the statement's text to decide
+--- what it may do. What the database holds is
 --- never changed, though SQLite may leave files beside it (see
 --- [`sql.open`]). Nothing is built, staged or scanned: the only directory
 --- looked in is the working directory's build directory, never a
@@ -166,9 +166,9 @@ function sql.source(root: string, parsed: Flags.Parsed): sql.Source?, string
 end
 
 --- A handle on the source's database that SQLite will not let write.
---- A file is opened read-only with `PRAGMA query_only` set; the
---- binary's own database is the store's connection, whose authorizer
---- already refuses every statement but a query when it is prepared.
+--- A file is opened read-only and held to queries
+--- ([`Sqlite.Handle.reads_only`]); the binary's own database is the
+--- store's connection, which the store holds to queries already.
 --- Nil and why when the file is missing, is not a regular file (after
 --- following symbolic links: SQLite would wait forever on a FIFO), or
 --- will not open.
@@ -253,11 +253,8 @@ function sql.open(source: sql.Source, between?: function()): sql.Opened?, string
       end
     end
   end
-  -- No ATTACH, and so no VACUUM INTO, which attaches the file it names:
-  -- query_only refuses that write only after SQLite has created the
-  -- empty file, and ATTACH of an existing file or ':memory:' would pass.
-  local _ = db:limit("attached", 0)
-  local ok, pragma_trouble = db:exec("PRAGMA query_only = 1")
+  -- No write, no ATTACH, and so no VACUUM INTO, which attaches the file it names.
+  local ok, pragma_trouble = db:reads_only()
   if not ok then
     local _, _ = db:close()
     return nil, tostring(pragma_trouble)
@@ -265,18 +262,16 @@ function sql.open(source: sql.Source, between?: function()): sql.Opened?, string
   return { db = db, owned = true }, ""
 end
 
---- Said after SQLite's "too many attached databases", which is what
---- [`sql.open`]'s attach limit of 0 makes of an ATTACH.
+--- Said after a refused ATTACH ([`Sqlite.Handle.reads_only`] names one it
+--- refuses), or SQLite's "too many attached databases", which is what the
+--- attach limit of 0 makes of a VACUUM INTO.
 local attach_hint <const> = "\n`cosmic sql` runs one read-only statement on one database, so it cannot " ..
   "attach. Work across files with a short program: open the destination with " ..
   "`Sqlite.open(path, { writable = true })` and run `db:exec(\"ATTACH ...\")`."
 
---- `reason`, SQLite's, with how to work across files appended where it is the attached-database limit's refusal.
---
--- TODO: tell an ATTACH by its kind and not by SQLite's message, once cosmic.sqlite exposes the authorizer's attach action
--- (SQLITE_ATTACH). The refusal carries only the generic SQLITE_ERROR, which no code separates from any other failure.
+--- `reason`, SQLite's, with how to work across files appended where it is the refusal of an ATTACH.
 local function attach_hinted(reason: string): string
-  if reason:find("too many attached databases", 1, true) ~= nil then
+  if reason:find("too many attached databases", 1, true) ~= nil or reason:find("refuses an ATTACH", 1, true) ~= nil then
     return reason .. attach_hint
   end
   return reason
@@ -468,11 +463,6 @@ local writers: {string: function(): Writer} = {
   ndjson = ndjson_writer,
 }
 
---- SQLite's result code for a statement the connection's authorizer refuses
---- (SQLITE_AUTH), which the binary's own database does for what it holds
---- read-only.
-local sqlite_auth <const> = 23
-
 --- Runs one statement on `db`, giving `emit` its column names as one
 --- line (none for a statement without columns), then each row it yields
 --- as one line, the moment it is stepped, each as `writer` writes it
@@ -490,10 +480,10 @@ local function stream(db: Sqlite.Handle, statement: string,
   local write = writer or row_lines
   local prepared, prepare_trouble = db:prepare(statement)
   if prepared == nil then
-    if prepare_trouble.code == sqlite_auth and refusal_hint ~= nil then
+    if prepare_trouble.code == Sqlite.AUTH and refusal_hint ~= nil then
       return nil, tostring(prepare_trouble) .. refusal_hint
     end
-    return nil, tostring(prepare_trouble)
+    return nil, attach_hinted(tostring(prepare_trouble))
   end
   -- Nothing is bound: a parameter left unbound would read as NULL.
   local wanted = prepared:parameters()
@@ -559,12 +549,10 @@ function sql.query(db: Sqlite.Handle, statement: string): {string}?, string
 end
 
 --- Said after a failure from the binary's own database, whose
---- authorizer lets a query through and no PRAGMA but data_version (its
---- refusal is SQLite's bare "not authorized"): what a PRAGMA would have
---- told, a query can.
-local store_hint = "; the binary's own database answers a query and no PRAGMA " ..
-  "but data_version: `SELECT * FROM <table> LIMIT 0` names a table's columns, " ..
-  "and sqlite_schema holds each table's SQL"
+--- authorizer lets a query and a PRAGMA that reads through (its refusal
+--- is SQLite's bare "not authorized").
+local store_hint = "; the binary's own database answers a query and a PRAGMA that reads " ..
+  "(`PRAGMA table_info(<table>)`, `PRAGMA index_list(<table>)`), and refuses every write"
 
 --- Said after a statement that opens with `.`, which SQLite refuses as a
 --- syntax error: it is the sqlite3 shell's command (`.tables`, `.schema`), which
@@ -787,10 +775,10 @@ local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string}?, 
     for _, column in ipairs(each.columns) do
       width = math.max(width, #plain(column))
     end
-    local from = ' FROM "' .. each.name:gsub('"', '""') .. '"'
+    local from = " FROM " .. Sqlite.identifier(each.name)
     for _, column in ipairs(each.columns) do
-      local rows, trouble = db:text_rows('SELECT DISTINCT typeof("' ..
-          column:gsub('"', '""') .. '")' .. from .. " ORDER BY 1")
+      local rows, trouble = db:text_rows("SELECT DISTINCT typeof(" .. Sqlite.identifier(column) .. ")" .. from ..
+          " ORDER BY 1")
       if rows == nil then
         return nil, tostring(trouble)
       end
@@ -895,8 +883,7 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
   end
   -- The tables are the data's own, and the statement may not change them,
   -- nor attach a file (which VACUUM INTO does too, creating it).
-  local _ = db:limit("attached", 0)
-  local guarded, guard_trouble = db:exec("PRAGMA query_only = 1")
+  local guarded, guard_trouble = db:reads_only()
   if not guarded then
     return fail(tostring(guard_trouble))
   end
