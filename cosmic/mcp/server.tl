@@ -1818,9 +1818,12 @@ local function allowed_origin(origin: string, allowed: {string}): boolean
   return false
 end
 
---- How long an event stream goes with nothing to say before it says a comment, so a client gone is found at the
---- comment's write and its request cancelled.
-local KEEPALIVE_NS <const> = 5 * 1000000000
+--- How long an event stream goes with nothing to say before it says a comment, so a client gone is found at a
+--- comment's write and its request cancelled: the HTTP server sees a client go only when it writes. A request's
+--- stream says one each second, so a call its client gave up on (by closing) is cancelled within about two; a
+--- subscription's, which waits for hours, each 5 s.
+local KEEPALIVE_NS <const> = 1000000000
+local LISTEN_KEEPALIVE_NS <const> = 5 * 1000000000
 
 --- The most notices an event stream holds for a client that has not read them; past it the stream ends, as a
 --- client too slow to keep up is told by its end to start again.
@@ -1841,6 +1844,8 @@ local class EventReader is Stream.Reader
   mut answer?: string
   mut task?: Poll.Task
   mut finished: boolean
+  --- How long it goes with nothing to say before a comment.
+  keepalive_ns: integer
   --- When the stream ends, its grant's time past, in nanoseconds since the epoch; nil: never by time.
   ends_ns?: integer
 
@@ -1863,7 +1868,7 @@ local class EventReader is Stream.Reader
         return "event: message\ndata: " .. final .. "\n\n", ""
       end
       if self.finished then return nil, "" end
-      local wait_ns = KEEPALIVE_NS
+      local wait_ns = self.keepalive_ns
       local ends_ns = self.ends_ns
       if ends_ns ~= nil then
         local left = ends_ns - Clock.now_ns()
@@ -1903,6 +1908,7 @@ local function streamed(self: State, message: wire.Message, req: HttpServer.Requ
   local expires = if grant ~= nil then grant.expires else nil end
   local body: EventReader = { notifier = notifier, flight = flight, queue = {}, head = 1, tail = 1, finished = false,
     latest = nil, answer = nil, task = nil, skip = nil,
+    keepalive_ns = if message.method == "subscriptions/listen" then LISTEN_KEEPALIVE_NS else KEEPALIVE_NS end,
     ends_ns = if expires ~= nil then expires * 1000000000 else nil end }
   flight.emit = function(text: string, lossy: boolean)
     if body.finished then return end
