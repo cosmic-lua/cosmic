@@ -164,6 +164,7 @@ local record Types
 
   --- An argument a stage is given after the value piped to it.
   record Arg
+    --- Which of the three it is.
     kind: ArgKind
     --- The string's bytes, or the number as written; "" for a path.
     text: string

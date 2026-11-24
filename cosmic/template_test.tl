@@ -364,12 +364,26 @@ end
 local function test_a_stage_is_called_with_its_arguments_after_the_piped_value()
   local out = compiled(HEAD .. "{{range $x := .items}}{{.a | m.f \"x\\\"y\" 2 -1 0.5 .b $ $x.c}}{{end}}")
   assert(out:find('_one(m.f(d1.a, "x\\"y", 2, -1, 0.5, d1.b, d, d1.c))', 1, true), out)
+  local odd = compiled(HEAD .. "{{.a | m.f \"}}|\t\" 0 -}} {{if .b}}{{.a | m.f .b}}{{end}}{{with .w}}{{.c | m.f .}}{{end}}" ..
+      "{{if .a | m.f \"x\"}}y{{end}}")
+  assert(odd:find('_one(m.f(d.a, "}}|\\t", 0))', 1, true), odd)
+  assert(odd:find("_one(m.f(d.a, d2))", 1, true), odd)
+  assert(odd:find("_one(m.f(d4.c, d4))", 1, true), odd)
+  assert(odd:find('if html.filled(_one(m.f(d.a, "x"))) then', 1, true), odd)
   local cases: {Refusal} = {
     { source = "{{.a | m.f true}}", line = "2", column = "12", reason = "'true' is not an argument" },
+    { source = "{{.a | m.f 1e5}}", line = "2", column = "12", reason = "is not an argument" },
+    { source = "{{.a | m.f 0x1}}", line = "2", column = "12", reason = "is not an argument" },
+    { source = "{{.a | m.f 1..2}}", line = "2", column = "12", reason = "is not an argument" },
+    { source = "{{.a | m.f --}}", line = "2", column = "12", reason = "is not an argument" },
+    { source = "{{.a | m.f 007}}", line = "2", column = "12", reason = "is not an argument" },
+    { source = "{{.a | m.f 99999999999999999999}}", line = "2", column = "12", reason = "is not an argument" },
+    { source = "{{.a | .b $nope}}", line = "2", column = "8", reason = "not a function reached by import path" },
+    { source = "{{.a | nodef \"x\"}}", line = "2", column = "8", reason = "a {{define}} takes no arguments" },
     { source = "{{.a | m.f $y}}", line = "2", column = "12", reason = "'$y' is not declared here" },
     { source = "{{.a \"x\" | m.f}}", line = "2", column = "6", reason = "a string is not a value" },
     { source = "{{. | item \"x\"}}\n{{define item T}}{{end}}", line = "2", column = "7",
-      reason = "takes the value piped to it alone" },
+      reason = "a {{define}} takes no arguments" },
   }
   local wrong: mut {string} = {}
   for _, case in ipairs(cases) do

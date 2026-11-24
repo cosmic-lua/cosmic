@@ -144,7 +144,9 @@ local function argument(p: Parser, token: types.Token): types.Arg?, string
     return { kind = "string", text = token.value }, ""
   elseif token.kind == "word" then
     local v = token.value
-    if v:find("^%-?%d+$") or v:find("^%-?%d+%.%d+$") then
+    -- An integer is one Lua reads as an integer, with no leading zero.
+    local whole = v:find("^%-?[1-9]%d*$") ~= nil or v == "0"
+    if (whole and math.tointeger(tonumber(v)) ~= nil) or v:find("^%-?%d+%.%d+$") ~= nil then
       return { kind = "number", text = v }, ""
     end
     return nil, refuse(p, token.line, token.col, "'" .. v .. "' is not an argument: a stage takes strings (\"x\"), " ..
@@ -211,6 +213,28 @@ local function pipeline(p: Parser, item: types.Item, first: integer, ranged: boo
       return nil, refuse(p, stage.line, stage.col, "a string is not a function: write the stage's name bare, " ..
           "as | module.path.func")
     end
+    -- The stage's name is checked before its arguments, so a refusal names
+    -- what goes wrong first.
+    local module_path, func = "", stage.value
+    local after = tokens[at + 2]
+    if stage.kind == "word" and dotted(stage.value, 1) and not dotted(stage.value, 2) then
+      -- One name is a `{{define}}` of this template, which the parse checks once it has read them all.
+      if after ~= nil and after.kind ~= "pipe" then
+        return nil, refuse(p, stage.line, stage.col, "'" .. stage.value .. "' is one name, as only a {{define}} is " ..
+            "called, and a {{define}} takes no arguments: a function that takes them is written module.path.func")
+      end
+    else
+      if stage.kind ~= "word" or not dotted(stage.value, 2) then
+        return nil, refuse(p, stage.line, stage.col,
+          "'" .. stage.value .. "' is not a function reached by import path, as module.path.func, nor a {{define}}'s name")
+      end
+      local path, name = stage.value:match("^(.+)%.([^.]+)$")
+      if path == nil or name == nil then
+        return nil, refuse(p, stage.line, stage.col,
+          "'" .. stage.value .. "' is not a function reached by import path, as module.path.func")
+      end
+      module_path, func = path, name
+    end
     local args: mut {types.Arg} = {}
     at = at + 2
     local next_token = tokens[at]
@@ -223,25 +247,7 @@ local function pipeline(p: Parser, item: types.Item, first: integer, ranged: boo
       at = at + 1
       next_token = tokens[at]
     end
-    if stage.kind == "word" and dotted(stage.value, 1) and not dotted(stage.value, 2) then
-      -- One name is a `{{define}}` of this template, which the parse checks once it has read them all.
-      if #args > 0 then
-        return nil, refuse(p, stage.line, stage.col, "'" .. stage.value .. "' is a {{define}}'s name, and a " ..
-            "{{define}} takes the value piped to it alone, no arguments")
-      end
-      stages[#stages + 1] = { module_path = "", func = stage.value, line = stage.line, col = stage.col, args = args }
-    else
-      if stage.kind ~= "word" or not dotted(stage.value, 2) then
-        return nil, refuse(p, stage.line, stage.col,
-          "'" .. stage.value .. "' is not a function reached by import path, as module.path.func, nor a {{define}}'s name")
-      end
-      local module_path, func = stage.value:match("^(.+)%.([^.]+)$")
-      if module_path == nil or func == nil then
-        return nil, refuse(p, stage.line, stage.col,
-          "'" .. stage.value .. "' is not a function reached by import path, as module.path.func")
-      end
-      stages[#stages + 1] = { module_path = module_path, func = func, line = stage.line, col = stage.col, args = args }
-    end
+    stages[#stages + 1] = { module_path = module_path, func = func, line = stage.line, col = stage.col, args = args }
     pipe = next_token
   end
   return result, ""
