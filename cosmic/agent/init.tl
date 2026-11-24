@@ -21,7 +21,7 @@
 ---
 --- `before` and `after` are the agent's own policy over each tool call
 --- the model makes, and each call a snippet of run makes of the agent
---- (sql, store, mcp): `before` may block a call, with a reason the model
+--- (history, store, mcp): `before` may block a call, with a reason the model
 --- reads (or the snippet, raised), and `after` may change a result
 --- before it is kept or read
 --- ([`Agent.Before`], [`Agent.After`], [`cosmic.agent.check`]). They are
@@ -54,7 +54,7 @@
 --- and sends the whole conversation still, and the server reads it
 --- from the last compaction block on, so a request after one costs
 --- what the summary and the turns since cost. What the summary leaves
---- out is still in sessions.db, where the sql tool finds it.
+--- out is still in sessions.db, where Host.history in run finds it.
 ---
 --- Each request asks the API (beta headers): to fall back to another
 --- model where one refuses (server-side-fallback-2026-07-01); to say
@@ -243,7 +243,7 @@ local record Agent
   end
 
   --- Who made a [`Agent.Call`]: the model, or a snippet's code, through
-  --- its host: sql, store or mcp, each asked as a call of its own.
+  --- its host: history, store or mcp, each asked as a call of its own.
   enum Caller "model" "code" end
 
   --- The kind of a [`Agent.BlockedEvent`].
@@ -268,7 +268,7 @@ local record Agent
   --- A call, as `before` and `after` see it: a tool call of the model,
   --- or a snippet's call of the agent.
   record Call
-    --- The tool's name, or the snippet's call's: sql, store.get,
+    --- The tool's name, or the snippet's call's: history, store.get,
     --- store.put, mcp.servers, mcp.tools or mcp.call.
     name: string
     --- What it was given, as the tool gets it: read it, and change none of it.
@@ -602,7 +602,7 @@ local function record(s: Agent.Session, call: string, tool: string, input: Tools
   -- What sql says is kept already, and it says where to find more.
   if result.raw == nil or tool == "sql" then return result.text, "" end
   local how = if Tools.find(s.tools, "sql") ~= nil then "use sql"
-    elseif Tools.find(s.tools, "run") ~= nil then "use require(\"cosmic.agent.host\").sql in run"
+    elseif Tools.find(s.tools, "run") ~= nil then "read it with Host.history in run"
     else "" end
   if how == "" then return result.text, "" end
   local shown = result.text .. "\n\n[The whole output is kept as output " .. tostring(output) .. ": " .. how .. ".]"

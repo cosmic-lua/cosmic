@@ -4,6 +4,7 @@
 
 local Agent = require("cosmic.agent")
 local agent_fixture = require("build.agent_fixture")
+local Tools = require("cosmic.agent.tools")
 local Json = require("cosmic.json")
 local Sessions = require("cosmic.agent.sessions")
 local Sqlite = require("cosmic.sqlite")
@@ -78,6 +79,12 @@ local function test_each_output_is_kept_before_it_is_shown()
   assert(answer.text:find("use sql.]", 1, true) ~= nil and #answer.text < 20000, answer.text:sub(-100))
   local whole = assert(db:rows("SELECT length(text), call FROM outputs WHERE call = 't2'"))
   assert(assert(whole[1]):integer(1) > 13000)
+  -- With no sql tool, the note names Host.history, which a snippet of run reads it with.
+  s, _, db = kept({ { content = { bash_call("t3", "seq 3000") }, stop_reason = "tool_use" }, text_reply("ok") })
+  s.tools = Tools.without(s.tools, { "sql" })
+  assert(s:prompt("go"))
+  local noted = assert(Sessions.answer(db, assert(s.id), "t3"))
+  assert(noted.text:find("read it with Host.history in run.]", 1, true) ~= nil, noted.text:sub(-100))
 end
 
 local function test_the_user_stops_and_steers_a_turn()

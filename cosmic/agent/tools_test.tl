@@ -148,7 +148,7 @@ end
 
 local function test_tools_are_values_to_pick_and_make()
   assert(names(Tools.all()) == "read bash run jobs edit write sql", names(Tools.all()))
-  assert(names(Tools.default()) == "read run edit write sql", names(Tools.default()))
+  assert(names(Tools.default()) == "read run edit write", names(Tools.default()))
   assert(names(Tools.only(Tools.all(), { "sql", "read", "nope" })) == "read sql")
   assert(names(Tools.without(Tools.all(), { "run" })) == "read bash jobs edit write sql")
   assert(assert(Tools.find(Tools.all(), "edit")).name == "edit" and Tools.find(Tools.default(), "bash") == nil)
@@ -190,14 +190,14 @@ end
 local function test_a_session_offers_the_tools_named()
   local offered = assert(Tools.named("run, read"))
   assert(names(offered) == "read run", names(offered))
-  -- Tools.changed adds to and takes from a set: bash and jobs added, sql and write taken out.
+  -- Tools.changed adds to and takes from a set: bash and jobs added, write taken out (sql is not there to take).
   local more = assert(Tools.changed(Tools.default(), "bash,jobs"))
-  assert(#more == #Tools.all(), names(more))
+  assert(names(more) == "read bash run jobs edit write", names(more))
   local fewer = assert(Tools.changed(Tools.default(), nil, "sql, write"))
   assert(names(fewer) == "read run edit", names(fewer))
-  local changed = names(assert(Tools.changed(Tools.default(), "bash", "sql")))
-  assert(changed == "read bash run edit write", changed)
-  local _, none_why = Tools.changed(Tools.default(), nil, "read,run,edit,write,sql")
+  local changed = names(assert(Tools.changed(Tools.default(), "bash,sql", "write")))
+  assert(changed == "read bash run edit sql", changed)
+  local _, none_why = Tools.changed(Tools.default(), nil, "read,run,edit,write")
   assert(assert(none_why) == "no tool is left to offer")
   local _, lone_why = Tools.changed(Tools.default(), "jobs")
   assert(assert(lone_why):find("offer bash too", 1, true) ~= nil)

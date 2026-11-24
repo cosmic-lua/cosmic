@@ -6,7 +6,7 @@
 --- snippet reads its value with no assert:
 ---
 ---     local Host = require("cosmic.agent.host")
----     local rows = Host.sql("SELECT tool, count(*) AS n FROM outputs WHERE session = ?1 GROUP BY tool")
+---     local rows = Host.history("SELECT tool, count(*) AS n FROM outputs WHERE session = ?1 GROUP BY tool")
 ---     for _, row in ipairs(rows) do print(row["tool"], row["n"]) end
 ---
 --- The MCP servers the agent was given ([`cosmic.agent.mcp`]) are reached the same way. A snippet requires a
@@ -66,7 +66,7 @@ local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 
 local record Host
-  --- A row of [`Host.sql`]: each column's name and its cell. An integer or a real is a number, NULL is
+  --- A row of [`Host.history`]: each column's name and its cell. An integer or a real is a number, NULL is
   --- [`Json.null`], and a text or a blob is a string, as UTF-8 ([`String.as_utf8`]). Two columns of one name are one:
   --- name each with `AS`.
   type Row = {string: Json.Value}
@@ -194,18 +194,18 @@ end
 --- The rows of one read-only SQLite statement on the agent's sessions.db, as the sql tool runs it (its tables are
 --- named there; `?1` is the session's id), or why there are none. The agent answers at most 512KB of JSON, and a
 --- query of more fails: narrow it with LIMIT and OFFSET, or substr() for a long text.
-local function sql_of(query: string): ({Host.Row}) | (nil, Failure)
-  local answer, why = Host.call("sql", { query = query })
+local function history_of(query: string): ({Host.Row}) | (nil, Failure)
+  local answer, why = Host.call("history", { query = query })
   if answer == nil then return nil, why end
   local list, list_why = Json.to_array(answer)
   if list == nil then
-    return nil, Failure.new("host: sql: the agent's reply is no list of rows: " .. tostring(list_why))
+    return nil, Failure.new("host: history: the agent's reply is no list of rows: " .. tostring(list_why))
   end
   local rows: mut {Host.Row} = {}
   for _, item in ipairs(list) do
     local row, row_why = Json.to_object(item)
     if row == nil then
-      return nil, Failure.new("host: sql: a row of the agent's reply is no object: " .. tostring(row_why))
+      return nil, Failure.new("host: history: a row of the agent's reply is no object: " .. tostring(row_why))
     end
     rows[#rows + 1] = row
   end
@@ -594,8 +594,8 @@ end
 
 --- The rows of one read-only SQLite statement on the agent's sessions.db, as the sql tool runs it (`?1` is the
 --- session's id); at most 512KB of JSON, so narrow a large one with LIMIT and OFFSET. Raises where it fails, as "host: ...".
-function Host.sql(query: string): {Host.Row}
-  local value, why = sql_of(query)
+function Host.history(query: string): {Host.Row}
+  local value, why = history_of(query)
   if value == nil then error(tostring(why), 2) end
   return value
 end

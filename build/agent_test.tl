@@ -320,7 +320,7 @@ local function test_sessions_are_kept_and_go_on()
   r = cli({ "ask", "run it" }, KEYED, { { content = { { type = "tool_use", id = "t", name = "bash",
     input = { command = "echo kept-output-marker" } } }, stop_reason = "tool_use" }, text_reply("ran") })
   assert(r.code == 0, r.err)
-  r, a = cli({ "ask", "find it" }, KEYED, { { content = { { type = "tool_use", id = "t", name = "sql",
+  r, a = cli({ "ask", "--with", "sql", "find it" }, KEYED, { { content = { { type = "tool_use", id = "t", name = "sql",
     input = { query = "SELECT text FROM outputs_fts WHERE outputs_fts MATCH '\"kept-output\"'" } } },
     stop_reason = "tool_use" }, text_reply("found") })
   assert(r.code == 0 and said(a, 2):find("text\\nkept-output-marker", 1, true) ~= nil, said(a, 2))
@@ -363,7 +363,7 @@ local function test_the_sandbox_on_the_command_line()
       stop_reason = "tool_use" }, text_reply("done") })
   assert(ran.code == 0 and slurp(outside .. "/z") == "z" and #a.sent == 2, ran.err)
   -- With no grant that writes, read offers no tool that changes a file, and policy says what runs.
-  local read_only, ra = cli({ "ask", "--new", "--sandbox", "read", "--without", "sql", "go" }, KEYED, { text_reply("done") })
+  local read_only, ra = cli({ "ask", "--new", "--sandbox", "read", "go" }, KEYED, { text_reply("done") })
   local offered = ra.bodies[1] or ("no request: " .. read_only.err)
   assert(read_only.code == 0 and offered:find('"name":"edit"', 1, true) == nil and
       offered:find('"name":"write"', 1, true) == nil and offered:find('"name":"read"', 1, true) ~= nil, offered)
@@ -382,7 +382,7 @@ local function test_a_job_never_read_is_kept_as_the_session_ends()
     text_reply("started") })
   assert(ran.code == 0, ran.err)
   local a: Api
-  ran, a = cli({ "ask", "find it" }, KEYED, { { content = { { type = "tool_use", id = "t", name = "sql",
+  ran, a = cli({ "ask", "--with", "sql", "find it" }, KEYED, { { content = { { type = "tool_use", id = "t", name = "sql",
     input = { query = "SELECT count(*) FROM outputs WHERE tool = 'bash' AND input LIKE '%background%' " ..
         "AND input LIKE '%bg-job-marker%' AND call IS NULL" } } }, stop_reason = "tool_use" }, text_reply("found") })
   assert(ran.code == 0 and said(a, 2):find("count(*)\\n1", 1, true) ~= nil, said(a, 2))

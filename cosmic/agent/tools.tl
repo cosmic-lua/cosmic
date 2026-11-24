@@ -1,7 +1,8 @@
 --- @public
 --- The tools of `cosmic agent`: pi's four, read, write, edit and bash; run,
 --- which checks and runs a snippet of Teal; and sql, over the sessions and
---- outputs it keeps. Each is a definition the model reads (its name, description
+--- outputs it keeps (offered when asked for: run's Host.history reads the
+--- same). Each is a definition the model reads (its name, description
 --- and input schema), a line for the system prompt, and a function that
 --- does it. A tool never raises: what goes wrong is its result, marked
 --- as an error, for the model to read and act on.
@@ -140,10 +141,10 @@ local record Tools
     --- What a snippet's call of the agent is asked first (the agent's
     --- `before`, as a call by code): nil lets it run, a string is why
     --- not, raised in the snippet; a raise blocks it too. `name` is the
-    --- call's: sql, store.get, store.put, mcp.servers, mcp.tools or
+    --- call's: history, store.get, store.put, mcp.servers, mcp.tools or
     --- mcp.call, a name the snippet chose only among those. `input` is
     --- the arguments it sent, `{}` where they are no object, unchecked:
-    --- sql's `{query}`, store's `{key, value?}` (put with no value or
+    --- history's `{query}`, store's `{key, value?}` (put with no value or
     --- null lets the key go), mcp's `{server?, tool?, arguments?}`.
     --- Calls may come at once, from a snippet's tasks, and while its
     --- time runs.
@@ -711,11 +712,11 @@ local function sql(input: Tools.Object, context: Tools.Context): Tools.Result
   return r
 end
 
---- The most bytes of the JSON of the rows a snippet's sql call is answered: well within the line of 1MB the
+--- The most bytes of the JSON of the rows a snippet's history call is answered: well within the line of 1MB the
 --- worker's answer may be, should the snippet return them.
 local MAX_REPLY <const> = 512 * 1024
 
---- The rows of `query` on `db`, each an object of its columns, for a snippet's sql call; `?1` is `session`. It stops
+--- The rows of `query` on `db`, each an object of its columns, for a snippet's history call; `?1` is `session`. It stops
 --- between rows once `over` is true: the snippet's time ran out, or the user stopped the turn; a step that runs past
 --- the time `db` was given, or that Ctrl-C stops, fails ([`Sqlite.Handle.time_limit`]).
 local function objects_of(db: Sqlite.Handle, query: string, session: integer?, over: function(): boolean):
@@ -818,13 +819,13 @@ local function stored(context: Tools.Context, name: string, given: {string: Json
   return true
 end
 
---- What answers the calls a snippet of `context` makes of the agent, as they come, with no guard: sql as the
---- sql tool runs it, store, and the MCP servers.
+--- What answers the calls a snippet of `context` makes of the agent, as they come, with no guard: history, a query
+--- as the sql tool runs it, store, and the MCP servers.
 local function served_unguarded(context: Tools.Context): Worker.Serve
   return function(name: string, args: Json.Value, budget: Worker.Budget): (Json.Value) | (nil, Failure)
     local fields, _ = Json.to_object(args)
     local given: {string: Json.Value} = fields or {}
-    if name == "sql" then
+    if name == "history" then
       local query = given["query"]
       if not (query is string) then return nil, Failure.new("the call has no query") end
       local reader, open_why = reader_of(context, budget.left())
@@ -837,7 +838,7 @@ local function served_unguarded(context: Tools.Context): Worker.Serve
     if name == "store.put" or name == "store.get" then return stored(context, name, given) end
     if name ~= "mcp.servers" and name ~= "mcp.tools" and name ~= "mcp.call" then
       return nil, Failure.new("the agent serves no call " .. Json.quote(String.as_utf8(name)) ..
-          ": it serves sql, store.put, store.get, mcp.servers, mcp.tools and mcp.call")
+          ": it serves history, store.put, store.get, mcp.servers, mcp.tools and mcp.call")
     end
     local set = context.mcp
     if name == "mcp.servers" then
@@ -879,7 +880,7 @@ end
 
 --- The calls a snippet may make of the agent, each by the name its guard and amend know it by.
 local SERVED <const>: {string: boolean} = {
-  ["sql"] = true, ["store.get"] = true, ["store.put"] = true,
+  ["history"] = true, ["store.get"] = true, ["store.put"] = true,
   ["mcp.servers"] = true, ["mcp.tools"] = true, ["mcp.call"] = true,
 }
 
@@ -907,7 +908,7 @@ local function amended(context: Tools.Context, name: string, given: Tools.Object
   return value
 end
 
---- What answers the calls a snippet of `context` makes of the agent (sql as the sql tool runs it, store.get,
+--- What answers the calls a snippet of `context` makes of the agent (history, a query as the sql tool runs it, store.get,
 --- store.put, and mcp.servers, mcp.tools and mcp.call), each asked of its guard first and given to its amend
 --- after, failed or not. A call of no other name is refused before either is asked.
 local function served(context: Tools.Context): Worker.Serve
@@ -915,7 +916,7 @@ local function served(context: Tools.Context): Worker.Serve
   return function(name: string, args: Json.Value, budget: Worker.Budget): (Json.Value) | (nil, Failure)
     if SERVED[name] ~= true then
       return nil, Failure.new("the agent serves no call " .. Json.quote(String.as_utf8(name)) ..
-          ": it serves sql, store.put, store.get, mcp.servers, mcp.tools and mcp.call")
+          ": it serves history, store.put, store.get, mcp.servers, mcp.tools and mcp.call")
     end
     local fields, _ = Json.to_object(args)
     local given: {string: Json.Value} = fields or {}
@@ -1035,6 +1036,13 @@ local function touches(actions: {string}): function(input: Tools.Object, cwd: st
 end
 
 --- Every tool, in the order the system prompt lists them.
+
+--- What sessions.db holds, as the sql tool and Host.history tell the model.
+local KEPT_TABLES <const> = "Tables: sessions (id, cwd, started (Unix time), model); messages (session, seq, " ..
+  "message: the JSON the API takes); outputs (id, session, tool, input (JSON), text (the whole output), is_error); " ..
+  "outputs_fts, FTS5 over outputs.text with the trigram tokenizer (rowid = outputs.id): " ..
+  "outputs_fts MATCH '\"some text\"' for text of 3 characters or more, with snippet(outputs_fts, 0, " ..
+  "'>>', '<<', '...', 64) and ORDER BY rank. ?1 is the current session's id."
 local ALL <const>: {Tools.Tool} = {
   {
     name = "read",
@@ -1087,7 +1095,9 @@ local ALL <const>: {Tools.Tool} = {
       "- Host.sort(list, by?) -> {string}, by the key `by(item)` gives where given; Host.uniq(keys) -> {string: integer}, each key's count; Host.top(counts, " ..
       "n?) -> {{key, count}}, most first, ties by key.\n" ..
       "- Host.bash(command) -> {output, ok, code}; " ..
-      "Host.sql(query) -> rows; Host.store(key, value) / Host.load(key).value.\n" ..
+      "Host.store(key, value) / Host.load(key).value.\n" ..
+      "- Host.history(query) -> {row}: one read-only SQLite statement on sessions.db, where every session and each " ..
+      "tool's whole output is kept, for what was cut or seen before. " .. KEPT_TABLES .. "\n" ..
       "- Host.fetch(url, {method?, headers?, body?}?) -> {status, headers, body}: no redirect followed; public " ..
       "addresses with --network, and the targets of --connect.\n" ..
       "- Host.sqlite(path, statement, {values}?) -> {row}: one SQL statement on a SQLite file, made where missing " ..
@@ -1192,11 +1202,7 @@ local ALL <const>: {Tools.Tool} = {
     guidelines = { "Each tool's whole output is kept in sessions.db: use sql to find and read what was cut, " ..
         "or seen before, rather than running a command again." },
     description = "Run one read-only SQLite statement on sessions.db, where the agent keeps every session. " ..
-      "Tables: sessions (id, cwd, started (Unix time), model); messages (session, seq, message: the JSON " ..
-      "the API takes); outputs (id, session, tool, input (JSON), text (the whole output), is_error); " ..
-      "outputs_fts, FTS5 over outputs.text with the trigram tokenizer (rowid = outputs.id): " ..
-      "outputs_fts MATCH '\"some text\"' for text of 3 characters or more, with snippet(outputs_fts, 0, " ..
-      "'>>', '<<', '...', 64) and ORDER BY rank. ?1 is the current session's id. " ..
+      KEPT_TABLES .. " " ..
       "Returns the column names, then a line a row, cells split by tabs: at most " .. LIMIT .. ". " ..
       "A statement may run " .. String.counted(SQL_SECONDS, "second") .. ".",
     schema = schema({
@@ -1243,11 +1249,12 @@ function Tools.without(tools: {Tools.Tool}, names: {string}): mut {Tools.Tool}
   return out
 end
 
---- What an agent offers unless told: every tool but bash and jobs, so
---- no program runs: without bash a snippet's worker starts no process
+--- What an agent offers unless told: read, run, edit and write. No
+--- program runs: without bash a snippet's worker starts no process
 --- either ([`Worker.Options`] `commands`, on Linux under a sandbox).
+--- What is kept is read with Host.history in run, so sql is left out.
 function Tools.default(): mut {Tools.Tool}
-  return Tools.without(ALL, { "bash", "jobs" })
+  return Tools.without(ALL, { "bash", "jobs", "sql" })
 end
 
 --- Runs `tool` on `input` in `context`, the background jobs looked at
@@ -1314,7 +1321,7 @@ end
 --- `tools` with those `with` names added and those `without` names taken out, each a list as [`Tools.named`] takes,
 --- in the order of [`Tools.all`]: or nil and why, for a name no tool has, jobs without bash, or no tool left.
 ---
----     for _, t in ipairs(assert(Tools.changed(Tools.default(), "bash", "sql"))) do print(t.name) end -- read bash run edit write
+---     for _, t in ipairs(assert(Tools.changed(Tools.default(), "bash,sql", "write"))) do print(t.name) end -- read bash run edit sql
 function Tools.changed(tools: {Tools.Tool}, with?: string, without?: string): ({Tools.Tool}) | (nil, string)
   local adds, add_why = names_of(with or "")
   if adds == nil then return nil, add_why end

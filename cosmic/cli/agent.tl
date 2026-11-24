@@ -51,10 +51,10 @@
 ---   `--session <id>` goes on with any session, and `--fork` copies the
 ---   newest (or `--session`'s) and goes on in the copy. `rpc` goes on
 ---   with one only when told (`--continue`).
---- - The default tools are run, read, edit, write and sql, which run no
+--- - The default tools are run, read, edit and write, which run no
 ---   program. `--with bash,jobs` adds bash and its background jobs,
----   `--without sql` takes a tool out, and `--tools run,read` names them
----   all.
+---   `--with sql` the sql tool, `--without write` takes a tool out, and
+---   `--tools run,read` names them all.
 ---
 --- Events and rpc commands:
 ---
@@ -114,7 +114,7 @@
 ---   (or `~/.local/share/cosmic/agent`), before it is shown: each
 ---   message, each tool's whole output, and each request with its usage
 ---   and cost (`cosmic docs cosmic.agent.sessions`). The model reads it
----   with its sql tool.
+---   with Host.history in run (or the sql tool, `--with sql`).
 --- - A run that ends mid-turn loses nothing: `cosmic agent resume` takes
 ---   the turn up again (`cosmic docs cosmic.agent`).
 --- - A program runs the loop itself with [`cosmic.agent`].
@@ -140,10 +140,10 @@ local connect: Flags.Option = { value = "host:port", about = "let the tools reac
 local grant: Flags.Option = { value = "path[:rwxc]",
   about = "let the tools reach this path too, read alone unless letters say more" }
 local tools: Flags.Option = { value = "names", about = "the tools the model is shown, such as run,read " ..
-    "(default: run, read, edit, write and sql, which run no program)" }
+    "(default: run, read, edit and write, which run no program)" }
 local with: Flags.Option = { value = "names", about = "offer these tools too, such as bash,jobs " ..
     "(bash runs programs, jobs its background ones)" }
-local without: Flags.Option = { value = "names", about = "do not offer these tools, such as sql,write" }
+local without: Flags.Option = { value = "names", about = "do not offer these tools, such as edit,write" }
 local budget: Flags.Option = { value = "limits",
   about = "the most each turn may spend, such as tokens=200000,cost=0.50,turns=20,time=10m; the first reached ends it" }
 local mcp: Flags.Option = { value = "file",
