@@ -307,6 +307,41 @@ local function test_a_slot_with_no_escaping_is_refused_at_its_line_and_column()
   assert(#wrong == 0, table.concat(wrong, "\n"))
 end
 
+local function test_a_define_is_a_function_of_the_module_on_its_own_lines()
+  local src = HEAD .. "<ul>{{range .items}}{{. | item}}{{end}}</ul>\n{{define item Item}}\n<li>{{.name}}</li>\n{{end}}\n"
+  local out = compiled(src)
+  assert(newlines(out) == newlines(src) + 1, out)
+  assert(out:find("local record _Module end function _Module.render(d: t.T): html.SafeHtml", 1, true), out)
+  assert(out:find("_one(_Module.item(d1))", 1, true), out)
+  assert(out:find("function _Module.item(d: t.Item): html.SafeHtml", 1, true), out)
+  assert(out:find("return _Module\n$"), out)
+  -- render's return shares the first define's line: line 3 of the module.
+  local third = assert(select(3, out:match("^([^\n]*)\n([^\n]*)\n([^\n]*)")))
+  assert(third:find("^return html.trust%(table.concat%(parts%)%) end function _Module.item"), third)
+end
+
+local function test_a_define_is_refused_where_it_stands_amiss()
+  local cases: {Refusal} = {
+    { source = "{{if .a}}{{define x T}}{{end}}{{end}}", line = "2", column = "10", reason = "stands at the top level" },
+    { source = "{{. | x}}", line = "2", column = "7", reason = "'x' names no {{define}}" },
+    { source = "x\n{{define a T}}{{end}}\ntext\n", line = "3", column = "22", reason = "text after a {{define}}" },
+    { source = "{{define a T}}{{end}}{{define a T}}{{end}}", line = "2", column = "31", reason = "'a' is defined twice" },
+    { source = "{{define render T}}{{end}}", line = "2", column = "10", reason = "not a name for a {{define}}" },
+    { source = "{{define a}}{{end}}", line = "2", column = "1", reason = "write {{define name Type}}" },
+    { source = "{{define a T}}x", line = "2", column = "1", reason = "never closed" },
+    { source = "{{define a T}}<b class=\"{{end}}", line = "2", column = "25", reason = "{{define a}} ends" },
+  }
+  local wrong: mut {string} = {}
+  for _, case in ipairs(cases) do
+    local why = refused(HEAD .. case.source)
+    local want = "t.tmpl:" .. case.line .. ":" .. case.column .. ": "
+    if why:sub(1, #want) ~= want or not why:find(case.reason, 1, true) then
+      wrong[#wrong + 1] = case.source .. " said " .. why .. ", not " .. want .. "..." .. case.reason
+    end
+  end
+  assert(#wrong == 0, table.concat(wrong, "\n"))
+end
+
 local function test_the_same_slots_stand_in_a_text_template()
   compiled("{{type T from m.t}}{{mode text}}\n<script>{{.x}}</script><a href={{.y}} onclick='{{.z}}'>")
 end

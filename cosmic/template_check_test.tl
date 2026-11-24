@@ -32,6 +32,10 @@ local record data
   record Leaf
     x: string
   end
+  record Tree
+    label: string
+    kids: {Tree}
+  end
   record Mid
     c: string
     e: Leaf?
@@ -58,6 +62,7 @@ local record data
     error: string?
     flag: boolean
     list: {string}
+    tree: Tree
     ["end"]: string
     ["type"]: string
     ["record"]: string
@@ -85,6 +90,7 @@ return data
 local record Item name: string n: integer end
 local record User name: string end
 local record Leaf x: string end
+local record Tree label: string kids: {Tree} end
 local record Mid c: string e?: Leaf end
 local record Outer b?: Mid c: string s?: string end
 local record Page
@@ -104,6 +110,7 @@ local record Page
   error?: string
   flag?: boolean
   list?: {string}
+  tree?: Tree
 end
 
 local record Row page: Page want: string end
@@ -288,6 +295,27 @@ local HEAD <const> = "{{type Page from data}}\n"
 local function spelled(type_name: string): string
   return (type_name:gsub("{Item}", "{data.Item}"):gsub("string | number", "number | string"):gsub(
     "wrong number of arguments", "(arity)"))
+end
+
+local function test_a_define_renders_where_a_stage_names_it_and_may_call_itself(tmp: string)
+  local items = HEAD .. "<ul>{{range .items}}{{. | item}}{{end}}</ul>\n{{define item Item}}<li>{{.name}}={{.n}}</li>{{end}}\n"
+  local got = render(tmp, "define-items", items, { items = { { name = "a&", n = 1 }, { name = "b", n = 2 } } })
+  assert(got == "\n<ul><li>a&amp;=1</li><li>b=2</li></ul>\n", got)
+  local tree = HEAD .. "{{.tree | node}}\n{{define node Tree}}({{.label}}{{range .kids}}{{. | node}}{{end}}){{end}}\n"
+  got = render(tmp, "define-tree", tree, { tree = { label = "a", kids = { { label = "<b>", kids = {} },
+    { label = "c", kids = { { label = "d", kids = {} } } } } } })
+  assert(got == "\n(a(&lt;b&gt;)(c(d)))\n", got)
+end
+
+local function test_a_define_is_exported_and_checked_as_its_own_type(tmp: string)
+  local lua, trouble = project(tmp, "define-export", HEAD .. "x\n{{define item Item}}{{.name}}{{end}}\n")
+  assert(lua ~= nil, trouble)
+  local page = assert(lua["page"])
+  assert(page:find("function _Module.item(", 1, true) ~= nil, page)
+  local wrong = refused(tmp, "define-wrong", HEAD .. "{{.user | item}}\n{{define item Item}}{{.name}}{{end}}\n")
+  assert(wrong:find("page.tmpl:2:", 1, true) ~= nil, wrong)
+  local field = refused(tmp, "define-field", HEAD .. "x\n{{define item Item}}\n{{.title}}{{end}}\n")
+  assert(field:find("page.tmpl:4:", 1, true) ~= nil, field)
 end
 
 local function test_the_checker_counts_a_warning_as_a_refusal_here(tmp: string)

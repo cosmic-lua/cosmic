@@ -52,7 +52,13 @@
 --- each line of literal text, and each action,
 --- is written on its line, with the newlines of a multi-line action and
 --- of trimmed whitespace kept as blank ones; the `return` is on the
---- template's last line. So a checker or run-time error names the
+--- template's last line. A template with `{{define}}`s is the record
+--- `_Module`, declared in the head with `render` as its first function:
+--- `render`'s `return` shares the first define's line, each define is
+--- `function _Module.name` on its own lines with a `return` on its
+--- `{{end}}`'s, and a stage `| name` calls `_Module.name`, which any
+--- function of the record may, itself too, where a local function may
+--- call only those made before it. So a checker or run-time error names the
 --- template's line. A column is the module's, not the template's: the
 --- line is what the build maps back, and a column map is not worth its
 --- cost until something reads columns.
@@ -129,12 +135,14 @@ local record Gen
   mut tested: boolean
   mut dots: integer
   --- What `$` names.
-  root: Dot
+  mut root: Dot
   --- The template's variables in scope, by name without the `$`.
   vars: mut {string: Dot}
   --- The local an `{{if}}` has bound a field path to, by the path as
   --- written in the source (`d.error`), while the arm it guards is written.
   bound: mut {string: Dot}
+  --- The local each `{{define}}` is, by its name.
+  defines: mut {string: string}
 end
 
 --- The start of a statement that adds to the output.
@@ -219,7 +227,12 @@ local function value(g: Gen, pipe: types.Pipeline, dot: Dot, raw?: boolean): str
   end
   for _, stage in ipairs(pipe.stages) do
     g.staged = true
-    expr = "_one(" .. member(value_alias(g, stage.module_path), stage.func) .. "(" .. expr .. "))"
+    local func = if stage.module_path == "" then g.defines[stage.func] else
+      member(value_alias(g, stage.module_path), stage.func) end
+    if func == nil then
+      error("cosmic.template: codegen met | " .. stage.func .. ", which the parser let through undefined")
+    end
+    expr = "_one(" .. func .. "(" .. expr .. "))"
   end
   return expr
 end
@@ -531,12 +544,39 @@ end
 function Codegen.generate(template: types.Template): string
   local g: Gen = { pieces = {}, patched = {}, line = template.line, started = false, mode = template.mode,
     imports = { order = {}, alias_of = {}, taken = {}, as_value = {} }, html = "", helpers = {}, staged = false,
-    tested = false, dots = 0, root = { name = "d", used = false }, vars = {}, bound = {} }
+    tested = false, dots = 0, root = { name = "d", used = false }, vars = {}, bound = {}, defines = {} }
+  -- A template with defines is a record of functions, declared first,
+  -- which each function may call, itself too: a local function may call
+  -- only those made before it.
+  for _, define in ipairs(template.defines) do
+    g.defines[define.name] = "_Module." .. define.name
+  end
   local type_alias = alias_for(g, template.import_path)
   if template.mode == "html" then
     g.html = value_alias(g, "cosmic.html")
   end
+  local result = if template.mode == "html" then g.html .. ".SafeHtml" else "string" end
+  local finish = "return " .. (if template.mode == "html" then g.html .. ".trust(table.concat(parts))" else
+    "table.concat(parts)" end) .. " end"
   emit(g, template.body, g.root)
+  local main_used = g.root.used
+  -- Each define is a function of its own, on its lines, after render's
+  -- `return`, which shares the first define's line.
+  for at, define in ipairs(template.defines) do
+    to_line(g, define.line)
+    if at == 1 then
+      put(g, finish)
+    end
+    local root: Dot = { name = "d", used = false }
+    g.root = root
+    local header = put(g, "")
+    emit(g, define.body, root)
+    g.patched[header] = assert(g.pieces[header], "put made the piece at this place") ..
+      "function _Module." .. define.name .. "(" .. (if root.used then "d" else "_" end) .. ": " .. type_alias .. "." ..
+      define.type_name .. "): " .. result .. " local parts: mut {string} = {}"
+    to_line(g, define.end_line)
+    put(g, finish)
+  end
 
   local head: mut {string} = {}
   for _, path in ipairs(g.imports.order) do
@@ -555,17 +595,22 @@ function Codegen.generate(template: types.Template): string
       head[#head + 1] = helper(g, ctx)
     end
   end
-  local result = if template.mode == "html" then g.html .. ".SafeHtml" else "string" end
-  head[#head + 1] = "local function render(" .. (if g.root.used then "d" else "_" end) .. ": " .. type_alias .. "." ..
-    template.type_name .. "): " .. result
-  -- The module's value is a local of a record type that declares `render`, which is what a requirer reads its type from.
-  local ending = " end local record _Module render: function(d: " .. type_alias .. "." .. template.type_name .. "): " ..
-    result .. " end local _module: _Module = {render = render} return _module"
+  local signature = "(" .. (if main_used then "d" else "_" end) .. ": " .. type_alias .. "." .. template.type_name ..
+    "): " .. result
+  local ending = ""
+  if #template.defines == 0 then
+    head[#head + 1] = "local function render" .. signature
+    -- The module's value is a local of a record type that declares `render`, which is what a requirer reads its type from.
+    ending = finish .. " local record _Module render: function(d: " .. type_alias .. "." .. template.type_name ..
+      "): " .. result .. " end local _module: _Module = {render = render} return _module"
+  else
+    head[#head + 1] = "local record _Module end function _Module.render" .. signature
+    ending = "return _Module"
+  end
   head[#head + 1] = "local parts: mut {string} = {}"
 
   to_line(g, template.lines)
-  put(g, "return " .. (if template.mode == "html" then g.html .. ".trust(table.concat(parts))" else
-    "table.concat(parts)" end) .. ending)
+  put(g, ending)
   local body: mut {string} = {}
   for i, piece in ipairs(g.pieces) do
     body[#body + 1] = g.patched[i] or piece
