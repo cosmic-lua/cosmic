@@ -255,7 +255,7 @@ local record Node
   tags: {string}
 end
 
---- What [`Client.whois`] answers: the node an address belongs to, the
+--- What [`Client.whois`] returns: the node an address belongs to, the
 --- user it acts for, and the capabilities the tailnet policy grants it
 --- on this node.
 local record WhoIs
@@ -284,11 +284,11 @@ local enum WhoIsKind
   "found"
   --- The daemon knows no node at the address: it is not on the tailnet.
   "not_a_peer"
-  --- The daemon could not be asked, or its answer could not be read.
+  --- The daemon could not be asked, or its response could not be read.
   "failed"
 end
 
---- What [`Client.whois_result`] answers.
+--- What [`Client.whois_result`] returns.
 local record WhoIsResult
   --- Which way it came out.
   kind: WhoIsKind
@@ -298,7 +298,7 @@ local record WhoIsResult
   reason: string
   --- The daemon's HTTP status: 200 for "found", 404 for "not_a_peer",
   --- and for "failed" the status that refused the call (403 for a
-  --- caller the daemon will not answer), or 0 where none came back.
+  --- caller the daemon refuses), or 0 where none came back.
   status: integer
 end
 
@@ -336,7 +336,7 @@ local record Peer
   key_expiry?: string
 end
 
---- What [`Client.status`] answers.
+--- What [`Client.status`] returns.
 local record Status
   --- The daemon's version.
   version: string
@@ -355,7 +355,7 @@ local record Status
   tailnet: string
   --- The suffix of every MagicDNS name: `tail1234.ts.net`.
   magic_dns_suffix: string
-  --- Whether MagicDNS answers on this node.
+  --- Whether MagicDNS resolves names on this node.
   magic_dns: boolean
   --- The names [`Client.cert`] can get a certificate for.
   cert_domains: {string}
@@ -391,7 +391,7 @@ local record Prefs
   operator: string
 end
 
---- A certificate and its key, PEM, as [`Client.cert`] answers them.
+--- A certificate and its key, PEM, as [`Client.cert`] returns them.
 local record CertPair
   --- The leaf and the chain to the CA, PEM, leaf first.
   cert: string
@@ -403,15 +403,15 @@ end
 local enum PingKind
   --- Through the WireGuard tunnel, as a peer's traffic goes (the default).
   "disco"
-  --- An ICMP echo inside the tunnel, which the peer's own stack answers.
+  --- An ICMP echo inside the tunnel, which the peer's stack replies to.
   "ICMP"
-  --- A TSMP ping, which the peer's Tailscale answers without its stack.
+  --- A TSMP ping, which the peer's Tailscale replies to, not its stack.
   "TSMP"
   --- Through the peer's PeerAPI, which proves its daemon serves.
   "peerapi"
 end
 
---- What [`Client.ping`] answers when the peer replied.
+--- What [`Client.ping`] returns when the peer replied.
 local record Ping
   --- The round trip, in nanoseconds.
   latency_ns: integer
@@ -512,7 +512,7 @@ local record WatchOptions
   engine?: boolean
 end
 
---- What one path of a [`ServeSite`] answers with: exactly one field.
+--- What one path of a [`ServeSite`] responds with: exactly one field.
 ---
 --- A handler is open to every peer the tailnet's policy lets reach the
 --- site's port, and with [`ServeSite.funnel`] to anyone on the internet.
@@ -528,7 +528,7 @@ local record ServeHandler
   --- checking its certificate, or `unix:/path` for a server at a unix
   --- socket, which only the users who can reach the path can send to.
   proxy?: string
-  --- A body the daemon answers with itself.
+  --- A body the daemon responds with itself.
   text?: string
   --- A file or directory of the daemon's machine it serves.
   path?: string
@@ -548,7 +548,7 @@ local record ServeSite
   --- and 10000 only, and only where the tailnet's policy lets the
   --- node.
   funnel?: boolean
-  --- What each path answers, by the path it is mounted at (`/`,
+  --- What each path responds with, by the path it is mounted at (`/`,
   --- `/api`); the longest that a request's path starts with wins.
   handlers: {string: ServeHandler}
 end
@@ -572,8 +572,8 @@ local record ServeSpec
   sites?: {ServeSite}
   --- The TCP ports passed on, one a port.
   forwards?: {ServeForward}
-  --- The name the sites answer to: the node's first certificate name
-  --- by default, else its MagicDNS name.
+  --- The name the sites take requests at: the node's first certificate
+  --- name by default, else its MagicDNS name.
   domain?: string
 end
 
@@ -841,7 +841,7 @@ local function sent(endpoint: Endpoint, default_ns: integer, method: string, pat
     if read.status == "done" then
       local response = read.response
       if response == nil then return nil, "tailscale: the reply holds no response" end
-      -- The daemon sends no interim reply; one would be no answer.
+      -- The daemon sends no interim reply; one would not be its response.
       if response.status < 200 then return nil, "tailscale: the daemon's reply is interim" end
       return { status = response.status, body = response.body, headers = response.headers }, ""
     end
@@ -1083,7 +1083,7 @@ local function base_headers(endpoint: Endpoint): mut {string: string}
   return headers
 end
 
---- What [`exchanged`] answers: the reply's head, and the connection with
+--- What [`exchanged`] returns: the reply's head, and the connection with
 --- the bytes after the head that came with it.
 local record Exchange
   response: Message.Response
@@ -1094,8 +1094,8 @@ end
 --- `method` sent to `path` at `endpoint`, with `size` bytes of `body`
 --- after the head where given, and the reply's head, read as it comes:
 --- every wait, to connect, write or read, is held to `wait_ns`. A reply
---- that is no 2xx is read whole (4 KiB of it) and answered as a reason,
---- as `ok` answers one, with the connection closed.
+--- that is no 2xx is read whole (4 KiB of it) and returned as a reason,
+--- as `ok` returns one, with the connection closed.
 local function exchanged(endpoint: Endpoint, wait_ns: integer, method: string, path: string,
                          body?: Stream.Reader, size?: integer): Exchange?, string
   local headers = base_headers(endpoint)
@@ -1115,8 +1115,8 @@ local function exchanged(endpoint: Endpoint, wait_ns: integer, method: string, p
     return nil, "tailscale: " .. reason
   end
   conn:set_timeout(limit)
-  -- Set once a reply's head is read: a write the daemon cut short by
-  -- refusing the request is answered by that refusal, not by the write's.
+  -- Set once a reply's head is read: when the daemon cut a write short by
+  -- refusing the request, the refusal is returned, not the write's failure.
   local replied = false
   local answered: function(): Exchange?, string
   answered = function(): Exchange?, string
@@ -1222,7 +1222,7 @@ local class Events
 end
 
 --- The events at `endpoint` that `mask` asks for, as [`Client.watch`]
---- answers them.
+--- returns them.
 local function bus(endpoint: Endpoint, default_ns: integer, mask: integer): Events?, string
   local path = "/localapi/v0/watch-ipn-bus?mask=" .. tostring(mask)
   local response, why = Http.open(endpoint.url .. path, options(endpoint, default_ns, "GET", nil, 0))
@@ -1247,7 +1247,7 @@ local SERVE_MASK <const> = 2 | 16
 local class Serving
   --- The stream's name, under which the configuration is filed.
   session: string
-  --- The name the sites answer to.
+  --- The name the sites take requests at.
   domain: string
   --- The URLs of the sites, in the order of [`ServeSpec.sites`].
   urls: {string}
@@ -1265,7 +1265,7 @@ local class Serving
   end
 end
 
---- The client of one daemon, as [`Tailscale.connect`] answers it.
+--- The client of one daemon, as [`Tailscale.connect`] returns it.
 local class Client
   --- Internal: where the daemon is. No caller reads it.
   endpoint: Endpoint
@@ -1288,7 +1288,7 @@ local class Client
 
   --- Who `address` is: an IP address of the tailnet, alone or with a
   --- port (`100.101.102.103:443`, `[fd7a:115c:a1e0::1]:443`), as a
-  --- server sees a connection's far end. The answer's `caps` are the
+  --- server sees a connection's far end. The result's `caps` are the
   --- grants that apply to the peer on this node, so a server reads its
   --- own permissions there:
   ---
@@ -1296,7 +1296,7 @@ local class Client
   ---     if who.caps["example.com/cap/admin"] == nil then return forbidden() end
   ---
   --- [`Client.whois_result`] tells an address that is no peer's from a
-  --- daemon that cannot be asked. An answer whose `own` is true names
+  --- daemon that cannot be asked. A result whose `own` is true names
   --- this node itself: some process on this machine connected, and the
   --- owner in `user` is not who asked.
   function whois(self, address: string): WhoIs?, string
@@ -1308,8 +1308,8 @@ local class Client
 
   --- [`Client.whois`], classified: "not_a_peer" where the daemon knows
   --- no node at the address, as for one off the tailnet.
-  -- TODO: take the daemon's `svc_name` and `proto` once a server answers
-  -- for a Tailscale Service, whose grants scope the CapMap to it.
+  -- TODO: take the daemon's `svc_name` and `proto` once a server can host
+  -- a Tailscale Service, whose grants scope the CapMap to it.
   function whois_result(self, address: string): WhoIsResult
     local answer = ok(self.endpoint, self.timeout_ns, "GET", "/localapi/v0/whois?addr=" .. Url.escape(address))
     local text = answer.body
@@ -1325,7 +1325,7 @@ local class Client
     if wire == nil then
       return { kind = "failed", reason = "tailscale: whois: " .. bad, status = 200 }
     end
-    -- The daemon answers its own address with its own node; only its
+    -- The daemon reports its own node for its own address; only its
     -- status tells that node from a peer's.
     local mine = ok(self.endpoint, self.timeout_ns, "GET", "/localapi/v0/status?peers=false")
     local status_text = mine.body
@@ -1372,7 +1372,7 @@ local class Client
   --- A certificate for `domain`, one of [`Status.cert_domains`], and its
   --- key, from Let's Encrypt through the daemon, which keeps them and
   --- renews them a third of their life before they expire: a second call
-  --- answers the one it holds. The first call for a name may take a
+  --- returns the one it holds. The first call for a name may take a
   --- minute while the CA checks it. It needs HTTPS enabled for the
   --- tailnet, and a caller the daemon lets have certificates.
   ---
@@ -1425,7 +1425,7 @@ local class Client
 
   --- How long a ping to the node at `address` takes over the tailnet,
   --- by the path `kind` names ("disco" by default). A peer that does not
-  --- answer fails it, with the daemon's reason.
+  --- reply fails it, with the daemon's reason.
   function ping(self, address: string, kind?: PingKind): Ping?, string
     local query = Url.encode_query({
       { name = "ip", value = address },
@@ -1588,7 +1588,7 @@ local class Client
   --- certificate and passes each request on. The configuration is the
   --- program's own, filed in the daemon as a foreground one (as
   --- `tailscale serve` without `--bg` files its own) under a stream of
-  --- [`Client.watch`] that the answer holds. The daemon drops it when
+  --- [`Client.watch`] that the result holds. The daemon drops it when
   --- that stream ends, which [`Serving.close`] does, and so does the
   --- program's exit, however it ends; it never changes what the node
   --- serves for others, and fails where they already serve a port it
@@ -1699,7 +1699,7 @@ local class Client
 end
 
 local record Tailscale
-  --- A client of one daemon, as [`Tailscale.connect`] answers it.
+  --- A client of one daemon, as [`Tailscale.connect`] returns it.
   type Client = Client
   --- Where a [`Client`] reaches its daemon.
   type Endpoint = Endpoint
@@ -1759,7 +1759,7 @@ local function listening(port: integer, token: string): Endpoint?
   -- TODO: refuse a listener that is not the app, once cosmic.net reports
   -- the process or user behind a TCP connection (LOCAL_PEERPID on macOS).
   -- Until then another local user who binds the port of a proof the app
-  -- left behind is handed the token, and answers every call as the daemon.
+  -- left behind is handed the token, and handles every call as the daemon.
   if port < 1 or port > 65535 then return nil end
   local address = Net.tcp("127.0.0.1", port)
   local conn, _ = Net.connect(address, { timeout_ns = 1000000000 })

@@ -16,7 +16,7 @@ local function test_skip_takes_a_reason()
   Test.raises(function() Test.skip("") end, "test: skip's reason is empty")
 end
 
---- `raises` answers the message of a call that raises, whole, and refuses
+--- `raises` returns the message of a call that raises, whole, and refuses
 --- (naming what it expected) a call that returns or says something else.
 local function test_raises_answers_the_message_and_refuses_otherwise()
   assert(Test.raises(function() error("boom: it broke", 0) end, "it broke") == "boom: it broke")
@@ -33,9 +33,10 @@ local function fields_of(module: any): mut {string:any}
   error("fields_of: the module is not a table with string keys", 2)
 end
 
---- `skip` records its reason with the runner and raises what the runner
---- answers, so the test ends there. Run under a stand-in runner, put back
---- as it was: this test's own runner would otherwise take the raise.
+--- `skip` records its reason with the runner and raises what the runner's
+--- `skipped` returns, so the test ends there. Run under a stand-in
+--- runner, put back as it was: this test's own runner would otherwise
+--- take the raise.
 local function test_skip_raises_what_the_runner_answers()
   local ending: {string:string} = {}
   local given: mut {string} = {}

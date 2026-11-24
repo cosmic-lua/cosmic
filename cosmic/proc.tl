@@ -104,13 +104,13 @@ function Proc.user(name: string): (Proc.User) | (nil, Failure)
 end
 
 --- How many processors are online, at least one: what `getconf
---- _NPROCESSORS_ONLN` answers, which is `nproc` less any CPU affinity. The
+--- _NPROCESSORS_ONLN` prints, which is `nproc` less any CPU affinity. The
 --- natural bound on how many children to run at once for CPU-bound work.
 function Proc.cpu_count(): integer
   return sys.cpu_count()
 end
 
---- The start [`Proc.relaunch`] answers, before a source run's script is
+--- The start [`Proc.relaunch`] returns, before a source run's script is
 --- added to it.
 local function started(): Proc.Relaunch?, string
   local found, trouble = raw.relaunch(ARTIFACT_FD, CORE_FD)

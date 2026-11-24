@@ -14,7 +14,7 @@
 ---     local port = server.address.port -- the one the kernel chose
 ---
 --- A connection is one object for both directions; `shutdown("write")`
---- tells the peer the end of what was sent while its answer is still
+--- tells the peer the end of what was sent while its response is still
 --- read. That suits a protocol whose request ends at end of file. After a
 --- framed request (HTTP, a length prefix) do not half-close: a server may
 --- take the half-close as the client closing and send no reply. HTTP over
@@ -29,7 +29,7 @@
 --- [`Poll.TIMEOUT`], and ends with
 --- "interrupted", within a tenth of a second, when the innermost open
 --- [`Signal.guard`] catches SIGINT or SIGTERM, as [`cosmic.http`]'s do
---- outside a task. A listener's and a UDP socket's methods answer these as
+--- outside a task. A listener's and a UDP socket's methods return these as
 --- a [`Failure`] with the same message: of kind "timeout" for a timeout,
 --- "cancelled" for "interrupted" and "cancelled".
 ---
@@ -91,14 +91,14 @@ local function failure_of(why: string): Failure
   return Failure.new(why)
 end
 
--- How a listener is made: a class ([`SocketListener`]) implementing the public
--- interface it answers, so one costs one table and no closure: its methods are
--- defined once, on the class, which an object reaches through `__index`, and
--- its state is in fields. (A connection is the class [`Connection.Conn`] of
--- cosmic/internal/connection.tl.) The note on how an object is made in
--- cosmic/stream.tl says why Teal makes the public types interfaces. One
--- dropped unclosed needs no __gc: its socket, which only the object
--- holds, is closed by the collector.
+-- How a listener is made: a class ([`SocketListener`]) implementing the
+-- public interface it is returned as, so one costs one table and no
+-- closure: its methods are defined once, on the class, which an object
+-- reaches through `__index`, and its state is in fields. (A connection is
+-- the class [`Connection.Conn`] of cosmic/internal/connection.tl.) The
+-- note on how an object is made in cosmic/stream.tl says why Teal makes
+-- the public types interfaces. One dropped unclosed needs no __gc: its
+-- socket, which only the object holds, is closed by the collector.
 
 --- What `address` is called in a failure: its path, or its host and
 --- port, an IPv6 host in brackets.
@@ -112,7 +112,7 @@ local function named(address: raw_socket.Address): string
   return host .. ":" .. tostring(address.port)
 end
 
---- A socket listening at an address, answered by [`Net.listen`].
+--- A socket listening at an address, returned by [`Net.listen`].
 local class SocketListener
   --- Where it listens.
   address: raw_socket.Address
@@ -220,7 +220,7 @@ local function membership_trouble(group: string, why: string, errno: integer): s
   return group .. ": " .. why
 end
 
---- A bound UDP socket, answered by [`Net.datagram`]. A class, so a
+--- A bound UDP socket, returned by [`Net.datagram`]. A class, so a
 --- `<close>` local holds one. One dropped unclosed needs no __gc: its
 --- socket, which only the object holds, is closed by the collector.
 local class UdpSocket
@@ -375,11 +375,11 @@ local record Net
   --- record.
   type Address = raw_socket.Address
 
-  --- A bound UDP socket, answered by [`Net.datagram`]. A class, so a
+  --- A bound UDP socket, returned by [`Net.datagram`]. A class, so a
   --- `<close>` local holds one.
   type Datagram = UdpSocket
 
-  --- One datagram a [`Datagram`]'s `receive` answers: its `data`, whole
+  --- One datagram a [`Datagram`]'s `receive` returns: its `data`, whole
   --- and possibly empty, and the "udp" `address` it came from.
   type Packet = raw_socket.Packet
 
@@ -419,7 +419,7 @@ local record Net
     addresses: {Resolved}
   end
 
-  --- A connection, answered by `accept` and [`Net.connect`]: a
+  --- A connection, returned by `accept` and [`Net.connect`]: a
   --- [`Stream.Reader`] of what the peer sends and a [`Stream.Writer`] to
   --- it.
   type Conn = Connection.Conn
@@ -441,7 +441,7 @@ local record Net
     backlog?: integer
   end
 
-  --- A socket listening at an address, answered by [`Net.listen`]. A class,
+  --- A socket listening at an address, returned by [`Net.listen`]. A class,
   --- so a `<close>` local holds one.
   type Listener = SocketListener
 
@@ -455,7 +455,7 @@ local record Net
     port: integer
   end
 
-  --- One address a name resolves to, answered by [`Net.resolve`]: its
+  --- One address a name resolves to, returned by [`Net.resolve`]: its
   --- numeric form (four decimal octets for IPv4, `inet_ntop`'s for IPv6)
   --- and its `family`, "ipv4" or "ipv6".
   type Resolved = raw_socket.Resolved
@@ -622,9 +622,10 @@ function Net.is_loopback(address: Net.Address | string): boolean
   return host == "::1" or Loopback.ipv4(host)
 end
 
---- What a failed call says: its own words for a deadline or a signal,
---- the bound a name too long ran past, what a host must be, and why a
---- unix listener answered EAGAIN, which errno's words leave unsaid.
+--- What a failed call says: its own words for a deadline or a signal, the
+--- bound a name too long ran past, what a host must be, and why a
+--- connect to a unix listener failed with EAGAIN (its backlog is full),
+--- which errno's words leave unsaid.
 local function said(trouble: string, errno: integer, address?: Net.Address): string
   if errno == raw.ETIMEDOUT then return Poll.TIMEOUT end
   if errno == raw.EINTR then return "interrupted" end
@@ -734,16 +735,16 @@ local function resolve_text(name: string, opts?: Net.ResolveOptions): {Net.Resol
   return Resolv.lookup(name, { timeout_ns = opts.timeout_ns, servers = servers, hosts = hosts_file })
 end
 
---- Resolves `name` with c-ares and answers every address it has, IPv4
+--- Resolves `name` with c-ares and returns every address it has, IPv4
 --- and IPv6, as the system's configuration (resolv.conf and hosts; on
 --- macOS also the system's DNS configuration) makes it: none is dropped
 --- or filtered, so a caller that refuses some address can refuse the
---- name. The answer is every address received: where one family fails
---- and the other answers, nothing says so, so a caller that checks
+--- name. The result is every address received: where one family fails
+--- and the other succeeds, nothing says so, so a caller that checks
 --- addresses connects only to those returned and never looks the name up
---- again. A numeric IPv4 or IPv6 address, as [`Net.tcp`] takes one, answers
---- itself without a query. `HOSTALIASES` is ignored. Where one family's
---- lookup fails and the other's answers, the answer holds the one that
+--- again. A numeric IPv4 or IPv6 address, as [`Net.tcp`] takes one, resolves
+--- to itself without a query. `HOSTALIASES` is ignored. Where one family's
+--- lookup fails and the other's succeeds, the result holds the one that
 --- did. A name with fewer dots than resolv.conf's ndots may be tried
 --- under its `search` domains first, so a single-label name may resolve
 --- under one. `servers` and `hosts_file` are for tests and trusted
@@ -753,15 +754,15 @@ end
 ---     for _, resolved in ipairs(found) do print(resolved.address, resolved.family) end
 ---
 --- Fails with "name not found" (no such name), "name has no address",
---- "name server failed" (an error or malformed answer),
+--- "name server failed" (an error or malformed response),
 --- [`Poll.TIMEOUT`], "interrupted" (an open [`Signal.guard`] caught a
 --- signal), or the system's words ("Connection refused" where every
 --- server refuses). A `name` that is empty, over 254 bytes or holds a
 --- NUL or a "%", and a `servers` list or `hosts_file` the resolver
 --- refuses, fail "Invalid argument". In a task of [`Poll.run`] the call
---- waits through the run, so only that task waits for the answer, and a
+--- waits through the run, so only that task waits for the result, and a
 --- task cancelled in it ends the lookup and fails "cancelled"; anywhere
---- else it holds the thread until it answers. A `timeout_ns` out of range,
+--- else it holds the thread until it returns. A `timeout_ns` out of range,
 --- an empty `servers` list or a server port outside 1 to 65535 raises.
 function Net.resolve(name: string, opts?: Net.ResolveOptions): ({Net.Resolved}) | (nil, Failure)
   local value, why = resolve_text(name, opts)
@@ -962,7 +963,7 @@ end
 --- one it inherited, or one received over a Unix socket with
 --- `sendfds`/`recvfds`. It takes a copy of `fd`, so closing the listener
 --- never closes `fd`, which stays its holder's to close, and the
---- listener then behaves as one [`Net.listen`] answered: its `address` is
+--- listener then behaves as one [`Net.listen`] returned: its `address` is
 --- the socket's own, and `accept`, [`set_timeout`] and `close` are the same.
 --- The copy shares `fd`'s open file description, so adopting makes `fd`
 --- nonblocking, as every listener here is, for whoever else holds it.
@@ -984,7 +985,7 @@ end
 --- are closed. A channel that carries no such pair, or sockets that are no
 --- listening TCP, fails nil and a Failure; `channel` is left open for its holder
 --- to close. The child sends both in one message before it runs its
---- program, so a channel whose start has answered holds them already and
+--- program, so a channel whose start has returned holds them already and
 --- this does not wait; a `timeout_ns` no wait can last raises.
 -- TODO: receive the pair in the process that started the child, and hand
 -- the relay's process the listeners as descriptors of their own, once
@@ -1061,14 +1062,14 @@ end
 --- full (see [`ConnectOptions.timeout_ns`]). A TCP one waits
 --- for the connection to be made, and fails "Connection refused" where
 --- nothing listens at the port. At a TCP listener whose backlog is full
---- it waits or, where the kernel answers it, is reset, as it is made or
+--- it waits or, where the kernel replies to it, is reset, as it is made or
 --- just after (see [`ConnectOptions.timeout_ns`]).
 --- A unix path too long to connect to whole is connected to from its
 --- directory, and raises where the process cannot return to its working
 --- directory after. An `address` that is no [`Net.Address`] raises.
---- With `opts.tls` the connection is answered once its TLS handshake is
+--- With `opts.tls` the connection is returned once its TLS handshake is
 --- done and the server verified; one that fails is closed, and its why
---- answered.
+--- returned.
 ---
 ---     local client = assert(Tls.client())
 ---     local conn = assert(Net.connect(Net.tcp("93.184.215.14", 443),
@@ -1125,7 +1126,7 @@ local record Accepting
   clear: boolean
   mut task?: Poll.Task
   --- The errno the last accept failed with, reported once until another
-  --- answer comes; 0 after one that did not fail.
+  --- accept returns; 0 after one that did not fail.
   mut failing: integer
 end
 
@@ -1551,7 +1552,7 @@ local class Standing
 
   --- Stops listening and ends every task: each connection is closed and
   --- its task killed where it waits, as [`Net.serve`] ends those its
-  --- grace leaves. Answers what a task's `<close>` handler raised as it
+  --- grace leaves. Returns what a task's `<close>` handler raised as it
   --- was killed, or "".
   function stop(self): string
     if self.stopped then return "" end
@@ -1606,7 +1607,7 @@ end
 --- once every task `body` spawned has. The connections are served only
 --- while `body` waits through the run -- a [`cosmic.net`] wait, a
 --- [`Clock.sleep`], a join, [`Http.get`] -- so a call in it that holds
---- the thread is never answered.
+--- the thread never gets a response.
 ---
 --- Unlike [`Net.serve`] it holds no failure apart: what `serve` raises
 --- ends the run, as any task's error does, and so does a failure to

@@ -1,5 +1,5 @@
---- A store that carries a module's row without its source (the pure store of a test, [`build.closure_store`]) answers
---- [`Store.source`] with a Failure that says why, not with a failure to inflate nothing, and what decides a module is
+--- A store that carries a module's row without its source (the pure store of a test, [`build.closure_store`]) makes
+--- [`Store.source`] return a Failure that says why, not a failure to inflate nothing, and what decides a module is
 --- held from its source ([`Store.withheld`]) tells it from one the binary does not hold. The program runs on a sealed database whose rows
 --- were emptied, so no switch of the test run is needed.
 
@@ -109,7 +109,7 @@ local function test_a_withheld_source_is_said_so_and_not_taken_for_absent(tmp: s
   -- The analyzer's identity is refused with the reason, not named for a binary that carries none of the source.
   assert(line("identity"):find("^false\t.*'build.bind' is withheld"), detail)
   assert(line("analyzer"):find("^nil\t.*'build.bind' is withheld"), detail)
-  -- The checker's provider raises for a withheld module and answers nil only for an absent one.
+  -- The checker's provider raises for a withheld module and returns nil only for an absent one.
   assert(line("provider"):find("^false\t.*'cosmic.json' is withheld"), detail)
   assert(line("provider_held") == "true", detail)
   assert(line("provider_absent") == "true\tnil", detail)

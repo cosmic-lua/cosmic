@@ -185,8 +185,8 @@ local function full(path: string): Full
 end
 
 --- What connecting to a full listener at `path` fails with: on Linux,
---- saying the listener is busy, told from "Connection refused", which
---- a listener gone answers; macOS cannot tell the two apart.
+--- saying the listener is busy, told from "Connection refused", the
+--- failure for a listener gone; macOS cannot tell the two apart.
 local function busy(path: string): string
   if assert(sys.uname()).sysname == "Darwin" then return path .. ": Connection refused" end
   return path .. ": Resource temporarily unavailable (the listener is busy: its backlog is full)"
@@ -352,7 +352,7 @@ local function test_a_closed_connection_has_no_peer()
   assert(address == nil and why == "net: the connection is closed", why)
 end
 
---- A unix connection has no TCP address to give: it answers nil and
+--- A unix connection has no TCP address to give: it returns nil and
 --- why, rather than a made-up address.
 local function test_a_unix_connection_has_no_peer_address(tmp: string)
   unix_socket.skip_if_refused(tmp)
@@ -388,7 +388,7 @@ local function test_a_closed_connection_has_no_own_address()
 end
 
 --- A unix connection has no TCP address to give, at either end: it
---- answers nil and why, rather than a made-up address.
+--- returns nil and why, rather than a made-up address.
 local function test_a_unix_connection_has_no_own_address(tmp: string)
   unix_socket.skip_if_refused(tmp)
   local server <close> = assert(Net.listen(Net.unix(tmp .. "/b.sock")))
@@ -638,8 +638,8 @@ end
 
 --- In a task of Poll.run, a server serves each connection in a task of
 --- its own: three clients hold their connections open at once, and the
---- server answers the last to connect first, which a server whose reads
---- held the thread could never do.
+--- server replies to the last to connect first, which a server whose
+--- reads held the thread could never do.
 local function test_in_a_run_a_server_serves_connections_at_once()
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
   local answered: mut {string} = {}

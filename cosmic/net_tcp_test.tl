@@ -7,8 +7,9 @@ local unix_socket = require("build.unix_socket")
 local sys = require("cosmic.sys")
 local Clock = require("cosmic.clock")
 
---- Each listener here is on the worker's own loopback, and 127.0.0.2 is
---- where [`unanswered_or_skip`] looks for an address nothing answers.
+--- Each listener here is on the worker's own loopback, and 127.0.0.2
+--- is where [`unanswered_or_skip`] looks for an address nothing
+--- responds at.
 Test.policy{ loopback = { "127.0.0.1", "127.0.0.2" } }
 
 local function test_a_tcp_listener_at_port_zero_names_the_port_it_has()
@@ -100,7 +101,7 @@ local function full_backlog(held: mut {function()}): Net.Address, string
     last = conn
   end
   if why == "" then
-    -- Every one was made: a kernel that answers past the backlog made
+    -- Every one was made: a kernel that replies past the backlog made
     -- the last and reset it, which reading it tells from one queued.
     local made = assert(last)
     made:set_timeout(Clock.seconds(5))
@@ -116,7 +117,7 @@ local function full_backlog(held: mut {function()}): Net.Address, string
   return server.address, why
 end
 
---- A TCP address where a connection is left unanswered, so that
+--- A TCP address where a connection gets no reply, so that
 --- connecting waits: a listener whose backlog is full where the kernel
 --- drops what comes past it (Linux, macOS 15.8), and 127.0.0.2 where
 --- the kernel resets that instead (macOS 27.2) and drops what is sent
@@ -138,8 +139,8 @@ end
 
 --- A connection past a TCP listener's full backlog is not taken: it
 --- waits as long as its timeout, as Linux has it, or, where the kernel
---- answers it (macOS 27.2), is reset: it fails so, or is made and its
---- first read fails so.
+--- replies to it (macOS 27.2), is reset: it fails so, or is made and
+--- its first read fails so.
 local function test_a_connection_to_a_full_backlog_waits_or_is_reset()
   local held: mut {function()} = {}
   local full, why = full_backlog(held)
@@ -158,8 +159,8 @@ local function test_a_connection_to_a_full_backlog_waits_or_is_reset()
   for _, close in ipairs(held) do close() end
 end
 
---- A connection nothing answers waits as long as its timeout, or until
---- a guard catches a signal.
+--- A connection nothing replies to waits as long as its timeout, or
+--- until a guard catches a signal.
 local function test_an_unanswered_connection_times_out_or_is_interrupted()
   local held: mut {function()} = {}
   local silent = unanswered_or_skip(held)
@@ -176,8 +177,8 @@ local function test_an_unanswered_connection_times_out_or_is_interrupted()
 end
 
 --- In a task, a TCP connection waits to be made through the run: the
---- other tasks go on while one waits on a connection nothing answers,
---- until its time runs out. One that is refused says so.
+--- other tasks go on while one waits on a connection nothing replies
+--- to, until its time runs out. One that is refused says so.
 local function test_in_a_run_a_tcp_connect_waits_through_the_run()
   local held: mut {function()} = {}
   local silent = unanswered_or_skip(held)

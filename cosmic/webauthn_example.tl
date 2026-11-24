@@ -23,7 +23,7 @@ function Example.creation_options()
 end
 
 --- The options of a login with no user named first: any passkey of the
---- app the browser holds may answer.
+--- app the browser holds may be used.
 function Example.request_options()
   local options = Webauthn.request_options({ rp_id = "example.com", user_verification = "required" },
     Webauthn.challenge())
@@ -32,7 +32,7 @@ function Example.request_options()
 end
 
 --- What the browser sends is checked before anything in it is
---- believed: here an answer to another challenge.
+--- believed: here a response to another challenge.
 function Example.verify_registration()
   local answer = assert(Json.decode_object([[
     {"type": "public-key", "id": "AQID", "rawId": "AQID",
@@ -48,8 +48,8 @@ function Example.verify_registration()
 end
 
 --- A login is checked against the passkey the app keeps for the id the
---- answer names: here an answer from another passkey is refused before
---- its signature is read.
+--- response names: here a response from another passkey is refused
+--- before its signature is read.
 function Example.verify_authentication()
   local kept: Webauthn.Credential = {
     id = "\9\9\9", public_key = "", alg = -8, sign_count = 0, user_handle = "u-1", backup_eligible = true,

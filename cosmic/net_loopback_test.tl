@@ -14,20 +14,20 @@ local function dial(port: integer): Net.Conn
   return conn
 end
 
---- Answers each line with "re " before it.
+--- Writes back each line with "re " before it.
 local function answering(conn: Net.Conn)
   for line in Stream.lines(conn):each() do assert(conn:write("re " .. line .. "\n")) end
 end
 
---- Sends `line` and reads the line that answers it.
+--- Sends `line` and reads the line that comes back.
 local function asked(conn: Net.Conn, line: string): string
   assert(conn:write(line .. "\n"))
   local answer = assert(Stream.lines(conn):read())
   return answer
 end
 
---- Outside a run the call is a run of its own: three clients hold
---- their connections at once and the last to connect is answered first,
+--- Outside a run the call is a run of its own: three clients hold their
+--- connections at once and the last to connect gets its reply first,
 --- which a server of one task could not do.
 local function test_each_connection_is_served_in_a_task_of_its_own()
   local answers: mut {string} = {}

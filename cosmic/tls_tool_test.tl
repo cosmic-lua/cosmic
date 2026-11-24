@@ -54,7 +54,7 @@ end
 ]]
 
 --- Runs the client script against the server at `port` of 127.0.0.1,
---- for each of `hosts` ("localhost" or "127.0.0.1"), and answers what
+--- for each of `hosts` ("localhost" or "127.0.0.1"), and returns what
 --- it printed.
 local function fetched(tmp: string, port: integer, hosts: {string}): string
   local script = tmp .. "/client.tl"
@@ -109,8 +109,8 @@ end
 
 --- With the one pair, a client of 127.0.0.1 is served it too, and
 --- refuses it, as its leaf does not name the address; a client in the
---- clear gets no answer, and the server serves the next client all the
---- same.
+--- clear gets no response, and the server serves the next client all
+--- the same.
 local function test_the_first_pair_is_served_without_a_name_and_a_clear_client_is_refused(tmp: string)
   local said = ""
   local clear = ""
@@ -281,7 +281,7 @@ local function test_a_stalled_handshake_is_closed_unserved()
 end
 
 --- A protocol of [`Net.serve`] that handshakes before it reads knows what
---- the handshake settled, and a connection in the clear answers no
+--- the handshake settled, and a connection in the clear has no
 --- `tls`.
 local function test_a_protocol_handshakes_first_and_reads_what_it_settled(tmp: string)
   local said = ""

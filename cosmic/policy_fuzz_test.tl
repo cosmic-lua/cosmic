@@ -1,6 +1,6 @@
 --- Fuzz properties for [`cosmic.policy`]'s `decode`, which reads a
 --- policy from text that may come from anywhere: it is total on any
---- bytes, answering a policy or a refusal under the module's name; a
+--- bytes, returning a policy or a refusal under the module's name; a
 --- policy it takes merges and encodes, and its encoding decodes and
 --- encodes to the same text again. `FUZZ_SEED` and `FUZZ_ITERS` pick
 --- the inputs (build/fuzz/init.tl).

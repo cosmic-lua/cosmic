@@ -379,7 +379,7 @@ end
 local function test_loaders_does_not_raise_on_an_interpreter_name_cut_short(tmp: string)
   local whole = elf(2, 1, tmp .. "/some-loader")
   assert(Fs.write(tmp .. "/cut", whole:sub(1, #whole - 6), 493))
-  -- Raising would fail the test; either answer is a refusal or a list.
+  -- Raising would fail the test; the result is a refusal or a list.
   local _ = Sandbox.loaders(tmp .. "/cut")
   assert(Fs.write(tmp .. "/gone", whole:sub(1, 64 + 56), 493))
   local files = assert(Sandbox.loaders(tmp .. "/gone"))

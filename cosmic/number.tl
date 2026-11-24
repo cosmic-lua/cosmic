@@ -1,8 +1,8 @@
---- Number reads that answer an integer or say why not. `tonumber` and
---- `math.tointeger` answer nil with no reason and take "0x10", "1e2" and
---- " 7"; [`Number.integer`] takes only digits and answers a [`Failure`]
---- that names the text. A caller that has already checked the text's
---- shape (a `%d+` match, a hex group) asserts the answer.
+--- Number reads that return an integer or say why not. `tonumber` and
+--- `math.tointeger` return nil with no reason and take "0x10", "1e2" and
+--- " 7"; [`Number.integer`] takes only digits and returns nil and a
+--- [`Failure`] that names the text. A caller that has already checked
+--- the text's shape (a `%d+` match, a hex group) asserts the result.
 ---
 ---     local port = assert(Number.integer("8080")) -- 8080
 ---     local none, why = Number.integer("12x") -- nil, a Failure
@@ -77,10 +77,10 @@ end
 --- The integer `text` spells: an optional "-" and then one or more digits
 --- of `base` (10 unless given, 2 to 36, letters in either case). No
 --- space, "+" or "0x" prefix, fraction or exponent is part of it, and a
---- value past `math.mininteger` or `math.maxinteger` is refused rather than
---- wrapped as `tonumber(text, base)` wraps it. Any other text answers a
---- "parse" [`Failure`] that names the text and the place. Raises,
---- blaming its caller, only for a `base` that is not 2 to 36.
+--- value past `math.mininteger` or `math.maxinteger` is refused rather
+--- than wrapped as `tonumber(text, base)` wraps it. For any other text it
+--- returns nil and a "parse" [`Failure`] that names the text and the
+--- place. Raises, blaming its caller, only for a `base` outside 2 to 36.
 ---
 ---     local limit = assert(Number.integer("20")) -- 20
 ---     local none, why = Number.integer("1e2") -- nil, and why

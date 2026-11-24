@@ -31,7 +31,7 @@ local function drained(fd: integer): string
 end
 
 --- A read that finds nothing waits `timeout_ns` and then fails with the
---- word every wait answers, leaving the Reader usable: what arrives
+--- word every wait returns, leaving the Reader usable: what arrives
 --- later is read, and a closed writer ends it.
 local function test_a_read_with_a_timeout_fails_with_the_timeout_word(tmp: string)
   local reader, writer = fifo(tmp, "quiet")
@@ -144,7 +144,7 @@ local function test_a_write_that_expires_reports_the_bytes_written(tmp: string)
 end
 
 --- A failure other than a deadline ends the Writer for good, every
---- later write answering it, and a closed one says so. The failure here
+--- later write returning it, and a closed one says so. The failure here
 --- is a descriptor that is not one.
 local function test_a_failed_write_is_sticky()
   local w = Stream.to_fd(1 << 20)
@@ -159,7 +159,7 @@ end
 
 --- A `wait` the caller gives is asked for the descriptor and the events
 --- instead of Poll.wait: here it drains the pipe, as a supervisor
---- servicing another end would. A deadline or a cancel it answers leaves
+--- servicing another end would. A deadline or a cancel it returns leaves
 --- the Writer usable; any other failure ends it.
 local function test_a_wait_the_caller_gives_replaces_the_poll(tmp: string)
   local reader, writer = fifo(tmp, "hook")

@@ -1,7 +1,7 @@
 --- Fuzz properties for [`cosmic.time`]'s duration text: a duration that
 --- `format_duration` writes parses back to itself, and `parse_duration`
 --- is total -- any bytes, and any mutation of a well-formed duration,
---- answer a duration or a failure and never raise, and a duration it
+--- parse to a duration or a failure and never raise, and a duration it
 --- accepts formats to text that parses to the same one. `FUZZ_SEED` and
 --- `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 

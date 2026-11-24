@@ -53,8 +53,8 @@ local function read(text: string, size: integer): string
   return table.concat(out, "\n")
 end
 
---- However a document is split into chunks, the parser answers the same
---- events, or refuses it with the same message.
+--- However a document is split into chunks, the parser's `feed` and
+--- `finish` return the same events, or refuse it with the same message.
 local function test_chunks_never_change_what_a_document_reads(tmp: string)
   Fuzz.run({
     name = "xml chunking",

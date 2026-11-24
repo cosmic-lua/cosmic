@@ -30,12 +30,12 @@ Test.policy{
   env = { "HOME", "TMPDIR" },
 }
 
---- What a restriction of a process a profile holds already answers.
+--- What a restriction of a process a profile holds already returns.
 local HELD <const> = "false sandbox: restrict: this process is held by a Seatbelt profile " ..
   "already, one it applied or was started under: macOS applies one profile to a process " ..
   "and refuses a second"
 
---- What a refused path answers under Seatbelt: EPERM.
+--- What a refused path fails with under Seatbelt: EPERM.
 local DENIED <const> = "Operation not permitted"
 
 --- What the child runs first: the modules it uses, loaded before it is
@@ -74,7 +74,7 @@ local record Said
   raw: string
 end
 
---- Runs `chunk`, after `PRELUDE`, in a child of this program, and answers
+--- Runs `chunk`, after `PRELUDE`, in a child of this program, and returns
 --- what it printed, once it has ended well.
 local function in_child(chunk: string): Said
   local started = this_program.program({ "-e", PRELUDE .. chunk }, {
