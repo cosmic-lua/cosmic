@@ -111,13 +111,12 @@ local function test_sqlite_refuses_every_write()
     assert(trouble ~= "", statement)
     assert(run(root, { statement }) == 1, statement)
   end
-  -- These run, but alone they change nothing: the statement is the only
-  -- one its connection ever prepares.
+  -- A PRAGMA that sets is refused too, but setting query_only again.
   for _, statement in ipairs({
       "PRAGMA query_only = 0",
       "PRAGMA writable_schema = 1",
   }) do
-    assert(run(root, { statement }) == 0, statement)
+    assert(run(root, { statement }) == 1, statement)
   end
   assert(assert(Fs.read(path)) == before, "the database changed")
   -- The attached-database limit stops both before SQLite makes a file.

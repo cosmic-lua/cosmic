@@ -36,6 +36,19 @@ void cosmic_sqlite_push_borrowed (lua_State *L, sqlite3 *db);
  * SQLITE_OK, or the first failure. */
 int cosmic_sqlite_functions (sqlite3 *db);
 
+/* Holds `db` to queries, through SQLite's authorizer: a SELECT, the
+ * functions it calls, a recursive CTE, and the PRAGMAs that read (the
+ * table, index and foreign-key lists and checks, and settings read
+ * without a value) are prepared, and anything else is refused as it is
+ * prepared, with the first refused action written to the int `denied`
+ * points at when it is not NULL. VACUUM and VACUUM INTO are refused
+ * through the ATTACH each runs. The writes an R*Tree prepares of its own
+ * shadow tables as it connects are let through, for a connection that is
+ * read-only or sets `query_only` to refuse as they run. The store's
+ * connections are held so, and a handle's `reads_only`. Forwards
+ * SQLite's status. */
+int cosmic_sqlite_hold_to_queries (sqlite3 *db, int *denied);
+
 /* Whether any of an SQL function's arguments is NULL, which the functions of
  * this module and of vector.h answer with NULL. */
 static inline bool cosmic_any_null (int argc, sqlite3_value **argv) {

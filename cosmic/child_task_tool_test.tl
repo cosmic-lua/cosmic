@@ -651,7 +651,7 @@ end
 local function exited_unreaped(h: Child.Handle)
   if h._exit_fd >= 0 then
     -- TODO: on Darwin the watch may be readable a moment before waitpid
-    -- can reap the child (core/syscalls.c's `exit_watch` TODO), and a
+    -- can reap the child (core/spawn.c's `exit_watch` TODO), and a
     -- `try_wait` then finds it running; once that is settled, this wait
     -- is exact there too.
     assert(Poll.readable(h._exit_fd, Clock.seconds(8)))

@@ -1,6 +1,6 @@
 --- [`Sandbox.restrict`] on macOS (cosmic/sandbox/init.tl), which holds the
 --- running process by a Seatbelt profile ([`Seatbelt.compile`]) applied in
---- it (core/syscalls.c's `restrict_self`). Restricting is for good, so every
+--- it (core/sandbox_rules.c's `restrict_self`). Restricting is for good, so every
 --- case restricts a child of this program (`cosmic -e`, started past its
 --- launcher), which prints what it could and could not do and ends; the
 --- test reads that. macOS alone has Seatbelt, and no `requires` name stands

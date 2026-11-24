@@ -282,7 +282,7 @@ void cosmic_coverage_report (void) {
   if (!reports || !native_flags || cosmic_native_coverage_blocks != native_count) return;
   /* A name no other report takes: the pid alone is not one, since every
    * process a sandbox starts in a pid namespace of its own is pid 2
-   * there (core/syscalls.c's `start_unveiled`). */
+   * there (core/sandbox_root.c's `start_unveiled`). */
   char path[4096];
   int length = snprintf(path, sizeof path, "%s/%ld.%u.XXXXXX",
                         children_entry + sizeof CHILDREN_NAME + SIGNATURE_SIZE + 1,

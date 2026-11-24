@@ -148,12 +148,16 @@ local record Pipeline
   end
 
   --- [`Pipeline.lone`] with the refusal as a line for each problem, for a caller that lists them.
-  checked_alone: function(file: string, text: string, options: Options, tests?: boolean, declared_return?: boolean): Alone
+  --- With `entry`, the source is an entry point: what it returns is called with the command line's words
+  --- ([`Declarations.Input.entry`]).
+  checked_alone: function(file: string, text: string, options: Options, tests?: boolean, declared_return?: boolean,
+    entry?: boolean): Alone
   --- [`Pipeline.checked_alone`] of each of `items`, `{ file, text }`, in one build: what each lowers of the standard
   --- library is lowered once for all, as it is for the files of a tree. Each answer is the one its text alone has: a
   --- text that names `lone`, as the items' modules are named, is checked in a build of its own. The build holds every
   --- item until the last is answered.
-  checked_alone_each: function(items: {{string}}, options: Options, tests?: boolean, declared_return?: boolean): {Alone}
+  checked_alone_each: function(items: {{string}}, options: Options, tests?: boolean, declared_return?: boolean,
+    entry?: boolean): {Alone}
 
   --- A checker that lives on: one build over the options it was made with, which checks one text after another as the
   --- module `lone`, each the file it was named, as [`Pipeline.checked_alone`] checks one. What a text lowers of the
@@ -869,17 +873,17 @@ local function alone_of(build: Driver.Build, module: string, file: string, optio
 end
 
 function Pipeline.checked_alone_each(items: {{string}}, options: Pipeline.Options, tests?: boolean,
-                                     declared_return?: boolean): {Pipeline.Alone}
+                                     declared_return?: boolean, entry_point?: boolean): {Pipeline.Alone}
   -- Each a module of its own. A text that names `lone` could require another item's module, which alone it could not,
   -- so it is checked in a build of its own.
   local entries: mut {{string}} = {}
   local kinds: mut {string: string} = {}
-  local kind = if tests == true then "test" else "main" end
+  local kind = if tests == true then "test" elseif entry_point == true then "entry" else "main" end
   local apart: mut {integer: Pipeline.Alone} = {}
   for i, item in ipairs(items) do
     local file, text = assert(item[1]), assert(item[2])
     if #items > 1 and text:find("lone", 1, true) ~= nil then
-      apart[i] = assert(Pipeline.checked_alone_each({ { file, text } }, options, tests, declared_return)[1])
+      apart[i] = assert(Pipeline.checked_alone_each({ { file, text } }, options, tests, declared_return, entry_point)[1])
     else
       local name = if #entries == 0 then "lone" else "lone" .. tostring(#entries + 1) end
       entries[#entries + 1] = { file, text, name }
@@ -920,8 +924,8 @@ function Pipeline.checked_alone_each(items: {{string}}, options: Pipeline.Option
 end
 
 function Pipeline.checked_alone(file: string, text: string, options: Pipeline.Options, tests?: boolean,
-                                declared_return?: boolean): Pipeline.Alone
-  return assert(Pipeline.checked_alone_each({ { file, text } }, options, tests, declared_return)[1])
+                                declared_return?: boolean, entry?: boolean): Pipeline.Alone
+  return assert(Pipeline.checked_alone_each({ { file, text } }, options, tests, declared_return, entry)[1])
 end
 
 function Pipeline.kept_alone(file: string, options: Pipeline.Options, tests?: boolean, declared_return?: boolean):
@@ -959,7 +963,8 @@ end
 
 function Pipeline.lone(file: string, text: string, options: Pipeline.Options, tests?: boolean,
                        declared_return?: boolean): string?, string
-  local made = Pipeline.checked_alone(file, text, options, tests, declared_return)
+  -- A file is run, and so is an entry point; a chunk is not called.
+  local made = Pipeline.checked_alone(file, text, options, tests, declared_return, declared_return)
   if made.code == nil then
     return nil, table.concat(made.lines, "\n")
   end

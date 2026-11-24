@@ -4,7 +4,7 @@
 --- `open`'s refusal to /proc/<the worker's pid>/fd/<it>. A sandboxed
 --- worker whose module does not declare `tool`, as this one does not,
 --- is made undumpable when it is held from running its core
---- (core/syscalls.c's `landlock_restrict_execute`), so no process
+--- (core/sandbox_rules.c's `landlock_restrict_execute`), so no process
 --- without CAP_SYS_PTRACE over it -- none it starts has any -- follows
 --- a link of its /proc/<pid>/fd.
 ---

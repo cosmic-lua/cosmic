@@ -47,7 +47,7 @@ end
 --- could have sandboxed the workers of the run that printed `text`, which
 --- sandboxed none: a case of a sandboxed run then has nothing to check.
 --- The workers nest in this test's own sandbox, which a host may refuse:
---- the kernel lets root nest one only two deep (core/syscalls.c's
+--- the kernel lets root nest one only two deep (core/sandbox_root.c's
 --- `map_ids`). CI's unprivileged runners nest them.
 local function skip_unsandboxed(text: string)
   Test.skip(confine.unsandboxed_reason(text))

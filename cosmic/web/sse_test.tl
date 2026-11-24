@@ -349,7 +349,7 @@ local function test_a_hub_reaches_every_subscriber_of_a_topic_and_only_them()
     feeds_1.conn:close()
     other.conn:close()
     assert(until_true(function(): boolean return hub:subscribers() == 2 end),
-      "a gone client is noticed by a heartbeat's failed write")
+      "a gone client is noticed")
     assert(hub:subscribers("sport") == 0)
   end)
 end
@@ -634,4 +634,32 @@ local function test_a_quiet_stream_with_heartbeats_outlives_the_servers_timeouts
   local failure_value = failure
   if failure_value ~= nil then error(failure_value, 0) end
   assert(ok, why)
+end
+
+--- A quiet stream (its heartbeat 30 s away) whose client closes ends within a second, says "client" and closes its
+--- source: it asks whether the client has gone rather than waiting for a write to fail.
+local function test_a_quiet_stream_ends_soon_after_its_client_leaves()
+  local queue: Channel.Queue<Sse.Event>? = nil
+  local closed: mut {string} = {}
+  local closed_at = 0
+  local app = Web.app{ routes = { Web.get("/s", function(req: Web.Request): Web.Response
+    local source: Channel.Queue<Sse.Event> = Channel.new()
+    queue = source
+    return Sse.EventStream(req, Sse.from_queue(source), { heartbeat_ns = Clock.seconds(30), on_close = function(why: string)
+      closed[#closed + 1] = why
+      closed_at = Clock.monotonic_ns()
+    end })
+  end) } }
+  Web.with_server(app, function(client: Web.LoopbackClient)
+    local feed = open(client.host, "/s")
+    assert(feed.status == 200 and chunk(feed) ~= nil)
+    assert(Poll.delay(Clock.ms(300)))
+    assert(#closed == 0, "the stream ended while its client was there")
+    local left_at = Clock.monotonic_ns()
+    assert(feed.conn:close())
+    assert(until_true(function(): boolean return #closed == 1 end), "the stream never saw its client leave")
+    assert(closed[1] == "client", closed[1])
+    assert(closed_at - left_at < Clock.seconds(1), tostring(closed_at - left_at))
+    assert(assert(queue, "the stream was opened"):closed())
+  end)
 end

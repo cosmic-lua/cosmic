@@ -110,7 +110,7 @@ function fixture.hung_runs(tmp: string, probe: string?, sandbox_workers: boolean
   -- Why the sandboxed case ran unsandboxed, which skips the test once
   -- that case has checked what the unsandboxed one does. The workers
   -- nest in this test's own sandbox, which a host may refuse: the
-  -- kernel lets root nest one only two deep (core/syscalls.c's
+  -- kernel lets root nest one only two deep (core/sandbox_root.c's
   -- `map_ids`). CI's unprivileged runners nest them.
   local unsandboxed: string? = nil
   for _, mode in ipairs({ if sandbox_workers then "" else "0" end }) do

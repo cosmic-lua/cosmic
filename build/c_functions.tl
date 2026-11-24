@@ -74,23 +74,22 @@ local exempt: {string: string} = {
   ["core/vfs.c:file_unlock"] = read_only,
   ["core/vfs.c:file_check_reserved"] = read_only,
   ["core/vfs.c:file_sector_size"] = read_only,
-  ["core/syscalls.c:write_whole"] = maps_ids,
-  ["core/syscalls.c:map_ids"] = maps_ids,
-  ["core/syscalls.c:make_parents"] = sandbox_only,
-  ["core/syscalls.c:make_link"] = sandbox_only,
-  ["core/syscalls.c:loopback_up"] = sandbox_only,
-  ["core/syscalls.c:drop_capabilities"] = sandbox_only,
-  ["core/syscalls.c:place_proc"] = sandbox_only,
-  ["core/syscalls.c:build_root"] = sandbox_only,
-  ["core/syscalls.c:raise_descriptor"] = sandbox_only,
-  ["core/syscalls.c:start_init"] = sandbox_only,
-  ["core/syscalls.c:start_program"] = sandbox_only,
-  ["core/syscalls.c:end_sandbox_init"] = sandbox_started,
-  ["core/syscalls.c:cosmic_sandbox_init"] = init_only,
-  ["core/syscalls.c:descriptor_kind"] = init_only,
+  ["core/sandbox_root.c:write_whole"] = maps_ids,
+  ["core/sandbox_root.c:map_ids"] = maps_ids,
+  ["core/sandbox_root.c:make_link"] = sandbox_only,
+  ["core/sandbox_root.c:loopback_up"] = sandbox_only,
+  ["core/sandbox_root.c:drop_capabilities"] = sandbox_only,
+  ["core/sandbox_root.c:place_proc"] = sandbox_only,
+  ["core/sandbox_root.c:build_root"] = sandbox_only,
+  ["core/sandbox_root.c:raise_descriptor"] = sandbox_only,
+  ["core/sandbox_root.c:start_init"] = sandbox_only,
+  ["core/sandbox_root.c:start_program"] = sandbox_only,
+  ["core/spawn.c:end_sandbox_init"] = sandbox_started,
+  ["core/sandbox_root.c:cosmic_sandbox_init"] = init_only,
+  ["core/sandbox_root.c:descriptor_kind"] = init_only,
   -- mirrored_mode is inlined into it on every core, so has no entry of
   -- its own; the checked core keeps this one out of line.
-  ["core/syscalls.c:make_mirrored"] = sandbox_only,
+  ["core/sandbox_root.c:make_mirrored"] = sandbox_only,
   ["core/syscalls.c:cosmic_mountinfo_local_flock"] = "a release core calls it only for a file on NFS, which no " ..
     "test's host has; the checked core's testing table reaches it (`mountinfo_local_flock`), and its run enters it",
   -- TODO: once build/host_names.tl names a CPU feature a module can require
@@ -135,10 +134,10 @@ local exempt_on: {string: {string: string}} = {
 local prerequisites: {string: string} = {
   ["core/socket.c:reach_from"] = "unix_socket",
   ["core/store.c:cosmic_store_holds_descriptor"] = "path:/proc/thread-self/children",
-  ["core/syscalls.c:first_child"] = "path:/proc/thread-self/children",
-  ["core/syscalls.c:plan_limit"] = "path:/proc/thread-self/children",
-  ["core/syscalls.c:thread_count"] = "path:/proc/thread-self/children",
-  ["core/syscalls.c:unaccounted_descriptor"] = "path:/proc/thread-self/children",
+  ["core/sandbox_rules.c:first_child"] = "path:/proc/thread-self/children",
+  ["core/sandbox_rules.c:plan_limit"] = "path:/proc/thread-self/children",
+  ["core/sandbox_rules.c:thread_count"] = "path:/proc/thread-self/children",
+  ["core/sandbox_rules.c:unaccounted_descriptor"] = "path:/proc/thread-self/children",
 }
 
 --- Each function's required host name, copied so a caller cannot change

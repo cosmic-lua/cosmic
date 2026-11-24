@@ -1,4 +1,4 @@
---- `children` on macOS, where libproc lists them (core/syscalls.c): apart
+--- `children` on macOS, where libproc lists them (core/spawn.c): apart
 --- from core/syscalls_proc_children_test.tl, whose module requires Linux's
 --- /proc list and so runs nowhere else.
 
