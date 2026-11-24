@@ -45,6 +45,12 @@ local record Bound
 end
 
 local record shared_verdicts
+  --- Remembers how [`settle`] packs one module's row of a test's hits, `row` as [`build.test`]'s `row_line` spells
+  --- it from `head` and `lines`: `head` is the whole of `row` before its tab, and `lines` its numbers, ascending. The
+  --- line each is packed to is worked out from the numbers where the row is spelled, so the settle reads no number
+  --- back out of the text. The memo is let go at the end of each [`settle`].
+  remember: function(row: string, head: string, lines: {integer})
+
   --- An open cache.
   record Cache
     db: Sqlite.Handle
@@ -216,6 +222,26 @@ end
 
 local schema <const> = cache_formats.verdicts
 
+--- Each row line already packed, by the whole of its text: [`shared_verdicts.remember`] fills it as rows are spelled,
+--- and [`packed`] as it packs one it was not told of. A row's packing is a function of its text alone, so one
+--- process keeps it whole.
+local packed_rows: mut {string:string} = {}
+
+--- One packed row: `head`, a tab, then `lines` (ascending) each as its distance from the one before, and a newline.
+local function distances(head: string, lines: {integer}): string
+  local out: mut {string} = {}
+  local last = 0
+  for i, number in ipairs(lines) do
+    out[i] = tostring(number - last)
+    last = number
+  end
+  return head .. "\t" .. table.concat(out, ",") .. "\n"
+end
+
+function shared_verdicts.remember(row: string, head: string, lines: {integer})
+  if packed_rows[row] == nil then packed_rows[row] = distances(head, lines) end
+end
+
 --- Hits as [`build.test`]'s `take_hits` writes them -- a line per module,
 --- its path and the text its lines are numbered in, a tab, then the lines
 --- it hit, ascending and comma-separated -- with each line after a module's
@@ -224,20 +250,18 @@ local schema <const> = cache_formats.verdicts
 --- carried as it is.
 ---
 --- `known` holds each module's line already packed, by the whole of its text, path and all, and is added to: the
---- tests of a run hit the same lines of most modules, so a line is packed once a run, not once a test.
+--- tests of a run hit the same lines of most modules, so a line is packed once a run, not once a test, and most are
+--- packed where they were spelled ([`shared_verdicts.remember`]).
 local function packed(hits: string, known: mut {string:string}): string
   return (hits:gsub("[^\n]*\n", function(whole: string): string
     local done = known[whole]
     if done == nil then
       done = whole:gsub("([^\t\n]*)\t([^\n]*)\n", function(path: string, lines: string): string
-        local out: mut {string} = {}
-        local last = 0
+        local numbers: mut {integer} = {}
         for line in lines:gmatch("%d+") do
-          local number = math.tointeger(tonumber(line)) or 0
-          out[#out + 1] = tostring(number - last)
-          last = number
+          numbers[#numbers + 1] = math.tointeger(tonumber(line)) or 0
         end
-        return path .. "\t" .. table.concat(out, ",") .. "\n"
+        return distances(path, numbers)
       end)
       known[whole] = done
     end
@@ -487,7 +511,7 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
         if not ok then return false, tostring(trouble) end
       end
     end
-    local known: mut {string:string} = {}
+    local known = packed_rows
     for _, kept in ipairs(owed.kept) do
       local ok, trouble = db:run(
         "INSERT OR REPLACE INTO " .. declared .. " (key, test, hits, elapsed_ns, used_ns, " ..
@@ -496,6 +520,8 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
           { integer = kept.elapsed_ns }, { integer = now_ns }, text(origin), text(parts) })
       if not ok then return false, tostring(trouble) end
     end
+    -- A run's rows are let go with it: what a later run spells it remembers again.
+    packed_rows = {}
     for _, key in ipairs(owed.used) do
       for _, name in ipairs(tables) do
         local ok, trouble = db:run("UPDATE " .. name .. " SET used_ns = ?1, " ..

@@ -1118,6 +1118,7 @@ local function spell(spelled: mut {{integer:boolean}:string}, path: string, -- d
     for line in pairs(per_line) do lines[#lines + 1] = line end
     table.sort(lines)
     row = row_line(named, path, lines)
+    shared_verdicts.remember(row, path .. " " .. named, lines)
     spelled[per_line] = row
   end
   return row
