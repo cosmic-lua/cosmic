@@ -145,7 +145,7 @@ local function test_zero_short_and_prepared_waits_have_separate_budgets(tmp: str
     assert(elapsed < Clock.seconds(2))
     if ns >= Clock.ms(30) then assert(elapsed >= Clock.ms(10)) end
   end
-  local statement = assert(db:prepare("INSERT INTO t VALUES (1)"))
+  local statement = assert(db.connection:prepare("INSERT INTO t VALUES (1)"))
   local guard <close> = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
   local state, reason = statement:step()
