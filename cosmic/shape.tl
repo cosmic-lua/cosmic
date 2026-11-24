@@ -209,9 +209,9 @@ local record Shape
     failed: function(why: string, path: string): string
     --- The failure of an enumeration, as [`one_of`] words it.
     not_one_of: function(path: string, value: any, ...: string): string
-    --- Which of the records of a union `value` is: the index in `names` of the first field it holds, each a field one
+    --- The arm of a union that `value` is: the index in `names` of the first field it holds, each a field one
     --- record alone declares, and ""; nil and why where it is no table, a JSON array, or holds none or two of them.
-    which: function(value: any, path: string, names: {string}): integer?, string
+    arm: function(value: any, path: string, names: {string}): integer?, string
   end
 
   --- `value` checked against `spec`, as a new value holding what the spec
@@ -767,7 +767,7 @@ local BUILD: Shape.Build = {
     end
     return mismatch(path, wanted(allowed), value)
   end,
-  which = function(value: any, path: string, names: {string}): integer?, string
+  arm = function(value: any, path: string, names: {string}): integer?, string
     local t = as_table(value)
     if t == nil or Json.is_array(t) then return nil, mismatch(path, "record", value) end
     local found: integer? = nil

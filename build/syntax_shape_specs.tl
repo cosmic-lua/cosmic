@@ -320,7 +320,7 @@ function Unions.gen(g: Gen, t: Types.Union, path: string): Written?, string
     names[#names + 1] = ("%q"):format(by[i])
   end
   local spec = ("(function(): %s.Spec<%s> %sreturn { check = function(sh_v: any, sh_p: string): ((%s)?, string) " ..
-    "local sh_i, sh_why = %s.build.which(sh_v, sh_p, { %s }) %sreturn nil, sh_why end } end)()"):format(S, whole,
+    "local sh_i, sh_why = %s.build.arm(sh_v, sh_p, { %s }) %sreturn nil, sh_why end } end)()"):format(S, whole,
       table.concat(checks), whole, S, table.concat(names, ", "), table.concat(arms))
   return { spec = spec, node = ('{ kind = "union", optional = false, arms = { %s }, by = { %s } }'):format(
     table.concat(nodes, ", "), table.concat(names, ", ")) }, ""
