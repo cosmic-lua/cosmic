@@ -53,6 +53,8 @@ local type raw_sqlite = require("cosmic.internal.sqlite")
 
 local sqlite = require("cosmic.internal.sqlite")
 local Failure = require("cosmic.failure")
+local sys = require("cosmic.sys")
+local Waits = require("cosmic.internal.waits")
 
 --- The SQLite storage class of a result cell, as [`Sqlite.Row.kind`] names
 --- it.
@@ -294,6 +296,79 @@ local function failed(outcome: raw_sqlite.Outcome): Failure
   return Failure.coded(reason, outcome.code, outcome.extended_code, kind)
 end
 
+--- SQLite's code for a lock another connection holds.
+local BUSY <const> = 5
+
+--- The first pause of a wait at a lock in a task, and the longest: each
+--- pause doubles, as the core's busy handler's do.
+local FIRST_PAUSE <const> = 1000000
+local LONGEST_PAUSE <const> = 50000000
+
+--- How a call the core answered BUSY without waiting goes on: "again"
+--- once this task has paused, "blocks" where the caller cannot park
+--- (no task of [`Poll.run`], or one being killed), "spent" once the
+--- handle's wait has passed, and "cancelled" where the task was
+--- cancelled in a pause.
+local enum Turn
+  "again"
+  "blocks"
+  "spent"
+  "cancelled"
+end
+
+--- A task's wait at another connection's lock: when it ends, and the
+--- next pause.
+local record Pause
+  deadline: integer
+  mut ns: integer
+end
+
+--- The monotonic clock, in nanoseconds, as cosmic.clock's
+--- `monotonic_ns` reads it: the test harness reaches this module, so it
+--- reads the raw binding rather than require cosmic.clock.
+local function now_ns(): integer
+  return (assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)))
+end
+
+local function pause_for(wait_ns: integer): Pause
+  return { deadline = now_ns() + wait_ns, ns = FIRST_PAUSE }
+end
+
+--- One pause of `pause`, where the task parks and the others run, and
+--- how the call goes on after it ([`Turn`]).
+local function paused(pause: Pause): Turn
+  local parks, delay = Waits.parks, Waits.delay
+  if parks == nil or delay == nil or not parks() then return "blocks" end
+  local left = pause.deadline - now_ns()
+  if left <= 0 then return "spent" end
+  local waited, _ = delay(math.min(pause.ns, left))
+  if not waited then return "cancelled" end
+  pause.ns = math.min(pause.ns * 2, LONGEST_PAUSE)
+  return "again"
+end
+
+local CANCELLED_WAIT <const> = "sqlite: the task was cancelled while it waited at a lock"
+
+--- `statement` stepped once, as [`raw_sqlite.Statement.step_result`] does.
+--- In a task of [`Poll.run`], a step that meets another connection's
+--- lock before the run's first row waits by parking the task, so the
+--- others run, and steps again, for as long as the handle waits
+--- ([`Handle.busy_timeout`]); anywhere else the core waits, holding the thread.
+local function stepped(statement: raw_sqlite.Statement): string | raw_sqlite.ExecResult
+  local state = statement:step_result()
+  if state is string or state.parked ~= true then return state end
+  local pause = pause_for(statement:wait_ns())
+  while true do
+    local turn = paused(pause)
+    if turn == "spent" then return state end
+    if turn == "cancelled" then
+      return { code = BUSY, extended_code = BUSY, reason = CANCELLED_WAIT, cancelled = true }
+    end
+    state = statement:step_result(turn == "blocks")
+    if state is string or state.parked ~= true then return state end
+  end
+end
+
 --- Steps `statement` once and gives `project` the row it stands on: the
 --- projection, or `nil` and nil when the statement is done, or `nil` and
 --- why when the step failed. [`Handle.rows`], [`Handle.text_rows`],
@@ -301,7 +376,7 @@ end
 --- on what a failure says.
 local function step_row<T>(statement: raw_sqlite.Statement,
                            project: function(raw_sqlite.Statement): T): T?, Failure?
-  local state = statement:step_result()
+  local state = stepped(statement)
   if state is raw_sqlite.ExecResult then return nil, failed(state) end
   if state == "done" then return nil, nil end
   return project(statement), nil
@@ -317,7 +392,6 @@ local MISUSE <const> = 21
 local RANGE <const> = 25
 local OK <const> = 0
 local ERROR <const> = 1
-local BUSY <const> = 5
 
 --- How [`Handle.transact`] begins a transaction: SQLite's `BEGIN DEFERRED`,
 --- `BEGIN IMMEDIATE` or `BEGIN EXCLUSIVE`.
@@ -486,8 +560,22 @@ local function prepared(handle: raw_sqlite.Handle, sql: string,
     end
     return nil, Failure.coded("sqlite: " .. why, MISUSE)
   end
-  if opened.code ~= OK then return nil, failed(opened) end
-  local statement = opened.statement
+  -- Reading the schema can meet a lock too: wait as `stepped` does. SQL
+  -- the first call took raises again only for a handle closed since.
+  local outcome: raw_sqlite.PrepareResult = opened
+  if outcome.parked == true then
+    local pause = pause_for(handle:wait_ns())
+    while outcome.parked == true do
+      local turn = paused(pause)
+      if turn == "spent" then break end
+      if turn == "cancelled" then
+        return nil, Failure.coded(CANCELLED_WAIT, BUSY, BUSY, "cancelled")
+      end
+      outcome = prepare(handle, sql, turn == "blocks")
+    end
+  end
+  if outcome.code ~= OK then return nil, failed(outcome) end
+  local statement = outcome.statement
   if unbound == true then return statement end
   local at, why, code = statement:bind_all(given or NO_VALUES)
   if at == nil then return statement end
@@ -495,6 +583,17 @@ local function prepared(handle: raw_sqlite.Handle, sql: string,
   local said = bind_refusal(at, why)
   if code is integer then return nil, Failure.coded(said, code) end
   error(said, 3)
+end
+
+--- `sql`, one statement that binds nothing and answers no row, run once
+--- on `handle` through its kept statements: nil, or why it failed.
+local function executed(handle: raw_sqlite.Handle, sql: string): Failure?
+  local statement, trouble = prepared(handle, sql, nil, true, true)
+  if statement == nil then return trouble end
+  local state = stepped(statement)
+  statement:release()
+  if state is raw_sqlite.ExecResult then return failed(state) end
+  return nil
 end
 
 --- Every row of `statement` as `project` gives it, and the statement
@@ -574,7 +673,7 @@ local class Statement
     local statement = self.statement
     local trouble = bound_to(statement, values)
     if trouble ~= nil then return false, trouble end
-    local state = statement:step_result()
+    local state = stepped(statement)
     if state is raw_sqlite.ExecResult then
       local _, _ = statement:reset()
       return false, failed(state)
@@ -703,7 +802,7 @@ local class Handle
   function run(self, sql: string, values?: {raw_sqlite.Param}): (true) | (false, Failure)
     local statement, trouble = prepared(self.connection, sql, values, false, true)
     if statement == nil then return false, trouble end
-    local state = statement:step_result()
+    local state = stepped(statement)
     if state == "row" then
       -- A write with RETURNING stopped at its first row commits at this
       -- reset in autocommit, which answers a failure of the commit.
@@ -779,7 +878,7 @@ local class Handle
     if statement == nil then return nil, trouble end
     local out: mut {T} = {}
     while true do
-      local state = statement:step_result()
+      local state = stepped(statement)
       if state is raw_sqlite.ExecResult then
         statement:release()
         return nil, failed(state)
@@ -1000,14 +1099,16 @@ local class Handle
       opening, undoing, closing = opening_begin or default, "ROLLBACK", "COMMIT"
     end
     -- A savepoint rolled back to is still open: it ends at its release.
+    -- The opening and the commit step a statement, so in a task of
+    -- Poll.run a wait at another connection's lock parks the task.
     local function undo()
       local _ = connection:exec_result(undoing)
       if nested then
         local _ = connection:exec_result(closing)
       end
     end
-    local started = connection:exec_result(opening)
-    if started.code ~= OK then return false, failed(started) end
+    local started = executed(connection, opening)
+    if started ~= nil then return false, started end
     local called, ok, why = pcall(function(): boolean, Failure?
       local done, trouble = work()
       return done, trouble
@@ -1033,10 +1134,10 @@ local class Handle
     if not open then
       return false, Failure.new("sqlite: transact: the work ended its transaction with a COMMIT or ROLLBACK of its own")
     end
-    local committed = connection:exec_result(closing)
-    if committed.code ~= OK then
+    local committed = executed(connection, closing)
+    if committed ~= nil then
       undo()
-      return false, failed(committed)
+      return false, committed
     end
     return true
   end
@@ -1091,6 +1192,20 @@ local class Handle
   --- `PRAGMA busy_timeout` reads zero for this handler; writing that
   --- pragma replaces it, and calling this again reinstalls it. SQLite
   --- can refuse a lock without calling any busy handler.
+  ---
+  --- In a task of [`Poll.run`], a query, a run, a prepare and the
+  --- begin and commit of a [`Handle.transact`] that meet a lock wait by
+  --- parking the task, so the other tasks run, for as long as this sets;
+  --- a task cancelled in the wait fails of kind "cancelled". While one
+  --- task waits so, another task's run or query on the same handle waits
+  --- its turn behind it, and its `db:exec` fails [`Sqlite.BUSY`] at once.
+  --- These hold the thread while they wait, as outside a task: a step
+  --- after a query's first row, a PRAGMA (a checkpoint answers its busy
+  --- row where the wait is declined), `db:exec`, a commit at the reset
+  --- of a statement stopped on a row, [`Handle.wal`] and a borrowed
+  --- handle. A write in rollback mode that parks gives up its claim on
+  --- the lock between its tries, so steady readers can outlast its wait;
+  --- in WAL mode ([`Handle.wal`]) readers take no such lock.
   function busy_timeout(self, timeout_ns: integer)
     self.connection:busy_timeout(timeout_ns)
   end
