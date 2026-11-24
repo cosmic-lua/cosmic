@@ -707,7 +707,7 @@ only part of the lines. A floor on a failing run is judged and named
 beside the failures.
 
 A test whose verdict stands brings the lines it hit when it ran. Those are
-the `coverage_by_test` rows of that run, or the ones another checkout
+the `hits_by_test` rows of that run, or the ones another checkout
 shared. Shared rows are kept as the shared verdicts hold them: under a
 first line `lines as distances`, each module's lines after its first as
 the distance from the one before.
@@ -1177,8 +1177,12 @@ cosmic sql --build "SELECT path, count(*) AS lines, sum(hit > 0) AS hit
   GROUP BY path ORDER BY hit * 1.0 / lines LIMIT 10"
 ```
 
-`coverage_by_test` holds the lines each test reached. Each module's lines
-are beside the text they are numbered in. A module a pure store imported
+`hits_by_test` holds the lines each test reached. Each module's lines
+are beside the text they are numbered in. A run of adjacent lines is
+written as its first line, a `+`, and the count of lines after it: `5+3`
+is lines 5 to 8. The older table `coverage_by_test` writes each line as a
+number of its own. A binary from before `hits_by_test` reads only that
+table, so it never reads `5+3` as the two lines 5 and 3. A module a pure store imported
 is the exception. For it the row holds the numbers of the instructions it
 ran, each past 2^24 ([`build.lua_tail`]'s `ordinal_base`). They are beside
 a prefix of the digest of its bytecode stripped. A row taken from another

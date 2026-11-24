@@ -209,7 +209,7 @@ Test.policy { loopback = { HOSTS } }
 
 local function test_refused()
   local response, trouble = Http.open("http://127.0.0.1:1/", { timeout_ns = Clock.seconds(60), connect_timeout_ns = Clock.seconds(2) })
-  assert(response == nil and trouble ~= "")
+  assert(response == nil and tostring(trouble) ~= "")
   if PROBE then local ns, _ = Fs.readlink("/proc/self/ns/net") error("NAME in " .. tostring(ns) .. " |") end
 end
 ]]

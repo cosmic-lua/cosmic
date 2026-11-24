@@ -65,9 +65,12 @@ local record AgentMcp
     sessions: mut {string: McpClient.Session}
     --- The process of each server started over stdio, by name.
     handles: mut {string: Child.Handle}
-    --- The servers a call is out to, by name: one still there when the next call comes was cut off (the snippet's
-    --- time ran out, or the user stopped the turn), which may leave the server out of step, so it is ended.
-    busy: mut {string: boolean}
+    --- How many calls are out to each server, by name: tasks of one snippet may call a server at once, and the first
+    --- out reads its standard error for all. A call cut off (the snippet's time ran out, or the user stopped the turn)
+    --- may leave the server out of step, so it is ended, as is one whose call raised.
+    busy: mut {string: integer}
+    --- The servers whose standard error a call out reads, by name ([`draining`]): one reads at a time.
+    drained: mut {string: boolean}
     --- The last part of what each server started over stdio wrote to its standard error, by name: read while a call
     --- to it is out, and told where a call gets no answer.
     tails: mut {string: string}
@@ -204,7 +207,8 @@ function AgentMcp.new(servers: {AgentMcp.Server}, cwd: string): AgentMcp.Set
     by_name[server.name] = server
     names[#names + 1] = server.name
   end
-  return { servers = by_name, names = names, cwd = cwd, sessions = {}, handles = {}, busy = {}, tails = {} }
+  return { servers = by_name, names = names, cwd = cwd, sessions = {}, handles = {}, busy = {}, drained = {},
+    tails = {} }
 end
 
 --- The session to the server `name` of `set`, started where none is.
@@ -297,7 +301,8 @@ end
 --- Why a call to the server `name` of `set` got no answer, `why`, and the end of what it wrote to its standard error,
 --- read until it ends or LAST_READ passes: a server that ended has said why there. What it wrote is untrusted input.
 local function unanswered(set: AgentMcp.Set, name: string, why: string): string
-  draining(set, name, nil, LAST_READ)
+  -- Where a call beside it reads the server's standard error, that call keeps the tail.
+  if set.drained[name] ~= true then draining(set, name, nil, LAST_READ) end
   local tail = set.tails[name]
   if tail == nil or tail == "" then return why end
   local told = if #tail > TOLD then "..." .. tail:sub(-TOLD) else tail end
@@ -309,6 +314,7 @@ end
 local function ended(set: AgentMcp.Set, name: string)
   local session, handle = set.sessions[name], set.handles[name]
   set.sessions[name], set.handles[name], set.busy[name], set.tails[name] = nil, nil, nil, nil
+  set.drained[name] = nil
   if session ~= nil then local _, _ = session:close() end
   if handle ~= nil then local _, _ = handle:close() end
 end
@@ -318,21 +324,42 @@ local function json_text(value: any): (string) | (nil, Failure)
   return Json.encode_any(value)
 end
 
+--- Runs `f`, a call out to `session`, the server `name` of `set`, counted in `set.busy`: a call out while no other
+--- reads the server's standard error reads it while it runs ([`draining`]), and the server is ended where `f` raises.
+--- A call that ends after its session was ended and another started (a call beside it failed) changes nothing of
+--- the new one's. Calls out after the reader's ended read none until the next starts: the child queues it meanwhile.
+local function out_to(set: AgentMcp.Set, name: string, session: McpClient.Session, f: function())
+  set.busy[name] = (set.busy[name] or 0) + 1
+  local ok, err = pcall(function()
+    if set.drained[name] == true then
+      f()
+    else
+      set.drained[name] = true
+      draining(set, name, f)
+      if set.sessions[name] == session then set.drained[name] = nil end
+    end
+  end)
+  if set.sessions[name] == session then
+    local left = set.busy[name] or 1
+    if left > 1 then set.busy[name] = left - 1 else set.busy[name] = nil end
+    if not ok then ended(set, name) end
+  end
+  if not ok then error(err, 0) end
+end
+
 --- The tools the server `name` of `set` offers, as JSON objects: each tool's name, description, inputSchema, ...
 function AgentMcp.tools(set: AgentMcp.Set, name: string): ({Json.Value}) | (nil, Failure)
-  if set.busy[name] == true then ended(set, name) end
   local session, why = session_of(set, name)
   if session == nil then return nil, why end
-  set.busy[name] = true
   local tools: {Mcp.Tool}? = nil
   local tools_why: Failure? = nil
-  draining(set, name, function() tools, tools_why = session:tools() end)
-  set.busy[name] = nil
+  out_to(set, name, session, function() tools, tools_why = session:tools() end)
   local listed = tools
   if listed == nil then
     local failure = assert(tools_why)
     local told = tostring(failure)
-    if failure.code == nil then
+    -- A call beside it may have ended its session, and another call started a new one, which this leaves.
+    if failure.code == nil and set.sessions[name] == session then
       told = unanswered(set, name, told)
       ended(set, name)
     end
@@ -348,19 +375,17 @@ end
 --- and isError, as the server sent them.
 function AgentMcp.call(set: AgentMcp.Set, name: string, tool: string, arguments: {string: Json.Value}):
     ({string: Json.Value}) | (nil, Failure)
-  if set.busy[name] == true then ended(set, name) end
   local session, why = session_of(set, name)
   if session == nil then return nil, why end
-  set.busy[name] = true
   local result: Mcp.ToolResult? = nil
   local call_why: Failure? = nil
-  draining(set, name, function() result, call_why = session:call(tool, arguments) end)
-  set.busy[name] = nil
+  out_to(set, name, session, function() result, call_why = session:call(tool, arguments) end)
   local answered = result
   if answered == nil then
     local failure = assert(call_why)
     local told = tostring(failure)
-    if failure.code == nil then
+    -- A call beside it may have ended its session, and another call started a new one, which this leaves.
+    if failure.code == nil and set.sessions[name] == session then
       told = unanswered(set, name, told)
       ended(set, name)
     end

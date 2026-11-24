@@ -444,3 +444,37 @@ ranking. Then:
 [`eval/solve`]: solve
 [`eval/summarize`]: summarize
 [`Test.policy`]: ../cosmic/test.tl
+
+## cosmic agent's own evals
+
+The evals above measure a builder that knows nothing of cosmic. [`eval/agent`] measures `cosmic agent` itself: what
+it spends to do fixed work, and whether the work is right. A change to the agent, such as code mode (the run tool
+and [`cosmic.agent.host`]), is judged by running the same tasks with the binary before it and the binary after it.
+
+```sh
+fixture=$(mktemp -d) && git archive "$commit" | tar -x -C "$fixture"
+ANTHROPIC_API_KEY=... eval/agent --tool before=/path/to/old/cosmic --tool after=/path/to/new/cosmic \
+  --fixture "$fixture" --out ~/.cache/cosmic/evals/agent-$(date +%Y%m%d)    # --tasks all --reps 2 --model sonnet
+```
+
+Each task ([`Agent.tasks`] in [`eval/agent.tl`]) asks the agent to leave a result in a fixed form, most often
+`answer.txt`. A task has two commands: `truth`, run in an untouched copy of the fixture, and `check`, run in the
+run's copy once the agent ends. The run passes when their outputs match, line by line, with trailing blanks dropped.
+So grading never reads the agent's words, and a task stays right on any fixture, because its truth is computed from
+that fixture. A task whose truth comes out empty, such as a rename of a name the fixture no longer has, is marked
+unfit, not graded.
+
+Each tool has its own `HOME` and `XDG_DATA_HOME`, so each keeps its own sessions.db. The report reads from it, for
+each run, the requests (turns), the input, output and cache tokens, the cost, the seconds, and the tool calls (and
+how many of them were run). `<out>/report.md` gives, for each task and tool, the passes and the mean of each number;
+`<out>/results.json` has each run; `<out>/<tool>/<task>-<rep>.txt` has what the run left, the truth, the agent's
+words and its stderr. The exit status is 1 when a graded run failed.
+
+To add a task, add it to [`Agent.tasks`]. Its prompt must say exactly what to leave and in what form. Its truth must
+be a plain shell command that gives the one right answer. Prefer work of several steps over a fixture as large as
+this repository, where the agent's way of working shows in what it spends.
+
+[`Agent.tasks`]: agent.tl
+[`cosmic.agent.host`]: ../cosmic/agent/host.tl
+[`eval/agent.tl`]: agent.tl
+[`eval/agent`]: agent

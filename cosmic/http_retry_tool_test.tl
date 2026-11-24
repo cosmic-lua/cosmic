@@ -42,7 +42,7 @@ return function(argv: {string}): integer
   })
   local took = Clock.monotonic_ns() - began
   local caught = assert(guard:release())
-  local _, _ = Fs.put(Fs.stdout, tostring(got) .. " " .. why .. " " .. tostring(caught) ..
+  local _, _ = Fs.put(Fs.stdout, tostring(got) .. " " .. tostring(why) .. " " .. tostring(caught) ..
     " " .. tostring(took < Clock.seconds(10)))
   return 0
 end

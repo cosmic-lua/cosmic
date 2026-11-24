@@ -103,12 +103,12 @@ local function test_a_standing_verdict_still_credits_its_coverage(tmp: string)
     "SELECT SUM(hit) FROM coverage WHERE path = 'suite.helper' " ..
       "GROUP BY ran_at_ns ORDER BY ran_at_ns"))
   local credits = assert(db:text_rows(
-    "SELECT test, hits FROM coverage_by_test"))
+    "SELECT test, hits FROM hits_by_test"))
   assert(db:close())
   assert(#by_run == 2, "expected a coverage snapshot per run")
   assert(by_run[1]:text(1) ~= "0" and support.nth(by_run, 2):text(1) == support.nth(by_run, 1):text(1),
     "the standing run credited " .. support.nth(by_run, 2):text(1) .. " lines, not " .. support.nth(by_run, 1):text(1))
-  assert(#credits == 1, "expected one coverage_by_test row for the one test")
+  assert(#credits == 1, "expected one hits_by_test row for the one test")
   -- The helper's lines name the text they are numbered in, a prefix of its source hash.
   assert(credits[1]:text(2):find("suite%.helper %x+\t"), support.nth(credits, 1):text(2))
 end
@@ -125,12 +125,12 @@ local function test_a_standing_row_numbered_in_another_text_credits_none_of_its_
     local ran = invoke_words(root, first, { "--all", "suite/selected_test.tl" })
     assert(ran.ok, assert(Fs.read(first)))
     local db = assert(Sqlite.open(support.build_dir(root) .. "/build.db", { writable = true }))
-    local rows = assert(db:text_rows("SELECT ran_at_ns, test, hits FROM coverage_by_test " ..
-        "WHERE ran_at_ns = (SELECT max(ran_at_ns) FROM coverage_by_test)"))
+    local rows = assert(db:text_rows("SELECT ran_at_ns, test, hits FROM hits_by_test " ..
+        "WHERE ran_at_ns = (SELECT max(ran_at_ns) FROM hits_by_test)"))
     local row = support.nth(rows, 1)
     local moved, count = row:text(3):gsub("suite%.helper %x+\t", named)
     assert(count == 1, row:text(3))
-    assert(db:run("UPDATE coverage_by_test SET hits = ?1 WHERE ran_at_ns = ?2 AND test = ?3",
+    assert(db:run("UPDATE hits_by_test SET hits = ?1 WHERE ran_at_ns = ?2 AND test = ?3",
       { { text = moved }, { integer = math.tointeger(tonumber(row:text(1))) or 0 }, { text = row:text(2) } }))
     assert(db:close())
     local output = tmp .. "/stood-" .. tostring(case) .. ".out"
@@ -211,7 +211,7 @@ end
   assert(result.ok, text)
   assert(text:find("0 ran, 1 stood", 1, true), text)
   local db = assert(Sqlite.open(support.build_dir(root) .. "/build.db"))
-  local credits = assert(db:text_rows("SELECT test FROM coverage_by_test"))
+  local credits = assert(db:text_rows("SELECT test FROM hits_by_test"))
   assert(db:close())
   assert(#credits == 1 and credits[1]:text(1) == "suite.selected_test test_selected",
     "expected only the named test credited")
@@ -249,7 +249,7 @@ end
   assert(result.ok, text)
   assert(text:find("6 ran, 0 stood", 1, true), text)
   local db = assert(Sqlite.open(support.build_dir(root) .. "/build.db"))
-  local credits = assert(db:text_rows("SELECT test, hits FROM coverage_by_test ORDER BY test"))
+  local credits = assert(db:text_rows("SELECT test, hits FROM hits_by_test ORDER BY test"))
   assert(db:close())
   assert(#credits == 6, "expected a row for each of the six tests, not " .. tostring(#credits))
   for _, row in ipairs(credits) do
@@ -567,7 +567,7 @@ local function test_another_project_counts_none_of_the_cores_c(tmp: string)
   local lines = assert(db:text_rows(
     "SELECT COUNT(*) FROM coverage WHERE path LIKE 'core/%'"))
   local credits = assert(db:text_rows(
-    "SELECT COUNT(*) FROM coverage_by_test WHERE hits LIKE '%core/%'"))
+    "SELECT COUNT(*) FROM hits_by_test WHERE hits LIKE '%core/%'"))
   assert(db:close())
   assert(support.nth(lines, 1):text(1) == "0", support.nth(lines, 1):text(1) .. " coverage rows name the core's C")
   assert(support.nth(credits, 1):text(1) == "0", support.nth(credits, 1):text(1) .. " tests are credited the core's C")

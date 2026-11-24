@@ -1080,6 +1080,32 @@ static size_t truncation_program_for (struct cosmic_insn *out, enum cosmic_arch 
   return b.full ? 0 : b.length;
 }
 
+/* Writes to `out`, room for COSMIC_PROMISE_INSNS, the program a process
+ * of `arch` holds itself to so that it runs no program from then on, over
+ * whatever filter and ruleset already hold it: execve and execveat answer
+ * EPERM, a call of x86_64's x32 numbers (whose execve is 520 | bit 30)
+ * answers ENOSYS, as [`truncation_program_for`] answers it, and a call of
+ * another architecture ends the process. Every other call is allowed, for
+ * the filters before it to answer. Answers how many instructions it is. */
+static size_t no_x_program_for (struct cosmic_insn *out, enum cosmic_arch arch) {
+  const short *numbers = arch == COSMIC_ARCH_X86_64 ? x86_64_numbers : aarch64_numbers;
+  uint32_t audit = arch == COSMIC_ARCH_X86_64 ? AUDIT_X86_64 : AUDIT_AARCH64;
+  struct builder b = { out, 0, false };
+  emit(&b, OP_LOAD, 0, 0, DATA_ARCH);
+  emit(&b, OP_EQ, 1, 0, audit);
+  emit(&b, OP_RETURN, 0, 0, RETURN_KILL_PROCESS);
+  emit(&b, OP_LOAD, 0, 0, DATA_NUMBER);
+  emit(&b, OP_AT_LEAST, 0, 1, X32_CALL_BIT);
+  emit(&b, OP_RETURN, 0, 0, RETURN_ERRNO(LINUX_ENOSYS));
+  static const int refused[] = { CALL_execve, CALL_execveat };
+  for (size_t i = 0; i < sizeof refused / sizeof refused[0]; i++) {
+    emit(&b, OP_EQ, 0, 1, (uint32_t)(numbers[refused[i]] - 1));
+    emit(&b, OP_RETURN, 0, 0, RETURN_ERRNO(LINUX_EPERM));
+  }
+  emit(&b, OP_RETURN, 0, 0, RETURN_ALLOW);
+  return b.full ? 0 : b.length;
+}
+
 unsigned cosmic_promise_named (const char *name) {
   if (strcmp(name, "fork") == 0) return COSMIC_PROMISE_FORK;
   if (strcmp(name, "jit") == 0) return COSMIC_PROMISE_JIT;
@@ -1179,6 +1205,30 @@ int cosmic_truncation_apply (void) {
 #endif
 }
 
+int cosmic_no_x_apply (void) {
+#if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
+#if defined(__x86_64__)
+  enum cosmic_arch arch = COSMIC_ARCH_X86_64;
+#else
+  enum cosmic_arch arch = COSMIC_ARCH_AARCH64;
+#endif
+  if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) return errno;
+  struct cosmic_insn code[COSMIC_PROMISE_INSNS];
+  size_t length = no_x_program_for(code, arch);
+  if (length == 0) return ENOSPC;
+  struct sock_fprog program = { (unsigned short)length, (struct sock_filter *)code };
+  /* Every thread at once (TSYNC): `restrict_self` refuses a process with a
+   * second thread already, so this is a second guard, not the only one. */
+  long synced = syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_TSYNC, &program);
+  if (synced < 0) return errno;
+  /* A positive answer names a thread that could not take the filter. */
+  if (synced > 0) return EBUSY;
+  return 0;
+#else
+  return ENOSYS;
+#endif
+}
+
 COSMIC_SYSCALL(promise_filter, 3) {
   luaL_checktype(L, 1, LUA_TTABLE);
   unsigned promises = 0;
@@ -1221,16 +1271,21 @@ COSMIC_SYSCALL(promise_filter, 3) {
     }
     lua_pop(L, 3);
   }
-  bool truncation = false;
+  bool truncation = false, no_x = false;
   if (!lua_isnoneornil(L, 3)) {
     lua_getfield(L, 3, "truncation_only");
     truncation = lua_toboolean(L, -1);
-    lua_pop(L, 1);
-    if (truncation && (promises != 0 || sockets != 0 || held != 0))
-      return luaL_argerror(L, 3, "truncation_only takes no promise, socket or hold");
+    lua_getfield(L, 3, "no_x_only");
+    no_x = lua_toboolean(L, -1);
+    lua_pop(L, 2);
+    if (truncation && no_x) return luaL_argerror(L, 3, "truncation_only and no_x_only are two programs");
+    if ((truncation || no_x) && (promises != 0 || sockets != 0 || held != 0))
+      return luaL_argerror(L, 3, truncation ? "truncation_only takes no promise, socket or hold"
+                                            : "no_x_only takes no promise, socket or hold");
   }
   struct cosmic_insn code[COSMIC_PROMISE_INSNS];
   size_t length = truncation ? truncation_program_for(code, arch)
+                  : no_x ? no_x_program_for(code, arch)
                              : program_for(code, arch, promises, sockets, (uint32_t)pid, held);
   if (length == 0) return luaL_error(L, "the filter does not fit");
   lua_pushlstring(L, (const char *)code, length * sizeof code[0]);

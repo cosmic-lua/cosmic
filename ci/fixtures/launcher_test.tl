@@ -317,7 +317,7 @@ local function test_launcher_cache_policy_and_integrity(tmp: string)
   assert(offset and length, "selected launcher header offset or length is not an integer")
   local truncated = ctx.work .. "/truncated"
   Fixture.write(truncated, artifact:sub(1, offset + length - 1), 0x1ed)
-  expect_failure(ctx, "truncated", "extracted core is truncated",
+  expect_failure(ctx, "truncated", "extracted core digest differs",
     ctx.work .. "/truncated-cache", truncated)
   local equal = ctx.work .. "/equal-corrupt"
   Fixture.write(equal, artifact:sub(1, offset) .. "Z" ..

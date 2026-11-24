@@ -63,7 +63,9 @@ end
 
 --- A limit of 0, which curl reads as none, is refused, naming the field.
 local function test_a_request_with_a_time_limit_of_0_raises()
-  local ok, why = pcall(Http.request, "GET", url, { timeout_ns = 0, script = {} })
+  local ok, why = pcall(function()
+    local _, _ = Http.request("GET", url, { timeout_ns = 0, script = {} })
+  end)
   assert(not ok and tostring(why):find("timeout_ns is required", 1, true) ~= nil, tostring(why))
 end
 
@@ -106,7 +108,7 @@ local function test_a_redirect_to_a_scheme_outside_redirect_protocols_is_refused
   local response, why = Http.open(url, { timeout_ns = Clock.seconds(60), redirect_protocols = { "https" },
     script = { reply("302 Found", "Location: http://other.test/next\r\n"), reply("200 OK", "", "no") } })
   assert(response == nil, "the redirect to http was followed")
-  assert(why:find("disabled (in redirect)", 1, true) ~= nil, why)
+  assert(tostring(why):find("disabled (in redirect)", 1, true) ~= nil, why)
 end
 
 local function test_a_redirect_to_a_listed_scheme_is_followed()
@@ -124,8 +126,8 @@ local function test_a_redirect_to_https_is_attempted_when_only_https_is_listed()
   local response, why = Http.open(url, { timeout_ns = Clock.seconds(60), redirect_protocols = { "https" },
     script = { reply("302 Found", "Location: https://other.test/next\r\n"), reply("200 OK", "", "no") } })
   assert(response == nil)
-  assert(why:find("not supported or disabled", 1, true) == nil, why)
-  assert(why:find("Protocol", 1, true) == nil, why)
+  assert(tostring(why):find("not supported or disabled", 1, true) == nil, why)
+  assert(tostring(why):find("Protocol", 1, true) == nil, why)
 end
 
 local function test_a_303_after_post_is_followed_with_get()
@@ -177,7 +179,7 @@ end
 local function test_a_method_that_is_no_token_is_refused()
   local response, trouble = Http.open(url, { timeout_ns = Clock.seconds(60), method = "GET / HTTP/1.1\r\nX-Evil: 1\r\n", script = {} })
   assert(response == nil)
-  assert(trouble:find("method", 1, true) ~= nil, trouble)
+  assert(tostring(trouble):find("method", 1, true) ~= nil, trouble)
 end
 
 local function test_informational_responses_before_the_final_one_are_skipped()
@@ -223,7 +225,7 @@ local function test_a_body_shorter_than_its_content_length_is_a_read_error()
   local got, get_trouble = Http.get(url, { timeout_ns = Clock.seconds(60), script = {
     "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\nonly ten b",
   } })
-  assert(got == nil and get_trouble ~= "")
+  assert(got == nil and tostring(get_trouble) ~= "")
 end
 
 local function test_open_returns_once_the_headers_arrive_before_any_body()
@@ -292,14 +294,14 @@ end
 local function test_a_space_or_control_byte_before_the_path_is_refused_naming_it()
   local response, trouble = Http.open("http://cosmic.test\0.evil/", { timeout_ns = Clock.seconds(60), script = {} })
   assert(response == nil)
-  assert(trouble == "http: the URL holds a NUL at byte 19, in its host, which holds none", trouble)
+  assert(tostring(trouble) == "http: the URL holds a NUL at byte 19, in its host, which holds none", trouble)
   local got, why = Http.get("http://us er@cosmic.test/", { timeout_ns = Clock.seconds(60), script = {} })
-  assert(got == nil and why == "http: the URL holds a space at byte 10, in its user info; " ..
+  assert(got == nil and tostring(why) == "http: the URL holds a space at byte 10, in its user info; " ..
       "a user name or password goes in through Url.escape", why)
   got, why = Http.request("PUT", "cosmic\n.test/a b", { timeout_ns = Clock.seconds(60), script = {} })
-  assert(got == nil and why:find("control byte 0x0a at byte 7, in its host,", 1, true) ~= nil, why)
+  assert(got == nil and tostring(why):find("control byte 0x0a at byte 7, in its host,", 1, true) ~= nil, why)
   got, why = Http.get("http:/co smic.test/a", { timeout_ns = Clock.seconds(60), script = {} })
-  assert(got == nil and why:find("a space at byte 9, in its host,", 1, true) ~= nil, why)
+  assert(got == nil and tostring(why):find("a space at byte 9, in its host,", 1, true) ~= nil, why)
 end
 
 local function test_a_url_escaped_with_url_escape_is_sent_as_written()
@@ -378,16 +380,17 @@ end
 local function test_a_script_without_enough_connections_fails_cleanly()
   local response, trouble = Http.open(url, { timeout_ns = Clock.seconds(60), script = {} })
   assert(response == nil)
-  assert(trouble ~= "")
+  assert(tostring(trouble) ~= "")
 end
 
 local function test_a_non_string_option_throws()
-  local ok = pcall(Http.open, url, { timeout_ns = Clock.seconds(60), body = {} as string, script = {} }) -- checked: alternatives_as_value, cast_refused, literal_needs_type
-  assert(not ok)
-  ok = pcall(Http.open, url, { timeout_ns = Clock.seconds(60), headers = { X = 1 as string }, script = {} }) -- checked: alternatives_as_value, cast_refused
-  assert(not ok)
-  ok = pcall(Http.open, url, { timeout_ns = Clock.seconds(60), headers = { [1 as string] = "x" }, script = {} }) -- checked: alternatives_as_value, cast_refused
-  assert(not ok)
+  local function raises(opts: Http.Options): boolean
+    local ok, _ = pcall(function() local _, _ = Http.open(url, opts) end)
+    return not ok
+  end
+  assert(raises({ timeout_ns = Clock.seconds(60), body = {} as string, script = {} })) -- checked: cast_refused, literal_needs_type
+  assert(raises({ timeout_ns = Clock.seconds(60), headers = { X = 1 as string }, script = {} })) -- checked: cast_refused
+  assert(raises({ timeout_ns = Clock.seconds(60), headers = { [1 as string] = "x" }, script = {} })) -- checked: cast_refused
 end
 
 local function test_a_malformed_url_fails()
@@ -397,13 +400,13 @@ local function test_a_malformed_url_fails()
   -- guesses "http://" onto a bare "example.com/".
   local response, trouble = Http.open("http://127.0.0.1:99999/", { timeout_ns = Clock.seconds(60) })
   assert(response == nil)
-  assert(trouble:find("URL", 1, true) ~= nil, trouble)
+  assert(tostring(trouble):find("URL", 1, true) ~= nil, trouble)
 end
 
 local function test_an_unsupported_scheme_fails()
   local response, trouble = Http.open("ftp://example.com/", { timeout_ns = Clock.seconds(60) })
   assert(response == nil)
-  assert(trouble ~= "")
+  assert(tostring(trouble) ~= "")
 end
 
 local function test_connection_refused_on_a_closed_local_port()
@@ -411,16 +414,16 @@ local function test_connection_refused_on_a_closed_local_port()
   local response, trouble = Http.open("http://127.0.0.1:1/",
     { timeout_ns = Clock.seconds(60), connect_timeout_ns = Clock.seconds(2) })
   assert(response == nil)
-  assert(trouble ~= "")
-  assert(trouble:lower():find("refus", 1, true) ~= nil or
-      trouble:lower():find("connect", 1, true) ~= nil, trouble)
+  assert(tostring(trouble) ~= "")
+  assert(tostring(trouble):lower():find("refus", 1, true) ~= nil or
+      tostring(trouble):lower():find("connect", 1, true) ~= nil, trouble)
 end
 
 local function test_get_reports_the_same_failure_as_open()
   local got, trouble = Http.get("http://127.0.0.1:1/",
     { timeout_ns = Clock.seconds(60), connect_timeout_ns = Clock.seconds(2) })
   assert(got == nil)
-  assert(trouble ~= "")
+  assert(tostring(trouble) ~= "")
 end
 
 local function test_download_writes_verifies_and_renames(tmp: string)
@@ -451,13 +454,13 @@ local function test_download_removes_its_temporary_file_on_a_mismatch(tmp: strin
   local ok, trouble = Http.download(url, path, { timeout_ns = Clock.seconds(60), digests = { ["sha256"] = string.rep("0", 64) },
     script = { reply("200 OK", "", "not what was promised") } })
   assert(not ok)
-  assert(trouble:find("mismatch", 1, true) ~= nil, trouble)
+  assert(tostring(trouble):find("mismatch", 1, true) ~= nil, trouble)
   assert(not assert(Fs.status(path)).exists and #assert(Fs.list(tmp)) == 0)
 end
 
 local function test_download_removes_its_temporary_file_on_a_truncated_body(tmp: string)
   local path = tmp .. "/short"
-  local ok = Http.download(url, path, { timeout_ns = Clock.seconds(60), script = {
+  local ok, _ = Http.download(url, path, { timeout_ns = Clock.seconds(60), script = {
     "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\nonly ten b",
   } })
   assert(not ok)
@@ -467,7 +470,7 @@ end
 local function test_download_names_its_path_when_it_cannot_make_the_file(tmp: string)
   local path = tmp .. "/missing/got"
   local ok, trouble = Http.download(url, path, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "data") } })
-  assert(not ok and trouble:find(path .. ": ", 1, true) == 1, trouble)
+  assert(not ok and tostring(trouble):find(path .. ": ", 1, true) == 1, trouble)
 end
 
 --- A body that stops short fails the download, leaves the destination as
@@ -475,7 +478,7 @@ end
 local function test_download_keeps_the_old_file_when_the_body_stops_short(tmp: string)
   local path = tmp .. "/kept"
   assert(Fs.write(path, "old"))
-  local ok = Http.download(url, path, { timeout_ns = Clock.seconds(60), script = {
+  local ok, _ = Http.download(url, path, { timeout_ns = Clock.seconds(60), script = {
     "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\nonly ten b",
   } })
   assert(not ok)
@@ -487,14 +490,14 @@ local function test_download_fails_on_a_non_2xx_status(tmp: string)
     reply("404 Not Found", "", "no"),
   } })
   assert(not ok)
-  assert(trouble:find("404", 1, true) ~= nil, trouble)
+  assert(tostring(trouble):find("404", 1, true) ~= nil, trouble)
 end
 
 local function test_download_reports_the_same_failure_as_open(tmp: string)
   local ok, trouble = Http.download("http://127.0.0.1:1/", tmp .. "/unreached",
     { timeout_ns = Clock.seconds(60), connect_timeout_ns = Clock.seconds(2) })
   assert(not ok)
-  assert(trouble ~= "")
+  assert(tostring(trouble) ~= "")
 end
 
 -- A header name or value carrying CR or LF could otherwise smuggle a
@@ -506,35 +509,35 @@ local function test_a_header_value_with_crlf_is_rejected()
   local response, trouble = Http.open(url,
     { timeout_ns = Clock.seconds(60), headers = { ["X-Evil"] = "value\r\nX-Injected: yes" }, script = {} })
   assert(response == nil)
-  assert(trouble:lower():find("cr or lf", 1, true) ~= nil, trouble)
+  assert(tostring(trouble):lower():find("cr or lf", 1, true) ~= nil, trouble)
 end
 
 local function test_a_header_value_with_a_bare_lf_is_rejected()
   local response, trouble = Http.open(url,
     { timeout_ns = Clock.seconds(60), headers = { ["X-Evil"] = "value\nX-Injected: yes" }, script = {} })
   assert(response == nil)
-  assert(trouble:find("invalid header", 1, true) ~= nil, trouble)
+  assert(tostring(trouble):find("invalid header", 1, true) ~= nil, trouble)
 end
 
 local function test_a_header_name_with_crlf_is_rejected()
   local response, trouble = Http.open(url,
     { timeout_ns = Clock.seconds(60), headers = { ["X-Evil\r\nX-Injected"] = "yes" }, script = {} })
   assert(response == nil)
-  assert(trouble:find("invalid header", 1, true) ~= nil, trouble)
+  assert(tostring(trouble):find("invalid header", 1, true) ~= nil, trouble)
 end
 
 local function test_a_header_name_with_a_colon_is_rejected()
   local response, trouble = Http.open(url,
     { timeout_ns = Clock.seconds(60), headers = { ["X-Evil: yes\r\nX-Injected"] = "yes" }, script = {} })
   assert(response == nil)
-  assert(trouble:find("invalid header", 1, true) ~= nil, trouble)
+  assert(tostring(trouble):find("invalid header", 1, true) ~= nil, trouble)
 end
 
 local function test_an_empty_header_name_is_rejected()
   local response, trouble = Http.open(url,
     { timeout_ns = Clock.seconds(60), headers = { [""] = "yes" }, script = {} })
   assert(response == nil)
-  assert(trouble:find("invalid header", 1, true) ~= nil, trouble)
+  assert(tostring(trouble):find("invalid header", 1, true) ~= nil, trouble)
 end
 
 local function test_an_ordinary_header_is_sent()
@@ -579,28 +582,30 @@ local function test_a_header_value_with_a_nul_is_rejected()
   local response, trouble = Http.open(url,
     { timeout_ns = Clock.seconds(60), headers = { ["X-A"] = "v1\0INJECT" }, script = { reply("200 OK", "") } })
   assert(response == nil)
-  assert(trouble:find("invalid header X-A", 1, true) ~= nil, trouble)
-  assert(trouble:find("NUL", 1, true) ~= nil, trouble)
+  assert(tostring(trouble):find("invalid header X-A", 1, true) ~= nil, trouble)
+  assert(tostring(trouble):find("NUL", 1, true) ~= nil, trouble)
 end
 
 local function test_a_header_name_with_a_nul_is_rejected()
   local response, trouble = Http.open(url,
     { timeout_ns = Clock.seconds(60), headers = { ["X-A\0junk"] = "v" }, script = { reply("200 OK", "") } })
   assert(response == nil)
-  assert(trouble:find("invalid header X-A\0junk", 1, true) ~= nil, trouble)
-  assert(trouble:find("NUL", 1, true) ~= nil, trouble)
+  assert(tostring(trouble):find("invalid header X-A\0junk", 1, true) ~= nil, trouble)
+  assert(tostring(trouble):find("NUL", 1, true) ~= nil, trouble)
 end
 
 local function test_a_method_with_a_nul_is_refused()
   local response, trouble = Http.open(url,
     { timeout_ns = Clock.seconds(60), method = "GET\0junk", script = { reply("200 OK", "") } })
   assert(response == nil)
-  assert(trouble:find("method", 1, true) ~= nil, trouble)
+  assert(tostring(trouble):find("method", 1, true) ~= nil, trouble)
 end
 
 --- The message [`Http.open`] raises with for `opts`.
 local function raised(opts: Http.Options): string
-  local ok, err = pcall(Http.open, url, { ...opts, script = opts.script or {} })
+  local ok, err = pcall(function()
+    local _, _ = Http.open(url, { ...opts, script = opts.script or {} })
+  end)
   assert(not ok, "expected a raise")
   return tostring(err)
 end
@@ -681,7 +686,7 @@ local function test_a_refused_option_is_raised_at_the_callers_line()
           tostring(ahead) .. " and " .. tostring(behind))
     end
   end
-  local _, why = pcall(Http.get, url, unlimited)
+  local _, why = pcall(function() local _, _ = Http.get(url, unlimited) end)
   assert(tostring(why):find("http: opts.timeout_ns is required", 1, true) ~= nil, tostring(why))
 end
 
@@ -730,7 +735,7 @@ local function test_an_option_curl_refuses_is_an_error_naming_it()
   -- send the request with no URL set at all.
   local response, trouble = Http.open(url .. string.rep("a", 8000000), { timeout_ns = Clock.seconds(60), script = {} })
   assert(response == nil)
-  assert(trouble:find("CURLOPT_URL", 1, true) ~= nil, trouble)
+  assert(tostring(trouble):find("CURLOPT_URL", 1, true) ~= nil, trouble)
 end
 
 local function test_read_refuses_a_max_bytes_below_one()
@@ -741,7 +746,7 @@ end
 
 local function test_read_returns_an_empty_second_value_on_success()
   local response, opened = Http.open(url, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "body") } })
-  assert(response ~= nil and opened == "", opened)
+  assert(response ~= nil and opened == nil, tostring(opened))
   local chunk, trouble = response:read()
   assert(chunk == "body" and trouble == "", tostring(trouble))
   local after, end_trouble = response:read()
@@ -826,7 +831,7 @@ local function test_a_cancelled_download_removes_its_part_file_and_makes_no_targ
       return asked > 1
     end,
   })
-  assert(not ok and why == "interrupted", why)
+  assert(not ok and tostring(why) == "interrupted", why)
   assert(asked > 1, "asked between chunks")
   assert(not assert(Fs.status(path)).exists, "the target was created")
   local names = (assert(Fs.list(tmp)))
@@ -873,7 +878,7 @@ local function test_a_download_cancelled_only_at_the_end_makes_no_target(tmp: st
       return asked == last
     end,
   })
-  assert(not ok and why == "interrupted", tostring(why))
+  assert(not ok and tostring(why) == "interrupted", tostring(why))
   assert(not assert(Fs.status(path)).exists, "the target was created")
   local names = (assert(Fs.list(tmp)))
   assert(#names == 0, "left behind: " .. table.concat(names, ","))
@@ -884,7 +889,7 @@ local function test_a_caught_signal_ends_an_open_that_waits()
   assert(sys.kill(sys.getpid(), sys.SIGINT))
   local response, why = Http.open(url, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "x") } })
   local caught = assert(guard:release())
-  assert(response == nil and why == "interrupted", tostring(why))
+  assert(response == nil and tostring(why) == "interrupted", tostring(why))
   assert(caught == sys.SIGINT, tostring(caught))
 end
 
@@ -899,7 +904,7 @@ local function test_a_download_checks_every_digest_it_is_given(tmp: string)
   local other = tmp .. "/other.bin"
   local bad, bad_why = Http.download(url, other, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "hello") },
     digests = { ["sha256"] = s256, ["sha512"] = string.rep("0", 128) } })
-  assert(not bad and bad_why:find("sha512 mismatch: want " .. string.rep("0", 128) .. ", got " .. s512, 1, true) ~= nil, bad_why)
+  assert(not bad and tostring(bad_why):find("sha512 mismatch: want " .. string.rep("0", 128) .. ", got " .. s512, 1, true) ~= nil, bad_why)
   assert(not assert(Fs.status(other)).exists, "the target was created")
   for _, name in ipairs((assert(Fs.list(tmp)))) do
     assert(name == "two.bin", "left behind: " .. name)
@@ -915,8 +920,8 @@ local function test_a_download_with_only_a_sha512_checks_that_alone(tmp: string)
   local other = tmp .. "/wrong512.bin"
   local zeros = string.rep("0", 128)
   local bad, bad_why = Http.download(url, other, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "hello") }, digests = { ["sha512"] = zeros } })
-  assert(not bad and bad_why:find("sha512 mismatch: want " .. zeros .. ", got " .. s512, 1, true) ~= nil, bad_why)
-  assert(not bad_why:find("sha256", 1, true), bad_why)
+  assert(not bad and tostring(bad_why):find("sha512 mismatch: want " .. zeros .. ", got " .. s512, 1, true) ~= nil, bad_why)
+  assert(not tostring(bad_why):find("sha256", 1, true), bad_why)
   assert(not assert(Fs.status(other)).exists, "the target was created")
 end
 
@@ -933,7 +938,7 @@ local function test_a_download_with_a_sha3_256_checks_it(tmp: string)
   local zeros = string.rep("0", 64)
   local bad, bad_why = Http.download(url, other, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "hello") },
     sha256 = Hash.hex_sha256("hello"), sha3_256 = zeros })
-  assert(not bad and bad_why:find("sha3-256 mismatch: want " .. zeros .. ", got " .. sha3, 1, true) ~= nil, bad_why)
+  assert(not bad and tostring(bad_why):find("sha3-256 mismatch: want " .. zeros .. ", got " .. sha3, 1, true) ~= nil, bad_why)
   assert(not assert(Fs.status(other)).exists, "the target was created")
 end
 
@@ -946,7 +951,7 @@ local function test_download_result_success_has_no_failure_fields(tmp: string)
   assert(result.kind == "downloaded" and result.reason == "")
   assert(result.status == nil and result.algorithm == nil and result.expected == nil and result.actual == nil)
   assert(assert(Fs.read(path)) == data and #assert(Fs.list(tmp)) == 1)
-  assert(select("#", Http.download(url, path, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", data) } })) == 2)
+  assert(Http.download(url, path, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", data) } }))
 end
 
 local function test_download_result_status_is_typed_and_url_neutral(tmp: string)
@@ -960,7 +965,7 @@ local function test_download_result_status_is_typed_and_url_neutral(tmp: string)
     assert(result.reason == "HTTP " .. tostring(status), result.reason)
     assert(result.algorithm == nil and result.expected == nil and result.actual == nil)
     local ok, why = Http.download(url, path, options)
-    assert(not ok and why == url .. ": HTTP " .. tostring(status), why)
+    assert(not ok and tostring(why) == url .. ": HTTP " .. tostring(status), why)
     assert(assert(Fs.read(path)) == "old" and #assert(Fs.list(tmp)) == 1)
   end
 end
@@ -981,7 +986,7 @@ local function test_download_result_checksums_keep_typed_digests_and_legacy_text
       local reason = path .. ": " .. algorithm .. " mismatch: want " .. expected:lower() .. ", got " .. actual
       assert(result.reason == reason, result.reason)
       local ok, why = Http.download(url, path, options)
-      assert(not ok and why == reason, why)
+      assert(not ok and tostring(why) == reason and why.path == path, tostring(why))
       assert(assert(Fs.read(path)) == "old" and #assert(Fs.list(tmp)) == 1)
     end
   end
@@ -1030,7 +1035,7 @@ local function test_a_download_refuses_a_digest_of_no_known_algorithm(tmp: strin
   local path = tmp .. "/got"
   local options: Http.Options = { timeout_ns = Clock.seconds(60), script = {},
     digests = { ["sha999"] = "ab" } as {Hash.Algorithm:string} } -- checked: cast_refused
-  local why = Test.raises(function() local _ = Http.download(url, path, options) end,
+  local why = Test.raises(function() local _, _ = Http.download(url, path, options) end,
     "opts.digests names sha999, which is no Hash.Algorithm")
   assert(why:find("^cosmic%.http_test:%d+: ") ~= nil, why)
   assert(#assert(Fs.list(tmp)) == 0)
@@ -1143,15 +1148,15 @@ end
 local function test_download_result_preserves_underlying_url_text_without_classifying_it(tmp: string)
   local open = Http.open
   local reason = url .. ": HTTP 404; sha256 mismatch in transport diagnostic"
-  Http.open = function(_url: string, _opts?: Http.Options): Http.Response?, string -- checked: field_fixed
-    return nil, reason
+  Http.open = function(_url: string, _opts?: Http.Options): (Http.Response) | (nil, Failure) -- checked: field_fixed
+    return nil, Failure.new(reason)
   end
   local result = Http.download_result(url, tmp .. "/got", { timeout_ns = Clock.seconds(60) })
   local ok, why = Http.download(url, tmp .. "/got", { timeout_ns = Clock.seconds(60) })
   Http.open = open -- checked: field_fixed
   assert(result.kind == "failed" and result.reason == reason)
   assert(result.status == nil and result.algorithm == nil)
-  assert(not ok and why == reason and #assert(Fs.list(tmp)) == 0)
+  assert(not ok and tostring(why) == reason and #assert(Fs.list(tmp)) == 0)
 end
 
 local function test_download_result_guard_interruption_stays_available(tmp: string)
@@ -1200,7 +1205,7 @@ local function test_request_sends_its_method()
   local head = "HTTP/1.1 200 OK\r\nContent-Length: 1000\r\nConnection: close\r\n\r\n"
   local got, trouble = Http.request("HEAD", url, { timeout_ns = Clock.seconds(60), script = { head } })
   assert(got ~= nil and got.body == "", trouble)
-  local get = Http.request("GET", url, { timeout_ns = Clock.seconds(60), script = { head } })
+  local get, _ = Http.request("GET", url, { timeout_ns = Clock.seconds(60), script = { head } })
   assert(get == nil, "a GET read a body that never came")
 end
 
@@ -1215,7 +1220,7 @@ local function test_request_refuses_what_it_would_not_send_as_asked()
       GET = { body = "x", script = script },
       HEAD = { body = "x", script = script },
   } as {string:Http.Options}) do
-    local ok, why = pcall(Http.request, method, url, opts)
+    local ok, why = pcall(function() local _, _ = Http.request(method, url, opts) end)
     assert(not ok and tostring(why):find("Http.request", 1, true) ~= nil, method .. ": " .. tostring(why))
   end
   local got, trouble = Http.request("PUT", url, { timeout_ns = Clock.seconds(60), method = "PUT", script = script })
@@ -1238,7 +1243,7 @@ local function test_get_refuses_another_method_and_a_body()
       { method = "HEAD", script = script },
       { body = "x", script = script },
   } as {Http.Options}) do
-    Test.raises(function() Http.get(url, opts) end, "Http.request")
+    Test.raises(function() local _, _ = Http.get(url, opts) end, "Http.request")
   end
   local got, trouble = Http.get(url, { timeout_ns = Clock.seconds(60), method = "GET", script = script })
   assert(got ~= nil and got.status == 200, trouble)
@@ -1333,7 +1338,7 @@ end
 local function test_decompress_refuses_a_coding_it_cannot_read()
   local response, trouble = Http.open(url, { timeout_ns = Clock.seconds(60), decompress = true,
     script = { reply("200 OK", "Content-Encoding: gzip, br\r\n", "whatever") } })
-  assert(response == nil and trouble == 'http: cannot decode a body of Content-Encoding "br"', trouble)
+  assert(response == nil and tostring(trouble) == 'http: cannot decode a body of Content-Encoding "br"', trouble)
 end
 
 local function test_decompress_fails_a_corrupt_truncated_or_trailed_body()
@@ -1423,9 +1428,9 @@ end
 local function test_a_method_that_is_false_is_refused_not_taken_for_none()
   local script = { reply("200 OK", "") }
   local opts = { method = false, script = script } as any as Http.Options -- checked: cast_refused*2
-  local ok, why = pcall(Http.get, url, opts)
+  local ok, why = pcall(function() local _, _ = Http.get(url, opts) end)
   assert(not ok and tostring(why):find("Http.request", 1, true) ~= nil, tostring(why))
-  ok, why = pcall(Http.request, "PUT", url, opts)
+  ok, why = pcall(function() local _, _ = Http.request("PUT", url, opts) end)
   assert(not ok and tostring(why):find("leave opts.method out", 1, true) ~= nil, tostring(why))
 end
 
@@ -1511,7 +1516,7 @@ local function test_a_redirect_to_another_origin_never_sends_the_body_there()
   local function to(status: string, location: string, method: string): Http.Response?, string, string
     local response, why = Http.open(url, { timeout_ns = Clock.seconds(60), method = method, body = "secret-body",
       script = { reply(status, "Location: " .. location .. "\r\n"), reply("200 OK", "", "done") } })
-    if response == nil then return nil, why, "" end
+    if response == nil then return nil, tostring(why), "" end
     while true do
       local chunk, trouble = response:read()
       if chunk == nil then
@@ -1521,7 +1526,7 @@ local function test_a_redirect_to_another_origin_never_sends_the_body_there()
     end
     local sent = response:sent()
     response:close()
-    return response, why, sent
+    return response, "", sent
   end
   for _, case in ipairs({ { "307 Temporary Redirect", "POST" }, { "308 Permanent Redirect", "POST" },
       { "302 Found", "PUT" }, { "301 Moved Permanently", "PATCH" }, { "307 Temporary Redirect", "PUT" } }) do
@@ -1551,11 +1556,11 @@ end
 local function test_a_body_over_max_bytes_fails_the_request()
   local script = { reply("200 OK", "", "hello") }
   local got, why = Http.request("GET", url, { timeout_ns = Clock.seconds(60), max_bytes = 4, script = script })
-  assert(got == nil and why == "http: the body is longer than opts.max_bytes, 4 bytes", why)
+  assert(got == nil and tostring(why) == "http: the body is longer than opts.max_bytes, 4 bytes", why)
   local chunked = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n" ..
     "3\r\nabc\r\n3\r\ndef\r\n0\r\n\r\n"
   got, why = Http.get(url, { timeout_ns = Clock.seconds(60), max_bytes = 5, script = { chunked } })
-  assert(got == nil and why == "http: the body is longer than opts.max_bytes, 5 bytes", why)
+  assert(got == nil and tostring(why) == "http: the body is longer than opts.max_bytes, 5 bytes", why)
   got, why = Http.get(url, { timeout_ns = Clock.seconds(60), max_bytes = 6, script = { chunked } })
   assert(got ~= nil and got.body == "abcdef", why)
   got, why = Http.get(url, { timeout_ns = Clock.seconds(60), max_bytes = 5, script = script })
@@ -1567,7 +1572,7 @@ end
 local function test_a_body_over_the_default_limit_is_refused_unread()
   local head = "HTTP/1.1 200 OK\r\nContent-Length: " .. tostring((16 << 20) + 1) .. "\r\nConnection: close\r\n\r\n"
   local got, why = Http.get(url, { timeout_ns = Clock.seconds(60), script = { head } })
-  assert(got == nil and why == "http: the body is longer than opts.max_bytes, 16777216 bytes", why)
+  assert(got == nil and tostring(why) == "http: the body is longer than opts.max_bytes, 16777216 bytes", why)
 end
 
 --- The decoded bytes count against `max_bytes`, not the compressed ones.
@@ -1575,13 +1580,15 @@ local function test_max_bytes_counts_the_decoded_body()
   local plain = string.rep("a", 1000)
   local script = { reply("200 OK", "Content-Encoding: gzip\r\n", encoded("gzip", plain)) }
   local got, why = Http.get(url, { timeout_ns = Clock.seconds(60), decompress = true, max_bytes = 999, script = script })
-  assert(got == nil and why:find("max_bytes", 1, true) ~= nil, why)
+  assert(got == nil and tostring(why):find("max_bytes", 1, true) ~= nil, why)
   got, why = Http.get(url, { timeout_ns = Clock.seconds(60), decompress = true, max_bytes = 1000, script = script })
   assert(got ~= nil and got.body == plain, why)
 end
 
 local function test_max_bytes_takes_an_integer_of_at_least_0()
-  local ok, why = pcall(Http.get, url, { timeout_ns = Clock.seconds(60), max_bytes = -1, script = { reply("200 OK", "") } })
+  local ok, why = pcall(function()
+    local _, _ = Http.get(url, { timeout_ns = Clock.seconds(60), max_bytes = -1, script = { reply("200 OK", "") } })
+  end)
   assert(not ok and tostring(why):find("opts.max_bytes must be an integer", 1, true) ~= nil, tostring(why))
 end
 
@@ -1593,6 +1600,6 @@ local function test_a_bodiless_response_is_not_refused_for_its_content_length()
   assert(got ~= nil and got.status == 200 and got.body == "", why)
   for _, status in ipairs({ "204 No Content", "304 Not Modified" }) do
     got, why = Http.get(url, { timeout_ns = Clock.seconds(60), script = { "HTTP/1.1 " .. status .. "\r\n" .. large } })
-    assert(got ~= nil and got.body == "", status .. ": " .. why)
+    assert(got ~= nil and got.body == "", status .. ": " .. tostring(why))
   end
 end

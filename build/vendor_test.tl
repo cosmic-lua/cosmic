@@ -2,6 +2,7 @@
 --- over a plain file for the single-file PIN: what the tree holds
 --- afterward, and what it refuses.
 local Codec = require("cosmic.codec")
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
@@ -346,9 +347,9 @@ end
 local function test_fetch_holds_the_download_to_every_digest_the_pin_gives(dir: string)
   local seen: Seen = {}
   local real = Http.download
-  Http.download = function(_url: string, _path: string, options?: Http.Options): boolean, string -- checked: field_fixed
+  Http.download = function(_url: string, _path: string, options?: Http.Options): (true) | (false, Failure) -- checked: field_fixed
     seen.options = options
-    return false, "stop here"
+    return false, Failure.new("stop here")
   end
   local fetched, trouble = Vendor.fetch("https://example.invalid/a.tar", dir .. "/a.tar",
     { { algorithm = "sha256", hex = "aa" }, { algorithm = "sha3-256", hex = "bb" } })
