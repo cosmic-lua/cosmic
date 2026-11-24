@@ -292,9 +292,54 @@ local class StagedFile is Fs.Staged
   end
 end
 
+--- Whether a file of `kind` takes bytes where it is, so that a rename
+--- onto it would put a regular file in its place: a device or a FIFO.
+local function in_place_kind(kind: sys.Kind): boolean
+  return kind == "char" or kind == "block" or kind == "fifo"
+end
+
+--- Whether `path` names one of the process's own descriptors through a
+--- link the system keeps (`/dev/stdout`, `/dev/stderr`, `/dev/fd/1`,
+--- `/proc/self/fd/1`): a name no one plants, which [`Fs.output`] follows.
+local function descriptor_name(path: string): boolean
+  return path == "/dev/stdout" or path == "/dev/stderr" or path:match("^/dev/fd/%d+$") ~= nil or
+    path:match("^/proc/self/fd/%d+$") ~= nil
+end
+
+--- What a refusal calls a file of `kind`, as [`sys.lstat`] names it.
+local KIND_WORDS <const>: {string:string} = {
+  char = "character device", block = "block device", fifo = "FIFO", socket = "socket",
+}
+
+--- Why [`Fs.create`] refuses `path`: it names a device, a FIFO or a
+--- socket, or a link to one, which the rename onto it would replace with
+--- a regular file (the root's `/dev/null`, say). Nil for a regular file,
+--- a directory, a link to either, or nothing, which take the rename (a
+--- directory fails it).
+local function replaces_special(path: string): Failure?
+  local st, _ = sys.lstat(path)
+  if st == nil or st.kind == "file" or st.kind == "dir" then return nil end
+  if st.kind == "link" and descriptor_name(path) then
+    return Failure.new("one of the process's own descriptors, which writing a file here would " ..
+        "replace with a regular file", path)
+  end
+  if st.kind == "link" then
+    local target, _ = sys.stat(path)
+    if target == nil or target.kind == "file" or target.kind == "dir" then return nil end
+    local words = KIND_WORDS[target.kind] or target.kind
+    return Failure.new("a link to a " .. words .. ", which writing a file here would replace " ..
+        "with a regular file; name the " .. words .. " itself", path)
+  end
+  local words = KIND_WORDS[st.kind]
+  if words == nil then return nil end
+  return Failure.new("a " .. words .. ", which writing a file here would replace with a regular file", path)
+end
+
 --- The file [`Fs.create`] starts, as its own class, so [`Fs.write`] reads
 --- its failure as a value.
 local function staged_file(path: string, mode?: integer): (StagedFile) | (nil, Failure)
+  local refused = replaces_special(path)
+  if refused ~= nil then return nil, refused end
   local temporary, why, errno = sys.open_temporary(path, mode or 0x1a4)
   if temporary == nil then return nil, failure_of(errno, why, path) end
   local staged: StagedFile = {
@@ -312,8 +357,12 @@ end
 --- (default 0644, less the umask) and never keeps an existing file's
 --- mode. Nothing is synced unless `sync` is called, so a crash can
 --- still lose the write. It answers nil and a Failure naming `path`
---- when the temporary file cannot be made. [`Stream.create`] is this,
---- as a [`cosmic.stream`] Writer.
+--- when the temporary file cannot be made, or when `path` names a
+--- device, a FIFO or a socket, a link to one, or one of the process's own
+--- descriptors (`/dev/stdout`), which the rename would replace with a
+--- regular file: [`Fs.output`] writes those in place, for an output a
+--- person names. [`Stream.create`] is this, as a [`cosmic.stream`]
+--- Writer.
 function Fs.create(path: string, mode?: integer): (Fs.Staged) | (nil, Failure)
   local staged, why = staged_file(path, mode)
   if staged == nil then return nil, why end
@@ -326,10 +375,138 @@ end
 --- failure before the rename leaves the old file. The file is always a
 --- new one, so it gets `mode` (default 0644, less the umask) and never
 --- keeps an existing file's mode. Nothing is synced, so a crash can
---- still lose the write. Answers true, or false and a [`Failure`] that
+--- still lose the write. A device, FIFO or socket at `path` is refused,
+--- as [`Fs.create`] says. Answers true, or false and a [`Failure`] that
 --- names `path` and the errno.
 function Fs.write(path: string, data: string, mode?: integer): (true) | (false, Failure)
   local file, trouble = staged_file(path, mode)
+  if file == nil then return false, trouble end
+  local wrote, write_failure = file:write(data)
+  if not wrote then
+    file:abort()
+    return false, write_failure
+  end
+  return file:close()
+end
+
+--- What [`Fs.output`] returns for a path written in place (a device, a
+--- FIFO, `/dev/stdout`): the calls of [`Fs.Staged`] over a descriptor,
+--- with no temporary file, so `abort` only closes it.
+local class InPlaceFile is Fs.Staged
+  path: string
+  fd: integer
+  -- nil until a call fails.
+  mut failure?: Failure
+  mut closed: boolean
+
+  function write(self, data: string): (true) | (false, Failure)
+    if self.closed then return false, Failure.new("the file is closed", self.path) end
+    local failed = self.failure
+    if failed ~= nil then return false, failed end
+    local ok, why, errno = write_all(self.fd, data, "")
+    if not ok then
+      local failure = failure_of(errno, why, self.path)
+      self.failure = failure
+      return false, failure
+    end
+    return true
+  end
+
+  -- A character device or a FIFO has no storage to flush, and fsync on
+  -- one fails EINVAL (Linux) or ENOTSUP: no failure of the write.
+  function sync(self): (true) | (false, Failure)
+    if self.closed then return false, Failure.new("the file is closed", self.path) end
+    local failed = self.failure
+    if failed ~= nil then return false, failed end
+    local ok, why, errno = sys.fsync(self.fd)
+    if ok or errno == sys.EINVAL or errno == sys.EOPNOTSUPP then return true end
+    local failure = failure_of(errno, why, self.path)
+    self.failure = failure
+    return false, failure
+  end
+
+  function abort(self)
+    if self.closed then return end
+    self.closed = true
+    local _, _ = sys.close(self.fd)
+  end
+
+  function close(self): (true) | (false, Failure)
+    local failed = self.failure
+    if self.closed then
+      if failed ~= nil then return false, failed end
+      return true
+    end
+    self.closed = true
+    local closed, why, errno = sys.close(self.fd)
+    if failed ~= nil then return false, failed end
+    if not closed then
+      local failure = failure_of(errno, why, self.path)
+      self.failure = failure
+      return false, failure
+    end
+    return true
+  end
+end
+
+--- Whether [`Fs.output`] writes `path` in place: a device or a FIFO
+--- itself (never a link to one, which may be planted), or one of the
+--- process's own descriptors by its system name (`/dev/stdout`,
+--- `/dev/stderr`, `/dev/fd/<n>`, `/proc/self/fd/<n>`). False where
+--- nothing is there or anything else is; nil and a [`Failure`] where
+--- `path` cannot be looked at.
+function Fs.in_place(path: string): (boolean) | (nil, Failure)
+  local st, why, errno = sys.lstat(path)
+  if st == nil then
+    if errno == sys.ENOENT then return false end
+    return nil, failure_of(errno, why, path)
+  end
+  return in_place_kind(st.kind) or (st.kind == "link" and descriptor_name(path))
+end
+
+--- Starts writing an output a person named, such as a verb's `-o`: as
+--- [`Fs.create`] does, but a device, a FIFO or one of the process's own
+--- descriptors ([`Fs.in_place`]) is written in place, as a shell's `>`
+--- writes it, so `-o /dev/null` discards and `-o /dev/stdout` prints.
+--- There is then no temporary file: `mode` is not used, nothing written
+--- can be taken back, and `abort` only closes the descriptor. A FIFO's
+--- open waits for a reader. A descriptor that is a regular file is
+--- appended to, so a shell's `>>` holds. Nil and a [`Failure`] naming
+--- `path` when it cannot be opened.
+function Fs.output(path: string, mode?: integer): (Fs.Staged) | (nil, Failure)
+  local in_place, trouble = Fs.in_place(path)
+  if in_place == nil then return nil, trouble end
+  if not in_place then return Fs.create(path, mode) end
+  local named = descriptor_name(path)
+  -- A device itself is opened without following a link swapped in
+  -- since the look; a descriptor's name is the system's link, followed.
+  local flags = sys.O_WRONLY | sys.O_NOCTTY
+  if not named then flags = flags | sys.O_NOFOLLOW end
+  local fd, why, errno = sys.open(path, flags)
+  if fd == nil then return nil, failure_of(errno, why, path) end
+  local st, stat_why, stat_errno = sys.fstat(fd)
+  local fits = st ~= nil and (in_place_kind(st.kind) or (named and st.kind == "file"))
+  if st == nil or not fits then
+    local _, _ = sys.close(fd)
+    if st == nil then return nil, failure_of(stat_errno, stat_why, path) end
+    return nil, Failure.new("a " .. (KIND_WORDS[st.kind] or st.kind) .. ", not a device or a FIFO", path)
+  end
+  if st.kind == "file" then
+    -- Reopened through its name, the descriptor's offset and append mode
+    -- are lost: appending keeps what a `>>` redirection kept.
+    local _, _ = sys.close(fd)
+    fd, why, errno = sys.open(path, sys.O_WRONLY | sys.O_NOCTTY | sys.O_APPEND)
+    if fd == nil then return nil, failure_of(errno, why, path) end
+  end
+  local file: InPlaceFile = { path = path, fd = fd, failure = nil, closed = false }
+  return file
+end
+
+--- Writes `data` to an output a person named ([`Fs.output`]): in place
+--- for a device, a FIFO or one of the process's own descriptors, through
+--- a temporary file and a rename, as [`Fs.write`], for anything else.
+function Fs.write_output(path: string, data: string, mode?: integer): (true) | (false, Failure)
+  local file, trouble = Fs.output(path, mode)
   if file == nil then return false, trouble end
   local wrote, write_failure = file:write(data)
   if not wrote then
