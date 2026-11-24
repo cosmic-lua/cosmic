@@ -45,9 +45,9 @@
 ---   query matches.
 --- - `--keys` lists an object's keys, sorted, one per line, or prints an
 ---   array's length.
---- - `--shape` prints a summary of the value's shape
+--- - `--type` prints a summary of the value's type
 ---   (`{ids: [2 x number], ok: boolean}`).
---- - `--keys` and `--shape` do not take a query with `*` or `..`, which
+--- - `--keys` and `--type` do not take a query with `*` or `..`, which
 ---   can match many values.
 --- - `--flat` prints every leaf under the path (the whole document when
 ---   there is no path) as `path = value` lines, and an empty object or
@@ -83,7 +83,8 @@ local command: Flags.Command = {
     ["--flat"] = { about = "print every leaf under the path as a `path = value` line" },
     ["--exists"] = { about = "print nothing; exit 0 when the path exists, 1 when not" },
     ["--keys"] = { about = "list an object's keys, sorted, or an array's length" },
-    ["--shape"] = { about = "print a summary of the value's shape, not the value" },
+    ["--type"] = { about = "print a summary of the value's type, not the value" },
+    ["--shape"] = { moved = "--type prints the value's type" },
   },
 }
 
