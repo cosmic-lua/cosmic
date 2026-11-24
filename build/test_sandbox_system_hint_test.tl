@@ -46,7 +46,7 @@ local Test = require("cosmic.test")
 Test.policy { grants = { { path = "suite/run.sh", letters = "r" } } }
 
 local function test_bare()
-  local r = Child.run({ "/bin/sh", "-c", "exit 0" }, { timeout_ns = Child.FOREVER })
+  local r, _ = Child.run({ "/bin/sh", "-c", "exit 0" }, { timeout_ns = Child.FOREVER })
   assert(r)
 end
 
@@ -56,7 +56,7 @@ local function test_why()
 end
 
 local function test_script()
-  local r = Child.run({ "/tree/suite/run.sh" }, { timeout_ns = Child.FOREVER })
+  local r, _ = Child.run({ "/tree/suite/run.sh" }, { timeout_ns = Child.FOREVER })
   assert(r)
 end
 

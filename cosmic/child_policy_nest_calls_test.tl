@@ -104,8 +104,8 @@ local function test_a_nested_program_cannot_widen_what_it_was_given(tmp: string)
     { timeout_ns = Child.FOREVER, policy = policy, cwd = work, stdout = "capture", stderr = "stdout" })
   local result, why = Child.run(started.argv, started.options)
   if result == nil then
-    assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
-    Test.skip(why)
+    assert(ChildPolicy.unsandboxable(tostring(why)), "the start was refused: " .. tostring(why))
+    Test.skip(tostring(why))
     return
   end
   local said = result.stdout or ""

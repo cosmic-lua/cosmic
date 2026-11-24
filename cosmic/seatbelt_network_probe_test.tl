@@ -546,7 +546,7 @@ end
 --- Skips the test where this host has no way to ask a name server, since a
 --- failure under a profile would then say nothing of the profile.
 local function network_or_skip()
-  local result = Child.run(Array.at(RESOLVERS, 1).argv, { stdout = "capture", stderr = "capture", stdin = "null",
+  local result, _ = Child.run(Array.at(RESOLVERS, 1).argv, { stdout = "capture", stderr = "capture", stdin = "null",
     timeout_ns = Clock.seconds(6) })
   if result == nil or not (result.stdout or ""):find("answer from", 1, true) then
     Test.skip("no name server answers a host program here: " .. brief((result and result.stdout or "") ..
@@ -558,7 +558,7 @@ end
 --- system's log names it: operation and name of each refusal.
 local function denials(): string
   local _, _ = Clock.sleep_ns(Clock.seconds(1.5))
-  local result = Child.run({ "/usr/bin/log", "show", "--last", "1m", "--style", "compact",
+  local result, _ = Child.run({ "/usr/bin/log", "show", "--last", "1m", "--style", "compact",
     "--predicate", "eventMessage CONTAINS \"Sandbox:\" AND eventMessage CONTAINS \"deny(\"" },
     { stdout = "capture", stderr = "capture", stdin = "null", timeout_ns = Clock.seconds(6) })
   if result == nil then return "log: unavailable" end

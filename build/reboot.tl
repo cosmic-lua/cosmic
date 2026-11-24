@@ -747,7 +747,7 @@ local function boot(root: string, argv: {string}, host_only: boolean, why: strin
   local result, trouble = Child.run(reboot.boot_command(root .. "/bin/zig", host_only),
     { timeout_ns = Child.FOREVER, cwd = root, env = boot_environment, stdout = 2 })
   if result == nil then
-    return command .. ": " .. trouble
+    return command .. ": " .. tostring(trouble)
   end
   if not result.ok then
     return command .. " failed; fix what it reports and run this again"

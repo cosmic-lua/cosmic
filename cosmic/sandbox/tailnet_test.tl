@@ -88,7 +88,7 @@ local function test_a_daemon_that_is_not_there_fails_the_start(tmp: string)
   local child, refused = Child.start({ "/bin/true" }, {
     timeout_ns = Child.FOREVER, policy = { connect = { "tag:db:5432" } }, tailscale = { socket = tmp .. "/none.sock" },
   })
-  assert(child == nil and refused:find('connect "tag:db:5432"', 1, true) ~= nil, refused)
+  assert(child == nil and refused.message:find('connect "tag:db:5432"', 1, true) ~= nil, refused)
 end
 
 --- An address outside Tailscale's ranges is never granted, whatever the

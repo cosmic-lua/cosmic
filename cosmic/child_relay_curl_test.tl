@@ -47,8 +47,8 @@ local function curl(target: string, url: string, loopback?: {string}): string, i
     policy = { profiles = { "system" }, connect = { target }, loopback = loopback },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   if result == nil then
-    if ChildPolicy.unsandboxable(why) then Test.skip(why) end
-    error("the start was refused: " .. why)
+    if ChildPolicy.unsandboxable(tostring(why)) then Test.skip(tostring(why)) end
+    error("the start was refused: " .. tostring(why))
   end
   out, code = (result.stdout or "") .. (result.stderr or ""), result.code or -1
   return out, code

@@ -218,7 +218,7 @@ local function session_of(set: AgentMcp.Set, name: string): (McpClient.Session) 
   local handle, why = Child.start(argv, { cwd = set.cwd, stdin = "stream", stdout = "stream", stderr = "null",
     policy = server.policy, timeout_ns = Child.FOREVER })
   if handle == nil then
-    return nil, Failure.new("starting the MCP server " .. name .. ": " .. why)
+    return nil, Failure.new("starting the MCP server " .. name .. ": " .. tostring(why))
   end
   local reader, writer = handle.stdout_stream, handle.stdin_stream
   if reader == nil or writer == nil then

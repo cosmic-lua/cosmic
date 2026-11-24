@@ -90,7 +90,7 @@ local function test_a_sandboxed_child_has_only_what_it_unveils(tmp: string)
   end
   assert(r.ok and r.stdout == "in\n/given\nhidden-absent\nno-own-name\n", tostring(r.stdout))
   Test.raises(function()
-    Child.start({ "/bin/sh" },
+    local _, _ = Child.start({ "/bin/sh" },
       { timeout_ns = Child.FOREVER, sandbox = { unveil = { reads = { "relative" } } } })
   end)
 end

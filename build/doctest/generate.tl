@@ -639,7 +639,7 @@ local function __doctest_cosmic(tmp: string, words: {string}, status: integer): 
   for _, word in ipairs(words) do shown[#shown + 1] = string.format("%q", word) end
   local line = "cosmic " .. table.concat(shown, " ")
   if said == nil then
-    error("doctest: " .. line .. " did not start: " .. trouble)
+    error("doctest: " .. line .. " did not start: " .. tostring(trouble))
   elseif said.timed_out then
     error("doctest: " .. line .. " ran past a minute:\n" .. (said.stderr or ""))
   elseif said.code ~= status then

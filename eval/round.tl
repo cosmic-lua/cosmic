@@ -344,7 +344,7 @@ local function real_system(): Round.System
     run = function(argv: {string}): Round.Output
       local result, trouble = Child.run(argv, { stdout = "capture", stderr = "stdout",
         stdin = "null", timeout_ns = Clock.minutes(15) })
-      if result == nil then return { code = 127, text = trouble } end
+      if result == nil then return { code = 127, text = tostring(trouble) } end
       return { code = Child.shell_status(result), text = result.stdout or "" }
     end,
     start = function(argv: {string}, log: string): integer?

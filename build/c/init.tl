@@ -300,7 +300,7 @@ function c.bootstrap_cosmic(root: string, variables: {string:string}, digest: st
     local there = there_status ~= nil and there_status.exists
     why = why .. ", and " .. script .. ", which fetches it, could not start" ..
       (if there ~= true then " (it is not there)" else "" end)
-    if trouble ~= "" then why = why .. ": " .. trouble end
+    if trouble.message ~= "" then why = why .. ": " .. tostring(trouble) end
     return nil, why
   end
   why = why .. ", and bin/cosmic-bootstrap could not fetch it"
@@ -774,7 +774,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
                 capture_limit = limit or dump_limit,
               })
           if handle == nil then
-            results[next_job] = { file = nth(files, job.file), trouble = trouble }
+            results[next_job] = { file = nth(files, job.file), trouble = tostring(trouble) }
           else
             running[#running + 1] = handle
             which[handle] = next_job

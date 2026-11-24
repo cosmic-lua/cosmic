@@ -52,7 +52,7 @@ function Proof.main(argv: {string}): integer
     -- owned child. Every other refusal precedes target execution.
     local started, trouble = Child.start({ helper, "marker", marker },
       { timeout_ns = Child.FOREVER, credentials = credentials, stdout = "capture", stderr = "capture" })
-    assert(started == nil and trouble ~= "", "injected refusal started a child")
+    assert(started == nil and trouble.message ~= "", "injected refusal started a child")
     assert(children() == owned_before, "failed start left an owned child")
     assert(identity() == before, "failed start changed parent credentials")
     if mode ~= "restore" then assert(not exists(marker), "failed setup reached exec") end
@@ -80,7 +80,7 @@ function Proof.main(argv: {string}): integer
     end
     local denied, trouble = Child.start({ helper, "marker", marker },
       { timeout_ns = Child.FOREVER, credentials = credentials, cwd = directory .. "/secret" })
-    assert(denied == nil and trouble ~= "", "root-only cwd accepted")
+    assert(denied == nil and trouble.message ~= "", "root-only cwd accepted")
     assert(not exists(marker), "cwd refusal reached exec")
     assert(assert(sys.dumpable()) == dumpable, "cwd failure changed parent dumpability")
     assert(identity() == before and children() == owned_before, "cwd failure changed parent ownership")
