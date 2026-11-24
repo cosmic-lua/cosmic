@@ -235,9 +235,11 @@ end
 --- directory above it, gives every letter; false and why otherwise. The
 --- policy is merged first, so it may name `profiles`. `path` is compared
 --- as written, cleaned: to check a real file, resolve its links first,
---- since the kernel reads the path it opens. `c` is asked of the
---- directory a file is made or removed in, as Landlock grants it beneath a
---- directory: a `c` grant on a plain file gives nothing. Letters outside
+--- since the kernel reads the path it opens. Each letter is checked at
+--- `path` itself: to ask whether a file may be made or removed, pass the
+--- directory it is made or removed in with `c`, since Landlock grants `c`
+--- beneath a directory and a `c` grant on a plain file gives nothing.
+--- Letters outside
 --- "rwxcu", or none, are refused. A second layer for code that runs in a
 --- process no kernel layer holds, never the only one.
 ---
