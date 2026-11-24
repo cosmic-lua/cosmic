@@ -1549,6 +1549,101 @@ local function test_a_streamed_body_sees_the_client_go_at_once()
   assert(seen_ns - closed_ns < Clock.seconds(1), tostring(seen_ns - closed_ns))
 end
 
+--- A streamed body that says "start", then waits for a notice that
+--- never comes but its close, which answers the end: a stream of events
+--- that knows nothing of its client.
+local class Quiet is Stream.Reader
+  notifier: Poll.Notifier
+  mut started: boolean
+  mut closed_ns?: integer
+
+  function read(self, _max_bytes?: integer): string?, string
+    if not self.started then
+      self.started = true
+      return "data: start\n\n", ""
+    end
+    while self.closed_ns == nil do
+      local ok, why = self.notifier:wait(Clock.seconds(5))
+      if not ok then return nil, why.message end
+    end
+    return nil, ""
+  end
+
+  function close(self): boolean, string
+    if self.closed_ns == nil then self.closed_ns = Clock.monotonic_ns() end
+    self.notifier:notify_all()
+    return true, ""
+  end
+end
+
+--- The server closes a quiet Reader reply that lasts as long as its
+--- client (`until_gone`) as the client leaves, under compression too,
+--- where the Reader is wrapped, and says no trouble.
+local function test_the_server_closes_a_quiet_reply_as_its_client_leaves()
+  for _, compress in ipairs({ false, true }) do
+    local quiet: Quiet? = nil
+    local left_ns = 0
+    local troubles = serving(function(_req: Server.Request): Server.Reply
+      local made: Quiet = { notifier = Poll.notifier(), started = false, closed_ns = nil, skip = nil }
+      quiet = made
+      return { status = 200, headers = TEXT_TYPE, body = made, until_gone = true }
+    end, function(address: Net.Address)
+      local p = peer(address)
+      send(p, get("/events", "Accept-Encoding: gzip\r\n"))
+      assert(line(p) == "HTTP/1.1 200 OK")
+      local until_ns = Clock.monotonic_ns() + Clock.seconds(2)
+      while (quiet == nil or not assert(quiet).started) and Clock.monotonic_ns() < until_ns do
+        assert(Poll.delay(Clock.ms(5)))
+      end
+      assert(Poll.delay(Clock.ms(100)))
+      assert(assert(quiet).closed_ns == nil, "closed while its client was there")
+      left_ns = Clock.monotonic_ns()
+      local _, _ = p.conn:close()
+      until_ns = left_ns + Clock.seconds(2)
+      while assert(quiet).closed_ns == nil and Clock.monotonic_ns() < until_ns do
+        assert(Poll.delay(Clock.ms(5)))
+      end
+    end, { compress = compress })
+    local closed_ns = assert(assert(quiet).closed_ns, "the server never closed the Reader")
+    -- At once on Linux; macOS asks each 250 ms.
+    assert(closed_ns - left_ns < Clock.ms(500), tostring(closed_ns - left_ns))
+    assert(#troubles == 0, troubles[1])
+  end
+end
+
+--- A Reader of "one two three" in three pieces, 30 ms apart.
+local class Slow is Stream.Reader
+  mut at: integer
+
+  function read(self, _max_bytes?: integer): string?, string
+    self.at = self.at + 1
+    if self.at > 3 then return nil, "" end
+    if self.at > 1 then assert(Poll.delay(Clock.ms(30))) end
+    return ({ "one ", "two ", "three" })[self.at], ""
+  end
+
+  function close(self): boolean, string
+    return true, ""
+  end
+end
+
+--- A Reader that waits between its pieces, sent to an HTTP/1.0 client
+--- that half-closes after its request and still reads, arrives whole:
+--- only a reply marked `until_gone` ends with its client.
+local function test_a_client_that_half_closes_still_gets_a_slow_reply_whole()
+  local troubles = serving(function(_req: Server.Request): Server.Reply
+    local slow: Slow = { at = 0, skip = nil }
+    return { status = 200, headers = TEXT_TYPE, body = slow }
+  end, function(address: Net.Address)
+    local p = peer(address)
+    send(p, "GET / HTTP/1.0\r\nHost: test\r\n\r\n")
+    assert(p.conn:shutdown("write"))
+    while more(p) do end
+    assert(p.buf:sub(-#"one two three") == "one two three", p.buf)
+  end)
+  assert(#troubles == 0, troubles[1])
+end
+
 --- A streamed body waiting on `req.wait_gone` is not woken by a request
 --- the client pipelines, and wakes as the client closes.
 local function test_a_streamed_body_waiting_for_the_client_wakes_as_it_goes()

@@ -113,7 +113,8 @@ function Response.copy(res: Types.Response): Types.Response
       headers[name] = lines
     end
   end
-  return { status = res.status, headers = headers, body = res.body, length = res.length, close = res.close }
+  return { status = res.status, headers = headers, body = res.body, length = res.length, close = res.close,
+    until_gone = res.until_gone }
 end
 
 --- Appends `value` to header `name`, which keeps the lines it has: a
