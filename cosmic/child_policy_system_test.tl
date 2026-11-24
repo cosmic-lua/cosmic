@@ -1,6 +1,7 @@
 --- [`Child.start`]'s `policy` with the "system" profile (cosmic/sandbox/policy.tl)
 --- on a host program, a dynamically linked one where the host has them:
---- the profile is what lets one start, and nothing past it is reachable.
+--- the profile reads what one needs to run, the start grants the program
+--- itself, and nothing past them is reachable.
 --- They need a sandbox and /bin/cat of the host (`requires`): where the
 --- platform has no sandbox they are not applicable, and where this host's
 --- kernel gives no Landlock or seccomp they skip (Test.skip).
@@ -16,8 +17,8 @@ local searchable = require("build.searchable")
 --- program itself, which the host must have.
 Test.policy{
   profiles = { "system" },
-  grants = { { path = "/bin/cat", letters = "r" } },
-  requires = { "sandbox", "path:/bin/cat" },
+  grants = { { path = "/bin/cat", letters = "r" }, { path = "/bin/sh", letters = "r" } },
+  requires = { "sandbox", "path:/bin/cat", "path:/bin/sh" },
 }
 
 local CAT <const> = "/bin/cat"
@@ -56,19 +57,26 @@ local function test_the_system_profile_lets_a_host_program_read_what_is_granted(
   assert(hidden ~= 0 or shadow == "", "/etc/hostname was read: " .. shadow)
 end
 
-local function test_without_the_profile_the_loader_is_not_granted_and_the_start_says_so(tmp: string)
-  local real = assert(sys.realpath(CAT))
-  local none, why = Child.start({ CAT, tmp }, { timeout_ns = Child.FOREVER, policy = { grants = { { path = real, letters = "rx" } } } })
-  -- A static program, as on some hosts, needs nothing more and starts.
-  if none ~= nil then
-    Test.skip("a static program needs no loader, so its start is not refused")
-    return
+--- "system" reads the host's programs and runs none: the start grants
+--- the shell it starts and the shell's loader, so the shell runs, and the
+--- program the shell runs is refused. "programs" runs it.
+local function test_the_system_profile_runs_no_program_and_programs_does(tmp: string)
+  local function shell(profiles: {string}): string, integer
+    local result, why = Child.run({ "/bin/sh", "-c", CAT .. " " .. tmp .. "/a; echo status=$?" },
+      { timeout_ns = Child.FOREVER, policy = { profiles = profiles, promises = { "fork" }, grants = { { path = tmp, letters = "r" } } },
+        stdout = "capture", stderr = "stdout" })
+    if result == nil then
+      if why.message:find("Landlock", 1, true) or why.message:find("seccomp", 1, true) or why.message:find("not implemented", 1, true) then
+        Test.skip(tostring(why))
+      end
+      error("the start was refused: " .. tostring(why))
+    end
+    return assert(result.stdout, "stdout = \"capture\" captures it"), result.code or -1
   end
-  -- Where the host gives no Landlock or seccomp the start is refused for that, past the grants.
-  if why.message:find("Landlock", 1, true) or why.message:find("seccomp", 1, true) or why.message:find("not implemented", 1, true) then
-    Test.skip(tostring(why))
-    return
-  end
-  assert(why.message:find("^child: start: sandbox: ") and why.message:find("interpreter", 1, true), why)
-  assert(why.message:find("system", 1, true), why)
+  searchable.open(tmp)
+  assert(Fs.write(tmp .. "/a", "alpha\n"))
+  local refused, code = shell({ "system" })
+  assert(code == 0 and refused:find("status=126", 1, true) ~= nil and refused:find("alpha", 1, true) == nil, refused)
+  local ran, ran_code = shell({ "system", "programs" })
+  assert(ran_code == 0 and ran == "alpha\nstatus=0\n", ran)
 end

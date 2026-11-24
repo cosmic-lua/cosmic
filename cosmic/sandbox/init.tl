@@ -13,7 +13,7 @@
 ---   allows. [`Sandbox.held`] is that for this process's restrictions.
 --- - [`Sandbox.allows`] says whether a policy gives letters at a path.
 --- - [`Sandbox.profile`] is what a named profile holds on this host:
----   "system", "cosmic" and "proc".
+---   "system", "programs", "cosmic" and "proc".
 --- - [`Sandbox.loaders`] is what a program needs read and run to start.
 --- - [`Sandbox.restrict`] holds the calling process, and what it starts,
 ---   to a policy for good.
@@ -123,7 +123,10 @@ end
 
 --- What the profile `name` holds on this host, as a policy: "system"
 --- grants the host's programs, libraries and the few files a libc reads to
---- start (`rx` on /usr and the library and binary directories, `r` on
+--- start, to read and not to run (`r` on /usr and the library and binary
+--- directories: a library is mapped by the loader, which needs no `x`, and
+--- a program a policy starts is granted by [`Child.start`]; one it runs
+--- from there needs a grant of its own; `r` on
 --- /etc/ld.so.cache, nsswitch.conf, passwd, group and localtime, and the
 --- null, zero and random devices), each only where it exists; on macOS
 --- it is macOS's own list instead (/usr, /bin, /sbin, the system
@@ -133,7 +136,10 @@ end
 --- directly, merged or through [`PolicyJson.decode`]. The list is the
 --- running host's, read when the profile is resolved ([`Sandbox.merge`],
 --- or here), so a policy merged on one OS and started on another carries
---- the first host's paths; "cosmic"
+--- the first host's paths; "programs" runs the host's programs: `rx`
+--- on /usr, /bin, /sbin and the library directories, which hold the loader
+--- a program it runs starts by (on macOS /usr, /bin and /sbin), so a shell
+--- under it can run the tools it names; "cosmic"
 --- grants `rx` on the path this program is started by ([`Proc.executable`]),
 --- which is its launcher where it has one: what [`Child.start`] runs as
 --- this program's core, by a relaunch; "proc" is the kernel's process
@@ -145,7 +151,7 @@ end
 --- Nil and why for a name it has not, or one this host cannot give.
 ---
 ---     local system = assert(Sandbox.profile("system"))
----     print(system.grants[1].path, system.grants[1].letters) -- /usr  rx (Linux and macOS)
+---     print(system.grants[1].path, system.grants[1].letters) -- /usr  r (Linux and macOS)
 ---     local proc = assert(Sandbox.profile("proc"))
 ---     print(proc.grants and proc.grants[1].path) -- /proc (nil on macOS)
 function Sandbox.profile(name: string): Sandbox.Policy?, string

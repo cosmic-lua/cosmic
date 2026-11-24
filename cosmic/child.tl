@@ -3164,6 +3164,59 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
       granted[#granted + 1] = { path = found.argv[3], letters = "r" } -- checked: index_may_be_nil, view_written
     end
   end
+  -- A bare name is found on this process's PATH and run by its real path,
+  -- so what is granted is what runs; a name with a slash is run as written
+  -- (a virtual environment's interpreter link keeps its prefix), and its
+  -- grants are the real path's, which is what the kernel opens.
+  -- TODO: run a link as the link under `isolate` file too, binding it at
+  -- its name (a virtual environment's interpreter), once a bind can place
+  -- a link: a root holds the real path alone, so the program is run by it.
+  local path = argv[1]
+  if relaunch ~= nil then
+    path = relaunch.argv[1]
+  elseif not path:find("/", 1, true) then -- checked: nil_not_allowed
+    local on_path, absent = Proc.find(path) -- checked: nil_not_allowed
+    if on_path == nil then return nil, tostring(absent) end
+    local real, real_trouble = sys.realpath(on_path)
+    if real == nil then return nil, on_path .. ": " .. real_trouble end
+    path = real
+  elseif file then
+    local real, real_trouble = sys.realpath(named(path, base)) -- checked: nil_not_allowed
+    if real == nil then return nil, path .. ": " .. real_trouble end -- checked: nil_not_allowed
+    path = real
+  end
+  local files, loader_trouble = Rules.loaders(path, base) -- checked: nil_not_allowed
+  if files == nil then return nil, loader_trouble end
+  -- What the program needs to start is the starter's need, not a right
+  -- of the program's: the start grants a host program and each
+  -- interpreter its start reads (a `#!` line's, the ELF loader) `rx`, as
+  -- it grants a core above, so a policy names only what the program may
+  -- do once it runs, and the "system" profile reads libraries without
+  -- running them. A relaunched core is granted above, beside a database
+  -- it runs on, whose read-only grant a merge would join with the policy's.
+  if relaunch == nil then
+    -- Only a file no grant gives already, so a policy at the most a start
+    -- takes is not pushed past it by a grant of what it names.
+    -- Under `isolate` file a grant with `from` shows another file at the
+    -- name, so only one without gives the program.
+    local giving: mut {Rules.Grant} = {}
+    for _, grant in ipairs(merged.grants or {}) do
+      if not file or grant.from == nil then giving[#giving + 1] = grant end
+    end
+    local start_grants: mut {Rules.Grant} = {}
+    for _, start_file in ipairs(files) do
+      if ungranted({ start_file }, giving, base) ~= "" then
+        start_grants[#start_grants + 1] = { path = start_file, letters = "rx" }
+      end
+    end
+    if #start_grants > 0 then
+      local widened, widen_trouble = Rules.merge(merged, { grants = start_grants })
+      if widened == nil then return nil, widen_trouble end
+      merged = widened
+      local over = unmet(merged)
+      if over ~= "" then return nil, "sandbox: " .. over end
+    end
+  end
   local idmap: {integer: boolean} = {}
   local drop: MappedUser?
   if user ~= nil then
@@ -3199,29 +3252,6 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     if made == nil then return nil, "sandbox: " .. root_trouble end
     root = made
   end
-  -- A bare name is found on this process's PATH and run by its real path,
-  -- so what is granted is what runs; a name with a slash is run as written
-  -- (a virtual environment's interpreter link keeps its prefix), and its
-  -- grants are the real path's, which is what the kernel opens.
-  -- TODO: run a link as the link under `isolate` file too, binding it at
-  -- its name (a virtual environment's interpreter), once a bind can place
-  -- a link: a root holds the real path alone, so the program is run by it.
-  local path = argv[1]
-  if relaunch ~= nil then
-    path = relaunch.argv[1]
-  elseif not path:find("/", 1, true) then -- checked: nil_not_allowed
-    local on_path, absent = Proc.find(path) -- checked: nil_not_allowed
-    if on_path == nil then return nil, tostring(absent) end
-    local real, real_trouble = sys.realpath(on_path)
-    if real == nil then return nil, on_path .. ": " .. real_trouble end
-    path = real
-  elseif file then
-    local real, real_trouble = sys.realpath(named(path, base)) -- checked: nil_not_allowed
-    if real == nil then return nil, path .. ": " .. real_trouble end -- checked: nil_not_allowed
-    path = real
-  end
-  local files, loader_trouble = Rules.loaders(path, base) -- checked: nil_not_allowed
-  if files == nil then return nil, loader_trouble end
   -- Under `isolate` file the program runs from where the host has it, so
   -- only a grant at its own name gives it: one with `from` shows another.
   local checked = merged.grants or {}
@@ -3354,6 +3384,22 @@ end
 --- ([`relay_held`]); `serves_relay`, the port the relay accepts at, makes it
 --- the relay's own.
 --- It acquires nothing.
+--- `p` with `extra` grants beside its own, every other field as it is:
+--- the policy a profile is compiled from once the start grants its
+--- program's start files, unmerged, as [`Seatbelt.compile`] takes it.
+local function with_grants(p: Rules.Policy, extra: {Rules.Grant}): Rules.Policy
+  local grants: mut {Rules.Grant} = {}
+  for _, grant in ipairs(p.grants or {}) do grants[#grants + 1] = grant end
+  for _, grant in ipairs(extra) do grants[#grants + 1] = grant end
+  local result: Rules.Policy = {
+    grants = grants, isolate = p.isolate, promises = p.promises,
+    connect = p.connect, loopback = p.loopback, env = p.env, set_env = p.set_env,
+    set_env_digests = p.set_env_digests, tmp = p.tmp, limits = p.limits,
+    user = p.user, group = p.group, database = p.database, profiles = p.profiles,
+  }
+  return result
+end
+
 local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Policy, pty?: Pty,
                                 serves_relay?: integer): Held?, string
   local joined, why = Rules.merge(policy)
@@ -3404,6 +3450,34 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
       granted[#granted + 1] = { path = sealed, letters = "r" } -- checked: nil_not_allowed, view_written
     end
   end
+  local path = core or argv[1]
+  if core == nil and not path:find("/", 1, true) then -- checked: nil_not_allowed
+    local found, absent = Proc.find(path) -- checked: nil_not_allowed
+    if found == nil then return nil, tostring(absent) end
+    local real, real_trouble = sys.realpath(found)
+    if real == nil then return nil, found .. ": " .. real_trouble end
+    path = real
+  end
+  -- The program, and an interpreter its `#!` line names, are the first to
+  -- fail a profile that does not grant them, as an EPERM of the exec,
+  -- which this says in words.
+  local files, loader_trouble = Rules.loaders(path, opts.cwd) -- checked: nil_not_allowed
+  if files == nil then return nil, loader_trouble end
+  -- As under Landlock, the start grants a host program and the
+  -- interpreters its start reads `rx`: the starter's need, not the
+  -- program's right. A relaunched core is granted above.
+  if relaunch == nil then
+    local start_grants: mut {Rules.Grant} = {}
+    for _, start_file in ipairs(files) do
+      if ungranted({ start_file }, merged.grants or {}, opts.cwd) ~= "" then
+        start_grants[#start_grants + 1] = { path = start_file, letters = "rx" }
+      end
+    end
+    policy = with_grants(policy, start_grants)
+    local widened, widen_trouble = Rules.merge(merged, { grants = start_grants })
+    if widened == nil then return nil, widen_trouble end
+    merged = widened
+  end
   -- TODO: decide whether the profile should let a program getcwd in a
   -- directory it grants nothing of: on the macOS leg a shell (bash as
   -- /bin/sh) started in one prints "shell-init: error retrieving current
@@ -3419,19 +3493,6 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   if relayed then options.relay_port = 65535 end
   local profile, compile_trouble = Seatbelt.compile(policy, options)
   if profile == nil then return nil, "sandbox: " .. compile_trouble end
-  local path = core or argv[1]
-  if core == nil and not path:find("/", 1, true) then -- checked: nil_not_allowed
-    local found, absent = Proc.find(path) -- checked: nil_not_allowed
-    if found == nil then return nil, tostring(absent) end
-    local real, real_trouble = sys.realpath(found)
-    if real == nil then return nil, found .. ": " .. real_trouble end
-    path = real
-  end
-  -- The program, and an interpreter its `#!` line names, are the first to
-  -- fail a profile that does not grant them, as an EPERM of the exec,
-  -- which this says in words.
-  local files, loader_trouble = Rules.loaders(path, opts.cwd) -- checked: nil_not_allowed
-  if files == nil then return nil, loader_trouble end
   local missing = ungranted(files, merged.grants or {}, opts.cwd)
   if missing ~= "" then return nil, "sandbox: " .. missing end
   local env: mut {string:string} = {}
