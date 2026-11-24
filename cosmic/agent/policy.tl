@@ -368,7 +368,7 @@ function Policy.of(cwd: string, config: Policy.Config): Sandbox.Policy?, string
     isolate = if linux then { "file" } else nil end,
     limits = if counts then { processes = PROCESSES } else nil end,
   }
-  local merged, why = Sandbox.merge(own)
+  local merged, why = Sandbox.union(own)
   if merged == nil then return nil, why end
   return merged, ""
 end
@@ -470,7 +470,7 @@ function Policy.allows(p: Sandbox.Policy?, path: string, letters: string): boole
   local real = Policy.real(path)
   if real == nil then return false, refused end
   if real == "/proc" or real:sub(1, 6) == "/proc/" then return false, refused end
-  local merged, merge_why = Sandbox.merge(p)
+  local merged, merge_why = Sandbox.union(p)
   if merged == nil then return false, "The agent's sandbox is no policy: " .. merge_why end
   local grants: mut {Sandbox.Grant} = {}
   for _, g in ipairs(merged.grants or {}) do

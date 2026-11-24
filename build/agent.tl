@@ -860,7 +860,7 @@ local function policy(r: Run, got: Flags.Parsed): integer
     r.io.out("--sandbox off: no sandbox; the tools have your user's rights")
     return bare.ok
   end
-  local merged, merged_why = Sandbox.merge(p)
+  local merged, merged_why = Sandbox.union(p)
   if merged == nil then
     r.complain("policy: " .. merged_why)
     return bare.failed

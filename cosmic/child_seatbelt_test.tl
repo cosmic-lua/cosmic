@@ -75,7 +75,7 @@ end
 
 local function test_another_user_or_group_is_refused_naming_what_differs()
   local function unmet(policy: Sandbox.Policy, user: integer, group: integer): string
-    return Seatbelt.credentials_unmet(assert(Sandbox.merge(policy)), user, group)
+    return Seatbelt.credentials_unmet(assert(Sandbox.union(policy)), user, group)
   end
   local why = unmet({ user = 6, group = 7 }, 5, 7)
   assert(why:find("^user 6:") ~= nil and not why:find("group 7", 1, true) and not why:find("nil", 1, true), why)
@@ -114,7 +114,7 @@ end
 local function test_the_system_profile_is_the_same_raw_merged_and_through_json()
   SeatbeltFixture.macos_only()
   local raw: Sandbox.Policy = { profiles = { "system" } }
-  local merged = assert(Sandbox.merge(raw))
+  local merged = assert(Sandbox.union(raw))
   local decoded = assert(PolicyJson.decode(PolicyJson.encode(merged)))
   for _, policy in ipairs({ raw, merged, decoded }) do
     local versions = run({ "/usr/bin/sw_vers", "-productVersion" }, policy)

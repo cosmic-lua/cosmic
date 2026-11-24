@@ -158,7 +158,7 @@ local function server_of(name: string, entry: Json.Value): AgentMcp.Server?, str
     if decoded == nil then return nil, about .. ".policy: " .. why end
     given = decoded
   end
-  local merged, merge_why = Sandbox.merge(default_policy(), given)
+  local merged, merge_why = Sandbox.union(default_policy(), given)
   if merged == nil then return nil, about .. ".policy: " .. merge_why end
   return { name = name, command = argv, policy = merged, description = description }, ""
 end

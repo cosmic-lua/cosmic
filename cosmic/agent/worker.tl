@@ -140,7 +140,7 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
   if given ~= nil then
     -- TODO: copy `merged` whole, changing its promises alone, once a record can be copied with a field changed: a field
     -- Sandbox.Policy gains is left out of this copy, and so given to the worker as nothing.
-    local merged, why = Sandbox.merge(given, { profiles = { "cosmic" } })
+    local merged, why = Sandbox.union(given, { profiles = { "cosmic" } })
     if merged == nil then return nil, Failure.new("worker: " .. why) end
     local promises: mut {Sandbox.Promise} = {}
     local runs = opts.commands ~= false

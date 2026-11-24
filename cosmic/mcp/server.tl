@@ -2377,7 +2377,7 @@ end
 --- the server is told to stop while it runs, is a raise: the client is told the server failed, and
 --- [`McpServer.Spec.on_error`] how. The program learns nothing of the request beyond its arguments: not the client,
 --- and not an HTTP request's headers, where a token is; and of the server's environment only what `policy.env`
---- passes on. The policy is merged ([`Sandbox.merge`]) once, here. A policy it refuses, a grant or `cwd` that is
+--- passes on. The policy is merged ([`Sandbox.union`]) once, here. A policy it refuses, a grant or `cwd` that is
 --- not absolute, a `cwd` with a `..` step, a NUL byte in `argv` or `cwd`, an empty `argv`, or a limit below 1
 --- raises.
 ---
@@ -2399,7 +2399,7 @@ function McpServer.command(spec: McpServer.CommandSpec): McpServer.ToolSpec
     end
   end
   -- Merged now, and so copied: what runs is the policy as it was given, and its profiles' paths as they are now.
-  local merged, why = Sandbox.merge(spec.policy)
+  local merged, why = Sandbox.union(spec.policy)
   if merged == nil then refuse("command: " .. name .. ": " .. why) end
   local checked, check_why = Sandbox.check(merged)
   if not checked then refuse("command: " .. name .. ": " .. check_why) end

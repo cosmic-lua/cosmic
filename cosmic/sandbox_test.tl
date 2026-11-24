@@ -19,7 +19,7 @@ end
 
 --- A merged policy's `loopback` is one list, so the failure says which one.
 local function test_a_loopback_conflict_of_the_merged_policy_is_named_by_its_path()
-  local none, why = Sandbox.merge({ loopback = { "127.0.0.1" } }, { connect = { "127.0.0.1:80" } })
+  local none, why = Sandbox.union({ loopback = { "127.0.0.1" } }, { connect = { "127.0.0.1:80" } })
   assert(none == nil and why:find("^sandbox: %$%.loopback%[0%]: in the merged policy, ") ~= nil, why)
   local ok, own = Sandbox.check({ loopback = { "127.0.0.2", "127.0.0.1" }, connect = { "127.0.0.1:80" } })
   assert(not ok and own:find("^sandbox: %$%.loopback%[1%]: ") ~= nil, own)
@@ -102,7 +102,7 @@ local function test_merge_agrees_on_one_limit_and_refuses_two()
     if field == "file_bytes" then a.file_bytes, b.file_bytes = 1, 2 end
     if field == "cpu_seconds" then a.cpu_seconds, b.cpu_seconds = 1, 2 end
     if field == "processes" then a.processes, b.processes = 1, 2 end
-    local none, why = Sandbox.merge({ limits = a }, { limits = b })
+    local none, why = Sandbox.union({ limits = a }, { limits = b })
     assert(none == nil and why:find("limits." .. field, 1, true) ~= nil, why)
   end
 end
@@ -113,24 +113,24 @@ local function test_merge_takes_one_user_and_group_and_refuses_two()
   out = PolicyMerge.merged({ user = 1000 }, { user = 1000, group = 100 })
   assert(out.user == 1000 and out.group == 100)
   assert(PolicyMerge.merged().user == nil and PolicyMerge.merged().group == nil)
-  local none, why = Sandbox.merge({ user = 1 }, { user = 2 })
+  local none, why = Sandbox.union({ user = 1 }, { user = 2 })
   assert(none == nil and why:find("$.user: given two values", 1, true) ~= nil, why)
-  none, why = Sandbox.merge({ user = 1, group = 1 }, { user = 1, group = 2 })
+  none, why = Sandbox.union({ user = 1, group = 1 }, { user = 1, group = 2 })
   assert(none == nil and why:find("$.group: given two values", 1, true) ~= nil, why)
 end
 
 local function test_merge_refuses_root_and_a_group_without_a_user()
   local roots: {Sandbox.Policy} = { { user = 0 }, { user = 4294967295 }, { user = 1, group = 0 } }
   for _, policy in ipairs(roots) do
-    local none, why = Sandbox.merge(policy)
+    local none, why = Sandbox.union(policy)
     assert(none == nil and why:find("never root", 1, true) ~= nil, why)
   end
   local overflows: {Sandbox.Policy} = { { user = 65534 }, { user = 1, group = 65535 } }
   for _, policy in ipairs(overflows) do
-    local none, why = Sandbox.merge(policy)
+    local none, why = Sandbox.union(policy)
     assert(none == nil and why:find("overflow id", 1, true) ~= nil, why)
   end
-  local none, why = Sandbox.merge({ group = 5 })
+  local none, why = Sandbox.union({ group = 5 })
   assert(none == nil and why:find("$.group", 1, true) ~= nil and why:find("with a user", 1, true) ~= nil, why)
 end
 
@@ -152,7 +152,7 @@ end
 local function test_merge_refuses_two_values_for_one_variable_without_saying_them()
   local out = PolicyMerge.merged({ set_env = { A = "1", B = "2" } }, { set_env = { A = "1", C = "3" } })
   assert(assert(out.set_env).A == "1" and assert(out.set_env).B == "2" and assert(out.set_env).C == "3") -- checked: map_field*3
-  local none, why = Sandbox.merge({ set_env = { TOKEN = "hunter2" } }, { set_env = { TOKEN = "hunter3" } })
+  local none, why = Sandbox.union({ set_env = { TOKEN = "hunter2" } }, { set_env = { TOKEN = "hunter3" } })
   assert(none == nil and why:find("$.set_env.TOKEN: given two values", 1, true) ~= nil, why)
   assert(not why:find("hunter", 1, true), why)
 end
@@ -190,7 +190,7 @@ local function test_merge_refuses_values_a_type_does_not_stop()
     { policy = { limits = { open_files = 0 } }, at = "$.limits.open_files" },
   }
   for _, case in ipairs(cases) do
-    local none, why = Sandbox.merge(case.policy)
+    local none, why = Sandbox.union(case.policy)
     assert(none == nil and why:find(case.at, 1, true) ~= nil, why)
   end
 end
@@ -198,7 +198,7 @@ end
 --- A loopback address and a connect target of the same address, in one
 --- policy or in two, are refused at the loopback entry, saying what to do.
 local function test_a_loopback_address_a_connect_target_names_is_refused()
-  local none, why = Sandbox.merge({ loopback = { "127.0.0.1" } }, { connect = { "127.0.0.1:8080" } })
+  local none, why = Sandbox.union({ loopback = { "127.0.0.1" } }, { connect = { "127.0.0.1:8080" } })
   assert(none == nil and why:find("$.loopback[0]", 1, true) ~= nil and why:find("127.0.0.2", 1, true) ~= nil, tostring(why))
   local ok, checked = Sandbox.check({ loopback = { "127.0.0.2" }, connect = { "127.0.0.1:80" } })
   assert(ok, checked)
@@ -220,7 +220,7 @@ local function test_merge_resolves_profiles_away()
     if grant.path == "/data" then data = true end
   end
   assert(found and data)
-  local none, why = Sandbox.merge({ profiles = { "nope" } })
+  local none, why = Sandbox.union({ profiles = { "nope" } })
   assert(none == nil and why:find("$.profiles[0]", 1, true) ~= nil and why:find("known", 1, true) ~= nil, why)
 end
 
@@ -258,7 +258,7 @@ local function test_proc_profile_is_proc_on_linux_and_nothing_on_macos()
   else
     assert(#assert(proc.grants) == 1 and Array.at(assert(proc.grants), 1).path == "/proc" and Array.at(assert(proc.grants), 1).letters == "r")
   end
-  local both = assert(Sandbox.merge({ profiles = { "proc" } }, { grants = { { path = "/proc", letters = "r" } } }))
+  local both = assert(Sandbox.union({ profiles = { "proc" } }, { grants = { { path = "/proc", letters = "r" } } }))
   assert(both.profiles == nil and #assert(both.grants) == 1 and Array.at(assert(both.grants), 1).path == "/proc")
 end
 
@@ -402,7 +402,7 @@ local function test_a_dot_dot_in_a_grant_path_is_refused_naming_the_field()
   for _, path in ipairs({ "..", "/a/../b", "a/b/..", "../x", "/data/x/link/.." }) do
     local ok, why = Sandbox.check({ grants = { { path = path, letters = "r" } } })
     assert(not ok and why:find("$.grants[0].path", 1, true) ~= nil and why:find('".." is not allowed', 1, true) ~= nil, why)
-    local none, trouble = Sandbox.merge({ grants = { { path = "ok", letters = "r" }, { path = path, letters = "r" } } })
+    local none, trouble = Sandbox.union({ grants = { { path = "ok", letters = "r" }, { path = path, letters = "r" } } })
     assert(none == nil and trouble:find("$.grants[1].path", 1, true) ~= nil and trouble:find("..", 1, true) ~= nil, trouble)
   end
   -- A name that only contains dots is a name.
@@ -554,7 +554,7 @@ local function test_merge_carries_a_database_and_refuses_two(tmp: string)
   local other = database_file(tmp, "other.db")
   assert(assert(PolicyMerge.merged({ database = { path = path } }).database).path == path)
   assert(assert(PolicyMerge.merged({ database = { path = path } }, { database = { path = tmp .. "//./program.db" } }, {}).database).path == path)
-  local none, why = Sandbox.merge({ database = { path = path } }, { database = { path = other } })
+  local none, why = Sandbox.union({ database = { path = path } }, { database = { path = other } })
   assert(none == nil and why:find("$.database.path: given two values", 1, true) ~= nil, tostring(why))
   assert(PolicyMerge.merged({}).database == nil)
 end
@@ -626,7 +626,7 @@ end
 
 local function test_intersect_with_itself_is_the_merged_policy()
   local p: Sandbox.Policy = { grants = { { path = "/a", letters = "rw" }, { path = "/a/b", letters = "x" } }, connect = { "h:1" } }
-  local merged = assert(Sandbox.merge(p))
+  local merged = assert(Sandbox.union(p))
   local both = assert(Sandbox.intersect(p, p))
   for _, path in ipairs({ "/a", "/a/b", "/a/b/c", "/z" }) do
     for _, letters in ipairs({ "r", "w", "x", "rwx" }) do

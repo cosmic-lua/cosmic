@@ -113,7 +113,7 @@ local function test_the_declaration_beside_the_paths_is_the_policys_other_fields
   local loopback = assert(policy.loopback)
   assert(table.concat(loopback, " ") == "127.0.0.1 127.0.0.3", table.concat(loopback, " "))
   -- Whole, as a start takes it: merging it refuses nothing.
-  local merged, why = Sandbox.merge(policy)
+  local merged, why = Sandbox.union(policy)
   assert(merged ~= nil, tostring(why))
 end
 
