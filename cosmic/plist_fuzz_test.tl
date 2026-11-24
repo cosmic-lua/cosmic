@@ -186,6 +186,10 @@ local function test_binary_decode_is_total_and_what_it_reads_is_written_back(tmp
       if kind <= 3 then return Fuzz.mutate(src, gen_objects(src), 2) end
       return Fuzz.mutate(src, gen_binary(src), 3)
     end,
+    starved = function(input: string)
+      local value, _ = Plist.decode(input)
+      if value ~= nil then local _, _ = written_both_ways(value) end
+    end,
     check = function(input: string): boolean, string
       local value, why = Plist.decode(input)
       if value == nil then

@@ -908,6 +908,12 @@ seeded source. A check must hold for all of them. The module doc of
   inputs all stop at the first refusal fails. It `shares` the least
   share of drawn inputs that must reach a label, set well under what a
   run reaches. Neither is held when `FUZZ_ITERS` is below 64.
+- A property of code that allocates gives `starved`: the module's own
+  work on an input. On the checked core, after `check` holds, `run`
+  runs it with only the first n allocations granted (n drawn from the
+  input's case), so the paths that handle a refused allocation run
+  under the sanitizer. It may raise only that memory ran out, and
+  `check` must hold again after it. Other cores skip it.
 - CI runs that gate a merge set `FUZZ_ITERS=0` and draw nothing. The
   weekly `fuzz.yml` fuzzes every property on the checked core with a
   seed of its own. A failure is a red run whose summary lists it.

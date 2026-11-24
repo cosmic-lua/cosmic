@@ -136,6 +136,7 @@ local function test_the_reader_is_total_on_mutated_archives(tmp: string)
       return Fuzz.mutate(src, archive, 8)
     end,
     check = walk,
+    starved = function(input: string) local _, _ = walk(input) end,
     requires = { "opened", "body read", "zstd body read", "no end record" },
   })
 end

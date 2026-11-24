@@ -235,6 +235,21 @@ local function holds_key_twice(compact: string?): boolean?
   return false
 end
 
+--- What [`decode_holds`] asks of the module, for a run with its
+--- allocations cut short: every mode's decode, and the format of what one
+--- reads.
+local function decode_starved(input: string)
+  for _, json5 in ipairs({ false, true }) do
+    for _, big in ipairs({ false, true }) do
+      local value, _ = Json.decode(input, { null_value = Json.null, json5 = json5, big_numbers_as_strings = big })
+      if value ~= nil then
+        local _, _ = Json.encode(value)
+        local _, _ = Json.format(input, { json5 = json5, duplicate_keys = true })
+      end
+    end
+  end
+end
+
 local function decode_holds(input: string): boolean, string
   local strict_text: string? = nil
   for _, json5 in ipairs({ false, true }) do
@@ -434,7 +449,7 @@ end
 -- in fifty) for a share of 64 inputs to hold; the key-twice property
 -- below draws it.
 local function test_decode_is_total_on_mutated_json(tmp: string)
-  Fuzz.run({ name = "json decode total", dir = tmp, gen = gen_text, check = decode_holds,
+  Fuzz.run({ name = "json decode total", dir = tmp, gen = gen_text, check = decode_holds, starved = decode_starved,
     shares = { decoded = 0.2, ["decoded as JSON5"] = 0.2, ["oracle saw no key twice"] = 0.2 } })
 end
 
@@ -878,6 +893,7 @@ local function test_decode_is_total_on_arbitrary_bytes(tmp: string)
     dir = tmp,
     gen = function(src: Fuzz.Source): string return Fuzz.bytes(src, 64) end,
     check = decode_holds,
+    starved = decode_starved,
   })
 end
 
