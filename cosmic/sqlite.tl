@@ -718,7 +718,7 @@ local class Handle
 
   --- Waits up to `timeout_ns` at locks, rounded up to milliseconds,
   --- checking the innermost guard's unread signal without taking it: a
-  --- signal stops the wait, and the call answers a failure of kind
+  --- signal stops the wait, and the call returns a failure of kind
   --- "cancelled" with SQLite's code, usually [`Sqlite.BUSY`] (no
   --- rollback is implied). Each call shares one budget across its
   --- locking events, starting at the first contention. Zero never
@@ -732,7 +732,7 @@ local class Handle
   end
 
   --- Stops each later call that runs past `limit_ns` from its start,
-  --- checked every 1000 of SQLite's steps: the call answers a failure
+  --- checked every 1000 of SQLite's steps: the call returns a failure
   --- of kind "timeout" with code [`Sqlite.INTERRUPT`]. While a limit is
   --- set, a signal the innermost guard catches stops a call too, of
   --- kind "cancelled". An interrupted write rolls back its transaction;
