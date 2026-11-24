@@ -57,3 +57,23 @@ local function test_help_names_the_verb_and_its_options(tmp: string)
   assert(ran.code == 0, ran.err)
   assert(ran.out:find("cosmic hash", 1, true) and ran.out:find("--hmac-file", 1, true), ran.out)
 end
+
+--- `hash` runs where it is started and writes JSON only with `--json`: a run of it loads neither the module that
+--- finds a tree's root ([`build.tree_root`]) nor [`cosmic.json`], which a command line pays for at its start.
+local function test_a_hash_loads_no_tree_root_and_no_json(tmp: string)
+  local Child = require("cosmic.child")
+  local Clock = require("cosmic.clock")
+  local this_program = require("build.this_program")
+  assert(Fs.write(tmp .. "/a", "abc"))
+  local env = this_program.environment()
+  env["COSMIC_TRACE_REQUIRE"] = "1"
+  local started = this_program.program({ "hash", "a" }, { env = env, cwd = tmp, stdout = "capture",
+    stderr = "capture", timeout_ns = Clock.seconds(30) })
+  local r = assert(Child.run(started.argv, started.options))
+  local traced = r.stderr or ""
+  assert(r.ok and r.stdout == ABC .. "  a\n", tostring(r.stdout) .. traced)
+  assert(traced:find(" build.hash ", 1, true), "the run printed no require trace: " .. traced:sub(1, 400))
+  for _, name in ipairs({ "build.tree_root", "cosmic.json" }) do
+    assert(not traced:find(" " .. name .. " ", 1, true), "hash loaded " .. name)
+  end
+end

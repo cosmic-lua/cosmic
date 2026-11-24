@@ -170,7 +170,11 @@ gen_expr = function(g: Gen, t: string, depth: integer): string
     if k == 2 then
       return "(" .. numeric(g, d) .. " " .. pick(g, { "<", "<=", ">", ">=" }) .. " " .. numeric(g, d) .. ")"
     elseif k == 3 then
-      return "(" .. gen_expr(g, "string", d) .. " " .. pick(g, { "==", "~=" }) .. " " .. gen_expr(g, "string", d) .. ")"
+      -- The right side is no literal and no place, so the test narrows nothing: two tests of
+      -- one variable against literals, one inside the other, could leave the inner always
+      -- false, which the checker rightly refuses (enum_member).
+      return "(" .. gen_expr(g, "string", d) .. " " .. pick(g, { "==", "~=" }) .. " (" .. gen_expr(g, "string", d) ..
+        " .. \"\"))"
     elseif k == 4 then
       return "(not " .. gen_expr(g, "boolean", d) .. ")"
     elseif k == 5 then

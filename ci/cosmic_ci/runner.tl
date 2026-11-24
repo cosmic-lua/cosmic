@@ -121,6 +121,9 @@ local record Called
   mut trouble?: string
 end
 
+-- TODO: once ci/cosmic-driver.pin carries Child.Result's `remains`, judge a command whose group
+-- outlived SIGKILL as an error, as the old pinned release did by failing the run.
+
 --- The outcome of a command that ran: how it ended, by `called`.
 local function judged(called: Called, elapsed: integer): Runner.Outcome
   local raised = called.raised
@@ -251,8 +254,8 @@ function Runner.spawn(c: Runner.Context, phase: string,
     local options, descriptors = prepare(request)
     running.descriptors = descriptors
     local handle, trouble = Child.start(request.argv, options)
-    started.trouble = trouble
     if handle == nil then
+      started.trouble = tostring(trouble)
       release(descriptors)
       running.descriptors = {}
     else
@@ -320,7 +323,8 @@ function Runner.reap(running: Runner.Running): Runner.Outcome
   local called: Called = {}
   local ok, raised = pcall(function()
     local result, trouble = handle:wait()
-    called.result, called.trouble = result, trouble
+    -- In words, as the pinned release's handle answers them too.
+    called.result, called.trouble = result, if result == nil then tostring(trouble) else "" end
   end)
   if not ok then called.raised = tostring(raised) end
   local elapsed = Clock.monotonic_ns() - running.recording.started

@@ -123,14 +123,14 @@ local function ran_under(argv: {string}, fds: {integer:integer | string},
   local handle, trouble = Child.start(argv, { timeout_ns = Child.FOREVER, policy = policy, fds = given, cwd = "/",
     stdin = "null", stdout = "capture", stderr = "stdout", process_group = false })
   if handle == nil then
-    return { ok = false, why = test_sandbox.refusal(trouble), broken = not host_limit(trouble) }
+    return { ok = false, why = test_sandbox.refusal(tostring(trouble)), broken = not host_limit(tostring(trouble)) }
   end
   -- Past the bound, `wait` ends it, and its pid namespace with it;
   -- `close` makes sure of it if the wait failed.
   local result, wait_trouble = handle:wait(probe_timeout_ns)
   if result == nil then
     local _, _ = handle:close()
-    return { ok = false, why = wait_trouble, broken = true }
+    return { ok = false, why = tostring(wait_trouble), broken = true }
   end
   if result.timed_out then
     return { ok = false, why = "a sandboxed start of this program took 30 s", broken = true }

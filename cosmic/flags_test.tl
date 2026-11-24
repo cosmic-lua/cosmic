@@ -1422,7 +1422,9 @@ local function test_the_verdicts_say_why_on_err_and_answer_their_codes()
   local ends = Flags.verdicts(function(line: string) said[#said + 1] = line end)
   assert(ends.failed("no catalog") == Flags.FAILED and Flags.FAILED == 1)
   assert(ends.refused("give one path") == Flags.REFUSED and Flags.REFUSED == 2)
-  assert(#said == 2 and said[1] == "no catalog" and said[2] == "give one path", table.concat(said, "|"))
+  assert(ends.undone("disk full") == Flags.UNDONE and Flags.UNDONE == 5)
+  assert(#said == 3 and said[1] == "no catalog" and said[2] == "give one path" and said[3] == "disk full",
+    table.concat(said, "|"))
 end
 
 --- What `run` wrote to the descriptor `fd` (1 or 2), pointed at a file in

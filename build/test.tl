@@ -7,7 +7,8 @@
 --- started with the test's module, name, and temporary directory, in a
 --- process group of its own, with its standard streams captured and a
 --- deadline -- `--timeout SECONDS`, or `COSMIC_TEST_TIMEOUT`, 30 by
---- default -- past which the whole group is ended and the test fails.
+--- default, or at least ten times `FUZZ_SECONDS` where that is set -- past which
+--- the whole group is ended and the test fails.
 --- Up to `--jobs N` workers run at once, one more than the processors by default.
 --- A worker reports over a pipe what it hit and whether the test
 --- passed; this process alone opens the build database and writes
@@ -112,6 +113,7 @@
 --- chooses, whatever stands.
 
 local Child = require("cosmic.child")
+local type Failure = require("cosmic.failure")
 local Signal = require("cosmic.signal")
 local Cli = require("cosmic.cli")
 local Clock = require("cosmic.clock")
@@ -122,7 +124,6 @@ local Fs = require("cosmic.fs")
 local type test_inputs = require("build.test_inputs")
 local build_paths = require("build.paths")
 local cache_lifetime = require("build.cache_lifetime")
-local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local lua_tail = require("build.lua_tail")
@@ -223,6 +224,19 @@ local timeout_variable <const>: Env.Name = "COSMIC_TEST_TIMEOUT"
 --- takes about a second, so this leaves a loaded CI host ample room
 --- while still ending a hung test well inside any whole-run budget.
 local default_timeout_s = 30
+--- The variable a fuzz property's seconds of drawing are read from
+--- (build/fuzz/init.tl).
+local fuzz_seconds_variable <const>: Env.Name = "FUZZ_SECONDS"
+--- How many times FUZZ_SECONDS a test's deadline is where FUZZ_SECONDS is
+--- set and no deadline is named: room to draw, shrink what failed (up to
+--- 2000 more checks) and report it, as fuzz.yml's 1200 s does for 120.
+local fuzz_deadline_factor <const> = 10
+
+--- The words of a failure a child's handle answered, "" for none.
+local function words(why: Failure?): string
+  if why == nil then return "" end
+  return why.message
+end
 
 --- A selector without its trailing slashes and leading "./".
 local function normalized(selector: string): string
@@ -1622,7 +1636,7 @@ local function launch(rec: Recording, job: Job): boolean
   end
   local handle, start_trouble = Child.start(command.argv, command.options)
   if handle == nil then
-    local _ = finish(rec, job, nil, start_trouble)
+    local _ = finish(rec, job, nil, tostring(start_trouble))
     return false
   end
   job.handle = handle
@@ -1792,7 +1806,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
     if relay ~= nil then local _, _ = sys.close(relay.writer) end
     if handle == nil then
       if relay ~= nil then local _, _ = sys.close(relay.reader) end
-      local _ = finish(rec, lead, nil, start_trouble)
+      local _ = finish(rec, lead, nil, tostring(start_trouble))
       requeue(others, false)
       return
     end
@@ -1935,7 +1949,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
     if ended then
       local result, trouble = handle:wait()
       -- One that said it retires is followed by another; one that ended saying nothing, by a worker for each test.
-      over(batch, result, trouble, batch.retired and not batch.unforkable)
+      over(batch, result, words(trouble), batch.retired and not batch.unforkable)
       return false
     end
     local flying = batch.flying
@@ -1954,7 +1968,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
           "running, " .. (if batch.forked then "between two tests" else "loading the module" end) ..
           ", and was ended; each test left has a worker of its own"
       end
-      over(batch, result, stop_trouble, flying ~= nil and batch.forked)
+      over(batch, result, words(stop_trouble), flying ~= nil and batch.forked)
       return false
     end
     return true
@@ -1993,12 +2007,16 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
       if deadline < earliest then earliest = deadline end
     end
     local left_ns = math.max(0, math.min(Clock.ms(100), earliest - Clock.monotonic_ns()))
-    local done, trouble: Child.Handle?, string = nil, Poll.TIMEOUT
+    local done: Child.Handle? = nil
+    -- Why the wait failed, other than its time running out; "" for none.
+    local trouble = ""
     if #handles > 0 then
       -- A worker of one test is served by `wait_any` alone, its end and its captured streams, which a wait of no
       -- length does not serve: so beside forking workers, whose records wake no such wait, it waits a millisecond
       -- at most, and they are read after each.
-      done, trouble = Child.wait_any(handles, if #readers > 0 then math.min(left_ns, Clock.ms(1)) else left_ns end)
+      local first, why = Child.wait_any(handles, if #readers > 0 then math.min(left_ns, Clock.ms(1)) else left_ns end)
+      done = first
+      if why ~= nil and why.kind ~= "timeout" then trouble = why.message end
     else
       -- A forking worker's record wakes the wait.
       local _, _ = sys.poll(readers, wanted, (left_ns + 999999) // 1000000)
@@ -2008,11 +2026,11 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
       local job_handle = job.handle
       local handle = assert(job_handle)
       if job_handle == done then
-        -- Settled already, so this answers at once; the trouble
-        -- `wait_any` gave beside the handle is the one reported.
-        local result, _ = handle:wait()
-        collect(job, result, trouble)
-      elseif done == nil and trouble ~= Poll.TIMEOUT then
+        -- Settled already, so this answers at once, with the Result or why
+        -- its settle failed; what the settle left is the Result's `remains`.
+        local result, why = handle:wait()
+        collect(job, result, words(why))
+      elseif trouble ~= "" then
         -- Supervision itself failed; end this worker and say why.
         local _, _ = handle:close()
         collect(job, nil, trouble)
@@ -2026,7 +2044,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
           -- the workers the cancelled run ended, reported on by none.
           still[#still + 1] = job
         else
-          collect(job, result, stop_trouble)
+          collect(job, result, words(stop_trouble))
         end
       else
         still[#still + 1] = job
@@ -2105,12 +2123,20 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
     running[#running + 1] = batch.lead
   end
   for _, job in ipairs(running) do
-    local closed, trouble = assert(job.handle):close()
+    local handle = assert(job.handle)
+    local closed, trouble = handle:close()
+    -- Only a close that worked has settled the child: waiting after a failed one could block on a child
+    -- that never ends, as a worker has no deadline.
+    local remains: string? = nil
+    if closed then
+      local settled, _ = handle:wait()
+      if settled ~= nil then remains = settled.remains end
+    end
     local scratch = job.scratch
-    if not closed and scratch ~= nil then
+    if (not closed or remains ~= nil) and scratch ~= nil then
       -- A member of its group may still be writing into it.
-      rec.errors[#rec.errors + 1] = job.id .. ": its directory is kept: " ..
-        scratch .. ": " .. trouble
+      local said = remains or tostring(trouble)
+      rec.errors[#rec.errors + 1] = job.id .. ": its directory is kept: " .. scratch .. ": " .. said
       job.scratch = nil
     end
   end
@@ -2175,6 +2201,25 @@ local function limits_of(values: {string:string}): State.Limits?, string
     local jobs, trouble = positive(jobs_flag, "--jobs")
     if jobs == nil then return nil, trouble end
     limits.jobs = jobs
+  end
+  -- A fuzz property may draw for FUZZ_SECONDS, then shrink what failed
+  -- and report it (build/fuzz/init.tl): a deadline under that ends the
+  -- test before it says what it found.
+  local read_seconds = math.tointeger(tonumber(Env.read(fuzz_seconds_variable) or ""))
+  if read_seconds ~= nil and read_seconds > 0 then
+    local fuzz_seconds = math.min(read_seconds, most_seconds // fuzz_deadline_factor)
+    local wanted = math.max(fuzz_seconds * fuzz_deadline_factor, default_timeout_s)
+    local given = if timeout_flag ~= nil then "--timeout " .. timeout_flag
+      elseif from_env ~= nil and from_env ~= "" then timeout_variable .. "=" .. from_env
+      else nil end
+    if given == nil then
+      limits.timeout_ns = math.max(limits.timeout_ns, Clock.seconds(wanted))
+    elseif limits.timeout_ns <= Clock.seconds(fuzz_seconds) then
+      return nil, ("%s is no longer than %s=%d: a fuzz property may draw inputs for that long, and its test " ..
+        "would time out before it shrinks and reports what failed; give --timeout %d (ten times %s, as " ..
+        "fuzz.yml gives 1200 for 120), or name no deadline and it is that"):format(given,
+          fuzz_seconds_variable, read_seconds, wanted, fuzz_seconds_variable)
+    end
   end
   return limits, ""
 end

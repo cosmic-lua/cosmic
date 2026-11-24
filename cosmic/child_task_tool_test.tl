@@ -6,6 +6,7 @@
 local Array = require("cosmic.array")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
@@ -23,8 +24,8 @@ Test.policy{
 --- The functions of cosmic.child these tests call, of one copy of the module. A copy loaded again is no value of the
 --- module's record, so a test reads the two functions it calls and not the module.
 local record Entry
-  run: function(argv: {string}, opts: Child.Options): Child.Result?, string
-  start: function(argv: {string}, opts: Child.Options): Child.Handle?, string
+  run: function(argv: {string}, opts: Child.Options): (Child.Result) | (nil, Failure)
+  start: function(argv: {string}, opts: Child.Options): (Child.Handle) | (nil, Failure)
 end
 
 --- cosmic.child over a raw table whose members `alter` replaces on a copy of
@@ -53,23 +54,27 @@ local function reloaded(alter: function({string: any})): Entry
     if not ok then error(err, 0) end
   end
   return {
-    run = function(argv: {string}, opts: Child.Options): Child.Result?, string
+    run = function(argv: {string}, opts: Child.Options): (Child.Result) | (nil, Failure)
       local result: Child.Result? = nil
-      local why: string = ""
+      local why: Failure? = nil
       standing(function()
         local r, w = Child.run(argv, opts)
         result, why = r, w
       end)
-      return result, why
+      local got = result
+      if got ~= nil then return got end
+      return nil, assert(why)
     end,
-    start = function(argv: {string}, opts: Child.Options): Child.Handle?, string
+    start = function(argv: {string}, opts: Child.Options): (Child.Handle) | (nil, Failure)
       local handle: Child.Handle? = nil
-      local why: string = ""
+      local why: Failure? = nil
       standing(function()
         local h, w = Child.start(argv, opts)
         handle, why = h, w
       end)
-      return handle, why
+      local got = handle
+      if got ~= nil then return got end
+      return nil, assert(why)
     end,
   }
 end
@@ -285,7 +290,7 @@ local function test_a_cancelled_task_s_wait_answers_cancelled(tmp: string)
       local waiter = Poll.spawn(function()
         local r, why = h:wait()
         assert(r == nil)
-        waited = why
+        waited = tostring(why)
       end)
       local report = tmp .. "/pid"
       local runner = Poll.spawn(function()
@@ -294,7 +299,7 @@ local function test_a_cancelled_task_s_wait_answers_cancelled(tmp: string)
             'assert(Fs.write(' .. string.format("%q", report) .. ', tostring(sys.getpid()))) ' ..
             sleep(100000)))
         assert(r == nil)
-        ran = why
+        ran = tostring(why)
       end)
       local by = Clock.monotonic_ns() + Clock.seconds(30)
       while not assert(Fs.status(report)).exists and Clock.monotonic_ns() < by do
@@ -364,7 +369,7 @@ local function test_a_cancelled_run_ends_its_child_through_the_run(tmp: string)
       local runner = Poll.spawn(function()
         local r, why = module.run(lua(holding_term(report)))
         assert(r == nil)
-        ran = why
+        ran = tostring(why)
       end)
       run_pid = reported_pid(report)
       local before = ticks
@@ -375,7 +380,7 @@ local function test_a_cancelled_run_ends_its_child_through_the_run(tmp: string)
         local h <close> = assert(module.start(lua(holding_term(report))))
         local r, why = h:wait()
         assert(r == nil)
-        waited = why
+        waited = tostring(why)
         local _, _ = h:close()
       end)
       killed_pid = reported_pid(report)
@@ -453,7 +458,7 @@ local function test_a_raise_while_ending_a_run_still_kills_the_child(tmp: string
   -- first would end the child before it holds SIGTERM, which fails the
   -- assertions below.
   local argv, options = lua(holding_term(report), { timeout_ns = Clock.seconds(8) })
-  local ok, trouble: boolean, any = pcall(Child.run, argv, options)
+  local ok, trouble: boolean, any = pcall(function() local _, _ = Child.run(argv, options) end)
   sys.poll = poll -- checked: field_fixed
   assert(raised and not ok and tostring(trouble):find("poll refused", 1, true) ~= nil,
     tostring(trouble))
@@ -542,7 +547,7 @@ local function test_wait_any_in_a_task_ends_at_the_first_exit()
     local waiter = Poll.spawn(function()
       local none, why = Child.wait_any({ slow })
       assert(none == nil)
-      cancelled = why
+      cancelled = tostring(why)
     end)
     assert(Clock.sleep(Clock.ms(20)))
     waiter:cancel()
@@ -587,7 +592,7 @@ Poll.run(function()
     local env: mut {string:string} = Env.all()
     for name, value in pairs(relaunch.env) do env[name] = value end
     local r, why = Child.run(argv, { timeout_ns = Child.FOREVER, env = env, fds = relaunch.fds })
-    held.answer = tostring(r) .. " " .. why
+    held.answer = tostring(r) .. " " .. tostring(why)
   end)
   local ticker = Poll.spawn(function()
     while held.answer == "" do
@@ -685,7 +690,10 @@ local function test_two_tasks_settle_one_child_once()
     for _, task in ipairs(tasks) do assert(task:join()) end
     local third <close> = assert(Child.start(lua(sleep(100))))
     local waiter = Poll.spawn(function() answers[3] = assert(third:wait()) end)
-    local closer = Poll.spawn(function() closed = third:close() end)
+    local closer = Poll.spawn(function()
+      local ok, _ = third:close()
+      closed = ok
+    end)
     assert(waiter:join())
     assert(closer:join())
     answers[4] = assert(third:wait())

@@ -123,6 +123,7 @@ local cases: {string: function(at: integer, fd: integer)} = {
   multicast_settings = function(_: integer, fd: integer) socket.multicast_settings(fd) end,
   bound = function(_: integer, fd: integer) socket.bound(fd) end,
   peer = function(_: integer, fd: integer) socket.peer(fd) end,
+  peer_gone = function(_: integer, fd: integer) socket.peer_gone(fd) end,
   connected = function(_: integer, fd: integer) socket.connected(fd) end,
   shutdown = function(_: integer, fd: integer) socket.shutdown(fd, "both") end,
   wait = function(_: integer, fd: integer) socket.wait(fd, false, 0) end,

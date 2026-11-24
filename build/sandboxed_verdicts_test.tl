@@ -269,7 +269,9 @@ local function started(args: {string}): Child.Result?, string
     argv[#argv + 1] = assert(Proc.executable())
   end
   for _, word in ipairs(args) do argv[#argv + 1] = word end
-  return Child.run(argv, { timeout_ns = Child.FOREVER, env = env, fds = fds })
+  local result, why = Child.run(argv, { timeout_ns = Child.FOREVER, env = env, fds = fds })
+  if result == nil then return nil, tostring(why) end
+  return result, ""
 end
 ]]
   assert(Fs.write(root .. "/suite/tool_test.tl", started .. [[
@@ -293,7 +295,7 @@ local function test_is_refused_the_tool()
   -- Not there at all, or, for a worker on a sealed database, whose
   -- program's name is its core's, not run.
   local wanted = if relaunch.argv[2] == "--database" then "ermission denied" else "o such file" end
-  assert(trouble:find(wanted, 1, true), trouble)
+  assert(tostring(trouble):find(wanted, 1, true), tostring(trouble))
   if relaunch.argv[2] == "--database" then
     -- A worker on a sealed database has no descriptor of the program to
     -- be refused, and its core, which it is not granted to run, is.
@@ -307,7 +309,7 @@ local function test_is_refused_the_tool()
   end
   local core, core_trouble = Child.run({ assert(relaunch.argv[1]), "-e", "" }, { timeout_ns = Child.FOREVER })
   assert(core == nil, "the program's core ran undeclared")
-  assert(core_trouble:find("ermission denied", 1, true), core_trouble)
+  assert(tostring(core_trouble):find("ermission denied", 1, true), tostring(core_trouble))
   local exe, exe_trouble = Child.run({ "/proc/self/exe", "-e", "" }, { timeout_ns = Child.FOREVER })
   assert(exe == nil, "the program ran through /proc/self/exe")
   local _ = exe_trouble

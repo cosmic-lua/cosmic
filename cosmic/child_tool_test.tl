@@ -113,7 +113,7 @@ return function(argv: {string}): integer
   words[#words + 1] = AGAIN .. "local h = again('" .. ]] .. string.format("%q", sleeping(30000)) .. [[ ..
     "', { timeout_ns = -1, process_group = false }) local Fs = require('cosmic.fs') local pid, ready = ... " ..
     "if pid == nil or ready == nil then return 2 end " ..
-    "assert(Fs.write(pid, tostring(h.pid))) assert(Fs.write(ready, 'ready')) h:wait()"
+    "assert(Fs.write(pid, tostring(h.pid))) assert(Fs.write(ready, 'ready')) local _, _ = h:wait()"
   words[#words + 1] = (argv[1] or "")
   words[#words + 1] = (argv[2] or "")
   local result, trouble = Child.run(words, { timeout_ns = Child.FOREVER, env = relaunch.env, fds = relaunch.fds })
@@ -208,7 +208,7 @@ local function test_stopping_a_reaped_child_names_the_module()
   local h = assert(Child.start(argv, { timeout_ns = Child.FOREVER, env = relaunch.env, fds = relaunch.fds }))
   assert(h:wait())
   local stopped, why = h:stop()
-  assert(stopped == false and why == "child: process already reaped", tostring(why))
+  assert(stopped == false and why.message == "child: process already reaped", tostring(why))
 end
 
 --- Where the platform has no sandbox for a child (anything but Linux), a
@@ -227,7 +227,7 @@ local function test_a_sandboxed_child_is_refused_where_the_platform_has_no_sandb
   -- Only as a kernel that cannot sandbox refuses.
   local refused = false
   for _, errno in ipairs({ sys.ENOSYS, sys.EPERM, sys.EACCES, sys.EINVAL, sys.ENOSPC }) do
-    if trouble == "child: start: " .. sys.errno_message(errno) then refused = true end
+    if trouble.message == "child: start: " .. sys.errno_message(errno) then refused = true end
   end
   assert(refused, trouble)
 end
@@ -243,6 +243,7 @@ local function test_guard_keeps_a_signal_and_delivers_it_on_close(tmp: string)
   local fixture = tmp .. "/guarded.tl"
   assert(Fs.write(fixture, [[
 local Child = require("cosmic.child")
+local type Failure = require("cosmic.failure")
 local Signal = require("cosmic.signal")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
@@ -283,10 +284,10 @@ return function(argv: {string}): integer
     end
     assert(sys.kill(sys.getpid(), sys.SIGTERM))
     local answers: mut {string} = {}
-    for _, wait in ipairs({ function(): Child.Result?, string return timed:wait(0) end,
-        function(): Child.Result?, string return untimed:wait() end }) do
+    for _, wait in ipairs({ function(): (Child.Result) | (nil, Failure) return timed:wait(0) end,
+        function(): (Child.Result) | (nil, Failure) return untimed:wait() end }) do
       local r, trouble = wait()
-      answers[#answers + 1] = tostring(r == nil) .. " " .. trouble
+      answers[#answers + 1] = tostring(r == nil) .. " " .. tostring(trouble)
     end
     local timed_alive, _ = sys.kill(timed.pid, 0)
     answers[#answers + 1] = tostring(not timed_alive)
@@ -343,7 +344,8 @@ return function(argv: {string}): integer
   local r, why = Child.run(this("local sys = require('cosmic.sys') " ..
     "assert(sys.kill(" .. tostring(sys.getpid()) .. ", sys.SIGTERM)) " ..
     "local _, _ = require('cosmic.clock').sleep(30000000000)"), options)
-  answers[#answers + 1] = tostring(r == nil) .. " " .. why
+  answers[#answers + 1] = tostring(r == nil) .. " " .. tostring(why)
+  answers[#answers + 1] = if why ~= nil then why.kind else "" end
   answers[#answers + 1] = tostring(guard:cancelled())
   local after = assert(Child.run(this("return 4"), options))
   answers[#answers + 1] = tostring(after.code)
@@ -360,6 +362,6 @@ end
       " " .. tostring(r.stderr))
   local term = tostring(sys.SIGTERM)
   local got, _ = Fs.read(report)
-  assert(got == table.concat({ "true child: cancelled by signal " .. term, term, "4", term }, "|"),
+  assert(got == table.concat({ "true child: cancelled by signal " .. term, "cancelled", term, "4", term }, "|"),
     tostring(got))
 end

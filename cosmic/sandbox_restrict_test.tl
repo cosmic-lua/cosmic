@@ -121,12 +121,12 @@ local function test_the_signal_scope_lets_a_forked_process_signal_what_is_inside
   local said = Restrict.in_child(restricted(
     string.format("{ grants = { { path = %q, letters = \"rx\" } }, promises = { \"fork\" } }", probe),
     string.format([[
-local own = Child.run({ %q, "signal TERM" }, { timeout_ns = Child.FOREVER, process_group = false, stdout = "capture", stderr = "stdout" })
+local own, _ = Child.run({ %q, "signal TERM" }, { timeout_ns = Child.FOREVER, process_group = false, stdout = "capture", stderr = "stdout" })
 if own ~= nil then say("self", own.signal, own.code, own.stdout) else say("self", nil, nil, nil) end
 local held = assert(Child.start({ %q, "sleep-forever" }, { timeout_ns = Child.FOREVER, process_group = false }))
 local ended, kill_why = sys.kill(held.pid, sys.SIGKILL)
 say("child", ended, kill_why)
-local waited = held:wait()
+local waited, _ = held:wait()
 if waited ~= nil then say("reaped", waited.signal) else say("reaped", nil) end
 local mine, mine_why = sys.kill(sys.getpid(), 0)
 say("pid", mine, mine_why)
@@ -136,7 +136,7 @@ local parent, parent_why = sys.kill(%d, 0)
 say("parent", parent, parent_why)
 ]], probe, probe, sibling.pid, sys.getpid())))
   local alive = sys.kill(sibling.pid, 0)
-  sibling:stop(sys.SIGKILL)
+  local _, _ = sibling:stop(sys.SIGKILL)
   assert(sibling:wait())
   local refused = "^false.*Operation not permitted"
   assert(assert(said.lines["pid"]):find("^true"), said.raw)

@@ -32,6 +32,7 @@ local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local narrow = require("build.narrow")
+local verb_list = require("build.verb_list")
 
 local record tree_root
   --- Where a verb was started and the tree it runs in instead.
@@ -116,14 +117,7 @@ local function above(dir: string, home: string?): string?, string
   end
 end
 
---- The verbs whose words, all of them ("all") or all but the first
---- ("rest") or only those naming something that exists ("named"), are
---- paths to read from where the verb was started. `docs` and `db` take none
---- that matter; `sql` looks in the working directory only, by its documentation.
-local paths <const>: {string:string} = {
-  test = "named", fix = "all", build = "all", db = "all", uses = "rest", todos = "named",
-  docs = "none",
-}
+local paths <const> = verb_list.tree_paths
 
 --- `word` read from the directory `from`, unnormalized.
 local function joined_to(from: string, word: string): string

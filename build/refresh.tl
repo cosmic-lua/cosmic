@@ -611,7 +611,9 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
     if not written then
       return tostring(write_trouble)
     end
-    local opened, open_trouble = Sqlite.open(path, { writable = true })
+    -- Not defensive: the copy keeps the binary's schema cookie, which is
+    -- written back below, and only this file's own SQL runs on it.
+    local opened, open_trouble = Sqlite.open(path, { writable = true, defensive = false })
     if opened == nil then
       return path .. ": " .. tostring(open_trouble)
     end

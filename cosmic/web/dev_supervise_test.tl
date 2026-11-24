@@ -18,7 +18,9 @@ local DEADLINE_NS <const> = Clock.seconds(8)
 local function program(chunk: string): function(env: {string:string}): Child.Handle?, string
   return function(env: {string:string}): Child.Handle?, string
     local started = fixture.lua(chunk, nil, { timeout_ns = Child.FOREVER, env = env })
-    return Child.start(started.argv, started.options)
+    local handle, why = Child.start(started.argv, started.options)
+    if handle == nil then return nil, tostring(why) end
+    return handle, ""
   end
 end
 

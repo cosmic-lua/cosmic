@@ -118,6 +118,25 @@ function tree.standing(root: string, carried?: string, executable?: string): tre
   return tree.standing_of(root, built, executable)
 end
 
+--- The standing of `built`, the checkout a tool records, where the tool
+--- holds itself to it from a tree that is not cosmic's own: the tool is
+--- that checkout's own ([`tree.own_tool`]), and the checkout is still
+--- cosmic's own tree. Nil where either cannot be seen, and for any other
+--- tool, which runs on in a project as it is: a release, which records no
+--- checkout; a copy run from outside the checkout's build directory, which
+--- a rebuild would not replace; a process that cannot see that directory,
+--- as a sandboxed one.
+--- @param built the tool's [`built_from`], nil for one that records none
+--- @param executable the path the tool was started as, or nil for this process's
+function tree.checkout(built: string?, executable?: string): tree.Standing?
+  if built == nil then return nil end
+  local own, _ = tree.own_tool(built, executable)
+  if own ~= true then return nil end
+  local standing, _ = tree.standing(built, built, executable)
+  if standing == nil or not standing.own then return nil end
+  return standing
+end
+
 --- What `root` is to the tool a boot of it is writing, which will record
 --- `root` as its [`built_from`]: the tool running the boot is the one it
 --- replaces, so the row it carries says nothing. Nil and why where the root

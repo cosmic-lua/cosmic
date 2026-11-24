@@ -27,14 +27,9 @@ local record rules
 end
 
 local exempt: {string: string} = {
-  ["cosmic/child.tl:Child.wait_any"] =
-    "a finished handle comes back with its group's lingering-member " ..
-    "trouble, which a caller reports beside the handle's result",
 }
 
 local parsing: {string: string} = {
-  ["build/child_policy_fixture.tl:child_policy_fixture.refused"] =
-    "the sandbox reports a refusal of the policy and of the host in text alone; the test tells them apart to skip the host's",
   ["test/terminal/pty.tl:assert_terminal_refusal"] =
     "the CI terminal fixture checks the public rejection diagnostic, not a recovery decision",
 }

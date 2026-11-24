@@ -84,7 +84,7 @@ function Process.start(label: string, argv: {string}, cwd: string,
     end
     local _, _ = Fs.close(out_fd)
     local _, _ = Fs.close(err_fd)
-    error(label .. ": " .. trouble)
+    error(label .. ": " .. tostring(trouble))
   end
   return { label = label, handle = handle, out_fd = out_fd, err_fd = err_fd,
     input_fd = input_fd, out = out, err = err, closed = false }
@@ -112,7 +112,7 @@ function Process.finish(running: Process.Running, timeout?: integer): Child.Resu
   if result == nil then
     local _, _ = running.handle:close()
     close_descriptors(running)
-    error(running.label .. ": child wait failed: " .. trouble)
+    error(running.label .. ": child wait failed: " .. tostring(trouble))
   end
   close_descriptors(running)
   return result
@@ -162,7 +162,7 @@ function Process.await_ready(work: string, diagnostics: string, label: string,
   local called, failure = pcall(function(): boolean
     local first, trouble = Child.wait_any({ reader.handle, child.handle }, bound)
     if first == nil then
-      error(label .. ": no readiness from " .. child.label .. ": " .. trouble)
+      error(label .. ": no readiness from " .. child.label .. ": " .. tostring(trouble))
     end
     early.exited = first ~= reader.handle
     -- The child may have written before it exited, and the reader be

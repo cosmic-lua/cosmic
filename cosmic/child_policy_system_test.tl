@@ -27,10 +27,10 @@ local CAT <const> = "/bin/cat"
 local function cat(policy: Sandbox.Policy, file: string): string, integer
   local result, why = Child.run({ CAT, file }, { timeout_ns = Child.FOREVER, policy = policy, stdout = "capture", stderr = "stdout" })
   if result == nil then
-    if why:find("Landlock", 1, true) or why:find("seccomp", 1, true) or why:find("not implemented", 1, true) then
-      Test.skip(why)
+    if why.message:find("Landlock", 1, true) or why.message:find("seccomp", 1, true) or why.message:find("not implemented", 1, true) then
+      Test.skip(tostring(why))
     end
-    error("the start was refused: " .. why)
+    error("the start was refused: " .. tostring(why))
   end
   local out = assert(result.stdout, "stdout = \"capture\" captures it")
   return out, result.code or -1
@@ -65,10 +65,10 @@ local function test_without_the_profile_the_loader_is_not_granted_and_the_start_
     return
   end
   -- Where the host gives no Landlock or seccomp the start is refused for that, past the grants.
-  if why:find("Landlock", 1, true) or why:find("seccomp", 1, true) or why:find("not implemented", 1, true) then
-    Test.skip(why)
+  if why.message:find("Landlock", 1, true) or why.message:find("seccomp", 1, true) or why.message:find("not implemented", 1, true) then
+    Test.skip(tostring(why))
     return
   end
-  assert(why:find("^child: start: sandbox: ") and why:find("interpreter", 1, true), why)
-  assert(why:find("system", 1, true), why)
+  assert(why.message:find("^child: start: sandbox: ") and why.message:find("interpreter", 1, true), why)
+  assert(why.message:find("system", 1, true), why)
 end

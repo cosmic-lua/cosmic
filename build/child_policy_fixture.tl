@@ -66,8 +66,8 @@ function child_policy_fixture.under(program: string, policy: Sandbox.Policy, cwd
   local result, why = Child.run({ program, script },
     { timeout_ns = Child.FOREVER, policy = policy, cwd = cwd, stdout = "capture", stderr = "stdout", fds = fds })
   if result == nil then
-    assert(child_policy_fixture.unsandboxable(why), "the start was refused: " .. why)
-    Test.skip(why)
+    assert(child_policy_fixture.unsandboxable(tostring(why)), "the start was refused: " .. tostring(why))
+    Test.skip(tostring(why))
     error("Test.skip ends the test where it is called")
   end
   return { code = result.code or -1, said = result.stdout or "" }
@@ -86,10 +86,10 @@ function child_policy_fixture.refused(program: string, policy: Sandbox.Policy, c
     return ""
   end
   -- A refusal of the policy itself is the answer; the host's is a skip.
-  if child_policy_fixture.unsandboxable(why) and not why:find("^child: start: sandbox: ") then
-    Test.skip(why)
+  if child_policy_fixture.unsandboxable(tostring(why)) and not why.message:find("^child: start: sandbox: ") then
+    Test.skip(tostring(why))
   end
-  return why
+  return tostring(why)
 end
 
 --- A permission mode written in octal.

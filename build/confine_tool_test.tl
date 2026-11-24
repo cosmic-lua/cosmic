@@ -2,6 +2,7 @@
 --- process a test confines in a root of its own is given, and what
 --- starts where the kernel can confine none.
 
+local Failure = require("cosmic.failure")
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -248,7 +249,7 @@ local function test_a_must_confined_program_exec_cannot_run_fails_as_its_own(tmp
   local own = tmp .. "/own"
   assert(Fs.mkdirs(own))
   for _, sandboxes in ipairs({ "refused", "real" }) do
-    local trouble: support.Cell<string> = {}
+    local trouble: support.Cell<Failure> = {}
     local ran: support.Cell<confine.Ran> = {}
     local function attempt()
       ran.value = confine.call(function() -- checked: not_assignable
@@ -261,7 +262,7 @@ local function test_a_must_confined_program_exec_cannot_run_fails_as_its_own(tmp
     end
     if sandboxes == "refused" then refusing_sandboxes(attempt) else attempt() end
     local finished = assert(ran.value)
-    local reason = assert(trouble.value)
+    local reason = assert(trouble.value).message
     assert(finished.ok, sandboxes .. ": " .. tostring(finished.produced))
     assert(not reason:find("could not start confined", 1, true), reason)
   end

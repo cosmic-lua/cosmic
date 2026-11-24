@@ -31,6 +31,14 @@ not run what its author chose:
   again, for a file the caller trusts; a [`cosmic.store`] handle, which
   permits only queries, refuses it.
 
+Every handle is also in SQLite's [defensive
+mode](https://sqlite.org/c3ref/c_dbconfig_defensive.html), and checks each
+cell's size as it reads it: no SQL can write `sqlite_schema` or the shadow
+tables of an FTS5 or R*Tree table, and `PRAGMA schema_version = N` and
+`PRAGMA journal_mode = OFF` change nothing. `Sqlite.open(path, {
+writable = true, defensive = false })` turns defensive mode off, for code
+that writes the schema itself.
+
 ```teal
 local Sqlite = require("cosmic.sqlite")
 

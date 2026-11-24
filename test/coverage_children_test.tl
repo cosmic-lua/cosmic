@@ -139,7 +139,7 @@ return function(argv: {string}): integer
   local r, trouble = Child.run(words, { timeout_ns = Child.FOREVER, env = relaunch.env, fds = fds, cwd = "/", process_group = false,
     sandbox = { unveil = { reads = reads, writes = { reports } }, offline = true } })
   if r == nil then
-    print("refused " .. (if own then "own" else "host" end) .. " " .. trouble)
+    print("refused " .. (if own then "own" else "host" end) .. " " .. tostring(trouble))
     return 0
   end
   print("exited " .. tostring(r.code))

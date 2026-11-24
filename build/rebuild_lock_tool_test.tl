@@ -337,8 +337,8 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
     end)
     rebuild_lock.release()
     if not ok then
-      local _ = a:stop(sys.SIGKILL)
-      local _ = a:wait(Clock.seconds(20))
+      local _, _ = a:stop(sys.SIGKILL)
+      local _, _ = a:wait(Clock.seconds(20))
       error(failure)
     end
   end

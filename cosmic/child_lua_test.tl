@@ -58,7 +58,7 @@ local AGAIN <const> = fixture.AGAIN
 local function test_start_failure_is_not_exit_127()
   local h, trouble = Child.start({ "/definitely/not/a/cosmic-command" }, { timeout_ns = Child.FOREVER })
   assert(h == nil)
-  assert(trouble:find("start:", 1, true))
+  assert(trouble.message:find("start:", 1, true))
   local r = assert(Child.run(lua("return 127")))
   assert(r.code == 127 and not r.ok)
 end
@@ -123,7 +123,7 @@ local function test_timeout_kills_the_process_group_and_reaps_child(tmp: string)
     local fd, path = output(tmp, name)
     local h = assert(Child.start(lua(AGAIN ..
         "local h = again('" .. sleep(30000) .. "', { timeout_ns = -1, process_group = false }) " .. FS ..
-        "assert(Fs.put(1, tostring(h.pid))) h:wait()",
+        "assert(Fs.put(1, tostring(h.pid))) local _, _ = h:wait()",
       nil, { timeout_ns = Child.FOREVER, stdout = fd, stderr = fd })))
     local deadline = Clock.monotonic_ns() + Clock.seconds(10)
     while assert(Fs.stat(path)).size == 0 and Clock.monotonic_ns() < deadline do
@@ -191,20 +191,22 @@ end
 -- its option is refused before a start, and a sandboxed worker has no
 -- sh to find, so a refusal that regressed fails the case either way.
 local function test_invalid_inputs_do_not_poison_signal_guard()
-  Test.raises(function() Child.run({ "/bin/sh\0bad" }, { timeout_ns = Child.FOREVER }) end)
   Test.raises(function()
-    Child.run({ "/bin/sh" }, { timeout_ns = Child.FOREVER, cwd = "/tmp\0bad" })
+    local _, _ = Child.run({ "/bin/sh\0bad" }, { timeout_ns = Child.FOREVER })
   end)
   Test.raises(function()
-    Child.run({ "/bin/sh" },
+    local _, _ = Child.run({ "/bin/sh" }, { timeout_ns = Child.FOREVER, cwd = "/tmp\0bad" })
+  end)
+  Test.raises(function()
+    local _, _ = Child.run({ "/bin/sh" },
       { timeout_ns = Child.FOREVER, env = { ["BAD=NAME"] = "value" } })
   end)
   Test.raises(function()
-    Child.run({ "/bin/sh" },
+    local _, _ = Child.run({ "/bin/sh" },
       { timeout_ns = Child.FOREVER, env = { NAME = "value\0tail" } })
   end)
   Test.raises(function()
-    Child.run({ "/bin/sh" },
+    local _, _ = Child.run({ "/bin/sh" },
       { timeout_ns = Child.FOREVER, stdout = 2147483648 })
   end)
   Test.raises(function() sys.kill(2147483648, 0) end)
@@ -212,19 +214,20 @@ local function test_invalid_inputs_do_not_poison_signal_guard()
   assert(result.ok)
 end
 
---- Successful public child operations always fill the error slot.
+--- Successful public child operations answer no failure, or an empty
+--- error slot where they still answer one in words.
 local function test_success_results_carry_empty_errors()
   local result, run_trouble = Child.run(lua(""))
-  assert(result ~= nil and run_trouble == "")
+  assert(result ~= nil and run_trouble == nil)
 
   local first, start_trouble = Child.start(lua(""))
-  assert(first ~= nil and start_trouble == "")
+  assert(first ~= nil and start_trouble == nil)
   local waited, wait_trouble = first:wait()
-  assert(waited ~= nil and wait_trouble == "")
+  assert(waited ~= nil and wait_trouble == nil)
 
   local second = assert(Child.start(lua(sleep(50))))
   local polled, poll_trouble = second:try_wait()
-  assert(polled ~= nil and poll_trouble == "")
+  assert(polled ~= nil and poll_trouble == nil)
   if not polled.finished then
     assert(second:wait())
   end
@@ -552,7 +555,7 @@ local function test_wait_any_returns_the_first_to_finish()
   local r = assert(fast:wait())
   assert(r.ok and r.stdout == "quick")
   local none, trouble = Child.wait_any({ slow }, 0)
-  assert(none == nil and trouble == Poll.TIMEOUT, trouble)
+  assert(none == nil and trouble.message == Poll.TIMEOUT, trouble)
   assert(slow:close())
 end
 
@@ -593,7 +596,7 @@ local function test_wait_any_refuses_a_timeout_out_of_range()
     assert(message:find("timeout_ns must be nil or an integer from 0 to", 1, true), message)
   end
   local none, trouble = Child.wait_any({ slow }, 0)
-  assert(none == nil and trouble == Poll.TIMEOUT, trouble)
+  assert(none == nil and trouble.message == Poll.TIMEOUT, trouble)
   local quick <close> = assert(Child.start(lua("")))
   local first = assert(Child.wait_any({ slow, quick }))
   assert(first == quick)
@@ -675,7 +678,7 @@ local function test_wait_any_ends_a_child_past_its_start_timeout()
   local slow <close> = assert(Child.start(lua(sleep(30000))))
   local timed <close> = assert(Child.start(lua(sleep(30000), nil, { timeout_ns = Clock.ms(400) })))
   local none, trouble = Child.wait_any({ slow, timed }, Clock.ms(50))
-  assert(none == nil and trouble == Poll.TIMEOUT, trouble)
+  assert(none == nil and trouble.message == Poll.TIMEOUT, trouble)
   local running = assert(timed:try_wait())
   assert(not running.finished, "wait_any's own timeout ended a child")
   local began = Clock.monotonic_ns()
@@ -773,9 +776,9 @@ local function test_a_timeout_ends_a_child_after_the_nanoseconds_it_says()
   began = Clock.monotonic_ns()
   local none, trouble = Child.wait_any({ slow }, Clock.ms(100))
   took = Clock.monotonic_ns() - began
-  assert(none == nil and trouble == Poll.TIMEOUT, trouble)
+  assert(none == nil and trouble.kind == "timeout" and trouble.message == Poll.TIMEOUT, trouble)
   assert(took >= Clock.ms(90) and took < Clock.seconds(20), tostring(took // Clock.ms(1)) .. " ms")
   -- A nanosecond is a wait that ends, as zero is a look.
   none, trouble = Child.wait_any({ slow }, 1)
-  assert(none == nil and trouble == Poll.TIMEOUT, trouble)
+  assert(none == nil and trouble ~= nil and trouble.kind == "timeout", trouble)
 end

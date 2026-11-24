@@ -68,20 +68,36 @@ end
 --- [`Child.start`], its handle offered as [`Seams.Started`].
 local function start(argv: {string}, options?: Child.Options): Seams.Started?, string
   local handle, why = Child.start(argv, options or { timeout_ns = Child.FOREVER })
-  if handle == nil then return nil, why end
+  if handle == nil then return nil, tostring(why) end
   return new_started({
-    stop = function(signal?: integer): boolean, string return handle:stop(signal) end,
-    try_wait = function(): Child.TryWait?, string return handle:try_wait() end,
+    -- In words, as the pinned release's handle answers them too.
+    stop = function(signal?: integer): boolean, string
+      local stopped, stop_why = handle:stop(signal)
+      if stopped then return true, "" end
+      return false, tostring(stop_why)
+    end,
+    try_wait = function(): Child.TryWait?, string
+      local state, wait_why = handle:try_wait()
+      if state == nil then return nil, tostring(wait_why) end
+      return state, ""
+    end,
     drain = function(drained: Child.DrainOptions): Child.DrainResult
       return handle:drain(drained)
     end,
-    close = function(): boolean, string return handle:close() end,
+    close = function(): boolean, string
+      local closed, close_why = handle:close()
+      if closed then return true, "" end
+      return false, tostring(close_why)
+    end,
   }), ""
 end
 
 local current: Seams.Calls = {
   child_run = function(argv: {string}, options?: Child.Options): Child.Result?, string
-    return Child.run(argv, options or { timeout_ns = Child.FOREVER })
+    -- In words, as the pinned release's Child.run answers them too.
+    local result, why = Child.run(argv, options or { timeout_ns = Child.FOREVER })
+    if result == nil then return nil, tostring(why) end
+    return result, ""
   end,
   child_start = start,
   env_all = Env.all,

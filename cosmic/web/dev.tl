@@ -606,7 +606,9 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
       command = { program, "app.tl" }
     end
     start = function(env: {string:string}): Child.Handle?, string
-      return Child.start(command, { timeout_ns = Child.FOREVER, env = env })
+      local handle, failed = Child.start(command, { timeout_ns = Child.FOREVER, env = env })
+      if handle == nil then return nil, tostring(failed) end
+      return handle, ""
     end
   end
   local first, why = scan(roots, ignored)
@@ -647,7 +649,7 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
     -- one that is ending this supervisor, and skips the grace. `wait_any`
     -- is not ended by the guard and answers the program reaped.
     local done, trouble = Child.wait_any({ h }, grace_ns)
-    if done == nil and trouble == Poll.TIMEOUT then
+    if done == nil and trouble.kind == "timeout" then
       local _, _ = h:stop(sys.SIGKILL)
       local _, _ = Child.wait_any({ h }, KILLED_NS)
     end

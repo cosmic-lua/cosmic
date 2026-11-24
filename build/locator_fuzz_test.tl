@@ -133,7 +133,7 @@ local function test_a_corrupt_host_program_is_refused_by_name(tmp: string)
       rewrite(support.nth(f, 1) .. database .. support.nth(f, 2))
       local r, trouble = Child.run({ program }, {
         stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(10) })
-      if r == nil then return false, "run: " .. trouble end
+      if r == nil then return false, "run: " .. tostring(trouble) end
       if r.timed_out then return false, "hung past 10 s" end
       if r.ok and r.stdout == "ok\n" then
         Fuzz.label("ran")

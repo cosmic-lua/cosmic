@@ -454,7 +454,7 @@ local function test_no_other_process_can_listen_at_the_relays_port(tmp: string)
       assert(why:find("in use", 1, true), host .. ", the relay running: " .. why)
     end
     assert(handle:stop())
-    local _ = handle:wait(Clock.seconds(20))
+    local _, _ = handle:wait(Clock.seconds(20))
   end)
 end
 
@@ -521,7 +521,7 @@ local function test_the_relay_is_held_by_a_profile_of_its_own(tmp: string)
     assert(tostring(said["read " .. secret]):find("not permitted", 1, true),
       "the relay's profile read a file it does not grant: " .. probe.output)
     assert(handle:stop())
-    local _ = handle:wait(Clock.seconds(20))
+    local _, _ = handle:wait(Clock.seconds(20))
   end)
 end
 
@@ -632,7 +632,7 @@ local function test_a_policy_with_connect_may_not_set_a_proxy_variable(tmp: stri
   local handle, why = Child.start({ assert(Proc.executable()), "wait" }, { timeout_ns = Child.FOREVER, policy = {
     database = { path = sealed_client(tmp) }, profiles = { "system" }, connect = { "127.0.0.1:9" },
     set_env = { HTTPS_PROXY = "http://elsewhere:1" } } })
-  assert(handle == nil and why:find("HTTPS_PROXY is set by the relay", 1, true) ~= nil, tostring(why))
+  assert(handle == nil and why.message:find("HTTPS_PROXY is set by the relay", 1, true) ~= nil, tostring(why))
 end
 
 --- The relay's own policy reads the database it runs on and the resolver's

@@ -612,7 +612,7 @@ end
 --- [`Zig.run`] with a start that sends this process SIGTERM, which the run's guard catches, and then raises: the child
 --- of build/zig_signal_tool_test.tl, which shows the guard closed (delivering the signal) and not released.
 test_child.register("raises_after_a_signal", function(_args: {string}): integer
-  Child.start = function(_argv: {string}, _options?: Child.Options): Child.Handle?, string -- checked: field_fixed
+  Child.start = function(_argv: {string}, _options?: Child.Options): (Child.Handle) | (nil, Failure) -- checked: field_fixed
     assert(sys.kill(sys.getpid(), sys.SIGTERM))
     error("the start raised")
   end
