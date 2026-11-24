@@ -417,10 +417,13 @@ local function callback(listener: Net.Listener, deadline_ns: integer, state: str
     listener:set_timeout(if left < HEAD_NS then left else HEAD_NS end)
     local conn, why = listener:accept(left)
     if conn == nil then
-      if why == Poll.CANCELLED then
+      if why.kind == "cancelled" then
         return nil, Failure.cancelled("mcp: oauth: the sign-in was cancelled")
       end
-      return nil, Failure.new("mcp: oauth: waiting for the sign-in: " .. why)
+      if why.kind == "timeout" then
+        return nil, Failure.timeout("mcp: oauth: no sign-in came back in time")
+      end
+      return nil, Failure.new("mcp: oauth: waiting for the sign-in: " .. tostring(why))
     end
     local request = request_of(conn)
     local target = if request ~= nil then request.target else "" end
