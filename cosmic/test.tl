@@ -240,6 +240,18 @@ local record Test
     mut timeout?: integer
   end
 
+  --- What the run of a test does that makes the same work cost more than
+  --- a plain run does: what [`Test.mode`] answers. A test that holds one
+  --- piece of work to a multiple of another ([`lang.speed`]) reads it to
+  --- give each mode a limit of its own, since a mode need not slow both
+  --- sides alike.
+  record Mode
+    --- The run checks types as the code runs (`cosmic test
+    --- --check-types`): each checked call and narrowing costs more, so
+    --- code that makes many costs more against code that makes few.
+    types_checked: boolean
+  end
+
   --- One path a test may reach, and how: [`test_policy.Grant`].
   type Grant = TestPolicy.Grant
   --- The resource limits of a policy: [`test_policy.Limits`].
@@ -593,6 +605,19 @@ function Test.parent(relative: string): string
     error("test: parent is given by a runner only, and this one gives none", 2)
   end
   return base .. "/" .. relative
+end
+
+--- What the run that runs this test does that makes work cost more than
+--- in a plain run ([`Mode`]). A run that checks types keeps verdicts of
+--- its own, so a verdict stands on the mode it was reached in. Outside a
+--- runner, a plain run.
+---
+---     local Test = require("cosmic.test")
+---     local LIMIT <const> = if Test.mode().types_checked then 100 else 50 end
+--- @return the run's mode
+function Test.mode(): Test.Mode
+  local installed = runner_in(Test)
+  return { types_checked = installed ~= nil and installed["types_checked"] == true }
 end
 
 --- Ends the running test as skipped: this host cannot check what it
