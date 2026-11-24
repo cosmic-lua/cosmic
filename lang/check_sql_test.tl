@@ -21,6 +21,8 @@ local record Handle
   map: function(Handle, string, {integer | string}, function(Row): integer): {integer}
   prepare: function(Handle, string): boolean
   exec: function(Handle, string): boolean
+  exec_result: function(Handle, string): boolean
+  migrate: function(Handle, {string}): boolean
 end
 local record Schema
   ddl: string
@@ -110,6 +112,27 @@ local function test_a_handle_of_a_schema_is_read_where_its_type_goes()
     "not_assignable", "`Notes` is wanted")
 end
 
+--- A schema's handles come from open and memory alone: no literal makes one, `is` does not test for one, and no function
+--- is written into one. Its value is [`Sqlite.schema`] of the DDL, with the field `ddl`.
+local function test_a_schema_is_no_class_a_program_makes_or_tests()
+  says(HEAD .. 'local fake: Notes = {}\nprint(fake)\n', "class_scope", "whose handles have the metatable of")
+  says(HEAD .. 'local function f(v: Notes | string): string\n  if v is Notes then return "h" end\n  return v\nend\n' ..
+      'print(f(db))\n', "class_scope", "tests the metatable of a `local schema`")
+  local made = Programs.run(HEAD .. 'function Notes.count(): integer return 1 end\nprint(Notes)\n', MODULES)
+  local first = made.errors[1]
+  local said = table.concat(made.before, " ") .. (if first ~= nil then first.code .. ": " .. first.msg else "" end)
+  assert(said:find("schema_member", 1, true) ~= nil, said)
+  accepted(HEAD .. 'local ddl: string = Notes.ddl\nprint(ddl)\n')
+  says(HEAD .. 'print(Notes.exec(db, "DELETE FROM notes"))\n', "field_unknown", "exec")
+  -- the argument is checked once
+  local run = Programs.run(HEAD .. 'local other = Sqlite.memory({ schema = Sqlite.nope })\nprint(other)\n', MODULES)
+  local count = 0
+  for _, e in ipairs(run.errors) do
+    if e.msg:find("nope", 1, true) ~= nil then count = count + 1 end
+  end
+  assert(count == 1, tostring(count))
+end
+
 --- A schema is a type and a value that crosses modules as any declaration does.
 local function test_a_schema_of_another_module_is_read()
   local modules: {string: string} = {
@@ -153,6 +176,15 @@ local function test_sql_that_changes_the_schema_ends_the_reads()
 
   accepted(HEAD .. 'local function sql(): string return "CREATE TABLE extra (z)" end\nprint(db:exec(sql()))\n' ..
       'print(db:rows("SELECT z FROM extra"))\n')
+
+  -- through a field or another local, and by `exec_result` or `migrate`, the schema's reads end for the module
+  accepted(HEAD .. 'local record App\n  db: Notes\nend\nlocal app: App = { db = db }\n' ..
+      'print(app.db:exec("CREATE TABLE extra (a)"))\nprint(db:rows("SELECT a FROM extra"))\n')
+  accepted(HEAD .. 'print(db:exec_result("CREATE TABLE extra (a)"))\nprint(db:rows("SELECT a FROM extra"))\n')
+  accepted(HEAD .. 'print(db:migrate({ "CREATE TABLE extra (a)" }))\nprint(db:rows("SELECT a FROM extra"))\n')
+  -- reads before the change stand
+  says(HEAD .. 'print(db:rows("SELECT nme FROM notes"))\nprint(db:exec("CREATE TABLE extra (a)"))\n', "sql_refused",
+    "no such column: nme")
 
   -- a column named like a keyword is no change
   says(HEAD .. 'print(db:rows("SELECT created FROM notes"))\n', "sql_refused", "no such column: created")

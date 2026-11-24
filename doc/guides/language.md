@@ -908,7 +908,11 @@ print(body_of(db, 1))
 hi
 ```
 
-A module exports a schema as it does any class: `type Notes = Notes` in its record, and the value as a field.
+A schema's handles are made by [`Sqlite.open`] and [`Sqlite.memory`] alone: a table literal of `Notes`, `v is Notes` and a
+function written into `Notes` (`function Notes.f()`) are refused, since a handle's metatable is [`cosmic.sqlite`]'s. The
+value `Notes` has the field `ddl`. A module exports a schema as the type, `type Notes = Notes` in its record, and a
+function that opens a handle of it: another module that holds the value in a field holds a [`Sqlite.Schema`], which
+opens a plain handle.
 
 ## a value or a failure
 
@@ -1043,3 +1047,4 @@ true	/no/such/file: No such file or directory
 [`Sqlite.Handle`]: ../../cosmic/sqlite.tl
 [`Sqlite.memory`]: ../../cosmic/sqlite.tl
 [`Sqlite.open`]: ../../cosmic/sqlite.tl
+[`Sqlite.Schema`]: ../../cosmic/sqlite.tl

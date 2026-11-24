@@ -500,9 +500,9 @@ local record Ctx
   --- The text of each local that is given a string literal and never assigned, by id: what a literal pattern or format
   --- held in a local says.
   consts: mut {integer: string}
-  --- The locals that hold a handle of a `local schema` whose SQL is no longer read against it, by id: one
-  --- sent SQL that may make a table or attach a database ([`Calls.sql_arguments`]).
-  unread_handles: mut {integer: boolean}
+  --- The schemas whose handles' SQL the rest of the module no longer reads: a handle of one was sent SQL that may
+  --- make a table or attach a database, or was migrated ([`Calls.sql_arguments`]).
+  unread_schemas: mut {Decl: boolean}
   --- The result columns of each call of `rows` or `one` on a handle of a `local schema` with literal SQL
   --- that SQLite prepares against it, by the id of the call.
   call_columns: mut {integer: {Sql.Column}}
@@ -1033,6 +1033,15 @@ local function members_index(ctx: Ctx, decl: Decl, value: boolean): Members?
   local body = decl.body
   if body == nil then
     return nil
+  end
+  local schema = if value and body.schema ~= nil then ctx.store:find("cosmic.sqlite", "Schema") else nil end
+  if schema ~= nil then
+    -- A `local schema` used as a value is [`Sqlite.schema`] of its DDL.
+    local of_schema = members_index(ctx, schema, false)
+    if of_schema ~= nil then
+      cache[decl] = of_schema
+    end
+    return of_schema
   end
   local index: Members = { by_name = {}, array = not value and body.array or nil, selfish = {} } -- checked: and_ternary
   local absent = ctx.program.absent[decl] or {}
@@ -2334,7 +2343,11 @@ end
 --- this one with `@` and the node's id after it, [`lang.declarations`]), and is no member of another type, which has
 --- no table of its own at run time.
 function TableLiterals.out_of_reach(ctx: Ctx, decl: Decl): string
-  if decl.module:gsub("@.*$", "") ~= ctx.input.module then
+  local body = decl.body
+  if body ~= nil and body.schema ~= nil then
+    return "a `local schema`, whose handles have the metatable of `cosmic.sqlite`'s Handle and are made by " ..
+      "`Sqlite.open` and `Sqlite.memory` alone"
+  elseif decl.module:gsub("@.*$", "") ~= ctx.input.module then
     return "a class of the module " .. quoted(decl.module) .. ", whose metatable only that module reaches"
   elseif decl.module:find("@", 1, true) ~= nil then
     return "a class declared in a block, whose table is made again each time the block runs, so values of one run " ..
@@ -2350,7 +2363,11 @@ end
 
 --- The fix for a class out of reach: made, or tested, by a function of the class in the module that has its table.
 function TableLiterals.reach_fix(ctx: Ctx, decl: Decl, function_name: string): string
-  if decl.module == ctx.input.module and ctx.declared[decl] ~= true and #decl.names == 1 then
+  local body = decl.body
+  if body ~= nil and body.schema ~= nil then
+    return "open the database with `Sqlite.open(path, { schema = " .. decl.name .. " })` or `Sqlite.memory`, which give a " ..
+      decl.name .. ", and keep the type where the handle goes"
+  elseif decl.module == ctx.input.module and ctx.declared[decl] ~= true and #decl.names == 1 then
     return "move the declaration of " .. quoted(Types.decl_name(decl)) .. " above this, or make the value with a function of the " ..
       "class declared after it"
   elseif decl.module:find("@", 1, true) ~= nil and decl.module:gsub("@.*$", "") == ctx.input.module then
@@ -4024,7 +4041,9 @@ function Narrowing.note_narrowed(ctx: Ctx, node: Ast.Node, declared: Type, narro
   if now ~= nil and #now > 0 and (old == nil or #old > #now) then
     local names: mut {string} = {}
     for _, m in ipairs(now) do
-      if (m.tag == "named") and m.decl.kind == "class" and #m.decl.names == 1 and m.decl.module == ctx.input.module and not m.value then
+      local m_body = if (m.tag == "named") then m.decl.body else nil end
+      if (m.tag == "named") and m.decl.kind == "class" and #m.decl.names == 1 and m.decl.module == ctx.input.module and not m.value and
+          (m_body == nil or m_body.schema == nil) then
         names[#names + 1] = m.decl.name
       end
     end
@@ -7176,7 +7195,10 @@ function Calls.opened_handle(ctx: Ctx, node: Ast.Call, rets: {Alt}): {Alt}?
     local value = if (item.kind == "Named") and item.name == "schema" then peel(item.value) else nil end
     -- A name or a field of one, which reads no value but the one the call was given.
     if value ~= nil and ((value.kind == "Name") or ((value.kind == "Field") and (peel(value.object).kind == "Name"))) then
+      -- Read again, quiet: the call's own check of the argument reported what it found.
+      ctx.quiet = ctx.quiet + 1
       schema = expr(ctx, value, nil)
+      ctx.quiet = ctx.quiet - 1
     end
   end
   if schema == nil or not (schema.tag == "named") or not schema.value then
@@ -7238,22 +7260,26 @@ function Calls.sql_arguments(ctx: Ctx, method: string, node: Ast.Node, args: {As
   local valued = Reads.methods[method]
   local receiver = peel(recv_node)
   local sql = args[1]
-  local bound = if (receiver.kind == "Name") then receiver.binding else nil end
   local decl = if recv ~= nil and (recv.tag == "named") and not recv.value then recv.decl else nil end
   local body = if decl ~= nil then decl.body else nil end
   local ddl = if body ~= nil then body.schema else nil end
-  local schema_name = if decl ~= nil then decl.name else "" end
-  if sql == nil or ddl == nil or (bound ~= nil and ctx.unread_handles[bound] == true) or
-      (valued == nil and method ~= "exec") then
+  if decl == nil or ddl == nil or ctx.unread_schemas[decl] == true then
+    return
+  end
+  local schema_name = decl.name
+  local runs_any = method == "exec" or method == "exec_result"
+  if method == "migrate" then
+    ctx.unread_schemas[decl] = true
+    return
+  end
+  if sql == nil or (valued == nil and not runs_any) then
     return
   end
   local text = Calls.joined_text(ctx, sql)
-  -- SQL that may make a table or attach a database ends the reads of the handle: what it holds is
-  -- no longer the schema alone.
-  if (method == "exec" and text == nil) or (text ~= nil and Reads.changes_schema(text)) then
-    if bound ~= nil then
-      ctx.unread_handles[bound] = true
-    end
+  -- SQL that may make a table or attach a database ends the reads of the schema's handles in the rest of the
+  -- module, whichever handle it is sent to: what they hold is no longer the schema alone.
+  if (runs_any and text == nil) or (text ~= nil and Reads.changes_schema(text)) then
+    ctx.unread_schemas[decl] = true
     return
   end
   if text == nil or valued == nil then
@@ -10506,7 +10532,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, spreads = {}, tags = {}, declared = {}, union_fields = {}, spine = {},
     ternaries = {}, spare = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
-    loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, runs = {}, inferred = {}, boundaries = {}, types = {}, callees = {}, consts = {}, unread_handles = {}, call_columns = {}, row_lists = {}, row_columns = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
+    loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, runs = {}, inferred = {}, boundaries = {}, types = {}, callees = {}, consts = {}, unread_schemas = {}, call_columns = {}, row_lists = {}, row_columns = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
     end,

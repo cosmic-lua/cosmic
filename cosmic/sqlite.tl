@@ -1737,8 +1737,9 @@ end
 --- class of the handles that hold its tables: `open` and `memory`
 --- give a `Notes` for `{ schema = Notes }`, and a `Notes` is a
 --- [`Handle`] wherever one is wanted, but a handle is no `Notes`. A
---- module that exports the schema exports the type with it
---- (`type Notes = Notes` in its record).
+--- module that exports the schema exports the type (`type Notes =
+--- Notes` in its record) and a function that opens a handle of it: a
+--- field that holds the value is a [`Schema`], which opens a plain handle.
 ---
 --- A writable open of a new file (one with no table, index, view or
 --- trigger) runs the DDL on it, in one transaction. Every open then
@@ -1767,8 +1768,10 @@ end
 --- text it cannot convert in any column, `integer` and `number` of a
 --- text column and `integer` of a `REAL` one. A compound select
 --- (`UNION`) and an expression are not read. SQL is read where it is
---- a literal or joins literals, until a local's handle is sent SQL that
---- may make a table or attach a database; a row is read where it is a
+--- a literal or joins literals, until a handle of the schema is sent
+--- SQL that may make a table or attach a database, or is migrated: the
+--- rest of the module reads that schema's SQL no more. SQL sent in
+--- another module is not seen. A row is read where it is a
 --- local given `db:one`, an element of a local given `db:rows`, the
 --- variable of `for _, row in ipairs(rows)`, or the parameter of the
 --- function `db:map` takes.

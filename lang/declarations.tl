@@ -137,6 +137,8 @@ local record Declarations
     "thread_type"
     -- a type parameter that no parameter and no result of its function names
     "unused_type_parameter"
+    -- a function statement of a `local schema`, whose handles never reach the table of the schema
+    "schema_member"
     -- a field named with two underscores that is the name of no metamethod
     "metamethod_unknown"
     -- `is {K: V}` on a record, which declares a map where the array part is a `{T}`
@@ -381,7 +383,7 @@ Declarations.codes = {
   "array_of_optional", "float_key", "key_type", "shape_generic", "repeated_field", "repeated_value", "type_arguments",
   "type_too_deep", "alias_cycle", "bound_not_interface", "bound_as_type", "lists_overlap", "bound_not_met", "outer_type_parameter", "member_missing",
   "param_untyped", "metamethod_signature", "class_metamethod", "optional_metamethod", "thread_type",
-  "unused_type_parameter", "metamethod_unknown", "array_part_map", "store_refused",
+  "unused_type_parameter", "schema_member", "metamethod_unknown", "array_part_map", "store_refused",
 }
 
 Declarations.catalog = {
@@ -553,6 +555,13 @@ Declarations.catalog = {
     why = "a type parameter is fixed by the arguments of a call or by the type the call is expected to answer, so one that no " ..
       "parameter and no result names can never be fixed: every call of the function is `cannot_infer`",
     fix = "remove <name> from the type parameters, or use it in a parameter or a result (`x: <name>`)",
+  },
+  {
+    code = "schema_member", rule = "dispatch only through declared types",
+    why = "the handles of a `local schema` are handles of `cosmic.sqlite`, whose metatable is its `Handle` class, and the " ..
+      "schema's value is `Sqlite.schema` of the DDL: a function written into the schema is reached by neither, so " ..
+      "`db:f()` or `Schema.f()` would call nil",
+    fix = "write a function that takes the handle (`local function <name>(db: <schema>, ...)`), or a record of them",
   },
   {
     code = "metamethod_unknown", rule = "dispatch only through declared types",
@@ -2426,7 +2435,12 @@ local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
   -- declares one: that field is then what the statement implements. An instance of `R` has no such field.
   for _, f in ipairs(ctx.statics[decl] or {}) do
     local name = assert(f.path[2], "`collect_statics` keeps the functions whose path has two names").text
-    if decl.kind == "class" and metamethod_name(name) then
+    if build.schema ~= nil then
+      report_at(ctx, "schema_member", f, "the function " .. quoted(decl.name .. "." .. name) .. " is written into the " ..
+          "schema " .. quoted(decl.name) .. ", whose handles have the methods of `cosmic.sqlite`'s Handle alone and " ..
+          "whose value is `Sqlite.schema` of its DDL, so neither reaches it",
+        "write a function that takes the handle: `local function " .. name .. "(db: " .. decl.name .. ", ...)`")
+    elseif decl.kind == "class" and metamethod_name(name) then
       report_at(ctx, "class_metamethod", f, "the function " .. quoted(decl.name .. "." .. name) .. " is a name Lua reads as a " ..
           "metamethod of the values of " .. quoted(decl.name) .. ", and `__close`, `__gc`, `__tostring`, `__lt` and `__le` are written as methods",
         "rename " .. quoted(name) .. ", or write it as a method inside the class")

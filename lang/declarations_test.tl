@@ -247,6 +247,13 @@ local CASES <const>: {Case} = {
     fix = "rename `__call` and call it as a method (`v:call(...)`)",
   },
   {
+    code = "schema_member",
+    source = "local schema S \"CREATE TABLE t (x)\"\nfunction S.count(): integer\n  return 1\nend\n",
+    msg = "the function `S.count` is written into the schema `S`, whose handles have the methods of `cosmic.sqlite`'s " ..
+      "Handle alone and whose value is `Sqlite.schema` of its DDL, so neither reaches it",
+    fix = "write a function that takes the handle: `local function count(db: S, ...)`",
+  },
+  {
     code = "optional_metamethod",
     source = "local record R\n  metamethod __index?: function(R, string): any\nend\n",
     msg = "the field `__index` of `R` is named for a metamethod and may be nil, so Lua may find it missing where it calls it",
