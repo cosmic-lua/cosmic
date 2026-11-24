@@ -368,6 +368,13 @@ local record Declarations
   --- The fields `decl` has from the interfaces it lists and leaves out ([`Declarations.inherited`]).
   inherited: function(store: Store, judge: Relation.Judge, decl: Types.Decl): {Types.Field}
 
+  --- The names a value of the record or class `decl` may hold: its fields, those it has from the interfaces it lists,
+  --- and its methods.
+  names_held: function(store: Store, judge: Relation.Judge, decl: Types.Decl): {string: boolean}
+
+  --- The field that tells the record `r` apart from the other records of `records` by being there, or nil.
+  presence_field: function(store: Store, judge: Relation.Judge, records: {Named}, r: Named): string?
+
   --- Whether `made`, the type of a method named `__close`, is what Lua calls at the end of a `<close>` local's block:
   --- a function that takes the value (and may take the error object Lua passes, declared `any`) and returns nothing.
   close_is_callable: function(made: Type): boolean
