@@ -453,7 +453,10 @@ local function read_before(conn: Net.Conn, deadline: integer, most: integer): st
   local left = deadline - Clock.monotonic_ns()
   if left <= 0 then return nil, Poll.TIMEOUT end
   conn:set_timeout(left)
-  return conn:read(most)
+  local data, why = conn:read(most)
+  if data == nil then return nil, why.message end
+  if data == false then return nil, "" end
+  return data, ""
 end
 
 --- Sends `text` to `conn`, waiting at most `ns`.
@@ -471,7 +474,7 @@ local function close_refused(conn: Net.Conn)
   conn:set_timeout(Clock.ms(200))
   for _ = 1, 2 do
     local data, _ = conn:read(CHUNK)
-    if data == nil then break end
+    if data == nil or data == false then break end
   end
   local _, _ = conn:close()
 end
@@ -943,13 +946,14 @@ local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Con
       from:set_timeout(left)
       local data, why = from:read(CHUNK)
       if flow_ended ~= "" then return end
+      if data == false then
+        -- The side has ended what it sends: the other hears it as a half-close.
+        local _, _ = to:shutdown("write")
+        return
+      end
       if data == nil then
-        if why == "" then
-          -- The side has ended what it sends: the other hears it as a half-close.
-          local _, _ = to:shutdown("write")
-          return
-        elseif why ~= Poll.TIMEOUT then
-          end_with(name .. ": " .. why)
+        if why.kind ~= "timeout" then
+          end_with(name .. ": " .. tostring(why))
           return
         end
       elseif not take(data) then

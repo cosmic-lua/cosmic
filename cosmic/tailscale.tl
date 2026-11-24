@@ -47,6 +47,7 @@
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Env = require("cosmic.env")
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
@@ -836,8 +837,8 @@ local function sent(endpoint: Endpoint, default_ns: integer, method: string, pat
   while true do
     conn:set_timeout(left())
     local chunk, trouble = conn:read()
-    local read = if chunk ~= nil then reader:feed(chunk) elseif trouble == "" then reader:finish() else nil end
-    if read == nil then return nil, "tailscale: " .. trouble end
+    local read = if chunk == false then reader:finish() elseif chunk ~= nil then reader:feed(chunk) else nil end
+    if read == nil then return nil, "tailscale: " .. tostring(trouble) end
     if read.status == "done" then
       local response = read.response
       if response == nil then return nil, "tailscale: the reply holds no response" end
@@ -1033,11 +1034,11 @@ local class FileReader is Stream.Reader
   skip?: function(FileReader, integer): boolean, string
 
   --- The next bytes of the file, at most `max_bytes` (64 KiB by
-  --- default); nil and "" at its end, or nil and why. A connection that
+  --- default); `false` at its end, or nil and a [`Failure`]. A connection that
   --- ends before `size` bytes fails it.
-  function read(self, max_bytes?: integer): string?, string
-    if self.closed then return nil, "tailscale: the file is closed" end
-    if self.left == 0 then return nil, "" end
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
+    if self.closed then return nil, Failure.new("tailscale: the file is closed") end
+    if self.left == 0 then return false end
     local most = math.min(max_bytes or 65536, self.left)
     if most < 1 then error("tailscale: read's max_bytes must be positive", 2) end
     local chunk: string
@@ -1046,16 +1047,16 @@ local class FileReader is Stream.Reader
       self.rest = self.rest:sub(most + 1)
     else
       local got, why = self.conn:read(most)
+      if got == false then
+        return nil, Failure.new("tailscale: the daemon ended the file " .. String.counted(self.left, "byte") .. " short")
+      end
       if got == nil then
-        if why == "" then
-          return nil, "tailscale: the daemon ended the file " .. String.counted(self.left, "byte") .. " short"
-        end
-        return nil, "tailscale: " .. why
+        return nil, Failure.new("tailscale: " .. tostring(why))
       end
       chunk = got
     end
     self.left = self.left - #chunk
-    return chunk, ""
+    return chunk
   end
 
   --- Ends the transfer, and the connection. Safe to call more than once.
@@ -1123,12 +1124,12 @@ local function exchanged(endpoint: Endpoint, wait_ns: integer, method: string, p
     local reader = Message.response_reader({ head_only = true })
     while true do
       local chunk, trouble = conn:read()
-      local read = if chunk ~= nil then reader:feed(chunk) elseif trouble == "" then reader:finish() else nil end
-      if read == nil then return failed(trouble) end
+      local read = if chunk == false then reader:finish() elseif chunk ~= nil then reader:feed(chunk) else nil end
+      if read == nil then return failed(tostring(trouble)) end
       if read.status == "done" then
         replied = true
         local response = assert(read.response)
-        local rest = if chunk ~= nil then chunk:sub(read.next) else "" end
+        local rest = if chunk is string then chunk:sub(read.next) else "" end
         if response.status >= 200 and response.status < 300 then
           return { response = response, conn = conn, rest = rest }, ""
         end
@@ -1137,7 +1138,7 @@ local function exchanged(endpoint: Endpoint, wait_ns: integer, method: string, p
         local total = #rest
         while total < 4096 do
           local more, _ = conn:read(4096 - total)
-          if more == nil then break end
+          if more == nil or more == false then break end
           said[#said + 1] = more
           total = total + #more
         end
@@ -1160,8 +1161,8 @@ local function exchanged(endpoint: Endpoint, wait_ns: integer, method: string, p
     local sent_bytes = 0
     while true do
       local chunk, trouble = body:read(65536)
-      if chunk == nil then
-        if trouble ~= "" then return failed(trouble) end
+      if chunk == nil then return failed(tostring(trouble)) end
+      if chunk == false then
         break
       end
       sent_bytes = sent_bytes + #chunk
@@ -1202,8 +1203,8 @@ local class Events
     if self.closed then return nil, "tailscale: the events are closed" end
     while true do
       local line, why = self.lines:read()
-      if line == nil then
-        if why ~= "" then return nil, "tailscale: " .. why end
+      if line == nil then return nil, "tailscale: " .. tostring(why) end
+      if line == false then
         return nil, ""
       end
       if line:find("%S") ~= nil then return notify_of(line) end

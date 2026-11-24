@@ -7,6 +7,14 @@ local unix_socket = require("build.unix_socket")
 local sys = require("cosmic.sys")
 local Clock = require("cosmic.clock")
 
+--- The next line of `lines`: raises where they ended or failed.
+local function line_of(lines: Stream.Lines): string
+  local line, why = lines:read()
+  if line == nil then error(tostring(why), 2) end
+  if line == false then error("the lines ended", 2) end
+  return line
+end
+
 --- Each listener here is on the worker's own loopback, and 127.0.0.2 is
 --- where [`unanswered_or_skip`] looks for an address nothing answers.
 Test.policy{ loopback = { "127.0.0.1", "127.0.0.2" } }
@@ -105,8 +113,8 @@ local function full_backlog(held: mut {function()}): Net.Address, string
     local made = assert(last)
     made:set_timeout(Clock.seconds(5))
     local data, trouble = made:read()
-    assert(data == nil and trouble == RESET,
-      "a backlog of 1 took " .. tostring(ASKED) .. " connections: reading the last, " .. tostring(data or trouble))
+    assert(data == nil and tostring(trouble) == RESET,
+      "a backlog of 1 took " .. tostring(ASKED) .. " connections: reading the last, " .. tostring(data) .. " " .. tostring(trouble))
     why = at(server.address, RESET)
   end
   assert(why == at(server.address, Poll.TIMEOUT) or why == at(server.address, RESET), why)
@@ -151,7 +159,7 @@ local function test_a_connection_to_a_full_backlog_waits_or_is_reset()
       else
         local data, read_why = conn:read()
         local _, _ = conn:close()
-        assert(data == nil and read_why == RESET, tostring(data or read_why))
+        assert(data == nil and tostring(read_why) == RESET, tostring(data) .. " " .. tostring(read_why))
       end
     end
   end
@@ -224,7 +232,7 @@ local function test_a_server_names_what_it_bound_and_serves_every_listener(tmp: 
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0), Net.unix(tmp .. "/s.sock") },
     serve = function(conn: Net.Conn)
-      local line = assert(Stream.lines(conn):read())
+      local line = line_of(Stream.lines(conn))
       assert(conn:write(line:upper() .. "\n"))
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
@@ -233,7 +241,7 @@ local function test_a_server_names_what_it_bound_and_serves_every_listener(tmp: 
       for _, address in ipairs(addresses) do
         local conn <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) }))
         assert(conn:write(address.kind .. "\n"))
-        local appended = assert(Stream.lines(conn):read())
+        local appended = line_of(Stream.lines(conn))
         answers[#answers + 1] = appended
       end
       server:stop()
@@ -253,7 +261,7 @@ local function test_a_server_names_what_it_bound_and_serves_two_tcp_listeners()
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0), Net.tcp("127.0.0.1", 0) },
     serve = function(conn: Net.Conn)
-      local line = assert(Stream.lines(conn):read())
+      local line = line_of(Stream.lines(conn))
       assert(conn:write(line:upper() .. "\n"))
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
@@ -262,7 +270,7 @@ local function test_a_server_names_what_it_bound_and_serves_two_tcp_listeners()
       for _, address in ipairs(addresses) do
         local conn <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) }))
         assert(conn:write(address.kind .. "\n"))
-        local appended = assert(Stream.lines(conn):read())
+        local appended = line_of(Stream.lines(conn))
         answers[#answers + 1] = appended
       end
       server:stop()

@@ -16,6 +16,14 @@ local this_program = require("build.this_program")
 local support = require("build.test_support_fixture")
 local type _ = require("build.standalone")
 
+--- The next line of `lines`: raises where they ended or failed.
+local function line_of(lines: Stream.Lines): string
+  local line, why = lines:read()
+  if line == nil then error(tostring(why), 2) end
+  if line == false then error("the lines ended", 2) end
+  return line
+end
+
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "build/paths.tl", letters = "r" } } }
 
 --- An older tool takes only SQLite's transaction. A negative wait keeps
@@ -54,7 +62,7 @@ local function start(root: string, wait_ns: integer, flock?: boolean): Child.Han
   local started = this_program.program({ "-e", (if flock == true then flock_tool else sql_tool end):format(support.build_dir(root), wait_ns) },
     { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream", stderr = "capture" })
   local child = assert(Child.start(started.argv, started.options))
-  local line = assert(Stream.lines(assert(child.stdout_stream)):read())
+  local line = line_of(Stream.lines(assert(child.stdout_stream)))
   return child, line
 end
 
@@ -108,12 +116,12 @@ end)
   local started = this_program.program({ "-e", script:format(build_paths.required(root), tmp .. "/other-lock") },
     { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream", stderr = "stream" })
   local boot = assert(Child.start(started.argv, started.options))
-  local waiting = Stream.lines(assert(boot.stderr_stream)):read()
+  local waiting, _ = Stream.lines(assert(boot.stderr_stream)):read()
   finish(old)
-  local entered = Stream.lines(assert(boot.stdout_stream)):read()
+  local entered, _ = Stream.lines(assert(boot.stdout_stream)):read()
   local held = probe(root)
   finish(boot)
-  assert(waiting ~= nil and waiting:find("waiting for it", 1, true) ~= nil, tostring(waiting))
+  assert(waiting is string and waiting:find("waiting for it", 1, true) ~= nil, tostring(waiting))
   assert(entered == "held", tostring(entered))
   assert(held == "busy", "a waiting boot did not take the released lock")
   assert(probe(root) == "held")
@@ -240,11 +248,11 @@ local _, _ = Fs.take(Fs.stdin, 1)
   local command = this_program.program({ "-e", script:format(build_paths.required(root)) },
     { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream", stderr = "stream" })
   local boot <close> = assert(Child.start(command.argv, command.options))
-  local waiting = Stream.lines(assert(boot.stderr_stream)):read()
-  assert(waiting ~= nil and waiting:find("waiting for it", 1, true) ~= nil, waiting)
+  local waiting, _ = Stream.lines(assert(boot.stderr_stream)):read()
+  assert(waiting is string and waiting:find("waiting for it", 1, true) ~= nil, waiting)
   local began = Clock.monotonic_ns()
   assert(boot:stop(sys.SIGTERM))
-  local cancelled = Stream.lines(assert(boot.stdout_stream)):read()
+  local cancelled, _ = Stream.lines(assert(boot.stdout_stream)):read()
   assert(cancelled == "cancelled", cancelled)
   assert(Clock.monotonic_ns() - began < Clock.seconds(2), "lock wait ignored cancellation")
   assert(not assert(boot:try_wait()).finished, "cancelled waiter exited before cleanup was probed")

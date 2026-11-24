@@ -131,9 +131,10 @@ local function read_all(text: string, boundary: string, chunk: integer, step: in
     while true do
       local data, trouble = part.body:read(step)
       if data == nil then
-        failure = trouble
+        failure = tostring(trouble)
         break
       end
+      if data == false then break end
       pieces[#pieces + 1] = data
     end
     local body = table.concat(pieces)

@@ -52,8 +52,8 @@ local function say(name, value) print(name .. "\t" .. tostring(value)) end
 local function bytes(conn, count)
   local data = ""
   while #data < count do
-    local chunk = conn:read(count - #data)
-    if chunk == nil then break end
+    local chunk, _ = conn:read(count - #data)
+    if chunk == nil or chunk == false then break end
     data = data .. chunk
   end
   return data
@@ -62,8 +62,8 @@ end
 local function head(conn)
   local data = ""
   while not data:find("\r\n\r\n", 1, true) do
-    local chunk = conn:read(4096)
-    if chunk == nil then break end
+    local chunk, _ = conn:read(4096)
+    if chunk == nil or chunk == false then break end
     data = data .. chunk
   end
   return data
@@ -223,8 +223,8 @@ local function echoing(listener: Net.Listener, count: Tally): Poll.Task
       if conn == nil then return end
       count.connections = count.connections + 1
       Poll.spawn(function()
-        local data = conn:read(4)
-        if data ~= nil then
+        local data, _ = conn:read(4)
+        if data is string then
           local _, _ = conn:write("echo:" .. data)
         end
         local _, _ = conn:close()

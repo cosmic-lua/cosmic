@@ -13,6 +13,14 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
+--- The next chunk of `reader`: raises where it ended or failed.
+local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
+  local chunk, why = reader:read(max_bytes)
+  if chunk == nil then error(tostring(why), 2) end
+  if chunk == false then error("the stream ended", 2) end
+  return chunk
+end
+
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function run(dir: string, words: {string}): Child.Result
@@ -68,7 +76,7 @@ local function test_long_lived_reader_prevents_a_save_ready_wal_snapshot(tmp: st
   local reader_start = this_program.program({ "-e", script }, { timeout_ns = Child.FOREVER, cwd = tmp,
     stdin = "stream", stdout = "stream", stderr = "capture" })
   local reader <close> = assert(Child.start(reader_start.argv, reader_start.options))
-  assert(assert(reader.stdout_stream):read(1) == "r")
+  assert(chunk_of(assert(reader.stdout_stream), 1) == "r")
   assert(db:exec("INSERT INTO keep VALUES ('later')"))
   local started = this_program.program({ "cache", "trim", "verdicts", path, "--whole", "--json" },
     { cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.ms(200) })

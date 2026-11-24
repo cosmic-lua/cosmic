@@ -9,6 +9,14 @@ local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 
+--- The next line of `lines`: raises where they ended or failed.
+local function line_of(lines: Stream.Lines): string
+  local line, why = lines:read()
+  if line == nil then error(tostring(why), 2) end
+  if line == false then error("the lines ended", 2) end
+  return line
+end
+
 Test.policy{ profiles = { "cosmic" } }
 
 local function start(script: string): Child.Handle
@@ -31,7 +39,7 @@ local _, _ = Fs.take(Fs.stdin, 1)
 local _, _ = Clock.sleep(%d)
 assert(db:close())
 ]]):format(path, hold_ns or 0))
-  assert(Stream.lines(assert(child.stdout_stream)):read() == "held")
+  assert(line_of(Stream.lines(assert(child.stdout_stream))) == "held")
   return child
 end
 
@@ -47,12 +55,13 @@ local function interrupter(): Child.Handle
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
+
 print("ready")
 local _, _ = Fs.take(Fs.stdin, 1)
 local _, _ = Clock.sleep(%d)
 assert(sys.kill(%d, sys.SIGTERM))
 ]]):format(Clock.ms(100), sys.getpid()))
-  assert(Stream.lines(assert(child.stdout_stream)):read() == "ready")
+  assert(line_of(Stream.lines(assert(child.stdout_stream))) == "ready")
   return child
 end
 

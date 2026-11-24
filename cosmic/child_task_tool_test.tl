@@ -515,8 +515,8 @@ local function test_streams_in_a_task_let_the_others_run()
       local reader = assert(h.stdout_stream)
       while true do
         local chunk, why = reader:read()
-        if chunk == nil then
-          assert(why == "", why)
+        assert(chunk ~= nil, tostring(why))
+        if chunk == false then
           break
         end
         got[#got + 1] = chunk

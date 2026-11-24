@@ -89,6 +89,15 @@ local Url = require("cosmic.url")
 local wire = require("cosmic.mcp.wire")
 local type HttpServer = require("cosmic.http.server")
 
+--- The [`Failure`] for the words a read failed with: kind "timeout" for
+--- [`Poll.TIMEOUT`], "cancelled" for [`Poll.CANCELLED`] and for
+--- "interrupted" (a signal a [`Signal.guard`] caught), else "other".
+local function failure_of(why: string): Failure
+  if why == Poll.TIMEOUT then return Failure.timeout(why) end
+  if why == Poll.CANCELLED or why == "interrupted" then return Failure.cancelled(why) end
+  return Failure.new(why)
+end
+
 local record McpServer
   --- What a handler knows of the request it answers.
   record Call
@@ -1487,10 +1496,10 @@ local class WaitingReader is Stream.Reader
   inner: Stream.Reader
   fd: integer
 
-  function read(self, max_bytes?: integer): string?, string
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     if Poll.in_task() then
       local ok, why = Poll.readable(self.fd)
-      if not ok then return nil, why.message end
+      if not ok then return nil, failure_of(why.message) end
     end
     return self.inner:read(max_bytes)
   end
@@ -1634,8 +1643,8 @@ local function serve_lines(self: State, lines: Stream.Lines, writer: Stream.Writ
         if not ok then return end
       end
       local line, trouble = lines:read()
-      if line == nil then
-        ended, read_trouble = true, trouble
+      if line == nil or line == false then
+        ended, read_trouble = true, if line == nil then tostring(trouble) else "" end
         wake:notify_all()
         return
       end
@@ -1844,25 +1853,25 @@ local class EventReader is Stream.Reader
   --- When the stream ends, its grant's time past, in nanoseconds since the epoch; nil: never by time.
   ends_ns?: integer
 
-  function read(self, _max_bytes?: integer): string?, string
+  function read(self, _max_bytes?: integer): (string | false) | (nil, Failure)
     while true do
       local latest, final = self.latest, self.answer
       local queued = self.queue[self.head]
       if queued ~= nil then
         self.queue[self.head] = nil
         self.head = self.head + 1
-        return "event: message\ndata: " .. queued .. "\n\n", ""
+        return "event: message\ndata: " .. queued .. "\n\n"
       end
       if latest ~= nil then
         self.latest = nil
-        return "event: message\ndata: " .. latest .. "\n\n", ""
+        return "event: message\ndata: " .. latest .. "\n\n"
       end
       if final ~= nil then
         self.answer = nil
         self.finished = true
-        return "event: message\ndata: " .. final .. "\n\n", ""
+        return "event: message\ndata: " .. final .. "\n\n"
       end
-      if self.finished then return nil, "" end
+      if self.finished then return false end
       -- A client that leaves has the server close the stream, which wakes this wait.
       local quiet_ns = Clock.monotonic_ns() + KEEPALIVE_NS
       while true do
@@ -1873,14 +1882,14 @@ local class EventReader is Stream.Reader
           if left <= 0 then
             -- The token it was opened with is past its time: the client asks again with a new one.
             local _, _ = self:close()
-            return nil, ""
+            return false
           end
           if left < wait_ns then wait_ns = left end
         end
         local ok, why = self.notifier:wait(math.max(wait_ns, 0))
         if ok then break end
-        if why.kind ~= "timeout" then return nil, why.message end
-        if Clock.monotonic_ns() >= quiet_ns then return ": working\n\n", "" end
+        if why.kind ~= "timeout" then return nil, failure_of(why.message) end
+        if Clock.monotonic_ns() >= quiet_ns then return ": working\n\n" end
       end
     end
   end
