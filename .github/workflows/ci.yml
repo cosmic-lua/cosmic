@@ -226,7 +226,7 @@
           with: {
             path: "${{ runner.temp }}/zig-build",
             key: "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-${{ github.run_id }}-${{ github.run_attempt }}",
-            "restore-keys": "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-\n${{ steps.names.outputs.vendor }}full-\n${{ steps.names.outputs.vendor }}\n",
+            "restore-keys": "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-\n${{ steps.names.outputs.vendor }}boot-${{ steps.names.outputs.core }}-\n${{ steps.names.outputs.vendor }}full-\n${{ steps.names.outputs.vendor }}\n",
             "lookup-only": "${{ github.event.schedule == '41 3 * * 0' }}",
           },
         },
@@ -514,7 +514,7 @@
         # reads (cosmic_ci/zig_prune.tl): only before main's save.
         {
           name: "prune the zig build outputs no step vouches for",
-          if: "always() && (steps.assemble.outcome == 'success' || matrix.part == 'suite' && steps.boot.outcome == 'success') && env.COSMIC_CI_SAVES == 'true' && (github.event.schedule == '41 3 * * 0' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-', steps.names.outputs.vendor)))",
+          if: "always() && (steps.assemble.outcome == 'success' || matrix.part == 'suite' && steps.boot.outcome == 'success') && env.COSMIC_CI_SAVES == 'true' && (github.event.schedule == '41 3 * * 0' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-', steps.names.outputs.vendor))) && (matrix.part != 'suite' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}boot-', steps.names.outputs.vendor)))",
           run: "cosmic-driver cosmic_ci/driver.tl zig-prune",
         },
         {
@@ -674,6 +674,8 @@
         # and compiles to the newer commit's relay (relay.yml), saved a
         # minute after that merge: a save of this run's, made later, would
         # be the newest and lack them. Where GitHub does not say, it saves.
+        # macOS saves all the same: no relay runs on a macOS runner, so its
+        # push is the only main run that saves them.
         {
           name: "ask whether main moved past this commit",
           id: "main-newest",
@@ -710,7 +712,7 @@
         # answer no other run.
         {
           name: "save test verdicts",
-          if: "always() && env.COSMIC_CI_SAVES == 'true' && steps.main-newest.outputs.newest != 'false' && steps.verdicts-trim.outputs.digest != '' && !(github.event.schedule == '41 3 * * 0' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
+          if: "always() && env.COSMIC_CI_SAVES == 'true' && (matrix.leg == 'macos-aarch64' || steps.main-newest.outputs.newest != 'false') && steps.verdicts-trim.outputs.digest != '' && !(github.event.schedule == '41 3 * * 0' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/verdicts",
@@ -723,7 +725,7 @@
         # which a save the relay made already leaves as it is.
         {
           name: "save compiles and parses",
-          if: "always() && env.COSMIC_CI_SAVES == 'true' && steps.main-newest.outputs.newest != 'false' && steps.release-suite.outcome == 'success' && steps.compiles-trim.outputs.digest != '' && steps.compiles-restore.outputs.cache-matched-key != format('compiles-{0}-{1}', matrix.leg, steps.compiles-trim.outputs.digest)",
+          if: "always() && env.COSMIC_CI_SAVES == 'true' && (matrix.leg == 'macos-aarch64' || steps.main-newest.outputs.newest != 'false') && steps.release-suite.outcome == 'success' && steps.compiles-trim.outputs.digest != '' && steps.compiles-restore.outputs.cache-matched-key != format('compiles-{0}-{1}', matrix.leg, steps.compiles-trim.outputs.digest)",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/build-cache",
@@ -732,14 +734,17 @@
         },
         # Once per vendor part and leg, not per core change, which the
         # cache cannot hold, where assemble passed and main found no entry
-        # of this vendor part; and on the weekly run, which built cold.
+        # of this vendor part; and on the weekly run, which built cold. A
+        # suite job (macOS's on a push) builds only its boot, and saves it
+        # under `<vendor>boot-`, so it does not stand in for the whole
+        # leg's entry, which the daily run still saves.
         {
           name: "save zig build outputs",
-          if: "always() && (steps.assemble.outcome == 'success' || matrix.part == 'suite' && steps.boot.outcome == 'success') && env.COSMIC_CI_SAVES == 'true' && (github.event.schedule == '41 3 * * 0' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-', steps.names.outputs.vendor)))",
+          if: "always() && (steps.assemble.outcome == 'success' || matrix.part == 'suite' && steps.boot.outcome == 'success') && env.COSMIC_CI_SAVES == 'true' && (github.event.schedule == '41 3 * * 0' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-', steps.names.outputs.vendor))) && (matrix.part != 'suite' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}boot-', steps.names.outputs.vendor)))",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/zig-build",
-            key: "${{ steps.zig-cache-restore.outputs.cache-primary-key }}",
+            key: "${{ matrix.part == 'suite' && format('{0}boot-{1}-{2}-{3}', steps.names.outputs.vendor, steps.names.outputs.core, github.run_id, github.run_attempt) || steps.zig-cache-restore.outputs.cache-primary-key }}",
           },
         },
         {

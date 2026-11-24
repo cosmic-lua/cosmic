@@ -1536,6 +1536,12 @@ local function test_each_kind_of_run_has_its_legs()
   for _, key in ipairs({ "part", "runner", "target", "image" }) do
     assert(push_mac[key] == mac[key], "a push runs macOS otherwise than the queue: " .. key)
   end
+  -- A suite job's zig build outputs are its boot's alone, saved apart (`<vendor>boot-`), so that the daily run, which
+  -- assembles the whole leg, still saves the leg's `<vendor>full-` entry.
+  local zig_save = step_named(job_of(ci_workflow().jobs, "platform").steps, "save zig build outputs")
+  assert(tostring(with_of(zig_save)["key"]):find("matrix.part == 'suite' && format('{0}boot-", 1, true) ~= nil and
+      (zig_save["if"] or ""):find("format('{0}boot-', steps.names.outputs.vendor)", 1, true) ~= nil,
+    "a suite job saves its boot as the leg's whole entry")
   assert(names_of(full) == "alpine-x86_64 linux-aarch64 linux-x86_64 macos-aarch64",
     "a full run's legs: " .. names_of(full))
   local keys <const>: {string} = { "name", "leg", "part", "runner", "target", "image" }
@@ -1842,7 +1848,7 @@ local function test_mains_push_saves_the_queues_compiles_at_once()
   -- The trim runs in the queue too, so main's own save holds the saves' condition itself. Where it took the queue's
   -- compiles it saves them under the relay's name, which a relay that saved them leaves as it is, and a push main
   -- moved past saves none.
-  assert(late["if"] == "always() && " .. SAVES .. " && steps.main-newest.outputs.newest != 'false' && " ..
+  assert(late["if"] == "always() && " .. SAVES .. " && (matrix.leg == 'macos-aarch64' || steps.main-newest.outputs.newest != 'false') && " ..
       "steps.release-suite.outcome == 'success' && steps.compiles-trim.outputs.digest != '' && " ..
       "steps.compiles-restore.outputs.cache-matched-key != format('compiles-{0}-{1}', matrix.leg, steps.compiles-trim.outputs.digest)",
     "main's own save of the compiles: " .. tostring(late["if"]))
@@ -1857,7 +1863,7 @@ local function test_mains_push_saves_the_queues_compiles_at_once()
       newest["if"] == "always() && steps.queue-run.outcome != 'skipped' && steps.driver.outcome == 'success'" and
       newest["continue-on-error"] == true and map_of(newest.env)["SHA"] == "${{ github.sha }}" and
       (newest.run or ""):find("driver.tl main-newest", 1, true) ~= nil, "a push asks otherwise whether main moved")
-  assert((step_named(steps, "save test verdicts")["if"] or ""):find("steps.main-newest.outputs.newest != 'false'", 1, true) ~= nil,
+  assert((step_named(steps, "save test verdicts")["if"] or ""):find("(matrix.leg == 'macos-aarch64' || steps.main-newest.outputs.newest != 'false')", 1, true) ~= nil,
     "a push main moved past saves its verdicts")
   local relayed = job_of(relay_workflow().jobs, "relay").steps
   local _, relay_find_at = step_with_id(relayed, "queue-run")
