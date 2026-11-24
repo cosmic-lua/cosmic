@@ -15,6 +15,7 @@
 
 #include "check.h"
 #include "coverage.h"
+#include "profile.h"
 #include "errnos.h"
 #include "lauxlib.h"
 #include "lualib.h"
@@ -666,6 +667,7 @@ lua_State *cosmic_surface_open (const char *logical_executable) {
    * through the store searcher's trust-gated internal module. */
   cosmic_coverage_install(L);
   cosmic_store_set_raw(L, "cosmic.internal.debug");
+  cosmic_profile_install(L);
 
   lua_pushnil(L);
   lua_setglobal(L, "dofile");
