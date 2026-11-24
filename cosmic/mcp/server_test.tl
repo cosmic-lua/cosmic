@@ -11,6 +11,7 @@ local Poll = require("cosmic.poll")
 local Server = require("cosmic.mcp.server")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
+local wire = require("cosmic.mcp.wire")
 
 local function add(args: {string: Json.Value}, _: Server.Call): (Mcp.ToolResult) | (nil, Failure)
   local a, b = math.tointeger(args["a"]), math.tointeger(args["b"])
@@ -733,4 +734,131 @@ local function test_a_failed_write_ends_the_server_while_its_input_waits()
     local ok, why = stepper(seen):serve_stdio(input, broken)
     assert(not ok and tostring(why):find("broken", 1, true) ~= nil, tostring(why))
   end)
+end
+
+local LANGUAGES <const>: {string} = { "python", "perl", "php", "rust" }
+
+--- A server that completes the argument `language` of the prompt `review` and the variables of `repo://{owner}/{name}{?ref}`.
+local function completer(troubles: mut {string}): Server.Instance
+  return Server.new{ info = { name = "completer", version = "1" },
+    templates = { { uriTemplate = "repo://{owner}/{name}{?ref}", name = "repo" } },
+    read = function(_: string, _: Server.Call): ({Mcp.ResourceContents} | false) | (nil, Failure)
+      return false
+    end,
+    prompts = { {
+      prompt = { name = "review", arguments = { { name = "language" }, { name = "style" } } },
+      get = function(_: {string: string}, _: Server.Call): (Mcp.PromptResult) | (nil, Failure)
+        return { messages = {} }
+      end,
+    } },
+    on_error = function(trouble: string) troubles[#troubles + 1] = trouble end,
+    complete = function(asked: Mcp.Completing, call: Server.Call): (Mcp.Completion) | (nil, Failure)
+      if asked.value == "boom" then error("boom") end
+      if asked.value == "fail" then return nil, Failure.new("no completions today") end
+      if asked.value == "ask" then
+        local _, why = call.elicit("k", { mode = "form", message = "which?", requestedSchema = Mcp.object_schema({}) })
+        return nil, assert(why)
+      end
+      if asked.value == "exactly" then
+        local hundred: mut {string} = {}
+        for i = 1, Mcp.MAX_COMPLETIONS do hundred[i] = tostring(i) end
+        return { values = hundred }
+      end
+      if asked.value == "uncounted" then
+        local many: mut {string} = {}
+        for i = 1, 120 do many[i] = tostring(i) end
+        return { values = many, total = -5 }
+      end
+      if asked.argument == "style" then
+        local many: mut {string} = {}
+        for i = 1, 150 do many[i] = "style-" .. tostring(i) end
+        return { values = many, total = 150 }
+      end
+      if asked.template ~= nil then
+        local owner = (asked.context or {})["owner"] or "?"
+        return { values = { owner .. "/" .. asked.value .. "-x" } }
+      end
+      local fits: mut {string} = {}
+      for _, each in ipairs(LANGUAGES) do
+        if each:sub(1, #asked.value) == asked.value then fits[#fits + 1] = each end
+      end
+      return { values = fits, total = #fits }
+    end,
+  }
+end
+
+local function test_a_server_completes_its_own_arguments_and_no_other()
+  local troubles: mut {string} = {}
+  local server = completer(troubles)
+  local caps = object(object(decoded(server:answer(request(1, "server/discover")).body)["result"])["capabilities"])
+  local declared = object(caps["completions"])
+  assert(next(declared) == nil and not Json.is_array(caps["completions"]), "a server that completes says so, with {}")
+  local caps_without = object(object(decoded(adder():answer(request(1, "server/discover")).body)["result"])["capabilities"])
+  assert(caps_without["completions"] == nil)
+  local refused = decoded(adder():answer(request(2, "completion/complete",
+    '"ref":{"type":"ref/prompt","name":"greet"},"argument":{"name":"who","value":"W"}')).body)
+  assert(object(refused["error"])["code"] == Mcp.METHOD_NOT_FOUND, "a server with no complete does not answer it")
+
+  local session = piped(server)
+  local got = assert(session:complete({ prompt = "review", argument = "language", value = "p" }))
+  assert(#got.values == 3 and got.values[1] == "python" and got.total == 3 and got.has_more == nil)
+  -- The values past the most a result holds are cut, and the result says there are more.
+  local cut = assert(session:complete({ prompt = "review", argument = "style", value = "" }))
+  assert(#cut.values == Mcp.MAX_COMPLETIONS and cut.total == 150 and cut.has_more == true)
+  -- A template's variable, with the variables chosen before it.
+  local repo = assert(session:complete({ template = "repo://{owner}/{name}{?ref}", argument = "name", value = "cos",
+    context = { owner = "will" } }))
+  assert(repo.values[1] == "will/cos-x", tostring(repo.values[1]))
+  assert(session:complete({ template = "repo://{owner}/{name}{?ref}", argument = "ref", value = "" }))
+  -- What is not the server's own is refused before the handler is called.
+  local wrongs: {Mcp.Completing} = {
+    { prompt = "nope", argument = "language", value = "" },
+    { prompt = "review", argument = "nope", value = "" },
+    { template = "repo://{other}", argument = "other", value = "" },
+    { template = "repo://{owner}/{name}{?ref}", argument = "nope", value = "" },
+  }
+  for _, wrong in ipairs(wrongs) do
+    local none, why = session:complete(wrong)
+    assert(none == nil and why.code == Mcp.INVALID_PARAMS, tostring(why))
+  end
+  local both, bwhy = session:complete({ prompt = "review", template = "repo://{owner}", argument = "x", value = "" })
+  assert(both == nil and tostring(bwhy):find("exactly one", 1, true) ~= nil, tostring(bwhy))
+  -- A handler's failure or raise is withheld, and told to on_error.
+  for _, value in ipairs({ "fail", "boom", "ask" }) do
+    local none, why = session:complete({ prompt = "review", argument = "language", value = value })
+    assert(none == nil and why.code == Mcp.INTERNAL_ERROR, tostring(why))
+    assert(tostring(why):find("today", 1, true) == nil and tostring(why):find("boom", 1, true) == nil, tostring(why))
+  end
+  assert(#troubles == 3, tostring(#troubles))
+  -- An update keeps the completer.
+  server:update{ prompts = { {
+    prompt = { name = "review", arguments = { { name = "language" } } },
+    get = function(_: {string: string}, _: Server.Call): (Mcp.PromptResult) | (nil, Failure)
+      return { messages = {} }
+    end,
+  } } }
+  assert(session:complete({ prompt = "review", argument = "language", value = "r" }))
+  assert(assert(troubles[3]):find("may not ask for input", 1, true) ~= nil, troubles[3])
+  assert(assert(troubles[1]):find("prompt review", 1, true) ~= nil, troubles[1])
+  -- Exactly as many as a result holds is not more; values cut with a total below 0 are counted.
+  local exactly = assert(session:complete({ prompt = "review", argument = "language", value = "exactly" }))
+  assert(#exactly.values == Mcp.MAX_COMPLETIONS and exactly.has_more == nil and exactly.total == nil)
+  local uncounted = assert(session:complete({ prompt = "review", argument = "language", value = "uncounted" }))
+  assert(#uncounted.values == Mcp.MAX_COMPLETIONS and uncounted.total == 120 and uncounted.has_more == true)
+  -- Params that do not fit are refused as such.
+  for _, params in ipairs({
+      '"ref":{"type":"ref/other","name":"review"},"argument":{"name":"language","value":""}',
+      '"ref":{"type":"ref/prompt"},"argument":{"name":"language","value":""}',
+      '"ref":{"type":"ref/prompt","name":"review"},"argument":{"name":"language"}',
+      '"ref":{"type":"ref/prompt","name":"review"},"argument":{"name":"language","value":""},"context":{"arguments":{"a":1}}',
+  }) do
+    local said = decoded(server:answer(request(3, "completion/complete", params)).body)
+    assert(object(said["error"])["code"] == Mcp.INVALID_PARAMS, params)
+  end
+end
+
+local function test_template_variables_are_read_from_each_expression()
+  local names = wire.template_variables("x://{a}/{+b}{#c}{.d}{/e*}{;f:3}{?g,h*}{&i,j:2}{a}")
+  assert(table.concat(names, " ") == "a b c d e f g h i j", table.concat(names, " "))
+  assert(#wire.template_variables("plain") == 0)
 end

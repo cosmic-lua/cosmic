@@ -9,6 +9,7 @@ local Failure = require("cosmic.failure")
 local Json = require("cosmic.json")
 local Mcp = require("cosmic.mcp")
 local Shape = require("cosmic.shape")
+local String = require("cosmic.string")
 
 local record wire
   --- Reads an event stream as it comes ([`wire.splitter`]).
@@ -156,6 +157,41 @@ local record wire
     action: string
     content?: any
   end
+
+  --- What `completion/complete` completes, as it arrives: `ref/prompt` by
+  --- its `name`, or `ref/resource` by its template's `uri`.
+  record CompleteRef
+    type: string
+    name?: string
+    uri?: string
+  end
+
+  record CompleteArgument
+    name: string
+    value: string
+  end
+
+  record CompleteContext
+    arguments?: {string: string}
+  end
+
+  --- The params of `completion/complete`, as they arrive.
+  record CompleteParams
+    ref: CompleteRef
+    argument: CompleteArgument
+    context?: CompleteContext
+  end
+
+  record CompletionValues
+    values: {string}
+    total?: integer
+    hasMore?: boolean
+  end
+
+  --- What `completion/complete` answers, as it arrives.
+  record CompleteResult
+    completion: CompletionValues
+  end
 end
 
 --- The most requests one result that needs input may hold.
@@ -187,6 +223,8 @@ local KIND <const>: Shape.Typed<wire.Kind> = Shape.record_of("wire.Kind")
 local INPUT_REQUIRED <const>: Shape.Typed<wire.InputRequired> = Shape.record_of("wire.InputRequired")
 local ELICIT_PARAMS <const>: Shape.Typed<wire.ElicitParams> = Shape.record_of("wire.ElicitParams")
 local ELICIT_RESULT <const>: Shape.Typed<wire.ElicitResult> = Shape.record_of("wire.ElicitResult")
+local COMPLETE_PARAMS <const>: Shape.Typed<wire.CompleteParams> = Shape.record_of("wire.CompleteParams")
+local COMPLETE_RESULT <const>: Shape.Typed<wire.CompleteResult> = Shape.record_of("wire.CompleteResult")
 
 --- The message `text` holds, or nil and a failure whose `code` is
 --- JSON-RPC's for it: -32700 for text that is not JSON, -32600 for JSON
@@ -878,6 +916,98 @@ function wire.prompt_result_of(result: any): (Mcp.PromptResult) | (nil, Failure)
   local r, why = PROMPT_RESULT:into(result)
   if r == nil then return nil, bad("a prompt that does not fit: " .. why) end
   return { description = r.description, messages = r.messages }
+end
+
+--- The names of the variables of the RFC 6570 URI template `template`,
+--- each once, in the order they first appear: `{owner}`, `{+path}`,
+--- `{?q,page}` and `{list*}` give `owner`, `path`, `q`, `page`, `list`.
+function wire.template_variables(template: string): {string}
+  local out: mut {string} = {}
+  local seen: mut {string: boolean} = {}
+  for expression in template:gmatch("{([^}]*)}") do
+    local list = expression:gsub("^[+#./;?&=,!@|]", "")
+    for spec in list:gmatch("[^,]+") do
+      local name = spec:gsub(":%d*$", ""):gsub("%*$", "")
+      if name ~= "" and seen[name] == nil then
+        seen[name] = true
+        out[#out + 1] = name
+      end
+    end
+  end
+  return out
+end
+
+--- The params of `completion/complete` asking `c`, or why it cannot be
+--- asked: it names both of a prompt and a template, or neither.
+function wire.completing(c: Mcp.Completing): ({string: Json.Value}) | (nil, Failure)
+  local prompt, template = c.prompt, c.template
+  local ref: {string: Json.Value}
+  if prompt ~= nil and template == nil then
+    ref = { type = "ref/prompt", name = prompt }
+  elseif template ~= nil and prompt == nil then
+    ref = { type = "ref/resource", uri = template }
+  else
+    return nil, Failure.new("mcp: complete: name exactly one of a prompt and a template")
+  end
+  local params: mut {string: Json.Value} = { ref = ref, argument = { name = c.argument, value = c.value } }
+  local context = c.context
+  if context ~= nil then
+    local arguments: mut {string: Json.Value} = {}
+    for k, v in pairs(context) do arguments[k] = v end
+    params["context"] = { arguments = arguments }
+  end
+  return params
+end
+
+--- What the params `params` of `completion/complete` ask, or why they
+--- do not fit: words for an invalid params refusal.
+function wire.completing_of(params: any): (Mcp.Completing) | (nil, string)
+  local p, why = COMPLETE_PARAMS:into(params)
+  if p == nil then return nil, "completion/complete: " .. why end
+  local ref = p.ref
+  local context = if p.context ~= nil then assert(p.context).arguments else nil end
+  local prompt, template: string?, string? = nil, nil
+  if ref.type == "ref/prompt" then
+    prompt = ref.name
+    if prompt == nil then return nil, "completion/complete: a ref/prompt names no prompt" end
+  elseif ref.type == "ref/resource" then
+    template = ref.uri
+    if template == nil then return nil, "completion/complete: a ref/resource names no uri" end
+  else
+    return nil, "completion/complete: a ref of no known type: " .. Json.quote(ref.type)
+  end
+  return { prompt = prompt, template = template, argument = p.argument.name, value = p.argument.value, context = context }
+end
+
+--- The fields of the result answering `c`: at most
+--- [`Mcp.MAX_COMPLETIONS`] values, and `hasMore` where it held more.
+function wire.completion(c: Mcp.Completion): {string: Json.Value}
+  local values: mut {string} = {}
+  for i = 1, math.min(#c.values, Mcp.MAX_COMPLETIONS) do values[i] = assert(c.values[i]) end
+  local fields: mut {string: Json.Value} = { values = wire.strings(values) }
+  -- A total is never below the values given, nor below 0; one left out is known where the values are cut.
+  local total = c.total
+  local cut = #c.values > Mcp.MAX_COMPLETIONS
+  if total ~= nil and total >= 0 then
+    fields["total"] = math.max(total, #c.values)
+  elseif cut then
+    fields["total"] = #c.values
+  end
+  if c.has_more == true or cut then fields["hasMore"] = true end
+  return { completion = fields }
+end
+
+--- The completion a server answered, or why it does not fit.
+function wire.completion_of(result: any): (Mcp.Completion) | (nil, Failure)
+  local r, why = COMPLETE_RESULT:into(result)
+  if r == nil then return nil, bad("a completion that does not fit: " .. why) end
+  local c = r.completion
+  if #c.values > Mcp.MAX_COMPLETIONS then
+    return nil, bad("more than " .. String.counted(Mcp.MAX_COMPLETIONS, "completion"))
+  end
+  local total = c.total
+  if total ~= nil and total < 0 then return nil, bad("a completion total below 0") end
+  return { values = c.values, total = total, has_more = c.hasMore }
 end
 
 return wire
