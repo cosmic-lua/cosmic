@@ -166,7 +166,7 @@ local record Types
     col: integer
   end
 
-  --- What a pipeline's path starts from: dot, `$` (the value `render` is
+  --- What a pipeline's path starts from: dot, `$` (the value `render`, or the define it stands in, is
   --- given), or a variable a range binds.
   enum Head
     "dot"

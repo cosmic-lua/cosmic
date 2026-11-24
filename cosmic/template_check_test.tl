@@ -318,6 +318,28 @@ local function test_a_define_is_exported_and_checked_as_its_own_type(tmp: string
   assert(field:find("page.tmpl:4:", 1, true) ~= nil, field)
 end
 
+local function test_a_define_is_markup_only_a_text_slot_takes(tmp: string)
+  local define = "\n{{define item Item}}<b>{{.name}}</b>{{end}}\n"
+  for index, slot in ipairs({ "<p title=\"{{.user | item}}\">", "<a href=\"{{.user | item}}\">",
+      "<div data-x='{{.user | item}}'>", "<title>{{.user | item}}</title>", "<svg>{{.user | item}}</svg>" }) do
+    local trouble = refused(tmp, "define-slot-" .. tostring(index), HEAD .. "{{range .items}}" ..
+        slot:gsub("%.user", ".") .. "{{end}}" .. define)
+    assert(trouble:find("page.tmpl:2:", 1, true) ~= nil, slot .. ": " .. trouble)
+  end
+end
+
+local function test_a_define_sees_its_own_value_and_nothing_of_the_body(tmp: string)
+  local own = HEAD .. "{{range .items}}{{. | item}}{{end}}\n{{define item Item}}{{$.name}}{{end}}\n"
+  local got = render(tmp, "define-root", own, { items = { { name = "a", n = 1 } } })
+  assert(got == "\na\n", got)
+  local text = "{{type Page from data}}{{mode text}}\n{{.user | who}}\n{{define who User}}<{{.name}}>{{end}}\n"
+  got = render(tmp, "define-text", text, { user = { name = "x&" } })
+  assert(got == "\n<x&>\n", got)
+  local narrowed = refused(tmp, "define-bound", HEAD .. "{{if .error}}{{$ | page}}{{end}}\n" ..
+      "{{define page Page}}{{.error}}{{end}}\n")
+  assert(narrowed:find("page.tmpl:3:", 1, true) ~= nil, narrowed)
+end
+
 local function test_the_checker_counts_a_warning_as_a_refusal_here(tmp: string)
   local lua, trouble = build(tmp, "warning", { ["x.tl"] = "local unused = 1\nreturn {}\n" })
   assert(lua == nil and trouble:find("unused", 1, true) ~= nil, tostring(trouble))

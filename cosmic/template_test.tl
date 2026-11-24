@@ -320,6 +320,17 @@ local function test_a_define_is_a_function_of_the_module_on_its_own_lines()
   assert(third:find("^return html.trust%(table.concat%(parts%)%) end function _Module.item"), third)
 end
 
+local function test_a_define_keeps_lines_through_trimming_and_crlf()
+  for _, src in ipairs({
+    HEAD .. "a\n{{- define x T -}}\n<b>{{.n}}</b>\n{{- end -}}\n\n{{define\n  y T}}\n{{.m}}{{end}}\n",
+    "{{type T from m.t}}\r\nx{{. | z}}\r\n{{define z T}}\r\n{{.q}}\r\n{{end}}\r\n",
+    "{{type T from m.t}}{{mode text}}\n{{define w T}}{{.q}}{{end}}",
+  }) do
+    local out = compiled(src)
+    assert(newlines(out) == newlines(src) + 1, src .. "\n" .. out)
+  end
+end
+
 local function test_a_define_is_refused_where_it_stands_amiss()
   local cases: {Refusal} = {
     { source = "{{if .a}}{{define x T}}{{end}}{{end}}", line = "2", column = "10", reason = "stands at the top level" },
@@ -330,6 +341,14 @@ local function test_a_define_is_refused_where_it_stands_amiss()
     { source = "{{define a}}{{end}}", line = "2", column = "1", reason = "write {{define name Type}}" },
     { source = "{{define a T}}x", line = "2", column = "1", reason = "never closed" },
     { source = "{{define a T}}<b class=\"{{end}}", line = "2", column = "25", reason = "{{define a}} ends" },
+    { source = "{{define a T}}<script>{{end}}", line = "2", column = "23", reason = "{{define a}} ends" },
+    { source = "{{define a T}}{{define b T}}{{end}}{{end}}", line = "2", column = "15", reason = "close the one before" },
+    { source = "{{define a T}}{{else}}{{end}}", line = "2", column = "15", reason = "it has no block to belong to" },
+    { source = "{{define a T}}{{end}}{{.y}}", line = "2", column = "22", reason = "an action after a {{define}}" },
+    { source = "{{define a T}}{{end}}\n{{if .x}}y{{end}}", line = "3", column = "1", reason = "an action after a {{define}}" },
+    { source = "{{define __index T}}{{end}}", line = "2", column = "10", reason = "starts with no __" },
+    { source = "{{range $x := .a}}{{end}}{{define a T}}{{$x}}{{end}}", line = "2", column = "42",
+      reason = "'$x' is not declared here" },
   }
   local wrong: mut {string} = {}
   for _, case in ipairs(cases) do

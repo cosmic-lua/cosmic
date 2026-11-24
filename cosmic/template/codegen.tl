@@ -58,13 +58,14 @@
 --- `function _Module.name` on its own lines with a `return` on its
 --- `{{end}}`'s, and a stage `| name` calls `_Module.name`, which any
 --- function of the record may, itself too, where a local function may
---- call only those made before it. So a checker or run-time error names the
+--- call only those made before it. A call reads the field when it runs;
+--- the fields are not `mut`, so checked code cannot replace one. So a checker or run-time error names the
 --- template's line. A column is the module's, not the template's: the
 --- line is what the build maps back, and a column map is not worth its
 --- cost until something reads columns.
 ---
 --- The names the module declares are `render`, `parts`, `d` (the value
---- `render` is given, which `$` names) and `d1`, `d2` and so on (dot in each
+--- `render` or a define is given, which `$` names) and `d1`, `d2` and so on (dot in each
 --- `range` and `with`, which a range's element variable names too, a
 --- range's index variable, and the list of a `range` that has an `else`),
 --- so a template's variable is never declared under its own name and can

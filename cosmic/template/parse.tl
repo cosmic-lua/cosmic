@@ -24,7 +24,7 @@
 --- stages `| import.path.func` (or `| name`, a `{{define}}`), each applied
 --- to what is before it. The
 --- head is dot (`.a` is a field of dot, `.` alone is dot), `$` (the value
---- `render` is given, wherever it stands) or a variable `$name`. A range's
+--- `render`, or the `{{define}}` it stands in, is given) or a variable `$name`. A range's
 --- variables are seen in its own body and everything nested in it, not in
 --- its `{{else}}` nor after its `{{end}}`, so a variable used where none of
 --- that name is seen is refused; and a name is bound only where no
@@ -430,9 +430,10 @@ local function definitions(p: Parser): {types.Define}?, string
     if #tokens ~= 3 or name == nil or type_name == nil or name.kind ~= "word" or type_name.kind ~= "word" then
       return nil, refuse(p, open.line, open.col, "write {{define name Type}}, Type a record of the {{type}}'s module")
     end
-    if not name.value:find("^[%a_][%w_]*$") or types.keywords[name.value] == true or name.value == "render" then
+    if not name.value:find("^[%a_][%w_]*$") or types.keywords[name.value] == true or name.value == "render" or
+        name.value:sub(1, 2) == "__" then
       return nil, refuse(p, name.line, name.col, "'" .. name.value .. "' is not a name for a {{define}}: write an " ..
-          "identifier other than render, which the module exports for the body")
+          "identifier other than render, which the module exports for the body, that starts with no __")
     end
     if seen[name.value] == true then
       return nil, refuse(p, name.line, name.col, "'" .. name.value .. "' is defined twice")
@@ -603,9 +604,9 @@ function Parse.parse(src: string, name: string, registry: {string: types.Def}): 
   end
   local stray = p.items[p.pos]
   if stray ~= nil then
-    if #defines > 0 and not stray.action then
-      return nil, refuse(p, stray.line, stray.col, "text after a {{define}}: after the first, only blank text and other " ..
-          "{{define}}s follow")
+    if #defines > 0 and (not stray.action or (keyword(stray) ~= "else" and keyword(stray) ~= "end")) then
+      return nil, refuse(p, stray.line, stray.col, (if stray.action then "an action" else "text" end) ..
+          " after a {{define}}: after the first, only blank text and other {{define}}s follow")
     end
     return nil, refuse(p, stray.line, stray.col, "{{" .. keyword(stray) .. "}} without a block to close")
   end
