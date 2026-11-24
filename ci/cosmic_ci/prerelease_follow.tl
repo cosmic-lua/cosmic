@@ -50,6 +50,9 @@ end
 local record RunItem
   event: string
   created_at: string
+  status: string
+  conclusion?: string
+  run_attempt: integer
 end
 local record RunsAnswer
   workflow_runs: {RunItem}
@@ -120,11 +123,22 @@ local full_events <const>: {string:boolean} = { schedule = true, workflow_dispat
 --- Six hours: at most four runs a day this starts, beside the daily one.
 local default_window <const> = 6 * 3600
 
---- The start of the newest full run of main in `runs`, nil where none.
+--- Whether `run` may still publish a prerelease, and so keeps another
+--- from starting: one still going, one that passed, or a first attempt
+--- that failed, which is tried once more. One that failed again, was
+--- cancelled or timed out publishes nothing.
+local function counts(run: RunItem): boolean
+  if run.status ~= "completed" then return true end
+  local conclusion = run.conclusion or ""
+  return conclusion == "success" or (conclusion == "failure" and run.run_attempt == 1)
+end
+
+--- The start of the newest full run of main in `runs` that [`counts`],
+--- nil where none.
 local function newest_full(runs: {RunItem}): integer?
   local newest: integer? = nil
   for _, run in ipairs(runs) do
-    if full_events[run.event] == true then
+    if full_events[run.event] == true and counts(run) then
       local at = Report.seconds_of(run.created_at)
       if at ~= nil and (newest == nil or at > newest) then newest = at end
     end

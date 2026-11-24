@@ -48,9 +48,9 @@ end
 
 --- A green push with no full run of main in the window starts one.
 local function test_a_green_push_starts_a_full_run_where_none_is_recent()
-  local client, calls = fake(runs_text('{"event":"push","created_at":"2026-11-23T11:50:00Z"}',
-    '{"event":"workflow_dispatch","created_at":"2026-11-23T05:59:00Z"}',
-    '{"event":"schedule","created_at":"2026-11-22T12:00:00Z"}'))
+  local client, calls = fake(runs_text('{"event":"push","created_at":"2026-11-23T11:50:00Z","status":"completed","conclusion":"success","run_attempt":1}',
+    '{"event":"workflow_dispatch","created_at":"2026-11-23T05:59:00Z","status":"completed","conclusion":"success","run_attempt":1}',
+    '{"event":"schedule","created_at":"2026-11-22T12:00:00Z","status":"completed","conclusion":"success","run_attempt":1}'))
   local said = PrereleaseFollow.follow(context(client, "push", "success"))
   assert(said:find("one is started", 1, true), said)
   assert(#calls == 4 and calls[1] == "GET /actions/workflows/ci.yml/runs?branch=main&event=schedule&per_page=5 " and
@@ -63,7 +63,7 @@ end
 --- whatever it ended, keeps a push from starting another.
 local function test_a_recent_full_run_keeps_a_push_from_starting_another()
   for _, event in ipairs({ "schedule", "workflow_dispatch" }) do
-    local client, calls = fake(runs_text('{"event":"' .. event .. '","created_at":"2026-11-23T06:01:00Z"}'))
+    local client, calls = fake(runs_text('{"event":"' .. event .. '","created_at":"2026-11-23T06:01:00Z","status":"in_progress","conclusion":null,"run_attempt":1}'))
     local said = PrereleaseFollow.follow(context(client, "push", "success"))
     assert(said:find("359 minutes ago", 1, true), said)
     assert(#calls == 3, table.concat(calls, "|"))
@@ -120,7 +120,7 @@ end
 
 --- A full run that started exactly the window ago no longer counts.
 local function test_a_full_run_exactly_the_window_ago_does_not_count()
-  local client, calls = fake(runs_text('{"event":"schedule","created_at":"2026-11-23T06:00:00Z"}'))
+  local client, calls = fake(runs_text('{"event":"schedule","created_at":"2026-11-23T06:00:00Z","status":"completed","conclusion":"success","run_attempt":1}'))
   local said = PrereleaseFollow.follow(context(client, "push", "success"))
   assert(said:find("one is started", 1, true), said)
   assert(#calls == 4, table.concat(calls, "|"))
@@ -171,4 +171,20 @@ local function test_a_refused_issue_fails_the_command()
   local passed, _ = pcall(PrereleaseFollow.follow, context(green, "push", "success"))
   assert(not passed, "an unreadable issue list passed")
   assert(calls[3] == 'POST /actions/workflows/ci.yml/dispatches {"ref":"main"}', table.concat(calls, "|"))
+end
+
+--- A recent full run that cannot publish any more, one that failed again,
+--- was cancelled or timed out, keeps no push from starting another; one
+--- that failed once, still to be tried again, does.
+local function test_a_full_run_that_cannot_publish_keeps_nothing_back()
+  for _, ended in ipairs({ '"failure","run_attempt":2', '"cancelled","run_attempt":1', '"timed_out","run_attempt":1' }) do
+    local client = fake(runs_text('{"event":"schedule","created_at":"2026-11-23T11:00:00Z","status":"completed","conclusion":' ..
+        ended .. "}"))
+    local said = PrereleaseFollow.follow(context(client, "push", "success"))
+    assert(said:find("one is started", 1, true), ended .. ": " .. said)
+  end
+  local client = fake(runs_text('{"event":"schedule","created_at":"2026-11-23T11:00:00Z","status":"completed",' ..
+      '"conclusion":"failure","run_attempt":1}'))
+  local said = PrereleaseFollow.follow(context(client, "push", "success"))
+  assert(said:find("none is started", 1, true), said)
 end

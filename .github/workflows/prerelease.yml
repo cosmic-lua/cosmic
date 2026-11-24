@@ -22,7 +22,7 @@
       types: ["completed"],
       branches: ["main"],
     },
-    # Each hour, for `sweep`.
+    # Each hour, for `sweep`, beside each push run's end.
     schedule: [
       {cron: "23 * * * *"},
     ],
@@ -33,14 +33,18 @@
   jobs: {
     # A full run `follow` starts with the job's token fires no
     # workflow_run when it ends (GitHub starts no workflow from an event
-    # that token caused), so each hour `sweep` acts on the newest such run
-    # of main: where it passed and no prerelease names its commit, it
+    # that token caused), so after each push run of main, and each hour
+    # (GitHub may start a scheduled run hours late, or not at all), `sweep`
+    # acts on the newest such run of main: where it passed and no prerelease names its commit, it
     # names the run to `publish`; where its first attempt failed, it
     # re-runs the failed jobs once (cosmic_ci/prerelease_sweep.tl). It
     # checks out main and runs only the pinned driver, as `follow` does.
     sweep: {
-      if: "github.repository == 'cosmic-lua/cosmic' && github.event_name == 'schedule'",
+      if: "github.repository == 'cosmic-lua/cosmic' && (github.event_name == 'schedule' || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main'))",
       permissions: {contents: "read", actions: "write"},
+      # One at a time, so two push runs ending together name or retry a
+      # run once.
+      concurrency: {group: "prerelease-sweep", "cancel-in-progress": false},
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 10,
       outputs: {
@@ -79,13 +83,13 @@
         # To download the triggering run's products.
         actions: "read",
       },
-      # After `sweep` too, which is skipped where a run's end started this.
+      # After `sweep` too, which is skipped where a full run's end started this.
       needs: ["sweep"],
-      if: "!cancelled() && github.repository == 'cosmic-lua/cosmic' && ((github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && (github.event.workflow_run.event == 'schedule' || github.event.workflow_run.event == 'workflow_dispatch')) || (github.event_name == 'schedule' && needs.sweep.outputs.run_id != ''))",
+      if: "!cancelled() && github.repository == 'cosmic-lua/cosmic' && ((github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && (github.event.workflow_run.event == 'schedule' || github.event.workflow_run.event == 'workflow_dispatch')) || needs.sweep.outputs.run_id != '')",
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 10,
       concurrency: {
-        group: "prerelease-${{ github.event.workflow_run.head_sha || needs.sweep.outputs.head_sha }}",
+        group: "prerelease-${{ needs.sweep.outputs.head_sha || github.event.workflow_run.head_sha }}",
         "cancel-in-progress": false,
       },
       steps: [
@@ -108,7 +112,7 @@
         {
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
           with: {
-            ref: "${{ github.event.workflow_run.head_sha || needs.sweep.outputs.head_sha }}",
+            ref: "${{ needs.sweep.outputs.head_sha || github.event.workflow_run.head_sha }}",
             "sparse-checkout": "/ci/\n/bin/cosmic-bootstrap\n/.github/scripts/cosmic-driver.sh\n/.github/actions/cosmic-driver/\n",
             "sparse-checkout-cone-mode": false,
             "persist-credentials": false,
@@ -126,7 +130,7 @@
           with: {
             pattern: "portable-product-*",
             path: "${{ runner.temp }}/products",
-            "run-id": "${{ github.event.workflow_run.id || needs.sweep.outputs.run_id }}",
+            "run-id": "${{ needs.sweep.outputs.run_id || github.event.workflow_run.id }}",
             "github-token": "${{ github.token }}",
           },
         },
@@ -143,7 +147,7 @@
           with: {
             pattern: "portable-product-*",
             path: "${{ runner.temp }}/products",
-            "run-id": "${{ github.event.workflow_run.id || needs.sweep.outputs.run_id }}",
+            "run-id": "${{ needs.sweep.outputs.run_id || github.event.workflow_run.id }}",
             "github-token": "${{ github.token }}",
           },
         },
@@ -154,8 +158,8 @@
           env: {
             PRODUCTS: "${{ runner.temp }}/products",
             RELEASE: "${{ runner.temp }}/release",
-            SOURCE_COMMIT: "${{ github.event.workflow_run.head_sha || needs.sweep.outputs.head_sha }}",
-            SOURCE_RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id || needs.sweep.outputs.run_id }}",
+            SOURCE_COMMIT: "${{ needs.sweep.outputs.head_sha || github.event.workflow_run.head_sha }}",
+            SOURCE_RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ needs.sweep.outputs.run_id || github.event.workflow_run.id }}",
           },
           run: "cosmic-driver cosmic_ci/driver.tl prerelease-stage",
         },
@@ -167,7 +171,7 @@
             GH_TOKEN: "${{ github.token }}",
             REPOSITORY: "${{ github.repository }}",
             RELEASE: "${{ runner.temp }}/release",
-            SOURCE_COMMIT: "${{ github.event.workflow_run.head_sha || needs.sweep.outputs.head_sha }}",
+            SOURCE_COMMIT: "${{ needs.sweep.outputs.head_sha || github.event.workflow_run.head_sha }}",
             SOURCE_RUN_PREFIX: "${{ github.server_url }}/${{ github.repository }}/actions/runs/",
           },
           run: "cosmic-driver cosmic_ci/driver.tl prerelease-publish",
