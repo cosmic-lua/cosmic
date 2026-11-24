@@ -31,7 +31,7 @@ end
 
 local function test_letters_grant_only_their_operations()
   local operations: {string:string} = {
-    r = "file-read*", w = "file-write-data", x = "process-exec file-map-executable",
+    r = "file-read* file-map-executable", w = "file-write-data", x = "process-exec file-map-executable",
     c = "file-write-create file-write-unlink", u = "network-outbound",
   }
   for letter, operation in pairs(operations) do
@@ -45,7 +45,7 @@ end
 local function test_directory_profile_is_recursive_and_parameterized()
   local out = compile({ grants = { { path = "data", letters = "rwc" } } },
     { data = { path = "/private/data", directory = true } })
-  assert(out.text == BASE .. [[(allow file-read* (subpath (param "PATH_1")))
+  assert(out.text == BASE .. [[(allow file-read* file-map-executable (subpath (param "PATH_1")))
 (allow file-write-data (subpath (param "PATH_1")))
 (allow file-write-create file-write-unlink (subpath (param "PATH_1")))
 ]], out.text)
@@ -83,7 +83,7 @@ local function test_promises_are_precise_and_fattr_only_reaches_writable_grants(
   } }, { read = { path = "/read", directory = false }, write = { path = "/write", directory = false } })
   assert(out.text == BASE .. [[(allow process-fork)
 (allow dynamic-code-generation)
-(allow file-read* (literal (param "PATH_1")))
+(allow file-read* file-map-executable (literal (param "PATH_1")))
 (allow file-write-data (literal (param "PATH_2")))
 (allow file-write-mode file-write-owner file-write-times file-write-flags file-write-xattr (literal (param "PATH_2")))
 ]], out.text)
@@ -98,7 +98,7 @@ local function test_quotes_parentheses_newlines_and_equals_never_enter_profile_t
   for _, path in ipairs(attacks) do
     local out = compile({ grants = { { path = path, letters = "ru" } } },
       { [path] = { path = path, directory = false } })
-    assert(out.text == BASE .. [[(allow file-read* (literal (param "PATH_1")))
+    assert(out.text == BASE .. [[(allow file-read* file-map-executable (literal (param "PATH_1")))
 (allow network-outbound (literal (param "PATH_1")))
 ]], out.text)
     assert(out.parameters["PATH_1"] == path)
@@ -121,7 +121,7 @@ local function test_aliases_and_grant_order_produce_one_canonical_profile()
   assert(first.parameters["PATH_1"] == "/other" and first.parameters["PATH_2"] == "/same")
   assert(first.parameters["PATH_3"] == nil)
   assert(first.text == BASE .. [[(allow file-write-data (subpath (param "PATH_1")))
-(allow file-read* (literal (param "PATH_2")))
+(allow file-read* file-map-executable (literal (param "PATH_2")))
 (allow process-exec file-map-executable (literal (param "PATH_2")))
 ]], first.text)
 end
@@ -142,15 +142,13 @@ local function test_system_expands_mac_paths_only_and_cosmic_names_the_supplied_
   assert(out.parameters["PATH_3"] == "/dev/null")
   assert(out.parameters["PATH_4"] == "/opt/cosmic")
   assert(out.parameters["PATH_5"] == "/private/etc/passwd" and out.parameters["PATH_6"] == nil)
-  assert(out.text == BASE .. [[(allow file-read* (subpath (param "PATH_1")))
-(allow process-exec file-map-executable (subpath (param "PATH_1")))
-(allow file-read* (subpath (param "PATH_2")))
-(allow process-exec file-map-executable (subpath (param "PATH_2")))
-(allow file-read* (literal (param "PATH_3")))
+  assert(out.text == BASE .. [[(allow file-read* file-map-executable (subpath (param "PATH_1")))
+(allow file-read* file-map-executable (subpath (param "PATH_2")))
+(allow file-read* file-map-executable (literal (param "PATH_3")))
 (allow file-write-data (literal (param "PATH_3")))
-(allow file-read* (literal (param "PATH_4")))
+(allow file-read* file-map-executable (literal (param "PATH_4")))
 (allow process-exec file-map-executable (literal (param "PATH_4")))
-(allow file-read* (literal (param "PATH_5")))
+(allow file-read* file-map-executable (literal (param "PATH_5")))
 ]], out.text)
 end
 
@@ -232,7 +230,7 @@ end
 --- parameters until then.
 local function test_tmp_is_granted_through_a_parameter_the_caller_sets()
   local out = compile({ tmp = true })
-  assert(out.text == BASE .. [[(allow file-read* (subpath (param "TMP")))
+  assert(out.text == BASE .. [[(allow file-read* file-map-executable (subpath (param "TMP")))
 (allow file-write-data (subpath (param "TMP")))
 (allow file-write-create file-write-unlink (subpath (param "TMP")))
 ]], out.text)
@@ -253,9 +251,9 @@ local function test_a_database_grants_its_core_and_itself_and_not_this_programs_
   local policy: Sandbox.Policy = { database = { path = database }, profiles = { "cosmic" } }
   local out = assert(Seatbelt.compile(policy,
     { paths = paths, core = "/core", database = database, executable = "/launcher" }))
-  assert(out.text == BASE .. '(allow file-read* (literal (param "PATH_1")))\n' ..
+  assert(out.text == BASE .. '(allow file-read* file-map-executable (literal (param "PATH_1")))\n' ..
       '(allow process-exec file-map-executable (literal (param "PATH_1")))\n' ..
-      '(allow file-read* (literal (param "PATH_2")))\n', out.text)
+      '(allow file-read* file-map-executable (literal (param "PATH_2")))\n', out.text)
   -- Sorted by path: the core's /private/core is before the database's path.
   assert(out.parameters["PATH_1"] == "/private/core" and out.parameters["PATH_2"] == database, out.text)
   assert(not out.text:find("write", 1, true) and not out.text:find("launcher", 1, true), out.text)
@@ -290,7 +288,7 @@ local function test_the_grants_a_policy_reaches_are_macoss_own()
   local held: mut {string:string} = {}
   for _, grant in ipairs(Seatbelt.grants({ profiles = { "system" },
       grants = { { path = "/srv", letters = "r" } } })) do held[grant.path] = grant.letters end
-  assert(held["/System/Library"] == "rx" and held["/sbin"] == "rx" and held["/srv"] == "r")
+  assert(held["/System/Library"] == "r" and held["/sbin"] == "r" and held["/srv"] == "r")
   assert(#Seatbelt.grants({}) == 0)
 end
 
@@ -313,7 +311,7 @@ local function test_system_profile_means_the_same_raw_merged_and_through_json()
     assert(other.profiles == nil)
     local seen: mut {string:string} = {}
     for _, grant in ipairs(other.grants or {}) do seen[grant.path] = grant.letters end
-    assert(seen["/System/Library"] == "rx" and seen["/sbin"] == "rx" and seen["/lib64"] == nil)
+    assert(seen["/System/Library"] == "r" and seen["/sbin"] == "r" and seen["/lib64"] == nil)
     assert(seen["/private/var/db/dyld"] == "r" and seen["/dev/dtracehelper"] == "rw")
     local got = compile(other, paths)
     assert(got.text == want.text, got.text)

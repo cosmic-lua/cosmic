@@ -352,7 +352,7 @@ function Policy.of(cwd: string, config: Policy.Config): Sandbox.Policy?, string
   local release, _ = Fs.read("/proc/sys/kernel/osrelease")
   local counts = linux and release ~= nil and Sandbox.counts_per_namespace((release:gsub("%s+$", "")))
   local own: Sandbox.Policy = {
-    profiles = { "system", "proc" },
+    profiles = { "system", "programs", "proc" },
     grants = grants,
     tmp = true,
     -- nest: a command may hold what it runs to less (cosmic test does).

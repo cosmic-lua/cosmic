@@ -101,12 +101,12 @@ end
 local function test_fd_hands_the_callers_descriptor_to_the_program(tmp: string)
   assert(Fs.write(tmp .. "/data", "carried\n"))
   local fd = assert(sys.open(tmp .. "/data", sys.O_RDONLY))
-  local ran = cosmic(tmp, { "sandbox", "--system", "--fd", "5", "--promise", "fork", "--", "sh", "-c", "cat <&5" }, { [5] = fd })
+  local ran = cosmic(tmp, { "sandbox", "--system", "--programs", "--fd", "5", "--promise", "fork", "--", "sh", "-c", "cat <&5" }, { [5] = fd })
   local _ = sys.close(fd)
   assert(ran.code == 0 and ran.out == "carried\n", tostring(ran.code) .. ran.out .. ran.err)
   -- Not named, it is not the program's, though the caller holds it.
   local other = assert(sys.open(tmp .. "/data", sys.O_RDONLY))
-  local shut = cosmic(tmp, { "sandbox", "--system", "--promise", "fork", "--", "sh", "-c", "cat <&5" }, { [5] = other })
+  local shut = cosmic(tmp, { "sandbox", "--system", "--programs", "--promise", "fork", "--", "sh", "-c", "cat <&5" }, { [5] = other })
   local _ = sys.close(other)
   assert(shut.code ~= 0 and shut.out == "", tostring(shut.code) .. shut.out)
   -- A descriptor the caller does not hold fails the start.

@@ -109,7 +109,7 @@ local function test_the_declaration_beside_the_paths_is_the_policys_other_fields
     network = { ["127.0.0.3"] = true, ["127.0.0.1"] = true } })
   promises = assert(policy.promises)
   assert(support.holds(promises, "nest"), table.concat(promises, ","))
-  assert(#assert(policy.profiles) == 1 and assert(policy.profiles)[1] == "system")
+  assert(table.concat(assert(policy.profiles), ",") == "system,programs", table.concat(assert(policy.profiles), ","))
   local loopback = assert(policy.loopback)
   assert(table.concat(loopback, " ") == "127.0.0.1 127.0.0.3", table.concat(loopback, " "))
   -- Whole, as a start takes it: merging it refuses nothing.

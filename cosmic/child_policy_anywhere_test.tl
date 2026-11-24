@@ -88,27 +88,23 @@ local function test_a_start_under_a_policy_is_refused_where_the_platform_has_no_
   end
 end
 
-local function test_a_program_nobody_granted_does_not_start_and_the_failure_names_the_grant(tmp: string)
+--- What a program needs to start is the starter's need: the start grants
+--- the program `rx`, so a policy that grants nothing still starts it.
+local function test_the_start_grants_the_program_a_policy_does_not_name(tmp: string)
   local probe = stand_in_of(tmp)
-  local real = assert(sys.realpath(probe))
-  local none, why = Child.start({ probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = {} })
-  assert(none == nil)
-  assert(why.message:find("^child: start: sandbox: "), why)
-  assert(why.message:find(real, 1, true) and why.message:find("r and x", 1, true), why)
-  assert(why.message:find("system", 1, true) and why.message:find("the program", 1, true), why)
-  -- Read without run names what is missing.
-  local read, trouble = Child.start({ probe, "print hi" },
-    { timeout_ns = Child.FOREVER, policy = { grants = { { path = probe, letters = "r" } } } })
-  assert(read == nil and trouble.message:find("not granted x:", 1, true) ~= nil, trouble)
+  local ran = assert(Child.run({ probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = {}, stdout = "capture" }))
+  assert(ran.ok and ran.stdout == "hi\n", tostring(ran.stdout))
 end
 
-local function test_an_interpreter_must_be_granted_too(tmp: string)
+--- The start grants a script's `#!` interpreter `rx` too, beside the
+--- script, which the policy grants only to read.
+local function test_the_start_grants_an_interpreter_too(tmp: string)
   local probe = stand_in_of(tmp)
   assert(Fs.mkdirs(tmp .. "/scripts"))
   assert(Fs.write(tmp .. "/scripts/run", "#!" .. probe .. "\nprint scripted\n", 493))
-  local policy: Sandbox.Policy = { grants = { { path = tmp .. "/scripts", letters = "rx" } } }
-  local none, why = Child.start({ tmp .. "/scripts/run" }, { timeout_ns = Child.FOREVER, policy = policy })
-  assert(none == nil and why.message:find("interpreter", 1, true) ~= nil and why.message:find(assert(sys.realpath(probe)), 1, true) ~= nil, why)
+  local policy: Sandbox.Policy = { grants = { { path = tmp .. "/scripts", letters = "r" } } }
+  local ran = assert(Child.run({ tmp .. "/scripts/run" }, { timeout_ns = Child.FOREVER, policy = policy, stdout = "capture" }))
+  assert(ran.ok and ran.stdout == "scripted\n", tostring(ran.stdout))
 end
 
 local function test_a_program_named_without_a_path_must_be_found(tmp: string)
