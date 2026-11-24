@@ -52,7 +52,7 @@ local record Orchestration
     low?: integer
   end
   test_words: function(env: {string:string}): {string}
-  deadlined: function(env: {string:string}, timeout_ns: integer): {string:string}
+  deadlined: function(env: {string:string}, timeout_ns: integer, margin_ns: integer): {string:string}
   shares: function(env: {string:string}): {string:string}
   sandboxed_fixtures: function(): {string:boolean}
   noexec_fixture: function(target: string): boolean
@@ -665,7 +665,8 @@ local fixed_point_per_test_timeout_s <const> = "340"
 --- Sized from main's dispatch run of 7 November 2026 (42360832601), where the 8637 tests took 1415 s with no verdict
 --- standing, against an earlier bound of 1500 s sized from 800 to 1114 s in October; counting a pure store's imports
 --- by instruction (cosmic-lua/cosmic#3629) costs about a tenth more on the checked core, about 1585 s. The bound is
---- 2100 s, 1.3 times that, inside the job's 60 minutes with its boot and build.
+--- 2100 s, 1.3 times that, inside the job's 60 minutes with its boot and build. The run starts no test past 1860 s
+--- (`checked_margin_ns` before the bound, [`Orchestration.deadlined`]), 1.17 times that.
 local checked_suite_timeout_ns <const> = Clock.seconds(2100)
 -- Each test's bound on the checked core: the release suites' (below)
 -- scaled by how much slower the checked core runs a test, about 2.9
@@ -737,15 +738,29 @@ local suite_timeout_ns <const> = Clock.seconds(720)
 local suite_test_timeout_s <const> = "10"
 
 --- `env`, a suite's, with the deadline its `cosmic test` stops starting
---- tests at (COSMIC_TEST_DEADLINE, build/test.tl): five sixths of
+--- tests at (COSMIC_TEST_DEADLINE, build/test.tl): `margin_ns` before
 --- `timeout_ns`, the bound the driver ends it at. The tests running then
 --- finish and the run keeps the verdicts it reached, so a suite that
 --- runs out of time (every key moved, and nothing stood) leaves the next
 --- run something to stand on; ended by the bound, it would keep none.
---- The last sixth is for the tests in flight and the run's settling.
-function Orchestration.deadlined(env: {string:string}, timeout_ns: integer): {string:string}
-  return Maps.with(env, { COSMIC_TEST_DEADLINE = tostring(timeout_ns * 5 // 6 // Clock.seconds(1)) })
+--- The margin holds the longest a test in flight may take and the run's
+--- settling.
+--- TODO: keep a merge-queue suite's verdicts when the deadline stops it:
+--- the queue uploads them only from a passing run (ci.yml's "upload the
+--- merge queue's verdicts") and saves no cache, so an entry whose change
+--- moves every key starts cold again on its next try; it waits on a
+--- relay of a failed entry's verdicts to the queue's next run.
+function Orchestration.deadlined(env: {string:string}, timeout_ns: integer,
+                                 margin_ns: integer): {string:string}
+  return Maps.with(env, { COSMIC_TEST_DEADLINE = tostring((timeout_ns - margin_ns) // Clock.seconds(1)) })
 end
+
+--- What a release suite's deadline leaves before its bound: a test's
+--- own limit may be 180 s (`timeout` in its module's Test.policy, the
+--- largest in the tree), and the run then settles in some 30 s.
+local suite_margin_ns <const> = Clock.seconds(210)
+--- The checked suites' margin: their tests are slower, and so is settling.
+local checked_margin_ns <const> = Clock.seconds(240)
 
 --- Copies the files of `source` (modules, and where `data` the JSON
 --- files beside them that the modules read) to `destination`.
@@ -1278,7 +1293,7 @@ local function checked_suite(c: Context, target: string, work: string,
   end
   s = logged(c, "checked suite", checked_argv,
     diagnostics .. "/checked-test.out", diagnostics .. "/checked-test.err",
-    checked_suite_timeout_ns, c.root, Orchestration.deadlined(checked_run.env, checked_suite_timeout_ns))
+    checked_suite_timeout_ns, c.root, Orchestration.deadlined(checked_run.env, checked_suite_timeout_ns, checked_margin_ns))
   record_suite(c, "checked", s, diagnostics .. "/checked-test.out")
   write(diagnostics .. "/checked-test.status", tostring(s) .. "\n")
   -- The suite's per-test times and verdicts (its `runs` rows), which
@@ -1367,7 +1382,7 @@ local function suite(c: Context, name: string, executable: string,
   local argv: mut {string} = { executable }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local status = logged(c, name .. " suite", argv, out, err,
-    suite_timeout_ns, c.root, Orchestration.deadlined(values, suite_timeout_ns))
+    suite_timeout_ns, c.root, Orchestration.deadlined(values, suite_timeout_ns, suite_margin_ns))
   record_suite(c, name, status, out)
   write(diagnostics .. "/" .. name .. "-test.status", tostring(status) .. "\n")
   local snapped: Snapped = { status = 1 }
@@ -1553,7 +1568,7 @@ local function phase_darwin_suite(p: PlatformContext): integer
   local out = p.local_diagnostics .. "/darwin-test.out"
   local status = logged(c, "darwin suite", argv, out,
     p.local_diagnostics .. "/darwin-test.err", suite_timeout_ns, c.root,
-    Orchestration.deadlined(values, suite_timeout_ns))
+    Orchestration.deadlined(values, suite_timeout_ns, suite_margin_ns))
   record_suite(c, "darwin", status, out)
   if status ~= 0 then
     local _, _ = Fs.put(Fs.stderr, "darwin suite: failed (status " .. tostring(status) .. ")\n")
@@ -1607,7 +1622,7 @@ local function phase_checked_narrowing(p: PlatformContext): integer
   local values = release_promises(run.env)
   local status = logged(c, "checked narrowing", argv, out,
     p.local_diagnostics .. "/checked-narrowing-test.err", checked_narrowing_timeout_ns, c.root,
-    Orchestration.deadlined(values, checked_narrowing_timeout_ns))
+    Orchestration.deadlined(values, checked_narrowing_timeout_ns, checked_margin_ns))
   -- A run that prints no "run-time types" line (the summary of a checked
   -- run) was not one: its modules carried no checks.
   local text = read(out)

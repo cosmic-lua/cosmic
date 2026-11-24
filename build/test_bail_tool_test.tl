@@ -13,7 +13,8 @@ local build_paths = require("build.paths")
 local this_program = require("build.this_program")
 
 --- The program itself, which its tests start.
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+--- The deadline's test sleeps a second in each of its eight tests, over two runs.
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } }, timeout = 60 }
 
 --- A project of one module, whose tests run in the order of their names
 --- and each mark `marks/<name>`. A name that starts `a_` fails; one

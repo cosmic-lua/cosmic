@@ -1829,11 +1829,13 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
   local failures_before = 0
   local stop_at = limits.deadline_ns
   local function bailing(): boolean
+    -- Once stopped, the run stays stopped for what stopped it first.
+    if rec.stopped_by ~= nil then return true end
     if bail == true and #rec.failures > failures_before then
       rec.stopped_by = "the first failure"
       return true
     end
-    if stop_at ~= nil and (rec.stopped_by == "the deadline" or Clock.monotonic_ns() >= stop_at) then
+    if stop_at ~= nil and Clock.monotonic_ns() >= stop_at then
       rec.stopped_by = "the deadline"
       return true
     end
@@ -2255,9 +2257,10 @@ local function limits_of(values: {string:string}): State.Limits?, string
     if seconds == nil then return nil, trouble end
     limits.timeout_ns = Clock.seconds(seconds)
   end
-  local deadline_flag = values["--deadline"] or Env.read(deadline_variable)
-  if deadline_flag ~= nil and deadline_flag ~= "" then
-    local seconds, trouble = seconds_of(deadline_flag, if values["--deadline"] ~= nil then "--deadline" else deadline_variable end)
+  local deadline_given = values["--deadline"]
+  local deadline_flag = deadline_given or Env.read(deadline_variable)
+  if deadline_flag ~= nil and (deadline_flag ~= "" or deadline_given ~= nil) then
+    local seconds, trouble = seconds_of(deadline_flag, if deadline_given ~= nil then "--deadline" else deadline_variable end)
     if seconds == nil then return nil, trouble end
     limits.deadline_s = seconds
   end
@@ -3518,7 +3521,8 @@ local function settle(ctx: Run)
   ctx.function_lines = function_lines
   local functions = Coverage.native_functions()
   if rec.not_run > 0 and rec.stopped_by == "the deadline" then
-    -- A run cut short by its deadline fails as a failing test does, though every test it ran passed.
+    -- A run cut short by its deadline fails as a failing test does, whatever the tests it ran said; the line
+    -- counts as one failure in the summary's figures.
     local late = string.format("the run passed its deadline of %s: %s not started",
       plural.count(assert(assert(ctx.limits).deadline_s), "second"), plural.count(rec.not_run, "test"))
     failures[#failures + 1] = late
@@ -3575,7 +3579,7 @@ local function settle(ctx: Run)
       end
     end
     if rec.not_run > 0 then
-      -- A run that stopped early (`--bail`) reached only part of the lines.
+      -- A run that stopped early (`--bail`, `--deadline`) reached only part of the lines.
       ctx.shortfall = { lines = { "test: coverage floor not judged: the run did not finish (" ..
           plural.count(rec.not_run, "test") .. " not started after " .. (rec.stopped_by or "the first failure") .. ")" },
         clause = "" }

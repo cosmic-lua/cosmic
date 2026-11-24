@@ -162,8 +162,9 @@ many seconds have passed since the run began. As with `--bail`, the
 tests already running finish and keep their verdicts, a test never
 started keeps none, and the run fails, saying how many did not run. CI's
 suites set it under the bound each suite is held to
-(ci/cosmic_ci/orchestration.tl), so a suite that runs out of time still
-keeps the verdicts it reached and the next run stands on them.
+(ci/cosmic_ci/orchestration.tl), so a suite of main's push or a
+scheduled run that runs out of time still keeps the verdicts it reached,
+and the next run stands on them.
 
 A test must not depend on where the tree is. CI moves the checkout to
 a path chosen by the commit and the leg to catch one that does.
