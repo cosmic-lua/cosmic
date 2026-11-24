@@ -52,15 +52,22 @@ esac
 
 # The kernel names its OS and machine under /proc/sys/kernel, which the shell's
 # own `read` takes with no child process: `uname -sm` costs a fork and an exec,
-# about a millisecond of every start. Where that does not answer (macOS, a Linux
-# with no /proc, or an older one with no `arch`), uname does. `arch` is the
-# kernel's own machine, which a 32-bit personality (`setarch linux32`) does not
-# change as it changes uname's: such a process runs the 64-bit core, as it can.
+# about a millisecond of every start. macOS has no /proc, and there bash, its
+# /bin/sh unless that is switched, names them in OSTYPE and HOSTTYPE (`darwin26`,
+# `arm64`), or keeps the values an environment gives it: a wrong one picks no
+# core but another the artifact verifies, or none (`unsupported target`). Where
+# neither answers (a shell that is not bash, a Linux with no /proc, or an older
+# one with no `arch`), uname does. `arch` is the kernel's own machine, which a
+# 32-bit personality (`setarch linux32`) does not change as it changes uname's:
+# such a process runs the 64-bit core, as it can.
 if { IFS= read -r portable_os < @KERNEL@/ostype &&
      IFS= read -r portable_arch < @KERNEL@/arch; } 2>/dev/null; then
   portable_system="$portable_os $portable_arch"
 else
-  portable_system=$(uname -sm)
+  case ${BASH_VERSION:+bash}/${OSTYPE-}/${HOSTTYPE-} in
+    bash/darwin*/arm64) portable_system='Darwin arm64' ;;
+    *) portable_system=$(uname -sm) ;;
+  esac
 fi
 case "$portable_system" in
 @TARGETS@
