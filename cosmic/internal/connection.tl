@@ -345,9 +345,10 @@ local class SocketConn is Duplex
 
   --- Whether the peer has gone: it has closed the connection, ended
   --- what it sends ([`shutdown`] "write" at its end) or reset it. True
-  --- too for a connection closed here. It reads nothing and waits for nothing, so what
-  --- the peer sent before its end is still there to read, and a peer
-  --- that has sent more but not ended is not gone. Over TLS it is the
+  --- too for a connection closed here, or whose reading was shut down
+  --- here. It reads nothing and waits for nothing, so what the peer
+  --- sent before its end is still there to read, and a peer that has
+  --- sent more but not ended is not gone. Over TLS it is the
   --- connection's end that is seen: a close_notify with the TCP
   --- connection still open is not.
   function gone(self): boolean

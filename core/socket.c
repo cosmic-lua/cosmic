@@ -818,10 +818,11 @@ COSMIC_SYSCALL(peer, 1) {
   return tcp_pushed(L, &address, "tcp");
 }
 
-/* Linux says a peer's end (FIN) as POLLRDHUP, and POLLHUP only once
- * both directions are shut; Darwin says it as POLLHUP, and has no
- * POLLRDHUP. Either sees it behind bytes still unread, which a TLS
- * close_notify always is. */
+/* Linux says a peer's end (FIN) as POLLRDHUP, and POLLHUP once both
+ * directions are shut or the connection is reset; Darwin says the end
+ * as POLLHUP, and has no POLLRDHUP. Either sees it behind bytes still
+ * unread, which a TLS close_notify always is. Both say it too for this
+ * side's own shutdown of reading. */
 #if defined(POLLRDHUP)
 #define PEER_ENDED (POLLHUP | POLLERR | POLLRDHUP)
 #else
@@ -842,8 +843,9 @@ static bool peer_gone (int fd) {
   } while (found < 0 && errno == EINTR);
   if (found < 0 || (watched.revents & (POLLNVAL | PEER_ENDED)) != 0) return true;
   if ((watched.revents & POLLIN) == 0) return false;
-  /* A system whose poll says no end of its own: an end with nothing
-   * before it reads as 0 bytes, and a peek takes nothing. */
+  /* An end or a reset that came after the poll, or a failure Darwin
+   * says only to a read: an end with nothing before it reads as 0
+   * bytes, and a peek takes nothing. */
   char byte;
   ssize_t peeked;
   do {
