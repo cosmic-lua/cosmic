@@ -78,7 +78,7 @@ local function test_keys_are_quoted_and_collisions_renamed()
   assert(by_name == '_,A,_JSON_2,_json_3,a_2,a b,a_2_2,select,x"y,_json', by_name)
   -- Each key's value is in the column named for it, or the renamed one.
   local function value(column: string): string
-    local rows = assert(db:text_rows('SELECT "' .. column:gsub('"', '""') .. '" FROM t'))
+    local rows = assert(db:text_rows('SELECT ' .. Sqlite.identifier(column) .. ' FROM t'))
     return support.nth(rows, 1):text(1)
   end
   assert(value("a b") == "1" and value('x"y') == "2" and value("select") == "3")

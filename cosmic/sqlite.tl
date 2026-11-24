@@ -1246,6 +1246,30 @@ function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): (Sqlite.Handle) |
   return handle
 end
 
+--- `name` quoted as an SQL identifier, for a table or column name that
+--- comes from data: in double quotes, each `"` in it doubled, so any
+--- name is read as that one name and never as SQL. A name that holds a
+--- NUL raises: SQLite ends the statement's text there.
+---
+---     db:exec("CREATE TABLE " .. Sqlite.identifier('my "notes"') .. " (body)")
+function Sqlite.identifier(name: string): string
+  if name:find("\0", 1, true) ~= nil then error("sqlite: an identifier cannot hold a NUL", 2) end
+  return '"' .. name:gsub('"', '""') .. '"'
+end
+
+--- `text` quoted as an SQL string literal, each `'` in it doubled, for a
+--- statement that cannot take a `?` parameter: a column's `DEFAULT`, a
+--- view, a virtual table's arguments. Where SQL takes a parameter, bind
+--- the value instead ([`Handle.run`]):
+---
+---     db:run("SELECT body FROM notes WHERE title = ?1", { { text = title } })
+---
+--- Text that holds a NUL raises.
+function Sqlite.literal(text: string): string
+  if text:find("\0", 1, true) ~= nil then error("sqlite: a literal cannot hold a NUL", 2) end
+  return "'" .. text:gsub("'", "''") .. "'"
+end
+
 --- Disowns every connection this process has open: for a process that is a
 --- copy of another, forked from it, to call before anything else.
 --- SQLite has a connection used by the process that opened it alone: a

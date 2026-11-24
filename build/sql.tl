@@ -775,10 +775,10 @@ local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string}?, 
     for _, column in ipairs(each.columns) do
       width = math.max(width, #plain(column))
     end
-    local from = ' FROM "' .. each.name:gsub('"', '""') .. '"'
+    local from = " FROM " .. Sqlite.identifier(each.name)
     for _, column in ipairs(each.columns) do
-      local rows, trouble = db:text_rows('SELECT DISTINCT typeof("' ..
-          column:gsub('"', '""') .. '")' .. from .. " ORDER BY 1")
+      local rows, trouble = db:text_rows("SELECT DISTINCT typeof(" .. Sqlite.identifier(column) .. ")" .. from ..
+          " ORDER BY 1")
       if rows == nil then
         return nil, tostring(trouble)
       end
