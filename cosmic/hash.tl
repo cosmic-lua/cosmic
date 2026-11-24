@@ -53,7 +53,7 @@ local record Hash
 
   --- An incremental digest, or HMAC from [`Hash.hmac_hasher`]: feed it
   --- chunks with `update`, then read the raw digest (or code) with
-  --- `digest`, which answers `digest, ""` (or `nil, error`) and finishes
+  --- `digest`, which returns `digest, ""` (or `nil, error`) and finishes
   --- it. Calling either method again afterward throws. A hasher is
   --- closeable: `local h <close> = ...` abandons an unfinished one at the
   --- end of the scope.
@@ -164,7 +164,7 @@ end
 --- An incremental hasher over an algorithm, for data that arrives in
 --- chunks rather than all at once; its raw digest equals
 --- `Hash.digest(algorithm, ...)` over the whole of what was fed to it.
---- Answers the hasher, or nil and a Failure when the digest cannot start.
+--- Returns the hasher, or nil and a Failure when the digest cannot start.
 --- Raises on an unknown algorithm, as `digest` and `hmac` do.
 function Hash.hasher(algorithm: Hash.Algorithm): (Hash.Hasher) | (nil, Failure)
   local value, why = hasher_text(algorithm)
@@ -181,8 +181,8 @@ end
 --- message that arrives in chunks; its raw code equals
 --- `Hash.hmac(algorithm, key, ...)` over the whole of what was fed to
 --- it, for a key of any length. It is a [`Hash.Hasher`]: `update` and
---- `digest` as a digest's, `digest` answering the code and finishing it,
---- a `<close>` abandoning an unfinished one. Answers the mac, or nil and
+--- `digest` as a digest's, `digest` returning the code and finishing it,
+--- a `<close>` abandoning an unfinished one. Returns the mac, or nil and
 --- a Failure when the digest cannot start. Raises on an unknown
 --- algorithm.
 function Hash.hmac_hasher(algorithm: Hash.Algorithm, key: string): (Hash.Hasher) | (nil, Failure)
@@ -239,7 +239,7 @@ end
 --- Whether the strings `a` and `b` are the same bytes, for checking a MAC or a
 --- token against one a client sent: the time taken depends on the
 --- length alone, never on where the strings first differ, so a caller
---- timing the answer learns nothing about the secret. Strings of
+--- timing the comparison learns nothing about the secret. Strings of
 --- different lengths are unequal at once, as a length (a MAC's, by its
 --- algorithm) is not a secret. Use it rather than `==` whenever one
 --- side is secret.

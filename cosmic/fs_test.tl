@@ -3,7 +3,7 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 
---- A read that fails answers nil and a failure that names the path and the errno.
+--- A read that fails returns nil and a failure that names the path and the errno.
 local function test_read_answers_a_failure_with_the_path_and_the_errno(tmp: string)
   local text, why = Fs.read(tmp .. "/absent")
   assert(text == nil)
@@ -265,8 +265,9 @@ local function test_cache_dir_is_made_private_under_xdg_or_home(tmp: string)
   assert(dir == tmp .. "/home/.cache/cosmic/tool", dir)
 end
 
---- `make = false` answers the name alone, from the environment, where
---- the default makes the directories and holds them to a private owner.
+--- With `make = false` only the name is returned, from the environment,
+--- where the default makes the directories and holds them to a private
+--- owner.
 local function test_cache_dir_without_make_makes_and_checks_nothing(tmp: string)
   local environment = { XDG_CACHE_HOME = tmp .. "/xdg" }
   local named = assert(Fs.cache_dir("tool", { environment = environment, make = false }))
@@ -523,7 +524,7 @@ local function test_scratch_holds_its_owner_lock_while_open(tmp: string)
   local _, _ = sys.close(other)
 end
 
---- A lock wait of 0 asks once and does not wait: a lock held answers at
+--- A lock wait of 0 asks once and does not wait: a lock held fails at
 --- once, where a wait rounded up to the next millisecond would take one.
 --- Only the quickest of many is held to it, so a stall cannot fail it.
 local function test_a_flock_of_zero_milliseconds_does_not_wait(tmp: string)

@@ -110,7 +110,7 @@ local function test_a_host_named_tag_is_still_a_name()
   assert(Sandbox.check({ connect = { "tag:443", "user:22" } }))
 end
 
---- Stands in for tailscaled, answering `status` with `body`, while
+--- Stands in for tailscaled, sending `body` for `status`, while
 --- `run` asks it, at the socket path it is given.
 local function with_daemon(tmp: string, body: string, run: function(socket: string))
   local Array = require("cosmic.array")

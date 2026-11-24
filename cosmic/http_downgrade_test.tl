@@ -17,7 +17,7 @@ local function fixture(name: string): string
   return (assert(Fs.read("testdata/tls/" .. name)))
 end
 
---- Serves b.pem (for 127.0.0.1) over TLS, each request answered with a
+--- Serves b.pem (for 127.0.0.1) over TLS, each request getting a
 --- 302 to `location`, and runs `body` with the server's https URL in a
 --- task of its run.
 local function redirecting(location: string, body: function(base: string))

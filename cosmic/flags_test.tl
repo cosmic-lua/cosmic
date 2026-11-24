@@ -353,7 +353,7 @@ local function test_dispatch_refuses_a_command_with_no_run()
   assert(helped.help:find("described, not run", 1, true) ~= nil, helped.help)
 end
 
---- A command's subcommands each read the line with their own spec, refuse it with their own usage, and answer
+--- A command's subcommands each read the line with their own spec, refuse it with their own usage, and show
 --- their own help; the command's help lists them.
 local function test_dispatch_runs_a_subcommand_with_its_own_options()
   local ran: mut {string} = {}
@@ -610,7 +610,7 @@ local function test_dispatch_refuses_a_missing_required_option_with_usage()
   local refused, why = Flags.dispatch({ "put", "--force", "a" }, 1, commands, "prog")
   assert(refused == nil and why == "put: --out is required; usage: prog put [options] <file>", why)
   assert(not ran)
-  -- Help is answered before the line is parsed, so it needs no required option.
+  -- Help is returned before the line is parsed, so it needs no required option.
   local helped = assert(Flags.dispatch({ "put", "--help" }, 1, commands, "prog"))
   assert(helped.code == 0 and helped.help ~= "" and not ran)
   local done = assert(Flags.dispatch({ "put", "--out", "o", "--force" }, 1, commands, "prog"))
@@ -716,7 +716,7 @@ local function test_a_refusal_names_what_was_probably_meant()
     { line = { "biuld" }, why = "no such command: biuld; did you mean build?" },
     { line = { "help", "claen" }, why = "no such command: claen; did you mean clean?" },
     { line = { "deploy" }, why = "no such command: deploy" },
-    -- What dispatch answers itself is named as a command's own is.
+    -- What dispatch handles itself is named as a command's own is.
     { line = { "hlep" }, why = "no such command: hlep; did you mean help?" },
     { line = { "clean", "--hlep" }, why = "clean: no such option: --hlep; did you mean --help?; usage: prog clean" },
     { line = { "build", "--jbos", "2" },
@@ -764,7 +764,7 @@ local function test_help_shows_examples_then_see_also()
     "",
     "see also: words, top",
   }, "\n"), help)
-  -- What dispatch answers for the command is the same page.
+  -- What dispatch returns for the command is the same page.
   local asked = assert(Flags.dispatch({ "help", "count" }, 1, paged, "prog"))
   assert(asked.help == help, asked.help)
   local dashed = assert(Flags.dispatch({ "count", "--help" }, 1, paged, "prog"))
@@ -823,7 +823,7 @@ local function test_dispatch_raises_for_a_see_that_names_no_other_command()
   end
   assert(ran == 0)
   -- Of two mistaken commands the first by name is named, and "help",
-  -- which dispatch answers itself, is a command to see.
+  -- which dispatch handles itself, is a command to see.
   local both: {string:Flags.Command} = { b = { see = { "x" } }, a = { see = { "y" } }, c = {} }
   Test.raises(function() Flags.dispatch({ "c" }, 1, both, "prog") end, "a's see names no other command: y")
   local helped: {string:Flags.Command} = { build = { run = run, see = { "help" } } }
@@ -1098,7 +1098,7 @@ local function test_program_help_takes_a_group_order_an_opening_topics_and_an_en
     "`prog help <command or topic>` says more.",
   }, "\n"), index)
   assert(assert(Flags.dispatch({ "help" }, 1, paged, "prog", program)).help == index)
-  -- With none of it, the index is the one dispatch answers with none.
+  -- With none of it, the index is the one dispatch returns with none.
   assert(Flags.program_help("prog", paged) == assert(Flags.dispatch({ "--help" }, 1, paged, "prog")).help)
   -- Given at all, the index says how to search the documentation.
   assert(Flags.program_help("prog", paged, {}) == Flags.program_help("prog", paged) ..
@@ -1274,7 +1274,7 @@ local function test_dispatch_raises_for_a_topic_named_nothing_whatever_the_line(
   end,
     "a topic's name is empty")
   assert(ran == 0)
-  -- A topic may see "help", which dispatch answers itself.
+  -- A topic may see "help", which dispatch handles itself.
   local program: Flags.Documented = { topics = { usage = { text = "How to ask.", see = { "help" } } } }
   assert(assert(Flags.dispatch({ "help", "usage" }, 1, commands, "prog", program)).help ==
       "usage\n\nHow to ask.\n\nsee also: help")
@@ -1367,7 +1367,7 @@ local function test_help_wraps_a_command_s_about_at_the_width_given()
       Flags.help(command, "prog count", 40))
 end
 
---- `help` answers a page of its own where the program has no `help` command, and is a word a mistyped one is
+--- `help` shows a page of its own where the program has no `help` command, and is a word a mistyped one is
 --- put right to, by `help` and as a command alike.
 local function test_dispatch_answers_help_of_help_and_names_it_to_a_mistyped_word()
   local commands: {string:Flags.Command} = { pair = { about = "Pairs." } }
@@ -1383,10 +1383,10 @@ local function test_dispatch_answers_help_of_help_and_names_it_to_a_mistyped_wor
   assert(why == "no such command or topic: hlep; did you mean help?", why)
   _, why = Flags.dispatch({ "hlep" }, 1, commands, "prog")
   assert(why == "no such command: hlep; did you mean help?", why)
-  -- `docs` has its page beside `help`'s where the program answers it.
+  -- `docs` has its page beside `help`'s where the program handles it.
   local docs = assert(Flags.dispatch({ "help", "docs" }, 1, commands, "prog", program)).help
   assert(docs:find("usage: prog docs [words...]", 1, true) == 1, docs)
-  -- A program's own `help` command answers `help help` itself.
+  -- A program's own `help` command handles `help help` itself.
   local told: mut {string} = {}
   local own: {string:Flags.Command} = {
     help = { run = function(got: Flags.Parsed): integer
@@ -1460,8 +1460,8 @@ local function kept_io(): Flags.Io, {string}, {string}
   }, out, err
 end
 
---- An empty line is the program's help and a refusal; help is answered
---- with 0, a command's status is its own, and a refused line says where
+--- An empty line is the program's help and a refusal; help gets the
+--- status 0, a command's status is its own, and a refused line says where
 --- the commands are listed.
 local function test_main_answers_help_runs_a_command_and_says_where_to_look()
   local commands: {string: Flags.Command} = {

@@ -77,7 +77,7 @@ end
 end
 
 --- A redirect would lead anywhere the socket's server does not serve, so
---- `via` answers it instead of following it, until `follow = true` asks;
+--- `via` returns it instead of following it, until `follow = true` asks;
 --- then it goes through the same socket.
 local function test_a_redirect_is_not_followed_over_the_socket_unless_asked(tmp: string)
   local said, seen = across(tmp, [[
@@ -134,7 +134,7 @@ end
   assert(seen == "/streamed?y=2 @files.test:8080", seen)
 end
 
---- `open`, like `get`, answers a redirect rather than following it.
+--- `open`, like `get`, returns a redirect rather than following it.
 local function test_open_does_not_follow_a_redirect_over_the_socket(tmp: string)
   local said, seen = across(tmp, [[
 local Fs = require("cosmic.fs")

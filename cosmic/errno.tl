@@ -3,7 +3,7 @@
 --- happens. A failing call returns `nil, message, errno`, and a wrapper
 --- such as `Fs` joins the path and that message into one string
 --- (`path: No such file or directory`). The message is the same on every
---- OS ([`sys.errno_message`] answers it). `cosmic docs ENOENT`, or any
+--- OS ([`sys.errno_message`] returns it). `cosmic docs ENOENT`, or any
 --- field below, finds this page.
 local record Errno
   --- the path does not exist -- check it is spelled right, and that

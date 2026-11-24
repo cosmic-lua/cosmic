@@ -96,13 +96,13 @@ local record Fs
     exists: boolean
     --- Whether a directory is at the path.
     is_dir: boolean
-    --- What [`Fs.stat`] answers for the path, there only where it exists.
+    --- What [`Fs.stat`] returns for the path, there only where it exists.
     stat?: sys.Stat
   end
 
   --- A file at a path being written through a temporary neighbor and a
   --- rename, as [`Fs.create`] returns it: the calls of a
-  --- [`cosmic.stream`] Writer (`write`, `close` and `abort`), answering
+  --- [`cosmic.stream`] Writer (`write`, `close` and `abort`), returning
   --- a [`Failure`], and `sync`; [`Stream.create`] offers it as a Writer.
   --- Every failure names the path, never the temporary file, and is
   --- sticky.
@@ -116,7 +116,7 @@ local record Fs
     --- Renames the file onto its path: false and a [`Failure`] when a
     --- write failed, or the rename or the closing of the file does.
     --- Safe to call more than once; after `abort` it renames nothing
-    --- and answers true.
+    --- and returns true.
     close: function(Staged): (true) | (false, Failure)
     --- Removes the temporary file and leaves the path as it was. It
     --- cannot fail, and is safe to call more than once.
@@ -129,8 +129,8 @@ local record Fs
     --- The variables to read (`XDG_CACHE_HOME` or `XDG_DATA_HOME`, and
     --- `HOME`), by name; the process's own when nil.
     environment?: {string:string}
-    --- Whether to make and check the directory; true when nil. False
-    --- answers the name alone.
+    --- Whether to make and check the directory; true when nil. With
+    --- false, only the name is returned.
     make?: boolean
   end
 
@@ -157,7 +157,7 @@ local chunk_size = 1 << 16
 -- reads and writes through sys would end.
 --- Reads the whole of a file as bytes, loading it in one call. Use this for
 --- the common io.open/io.read or io.lines case when streaming and Lua file
---- handles are unnecessary. It answers the bytes alone, or nil and a
+--- handles are unnecessary. It returns the bytes alone, or nil and a
 --- [`Failure`] that names `path` and the errno that says why
 --- (`why.errno == sys.ENOENT` for a file that is not there).
 function Fs.read(path: string): (string) | (nil, Failure)
@@ -190,7 +190,7 @@ function Fs.read(path: string): (string) | (nil, Failure)
   return table.concat(parts)
 end
 
---- The failure of a call that answered `why` and `errno`: the errno's
+--- The failure of a call that returned `why` and `errno`: the errno's
 --- own words where one is set, `why` where none is (0).
 local function failure_of(errno: integer, why: string, path?: string): Failure
   if errno ~= 0 then return Failure.system(errno, path) end
@@ -311,7 +311,7 @@ end
 --- temporary file. The file is always a new one, so it gets `mode`
 --- (default 0644, less the umask) and never keeps an existing file's
 --- mode. Nothing is synced unless `sync` is called, so a crash can
---- still lose the write. It answers nil and a Failure naming `path`
+--- still lose the write. It returns nil and a Failure naming `path`
 --- when the temporary file cannot be made. [`Stream.create`] is this,
 --- as a [`cosmic.stream`] Writer.
 function Fs.create(path: string, mode?: integer): (Fs.Staged) | (nil, Failure)
@@ -326,7 +326,7 @@ end
 --- failure before the rename leaves the old file. The file is always a
 --- new one, so it gets `mode` (default 0644, less the umask) and never
 --- keeps an existing file's mode. Nothing is synced, so a crash can
---- still lose the write. Answers true, or false and a [`Failure`] that
+--- still lose the write. Returns true, or false and a [`Failure`] that
 --- names `path` and the errno.
 function Fs.write(path: string, data: string, mode?: integer): (true) | (false, Failure)
   local file, trouble = staged_file(path, mode)
@@ -356,7 +356,7 @@ end
 --- file. Each write starts at the file's current end, but short writes
 --- can interleave with another appender, and a failure can leave a
 --- prefix appended. Nothing is synced; use [`Fs.write`] to replace a
---- file atomically instead. Answers true, or false and a [`Failure`]
+--- file atomically instead. Returns true, or false and a [`Failure`]
 --- naming `path`; a write failure wins over a close failure.
 function Fs.append(path: string, data: string, mode?: integer): (true) | (false, Failure)
   local file <close>: AppendFile = { fd = -1 }
@@ -563,7 +563,7 @@ end
 --- under it is owned by another user or writable by its group or by
 --- others. The two are made 0700 when missing. `opts.environment` is
 --- the variables to read, by default the process's own. With
---- `opts.make` false only the name is answered, from the environment
+--- `opts.make` false only the name is returned, from the environment
 --- alone: nothing is made, looked at or checked, so the directory may
 --- not be there. A program's own cache, outside `cosmic/`, is
 --- [`Fs.program_cache_dir`].
@@ -1074,7 +1074,7 @@ function Fs.basename(path: string): string
 end
 
 --- The directory a path names its last component in, as dirname(1)
---- answers: trailing slashes are ignored, a bare name is in ".", and
+--- prints it: trailing slashes are ignored, a bare name is in ".", and
 --- "/" and a component directly under it are in "/". Lexical: nothing
 --- is read from disk, and "a/.." is in "a".
 function Fs.dirname(path: string): string

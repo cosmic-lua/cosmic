@@ -257,7 +257,7 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
 end
 
 --- Lists `input` as a file, where the format is detected: fails only
---- when an answer is one no archive could mean.
+--- when an outcome is one no archive could mean.
 local function test_opening_any_bytes_is_total(tmp: string)
   local file = tmp .. "/input"
   Fuzz.run({
@@ -329,7 +329,7 @@ local function walk_summary(reader: Archive.Reader): string
   return table.concat(lines, "\n")
 end
 
---- A Reader over `bytes` that answers in chunks of the sizes `bytes`
+--- A Reader over `bytes` that gives chunks of the sizes `bytes`
 --- itself spells (1 to 300, cycling), so the sniff and the tar's header
 --- reads land across reads wherever the input puts them.
 local function chunked(bytes: string): Stream.Reader
@@ -350,7 +350,7 @@ local function chunked(bytes: string): Stream.Reader
   return r
 end
 
---- `open` of a stream answers as `open` of a path does for the same bytes, however the
+--- `open` of a stream returns what `open` of a path does for the same bytes, however the
 --- stream splits them: the same entries and the same end, a tar or a
 --- compressed tar alike, and a zip refused rather than misread.
 local function test_open_of_a_stream_answers_as_open_does_for_the_same_bytes(tmp: string)

@@ -161,7 +161,7 @@ local function sealed_client(tmp: string): string, string
   return path, digest
 end
 
---- An echo server for `listener`, answering "echo:" and the four bytes each
+--- An echo server for `listener`, replying "echo:" and the four bytes each
 --- connection sends, as a task of the run.
 local function echoing(listener: Net.Listener): Poll.Task
   return Poll.spawn(function()
@@ -348,7 +348,7 @@ local function test_the_hosts_own_addresses_are_read_from_proc(_tmp: string)
 end
 
 --- Starts a program under a policy with `connect` and says what the start
---- answered, and which of this process's children are still running after it.
+--- returned, and which of this process's children are still running after it.
 local STARTER <const> = [==[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")

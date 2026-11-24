@@ -15,7 +15,7 @@ local function known_value(value: Json.Value?, why?: string): Json.Value
   return value
 end
 
---- A JSON text, and what reading it answers: the tokens it reads as, or the refusal it ends in.
+--- A JSON text, and the result of reading it: the tokens it reads as, or the refusal it ends in.
 local record Reading
   text: string
   want: string
@@ -81,7 +81,7 @@ local function test_a_stream_of_values()
 end
 
 --- Each refusal names where the text stopped being JSON, and every call
---- after answers it again.
+--- after returns it again.
 local function test_refusals_name_where()
   local cases: {Reading} = {
     { text = "[1, 2,]", want = "json: a trailing `,` at line 1, column 7 (pointer \"/1\")" },

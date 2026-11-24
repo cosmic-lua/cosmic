@@ -1,6 +1,6 @@
 --- The declarations of cosmic.http.server tell the truth about nil: a
 --- handler is a Reply only by its declaration, and the server checks what
---- one answered, nothing included. A checked run
+--- one returned, nothing included. A checked run
 --- (`cosmic test --check-types`) says whether a value crossed a typed
 --- boundary of the server as a kind its type does not admit; in any
 --- other run the test skips.

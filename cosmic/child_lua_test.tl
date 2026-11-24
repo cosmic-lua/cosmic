@@ -163,7 +163,7 @@ end
 --- Darwin refuses a signal to a process from the start of its exit until
 --- it is a zombie (ESRCH), and waitpid cannot reap it before then: a wait
 --- that ends a child caught there still reaps it. The SIGTERM here is
---- delivered, then answered as Darwin answers it in that moment.
+--- delivered, then the kill returns ESRCH, as Darwin's does in that moment.
 local function test_a_child_exiting_as_a_wait_ends_it_is_reaped()
   local h <close> = assert(Child.start(lua(sleep(30000))))
   local kill = sys.kill
@@ -214,8 +214,8 @@ local function test_invalid_inputs_do_not_poison_signal_guard()
   assert(result.ok)
 end
 
---- Successful public child operations answer no failure, or an empty
---- error slot where they still answer one in words.
+--- Successful public child operations return no failure, or an empty
+--- error slot where they still return one in words.
 local function test_success_results_carry_empty_errors()
   local result, run_trouble = Child.run(lua(""))
   assert(result ~= nil and run_trouble == nil)
@@ -306,7 +306,7 @@ local function read_all(reader: Stream.Reader): string
 end
 
 --- A streamed stdout is read while the child still runs: the child
---- answers what it is sent, through the stdin stream, only after its
+--- prints what it is sent, through the stdin stream, only after its
 --- first output has been read.
 local function test_streams_are_read_and_written_while_the_child_runs()
   local h = assert(Child.start(lua(FS .. 'local _, _ = Fs.put(1, "first") local x = "" while true do ' ..
@@ -399,7 +399,7 @@ local function test_an_escaped_writer_does_not_hold_up_a_read()
       "') " .. FS .. 'local _, _ = Fs.put(1, "done " .. tostring(escaped.pid)) require("cosmic.sys").exit(0)', nil,
     { timeout_ns = Child.FOREVER, stdout = "stream" })))
   local said = read_all(assert(h.stdout_stream))
-  -- A zombie answers `kill(pid, 0)` too, where this process adopted
+  -- `kill(pid, 0)` succeeds on a zombie too, where this process adopted
   -- the descendant; then only the time tells the read waited for it.
   local took = Clock.monotonic_ns() - started
   local alive = ended_escaped(said)
@@ -425,7 +425,7 @@ local function test_closing_a_streamed_output_ends_a_writer()
 end
 
 --- A streamed output's `read` refuses a `max_bytes` below 1 by raising,
---- and a read of a positive one still answers.
+--- and a read of a positive one still returns.
 local function test_a_streamed_output_refuses_a_max_bytes_below_one()
   local h = assert(Child.start(lua(FS .. 'local _, _ = Fs.put(1, "x")', nil, { timeout_ns = Child.FOREVER, stdout = "stream", stderr = "null" })))
   local stdout = assert(h.stdout_stream)
@@ -518,7 +518,7 @@ end
 
 --- A leader that exits leaves no member of its group behind, and none of
 --- them a zombie: a descendant that outlives the leader is ended and
---- reaped before the wait answers.
+--- reaped before the wait returns.
 --- The descendant is looked for by its group, the leader's pid.
 local function test_exit_ends_and_reaps_what_the_group_left_behind()
   local function check()
@@ -578,7 +578,7 @@ local function test_a_wait_refuses_a_timeout_out_of_range()
   -- The handle is untouched by the refusals: a zero timeout ends it.
   local r = assert(h:wait(0))
   assert(r.timed_out)
-  -- A settled handle refuses one too, rather than answering its Result.
+  -- A settled handle refuses one too, rather than returning its Result.
   local message = raised(function() local _, _ = h:wait(-1) end)
   assert(message:find("timeout_ns must be nil or an integer from 0 to", 1, true), message)
   local quick <close> = assert(Child.start(lua("return 3")))
@@ -671,7 +671,7 @@ local function test_a_timeout_of_0_ends_the_child_at_the_first_wait()
 end
 
 --- [`Child.wait_any`] ends a handle whose start's deadline passes while
---- it waits, and answers it settled; its own shorter timeout ends no
+--- it waits, and returns it settled; its own shorter timeout ends no
 --- child, and a `wait` shorter than the deadline ends its child its own
 --- way.
 local function test_wait_any_ends_a_child_past_its_start_timeout()
@@ -705,7 +705,7 @@ local function test_a_child_that_exited_past_its_start_timeout_is_not_timed_out(
   assert(r.code == 4 and not r.timed_out, tostring(r.code))
 end
 
---- `try_wait` past a start's deadline ends the child and answers it
+--- `try_wait` past a start's deadline ends the child and returns it
 --- finished; before it, the child runs on.
 local function test_try_wait_ends_a_child_past_its_start_timeout()
   local h <close> = assert(Child.start(lua(sleep(30000), nil, { timeout_ns = Clock.ms(300) })))
