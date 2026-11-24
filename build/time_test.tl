@@ -66,7 +66,7 @@ local function test_now_has_four_formats()
   assert(said({ "now", "--format", "epoch" }) == "1772971200\n")
   assert(said({ "now", "--format", "rfc3339", "--zone", "UTC" }) == "2026-03-08T12:00:00+00:00\n")
   local bad = run({ "now", "--format", "unix" })
-  assert(bad.code == 2 and bad.out == "" and bad.err:find("--format is rfc3339", 1, true) ~= nil, bad.err)
+  assert(bad.code == 2 and bad.out == "" and bad.err:find("now: --format takes rfc3339, date, http or epoch, not unix", 1, true) ~= nil, bad.err)
 end
 
 local function test_now_json_is_a_record_of_the_moment()

@@ -81,21 +81,14 @@ end
 
 local NS <const> = 1000000000
 
-local spec = Verb.spec or {}
+--- The subcommands, each with the options it takes, as [`cosmic.cli.time`] describes them.
+local subcommands = Verb.subcommands or {}
 
 local usage = "cosmic time now [--zone Z] [--format F] [--json] | " ..
   "convert <time> [--from Z] [--to Z] [--format F] [--json] [--disambiguate H] | " ..
   "between <a> <b> [--zone Z] [--days|--months|--seconds] [--json] [--disambiguate H] | " ..
   "add <time> <duration> [--zone Z] [--format F] [--json] [--clamp] [--disambiguate H]; " ..
   "a negative duration follows its time, as `add 2026-01-31 -1d`"
-
---- The options each subcommand takes: any other is a usage error.
-local takes: {string:{string}} = {
-  now = { "--zone", "--format", "--json" },
-  convert = { "--from", "--to", "--format", "--json", "--disambiguate" },
-  between = { "--zone", "--days", "--months", "--seconds", "--json", "--disambiguate" },
-  add = { "--zone", "--format", "--json", "--clamp", "--disambiguate" },
-}
 
 --- How many words each subcommand takes after its name.
 local arity: {string:integer} = { now = 0, convert = 1, between = 2, add = 2 }
@@ -299,39 +292,30 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     complain(line .. "; " .. usage)
     return bare.refused
   end
-  local got, trouble = Flags.parse(argv, 2, spec)
-  if got == nil then return refuse(trouble) end
-  local parsed: Flags.Parsed = got
-  local sub = parsed.words[1]
+  local sub = argv[2]
   if sub == nil then return refuse("name now, convert, between or add") end
-  local allowed = takes[sub]
-  if allowed == nil then return refuse("no subcommand " .. sub) end
-  local is_allowed: mut {string:boolean} = {}
-  for _, name in ipairs(allowed) do is_allowed[name] = true end
-  for _, name in ipairs(parsed.given) do
-    if is_allowed[name] ~= true then return refuse(name .. " is not an option of " .. sub) end
-  end
-  local words_taken = assert(arity[sub], "takes and arity name the same subcommands")
-  if #parsed.words - 1 ~= words_taken then
+  local described = subcommands[sub]
+  if described == nil then return refuse("no subcommand " .. sub) end
+  local none: {string:boolean | Flags.Option} = {}
+  local got, trouble = Flags.parse(argv, 3, described.spec or none)
+  if got == nil then return refuse(sub .. ": " .. trouble) end
+  local parsed: Flags.Parsed = got
+  local words_taken = assert(arity[sub], "arity names every subcommand of cosmic.cli.time")
+  if #parsed.words ~= words_taken then
     return refuse(("%s takes %d word%s, not %d"):format(sub, words_taken,
-      if words_taken == 1 then "" else "s" end, #parsed.words - 1))
+      if words_taken == 1 then "" else "s" end, #parsed.words))
   end
   local as_json = parsed.set["--json"] == true
   local format = parsed.values["--format"] or "rfc3339"
-  if format ~= "rfc3339" and format ~= "date" and format ~= "http" and format ~= "epoch" then
-    return refuse("--format is rfc3339, date, http or epoch, not " .. format)
-  end
-  if as_json and parsed.values["--format"] ~= nil then
+  if as_json and parsed.all["--format"] ~= nil then
     return refuse("--json prints a record, which --format does not shape")
   end
   local how = parsed.values["--disambiguate"] or "compatible"
   local choices: {string:Time.Disambiguation} = {
     reject = "reject", earlier = "earlier", later = "later", compatible = "compatible",
   }
-  local disambiguation = choices[how]
-  if disambiguation == nil then
-    return refuse("--disambiguate is reject, earlier, later or compatible, not " .. how)
-  end
+  -- The option's choices, which Flags.parse holds it to, are these four.
+  local disambiguation = assert(choices[how], "--disambiguate takes only its choices")
 
   -- The host's zone once asked for, which is asked for once.
   local host: mut {Time.Zone} = {}
@@ -396,7 +380,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   if sub == "convert" then
     local from = zone_of("--from")
     if from == nil then return bare.refused end
-    local convert_word = assert(parsed.words[2], "convert takes one word, which the arity check holds it to")
+    local convert_word = assert(parsed.words[1], "convert takes one word, which the arity check holds it to")
     local zoned = read_time(convert_word, from)
     if zoned == nil then return bare.refused end
     local target = zone_of("--to")
@@ -408,8 +392,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   -- own zone, else the host's.
   local fallback = zone_of("--zone")
   if fallback == nil then return bare.refused end
-  local first_word = assert(parsed.words[2], "between and add take two words, which the arity check holds them to")
-  local second_word = assert(parsed.words[3], "between and add take two words, which the arity check holds them to")
+  local first_word = assert(parsed.words[1], "between and add take two words, which the arity check holds them to")
+  local second_word = assert(parsed.words[2], "between and add take two words, which the arity check holds them to")
   local first = read_time(first_word, fallback)
   if first == nil then return bare.refused end
   local calendar = parsed.values["--zone"] ~= nil and fallback or first.zone or fallback -- checked: and_ternary

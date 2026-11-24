@@ -214,11 +214,11 @@ local function run(tmp: string, words: {string}, status?: string, no_socket?: bo
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local path = assert(Array.at(addresses, 1).path)
       local argv: mut {string} = { "tailscale" }
+      for _, word in ipairs(words) do argv[#argv + 1] = word end
       if no_socket ~= true then
         argv[#argv + 1] = "--socket"
         argv[#argv + 1] = path
       end
-      for _, word in ipairs(words) do argv[#argv + 1] = word end
       ran.code = tailscale.run(argv, {
         out = function(text: string): boolean, string
           ran.out = ran.out .. text
@@ -471,7 +471,7 @@ local function test_ping_prints_the_round_trip_and_its_path(tmp: string)
   local refused = run(tmp, { "ping", "100.64.0.7" })
   assert(refused.code == 1 and refused.err:find("^cosmic: tailscale: /localapi/v0/ping: ") ~= nil, refused.err)
   local bad = run(tmp, { "ping", "--kind", "udp", "100.64.0.2" })
-  assert(bad.code == 2 and bad.err:find("--kind is disco", 1, true) ~= nil, bad.err)
+  assert(bad.code == 2 and bad.err:find("ping: --kind takes disco, ICMP, TSMP or peerapi, not udp", 1, true) ~= nil, bad.err)
 end
 
 --- A command line it cannot run is refused before the daemon is asked.
@@ -488,7 +488,7 @@ end
 
 --- A daemon that is not there fails the call, exit 1, naming the socket.
 local function test_a_daemon_that_is_not_there_exits_1(tmp: string)
-  local ran = run(tmp, { "--socket", tmp .. "/none.sock", "status" }, nil, true)
+  local ran = run(tmp, { "status", "--socket", tmp .. "/none.sock" }, nil, true)
   assert(ran.code == 1, tostring(ran.code))
   assert(ran.err:find("^cosmic: tailscale: ") ~= nil, ran.err)
 end

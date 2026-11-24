@@ -130,24 +130,9 @@ local record verb
   end
 end
 
-local spec = assert(Verb.spec)
+local subcommands = Verb.subcommands or {}
 
 local USAGE <const> = "cosmic agent <ask|chat|resume|rpc|sessions|prompt|policy> [options] [words...]"
-
---- The options each subcommand takes; the rest of the spec is refused.
-local SESSION_OPTIONS <const>: {string: boolean} = {
-  ["--model"] = true, ["--effort"] = true, ["--continue"] = true, ["--session"] = true,
-  ["--sandbox"] = true, ["--network"] = true, ["--grant"] = true, ["--mcp"] = true,
-}
-local SANDBOX_OPTIONS <const>: {string: boolean} = { ["--sandbox"] = true, ["--network"] = true, ["--grant"] = true }
-local ASK_OPTIONS <const>: mut {string: boolean} = { ["--json"] = true }
-for k, v in pairs(SESSION_OPTIONS) do ASK_OPTIONS[k] = v end
-local TAKES <const>: {string: {string: boolean}} = {
-  ask = ASK_OPTIONS, chat = SESSION_OPTIONS, resume = SESSION_OPTIONS, rpc = SESSION_OPTIONS, sessions = {},
-  prompt = {}, policy = SANDBOX_OPTIONS, worker = {},
-}
-
-local EFFORTS <const>: {string: boolean} = { low = true, medium = true, high = true, xhigh = true, max = true }
 
 -- What standard input holds past the last line read.
 local pending = ""
@@ -350,12 +335,8 @@ end
 --- Where `newest`, no session named is the newest in the directory.
 local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boolean): Agent.Session?, string
   local effort = got.values["--effort"] or Agent.EFFORT
-  if EFFORTS[effort] ~= true then
-    return nil, "--effort is one of low, medium, high, xhigh, max"
-  end
   local name = got.values["--model"] or Agent.MODEL
-  local model = if name == "opus" then Agent.MODELS.opus elseif name == "sonnet" then Agent.MODELS.sonnet else nil end
-  if model == nil then return nil, "--model is opus or sonnet" end
+  local model = if name == "sonnet" then Agent.MODELS.sonnet else Agent.MODELS.opus end
   local base = r.io.env("ANTHROPIC_BASE_URL") or "https://api.anthropic.com"
   local sign, sign_why = Auth.from(r.io.env, base)
   if sign == nil then return nil, sign_why end
@@ -736,25 +717,19 @@ local SUBCOMMANDS <const>: {string: function(Run, Flags.Parsed): integer} = {
 function verb.run(argv: {string}, io?: verb.Io): integer
   local to = io or standard
   local complain = bare.complainer("agent", to.err)
-  local got, trouble = Flags.parse(argv, 2, spec)
+  local sub = argv[2]
+  local described = if sub == nil then nil else subcommands[sub] end
+  if sub == nil or described == nil then
+    complain((if sub == nil then "name ask, chat, resume, rpc, sessions, prompt or policy" else
+      "no such command: " .. sub end) .. "; " .. USAGE)
+    return bare.refused
+  end
+  local got, trouble = Flags.parse(argv, 3, described.spec or {})
   if got == nil then
-    complain(trouble .. "; " .. USAGE)
+    complain(sub .. ": " .. trouble .. "; " .. USAGE)
     return bare.refused
   end
   local parsed: Flags.Parsed = got
-  local sub = table.remove(parsed.words, 1)
-  local takes = if sub == nil then nil else TAKES[sub] end
-  if sub == nil or takes == nil then
-    complain((if sub == nil then "name ask, chat, resume, rpc, sessions, prompt or policy" else
-      "no subcommand " .. sub end) .. "; " .. USAGE)
-    return bare.refused
-  end
-  for _, name in ipairs(parsed.given) do
-    if takes[name] ~= true then
-      complain(name .. " is not an option of " .. sub .. "; " .. USAGE)
-      return bare.refused
-    end
-  end
   local environment: mut {string: string} = {}
   for _, name in ipairs({ "HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME" }) do
     local value = to.env(name)

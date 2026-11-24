@@ -70,8 +70,8 @@ local record Flags
 
   -- TODO: move the other verbs' value checks onto `choices` and `integer` (qr, codec, release, sandbox,
   -- test, build, sql, lsp), their "(default ...)" text onto `default`, and json's -r and codec's -d onto
-  -- `aliases`; each still words its own refusal of a bad value. Wait for the docs thread's move of each
-  -- verb's spec to cosmic/cli/<verb>.tl, and the six verbs to `subcommands`.
+  -- `aliases`; each still words its own refusal of a bad value. Each verb's spec is in cosmic/cli/<verb>.tl
+  -- now, so nothing waits.
 
   --- The bounds of a whole number an option takes, each inclusive; no bound where nil.
   record Range

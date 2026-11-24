@@ -34,6 +34,12 @@ local function test_bare_success_usage_and_help_ignore_broken_project(tmp: strin
     local help = run(tmp, words)
     assert(help.code == 0 and (help.stdout or ""):find("--since-ns", 1, true) ~= nil, help.stderr)
   end
+  for _, words in ipairs({ { "cache", "trim", "verdicts", "--help" }, { "help", "cache", "trim", "verdicts" } }) do
+    local help = run(tmp, words)
+    assert(help.code == 0 and (help.stdout or ""):find("usage: cosmic cache trim verdicts", 1, true) ~= nil,
+      help.stderr)
+    assert(not (help.stderr or ""):find("stale", 1, true), help.stderr)
+  end
   local usage = run(tmp, { "cache", "trim", "verdicts", "relative", "--whole" })
   assert(usage.code == 2 and not (usage.stderr or ""):find("stale", 1, true), usage.stderr)
   assert(not assert(Fs.status(tmp .. "/o")).exists and not assert(Fs.status(tmp .. "/missing")).exists)

@@ -27,15 +27,16 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     complain(why .. "; " .. usage)
     return 2
   end
-  local parsed, why = Flags.parse(argv, 2, assert(Verb.spec))
-  if parsed == nil then return refuse(why) end
-  if parsed.words[1] ~= "trim" then return refuse("give the trim operation") end
-  local family = parsed.words[2]
+  if argv[2] ~= "trim" then return refuse("give the trim operation") end
+  local family = argv[3]
   if not (family is maintenance.Family) then return refuse("give compiles or verdicts") end
+  local trim = assert((Verb.subcommands or {})["trim"])
+  local described = assert((trim.subcommands or {})[family])
+  local parsed, why = Flags.parse(argv, 4, described.spec or {})
+  if parsed == nil then return refuse("trim " .. family .. ": " .. why) end
   local paths: mut {string} = {}
-  for i = 3, #parsed.words do
-    local path = parsed.words[i]
-    if path == nil or path:sub(1, 1) ~= "/" or path:find("\0", 1, true) ~= nil then
+  for _, path in ipairs(parsed.words) do
+    if path:sub(1, 1) ~= "/" or path:find("\0", 1, true) ~= nil then
       return refuse("cache paths must be absolute and contain no NUL")
     end
     paths[#paths + 1] = path
@@ -44,20 +45,13 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     return refuse("compiles takes one path; verdicts takes one or more")
   end
   local whole = parsed.set["--whole"] == true
-  local since: integer?
-  local raw_since = parsed.values["--since-ns"]
-  if raw_since ~= nil then
-    if not raw_since:match("^%d+$") then return refuse("since-ns must be a nonnegative integer") end
-    since = math.tointeger(tonumber(raw_since))
-    if since == nil or since < 0 then return refuse("since-ns is outside the integer range") end
-  end
-  if whole == (since ~= nil) or (whole and family ~= "verdicts") then
-    return refuse("give --since-ns, or --whole for verdicts only")
+  local since = parsed.integers["--since-ns"]
+  if whole == (since ~= nil) then
+    return refuse("give --since-ns or --whole")
   end
   local restored = parsed.values["--restored"]
-  if restored ~= nil and (family ~= "compiles" or restored:sub(1, 1) ~= "/" or
-      restored:find("\0", 1, true) ~= nil) then
-    return refuse("restored is an absolute snapshot path for compiles only")
+  if restored ~= nil and (restored:sub(1, 1) ~= "/" or restored:find("\0", 1, true) ~= nil) then
+    return refuse("restored is an absolute snapshot path")
   end
   local options: maintenance.Options = {
     family = family, paths = paths, since_ns = since, whole = whole, restored = restored,
