@@ -14,6 +14,7 @@ local protocol = require("build.lsp.protocol")
 local handoff = require("build.lsp.handoff")
 local session = require("build.lsp.session")
 local source = require("build.lsp.source")
+local type Failure = require("cosmic.failure")
 
 local record session_fixture
   record Failed
@@ -223,10 +224,10 @@ local class Batches is Stream.Reader
   mut rest: string
   between: function(after: integer)
 
-  function read(self, max_bytes?: integer): string?, string
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     if self.rest == "" then
       local batch = self.batches[self.following]
-      if batch == nil then return nil, "" end
+      if batch == nil then return false end
       if self.following > 1 then self.between(self.following - 1) end
       self.following = self.following + 1
       self.rest = batch
@@ -235,7 +236,7 @@ local class Batches is Stream.Reader
     if max_bytes ~= nil and max_bytes < n then n = max_bytes end
     local piece = self.rest:sub(1, n)
     self.rest = self.rest:sub(n + 1)
-    return piece, ""
+    return piece
   end
 
   function close(self): boolean, string
@@ -247,7 +248,8 @@ local class Batches is Stream.Reader
     local left = n
     while left > 0 do
       local piece, trouble = self:read(left)
-      if piece == nil then return false, trouble end
+      if piece == nil then return false, tostring(trouble) end
+      if piece == false then return false, "" end
       left = left - #piece
     end
     return true, ""

@@ -1,4 +1,5 @@
 local Array = require("cosmic.array")
+local type Failure = require("cosmic.failure")
 --- Proves the zip reader and writer against each other, and against a
 --- fixture made once, ahead of time, by the system `zip` -- a mix of
 --- stored and deflated entries and a symlink -- embedded as base64 so
@@ -515,11 +516,11 @@ end
 local function repeating(chunk: string, rounds: integer, each?: function(integer)): Stream.Reader
   local n: integer = 0
   local r: Stream.Reader = { -- checked: literal_shape
-    read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
-      if n >= rounds then return nil, "" end
+    read = function(_self: Stream.Reader, _max_bytes?: integer): (string | false) | (nil, Failure)
+      if n >= rounds then return false end
       n = n + 1
       if each ~= nil then each(n) end
-      return chunk, ""
+      return chunk
     end,
     close = function(_self: Stream.Reader): boolean, string return true, "" end,
   }
@@ -661,8 +662,8 @@ end
 local function test_a_failing_body_fails_and_aborts_the_writer()
   local w = Zip.writer(Stream.collect())
   local bad: Stream.Reader = { -- checked: literal_shape
-    read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
-      return nil, "disk on fire"
+    read = function(_self: Stream.Reader, _max_bytes?: integer): (string | false) | (nil, Failure)
+      return nil, Failure.new("disk on fire")
     end,
     close = function(_self: Stream.Reader): boolean, string return true, "" end,
   }

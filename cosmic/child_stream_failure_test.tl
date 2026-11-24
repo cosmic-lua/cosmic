@@ -33,14 +33,14 @@ end
 local function prefix(reader: Stream.Reader)
   for _, expected in ipairs({ "ab", "cd", "ef" }) do
     local chunk, trouble = reader:read(2)
-    assert(chunk == expected and trouble == "", tostring(chunk) .. ": " .. trouble)
+    assert(chunk == expected and trouble == nil, tostring(chunk) .. ": " .. tostring(trouble))
   end
 end
 
 local function failed(reader: Stream.Reader, reason: string)
   for _ = 1, 2 do
     local chunk, trouble = reader:read(2)
-    assert(chunk == nil and trouble == reason, tostring(chunk) .. ": " .. trouble)
+    assert(chunk == nil and tostring(trouble) == reason, tostring(chunk) .. ": " .. tostring(trouble))
   end
 end
 
@@ -135,7 +135,7 @@ local function test_a_source_failure_does_not_replace_sticky_guard_cancellation(
     local released, _ = g:release()
     assert(released == sys.SIGTERM)
   end
-  assert(chunk == nil and cancellation == "child: cancelled by signal " .. tostring(sys.SIGTERM))
+  assert(chunk == nil and tostring(cancellation) == "child: cancelled by signal " .. tostring(sys.SIGTERM))
   -- `output` starts the child with the one stream.
   local pipe = Array.at(assert(h._streams), 1)
   local fd = pipe.fd
@@ -153,7 +153,7 @@ local function test_a_source_failure_does_not_replace_sticky_guard_cancellation(
     assert(h:wait(Clock.seconds(5)))
   end)
   assert(refused and pipe.failure == reason, "the source owns its separate terminal failure")
-  failed(reader, cancellation)
+  failed(reader, tostring(cancellation))
 end
 
 --- Transient nonblocking and signal-interrupted reads retain neither
@@ -177,7 +177,7 @@ local function test_transient_read_errors_leave_the_stream_readable()
   local reader = assert(h.stdout_stream)
   prefix(reader)
   local chunk, trouble = reader:read()
-  assert(chunk == nil and trouble == "", trouble)
+  assert(chunk == false, trouble)
 end
 
 --- A descriptor closed while a pump is answering is no longer its
@@ -201,7 +201,7 @@ local function test_a_failed_pump_does_not_close_a_reused_descriptor()
     end)
     assert(sys.fstat(assert(replacement)), "the stale pump closed the replacement descriptor")
     local chunk, trouble = reader:read()
-    assert(chunk == nil and trouble == "child: the reader is closed", trouble)
+    assert(chunk == nil and tostring(trouble) == "child: the reader is closed", trouble)
   end)
   local replacement_value = replacement
   if replacement_value ~= nil then assert(Fs.close(replacement_value)) end

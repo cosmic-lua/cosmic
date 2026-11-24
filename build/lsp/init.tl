@@ -129,7 +129,10 @@ local function polled_input(reader: Stream.Reader): protocol.Poll
   return function(): string?, string
     local ready, _ = Poll.readable(0, 0)
     if not ready then return nil, "" end
-    return reader:read()
+    local chunk, why = reader:read()
+    if chunk == nil then return nil, tostring(why) end
+    if chunk == false then return nil, "" end
+    return chunk, ""
   end
 end
 
@@ -140,9 +143,10 @@ local function polled_conn(conn: Net.Conn): protocol.Poll
     local chunk, why = conn:read()
     conn:set_timeout(nil)
     if chunk == nil then
-      if why == Poll.TIMEOUT then return nil, "" end
-      return nil, why
+      if why.kind == "timeout" then return nil, "" end
+      return nil, tostring(why)
     end
+    if chunk == false then return nil, "" end
     return chunk, ""
   end
 end

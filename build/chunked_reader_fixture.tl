@@ -3,6 +3,7 @@
 --- cosmic/json_reader_fuzz_test.tl, cosmic/http/multipart_test.tl and
 --- cosmic/http/multipart_fuzz_test.tl). Test support.
 
+local Failure = require("cosmic.failure")
 local Stream = require("cosmic.stream")
 
 local record chunked_reader_fixture
@@ -15,11 +16,14 @@ local class Chunked is Stream.Reader
   size: integer
   last: string
 
-  function read(self, _max_bytes?: integer): string?, string
-    if self.at > #self.text then return nil, self.last end
+  function read(self, _max_bytes?: integer): (string | false) | (nil, Failure)
+    if self.at > #self.text then
+      if self.last == "" then return false end
+      return nil, Failure.new(self.last)
+    end
     local chunk = self.text:sub(self.at, self.at + self.size - 1)
     self.at = self.at + self.size
-    return chunk, ""
+    return chunk
   end
 
   function close(self): boolean, string
@@ -56,7 +60,7 @@ local class Dripped is Stream.Reader
   inner: Stream.Reader
   most: integer
 
-  function read(self, max_bytes?: integer): string?, string
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     return self.inner:read(math.min(self.most, max_bytes or self.most))
   end
 

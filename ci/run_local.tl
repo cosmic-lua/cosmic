@@ -539,19 +539,19 @@ local function execute(argv: {string}, program: string): integer
         local reading <close>: Opened = { fd = opened }
         local reader = Stream.lines(Stream.from_fd(opened), 65536)
         local lines = 0
-        while lines < 20 do
-          local line, trouble = reader:read()
-          if line == nil then
-            if trouble ~= "" then say("log diagnostics stopped: " .. trouble) end
-            break
-          end
+        -- `each` and `failure`, which answer alike on the pinned release
+        -- and this tree, whose reads end differently.
+        for line in reader:each() do
           -- A complaint names the trouble; a failing test says FAIL.
           if line:match("^FAIL") ~= nil or line:find(" FAIL", 1, true) ~= nil or line:match("^cosmic: ") ~= nil or
               line:find("timed out", 1, true) ~= nil or line:find("error", 1, true) ~= nil then
             local _, _ = current.fs_put(Fs.stderr, line .. "\n")
             lines = lines + 1
+            if lines >= 20 then break end
           end
         end
+        local stopped = reader:failure()
+        if stopped ~= "" then say("log diagnostics stopped: " .. stopped) end
         local _, _ = reading:close()
       else
         say("cannot read phase log: " .. tostring(read_why))

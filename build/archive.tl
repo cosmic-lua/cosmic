@@ -116,12 +116,10 @@ local function peek(source: Stream.Reader, n: integer): string?, string
   while have < n do
     local chunk, why = source:read(n - have)
     if chunk == nil then
-      if why ~= "" then
-        local _, _ = source:close()
-        return nil, why
-      end
-      break
+      local _, _ = source:close()
+      return nil, tostring(why)
     end
+    if chunk == false then break end
     parts[#parts + 1] = chunk
     have = have + #chunk
   end
@@ -800,13 +798,17 @@ local function add_file(writer: Stream.ArchiveWriter, item: Item): boolean, stri
   -- A tar reads only the size it was given, so a file that grew since
   -- it was stat'd has bytes past it that would be silently dropped; a
   -- zip has read to the end and refused it already.
-  local more, more_why: string?, string = nil, ""
-  if ok then more, more_why = body:read(1) end
+  local more: string | false = false
+  local more_why = ""
+  if ok then
+    local got, got_why = body:read(1)
+    if got == nil then more_why = tostring(got_why) else more = got end
+  end
   -- A writer does not close its body.
   local _, _ = body:close()
   if not ok then return false, added end
-  if more == nil and more_why ~= "" then return false, item.full .. ": " .. more_why end
-  if more ~= nil and more ~= "" then
+  if more_why ~= "" then return false, item.full .. ": " .. more_why end
+  if more is string and more ~= "" then
     return false, item.full .. ": grew past " .. plural.count(item.size, "byte") .. " as it was read"
   end
   return true, ""

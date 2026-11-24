@@ -13,6 +13,14 @@ local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local Tls = require("cosmic.tls")
 
+--- The next chunk of `reader`: raises where it ended or failed.
+local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
+  local chunk, why = reader:read(max_bytes)
+  if chunk == nil then error(tostring(why), 2) end
+  if chunk == false then error("the stream ended", 2) end
+  return chunk
+end
+
 Test.policy{ loopback = { "127.0.0.1" }, promises = { "fork" }, grants = { { path = "testdata/tls", letters = "r" } } }
 
 --- The fixture `name` of testdata/tls.
@@ -48,7 +56,7 @@ local function served(pair: Tls.Pair, body: function(port: integer))
       local _, _ = conn:write(info.version .. " " .. (info.alpn or "-") .. " " .. (info.server_name or "-") .. "\n")
       while true do
         local data, _ = conn:read()
-        if data == nil then return end
+        if data == nil or data == false then return end
         local _, _ = conn:write(data)
       end
     end,
@@ -66,7 +74,7 @@ local function round_trip(conn: Net.Conn, said: string): string
   local got = ""
   while not got:find(said, 1, true) do
     local data, why = conn:read()
-    assert(data ~= nil, "read: " .. why)
+    assert(data is string, "read: " .. tostring(why))
     got = got .. data
   end
   return got
@@ -174,7 +182,7 @@ local function test_starttls_secures_a_connection_from_both_sides()
         assert(conn:write("STARTTLS\n"))
         assert(assert(Stream.read_exact(conn, 3)) == "GO\n")
         assert(conn:start_tls(trusting(), "localhost"))
-        local said = assert(conn:read())
+        local said = chunk_of(conn)
         assert(said == "secured TLSv1.3 localhost\n", said)
         assert(assert(assert(conn:tls()).peer).verified)
         Test.raises(function() local _, _ = conn:start_tls(trusting(), "localhost") end, "already over TLS")
@@ -191,7 +199,7 @@ local function test_a_failed_start_tls_leaves_the_connection_of_no_use()
     local ok, why = conn:start_tls(trusting(), "elsewhere.test")
     assert(not ok and why:find("is not trusted", 1, true) ~= nil, why)
     local data, again = conn:read()
-    assert(data == nil and again == why, again)
+    assert(data == nil and tostring(again) == why, again)
     local wrote, still = conn:write("x")
     assert(not wrote and still == why, still)
   end)
@@ -250,7 +258,7 @@ local function test_a_tls_listener_with_no_configuration_serves_nothing_in_the_c
         certs.current = nil
         local conn <close> = assert(Net.connect(Net.tcp("127.0.0.1", assert(Array.at(addresses, 1).port))))
         local data, _ = conn:read()
-        assert(data == nil, tostring(data))
+        assert(data == nil or data == false, tostring(data))
       end)
       server:stop()
       assert(ok, tostring(trouble))
@@ -288,7 +296,7 @@ local function test_a_tls_client_that_closes_is_gone()
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local conn = assert(Net.connect(Net.tcp("127.0.0.1", assert(Array.at(addresses, 1).port)),
         { tls = trusting(), server_name = "localhost" }))
-      assert(conn:read() == "hi\n")
+      assert(chunk_of(conn) == "hi\n")
       assert(Clock.sleep(Clock.ms(200)))
       closed_ns = Clock.monotonic_ns()
       assert(conn:close())

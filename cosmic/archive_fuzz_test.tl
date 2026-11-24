@@ -16,6 +16,7 @@ local String = require("cosmic.string")
 local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
 local sys = require("cosmic.sys")
+local type Failure = require("cosmic.failure")
 
 --- The names in `dir`, or none where it cannot be listed.
 local function listed(dir: string): {string}
@@ -336,14 +337,14 @@ local function chunked(bytes: string): Stream.Reader
   local at: integer = 1
   local turn: integer = 0
   local r: Stream.Reader = { -- checked: literal_shape
-    read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
-      if at > #bytes then return nil, "" end
+    read = function(_self: Stream.Reader, max_bytes?: integer): (string | false) | (nil, Failure)
+      if at > #bytes then return false end
       turn = turn + 1
       local size = String.byte_at(bytes, turn % math.max(#bytes, 1) + 1) % 300 + 1
       if max_bytes ~= nil and max_bytes < size then size = max_bytes end
       local chunk = bytes:sub(at, at + size - 1)
       at = at + #chunk
-      return chunk, ""
+      return chunk
     end,
     close = function(_self: Stream.Reader): boolean, string return true, "" end,
   }

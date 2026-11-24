@@ -778,12 +778,12 @@ end
 local function read_one(link: Link): boolean
   local line, trouble = link.lines:read()
   if line == nil then
-    if trouble == Poll.CANCELLED or trouble == Poll.TIMEOUT then return false end
-    if trouble ~= "" then
-      break_link(link, Failure.new("mcp: reading from the server: " .. trouble))
-    else
-      break_link(link, Failure.new("mcp: the server closed its output"))
-    end
+    if trouble.message == Poll.CANCELLED or trouble.message == Poll.TIMEOUT then return false end
+    break_link(link, Failure.new("mcp: reading from the server: " .. tostring(trouble)))
+    return false
+  end
+  if line == false then
+    break_link(link, Failure.new("mcp: the server closed its output"))
     return false
   end
   if line:find("%S") ~= nil then
@@ -1001,8 +1001,8 @@ local function streamed_response(response: Http.Response, req: Request): (wire.M
   local splitter = wire.splitter()
   while true do
     local chunk, trouble = response:read()
-    if chunk == nil and trouble ~= "" then return nil, trouble_of(req, trouble) end
-    local datas = if chunk ~= nil then splitter.feed(chunk) else splitter.finish() end
+    if chunk == nil then return nil, trouble_of(req, tostring(trouble)) end
+    local datas = if chunk == false then splitter.finish() else splitter.feed(chunk) end
     if datas == nil then
       return nil, Failure.new("mcp: " .. req.method .. ": an event is longer than a message may be")
     end
@@ -1013,7 +1013,7 @@ local function streamed_response(response: Http.Response, req: Request): (wire.M
         if message.method == nil and message.id == req.id then return message end
       end
     end
-    if chunk == nil then return false end
+    if chunk == false then return false end
   end
 end
 
