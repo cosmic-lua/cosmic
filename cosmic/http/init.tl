@@ -24,14 +24,12 @@
 --- checksum while it goes.
 ---
 --- A proxy that the environment names (`http_proxy`, `https_proxy`,
---- `all_proxy`, `no_proxy`) is used as curl uses it, with two exceptions.
+--- `all_proxy`, `no_proxy`) is used as curl uses it, with one exception.
 --- A request to this machine (127/8, ::1, localhost and the names under
 --- it) skips a proxy that is not on this machine, so the request and a
 --- token in its headers do not leave the machine. With `follow`, the
 --- redirects after it go direct too. A proxy on loopback, such as a
---- sandbox's relay, is kept. And an http request through a proxy on
---- loopback goes as a CONNECT tunnel, as https does, since a relay may
---- take nothing else; a proxy elsewhere gets it in the plain form.
+--- sandbox's relay, is kept.
 ---
 --- To call a rate-limited API in a loop, with [`Http.Options.retry`] and
 --- [`Http.Options.pace`], see [the rate-limit guide](../../doc/guides/http-pacing.md).
