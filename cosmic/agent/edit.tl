@@ -1,7 +1,6 @@
 --- @public
---- Replacements of exact text in a file's body, as cosmic agent's edit tool makes them and a snippet's
---- [`Host.edit`] does: each old text must be in the body once, as it was before any replacement, and no two may
---- overlap. The body is matched with LF line ends, as a model writes them, and a body of CRLF line ends keeps them.
+--- Replacements of exact text in a file's body, as cosmic agent's edit tool makes them: each old text must be in
+--- the body once, as it was before any replacement, and no two may overlap. The body is matched with LF line ends, as a model writes them, and a body of CRLF line ends keeps them.
 ---
 ---     local body = assert(Edit.apply("one teh two\n", { { old = "teh", new = "the" } }, "notes.txt", "old"))
 
@@ -22,7 +21,7 @@ local function lf(text: string): string
 end
 
 --- `raw` with each of `edits` made, and how many were; or nil and why not, naming `path` and the replacements'
---- field `field` (as `oldText` for the tool, `old` for [`Host.edit`]).
+--- field `field` (as `oldText` for the tool).
 function Edit.apply(raw: string, edits: {Edit.Replacement}, path: string, field: string): (string, integer) | (nil, string)
   if #edits == 0 then return nil, "edits must hold at least one replacement" end
   local crlf = raw:find("\r\n", 1, true) ~= nil

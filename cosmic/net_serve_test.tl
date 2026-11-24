@@ -10,6 +10,14 @@ local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
+--- The next line of `lines`: raises where they ended or failed.
+local function line_of(lines: Stream.Lines): string
+  local line, why = lines:read()
+  if line == nil then error(tostring(why), 2) end
+  if line == false then error("the lines ended", 2) end
+  return line
+end
+
 -- Each case gives [`Net.serve`] its listeners, and `on_ready` gets one address per
 -- listener, so `Array.at(addresses, n)` reads the nth listener the case named.
 
@@ -40,7 +48,7 @@ end
 local function released(address: Net.Address): boolean
   if address.kind == "unix" then return not assert(Fs.status(assert(address.path))).exists end
   local conn, why = Net.connect(address, { timeout_ns = Clock.seconds(1) })
-  if conn == nil then return tostring(why) ~= Poll.TIMEOUT end
+  if conn == nil then return why.kind ~= "timeout" end
   local _, _ = conn:close()
   return false
 end
@@ -74,7 +82,7 @@ local function test_several_connections_are_served_at_once()
       local third <close> = client(Array.at(addresses, 1))
       for i, c in ipairs({ third, second, first }) do
         assert(c.conn:write("line " .. tostring(i) .. "\n"))
-        local appended = assert(c.lines:read())
+        local appended = line_of(c.lines)
         answers[#answers + 1] = appended
       end
       server:stop()
@@ -104,12 +112,12 @@ local function test_an_error_in_one_connection_leaves_the_others_served()
       local failing <close> = client(Array.at(addresses, 1))
       assert(failing.conn:write("boom\n"))
       local gone, why = failing.lines:read()
-      assert(gone == nil and why == "", why)
+      assert(gone == false, why)
       assert(steady.conn:write("still\n"))
-      assert(steady.lines:read() == "still")
+      assert(line_of(steady.lines) == "still")
       local fresh <close> = client(Array.at(addresses, 1))
       assert(fresh.conn:write("after\n"))
-      later = assert(fresh.lines:read())
+      later = line_of(fresh.lines)
       server:stop()
     end,
   })
@@ -138,17 +146,17 @@ local function test_at_the_connection_limit_accepting_waits()
       do
         local first <close> = client(Array.at(addresses, 1))
         assert(first.conn:write("one\n"))
-        assert(first.lines:read() == "one")
+        assert(line_of(first.lines) == "one")
         second = client(Array.at(addresses, 1))
         assert(second.conn:write("two\n"))
         second.conn:set_timeout(Clock.ms(100))
-        local nothing: string?
-        nothing, waiting_why = second.conn:read()
+        local nothing, waited = second.conn:read()
         assert(nothing == nil)
+        waiting_why = waited.message
         assert(accepted == 1, tostring(accepted))
         second.conn:set_timeout(Clock.seconds(5))
       end
-      answer = assert(second.lines:read())
+      answer = line_of(second.lines)
       local _, _ = second.conn:close()
       server:stop()
     end,
@@ -165,14 +173,14 @@ local function test_timeout_ns_bounds_each_connection()
     listeners = { Net.tcp("127.0.0.1", 0) },
     timeout_ns = Clock.ms(20),
     serve = function(conn: Net.Conn)
-      local data: string?
-      data, why = conn:read()
+      local data, failed = conn:read()
       assert(data == nil)
+      why = failed.message
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local idle <close> = client(Array.at(addresses, 1))
       local ended, reason = idle.lines:read()
-      assert(ended == nil and reason == "", reason)
+      assert(ended == false, reason)
       server:stop()
     end,
   })
@@ -198,9 +206,10 @@ local function stop_drains_then_kills_after_grace_ns_at(path: string?)
       local lines = Stream.lines(conn)
       local line, why = lines:read()
       if line == nil then
-        stuck_why = why
+        stuck_why = tostring(why)
         return
       end
+      if line == false then return end
       assert(Clock.sleep(Clock.ms(50)))
       assert(conn:write(line .. "\n"))
     end,
@@ -214,12 +223,12 @@ local function stop_drains_then_kills_after_grace_ns_at(path: string?)
       assert(released(Array.at(addresses, 1)), "the listener was left")
       local refused, why = Net.connect(Array.at(addresses, 1))
       assert(refused == nil and tostring(why):find(if path ~= nil then "No such file" else "Connection refused" end, 1, true) ~= nil, why)
-      answer = assert(slow.lines:read())
+      answer = line_of(slow.lines)
     end,
   })
   returned_at = Clock.monotonic_ns()
   local ended, why = assert(stuck, "the server was ready").lines:read()
-  assert(ended == nil and why == "", why)
+  assert(ended == false, why)
   local _, _ = assert(stuck, "the server was ready").conn:close()
   assert(answer == "slow", answer)
   assert(stuck_why == "", stuck_why)
@@ -331,7 +340,7 @@ local function test_a_protocol_ignoring_failures_is_killed_at_grace_ns()
   })
   for _, c in ipairs(held) do
     local ended, why = c.lines:read()
-    assert(ended == nil and why == "", why)
+    assert(ended == false, why)
     local _, _ = c.conn:close()
   end
   assert(closed == 2, "closed " .. tostring(closed) .. " of 2")
@@ -361,7 +370,7 @@ local function test_a_killed_protocols_close_error_is_reported()
     end,
   })
   local ended, why = assert(held, "the server was ready").lines:read()
-  assert(ended == nil and why == "", why)
+  assert(ended == false, why)
   local _, _ = assert(held, "the server was ready").conn:close()
   assert(#errors == 1 and errors[1] == "broken close", table.concat(errors, "\n"))
 end
@@ -419,16 +428,16 @@ local function test_the_connection_limit_is_shared_by_every_listener()
       do
         local first <close> = client(Array.at(addresses, 1))
         assert(first.conn:write("one\n"))
-        assert(first.lines:read() == "one")
+        assert(line_of(first.lines) == "one")
         second = client(Array.at(addresses, 2))
         assert(second.conn:write("two\n"))
         second.conn:set_timeout(Clock.ms(100))
-        local nothing: string?
-        nothing, waiting_why = second.conn:read()
+        local nothing, waited = second.conn:read()
         assert(nothing == nil)
+        waiting_why = waited.message
         second.conn:set_timeout(Clock.seconds(5))
       end
-      answer = assert(second.lines:read())
+      answer = line_of(second.lines)
       local _, _ = second.conn:close()
       server:stop()
     end,
@@ -446,7 +455,7 @@ local function a_protocol_stops_its_server_at(path: string?)
   assert(Net.serve{
     listeners = { listener_at(path) },
     serve = function(conn: Net.Conn)
-      if assert(Stream.lines(conn):read()) == "stop" then
+      if line_of(Stream.lines(conn)) == "stop" then
         assert(serving, "the server was ready"):stop()
       end
       assert(conn:write("bye\n"))
@@ -456,7 +465,7 @@ local function a_protocol_stops_its_server_at(path: string?)
       bound = Array.at(addresses, 1)
       local c <close> = client(Array.at(addresses, 1))
       assert(c.conn:write("stop\n"))
-      answer = assert(c.lines:read())
+      answer = line_of(c.lines)
     end,
   })
   assert(answer == "bye", answer)
@@ -525,7 +534,7 @@ local function sigterm_stops_the_server_and_it_drains_at(path: string?)
   local ok, why = Net.serve{
     listeners = { listener_at(path) },
     serve = function(conn: Net.Conn)
-      local line = assert(Stream.lines(conn):read())
+      local line = line_of(Stream.lines(conn))
       started = true
       assert(Clock.sleep(Clock.ms(50)))
       assert(conn:write(line .. "\n"))
@@ -536,7 +545,7 @@ local function sigterm_stops_the_server_and_it_drains_at(path: string?)
       while not started do assert(Clock.sleep(Clock.ms(1))) end
       assert(sys.kill(sys.getpid(), sys.SIGTERM))
       until_released(Array.at(addresses, 1))
-      answer = assert(c.lines:read())
+      answer = line_of(c.lines)
     end,
   }
   assert(ok and why == nil, why)
@@ -573,7 +582,7 @@ local function a_second_signal_ends_the_grace_at(path: string?)
     serve = function(conn: Net.Conn)
       started = true
       local line, why = conn:read()
-      if line == nil then stuck_why = why end
+      if line == nil then stuck_why = tostring(why) end
     end,
     on_ready = function(addresses: {Net.Address}, _server: Net.Server)
       stuck = client(Array.at(addresses, 1))
@@ -609,7 +618,7 @@ local function test_the_longest_grace_drains_the_connections_open()
     listeners = { Net.tcp("127.0.0.1", 0) },
     grace_ns = Poll.MOST_NS,
     serve = function(conn: Net.Conn)
-      local line = assert(Stream.lines(conn):read())
+      local line = line_of(Stream.lines(conn))
       assert(Clock.sleep(Clock.ms(50)))
       assert(conn:write(line .. "\n"))
     end,
@@ -618,7 +627,7 @@ local function test_the_longest_grace_drains_the_connections_open()
       assert(c.conn:write("slow\n"))
       assert(Clock.sleep(Clock.ms(10)))
       server:stop()
-      answer = assert(c.lines:read())
+      answer = line_of(c.lines)
     end,
   }
   assert(ok and why == nil, why)
@@ -637,7 +646,7 @@ local function on_stop_runs_once_at_stop_at(path: string?)
   assert(Net.serve{
     listeners = { listener_at(path) },
     serve = function(conn: Net.Conn)
-      local line = assert(Stream.lines(conn):read())
+      local line = line_of(Stream.lines(conn))
       assert(serving, "the server was ready"):stop()
       assert(Clock.sleep(Clock.ms(50)))
       assert(conn:write(line .. "\n"))
@@ -655,7 +664,7 @@ local function on_stop_runs_once_at_stop_at(path: string?)
       bound = Array.at(addresses, 1)
       local c <close> = client(Array.at(addresses, 1))
       assert(c.conn:write("slow\n"))
-      assert(c.lines:read() == "slow")
+      assert(line_of(c.lines) == "slow")
       server:stop()
     end,
   })
@@ -720,9 +729,9 @@ local function stopped_with_an_idle_client(closing: boolean, grace_ns: integer):
       local lines = Stream.lines(conn)
       while true do
         idle[conn] = true
-        local line = lines:read()
+        local line, _ = lines:read()
         idle[conn] = nil
-        if line == nil then return end
+        if line == nil or line == false then return end
         assert(conn:write(line .. "\n"))
       end
     end,
@@ -730,7 +739,7 @@ local function stopped_with_an_idle_client(closing: boolean, grace_ns: integer):
       local made = client(Array.at(addresses, 1))
       idle_client = made
       assert(made.conn:write("hello\n"))
-      assert(made.lines:read() == "hello")
+      assert(line_of(made.lines) == "hello")
       stopped_at = Clock.monotonic_ns()
       server:stop()
     end,
@@ -744,7 +753,7 @@ local function stopped_with_an_idle_client(closing: boolean, grace_ns: integer):
   local took = Clock.monotonic_ns() - stopped_at
   local ended, why = assert(idle_client, "the server was ready").lines:read()
   local _, _ = assert(idle_client, "the server was ready").conn:close()
-  return took, tostring(ended) .. "," .. why
+  return took, tostring(ended) .. "," .. tostring(why)
 end
 
 --- A protocol that closes its idle connections in on_stop lets the
@@ -754,10 +763,10 @@ end
 local function test_on_stop_closing_idle_connections_ends_the_drain_at_once()
   local took, ended = stopped_with_an_idle_client(true, Clock.seconds(10))
   assert(took < Clock.seconds(2), tostring(took))
-  assert(ended == "nil,", ended)
+  assert(ended == "false,nil", ended)
   took, ended = stopped_with_an_idle_client(false, Clock.ms(200))
   assert(took >= Clock.ms(200), tostring(took))
-  assert(ended == "nil,", ended)
+  assert(ended == "false,nil", ended)
 end
 
 --- What on_stop raises goes to on_error, with its stack, and the
@@ -837,7 +846,7 @@ local function test_on_stop_runs_when_stopped_from_a_coroutine()
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     serve = function(conn: Net.Conn)
-      local _ = assert(Stream.lines(conn):read())
+      local _ = line_of(Stream.lines(conn))
       local ok, why: boolean, any = pcall(coroutine.wrap(function()
         assert(serving, "the server was ready"):stop()
       end))
@@ -866,7 +875,7 @@ local function test_the_grace_begins_once_on_stop_returns()
     listeners = { Net.tcp("127.0.0.1", 0) },
     grace_ns = Clock.ms(400),
     serve = function(conn: Net.Conn)
-      local line = assert(Stream.lines(conn):read())
+      local line = line_of(Stream.lines(conn))
       assert(Clock.sleep(Clock.ms(500)))
       assert(conn:write(line .. "\n"))
     end,
@@ -877,7 +886,7 @@ local function test_the_grace_begins_once_on_stop_returns()
         assert(c.conn:write("slow\n"))
         assert(Clock.sleep(Clock.ms(10)))
         server:stop()
-        answer = assert(c.lines:read())
+        answer = line_of(c.lines)
       end)
     end,
   })

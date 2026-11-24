@@ -155,7 +155,7 @@ local function read_until(res: Web.TestResponse, needle: string): string
   local got = ""
   for _ = 1, 20 do
     local piece, why = assert(res.stream):read()
-    assert(piece ~= nil, "the stream ended: " .. why)
+    assert(piece is string, "the stream ended: " .. tostring(why))
     got = got .. piece
     if got:find(needle, 1, true) then return got end
   end
@@ -235,8 +235,8 @@ local function test_a_stream_ends_when_the_app_stops(tmp: string)
     assert(app.stream_count == 1)
     app.stopped = true
     for _, close in pairs(app.streams) do close() end
-    local piece = assert(res.stream):read()
-    assert(piece == nil, "the stream ended")
+    local piece, _ = assert(res.stream):read()
+    assert(piece == false, "the stream ended")
     assert(app.stream_count == 0)
   end)
 end

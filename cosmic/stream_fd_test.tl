@@ -8,6 +8,15 @@ local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
+local type Failure = require("cosmic.failure")
+
+--- The next chunk of `reader`: raises where it ended or failed.
+local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
+  local chunk, why = reader:read(max_bytes)
+  if chunk == nil then error(tostring(why), 2) end
+  if chunk == false then error("the stream ended", 2) end
+  return chunk
+end
 
 --- The two ends of a named pipe in `dir`, neither waiting: the reading
 --- end open first, as a pipe with no reader refuses a nonblocking writer.
@@ -39,14 +48,14 @@ local function test_a_read_with_a_timeout_fails_with_the_timeout_word(tmp: strin
   local before = Clock.monotonic_ns()
   local chunk, why = r:read()
   local elapsed = Clock.monotonic_ns() - before
-  assert(chunk == nil and why == Poll.TIMEOUT, tostring(why))
+  assert(chunk == nil and why.kind == "timeout", tostring(why))
   assert(elapsed >= Clock.ms(79) and elapsed < Clock.seconds(5),
     "timed out after " .. tostring(elapsed // Clock.ms(1)) .. " ms")
   assert(sys.write(writer, "late") == 4)
-  assert(r:read() == "late")
+  assert(chunk_of(r) == "late")
   assert(sys.close(writer))
   local ended, ended_why = r:read()
-  assert(ended == nil and ended_why == "", tostring(ended_why))
+  assert(ended == false, tostring(ended_why))
   assert(sys.close(reader))
 end
 
@@ -58,7 +67,7 @@ local function test_a_reader_over_a_pipe_has_no_skip(tmp: string)
   assert(r.skip == nil)
   assert(sys.write(writer, "abcdef") == 6)
   assert(Stream.skip(r, 4))
-  assert(r:read() == "ef")
+  assert(chunk_of(r) == "ef")
   assert(sys.close(writer))
   assert(sys.close(reader))
 end
@@ -69,8 +78,8 @@ local function test_a_read_with_a_timeout_in_a_task_lets_the_others_run(tmp: str
   local r = Stream.from_fd(reader, { nonblocking = true, timeout_ns = Clock.ms(120) })
   local ticks: integer = 0
   local elapsed: integer = 0
-  local chunk: string? = nil
-  local why: string? = nil
+  local chunk: (string | false)? = nil
+  local why: Failure? = nil
   Poll.run(function()
     local done = false
     local ticker = Poll.spawn(function()
@@ -85,7 +94,7 @@ local function test_a_read_with_a_timeout_in_a_task_lets_the_others_run(tmp: str
     done = true
     assert(ticker:join())
   end)
-  assert(chunk == nil and why == Poll.TIMEOUT, tostring(why))
+  assert(chunk == nil and tostring(why) == Poll.TIMEOUT, tostring(why))
   assert(elapsed >= Clock.ms(119) and elapsed < Clock.seconds(5),
     "timed out after " .. tostring(elapsed // Clock.ms(1)) .. " ms")
   assert(ticks >= 2, "the other task ticked " .. tostring(ticks) .. " times while the read waited")
@@ -104,8 +113,8 @@ local function test_a_write_goes_whole_into_a_slow_reader(tmp: string)
       local r = Stream.from_fd(reader, { nonblocking = true })
       while true do
         local chunk, why = r:read(1 << 14)
-        assert(chunk ~= nil or why == "", tostring(why))
-        if chunk == nil then break end
+        assert(chunk ~= nil, tostring(why))
+        if chunk == false then break end
         received[#received + 1] = chunk
         assert(Clock.sleep(Clock.ms(1)))
       end

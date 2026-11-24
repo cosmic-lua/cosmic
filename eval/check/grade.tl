@@ -35,6 +35,17 @@ local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 
+--- `conn:read()` in one shape on either release this file runs on: the
+--- chunk and "", nil and "" at the end, or nil and why. The pinned
+--- release ends a read with nil and "", this tree with `false`.
+local function read_of(conn: Net.Conn): string?, string
+  local chunk, why = conn:read()
+  if type(chunk) == "string" then return chunk, "" end
+  local text = tostring(why)
+  if text == "nil" then text = "" end
+  return nil, text
+end
+
 local record Grader
   --- How many tests and examples passed.
   record Evidence
@@ -770,7 +781,7 @@ local function receive(conn: Net.Conn, head_only: boolean, to_close: boolean): A
     if answer ~= nil and body_length ~= nil and #answer.body >= body_length then
       break
     end
-    local chunk, trouble = conn:read()
+    local chunk, trouble = read_of(conn)
     if chunk == nil then
       if answer == nil then
         if trouble ~= "" then return nil, trouble end
@@ -786,11 +797,11 @@ local function receive(conn: Net.Conn, head_only: boolean, to_close: boolean): A
   if to_close then
     conn:set_timeout(Clock.ms(300))
     while true do
-      local chunk, _ = conn:read()
+      local chunk, _ = read_of(conn)
       if chunk == nil then break end
       answer.body = answer.body .. chunk
     end
-    local again, trouble = conn:read()
+    local again, trouble = read_of(conn)
     answer.closed = again == nil and trouble == ""
   end
   return answer, ""
@@ -1794,7 +1805,7 @@ local function mirror_lie(g: Grade)
     serve = function(conn: Net.Conn)
       local got = ""
       while not got:find("\r\n\r\n", 1, true) do
-        local chunk, _ = conn:read()
+        local chunk, _ = read_of(conn)
         if chunk == nil then return end
         got = got .. chunk
       end
@@ -1935,13 +1946,13 @@ local record Target
 end
 
 local function echo(target: Target, conn: Net.Conn)
-  local chunk, ended = conn:read()
+  local chunk, ended = read_of(conn)
   if chunk ~= nil and chunk:sub(1, 5) == "SPLIT" then
     local _, _ = conn:write("bye")
     local _, _ = conn:shutdown("write")
     local parts: mut {string} = {}
     while true do
-      local more, _ = conn:read()
+      local more, _ = read_of(conn)
       if more == nil then break end
       parts[#parts + 1] = more
     end
@@ -1951,7 +1962,7 @@ local function echo(target: Target, conn: Net.Conn)
   while chunk ~= nil do
     local sent, _ = conn:write(chunk)
     if not sent then return end
-    chunk, ended = conn:read()
+    chunk, ended = read_of(conn)
   end
   if ended == "" then
     local _, _ = conn:write("<eof>")
@@ -1972,7 +1983,7 @@ local function read_n(conn: Net.Conn, n: integer): string, string
   local parts: mut {string} = {}
   local got = 0
   while got < n do
-    local chunk, trouble = conn:read()
+    local chunk, trouble = read_of(conn)
     if chunk == nil then return table.concat(parts), trouble end
     parts[#parts + 1] = chunk
     got = got + #chunk
@@ -2104,7 +2115,7 @@ local function relay_idle(g: Grade, target_port: integer)
     local _, _ = quiet:write("x")
     local got, _ = read_n(quiet, 1)
     local started = Clock.monotonic_ns()
-    local more, ended = quiet:read()
+    local more, ended = read_of(quiet)
     local took = since_ms(started)
     check(g, got == "x" and more == nil and ended == "" and took >= 350 and took < 2000,
       "--idle 0.5 closes a connection with nothing moving, after " .. tostring(took) .. " ms",

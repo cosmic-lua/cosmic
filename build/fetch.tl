@@ -461,10 +461,10 @@ function verb.run(argv: {string}, io?: verb.Io): integer
 
   while true do
     local chunk, read_trouble = response:read()
-    if chunk == nil then
+    if chunk == nil or chunk == false then
       done(response)
-      if read_trouble ~= "" then
-        complain(shown .. ": " .. read_trouble)
+      if chunk == nil then
+        complain(shown .. ": " .. tostring(read_trouble))
         return bare.undone
       end
       return bare.ok

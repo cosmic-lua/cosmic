@@ -19,6 +19,14 @@ local Test = require("cosmic.test")
 local fixture = require("build.child_lua_fixture")
 local support = require("build.test_support_fixture")
 
+--- The next chunk of `reader`: raises where it ended or failed.
+local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
+  local chunk, why = reader:read(max_bytes)
+  if chunk == nil then error(tostring(why), 2) end
+  if chunk == false then error("the stream ended", 2) end
+  return chunk
+end
+
 --- What the tests read: /proc, where a test finds a child's processes;
 --- and the program itself, started past its launcher so that no host
 --- program is read, only to run Lua (`lua`).
@@ -315,12 +323,12 @@ local function test_streams_are_read_and_written_while_the_child_runs()
   local stdout = assert(h.stdout_stream)
   local stdin = assert(h.stdin_stream)
   assert(h.stderr_stream == nil)
-  assert(assert(stdout:read()) == "first")
+  assert(chunk_of(stdout) == "first")
   assert(stdin:write("go\n"))
   assert(stdin:close())
   assert(read_all(stdout) == "second-go")
-  local chunk, trouble = stdout:read()
-  assert(chunk == nil and trouble == "")
+  local chunk, _ = stdout:read()
+  assert(chunk == false)
   local r = assert(h:wait(Clock.seconds(5)))
   assert(r.ok and r.stdout == nil and r.captured[1] == nil)
   assert(not stdin:write("late"))
@@ -416,10 +424,10 @@ local function test_closing_a_streamed_output_ends_a_writer()
   local h = assert(Child.start(lua(FS .. 'while true do local put, _ = Fs.put(1, "0123456789") if not put then break end end return 1', nil,
     { timeout_ns = Child.FOREVER, stdout = "stream", stderr = "null" })))
   local stdout = assert(h.stdout_stream)
-  assert(stdout:read(10))
+  chunk_of(stdout, 10)
   assert(stdout:close())
-  local chunk, trouble = stdout:read()
-  assert(chunk == nil and trouble ~= "")
+  local chunk, _ = stdout:read()
+  assert(chunk == nil)
   local r = assert(h:wait(Clock.seconds(5)))
   assert(not r.timed_out, "the writer was left blocked on the closed pipe")
 end
@@ -474,7 +482,7 @@ local function test_a_wait_holds_a_streamed_output_to_its_limit()
   local queued = 0
   for _, stream in ipairs(h._streams or {}) do queued = queued + stream.size end
   assert(queued <= 1024, "the wait queued " .. tostring(queued) .. " bytes")
-  local chunk = assert(assert(h.stdout_stream):read())
+  local chunk = chunk_of(assert(h.stdout_stream))
   assert(#chunk > 0)
   assert(h:close())
   -- The reader reads what was queued, then ends with the pipe closed.
@@ -485,7 +493,7 @@ end
 local function test_a_streamed_read_of_nothing_is_refused()
   local h = assert(Child.start(lua(FS .. 'local _, _ = Fs.put(1, "x")', nil, { timeout_ns = Child.FOREVER, stdout = "stream" })))
   local stdout = assert(h.stdout_stream)
-  Test.raises(function() stdout:read(0) end)
+  Test.raises(function() local _, _ = stdout:read(0) end)
   assert(read_all(stdout) == "x")
   assert(assert(h:wait(Clock.seconds(5))).ok)
 end

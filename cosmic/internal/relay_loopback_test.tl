@@ -19,6 +19,14 @@ local this_program = require("build.this_program")
 local _ = require("build.relay_children_test")
 local test_child = require("build.test_child")
 
+--- The next line of `lines`: raises where they ended or failed.
+local function line_of(lines: Stream.Lines): string
+  local line, why = lines:read()
+  if line == nil then error(tostring(why), 2) end
+  if line == false then error("the lines ended", 2) end
+  return line
+end
+
 --- The program itself, which runs the relay; its servers and its listener
 --- are on the loopback.
 Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" } }
@@ -30,7 +38,7 @@ local function read_exact(conn: Net.Conn, count: integer): string
   local out = ""
   while #out < count do
     local data, _ = conn:read(count - #out)
-    if data == nil then break end
+    if data == nil or data == false then break end
     out = out .. data
   end
   return out
@@ -62,8 +70,8 @@ local function test_a_loopback_relay_without_a_token_does_not_start(tmp: string)
     local feed, lines = assert(relay.stdin_stream), Stream.lines(assert(relay.stdout_stream))
     assert(feed:write(RelayConfig.encode({ grants = {}, own_addresses = {}, log = "null",
       listeners = #loopback.sockets }) .. "\n"))
-    assert(lines:read() == "opened")
-    local said = assert(lines:read())
+    assert(line_of(lines) == "opened")
+    local said = line_of(lines)
     assert(said:find("^error: a relay on the host's loopback needs its token"), said)
     local result = assert(relay:wait(Clock.seconds(20)))
     assert(result.code == 1, tostring(result.code))
@@ -77,8 +85,8 @@ end
 --- status 0, once its standard input does.
 local function test_a_loopback_relay_listens_itself_and_serves_both_protocols_behind_its_token(tmp: string)
   Net.with_loopback(function(conn: Net.Conn)
-    local data = conn:read(4)
-    if data ~= nil then local _, _ = conn:write("echo:" .. data) end
+    local data, _ = conn:read(4)
+    if data is string then local _, _ = conn:write("echo:" .. data) end
   end, function(granted: integer)
     local other = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local ungranted = assert(other.address.port)
@@ -92,16 +100,16 @@ local function test_a_loopback_relay_listens_itself_and_serves_both_protocols_be
     local feed, lines = assert(relay.stdin_stream), Stream.lines(assert(relay.stdout_stream))
     assert(feed:write(RelayConfig.encode({ grants = { "127.0.0.1:" .. tostring(granted) }, own_addresses = {},
       log = "null", token = TOKEN, listeners = #loopback.sockets }) .. "\n"))
-    assert(lines:read() == "opened")
-    assert(lines:read() == "ready")
+    assert(line_of(lines) == "opened")
+    assert(line_of(lines) == "ready")
     local auth = "Proxy-Authorization: Basic " .. Codec.base64("cosmic:" .. TOKEN) .. "\r\n"
     local function connect(target: string, header: string, host?: string): string, string
       local conn = dial(port, host)
       assert(conn:write("CONNECT " .. target .. " HTTP/1.1\r\nHost: " .. target .. "\r\n" .. header .. "\r\n"))
       local head = ""
       while not head:find("\r\n\r\n", 1, true) do
-        local data = conn:read(4096)
-        if data == nil then break end
+        local data, _ = conn:read(4096)
+        if data == nil or data == false then break end
         head = head .. data
       end
       local echoed = ""

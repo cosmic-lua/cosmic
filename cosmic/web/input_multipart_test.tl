@@ -13,6 +13,7 @@ local Test = require("cosmic.test")
 local Types = require("cosmic.web.types")
 local Url = require("cosmic.url")
 local Web = require("cosmic.web")
+local type Failure = require("cosmic.failure")
 
 --- Why `invalid` refuses, or nil for none.
 local function message_of(invalid: Types.Invalid?): string?
@@ -328,9 +329,9 @@ end
 local function test_a_body_not_read_by_length_is_not_pulled_past_the_limit()
   local pulled: integer = 0
   local body: Stream.Reader = { -- checked: literal_shape
-    read = function(_self: Stream.Reader, max?: integer): string?, string
+    read = function(_self: Stream.Reader, max?: integer): (string | false) | (nil, Failure)
       pulled = pulled + (max or 0)
-      return ("a"):rep(math.min(max or 100, 100)), ""
+      return ("a"):rep(math.min(max or 100, 100))
     end,
     close = function(_self: Stream.Reader): boolean, string return true, "" end,
   }
@@ -429,10 +430,10 @@ local function test_a_slow_or_failing_source_is_408_or_400(tmp: string)
   local function with_source(why: string): Types.Invalid
     local sent: boolean = false
     local body: Stream.Reader = { -- checked: literal_shape
-      read = function(_self: Stream.Reader, _max?: integer): string?, string
-        if sent then return nil, why end
+      read = function(_self: Stream.Reader, _max?: integer): (string | false) | (nil, Failure)
+        if sent then return nil, Failure.new(why) end
         sent = true
-        return "--" .. B .. '\r\nContent-Disposition: form-data; name="f"; filename="a"\r\n\r\npartial', ""
+        return "--" .. B .. '\r\nContent-Disposition: form-data; name="f"; filename="a"\r\n\r\npartial'
       end,
       close = function(_self: Stream.Reader): boolean, string return true, "" end,
     }
@@ -557,11 +558,11 @@ local function killed_while_waiting(fn: function(req: Web.Request), first: strin
   end) } }
   local at: integer = 0
   local body: Stream.Reader = { -- checked: literal_shape
-    read = function(_self: Stream.Reader, _max?: integer): string?, string
+    read = function(_self: Stream.Reader, _max?: integer): (string | false) | (nil, Failure)
       at = at + 1
-      if at == 1 then return first, "" end
+      if at == 1 then return first end
       local _, _ = Clock.sleep(Clock.seconds(30))
-      return nil, "gone"
+      return nil, Failure.new("gone")
     end,
     close = function(_self: Stream.Reader): boolean, string return true, "" end,
   }

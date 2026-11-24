@@ -17,8 +17,7 @@
 ---     })
 
 local type Agent = require("cosmic.agent")
-local Policy = require("cosmic.agent.policy")
-local type Sandbox = require("cosmic.sandbox")
+local Sandbox = require("cosmic.sandbox")
 local String = require("cosmic.string")
 
 local record Check
@@ -70,10 +69,9 @@ function Check.budget(counts: {string: integer}): Agent.Before
 end
 
 --- Blocks a call that touches a path (each tool's `paths`) that
---- `policy`'s grants do not give it, each an absolute path: a path is
---- checked as its real name, links followed, against the grants and
---- profiles as [`Policy.allows`] reads them: `c` of the directory a file
---- is made in. A tool that says no paths
+--- `policy` does not permit ([`Sandbox.permits`], from the call's
+--- directory): each path by its real name, a file made asking `c` of its
+--- directory. A tool that says no paths
 --- passes, and bash, run and sql say none, though they reach what the
 --- sandbox lets them: hold those with the sandbox, or [`Check.only`]. A
 --- snippet's call of the agent has none.
@@ -81,11 +79,14 @@ end
 ---     agent.before = Check.paths({ grants = { { path = cwd, letters = "rwc" }, { path = "/usr", letters = "r" } } })
 function Check.paths(policy: Sandbox.Policy): Agent.Before
   return function(call: Agent.Call): string?
+    -- As the tools ask: each action of a path at the real name the one before answered.
+    local real_of: mut {string: string} = {}
     for _, t in ipairs(call.paths) do
-      local allowed, _ = Policy.allows(policy, t.path, t.letters)
-      if not allowed then
-        return "the agent may not " .. (if t.letters == "r" then "read " else "write " end) .. t.path
+      local real, why = Sandbox.permits(policy, real_of[t.path] or t.path, t.action, call.cwd)
+      if real == nil then
+        return "the agent may not " .. t.action .. " " .. t.path .. ": " .. why
       end
+      real_of[t.path] = real
     end
     return nil
   end

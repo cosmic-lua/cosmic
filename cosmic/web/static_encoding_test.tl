@@ -76,8 +76,8 @@ local function exchange(address: Net.Address, request: string): string, string
   local parts: mut {string} = {}
   while true do
     local piece, why = conn:read()
-    if piece == nil then
-      assert(why == "", "reading: " .. why)
+    assert(piece ~= nil, "reading: " .. tostring(why))
+    if piece == false then
       break
     end
     parts[#parts + 1] = piece

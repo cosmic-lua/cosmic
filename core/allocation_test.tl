@@ -59,6 +59,14 @@ local unix_socket = require("build.unix_socket")
 local Vector = require("cosmic.vector")
 local Xml = require("cosmic.xml")
 
+--- The next chunk of `reader`: raises where it ended or failed.
+local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
+  local chunk, why = reader:read(max_bytes)
+  if chunk == nil then error(tostring(why), 2) end
+  if chunk == false then error("the stream ended", 2) end
+  return chunk
+end
+
 --- The socket cases listen on the worker's own loopback. `store_text`: the source lookup inflates the row of
 --- [`cosmic.compress`]'s source, which a pure store withholds.
 Test.policy{ cpu_features = true, requires = { "checked" }, loopback = { "127.0.0.1" }, store_text = true }
@@ -66,6 +74,7 @@ Test.policy{ cpu_features = true, requires = { "checked" }, loopback = { "127.0.
 local process = require("cosmic.internal.process")
 
 local socket = require("cosmic.internal.socket")
+local type Stream = require("cosmic.stream")
 
 local function test_a_refused_allocation_raises_and_is_counted()
   -- Made before refusal starts: the closure is itself an allocation,
@@ -194,7 +203,7 @@ local function test_net_leaves_no_descriptor_whenever_an_allocation_fails(tmp: s
     local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
     local accepted <close> = assert(server:accept())
     assert(client:write("hello"))
-    assert(accepted:read() == "hello")
+    assert(chunk_of(accepted) == "hello")
   end)
   assert(ended > 0, "listening, connecting and accepting allocate")
   local after = AllocationFixture.next_descriptor(tmp)
@@ -265,7 +274,7 @@ local function test_net_leaves_no_descriptor_or_socket_file_whenever_an_allocati
     local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
     local accepted <close> = assert(server:accept())
     assert(client:write("hello"))
-    assert(accepted:read() == "hello")
+    assert(chunk_of(accepted) == "hello")
   end)
   assert(ended > 0, "listening, connecting and accepting allocate")
   local after = AllocationFixture.next_descriptor(tmp)
@@ -284,7 +293,7 @@ local function test_net_in_a_run_leaves_no_descriptor_whenever_an_allocation_fai
       local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
       local accepted <close> = assert(server:accept())
       assert(client:write("x"))
-      assert(accepted:read() == "x")
+      assert(chunk_of(accepted) == "x")
     end)
   end)
   assert(ended > 0, "connecting in a run allocates")
@@ -1135,8 +1144,8 @@ local function exchange(options: Http.Options): string
   local parts: mut {string} = {}
   while true do
     local chunk, trouble = response:read()
-    if chunk == nil then
-      assert(trouble == "", trouble)
+    assert(chunk ~= nil, tostring(trouble))
+    if chunk == false then
       break
     end
     parts[#parts + 1] = chunk

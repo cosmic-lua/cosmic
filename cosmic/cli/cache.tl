@@ -17,17 +17,41 @@
 
 local Flags = require("cosmic.flags")
 
+local since: Flags.Option = { value = "N", about = "keep rows used at or after this Unix nanosecond timestamp",
+  integer = { min = 0 } }
+local json: Flags.Option = { about = "print one versioned JSON maintenance report" }
+
 local command: Flags.Command = {
   about = "trim the shared caches named",
-  usage = "trim compiles|verdicts PATH...",
+  usage = "trim <compiles|verdicts> ...",
   examples = {
     { line = "trim compiles --since-ns 1700000000000000000 /var/cache/cosmic/compiles.db", about = "drop compile rows last used before that time" },
   },
-  spec = {
-    ["--since-ns"] = { value = "N", about = "keep rows used at or after this Unix nanosecond timestamp" },
-    ["--whole"] = { about = "keep verdict rows whole, without vacuuming" },
-    ["--restored"] = { value = "PATH", about = "compare retained compile keys with this snapshot" },
-    ["--json"] = { about = "print one versioned JSON maintenance report" },
+  subcommands = {
+    trim = {
+      about = "trim the cache files named",
+      usage = "<compiles|verdicts> ...",
+      subcommands = {
+        compiles = {
+          about = "keep the compile and parse rows used since a time",
+          usage = "--since-ns N [--restored PATH] [--json] PATH",
+          spec = {
+            ["--since-ns"] = since,
+            ["--restored"] = { value = "PATH", about = "compare retained compile keys with this snapshot" },
+            ["--json"] = json,
+          },
+        },
+        verdicts = {
+          about = "keep the verdict rows used since a time, or all of them",
+          usage = "(--since-ns N | --whole) [--json] PATH...",
+          spec = {
+            ["--since-ns"] = since,
+            ["--whole"] = { about = "keep verdict rows whole, without vacuuming" },
+            ["--json"] = json,
+          },
+        },
+      },
+    },
   },
 }
 

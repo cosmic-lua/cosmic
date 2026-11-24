@@ -537,7 +537,8 @@ local IO_TIMEOUT_NS <const> = Clock.seconds(5)
 --- Reads more of the connection into the buffer.
 local function fill(lb: Testing.Loopback): boolean, string
   local piece, why = lb.conn:read()
-  if piece == nil then return false, why end
+  if piece == nil then return false, tostring(why) end
+  if piece == false then return false, "" end
   lb.buf = lb.buf .. piece
   return true, ""
 end
@@ -671,10 +672,10 @@ local function send_until_answered(lb: Testing.Loopback, bytes: string): string
       lb.conn:set_timeout(0)
       local piece, read_why = lb.conn:read()
       lb.conn:set_timeout(lb.timeout_ns)
-      if piece ~= nil then
+      if piece is string then
         lb.buf = lb.buf .. piece
         if final_begun(lb.buf) then return "" end
-      elseif read_why ~= Poll.TIMEOUT then
+      elseif piece == false or read_why == nil or read_why.kind ~= "timeout" then
         return ""
       end
     end

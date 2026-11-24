@@ -3,6 +3,7 @@
 
 local Stream = require("cosmic.stream")
 local wire = require("cosmic.http.wire")
+local type Failure = require("cosmic.failure")
 
 local DATE <const> = "Thu, 01 Jan 1970 00:00:00 GMT"
 
@@ -386,10 +387,10 @@ end
 local class Giving is Stream.Reader
   pieces: mut {string}
 
-  function read(self, _max_bytes?: integer): string?, string
+  function read(self, _max_bytes?: integer): (string | false) | (nil, Failure)
     local piece = table.remove(self.pieces, 1)
-    if piece == nil then return nil, "" end
-    return piece, ""
+    if piece == nil then return false end
+    return piece
   end
 
   function close(self): boolean, string

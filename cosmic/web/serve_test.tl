@@ -9,6 +9,15 @@ local Server = require("cosmic.http.server")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local Web = require("cosmic.web")
+local type Failure = require("cosmic.failure")
+
+--- The next chunk of `reader`: raises where it ended or failed.
+local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
+  local chunk, why = reader:read(max_bytes)
+  if chunk == nil then error(tostring(why), 2) end
+  if chunk == false then error("the stream ended", 2) end
+  return chunk
+end
 
 Test.policy{ loopback = { "127.0.0.1" } }
 
@@ -25,9 +34,11 @@ end
 local function pieces_of(pieces: {string}): Stream.Reader
   local at: integer = 0
   return { -- checked: literal_shape
-    read = function(_self: Stream.Reader, _max?: integer): string?, string
+    read = function(_self: Stream.Reader, _max?: integer): (string | false) | (nil, Failure)
       at = at + 1
-      return pieces[at], ""
+      local piece = pieces[at]
+      if piece == nil then return false end
+      return piece
     end,
     close = function(_self: Stream.Reader): boolean, string return true, "" end,
   }
@@ -145,14 +156,14 @@ local function test_stopping_ends_a_stream_and_runs_the_stop_functions_in_order(
     routes = { Web.get("/events", function(req: Web.Request): Web.Response
       local sent: boolean = false
       return Web.stream({ -- checked: literal_shape
-        read = function(_self: Stream.Reader, _max?: integer): string?, string
+        read = function(_self: Stream.Reader, _max?: integer): (string | false) | (nil, Failure)
           if not sent then
             sent = true
-            return "data: hello\n\n", ""
+            return "data: hello\n\n"
           end
           while not req.app:stopping() do assert(Clock.sleep(Clock.ms(5))) end
           events[#events + 1] = "stream saw stopping"
-          return nil, ""
+          return false
         end,
         close = function(_self: Stream.Reader): boolean, string return true, "" end,
       }, "text/event-stream")
@@ -178,7 +189,7 @@ local function test_stopping_ends_a_stream_and_runs_the_stop_functions_in_order(
       local conn <close> = assert(Net.connect(addresses_1, { timeout_ns = Clock.seconds(5) }))
       assert(conn:write("GET /events HTTP/1.1\r\nHost: x\r\n\r\n"))
       local got = ""
-      while not got:find("data: hello", 1, true) do got = got .. assert(conn:read()) end
+      while not got:find("data: hello", 1, true) do got = got .. chunk_of(conn) end
       assert(not app:stopping())
       server:stop()
     end,
@@ -242,9 +253,9 @@ end
 local function test_a_handler_that_ignores_stopping_is_cut_off_at_the_grace()
   local app = Web.app{ routes = { Web.get("/forever", function(_req: Web.Request): Web.Response
     return Web.stream({ -- checked: literal_shape
-      read = function(_self: Stream.Reader, _max?: integer): string?, string
+      read = function(_self: Stream.Reader, _max?: integer): (string | false) | (nil, Failure)
         assert(Clock.sleep(Clock.ms(5)))
-        return "x", ""
+        return "x"
       end,
       close = function(_self: Stream.Reader): boolean, string return true, "" end,
     }, "text/plain")
@@ -257,7 +268,7 @@ local function test_a_handler_that_ignores_stopping_is_cut_off_at_the_grace()
       local addresses_1 = assert(addresses[1], "expected addresses[1]")
       local conn <close> = assert(Net.connect(addresses_1, { timeout_ns = Clock.seconds(5) }))
       assert(conn:write("GET /forever HTTP/1.1\r\nHost: x\r\n\r\n"))
-      assert(conn:read())
+      chunk_of(conn)
       server:stop()
     end,
   })

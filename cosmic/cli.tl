@@ -54,9 +54,6 @@ local function order_of(groups: {{string}}): {string}
   return out
 end
 
--- TODO: give time, archive, acme, tailscale, agent and cache their `subcommands`, as rand has them, one pull request
--- each: each still shows `<command> ...`, names its subcommand by hand in each option's help, and refuses a line
--- with every subcommand's usage at once.
 local module: Module = {
   verbs = {
     run = require("cosmic.cli.run"),

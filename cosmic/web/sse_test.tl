@@ -30,7 +30,7 @@ end
 
 local function fill(feed: Feed)
   local piece, why = feed.conn:read()
-  assert(piece ~= nil, "reading the stream: " .. why)
+  assert(piece is string, "reading the stream: " .. tostring(why))
   feed.buf = feed.buf .. piece
 end
 

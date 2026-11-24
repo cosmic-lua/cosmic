@@ -136,27 +136,7 @@ local record verb
   end
 end
 
-local spec = assert(Verb.spec)
-
-local USAGE <const> = "cosmic agent <ask|chat|resume|rpc|sessions|prompt|policy> [options] [words...]"
-
---- The options each subcommand takes; the rest of the spec is refused.
-local SESSION_OPTIONS <const>: {string: boolean} = {
-  ["--model"] = true, ["--effort"] = true, ["--continue"] = true, ["--session"] = true,
-  ["--sandbox"] = true, ["--network"] = true, ["--grant"] = true, ["--mcp"] = true, ["--tools"] = true,
-  ["--budget"] = true,
-}
-local SANDBOX_OPTIONS <const>: {string: boolean} = { ["--sandbox"] = true, ["--network"] = true, ["--grant"] = true }
-local ASK_OPTIONS <const>: mut {string: boolean} = { ["--json"] = true }
-for k, v in pairs(SESSION_OPTIONS) do ASK_OPTIONS[k] = v end
-local WAITING_OPTIONS <const>: mut {string: boolean} = { ["--keep-warm"] = true }
-for k, v in pairs(SESSION_OPTIONS) do WAITING_OPTIONS[k] = v end
-local TAKES <const>: {string: {string: boolean}} = {
-  ask = ASK_OPTIONS, chat = WAITING_OPTIONS, resume = SESSION_OPTIONS, rpc = WAITING_OPTIONS, sessions = {},
-  prompt = { ["--tools"] = true }, policy = SANDBOX_OPTIONS, worker = {},
-}
-
-local EFFORTS <const>: {string: boolean} = { low = true, medium = true, high = true, xhigh = true, max = true }
+local subcommands = Verb.subcommands or {}
 
 -- What standard input holds past the last line read.
 local pending = ""
@@ -411,9 +391,6 @@ end
 --- Where `newest`, no session named is the newest in the directory.
 local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boolean): Agent.Session?, string
   local effort = got.values["--effort"] or Agent.EFFORT
-  if EFFORTS[effort] ~= true then
-    return nil, "--effort is one of low, medium, high, xhigh, max"
-  end
   local budget: Agent.Budget? = nil
   local limits = got.values["--budget"]
   if limits ~= nil then
@@ -623,7 +600,7 @@ local function ask(r: Run, got: Flags.Parsed): integer
   local text = table.concat(got.words, " ")
   if text == "" then text = r.io.read_all() end
   if text:match("^%s*$") then
-    r.complain("ask: give a prompt, as words or on standard input")
+    r.complain("ask: give a prompt, as words or on standard input; " .. Flags.usage(Verb, "cosmic agent", { "ask" }))
     return bare.refused
   end
   local json = got.set["--json"] == true
@@ -651,7 +628,7 @@ end
 
 local function chat(r: Run, got: Flags.Parsed): integer
   if #got.words > 0 then
-    r.complain("chat: takes no words; type the prompts")
+    r.complain("chat: takes no words; type the prompts; " .. Flags.usage(Verb, "cosmic agent", { "chat" }))
     return bare.refused
   end
   local keep, keep_why = warm_for(got)
@@ -696,7 +673,7 @@ end
 
 local function resume(r: Run, got: Flags.Parsed): integer
   if #got.words > 0 then
-    r.complain("resume: takes no words")
+    r.complain("resume: takes no words; " .. Flags.usage(Verb, "cosmic agent", { "resume" }))
     return bare.refused
   end
   return with_session(r, "resume", got, function(s: Agent.Session): integer
@@ -715,7 +692,7 @@ end
 
 local function rpc(r: Run, got: Flags.Parsed): integer
   if #got.words > 0 then
-    r.complain("rpc: takes no words")
+    r.complain("rpc: takes no words; " .. Flags.usage(Verb, "cosmic agent", { "rpc" }))
     return bare.refused
   end
   local keep, keep_why = warm_for(got)
@@ -789,7 +766,7 @@ end
 
 local function sessions(r: Run, got: Flags.Parsed): integer
   if #got.words > 0 then
-    r.complain("sessions: takes no words")
+    r.complain("sessions: takes no words; " .. Flags.usage(Verb, "cosmic agent", { "sessions" }))
     return bare.refused
   end
   local db, why = store(r)
@@ -812,7 +789,7 @@ end
 
 local function prompt(r: Run, got: Flags.Parsed): integer
   if #got.words > 0 then
-    r.complain("prompt: takes no words")
+    r.complain("prompt: takes no words; " .. Flags.usage(Verb, "cosmic agent", { "prompt" }))
     return bare.refused
   end
   local here = cwd(r)
@@ -848,7 +825,7 @@ end
 local function policy(r: Run, got: Flags.Parsed): integer
   if got.words[1] == "clear-home" and #got.words == 1 then return clear_home(r) end
   if #got.words > 0 then
-    r.complain("policy: takes no words but clear-home")
+    r.complain("policy: takes no words but clear-home; " .. Flags.usage(Verb, "cosmic agent", { "policy" }))
     return bare.refused
   end
   local p, why = policy_of(r, got, cwd(r))
@@ -888,25 +865,19 @@ local SUBCOMMANDS <const>: {string: function(Run, Flags.Parsed): integer} = {
 function verb.run(argv: {string}, io?: verb.Io): integer
   local to = io or standard
   local complain = bare.complainer("agent", to.err)
-  local got, trouble = Flags.parse(argv, 2, spec)
+  local sub = argv[2]
+  local described = if sub == nil then nil else subcommands[sub] end
+  if sub == nil or described == nil then
+    complain((if sub == nil then "name ask, chat, resume, rpc, sessions, prompt, policy or worker" else
+      "no such command: " .. sub end) .. "; " .. Flags.usage(Verb, "cosmic agent"))
+    return bare.refused
+  end
+  local got, trouble = Flags.parse(argv, 3, described.spec or {})
   if got == nil then
-    complain(trouble .. "; " .. USAGE)
+    complain(sub .. ": " .. trouble .. "; " .. Flags.usage(Verb, "cosmic agent", { sub }))
     return bare.refused
   end
   local parsed: Flags.Parsed = got
-  local sub = table.remove(parsed.words, 1)
-  local takes = if sub == nil then nil else TAKES[sub] end
-  if sub == nil or takes == nil then
-    complain((if sub == nil then "name ask, chat, resume, rpc, sessions, prompt or policy" else
-      "no subcommand " .. sub end) .. "; " .. USAGE)
-    return bare.refused
-  end
-  for _, name in ipairs(parsed.given) do
-    if takes[name] ~= true then
-      complain(name .. " is not an option of " .. sub .. "; " .. USAGE)
-      return bare.refused
-    end
-  end
   local environment: mut {string: string} = {}
   for _, name in ipairs({ "HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME" }) do
     local value = to.env(name)
@@ -924,7 +895,7 @@ verb.spec = {
   tests = { "build.agent_test" },
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
-  takes = "ask, chat, resume, rpc, sessions, prompt or policy, and its options",
+  takes = "ask, chat, resume, rpc, sessions, prompt, policy or worker, and its options",
   exits = "`agent` prints the model's words or its events, and nothing after; it exits 0 when it did what was asked, 1 when an ask or resume turn failed or the sessions database could not be opened, 2 when it refuses its command line or cannot start a session.",
   passthrough = "its output is the model's words, so its exit status is the verdict (build/agent_test.tl)",
 }

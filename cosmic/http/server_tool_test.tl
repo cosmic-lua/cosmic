@@ -18,6 +18,14 @@ local Url = require("cosmic.url")
 --- cosmic/http_tool_test.tl.
 local type _ = require("cosmic.http")
 
+--- The next chunk of `reader`: raises where it ended or failed.
+local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
+  local chunk, why = reader:read(max_bytes)
+  if chunk == nil then error(tostring(why), 2) end
+  if chunk == false then error("the stream ended", 2) end
+  return chunk
+end
+
 --- A server on the worker's own loopback, and the program itself,
 --- started to run a script `--standalone` ([`build.standalone`]).
 Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" } }
@@ -150,6 +158,7 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Server = require("cosmic.http.server")
 local Net = require("cosmic.net")
+
 return function(argv: {string}): integer
   local ok, why = Server.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
@@ -181,12 +190,12 @@ end
   local conn <close> = assert(Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(20) }))
   assert(conn:write("GET / HTTP/1.1\r\nHost: test\r\n\r\n"))
   local head = ""
-  while not head:find("\r\n\r\nup", 1, true) do head = head .. assert(conn:read()) end
+  while not head:find("\r\n\r\nup", 1, true) do head = head .. chunk_of(conn) end
   local stopped_at = Clock.monotonic_ns()
   assert(child:stop(sys.SIGTERM))
   local result = assert(child:wait(Clock.seconds(30)))
   assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
   assert(Clock.monotonic_ns() - stopped_at < Clock.seconds(10), "the idle connection held the stop")
   local after, why = conn:read()
-  assert(after == nil and why == "", tostring(after) .. " " .. why)
+  assert(after == false, tostring(after) .. " " .. tostring(why))
 end

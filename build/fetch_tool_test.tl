@@ -10,6 +10,15 @@ local Net = require("cosmic.net")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
+local type Stream = require("cosmic.stream")
+
+--- The next chunk of `reader`: raises where it ended or failed.
+local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
+  local chunk, why = reader:read(max_bytes)
+  if chunk == nil then error(tostring(why), 2) end
+  if chunk == false then error("the stream ended", 2) end
+  return chunk
+end
 
 --- The program itself, which its tests start, and a local port: closed,
 --- or one a test serves.
@@ -58,6 +67,7 @@ local function test_an_interrupted_download_leaves_no_file_and_dies_of_the_signa
 local Http = require("cosmic.http")
 local Signal = require("cosmic.signal")
 local sys = require("cosmic.sys")
+
 local record Calls
   mut asked: integer
 end
@@ -103,7 +113,7 @@ local function test_a_fetch_interrupted_mid_body_leaves_no_file(tmp: string)
   local conn <close> = assert(server:accept())
   local request = ""
   while not request:find("\r\n\r\n", 1, true) do
-    request = request .. assert(conn:read())
+    request = request .. chunk_of(conn)
   end
   assert(request:find("GET /big HTTP/1.1\r\n", 1, true) == 1, request)
   local part = string.rep("z", 4096)

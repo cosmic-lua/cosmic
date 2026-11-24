@@ -13,6 +13,15 @@ local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local wire = require("cosmic.mcp.wire")
 
+--- The [`Failure`] for the words a read failed with: kind "timeout" for
+--- [`Poll.TIMEOUT`], "cancelled" for [`Poll.CANCELLED`] and for
+--- "interrupted" (a signal a [`Signal.guard`] caught), else "other".
+local function failure_of(why: string): Failure
+  if why == Poll.TIMEOUT then return Failure.timeout(why) end
+  if why == Poll.CANCELLED or why == "interrupted" then return Failure.cancelled(why) end
+  return Failure.new(why)
+end
+
 local function add(args: {string: Json.Value}, _: Server.Call): (Mcp.ToolResult) | (nil, Failure)
   local a, b = math.tointeger(args["a"]), math.tointeger(args["b"])
   if a == nil or b == nil then return nil, Failure.new("a and b must be integers") end
@@ -258,11 +267,11 @@ end
 local class PipeReader is Stream.Reader
   pipe: Pipe
 
-  function read(self, _max?: integer): string?, string
-    if self.pipe.pending == "" then return nil, "" end
+  function read(self, _max?: integer): (string | false) | (nil, Failure)
+    if self.pipe.pending == "" then return false end
     local out = self.pipe.pending
     self.pipe.pending = ""
-    return out, ""
+    return out
   end
 
   function close(self): boolean, string return true, "" end
@@ -478,15 +487,15 @@ end
 local class DuctReader is Stream.Reader
   duct: Duct
 
-  function read(self, _max?: integer): string?, string
+  function read(self, _max?: integer): (string | false) | (nil, Failure)
     while self.duct.held == "" do
-      if self.duct.closed then return nil, "" end
+      if self.duct.closed then return false end
       local ok, why = self.duct.notifier:wait()
-      if not ok then return nil, why.message end
+      if not ok then return nil, failure_of(why.message) end
     end
     local out = self.duct.held
     self.duct.held = ""
-    return out, ""
+    return out
   end
 
   function close(self): boolean, string return true, "" end

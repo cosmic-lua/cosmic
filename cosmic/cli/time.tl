@@ -27,26 +27,55 @@
 
 local Flags = require("cosmic.flags")
 
+local zone: Flags.Option = { value = "IANA", about = "the zone to show, or to run the calendar in (default: the host's)" }
+local format: Flags.Option = { value = "form", about = "how to write the time", choices = { "rfc3339", "date", "http", "epoch" },
+  default = "rfc3339" }
+local json: Flags.Option = { about = "print a record: epoch, rfc3339, zone, offset and the civil fields" }
+local disambiguate: Flags.Option = { value = "how", about = "a local time in a gap or overlap",
+  choices = { "compatible", "earlier", "later", "reject" }, default = "compatible" }
+
 local command: Flags.Command = {
   about = "show, convert and calculate with times",
-  usage = "<command> ...",
+  usage = "<add|between|convert|now> ...",
   examples = {
     { line = "now --zone Asia/Tokyo", about = "the time in a zone" },
     { line = "convert 2026-03-08T12:00Z --to America/New_York", about = "convert a time" },
     { line = "between 2026-01-01 2026-09-28 --days", about = "count the days between two dates" },
   },
-  spec = {
-    ["--zone"] = { value = "IANA", about = "the zone to show, or to run the calendar in (default: the host's)" },
-    ["--from"] = { value = "IANA", about = "the zone a local time is read in (default: the host's)" },
-    ["--to"] = { value = "IANA", about = "the zone to write in (default: the host's)" },
-    ["--format"] = { value = "form", about = "rfc3339 (default), date, http or epoch" },
-    ["--days"] = { about = "between: whole calendar days" },
-    ["--months"] = { about = "between: whole calendar months" },
-    ["--seconds"] = { about = "between: whole seconds" },
-    ["--clamp"] = { about = "add: a day the month lacks takes its last day, not an error" },
-    ["--disambiguate"] = { value = "how", about = "a local time in a gap or overlap: " ..
-        "compatible (default), earlier, later or reject" },
-    ["--json"] = { about = "print a record: epoch, rfc3339, zone, offset and the civil fields" },
+  subcommands = {
+    now = {
+      about = "the time now",
+      spec = { ["--zone"] = zone, ["--format"] = format, ["--json"] = json },
+    },
+    convert = {
+      about = "a time in another zone",
+      usage = "<time>",
+      spec = {
+        ["--from"] = { value = "IANA", about = "the zone a local time is read in (default: the host's)" },
+        ["--to"] = { value = "IANA", about = "the zone to write in (default: the host's)" },
+        ["--format"] = format, ["--json"] = json, ["--disambiguate"] = disambiguate,
+      },
+    },
+    between = {
+      about = "the span between two times",
+      usage = "<a> <b>",
+      spec = {
+        ["--zone"] = zone,
+        ["--days"] = { about = "whole calendar days" },
+        ["--months"] = { about = "whole calendar months" },
+        ["--seconds"] = { about = "whole seconds" },
+        ["--json"] = json, ["--disambiguate"] = disambiguate,
+      },
+    },
+    add = {
+      about = "a time plus a duration; a negative duration follows its time, as `add 2026-01-31 -1d`",
+      usage = "<time> <duration>",
+      spec = {
+        ["--zone"] = zone, ["--format"] = format, ["--json"] = json,
+        ["--clamp"] = { about = "a day the month lacks takes its last day, not an error" },
+        ["--disambiguate"] = disambiguate,
+      },
+    },
   },
 }
 
