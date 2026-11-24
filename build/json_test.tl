@@ -170,14 +170,14 @@ end
 local function test_a_lone_word_is_the_path_only_when_it_begins_with_a_dollar(tmp: string)
   local path = file(tmp, '{"a": 1}')
   assert(run({ path }).out == '{\n  "a": 1\n}\n')
-  assert(run({ "--exists", "./doc.json" }, "{}").code == 2, "./doc.json is a file, not read from stdin")
+  assert(run({ "--exists", "./doc.json" }, "{}").code == 5, "./doc.json is a file, not read from stdin")
   assert(run({ "$.a" }, '{"a": 1}').out == "1\n")
   assert(run({ "$[0]" }, '[5, 6]').out == "5\n")
   local dotted = tmp .. "/.data.json"
   assert(Fs.write(dotted, '{"b": 2}'))
   assert(run({ "--compact", dotted }).out == '{"b":2}\n')
   local bracket = run({ "[0]" }, "[5]")
-  assert(bracket.code == 2 and bracket.err:find("[0]", 1, true) ~= nil, bracket.err)
+  assert(bracket.code == 5 and bracket.err:find("[0]", 1, true) ~= nil, bracket.err)
 end
 
 --- A path is a JSONPath query: `$` comes first, with no other start.
@@ -209,21 +209,21 @@ local function test_a_filter_slice_or_union_is_refused_by_name(tmp: string)
   end
 end
 
-local function test_invalid_json_exits_2_naming_the_file(tmp: string)
+local function test_invalid_json_exits_5_naming_the_file(tmp: string)
   local path = file(tmp, '{"a": ')
   local ran = run({ "$.a", path })
-  assert(ran.code == 2 and ran.out == "", ran.out)
+  assert(ran.code == 5 and ran.out == "", ran.out)
   assert(ran.err:find("cosmic: json: " .. path .. ": ", 1, true), ran.err)
   local piped = run({ "$.a" }, "not json")
-  assert(piped.code == 2 and piped.err:find("standard input: ", 1, true) ~= nil, piped.err)
-  assert(run({ "$.a" }, "").code == 2)
+  assert(piped.code == 5 and piped.err:find("standard input: ", 1, true) ~= nil, piped.err)
+  assert(run({ "$.a" }, "").code == 5)
 end
 
-local function test_an_unreadable_file_exits_2(tmp: string)
+local function test_an_unreadable_file_exits_5(tmp: string)
   local ran = run({ "$.a", tmp .. "/absent.json" })
-  assert(ran.code == 2 and ran.err:find("absent.json", 1, true) ~= nil, ran.err)
+  assert(ran.code == 5 and ran.err:find("absent.json", 1, true) ~= nil, ran.err)
   local dir = run({ "$.a", tmp })
-  assert(dir.code == 2, dir.err)
+  assert(dir.code == 5, dir.err)
 end
 
 local function test_a_bad_path_exits_2(tmp: string)
@@ -265,9 +265,9 @@ local function test_raw_prints_a_string_with_a_newline_as_it_is(tmp: string)
   assert(ran.code == 0 and ran.out == "one\ntwo\n", ran.out)
 end
 
-local function test_invalid_utf8_on_standard_input_exits_2()
+local function test_invalid_utf8_on_standard_input_exits_5()
   local ran = run({ "$.a" }, '{"a": "\xff"}')
-  assert(ran.code == 2 and ran.out == "", ran.out)
+  assert(ran.code == 5 and ran.out == "", ran.out)
   assert(ran.err:find("standard input: ", 1, true), ran.err)
 end
 
@@ -299,7 +299,7 @@ local function test_a_path_before_dashdash_is_still_the_path(tmp: string)
   local before = run({ "$.n", "--" }, '{"n": 3}')
   assert(before.code == 0 and before.out == "3\n", before.err)
   local after = run({ "--compact", "--", "$.n" })
-  assert(after.code == 2 and after.err:find("$.n", 1, true) ~= nil, after.err)
+  assert(after.code == 5 and after.err:find("$.n", 1, true) ~= nil, after.err)
   local both = run({ "$.n", "--", file(tmp) })
   assert(both.code == 0 and both.out == "3\n", both.err)
 end
@@ -309,12 +309,12 @@ end
 local function test_a_missing_file_that_reads_like_a_path_hints_at_the_dollar(tmp: string)
   for _, word in ipairs({ ".users", "[0]", ".users[0].name" }) do
     local ran = run({ word }, "{}")
-    assert(ran.code == 2 and ran.err:find("; a path starts with `$`", 1, true) ~= nil, ran.err)
+    assert(ran.code == 5 and ran.err:find("; a path starts with `$`", 1, true) ~= nil, ran.err)
   end
   local plain = run({ tmp .. "/absent.json" })
-  assert(plain.code == 2 and not plain.err:find("a path starts", 1, true), plain.err)
+  assert(plain.code == 5 and not plain.err:find("a path starts", 1, true), plain.err)
   local dashed = run({ "--", ".users" })
-  assert(dashed.code == 2 and not dashed.err:find("a path starts", 1, true), dashed.err)
+  assert(dashed.code == 5 and not dashed.err:find("a path starts", 1, true), dashed.err)
 end
 
 local function test_usage_names_the_escapes_for_a_file_that_reads_as_a_path()
@@ -322,14 +322,14 @@ local function test_usage_names_the_escapes_for_a_file_that_reads_as_a_path()
   assert(ran.err:find("./name", 1, true) and ran.err:find("--", 1, true), ran.err)
 end
 
-local function test_a_failed_write_exits_2_and_says_so(tmp: string)
+local function test_a_failed_write_exits_5_and_says_so(tmp: string)
   local complaints = { value = "" }
   local code = json.run(argv_of({ file(tmp) }), {
     out = function(_: string): boolean, string return false, "No space left on device" end,
     err = function(line: string) complaints.value = complaints.value .. line .. "\n" end,
     stdin = function(): string?, string return nil, "unused" end,
   })
-  assert(code == 2, code)
+  assert(code == 5, code)
   assert(complaints.value == "cosmic: json: standard output: No space left on device\n", complaints.value)
   for _, mode in ipairs({ "--keys", "--shape" }) do
     local again = json.run(argv_of({ mode, file(tmp) }), {
@@ -337,7 +337,7 @@ local function test_a_failed_write_exits_2_and_says_so(tmp: string)
       err = function(_: string) end,
       stdin = function(): string?, string return nil, "unused" end,
     })
-    assert(again == 2, mode)
+    assert(again == 5, mode)
   end
 end
 

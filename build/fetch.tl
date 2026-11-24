@@ -23,11 +23,10 @@
 ---
 --- Like `cosmic json` it prints no summary -- its standard output
 --- is the body -- and its exit status is the verdict: 0 the body was
---- delivered, 1 the fetch failed (no connection, a status outside 2xx,
---- a digest that does not match, a body that broke off, an `-o` write
---- that failed), 2 a command line, a URL or a write it cannot use. Only
---- a failed write to standard output is 2; a failed write of the `-o`
---- file is 1, a failed fetch like the rest. Its `spec`
+--- delivered, 1 the server said no (a status outside 2xx) or a digest
+--- does not match, 2 a command line or a URL it refused, 5 the fetch could
+--- not be done (no connection, a body that broke off, an `-o` write or a
+--- write to standard output that failed). Its `spec`
 --- (build/verb_spec.tl) is `bare`.
 ---
 --- Three decisions, each a plain comment and not a TODO, since each
@@ -49,7 +48,7 @@
 --- Redirects are followed as [`cosmic.http`] follows them: up to 10 hops
 --- ([`Http.Options.max_redirects`]), a longer chain failing the fetch. A
 --- fetch that starts at an https URL refuses a redirect to http by
---- default (exit 1, saying so), and `--allow-downgrade` follows it. That
+--- default (exit 5, saying so), and `--allow-downgrade` follows it. That
 --- is the safe default, like the verb's others (a failing status, every
 --- certificate verified): a plaintext hop hands the request, and any
 --- body, to whoever is on the path, who can also swap the body, and
@@ -59,7 +58,7 @@
 --- An http start URL may redirect to either.
 ---
 --- A body that breaks off after some bytes went to standard output
---- leaves those bytes sent (exit 1), since a pipe cannot take them back.
+--- leaves those bytes sent (exit 5), since a pipe cannot take them back.
 ---
 --- An interrupt (SIGINT or SIGTERM) during an `-o` download removes the
 --- temporary file, never creates the target, and exits by that signal:
@@ -76,9 +75,9 @@
 --- `none`, or root digests joined by commas), `--cacert` trusts a file's
 --- certificates besides them, and `--pin` holds the server's key to a
 --- public key pin, once for each pin it may match. A value of the wrong
---- shape, or a `--cacert` file that cannot be read, is exit 2 before any
---- request; a choice that leaves nothing to trust, or a `--cacert` that
---- holds no certificate, fails the fetch (exit 1).
+--- shape is exit 2 before any request, and a `--cacert` file that cannot
+--- be read is exit 5; a choice that leaves nothing to trust, or a
+--- `--cacert` that holds no certificate, fails the fetch (exit 5).
 
 local bare = require("build.bare")
 local Signal = require("cosmic.signal")
@@ -338,7 +337,10 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local cacert = parsed.values["--cacert"]
   if cacert ~= nil then
     local text, why = Fs.read(cacert)
-    if text == nil then return refuse("--cacert: " .. tostring(why)) end
+    if text == nil then
+      complain("--cacert: " .. tostring(why))
+      return bare.undone
+    end
     ca = text
   end
   local pins = parsed.all["--pin"]
@@ -368,7 +370,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       if result.kind == "downloaded" then return bare.ok end
       if result.kind == "http_status" then return failed_status(assert(result.status)) end
       complain(verb.refusal(result.reason, options.redirect_protocols))
-      return bare.failed
+      return if result.kind == "digest_mismatch" then bare.failed else bare.undone end
     end
     -- Held for the download and closed however it leaves, a raise of
     -- `complain` included: closing delivers a caught signal again, so the
@@ -386,7 +388,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local response, open_trouble = Http.open(url, options)
   if response == nil then
     complain(shown .. ": " .. verb.refusal(open_trouble, options.redirect_protocols))
-    return bare.failed
+    return bare.undone
   end
   local ok2 = response.status >= 200 and response.status < 300
 
@@ -402,7 +404,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       if encoded == nil then
         complain(tostring(encode_trouble))
         done(response)
-        return bare.failed
+        return bare.undone
       end
       text = encoded .. "\n"
     else
@@ -432,7 +434,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     done(response)
     if body == nil then
       complain(shown .. ": " .. tostring(read_trouble))
-      return bare.failed
+      return bare.undone
     end
     for _, algorithm in ipairs(algorithms) do
       local wanted = wants[algorithm.name]
@@ -453,7 +455,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       done(response)
       if read_trouble ~= "" then
         complain(shown .. ": " .. read_trouble)
-        return bare.failed
+        return bare.undone
       end
       return bare.ok
     end
@@ -475,7 +477,7 @@ verb.spec = {
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "a URL",
-  exits = "`fetch` prints the body and nothing after, and exits 0 when it was delivered, 1 when the fetch failed, 2 for a command line or URL it refused.",
+  exits = "`fetch` prints the body and nothing after, and exits 0 when it was delivered, 1 when the server answered outside 2xx or a digest did not match, 2 for a command line or URL it refused, 5 when the fetch could not be done (no connection, a body cut off, a write that failed).",
   passthrough = "its output is the body for a pipe, so its exit status is the verdict (build/fetch_test.tl)",
 }
 

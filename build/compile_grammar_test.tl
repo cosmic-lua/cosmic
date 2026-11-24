@@ -124,7 +124,7 @@ local function test_a_syntax_error_is_refused_naming_the_file_and_line_and_write
   local good = file(tmp, "good.tl", "return 1\n")
   local bad = file(tmp, "bad.tl", "local a = 1\nlocal b = = 2\nreturn a\n")
   local ran = run({ "-o", tmp .. "/out", good, bad })
-  assert(ran.code == 2, ran.code)
+  assert(ran.code == 4, ran.code)
   assert(ran.err:find("bad.tl:2:", 1, true) and ran.err:find("syntax error", 1, true), ran.err)
   assert(not ran.err:find("good.tl", 1, true), ran.err)
   assert(not assert(Fs.status(tmp .. "/out/good.lua")).exists and not assert(Fs.status(tmp .. "/out/bad.lua")).exists)
@@ -133,7 +133,7 @@ end
 --- Teal's `T | nil` is a form the new grammar cuts, and the refusal says what to write.
 local function test_a_form_the_grammar_cuts_is_a_syntax_error(tmp: string)
   local ran = run({ file(tmp, "cut.tl", "local x: string | nil = nil\nreturn x\n") })
-  assert(ran.code == 2 and ran.out == "", ran.out)
+  assert(ran.code == 4 and ran.out == "", ran.out)
   assert(ran.err:find("cut.tl:1:", 1, true) and ran.err:find("(nil_union)", 1, true), ran.err)
 end
 
@@ -142,7 +142,7 @@ local function test_a_text_in_the_forks_forms_is_a_syntax_error(tmp: string)
   local new_only = file(tmp, "new.tl", "for i = 1, 2 do\n  if i == 1 then continue end\nend\nreturn 1\n")
   local teal_only = file(tmp, "teal.tl", "local x: string | nil = nil\nreturn x\n")
   local as_new = run({ teal_only })
-  assert(as_new.code == 2, as_new.err)
+  assert(as_new.code == 4, as_new.err)
   assert(as_new.err:find("teal.tl:1:", 1, true), as_new.err)
   local fine = run({ new_only })
   assert(fine.code == 0, fine.err)
@@ -224,7 +224,7 @@ local function test_a_syntax_error_in_a_declaration_file_is_refused(tmp: string)
   local decl = file(tmp, "std.d.tl", "--- @kind binding\nglobal print: function(...: any\n")
   local user = file(tmp, "user.tl", "return 1\n")
   local ran = run({ "-o", tmp .. "/out", decl, user })
-  assert(ran.code == 2, ran.err)
+  assert(ran.code == 4, ran.err)
   assert(ran.err:find("std.d.tl:3:1: expected `)`", 1, true), ran.err)
   assert(not assert(Fs.status(tmp .. "/out/user.lua")).exists)
 end
@@ -288,7 +288,7 @@ end
 local function test_a_form_the_generator_refuses_writes_no_lua(tmp: string)
   local text = "local record Outer\n  class Inner\n    n: integer\n  end\nend\nreturn Outer\n"
   local ran = run({ "-o", tmp .. "/out", file(tmp, "nested.tl", text) })
-  assert(ran.code == 2, ran.code)
+  assert(ran.code == 4, ran.code)
   assert(ran.err:find("the generator wrote no Lua", 1, true) and ran.err:find("(class_nested_refused)", 1, true), ran.err)
   assert(not assert(Fs.status(tmp .. "/out/nested.lua")).exists)
 end
@@ -379,7 +379,7 @@ local function test_an_is_test_of_a_record_or_an_interface_is_refused_not_writte
       "local function f(v: any): boolean\n  return v is Shapes.Round\nend\nreturn f\n")
   for _, path in ipairs({ local_record, imported }) do
     local ran = run({ "-o", tmp .. "/out", shapes, path })
-    assert(ran.code == 2, ran.err)
+    assert(ran.code == 4, ran.err)
     assert(ran.err:find("the generator wrote no Lua", 1, true) and ran.err:find("(is_on_record)", 1, true), ran.err)
     assert(not assert(Fs.status(tmp .. "/out/" .. (path:match("([^/]*)%.tl$") or "") .. ".lua")).exists)
   end
@@ -396,7 +396,7 @@ local function test_an_is_test_of_a_class_of_another_file_is_refused(tmp: string
   local zoo = file(tmp, "zoo.tl", "local class Cat\n  lives: integer\nend\nreturn Cat\n")
   local user = file(tmp, "user.tl", "local Cat = require(\"zoo\")\nlocal function f(v: any): boolean\n  return v is Cat\nend\nreturn f\n")
   local ran = run({ "-o", tmp .. "/out", zoo, user })
-  assert(ran.code == 2, ran.err)
+  assert(ran.code == 4, ran.err)
   assert(ran.err:find("whose table this module cannot reach", 1, true), ran.err)
 end
 

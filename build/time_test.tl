@@ -293,11 +293,11 @@ local function test_a_command_line_it_cannot_read_is_refused()
   end
 end
 
-local function test_a_failed_write_exits_2()
+local function test_a_failed_write_exits_5()
   local ran = run({ "now" }, false)
-  assert(ran.code == 2, ran.code)
+  assert(ran.code == 5, ran.code)
   assert(ran.err == "cosmic: time: standard output: No space left on device\n", ran.err)
-  assert(run({ "between", "@0", "@1", "--days" }, false).code == 2)
+  assert(run({ "between", "@0", "@1", "--days" }, false).code == 5)
 end
 
 local function test_rfc_3339_without_seconds_converts()

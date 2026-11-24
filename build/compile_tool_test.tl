@@ -22,10 +22,10 @@ local function test_it_prints_the_lua_and_no_summary(tmp: string)
   assert(ran.err == "", ran.err)
 end
 
-local function test_a_syntax_error_exits_2_naming_file_and_line(tmp: string)
+local function test_a_syntax_error_exits_4_naming_file_and_line(tmp: string)
   assert(Fs.write(tmp .. "/bad.tl", "local a = 1\nlocal = 2\n"))
   local ran = tool_fixture.cosmic(tmp, { "compile", "bad.tl" })
-  assert(ran.code == 2, ran.code)
+  assert(ran.code == 4, ran.code)
   assert(ran.out == "" and ran.err:find("bad.tl:2:", 1, true) ~= nil, ran.err)
   assert(not ran.err:find("compile: FAIL", 1, true), ran.err)
 end

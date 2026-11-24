@@ -15,7 +15,7 @@
 --- `tools/call` answers it, say.
 ---
 --- Like `cosmic json` it prints no summary. Exit 0 is ok, 1 a server that failed or refused, or a tool's result
---- that is an error, 2 a command line it refuses or a write that failed. Complaints go to standard error as
+--- that is an error, 2 a command line it refuses, 5 a write that failed. Complaints go to standard error as
 --- `cosmic: mcp: ...`. Its `spec` (build/verb_spec.tl) is `bare`.
 
 local Cli = require("cosmic.cli")
@@ -249,7 +249,7 @@ end
 local standard: verb.Io = { out = bare.out, err = bare.err, env = Env.get }
 
 --- `cosmic mcp <action> ...`: asks the server and prints its answer, and returns the exit code: 0 ok, 1 a server
---- that failed or refused or a tool's error, 2 a command line it refuses or a write that failed.
+--- that failed or refused or a tool's error, 2 a command line it refuses, 5 a write that failed.
 --- @param argv the command line, `mcp` at slot 1
 --- @param io where text is written and the environment read; the process's own when nil
 function verb.run(argv: {string}, io?: verb.Io): integer
@@ -297,7 +297,7 @@ verb.spec = {
   bare = true,
   program_slot = verb.program_slot,
   takes = "an action and its words, then the server",
-  exits = "`mcp` prints the server's answer as one line of JSON, and nothing after; it exits 1 when the server failed or refused, or a tool's result is an error, 2 when it refuses its command line or a write fails.",
+  exits = "`mcp` prints the server's answer as one line of JSON, and nothing after; it exits 1 when the server failed or refused, or a tool's result is an error, 2 when it refuses its command line, 5 when a write fails.",
   passthrough = "its output is data for a pipe, so its exit status is the verdict (build/mcp_test.tl)",
 }
 

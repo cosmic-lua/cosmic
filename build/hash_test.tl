@@ -121,11 +121,11 @@ end
 local function test_an_unreadable_file_is_named_and_the_rest_still_print(tmp: string)
   local good = file(tmp, "good", "abc")
   local ran = run({ tmp .. "/missing", good })
-  assert(ran.code == 2, ran.code)
+  assert(ran.code == 5, ran.code)
   assert(ran.out == abc("sha256") .. "  " .. good .. "\n", ran.out)
   assert(ran.err:find("cosmic: hash: " .. tmp .. "/missing", 1, true), ran.err)
   local dir = run({ tmp })
-  assert(dir.code == 2 and dir.out == "", dir.out .. dir.err)
+  assert(dir.code == 5 and dir.out == "", dir.out .. dir.err)
 end
 
 local function test_names_with_a_backslash_or_newline_are_escaped_as_gnu_does(tmp: string)
@@ -166,10 +166,10 @@ local function test_a_carriage_return_is_escaped_and_gnus_own_bytes_are_read(tmp
   assert(found.code == 0 and found.out == "\\" .. prefix .. "/a\\rb: OK\n", found.out .. found.err)
   -- Any other escape is refused.
   local bad = run({ "--md5", "--check", file(tmp, "bad", "\\" .. abc("md5") .. "  a\\tb\n") })
-  assert(bad.code == 2 and bad.err:find("bad escape", 1, true) ~= nil, bad.err)
+  assert(bad.code == 5 and bad.err:find("bad escape", 1, true) ~= nil, bad.err)
 end
 
-local function test_json_refuses_a_path_it_cannot_write_and_exits_2(tmp: string)
+local function test_json_refuses_a_path_it_cannot_write_and_exits_5(tmp: string)
   local good = file(tmp, "good", "abc")
   local odd = tmp .. "/bad\255"
   -- A name that is not UTF-8 is one only some filesystems hold: APFS
@@ -181,7 +181,7 @@ local function test_json_refuses_a_path_it_cannot_write_and_exits_2(tmp: string)
     return
   end
   local ran = run({ "--json", odd, good })
-  assert(ran.code == 2, ran.code)
+  assert(ran.code == 5, ran.code)
   assert(ran.err:find("--json cannot write this path", 1, true), ran.err)
   local rows = rows_of(ran.out)
   assert(#rows == 1 and rows[1].path == good)
@@ -264,21 +264,21 @@ local function test_check_reads_markers_uppercase_comments_and_the_algorithm(tmp
   assert(ran.out == a .. ": OK\n" .. a .. ": OK\n", ran.out)
   -- The same file is not a SHA-256 list: its digests are the wrong length.
   local wrong = run({ "--check", sums })
-  assert(wrong.code == 2 and wrong.out == "", wrong.out)
+  assert(wrong.code == 5 and wrong.out == "", wrong.out)
 end
 
-local function test_a_malformed_line_is_reported_and_exits_2(tmp: string)
+local function test_a_malformed_line_is_reported_and_exits_5(tmp: string)
   local a = file(tmp, "a", "abc")
   local sums = file(tmp, "sums", abc("sha256") .. "  " .. a .. "\nthis is not a sum\n" ..
       abc("sha256") .. " " .. a .. "\n")
   local ran = run({ "--check", sums })
-  assert(ran.code == 2, ran.code)
+  assert(ran.code == 5, ran.code)
   assert(ran.out == a .. ": OK\n", ran.out)
   assert(ran.err:find(sums .. ":2: improperly formatted", 1, true), ran.err)
   assert(ran.err:find(sums .. ":3: improperly formatted", 1, true), ran.err)
   local none = run({ "--check", file(tmp, "empty", "") })
-  assert(none.code == 2 and none.err:find("no checksum lines found", 1, true) ~= nil, none.err)
-  assert(run({ "--check", tmp .. "/absent" }).code == 2)
+  assert(none.code == 5 and none.err:find("no checksum lines found", 1, true) ~= nil, none.err)
+  assert(run({ "--check", tmp .. "/absent" }).code == 5)
 end
 
 local function test_check_reads_a_sums_file_from_stdin(tmp: string)
@@ -337,7 +337,7 @@ local function test_hmac_key_file_keeps_its_bytes_exactly(tmp: string)
   assert(with_newline.out ~= without.out)
   assert(without.out == Codec.hex(Hash.hmac("sha256", "secret", "abc")) .. "  -\n")
   local missing = run({ "--hmac-file", tmp .. "/nokey" }, "abc")
-  assert(missing.code == 2 and missing.err:find("--hmac-file", 1, true) ~= nil, missing.err)
+  assert(missing.code == 5 and missing.err:find("--hmac-file", 1, true) ~= nil, missing.err)
 end
 
 local function test_a_bad_command_line_exits_2_and_prints_nothing(tmp: string)
@@ -355,13 +355,13 @@ local function test_a_bad_command_line_exits_2_and_prints_nothing(tmp: string)
   assert(run({ "--sha1", "--sha256", a }).err:find("name one algorithm", 1, true))
 end
 
-local function test_a_failed_write_exits_2_in_every_mode(tmp: string)
+local function test_a_failed_write_exits_5_in_every_mode(tmp: string)
   local a = file(tmp, "a", "abc")
   local sums = file(tmp, "sums", abc("sha256") .. "  " .. a .. "\n")
   local function full(_: string): boolean, string return false, "No space left on device" end
   for _, words in ipairs({ { a }, { "--json", a }, { "--check", sums }, { "--check", "-" } } as {{string}}) do -- checked: cast_refused
     local ran = run(words, abc("sha256") .. "  " .. a .. "\n", full)
-    assert(ran.code == 2, table.concat(words, " ") .. ": " .. tostring(ran.code))
+    assert(ran.code == 5, table.concat(words, " ") .. ": " .. tostring(ran.code))
     assert(ran.err == "cosmic: hash: standard output: No space left on device\n", ran.err)
   end
   -- A `--quiet` check that has nothing to say has nothing to lose.
