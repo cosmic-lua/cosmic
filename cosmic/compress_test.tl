@@ -117,6 +117,31 @@ local function test_gzip_corrupt_crc_is_refused()
   assert(trouble ~= "" and trouble:find("CRC", 1, true) ~= nil, trouble)
 end
 
+--- A member with FNAME and FHCRC, as `gzip.decompress` reads it; its
+--- header CRC is the low 16 bits of the CRC-32 of the header before it.
+local NAMED_HCRC_HEADER = "\31\139\8\10\0\0\0\0\2\3a\0"
+local HELLO_BODY = "\203\72\205\201\201\215\81\72\206\47\206\205\76\86\4\0\92\110\87\198\14\0\0\0"
+
+local function test_a_gzip_header_crc_is_checked_however_the_input_is_split()
+  local good = NAMED_HCRC_HEADER .. "\103\224" .. HELLO_BODY
+  local bad = NAMED_HCRC_HEADER .. "\104\224" .. HELLO_BODY
+  for _, size in ipairs({ 1, 3, #good }) do
+    local out, trouble = drive(assert(Compress.decoder("gzip")), good, size)
+    assert(trouble == "" and out == "hello, cosmic!", trouble)
+    local _, refused = drive(assert(Compress.decoder("gzip")), bad, size)
+    assert(refused == "compress: gzip header CRC mismatch", refused)
+    -- The second member's header CRC counts its own header alone.
+    local twice, again = drive(assert(Compress.decoder("gzip")), good .. good, size)
+    assert(again == "" and twice == "hello, cosmic!hello, cosmic!", again)
+  end
+end
+
+local function test_a_gzip_header_with_reserved_flags_is_refused()
+  local reserved = "\31\139\8\32\0\0\0\0\2\3" .. HELLO_BODY
+  local _, trouble = drive(assert(Compress.decoder("gzip")), reserved)
+  assert(trouble == "compress: gzip header sets reserved flags", trouble)
+end
+
 local function test_zlib_and_raw_truncated_input_errors_on_finish()
   for _, format in ipairs({ "raw", "zlib" } as {Compress.Format}) do -- checked: cast_refused
     local enc = assert(Compress.encoder(format))

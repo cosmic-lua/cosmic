@@ -46,9 +46,9 @@ local record testing
   socket_send_rights: function(fd: integer, descriptor: integer, count: integer): boolean, string, integer
 
   --- The bytes, then the blocks, live on the core's own C heap: what
-  --- its C allocated through core/memory.h and has not yet freed. A
-  --- library's own allocations (curl's, liblzma's, bzlib's) are not
-  --- among them.
+  --- its C allocated through core/memory.h and has not yet freed, and
+  --- what liblzma, bzlib, zstd and yyjson allocate through it. A library
+  --- that allocates with libc (curl) is not counted.
   c_heap: function(): integer, integer
 
   --- Arms the fault point `point` (core/fault.h) to fail once, after
