@@ -115,7 +115,7 @@
 local Child = require("cosmic.child")
 local type Failure = require("cosmic.failure")
 local Signal = require("cosmic.signal")
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.test")
 local Clock = require("cosmic.clock")
 local Coverage = require("cosmic.coverage")
 local Env = require("cosmic.env")
@@ -2414,7 +2414,7 @@ local function read_command(ctx: Run): integer?
     return 1
   end
   ctx.root = root
-  local parsed, parse_trouble = Flags.parse(ctx.argv, 2, assert(Cli.verbs.test.spec)) -- checked: map_field
+  local parsed, parse_trouble = Flags.parse(ctx.argv, 2, assert(Verb.spec))
   if parsed == nil then
     log:complain("test: " .. parse_trouble)
     return 2

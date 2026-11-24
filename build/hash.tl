@@ -26,7 +26,7 @@
 --- at a time, so a file of any size is still one pass. build/hash_test.tl
 --- holds it to [`Hash.hmac`].
 
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.hash")
 local Codec = require("cosmic.codec")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
@@ -90,7 +90,7 @@ local SIZE <const>: {string:integer} = {
   ["sha3-224"] = 28, ["sha3-256"] = 32, ["sha3-384"] = 48, ["sha3-512"] = 64,
 }
 
-local spec = Cli.verbs.hash.spec or {} -- checked: literal_needs_type, map_field
+local spec = Verb.spec or {}
 
 local usage = "cosmic hash [--sha256 | --sha512 | --sha1 | --md5 | ...] [--json] " ..
   "[--hmac <key> | --hmac-file <path>] [<file>|-]...; " ..

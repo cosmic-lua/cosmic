@@ -263,7 +263,7 @@ end
 local function test_docs_finds_refresh_by_what_it_is_for(tmp: string)
   for _, words in ipairs({ "update certificates", "refresh revoked certificates", "time zone database out of date" }) do
     local result = invoke.run({ "docs", words }, { cwd = tmp })
-    assert(result.stdout:find("Cli.refresh", 1, true), words .. ":\n" .. result.stdout)
+    assert(result.stdout:find("cosmic.cli.refresh", 1, true), words .. ":\n" .. result.stdout)
   end
 end
 
