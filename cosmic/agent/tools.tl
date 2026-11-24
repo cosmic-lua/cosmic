@@ -381,7 +381,9 @@ end
 
 --- The replacements `input` asks for: its `edits`, and the one of its
 --- own `oldText` and `newText` that some models send.
-local function edits_of(input: Tools.Object): {AgentEdit.Replacement}?, string
+--- The replacements of an edit call's `input`, in each shape models send: `edits` a list, one object or a JSON
+--- string of either, or `oldText` and `newText` at the top; or nil and why.
+function Tools.replacements(input: Tools.Object): {AgentEdit.Replacement}?, string
   local out: mut {AgentEdit.Replacement} = {}
   local list = input["edits"]
   if list is string then
@@ -410,7 +412,7 @@ end
 local function edit(input: Tools.Object, context: Tools.Context): Tools.Result
   local path, why = text_of(input, "path")
   if path == nil then return fail(why) end
-  local edits, edits_why = edits_of(input)
+  local edits, edits_why = Tools.replacements(input)
   if edits == nil then return fail(edits_why) end
   local full, refused = permitted(context, resolve(path, context.cwd), { "read", "write", "create" })
   if full == nil then return fail(refused) end

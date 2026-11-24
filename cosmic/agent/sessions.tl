@@ -452,6 +452,10 @@ local function words(text: string): string
   local m, _ = Json.decode_object(text)
   local content = m and m["content"]
   if content is string then return content end
+  -- A prompt with a budget is a list of blocks: the first holds the words.
+  local first = Json.object_of((Json.array_of(content) or {})[1])
+  local said = first and first["text"]
+  if said is string then return said end
   return ""
 end
 

@@ -42,7 +42,8 @@
 --- - `--effort low|medium|high|xhigh|max` sets how hard it thinks
 ---   (default medium).
 --- - `--budget tokens=N,cost=USD,turns=N,time=N[s|m|h]` caps what each
----   turn may spend, any of the four. The first limit reached ends the
+---   turn may spend, any of the four; turns counts requests. The model
+---   reads the limits with the prompt. The first limit reached ends the
 ---   turn for good, and the agent says which.
 --- - `--continue` goes on with the newest session in the directory.
 ---   `--session <id>` goes on with any session.
@@ -96,8 +97,9 @@
 ---
 --- Output and sessions:
 ---
---- - The model's words go to standard output, and each tool call to
----   standard error.
+--- - The turn's answer goes to standard output. Each tool call (run's
+---   code, edit's changes as a diff), and what the model says on the way,
+---   go to standard error.
 --- - Everything is kept in sessions.db, in `$XDG_DATA_HOME/cosmic/agent`
 ---   (or `~/.local/share/cosmic/agent`), before it is shown: each
 ---   message, each tool's whole output, and each request with its usage
