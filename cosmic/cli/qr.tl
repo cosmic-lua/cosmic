@@ -1,8 +1,8 @@
 --- `cosmic qr [options] [text...]`: prints the QR code of a text, to show
 --- an address to a phone with nothing installed. The text is the words,
 --- joined by spaces. With no words, it is standard input, less one newline
---- at its end. A text that starts with `-` goes after `--`
---- (`cosmic qr -- -x`).
+--- at its end. A text that starts with `-`, or with the word `read`,
+--- goes after `--` (`cosmic qr -- -x`, `cosmic qr -- read me`).
 ---
 ---     cosmic qr https://example.com/
 ---     echo https://example.com/ | cosmic qr --invert
@@ -31,9 +31,9 @@
 ---
 --- Reading:
 ---
---- `--read [file|-]` reads a code back from the file or standard input,
+--- `cosmic qr read [file|-]` reads a code back from the file or standard input,
 --- and prints what it holds and a newline (`cosmic qr hello | cosmic qr
---- --read` prints `hello`). It reads the text or SVG that `cosmic qr`
+--- read` prints `hello`). It reads the text or SVG that `cosmic qr`
 --- drew, either way round and with any quiet zone, and mends what its
 --- level allows. It reads those drawings only, not photos or other
 --- programs' images. A program draws and reads its own codes with
@@ -51,23 +51,35 @@ local Flags = require("cosmic.flags")
 
 local command: Flags.Command = {
   about = "draw a QR code, or read one back",
-  usage = "[options] [text...] | --read [file|-]",
+  usage = "[options] [--] [text...] | read [file|-]",
   examples = {
     { line = "https://example.com/", about = "a QR code in the terminal" },
     { line = "--svg code.svg https://example.com/", about = "an SVG image" },
-    { line = "--read code.svg", about = "read one back" },
+    { line = "read code.svg", about = "read one back" },
+    { line = "-- read me", about = "a code of the text \"read me\"" },
   },
-  spec = {
-    ["--level"] = { value = "L|M|Q|H", about = "the error correction level (default M)" },
-    ["--max-version"] = { value = "n", about = "the largest code, 1 to 40 (default 40)" },
-    ["--border"] = { value = "n", about = "the light border (the quiet zone) in modules, 0 to 16 (default 4)" },
-    ["--invert"] = { about = "draw the dark modules, for a light terminal or paper" },
-    ["--ascii"] = { about = "draw with `##` and spaces, not block characters" },
-    ["--color"] = { about = "paint it black on white with ANSI escapes, clear on a terminal of either theme" },
-    ["--svg"] = { value = "file|-", about = "write an SVG image to the file, or print it" },
-    ["--scale"] = { value = "n", about = "svg: pixels a module, 1 to 1000 (default 8)" },
-    ["--title"] = { value = "text", about = "svg: what it shows, for a screen reader" },
-    ["--read"] = { about = "read back a code `cosmic qr` drew, from a file or standard input" },
+  subcommands = {
+    draw = {
+      typed = "",
+      -- A line that names no command runs this one, so its usage is the verb's.
+      usage = "[options] [--] [text...] | read [file|-]",
+      about = "draw the code of the text, or of standard input",
+      spec = {
+        ["--level"] = { value = "L|M|Q|H", about = "the error correction level (default M)" },
+        ["--max-version"] = { value = "n", about = "the largest code, 1 to 40 (default 40)" },
+        ["--border"] = { value = "n", about = "the light border (the quiet zone) in modules, 0 to 16 (default 4)" },
+        ["--invert"] = { about = "draw the dark modules, for a light terminal or paper" },
+        ["--ascii"] = { about = "draw with `##` and spaces, not block characters" },
+        ["--color"] = { about = "paint it black on white with ANSI escapes, clear on a terminal of either theme" },
+        ["--svg"] = { value = "file|-", about = "write an SVG image to the file, or print it" },
+        ["--scale"] = { value = "n", about = "svg: pixels a module, 1 to 1000 (default 8)" },
+        ["--title"] = { value = "text", about = "svg: what it shows, for a screen reader" },
+      },
+    },
+    read = {
+      usage = "[file|-]",
+      about = "read back a code `cosmic qr` drew, from a file or standard input",
+    },
   },
 }
 

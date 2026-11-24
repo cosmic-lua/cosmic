@@ -22,7 +22,7 @@ local function test_it_writes_an_svg_file(tmp: string)
   local ran = tool_fixture.cosmic(tmp, { "qr", "--svg", "code.svg", "x" })
   assert(ran.code == 0 and ran.out == "" and ran.err == "", ran.out .. ran.err)
   assert(assert(Fs.read(tmp .. "/code.svg")) == Qr.svg((assert(Qr.encode("x")))) .. "\n")
-  local read = tool_fixture.cosmic(tmp, { "qr", "--read", "code.svg" })
+  local read = tool_fixture.cosmic(tmp, { "qr", "read", "code.svg" })
   assert(read.code == 0 and read.out == "x\n" and read.err == "", read.out .. read.err)
 end
 
@@ -37,7 +37,7 @@ end
 
 local function test_a_code_piped_into_read_prints_its_text(tmp: string)
   local drawn = tool_fixture.cosmic(tmp, { "qr", "https://example.com/" })
-  local read = tool_fixture.cosmic(tmp, { "qr", "--read" }, drawn.out)
+  local read = tool_fixture.cosmic(tmp, { "qr", "read" }, drawn.out)
   assert(read.code == 0 and read.out == "https://example.com/\n" and read.err == "", read.out .. read.err)
 end
 
@@ -45,14 +45,14 @@ local function test_a_code_copied_indented_and_in_color_reads_back(tmp: string)
   local drawn = tool_fixture.cosmic(tmp, { "qr", "--color", "https://example.com/" })
   assert(drawn.code == 0 and drawn.out:find("\27[30;107m", 1, true) ~= nil, drawn.out .. drawn.err)
   local indented = drawn.out:gsub("[^\n]+", "    %0")
-  local read = tool_fixture.cosmic(tmp, { "qr", "--read" }, indented)
+  local read = tool_fixture.cosmic(tmp, { "qr", "read" }, indented)
   assert(read.code == 0 and read.out == "https://example.com/\n" and read.err == "", read.out .. read.err)
 end
 
 local function test_help_names_the_verb_and_its_options(tmp: string)
   local ran = tool_fixture.cosmic(tmp, { "qr", "--help" })
   assert(ran.code == 0, ran.err)
-  for _, word in ipairs({ "cosmic qr", "--svg", "--invert", "--ascii", "--color", "--border", "--level", "--max-version", "--read" }) do
+  for _, word in ipairs({ "cosmic qr", "--svg", "--invert", "--ascii", "--color", "--border", "--level", "--max-version", "read [file|-]" }) do
     assert(ran.out:find(word, 1, true), "the help does not name " .. word)
   end
 end
