@@ -1011,7 +1011,7 @@ local function watching(handles: {Handle}, feeding?: Handle): mut {Entry}
   return entries
 end
 
---- What a shielded [`Clock.sleep`] answered, which a shield hands back to
+--- What a shielded [`Clock.sleep`] returned, which a shield hands back to
 --- [`pump`] in a table.
 local record Delayed
   mut paused?: boolean
@@ -1039,7 +1039,7 @@ end
 local function pump(entries: mut {Entry}, timeout_ns: integer,
                     cancellable?: boolean, signalled?: boolean): boolean, string
   -- TODO: wait through Clock.sleep and Poll.ready alone, here and in
-  -- Child.end_strays's sleep, once it is decided how Poll.ready answers
+  -- Child.end_strays's sleep, once it is decided what Poll.ready returns
   -- where no task can wait. Clock.sleep already holds the thread there.
   -- (a) Poll.ready goes on, holding the thread, outside a run and in the
   -- `<close>` handler of a task being killed, as Poll.wait does outside
