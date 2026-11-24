@@ -1132,14 +1132,14 @@ end
 --- boolean.
 local type Value = string | boolean
 
---- What `${{ <text> }}` answers on a run of `event` to `ref`, for a leg
+--- What `${{ <text> }}` gives on a run of `event` to `ref`, for a leg
 --- of `leg`'s values, in as much of GitHub's expression syntax as a
 --- leg's switches use: string literals, `matrix.<key>`,
 --- `github.event_name`, `github.ref`, `needs.reuse.outputs.run` (`reuse`,
 --- empty unless given) and any other name `named` holds, `==`, `!=`, `!`, `&&`, `||` and parentheses. As GitHub's docs ("Operators") say, '' and false are
---- falsy, and `a && b` and `a || b` answer an operand, not a boolean.
+--- falsy, and `a && b` and `a || b` give an operand, not a boolean.
 --- It compares two strings ignoring case, as GitHub does, so a
---- literal cased otherwise than the value it names answers as it would
+--- literal cased otherwise than the value it names compares as it would
 --- there; a comparison of a string with a boolean, which GitHub coerces
 --- to numbers, it refuses.
 local function evaluate(text: string, leg: {string: string}, event: string, ref: string, reuse?: string,
@@ -1225,8 +1225,8 @@ local function evaluate(text: string, leg: {string: string}, event: string, ref:
   return v
 end
 
---- [`evaluate`] answers as GitHub does where `&&` and `||` choose
---- between strings, and where a comparison is grouped.
+--- [`evaluate`] returns what GitHub does where `&&` and `||`
+--- choose between strings, and where a comparison is grouped.
 local function test_an_expression_evaluates_as_github_says()
   local leg = { name = "linux-x86_64" }
   local function e(text: string, event: string): Value

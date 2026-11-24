@@ -96,7 +96,7 @@ local record verb
     --- it is when nil.
     run?: function(argv: {string}, opts: Child.Options): Child.Result?, string
     --- Runs `cosmic sandbox connect`'s client on the words after `connect`
-    --- and answers its exit status, as [`build.sandbox_connect`]'s `run`
+    --- and returns its exit status, as [`build.sandbox_connect`]'s `run`
     --- does, which is what it is when nil.
     connect?: function(args: {string}): integer
   end
@@ -436,7 +436,7 @@ end
 --- The module a sealed script is, named `main`: Lua that runs `code`, the
 --- Lua of `file`, as `cosmic --standalone` does -- its `arg` the
 --- program's, its entry (a function, or a record's `main`) called with
---- them -- and answers its status. The script's own text is on the
+--- them -- and returns its status. The script's own text is on the
 --- first line, so an error's line is the file's.
 local function script_chunk(file: string, code: string): string
   return string.format("local file = %q return function(args) args[0] = file rawset(_G, 'arg', " ..
@@ -469,7 +469,7 @@ local record Sealing
 end
 
 --- Seals `names` (the main among them, or `opts.extra`) into a directory
---- of this run's own ([`scratch`]), and answers the database's path there,
+--- of this run's own ([`scratch`]), and returns the database's path there,
 --- or why not, and whether the command line is to blame (a name no store
 --- holds).
 local function sealed(names: {string}, opts: Store.SealOptions, held: mut {string}): Sealing
@@ -603,7 +603,7 @@ local function notes_pipe(): Notes?, string
   return nil, tostring(why)
 end
 
---- [`Child.run`], answering its failure in words, as [`verb.Io`]'s `run` does.
+--- [`Child.run`], returning its failure in words, as [`verb.Io`]'s `run` does.
 local function run_child(argv: {string}, opts: Child.Options): Child.Result?, string
   local result, why = Child.run(argv, opts)
   if result == nil then return nil, tostring(why) end
@@ -615,7 +615,7 @@ end
 --- given a terminal of its own for each rather than the caller's, whose
 --- control sequences it could otherwise write and whose input it could
 --- push into; a stream that is no terminal is the program's as it is.
---- Both answer the program's [`Child.Result`].
+--- Both return the program's [`Child.Result`].
 ---
 --- The network relay's decision lines (`opts.relay_log`) go to this
 --- process's standard error, which a sandboxed process may not hold as a
@@ -730,7 +730,7 @@ local function execute(argv: {string}, io: verb.Io?, held: mut {string}): intege
   return Child.shell_status(result)
 end
 
---- Runs the command line `argv`, the verb at slot 1, and answers the
+--- Runs the command line `argv`, the verb at slot 1, and returns the
 --- exit status ([`build/sandbox.tl`]'s head says what each means).
 --- @param argv the command line
 --- @param io where it complains and starts, or the process's own

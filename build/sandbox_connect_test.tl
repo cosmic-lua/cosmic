@@ -2,7 +2,7 @@
 --- against a relay of this test's own that listens on a port of its own at
 --- 127.0.0.1 (the policy's `loopback`), which `ALL_PROXY` names: a host that
 --- runs workers in its own network (macOS) has another process on 1080:
---- what it asks the relay for, how it answers each reply, the bytes it
+--- what it asks the relay for, how it handles each reply, the bytes it
 --- carries each way with their half-closes, and what it refuses before
 --- it connects anywhere.
 
@@ -106,7 +106,7 @@ end
 --- with the variable `variable` (`ALL_PROXY` when nil) set to the relay's
 --- listener: `relay` is the
 --- relay's end of the one connection the client makes, `send` writes to
---- its standard input and `finish` ends it. Answers how the client ended.
+--- its standard input and `finish` ends it. Returns how the client ended.
 local function against(args: {string}, body: function(relay: Net.Conn, send: function(string), finish: function()),
                        variable?: string, timeout_ns?: integer, userinfo?: string): Ran
   local ran: Ran = { code = -1, complaints = {}, trace = {}, out = "" }
@@ -154,8 +154,9 @@ local function against(args: {string}, body: function(relay: Net.Conn, send: fun
   return ran
 end
 
---- What a relay reads of a client's greeting and request, answering the
---- method it takes: the request's bytes, which `reply` then answers.
+--- What a relay reads of a client's greeting and request, replying to
+--- the greeting with the method it takes: the request's bytes, which
+--- the caller then writes a [`RelayWire.socks_reply`] for.
 local function asked(relay: Net.Conn): string
   assert(bytes(relay, 3) == "\5\1\0", "the greeting offers no authentication")
   assert(relay:write(RelayWire.socks_method_reply(0)))
@@ -178,13 +179,13 @@ local function test_a_name_is_asked_for_as_a_name_and_the_bytes_go_both_ways()
   local seen_end: support.Cell<boolean> = { value = false }
   local ran = against({ "api.github.com", "443" }, function(relay: Net.Conn, send: function(string), finish: function())
     request.value = asked(relay)
-    -- The relay's first bytes of the tunnel come in the same write as its answer.
+    -- The relay's first bytes of the tunnel come in the same write as its reply.
     assert(relay:write(RelayWire.socks_reply("succeeded") .. "banner "))
     send("ping")
     assert(bytes(relay, 4) == "ping", "standard input reaches the relay")
     finish()
     -- The end of what the client sends reaches the relay as a half-close, and
-    -- the relay can still answer.
+    -- the relay can still reply.
     assert(relay:read(1) == nil, "the relay sees the end")
     seen_end.value = true
     assert(relay:write("pong"))
@@ -229,7 +230,7 @@ local function test_the_relay_ending_first_ends_the_output_and_the_run_ends_with
   assert(ran.out == "bye" and #ran.complaints == 0, ran.out .. table.concat(ran.complaints))
 end
 
---- Each refusal the relay may answer, and what the client says of it.
+--- Each refusal the relay may reply with, and what the client says of it.
 local REFUSALS <const>: {{string}} = {
   { "failure", "general SOCKS server failure", "1" },
   { "not_allowed", "connection not allowed by ruleset", "2" },
@@ -357,7 +358,7 @@ local function test_a_relay_that_never_answers_is_a_failure_after_the_timeout_na
 end
 
 --- What a relay with a token reads of a client's greeting, the message of
---- its username and password and its request, answering the method 2 and
+--- its username and password and its request, replying with the method 2 and
 --- `verdict` ("\1\0" accepts): the user, the password and the request's bytes
 --- (nil where the verdict refused).
 local function asked_with_login(relay: Net.Conn, verdict: string): string, string, string?

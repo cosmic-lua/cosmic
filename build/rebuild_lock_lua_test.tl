@@ -162,8 +162,8 @@ local function test_a_waiting_run_takes_the_lock_once_let_go(tmp: string)
   end
 end
 
---- Waits up to 20 s for `holds` to answer true, checking every 20 ms,
---- and answers true once it has.
+--- Waits up to 20 s for `holds` to return true, checking every 20 ms,
+--- and returns true once it has.
 local function await(what: string, holds: function(): boolean): boolean
   local deadline = Clock.monotonic_ns() + Clock.seconds(20)
   while not holds() do
@@ -174,7 +174,7 @@ local function await(what: string, holds: function(): boolean): boolean
 end
 
 --- Asks for the lock of the tree at the first `%q` by [`rebuild_lock.hold`]
---- as the role `%q`, and prints what it answered.
+--- as the role `%q`, and prints what it returned.
 local holding = [[
 local held, trouble = require("build.rebuild_lock").hold(%q, %q, "probe")
 

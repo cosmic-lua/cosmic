@@ -42,7 +42,7 @@ Test.policy{
 
 --- Makes `tmp`/scratch, a scratch directory laid out as build.test_key's
 --- `scratch` lays one out -- `real`, and `tmp` a link to it -- and
---- answers it.
+--- returns it.
 local function scratch_in(tmp: string): string
   local scratch = tmp .. "/scratch"
   assert(Fs.mkdirs(scratch .. "/real"))

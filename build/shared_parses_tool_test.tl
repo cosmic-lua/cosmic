@@ -19,7 +19,7 @@ local support = require("build.test_support_fixture")
 --- The program itself, which its tests start.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
---- Every row `sql` answers of the database at `path`, a line each, and
+--- Every row `sql` finds in the database at `path`, a line each, and
 --- every row of every parse table of a working database.
 local dump = parses_fixture.dump
 local parse_rows = parses_fixture.rows
@@ -96,7 +96,7 @@ local function checkout(root: string, changed?: {string:string})
 end
 
 --- Builds the checkout at `root` (`cosmic test`, which has nothing to
---- run), answering what it printed.
+--- run), returning what it printed.
 local function build(root: string, env: {string:string}): string
   local output = root .. ".out"
   local fd = assert(Fs.open_write(output))

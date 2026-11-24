@@ -28,7 +28,7 @@ local record Node
   parse: function(source: string, name: string, dialect?: Ast.Dialect): Ast.Chunk?, string
 
   --- The names of `chunk` resolved against the globals `declared`, none by default: it sets `binding` on each
-  --- [`Ast.Name`] that refers to a binding and answers the facts. The chunk must come from [`Node.parse`].
+  --- [`Ast.Name`] that refers to a binding and returns the facts. The chunk must come from [`Node.parse`].
   scope: function(chunk: Ast.Chunk, name: string, declared?: {string: Scopes.Global}): Scopes.Scoped
 
   --- The line and column where `node` starts, and the line and column of its last byte.
@@ -46,7 +46,7 @@ local record Node
   --- order of the nodes' ids).
   walk: function(root: Ast.Node, visit: function(Ast.Node))
 
-  --- As [`Node.walk`], and where `visit` answers false the nodes under that node are not visited.
+  --- As [`Node.walk`], and where `visit` returns false the nodes under that node are not visited.
   walk_until: function(root: Ast.Node, visit: function(Ast.Node): boolean)
 
   --- The nodes directly under `node`, in source order.

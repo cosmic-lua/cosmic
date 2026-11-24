@@ -1,5 +1,5 @@
 --- Runs every test the tree defines that a stored verdict does not
---- already answer for, each in a process of its own, and records each
+--- already cover, each in a process of its own, and records each
 --- verdict into the working database, `build.db`, which never ships
 --- and is never carried in the projection, `cosmic.db`.
 ---
@@ -32,8 +32,8 @@
 ---
 --- A sandboxed run's key names nothing of where the tree is, so every
 --- checkout whose workers run sandboxed shares its passing verdicts too
---- ([`build.shared_verdicts`]): a test no verdict of this checkout answers
---- for stands on one another checkout of the same content reached, on
+--- ([`build.shared_verdicts`]): a test no verdict of this checkout covers
+--- stands on one another checkout of the same content reached, on
 --- the terms it would on its own, and that verdict is then recorded here
 --- as this run's.
 ---
@@ -178,7 +178,7 @@ local type Unmet = State.Unmet
 local record test
   --- The verb's registration: see build/verb_spec.tl.
   mut spec: verb_spec.Spec
-  --- How many tests this run ran, and how many it answered from a
+  --- How many tests this run ran, and how many it settled from a
   --- verdict that still stood ([`build.test_state`]'s [`Tally`]).
   type Tally = State.Tally
 
@@ -208,7 +208,7 @@ local record test
     count: integer
   end
 
-  --- What [`test.explained`] answers.
+  --- What [`test.explained`] returns.
   record Explained
     --- The lines to show, in order.
     lines: {string}
@@ -232,7 +232,7 @@ local fuzz_seconds_variable <const>: Env.Name = "FUZZ_SECONDS"
 --- 2000 more checks) and report it, as fuzz.yml's 1200 s does for 120.
 local fuzz_deadline_factor <const> = 10
 
---- The words of a failure a child's handle answered, "" for none.
+--- The words of a failure a child's handle returned, "" for none.
 local function words(why: Failure?): string
   if why == nil then return "" end
   return why.message
@@ -665,7 +665,7 @@ end
 --- makes the run's figure partial. A path that is no module is folded as it
 --- stands: the key holds its text. Returns the lines of `encoded` but those
 --- of a path `unowned` names, as written. A row whose first line says its lines are distances
---- ([`test.decode_kept`] answers one) is read so, and comes back under that line.
+--- ([`test.decode_kept`] returns one) is read so, and comes back under that line.
 ---
 --- `folded` holds the module's lines earlier calls folded. Pass one table only to calls that share every other
 --- argument but `encoded`: a line met again is then not read a second time, since it would set the same entries of
@@ -767,13 +767,13 @@ end
 
 --- Writes `coverage`'s rows of every module `each` visits (by path and source
 --- hash) for `run_at_ns` with one statement, as [`coverage_report.lines_of`]
---- answers them one module at a time: each executable line, 1 where `hits` has
+--- returns them one module at a time: each executable line, 1 where `hits` has
 --- it and else 0. The lines are those the syntax tree gives of each source
 --- ([`build.coverage.syntax_lines`]), kept by its hash in the working database's
 --- `executable`, which SQLite spreads into rows (`json_each`) rather than Lua
 --- making and sorting a table for each of a thousand modules: some 0.45 s of
 --- a run that ran one test. A module whose source the cache does not hold
---- yet is read first by `ensure`, which keeps it and answers why it could
+--- yet is read first by `ensure`, which keeps it and returns why it could
 --- not, or "". Returns the counts of what it wrote, or nil and why it wrote
 --- none.
 function test.write_module_coverage(handle: Sqlite.Handle,
@@ -885,7 +885,7 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
     return 0, 0, tostring(test_trouble)
   end
   -- The core's own C sits among the modules by path: a core that
-  -- observes it answers every line a block begins on, and a line is hit
+  -- observes it reports every line a block begins on, and a line is hit
   -- when some window's hits name it (see [`Coverage.native_lines`]).
   local by_source: mut {string: Module} = {}
   local sorted_native: mut {Keyed<{integer:boolean}>} = {}
@@ -994,7 +994,7 @@ local function checkout_id(records: Sqlite.Handle, root: string, now_ns: integer
   return made
 end
 
---- Records one test answered from its standing verdict (`found`, whose
+--- Records one test settled from its standing verdict (`found`, whose
 --- lookup says it stands: [`test_key.lookup`]).
 local function stand(rec: Recording, credited: test.Credited, m: Module,
                      name: string, id: string, found: test_key.Lookup)
@@ -1050,7 +1050,7 @@ local function codes_of(rec: Recording): {string:string}
   return made
 end
 
---- Records one sandboxed test answered from the verdict another
+--- Records one sandboxed test settled from the verdict another
 --- checkout reached under its declared key (`found`, whose lookup says to
 --- share it: [`test_key.lookup`]): as this run's own, with the lines that
 --- run hit, so a later run of this checkout stands on it without the
@@ -1100,12 +1100,12 @@ end
 
 --- Folds the hits of a finished worker, those its load made and those its
 --- test did (the tables [`worker.decode`] shares, never changed here), into
---- `hits` but for the modules `unowned` names (the core's), and answers the
+--- `hits` but for the modules `unowned` names (the core's), and returns the
 --- test's own `coverage_by_test` row, a [`row_line`] a module, each
 --- naming the text `identities` says it is, and a module the load and the
 --- test both hit on a line of each.
 ---
---- `load_placed` and `test_placed` are what [`test.place_hits`] answered of
+--- `load_placed` and `test_placed` are what [`test.place_hits`] returned for
 --- the two, and where a module's lines were placed, those are what is
 --- folded. Its row keeps the instructions' ordinals as reported, named by
 --- the bytecode `codes` says the module is: the test's key holds that
@@ -1172,10 +1172,10 @@ local placed_kept <const> = 8
 --- source line `lines_of` says that instruction is on. Placed by this run's text, whose bytecode the store was
 --- numbered from: the store's address holds that bytecode stripped, so a store standing at it numbers the same
 --- instructions alike, and the lines placed are this run's text's, which [`test.take_hits`] folds into the run's
---- figure; the row it spells keeps the ordinals. `hits` itself where no line is past the base, and a module's table
---- answered the same placed table while `placed` remembers it, so [`take_hits`] folds a load's lines once. A module whose instructions
---- `lines_of` cannot place (nil and why), or a line past the instructions it places, is answered without its
---- numbered lines, never on the wrong ones, and named with why in `unplaced`; then the answer is not `whole`, and
+--- figure; the row it spells keeps the ordinals. It returns `hits` itself where no line is past the base, and for a
+--- module's table the same placed table while `placed` remembers it, so [`take_hits`] folds a load's lines once. A module whose instructions
+--- `lines_of` cannot place (nil and why), or a line past the instructions it places, is returned without its
+--- numbered lines, never on the wrong ones, and named with why in `unplaced`; then the result is not `whole`, and
 --- the test's row lacks lines it reached, so the runner keeps no verdict of it. Only a module of the run, a path of
 --- `modules`, is placed: a chunk a test numbers itself names none, and its lines are kept as no module's are.
 function test.place_hits(hits: Coverage.Hits, modules: {string:string}, lines_of: function(string): {integer}?, string,
@@ -1441,7 +1441,7 @@ end
 --- Records one finished job: the verdict its worker reported, or a
 --- failure that says why there is no report to go by
 --- ([`test_key.judge`], which also says whether it checked, and
---- [`test_key.keep`], which keeps its verdict). Answers the test's time:
+--- [`test_key.keep`], which keeps its verdict). Returns the test's time:
 --- what its worker reported, or, with no report, the time since the job
 --- started.
 local function finish(rec: Recording, job: Job, result: Child.Result?,
@@ -2008,7 +2008,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
       local job_handle = job.handle
       local handle = assert(job_handle)
       if job_handle == done then
-        -- Settled already, so this answers at once, with the Result or why
+        -- Settled already, so this returns at once, with the Result or why
         -- its settle failed; what the settle left is the Result's `remains`.
         local result, why = handle:wait()
         collect(job, result, words(why))
@@ -2045,7 +2045,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
       -- it a subreaper ([`Child.start`]).
       -- A sandboxed worker leaves none: it is pid 2 of a pid namespace
       -- of its own, whose init ends when it does, ending everything
-      -- left there, before `wait` answers for it. Nothing adopts them
+      -- left there, before `wait` returns for it. Nothing adopts them
       -- here, since no worker was started with a group.
       -- TODO: a stray still writing into a passing test's directory
       -- (or, on a cancelled run, an ended worker's, below) can race
@@ -2380,7 +2380,7 @@ local record Run
   -- What the run says last ([`settle`]).
   mut total?: integer
   --- The C functions' prerequisites this host lacks, probed before any
-  --- worker starts. Unknown answers and missing promises retain coverage.
+  --- worker starts. Unknown results and missing promises retain coverage.
   mut c_unavailable?: {string: string}
   mut function_lines?: {string}
   mut cov_line?: string
@@ -2421,7 +2421,7 @@ local function read_command(ctx: Run): integer?
   end
   if next(floor_values) ~= nil then
     -- The floors are over every line of the tree, as the check of C functions
-    -- is, which only a run of every test answers.
+    -- is, which only a run of every test settles.
     if #parsed.words > 0 or parsed.values["--shard"] ~= nil then
       log:complain("test: --min and --min-file need a whole run: a floor is over every line of the " ..
           "tree, and a run of chosen tests (selectors, --shard) reaches only some of them")
@@ -2464,7 +2464,7 @@ local function read_command(ctx: Run): integer?
   ctx.selectors = selectors
   ctx.forced = parsed.set["--all"] == true or Env.read("COSMIC_TEST_ALL") == "1"
   -- A run that stands on nothing another checkout reached, though it
-  -- still shares what it reaches: what answers for every test is this
+  -- still shares what it reaches: what settles every test is this
   -- checkout's own evidence, or a run.
   ctx.consult = not (parsed.set["--no-shared"] == true or
     Env.read("COSMIC_TEST_NO_SHARED") == "1")
@@ -2824,7 +2824,7 @@ local function select_tests(ctx: Run): integer?
   end
   ctx.selected_modules, ctx.selected_tests = selected_modules, selected_tests
   -- Whether this run chose every test of the tree: what only the whole
-  -- suite answers for is checked on such a run alone.
+  -- suite covers is checked on such a run alone.
   ctx.whole = #selectors == 0 and shard == nil
   -- Said after the sandbox, last on the summary line, whichever verdict.
   ctx.share_summary = if shard ~= nil then
@@ -3425,7 +3425,7 @@ local function settle(ctx: Run)
   -- Every C function must be one some test enters, in this run or in
   -- the run whose verdict stands for it: a standing verdict's hits are
   -- among those credited to it just above. Only a whole run of cosmic's
-  -- own tree answers that: a run of chosen tests says nothing about the
+  -- own tree settles that: a run of chosen tests says nothing about the
   -- rest, and another project's tests owe nothing to the C underneath
   -- them. Every core cosmic tests with observes its own C.
   local function_lines: mut {string} = {}
@@ -3625,7 +3625,7 @@ end
 --- discovered that its selectors choose ([`test.selects`]), printing its
 --- summary and returning the exit code: 0
 --- when every test passed. Each phase above does one part, in order,
---- and the first to answer an exit code ends the run.
+--- and the first to return an exit code ends the run.
 --- @param argv the command line, which a stale tool re-enters after
 ---   rebuilding itself
 local function run(argv: {string}): integer

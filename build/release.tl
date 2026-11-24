@@ -9,7 +9,7 @@
 ---
 --- The releases are found through their tags and main's history. The
 --- API's list of releases is no use: it serves only the first 1000, page
---- 11 answering 422 or not by the server it reaches, and orders them by
+--- 11 responding 422 or not by the server it reaches, and orders them by
 --- the day of each tagged commit, so a draft published days after its
 --- commit lands among the old. Instead the API's git matching-refs names
 --- every tag in one request (all of them, a few hundred bytes each,
@@ -17,10 +17,10 @@
 --- and each commit that has a tag is asked for its release by the tag,
 --- until enough are found. ci/cosmic_ci/prerelease.tl makes the tag
 --- before the draft, so a tag may have only a draft, or nothing, behind
---- it: the API answers 404 for either, and the commit is passed over. So
+--- it: the API responds 404 for either, and the commit is passed over. So
 --- the newest release is that of the latest commit on main that has one,
 --- three requests. The history read ends once every tagged commit has
---- been passed, or at its end, and fails rather than answer in part past
+--- been passed, or at its end, and fails rather than give part of it past
 --- 100 pages. A draft, a release tagged neither `YYYYMMDD-<40 hex>` nor
 --- `next-<40 hex>` and one
 --- missing any of the three assets, or with others, are passed over.
@@ -118,10 +118,10 @@ local record verb
     --- Writes one complaint line, without its newline.
     err: function(line: string)
     --- For a test, in place of the network: the [`Http.Options.script`]
-    --- of each request in turn, a request past the last answered by an
-    --- empty reply.
+    --- of each request in turn, a request past the last given an
+    --- empty result.
     script?: {{string}}
-    --- In place of GitHub's, for a test whose script cannot answer TLS:
+    --- In place of GitHub's, for a test whose script cannot speak TLS:
     --- the API's URL of the repository and the prefix of a release's asset URLs,
     --- which the printed and pinned URLs still name GitHub's.
     api?: string
@@ -364,7 +364,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local requests: Requests = { made = 0 }
   --- The options of one request. Only an API call has `headers`, and it
   --- takes no redirect: its token is for the API's own origin, and an
-  --- answer that moved (a renamed repository) fails rather than be
+  --- response that moved (a renamed repository) fails rather than be
   --- followed.
   local function never(): boolean return false end
   local function options(headers?: {string:string}, sha256?: string, cancelled?: function(): boolean): Http.Options
@@ -375,7 +375,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       script = scripts[requests.made]
       if script == nil then script = { "" } end
     end
-    -- The API's answer names the digest each download is checked
+    -- The API's response names the digest each download is checked
     -- against, so it trusts the minimal roots (and $SSL_CERT_FILE's),
     -- not every root the binary carries, as `cosmic refresh` does.
     return { timeout_ns = Http.FOREVER, script = script, headers = headers, follow = headers == nil,
@@ -480,7 +480,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       for _, tag in ipairs(tags) do
         local url = releases_url .. "/tags/" .. tag
         local text, why = call(url)
-        -- A tag with no release, or only a draft's, answers 404.
+        -- A tag with no release, or only a draft's, gets a 404.
         if text == nil and why ~= "" then return nil, why end
         if text ~= nil then
           local r, shape_trouble =

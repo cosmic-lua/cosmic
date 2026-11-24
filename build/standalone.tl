@@ -82,7 +82,7 @@ local function cached_path(source: string, variables?: {string:string}, own?: bo
   return dir .. "/" .. key .. ".lua"
 end
 
---- The Lua of a `require` that answers each of `modules` by its name, and asks `load_module` for any other.
+--- The Lua of a `require` that resolves each of `modules` by its name, and asks `load_module` for any other.
 local OWN_REQUIRE <const> = "local modules, load_module = ... " ..
   "return function(name) local found = modules[name] if found ~= nil then return found end return load_module(name) end"
 
@@ -95,7 +95,7 @@ local function loaded_in(file: string, code: string, env: {string: any}): standa
   return chunk, ""
 end
 
---- `code`, Lua the checker wrote of `file`, loaded as `file`'s chunk, with a `require` that answers each of
+--- `code`, Lua the checker wrote of `file`, loaded as `file`'s chunk, with a `require` that resolves each of
 --- `modules` by its name, as a module the binary does not hold: the module of an MCP server a snippet of cosmic agent
 --- requires ([`build.agent_worker`]).
 function standalone.loaded_with<M>(file: string, code: string, modules: {string: M}): standalone.Main?, string

@@ -1,5 +1,5 @@
 --- `cosmic mcp`: asks a Model Context Protocol server ([`cosmic.mcp.client`]) what it offers, or has it run a tool,
---- read a resource or fill a prompt, and prints the answer as one line of JSON.
+--- read a resource or fill a prompt, and prints the response as one line of JSON.
 ---
 --- THE SERVER is a program this starts and speaks to over its stdin and stdout, every word after `--` (a `.tl` file
 --- first is run by this program, as `cosmic <file.tl>` runs one), or one at `--url`, over Streamable HTTP, with the
@@ -12,7 +12,7 @@
 --- THE ACTIONS: `discover` (what the server is), `tools`, `resources`, `templates` and `prompts` (each list, all its
 --- pages), `call <tool> [json]` (the arguments a JSON object), `read <uri>`, and `prompt <name> [json]` (the
 --- arguments an object of strings). What each prints is the protocol's own JSON for it: a tool's result as
---- `tools/call` answers it, say.
+--- the server sends it for `tools/call`, say.
 ---
 --- Like `cosmic json` it prints no summary. Exit 0 is ok, 1 a server that failed or refused, or a tool's result
 --- that is an error, 2 a command line it refuses, 5 a write that failed. Complaints go to standard error as
@@ -192,7 +192,8 @@ local function session_of(to: verb.Io, request: Request): (McpClient.Session) | 
     timeout_ns = request.timeout_ns })
 end
 
---- What `request`'s action answers from `session`: the JSON to print, whether it is a tool's error, or nil and why.
+--- Asks `session` for `request`'s action and returns the JSON to print and whether it is a tool's error, or nil and
+--- why it failed.
 local function asked(session: McpClient.Session, request: Request): (Json.Value, boolean) | (nil, Failure)
   local action, words = request.action, request.words
   if action == "discover" then
@@ -250,8 +251,8 @@ end
 
 local standard: verb.Io = { out = bare.out, err = bare.err, env = Env.get }
 
---- `cosmic mcp <action> ...`: asks the server and prints its answer, and returns the exit code: 0 ok, 1 a server
---- that failed or refused or a tool's error, 2 a command line it refuses, 5 a write that failed.
+--- `cosmic mcp <action> ...`: asks the server and prints its response, and returns the exit code: 0 ok, 1 a
+--- server that failed or refused or a tool's error, 2 a command line it refuses, 5 a write that failed.
 --- @param argv the command line, `mcp` at slot 1
 --- @param io where text is written and the environment read; the process's own when nil
 function verb.run(argv: {string}, io?: verb.Io): integer

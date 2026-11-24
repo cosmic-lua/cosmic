@@ -69,8 +69,8 @@ local function tree_run_environment(): {string:string}
   return env
 end
 
---- Waits up to 20 s for `holds` to answer true, checking every 20 ms,
---- and answers true once it has.
+--- Waits up to 20 s for `holds` to return true, checking every 20 ms,
+--- and returns true once it has.
 local function await(what: string, holds: function(): boolean): boolean
   local deadline = Clock.monotonic_ns() + Clock.seconds(20)
   while not holds() do
@@ -361,14 +361,14 @@ local function thing(word: string): string
     "--- Reads.\nfunction thing.read(): string\n  local text, why = Fs.read(\"x\") if text == nil then return tostring(why) end return text\nend\n\nreturn thing\n"
 end
 
---- A verb that only reads ([`verb_spec.Spec`]'s `reads`) answers while
+--- A verb that only reads ([`verb_spec.Spec`]'s `reads`) finishes while
 --- another run holds the checkout's rebuild lock, as `cosmic test` does
 --- for its whole run, and while that run holds the working database's
 --- write lock too, as its build does: it waits for neither, and reads
 --- what is there. Here this test is that run, and each verb a run of
 --- the program. `docs` after an edit writes no projection under the
---- lock, so it answers from the last one, saying once why, and from the
---- edit once the lock is free.
+--- lock, so it shows the last one, saying once why, and the edit once
+--- the lock is free.
 local function test_a_reading_verb_answers_while_another_run_holds_the_lock(tmp: string)
   local root = tmp .. "/project"
   assert(support.build_dir(root))
@@ -397,7 +397,7 @@ local function test_a_reading_verb_answers_while_another_run_holds_the_lock(tmp:
         local out = result.stdout or ""
         if words[1] == "docs" then
           assert(out:find("First words.", 1, true), said)
-          -- the old answer is marked as the last build's, in the summary
+          -- the old result is marked as the last build's, in the summary
           local held = if phase == "rebuild lock" then "the rebuild lock" else "the working database" end
           assert((result.stderr or ""):find(", from the last build (another run holds " .. held .. "), ", 1, true), said)
           if phase == "rebuild lock" then
@@ -552,7 +552,7 @@ end
 --- `cosmic lsp` holds its tool to the tree again at each stage ([`reboot.recheck`]): while another run holds the rebuild
 --- lock, a tool older than the tree is deferred and the tree stays unchecked; once the lock is free and the tool is the
 --- tree's the check clears it, so a stage is no longer left alone ([`rebuild.stage`]); and a tool still stale where the lock is free, which a rebuild
---- cannot mend here, answers the failure and leaves the tree unchecked. The running tool is named ([`reboot.Seen`]).
+--- cannot mend here, reports the failure and leaves the tree unchecked. The running tool is named ([`reboot.Seen`]).
 local function test_a_check_that_was_deferred_is_made_once_the_lock_is_free(tmp: string)
   local root = tmp .. "/tree"
   local fingerprint = own_tree(root)

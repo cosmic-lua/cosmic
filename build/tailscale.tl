@@ -43,7 +43,7 @@
 --- overwrite` writes over it or `--conflict rename` writes `name (1).ext`.
 --- `--wait` waits for a file when none waits yet.
 ---
---- `--json` prints the answer of `status`, `whois`, `ping`, `file
+--- `--json` prints the result of `status`, `whois`, `ping`, `file
 --- targets` or `file list` as JSON
 --- object, the fields of [`cosmic.tailscale`]'s record. `--socket
 --- <path>` names the daemon's socket, where it is not where
@@ -77,7 +77,7 @@ local verb_spec = require("build.verb_spec")
 local record verb
   --- The verb's registration: see build/verb_spec.tl.
   mut spec: verb_spec.Spec
-  --- A file `open` answers: its bytes as they are read, and how many.
+  --- A file `open` returns: its bytes as they are read, and how many.
   record Opened
     reader: Stream.Reader
     size: integer
@@ -793,7 +793,7 @@ local function file_get(to: verb.Io, complain: function(line: string), ts: Tails
     end
     files = got
     if #files > 0 or parsed.set["--wait"] ~= true then break end
-    -- A daemon that answers at once, as one that holds no call does, is
+    -- A daemon that responds at once, as one that holds no call does, is
     -- asked again a second later, not at once.
     if Clock.monotonic_ns() - asked < 1000000000 then
       local _, _ = Clock.sleep(1000000000)

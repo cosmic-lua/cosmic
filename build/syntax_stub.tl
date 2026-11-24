@@ -42,7 +42,7 @@ local record Stub
 
   --- Where the types `module` has in `source`, a program that read its source, and in `stubbed`, a program that read its stub
   --- instead, differ: nil when the stub types the module as its source does, and otherwise a line that names the first
-  --- declaration that differs and how. The declarations compared are those the module's answer reaches (the record it returns,
+  --- declaration that differs and how. The declarations compared are those the module's value reaches (the record it returns,
   --- or the type of the value it returns, and every declaration of the module those name, through their fields, methods,
   --- listings and type arguments): a declaration the module keeps to itself and nothing reaches is not part of its type. Two
   --- declarations are the same when their canonical text ([`Types.encode_declaration`]) is, which names every other module's
@@ -333,7 +333,7 @@ function Stub.made(chunk: Ast.Chunk, every?: boolean): Stub.Made
   return { text = table.concat(out) .. "\n", pruned = dropped ~= nil }
 end
 
---- The declarations of `module` that its answer in `program` reaches, by name, and the names in the order they were found;
+--- The declarations of `module` that its value in `program` reaches, by name, and the names in the order they were found;
 --- and the canonical text of the type of the value it returns when that is no declaration.
 local record Reached
   decls: mut {string: Types.Decl}

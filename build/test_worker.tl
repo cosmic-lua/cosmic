@@ -11,7 +11,7 @@
 --- it passed. Its standard streams are the test's,
 --- captured by the runner. A report that is missing or cut short --
 --- the test exited the process, crashed it, or ran past its deadline --
---- is itself the runner's answer that the test failed. A whole report
+--- is itself the runner's sign that the test failed. A whole report
 --- passes only if the process then exits successfully.
 
 local type Child = require("cosmic.child")
@@ -279,7 +279,7 @@ local record worker
   hooks_held: function(): boolean
   --- Crosses a boundary by hand, as the Lua of a checked function does by calling the `__cosmic_tc` that [`install_checks`]
   --- defines ([`lang.boundary_checks`]): `text` is the spec ("p" parameters, "r" return values, "f" a field written) and
-  --- `values` the values crossing it. It answers nothing, where the global answers the values: a test that needs them keeps
+  --- `values` the values crossing it. It returns nothing, where the global returns the values: a test that needs them keeps
   --- them. A violation of a parameter is placed at the line that called `cross`, where a checked function's is placed at its
   --- caller's.
   cross: function(text: string, ...: any)
@@ -375,7 +375,7 @@ end
 --- values, "f" a record field written), the place, and for each value its
 --- label and the kinds its declared type admits, joined by "|" (`type`'s
 --- names, and "integer" for a number that `math.type` says is one). The
---- hook answers the values (the first, for a field) and records a value of
+--- hook returns the values (the first, for a field) and records a value of
 --- another kind: "absent" for a return value the `return` gave none of,
 --- which Lua reads as nil, apart from a nil it gave. A violation is
 --- recorded, and the value passes on, except for a parameter declared in the
@@ -390,7 +390,7 @@ end
 --- `Node.rt_fact`), with the place, its name and what the test says of the
 --- value: "~" and the kinds the test took out, joined by "|" (a value of
 --- one of them breaks it; "integer" among them takes out integers alone),
---- or the kinds the value has. The hook answers the value, or raises "fact
+--- or the kinds the value has. The hook returns the value, or raises "fact
 --- violated at <place>" for one the fact is false of, since the checker's
 --- own proof was wrong there.
 local record Check
@@ -513,7 +513,7 @@ local function parse_check(text: string): Check
   return check
 end
 
--- The metatable of a value as the code of a class reads it: `@v`, which answers the metatable whatever its
+-- The metatable of a value as the code of a class reads it: `@v`, which gives the metatable whatever its
 -- `__metatable` says, so a class that hides its metatable is no false "fact violated". Only the compiler's loader
 -- reads the form.
 local raw_reader = assert(Compiled.load("local v = ... return @v", "=raw_reader", {}))
@@ -769,7 +769,7 @@ end
 
 -- The hook the code of the new checker calls at each read of a place whose
 -- type a test narrowed: `__fact(v, taken, place, strings, classes, tag, tags,
--- at)` ([`lang.fact_wraps`]). It answers `v`, or records the violation and
+-- at)` ([`lang.fact_wraps`]). It returns `v`, or records the violation and
 -- raises as the fork's "n" check does, since the checker's own conclusion
 -- was wrong there: a kind `taken` names (joined by ","; no kind is part of
 -- another's name), a string that is no member of `strings`, a table of another
@@ -839,7 +839,7 @@ end
 
 --- Defines the global `__cosmic_tc` the Lua of a checked run calls, with the `__cosmic_ty` and `__cosmic_mt` (`type` and
 --- `math.type`, as the module took them) that the tests ahead of its call read ([`lang.boundary_checks`]). `__cosmic_tc`
---- is defined last, since the tests run only where it is. The hook records what [`worker.violations`] answers, and `__fact`, which the Lua the
+--- is defined last, since the tests run only where it is. The hook records what [`worker.violations`] returns, and `__fact`, which the Lua the
 --- new checker's code generator writes calls at a read it narrowed
 --- ([`lang.fact_wraps`]) and which records a violation of kind "fact" (the
 --- place of the read, the place as written, what the checker proved and what
@@ -1050,7 +1050,7 @@ local function decoded_hit(rest: string): DecodedHit?
 end
 
 --- The hits of one load, by the lines of a report that spelled them all: the workers of one module's tests each
---- report its load's lines again, the same text, so each of the newest few is read once and answered as one table,
+--- report its load's lines again, the same text, so each of the newest few is read once and returned as one table,
 --- by which the runner knows a load it has placed and folded ([`build.test`]'s `finish`).
 local record DecodedLoad
   text: string
@@ -1064,8 +1064,8 @@ local loads_kept <const> = 8
 --- The first tag of a report's lines of hits, as a line begins with it.
 local load_hit <const> = "\nload-hit "
 
---- The hits `block` spells, lines of `load-hit` each beginning with a newline, as one table: the one answered
---- of the same text before, while it is remembered. Nil where a line of it is no whole `load-hit`, which the
+--- The hits `block` spells, lines of `load-hit` each beginning with a newline, as one table: the one returned
+--- for the same text before, while it is remembered. Nil where a line of it is no whole `load-hit`, which the
 --- reader of a report's every line then says of it.
 local function decoded_load(block: string): Coverage.Hits?
   for _, known in ipairs(decoded_loads) do
@@ -1231,10 +1231,10 @@ end
 --- holds.
 local type Held = function(fn: function(...: any): (any...), argument?: any): any
 
---- Answers a [`Held`], `tree` the set of the tree's modules. It calls `fn`
+--- Returns a [`Held`], `tree` the set of the tree's modules. It calls `fn`
 --- with `argument` while two things hold: a searcher ahead of every
---- other answers a module `refusal` refuses with a loader that raises
---- why, where it was required, and each searcher after it hands such a
+--- other gives, for each module that `refusal` refuses, a loader that
+--- raises why, where it was required, and each searcher after it hands such a
 --- module's loader as a loader that raises too (with no raw value beside
 --- it), so a loop over `package.searchers` that calls what
 --- it is handed loads nothing outside the closure; and each such module the worker itself
@@ -1305,7 +1305,7 @@ end
 --- How a worker is started: this exact program again -- the same core,
 --- whose runtime identity every verdict of the run is keyed under. A
 --- process not started from a portable artifact starts its logical
---- executable instead. What it answers is the relaunch's own: the
+--- executable instead. What it returns is the relaunch's own: the
 --- arguments that lead its command line, the variables it adds, and
 --- the descriptors it hands on.
 function worker.program(): Proc.Relaunch?, string
@@ -1813,7 +1813,7 @@ local function keep_output(directory: string): Kept?
   return { file = reading, out = out, err = err }
 end
 
---- Puts the standard output and error back as `held` found them and answers what was written meanwhile, the
+--- Puts the standard output and error back as `held` found them and returns what was written meanwhile, the
 --- newest [`OUTPUT_LIMIT`] bytes of it; nil where it cannot be read.
 local function put_back(held: Kept): string?
   local _, _ = sys.dup2(held.out, 1)
@@ -1911,10 +1911,10 @@ local function restore(root: string, children: string?, kept: {string:Was}): boo
 end
 
 --- Runs each of `names`, a module's tests, in a copy of this process, one after another, and writes the runner a
---- record of each ([`worker.Forked`]). `tested` runs one test here and answers its report, `children` is where
+--- record of each ([`worker.Forked`]). `tested` runs one test here and returns its report, `children` is where
 --- what a test starts writes its coverage, `root` is the directory that holds all the worker can write
 --- ([`restore`]), and `before` is what
---- [`carried`] and [`written`] answered before the module loaded, and `preface` what the load printed, nil where
+--- [`carried`] and [`written`] returned before the module loaded, and `preface` what the load printed, nil where
 --- that could not be kept. With `asks`, a failing test's directory is one a person is shown, and the runner may
 --- fail a test this worker saw pass (one that made no call to `assert`, in a held run): so the worker waits for
 --- the runner's word after each pass, and puts nothing back unless that is [`worker.go_on`].
@@ -1929,7 +1929,7 @@ end
 --- process running, once `root` is as it was before any test ran ([`restore`]); after any other, or where it
 --- cannot be put back, it retires, saying why, and its namespace ends with it as a worker's does.
 ---
---- In the copy it answers nil, the test's report written: the copy returns from [`worker.run`] as any worker does.
+--- In the copy it returns nil, the test's report written: the copy returns from [`worker.run`] as any worker does.
 local function fork_tests(names: {string}, tested: function(string): (worker.Report), children: string?,
                           before: string, preface: string?, root: string, asks: boolean): integer?
   local relay = worker.report_fd

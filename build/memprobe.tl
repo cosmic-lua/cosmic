@@ -13,7 +13,7 @@ local record Memprobe
   mut enabled: boolean
   --- Where a line goes: standard error.
   mut sink: function(line: string)
-  --- Writes the line for `label` when the probe is enabled, and answers it (nil when it is not).
+  --- Writes the line for `label` when the probe is enabled, and returns it (nil when it is not).
   mark: function(label: string): string?
 end
 

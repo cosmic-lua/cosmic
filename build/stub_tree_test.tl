@@ -161,7 +161,7 @@ local syscalls_header <const> = table.concat({
 
 --- A module generated from a header ([`cosmic.sys`]) has no source file of its own in the tool: the projection and the tool
 --- carry the header's text (`origins`) and the lines of it the module's declarations stand at (`places`), for go to
---- definition to answer in the header.
+--- definition to land in the header.
 local function test_the_tool_carries_the_header_a_generated_module_is_placed_in(tmp: string)
   local handle, tool = own_tree(tmp, nil, nil, syscalls_header)
   local result = assert(importer.compile(handle, tool))

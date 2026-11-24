@@ -29,7 +29,7 @@ local record Ran
   mut opts: Child.Options
 end
 
---- What a stood-in start answers: a result, or nil and why.
+--- What a stood-in start returns: a result, or nil and why.
 local record Answer
   result?: Child.Result
   why?: string
@@ -40,7 +40,7 @@ local function finished(code: integer?, signal?: integer, timed_out?: boolean): 
     captured = {}, truncated = false }
 end
 
---- Runs the verb on `words`, its start answering `answer` (the program
+--- Runs the verb on `words`, its start returning `answer` (the program
 --- exits 0 when none is given), and says what it asked to start.
 local function run(words: {string}, answer?: Answer): Ran
   local argv: mut {string} = { "sandbox" }

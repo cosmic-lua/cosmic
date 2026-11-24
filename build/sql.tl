@@ -33,7 +33,7 @@
 --- `--at '<path>'` and `--raw` belong to the `--from` they follow. With
 --- no statement the verb prints each table's name, row count, columns
 --- with the SQLite types seen, and a sample row. `no such column` and
---- `no such table` are answered with the names that exist. The database
+--- `no such table` list the names that exist. The database
 --- is built from the data alone, so no build directory is read.
 
 local build_paths = require("build.paths")
@@ -73,7 +73,7 @@ local record sql
   end
 
   --- Where `run` writes: a row line, a complaint, and the summary.
-  --- `out` and `err` take a line without its newline. `out` answers
+  --- `out` and `err` take a line without its newline. `out` returns
   --- false and why when it could not write the line (a closed pipe),
   --- and the statement is stepped no further.
   record Output
@@ -465,14 +465,14 @@ local writers: {string: function(): Writer} = {
 --- Runs one statement on `db`, giving `emit` its column names as one
 --- line (none for a statement without columns), then each row it yields
 --- as one line, the moment it is stepped, each as `writer` writes it
---- (row lines by default). Answers how many rows it
+--- (row lines by default). Returns how many rows it
 --- yielded, or nil and why when the statement takes a parameter, or
 --- SQLite's own reason when it will not prepare or run (a write among
 --- them), or `writer`'s reason, after the row's number, when it could not
 --- write a row. `refusal_hint` follows SQLite's reason where the
 --- authorizer refused the statement. The lines before a failure have been
---- given by then. `emit` answers false and why when it could not write the line; the
---- statement is stepped no further, and that is the failure answered.
+--- given by then. `emit` returns false and why when it could not write the line; the
+--- statement is stepped no further, and that is the failure returned.
 local function stream(db: Sqlite.Handle, statement: string,
                       emit: function(string): boolean, string, writer?: Writer,
                       refusal_hint?: string): integer?, string
@@ -554,7 +554,7 @@ local store_hint = "; the binary's own database answers a query and a PRAGMA tha
 
 --- Said after a statement that opens with `.`, which SQLite refuses as a
 --- syntax error: it is the sqlite3 shell's command (`.tables`, `.schema`), which
---- no SQL answers, whatever space or SQL comments come before it (a statement
+--- is no SQL, whatever space or SQL comments come before it (a statement
 --- that opens with `--` is read as an option unless `--` ends the options before it); a query of
 --- `sqlite_schema` lists what it would, and, where `build_directory` says the
 --- database is one of the build directory's, `cosmic db` what each table holds.
@@ -815,8 +815,8 @@ local function read_stdin(): string?, string
 end
 
 --- `cosmic sql --from ...`, after `run` has parsed the line: loads each
---- file into an in-memory database, then answers the statement, or the
---- schema when there is none. 2 for a line it cannot read -- and any
+--- file into an in-memory database, then runs the statement, or prints
+--- the schema when there is none. 2 for a line it cannot read -- and any
 --- other option beside `--from`, which names the database instead --
 --- and 1 for a file it cannot read, load or a statement that fails.
 local function run_from(parsed: Flags.Parsed, to: sql.Output,

@@ -14,7 +14,7 @@ test_child.register("echo", function(args: {string}): integer
   return #args
 end)
 
---- Runs the child `name` of this module with `args` and answers how it ended.
+--- Runs the child `name` of this module with `args` and returns how it ended.
 local function run(tmp: string, name: string, args: {string}): Child.Result
   local started = this_program.program(test_child.words(tmp, "build.test_child_test", name, args),
     { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })

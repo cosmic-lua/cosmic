@@ -291,7 +291,7 @@ local function prune(tree: string, files: {string:boolean}, under?: string): boo
     if under ~= nil then
       path = under .. "/" .. name
     end
-    -- A link to a directory is removed, not followed: readdir answers
+    -- A link to a directory is removed, not followed: readdir gives
     -- a link as "link", whatever it leads to.
     if kind == "dir" then
       local pruned, why = prune(tree, files, path)
@@ -386,7 +386,7 @@ local function from_archive(tree: string, pin: Vendor.Pin, archive_path: string)
     count, trouble = install(tree, scratch, files)
   end
   -- What is left in the scratch directory is only litter; the
-  -- extraction's or the install's own answer is the one reported.
+  -- extraction's or the install's own result is the one reported.
   local _, _ = Fs.remove_tree(scratch)
   if count == nil then
     return nil, trouble
@@ -491,7 +491,7 @@ end
 --- A feed tree (`pin.feed`): with `newest`, its file and PIN rewritten
 --- from the feed's newest state; without, kept as it is when its file
 --- matches the PIN's digests, and refused when it does not. The count of
---- files written and "", or 0 and why. `cache_dir` answers the cache
+--- files written and "", or 0 and why. `cache_dir` returns the cache
 --- directory and "", or "" and why.
 local function feed_tree(tree: string, text: string, pin: Vendor.Pin,
                          cache_dir: function(): (string, string), newest: boolean): integer, string

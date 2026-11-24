@@ -17,7 +17,7 @@ Test.policy{
   profiles = { "cosmic", "proc" },
 }
 
---- Swaps [`Proc.relaunch`] for one answering `relaunch` while `fn` runs.
+--- Swaps [`Proc.relaunch`] for one returning `relaunch` while `fn` runs.
 local function relaunching(relaunch: Proc.Relaunch?, fn: function())
   local real = Proc.relaunch
   Proc.relaunch = function(): Proc.Relaunch?, string -- checked: field_fixed

@@ -23,7 +23,7 @@
 ---
 --- One rule for the working database's handle: a function here that is
 --- handed it and stops the command -- `into` on every path,
---- [`reboot.guard`] whenever it answers an exit code -- closes it first;
+--- [`reboot.guard`] whenever it returns an exit code -- closes it first;
 --- only [`reboot.guard`]'s nil, "go on", hands it back open. A function
 --- handed none, [`reboot.boot_into`], needs it closed already.
 
@@ -189,7 +189,7 @@ local function reentry(program: string, argv: {string}): {string}
 end
 
 --- What is asked just before this process is replaced by the tool a
---- reboot enters, while [`reboot.recheck`] runs: it answers the
+--- reboot enters, while [`reboot.recheck`] runs: it returns the
 --- environment entries the successor is given in addition, or nil and
 --- why the process must not be replaced.
 local entering: (function(): {string:string}?, string)? = nil
@@ -226,7 +226,7 @@ local function state_of(handle: work.Handle, seen?: reboot.Seen): reboot.State?,
   return "core", ""
 end
 
---- Closes `handle`, which the caller is giving up, and answers `trouble`.
+--- Closes `handle`, which the caller is giving up, and returns `trouble`.
 local function closing(handle: work.Handle, trouble: string): string
   local _, _ = work.close(handle)
   return trouble
@@ -296,7 +296,7 @@ function reboot.carries_tree_code(handle: work.Handle): boolean
   for _, row in ipairs(rows) do
     local source, _ = Store.source(row:text(1))
     if source == nil then
-      -- A module held without its source has not moved: the comparison cannot be made, which is no answer.
+      -- A module held without its source has not moved: the comparison cannot be made, which settles nothing.
       local withheld, trouble = Store.withheld(row:text(1))
       if withheld == nil then error(tostring(trouble), 0) end
       if withheld is string then error(withheld, 0) end
@@ -314,7 +314,7 @@ end
 --- evidence of a move, on either side: a tool the guard rebuilds is one
 --- this tree built and always records its compiler's, so a nil there is
 --- a damaged database, whose failure is reported as the tree's own
---- rather than answered with a boot that would mend nothing.
+--- rather than handled with a boot that would mend nothing.
 function reboot.compiler_moved(tool: string?, wanted: string?): boolean
   return tool ~= nil and wanted ~= nil and tool ~= wanted
 end
@@ -497,12 +497,13 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
   return enter(out, argv, environment), false
 end
 
---- What `serialize` answers a verb that only reads, which found another
---- run holding the rebuild lock: it has closed the working database, and
---- the verb goes on with its own code. No exit code is negative.
+--- What `serialize` returns for a verb that only reads, which found
+--- another run holding the rebuild lock: it has closed the working
+--- database, and the verb goes on with its own code. No exit code is
+--- negative.
 local read_on <const> = -1
 
---- What `guard` answers in place of `read_on` where the tool is the
+--- What `guard` returns in place of `read_on` where the tool is the
 --- tree's, fresh but unsettled: the verb goes on with code as new as the
 --- tree's, so its lookup builds as any does.
 local read_on_fresh <const> = -2
@@ -548,13 +549,13 @@ end
 --- stays unchecked and nothing else happens, so the caller tries again
 --- later; where the tool is stale and the locks are free, this process
 --- is replaced by the rebuilt tool running `argv` again and does not
---- return. Answers nil where the tool is the tree's or the check was
+--- return. Returns nil where the tool is the tree's or the check was
 --- deferred, and otherwise the exit code of a check or a rebuild that
 --- failed, having said why on stderr: the tree is then left unchecked,
 --- as nothing this tool derives of it can be trusted. `before_enter`,
 --- when given, is asked only once the rebuild has succeeded,
 --- immediately before the exec, and nothing is written for the
---- successor earlier: it answers the environment entries the successor
+--- successor earlier: it returns the environment entries the successor
 --- is given, or nil and why the process is not to be replaced, which
 --- fails the check. A process that dies during the rebuild leaves
 --- nothing behind.
@@ -599,7 +600,7 @@ end
 --- another run rebuilt the tool, and exec'd, between this run's start
 --- and its taking the rebuild lock. Read from the database `out` carries,
 --- set aside in the build directory while this run holds the lock; anything that
---- cannot be read answers false, and this run rebuilds as it would have.
+--- cannot be read gives false, and this run rebuilds as it would have.
 local function replaced(root: string, out: string): boolean
   local bytes, _ = Fs.read(out)
   if bytes == nil then
@@ -644,7 +645,7 @@ end
 
 --- Closes `handle` and replaces this process with the tool at `out`,
 --- running `argv` again in this process's environment, its `marker`
---- as it was. Answers the exit code when it cannot.
+--- as it was. Returns the exit code when it cannot.
 local function reenter(handle: work.Handle, out: string,
                        argv: {string}): integer
   local closed, close_trouble = work.close(handle)
@@ -657,9 +658,9 @@ local function reenter(handle: work.Handle, out: string,
 end
 
 --- Before a run rebuilds or boots the tool, takes the rebuild lock, so
---- that only one run in a checkout does so at a time. Answers nil, the
+--- that only one run in a checkout does so at a time. Returns nil, the
 --- lock held and `handle` still open, when this run is to go on and
---- rebuild. Otherwise it has said why, closed `handle`, and answers the
+--- rebuild. Otherwise it has said why, closed `handle`, and returns the
 --- exit code to return.
 ---
 --- When another run holds the lock, this one closes `handle` (the holder
@@ -680,7 +681,7 @@ end
 ---
 --- A verb that only reads (`reads`) never waits: where another run holds
 --- the lock, it closes `handle`, says so once
---- ([`rebuild_lock.tell_not_waiting`]) and answers `read_on`, going on
+--- ([`rebuild_lock.tell_not_waiting`]) and returns `read_on`, going on
 --- with its own code.
 local function serialize(handle: work.Handle, root: string,
                          argv: {string}, reads: boolean): integer?
@@ -785,12 +786,12 @@ end
 --- What a Teal rebuild does once it has failed with `trouble`; `moved`
 --- is whether the failure was a compile that failed while the tree's
 --- compiler differs from the tool's ([`reboot.compiler_moved`], the
---- second answer of `into`). Answers the exit code, having said why.
+--- second result of `into`). Returns the exit code, having said why.
 ---
 --- A failure while the compiler has not moved is the tree's own error,
 --- and is said as it is. When it has, the tool's checker may simply not
 --- understand what the tree's compiler modules now do (a stale tool's
---- answer for a call it has no rule for is `T (unresolved generic)`),
+--- result for a call it has no rule for is `T (unresolved generic)`),
 --- so no rebuild by it can finish and a boot is what mends it: the path
 --- a core change takes, unless `COSMIC_AUTO_BOOT=0` says to refuse
 --- ([`reboot.auto_boot`]). Only a failure boots, not every edit to a
@@ -840,14 +841,14 @@ end
 --- waits for it and re-enters `argv` on the tool it wrote.
 ---
 --- `handle` is the working database of `root`, which must be cosmic's
---- own tree ([`tree.standing`]), open and staged. Answers nil when the tool
+--- own tree ([`tree.standing`]), open and staged. Returns nil when the tool
 --- is fresh, handing `handle` back open for the caller to go on with.
---- Otherwise it has said why on stderr and closed `handle`, and answers
+--- Otherwise it has said why on stderr and closed `handle`, and returns
 --- the exit code the caller returns at once: 3 for a refusal, or a
 --- rebuild or boot that failed, and 1 when the check itself failed.
 --- With `reads`, for a verb that only reads, it waits for no run holding
 --- the rebuild lock: where one does, it closes `handle`, says so once,
---- and answers -1 (`read_on`), or -2 (`read_on_fresh`) for a tool as new
+--- and returns -1 (`read_on`), or -2 (`read_on_fresh`) for a tool as new
 --- as the tree but unsettled, the verb going on with its own code.
 --- `seen` is [`reboot.Seen`].
 --- @param argv the command line, re-entered after a rebuild
@@ -985,9 +986,9 @@ end
 --- host-only, after an edit or a pull. Nor does it wait for another run
 --- that holds the checkout's rebuild lock, a `cosmic test` there above
 --- all, whose own tests run this command and whose lock the boot would
---- wait on for good. Each of those answers nil, for the caller to say
---- what it lacks. Otherwise it returns only when the boot failed or its
---- tool could not be entered, saying why.
+--- wait on for good. In each of those it returns nil, for the caller
+--- to say what it lacks. Otherwise it returns only when the boot failed
+--- or its tool could not be entered, saying why.
 --- @param argv the command line, re-entered after the boot
 --- @param seen how a test has it see the running tool ([`reboot.Seen`]):
 ---   the path it runs as and the checkout it records
@@ -1060,7 +1061,7 @@ end
 --- ([`work.other_code`]), and the projection the writer and the compiler
 --- that wrote it ([`writer.other_code`]), and a reader whose code is
 --- other than that says so once and reads none of it: `todos` lists no
---- TODO, `docs`, `uses` and `help` answer from the binary's own
+--- TODO, `docs`, `uses` and `help` read the binary's own
 --- databases alone, and `cosmic lsp`, which runs for good and so reads
 --- them at every stage and hover once a boot or a rebuild has moved the
 --- tool on, finds no module in the one and no docs in the other. `sql`
@@ -1078,7 +1079,7 @@ end
 --- this program in projects) or its working database, the project run goes
 --- on unchecked, as it does where that database cannot be opened.
 ---
---- Answers as [`reboot.guard`] does for the tree at `root`, the working
+--- Returns as [`reboot.guard`] does for the tree at `root`, the working
 --- directory by default: nil to go on, when the tool is fresh or is held
 --- to no tree, or an exit code to return at once, having said why.
 --- @param argv the command line, re-entered after a rebuild
@@ -1231,7 +1232,7 @@ end
 --- as it builds it ([`reboot.guard`]): `cosmic <file.tl>`, `test`, `build`
 --- and `fix`. Where `root` is not cosmic's own, it holds the tool to the
 --- checkout it was built from, as [`reboot.stale_exit`] does; where it
---- is, or `root` cannot be held to the tool, it answers nil at once, the
+--- is, or `root` cannot be held to the tool, it returns nil at once, the
 --- verb's own guard or its own reading of the tree saying the rest.
 --- @param argv the command line, re-entered after a rebuild
 --- @param seen how a test has the check see the running tool ([`reboot.Seen`])

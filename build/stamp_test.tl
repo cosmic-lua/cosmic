@@ -1,4 +1,4 @@
---- [`build.stamp`]: a stamp is answered only of the rows it was made for.
+--- [`build.stamp`]: a stamp is returned only for the rows it was made for.
 
 local Sqlite = require("cosmic.sqlite")
 local Stamp = require("build.stamp")
@@ -30,7 +30,7 @@ end
 
 --- Each row a stamp is a function of is in the binding: a database whose
 --- rows moved after its stamps were made, or that was handed the stamps
---- of another, answers none, and the caller works the value out.
+--- of another, gives none, and the caller works the value out.
 local function test_a_stamp_is_not_answered_once_a_row_it_was_made_of_moves()
   local moves: {string} = {
     "UPDATE modules SET source_hash = x'03' WHERE path = 'b'",

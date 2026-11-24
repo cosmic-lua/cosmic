@@ -39,7 +39,7 @@ end
 end
 
 --- Runs `cosmic test` with `words` in `root`, unsandboxed whatever this
---- run's switch, and answers what it said.
+--- run's switch, and returns what it said.
 local function invoke(root: string, output: string, words: {string}): string
   local fd = assert(Fs.open_write(output))
   local env = this_program.environment()

@@ -1,5 +1,5 @@
 --- The build's compile with the new checker ([`build.grammar_mode`]): a module of the staged tree is read, checked against
---- its markers and written as Lua and bytecode by [`build.driver`] and [`lang.codegen`]. [`Pipeline.generate`] answers what
+--- its markers and written as Lua and bytecode by [`build.driver`] and [`lang.codegen`]. [`Pipeline.generate`] gives what
 --- [`build.importer`] asks of a compile. The rows of a parse are [`build.parse_derive`]'s.
 ---
 --- THE PROGRAM is every module of the staged tree (the `inputs` of the working database), in the new grammar, set up as the
@@ -21,8 +21,8 @@
 --- an edit to a module or to the checker judges a module another run compiled again. The standard library the module was
 --- checked against is in the compiler's identity ([`build.identity`]).
 --
--- TODO: point to what `cosmic docs` answers for a name and to the worked example of a form in the lines of a warning, as
--- [`build.error_render`]'s `lines` does with the databases it is given, once [`Driver.Build`] answers the problems over their
+-- TODO: point to what `cosmic docs` shows for a name and to the worked example of a form in the lines of a warning, as
+-- [`build.error_render`]'s `lines` does with the databases it is given, once [`Driver.Build`] returns the problems over their
 -- markers and not only the lines that list them: the lines of an error carry the pointer ([`Pipeline.generate`]'s `hints`),
 -- which the lines of a warning and of a text that does not parse do not.
 local AnalysisSchema = require("build.analysis_schema")
@@ -72,7 +72,7 @@ local record Pipeline
     globals: TreeProgram.Globals
     --- Whether the checker keeps the type of each node, which the readers of the type report need.
     mut types: boolean
-    --- Answers the `cosmic.*` modules the tree does not hold, each its stub or its source: [`Pipeline.carried`] where
+    --- Gives the `cosmic.*` modules the tree does not hold, each its stub or its source: [`Pipeline.carried`] where
     --- not given.
     mut standard: Driver.Provider?
     --- Whether the tree is a project outside cosmic's own, whose checker is its own and which no marker holds: every error
@@ -83,7 +83,7 @@ local record Pipeline
   --- A build over the tree.
   record Built
     build: Driver.Build
-    --- The sources of the tree and the modules they answer to, which a build that reads the stub of a standard-library module
+    --- The sources of the tree and the modules they go by, which a build that reads the stub of a standard-library module
     --- in place of its source is made from.
     index: Driver.Index
     --- The declarations and the provider [`Pipeline.options`] gave, which that build is made with.
@@ -153,9 +153,9 @@ local record Pipeline
   checked_alone: function(file: string, text: string, options: Options, tests?: boolean, declared_return?: boolean,
     entry?: boolean): Alone
   --- [`Pipeline.checked_alone`] of each of `items`, `{ file, text }`, in one build: what each lowers of the standard
-  --- library is lowered once for all, as it is for the files of a tree. Each answer is the one its text alone has: a
+  --- library is lowered once for all, as it is for the files of a tree. Each result is the one its text alone has: a
   --- text that names `lone`, as the items' modules are named, is checked in a build of its own. The build holds every
-  --- item until the last is answered.
+  --- item until the last is checked.
   checked_alone_each: function(items: {{string}}, options: Options, tests?: boolean, declared_return?: boolean,
     entry?: boolean): {Alone}
 
@@ -204,7 +204,7 @@ local record Pipeline
   --- a module of the error-slot discipline to it ([`build.syntax_contracts`]), a standard-library module to its stub
   --- ([`build.syntax_stub`]), and it finds the record-field uses `cosmic uses` lists ([`build.syntax_receivers`]). With
   --- `facts` each read of a place a test narrowed is wrapped in a check ([`lang.fact_wraps`]). Where `judged` is false (a
-  --- stale tool rebuilding itself) a breach of the discipline or of the stub is kept and the compile marked `refused`. `built` must have kept the types ([`Pipeline.Options.types`]). The line of an error the docs answer for
+  --- stale tool rebuilding itself) a breach of the discipline or of the stub is kept and the compile marked `refused`. `built` must have kept the types ([`Pipeline.Options.types`]). The line of an error the docs cover
   --- carries a pointer to them when `hints` is given (the databases to look in, as [`ErrorRender.Hints`]). The module is
   --- retired from the build when it is written ([`Driver.Build.retire`]), so a build writes a module once, and the caller
   --- asks for the modules in the order they require one another: the build then holds the declarations of the modules it has
@@ -384,7 +384,7 @@ function Pipeline.over(entries: {{string}}, kinds: {string: string}, options: Pi
 end
 
 --- `refusal`, when given, has `refused` set where the tree is refused for what it holds (a declaration beside its source,
---- a module named for one the binary answers) and not for a trouble reading it.
+--- a module named for one the binary carries) and not for a trouble reading it.
 function Pipeline.build(db: Sqlite.Handle, options: Pipeline.Options, refusal?: Pipeline.Refusal): Pipeline.Built?, string
   local staged, trouble = ParseDerive.entries(db, options.project ~= true, refusal)
   if staged == nil then
@@ -483,7 +483,7 @@ end
 --- Whether the declarations of the module `result` is of stand: it parsed, it returns what a declaration describes, and no
 --- error of its scopes or its declarations lies outside the body of a function.
 --
--- TODO: pass over the errors a marker holds, once [`Driver.Build.held`] answers which findings its markers held and not
+-- TODO: pass over the errors a marker holds, once [`Driver.Build.held`] returns which findings its markers held and not
 -- only the lines of the rest: a module of cosmic's own tree with a marked error outside a function body builds, and reads
 -- here as one whose declarations do not stand, so a module that requires it beside a refused one is left unchecked.
 local function declarations_stand(result: Driver.Outcome): boolean
@@ -628,7 +628,7 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
     end
   end
   if hints ~= nil then
-    -- A line of the checker's own error carries what the docs answer for it, as the fork's does ([`ErrorRender.lines`]).
+    -- A line of the checker's own error carries what the docs show for it, as the fork's does ([`ErrorRender.lines`]).
     for _, p in ipairs(result.errors) do
       local told = ErrorRender.line(m.file, p)
       for i, line in ipairs(lines) do

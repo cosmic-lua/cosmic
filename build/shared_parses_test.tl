@@ -14,7 +14,7 @@ local work = require("build.work")
 local parses_fixture = require("build.parses_fixture")
 local support = require("build.test_support_fixture")
 
---- Every row `sql` answers of the database at `path`, a line each, and
+--- Every row `sql` finds in the database at `path`, a line each, and
 --- every row of every parse table of a working database.
 local dump = parses_fixture.dump
 local parse_rows = parses_fixture.rows

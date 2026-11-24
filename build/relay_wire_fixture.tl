@@ -1,6 +1,6 @@
 --- Builders for the tests of [`cosmic.internal.relay_wire`]: the bytes a program
---- sends the relay, whole or damaged by a test, and a read of what it
---- answers.
+--- sends the relay, whole or damaged by a test, and a read of its
+--- reply.
 
 local type Net = require("cosmic.net")
 

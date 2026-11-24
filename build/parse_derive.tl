@@ -9,7 +9,7 @@
 --- takes no part in what it writes.
 ---
 --- Nothing here requires the checker ([`lang.check`]) or a module that does, a type import included, so an edit to the
---- checker parses nothing again. [`build.pipeline`], [`build.tree_program`] and [`build.error_render`] answer the pieces
+--- checker parses nothing again. [`build.pipeline`], [`build.tree_program`] and [`build.error_render`] hold the pieces
 --- they share with a compile from here.
 local Ast = require("lang.ast")
 local Declarations = require("lang.declarations")
@@ -108,7 +108,7 @@ function ParseDerive.line(file: string, problem: SourceParse.Problem): string
     problem.fix
 end
 
---- Puts the collector back in the mode `previous` names: the answer it gave when it was switched to the generational one.
+--- Puts the collector back in the mode `previous` names: what the switch to the generational one returned.
 local function restore_collector(previous: string)
   if previous == "incremental" then
     collectgarbage("incremental")

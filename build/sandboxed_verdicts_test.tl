@@ -107,7 +107,7 @@ local function environment(cache: string, harness_salt?: string): mut {string:st
   return env
 end
 
---- Runs `cosmic test` on `root` with `words` after it, answering what it
+--- Runs `cosmic test` on `root` with `words` after it, returning what it
 --- printed, which must say it passed -- unless `unchecked`, for a run that
 --- may have sandboxed nothing. Either way it must have started: a run
 --- that did not printed nothing, which reads as one that sandboxed
@@ -434,7 +434,7 @@ local function test_a_tool_test_stands_across_a_rebuild_at_another_path(tmp: str
   local rebuild, ran = tool_project(tmp)
   rebuild("INSERT OR REPLACE INTO meta (key, value) VALUES ('built_from', '/ci/one/checkout')")
   ran("0 ran, 2 stood")
-  -- "/tree" is where a worker's own root is: a tool built there answers differently in a sandbox.
+  -- "/tree" is where a worker's own root is: a tool built there behaves differently in a sandbox.
   rebuild("INSERT OR REPLACE INTO meta (key, value) VALUES ('built_from', '/tree')")
   ran("1 ran, 1 stood")
 end
@@ -564,7 +564,7 @@ end
 end
 
 --- A pass is not kept either where its input moved after other tests' verdicts were kept: the one look at the
---- inputs that keeps the tests that wait together ([`test_key.keep_waiting`]) answers for no test that ends
+--- inputs that keeps the tests that wait together ([`test_key.keep_waiting`]) covers no test that ends
 --- after it. The test it runs passes whatever its input holds, so only the check of its key after it ended
 --- stands between the moved input and a verdict under the key it started from.
 local function test_a_look_that_kept_earlier_verdicts_keeps_no_later_one(tmp: string)
@@ -814,7 +814,7 @@ end
 --- A run of the project in `tmp` whose test modules are `modules` (path to source), held to the
 --- processor check as cosmic's own tree is: the project holds a copy of the core's vector C, which
 --- the check reads the functions of, and COSMIC_TEST_DISPATCH_CHECK stands in for the tree being
---- cosmic's own. Answers what the run printed, which may say a test failed. The test is skipped
+--- cosmic's own. Returns what the run printed, which may say a test failed. The test is skipped
 --- where no worker could be sandboxed, and where the core compiles no kernel for a processor feature
 --- (aarch64, whose core/vector.c has none to select).
 local function run_held_to_the_processor_check(tmp: string, modules: {string:string}): string

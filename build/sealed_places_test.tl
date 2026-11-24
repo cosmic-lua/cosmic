@@ -1,6 +1,6 @@
 --- A worker's sealed database holds the `places` of the modules its test's
 --- import closure holds (build/test_key.tl's `sealed_fill`, from the
---- closure store's `closed`), which `cosmic lsp` answers a go to
+--- closure store's `closed`), which `cosmic lsp` responds to a go to
 --- definition of a standard-library symbol from
 --- ([`build.lsp.source`]'s `carried_places`), and none of a module beyond
 --- the closure (build/sealed_worker_test.tl).

@@ -73,7 +73,7 @@ local record paths
     --- it ([`build.reboot`]).
     probe: string
     --- Where `cosmic lsp` puts the source of a module of the binary's own
-    --- standard library that it answers a go to definition with, a
+    --- standard library that it responds to a go to definition with, a
     --- directory for each module's source hash
     --- ([`build.lsp.source`]'s `extracted`).
     cosmic_source: string
@@ -194,8 +194,8 @@ local directory_of = paths.directory
 --- `root`'s build directory for a lookup that may find none: nil with
 --- no trouble where there can be no build directory for `root` (no
 --- cache directory, or one that would be inside `root`, as for a
---- directory above the base), so the lookup answers as for a project
---- never built. Any other trouble is answered as [`directory`] answers it.
+--- directory above the base), so the lookup returns as for a project
+--- never built. Any other trouble is returned as [`directory`] returns it.
 function paths.optional(root: string, environment?: {string:string}): string?, string
   local selected, trouble = location(root, environment)
   if selected == nil then return nil, trouble end

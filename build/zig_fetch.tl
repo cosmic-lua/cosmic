@@ -286,7 +286,7 @@ local function unpack(work: string, version: string, host: string,
 end
 
 --- Fetches zig `version`'s release for `host` into `install`, a
---- directory under `cache`, answering `install/zig`. `sha256` is the
+--- directory under `cache`, returning `install/zig`. `sha256` is the
 --- host's tarball's, from [`bin/zig.pin`]; nil when the pin names none,
 --- which fails with no download.
 function ZigFetch.install(cache: string, install: string, version: string, host: string,

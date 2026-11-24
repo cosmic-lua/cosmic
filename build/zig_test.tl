@@ -2,7 +2,7 @@
 --- triple, argument rewriting, root detection, `PATH` lookup, the exit
 --- statuses a failed exec means, the cache hit, and the snapshots that
 --- catch a source edited while a build runs, the rebuild lock a boot
---- holds, and what [`Zig.run`] answers of a stand-in zig
+--- holds, and what [`Zig.run`] returns for a stand-in zig
 --- ([`build.stand_in`]). The tests
 --- that start bin/zig are build/zig_tool_test.tl's.
 
@@ -394,7 +394,7 @@ end
 --- build/zig.tl, which keeps its own copy of build/rebuild_lock.tl's
 --- roles and of how it reads the holder file, names a holder of the lock
 --- as that module does: each role, one it does not know, none, and a pid
---- no process answers to or this one's own.
+--- no live process has or this one's own.
 local function test_a_boot_names_a_holder_as_the_tool_does(tmp: string)
   local root = tmp .. "/tree"
   assert(support.build_dir(root))
@@ -495,7 +495,7 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
   local statuses, attempts, closures: mut {integer}, mut {integer}, mut {integer} = {}, {}, {}
   -- A handle is a userdata whose methods live in its metatable's `__index`,
   -- the one table every handle shares: the lock gets a real handle, and the
-  -- three methods it calls answer what the outcome says for this test alone.
+  -- three methods it calls return what the outcome says for this test alone.
   local sample = assert(Sqlite.memory())
   local methods = (assert(getmetatable(sample)) as {string:any}).__index as {string:any} -- checked: cast_refused*2
   local real_busy, real_exec, real_close = methods.busy_timeout, methods.exec_result, methods.close
@@ -622,7 +622,8 @@ end)
 
 --- A raise that leaves the supervision of [`Zig.run`] must close the signal guard, which delivers the signal it caught,
 --- and not release it, which keeps the signal: the child is sent SIGTERM as the supervised start raises, and dies of it
---- once the guard closes. A release instead leaves it alive, to answer 0. A guard left open would keep the signal too.
+--- once the guard closes. A release instead leaves it alive, so it exits 0. A guard left open would keep the
+--- signal too.
 local function test_run_delivers_the_signal_it_caught_when_supervising_raises(tmp: string)
   local started = this_program.program(test_child.words(tmp, "build.zig_test", "raises_after_a_signal"),
     { env = {}, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })

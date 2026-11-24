@@ -13,7 +13,7 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 -- A fixture below requires [`cosmic.zip`], [`cosmic.tar`] or
 -- [`cosmic.archive`], which a standalone compile types from the store:
 -- required here, each is in this test's closure, so the store the
--- worker is held to answers it.
+-- worker is held to carries it.
 local type _ = require("cosmic.zip")
 local type _tar = require("cosmic.tar")
 local type _archive = require("cosmic.archive")

@@ -26,7 +26,7 @@
 ---   again each time it is taken from there, against a stale or poisoned
 ---   cache (not a writer racing the hash and the run).
 ---
---- Whether the tree's C is a release's is git's answer: the files the
+--- Git settles whether the tree's C is a release's: the files the
 --- release's commit holds under `c_inputs` are the files the index holds
 --- there, by mode and contents; the working tree is the index there; and
 --- no file there is untracked. A commit the checkout lacks is fetched,
@@ -46,7 +46,7 @@
 --- commits the checkout has: it asks the network nothing. Any other value
 --- is refused, and zig builds the core ([`SeededBoot.plan`]).
 ---
---- It answers 0 where the tree is booted, 4 where no release's core is
+--- It exits 0 where the tree is booted, 4 where no release's core is
 --- the tree's (the build directory as it was), and 1 where a boot it began
 --- failed.
 
