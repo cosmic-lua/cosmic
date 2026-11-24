@@ -432,17 +432,12 @@ function Policy.describe(p: Sandbox.Policy, home?: string): {string}
   return out
 end
 
---- Whether `p` (nil: no sandbox) lets the tools do each of `letters`
---- ("r", "w", "c") at the absolute `path`: true, or false and why. /proc
---- is refused whatever `p` grants: there it is the agent's own, keys and
---- all, not a command's in a namespace of its own. A path is
---- checked as its real name, links followed: the real name of the
---- nearest directory above it that is there, and the rest, where it is
---- not there yet.
-function Policy.allows(p: Sandbox.Policy?, path: string, letters: string): boolean, string
-  if p == nil then return true, "" end
-  local verb = if letters == "r" then "read" else "write" end
-  local refused = string.format("The sandbox does not let the agent %s %s (cosmic docs cosmic.agent.policy)", verb, path)
+--- The real name of the absolute `path`, links followed: the real name
+--- of the nearest directory above it that is there, and the rest, where
+--- it is not there yet; nil where a `.` or `..` is in what is not there,
+--- which could leave a grant. The tools write to this name, so what they
+--- check is what they change.
+function Policy.real(path: string): string?
   local real: string? = nil
   local rest, at = "", path
   while real == nil do
@@ -450,23 +445,51 @@ function Policy.allows(p: Sandbox.Policy?, path: string, letters: string): boole
     real = found
     if real == nil then
       local name = Fs.basename(at)
-      -- What is not there yet cannot be followed: a .. in it could leave the grant.
-      if name == ".." or name == "." or at == Fs.dirname(at) then return false, refused end
+      if name == ".." or name == "." or at == Fs.dirname(at) then return nil end
       rest = "/" .. name .. rest
       at = Fs.dirname(at)
     end
   end
-  real = (if real == "/" then "" else real end) .. rest
+  return (if real == "/" then "" else real end) .. rest
+end
+
+--- Whether `p` (nil: no sandbox) lets the tools do each of `letters`
+--- ("r", "w", "c") at the absolute `path`: true, or false and why. The
+--- path is checked as its real name ([`Policy.real`]), against `p`'s
+--- grants and profiles, each grant as its real name too, as
+--- [`Sandbox.allows`] reads them; `c` is asked of the directory the file
+--- is made in, as Landlock grants it, and the rest of the file itself.
+--- A grant that maps a path from another (`from`) is passed over: the
+--- tools run outside the sandbox, where its path is not what it grants.
+--- /proc is refused whatever `p` grants: there it is the agent's own,
+--- keys and all, not a command's in a namespace of its own.
+function Policy.allows(p: Sandbox.Policy?, path: string, letters: string): boolean, string
+  if p == nil then return true, "" end
+  local verb = if letters == "r" then "read" else "write" end
+  local refused = string.format("The sandbox does not let the agent %s %s (cosmic docs cosmic.agent.policy)", verb, path)
+  local real = Policy.real(path)
+  if real == nil then return false, refused end
   if real == "/proc" or real:sub(1, 6) == "/proc/" then return false, refused end
-  local missing = letters
-  for _, g in ipairs(p.grants or {}) do
-    local resolved, _ = Fs.absolute(g.path)
-    local root = resolved or g.path
-    local inside = real == root or real:sub(1, #root + 1) == root .. "/" or root == "/"
-    if inside then missing = missing:gsub("[" .. g.letters .. "]", "") end
+  local merged, merge_why = Sandbox.merge(p)
+  if merged == nil then return false, "The agent's sandbox is no policy: " .. merge_why end
+  local grants: mut {Sandbox.Grant} = {}
+  for _, g in ipairs(merged.grants or {}) do
+    if g.from == nil then
+      local resolved, _ = Fs.absolute(g.path)
+      grants[#grants + 1] = { path = resolved or g.path, letters = g.letters }
+    end
   end
-  if missing == "" then return true, "" end
-  return false, refused
+  local held: Sandbox.Policy = { grants = grants }
+  local own = letters:gsub("c", "")
+  if own ~= "" then
+    local allowed, _ = Sandbox.allows(held, real, own)
+    if not allowed then return false, refused end
+  end
+  if letters:find("c", 1, true) ~= nil then
+    local allowed, _ = Sandbox.allows(held, Fs.dirname(real), "c")
+    if not allowed then return false, refused end
+  end
+  return true, ""
 end
 
 return Policy
