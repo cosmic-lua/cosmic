@@ -330,6 +330,10 @@ local enum Synchronous
   "extra"
 end
 
+--- One step of [`Handle.migrate`]: SQL that [`Handle.exec`] runs, or work
+--- on the handle that returns as [`Handle.transact`]'s work does.
+local type Migration = string | function(Handle): (true) | (false, Failure)
+
 --- The value `PRAGMA synchronous` takes for each [`Synchronous`].
 local SYNCHRONOUS <const>: {Synchronous: string} = { off = "OFF", normal = "NORMAL", full = "FULL", extra = "EXTRA" }
 
@@ -678,6 +682,99 @@ local class Handle
     return each_row(statement, texts_of)
   end
 
+  --- Brings the database's schema up to date: `steps[k]` makes version
+  --- `k` from version `k - 1`, as SQL that [`Handle.exec`] runs (any
+  --- number of statements) or as work on the handle. The version is the
+  --- database's `PRAGMA user_version`. A database at `#steps` returns at
+  --- once, with no lock taken. Otherwise the steps past its version run
+  --- in order in one transaction ([`Handle.transact`]: two processes that
+  --- open the database at once take turns, and the second finds the
+  --- first's work done), which then sets the version to `#steps`.
+  --- Returns that version, or `nil` and why, with nothing changed, for:
+  ---
+  --- - a step that fails, named by its number, with the step's code
+  ---   (one that raises rolls back too, and its error is raised again);
+  --- - a version past `#steps` (a newer program's database), or below 0;
+  --- - version 0 on a database that holds a schema already (a table,
+  ---   index, view or trigger): another program's, or one made before it
+  ---   used `migrate`. Set its `user_version` to the step it is at, once,
+  ---   to adopt it.
+  ---
+  --- A refusal of the database has no `code`. Add steps only at the
+  --- end: a step that has run on a database never runs on it again, so
+  --- a changed step changes nothing there. A step runs inside the
+  --- transaction, so it must not `BEGIN`, `COMMIT` or `ROLLBACK` (one
+  --- that ends the transaction fails, named), its `PRAGMA user_version`
+  --- is overwritten, and what SQLite refuses or ignores inside a
+  --- transaction (`VACUUM`, `PRAGMA foreign_keys`) is no step: set
+  --- `foreign_keys` off around the call to rebuild a table.
+  ---
+  ---     local version, why = db:migrate({
+  ---       "CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL)",
+  ---       "ALTER TABLE notes ADD COLUMN made INTEGER",
+  ---     })
+  function migrate(self, steps: {Migration}): (integer) | (nil, Failure)
+    local wanted = #steps
+    local function counted(sql: string): (integer) | (nil, Failure)
+      local rows, why = self:rows(sql)
+      if rows == nil then return nil, why end
+      local row = rows[1]
+      if row == nil then return nil, Failure.new("sqlite: migrate: " .. sql .. " gave no row") end
+      return row:integer(1)
+    end
+    local function refusal(at: integer): Failure?
+      if at > wanted or at < 0 then
+        return Failure.new(("sqlite: migrate: the database's schema is version %d, and the steps given end at " ..
+          "version %d: another program, or a newer one, made it"):format(at, wanted))
+      end
+      return nil
+    end
+    local function run_step(step: Migration): (true) | (false, Failure)
+      if step is string then return self:exec(step) end
+      return step(self)
+    end
+    -- Read first, with no lock: a database at its version, the usual
+    -- case, waits behind no writer.
+    local first, first_why = counted("PRAGMA user_version")
+    if first == nil then return nil, first_why end
+    local early = refusal(first)
+    if early ~= nil then return nil, early end
+    if first == wanted then return wanted end
+    local ok, why = self:transact(function(): (true) | (false, Failure)
+      local at, at_why = counted("PRAGMA user_version")
+      if at == nil then return false, at_why end
+      local refused = refusal(at)
+      if refused ~= nil then return false, refused end
+      if at == wanted then return true end
+      if at == 0 then
+        local objects, objects_why = counted("SELECT count(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite\\_%' ESCAPE '\\'")
+        if objects == nil then return false, objects_why end
+        if objects ~= 0 then
+          return false, Failure.new("sqlite: migrate: the database holds a schema but no version (user_version 0): " ..
+              "another program's database, or one made before migrate; set PRAGMA user_version to the step it is " ..
+              "at to adopt it")
+        end
+      end
+      for k, step in ipairs(steps) do
+        if k > at then
+          local done, step_why = run_step(step)
+          if not done then
+            local said = ("sqlite: migrate: step %d: %s"):format(k, tostring(step_why))
+            if step_why.code == nil then return false, Failure.new(said) end
+            return false, Failure.coded(said, step_why.code, step_why.extended_code, step_why.kind)
+          end
+          if not self:in_transaction() then
+            return false, Failure.new(("sqlite: migrate: step %d ended the transaction with a COMMIT or ROLLBACK " ..
+              "of its own, so what it wrote is not undone; no step after it ran"):format(k))
+          end
+        end
+      end
+      return self:exec(("PRAGMA user_version = %d"):format(wanted))
+    end)
+    if not ok then return nil, why end
+    return wanted
+  end
+
   --- Whether a transaction is open on the handle: a [`Handle.transact`]
   --- running, or a `BEGIN` or `SAVEPOINT` not yet committed or rolled
   --- back.
@@ -996,6 +1093,9 @@ local record Sqlite
 
   --- How hard SQLite works to keep a commit through a power loss.
   type Synchronous = Synchronous
+
+  --- One step of [`Handle.migrate`]: SQL, or work on the handle.
+  type Migration = Migration
 
   --- How [`Sqlite.open`] opens a database.
   record OpenOptions

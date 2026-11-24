@@ -44,6 +44,24 @@ stops the wait. A file that readers share beside one writer opens in
 write-ahead mode: `Sqlite.open(path, { writable = true, wal = true,
 synchronous = "normal" })`. `wait` sets another wait, in nanoseconds.
 
+`db:migrate(steps)` brings a schema up to date: each step is SQL, or a
+function of the handle, that makes the next `PRAGMA user_version`. The
+steps the database lacks run in one transaction. A version past the last
+step is refused, and so is version 0 on a database that holds a schema
+already; to adopt such a database, set its `user_version` to the step it
+is at, once.
+
+```teal
+local Sqlite = require("cosmic.sqlite")
+
+local db = assert(Sqlite.memory())
+local version = assert(db:migrate({
+  "CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL)",
+  "ALTER TABLE notes ADD COLUMN made INTEGER",
+}))
+assert(version == 2)
+```
+
 ```teal
 local Sqlite = require("cosmic.sqlite")
 

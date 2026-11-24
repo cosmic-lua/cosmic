@@ -179,9 +179,7 @@ local record Sessions
 
 end
 
---- The schema's version, its `user_version`.
-local VERSION <const> = 1
-
+--- The schema, one step a version ([`Sqlite.Handle.migrate`]).
 local SCHEMA <const> = [[
 CREATE TABLE sessions (id INTEGER PRIMARY KEY, cwd TEXT NOT NULL, started INTEGER NOT NULL,
   model TEXT NOT NULL, restarts INTEGER NOT NULL DEFAULT 0, ended INTEGER NOT NULL DEFAULT 1);
@@ -212,7 +210,6 @@ CREATE TABLE requests (id INTEGER PRIMARY KEY, session INTEGER NOT NULL REFERENC
     (CASE WHEN json_valid(reply) THEN reply ->> '$.diagnostics.cache_miss_reason.cache_missed_input_tokens' END) VIRTUAL);
 CREATE INDEX requests_by_session ON requests (session, id);
 CREATE TABLE shapes (id INTEGER PRIMARY KEY, digest BLOB NOT NULL UNIQUE, body TEXT NOT NULL);
-PRAGMA user_version = 1;
 ]]
 
 --- The id of the last reply kept for session `id`, which the next
@@ -225,19 +222,10 @@ function Sessions.last_reply(db: Sqlite.Handle, id: integer): string?
   return row:text(1)
 end
 
---- The database's `user_version`, or nil and why.
-local function version_of(db: Sqlite.Handle): integer?, string
-  local rows, why = db:rows("PRAGMA user_version")
-  local row = if rows ~= nil then rows[1] else nil end
-  if row == nil then return nil, tostring(why) end
-  return row:integer(1), ""
-end
-
 --- The database at `path`, made where there is none: its owner's alone
---- (the file 0600, a directory made for it 0700), at `VERSION`.
---- An empty one is given the schema, holding the write lock, so two runs
---- that open it at once take turns; one of another version, or another
---- program's, is refused. `:memory:` is a database of the run alone. Nil
+--- (the file 0600, a directory made for it 0700), its schema brought up
+--- to date ([`Sqlite.Handle.migrate`]: two runs that make it at once take
+--- turns); a newer program's, or another program's, is refused. `:memory:` is a database of the run alone. Nil
 --- and why.
 function Sessions.open(path: string): Sqlite.Handle?, string
   local file = path ~= ":memory:"
@@ -256,40 +244,15 @@ function Sessions.open(path: string): Sqlite.Handle?, string
     local held, held_why = Fs.chmod(path, 0x180)
     if not held then return refused(tostring(held_why)) end
   end
+  -- In one IMMEDIATE transaction: another run that opened it at once
+  -- waits for the lock, then finds the schema made.
+  local migrated, migrate_why = db:migrate({ SCHEMA })
+  if migrated == nil then return refused(tostring(migrate_why)) end
   -- WAL lets a reader (the sql tool, sqlite3) in beside a writer, once the
   -- file is known to be ours; a database busy past the wait may refuse the
   -- switch, which is no reason to fail.
-  local function ours(): Sqlite.Handle, string
-    local _, _ = db:wal()
-    return db, ""
-  end
-  local found, found_why = version_of(db)
-  if found == nil then return refused(found_why) end
-  if found == VERSION then return ours() end
-  if found ~= 0 then
-    return refused("its schema is version " .. tostring(found) .. ", not " .. tostring(VERSION))
-  end
-  local function schema(): boolean, string
-    local at, at_why = version_of(db)
-    if at == nil then return false, at_why end
-    if at == VERSION then return true, "" end
-    local rows, count_why = db:rows("SELECT count(*) FROM sqlite_master")
-    local count = if rows ~= nil then rows[1] else nil end
-    if count == nil then return false, tostring(count_why) end
-    if at ~= 0 or count:integer(1) ~= 0 then return false, "it is another program's database" end
-    local made, made_why = db:exec(SCHEMA)
-    if not made then return false, tostring(made_why) end
-    return true, ""
-  end
-  -- IMMEDIATE, as transact begins on a writable handle: another run that
-  -- opened it at once waits for the lock, then finds the schema made.
-  local made, made_why = db:transact(function(): (true) | (false, Failure)
-    local ok, ok_why = schema()
-    if ok then return true end
-    return false, Failure.new(ok_why)
-  end)
-  if not made then return refused(tostring(made_why)) end
-  return ours()
+  local _, _ = db:wal()
+  return db, ""
 end
 
 --- A new session in `cwd` with `model`, begun at `seconds` (Unix time):
