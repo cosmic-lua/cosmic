@@ -1926,10 +1926,11 @@ local function test_the_gate_needs_every_job_and_compares_four_products()
       "github.event.workflow_run.event == 'workflow_dispatch')", 1, true) ~= nil and
       publish:find("workflow_run.event == 'push'", 1, true) == nil,
     "prerelease.yml publishes from a run of fewer than four legs")
-  assert(publish:find("needs.sweep.outputs.run_id != ''", 1, true) ~= nil,
+  assert(publish:sub(-#"|| needs.sweep.outputs.run_id != '')") == "|| needs.sweep.outputs.run_id != '')",
     "prerelease.yml publishes no run that sweep names: " .. publish)
-  -- publish follows sweep, and runs where sweep is skipped (each
-  -- workflow_run), and reads the run sweep names where no workflow_run did.
+  -- publish follows sweep, runs where sweep is skipped (a full run's
+  -- end), and reads the run sweep names before the event's, so a push
+  -- run's end publishes the run sweep names, never the push run.
   local publish_job = job_of(prerelease.jobs, "publish")
   assert(publish:find("!cancelled() && ", 1, true) == 1, "prerelease.yml's publish waits on a sweep it may skip: " .. publish)
   local needs = needs_of(publish_job)
@@ -1938,7 +1939,8 @@ local function test_the_gate_needs_every_job_and_compares_four_products()
   local _, ids = text:gsub("needs%.sweep%.outputs%.run_id || github%.event%.workflow_run%.id", "")
   local _, shas = text:gsub("needs%.sweep%.outputs%.head_sha || github%.event%.workflow_run%.head_sha", "")
   local _, bare = text:gsub("{{ github%.event%.workflow_run%.id }}", "")
-  assert(ids == 3 and shas == 4 and bare == 1,
+  local _, bare_shas = text:gsub("{{ github%.event%.workflow_run%.head_sha }}", "")
+  assert(ids == 3 and shas == 4 and bare == 1 and bare_shas == 1,
     "prerelease.yml's publish reads other than the run workflow_run or sweep names: " ..
       tostring(ids) .. " ids, " .. tostring(shas) .. " commits, " .. tostring(bare) .. " bare ids")
   local sweep = job_of(prerelease.jobs, "sweep")

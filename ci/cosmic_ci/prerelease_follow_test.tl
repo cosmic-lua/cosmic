@@ -59,8 +59,8 @@ local function test_a_green_push_starts_a_full_run_where_none_is_recent()
   assert(calls[4] == "GET /issues?state=open&creator=github-actions%5Bbot%5D&per_page=100 ", calls[4])
 end
 
---- A full run that started within the window, a daily or a manual one,
---- whatever it ended, keeps a push from starting another.
+--- A full run still going that started within the window, a daily or a
+--- manual one, keeps a push from starting another.
 local function test_a_recent_full_run_keeps_a_push_from_starting_another()
   for _, event in ipairs({ "schedule", "workflow_dispatch" }) do
     local client, calls = fake(runs_text('{"event":"' .. event .. '","created_at":"2026-11-23T06:01:00Z","status":"in_progress","conclusion":null,"run_attempt":1}'))
@@ -181,7 +181,7 @@ local function test_a_full_run_that_cannot_publish_keeps_nothing_back()
     local client = fake(runs_text('{"event":"schedule","created_at":"2026-11-23T11:00:00Z","status":"completed","conclusion":' ..
         ended .. "}"))
     local said = PrereleaseFollow.follow(context(client, "push", "success"))
-    assert(said:find("one is started", 1, true), ended .. ": " .. said)
+    assert(said:find("no full run of main in the last", 1, true) == 1, ended .. ": " .. said)
   end
   local client = fake(runs_text('{"event":"schedule","created_at":"2026-11-23T11:00:00Z","status":"completed",' ..
       '"conclusion":"failure","run_attempt":1}'))

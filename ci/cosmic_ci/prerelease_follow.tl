@@ -3,8 +3,9 @@
 --- four legs, the daily scheduled run or a manual one, publishes a
 --- prerelease, so:
 ---
---- - after a push run that passed, where no such run of main started in
----   the last `window` hours, it starts a manual run of main, so a
+--- - after a push run that passed, where no such run of main that
+---   [`counts`] started in the last `window` hours, it starts a manual run
+---   of main, so a
 ---   prerelease follows main within hours, not at the next daily run,
 ---   which GitHub starts hours after its cron line;
 --- - after such a run's first attempt failed, it re-runs the failed jobs
@@ -123,14 +124,14 @@ local full_events <const>: {string:boolean} = { schedule = true, workflow_dispat
 --- Six hours: at most four runs a day this starts, beside the daily one.
 local default_window <const> = 6 * 3600
 
---- Whether `run` may still publish a prerelease, and so keeps another
---- from starting: one still going, one that passed, or a first attempt
---- that failed, which is tried once more. One that failed again, was
---- cancelled or timed out publishes nothing.
+--- Whether `run` keeps another full run from starting: any but one that
+--- can publish nothing any more, which failed again, was cancelled or
+--- timed out. A first attempt that failed is tried once more.
 local function counts(run: RunItem): boolean
   if run.status ~= "completed" then return true end
   local conclusion = run.conclusion or ""
-  return conclusion == "success" or (conclusion == "failure" and run.run_attempt == 1)
+  if conclusion == "failure" then return run.run_attempt == 1 end
+  return conclusion ~= "cancelled" and conclusion ~= "timed_out"
 end
 
 --- The start of the newest full run of main in `runs` that [`counts`],
