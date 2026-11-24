@@ -1,4 +1,4 @@
---- A snippet's calls of the agent (history, store, mcp) go through the agent's guard and amend, as `before` and `after`
+--- A snippet's calls of the agent (sql, store, mcp) go through the agent's guard and amend, as `before` and `after`
 --- see the model's calls: a blocked one raises in the snippet, and an amended answer is what it reads.
 local Agent = require("cosmic.agent")
 local agent_fixture = require("build.agent_fixture")
@@ -25,9 +25,7 @@ local function test_a_snippets_calls_of_the_agent_are_guarded_and_amended()
     guard = function(name: string, input: Tools.Object): string?
       local text, _ = Json.encode(input)
       asked[#asked + 1] = name .. " " .. (text or "?")
-      if name == "history" and input["query"] == "SELECT 1 AS n" then
-        return "no history for snippets"
-      end
+      if name == "sql" and input["query"] == "SELECT 1 AS n" then return "no sql for snippets" end
       return nil
     end,
     amend = function(name: string, _: Tools.Object, result: Tools.Result): Tools.Result
@@ -40,19 +38,19 @@ local function test_a_snippets_calls_of_the_agent_are_guarded_and_amended()
       return result
     end }
   local code = "local Host = require(\"cosmic.agent.host\")\n" ..
-    "local ran, why = pcall(Host.history, \"SELECT 1 AS n\")\n" ..
+    "local ran, why = pcall(Host.sql, \"SELECT 1 AS n\")\n" ..
     "Host.store(\"k\", \"the secret is 42\")\n" ..
     "local _, odd = Host.call(\"edit\", { path = \"x\" })\n" ..
-    "local _, bad = pcall(Host.history, \"SELECT * FROM nosuch\")\n" ..
+    "local _, bad = pcall(Host.sql, \"SELECT * FROM nosuch\")\n" ..
     "return { ran = ran, why = tostring(why), loaded = Host.load(\"k\").value, odd = tostring(odd), bad = tostring(bad) }\n"
   local r = Tools.run("run", { code = code }, context)
   assert(not r.is_error, r.text)
-  assert(r.text:find('"ran":false', 1, true) ~= nil and r.text:find("Blocked: no history for snippets", 1, true) ~= nil, r.text)
+  assert(r.text:find('"ran":false', 1, true) ~= nil and r.text:find("Blocked: no sql for snippets", 1, true) ~= nil, r.text)
   assert(r.text:find('"loaded":"[redacted]"', 1, true) ~= nil, r.text)
   -- Each call is asked by its own name; one the agent serves not is refused before any hook is asked.
   local seen = table.concat(asked, " | ")
-  assert(#asked == 4 and asked[1] == 'history {"query":"SELECT 1 AS n"}' and
-      asked[2] == 'store.put {"key":"k","value":"the secret is 42"}' and asked[3] == 'history {"query":"SELECT * FROM nosuch"}' and
+  assert(#asked == 4 and asked[1] == 'sql {"query":"SELECT 1 AS n"}' and
+      asked[2] == 'store.put {"key":"k","value":"the secret is 42"}' and asked[3] == 'sql {"query":"SELECT * FROM nosuch"}' and
       asked[4] == 'store.get {"key":"k"}', seen)
   assert(r.text:find("serves no call", 1, true) ~= nil, r.text)
   -- A failed call goes through amend too.
@@ -63,12 +61,12 @@ end
 
 local function test_an_agents_before_sees_a_snippets_calls_as_code()
   local dir = assert(Fs.mkdtemp("agent-hook-"))
-  local code = "local _, why = pcall(require(\"cosmic.agent.host\").history, \"SELECT 1\")\nreturn tostring(why)"
+  local code = "local _, why = pcall(require(\"cosmic.agent.host\").sql, \"SELECT 1\")\nreturn tostring(why)"
   local a = agent_fixture.api({ { content = { { type = "tool_use", id = "t1", name = "run", input = { code = code } } },
     stop_reason = "tool_use" }, { content = { { type = "text", text = "done" } }, stop_reason = "end_turn" } })
   local w = Worker.new()
   local s = Agent.new({ sign = agent_fixture.keyed("k"), cwd = dir, base_url = "https://api.test", send = a.send,
-    system = "", worker = w, sandbox = assert(Policy.of(dir, { mode = "write", network = false, grants = {} })) })
+    system = "", worker = w, sandbox = { (assert(Policy.of(dir, { mode = "write", network = false, grants = {} }))) } })
   local calls: mut {string} = {}
   s.before = function(call: Agent.Call): string?
     calls[#calls + 1] = call.name .. ":" .. call.caller
@@ -82,8 +80,8 @@ local function test_an_agents_before_sees_a_snippets_calls_as_code()
     end
   end
   assert(s:prompt("go"))
-  assert(#calls == 2 and calls[1] == "run:model" and calls[2] == "history:code", table.concat(calls, " "))
-  assert(#blocked == 1 and blocked[1] == "history code: snippets may not query", blocked[1])
+  assert(#calls == 2 and calls[1] == "run:model" and calls[2] == "sql:code", table.concat(calls, " "))
+  assert(#blocked == 1 and blocked[1] == "sql code: snippets may not query", blocked[1])
   local answer = agent_fixture.said(a, 2)
   assert(answer:find("Blocked: snippets may not query", 1, true) ~= nil, answer)
   s:close()
@@ -99,7 +97,7 @@ local function test_an_agents_after_sees_a_snippets_answers()
   local db = assert(Sessions.open(dir .. "/sessions.db"))
   local s = Agent.new({ sign = agent_fixture.keyed("k"), cwd = dir, base_url = "https://api.test", send = a.send,
     system = "", worker = w, db = db, id = assert(Sessions.start(db, dir, "m", 0)),
-    sandbox = assert(Policy.of(dir, { mode = "write", network = false, grants = {} })) })
+    sandbox = { (assert(Policy.of(dir, { mode = "write", network = false, grants = {} }))) } })
   local callers: mut {string} = {}
   s.after = function(call: Agent.Call, result: Tools.Result): Tools.Result?
     callers[#callers + 1] = call.name .. ":" .. call.caller

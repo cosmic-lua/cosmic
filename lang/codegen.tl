@@ -1832,6 +1832,14 @@ local function class_statement(s: Ast.Class): Output
   put(out, "local")
   add_child(out, text(line_of(s.name.first), name), " ")
   put(out, " =")
+  if s.schema ~= nil then
+    -- `local schema Name [[DDL]]` is the value of [`Sqlite.schema`] of its DDL.
+    local at = s.name.last + 1
+    put(out, " require(\"cosmic.sqlite\").schema(")
+    add_child(out, text(line_of(at), Lexer.text(G.tokens, at)))
+    put(out, ")")
+    return out
+  end
   add_child(out, text(y, if #s.typeparams > 0 then "{}" else record_table(s.members) end), " ")
   put(out, "; " .. name .. ".__index = " .. name)
   refuse_nested_classes(s.members)

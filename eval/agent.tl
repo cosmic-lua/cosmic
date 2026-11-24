@@ -73,7 +73,7 @@ local record Agent
   record Tool
     name: string
     path: string
-    --- The tools its agent offers (`--tools`), as `--offer NAME=LIST` names them; nil for the agent's default.
+    --- The tools its agent offers (`--tools`), as `--offer NAME=LIST` names them; nil for all.
     tools?: string
     --- How hard its agent thinks (`--effort`); nil for the agent's default.
     effort?: string

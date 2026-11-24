@@ -21,7 +21,7 @@
 ---
 --- `before` and `after` are the agent's own policy over each tool call
 --- the model makes, and each call a snippet of run makes of the agent
---- (history, store, mcp): `before` may block a call, with a reason the model
+--- (sql, store, mcp): `before` may block a call, with a reason the model
 --- reads (or the snippet, raised), and `after` may change a result
 --- before it is kept or read
 --- ([`Agent.Before`], [`Agent.After`], [`cosmic.agent.check`]). They are
@@ -54,7 +54,7 @@
 --- and sends the whole conversation still, and the server reads it
 --- from the last compaction block on, so a request after one costs
 --- what the summary and the turns since cost. What the summary leaves
---- out is still in sessions.db, where Host.history in run finds it.
+--- out is still in sessions.db, where the sql tool finds it.
 ---
 --- Each request asks the API (beta headers): to fall back to another
 --- model where one refuses (server-side-fallback-2026-07-01); to say
@@ -65,7 +65,7 @@
 --- Each message, and each tool's whole output, is kept in sessions.db
 --- before it is shown (`cosmic docs cosmic.agent.sessions`). So a run that ends in
 --- the middle of a turn loses nothing it showed, and `cosmic agent resume`
---- (or ask or chat, which go on with the newest session) takes the turn up where it was:
+--- (or ask or chat with --continue) takes the turn up where it was:
 --- each tool call that ended is answered with its kept output, one
 --- that never ended is answered as interrupted, not run again, and the
 --- request the run was in is sent again. A turn is started again at
@@ -160,8 +160,9 @@ local record Agent
     where?: string
     --- What opens a request; Http.open by default.
     send?: Send
-    --- What the tools are held to (cosmic.agent.policy); nil for nothing.
-    sandbox?: Sandbox.Policy
+    --- The layers the tools are held to (cosmic.agent.policy), each held stacked: only what every layer lets
+    --- them do ([`Sandbox.intersect`]); nil or {} for nothing.
+    sandbox?: {Sandbox.Policy}
     --- The background jobs the tools start (cosmic.agent.jobs); nil for none.
     jobs?: Jobs.Set
     --- The worker the run tool sends its snippets to (cosmic.agent.worker); nil for none.
@@ -243,7 +244,7 @@ local record Agent
   end
 
   --- Who made a [`Agent.Call`]: the model, or a snippet's code, through
-  --- its host: history, store or mcp, each asked as a call of its own.
+  --- its host: sql, store or mcp, each asked as a call of its own.
   enum Caller "model" "code" end
 
   --- The kind of a [`Agent.BlockedEvent`].
@@ -268,7 +269,7 @@ local record Agent
   --- A call, as `before` and `after` see it: a tool call of the model,
   --- or a snippet's call of the agent.
   record Call
-    --- The tool's name, or the snippet's call's: history, store.get,
+    --- The tool's name, or the snippet's call's: sql, store.get,
     --- store.put, mcp.servers, mcp.tools or mcp.call.
     name: string
     --- What it was given, as the tool gets it: read it, and change none of it.
@@ -363,8 +364,9 @@ local record Agent
     cwd: string
     --- What opens a request; Http.open where nil.
     mut send?: Send
-    --- What the tools are held to (cosmic.agent.policy); nil for nothing.
-    mut sandbox?: Sandbox.Policy
+    --- The layers the tools are held to (cosmic.agent.policy), stacked as [`Sandbox.intersect`] joins them at
+    --- each call; nil or {} for nothing. A call is blocked when they do not join.
+    mut sandbox?: {Sandbox.Policy}
     --- The background jobs the tools start (cosmic.agent.jobs); nil for none.
     mut jobs?: Jobs.Set
     --- The worker the run tool sends its snippets to (cosmic.agent.worker); nil for none.
@@ -510,6 +512,69 @@ local function tell(s: Agent.Session, event: Agent.Event)
   if not ran and s.on_failed == nil then s.on_failed = told(err) end
 end
 
+--- What `layers` hold stacked, and "": nil for no sandbox where `layers` is nil; nil and why for no layer, or
+--- layers that do not join. A profile every layer names stays a profile, as one layer's does: Child.start reads the
+--- "cosmic" profile's `rx` on this program as the start's alone, which a grant of it is not.
+local function joined(layers?: {Sandbox.Policy}): Sandbox.Policy?, string
+  if layers == nil then return nil, "" end
+  if #layers == 0 then return nil, "the sandbox has no layer: give nil for none" end
+  if #layers == 1 then return layers[1], "" end
+  local common: mut {string} = {}
+  for _, name in ipairs(layers[1].profiles or {}) do
+    local everywhere = true
+    for _, layer in ipairs(layers) do
+      local named = false
+      for _, other in ipairs(layer.profiles or {}) do
+        if other == name then named = true end
+      end
+      if not named then everywhere = false end
+    end
+    if everywhere then common[#common + 1] = name end
+  end
+  local stripped: mut {Sandbox.Policy} = {}
+  for _, layer in ipairs(layers) do
+    local rest: mut {string} = {}
+    for _, name in ipairs(layer.profiles or {}) do
+      local shared = false
+      for _, held in ipairs(common) do
+        if held == name then shared = true end
+      end
+      if not shared then rest[#rest + 1] = name end
+    end
+    stripped[#stripped + 1] = { ...layer, profiles = rest }
+  end
+  local policy, why = Sandbox.intersect(table.unpack(stripped))
+  if policy == nil then return nil, "the sandbox's layers do not join: " .. why end
+  if #common > 0 then return { ...policy, profiles = common }, "" end
+  return policy, ""
+end
+
+--- [`joined`] of `s.sandbox`, kept while its layers are the same: the worker runs on under the policy it was
+--- started with, and starts again under another.
+local record Joined
+  from: {Sandbox.Policy}
+  policy?: Sandbox.Policy
+end
+local JOINED: mut {Agent.Session: Joined} = setmetatable({}, { __mode = "k" })
+
+local function held_policy(s: Agent.Session): Sandbox.Policy?, string
+  local layers = s.sandbox
+  local kept = JOINED[s]
+  if layers ~= nil and kept ~= nil and #kept.from == #layers then
+    local same = true
+    for i, layer in ipairs(layers) do
+      if kept.from[i] ~= layer then same = false end
+    end
+    if same then return kept.policy, "" end
+  end
+  local policy, why = joined(layers)
+  if policy == nil and why ~= "" then return nil, why end
+  local copy: mut {Sandbox.Policy} = {}
+  for _, layer in ipairs(layers or {}) do copy[#copy + 1] = layer end
+  if layers ~= nil then JOINED[s] = { from = copy, policy = policy } else JOINED[s] = nil end
+  return policy, ""
+end
+
 --- What `before` of `s` says of `call`: nil to run it, or why not.
 local function blocked(s: Agent.Session, call: Agent.Call): string?
   local before = s.before
@@ -602,7 +667,7 @@ local function record(s: Agent.Session, call: string, tool: string, input: Tools
   -- What sql says is kept already, and it says where to find more.
   if result.raw == nil or tool == "sql" then return result.text, "" end
   local how = if Tools.find(s.tools, "sql") ~= nil then "use sql"
-    elseif Tools.find(s.tools, "run") ~= nil then "read it with Host.history in run"
+    elseif Tools.find(s.tools, "run") ~= nil then "use require(\"cosmic.agent.host\").sql in run"
     else "" end
   if how == "" then return result.text, "" end
   local shown = result.text .. "\n\n[The whole output is kept as output " .. tostring(output) .. ": " .. how .. ".]"
@@ -1149,13 +1214,15 @@ local function loop(s: Agent.Session): boolean, string
           local asked_call: Agent.Call = { name = called, input = given, caller = "model", cwd = s.cwd, id = s.id,
             paths = touched, stopped = asking }
           local result: Tools.Result
+          local policy, unjoined = held_policy(s)
+          if reason == nil and unjoined ~= "" then reason = unjoined end
           if reason == nil and tool ~= nil then reason = blocked(s, asked_call) end
           if reason ~= nil then
             result = { text = "Blocked: " .. reason, is_error = true }
             tell(s, { kind = "blocked", name = called, caller = "model", input = given, reason = reason })
           else
             local context: Tools.Context = { cwd = s.cwd, db = s.db, session = s.id,
-              policy = s.sandbox, jobs = s.jobs, worker = s.worker,
+              policy = policy, jobs = s.jobs, worker = s.worker,
               mcp = s.mcp, stopped = asking, deadline_ns = deadline, tools = s.tools,
               commands = Tools.find(s.tools, "bash") ~= nil,
               guard = if s.before == nil then nil else function(host: string, args: Tools.Object): string?
@@ -1284,7 +1351,7 @@ local class AgentSession is Agent.Session
   mut where: string
   cwd: string
   mut send?: Agent.Send
-  mut sandbox?: Sandbox.Policy
+  mut sandbox?: {Sandbox.Policy}
   mut jobs?: Jobs.Set
   mut worker?: Worker.Set
   mut mcp?: AgentMcp.Set

@@ -6,7 +6,7 @@
 --- means.
 ---
 --- Each sees the model's tool calls and a snippet's calls of the agent
---- (`caller` "code", named history, store.get, store.put, mcp.servers,
+--- (`caller` "code", named sql, store.get, store.put, mcp.servers,
 --- mcp.tools or mcp.call) alike: name a snippet's calls too where it is
 --- to make them.
 ---
@@ -36,7 +36,7 @@ end
 
 --- Blocks a call of any name not in `names`: a tool, or a snippet's call
 --- of the agent, so `{ "read", "run" }` lets a snippet make none, and
---- `{ "read", "run", "history", "mcp.servers", "mcp.tools", "mcp.call" }`
+--- `{ "read", "run", "sql", "mcp.servers", "mcp.tools", "mcp.call" }`
 --- lets it query and reach the MCP servers.
 function Check.only(names: {string}): Agent.Before
   local named: mut {string: boolean} = {}
@@ -51,7 +51,7 @@ end
 --- counted from when the check is made, so make one an agent. A call it
 --- lets by is counted, so put it last in [`Check.all`], where the checks
 --- before it have let the call by too. It counts by name, whoever calls:
---- the sql tool and a snippet's history call are two names, so count both.
+--- the model's sql and a snippet's share one count.
 ---
 ---     agent.before = Check.budget({ run = 20, write = 5 })
 function Check.budget(counts: {string: integer}): Agent.Before

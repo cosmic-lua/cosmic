@@ -205,7 +205,7 @@ end
 --- `by` gives each item where given, as `sort -k` orders by a field
 --- (`Shell.sort(lines, function(l: string): string return l:match("%S+$") or l end)`),
 --- ties by the whole item.
-function Shell.sort(list: {string}, by?: function(string): string): {string}
+function Shell.sort(list: {string}, by?: function(string): string): mut {string}
   -- In C with no key: table.sort took 21 ms on 16k lines, sort(1) 7 ms with its start.
   if by == nil then return raw.sort(list) end
   local out: mut {string} = {}
