@@ -516,6 +516,7 @@ const core_sources = [_][]const u8{
     "spawn.c",
     "syscalls.c",
     "syscalls_fs.c",
+    "text.c",
     "tls.c",
     "vector.c",
     "vfs.c",
