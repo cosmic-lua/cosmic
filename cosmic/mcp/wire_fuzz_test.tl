@@ -1,6 +1,6 @@
 --- Fuzz properties for what [`cosmic.mcp`] reads from a peer it does not trust: [`wire.message`] and the decoders of
---- each result, the event stream splitter, the `Bearer` challenge parser, and a server's answer to any text. Each is
---- total, answering for whatever it is handed and never raising, and the splitter gives the events a stream holds
+--- each result, the event stream splitter, the `Bearer` challenge parser, and a server's reply to any text. Each is
+--- total, returning for whatever it is handed and never raising, and the splitter gives the events a stream holds
 --- however it is cut. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Failure = require("cosmic.failure")
@@ -22,7 +22,7 @@ local MESSAGES <const>: {string} = {
     '"requestState":"s"}}',
 }
 
---- Results as a server answers them, to mutate and hand each decoder.
+--- Results as a server sends them, to mutate and hand each decoder.
 local RESULTS <const>: {string} = {
   '{"tools":[{"name":"echo","description":"d","inputSchema":{"type":"object"},"outputSchema":{"type":"object"},' ..
     '"annotations":{"readOnlyHint":true}}],"nextCursor":"c"}',
@@ -74,7 +74,7 @@ local function test_message_is_total(tmp: string)
       Fuzz.label("accepted")
       local id = message.id
       if id ~= nil then
-        -- The id is the JSON of a string or an integer, so an answer can name it.
+        -- The id is the JSON of a string or an integer, so a reply can name it.
         local back, _ = Json.decode(id)
         if not (back is string or math.type(back) == "integer") then
           return false, "an id that is not a string or an integer"
@@ -433,7 +433,7 @@ local function test_a_server_answers_any_text(tmp: string)
       if (message.error == nil) == (message.result == nil) then
         return false, "an answer with both or neither of result and error"
       end
-      -- An answer to a request names it; one to what is not a message names none.
+      -- A reply to a request names it; one to what is not a message names none.
       if asked == nil and message.id ~= nil then
         return false, "the answer to what is not a message names " .. tostring(message.id)
       end
