@@ -478,6 +478,22 @@ end
 local function test_sorted_is_byte_order()
   assert(encoded({ ["b"] = 1, ["a"] = 2, ["ab"] = 3, ["B"] = 4, ["\xc3\xa9"] = 5 }) ==
       '{"B":4,"a":2,"ab":3,"b":1,"\xc3\xa9":5}', "keys in byte order")
+  -- An object of a few members and one of many are written by two paths, in the same order.
+  for _, size in ipairs({ 32, 33 }) do
+    local object: mut {string: integer} = {}
+    local names: mut {string} = {}
+    for i = 1, size do
+      local name = string.rep("k", i % 3) .. tostring(size - i)
+      object[name] = i
+      names[#names + 1] = name
+    end
+    table.sort(names)
+    local members: mut {string} = {}
+    for _, name in ipairs(names) do
+      members[#members + 1] = '"' .. name .. '":' .. tostring(object[name])
+    end
+    assert(encoded(object) == "{" .. table.concat(members, ",") .. "}", tostring(size) .. " keys in byte order")
+  end
 end
 
 local function test_a_large_document_round_trips()
