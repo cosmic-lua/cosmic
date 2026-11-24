@@ -1931,7 +1931,9 @@ local function streamed(self: State, message: wire.Message, req: HttpServer.Requ
     notifier:notify_all()
   end
   body.watcher = Poll.spawn(function()
-    if req.wait_gone() then local _, _ = body:close() end
+    if not req.wait_gone() then return end
+    body.watcher = nil
+    local _, _ = body:close()
   end)
   body.task = Poll.spawn(function()
     local said = answer_message(self, message, req, flight)

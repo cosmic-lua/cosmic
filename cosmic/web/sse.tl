@@ -67,7 +67,8 @@ local record Sse
     --- the stream. The stream asks with a timeout no longer than its
     --- next heartbeat or its end (`max_age_ns`), and none when it has
     --- neither: a client that leaves closes the source, which wakes the
-    --- wait.
+    --- wait. A source whose `close` does not wake its `next` holds such
+    --- a stream open until the server kills its task.
     next: function(EventSource, timeout_ns?: integer): Event?, string
     --- Ends the source: a `next` that waits wakes and answers the end.
     --- Safe to call twice, and never waits (the stream calls it from the
@@ -390,7 +391,15 @@ function Body.read(self: Body, max_bytes?: integer): string?, string
     if Poll.in_task() then
       local wait_gone = self.wait_gone
       self.watcher = Poll.spawn(function()
-        if wait_gone() then finish(self, "client") end
+        if not wait_gone() then return end
+        -- Not cancelled by `finish`, which would fail a wait in `on_close`.
+        self.watcher = nil
+        local ran, raised = pcall(finish, self, "client")
+        if not ran then
+          local _, _ = pcall(function()
+            assert(self.app.spec.sink):line("sse: ending a stream: " .. tostring(raised))
+          end)
+        end
       end)
     end
   end
