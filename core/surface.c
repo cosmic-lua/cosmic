@@ -301,10 +301,15 @@ static void clear_field (lua_State *L, const char *table, const char *field) {
  * of 64 KiB strings -- the chunk every stream reads in -- pays an mmap
  * and an munmap per string, and runs at a sixth of the speed of one at
  * 24 KiB. A block from 32 KiB to 2 MiB is rounded up to one of four
- * sizes per power of two, and a freed one is kept instead of freed --
- * enough per size for the dozens a collection frees at once, and 8 MiB
- * in all. Everything else, and anything the cache has no room for, is
- * plain malloc, realloc and free.
+ * sizes per power of two, and a freed one is kept instead of freed, up
+ * to 8 MiB in all. A collection over a heap of some megabytes frees a
+ * hundred or more blocks of one size at once, and a loop then allocates
+ * as many again: a size keeps enough of them that the 8 MiB, not its
+ * count, is the bound (with 64 a size, a loop of 60 KB strings missed
+ * the cache for a third of them). One size may so hold all 8 MiB, and
+ * the others then miss until its blocks are taken again. Everything
+ * else, and anything the cache has no room for, is plain malloc,
+ * realloc and free.
  *
  * A block is filed under the largest size its C library says it can
  * hold, never under the size Lua asked for, so a block that came from
@@ -312,8 +317,9 @@ static void clear_field (lua_State *L, const char *table, const char *field) {
  * replaced it -- is only ever handed out for as much as it holds.
  */
 #define CACHE_SIZES 24         /* 40, 48, 56, 64, 80, ... 2048 KiB */
-#define CACHE_DEPTH 64         /* blocks kept per size */
 #define CACHE_BUDGET (8 << 20) /* bytes kept in all */
+/* Blocks kept per size: as many as the budget holds of the smallest, 204. */
+#define CACHE_DEPTH (CACHE_BUDGET / (5 << 13))
 
 static struct {
   void *blocks[CACHE_SIZES][CACHE_DEPTH];
