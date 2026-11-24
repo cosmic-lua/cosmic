@@ -124,7 +124,8 @@ local record Policy
     kept_out?: {string}
     --- The user's $SSL_CERT_FILE: with `network`, the tools read it and
     --- are given it, so a request through a proxy that signs with its
-    --- own root (as a company's does) is trusted as the user's are.
+    --- own root (as a company's does) is trusted as the user's are. It
+    --- must be a file, outside `kept_out`; one not there is not given.
     cert_file?: string
   end
 
@@ -343,13 +344,28 @@ function Policy.of(cwd: string, config: Policy.Config): Sandbox.Policy?, string
     grants[#grants + 1] = { path = dir, letters = "rx" }
   end
   local cert: string? = nil
-  if config.network and config.cert_file ~= nil and config.cert_file ~= "" then
-    local real, real_why = Fs.absolute(config.cert_file)
-    if real == nil then
-      return nil, "SSL_CERT_FILE " .. tostring(config.cert_file) .. ": " .. tostring(real_why)
+  local cert_file = config.cert_file
+  -- One that is not there is given as none: a stale variable does not refuse each run.
+  local real_cert: string? = nil
+  if config.network and cert_file ~= nil and cert_file ~= "" then
+    local found, _ = Fs.absolute(cert_file)
+    real_cert = found
+  end
+  if cert_file ~= nil and real_cert ~= nil then
+    local status, _ = Fs.status(real_cert)
+    local st = status and status.stat
+    if st == nil or st.kind ~= "file" then
+      return nil, "SSL_CERT_FILE " .. cert_file .. " is not a file, so the tools are not given it"
     end
-    cert = real
-    grants[#grants + 1] = { path = real, letters = "r" }
+    for _, kept in ipairs(config.kept_out or {}) do
+      local real_kept, _ = Fs.absolute(kept)
+      if Fs.within(real_cert, real_kept or kept) then
+        return nil, "SSL_CERT_FILE " .. cert_file .. " is where the agent keeps its sessions or its MCP config, " ..
+          "which no tool may read"
+      end
+    end
+    cert = real_cert
+    grants[#grants + 1] = { path = real_cert, letters = "r" }
   end
   local home = config.home
   if home ~= nil then

@@ -284,8 +284,14 @@ local function test_the_cert_file_goes_with_the_network()
   assert(granted)
   local offline = assert(Policy.of(dir, { mode = "write", network = false, grants = {}, cert_file = cert }))
   assert((offline.set_env or {})["SSL_CERT_FILE"] == nil)
-  local p_missing, why = Policy.of(dir, { mode = "write", network = true, grants = {}, cert_file = certs .. "/none" })
-  assert(p_missing == nil and why:find("SSL_CERT_FILE", 1, true) == 1, why)
+  -- One not there is given as none; a directory, or one where the agent keeps its sessions, is refused.
+  local missing = assert(Policy.of(dir, { mode = "write", network = true, grants = {}, cert_file = certs .. "/none" }))
+  assert((missing.set_env or {})["SSL_CERT_FILE"] == nil)
+  local p_dir, dir_why = Policy.of(dir, { mode = "write", network = true, grants = {}, cert_file = certs })
+  assert(p_dir == nil and dir_why:find("is not a file", 1, true) ~= nil, dir_why)
+  local p_kept, kept_why = Policy.of(dir, { mode = "write", network = true, grants = {}, cert_file = cert,
+    kept_out = { certs } })
+  assert(p_kept == nil and kept_why:find("keeps its sessions", 1, true) ~= nil, kept_why)
 end
 
 --- c is asked of the directory a file is made in; a write goes to the real name it checked, never through a dangling link.

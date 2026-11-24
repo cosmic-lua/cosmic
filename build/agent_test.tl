@@ -12,6 +12,8 @@ local Json = require("cosmic.json")
 local Test = require("cosmic.test")
 local agent = require("build.agent")
 local agent_fixture = require("build.agent_fixture")
+local Sandbox = require("cosmic.sandbox")
+local sys = require("cosmic.sys")
 
 -- The host programs the tests start, each where hosts keep it: named,
 -- not the whole system, so the key holds them alone. /bin/sh is the
@@ -272,20 +274,44 @@ local function test_sessions_are_kept_and_go_on()
   assert(cli({ "sessions", "x" }, KEYED, {}).code == Flags.REFUSED)
   -- ask goes on with the newest session by default and says so; --new starts one; --fork copies one.
   r, a = cli({ "ask", "fourth" }, KEYED, { text_reply("four") })
+  assert(r.code == 0, r.err)
   local went_on, _ = Json.to_array(sent(a, 1)["messages"])
   assert(r.code == 0 and went_on ~= nil and #went_on == 7, r.err)
-  assert(r.err:find("going on with session " .. id .. " (6 messages); --new starts a fresh one", 1, true) ~= nil, r.err)
+  assert(r.err:find("going on with session " .. id .. " (6 messages, claude-sonnet-5-5); --new starts a fresh one", 1, true) ~= nil, r.err)
   r, a = cli({ "ask", "--new", "fifth" }, KEYED, { text_reply("five") })
+  assert(r.code == 0, r.err)
   local fresh, _ = Json.to_array(sent(a, 1)["messages"])
   assert(r.code == 0 and fresh ~= nil and #fresh == 1 and r.err == "", r.err)
   r, a = cli({ "ask", "--fork", "--session", id, "sixth" }, KEYED, { text_reply("six") })
+  assert(r.code == 0, r.err)
   local forked, _ = Json.to_array(sent(a, 1)["messages"])
   assert(r.code == 0 and forked ~= nil and #forked == 9 and r.err:find("forked from session " .. id, 1, true) ~= nil,
     r.err)
   r, a = cli({ "ask", "--session", id, "seventh" }, KEYED, { text_reply("seven") })
+  assert(r.code == 0, r.err)
   local kept_apart, _ = Json.to_array(sent(a, 1)["messages"])
   assert(kept_apart ~= nil and #kept_apart == 9, "the fork's turn stays out of the session it copied")
   assert(cli({ "ask", "--new", "--continue", "x" }, KEYED, {}).code == Flags.REFUSED)
+  assert(cli({ "resume", "--new" }, KEYED, {}).code == Flags.REFUSED)
+  -- chat goes on with the newest session too.
+  r, a = cli({ "chat" }, KEYED, { text_reply("eight") }, { "eighth" })
+  assert(r.code == 0, r.err)
+  local chatted, _ = Json.to_array(sent(a, 1)["messages"])
+  assert(r.code == 0 and chatted ~= nil and #chatted > 1 and r.err:find("going on with session", 1, true) ~= nil,
+    r.err)
+  -- A session another run holds is passed by the default, and refused when asked for.
+  local newest = assert(cli({ "sessions" }, KEYED, {}).out:match("\n%s*(%d+)"))
+  local lock = assert(sys.open(home .. "/.local/share/cosmic/agent/held-" .. newest .. ".lock",
+    sys.O_RDWR | sys.O_CREAT, 0x180))
+  assert(sys.flock(lock, "exclusive", 0))
+  r, a = cli({ "ask", "ninth" }, KEYED, { text_reply("nine") })
+  assert(r.code == 0, r.err)
+  local apart, _ = Json.to_array(sent(a, 1)["messages"])
+  assert(r.code == 0 and apart ~= nil and #apart == 1, r.err)
+  assert(r.err:find("session " .. newest .. " is in use by another run; started session", 1, true) ~= nil, r.err)
+  local busy = cli({ "ask", "--session", newest, "tenth" }, KEYED, {})
+  assert(busy.code == Flags.REFUSED and busy.err:find("is in use by another run", 1, true) ~= nil, busy.err)
+  assert(sys.close(lock))
   -- Every tool's output is kept, and a later session finds it.
   r = cli({ "ask", "run it" }, KEYED, { { content = { { type = "tool_use", id = "t", name = "bash",
     input = { command = "echo kept-output-marker" } } }, stop_reason = "tool_use" }, text_reply("ran") })
@@ -330,7 +356,9 @@ local function test_the_sandbox_on_the_command_line()
   assert(read_only.code == 0 and offered:find('"name":"edit"', 1, true) == nil and
       offered:find('"name":"write"', 1, true) == nil and offered:find('"name":"read"', 1, true) ~= nil, offered)
   local shown = cli({ "policy" }, KEYED, {})
-  assert(shown.out:find("^programs: ") ~= nil, shown.out)
+  local no_bash = if Sandbox.on_macos() then "^programs: no tool offered is bash, but on macOS" else
+    "^programs: none run, since no tool offered is bash" end
+  assert(shown.out:find(no_bash) ~= nil, shown.out)
   local with_bash = cli({ "policy", "--with", "bash" }, KEYED, {})
   assert(with_bash.out:find("^programs: bash runs") ~= nil, with_bash.out)
 end

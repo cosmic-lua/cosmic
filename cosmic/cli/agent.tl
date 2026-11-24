@@ -120,19 +120,22 @@ local model: Flags.Option = { value = "name", about = "the latest of opus or son
   choices = { "opus", "sonnet" } }
 local effort: Flags.Option = { value = "level", about = "how hard it thinks (default medium, as cosmic.agent sets it)",
   choices = { "low", "medium", "high", "xhigh", "max" } }
-local continue_: Flags.Option = { about = "go on with the newest session in this directory (ask and chat do unless --new)" }
+local continue_: Flags.Option = { about = "go on with the newest session in this directory " ..
+    "(ask and chat do unless --new)" }
 local new: Flags.Option = { about = "start a fresh session, not the newest one here" }
-local fork: Flags.Option = { about = "copy the newest session here, or --session's, and go on in the copy" }
+local fork: Flags.Option = { about = "copy the newest session here, or --session's, " ..
+    "and go on in the copy" }
 local session: Flags.Option = { value = "id", about = "go on with the session of this id" }
 local sandbox: Flags.Option = { value = "mode", about = "what the tools may change",
   choices = { "write", "read", "off" }, default = "write" }
 local network: Flags.Option = { about = "let bash and snippets (Host.fetch, cosmic.http) reach the network" }
-local grant: Flags.Option = { value = "path[:rwxc]", about = "let the tools reach this path too, read alone unless letters say more" }
-local tools: Flags.Option = { value = "names", about = "the tools the model is shown, such as run,read (default: run, " ..
-    "read, edit, write and sql, which run no program)" }
-local with: Flags.Option = { value = "names", about = "offer these tools too, such as bash,jobs (bash runs programs, " ..
-    "jobs its background ones)" }
-local without: Flags.Option = { value = "names", about = "offer these tools not, such as sql,write" }
+local grant: Flags.Option = { value = "path[:rwxc]",
+  about = "let the tools reach this path too, read alone unless letters say more" }
+local tools: Flags.Option = { value = "names", about = "the tools the model is shown, such as run,read " ..
+    "(default: run, read, edit, write and sql, which run no program)" }
+local with: Flags.Option = { value = "names", about = "offer these tools too, such as bash,jobs " ..
+    "(bash runs programs, jobs its background ones)" }
+local without: Flags.Option = { value = "names", about = "do not offer these tools, such as sql,write" }
 local budget: Flags.Option = { value = "limits",
   about = "the most each turn may spend, such as tokens=200000,cost=0.50,turns=20,time=10m; the first reached ends it" }
 local mcp: Flags.Option = { value = "file",

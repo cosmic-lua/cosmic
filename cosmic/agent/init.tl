@@ -65,7 +65,7 @@
 --- Each message, and each tool's whole output, is kept in sessions.db
 --- before it is shown (`cosmic docs cosmic.agent.sessions`). So a run that ends in
 --- the middle of a turn loses nothing it showed, and `cosmic agent resume`
---- (or ask or chat with --continue) takes the turn up where it was:
+--- (or ask or chat, which go on with the newest session) takes the turn up where it was:
 --- each tool call that ended is answered with its kept output, one
 --- that never ended is answered as interrupted, not run again, and the
 --- request the run was in is sent again. A turn is started again at

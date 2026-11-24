@@ -76,6 +76,7 @@ local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
 local Hash = require("cosmic.hash")
 local Jobs = require("cosmic.agent.jobs")
 local Worker = require("cosmic.agent.worker")
@@ -390,7 +391,6 @@ local function budget_of(text: string): Agent.Budget?, string
   return { tokens = most_tokens, cost = cost, turns = turns, seconds = seconds }, ""
 end
 
---- A session from the options of `got`, kept in `db`, or nil and why.
 --- The tools `got` offers: those --tools names ([`Tools.named`]), else the default, with --with's added and
 --- --without's taken out ([`Tools.changed`]); under --sandbox read with no
 --- --grant that writes, none that changes a file, since the sandbox refuses each change.
@@ -413,9 +413,30 @@ local function offered_tools(got: Flags.Parsed): ({Tools.Tool}) | (nil, string)
   return Tools.without(offered, { "edit", "write" })
 end
 
---- Where `newest`, no session named is the newest in the directory.
+--- Holds session `id` for this run, so no other run appends to it at once: the lock's descriptor, or nil where
+--- another run holds it (why is "" then), or nil and why. The lock ends when the descriptor closes, or the run.
+local function hold_session(r: Run, id: integer): integer?, string
+  local dir, why = Fs.data_dir("cosmic", { environment = r.environment })
+  if dir == nil then return nil, "no data directory: " .. tostring(why) end
+  local path = dir .. "/agent/held-" .. tostring(id) .. ".lock"
+  local fd, open_why = sys.open(path, sys.O_RDWR | sys.O_CREAT, 0x180)
+  if fd == nil then return nil, path .. ": " .. tostring(open_why) end
+  local locked, lock_why, errno = sys.flock(fd, "exclusive", 0)
+  if locked then return fd, "" end
+  local _, _ = sys.close(fd)
+  -- A wait of 0 ms on a held lock ends in ETIMEDOUT.
+  if sys.errno_name(errno) == "ETIMEDOUT" then return nil, "" end
+  return nil, path .. ": " .. tostring(lock_why)
+end
+
+--- A session and the descriptor of its lock ([`hold_session`]), or nil where none was held.
+local type Opened = {session: Agent.Session, lock: integer?}
+
+--- The session the options of `got` name, kept in `db`, or nil and why.
+--- Where `newest`, no session named is the newest in the directory; where `by_default`, the newest is gone on with
+--- unless --new, and a fresh one starts where there is none, or another run holds it.
 local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boolean,
-                       by_default: boolean): Agent.Session?, string
+                       by_default: boolean): Opened?, string
   local effort = got.values["--effort"] or Agent.EFFORT
   local budget: Agent.Budget? = nil
   local limits = got.values["--budget"]
@@ -432,9 +453,11 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
   if sign == nil then return nil, sign_why end
   local here = cwd(r)
   local fresh, fork = got.set["--new"] == true, got.set["--fork"] == true
-  if fresh and (fork or got.set["--continue"] == true or got.values["--session"] ~= nil) then
-    return nil, "--new starts a session, so it takes no --continue, --session or --fork"
+  if fresh and (newest or fork or got.set["--continue"] == true or got.values["--session"] ~= nil) then
+    return nil, "--new starts a session, so it takes no --continue, --session or --fork, and resume none"
   end
+  -- Only the default goes past a session another run holds; a session asked for by name or flag is refused.
+  local asked = got.values["--session"] ~= nil or got.set["--continue"] == true or newest or fork
   local id: integer? = nil
   local given = got.values["--session"]
   if given ~= nil then
@@ -445,16 +468,32 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
     local latest, why = Sessions.latest(db, here)
     if latest == nil and why ~= "" then return nil, why end
     -- Going on is the default, so a directory with no session yet starts one.
-    local asked = got.set["--continue"] == true or newest or fork
     if latest == nil and asked then return nil, "no session in " .. here .. " to go on with" end
     id = latest
+  end
+  local lock: integer? = nil
+  local passed: integer? = nil
+  -- A fork reads the other session alone, and so holds only its own.
+  if id ~= nil and not fork then
+    local fd, hold_why = hold_session(r, id)
+    if fd == nil and hold_why ~= "" then return nil, hold_why end
+    if fd == nil and asked then
+      return nil, "session " .. tostring(id) .. " is in use by another run"
+    end
+    if fd == nil then passed, id = id, nil end
+    lock = fd
+  end
+  local function refused(why: string): (nil, string)
+    local open_lock = lock
+    if open_lock ~= nil then local _, _ = sys.close(open_lock) end
+    return nil, why
   end
   local held: {Json.Value} = {}
   local restarts, ended = 0, true
   local forked: integer? = nil
   if id ~= nil then
     local loaded, why = Sessions.load(db, id)
-    if loaded == nil then return nil, why end
+    if loaded == nil then return refused(why) end
     held, restarts, ended = loaded.messages, loaded.restarts, loaded.ended
     -- A session goes on with the model it used last, unless one is named.
     if got.values["--model"] == nil then model = loaded.model end
@@ -462,26 +501,39 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
   end
   -- The policy and the MCP servers before a new session's row, so a refused one leaves none.
   local policy, policy_why = policy_of(r, got, here)
-  if policy == nil and policy_why ~= "" then return nil, policy_why end
+  if policy == nil and policy_why ~= "" then return refused(policy_why) end
   local servers, servers_why = mcp_servers(r, got)
-  if servers == nil then return nil, servers_why end
+  if servers == nil then return refused(servers_why) end
   local offered, picked_why = offered_tools(got)
-  if offered == nil then return nil, "tools: " .. picked_why end
+  if offered == nil then return refused("tools: " .. picked_why) end
+  local now = Clock.now_ns() // Clock.seconds(1)
   if id == nil then
-    local started, why = Sessions.start(db, here, model, Clock.now_ns() // Clock.seconds(1))
-    if started == nil then return nil, why end
-    id = started
-    -- A fork is a new session that holds the other's conversation, which goes on there alone.
-    for _, m in ipairs(held) do
-      local added, add_why = Sessions.add(db, started, m, model)
-      if not added then return nil, add_why end
+    -- A fork is a new session that holds all the other kept, which goes on there alone.
+    local started: integer? = nil
+    local why = ""
+    if forked ~= nil then
+      started, why = Sessions.fork(db, forked, here, model, now)
+    else
+      started, why = Sessions.start(db, here, model, now)
     end
+    if started == nil then return refused(why) end
+    id = started
+    local fd, hold_why = hold_session(r, started)
+    if fd == nil then
+      return refused(if hold_why ~= "" then hold_why else "session " .. tostring(started) ..
+          " is in use by another run" end)
+    end
+    lock = fd
     if forked ~= nil then
       r.io.err("cosmic: agent: session " .. tostring(started) .. ", forked from session " .. tostring(forked))
+    elseif passed ~= nil then
+      r.io.err("cosmic: agent: session " .. tostring(passed) .. " is in use by another run; started session " ..
+          tostring(started))
     end
   elseif #held > 0 then
+    local unfinished = if not ended then ", and first finishes the turn it left unfinished" else "" end
     r.io.err("cosmic: agent: going on with session " .. tostring(id) .. " (" .. String.counted(#held, "message") ..
-        "); --new starts a fresh one")
+        ", " .. model .. unfinished .. "); --new starts a fresh one")
   end
   local s = Agent.new({ model = model, effort = effort, sign = sign, base_url = base, cwd = here,
     send = r.io.send, system = Prompt.build(here, Prompt.contexts(here), { servers = servers, tools = offered }),
@@ -489,11 +541,11 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
     tools = offered, messages = held, db = db, id = id, restarts = restarts, ended = ended, budget = budget })
   if budget ~= nil and budget.cost ~= nil and Agent.cost(model, {}) == nil then
     s:close()
-    return nil, "--budget cost: no price is known for " .. model .. ", so its cost cannot be counted"
+    return refused("--budget cost: no price is known for " .. model .. ", so its cost cannot be counted")
   end
   local settled, settle_why = s:settle()
-  if not settled then return nil, settle_why end
-  return s, ""
+  if not settled then return refused(settle_why) end
+  return { session = s, lock = lock }, ""
 end
 
 --- Runs `go` with a session from `got`: its exit status.
@@ -562,13 +614,15 @@ local function with_session(r: Run, name: string, got: Flags.Parsed, go: functio
     return bare.failed
   end
   -- ask and chat go on with the newest session here unless told not to.
-  local s, session_why = session(r, got, db, newest == true, name == "ask" or name == "chat")
+  local opened, session_why = session(r, got, db, newest == true, name == "ask" or name == "chat")
   local code = bare.refused
-  if s == nil then
+  if opened == nil then
     r.complain(name .. ": " .. session_why)
   else
-    code = go(s)
-    s:close()
+    code = go(opened.session)
+    opened.session:close()
+    local lock = opened.lock
+    if lock ~= nil then local _, _ = sys.close(lock) end
   end
   local _, _ = db:close()
   return code

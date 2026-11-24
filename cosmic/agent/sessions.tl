@@ -63,9 +63,9 @@
 --- A database of version 1 is made version 2 as it opens. There is no
 --- way back: an older cosmic refuses a newer one's database.
 ---
---- Each ask or chat starts a session; --continue goes on with the
---- newest one in the working directory, and --session <id> with any,
---- with the model it used last unless --model names one.
+--- Ask and chat go on with the newest session in the working directory
+--- unless --new starts one; --session <id> goes on with any, and --fork
+--- in a copy, with the model it used last unless --model names one.
 --- `cosmic agent sessions` lists them. The file is 0600, and its directory
 --- 0700: it holds what the tools read. Read it with sqlite3, and
 --- delete it to forget every session.
@@ -277,6 +277,32 @@ function Sessions.start(db: Sqlite.Handle, cwd: string, model: string, seconds: 
     { { text = cwd }, { integer = seconds }, { text = model } })
   if not ok then return nil, tostring(why) end
   return db:last_insert_rowid(), ""
+end
+
+--- A new session in `cwd` with `model`, begun at `seconds` (Unix time), that holds all session `from` kept: its
+--- messages, its tools' outputs (so a turn it left unfinished settles as it would), the values its snippets kept, and
+--- whether its last turn ended; its id, or nil and why. All or none, in one transaction.
+function Sessions.fork(db: Sqlite.Handle, from: integer, cwd: string, model: string, seconds: integer): integer?, string
+  local made: integer? = nil
+  local transacted, transact_why = db:transact(function(): (true) | (false, Failure)
+    local ok, why = db:run([[INSERT INTO sessions (cwd, started, model, ended)
+      SELECT ?2, ?3, ?4, ended FROM sessions WHERE id = ?1]],
+      { { integer = from }, { text = cwd }, { integer = seconds }, { text = model } })
+    if not ok then return false, why end
+    local id = db:last_insert_rowid()
+    made = id
+    for _, copy in ipairs({
+        "INSERT INTO messages (session, seq, message) SELECT ?2, seq, message FROM messages WHERE session = ?1",
+        "INSERT INTO outputs (session, tool, input, text, is_error, call, shown) " ..
+          "SELECT ?2, tool, input, text, is_error, call, shown FROM outputs WHERE session = ?1 ORDER BY id",
+        "INSERT INTO kept (session, key, value) SELECT ?2, key, value FROM kept WHERE session = ?1" }) do
+      local copied, copy_why = db:run(copy, { { integer = from }, { integer = id } })
+      if not copied then return false, copy_why end
+    end
+    return true
+  end)
+  if not transacted then return nil, tostring(transact_why) end
+  return made, ""
 end
 
 --- Keeps `message` as the next of session `id`, and `model` as the
