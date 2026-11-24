@@ -747,7 +747,7 @@ local function boot(root: string, argv: {string}, host_only: boolean, why: strin
   local result, trouble = Child.run(reboot.boot_command(root .. "/bin/zig", host_only),
     { timeout_ns = Child.FOREVER, cwd = root, env = boot_environment, stdout = 2 })
   if result == nil then
-    return command .. ": " .. trouble
+    return command .. ": " .. tostring(trouble)
   end
   if not result.ok then
     return command .. " failed; fix what it reports and run this again"
@@ -958,22 +958,13 @@ function reboot.standing(root: string, seen?: reboot.Seen): tree.Standing?, stri
 end
 
 --- The checkout the running tool holds itself to from a tree that is not
---- cosmic's own, and how that checkout stands: the tree it records it was
---- built from ([`tree.built_from`]), where it is that checkout's own tool
---- ([`tree.own_tool`]) and the checkout is still cosmic's own tree. Nil for
---- any other tool, which runs on in a project as it is: a release, which
---- records no checkout; a copy run from outside the checkout's build
---- directory, which a rebuild would not replace; a process that cannot see
---- that directory, as a sandboxed one.
+--- cosmic's own, as `seen` has the tool ([`tree.checkout`]).
 local function checkout_of(seen?: reboot.Seen): string?, tree.Standing?
-  local built = meta_of("built_from", seen)
-  if built == nil then return nil, nil end
   local tool: string? = nil
   if seen ~= nil then tool = seen.tool end
-  local own, _ = tree.own_tool(built, tool)
-  if own ~= true then return nil, nil end
-  local standing, _ = reboot.standing(built, seen)
-  if standing == nil or not standing.own then return nil, nil end
+  local built = meta_of("built_from", seen)
+  local standing = tree.checkout(built, tool)
+  if standing == nil then return nil, nil end
   return built, standing
 end
 

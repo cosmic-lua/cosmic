@@ -124,7 +124,7 @@ function Jobs.start(set: Jobs.Set, command: string, opts: Jobs.Options): Jobs.Jo
   local _, _ = Fs.close(fd)
   if handle == nil then
     local _, _ = Fs.remove(file)
-    return nil, why
+    return nil, tostring(why)
   end
   local job: Jobs.Job = { id = id, command = command, handle = handle, file = file, started = Clock.monotonic_ns(),
     read = 0, kept = false, killed = false, over = false }

@@ -400,7 +400,7 @@ local function bash(input: Tools.Object, context: Tools.Context): Tools.Result
   -- On Linux, what the command left running outside its group ends
   -- with it; the background jobs' groups are spared.
   local _ = Child.end_strays(Jobs.groups(context.jobs))
-  if res == nil then return fail(run_why) end
+  if res == nil then return fail(tostring(run_why)) end
   local said = res.stdout or ""
   local text, cut = tail(said)
   if cut or res.truncated then

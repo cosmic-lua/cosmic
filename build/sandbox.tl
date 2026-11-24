@@ -603,6 +603,13 @@ local function notes_pipe(): Notes?, string
   return nil, tostring(why)
 end
 
+--- [`Child.run`], answering its failure in words, as [`verb.Io`]'s `run` does.
+local function run_child(argv: {string}, opts: Child.Options): Child.Result?, string
+  local result, why = Child.run(argv, opts)
+  if result == nil then return nil, tostring(why) end
+  return result, ""
+end
+
 --- [`Child.run`], through the pty relay ([`TermRelay.run`]) when one of
 --- this process's standard streams is a terminal, so that the program is
 --- given a terminal of its own for each rather than the caller's, whose
@@ -616,7 +623,7 @@ end
 --- [`TermRelay.run`] shows them on the terminal, beside the program's
 --- output and not through it.
 local function run_here(argv: {string}, opts: Child.Options): Child.Result?, string
-  if not (sys.isatty(0) or sys.isatty(1) or sys.isatty(2)) then return Child.run(argv, opts) end
+  if not (sys.isatty(0) or sys.isatty(1) or sys.isatty(2)) then return run_child(argv, opts) end
   local terminal: TermRelay.Terminal?
   local notes: Notes?
   local policy = opts.policy
@@ -696,7 +703,7 @@ local function execute(argv: {string}, io: verb.Io?, held: mut {string}): intege
     complain((why:gsub("^sandbox: ", "")))
     return bare.refused
   end
-  local run = to.run or Child.run
+  local run = to.run or run_child
   -- TODO: have the child end with this process where this one is ended by
   -- SIGKILL, which no handler sees: PR_SET_PDEATHSIG in the child, once
   -- Child.Options has an option for it. Until then only SIGINT and SIGTERM

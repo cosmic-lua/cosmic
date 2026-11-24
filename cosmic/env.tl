@@ -88,6 +88,8 @@ local record Env
     "COSMIC_VERDICT_CACHE"
     --- `<property>:<case>`, the one input to check.
     "FUZZ_CASE"
+    --- The seconds a fuzz property may draw inputs for.
+    "FUZZ_SECONDS"
     --- "1" makes an unheld sandbox a failure.
     "COSMIC_CI_REQUIRE_SANDBOX"
     --- The user's home directory.

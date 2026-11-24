@@ -23,6 +23,8 @@ Test.policy{
     { path = "/bin/sleep", letters = "r" }, { path = "/usr/bin/sleep", letters = "r" },
   },
   env = { "PATH", "TMPDIR" },
+  -- The prompt names the standard library's modules from its docs.
+  store_text = true,
 }
 
 local type Api = agent_fixture.Api

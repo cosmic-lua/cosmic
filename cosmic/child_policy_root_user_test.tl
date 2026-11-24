@@ -104,11 +104,11 @@ local function test_a_root_caller_s_policy_with_no_namespace_drops_to_a_pool_use
       { path = "/proc", letters = "r" } } },
       cwd = at.work, stdout = "capture", stderr = "stdout" })
   if result == nil then
-    if why:find("own /proc", 1, true) == nil and ChildPolicy.unsandboxable(why) then
-      Test.skip(why)
+    if why.message:find("own /proc", 1, true) == nil and ChildPolicy.unsandboxable(tostring(why)) then
+      Test.skip(tostring(why))
       return
     end
-    error("the start was refused: " .. why)
+    error("the start was refused: " .. tostring(why))
   end
   local said = result.stdout or ""
   assert(result.code == 0, said)
@@ -188,7 +188,7 @@ local function test_a_root_caller_s_concurrent_sandboxes_run_as_different_users(
     local handle, why = Child.start({ at.probe, "status-field Uid; sleep 300" },
       { timeout_ns = Child.FOREVER, policy = policy, cwd = at.work, stdout = "capture", stderr = "stdout" })
     if handle == nil then
-      Test.skip(why)
+      Test.skip(tostring(why))
       return
     end
     running[i] = handle

@@ -670,6 +670,29 @@ local function run_alone(file: string, argv: {string}): integer?
   return standalone.run(shifted, nil, name)
 end
 
+--- [`reboot.stale_exit`] for a verb run in the working directory. It loads
+--- build.reboot, and the modules it requires, only where the tool may be
+--- held to a tree: where the working directory cannot be resolved, is
+--- cosmic's own tree, or is refused by [`tree.standing`], and where the
+--- tool is the own tool of a checkout that is still cosmic's own tree
+--- ([`tree.checkout`]). A release, or a copy of a tool run from outside its
+--- checkout's build directory, is held to none in a project. So `help`'s
+--- index, and the `fresh` verbs whose own modules do not require
+--- build.reboot, start without it there.
+local function stale_exit(argv: {string}, reads: boolean): integer?
+  local Fs = require("cosmic.fs")
+  local here, _ = Fs.absolute(".")
+  if here ~= nil then
+    local tree = require("build.tree")
+    local standing, _ = tree.standing(here)
+    if standing ~= nil and not standing.own and
+        tree.checkout(require("cosmic.store").meta("built_from")) == nil then
+      return nil
+    end
+  end
+  return require("build.reboot").stale_exit(argv, reads)
+end
+
 --- `cosmic --version`: the SHA-256 of the file this binary runs from,
 --- read in pieces, as a release's SHA256SUMS names it: `cosmic <hex>`.
 local function version(argv: {string}): integer
@@ -758,8 +781,9 @@ local function help(argv: {string}, asked: string?, asked_sub?: string): integer
     return 0
   end
   -- The staleness guard `test` applies: a fingerprint compare when the
-  -- tool is fresh. Help reads build.docs, so an edit to it must rebuild.
-  local code = require("build.reboot").stale_exit(argv, true)
+  -- tool is fresh. A verb's help reads build.docs, so an edit to it must
+  -- rebuild.
+  local code = stale_exit(argv, true)
   if code ~= nil then
     return code
   end
@@ -871,7 +895,7 @@ local function spec_of(word: string): verb_spec.Spec?
     found = {
       name = found.name,
       run = function(argv: {string}): integer
-        local stale = require("build.reboot").stale_exit(argv, reads)
+        local stale = stale_exit(argv, reads)
         if stale ~= nil then
           return stale
         end
