@@ -44,7 +44,7 @@ local function test_typed_steps_allocate_no_result_per_successful_row()
   local script = [[
 local Sqlite = require("cosmic.sqlite")
 local db = assert(Sqlite.memory())
-local statement = assert(db:prepare("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<10000) SELECT x FROM n"))
+local statement = assert(db.connection:prepare("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<10000) SELECT x FROM n"))
 collectgarbage("collect")
 collectgarbage("stop")
 assert(statement:step_result() == "row")

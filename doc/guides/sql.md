@@ -369,34 +369,30 @@ within another.
 
 ## prepared statements
 
-`db:prepare(sql)` returns a `Statement` to bind, step and run again.
-`statement:reset()` rewinds it and clears every binding, so a column bound
-once before a loop is NULL on the second row and fails a `NOT NULL`
-constraint. `statement:rewind()` rewinds it and keeps the bindings: bind
-the fixed columns once, then rebind only the changing column and rewind
-per row. Both return `true, ""`, or `false` and the previous step's
-failure. To bind every column afresh for each row, see [a prepared statement in a loop](#a-prepared-statement-in-a-loop),
-which uses `bind_values_result` or a values table per row with [`Sqlite.Handle.run`].
+`db:prepare(sql)` returns a `Statement`, compiled once, for a loop that
+runs the same SQL many times. `statement:run(values)`,
+`statement:rows(values)`, `statement:one(values)` and
+`statement:query(values)` work as the handle's methods of the same names.
+Each call binds every parameter from its values, and leaves none bound
+after it. `statement:close()` finalizes it; a `<close>` variable does too.
+The handle's own methods keep the statements of recent SQL as well, so a
+`Statement` only skips finding the statement again.
 
 ```teal
 local Sqlite = require("cosmic.sqlite")
 
 local db = assert(Sqlite.memory())
 assert(db:exec("CREATE TABLE t (owner TEXT NOT NULL, n INTEGER NOT NULL)"))
-local insert = assert(db:prepare("INSERT INTO t (owner, n) VALUES (?1, ?2)"))
-assert(insert:bind_text(1, "me"))
+local insert <close> = assert(db:prepare("INSERT INTO t (owner, n) VALUES (?1, ?2)"))
 for n = 1, 3 do
-  assert(insert:bind_integer(2, n))
-  assert(insert:step() == "done")
-  assert(insert:rewind())
+  assert(insert:run({ "me", n }))
 end
-insert:finalize()
-local rows = assert(db:text_rows("SELECT count(*), sum(n) FROM t"))
-print(table.concat(assert(rows[1]):texts(), " "))
+local row = assert(db:one("SELECT count(*), sum(n) FROM t"))
+print(row:integer(1), row:integer(2))
 ```
 
 ```output
-3 6
+3	6
 ```
 
 ## bound lists
@@ -738,35 +734,6 @@ print(assert(db:one("select count(*) from t2")):integer(1))
 `cosmic sql` runs one read-only statement on one database, so `ATTACH` is not available there: work across files is a short
 program, as above.
 
-## a prepared statement in a loop
-
-[`Statement.reset()`] rewinds a statement and clears every binding, so bind again inside the loop with
-`bind_values_result(values)`. For one-off rows, [`Sqlite.Handle.run`] with a values table per row prepares, binds and steps in one
-call. To keep the bindings across rows, [`Statement:rewind()`] ([prepared statements](#prepared-statements)) rewinds
-without clearing them.
-
-```teal
-local Sqlite = require("cosmic.sqlite")
-
-local db = assert(Sqlite.memory())
-assert(db:exec("create table t (id integer, body text)"))
-
-local insert = assert(db:prepare("insert into t values (?1, ?2)"))
-for id, body in ipairs({ "a", "b", "c" }) do
-  assert(insert:reset())
-  assert(insert:bind_values_result({ { integer = id }, { text = body } }).code == Sqlite.OK)
-  assert(insert:step())
-end
-insert:finalize()
-
-assert(db:run("insert into t values (?1, ?2)", { 4, "d" }))
-print(assert(db:one("select count(*) from t")):integer(1))
-```
-
-```output
-4
-```
-
 [`cosmic.csv`]: ../../cosmic/csv.tl
 [`cosmic.hash`]: ../../cosmic/hash.tl
 [`cosmic.json`]: ../../cosmic/json.tl
@@ -776,9 +743,6 @@ print(assert(db:one("select count(*) from t")):integer(1))
 [`cosmic.vector`]: ../../cosmic/vector.tl
 [`cosmic/sqlite_example.tl`]: ../../cosmic/sqlite_example.tl
 [`Signal.guard`]: ../../cosmic/signal.tl
-[`Sqlite.Handle.run`]: ../../cosmic/sqlite.tl
 [`Sqlite.NULL`]: ../../cosmic/sqlite.tl
 [`Sqlite.open`]: ../../cosmic/sqlite.tl
-[`Statement.reset()`]: ../../cosmic/internal/sqlite.d.tl
-[`Statement:rewind()`]: ../../cosmic/internal/sqlite.d.tl
 [`Vector.load_blocks`]: ../../cosmic/vector.tl

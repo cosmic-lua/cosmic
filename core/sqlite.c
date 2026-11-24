@@ -1903,7 +1903,20 @@ static void make_null (lua_State *L) {
   lua_setfield(L, LUA_REGISTRYINDEX, NULL_KEY);
 }
 
+/* number_text(x): `x` as SQLite writes a REAL as text, the way
+ * vdbeMemRenderNum does at the default 17 digits ("%!.17g"): SQLite's own
+ * rounding to 17 significant digits, with a ".0" where it would look
+ * integral. cosmic never changes the digits a connection writes. */
+static int sqlite_number_text (lua_State *L) {
+  double x = (double)luaL_checknumber(L, 1);
+  char buf[64];
+  sqlite3_snprintf((int)sizeof buf, buf, "%!.17g", x);
+  lua_pushstring(L, buf);
+  return 1;
+}
+
 static const luaL_Reg module[] = {
+  {"number_text", sqlite_number_text},
   {"open", sqlite_open},
   {"open_result", sqlite_open_result},
   {"disown", sqlite_disown},

@@ -1199,7 +1199,7 @@ local function test_prepared_statements_keep_the_busy_handlers_owner_under_alloc
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   local ended = AllocationFixture.under_every_failure(function()
-    local statement = assert(db:prepare("SELECT 1"))
+    local statement = assert(db.connection:prepare("SELECT 1"))
     assert(statement:step() == "row")
     assert(statement:reset())
     statement:finalize()
@@ -1327,7 +1327,7 @@ local function test_sqlite_captured_operations_release_every_refused_allocation(
     assert_c_heap(bytes, blocks, "captured SQLite list binding")
   end
   local ended = AllocationFixture.under_every_failure(function()
-    local statement = assert(db:prepare("SELECT CASE WHEN ?1 THEN 1 ELSE json('bad') END"))
+    local statement = assert(db.connection:prepare("SELECT CASE WHEN ?1 THEN 1 ELSE json('bad') END"))
     assert(statement:bind_integer(1, 1))
     assert(statement:step_result() == "row")
     assert(statement:reset())

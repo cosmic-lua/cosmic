@@ -386,11 +386,7 @@ local function remember(db: Sqlite.Handle, fingerprint: string, memo: link_index
   if prepared == nil then return end
   local put: Sqlite.Statement = prepared
   local function add(what: string, path: string, value: string?)
-    local ok, _ = put:bind_text(1, what)
-    if ok then ok, _ = put:bind_text(2, path) end
-    if ok then ok, _ = put:bind_text(3, value or "") end
-    if ok then ok, _ = put:bind_integer(4, if value ~= nil then 1 else 0 end) end
-    if ok then ok, _ = bind.once(put) end
+    local _, _ = put:run({ what, path, value or "", value ~= nil })
   end
   local cleared, _ = db:exec("DELETE FROM link_answers")
   if cleared then
@@ -401,7 +397,7 @@ local function remember(db: Sqlite.Handle, fingerprint: string, memo: link_index
     for path, answer in pairs(memo.reals) do add("real", path, answer[1]) end
     for path, answer in pairs(memo.reads) do add("read", path, answer[1]) end
   end
-  put:finalize()
+  put:close()
 end
 
 --- The links the parse recorded in `db`'s planned modules and the stage
