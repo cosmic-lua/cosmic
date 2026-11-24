@@ -63,7 +63,7 @@ local function test_end_strays_ends_a_stray_named_as_an_init(tmp: string)
     local name, _ = Fs.read("/proc/" .. tostring(pid) .. "/comm")
     local by = Clock.monotonic_ns() + Clock.seconds(5)
     while name ~= "cosmic-init\n" and Clock.monotonic_ns() < by do
-      Clock.sleep_ns(Clock.ms(10))
+      local _, _ = Clock.sleep(Clock.ms(10))
       local got, _ = Fs.read("/proc/" .. tostring(pid) .. "/comm")
       name = got
     end

@@ -10,7 +10,6 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Net = require("cosmic.net")
-local Poll = require("cosmic.poll")
 local Server = require("cosmic.http.server")
 local Stream = require("cosmic.stream")
 local Tailscale = require("cosmic.tailscale")
@@ -84,7 +83,7 @@ local class Watch is Stream.Reader
       end
       return '{"Version":"1.90.0","State":6,"SessionID":"' .. self.session .. '"}\n', ""
     end
-    local _, _ = Poll.delay(Clock.ms(20))
+    local _, _ = Clock.sleep(Clock.ms(20))
     return "\n", ""
   end
 
@@ -198,7 +197,7 @@ end
       -- next write.
       local deadline = Clock.monotonic_ns() + Clock.seconds(10)
       while d.open > 0 and Clock.monotonic_ns() < deadline do
-        local _, _ = Poll.delay(Clock.ms(10))
+        local _, _ = Clock.sleep(Clock.ms(10))
       end
       server:stop()
       assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
@@ -236,7 +235,7 @@ local function test_a_serve_is_filed_under_its_stream_and_dropped_with_it(tmp: s
       say(now)
       break
     end
-    assert(Clock.sleep_ns(Clock.ms(10)))
+    assert(Clock.sleep(Clock.ms(10)))
   end
 ]])
   local lines: mut {string} = {}

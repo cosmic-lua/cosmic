@@ -906,7 +906,7 @@ local function run(hunt: Hunt, done: function(): integer?): boolean, string
       heard = heard + 1
       if heard >= YIELD_AFTER and Poll.in_task() then
         heard = 0
-        local went_on, cancelled = Poll.delay(0)
+        local went_on, cancelled = Clock.sleep(0)
         if not went_on then return false, cancelled.message end
         now = Clock.monotonic_ns()
       end
@@ -1283,7 +1283,7 @@ local function respond(socket: Net.Datagram, port: integer, group: Net.Address, 
     heard = heard + 1
     if heard >= YIELD_AFTER and Poll.in_task() then
       heard = 0
-      local went_on, cancelled = Poll.delay(0)
+      local went_on, cancelled = Clock.sleep(0)
       if not went_on then return false, cancelled.message end
     end
   end

@@ -5,7 +5,6 @@ local Clock = require("cosmic.clock")
 local Compress = require("cosmic.compress")
 local Input = require("cosmic.web.input")
 local Net = require("cosmic.net")
-local Poll = require("cosmic.poll")
 local Server = require("cosmic.http.server")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
@@ -151,7 +150,7 @@ local function test_stopping_ends_a_stream_and_runs_the_stop_functions_in_order(
             sent = true
             return "data: hello\n\n", ""
           end
-          while not req.app:stopping() do assert(Poll.delay(Clock.ms(5))) end
+          while not req.app:stopping() do assert(Clock.sleep(Clock.ms(5))) end
           events[#events + 1] = "stream saw stopping"
           return nil, ""
         end,
@@ -244,7 +243,7 @@ local function test_a_handler_that_ignores_stopping_is_cut_off_at_the_grace()
   local app = Web.app{ routes = { Web.get("/forever", function(_req: Web.Request): Web.Response
     return Web.stream({ -- checked: literal_shape
       read = function(_self: Stream.Reader, _max?: integer): string?, string
-        assert(Poll.delay(Clock.ms(5)))
+        assert(Clock.sleep(Clock.ms(5)))
         return "x", ""
       end,
       close = function(_self: Stream.Reader): boolean, string return true, "" end,

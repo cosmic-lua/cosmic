@@ -1028,7 +1028,7 @@ local function watching(handles: {Handle}, feeding?: Handle): mut {Entry}
   return entries
 end
 
---- What a shielded [`Poll.delay`] answered, which a shield hands back to
+--- What a shielded [`Clock.sleep`] returned, which a shield hands back to
 --- [`pump`] in a table.
 local record Delayed
   mut paused?: boolean
@@ -1055,16 +1055,17 @@ end
 --- serves -- ending a child, emptying its pipes -- must finish.
 local function pump(entries: mut {Entry}, timeout_ns: integer,
                     cancellable?: boolean, signalled?: boolean): boolean, string
-  -- TODO: wait through Poll.delay and Poll.ready alone, here and in
-  -- Child.end_strays's sleep, once it is decided how they answer where
-  -- no task can wait. (a) They go on, holding the thread, outside a run
-  -- and in the `<close>` handler of a task being killed, as Poll.wait
-  -- does outside a run: this module's cleanup, which must wait there,
-  -- loses its thread-held branches, and poll_test's
+  -- TODO: wait through Clock.sleep and Poll.ready alone, here and in
+  -- Child.end_strays's sleep, once it is decided what Poll.ready returns
+  -- where no task can wait. Clock.sleep already holds the thread there.
+  -- (a) Poll.ready goes on, holding the thread, outside a run and in the
+  -- `<close>` handler of a task being killed, as Poll.wait does outside
+  -- a run: this module's cleanup, which must wait there, loses its
+  -- thread-held branches, and poll_test's
   -- test_waiting_outside_a_task_raises and
   -- test_kill_raises_what_a_close_handler_raises and net_serve_test's
   -- test_a_killed_protocols_close_cannot_wait, which hold those waits
-  -- to raising, break with it. (b) They stay task-only, and the
+  -- to raising, break with it. (b) It stays task-only, and the
   -- branches here stay.
   -- A wait that yields never, as one with no time to wait does, is
   -- no wait of the run's: it looks and goes on.
@@ -1084,7 +1085,7 @@ local function pump(entries: mut {Entry}, timeout_ns: integer,
     if in_run then
       local waited: Delayed = {}
       local function pause()
-        local paused, why = Poll.delay(timeout_ns)
+        local paused, why = Clock.sleep(timeout_ns)
         waited.paused = paused
         if why ~= nil then waited.cancelled = why.message end
       end
@@ -4326,7 +4327,7 @@ function Child.end_strays(spared?: {integer}): integer
       -- Shielded: ending the strays is a cleanup, which a cancel does
       -- not cut short.
       Poll.shielded(function()
-        local _, _ = Poll.delay(POLL_NS // 10)
+        local _, _ = Clock.sleep(POLL_NS // 10)
       end)
     else
       local _, _ = sys.nanosleep(POLL_NS // 10)

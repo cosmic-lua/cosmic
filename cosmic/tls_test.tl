@@ -143,7 +143,7 @@ local function test_a_renewal_asks_for_half_the_life_and_a_cancel_ends_keep()
       end)
     end)
     -- The renewal happens before the first wait; the next is years away.
-    local _, _ = Poll.delay(Clock.ms(10))
+    local _, _ = Clock.sleep(Clock.ms(10))
     keeper:cancel()
     local joined, _ = keeper:join(Clock.seconds(10))
     assert(joined, "a cancelled wait ends keep")

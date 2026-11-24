@@ -796,7 +796,7 @@ local function file_get(to: verb.Io, complain: function(line: string), ts: Tails
     -- A daemon that answers at once, as one that holds no call does, is
     -- asked again a second later, not at once.
     if Clock.monotonic_ns() - asked < 1000000000 then
-      local _, _ = Clock.sleep_ns(1000000000)
+      local _, _ = Clock.sleep(1000000000)
     end
   end
   local code = bare.ok

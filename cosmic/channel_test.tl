@@ -149,10 +149,10 @@ local function test_a_waiting_receiver_is_woken_by_send()
     local got: mut {integer} = {}
     local last: mut {string} = {}
     local task = consumer(queue, got, last)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     assert(#got == 0)
     assert(queue:send(7))
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     assert(#got == 1 and got[1] == 7)
     queue:close()
     assert(task:join())
@@ -168,7 +168,7 @@ local function test_a_waiting_sender_is_woken_by_receive()
     local sender = Poll.spawn(function()
       table.insert(result, gave(queue, 2))
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     assert(#result == 0 and queue:len() == 1)
     assert(took(queue) == "1")
     assert(sender:join())
@@ -201,13 +201,13 @@ local function test_a_cancelled_waiter_answers_cancelled_and_loses_nothing()
     local second_got: mut {integer} = {}
     local second_last: mut {string} = {}
     local second = consumer(queue, second_got, second_last)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     receiver:cancel()
     assert(receiver:join())
     assert(reasons[1] == Poll.CANCELLED)
     -- The item goes to the receiver still waiting.
     assert(queue:send(5))
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     assert(#second_got == 1 and second_got[1] == 5)
     queue:close()
     assert(second:join())
@@ -217,7 +217,7 @@ local function test_a_cancelled_waiter_answers_cancelled_and_loses_nothing()
     local sender = Poll.spawn(function()
       table.insert(reasons, gave(full, 2))
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     sender:cancel()
     assert(sender:join())
     assert(reasons[2] == Poll.CANCELLED)
@@ -236,7 +236,7 @@ local function test_a_receiver_that_loses_its_item_still_times_out_on_time()
       elapsed = Clock.monotonic_ns() - start
     end)
     -- Late enough that a wait begun again would end near 150 ms or later.
-    assert(Poll.delay(Clock.ms(50)))
+    assert(Clock.sleep(Clock.ms(50)))
     -- The send notices the receiver; the item is gone before it runs.
     assert(queue:send(1))
     assert(took(queue) == "1")
@@ -258,7 +258,7 @@ local function test_a_sender_that_loses_its_room_still_times_out_on_time()
       elapsed = Clock.monotonic_ns() - start
     end)
     -- Late enough that a wait begun again would end near 150 ms or later.
-    assert(Poll.delay(Clock.ms(50)))
+    assert(Clock.sleep(Clock.ms(50)))
     -- The receive notices the sender; the room is gone before it runs.
     assert(took(queue) == "0")
     assert(queue:try_send(2))
@@ -277,7 +277,7 @@ local function test_a_killed_receiver_passes_the_item_to_the_next()
     local last: mut {string} = {}
     local first = consumer(queue, got1, last)
     local second = consumer(queue, got2, last)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     -- The first waiter is noticed, then killed before it runs.
     assert(queue:send(9))
     first:kill()
@@ -301,7 +301,7 @@ local function test_a_killed_sender_passes_the_room_to_the_next()
     end
     local first = sender(1)
     local second = sender(2)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     assert(took(queue) == "0")
     first:kill()
     assert(second:join())
@@ -330,7 +330,7 @@ local function test_close_wakes_receivers_and_senders_and_drains_first()
         reasons[#reasons + 1] = ended
       end)
     end
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     idle:close()
     full:close()
     idle:close()
@@ -353,12 +353,12 @@ local function test_close_from_a_close_handler_wakes_a_waiter()
     local got: mut {integer} = {}
     local last: mut {string} = {}
     local waiter = consumer(queue, got, last)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     local victim = Poll.spawn(function()
       local _ <close> = Defer.new(closing)
-      local _, _ = Poll.delay(Clock.seconds(30))
+      local _, _ = Clock.sleep(Clock.seconds(30))
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     victim:kill()
     assert(waiter:join(Clock.seconds(30)))
     assert(last[1] == "closed")
@@ -375,7 +375,7 @@ local function test_many_producers_and_consumers_lose_and_repeat_nothing()
       makers[#makers + 1] = Poll.spawn(function()
         for n = 1, per do
           assert(queue:send(p * 1000 + n))
-          if n % 7 == 0 then assert(Poll.delay(0)) end
+          if n % 7 == 0 then assert(Clock.sleep(0)) end
         end
       end)
     end
@@ -388,7 +388,7 @@ local function test_many_producers_and_consumers_lose_and_repeat_nothing()
           if item == false then return end
           seen[item] = (seen[item] or 0) + 1
           local n = item % 1000
-          if n % 5 == 0 then assert(Poll.delay(0)) end
+          if n % 5 == 0 then assert(Clock.sleep(0)) end
         end
       end)
     end

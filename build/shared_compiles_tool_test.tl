@@ -362,7 +362,7 @@ local Sqlite = require("cosmic.sqlite")
 local db = assert(Sqlite.open(%q, { writable = true }))
 assert(db:exec("BEGIN IMMEDIATE"))
 assert(Fs.write(%q, ""))
-assert(Clock.sleep_ns(500 * 1000000))
+assert(Clock.sleep(500 * 1000000))
 assert(db:exec("COMMIT"))
 assert(db:close())
 return 0
@@ -372,7 +372,7 @@ return 0
   local waited = 0
   while not assert(Fs.status(held)).exists do
     assert(waited < 10000, "the holder never took the lock")
-    assert(Clock.sleep_ns(Clock.ms(10)))
+    assert(Clock.sleep(Clock.ms(10)))
     waited = waited + 10
   end
   local cache, trouble = shared_compiles.open(path)

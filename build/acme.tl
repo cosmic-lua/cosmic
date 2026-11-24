@@ -84,7 +84,7 @@ local record verb
     run: function(argv: {string}): boolean, string
     --- Sends a request to the ACME server: [`Http.request`].
     request: Acme.Request
-    --- Pauses between polls, for nanoseconds: [`Clock.sleep_ns`] when nil.
+    --- Pauses between polls, for nanoseconds: [`Clock.sleep`] when nil.
     pause?: function(ns: integer): boolean, string
   end
 end

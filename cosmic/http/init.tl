@@ -79,7 +79,7 @@ local function pump(): boolean, string
     if why ~= nil and why.kind == "cancelled" then return false, why.message end
   else
     -- A wait of 0 too, so a loop of pumps lets the other tasks run.
-    local waited, why = Poll.delay(wait)
+    local waited, why = Clock.sleep(wait)
     if not waited then return false, why.message end
   end
   local pumped, why = http.pump()
@@ -1045,15 +1045,11 @@ local function pause(ns: integer, cancelled: (function(): boolean)?): boolean, s
     local left = ns - (Clock.monotonic_ns() - began)
     if left <= 0 then return true, "" end
     local slice = math.min(left, PAUSE_SLICE)
-    if in_task then
-      local waited, why = Poll.delay(slice)
-      if not waited then return false, why.message end
-    end
-    local slept = true
-    if not in_task then
-      local done, _ = Clock.sleep_ns(slice)
-      slept = done
-    end
+    -- A task's wait ends early when the task is cancelled. A sleep of the
+    -- thread resumes through signals, and ends early only where the system
+    -- refuses it, which ends the pause.
+    local slept, why = Clock.sleep(slice)
+    if not slept and in_task then return false, why.message end
     if guard ~= nil then
       local _ = guard:cancelled()
       if guard.state.closed or guard.state.read ~= stamp then return false, "interrupted" end

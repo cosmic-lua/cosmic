@@ -193,7 +193,7 @@ local function slow_tool(name: string, steps: integer, seen: mut {string}): Serv
       for i = 1, steps do
         call.progress(i, steps, "step " .. tostring(i))
         call.progress(i, steps, "the same again, dropped")
-        local ok, why = Poll.delay(Clock.ms(20))
+        local ok, why = Clock.sleep(Clock.ms(20))
         if not ok or call.cancelled() then
           local said = "cancelled: " .. tostring(why)
           seen[#seen + 1] = said
@@ -227,12 +227,12 @@ local function test_progress_comes_as_events_and_a_closed_stream_cancels()
     local caller = Poll.spawn(function()
       local _, _ = session:call("long", {}, { on_progress = function(_: Mcp.Progress) end })
     end)
-    assert(Poll.delay(Clock.ms(50)))
+    assert(Clock.sleep(Clock.ms(50)))
     caller:cancel()
     local _, _ = caller:join(WAIT)
     for _ = 1, 500 do
       if #seen > 0 then break end
-      assert(Poll.delay(Clock.ms(10)))
+      assert(Clock.sleep(Clock.ms(10)))
     end
     assert(#seen == 1 and assert(seen[1]):find("cancelled", 1, true) ~= nil, table.concat(seen, "; "))
   end)
@@ -257,7 +257,7 @@ local function test_a_subscription_comes_as_events_and_ends_with_the_server()
     end)
     for _ = 1, 2000 do
       if agreed ~= nil then break end
-      assert(Poll.delay(Clock.ms(10)))
+      assert(Clock.sleep(Clock.ms(10)))
     end
     local a = assert(agreed, "the acknowledgment comes first")
     assert(a.tools == true and a.prompts == false and #assert(a.uris) == 0, "it agrees only to what it offers")
@@ -265,7 +265,7 @@ local function test_a_subscription_comes_as_events_and_ends_with_the_server()
     instance:update({ tools = { count_tool() } })
     for _ = 1, 2000 do
       if #notices > 0 then break end
-      assert(Poll.delay(Clock.ms(10)))
+      assert(Clock.sleep(Clock.ms(10)))
     end
     instance:end_subscriptions()
     assert(listener:join(WAIT))

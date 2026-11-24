@@ -56,15 +56,15 @@ end
 
 local function test_the_clocks_read_and_the_monotonic_one_does_not_go_back()
   local before = Clock.monotonic_ns()
-  assert(Clock.sleep_ns(Clock.ms(1)))
+  assert(Clock.sleep(Clock.ms(1)))
   local after = Clock.monotonic_ns()
   assert(after - before >= Clock.ms(1), tostring(after - before))
   -- 2020-09-13 in nanoseconds: any host's wall clock is past it.
   assert(Clock.now_ns() > 1600000000 * NS)
 end
 
-local function test_sleep_ns_refuses_a_negative_span()
-  Test.raises(function() Clock.sleep_ns(-1) end)
+local function test_sleep_refuses_a_negative_span()
+  Test.raises(function() local _, _ = Clock.sleep(-1) end)
 end
 
 --- Work that keeps the thread running for about `span` nanoseconds of wall time.
@@ -99,7 +99,7 @@ end
 
 local function test_cpu_ns_does_not_count_a_sleep()
   local wall_before, cpu_before = Clock.monotonic_ns(), Clock.cpu_ns()
-  assert(Clock.sleep_ns(Clock.ms(200)))
+  assert(Clock.sleep(Clock.ms(200)))
   local wall, cpu = Clock.monotonic_ns() - wall_before, Clock.cpu_ns() - cpu_before
   assert(wall >= Clock.ms(200), tostring(wall))
   assert(cpu < wall // 4, "slept " .. tostring(wall) .. " ns of wall time and used " .. tostring(cpu) .. " ns of CPU")
@@ -109,7 +109,7 @@ local function test_a_span_in_a_loop_adds_each_pass_to_its_name()
   local spans: Clock.Spans = {}
   for _ = 1, 3 do
     local _pass <close> = Clock.span(spans, "pass")
-    assert(Clock.sleep_ns(Clock.ms(2)))
+    assert(Clock.sleep(Clock.ms(2)))
   end
   local pass = assert(spans["pass"])
   assert(pass.count == 3, tostring(pass.count))
@@ -135,7 +135,7 @@ local function test_an_outer_span_holds_the_time_of_the_spans_inside_it()
     local _outer <close> = Clock.span(spans, "outer")
     for _ = 1, 2 do
       local _inner <close> = Clock.span(spans, "inner")
-      assert(Clock.sleep_ns(Clock.ms(2)))
+      assert(Clock.sleep(Clock.ms(2)))
     end
   end
   local outer, inner = assert(spans["outer"]), assert(spans["inner"])
