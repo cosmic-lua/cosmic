@@ -894,7 +894,7 @@ which list the call returned.
 
 A type parameter with a bound is never nil, since no bound holds `nil`.
 `T is Some` says only that: it takes every type that is never nil, and
-gives the body nothing more. A generic function answers `(T) | (nil, E)`
+gives the body nothing more. A generic function returns `(T) | (nil, E)`
 with it, and `(T | false) | (nil, E)` where "none" is a value. A type
 that may be nil, or a type parameter with no bound, meets no `Some`
 (`bound_unmet`).

@@ -26,8 +26,9 @@ local record Images
   end
 end
 
--- Unlike the rest of the module, which answers a failing status, a missing
--- variable raises: it is the workflow's mistake, not docker's.
+-- Unlike the rest of the module, whose functions return a failing
+-- status, a missing variable raises: it is the workflow's mistake, not
+-- docker's.
 local required <const> = StepEnv.required
 
 --- The image's name on GHCR: `ghcr.io/<repository>-ci-<image>`, lowercase,
@@ -99,9 +100,9 @@ local function docker_environment(env: {string:string}): {string:string}
   return out
 end
 
---- Runs `docker words...` from the checkout's root, and answers 0, or a
+--- Runs `docker words...` from the checkout's root, and returns 0, or a
 --- failing status and why; `input` goes to its stdin, and `capture`
---- answers its stdout as well.
+--- makes it return its stdout as well.
 local function docker(env: {string:string}, words: {string},
                       input?: string, capture?: boolean): integer, string, string
   local found, missing = Proc.find("docker", env["PATH"])

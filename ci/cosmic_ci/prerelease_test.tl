@@ -324,10 +324,10 @@ local record Release
   mut target?: string
 end
 
---- A repository standing in for GitHub's, answering a client's `send`
---- and `fetch` from tables, and a release staged for it. `fail` holds
---- the faults to inject: ref (the tag probe answers 500), ref-transport
---- (it gets no answer), transport (nothing is answered), create-ref (the
+--- A repository standing in for GitHub's, whose tables a client's `send`
+--- and `fetch` read, and a release staged for it. `fail` holds the
+--- faults to inject: ref (the tag probe gets 500), ref-transport (it
+--- gets no response), transport (no request gets one), create-ref (the
 --- POST of a tag is refused 403 with this message, or GitHub's to a
 --- GITHUB_TOKEN when empty) and edit-draft (the PATCH leaves the draft
 --- flag).
@@ -342,7 +342,7 @@ local record Repo
   releases: mut {Release}
   mut assets: integer
   mut compare: {string}
-  --- The committer date the API answers for the commit.
+  --- The committer date the API sends for the commit.
   mut committed: string
   fail: mut {string:string}
   --- Each request as "METHOD path" ("UPLOAD name" for an upload).
@@ -486,7 +486,7 @@ local function serve(r: Repo, request: GithubApi.Request): GithubApi.Reply?, str
   local by_tag = rest:match("^releases/tags/(.+)$")
   if by_tag ~= nil and method == "GET" then
     if r.fail["by-tag"] then return reply(500, said("Server Error")), "" end
-    -- The get-by-tag endpoint answers a published release alone.
+    -- The get-by-tag endpoint finds a published release alone.
     for _, rel in ipairs(r.releases) do
       if rel.tag == by_tag and not rel.draft then return reply(200, release_json(rel)), "" end
     end
@@ -812,7 +812,7 @@ local function test_publish_refuses_a_tag_naming_another_commit(tmp: string)
 end
 
 local function test_publish_refuses_api_failures_other_than_404(tmp: string)
-  -- ref-transport fails only the tag probe, with no answer at all: the
+  -- ref-transport fails only the tag probe, with no response at all: the
   -- lookups by tag and of the list before it succeed, so the probe itself
   -- refuses. by-tag fails the lookup by tag with a 500, which must not
   -- read as no published release.

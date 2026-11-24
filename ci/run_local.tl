@@ -32,7 +32,7 @@ end
 
 local current: Local.Calls = {
   child_run = function(argv: {string}, options?: Child.Options): Child.Result?, string
-    -- In words, as the pinned release's Child.run answers them too.
+    -- In words, as the pinned release's Child.run returns them too.
     local result, why = Child.run(argv, options or { timeout_ns = Child.FOREVER })
     if result == nil then return nil, tostring(why) end
     return result, ""
@@ -106,7 +106,7 @@ local class Opened
   end
 end
 
---- What [`execute`] answered, kept where the function that runs it under `pcall` can read it.
+--- What [`execute`] returned, kept where the function that runs it under `pcall` can read it.
 local record Ended
   mut status: integer
 end

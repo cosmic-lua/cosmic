@@ -19,7 +19,7 @@
 --- RUN_ID, BRANCH and HEAD_SHA, the triggering run's
 --- (github.event.workflow_run),
 --- and REPOSITORY, with the client GH_TOKEN makes. A missing input, a
---- request GitHub refuses or one that gets no answer fails the job.
+--- request GitHub refuses or one that gets no response fails the job.
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Plural = require("cosmic_ci.plural")
@@ -46,7 +46,7 @@ local record PrereleaseFollow
   end
 end
 
---- What `follow` reads of a `.../runs` answer.
+--- What `follow` reads of a `.../runs` response.
 local record RunItem
   event: string
   created_at: string
@@ -56,7 +56,7 @@ local record RunsAnswer
 end
 local RUNS <const> = Shape.record_of("RunsAnswer")
 
---- What `follow` reads of an `.../issues` answer.
+--- What `follow` reads of an `.../issues` response.
 local record IssueItem
   number: integer
   title: string

@@ -59,7 +59,7 @@ local function test_header_names_the_seed_and_iterations()
       " and its iteration under this seed.\n")
 end
 
---- A function answering `text` `size` bytes at a time, then "".
+--- A function returning `text` `size` bytes at a time, then "".
 local function pieces(text: string, size: integer): function(): string
   local at: Count = { value = 1 }
   return function(): string

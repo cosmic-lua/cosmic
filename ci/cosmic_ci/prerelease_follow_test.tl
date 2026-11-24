@@ -5,18 +5,18 @@ local base <const> = "https://api.test/repos/owner/repo"
 --- 2026-11-23T12:00:00Z, in seconds since the epoch.
 local noon <const> = 1795435200
 
---- What GitHub answers a request of `method` to `path` with where it
---- takes it.
+--- The status GitHub responds with to a request of `method` to `path`
+--- where it takes it.
 local function accepted(method: string, path: string): integer
   if method == "PATCH" then return 200 end
   if path:find("/dispatches", 1, true) ~= nil then return 204 end
   return 201
 end
 
---- A client that answers `runs` for the list of ci.yml's runs, `issues`
---- (none where nil) for the list of open issues, `status` for anything
---- else (where nil, what GitHub answers where it takes it), and records
---- each request as "METHOD path body".
+--- A client whose `send` returns `runs` for the list of ci.yml's runs,
+--- `issues` (none where nil) for the list of open issues, `status` for
+--- anything else (where nil, the status GitHub responds with where it
+--- takes it), and records each request as "METHOD path body".
 local function fake(runs: string, status?: integer, issues?: string): GithubApi.Client, {string}
   local calls: mut {string} = {}
   return {
@@ -108,7 +108,7 @@ local function test_a_full_run_that_failed_once_is_tried_once_more()
   end
 end
 
---- A request GitHub refuses fails the command, naming the answer.
+--- A request GitHub refuses fails the command, naming the status.
 local function test_a_refused_request_fails_the_command()
   local client = fake(runs_text(), 403)
   local ok, why = pcall(PrereleaseFollow.follow, context(client, "schedule", "failure", 1))
@@ -160,7 +160,7 @@ local function test_a_green_push_closes_the_issue()
   assert(#calls == 6, table.concat(calls, "|"))
 end
 
---- A refused issue request fails the command, naming the answer; after
+--- A refused issue request fails the command, naming the status; after
 --- a green push, only once the full run is started.
 local function test_a_refused_issue_fails_the_command()
   local client = fake(runs_text(), 403)

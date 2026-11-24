@@ -298,7 +298,7 @@ local function test_launcher_cache_policy_and_integrity(tmp: string)
   Fixture.contains(short.err, "length differs; repairing")
   assert(Fixture.hash(core) == core_hash, "short repair core digest differs")
 
-  -- A launcher arm is the quoted `uname -sm` answer it selects.
+  -- A launcher arm is the quoted `uname -sm` output it selects.
   local host = if ctx.target == "aarch64-macos" then "'Darwin arm64'" else
     (if ctx.target == "aarch64-linux-musl" then "'Linux aarch64'" else "'Linux x86_64'" end) end
   local artifact = Fixture.read(ctx.artifact)

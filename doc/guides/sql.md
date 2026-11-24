@@ -44,8 +44,8 @@ stops the wait. A file that readers share beside one writer opens in
 write-ahead mode: `Sqlite.open(path, { writable = true, wal = true,
 synchronous = "normal" })`. `wait` sets another wait, in nanoseconds.
 
-`db:rows(sql, values)` answers every row a query yields; `db:one(sql,
-values)` answers its first, `nil` alone where it yields none, or `nil`
+`db:rows(sql, values)` returns every row a query yields; `db:one(sql,
+values)` returns its first, `nil` alone where it yields none, or `nil`
 and why: `assert(db:one("select count(*) from t")):integer(1)`. A query
 stops at its first row; a write with `returning` makes all its changes.
 

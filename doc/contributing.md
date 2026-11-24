@@ -17,7 +17,7 @@ conflict with the parent's squash.
 
 1. look for the API first. `bin/cosmic docs <words>` searches every doc
    comment and example by what it does (`cosmic docs find program path`
-   answers [`Proc.find`]). open PRs may carry it too.
+   prints [`Proc.find`]). open PRs may carry it too.
 2. cut one branch per PR, named for the change, fresh from
    `origin/main`. never reuse a branch whose PR has merged or closed, even one a
    session was started on or told to push to.
@@ -281,7 +281,7 @@ the merge's own.
 Teal ([`build/zig.tl`], ...) through [`bin/cosmic-bootstrap`], which
 fetches that release once and caches it by digest. [`bin/cosmic`] asks
 [`build/paths.tl`] for the build directory the same way.
-`COSMIC_BOOTSTRAP=<path>` makes [`bin/cosmic-bootstrap`] answer another
+`COSMIC_BOOTSTRAP=<path>` makes [`bin/cosmic-bootstrap`] use another
 cosmic instead, such as the tree's own tool (by its path in the build
 directory, which `bin/cosmic build` prints; [`bin/cosmic`] itself is
 refused), for all of them and for CI's driver step alike.

@@ -103,7 +103,7 @@ local record Event
 end
 local EVENT <const> = Shape.record_of("Event")
 
---- What `follow` reads of a `.../actions/runs` answer.
+--- What `follow` reads of a `.../actions/runs` response.
 local record RunRepository
   full_name: string
 end

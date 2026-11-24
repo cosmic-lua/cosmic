@@ -9,7 +9,7 @@
 --- holds the file it downloaded to the same before its save.
 ---
 --- To seal is to drop the rows the run did not make or take (stamped before
---- SINCE, in Unix seconds; every row a run of a fresh tree answered is one
+--- SINCE, in Unix seconds; every row a run of a fresh tree used is one
 --- of those), copy the rest into the file itself, and leave it a file of one
 --- piece (`journal_mode = DELETE`), small enough to keep per commit. A file
 --- with no row, or no such table, is refused: a save of it would be the

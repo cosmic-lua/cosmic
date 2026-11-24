@@ -167,10 +167,11 @@ local function test_plain_values_bind_by_their_type()
   assert(db:close())
 end
 
---- A gap in the list, or a position past the last parameter, answers why
---- (RANGE); a value of no shape a parameter takes, or a key that is no
---- position, raises at the caller. Either way the statement is released,
---- so the handle still closes and the same SQL runs again.
+--- With a gap in the list, or a position past the last parameter, the
+--- call fails and says why (RANGE); a value of no shape a parameter
+--- takes, or a key that is no position, raises at the caller. Either
+--- way the statement is released, so the handle still closes and the
+--- same SQL runs again.
 local function test_plain_values_refused_release_the_statement()
   local db = assert(Sqlite.memory())
   local sql = "SELECT ?1, ?2"

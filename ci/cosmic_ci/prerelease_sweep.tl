@@ -13,7 +13,7 @@
 ---
 --- It reads REPOSITORY and GITHUB_OUTPUT from its environment, with the
 --- client GH_TOKEN makes. A missing input, a request GitHub refuses or
---- one that gets no answer fails the job.
+--- one that gets no response fails the job.
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local GithubApi = require("cosmic_ci.github_api")
@@ -33,7 +33,7 @@ local record PrereleaseSweep
   end
 end
 
---- What `sweep` reads of a run in a `.../runs` answer.
+--- What `sweep` reads of a run in a `.../runs` response.
 local record Actor
   login: string
 end
@@ -53,7 +53,7 @@ local record RunsAnswer
 end
 local RUNS <const> = Shape.record_of("RunsAnswer")
 
---- What `sweep` reads of a release in a `.../releases` answer.
+--- What `sweep` reads of a release in a `.../releases` response.
 local record ReleaseItem
   tag_name: string
 end

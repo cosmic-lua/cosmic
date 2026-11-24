@@ -13,7 +13,7 @@ local sys = require("cosmic.sys")
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 --- The environment a test's child runs with: this one's, less what
---- would change which cosmic bin/cosmic-bootstrap answers (a
+--- would change which cosmic bin/cosmic-bootstrap names (a
 --- COSMIC_BOOTSTRAP exported where the tests run is no part of them),
 --- with `extra` over it.
 local function environment(extra?: {string:string}): {string:string}
@@ -85,7 +85,7 @@ end
 
 --- Runs bin/cosmic-bootstrap under `root` as CI does, re-verifying its
 --- cache, with `extra` in its environment, asking for the release's own path (`--raw-path`): with no argument it
---- answers an entry point, which test_the_entry_point_... holds.
+--- prints an entry point, which test_the_entry_point_... holds.
 local function bootstrap(tmp: string, root: string, output: string,
                          extra?: {string:string}): Child.Result
   local env: mut {string:string} = { XDG_CACHE_HOME = tmp .. "/xdg", COSMIC_BOOTSTRAP_VERIFY = "1" }
@@ -322,7 +322,7 @@ end
 
 --- A cached cosmic is hashed again on every run, not only where
 --- COSMIC_BOOTSTRAP_VERIFY asks: one whose bytes are not the pin's is
---- replaced by a verified download before its path is answered.
+--- replaced by a verified download before its path is printed.
 local function test_bootstrap_hashes_its_cache_again_unasked(tmp: string)
   local program = assert(Proc.executable())
   local digest = Hash.hex_sha256((assert(Fs.read(program))))
@@ -410,14 +410,14 @@ local function test_bootstrap_runs_cosmic_bootstrap_in_place_of_the_pin(tmp: str
     tmp, tmp .. "/ran.out", env)
   out = assert(Fs.read(tmp .. "/ran.out"))
   assert(ran.ok and out == "ran\n" .. physical(tmp) .. "\na b\nc\n", out)
-  -- A relative one is answered absolute, for a caller that moves on.
+  -- A relative one is printed absolute, for a caller that moves on.
   env["COSMIC_BOOTSTRAP"] = "stand-in"
   local relative = call({ "/bin/sh", root .. "/bin/cosmic-bootstrap", "--raw-path" },
     tmp, tmp .. "/relative.out", env)
   out = assert(Fs.read(tmp .. "/relative.out"))
   assert(relative.ok and out:sub(1, 1) == "/" and out:find("/stand%-in\n$") ~= nil, out)
   -- With COSMIC_BOOTSTRAP_VERIFY, which asks for the pin's checked one,
-  -- a stand-in is refused rather than answered unchecked.
+  -- a stand-in is refused rather than printed unchecked.
   env["COSMIC_BOOTSTRAP"], env["COSMIC_BOOTSTRAP_VERIFY"] = cosmic, "1"
   local verified = call({ "/bin/sh", root .. "/bin/cosmic-bootstrap" },
     tmp, tmp .. "/verified.out", env)
@@ -448,7 +448,7 @@ end
 
 --- Each tool behind bin/ runs its own Teal standalone, with the words it
 --- was given, in the caller's directory, on the cosmic bin/cosmic-bootstrap
---- answers: seen through a stand-in, from another directory.
+--- names: seen through a stand-in, from another directory.
 local function test_each_tool_runs_its_script_through_the_bootstrap(tmp: string)
   local root, _ = bootstrap_root(tmp, string.rep("f", 40), string.rep("0", 64))
   local cosmic = stand_in(tmp)
@@ -582,7 +582,7 @@ local function test_standalone_runs_only_the_files_the_list_names(tmp: string)
   assert(not ok and out:find("ci/bootstrap-files.txt, which lists the files of the checkout that may run --standalone", 1, true) ~= nil, out)
 end
 
---- What `$(bin/cosmic-bootstrap)` answers is an entry point, which holds the same list and then runs the release without
+--- What `$(bin/cosmic-bootstrap)` expands to is an entry point, which holds the same list and then runs the release without
 --- fetching it again, in an environment of its own cache and with COSMIC_BOOTSTRAP_VERIFY set; `--raw-path` is the
 --- release itself.
 local function test_the_entry_point_holds_the_list_and_the_raw_path_is_asked_for_by_name(tmp: string)

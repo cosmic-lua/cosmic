@@ -244,7 +244,7 @@ function Prerelease.smoke_policy(path: string, cache: string): Sandbox.Policy
   }
 end
 
---- Runs the tool at `path` with `help`, under [`Prerelease.smoke_policy`], and raises unless it answers.
+--- Runs the tool at `path` with `help`, under [`Prerelease.smoke_policy`], and raises unless it succeeds.
 function Prerelease.smoke(path: string)
   local cache = assert(Fs.mkdtemp("cosmic-release-smoke-"))
   -- Seatbelt refuses a read of an ungranted start directory; the cache is granted.
@@ -342,9 +342,10 @@ local function api_object(p: Prerelease.Publish, path: string): string
   return object
 end
 
---- Whether the API holds `path`: true when it answers 2xx, false for an
---- HTTP 404 and nothing else. Every other failure, a transport error
---- or another status, raises, so it can never lead to creating anything.
+--- Whether the API holds `path`: true when it responds with a 2xx
+--- status, false for an HTTP 404 and nothing else. Every other failure,
+--- a transport error or another status, raises, so it can never lead to
+--- creating anything.
 local function api_probe(p: Prerelease.Publish, path: string): boolean
   local reply, why = GithubApi.request(p.client, "GET", path)
   assert(reply ~= nil, why)
@@ -368,7 +369,7 @@ function Prerelease.commit_day(date: string): string
   return year .. month .. day
 end
 
---- A commit as the API answers it: the committer date is all `publish` reads.
+--- A commit as the API sends it: the committer date is all `publish` reads.
 local record CommitPerson
   date?: any
 end
@@ -392,11 +393,13 @@ local function committed_day(p: Prerelease.Publish): string
   return Prerelease.commit_day(date)
 end
 
---- The pages of 100 the releases list serves: GitHub stops at its 1000th,
---- a page past that answering 422 or not by the server it reaches.
+--- The pages of 100 the releases list serves: GitHub stops at its 1000th.
+--- Whether a request for a page past that gets 422 depends on the server
+--- it reaches.
 local list_pages <const> = 10
 
---- What a release answered by tag is read for: its id, which must be an integer.
+--- What a release fetched by tag is read for: its id, which must be an
+--- integer.
 local record ReleaseId
   id?: any
 end
@@ -404,7 +407,7 @@ local RELEASE_ID <const> = Shape.record_of("ReleaseId")
 
 --- The ids of the releases tagged with `p`'s tag, a draft's among them.
 --- The list of releases serves only its first 1000, so it is not read
---- whole: a published release is asked for by its tag, which answers
+--- whole: a published release is asked for by its tag, which finds
 --- none but a published one, and the list is read only while its
 --- releases are drafts, which it lists before every other
 --- ([`Prerelease.draft_ids`] raises where it does not), so the first page
@@ -452,7 +455,7 @@ local record GitObject
   sha?: any
   type?: any
 end
---- A ref or an annotated tag as the API answers it.
+--- A ref or an annotated tag as the API sends it.
 local record GitRef
   ref?: any
   object?: GitObject
@@ -493,7 +496,7 @@ local function verify_tag(p: Prerelease.Publish)
   assert(sha == p.commit, tag .. " names another commit")
 end
 
---- The repository as the API answers a GET of it.
+--- The repository as the API sends it for a GET.
 local record Repository
   default_branch?: any
 end
@@ -503,7 +506,7 @@ local REPOSITORY <const> = Shape.record_of("Repository")
 local record ChangedFile
   filename?: any
 end
---- A compare of two commits as the API answers it.
+--- A compare of two commits as the API sends it.
 local record Comparison
   files?: {ChangedFile}
 end
@@ -569,7 +572,7 @@ local record AssetRow
   name?: any
   id?: any
 end
---- A release as GET releases/ID answers it.
+--- A release as the API sends it for GET releases/ID.
 local record ReleaseView
   prerelease?: any
   draft?: any
@@ -578,8 +581,8 @@ local record ReleaseView
 end
 local RELEASE_VIEW <const> = Shape.record_of("ReleaseView")
 
---- The release `id`, as GET releases/ID answers: by id, not by tag, as
---- the by-tag endpoint finds no draft.
+--- The release `id`, as the API sends it for GET releases/ID: by id, not
+--- by tag, as the by-tag endpoint finds no draft.
 local function view(p: Prerelease.Publish, id: integer): ReleaseView
   local path = "repos/" .. p.repository .. "/releases/" .. tostring(id)
   local release, why = RELEASE_VIEW:decode_into(api_object(p, path))
@@ -609,7 +612,7 @@ local function assets_of(release: ReleaseView): {string}, {string:integer}
   return names, ids
 end
 
--- Not verified against a live release: that GitHub answers an asset
+-- Not verified against a live release: that GitHub responds to an asset
 -- request made as bytes with a redirect to a signed URL on another host
 -- (or the bytes themselves, which `download` also takes), and that the
 -- uploads host takes a body of ~17 MB sent without `Expect`.
