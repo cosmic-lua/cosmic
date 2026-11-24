@@ -185,7 +185,7 @@ local record test
   --- Every test id (`"path name"`) whose standing verdict credits a
   --- given run, by that run's `run_at_ns`: what this run still owes
   --- `hits`, gathered while replaying verdicts and resolved against
-  --- `coverage_by_test` in one query per run credited, after the loop.
+  --- `hits_by_test` in one query per run credited, after the loop.
   type Credited = mut {integer: mut {string}}
 
   --- What calls of [`test.decode_hits`] have folded. The first key is a module's head in a row of hits (its path and
@@ -454,10 +454,10 @@ local kept_runs = 10
 local kept_snapshots = 10
 
 --- Drops every verdict no run has relied on lately, the
---- `coverage_by_test` rows that only such verdicts credited, every
+--- `hits_by_test` rows that only such verdicts credited (and the old `coverage_by_test` rows alike), every
 --- `coverage` snapshot older than the newest `kept_snapshots` runs,
---- and any `test_runs` row neither table references any more. A
---- standing verdict's `coverage_by_test` rows are never dropped out
+--- and any `test_runs` row no table references any more. A
+--- standing verdict's rows are never dropped out
 --- from under it: only a verdict already gone can lose them.
 function test.prune_history(handle: Sqlite.Handle, run: integer): boolean, string
   local dropped, drop_trouble = handle:run(
@@ -466,8 +466,8 @@ function test.prune_history(handle: Sqlite.Handle, run: integer): boolean, strin
     return false, tostring(drop_trouble)
   end
   local pruned_credits, credits_trouble = handle:exec(
-    "DELETE FROM coverage_by_test WHERE ran_at_ns NOT IN " ..
-      "(SELECT run_at_ns FROM verdicts)")
+    "DELETE FROM hits_by_test WHERE ran_at_ns NOT IN (SELECT run_at_ns FROM verdicts); " ..
+      "DELETE FROM coverage_by_test WHERE ran_at_ns NOT IN (SELECT run_at_ns FROM verdicts)")
   if not pruned_credits then
     return false, tostring(credits_trouble)
   end
@@ -483,6 +483,7 @@ function test.prune_history(handle: Sqlite.Handle, run: integer): boolean, strin
   end
   local pruned_runs, runs_trouble = handle:exec(
     "DELETE FROM test_runs WHERE ran_at_ns NOT IN (SELECT ran_at_ns FROM coverage) " ..
+      "AND ran_at_ns NOT IN (SELECT ran_at_ns FROM hits_by_test) " ..
       "AND ran_at_ns NOT IN (SELECT ran_at_ns FROM coverage_by_test)")
   if not pruned_runs then return false, tostring(runs_trouble) end
   return true, ""
@@ -525,11 +526,32 @@ local function code_identities(stripped: {string:string}): {string:string}
   return out
 end
 
---- One module's line of a test's row of hits, as `coverage_by_test` and
---- the shared verdicts hold it: the path, a space, what its lines are
+--- The lines `lines` (ascending) as a row writes them: comma-separated, each run of adjacent lines as its first, a
+--- `+` and how many follow it (`5+3` is lines 5 to 8), and a line alone as itself. Most of the lines a test hits are
+--- in runs, so a row holds some four times fewer numbers to read than one line a number would.
+local function runs_of(lines: {integer}): string
+  local out: mut {string} = {}
+  local count = #lines
+  local at = 1
+  while at <= count do
+    local first = assert(lines[at])
+    local final = first
+    local next_at = at + 1
+    while next_at <= count and lines[next_at] == final + 1 do
+      final = final + 1
+      next_at = next_at + 1
+    end
+    out[#out + 1] = if final > first then tostring(first) .. "+" .. tostring(final - first) else tostring(first) end
+    at = next_at
+  end
+  return table.concat(out, ",")
+end
+
+--- One module's line of a test's row of hits, as `hits_by_test` holds it:
+--- the path, a space, what its lines are
 --- numbered in (`named`: [`test.identities`]' entry, "-" for a path that is
 --- no module, or [`code_identities`]' for a pure store's import), a
---- tab, then the lines it hit, ascending and comma-separated. A path
+--- tab, then the lines it hit, ascending, as [`runs_of`] writes them. A path
 --- holds no tab or newline but may hold a space, so the text is read as the
 --- last word alone, and only as `identity_digits` hex digits or "-"
 --- ([`text_of`]). A line numbers what a text held: a
@@ -541,7 +563,7 @@ end
 --- ordinals, each past [`lua_tail.ordinal_base`], as its worker reported
 --- them, which no text moves: the decoding run places them.
 local function row_line(named: string, path: string, lines: {integer}): string
-  return path .. " " .. named .. "\t" .. table.concat(lines, ",") .. "\n"
+  return path .. " " .. named .. "\t" .. runs_of(lines) .. "\n"
 end
 
 --- The text a lines' head names (as [`row_line`] writes it): a module's
@@ -561,6 +583,16 @@ end
 --- The number each run of digits [`test.decode_hits`] has met spells: the rows of a run name millions of lines in a
 --- few thousand different numbers, each of which `tonumber` then reads once.
 local numbers_met: mut {string:integer} = {}
+
+--- The number `digits` spells, read once a process ([`numbers_met`]).
+local function number_of(digits: string): integer
+  local number = numbers_met[digits]
+  if number == nil then
+    number = math.tointeger(tonumber(digits)) or 0
+    numbers_met[digits] = number
+  end
+  return number
+end
 
 --- The first line of a row whose modules' lines are written as distances, each from the one before it, as the
 --- shared verdicts keep them ([`build.shared_verdicts`]): a row this checkout took from there is kept as it came,
@@ -607,42 +639,41 @@ local function fold_row(encoded: string, distances: boolean, hits: Coverage.Hits
       local own_text = not numbered and named == known
       local per_line = hits[path]
       local last = 0
-      for digits in lines:gmatch("%d+") do
-        local line = numbers_met[digits]
-        if line == nil then
-          line = math.tointeger(tonumber(digits)) or 0
-          numbers_met[digits] = line
-        end
-        if distances then
-          last = last + line
-          line = last
-        end
-        local at: integer? = nil
-        if as_written or (own_text and line <= lua_tail.ordinal_base) then
-          at = line
-        elseif numbered then
-          at = if placing ~= nil and line > lua_tail.ordinal_base then
-            placing[line - lua_tail.ordinal_base] else nil end
-          if at == nil then
-            if placing ~= nil and line > lua_tail.ordinal_base then
-              unplaced = "instruction " .. tostring(line - lua_tail.ordinal_base) .. " is past the module's " ..
-                tostring(#placing)
-            elseif placing ~= nil then
-              unplaced = "line " .. tostring(line) .. " is not an instruction's number"
+      -- A line alone, or a run of them as [`runs_of`] writes it; where lines are distances, a run's first is its
+      -- distance from the line before it, the last of the run before.
+      for first_digits, more_digits in lines:gmatch("(%d+)%+?(%d*)") do
+        local first = number_of(first_digits)
+        if distances then first = last + first end
+        local final = if more_digits == "" then first else first + number_of(more_digits) end
+        last = final
+        for line = first, final do
+          local at: integer? = nil
+          if as_written or (own_text and line <= lua_tail.ordinal_base) then
+            at = line
+          elseif numbered then
+            at = if placing ~= nil and line > lua_tail.ordinal_base then
+              placing[line - lua_tail.ordinal_base] else nil end
+            if at == nil then
+              if placing ~= nil and line > lua_tail.ordinal_base then
+                unplaced = "instruction " .. tostring(line - lua_tail.ordinal_base) .. " is past the module's " ..
+                  tostring(#placing)
+              elseif placing ~= nil then
+                unplaced = "line " .. tostring(line) .. " is not an instruction's number"
+              end
+              left = "were not placed at its lines: " .. unplaced
+              stale[path] = left
             end
-            left = "were not placed at its lines: " .. unplaced
+          else
+            left = test_report.other_text
             stale[path] = left
           end
-        else
-          left = test_report.other_text
-          stale[path] = left
-        end
-        if at ~= nil then
-          if per_line == nil then
-            per_line = {}
-            hits[path] = per_line -- checked: view_written
+          if at ~= nil then
+            if per_line == nil then
+              per_line = {}
+              hits[path] = per_line -- checked: view_written
+            end
+            per_line[at] = true -- checked: view_written
           end
-          per_line[at] = true -- checked: view_written
         end
       end
       if met ~= nil then met[lines] = left end
@@ -715,7 +746,7 @@ end
 -- TODO: have [`Coverage.Hits`] write its lines through, so `hits` here and in [`take_hits`] can be written, once
 -- `Hits` in cosmic/internal/debug.d.tl is `{string: mut {integer: boolean}}`.
 
---- Resolves every run `credited` names against `coverage_by_test`,
+--- Resolves every run `credited` names against `hits_by_test`,
 --- folding the lines its named tests hit into `hits`: only the run-wide
 --- union of hit lines per module matters to [`write_coverage`], never
 --- which test hit which line. One query per run credited, each naming
@@ -738,7 +769,7 @@ local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
       args[#args + 1] = text(id)
     end
     local rows, trouble = handle:text_rows(
-      "SELECT hits FROM coverage_by_test WHERE ran_at_ns = ?1 " ..
+      "SELECT hits FROM hits_by_test WHERE ran_at_ns = ?1 " ..
         "AND test IN (" .. table.concat(placeholders, ", ") .. ")", args)
     if rows == nil then
       return tostring(trouble)
@@ -844,7 +875,7 @@ end
 --- rather than only the latest run's numbers.
 ---
 --- Also writes, for every test that ran, which of the lines it hit into
---- `coverage_by_test`, one row a test, tagged with the test's identity
+--- `hits_by_test`, one row a test, tagged with the test's identity
 --- ("path name", as `by_test` is keyed) and its hits as [`test.take_hits`]
 --- wrote them when it finished. A test whose verdict stood is not in
 --- `by_test`, since its row from the run that produced the verdict
@@ -879,7 +910,7 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
     return 0, 0, tostring(prepare_trouble)
   end
   local per_test, test_trouble = handle:prepare(
-    "INSERT INTO coverage_by_test (ran_at_ns, test, hits) VALUES (?1, ?2, ?3)")
+    "INSERT INTO hits_by_test (ran_at_ns, test, hits) VALUES (?1, ?2, ?3)")
   if per_test == nil then
     coverage:close()
     return 0, 0, tostring(test_trouble)
@@ -1077,7 +1108,7 @@ local function share(rec: Recording, m: Module, name: string, id: string,
   end
 end
 
---- A module's hit lines as a row of `coverage_by_test` holds them
+--- A module's hit lines as a row of `hits_by_test` holds them
 --- ([`row_line`]), kept in `spelled` by the table
 --- [`worker.decode`] shares among the reports that held them.
 local function spell(spelled: mut {{integer:boolean}:string}, path: string, -- declared: key_type
@@ -1101,7 +1132,7 @@ end
 --- Folds the hits of a finished worker, those its load made and those its
 --- test did (the tables [`worker.decode`] shares, never changed here), into
 --- `hits` but for the modules `unowned` names (the core's), and answers the
---- test's own `coverage_by_test` row, a [`row_line`] a module, each
+--- test's own `hits_by_test` row, a [`row_line`] a module, each
 --- naming the text `identities` says it is, and a module the load and the
 --- test both hit on a line of each.
 ---
