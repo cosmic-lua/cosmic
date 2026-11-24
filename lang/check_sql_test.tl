@@ -1,5 +1,5 @@
---- SQL sent to a handle opened with a schema ([`Sqlite.schema`]) is read against that schema: SQLite prepares it at
---- check time, so a table or column the schema lacks, and a values list of the wrong length, are found where written.
+--- SQL sent to a handle of a `local schema` is read against that schema: SQLite prepares it at check time, so a
+--- table or column the schema lacks, and a values list of the wrong length, are found where written.
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 
@@ -45,7 +45,7 @@ return Sqlite
 local MODULES <const> = { ["cosmic.sqlite"] = SQLITE }
 
 local HEAD <const> = 'local Sqlite = require("cosmic.sqlite")\n' ..
-  'local Notes <const> = Sqlite.schema("CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL)")\n' ..
+  'local schema Notes "CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL)"\n' ..
   'local db = Sqlite.memory({ schema = Notes })\n'
 
 local function accepted(source: string)
@@ -91,20 +91,51 @@ end
 local function test_a_handle_with_no_schema_and_sql_built_at_run_time_are_not_read()
   accepted('local Sqlite = require("cosmic.sqlite")\nlocal db = Sqlite.memory()\nprint(db:rows("SELECT nme FROM x"))\n')
   accepted(HEAD .. 'local function name(): string return "nme" end\nprint(db:rows("SELECT " .. name() .. " FROM notes"))\n')
-  -- a handle the program assigns again may hold another database
-  accepted('local Sqlite = require("cosmic.sqlite")\n' ..
-      'local Notes <const> = Sqlite.schema("CREATE TABLE notes (id INTEGER PRIMARY KEY)")\n' ..
-      'local db = Sqlite.memory({ schema = Notes })\ndb = Sqlite.memory()\nprint(db:rows("SELECT nme FROM x"))\n')
+  -- a handle of no schema's type, opened with one or not, may hold any database
+  accepted(HEAD .. 'local function f(other: Sqlite.Handle) print(other:rows("SELECT nme FROM x")) end\nf(db)\n')
+  accepted('local Sqlite = require("cosmic.sqlite")\nlocal Notes <const> = Sqlite.schema("CREATE TABLE notes (id INTEGER)")\n' ..
+      'local db = Sqlite.memory({ schema = Notes })\nprint(db:rows("SELECT nme FROM x"))\n')
+end
+
+--- A handle of a schema keeps its type where it goes: a parameter, a field, a return.
+local function test_a_handle_of_a_schema_is_read_where_its_type_goes()
+  says(HEAD .. 'local function f(h: Notes) print(h:rows("SELECT nme FROM notes")) end\nf(db)\n', "sql_refused",
+    "`h` is a handle of the schema `Notes`")
+  says(HEAD .. 'local record App\n  db: Notes\nend\nlocal app: App = { db = db }\nprint(app.db:rows("SELECT nme FROM notes"))\n',
+    "sql_refused", "`app.db` is a handle of the schema `Notes`")
+  -- a handle of a schema is a handle; a handle is no handle of a schema
+  accepted(HEAD .. 'local function f(h: Sqlite.Handle) print(h) end\nf(db)\n')
+  says(HEAD .. 'local h: Notes = Sqlite.memory()\nprint(h)\n', "not_assignable", "`Notes` is wanted")
+  says(HEAD .. 'local h: Notes = Sqlite.memory({ schema = Sqlite.schema("CREATE TABLE notes (id)") })\nprint(h)\n',
+    "not_assignable", "`Notes` is wanted")
+end
+
+--- A schema is a type and a value that crosses modules as any declaration does.
+local function test_a_schema_of_another_module_is_read()
+  local modules: {string: string} = {
+    ["cosmic.sqlite"] = SQLITE,
+    ["store"] = 'local Sqlite = require("cosmic.sqlite")\n' ..
+      'local schema Notes "CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL)"\n' ..
+      'local record Store\n  type Notes = Notes\n  schema: Sqlite.Schema\n  open: function(): Notes\nend\n' ..
+      'Store.schema = Notes\nfunction Store.open(): Notes return Sqlite.memory({ schema = Notes }) end\nreturn Store\n',
+  }
+  local run = Programs.run('local Store = require("store")\nlocal db = Store.open()\n' ..
+      'local function f(h: Store.Notes) print(h:run("DELETE FROM note")) end\nf(db)\n', modules)
+  local first = run.errors[1]
+  assert(first ~= nil and first.code == "sql_refused" and first.msg:find("no such table: note", 1, true) ~= nil,
+    if first ~= nil then first.code .. ": " .. first.msg else "no error" end)
 end
 
 local function test_assert_around_open_keeps_the_schema()
   says('local Sqlite = require("cosmic.sqlite")\n' ..
-      'local Notes <const> = Sqlite.schema("CREATE TABLE notes (id INTEGER PRIMARY KEY)")\n' ..
+      'local schema Notes "CREATE TABLE notes (id INTEGER PRIMARY KEY)"\n' ..
       'local db = assert(Sqlite.open("x.db", { writable = true, schema = Notes }))\nprint(db:rows("SELECT nme FROM notes"))\n',
     "sql_refused", "no such column: nme")
 end
 
 local function test_ddl_sqlite_refuses_is_refused()
+  says('local Sqlite = require("cosmic.sqlite")\nlocal schema Bad "CREATE TABLE t (x"\nprint(Sqlite, Bad)\n',
+    "sql_schema", "SQLite refuses the DDL of the schema `Bad`: incomplete input")
   says('local Sqlite = require("cosmic.sqlite")\nlocal Bad <const> = Sqlite.schema("CREATE TABLE t (x")\nprint(Bad)\n',
     "sql_schema", "SQLite refuses the schema's DDL")
   says('local Sqlite = require("cosmic.sqlite")\nlocal Bad <const> = Sqlite.schema("ATTACH \'x.db\' AS x")\nprint(Bad)\n',
@@ -144,11 +175,11 @@ local function test_sql_of_several_statements_is_refused_with_exec_as_the_fix()
 end
 
 local ROWS <const> = 'local Sqlite = require("cosmic.sqlite")\n' ..
-  'local S <const> = Sqlite.schema("CREATE TABLE docs (id INTEGER PRIMARY KEY, body TEXT NOT NULL, data BLOB, w REAL) ' ..
-  'STRICT; CREATE TABLE loose (n INTEGER, t TEXT, r REAL, b BLOB)")\n' ..
+  'local schema S "CREATE TABLE docs (id INTEGER PRIMARY KEY, body TEXT NOT NULL, data BLOB, w REAL) ' ..
+  'STRICT; CREATE TABLE loose (n INTEGER, t TEXT, r REAL, b BLOB)"\n' ..
   'local db = Sqlite.memory({ schema = S })\n'
 
---- A read of a row from SQL on a handle with a schema is held to the column's declared type.
+--- A read of a row from SQL on a handle of a schema is held to the column's declared type.
 local function test_a_read_of_the_wrong_type_is_refused()
   says(ROWS .. 'local row = db:one("SELECT id, body FROM docs")\nprint(row:text(1))\n', "sql_column",
     "column 1 is docs.id, declared INTEGER in a STRICT table, so `text` raises")
