@@ -634,6 +634,6 @@ four-producer provenance join.
 [`Url.parse`]: ../cosmic/url.tl
 [`Url.Parts`]: ../cosmic/url.tl
 [`Url.segments`]: ../cosmic/url.tl
-[`Writes.counted_read`]: ../lang/check.tl
-[`Writes.fill_of`]: ../lang/check.tl
-[`Writes.ranges_of`]: ../lang/check.tl
+[`Writes.counted_read`]: ../lang/check/init.tl
+[`Writes.fill_of`]: ../lang/check/init.tl
+[`Writes.ranges_of`]: ../lang/check/init.tl

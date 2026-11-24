@@ -632,7 +632,7 @@ function tree_checked.checked(root: string, memo?: Sqlite.Handle, phases?: {stri
     return { "reading the sources: " .. trouble }
   end
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
-    "lang/truthy.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl",
+    "lang/truthy.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check/",
     "lang/flow.tl", "lang/check_codes.tl", "lang/warnings.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl", "build/check_memo.tl", "build/driver.tl", "build/tree_checks/checked.tl", "build/tree_checks/common.tl", "build/tree_program.tl",
     "build/syntax_shape_specs.tl", "build/syntax_record_calls.tl", "build/syntax_protobuf_specs.tl", "build/syntax_record_splices.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h",
     "core/socket.h" }, "checked 6")
@@ -687,7 +687,7 @@ function tree_checked.pipeline(root: string, build_db: Sqlite.Handle, memo?: Sql
     return { "reading the derived sources: " .. written_why }
   end
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
-    "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl", "lang/flow.tl",
+    "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check/", "lang/flow.tl",
     "lang/check_codes.tl", "lang/warnings.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl",
     "build/check_memo.tl", "build/driver.tl", "build/tree_checks/checked.tl", "build/tree_checks/common.tl", "build/tree_program.tl",
     "build/syntax_shape_specs.tl", "build/syntax_record_calls.tl", "build/syntax_protobuf_specs.tl", "build/syntax_record_splices.tl", "build/pipeline.tl", "build/pipeline_check.tl",
@@ -744,7 +744,7 @@ function tree_checked.untyped(root: string, memo?: Sqlite.Handle, marking?: Ceil
     return { "reading the derived sources: " .. written_why }
   end
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
-    "lang/truthy.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl", "lang/flow.tl",
+    "lang/truthy.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check/", "lang/flow.tl",
     "lang/check_codes.tl", "lang/warnings.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl",
     "build/check_memo.tl", "build/driver.tl", "build/syntax_node.tl", "build/syntax_report.tl",
     "build/syntax_receivers.tl", "build/syntax_contracts.tl", "build/contract_rules.tl", "build/tree_checks/checked.tl", "build/tree_checks/common.tl",

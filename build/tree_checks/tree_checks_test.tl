@@ -1366,7 +1366,7 @@ local function test_a_change_to_the_code_or_the_declarations_the_declaration_che
     "build/check_memo.tl", "build/tree_checks/checked.tl", "build/tree_checks/common.tl" }
   assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.mkdirs(root .. "/build/tree_checks"))
-  assert(Fs.mkdirs(root .. "/lang"))
+  assert(Fs.mkdirs(root .. "/lang/check"))
   for _, path in ipairs(salted) do
     assert(Fs.write(root .. "/" .. path, "-- one\n"))
   end
@@ -1463,11 +1463,11 @@ end
 local function test_a_change_to_the_code_or_the_declarations_the_body_check_reads_misses_the_memo(dir: string)
   local root = dir .. "/checksalt"
   local salted: {string} = { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl", "lang/truthy.tl",
-    "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl", "lang/check_codes.tl",
+    "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check/init.tl", "lang/check/context.tl", "lang/check_codes.tl",
     "lang/prelude.d.tl", "lang/stdlib.d.tl", "build/check_memo.tl", "build/tree_checks/checked.tl", "build/tree_checks/common.tl" }
   assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.mkdirs(root .. "/build/tree_checks"))
-  assert(Fs.mkdirs(root .. "/lang"))
+  assert(Fs.mkdirs(root .. "/lang/check"))
   for _, path in ipairs(salted) do
     assert(Fs.write(root .. "/" .. path, "-- one\n"))
   end

@@ -2201,7 +2201,7 @@ local function test_the_analyzer_modules_are_closed_under_require()
     assert(listed[name] == true, name .. ", which a parse runs, is not in importer.analyzer_modules: " ..
         table.concat(modules, ", "))
   end
-  for _, name in ipairs({ "lang.check", "lang.flow", "lang.codegen", "lang.truthy", "lang.warnings", "lang.literals",
+  for _, name in ipairs({ "lang.check", "lang.check.context", "lang.check.naming", "lang.flow", "lang.codegen", "lang.truthy", "lang.warnings", "lang.literals",
       "lang.load_order", "lang.boundaries", "lang.boundary_checks", "lang.fact_wraps", "build.driver", "build.pipeline",
       "build.tree_program", "build.error_render", "build.ceilings", "build.plans" }) do
     assert(listed[name] ~= true, name .. ", which no parse runs, is in importer.analyzer_modules, so an edit to it " ..

@@ -321,11 +321,30 @@ end
 -- rows standing, though never a sibling's, which takes only rows made under its own code. A stale `shape` digest
 -- among them goes into the key a row of `declared` or `checked` is shared under, whose value is still made from the
 -- sources: a sibling takes it only where its own digest of other sources is the same.
+
+--- An entry that ends in `/` names a directory: every `.tl` file under it goes in, by its path and its text, so a
+--- module split into the files of a directory (lang/check/) is salted whole however its files are named.
 function check_memo.salt(root: string, files: {string}, version: string): string
   local parts: mut {string} = {}
   for _, file in ipairs(files) do
-    local text, _ = Fs.read(root .. "/" .. file)
-    parts[#parts + 1] = Hash.hex_sha256(text or "")
+    if file:sub(-1) == "/" then
+      local named: mut {string} = {}
+      local listed, _ = Fs.walk(root .. "/" .. file)
+      if listed ~= nil then
+        for _, inner in ipairs(listed) do
+          if inner:match("%.tl$") ~= nil then named[#named + 1] = inner end
+        end
+      end
+      table.sort(named)
+      for _, inner in ipairs(named) do
+        local text, _ = Fs.read(root .. "/" .. file .. inner)
+        parts[#parts + 1] = Hash.hex_sha256(file .. inner .. "\0" .. (text or ""))
+      end
+      parts[#parts + 1] = "/" .. tostring(#named)
+    else
+      local text, _ = Fs.read(root .. "/" .. file)
+      parts[#parts + 1] = Hash.hex_sha256(text or "")
+    end
   end
   parts[#parts + 1] = version
   return Hash.hex_sha256(table.concat(parts, "\0"))
