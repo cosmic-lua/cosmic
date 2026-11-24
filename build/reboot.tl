@@ -445,9 +445,12 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
     return closing(handle, compile_trouble),
       reboot.compiler_moved(Store.meta("compiler"), learned.compiler)
   end
-  -- The new checker goes on past a module it refuses, to tell every refusal; a tool is not written from a tree it refused.
+  -- The new checker goes on past a module it refuses, to tell every refusal; a tool is not written from a tree it refused,
+  -- unless it refused only tests and test support, which the tool carries none of ([`refusals.tests_only`]).
   local breaches = result.refused
-  if #breaches > 0 then
+  if refusals.tests_only(breaches, result.refusal_roots) then
+    log:complain(refusals.text(breaches, result.refusal_roots or {}) .. "\n" .. refusals.written_without_tests())
+  elseif #breaches > 0 then
     return closing(handle, refusals.text(breaches, result.refusal_roots or {}) ..
         "\nthe tree did not build, so no tool is written from it"), false
   end

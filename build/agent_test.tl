@@ -147,6 +147,19 @@ local function test_chat_keeps_the_cache_warm_while_it_waits()
     r.err)
 end
 
+--- --budget caps each turn; a limit it cannot read is refused before any request.
+local function test_budget_ends_a_turn()
+  local r, a = cli({ "ask", "--budget", "turns=1,cost=2.5,time=10m,tokens=1000000", "go" }, KEYED, {
+    { content = { agent_fixture.bash_call("t1", "true") }, stop_reason = "tool_use" }, text_reply("never") })
+  assert(r.code ~= 0 and #a.sent == 1 and r.err:find("the turn's budget is spent: 1 request, of 1", 1, true) ~= nil,
+    r.err)
+  for _, bad in ipairs({ "", "turns=0", "turns=1.5", "cost=-1", "cost=x", "time=10d", "time=0", "speed=1",
+      "turns=1,turns=2", "turns" }) do
+    r, a = cli({ "ask", "--budget", bad, "go" }, KEYED, {})
+    assert(r.code ~= 0 and #a.sent == 0 and r.err:find("--budget", 1, true) ~= nil, bad .. ": " .. r.err)
+  end
+end
+
 local function test_ask_and_chat()
   home = scratch()
   local r = cli({ "ask", "hello" }, {}, {})

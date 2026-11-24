@@ -111,6 +111,28 @@ local record Agent
   --- Opens one request: Http.open's work, so a test can stand in.
   type Send = function(url: string, opts: Http.Options): Reply?, string
 
+  --- The most one turn ([`Agent.Session.prompt`], or `resume`) may
+  --- spend: each field nil for no limit. The first limit reached ends the
+  --- turn for good, the tool calls of its last reply answered as
+  --- stopped, with why ([`Agent.BUDGET_SPENT`]). Tokens, cost and turns
+  --- are counted when each request comes back, so the request that
+  --- reaches a limit is the last; the time is counted from the turn's
+  --- start, and a tool that runs past it is stopped as the user stops one
+  --- (bash's command is ended as at its timeout). A turn resumed
+  --- ([`Agent.Session.resume`]) counts from nothing again.
+  record Budget
+    --- Tokens new to each request of the turn: input, cache writes and
+    --- output. Cache reads are left out: each counts the whole prefix
+    --- again, which `cost` weighs at its price.
+    tokens?: integer
+    --- USD, at [`Agent.cost`]'s prices; a model with no price counts nothing.
+    cost?: number
+    --- Requests: the model's turns.
+    turns?: integer
+    --- Seconds of wall clock.
+    seconds?: number
+  end
+
   --- What [`Agent.new`] makes an agent with. Each field but `sign` and
   --- `cwd` has a default, and each is a field of the agent after.
   record Options
@@ -155,6 +177,8 @@ local record Agent
     restarts?: integer
     --- Whether its last turn ended for good, as kept; false by default, so a conversation that ends with the user's word is unfinished.
     ended?: boolean
+    --- The most each turn may spend; nil for no limit.
+    budget?: Budget
   end
 
   --- The kind of a [`Agent.TextEvent`].
@@ -382,6 +406,8 @@ local record Agent
     --- what it read or wrote 5 minutes from then. Nil where none was, or
     --- the last failed or compacted, as `warm` would only repeat it.
     mut sent_ns?: integer
+    --- The most each turn may spend ([`Agent.Budget`]); nil for no limit.
+    mut budget?: Budget
 
     --- Adds `text` as the user's, and runs the loop until the model ends
     --- its turn: true, or false and why. Why is the API's trouble, the
@@ -431,11 +457,15 @@ local record Agent
   MODEL: string
   --- The effort, unless one is named.
   EFFORT: string
+  --- What a turn that spent its budget ends with, before a colon and
+  --- the limit it reached.
+  BUDGET_SPENT: string
 end
 
 Agent.MODELS = { opus = "claude-opus-5-5", sonnet = "claude-sonnet-5-5" }
 Agent.MODEL = "opus"
 Agent.EFFORT = "medium"
+Agent.BUDGET_SPENT = "the turn's budget is spent"
 --- How often a turn is started again before resume gives up on it.
 local RESTARTS <const> = 5
 --- Why a turn ended, where the user stopped it.
@@ -919,12 +949,63 @@ local function stop(s: Agent.Session): boolean, string
   return finish(s, false, STOPPED)
 end
 
---- Runs the loop from where `s` is, until the model ends its turn.
+--- What a turn spent so far, against [`Agent.Budget`].
+local record Spent
+  mut tokens: integer
+  mut cost: number
+  mut turns: integer
+  started: integer
+end
+
+--- Adds request `r` to `spent`.
+local function spend(spent: Spent, r: Sessions.Request)
+  spent.turns = spent.turns + 1
+  -- What is new to each request: a cache read counts the whole prefix
+  -- again each time, which the cost weighs at its price.
+  spent.tokens = spent.tokens + (r.input_tokens or 0) + (r.output_tokens or 0) + (r.cache_write_5m or 0) +
+    (r.cache_write_1h or 0)
+  spent.cost = spent.cost + (r.cost or 0)
+end
+
+--- Why `s`'s turn may go no further, having spent `spent`: nil where
+--- each limit of its budget is still ahead.
+local function spent_why(s: Agent.Session, spent: Spent): string?
+  local b = s.budget
+  if b == nil then return nil end
+  local limit = b.tokens
+  if limit ~= nil and spent.tokens >= limit then
+    return Agent.BUDGET_SPENT .. ": " .. String.counted(spent.tokens, "token") .. ", of " .. tostring(limit)
+  end
+  local most = b.cost
+  if most ~= nil and spent.cost >= most then
+    return Agent.BUDGET_SPENT .. ": " .. string.format("$%.4f, of $%.4f", spent.cost, most)
+  end
+  local turns = b.turns
+  if turns ~= nil and spent.turns >= turns then
+    return Agent.BUDGET_SPENT .. ": " .. String.counted(spent.turns, "request") .. ", of " .. tostring(turns)
+  end
+  local seconds = b.seconds
+  local took = (Clock.monotonic_ns() - spent.started) / 1e9
+  if seconds ~= nil and took >= seconds then
+    return Agent.BUDGET_SPENT .. ": " .. string.format("%.1f s, of %g s", took, seconds)
+  end
+  return nil
+end
+
+--- Runs the loop from where `s` is, until the model ends its turn, or
+--- its budget is spent.
 local function loop(s: Agent.Session): boolean, string
+  local spent: Spent = { tokens = 0, cost = 0.0, turns = 0, started = Clock.monotonic_ns() }
+  local budget = s.budget
+  local most_seconds = if budget ~= nil then budget.seconds else nil end
+  local deadline = if most_seconds ~= nil then spent.started + math.floor(most_seconds * 1e9) else nil end
   while true do
     if stopped(s) then return stop(s) end
+    local over = spent_why(s, spent)
+    if over ~= nil then return finish(s, false, over) end
     local request = request_of(s)
     local reply, why = call(s, request)
+    spend(spent, request)
     if reply == nil then
       local _, _ = keep_request(s, request)
       if stopped(s) then return stop(s) end
@@ -946,6 +1027,8 @@ local function loop(s: Agent.Session): boolean, string
     local results: mut {Json.Value} = {}
     local sent: mut {string} = {}
     local halted, failed = false, ""
+    -- Why the budget halted the turn, where it did rather than the user.
+    local spent_reason: string? = nil
     for _, item in ipairs(content or {}) do
       local block, _ = Json.to_object(item)
       local kind = block and block["type"]
@@ -956,13 +1039,21 @@ local function loop(s: Agent.Session): boolean, string
       elseif block ~= nil and kind == "tool_use" then
         local id = block["id"]
         local call_id = if id is string then id else "" end
-        if not halted and failed == "" and stopped(s) then halted = true end
+        if not halted and failed == "" then
+          if stopped(s) then
+            halted = true
+          else
+            spent_reason = spent_why(s, spent)
+            halted = spent_reason ~= nil
+          end
+        end
         if #sent == 0 and not halted and failed == "" then
           for _, t in ipairs(steering(s)) do sent[#sent + 1] = t end
         end
         if halted or failed ~= "" or #sent > 0 then
           -- Answered all the same: the API takes no tool call left without its result.
-          local why_not = if halted then "Stopped: the user stopped the turn." elseif failed ~= "" then
+          local why_not = if halted and spent_reason ~= nil then "Stopped: " .. spent_reason .. "."
+            elseif halted then "Stopped: the user stopped the turn." elseif failed ~= "" then
             "Not run: the agent could not keep what came before." else "Skipped: the user sent a message instead." end
           results[#results + 1] = { type = "tool_result", tool_use_id = call_id, content = why_not, is_error = true }
         else
@@ -970,7 +1061,8 @@ local function loop(s: Agent.Session): boolean, string
           local input, _ = Json.to_object(block["input"])
           local given = input or {}
           tell(s, { kind = "tool", name = called, input = given })
-          local asking = function(): boolean return stopped(s) end
+          -- A tool that runs past the turn's time is stopped as the user stops one.
+          local asking = function(): boolean return stopped(s) or spent_why(s, spent) ~= nil end
           local tool = Tools.find(s.tools, called)
           local paths = tool and tool.paths
           local touched: {Tools.Touch} = {}
@@ -989,7 +1081,7 @@ local function loop(s: Agent.Session): boolean, string
           else
             local context: Tools.Context = { cwd = s.cwd, db = s.db, session = s.id,
               policy = s.sandbox, jobs = s.jobs, worker = s.worker,
-              mcp = s.mcp, stopped = asking, tools = s.tools,
+              mcp = s.mcp, stopped = asking, deadline_ns = deadline, tools = s.tools,
               commands = Tools.find(s.tools, "bash") ~= nil,
               guard = if s.before == nil then nil else function(host: string, args: Tools.Object): string?
                 local by_code: Agent.Call = { name = host, input = args, caller = "code", cwd = s.cwd, id = s.id,
@@ -1032,6 +1124,7 @@ local function loop(s: Agent.Session): boolean, string
       end
     end
     if failed ~= "" then return false, failed end
+    if halted and spent_reason ~= nil then return finish(s, false, spent_reason) end
     if halted then return stop(s) end
     local stop_reason = reply["stop_reason"]
     if stop_reason == "refusal" then return finish(s, false, "the model refused") end
@@ -1125,6 +1218,7 @@ local class AgentSession is Agent.Session
   mut stopped: boolean
   mut last_reply?: string
   mut sent_ns?: integer
+  mut budget?: Agent.Budget
 
   function prompt(self, text: string): boolean, string
     return prompt(self, text)
@@ -1171,7 +1265,7 @@ function Agent.new(options: Agent.Options): Agent.Session
     mcp = options.mcp, build = options.build, messages = held, db = options.db, id = options.id,
     restarts = options.restarts or 0, ended = options.ended == true, stopped = false,
     on = nil, before = nil, after = nil, on_failed = nil, steering = nil, stopping = nil, last_reply = nil,
-    sent_ns = nil,
+    sent_ns = nil, budget = options.budget,
   }
   return agent
 end

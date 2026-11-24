@@ -5,13 +5,14 @@
 local Agent = require("cosmic.agent")
 local agent_fixture = require("build.agent_fixture")
 local Auth = require("cosmic.agent.auth")
+local Clock = require("cosmic.clock")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
 local Sessions = require("cosmic.agent.sessions")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 
-Test.policy{ env = { "TMPDIR" } }
+Test.policy{ env = { "TMPDIR" }, grants = { { path = "/bin/sh", letters = "r" } } }
 
 local keyed = agent_fixture.keyed
 local slurp = agent_fixture.slurp
@@ -263,6 +264,56 @@ local function test_a_compacting_reply_is_not_kept_warm()
   assert(s:prompt("go"))
   assert(s.sent_ns == nil and s:warm())
   assert(#a.sent == 1)
+end
+
+--- A turn's budget: the first limit reached ends it for good, the tool
+--- calls of its last reply answered as stopped, and the next prompt gets
+--- a budget of its own.
+local function test_a_turn_ends_where_its_budget_is_spent()
+  local function calling(id: string, n: integer): Json.Value
+    return { content = { bash_call(id, "true") }, stop_reason = "tool_use",
+      usage = { input_tokens = n, output_tokens = n, cache_read_input_tokens = n, cache_creation_input_tokens = n } }
+  end
+  -- turns: the reply of the last request asks for a tool, which is answered, not run.
+  local s, a = kept({ calling("t1", 10), calling("t2", 10), text_reply("never") }, nil, "claude-sonnet-5-5")
+  s.budget = { turns = 2 }
+  local seen = agent_fixture.events()
+  s.on = seen.on
+  local ok, why = s:prompt("go")
+  assert(not ok and why == Agent.BUDGET_SPENT .. ": 2 requests, of 2", why)
+  assert(#a.sent == 2 and #seen.tools == 1 and not s:unfinished())
+  local answered = s.messages[#s.messages]
+  assert(answered ~= nil)
+  local last = assert(Json.encode(answered))
+  assert(last:find("Stopped: " .. Agent.BUDGET_SPENT .. ": 2 requests, of 2.", 1, true) ~= nil, last)
+  -- tokens: input, output and the cache write, 30 a request; the cache read is not counted.
+  s, a = kept({ calling("t1", 10), calling("t2", 10), text_reply("never") })
+  s.budget = { tokens = 50 }
+  ok, why = s:prompt("go")
+  assert(not ok and why == Agent.BUDGET_SPENT .. ": 60 tokens, of 50" and #a.sent == 2, why)
+  -- cost: at sonnet's prices, 1000000 output tokens are $10.
+  s, a = kept({ { content = { bash_call("t1", "true") }, stop_reason = "tool_use",
+    usage = { input_tokens = 0, output_tokens = 1000000 } }, text_reply("never") }, nil, "claude-sonnet-5-5")
+  s.budget = { cost = 5 }
+  ok, why = s:prompt("go")
+  assert(not ok and why == Agent.BUDGET_SPENT .. ": $10.0000, of $5.0000" and #a.sent == 1, why)
+  -- time: none left sends no request at all.
+  s, a = kept({ text_reply("never") })
+  s.budget = { seconds = 0 }
+  ok, why = s:prompt("go")
+  assert(not ok and why:find(Agent.BUDGET_SPENT .. ": ", 1, true) == 1 and why:find("of 0 s", 1, true) ~= nil, why)
+  assert(#a.sent == 0)
+  -- time: a command that runs past it is ended, and the turn ends with why.
+  s, a = kept({ { content = { bash_call("t1", "while :; do :; done") }, stop_reason = "tool_use" }, text_reply("never") })
+  s.budget = { seconds = 1 }
+  local began = Clock.monotonic_ns()
+  ok, why = s:prompt("go")
+  assert(not ok and why:find(Agent.BUDGET_SPENT .. ": ", 1, true) == 1 and #a.sent == 1, why)
+  assert(Clock.monotonic_ns() - began < Clock.seconds(10))
+  -- A turn that ends inside its budget is a turn like any other; each prompt has its own.
+  s, a = kept({ text_reply("one"), text_reply("two") })
+  s.budget = { turns = 1 }
+  assert(s:prompt("go") and s:prompt("again") and #a.sent == 2)
 end
 
 local function test_a_turn_left_unfinished_is_resumed()

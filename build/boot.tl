@@ -179,9 +179,13 @@ local function stage(root: string, working: build_paths.Layout, output: build_pa
     log:complain("boot: " .. compile_trouble)
     return nil
   end
-  -- The new checker goes on past a module it refuses, to tell every refusal; a tool is not written from a tree it refused.
+  -- The new checker goes on past a module it refuses, to tell every refusal; a tool is not written from a tree it refused,
+  -- unless it refused only tests and test support, which the tool carries none of ([`refusals.tests_only`]).
   local refused = result.refused
-  if #refused > 0 then
+  if refusals.tests_only(refused, result.refusal_roots) then
+    log:complain(refusals.text(refused, result.refusal_roots or {}))
+    log:complain("boot: " .. refusals.written_without_tests())
+  elseif #refused > 0 then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
     log:complain(refusals.text(refused, result.refusal_roots or {}))

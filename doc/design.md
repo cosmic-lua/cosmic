@@ -833,6 +833,10 @@ command. retained descriptors keep the running artifact available
 across rename and unlink. when the C core's inputs differ, only zig
 can build it. so the tree's tool runs `bin/zig build boot` and
 re-enters. under `COSMIC_AUTO_BOOT=0` it refuses with exit 3 instead.
+a rebuild or a boot that the checker refuses writes no tool, unless it
+refused only tests and test support (`*_test.tl`, `test/`), which the
+tool carries none of ([`build.refusals.tests_only`]). it then says the
+refusals and writes the tool. a run of a refused test fails.
 
 semantic identities keep different kinds of reuse separate:
 
@@ -1944,6 +1948,7 @@ in [roadmap.md](roadmap.md).
 [`Test.policy`]: ../cosmic/test.tl
 
 [`build.pipeline`]: ../build/pipeline.tl
+[`build.refusals.tests_only`]: ../build/refusals.tl
 [`build/embed.tl`]: ../build/embed.tl
 [`build/markers.tl`]: ../build/markers.tl
 [`build/positions.tl`]: ../build/positions.tl

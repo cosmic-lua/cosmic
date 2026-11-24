@@ -500,6 +500,33 @@ local CASES <const>: {Case} = {
     fix = "declare the table `{string: string}`, or capture a position with `()` for integer keys",
   },
   {
+    code = "sql_schema", at = { line = 2, column = 33 },
+    source = "local Sqlite = require(\"cosmic.sqlite\")\nlocal S <const> = Sqlite.schema(\"CREATE TABLE t (x\")\nprint(S)\n",
+    modules = { ["cosmic.sqlite"] = "local record Handle\n  run: function(Handle, string, ?{integer}): boolean\n  rows: function(Handle, string): boolean\nend\n" ..
+        "local record Schema\n  ddl: string\nend\nlocal record Options\n  schema?: Schema\nend\nlocal record Sqlite\n" ..
+        "  schema: function(string): Schema\n  memory: function(?Options): Handle\nend\nreturn Sqlite\n" },
+    msg = "SQLite refuses the schema's DDL: ", fix = "write DDL that SQLite runs, and that creates the tables alone",
+  },
+  {
+    code = "sql_refused", at = { line = 4, column = 15 },
+    source = "local Sqlite = require(\"cosmic.sqlite\")\nlocal S <const> = Sqlite.schema(\"CREATE TABLE t (x)\")\n" ..
+      "local db = Sqlite.memory({ schema = S })\nprint(db:rows(\"SELECT y FROM t\"))\n",
+    modules = { ["cosmic.sqlite"] = "local record Handle\n  run: function(Handle, string, ?{integer}): boolean\n  rows: function(Handle, string): boolean\nend\n" ..
+        "local record Schema\n  ddl: string\nend\nlocal record Options\n  schema?: Schema\nend\nlocal record Sqlite\n" ..
+        "  schema: function(string): Schema\n  memory: function(?Options): Handle\nend\nreturn Sqlite\n" },
+    msg = "`db` was opened with a schema, and SQLite refuses this SQL against it: no such column: y",
+    fix = "name only the tables and columns the schema creates, in SQL that SQLite reads",
+  },
+  {
+    code = "sql_parameters", at = { line = 4, column = 43 },
+    source = "local Sqlite = require(\"cosmic.sqlite\")\nlocal S <const> = Sqlite.schema(\"CREATE TABLE t (x)\")\n" ..
+      "local db = Sqlite.memory({ schema = S })\nprint(db:run(\"INSERT INTO t VALUES (?1)\", { 1, 2 }))\n",
+    modules = { ["cosmic.sqlite"] = "local record Handle\n  run: function(Handle, string, ?{integer}): boolean\n  rows: function(Handle, string): boolean\nend\n" ..
+        "local record Schema\n  ddl: string\nend\nlocal record Options\n  schema?: Schema\nend\nlocal record Sqlite\n" ..
+        "  schema: function(string): Schema\n  memory: function(?Options): Handle\nend\nreturn Sqlite\n" },
+    msg = "the SQL binds 1 value, and 2 are given", fix = "give 1 value, one for each parameter, in order",
+  },
+  {
     code = "paren_is", at = { line = 2, column = 11 }, source = "local x: integer | string = 1\nlocal y = (x) is integer\nprint(y)\n",
     msg = "`(x) is ...` tests a value: the parentheses make `x` no place, so the test narrows nothing",
     fix = "write `x is integer` without the parentheses, so that the test narrows it",
