@@ -99,14 +99,15 @@ local function fixture_lanes(env: {string:string}, cpus: integer): integer?, int
   return lanes.high, lanes.low
 end
 
---- The self-check holds a write transaction on `ci/`'s `build.db` while
---- tests run, so `driver.tl` must never run with project root `ci/`
---- itself: this copies the namespace into its own tmp project first.
 --- Fails where the file at `path` holds `text`.
 local function lacks(path: string, text: string)
   local said = Fixture.read(path)
   assert(said:find(text, 1, true) == nil, path .. ": holds " .. text .. ":\n" .. said)
 end
+
+--- The self-check holds a write transaction on `ci/`'s `build.db` while
+--- tests run, so `driver.tl` must never run with project root `ci/`
+--- itself: this copies the namespace into its own tmp project first.
 
 local function command(tmp: string): {string}, string
   local host = assert(Proc.executable())
@@ -405,7 +406,7 @@ local function test_a_failed_build_is_said_again_at_the_end(tmp: string)
   Fixture.contains(ended.out, ": signal")
   lacks(ended.out, "was ended while")
   -- A job ended while the build runs (the driver killed under it) has the
-  -- end of what the build said printed by the last driver step.
+  -- end of what the build said printed by the failures step.
   Fixture.write(fake .. "/bin/zig", "#!/bin/sh\necho 'compiling still'\nkill -KILL $PPID\nsleep 1\n", 493)
   local cut_temp = tmp .. "/cut-temp"
   assert(Fs.mkdirs(cut_temp))
@@ -2055,7 +2056,8 @@ local function test_a_watched_group_is_named_while_it_runs_and_its_failure_kept(
         return tmp .. "/logs/" .. name .. ".out", tmp .. "/logs/" .. name .. ".err"
       end
     end
-    local high = Orchestration.watched_group(rig.group("high", "exit 0"), "fixture: high", files("high"))
+    -- The other lane's group runs until the failure stops it, and is abandoned.
+    local high = Orchestration.watched_group(rig.group("high", "sleep 30"), "fixture: high", files("high"))
     local lane = Orchestration.watched_group(rig.group("lane",
       "cat " .. job .. "/cosmic-ci/running/*; echo 'error: the lane broke' >&2; exit 3"), "fixture: lane", files("lane"))
     assert(Orchestration.run_groups(high, { lane }, true) == 3)
@@ -2068,6 +2070,7 @@ local function test_a_watched_group_is_named_while_it_runs_and_its_failure_kept(
   local printed = table.concat(said)
   assert(printed:find("error: the lane broke", 1, true) ~= nil, printed)
   assert(printed:find("was ended while", 1, true) == nil, printed)
+  assert(table.concat(rig.events, " "):find("abandon:high", 1, true) ~= nil, table.concat(rig.events, " "))
 end
 
 local function gone(pid: integer): boolean

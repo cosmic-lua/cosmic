@@ -1,8 +1,8 @@
 --- The lines of a failed command that say what failed, said again where a
 --- reader of the job finds them: as `::error::` annotations on the run's
 --- page, on the job's summary page, and kept in
---- `$RUNNER_TEMP/cosmic-ci/failures.txt` for the job's last driver step
---- (`driver.tl failures`), which prints them near the end of its log. The
+--- `$RUNNER_TEMP/cosmic-ci/failures.txt` for a step near the job's end
+--- (`driver.tl failures`), which prints them there. The
 --- log of a failed step is followed by those of the steps that clean up
 --- after it, so its own last lines are far from the log's end. A command whose output
 --- is kept in files and said once it ends is named while it runs
@@ -139,9 +139,9 @@ end
 local named: Named = { count = 0 }
 
 --- Names `phase` as running, its output going to the files `out` and
---- `err`, until [`Failures.done`] is given what this answers. Several
+--- `err`, until [`Failures.done`] is given what this returns. Several
 --- can run at once (the fixtures' lanes). A name that cannot be written
---- fails nothing, and answers a name `done` ignores.
+--- fails nothing, and returns a name `done` ignores.
 function Failures.begin(phase: string, out: string, err: string): string
   named.count = named.count + 1
   local directory = running_directory()
@@ -183,12 +183,15 @@ local function tail(text: string): string
     if newline == nil then break end
     at = newline + 1
   end
-  local first = starts[math.max(1, #starts - tail_lines + 1)] or 1
-  return cut:sub(first)
+  local from = math.max(1, #starts - tail_lines + 1)
+  -- A window cut from a longer text starts mid-line: it starts at its
+  -- second line where it has one.
+  if from == 1 and #cut < #text and #starts > 1 then from = 2 end
+  return cut:sub(starts[from] or 1)
 end
 
---- `driver.tl failures`: prints what [`Failures.keep`] kept, in the job's
---- last driver step, so a reader of the log's end finds why the job failed, and
+--- `driver.tl failures`: prints what [`Failures.keep`] kept, in a step
+--- near the job's end, so a reader of the log's end finds why the job failed, and
 --- the end of what a command said where the job was ended while it ran.
 function Failures.command(_words: {string}): integer
   local seams = Seams.calls()

@@ -39,6 +39,13 @@ local function test_pick_keeps_the_first_lines_and_cuts_a_long_one()
   assert(picked[40] == "test: FAIL  case 40")
 end
 
+--- A long line is cut before a character, never inside one.
+local function test_pick_cuts_a_long_line_between_characters()
+  local picked = Failures.pick("test: FAIL  a" .. string.rep("\u{e9}", 300) .. "\n")
+  local line = assert(picked[1])
+  assert(line:find("%.%.%.$") ~= nil and utf8.len(line) ~= nil and #line == 402, tostring(#line))
+end
+
 local function test_pick_finds_nothing_in_a_passing_log()
   assert(#Failures.pick("build: 3 modules\ntest: 2 tests passed\n") == 0)
 end
@@ -68,7 +75,7 @@ local function in_a_job(tmp: string, body: function(), actions?: boolean): strin
   return table.concat(said)
 end
 
-local function test_keep_annotates_summarizes_and_keeps_the_lines_for_the_last_step(tmp: string)
+local function test_keep_annotates_summarizes_and_keeps_the_lines_for_the_failures_step(tmp: string)
   assert(Fs.mkdirs(tmp .. "/cosmic-ci"))
   local out = in_a_job(tmp, function()
     Failures.keep("fixture: format, check", "build: 3 modules\nfix: FAIL  a 100% ```wrong``` line\n")
@@ -86,7 +93,7 @@ local function test_keep_annotates_summarizes_and_keeps_the_lines_for_the_last_s
 end
 
 --- Outside a job of GitHub Actions (ci/run-local), the lines are kept for
---- the last step, with no annotation or summary.
+--- the failures step, with no annotation or summary.
 local function test_keep_outside_actions_only_keeps_the_lines(tmp: string)
   assert(Fs.mkdirs(tmp .. "/cosmic-ci"))
   local out = in_a_job(tmp, function()
@@ -100,7 +107,7 @@ local function test_keep_outside_actions_only_keeps_the_lines(tmp: string)
   assert(printed:find("error: it broke", 1, true) ~= nil, printed)
 end
 
-local function test_the_last_step_says_so_when_no_line_was_kept(tmp: string)
+local function test_the_failures_step_says_so_when_no_line_was_kept(tmp: string)
   local printed = in_a_job(tmp, function()
     assert(Failures.command({}) == 0)
   end)
@@ -108,9 +115,9 @@ local function test_the_last_step_says_so_when_no_line_was_kept(tmp: string)
 end
 
 --- Where the job is ended under a command that keeps its output in
---- files, the last step says the end of what it said, once it is named;
+--- files, the failures step says the end of what it said, once it is named;
 --- one that ended is not named any more.
-local function test_the_last_step_says_the_end_of_a_command_the_job_was_ended_under(tmp: string)
+local function test_the_failures_step_says_the_end_of_a_command_the_job_was_ended_under(tmp: string)
   assert(Fs.mkdirs(tmp .. "/cosmic-ci"))
   local lines: mut {string} = {}
   for n = 1, 150 do lines[#lines + 1] = "line " .. tostring(n) end
@@ -151,4 +158,15 @@ local function test_commands_are_named_apart_and_no_more_once_they_end(tmp: stri
   assert(printed:find("fixture: a ran", 1, true) == nil and printed:find("suite ran", 1, true) == nil, printed)
   local said = assert(printed:match("while fixture: b ran; the end of what it said:\n(b+)\n$"), printed)
   assert(#said == 16384, tostring(#said))
+end
+
+--- The end of a long text said again starts at a line.
+local function test_the_end_of_a_long_text_starts_at_a_line(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cosmic-ci"))
+  assert(Fs.write(tmp .. "/c.out", "first\n" .. string.rep("c", 20000) .. "\nlast\n"))
+  local printed = in_a_job(tmp, function()
+    local _ = Failures.begin("core build", tmp .. "/c.out", tmp .. "/c.err")
+    assert(Failures.command({}) == 0)
+  end)
+  assert(printed:find("the end of what it said:\nlast\n$") ~= nil, printed:sub(-200))
 end

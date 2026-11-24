@@ -73,8 +73,8 @@ local record Orchestration
     lanes: boolean): integer
   --- `group`, named as running from its start until it finishes or is
   --- abandoned ([`Failures.begin`]), and a failed run's lines kept
-  --- ([`Failures.keep`]) as `phase`'s. `files` answers the files its
-  --- output goes to, once it has started.
+  --- ([`Failures.keep`]) as `phase`'s. `files` returns the files its
+  --- output goes to.
   watched_group: function(group: Orchestration.Group, phase: string,
     files: function(): (string, string)): Orchestration.Group
 end
@@ -544,19 +544,23 @@ function Orchestration.watched_group(group: Orchestration.Group, phase: string,
     name = group.name,
     run = group.run,
     start = function(): Runner.Running
-      local running = group.start()
+      -- Named before it starts, so no moment of its run goes unnamed.
       local out, err = files()
       held.running = Failures.begin(phase, out, err)
+      local ran, running = pcall(group.start)
+      if not ran then
+        done()
+        error(running, 0)
+      end
       return running
     end,
     finish = function(outcome: Runner.Outcome): integer
       done()
-      local code = group.finish(outcome)
       if outcome.code ~= 0 then
         local out, err = files()
         Failures.keep(phase, read_or_empty(out) .. "\n" .. read_or_empty(err) .. ended_line(phase, outcome))
       end
-      return code
+      return group.finish(outcome)
     end,
     abandon = function(outcome: Runner.Outcome)
       done()
@@ -963,6 +967,11 @@ local record FixtureHeld
   mut started_ns?: integer
 end
 
+--- Where the fixture `name` keeps its output and diagnostics, under `work`.
+local function fixture_diagnostics(work: string, name: string): string
+  return work .. "/fixture-test-diagnostics/" .. name
+end
+
 --- Makes the fixture `spec`'s project (a group's own where `group` is
 --- given, [`Orchestration.fixture_project`]), places its inputs and its diagnostics
 --- directory, and says what to run: `jobs` workers where given, else the
@@ -976,7 +985,7 @@ local function prepare_fixture(c: Context, work: string, spec: FixtureSpec,
   if setup then setup() end
   local project = Orchestration.fixture_project(c.driver, work, group)
   place(project, spec.placements or {})
-  local diagnostics = work .. "/fixture-test-diagnostics/" .. name
+  local diagnostics = fixture_diagnostics(work, name)
   mkdir(diagnostics)
   mkdir(diagnostics .. "/tmp")
   mkdir(diagnostics .. "/figures")
@@ -1058,8 +1067,8 @@ local function fixture_group(c: Context, work: string, spec: FixtureSpec,
       end
     end,
   }, "fixture: " .. spec.name, function(): (string, string)
-    local made = assert(held.prepared, "fixture group's files asked for before it started")
-    return made.out, made.err
+    local diagnostics = fixture_diagnostics(work, spec.name)
+    return diagnostics .. "/test.out", diagnostics .. "/test.err"
   end)
 end
 
