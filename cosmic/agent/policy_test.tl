@@ -9,6 +9,7 @@ local Clock = require("cosmic.clock")
 local agent_fixture = require("build.agent_fixture")
 local Fs = require("cosmic.fs")
 local Policy = require("cosmic.agent.policy")
+local type Sandbox = require("cosmic.sandbox")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local Tools = require("cosmic.agent.tools")
@@ -253,4 +254,31 @@ local function test_a_grant_over_what_is_kept_out_is_refused()
   local beside = scratch()
   assert(Policy.of(dir, { mode = "write", network = false, grants = { { path = beside, letters = "r" } },
     kept_out = { config } }))
+end
+
+--- c is asked of the directory a file is made in; a write goes to the real name it checked, not through a link.
+local function test_a_file_is_made_only_where_its_directory_grants_c()
+  local inside, outside = scratch(), scratch()
+  assert(Fs.write(inside .. "/f.txt", "old"))
+  -- A grant of the file alone lets it be changed, not made again beside a file of its own.
+  local file: Sandbox.Policy = { grants = { { path = inside .. "/f.txt", letters = "rw" } } }
+  assert(Policy.allows(file, inside .. "/f.txt", "rw") and not Policy.allows(file, inside .. "/f.txt", "wc"))
+  local dir: Sandbox.Policy = { grants = { { path = inside, letters = "rwc" } } }
+  assert(Policy.allows(dir, inside .. "/new.txt", "wc") and not Policy.allows(dir, outside .. "/new.txt", "wc"))
+  -- A link outside the grant, to a file in it, is written through to the real file: the link stays.
+  assert(Fs.symlink(inside .. "/f.txt", outside .. "/link.txt"))
+  local r = Tools.run("write", { path = outside .. "/link.txt", content = "new" }, { cwd = inside, policy = dir })
+  assert(not r.is_error, r.text)
+  assert(slurp(inside .. "/f.txt") == "new", slurp(inside .. "/f.txt"))
+  local status = assert(Fs.status(outside .. "/link.txt"))
+  assert(status.exists)
+  -- A grant mapped from elsewhere grants the tools nothing, which run outside the sandbox.
+  local mapped: Sandbox.Policy = { grants = { { path = "/etc", letters = "r", from = inside } } }
+  assert(not Policy.allows(mapped, "/etc/hostname", "r"))
+  -- A device is no file to read whole.
+  local devices: Sandbox.Policy = { grants = { { path = "/dev", letters = "r" } } }
+  assert(Tools.run("read", { path = "/dev/zero" }, { cwd = inside, policy = devices }).text:find("is no file", 1, true) ~= nil)
+  -- A policy that is none says so.
+  local _, why = Policy.allows({ profiles = { "nosuch" } }, inside, "r")
+  assert(why:find("is no policy", 1, true) ~= nil, why)
 end

@@ -71,8 +71,9 @@ end
 
 --- Blocks a call that touches a path (each tool's `paths`) that
 --- `policy`'s grants do not give it, each an absolute path: a path is
---- checked as its real name, links followed (cosmic.agent.policy). It
---- reads only `grants`, not `profiles`. A tool that says no paths
+--- checked as its real name, links followed, against the grants and
+--- profiles as [`Policy.allows`] reads them: `c` of the directory a file
+--- is made in. A tool that says no paths
 --- passes, and bash, run and sql say none, though they reach what the
 --- sandbox lets them: hold those with the sandbox, or [`Check.only`]. A
 --- snippet's call of the agent has none.
