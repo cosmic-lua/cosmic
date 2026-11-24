@@ -56,7 +56,7 @@ local function fetch(script: {string}, opts?: Http.Options): Http.Response, stri
     parts[#parts + 1] = chunk
   end
   local sent = response:sent()
-  response:close()
+  local _, _ = response:close()
   return response, table.concat(parts), sent
 end
 
@@ -228,7 +228,7 @@ local function test_a_body_shorter_than_its_content_length_is_a_read_error()
   assert(chunk == "only ten b")
   local after, _ = response:read()
   assert(after == nil, "a truncated body is an error, not a clean end")
-  response:close()
+  local _, _ = response:close()
   local got, get_trouble = Http.get(url, { timeout_ns = Clock.seconds(60), script = {
     "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\nonly ten b",
   } })
@@ -249,7 +249,7 @@ local function test_open_returns_once_the_headers_arrive_before_any_body()
   assert(chunk == nil, "a missing body is a read error")
   -- curl's message, with no newline left on the end of it
   assert(tostring(read_trouble):find("%s$") == nil, "[" .. tostring(read_trouble) .. "]")
-  response:close()
+  local _, _ = response:close()
 end
 
 local function test_open_waits_past_a_followed_redirect_for_the_final_headers()
@@ -259,7 +259,7 @@ local function test_open_waits_past_a_followed_redirect_for_the_final_headers()
   } }))
   assert(response.status == 200, tostring(response.status))
   assert(response.url:find("/next", 1, true) ~= nil, response.url)
-  response:close()
+  local _, _ = response:close()
 end
 
 --- The request line curl wrote for `target`, a URL's text past
@@ -267,7 +267,7 @@ end
 local function request_line(target: string): string
   local response = assert(Http.open("http://cosmic.test" .. target, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "ok") } }))
   local sent = response:sent()
-  response:close()
+  local _, _ = response:close()
   return (assert(sent:match("^GET (.-) HTTP/1%.1\r\n"), sent))
 end
 
@@ -315,7 +315,7 @@ local function test_a_url_escaped_with_url_escape_is_sent_as_written()
   local response = assert(Http.open(url .. Url.escape("a b/c"), { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "ok") } }))
   assert(response.status == 200)
   local sent = response:sent()
-  response:close()
+  local _, _ = response:close()
   assert(sent:find("GET /a%20b%2Fc HTTP/1.1\r\n", 1, true), sent)
 end
 
@@ -346,7 +346,7 @@ local function test_a_body_over_the_pause_threshold_arrives_whole()
       parts[#parts + 1] = chunk
     end
     assert(table.concat(parts) == data)
-    response:close()
+    local _, _ = response:close()
   end
 end
 
@@ -379,7 +379,7 @@ local function test_a_post_body_outlives_the_options_that_held_it()
   local after, trouble = response:read()
   assert(after == false, trouble)
   local sent = response:sent()
-  response:close()
+  local _, _ = response:close()
   assert(#sent > size)
   assert(sent:sub(-size) == string.rep("A", size), "the body arrived intact")
 end
@@ -748,7 +748,7 @@ end
 local function test_read_refuses_a_max_bytes_below_one()
   local response = assert(Http.open(url, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "body") } }))
   Test.raises(function() local _, _ = response:read(0) end, "http: read's max_bytes must be positive")
-  response:close()
+  local _, _ = response:close()
 end
 
 local function test_read_returns_an_empty_second_value_on_success()
@@ -758,7 +758,7 @@ local function test_read_returns_an_empty_second_value_on_success()
   assert(chunk == "body" and trouble == nil, tostring(trouble))
   local after, _ = response:read()
   assert(after == false)
-  response:close()
+  local _, _ = response:close()
 end
 
 local function test_a_close_variable_closes_the_response()
@@ -770,7 +770,7 @@ local function test_a_close_variable_closes_the_response()
   local chunk, trouble = kept:read()
   assert(chunk == nil and tostring(trouble) == "http: the response is closed", trouble)
   local again, again_trouble = kept:close() -- closing again is harmless
-  assert(again and again_trouble == "")
+  assert(again and again_trouble == nil)
 end
 
 --- A response is a [`cosmic.stream`] Reader: what takes a file's Reader
@@ -814,7 +814,7 @@ local function test_a_response_a_finalizer_revives_is_closed()
   assert(not ok and tostring(err):find("http: the response is closed", 1, true) ~= nil, tostring(err))
   ok, err = pcall(function() response:sent() end)
   assert(not ok and tostring(err):find("http: the response is closed", 1, true) ~= nil, tostring(err))
-  response:close()
+  local _, _ = response:close()
 end
 
 --- The raw handle's close answers nothing: it cannot fail, so a `true`
@@ -1309,7 +1309,7 @@ local function test_a_close_variable_closes_a_decoded_response()
   local chunk, trouble = kept:read()
   assert(chunk == nil and tostring(trouble) == "http: the response is closed", trouble)
   local again, again_trouble = kept:close() -- closing again is harmless
-  assert(again and again_trouble == "")
+  assert(again and again_trouble == nil)
   local ok, err = pcall(function() kept:sent() end)
   assert(not ok and tostring(err):find("http: the response is closed", 1, true) ~= nil, tostring(err))
 end
@@ -1377,7 +1377,7 @@ local function test_decompress_fails_a_corrupt_truncated_or_trailed_body()
     -- And again: a failed body stays failed.
     local again, why = response:read()
     assert(again == nil and tostring(why) == case.trouble, why)
-    response:close()
+    local _, _ = response:close()
   end
 end
 
@@ -1389,7 +1389,7 @@ local function test_decompress_fails_a_one_byte_deflate_body_without_raising()
     local chunk, why = response:read()
     while chunk ~= nil do chunk, why = response:read() end
     assert(tostring(why):find("^http: cannot decode the deflate body: ") ~= nil, why)
-    response:close()
+    local _, _ = response:close()
   end
 end
 
@@ -1416,7 +1416,7 @@ local function test_decompress_gives_a_bomb_out_in_pieces_no_larger_than_asked()
     assert(#chunk <= 4096, tostring(#chunk))
     total = total + #chunk
   end
-  response:close()
+  local _, _ = response:close()
   assert(total == #plain, tostring(total))
 end
 
@@ -1532,7 +1532,7 @@ local function test_a_redirect_to_another_origin_never_sends_the_body_there()
       end
     end
     local sent = response:sent()
-    response:close()
+    local _, _ = response:close()
     return response, "", sent
   end
   for _, case in ipairs({ { "307 Temporary Redirect", "POST" }, { "308 Permanent Redirect", "POST" },
@@ -1555,7 +1555,7 @@ local function test_a_redirect_to_another_origin_never_sends_the_body_there()
     script = { reply("303 See Other", "Location: /a\r\n"), reply("307 Temporary Redirect",
       "Location: http://other.test/n\r\n"), reply("200 OK", "", "done") } }))
   assert(through.status == 200)
-  through:close()
+  local _, _ = through:close()
 end
 
 --- A body longer than `max_bytes` fails the request: at once when its

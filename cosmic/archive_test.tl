@@ -124,7 +124,7 @@ local function test_open_of_a_stream_reads_a_plain_tar_from_a_stream_one_byte_at
       at = at + 1
       return bytes:sub(at - 1, at - 1)
     end,
-    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
   local by = walked((assert(Archive.open(source))))
   local short, link = by["adir/short.txt"], by["adir/link"]
@@ -789,7 +789,7 @@ local function reader_of_one_file(path: string, size: integer,
           end
           return chunk
         end,
-        close = function(_self: Stream.Reader): boolean, string return true, "" end,
+        close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
       }
       return r, ""
     end,

@@ -332,7 +332,7 @@ local record Body is Stream.Reader
   mut guard?: Defer
   mut prologue: string
   read: function(Body, max_bytes?: integer): (string | false) | (nil, Failure)
-  close: function(Body): boolean, string
+  close: function(Body): (true) | (false, Failure)
 end
 
 --- Ends the stream once: frees its slot (if it took one), closes the
@@ -435,9 +435,9 @@ function Body.read(self: Body, max_bytes?: integer): (string | false) | (nil, Fa
   return chunk
 end
 
-function Body.close(self: Body): boolean, string
+function Body.close(self: Body): (true) | (false, Failure)
   finish(self, "client")
-  return true, ""
+  return true
 end
 
 --- Why `value` is under `least`; nil when it is not, or nil.

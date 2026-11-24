@@ -30,7 +30,7 @@
 --- "interrupted", within a tenth of a second, when the innermost open
 --- [`Signal.guard`] catches SIGINT or SIGTERM, as [`cosmic.http`]'s do
 --- outside a task. A listener's and a UDP socket's methods, and a
---- connection's `read`, answer these as a [`Failure`] with the same
+--- connection's `read`, `write` and `close`, answer these as a [`Failure`] with the same
 --- message: of kind "timeout" for a timeout, "cancelled" for
 --- "interrupted" and "cancelled".
 ---

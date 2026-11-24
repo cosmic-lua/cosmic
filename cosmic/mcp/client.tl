@@ -722,14 +722,17 @@ local function write_line(link: Link, text: string): (true) | (false, Failure)
     if why ~= nil then return false, why end
   end
   link.writing = true
-  local ok, trouble = true, ""
+  local trouble: Failure? = nil
   whole(function()
-    ok, trouble = link.writer:write(text .. "\n")
+    local wrote, why = link.writer:write(text .. "\n")
+    if not wrote then trouble = why end
   end)
   link.writing = false
   -- Each waiting writer looks again, so the turn is never lost to one whose task was cancelled meanwhile.
   for _, turn in ipairs(link.writers) do turn:notify_one() end
-  if not ok then return false, Failure.new("mcp: writing to the server: " .. trouble) end
+  if trouble ~= nil then
+    return false, Failure.new("mcp: writing to the server: " .. tostring(trouble))
+  end
   return true
 end
 
@@ -922,7 +925,7 @@ function McpClient.stdio(reader: Stream.Reader, writer: Stream.Writer, opts?: Mc
   return session(stdio_send(lines, writer), opts, false,
     function(): (true) | (false, Failure)
       local ok, why = writer:close()
-      if not ok then return false, Failure.new("mcp: " .. why) end
+      if not ok then return false, Failure.new("mcp: " .. tostring(why)) end
       return true
     end)
 end

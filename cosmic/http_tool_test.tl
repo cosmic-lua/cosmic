@@ -201,7 +201,7 @@ end
     "a Content-Length of digits")
   while #request < head_end + length do request = request .. chunk_of(conn) end
   assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\ndone"))
-  conn:close()
+  local _, _ = conn:close()
   local result = assert(child:wait(Clock.seconds(20)))
   assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
   return request, result.stdout or ""
@@ -292,7 +292,7 @@ end
     if more == nil or more == false or more == "" then break end
     answer = answer .. more
   end
-  conn:close()
+  local _, _ = conn:close()
   local result = assert(child:wait(Clock.seconds(20)))
   assert(result.code == 0, tostring(result.stderr))
   local shown = answer:gsub(".", function(c: string): string

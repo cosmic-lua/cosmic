@@ -274,7 +274,7 @@ local class PipeReader is Stream.Reader
     return out
   end
 
-  function close(self): boolean, string return true, "" end
+  function close(self): (true) | (false, Failure) return true end
 end
 
 --- The client's end of the pipe it writes: each line is answered as it
@@ -283,16 +283,16 @@ local class PipeWriter is Stream.Writer
   pipe: Pipe
   mut server: Server.Instance
 
-  function write(self, data: string): boolean, string
+  function write(self, data: string): (true) | (false, Failure)
     for line in data:gmatch("[^\n]+") do
       local said = self.server:answer(line)
       if said.body ~= nil then self.pipe.pending = self.pipe.pending .. said.body .. "\n" end
     end
-    return true, ""
+    return true
   end
 
-  function close(self): boolean, string return true, "" end
-  function abort(self): boolean, string return true, "" end
+  function close(self): (true) | (false, Failure) return true end
+  function abort(self): (true) | (false, Failure) return true end
 end
 
 local function piped(server: Server.Instance, opts?: Client.Options): Client.Session
@@ -498,25 +498,25 @@ local class DuctReader is Stream.Reader
     return out
   end
 
-  function close(self): boolean, string return true, "" end
+  function close(self): (true) | (false, Failure) return true end
 end
 
 local class DuctWriter is Stream.Writer
   duct: Duct
 
-  function write(self, data: string): boolean, string
+  function write(self, data: string): (true) | (false, Failure)
     self.duct.held = self.duct.held .. data
     self.duct.notifier:notify_all()
-    return true, ""
+    return true
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.duct.closed = true
     self.duct.notifier:notify_all()
-    return true, ""
+    return true
   end
 
-  function abort(self): boolean, string return self:close() end
+  function abort(self): (true) | (false, Failure) return self:close() end
 end
 
 local function duct(): Duct
@@ -726,9 +726,11 @@ local function test_a_cancel_is_read_while_the_server_is_full()
 end
 
 local class FailingWriter is Stream.Writer
-  function write(self, _: string): boolean, string return false, "the pipe is broken" end
-  function close(self): boolean, string return true, "" end
-  function abort(self): boolean, string return true, "" end
+  function write(self, _: string): (true) | (false, Failure)
+    return false, failure_of("the pipe is broken")
+  end
+  function close(self): (true) | (false, Failure) return true end
+  function abort(self): (true) | (false, Failure) return true end
 end
 
 --- A write that fails ends the server, though its input has nothing more to say and never ends.

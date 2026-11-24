@@ -29,6 +29,7 @@ local function test_a_unix_socket_is_made_and_reached_in_the_workers_own_directo
   local server = assert(listener:accept())
   assert(client:write("hi"))
   assert(chunk_of(server, 2) == "hi")
-  assert(client:close() and server:close())
+  assert(client:close())
+  assert(server:close())
   assert(listener:close())
 end

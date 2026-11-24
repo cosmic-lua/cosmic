@@ -400,8 +400,8 @@ local class Timed is Stream.Reader
   end
 
   --- The connection is the server's to close.
-  function close(self): boolean, string
-    return true, ""
+  function close(self): (true) | (false, Failure)
+    return true
   end
 end
 

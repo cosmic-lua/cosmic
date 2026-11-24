@@ -45,6 +45,7 @@
 
 local Verb = require("cosmic.cli.codec")
 local Codec = require("cosmic.codec")
+local Failure = require("cosmic.failure")
 local Flags = require("cosmic.flags")
 local Stream = require("cosmic.stream")
 local bare = require("build.bare")
@@ -652,19 +653,19 @@ local class OutputWriter is Stream.Writer
   out: function(text: string): boolean, string
   mut lost: string?
 
-  function write(self, text: string): boolean, string
+  function write(self, text: string): (true) | (false, Failure)
     local ok, why = self.out(text)
-    if ok then return true, "" end
+    if ok then return true end
     self.lost = why
-    return false, why
+    return false, Failure.new(why)
   end
 
-  function close(self): boolean, string
-    return true, ""
+  function close(self): (true) | (false, Failure)
+    return true
   end
 
-  function abort(self): boolean, string
-    return true, ""
+  function abort(self): (true) | (false, Failure)
+    return true
   end
 end
 
@@ -730,14 +731,14 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     local chunk, why = Stream.read_up_to(reader, chunk_size)
     if chunk == nil then return stop(tostring(why)) end
     local wrote, refusal = sink:write(chunk)
-    if not wrote then return stop(blame(refusal)) end
+    if not wrote then return stop(blame(tostring(refusal))) end
     if #chunk < chunk_size then break end
   end
   local committed, last_refusal = sink:close()
-  if not committed then return stop(blame(last_refusal)) end
+  if not committed then return stop(blame(tostring(last_refusal))) end
   local closed, close_why = reader:close()
   if not closed then
-    complain(close_why)
+    complain(tostring(close_why))
     return bare.undone
   end
   return bare.ok

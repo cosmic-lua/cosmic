@@ -178,7 +178,9 @@ local function listen(root: string, listeners: {Net.Address}): integer
         store = nil,
       })
       local _ = session.serve(s, conn, function(text: string): boolean, string
-        return conn:write(text)
+        local wrote, why = conn:write(text)
+        if not wrote then return false, tostring(why) end
+        return true, ""
       end, polled_conn(conn))
       open.conns[conn] = nil
     end,

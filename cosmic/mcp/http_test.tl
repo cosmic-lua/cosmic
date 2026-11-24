@@ -362,7 +362,7 @@ local class Trickle is Stream.Reader
     return byte
   end
 
-  function close(self): boolean, string return true, "" end
+  function close(self): (true) | (false, Failure) return true end
 end
 
 --- An event stream sent a byte at a time, its lines ended CRLF, is read whole: each notice once, a notice that

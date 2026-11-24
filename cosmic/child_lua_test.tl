@@ -8,6 +8,7 @@
 --- cases that start nothing -- a refused option, a refused stream, a
 --- guard -- are in cosmic/child_test.tl.
 
+local type Failure = require("cosmic.failure")
 local Child = require("cosmic.child")
 local Signal = require("cosmic.signal")
 local Clock = require("cosmic.clock")
@@ -331,7 +332,10 @@ local function test_streams_are_read_and_written_while_the_child_runs()
   assert(chunk == false)
   local r = assert(h:wait(Clock.seconds(5)))
   assert(r.ok and r.stdout == nil and r.captured[1] == nil)
-  assert(not stdin:write("late"))
+  do
+    local ok, _ = stdin:write("late")
+    assert(not ok)
+  end
 end
 
 --- Reading stdout services stderr meanwhile, so a child that fills
@@ -453,14 +457,17 @@ local function test_writing_to_a_gone_stdin_stream_fails()
     { timeout_ns = Child.FOREVER, stdin = "stream" })))
   local stdin = assert(h.stdin_stream)
   local chunk = string.rep("x", 1 << 20)
-  local ok, trouble = true, ""
+  local trouble: Failure? = nil
   for _ = 1, 8 do
-    ok, trouble = stdin:write(chunk)
-    if not ok then break end
+    local wrote, why = stdin:write(chunk)
+    if not wrote then
+      trouble = why
+      break
+    end
   end
-  assert(not ok and trouble ~= "")
+  assert(trouble ~= nil)
   local again, again_trouble = stdin:write("x")
-  assert(not again and again_trouble == trouble)
+  assert(not again and tostring(again_trouble) == tostring(trouble))
   assert(h:close())
 end
 
@@ -505,10 +512,10 @@ local function test_a_stdin_stream_write_after_the_wait_says_why()
   local stdin = assert(h.stdin_stream)
   assert(assert(h:wait(Clock.seconds(5))).ok)
   local wrote, trouble = stdin:write("late")
-  assert(not wrote and trouble == "child: the child has exited", trouble)
+  assert(not wrote and tostring(trouble) == "child: the child has exited", trouble)
   assert(stdin:close())
   local again, again_trouble = stdin:write("later")
-  assert(not again and again_trouble:find("closed", 1, true) ~= nil, again_trouble)
+  assert(not again and tostring(again_trouble):find("closed", 1, true) ~= nil, again_trouble)
 end
 
 local function test_try_wait_services_a_chatty_child()
@@ -748,7 +755,7 @@ local function test_a_stream_write_ends_a_child_past_its_start_timeout()
   local writer = h.stdin_stream as Stream.Writer -- checked: cast_refused
   local wrote, trouble = writer:write(string.rep("x", 4 * 1024 * 1024))
   assert(not wrote, "a write to a child that never reads went through")
-  assert(about(began, Clock.ms(150)), ms_since(began) .. ": " .. trouble)
+  assert(about(began, Clock.ms(150)), ms_since(began) .. ": " .. tostring(trouble))
   local r = assert(h:wait())
   assert(r.timed_out)
 end

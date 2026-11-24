@@ -77,7 +77,7 @@ local class Watch is Stream.Reader
   daemon: Daemon
   mut started: boolean
   mut ended: boolean
-  skip?: function(Watch, integer): boolean, string
+  skip?: function(Watch, integer): (true) | (false, Failure)
 
   function read(self, _max_bytes?: integer): (string | false) | (nil, Failure)
     if not self.started then
@@ -88,13 +88,13 @@ local class Watch is Stream.Reader
     return "\n"
   end
 
-  function close(self): boolean, string
-    if self.ended then return true, "" end
+  function close(self): (true) | (false, Failure)
+    if self.ended then return true end
     self.ended = true
     self.daemon.open = self.daemon.open - 1
     self.daemon.config = {}
     self.daemon.lines[#self.daemon.lines + 1] = "dropped"
-    return true, ""
+    return true
   end
 end
 

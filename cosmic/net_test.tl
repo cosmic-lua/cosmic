@@ -1,3 +1,4 @@
+local type Failure = require("cosmic.failure")
 local unix_socket = require("build.unix_socket")
 local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
@@ -81,7 +82,10 @@ local function test_a_connection_held_by_a_close_local_is_closed_with_its_scope(
   local chunk, why = kept:read()
   assert(chunk == nil and tostring(why) == "net: the connection is closed", why)
   assert(assert(Stream.read_all(client)) == "sent")
-  assert(kept:close(), "a second close is as safe as the first")
+  do
+    local again, again_why = kept:close()
+    assert(again, "a second close is as safe as the first: " .. tostring(again_why))
+  end
 end
 
 --- A write larger than the socket holds goes out whole, waiting as the
@@ -91,9 +95,9 @@ local function test_a_write_waits_while_the_peer_does_not_read()
   local client, accepted = p.client, p.accepted
   client:set_timeout(Clock.ms(50))
   local ok, why = client:write(string.rep("x", 16 * 1024 * 1024))
-  assert(not ok and why == Poll.TIMEOUT, why)
+  assert(not ok and tostring(why) == Poll.TIMEOUT, why)
   local again, sticky = client:write("more")
-  assert(not again and sticky == Poll.TIMEOUT, sticky)
+  assert(not again and tostring(sticky) == Poll.TIMEOUT, sticky)
   local got = chunk_of(accepted, 10)
   assert(got == string.rep("x", #got) and #got <= 10)
 end
@@ -254,9 +258,9 @@ local function test_a_write_to_a_closed_peer_fails()
   local client, accepted = p.client, p.accepted
   assert(accepted:close())
   local ok, why = client:write(string.rep("x", 1024 * 1024))
-  assert(not ok and why ~= "", why)
+  assert(not ok and tostring(why) ~= "", why)
   local again, sticky = client:write("x")
-  assert(not again and sticky == why, sticky)
+  assert(not again and tostring(sticky) == tostring(why), sticky)
 end
 
 local function test_a_closed_connection_says_so_and_closes_again()
@@ -269,7 +273,7 @@ local function test_a_closed_connection_says_so_and_closes_again()
   local data, why = client:read()
   assert(data == nil and tostring(why) == "net: the connection is closed", why)
   local ok, trouble = client:write("x")
-  assert(not ok and trouble == "net: the connection is closed", trouble)
+  assert(not ok and tostring(trouble) == "net: the connection is closed", trouble)
   local shut, shut_trouble = client:shutdown("write")
   assert(not shut and shut_trouble == "net: the connection is closed", shut_trouble)
 end
@@ -770,7 +774,7 @@ local function test_a_write_to_a_slow_reader_times_out_in_all()
   p.client:set_timeout(Clock.ms(300))
   local done = false
   local took: integer = 0
-  local why: string = ""
+  local why: Failure? = nil
   Poll.run(function()
     Poll.spawn(function()
       local start = Clock.monotonic_ns()
@@ -787,7 +791,8 @@ local function test_a_write_to_a_slow_reader_times_out_in_all()
       end
     end)
   end)
-  assert(why == Poll.TIMEOUT, why)
+  local failure = assert(why)
+  assert(failure.kind == "timeout", tostring(failure))
   -- At 13 MB a second the 64 MiB would take 5 seconds.
   assert(took < Clock.seconds(2), ("the write took %d ms"):format(took // 1000000))
 end
