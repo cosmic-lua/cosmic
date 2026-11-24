@@ -43,7 +43,6 @@ local function holding(): Answers
       ["cat-file -e " .. BASE .. "^{commit}"] = 0,
       ["merge-base --is-ancestor " .. BASE .. " HEAD"] = 0,
       ["rev-parse --is-shallow-repository"] = 0,
-      ["ls-tree " .. BASE .. " -- build/glossary_count.tl"] = 0,
     },
     printed = { ["rev-parse --is-shallow-repository"] = "true\n" },
   }
@@ -69,8 +68,7 @@ end
 
 local KEY <const> = "-- checked:"
 
-local GREP <const> = "grep -l -F -i -e -- scoped: -e -- declared: -e -- checked: -e -- untyped: " ..
-  "-e answer " .. BASE ..
+local GREP <const> = "grep -l -F -e -- scoped: -e -- declared: -e -- checked: -e -- untyped: " .. BASE ..
   " -- *.tl :(exclude)vendor :(exclude)ci"
 
 --- A `git cat-file --batch` stream of `files`: a header and the bytes of each, in order.
@@ -286,43 +284,4 @@ local function test_a_code_held_at_the_base_in_another_stage_is_not_told_to_have
   assert(has(verdict.lines[1], "build/b.tl: 1 of its markers hold checked float_key and the merge base held 0; a marker is " ..
       "never added and a count only falls"), verdict.lines[1])
   assert(not has(verdict.lines[1], "no exceptions"), verdict.lines[1])
-end
-
---- The glossary's count of a file is held as a marker's is: a file whose comment lines use the retired word more often than
---- at the base is refused, with the glossary's words to write instead, and a file at or under its base passes.
-local function test_a_file_whose_comments_use_the_retired_word_more_than_the_base_is_refused(tmp: string)
-  local root = tree_with(tmp)
-  local word = "ans" .. "wers"
-  local base = marked_base({ ["build/a.tl"] = "-- it " .. word .. " nil\nlocal x = 1\n" })
-  base.printed["ls-tree " .. BASE .. " -- build/glossary_count.tl"] = "100644 blob " .. string.rep("b", 40) ..
-    "\tbuild/glossary_count.tl\n"
-  local same: CeilingsBase.Held = { ["build/a.tl"] = CeilingsBase.counts("-- it " .. word .. " nil\n", "build/a.tl") }
-  local kept = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), same)
-  assert(#kept.lines == 0, table.concat(kept.lines, "\n"))
-  local more: CeilingsBase.Held = { ["build/a.tl"] = CeilingsBase.counts("-- it " .. word .. " nil\n-- " .. word .. " too\n" ..
-      "local s = '" .. word .. "'\n", "build/a.tl") }
-  local refused = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), more)
-  assert(#refused.lines == 1 and has(refused.lines[1], "build/a.tl: 2 comment lines say") and
-      has(refused.lines[1], "the merge base held 1") and has(refused.lines[1], "\"returns\""), table.concat(refused.lines, "\n"))
-end
-
---- A base from before the glossary's count (no build/glossary_count.tl) holds a file to no count of the word, so a change
---- queued beside the one that brings the count is not refused.
-local function test_a_base_from_before_the_glossary_count_holds_no_count_of_the_word(tmp: string)
-  local root = tree_with(tmp)
-  local word = "ans" .. "wers"
-  local base = marked_base({ ["build/a.tl"] = "local x = 1\n" })
-  local more: CeilingsBase.Held = { ["build/a.tl"] = CeilingsBase.counts("-- it " .. word .. " nil\n", "build/a.tl") }
-  local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), more)
-  assert(#verdict.lines == 0, table.concat(verdict.lines, "\n"))
-end
-
---- A git that cannot say whether the base holds build/glossary_count.tl fails the check, as a base it cannot read does.
-local function test_a_failed_look_for_the_glossary_count_at_the_base_fails_the_check(tmp: string)
-  local root = tree_with(tmp)
-  local base = marked_base({ ["build/a.tl"] = "local x = 1\n" })
-  base.status["ls-tree " .. BASE .. " -- build/glossary_count.tl"] = 128
-  local held: CeilingsBase.Held = { ["build/a.tl"] = {} }
-  local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), held)
-  assert(#verdict.lines == 1 and has(verdict.lines[1], "git ls-tree of build/glossary_count.tl"), table.concat(verdict.lines, "\n"))
 end
