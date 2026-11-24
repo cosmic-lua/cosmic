@@ -802,9 +802,13 @@ local function test_a_generic_function_is_below_the_function_type_its_type_param
   -- A type parameter only the result gives is taken from it.
   local make = s:fn({ tparams = { {} }, params = {}, rets = { { items = { s:array(v) } } } })
   assert(below(w, make, func(w, {}, { s:array(s.integer) })))
-  -- A type parameter nothing gives has no type to take.
+  -- A type parameter nothing gives is `never`, and the instance is compared as any other.
   local unused = s:fn({ tparams = { {} }, params = {}, rets = { { items = { s.integer } } } })
-  refused(w, unused, func(w, {}, { s.integer }), "generic_function")
+  assert(below(w, unused, func(w, {}, { s.integer })))
+  refused(w, unused, func(w, {}, { s.string }), "mismatch", "alternative 1 > item 1")
+  -- So is one that a union peels away: `integer | T` takes an integer whatever `T` is.
+  local peeled = s:fn({ tparams = { {} }, params = { { type = s:union({ s.integer, v }) } }, rets = {} })
+  assert(below(w, peeled, func(w, { s.integer }, {})))
 end
 
 local function test_a_generic_function_is_below_a_function_type_only_if_its_instance_meets_the_bound()

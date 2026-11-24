@@ -53,8 +53,11 @@
 --- - A generic function is below a function type that is not generic when its type
 ---   parameters can be taken from it: each from the parameter of the type wanted in its
 ---   place, else from what the type wanted answers, and each meeting its bound
----   ([`lang.generics`]). The function with those types in is then compared as any other. A
----   generic function type wanted is met only by itself.
+---   ([`lang.generics`]). A parameter nothing there says anything of is `never`, the
+---   instance that asks least of what `b` passes (`function<T>(x: integer | T)` where
+---   `function(x: integer)` is wanted). The function with those types in is then compared as
+---   any other: any instance below the type wanted shows the generic function is. A generic
+---   function type wanted is met only by itself.
 --- - A type variable is below itself and what one of its bounds is below, or an interface whose fields its interface
 ---   bounds have together. The bounds are read from the
 ---   binders [`Relation.Judge.enter`] has entered.
@@ -1510,11 +1513,9 @@ local function from_generic(j: Relation.Judge, a: Fn, b: Fn, why: boolean): Rela
   end
   local args: mut {Type} = {}
   for i = 1, #a.tparams do
-    local held = Generics.value(solver, i)
-    if held == nil then
-      return leaf(j, why, "generic_function", a, b)
-    end
-    args[i] = held
+    -- Unsolved, a parameter is `never`: the instance is still compared below, so the choice
+    -- only ever admits what an instance shows.
+    args[i] = Generics.value(solver, i) or j.store.never
   end
   if #solver.conflicts > 0 then
     return leaf(j, why, "generic_function", a, b)
