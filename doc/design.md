@@ -57,8 +57,9 @@ these argues with the principle, not with the reviewer.
    string` and `boolean, string`, which the checks on callers hold as
    well. intended: one operation is one function, with no twin beside
    it that raises or that answers a classified record
-   ([`Proc.find_result`], [`Http.download_result`], `handle:exec_result`
-   go once their modules move). the raw binding table [`cosmic.sys`] is
+   ([`Http.download_result`] and `handle:exec_result` go once their
+   modules move; [`Proc.find`]'s failure carries the errno a shell's 126
+   and 127 tell apart). the raw binding table [`cosmic.sys`] is
    the one exception to the two slots: its C calls add the errno in a
    third slot. a stand-in that a module stores into that table in a
    binding's place returns as the binding does. every other Teal
@@ -1982,6 +1983,6 @@ in [roadmap.md](roadmap.md).
 [`doc/guides/project.md`]: guides/project.md
 [`Fs.status`]: ../cosmic/fs.tl
 [`Http.download_result`]: ../cosmic/http/init.tl
-[`Proc.find_result`]: ../cosmic/proc.tl
+[`Proc.find`]: ../cosmic/proc.tl
 [`Rand.uuid`]: ../cosmic/rand.tl
 [`Store.holds`]: ../cosmic/store.tl

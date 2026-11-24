@@ -504,7 +504,7 @@ assert(Store.meta("host_image") ~= nil and Store.meta("host_image") ~= "", "host
 assert(Store.meta("runtime") ~= nil and Store.meta("runtime") ~= "", "runtime")
 assert(Store.meta("runtime_basis") ~= nil and Store.meta("runtime_basis") ~= "", "runtime_basis")
 assert(Store.meta("runtime_context") == "portable-v1")
-assert(Store.meta("artifact") == Proc.executable())
+assert(Store.meta("artifact") == assert(Proc.executable()))
 for _, name in ipairs({ "COSMIC_PORTABLE_ARTIFACT_FD", "COSMIC_PORTABLE_CORE_FD",
                         "COSMIC_PORTABLE_CORE_SHA256" }) do
   assert(Env.get(name) == nil, name .. " escaped startup")

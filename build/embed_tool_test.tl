@@ -1199,7 +1199,7 @@ end
 --- artifact holds only its compressed frame: the cached raw core the start
 --- runs from, checked against the manifest's digest.
 local function test_trusted_core_is_the_cached_raw_core_of_a_compressed_start()
-  local relaunch = Proc.relaunch()
+  local relaunch, _ = Proc.relaunch()
   if relaunch == nil then
     Test.skip("a native start has no cached core to read")
     return

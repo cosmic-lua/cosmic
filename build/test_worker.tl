@@ -1316,7 +1316,7 @@ function worker.program(): Proc.Relaunch?, string
     return { argv = relaunch.argv, env = env, fds = relaunch.fds }, ""
   end
   local executable, trouble = Proc.executable()
-  if executable == nil then return nil, trouble end
+  if executable == nil then return nil, tostring(trouble) end
   return { argv = { executable }, env = {}, fds = {} }, ""
 end
 

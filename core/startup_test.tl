@@ -26,7 +26,7 @@ end
 --- This start's relaunch, skipping the test where it has none or its argv
 --- names no artifact (a host program, or a start with nothing to relaunch).
 local function relaunch_or_skip(): Proc.Relaunch
-  local relaunch = Proc.relaunch()
+  local relaunch, _ = Proc.relaunch()
   if relaunch == nil then Test.skip("this program has no relaunch to start again") end
   local found = assert(relaunch, "Test.skip ends the test where there is no relaunch")
   if #found.argv < 3 then
@@ -59,7 +59,7 @@ local function test_a_relative_artifact_path_is_refused()
     1, true), tostring(r.stderr))
 end
 
-local SHOW_EXECUTABLE <const> = "print(require('cosmic.proc').executable(), ...)"
+local SHOW_EXECUTABLE <const> = "print((assert(require('cosmic.proc').executable())), ...)"
 
 --- `--artifact=<path>`, one argument, starts the runtime as `--artifact
 --- <path>` does: the runtime's own arguments follow, and the program

@@ -191,7 +191,7 @@ local function noexec_works(): boolean, string
   local start: Proc.Relaunch
   if launched == nil then
     local executable, trouble = Proc.executable()
-    if executable == nil then return false, trouble end
+    if executable == nil then return false, tostring(trouble) end
     start = { argv = { executable }, env = {}, fds = {} }
   else
     start = launched
