@@ -123,6 +123,8 @@ under its rules. concretely:
 
 - **returns**: what a function gives back. not "answers", which reads
   as a reply. "returns nil and a failure", "returns true".
+  `cosmic fix --check` holds each file's count of comment lines with
+  the old word to the merge base, so the count only falls.
 - **raises**: an error that unwinds the stack. not "throws" or
   "complains".
 - **fails**: a check, a test or a command that does not pass. a
