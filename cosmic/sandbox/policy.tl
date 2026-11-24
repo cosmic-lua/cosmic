@@ -717,6 +717,212 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
   return result, ""
 end
 
+--- The most open files a process under a policy may hold unless its
+--- `open_files` says.
+local DEFAULT_OPEN_FILES <const> = 1024
+
+--- Whether `inner` is `outer` or a path beneath it, both cleaned: an
+--- absolute path is never beneath a relative one, nor one beneath the
+--- other.
+local function within(inner: string, outer: string): boolean
+  if inner == outer or outer == "/" and inner:sub(1, 1) == "/" then return true end
+  if outer == "." then return inner:sub(1, 1) ~= "/" end
+  return inner:sub(1, #outer + 1) == outer .. "/"
+end
+
+--- The letters of "rwxcu" both `a` and `b` hold, in that order; "" for none.
+local function common_letters(a: string, b: string): string
+  local out: mut {string} = {}
+  for i = 1, #LETTERS do
+    local letter = LETTERS:sub(i, i)
+    if a:find(letter, 1, true) and b:find(letter, 1, true) then out[#out + 1] = letter end
+  end
+  return table.concat(out)
+end
+
+--- The members of `a` that `b` holds too, in `a`'s order.
+local function common<T is Key>(a: {T}, b: {T}): {T}
+  local in_b: mut {T:boolean} = {}
+  for _, item in ipairs(b) do in_b[item] = true end
+  local out: mut {T} = {}
+  for _, item in ipairs(a) do
+    if in_b[item] == true then out[#out + 1] = item end
+  end
+  return out
+end
+
+--- A `connect` target read for a meet: its kind ("any", "name", "ipv4",
+--- "ipv6", or "tag" and "user" for the tailnet's), its host in canonical
+--- form, and its port, 0 for any. Nil for a target neither reader takes,
+--- which [`rules.merge`] has already refused.
+local record Reach
+  kind: string
+  host: string
+  port: integer
+end
+
+local function reach_of(target: string): Reach?
+  local node, _ = Grant.tailnet(target)
+  if node ~= nil then return { kind = node.kind, host = node.name, port = node.port } end
+  local read, _ = Grant.parse(target)
+  if read == nil then return nil end
+  return { kind = read.kind, host = read.host, port = read.port }
+end
+
+--- `reach` written as a `connect` target again, canonical.
+local function target_of(reach: Reach): string
+  local port = if reach.port == 0 then "*" else tostring(reach.port) end
+  if reach.kind == "user" then return "user:" .. reach.host .. ":" .. port end
+  if reach.kind == "ipv6" then return "[" .. reach.host .. "]:" .. port end
+  return reach.host .. ":" .. port
+end
+
+--- What two `connect` targets both reach, as the relay reads them, or nil
+--- for nothing: a "*" host reaches every name and never an address or a
+--- tailnet's node ([`cosmic.relay.grant`]), so it meets a name and leaves
+--- the rest; any other host meets only itself, compared canonical; a port
+--- of 0 (any) meets every port.
+local function meet_targets(a: string, b: string): string?
+  local ra, rb = reach_of(a), reach_of(b)
+  if ra == nil or rb == nil then return nil end
+  local host: Reach? = nil
+  if ra.kind == "any" and (rb.kind == "any" or rb.kind == "name") then
+    host = rb
+  elseif rb.kind == "any" and ra.kind == "name" then
+    host = ra
+  elseif ra.kind == rb.kind and ra.host == rb.host then
+    host = ra
+  end
+  if host == nil then return nil end
+  local port = if ra.port == 0 then rb.port elseif rb.port == 0 or ra.port == rb.port then ra.port else -1 end
+  if port < 0 then return nil end
+  return target_of({ kind = host.kind, host = host.host, port = port })
+end
+
+--- The lower of two limits, either nil for none.
+local function lower(a: integer?, b: integer?): integer?
+  if a == nil then return b end
+  if b == nil then return a end
+  return math.min(a, b)
+end
+
+--- Why two values of a field that is not a right, either nil, disagree,
+--- or "": a layer's `user`, `group` or `database` is what the start sets
+--- up, so stacked layers must name the same one.
+local function setup_conflict(name: string, a: string?, b: string?): string
+  if a ~= nil and b ~= nil and a ~= b then
+    return path_of({ name }) .. ": layers give two values, " .. a .. " and " .. b ..
+      ", and a layer cannot narrow what the start sets up"
+  end
+  return ""
+end
+
+--- What two merged policies hold stacked: what both allow.
+local function intersect_two(a: rules.Policy, b: rules.Policy): rules.Policy?, string
+  local grants: mut {rules.Grant} = {}
+  for _, ga in ipairs(a.grants or {}) do
+    for _, gb in ipairs(b.grants or {}) do
+      if ga.from ~= nil or gb.from ~= nil then
+        if ga.path == gb.path and ga.from ~= gb.from then
+          return refuse(path_of({ "grants" }) .. ": " .. ga.path .. " is mapped from two host paths, " ..
+              tostring(ga.from or ga.path) .. " and " .. tostring(gb.from or gb.path))
+        end
+        if ga.path == gb.path then
+          local letters = common_letters(ga.letters, gb.letters)
+          if letters ~= "" then
+            grants[#grants + 1] = { path = ga.path, from = ga.from, letters = letters }
+          end
+        elseif within(ga.path, gb.path) or within(gb.path, ga.path) then
+          return refuse(path_of({ "grants" }) .. ": " .. ga.path .. " and " .. gb.path .. " nest, and one is mapped " ..
+              "by from, which layers cannot intersect: give the mapped path in each layer")
+        end
+      else
+        local deeper = if within(ga.path, gb.path) then ga.path elseif within(gb.path, ga.path) then gb.path else nil end
+        if deeper ~= nil then
+          local letters = common_letters(ga.letters, gb.letters)
+          if letters ~= "" then grants[#grants + 1] = { path = deeper, letters = letters } end
+        end
+      end
+    end
+  end
+  local connect: mut {string} = {}
+  for _, ta in ipairs(a.connect or {}) do
+    for _, tb in ipairs(b.connect or {}) do
+      local met = meet_targets(ta, tb)
+      if met ~= nil then connect[#connect + 1] = met end
+    end
+  end
+  local function shown(value: integer?): string?
+    if value == nil then return nil end
+    return tostring(value)
+  end
+  local function path_of_database(database: rules.Database?): string?
+    if database == nil then return nil end
+    return database.path
+  end
+  local why = setup_conflict("user", shown(a.user), shown(b.user))
+  if why == "" then why = setup_conflict("group", shown(a.group), shown(b.group)) end
+  if why == "" then
+    why = setup_conflict("database", path_of_database(a.database), path_of_database(b.database))
+  end
+  if why ~= "" then return refuse(why) end
+  local la, lb = a.limits or {}, b.limits or {}
+  local limits: rules.Limits = {
+    -- A start holds a layer with no `open_files` to the default, so the
+    -- lower of the two is taken against it.
+    open_files = if la.open_files == nil and lb.open_files == nil then nil
+      else lower(la.open_files or DEFAULT_OPEN_FILES, lb.open_files or DEFAULT_OPEN_FILES) end, file_bytes = lower(la.file_bytes, lb.file_bytes),
+    cpu_seconds = lower(la.cpu_seconds, lb.cpu_seconds), processes = lower(la.processes, lb.processes),
+  }
+  -- What is not a right joins as a merge joins it: the variables set, and
+  -- one user, group and database, refused where the two disagree.
+  local result: rules.Policy = {
+    grants = grants, isolate = sorted_set(a.isolate or {}, b.isolate or {}),
+    promises = common(a.promises or {}, b.promises or {}), connect = connect,
+    loopback = common(a.loopback or {}, b.loopback or {}), env = common(a.env or {}, b.env or {}),
+    set_env = a.set_env, set_env_digests = a.set_env_digests, limits = limits,
+    tmp = a.tmp == true and b.tmp == true, user = a.user or b.user, group = a.group or b.group,
+    database = a.database or b.database,
+  }
+  local setup: rules.Policy = { set_env = b.set_env, set_env_digests = b.set_env_digests, database = b.database }
+  return rules.merge(result, setup)
+end
+
+--- [`Sandbox.intersect`]: what the layers given hold stacked, merged.
+function rules.intersect(...: rules.Policy): rules.Policy?, string
+  local layers: {rules.Policy} = { ... }
+  if #layers == 0 then return refuse("intersect needs a layer") end
+  local held: rules.Policy? = nil
+  for _, layer in ipairs(layers) do
+    local merged, why = rules.merge(layer)
+    if merged == nil then return nil, why end
+    if held == nil then
+      held = merged
+    else
+      local joined, joined_why = intersect_two(held, merged)
+      if joined == nil then return nil, joined_why end
+      held = joined
+    end
+  end
+  return held, ""
+end
+
+--- [`Sandbox.allows`] of a policy already merged.
+function rules.allows(p: rules.Policy, path: string, letters: string): boolean, string
+  if letters == "" or letters:find("[^" .. LETTERS .. "]") ~= nil then
+    return false, "sandbox: letters are of \"" .. LETTERS .. "\", at least one: " .. string.format("%q", letters)
+  end
+  local at = clean_path(path)
+  local missing = letters
+  for _, grant in ipairs(p.grants or {}) do
+    if within(at, clean_path(grant.path)) then
+      missing = missing:gsub("[" .. grant.letters .. "]", "")
+    end
+  end
+  if missing == "" then return true, "" end
+  return false, "sandbox: no grant gives " .. missing .. " on " .. at
+end
+
 --- `p` with `connect` in place of its own: what [`Child.start`] runs a
 --- merged policy as once its tailnet targets are resolved
 --- ([`cosmic.sandbox.tailnet`]).
@@ -729,10 +935,6 @@ function rules.with_connect(p: rules.Policy, connect: {string}): rules.Policy
   }
   return result
 end
-
---- The most open files a process under a policy may hold unless its
---- `open_files` says.
-local DEFAULT_OPEN_FILES <const> = 1024
 
 --- The rlimits `limits` hold a process to, by the names spawn and
 --- restriction take: `nofile` its `open_files`, or 1024 -- lowered to this

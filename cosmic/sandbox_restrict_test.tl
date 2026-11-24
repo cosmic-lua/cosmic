@@ -15,6 +15,7 @@ local _proc = require("cosmic.proc")
 local _sandbox = require("cosmic.sandbox")
 local _store = require("cosmic.store")
 local Child = require("cosmic.child")
+local Sandbox = require("cosmic.sandbox")
 local sys = require("cosmic.sys")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
@@ -135,6 +136,45 @@ say("exec", why)
   assert(said.raw:find("replaced", 1, true) == nil, said.raw)
   assert(assert(said.lines["again"]):find("^true"), said.raw)
   assert(assert(said.lines["exec"]):find("Operation not permitted", 1, true), said.raw)
+end
+
+--- Two restrictions stacked hold the process to what
+--- [`Sandbox.intersect`] answers of the two: the kernel's verdict on each
+--- path is the one [`Sandbox.allows`] gives the intersection, and
+--- [`Sandbox.held`] is that intersection.
+local function test_two_restrictions_hold_what_intersect_answers(tmp: string)
+  for _, dir in ipairs({ "/a/x", "/a/y", "/a/z" }) do
+    assert(Fs.mkdirs(tmp .. dir))
+    assert(Fs.write(tmp .. dir .. "/f", "data"))
+  end
+  local a: Sandbox.Policy = { grants = { { path = tmp .. "/a", letters = "rw" } } }
+  local b: Sandbox.Policy = { grants = { { path = tmp .. "/a/x", letters = "r" }, { path = tmp .. "/a/y", letters = "w" } } }
+  local probes: mut {string} = {}
+  for _, dir in ipairs({ "x", "y", "z" }) do
+    local file = tmp .. "/a/" .. dir .. "/f"
+    probes[#probes + 1] = string.format("say(%q, reads(%q))", "read_" .. dir, file)
+    probes[#probes + 1] = string.format("say(%q, writes(%q))", "write_" .. dir, file)
+  end
+  local said = Restrict.in_child(restricted(
+    string.format("{ grants = { { path = %q, letters = \"rw\" } } }", tmp .. "/a"), string.format([[
+local again, again_why = Sandbox.restrict({ grants = { { path = %q, letters = "r" }, { path = %q, letters = "w" } } })
+say("again", again, again_why)
+local held = assert(Sandbox.held())
+say("held", #assert(held.grants))
+%s
+]], tmp .. "/a/x", tmp .. "/a/y", table.concat(probes, "\n"))))
+  assert(assert(said.lines["again"]):find("^true"), said.raw)
+  assert(said.lines["held"] == "2", said.raw)
+  local both = assert(Sandbox.intersect(a, b))
+  for _, dir in ipairs({ "x", "y", "z" }) do
+    local file = tmp .. "/a/" .. dir .. "/f"
+    for _, probe in ipairs({ { "read", "r" }, { "write", "w" } }) do
+      local verb, letter = assert(probe[1]), assert(probe[2])
+      local line = assert(said.lines[verb .. "_" .. dir], said.raw)
+      local allowed = Sandbox.allows(both, file, letter)
+      assert((line:find("^denied") == nil) == allowed, verb .. " " .. dir .. ": " .. line .. "\n" .. said.raw)
+    end
+  end
 end
 
 local function test_the_fork_promise_lets_a_process_start(tmp: string)
