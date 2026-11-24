@@ -476,21 +476,26 @@ return assert(again[1])["n"]
   local _, _ = db:close()
 end
 
---- A snippet reads one kept output whole by the id its note names (Host.output), and an id with no output raises.
+--- A snippet reads one kept output whole by the id its note names (Host.output), one past what a reply holds too,
+--- and an id with no output raises.
 local function test_a_snippet_reads_a_kept_output_by_its_id()
   local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
   local db = assert(Sessions.open(dir .. "/sessions.db"))
   local id = assert(Sessions.start(db, "/", "m", 0))
   local kept = assert(Sessions.output(db, id, { tool = "run", input = "{}", text = "first\nsecond\n", is_error = false }))
+  -- Past what one reply holds as JSON, where each control character takes six bytes.
+  local big = assert(Sessions.output(db, id, { tool = "bash", input = "{}", text = string.rep("x\1", 300000),
+    is_error = false }))
   local context: Tools.Context = { cwd = dir, worker = w, db = db, session = id }
   local code = "local Host = require(\"cosmic.agent.host\")\n" ..
     "print(#Host.output(" .. tostring(kept) .. "))\n" ..
-    "local _, why = pcall(Host.output, " .. tostring(kept + 1) .. ")\nprint(tostring(why))\n"
+    "print(Host.output(" .. tostring(big) .. ") == string.rep(\"x\\1\", 300000))\n" ..
+    "local _, why = pcall(Host.output, " .. tostring(big + 1) .. ")\nprint(tostring(why))\n"
   local ran = Tools.run("run", { code = code }, context)
   assert(not ran.is_error, ran.text)
-  assert(ran.text:find("13\n", 1, true) == 1, ran.text)
-  assert(ran.text:find("host: output: no output " .. tostring(kept + 1) .. " in sessions.db", 1, true) ~= nil, ran.text)
+  assert(ran.text:find("13\ntrue\n", 1, true) == 1, ran.text)
+  assert(ran.text:find("host: output: no output " .. tostring(big + 1) .. " in sessions.db", 1, true) ~= nil, ran.text)
   Worker.close(w)
   local _, _ = db:close()
 end

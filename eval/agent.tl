@@ -90,7 +90,7 @@ local record Agent
     tasks: {Task}
     reps: integer
     model: string
-    --- Each run's deadline, in seconds.
+    --- Each ask's deadline, in seconds: a task with a follow-up asks twice.
     timeout: integer
   end
 
@@ -175,8 +175,8 @@ local function inventory(): string
   return table.concat(lines, "\n") .. "\n"
 end
 
---- The event log earlier-log's web API serves: 400 lines of `HH:MM:SS LEVEL component message`, about 18KB, so
---- that printing it all passes what run shows, drawn anew by each process, so no copy of this file tells them.
+--- The event log earlier-log's web API serves: 400 lines of `HH:MM:SS LEVEL component message`, about 17KB. That
+--- is more than run shows, so the printed log is cut. Each process draws it anew, so no copy of this file tells it.
 local function event_log(): string
   local levels <const> = { "INFO", "INFO", "INFO", "WARN", "ERROR" }
   local components <const> = { "billing", "cache", "gateway", "queue", "search", "storage" }

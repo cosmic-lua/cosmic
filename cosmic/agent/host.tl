@@ -600,17 +600,36 @@ function Host.history(query: string): {Host.Row}
   return value
 end
 
---- The whole text of output `id` of sessions.db: what a tool's call gave, kept whole where the model was shown
---- only its start and end, as the note under it says ("kept as output 17"). Raises where it fails, as "host: ...".
+--- The characters of a kept output one history call reads: JSON takes a control character as six bytes, so a part
+--- stays within the 512KB a reply holds.
+local OUTPUT_PART <const> = 64 * 1024
+
+--- The text kept of output `id` of sessions.db, which the note under a cut output names ("kept as output 17"): what
+--- the tool's call gave, but for a run output past 64KB, of which its first 16KB and last 48KB are kept; bytes that
+--- are not UTF-8 come back replaced. It reads any session's outputs, as Host.history does: a forked session's notes
+--- name the outputs of the session it was copied from. Raises where it fails, as "host: output: ...".
 function Host.output(id: integer): string
-  local rows, why = history_of("SELECT text FROM outputs WHERE id = " .. tostring(id))
-  if rows == nil then error(tostring(why), 2) end
-  local row = rows[1]
-  local text = if row ~= nil then row["text"] else nil end
-  if not (text is string) then
+  local function rows_of(query: string): {Host.Row}
+    local rows, why = history_of(query)
+    if rows == nil then error("host: output: " .. tostring(why):gsub("^host: history: ", ""), 3) end
+    return rows
+  end
+  local sized = rows_of("SELECT length(text) AS n FROM outputs WHERE id = " .. tostring(id))[1]
+  local n = if sized ~= nil then sized["n"] else nil end
+  if not (n is integer) then
     error("host: output: no output " .. tostring(id) .. " in sessions.db", 2)
   end
-  return text
+  local parts: mut {string} = {}
+  for start = 1, n, OUTPUT_PART do
+    local row = rows_of("SELECT substr(text, " .. tostring(start) .. ", " .. tostring(OUTPUT_PART) ..
+        ") AS part FROM outputs WHERE id = " .. tostring(id))[1]
+    local part = if row ~= nil then row["part"] else nil end
+    if not (part is string) then
+      error("host: output: output " .. tostring(id) .. " changed as it was read", 2)
+    end
+    parts[#parts + 1] = part
+  end
+  return table.concat(parts)
 end
 
 --- The MCP servers the agent was given: each one's `name`, `reached` and `description`; none where it was

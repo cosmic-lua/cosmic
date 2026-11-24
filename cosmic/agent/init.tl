@@ -54,7 +54,7 @@
 --- and sends the whole conversation still, and the server reads it
 --- from the last compaction block on, so a request after one costs
 --- what the summary and the turns since cost. What the summary leaves
---- out is still in sessions.db, where Host.output in run reads it.
+--- out is still in sessions.db, where Host.history in run finds it.
 ---
 --- Each request asks the API (beta headers): to fall back to another
 --- model where one refuses (server-side-fallback-2026-07-01); to say

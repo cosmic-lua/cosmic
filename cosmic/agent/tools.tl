@@ -1078,7 +1078,7 @@ local ALL <const>: {Tools.Tool} = {
   {
     name = "run",
     snippet = "Run a checked cosmic program in place of many tool calls",
-    guidelines = { "Each tool's whole output is kept in sessions.db: read a cut one whole with Host.output(id), " ..
+    guidelines = { "Each tool's output is kept in sessions.db: read a cut one with Host.output(id), " ..
         "or find what was seen before with Host.history, rather than running a command or fetching again." },
     -- The words are the text template run_text.tmpl (cosmic.template).
     description = RunText.render({ kb = RUN_BYTES // 1024, tables = KEPT_TABLES }),
@@ -1205,7 +1205,7 @@ end
 --- What an agent offers unless told: read, run, edit and write. No
 --- program runs: without bash a snippet's worker starts no process
 --- either ([`Worker.Options`] `commands`, on Linux under a sandbox).
---- What is kept is read with Host.history in run, so sql is left out.
+--- What is kept is read with Host.output and Host.history in run, so sql is left out.
 function Tools.default(): mut {Tools.Tool}
   return Tools.without(ALL, { "bash", "jobs", "sql" })
 end
