@@ -50,7 +50,8 @@ end
 --- Blocks the calls of each tool in `counts` past its count: they are
 --- counted from when the check is made, so make one an agent. A call it
 --- lets by is counted, so put it last in [`Check.all`], where the checks
---- before it have let the call by too. It counts by name, whoever calls.
+--- before it have let the call by too. It counts by name, whoever calls:
+--- the sql tool and a snippet's history call are two names, so count both.
 ---
 ---     agent.before = Check.budget({ run = 20, write = 5 })
 function Check.budget(counts: {string: integer}): Agent.Before

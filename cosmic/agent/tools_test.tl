@@ -149,6 +149,11 @@ end
 local function test_tools_are_values_to_pick_and_make()
   assert(names(Tools.all()) == "read bash run jobs edit write sql", names(Tools.all()))
   assert(names(Tools.default()) == "read run edit write", names(Tools.default()))
+  -- With sql left out, run tells the model how to read what is kept.
+  local run_tool = assert(Tools.find(Tools.default(), "run"))
+  assert(run_tool.description:find("Host.history(query)", 1, true) ~= nil and
+      run_tool.description:find("Tables: sessions", 1, true) ~= nil, run_tool.description)
+  assert(table.concat(run_tool.guidelines, " "):find("Host.history", 1, true) ~= nil)
   assert(names(Tools.only(Tools.all(), { "sql", "read", "nope" })) == "read sql")
   assert(names(Tools.without(Tools.all(), { "run" })) == "read bash jobs edit write sql")
   assert(assert(Tools.find(Tools.all(), "edit")).name == "edit" and Tools.find(Tools.default(), "bash") == nil)

@@ -1035,14 +1035,14 @@ local function touches(actions: {string}): function(input: Tools.Object, cwd: st
   end
 end
 
---- Every tool, in the order the system prompt lists them.
-
 --- What sessions.db holds, as the sql tool and Host.history tell the model.
 local KEPT_TABLES <const> = "Tables: sessions (id, cwd, started (Unix time), model); messages (session, seq, " ..
   "message: the JSON the API takes); outputs (id, session, tool, input (JSON), text (the whole output), is_error); " ..
   "outputs_fts, FTS5 over outputs.text with the trigram tokenizer (rowid = outputs.id): " ..
   "outputs_fts MATCH '\"some text\"' for text of 3 characters or more, with snippet(outputs_fts, 0, " ..
   "'>>', '<<', '...', 64) and ORDER BY rank. ?1 is the current session's id."
+
+--- Every tool, in the order the system prompt lists them.
 local ALL <const>: {Tools.Tool} = {
   {
     name = "read",
@@ -1077,7 +1077,8 @@ local ALL <const>: {Tools.Tool} = {
   {
     name = "run",
     snippet = "Run a checked cosmic program in place of many tool calls",
-    guidelines = {},
+    guidelines = { "Each tool's whole output is kept in sessions.db: read what was cut, or seen before, with " ..
+        "Host.history in run rather than running a command again." },
     description = "Run a program in cosmic, a typed language of its own with a library of its own (its syntax is much like " ..
       "Lua's), in a worker kept for the session, under the session's sandbox: one program in place of many tool calls, " ..
       "printing only what you need; its locals end with it. It is " ..

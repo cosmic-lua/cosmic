@@ -191,8 +191,8 @@ function Host.call(name: string, args: Json.Value): (Json.Value) | (nil, Failure
   return through(name, args)
 end
 
---- The rows of one read-only SQLite statement on the agent's sessions.db, as the sql tool runs it (its tables are
---- named there; `?1` is the session's id), or why there are none. The agent answers at most 512KB of JSON, and a
+--- The rows of one read-only SQLite statement on the agent's sessions.db, as the sql tool runs it (its tables are in
+--- [`cosmic.agent.sessions`]; `?1` is the session's id), or why there are none. The agent answers at most 512KB of JSON, and a
 --- query of more fails: narrow it with LIMIT and OFFSET, or substr() for a long text.
 local function history_of(query: string): ({Host.Row}) | (nil, Failure)
   local answer, why = Host.call("history", { query = query })
@@ -592,8 +592,8 @@ function Host.declaration(server: string): string
   return McpModule.made(server, tools).teal
 end
 
---- The rows of one read-only SQLite statement on the agent's sessions.db, as the sql tool runs it (`?1` is the
---- session's id); at most 512KB of JSON, so narrow a large one with LIMIT and OFFSET. Raises where it fails, as "host: ...".
+--- The rows of one read-only SQLite statement on the agent's sessions.db, whose tables [`cosmic.agent.sessions`]
+--- names (`?1` is the session's id); at most 512KB of JSON, so narrow a large one with LIMIT and OFFSET. Raises where it fails, as "host: ...".
 function Host.history(query: string): {Host.Row}
   local value, why = history_of(query)
   if value == nil then error(tostring(why), 2) end
