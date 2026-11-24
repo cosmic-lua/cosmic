@@ -9,11 +9,12 @@
   # publishes nothing; `follow` starts a manual run after a green push
   # where none started in the last six hours, and the hourly `sweep`
   # names that run to `publish` once it passes, so a prerelease is some
-  # hours behind main (a pin moves to the newest). A workflow of its own, so no branch's run shows
-  # this job as a skipped check. A workflow_run and a schedule always
-  # run main's copy of this file, in main's context: the commit and run it
-  # publishes are the triggering run's (github.event.workflow_run) or the
-  # one `sweep` names, not github.sha or github.run_id. The write permission is this job's alone; ci.yml's
+  # hours behind main (a pin moves to the newest). A workflow of its own,
+  # so no branch's run shows this job as a skipped check. A workflow_run
+  # and a schedule always run main's copy of this file, in main's
+  # context: the commit and run it publishes are the triggering run's
+  # (github.event.workflow_run) or the one `sweep` names, not github.sha
+  # or github.run_id. The write permission is this job's alone; ci.yml's
   # jobs remain read-only.
   "on": {
     workflow_run: {
