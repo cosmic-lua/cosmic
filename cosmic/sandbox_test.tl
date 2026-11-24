@@ -3,6 +3,7 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
 local String = require("cosmic.string")
+local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local stand_in = require("build.stand_in")
 local PolicyMerge = require("build.policy_merge_fixture")
@@ -265,7 +266,7 @@ end
 --- On macOS /bin/sh is a stub that runs the shell /private/var/select/sh
 --- names, so that shell is a file its start needs too.
 local function test_loaders_follows_macos_sh_to_the_shell_it_runs()
-  if not Sandbox.on_macos() then return end
+  if not Sandbox.on_macos() then Test.skip("/bin/sh runs another shell on macOS alone") end
   local files = assert(Sandbox.loaders("/bin/sh"))
   local variant = assert(sys.realpath("/private/var/select/sh"))
   assert(files[1] == "/bin/sh" and files[2] == variant, table.concat(files, " "))
