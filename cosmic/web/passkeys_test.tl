@@ -120,7 +120,7 @@ local function rig_of(extra?: Extra): Rig
   local app = Web.app{
     routes = {
       Web.get("/", function(req: Web.Request): Web.Response
-        local who = Web.passkey_identity(req)
+        local who = Web.who(req).passkey
         if who == nil then return Web.text("nobody") end
         return Web.text(who.user_handle .. (if who.user_verified then " verified" else "" end))
       end),

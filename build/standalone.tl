@@ -31,8 +31,8 @@
 --- refused by the checker. The checker is as strict as a tree build's:
 --- a warning is refused along with an error.
 ---
---- `cosmic --standalone --check <file.tl>` types the file as a run does, prints the same refusals and exits 1 on any, 0 when
---- there are none, and never calls the file: a gate on one script that reads neither the tree around it nor its siblings.
+--- `cosmic --standalone --check <file.tl>` types the file as a run does, prints the same refusals and exits 4 on any, 0 when
+--- there are none, 1 when it cannot read the file, and never calls the file: a gate on one script that reads neither the tree around it nor its siblings.
 ---
 --- What the file returns is its entry point, called as `cosmic
 --- <file.tl>` calls one (see `argv`): a function, or a record whose
@@ -70,13 +70,29 @@ local function cached_path(source: string, variables?: {string:string}, own?: bo
   return dir .. "/" .. key .. ".lua"
 end
 
---- `code`, Lua the checker wrote of `file`, loaded as `file`'s chunk.
-function standalone.loaded(file: string, code: string): standalone.Main?, string
-  local chunk, chunk_trouble = Compiled.load(code, "@" .. file, Globals.table())
+--- The Lua of a `require` that answers each of `modules` by its name, and asks `load_module` for any other.
+local OWN_REQUIRE <const> = "local modules, load_module = ... " ..
+  "return function(name) local found = modules[name] if found ~= nil then return found end return load_module(name) end"
+
+--- `code`, Lua the checker wrote of `file`, loaded as `file`'s chunk, its globals `env`.
+local function loaded_in(file: string, code: string, env: {string: any}): standalone.Main?, string
+  local chunk, chunk_trouble = Compiled.load(code, "@" .. file, env)
   if chunk == nil then
     return nil, file .. ": " .. tostring(chunk_trouble)
   end
   return chunk, ""
+end
+
+--- `code`, Lua the checker wrote of `file`, loaded as `file`'s chunk, with a `require` that answers each of
+--- `modules` by its name, as a module the binary does not hold: the module of an MCP server a snippet of cosmic agent
+--- requires ([`build.agent_worker`]).
+function standalone.loaded_with<M>(file: string, code: string, modules: {string: M}): standalone.Main?, string
+  local globals = Globals.table()
+  local own: mut {string: any} = {}
+  for k, v in pairs(globals) do own[k] = v end
+  local made = assert(load(OWN_REQUIRE, "=own_require", "t", {}))
+  own["require"] = made(modules, globals["require"])
+  return loaded_in(file, code, own)
 end
 
 --- `file`'s Teal, checked and compiled to Lua -- from the cache when this
@@ -190,7 +206,7 @@ function standalone.compile(file: string, source: string, variables?: {string:st
   if code == nil then
     return nil, trouble
   end
-  return standalone.loaded(module or file, code)
+  return loaded_in(module or file, code, Globals.table())
 end
 
 --- The entry point `produced` names: itself when it is a function, its

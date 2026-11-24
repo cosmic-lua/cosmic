@@ -49,6 +49,7 @@
 
 local App = require("cosmic.web.app")
 local ClientCert = require("cosmic.web.client_cert")
+local Identity = require("cosmic.web.identity")
 local Html = require("cosmic.html")
 local Stack = require("cosmic.web.middleware")
 local Request = require("cosmic.web.request")
@@ -225,6 +226,12 @@ local record Web
   --- A sink writing lines to standard error: see [`Stack.stderr_sink`].
   stderr_sink: function(name?: string): Types.Sink
 
+  --- Who a request comes from, by each way there is: see [`Identity.Who`].
+  type Who = Identity.Who
+  --- Who `req` comes from: on the tailnet, by a login with OpenID Connect or a passkey, and by its client
+  --- certificate. See [`Identity.who`].
+  who: function(req: Types.Request): Identity.Who
+
   --- Who a request comes from on the tailnet: see [`Tailnet.Identity`].
   type TailnetIdentity = Tailnet.Identity
   --- What [`Web.tailnet`] takes: see [`Tailnet.Options`].
@@ -232,17 +239,12 @@ local record Web
   --- Middleware that finds who each request comes from on the tailnet:
   --- see [`Tailnet.middleware`].
   tailnet: function(opts?: Tailnet.Options): Types.Middleware
-  --- The identity [`Web.tailnet`] found: see [`Tailnet.identity`].
-  tailnet_identity: function(req: Types.Request): Tailnet.Identity?
   --- Whether Funnel brought a request from the internet: see
   --- [`Tailnet.funnel`].
   tailnet_funnel: function(req: Types.Request): boolean
   --- Middleware that refuses a request without a tailnet capability:
   --- see [`Tailnet.require_cap`].
   require_cap: function(name: string): Types.Middleware
-  --- The verified certificate a request's client presented over mutual
-  --- TLS: see [`ClientCert.peer`].
-  client_cert: function(req: Types.Request): Tls.Peer?
   --- Middleware that refuses a request without a verified client
   --- certificate, or one `accept` refuses: see [`ClientCert.require`].
   require_client_cert: function(accept?: function(peer: Tls.Peer): boolean): Types.Middleware
@@ -258,8 +260,6 @@ local record Web
   --- Middleware of a login with an OpenID Connect provider: see
   --- [`Oidc.middleware`].
   oidc: function(opts: Oidc.Options): Types.Middleware
-  --- Who [`Web.oidc`] found logged in: see [`Oidc.identity`].
-  oidc_identity: function(req: Types.Request): Oidc.Identity?
   --- Middleware that requires a login of [`Web.oidc`]: see
   --- [`Oidc.require_login`].
   require_login: function(): Types.Middleware
@@ -277,8 +277,6 @@ local record Web
   --- Middleware of passkey registration and login: see
   --- [`Passkeys.middleware`].
   passkeys: function(opts: Passkeys.Options): Types.Middleware
-  --- Who [`Web.passkeys`] found logged in: see [`Passkeys.identity`].
-  passkey_identity: function(req: Types.Request): Passkeys.Identity?
   --- A store of passkeys in SQLite: see [`Passkeys.sqlite_store`].
   passkey_store: function(db: Sqlite.Handle, opts?: Passkeys.StoreOptions): Passkeys.Store?, string
 
@@ -330,9 +328,6 @@ Web.app = App.new
 Web.tailnet = function(opts?: Tailnet.Options): Types.Middleware
   return require("cosmic.web.tailnet").middleware(opts)
 end
-Web.tailnet_identity = function(req: Types.Request): Tailnet.Identity?
-  return require("cosmic.web.tailnet").identity(req)
-end
 Web.tailnet_funnel = function(req: Types.Request): boolean
   return require("cosmic.web.tailnet").funnel(req)
 end
@@ -342,19 +337,13 @@ end
 Web.oidc = function(opts: Oidc.Options): Types.Middleware
   return require("cosmic.web.oidc").middleware(opts)
 end
-Web.oidc_identity = function(req: Types.Request): Oidc.Identity?
-  return require("cosmic.web.oidc").identity(req)
-end
 Web.require_login = function(): Types.Middleware
   return require("cosmic.web.oidc").require_login()
 end
-Web.client_cert = ClientCert.peer
 Web.require_client_cert = ClientCert.require
+Web.who = Identity.who
 Web.passkeys = function(opts: Passkeys.Options): Types.Middleware
   return require("cosmic.web.passkeys").middleware(opts)
-end
-Web.passkey_identity = function(req: Types.Request): Passkeys.Identity?
-  return require("cosmic.web.passkeys").identity(req)
 end
 Web.passkey_store = function(db: Sqlite.Handle, opts?: Passkeys.StoreOptions): Passkeys.Store?, string
   return require("cosmic.web.passkeys").sqlite_store(db, opts)

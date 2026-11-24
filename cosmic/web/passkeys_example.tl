@@ -40,7 +40,7 @@ function Example.passkeys()
   local app = Web.app{
     routes = {
       Web.get("/", function(req: Web.Request): Web.Response
-        local who = Web.passkey_identity(req)
+        local who = Web.who(req).passkey
         if who == nil then return Web.text("nobody") end
         return Web.text("hello " .. assert(name_of(who.user_handle)))
       end),

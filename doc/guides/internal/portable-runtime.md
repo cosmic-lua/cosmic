@@ -188,16 +188,20 @@ has hashed an entry and a second has passed since the entry last changed,
 startup writes `.verified-<entry>` beside it, recording the entry's size,
 inode, and modification and change seconds. While the entry still answers the
 same, neither the launcher nor startup hashes it. Any write to the entry moves
-its times, so a core damaged in place is hashed by the launcher before it
-runs, and repaired. A core that startup still finds different from the
-manifest is refused with `executing core digest differs from manifest; remove
-<entry> to extract it again`.
+its times, so the stamp no longer holds for a damaged core. On Linux the
+warm start runs it, since the shell sees only that the stamp exists:
+startup hashes it, removes it and its stamp, and exits 2 with `cache entry
+<entry> digest differs from the manifest; removed it: run again to extract
+it`. The next start extracts it again. Elsewhere, or where the stamp is
+gone, the launcher hashes the entry before it runs and repairs it. The
+damaged core's own startup judges it on Linux, so damage to startup's code
+can crash it before it speaks; only this user or root can write the entry.
 
-A warm start with a verified stamp runs two utilities and no other child:
-`uname` and one `stat` for both the cache leaf and the entry, and hashes
-nothing. The descriptor probes run
-in the shell itself, ownership is the shell's own `test -O`, and the umask
-changes only in the child that creates the cache leaf.
+A warm start with a verified stamp on Linux runs no utility: the OS and
+machine come from `/proc/sys/kernel`, and the checks are the shell's own
+`test`. Elsewhere it runs `uname` and one `stat` for both the cache leaf
+and the entry. Neither hashes anything, and the umask changes only in the
+child that creates the cache leaf.
 
 On supported hosts the launcher also checks whether the verified cache entry
 is executable before invoking the shell's `exec` builtin, so a noexec cache
