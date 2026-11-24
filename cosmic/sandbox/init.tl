@@ -303,19 +303,21 @@ local ACTIONS <const>: {string:{letter: string, directory: boolean}} = {
 --- "remove" ask `c` of the directory that holds the name, as Landlock
 --- grants it, and do not follow a link that is the last name, as unlink
 --- and a create of the name do not; "write" of a name not there yet asks
---- that `c` too, since writing it makes it. Every other name is checked
---- by its real name ([`Sandbox.real`]), so a link out of a grant is
---- checked at its target, and a dangling link is refused.
+--- `w` and `c` of its directory, since writing it makes it, and a grant
+--- of the name alone named the file that was there. Every other name is
+--- checked by its real name ([`Sandbox.real`]), so a link out of a grant
+--- is checked at its target, and a dangling link is refused.
 ---
 --- Each grant is resolved by its real name as this is called, a relative
 --- one from `cwd` (this process's working directory where nil), while
 --- the kernel resolved it once, as the program started: give the policy
 --- with the real names the start had where the program may change what
 --- a grant's path names. The policy is merged first ([`Sandbox.merge`]);
---- one that does not merge permits nothing. A grant with `from`, and
---- /tmp where the policy isolates files and has a `tmp` of its own, name
---- other files inside the sandbox than outside, so they permit nothing
---- here; /proc is refused, since outside a pid namespace of its own it is
+--- one that does not merge permits nothing. A grant with `from`, and a
+--- grant of "/tmp" itself where the policy isolates files and has a
+--- `tmp` of its own, name other files inside the sandbox than outside,
+--- so they permit nothing here, and a refusal names them; a grant
+--- beneath /tmp is the host's directory, bound in, so it counts; /proc is refused, since outside a pid namespace of its own it is
 --- this process's.
 ---
 --- For code that acts for a held program in a process no kernel layer
@@ -335,6 +337,7 @@ function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, c
   local merged, why = rules.merge(policy)
   if merged == nil then return nil, why end
   local letter, of_directory = asked.letter, asked.directory
+  local creates = false
   local real = ""
   if of_directory or action == "write" then
     local name = Fs.basename(path)
@@ -347,8 +350,7 @@ function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, c
     if action == "write" then
       local there, _ = sys.lstat(real)
       if there == nil then
-        of_directory = true
-        letter = "c"
+        creates = true
       else
         local resolved, resolve_why = Sandbox.real(path)
         if resolved == nil then return nil, resolve_why end
@@ -373,19 +375,40 @@ function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, c
     local here, _ = sys.getcwd()
     base = here
   end
+  -- A new name has no grant of its own yet: its `w`, as its `c`, comes
+  -- from its directory's.
+  local checked = if of_directory or creates then Fs.dirname(named) else named end
   local grants: mut {Sandbox.Grant} = {}
+  local skipped: mut {string} = {}
   for _, grant in ipairs(merged.grants or {}) do
     local at = grant.path
-    if at:sub(1, 1) ~= "/" and base ~= nil then at = base .. "/" .. at end
-    if grant.from == nil and not (isolated_tmp and (at == "/tmp" or at:sub(1, 5) == "/tmp/")) then
+    if at:sub(1, 1) ~= "/" and base ~= nil then
+      at = base .. (if base:sub(-1) == "/" then "" else "/" end) .. at
+    end
+    -- The start reads "/tmp" and "tmp" alike as the letters of its own /tmp.
+    local own_tmp = isolated_tmp and grant.from == nil and (grant.path == "/tmp" or grant.path == "tmp")
+    if grant.from ~= nil or own_tmp then
+      local covers = at == "/" or checked == at or checked:sub(1, #at + 1) == at .. "/"
+      if covers then
+        local why_skipped = if own_tmp then "is the sandbox's own /tmp" else "has from" end
+        skipped[#skipped + 1] = string.format("%q %s", grant.path, why_skipped)
+      end
+    else
       local resolved, _ = Fs.absolute(at)
       grants[#grants + 1] = { path = resolved or at, letters = grant.letters }
     end
   end
-  local checked = if of_directory then Fs.dirname(named) else named end
   local allowed, allow_why = rules.allows({ grants = grants }, checked, letter)
+  if allowed and creates then
+    -- Opening a new name to write it needs w on it and c in its directory.
+    allowed, allow_why = rules.allows({ grants = grants }, checked, "c")
+  end
   if not allowed then
-    return nil, string.format("sandbox: the policy does not permit %s %s: %s", action, named, allow_why)
+    local note = ""
+    if #skipped > 0 then
+      note = " (" .. table.concat(skipped, ", ") .. ", so names other files inside the sandbox)"
+    end
+    return nil, string.format("sandbox: the policy does not permit %s %s: %s%s", action, named, allow_why, note)
   end
   return named, ""
 end

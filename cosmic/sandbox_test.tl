@@ -709,7 +709,7 @@ end
 
 --- Each action asks one letter: `c` of the directory that holds the name,
 --- the rest of the path itself, as the kernel decides; a write of a name
---- not there yet makes it, and asks `c` too.
+--- not there yet makes it, and asks `w` and `c` of its directory.
 local function test_permits_asks_each_action_of_the_path_or_its_directory(tmp: string)
   local base = assert(Fs.absolute(tmp))
   local inside, outside = base .. "/in", base .. "/out"
@@ -726,9 +726,12 @@ local function test_permits_asks_each_action_of_the_path_or_its_directory(tmp: s
   local dir: Sandbox.Policy = { grants = { { path = inside, letters = "rwc" } } }
   assert(permitted(dir, inside .. "/new.txt", "create") and not permitted(dir, outside .. "/new.txt", "create"))
   assert(not permitted(dir, inside .. "/f.txt", "run"))
-  -- A write of a name not there makes it: `w` alone does not.
+  -- A write of a name not there makes it and writes it: `w` alone, or
+  -- `c` alone, does not.
   local written: Sandbox.Policy = { grants = { { path = inside, letters = "rw" } } }
   assert(permitted(written, inside .. "/f.txt", "write") and not permitted(written, inside .. "/new.txt", "write"))
+  local made_only: Sandbox.Policy = { grants = { { path = inside, letters = "rc" } } }
+  assert(permitted(made_only, inside .. "/new.txt", "create") and not permitted(made_only, inside .. "/new.txt", "write"))
   assert(permitted(dir, inside .. "/new.txt", "write"))
   -- A link outside the grant is written at its target, in it; it is
   -- removed or made again where it is, outside.
@@ -749,9 +752,10 @@ local function test_permits_asks_each_action_of_the_path_or_its_directory(tmp: s
 end
 
 --- Profiles count, as a merge reads them; a relative grant is read from
---- `cwd`; a grant with `from`, or /tmp where the policy isolates files with
---- a `tmp` of its own, names another file inside the sandbox, so it
---- permits nothing outside; /proc is refused whatever is granted; a
+--- `cwd`; a grant with `from`, or "/tmp" itself where the policy
+--- isolates files with a `tmp` of its own, names another file inside the
+--- sandbox, so it permits nothing outside, and the refusal says so,
+--- while a grant beneath /tmp is bound in and counts; /proc is refused whatever is granted; a
 --- policy that does not merge permits nothing, and says why; the root is
 --- checked as "/".
 local function test_permits_reads_profiles_and_refuses_from_grants_and_proc(tmp: string)
@@ -765,7 +769,15 @@ local function test_permits_reads_profiles_and_refuses_from_grants_and_proc(tmp:
   local mapped: Sandbox.Policy = { grants = { { path = "/etc", letters = "r", from = base } } }
   assert(not permitted(mapped, "/etc/hosts", "read"))
   local isolated: Sandbox.Policy = { isolate = { "file" }, tmp = true, grants = { { path = "/tmp", letters = "rwc" } } }
-  assert(not permitted(isolated, "/tmp/x", "create"))
+  local refused, own_tmp = Sandbox.permits(isolated, "/tmp/x", "create")
+  assert(refused == nil and own_tmp:find("sandbox's own /tmp", 1, true) ~= nil, own_tmp)
+  local relative_tmp: Sandbox.Policy = { isolate = { "file" }, tmp = true, grants = { { path = "tmp", letters = "rwc" } } }
+  assert(not permitted(relative_tmp, "/tmp/x", "create", "/"))
+  local real_tmp = assert(Sandbox.real("/tmp"))
+  if base:sub(1, #real_tmp + 1) == real_tmp .. "/" then
+    local bound: Sandbox.Policy = { isolate = { "file" }, tmp = true, grants = { { path = base, letters = "rwc" } } }
+    assert(permitted(bound, base .. "/made.txt", "create"))
+  end
   local everything: Sandbox.Policy = { grants = { { path = "/", letters = "rwxc" } } }
   local proc, why = Sandbox.permits(everything, "/proc/self/environ", "read")
   assert(proc == nil and why:find("/proc", 1, true) ~= nil, why)
