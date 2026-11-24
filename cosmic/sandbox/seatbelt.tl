@@ -184,7 +184,8 @@ end
 ---
 --- The returned rlimits must be applied separately. This is preparation
 --- only: on macOS [`Child.start`] applies the profile and the limits in a
---- process of this program that executes the child's program last, and
+--- process of this program that executes the child's program last (a
+--- cosmic child's core applies its profile itself at boot), and
 --- [`Sandbox.restrict`] in the process that calls it.
 function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Seatbelt.Profile?, string
   local valid, why = rules.check(policy)

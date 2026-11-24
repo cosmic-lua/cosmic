@@ -529,7 +529,12 @@ local record Options
   --- On macOS the child is held by Seatbelt instead ([`Seatbelt.compile`]),
   --- by a process of this program that applies the profile to itself and
   --- then executes the child's program, so a profile the system refuses
-  --- fails the start, with its text, and nothing runs unconfined. It holds
+  --- fails the start, with its text, and nothing runs unconfined. A cosmic
+  --- child (this program, or a program on a `database`) applies the
+  --- profile itself instead, as its core boots and before any module
+  --- loads, since macOS applies one profile to a process and the start's
+  --- would grant the core `rx`: a refusal then ends the child, exit 125,
+  --- with its text. It holds
   --- `grants` (a relative one from `cwd`, which must exist, and the child's
   --- program needs `rx` -- the "system" profile gives the host's own),
   --- `promises` `fork`, `jit` and `fattr`, `env`, `set_env` and `limits`
@@ -560,8 +565,15 @@ local record Options
   --- own addresses as on Linux: the start lists them once, as it runs
   --- ([`sys.getifaddrs`]), so an address the host gains later is not refused.
   --- This program, and any program on a `database`,
-  --- runs as its core, as under Landlock: the core is granted `rx` and the
-  --- database `r` (it is opened read-only and immutable); `tmp` is a
+  --- runs as its core, as under Landlock: the core is granted `r`, as it
+  --- runs already, and the database `r` (it is opened read-only and
+  --- immutable). So a cosmic child runs neither its core again nor a start
+  --- through this program's trampoline (a `limits` or pty start), unless a
+  --- grant gives `x` on the core. Where a `w` or `c` grant reaches the
+  --- core, or the child is given a DYLD_ variable, the start's process
+  --- applies the profile, with `rx` on the core, as for any program: a
+  --- core the child could replace, or a library loaded before the profile,
+  --- would run unconfined. `tmp` is a
   --- directory made for the start and granted `rwc`. The child leads
   --- a session of its own, with no controlling terminal unless it is started
   --- by [`Child.start_on_pty`] with stdin on the pty, so `process_group`
@@ -3487,7 +3499,7 @@ end
 
 --- A policy's start on macOS: the profile [`Seatbelt.compile`] makes of
 --- it, with the paths it names resolved on this host, for spawn to apply
---- before it runs the program, and the environment and limits the policy
+--- before it runs the program (or a cosmic child's core at boot), and the environment and limits the policy
 --- gives. Nil and why for a policy Seatbelt cannot hold or not yet: its
 --- own refusals, for `isolate`, `loopback`, `nest`, `from`,
 --- `limits.processes` and a digest without its value. With `connect`
@@ -3586,7 +3598,14 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   -- A cosmic child holds itself to the profile at boot, which grants its
   -- core and this program `r` alone: it runs neither again. The relay is
   -- held by the trampoline, as its profile is the start's.
-  local booted = relaunch ~= nil and serves_relay == nil
+  local booted = relaunch ~= nil and serves_relay == nil and core ~= nil and
+    startable(core, merged.grants or {}, opts.cwd)
+  for name in pairs(merged.set_env or {}) do
+    if name:sub(1, 5) == "DYLD_" then booted = false end
+  end
+  for _, name in ipairs(merged.env or {}) do
+    if name:sub(1, 5) == "DYLD_" and sys.getenv(name) ~= nil then booted = false end
+  end
   options.booted = booted
   -- The relay's port is known once it serves, after this: a port of the
   -- right form lets this compile refuse what the profile cannot hold, with
@@ -4203,7 +4222,9 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
       -- The profile held the start itself: what it runs is the one thing it
       -- must grant.
       trouble = trouble .. ": a child held by Seatbelt needs an `rx` grant for its program, " ..
-        "and the \"system\" profile for the host's own files it loads"
+        "and the \"system\" profile for the host's own files it loads; a start with `limits` " ..
+        "or a pty runs this program first, which a cosmic child under a policy is granted " ..
+        "`r` and not `rx`"
     elseif held ~= nil and errno == sys.ENOSYS then
       trouble = trouble .. ": a policy is held by Landlock and seccomp, which only Linux gives"
     elseif (errno == sys.ENOENT or errno == sys.ENOTDIR) and missing_cwd(opts) then

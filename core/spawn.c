@@ -152,6 +152,22 @@ void close_child_descriptors (int from, long limit) {
  * which executes the program last and reports there what stopped it; a
  * profile's or a terminal's start leads a session, which replaces the process group. The child's
  * pid, or -1 and the errno in `error`. */
+/* Whether a start whose profile the program applies at boot runs this
+ * program's own core, `core`, by `path`, and hands it the profile in
+ * `envp`: the trampoline applies none, so a program that is no cosmic
+ * core, or one with no profile to apply, would run unconfined. */
+static bool boot_core_matches (const char *core, const char *path, char *const *envp) {
+  struct stat ran, own;
+  if (stat(path, &ran) != 0 || stat(core, &own) != 0) return false;
+  if (ran.st_dev != own.st_dev || ran.st_ino != own.st_ino) return false;
+  size_t length = strlen(COSMIC_SEATBELT_PROFILE);
+  for (size_t i = 0; envp != NULL && envp[i] != NULL; i++)
+    if (strncmp(envp[i], COSMIC_SEATBELT_PROFILE, length) == 0 && envp[i][length] == '=' &&
+        envp[i][length + 1] != '\0')
+      return true;
+  return false;
+}
+
 static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
   /* Darwin has neither Landlock nor seccomp. */
   if (plan->confine >= 0 || plan->promising) {
@@ -216,17 +232,22 @@ static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
   char **words = NULL;
   char core[PATH_MAX];
   char numbers[5 + 2 * SPAWN_RLIMIT_MAX][24];
+  /* A core that applies its profile at boot reads the parameters from its
+   * environment, so the trampoline is given none. */
+  int parameters = plan->seatbelt_boot ? 0 : plan->seatbelt_parameter_count;
   if (!failure && trampolined) {
     size_t count = 0;
     while (plan->argv[count] != NULL) count++;
     size_t room = TRAMPOLINE_LIMITS + 2 * (size_t)plan->rlimit_count +
-                  (size_t)plan->seatbelt_parameter_count + 1 + count + 1;
+                  (size_t)parameters + 1 + count + 1;
     errno = 0;
     words = calloc(room, sizeof *words);
     if (words == NULL) {
       failure = ENOMEM;
     } else if (!cosmic_executable_path(core, sizeof core)) {
       failure = errno != 0 ? errno : ENAMETOOLONG;
+    } else if (plan->seatbelt_boot && !boot_core_matches(core, path, plan->envp)) {
+      failure = EINVAL;
     } else {
       /* The limit the program started with comes back to it, as its
        * limit would be where `restore_descriptor_limit` (core/syscalls.c) lowers this
@@ -237,7 +258,7 @@ static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
       if (restoring)
         snprintf(numbers[1], sizeof numbers[1], "%llu", (unsigned long long)restored.rlim_cur);
       snprintf(numbers[2], sizeof numbers[2], "%d", plan->rlimit_count);
-      snprintf(numbers[3], sizeof numbers[3], "%d", plan->seatbelt_parameter_count);
+      snprintf(numbers[3], sizeof numbers[3], "%d", parameters);
       size_t at = 0;
       words[at++] = (char *)COSMIC_TRAMPOLINE;
       words[at++] = numbers[0];
@@ -254,8 +275,7 @@ static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
         words[at++] = resource;
         words[at++] = value;
       }
-      for (int i = 0; i < plan->seatbelt_parameter_count; i++)
-        words[at++] = (char *)plan->seatbelt_parameters[i];
+      for (int i = 0; i < parameters; i++) words[at++] = (char *)plan->seatbelt_parameters[i];
       words[at++] = (char *)path;
       for (size_t i = 0; i < count; i++) words[at++] = plan->argv[i];
       launch = core;

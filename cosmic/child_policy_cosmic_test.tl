@@ -138,19 +138,13 @@ end
 --- applies the policy's Seatbelt profile itself at boot, in place of the
 --- start, as macOS applies one profile to a process.
 local function test_a_child_with_no_x_cannot_run_its_own_core_again(tmp: string)
-  -- TODO: on macOS the trampoline's profile still grants the core `rx`;
-  -- the core is to apply the profile itself at boot there too.
-  if Sandbox.on_macos() then
-    Test.skip("macOS holds a cosmic child by the trampoline's profile, which grants its core rx")
-  end
+  -- Linux runs a core by /proc/self/exe as well as by its path.
+  local linux = not Sandbox.on_macos()
   local work = scripted(tmp, table.concat({
     'local Child = require("cosmic.child")',
     'local Proc = require("cosmic.proc")',
-    'local Fs = require("cosmic.fs")',
     'local own: string = assert(Proc.executable())',
-    'local programs: {string} = { own }',
-    'local link, _ = Fs.status("/proc/self/exe")',
-    'if link ~= nil and link.exists then programs = { "/proc/self/exe", own } end',
+    'local programs: {string} = ' .. (if linux then '{ "/proc/self/exe", own }' else '{ own }' end),
     'for _, program in ipairs(programs) do',
     '  local result, why = Child.run({ program, "--version" }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })',
     '  print(if result == nil then "refused: " .. tostring(why) else "ran" end)',
@@ -160,8 +154,6 @@ local function test_a_child_with_no_x_cannot_run_its_own_core_again(tmp: string)
     grants = { { path = work, letters = "rwc" } } }, work)
   local out = result.stdout or ""
   local _, refusals = out:gsub("refused: [^\n]*not permitted", "")
-  local _, lines = out:gsub("\n", "")
-  -- Two on Linux (/proc/self/exe and the core by its path), one on macOS.
-  assert(result.code == 0 and refusals >= 1 and refusals == lines,
+  assert(result.code == 0 and refusals == (if linux then 2 else 1 end),
     tostring(result.code) .. ": " .. out .. tostring(result.stderr))
 end
