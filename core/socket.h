@@ -269,6 +269,13 @@ COSMIC_SYSCALL(recvfds, 2);
 COSMIC_SYSCALL(peer, 1);
 
 /*
+ * --- Whether the far end of a connected stream socket has gone: it has ended what it sends (closed, or shut its writing down) or the connection has failed (reset). Bytes it sent before its end, still unread, do not hide the end; bytes with no end after them say it is there. It reads nothing, waits for nothing and sends nothing. A descriptor that is no stream socket, or one the system cannot ask about, is gone: true unless the peer is plainly there.
+ * ---@param fd integer the connected descriptor
+ * ---@return boolean gone whether the far end has gone
+ */
+COSMIC_SYSCALL(peer_gone, 1);
+
+/*
  * --- Where a socket is bound: a TCP one's host and port, the port the kernel chose for one listening at port 0, or a unix one's path as it was bound -- its file's own name alone, for a path too long to bind whole -- "" for one bound nowhere.
  * ---@param fd integer the descriptor
  * ---@return Address|nil address its address, or nil on failure

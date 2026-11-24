@@ -1443,3 +1443,93 @@ local function test_a_compressed_reader_on_a_head_is_closed()
   assert(piece == nil and why ~= "", "the Reader was closed unread")
   assert(#troubles == 0, troubles[1])
 end
+
+--- A streamed body that says "start", then asks `req.gone` every 20 ms for
+--- up to 3 s, noting how long after `left_ns` it saw the client gone, and
+--- ends.
+local class Watching is Stream.Reader
+  req: Server.Request
+  mut started: boolean
+  mut seen_ns?: integer
+  mut asked: integer
+
+  function read(self, _max_bytes?: integer): string?, string
+    if not self.started then
+      self.started = true
+      return "data: start\n\n", ""
+    end
+    local until_ns = Clock.monotonic_ns() + Clock.seconds(3)
+    while Clock.monotonic_ns() < until_ns do
+      self.asked = self.asked + 1
+      if self.req.gone() then
+        self.seen_ns = Clock.monotonic_ns()
+        return nil, ""
+      end
+      assert(Poll.delay(Clock.ms(20)))
+    end
+    return nil, ""
+  end
+
+  function close(self): boolean, string
+    return true, ""
+  end
+end
+
+local EVENTS <const>: {string: string} = { ["Content-Type"] = "text/event-stream" }
+
+--- A streamed body that asks `req.gone` sees the client close within a
+--- second, rather than at its next write.
+local function test_a_streamed_body_sees_the_client_go_at_once()
+  local watching: Watching? = nil
+  local closed_ns = 0
+  serving(function(req: Server.Request): Server.Reply
+    local made: Watching = { req = req, started = false, seen_ns = nil, asked = 0, skip = nil }
+    watching = made
+    return { status = 200, headers = EVENTS, body = made }
+  end, function(address: Net.Address)
+    local p = peer(address)
+    send(p, get("/events"))
+    assert(line(p) == "HTTP/1.1 200 OK")
+    while not p.buf:find("data: start", 1, true) do assert(more(p)) end
+    -- The body asks while the client is still there, and is told no.
+    assert(Poll.delay(Clock.ms(100)))
+    assert(not assert(watching).req.gone())
+    closed_ns = Clock.monotonic_ns()
+    local _, _ = p.conn:close()
+    local until_ns = closed_ns + Clock.seconds(2)
+    while assert(watching).seen_ns == nil and Clock.monotonic_ns() < until_ns do
+      assert(Poll.delay(Clock.ms(10)))
+    end
+  end)
+  local seen = assert(watching)
+  assert(seen.asked > 1, "the body asked before the client went")
+  local seen_ns = assert(seen.seen_ns, "the body never saw the client go")
+  assert(seen_ns - closed_ns < Clock.seconds(1), tostring(seen_ns - closed_ns))
+end
+
+--- A request the client pipelines while a reply streams leaves `gone`
+--- false and is read and answered once the stream ends.
+local function test_a_request_pipelined_during_a_stream_is_answered()
+  local watching: Watching? = nil
+  local troubles = serving(function(req: Server.Request): Server.Reply
+    if req.path == "/next" then return echo(req) end
+    local made: Watching = { req = req, started = false, seen_ns = nil, asked = 0, skip = nil }
+    watching = made
+    return { status = 200, headers = EVENTS, body = made }
+  end, function(address: Net.Address)
+    local p <close> = peer(address)
+    send(p, get("/events"))
+    assert(line(p) == "HTTP/1.1 200 OK")
+    while not p.buf:find("data: start", 1, true) do assert(more(p)) end
+    send(p, get("/next"))
+    -- The stream runs its 3 s out, asking all the while, and ends.
+    while not p.buf:find("\r\n0\r\n\r\n", 1, true) do assert(more(p)) end
+    p.buf = p.buf:sub(assert(p.buf:find("\r\n0\r\n\r\n", 1, true)) + 7)
+    local got = reply(p)
+    assert(got.status == 200 and got.body == "GET /next  ", got.body)
+  end, { timeout_ns = Clock.seconds(10) })
+  assert(#troubles == 0, troubles[1])
+  local seen = assert(watching)
+  assert(seen.seen_ns == nil, "the pipelined request read as the client gone")
+  assert(seen.asked > 10, tostring(seen.asked))
+end

@@ -78,6 +78,14 @@ local record Server
     --- [`cosmic.http.server.ServeSpec.listeners`] names it: how a handler tells a request
     --- that came to one socket from another.
     listener?: Net.Address
+    --- Whether the client has gone: closed the connection, ended what
+    --- it sends, or reset it, as [`Net.Conn`]'s `gone` sees it. It
+    --- reads nothing and waits for nothing, so a reply that streams
+    --- (a Reader that waits for events) asks it between waits and
+    --- ends where it is true, rather than finding out at its next
+    --- write. A request the client sent after this one, not yet read,
+    --- does not make it true.
+    gone: function(): boolean
     --- What the connection's TLS handshake settled -- its version, the
     --- protocol ALPN chose, the host the client asked for (SNI) --
     --- where [`Server.ServeSpec.tls`] serves it; nil in the clear.
@@ -791,7 +799,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   local request: Server.Request = {
     method = head.method, target = head.target, path = head.path, query = head.query,
     version = head.version, headers = head.headers, body = body, length = head.length, peer = peer,
-    listener = conn.listener, tls = conn:tls(),
+    listener = conn.listener, tls = conn:tls(), gone = function(): boolean return conn:gone() end,
   }
   local ok, reply = xpcall(s.spec.handle, traced, request)
   -- A body that failed is answered for, whatever the handler made of
