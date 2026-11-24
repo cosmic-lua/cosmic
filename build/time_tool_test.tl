@@ -72,3 +72,17 @@ local function test_help_names_the_verb_and_its_options(tmp: string)
   assert(ran.code == 0, ran.err)
   assert(ran.out:find("cosmic time", 1, true) and ran.out:find("--disambiguate", 1, true), ran.out)
 end
+
+--- `time` reads no standard input, so a run of it loads no [`cosmic.stream`], which [`build.bare`] requires only for a
+--- verb that does: a command line pays at its start for every module it loads.
+local function test_time_loads_no_stream(tmp: string)
+  local env = this_program.environment()
+  env["COSMIC_TRACE_REQUIRE"] = "1"
+  local started = this_program.program({ "time", "now" }, { env = env, cwd = tmp, stdout = "capture", stderr = "capture",
+    timeout_ns = Clock.seconds(30) })
+  local r = assert(Child.run(started.argv, started.options))
+  local traced = r.stderr or ""
+  assert(r.ok, tostring(r.stdout) .. traced)
+  assert(traced:find(" build.bare ", 1, true), "the run printed no require trace: " .. traced:sub(1, 400))
+  assert(not traced:find(" cosmic.stream ", 1, true), "time loaded cosmic.stream")
+end
