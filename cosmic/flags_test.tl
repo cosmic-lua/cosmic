@@ -933,8 +933,25 @@ local function test_a_command_runs_by_its_spelling_or_by_no_word()
   local asked = assert(Flags.dispatch({ "--help", "f.tl" }, 1, commands, "prog"))
   assert(asked.help:find("usage: prog <command>", 1, true) == 1, asked.help)
   local refused, why = Flags.dispatch({ "--loud", "f.tl" }, 1, commands, "prog")
-  assert(refused == nil and why == "run: no such option: --loud; usage: prog <file> [args...]", why)
+  -- The line never named `run`, so its refusal does not either.
+  assert(refused == nil and why == "no such option: --loud; usage: prog <file> [args...]", why)
   assert(assert(Flags.dispatch({ "help", "version" }, 1, commands, "prog")).help:find("usage: prog --version", 1, true) == 1)
+end
+
+--- A command whose subcommand typed by no word runs for a line that names none shows that subcommand's options
+--- as its own: `prog fetch [options] <url>` takes them.
+local function test_help_shows_the_options_of_a_subcommand_typed_by_no_word()
+  local command: Flags.Command = {
+    about = "gets a URL",
+    usage = "[head] <url>",
+    subcommands = {
+      get = { typed = "", about = "the body", spec = { ["-o"] = { value = "file", about = "write it here" } } },
+      head = { about = "the headers", spec = { ["--json"] = { about = "as JSON" } } },
+    },
+  }
+  local help = Flags.help(command, "prog fetch")
+  assert(help:find("\noptions:\n  %-o <file> +write it here\n") ~= nil, help)
+  assert(help:find("--json", 1, true) == nil and help:find("\n  head ", 1, true) ~= nil, help)
 end
 
 --- Without a command typed by no word, a first word that names none is refused, and a mistyped spelling is

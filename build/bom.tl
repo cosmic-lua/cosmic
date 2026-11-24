@@ -530,7 +530,7 @@ function bom.cyclonedx(rows: {bom.Row}, subject: string, version: string): strin
   return written, ""
 end
 
---- `cosmic bom [--licenses | --json <path>]`: what the running binary's
+--- `cosmic bom [list | licenses | cyclonedx [-o <path>]]`: what the running binary's
 --- own database says it is made of. Nothing is built or staged here:
 --- [`build/dispatch.tl`] has a tool older than cosmic's own tree rebuild
 --- itself first, since [`build.reboot`] requires this module through
@@ -542,14 +542,29 @@ local function run(argv: {string}): integer
     local _, _ = logger.summary("bom", detail .. ", " .. clock.took(started))
     return 0
   end
-  local usage = "usage: cosmic bom [--licenses | --json <path>]"
-  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Verb.spec))
-  if parsed == nil then
-    log:complain("bom: " .. parse_trouble .. "; " .. usage)
+  local subcommands = assert(Verb.subcommands, "bom names its subcommands")
+  -- No subcommand, or an option first, is `list`: `cosmic bom` alone prints the components.
+  local first = argv[2]
+  local named = first ~= nil and first:sub(1, 1) ~= "-"
+  local command = if named and first ~= nil then first else "list" end
+  local label = if named then command .. ": " else "" end
+  local described = subcommands[command]
+  local usage = "usage: cosmic bom " .. tostring(Verb.usage)
+  if described ~= nil and named then
+    usage = Flags.help(described, "cosmic bom " .. command):match("^[^\n]*") or usage
+  end
+  if described == nil then
+    log:complain("bom: no such subcommand: " .. command .. "; " .. usage)
     return 2
   end
-  if #parsed.words > 0 or #parsed.given > 1 then
-    log:complain("bom: takes one option at most, and no words; " .. usage)
+  local none: {string:boolean | Flags.Option} = {}
+  local parsed, parse_trouble = Flags.parse(argv, if named then 3 else 2 end, described.spec or none)
+  if parsed == nil then
+    log:complain("bom: " .. label .. parse_trouble .. "; " .. usage)
+    return 2
+  end
+  if #parsed.words > 0 then
+    log:complain("bom: " .. label .. "takes no words, not " .. parsed.words[1] .. "; " .. usage)
     return 2
   end
   local databases = Store.databases()
@@ -563,7 +578,7 @@ local function run(argv: {string}): integer
     log:complain("bom: " .. trouble)
     return 1
   end
-  if parsed.set["--licenses"] == true then
+  if command == "licenses" then
     local notices, notice_trouble = bom.notices(binary)
     if notices == nil then
       log:complain("bom: " .. notice_trouble)
@@ -572,12 +587,16 @@ local function run(argv: {string}): integer
     log:say(notices)
     return passed(plural.count(#rows, "component"))
   end
-  local path = parsed.values["--json"]
-  if path ~= nil then
+  if command == "cyclonedx" then
     local document, encode_trouble = bom.cyclonedx(rows, "cosmic", Store.meta("boot_hash") or "")
     if document == nil then
       log:complain("bom: " .. encode_trouble)
       return 1
+    end
+    local path = parsed.values["-o"]
+    if path == nil then
+      log:say(document)
+      return passed(plural.count(#rows, "component"))
     end
     local written, write_trouble = Fs.write(path, document .. "\n")
     if not written then
@@ -606,7 +625,7 @@ bom.spec = {
   tests = { "build.bom_test", "build.bom_verb_test" },
   run = function(argv: {string}): integer return run(argv) end,
   bare = false,
-  takes = "nothing",
+  takes = "a subcommand, `list` (the default), `licenses` or `cyclonedx [-o <path>]`",
   fresh = true,
   reads = true,
 }

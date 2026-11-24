@@ -66,9 +66,9 @@ end
 
 local function test_the_options_reach_the_drawing()
   local code = assert(Qr.encode("x", { level = "H" }))
-  local ran = run({ "--level", "h", "--quiet", "1", "--invert", "--ascii", "x" })
+  local ran = run({ "--level", "h", "--border", "1", "--invert", "--ascii", "x" })
   assert(ran.code == 0 and ran.out == Qr.text(code, { quiet = 1, invert = true, ascii = true }), ran.err)
-  local printed = run({ "--svg", "-", "--scale", "2", "--title", "an x", "--level", "H", "--quiet", "0", "x" })
+  local printed = run({ "--svg", "-", "--scale", "2", "--title", "an x", "--level", "H", "--border", "0", "x" })
   assert(printed.code == 0 and printed.out == Qr.svg(code, { quiet = 0, scale = 2, title = "an x" }) .. "\n",
     printed.out)
   local painted = run({ "--color", "--ascii", "x" })
@@ -93,7 +93,7 @@ end
 local function test_a_command_line_it_refuses_is_exit_2()
   local refused: {{string}} = {
     { "--level", "X", "x" }, { "--max-version", "41", "x" }, { "--max-version", "0", "x" },
-    { "--quiet", "17", "x" }, { "--quiet", "-1", "x" }, { "--scale", "2", "x" }, { "--title", "t", "x" },
+    { "--border", "17", "x" }, { "--border", "-1", "x" }, { "--scale", "2", "x" }, { "--title", "t", "x" },
     { "--svg", "-", "--invert", "x" }, { "--svg", "-", "--ascii", "x" }, { "--svg", "", "x" },
     { "--svg", "-", "--scale", "0", "x" }, { "--nosuch", "x" }, { "--svg", "-", "--color", "x" },
     { "--color", "--invert", "x" },
@@ -113,7 +113,7 @@ end
 
 local function test_read_prints_the_text_of_each_drawing()
   local text = "https://example.com/ ✓"
-  local drawings: {{string}} = { { "--invert" }, { "--ascii", "--quiet", "0" }, {}, { "--color" } }
+  local drawings: {{string}} = { { "--invert" }, { "--ascii", "--border", "0" }, {}, { "--color" } }
   for _, words in ipairs(drawings) do
     local argv: mut {string} = {}
     for _, word in ipairs(words) do argv[#argv + 1] = word end

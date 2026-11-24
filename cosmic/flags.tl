@@ -68,7 +68,7 @@ local record Flags
     default?: string
   end
 
-  -- TODO: move the other verbs' value checks onto `choices` and `integer` (qr, codec, release, sandbox,
+  -- TODO: move the other verbs' value checks onto `choices` and `integer` (qr, codec, sandbox,
   -- test, build, sql, lsp), their "(default ...)" text onto `default`, and json's -r and codec's -d onto
   -- `aliases`; each still words its own refusal of a bad value. Wait for the docs thread's move of each
   -- verb's spec to cosmic/cli/<verb>.tl, and the six verbs to `subcommands`.
@@ -968,7 +968,14 @@ function Flags.help(command: Flags.Command, name: string, width?: integer): stri
   elseif width ~= nil and width < 1 then
     error("flags: help's width is not a positive number of columns", 2)
   end
-  local spec = command.spec or {}
+  -- A subcommand typed by no word runs when the line names none, so its options are shown with the command's own.
+  local spec: mut {string: boolean | Flags.Option} = {}
+  for option_name, option in pairs(command.spec or {}) do spec[option_name] = option end
+  for _, sub in pairs(command.subcommands or {}) do
+    if sub.typed == "" then
+      for option_name, option in pairs(sub.spec or {}) do spec[option_name] = option end
+    end
+  end
   local usage = usage_of(command)
   local parts: mut {string} = { "usage: " .. (if usage ~= "" then name .. " " .. usage else name end) }
   local about = command.about
@@ -1631,7 +1638,9 @@ function Flags.dispatch(argv: {string}, from: integer,
   local parsed, why = read(own, first, spec, { "--help" })
   if parsed == nil then
     local usage_line = Flags.help(command, called(program, name, command)):match("^[^\n]*") or ""
-    return nil, name .. ": " .. why .. "; " .. usage_line
+    -- A command typed by no word is not named in its refusal: the line never said it.
+    local label = if command.typed == "" then "" else name .. ": " end
+    return nil, label .. why .. "; " .. usage_line
   end
   local run = command.run
   if run == nil then

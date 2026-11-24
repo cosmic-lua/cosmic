@@ -12,7 +12,7 @@
 ---
 --- - It prints the code for the terminal in half blocks (`▀`, `▄`, `█`),
 ---   two rows of modules on each line, with the standard's quiet zone of
----   four modules (`--quiet N`, 0 to 16).
+---   four modules (`--border N`, 0 to 16).
 --- - By default the blocks show the light modules, for light text on a
 ---   dark background, which is the common terminal. `--invert` draws the
 ---   dark modules instead, for a light background or paper. A reader
@@ -60,7 +60,7 @@ local command: Flags.Command = {
   spec = {
     ["--level"] = { value = "L|M|Q|H", about = "the error correction level (default M)" },
     ["--max-version"] = { value = "n", about = "the largest code, 1 to 40 (default 40)" },
-    ["--quiet"] = { value = "n", about = "the light border in modules, 0 to 16 (default 4)" },
+    ["--border"] = { value = "n", about = "the light border (the quiet zone) in modules, 0 to 16 (default 4)" },
     ["--invert"] = { about = "draw the dark modules, for a light terminal or paper" },
     ["--ascii"] = { about = "draw with `##` and spaces, not block characters" },
     ["--color"] = { about = "paint it black on white with ANSI escapes, clear on a terminal of either theme" },

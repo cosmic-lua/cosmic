@@ -289,7 +289,7 @@ the pin to it with `cosmic release`, giving the commit main merged it as
 newest):
 
 ```text
-bin/cosmic release --commit <commit> --pin ci/cosmic-driver.pin
+bin/cosmic release pin --commit <commit> ci/cosmic-driver.pin
 ```
 
 it writes the pin's three lines (commit, URL and SHA-256) only once the
