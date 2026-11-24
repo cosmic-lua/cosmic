@@ -750,10 +750,21 @@
     # `checked_suite_timeout_ns`), and the bounded performance fixture, on
     # linux-x86_64's host, beside the legs. Not on a pull request: the
     # merge queue, main's push, the scheduled and a manual run. Its verdicts are kept under a
-    # cache name of its own on that host.
+    # cache name of its own on that host. The queue runs the suite in two
+    # shares at once (`cosmic test --shard`), each its own job, so the
+    # longest job of a queue run is not the suite whole (14 of its 16
+    # minutes); a share saves nothing, and the performance fixture runs
+    # in the first. Elsewhere it is one job, whose run checks the C
+    # functions too, which a share cannot.
     checked: {
       if: "github.event_name != 'pull_request'",
-      name: "linux-x86_64-checked",
+      name: "${{ matrix.name }}",
+      strategy: {
+        "fail-fast": false,
+        matrix: {
+          include: "${{ fromJSON(github.event_name == 'pull_request' && '[{\"name\": \"linux-x86_64-checked\", \"shard\": \"\"}]' || github.event_name == 'merge_group' && '[{\"name\": \"linux-x86_64-checked-1\", \"shard\": \"1/2\"}, {\"name\": \"linux-x86_64-checked-2\", \"shard\": \"2/2\"}]' || github.event_name == 'push' && '[{\"name\": \"linux-x86_64-checked\", \"shard\": \"\"}]' || '[{\"name\": \"linux-x86_64-checked\", \"shard\": \"\"}]') }}",
+        },
+      },
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",
       permissions: {contents: "read", packages: "read"},
@@ -762,6 +773,7 @@
         COSMIC_WORKER: "linux-x86_64-checked",
         TARGET: "x86_64-linux-musl",
         COSMIC_CI_CHECKED_SUITE: "run",
+        COSMIC_CI_CHECKED_SHARD: "${{ matrix.shard }}",
         COSMIC_CI_REQUIRE_SANDBOX: "1",
         COSMIC_CI_DECLARED_KEYS: "0",
         COSMIC_CI_EVENT: "${{ (github.event_name == 'schedule' && github.event.schedule != '41 3 * * 0' || github.event_name == 'workflow_dispatch' && !inputs.every_test) && 'push' || github.event_name }}",
@@ -894,6 +906,7 @@
         },
         {
           name: "check performance fixture histories on the checked core",
+          if: "matrix.shard != '2/2'",
           run: "cosmic-driver cosmic_ci/driver.tl platform performance-checked",
         },
         # A run that failed keeps what it restored too (`whole`). Cut to
@@ -915,7 +928,7 @@
           if: "always()",
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
-            name: "ci-driver-linux-x86_64-checked",
+            name: "ci-driver-${{ matrix.name }}",
             path: "${{ runner.temp }}/cosmic-ci/operations.db",
             "if-no-files-found": "ignore",
             "retention-days": 7,
@@ -926,7 +939,7 @@
           if: "failure()",
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
-            name: "platform-diagnostics-linux-x86_64-checked",
+            name: "platform-diagnostics-${{ matrix.name }}",
             path: "${{ runner.temp }}/cosmic-ci/platform/checked-diagnostics",
             "if-no-files-found": "ignore",
             "retention-days": 7,

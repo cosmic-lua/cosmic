@@ -1278,7 +1278,9 @@ local function test_the_checked_suite_runs_in_jobs_of_its_own_and_the_format_che
       if run ~= nil then phase = run:match("driver%.tl platform ([%w-]+)$") end
       if phase ~= nil then phases[#phases + 1] = phase end
       if phase == "performance-checked" then
-        assert(step["if"] == nil, "the performance fixture runs on some runs alone: " .. tostring(step["if"]))
+        -- Every run, once: in the queue's first share of the checked suite, which runs in two.
+        assert(step["if"] == nil or step["if"] == "matrix.shard != '2/2'",
+          "the performance fixture runs on some runs alone: " .. tostring(step["if"]))
       end
     end
     return table.concat(phases, " ")
@@ -1507,6 +1509,17 @@ exit 0
     assert((env["COSMIC_TEST_NO_SHARED"] == "1") == case.shared,
       case.event .. ": COSMIC_TEST_NO_SHARED=" .. tostring(env["COSMIC_TEST_NO_SHARED"]))
   end
+end
+
+--- The merge queue's checked jobs each run a share of the checked suite (COSMIC_CI_CHECKED_SHARD, ci.yml's
+--- `checked`), and every other run the whole suite, whose run alone checks the C functions.
+local function test_a_share_of_the_checked_suite_runs_only_its_share()
+  local Orchestration = require("cosmic_ci.orchestration")
+  local words = { "cosmic", "test", "--census", "--bail" }
+  assert(table.concat(Orchestration.with_share(words, "2/2"), " ") == "cosmic test --census --bail --shard 2/2")
+  assert(Orchestration.with_share(words, nil) == words and Orchestration.with_share(words, "") == words,
+    "a whole run is given a share")
+  assert(#words == 4, "the share was added to the caller's words")
 end
 
 --- The checked suite and the others alike ([`suite_run`]): the words are

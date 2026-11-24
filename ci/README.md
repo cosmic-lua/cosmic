@@ -492,8 +492,11 @@ daily and a manual run add macOS. A branch's push runs nothing.
   scripts and the tree's format over the paths the commit changed since
   main, as a pull request does, and `linux-x86_64-driver` (the `driver`
   job) boots nothing and checks the pinned CI driver where those paths
-  reach what its tests read (`ci/`, `.github/`). The gate compares the
-  three products. An entry takes as long as its longest job. Main moves
+  reach what its tests read (`ci/`, `.github/`). The checked suite runs
+  in two shares at once (`linux-x86_64-checked-1` and `-2`,
+  `cosmic test --shard`), so it is not the entry's longest job; a share
+  does not check the C functions, which main's push does. The gate
+  compares the three products. An entry takes as long as its longest job. Main moves
   only through the queue, so its check of what changed holds main's whole
   tree.
 - **a push to main** runs three legs whole, every leg but macOS (the
