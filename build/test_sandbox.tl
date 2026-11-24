@@ -435,7 +435,7 @@ end
 --- in the sandbox's tmpfs ([`Plan.own_scratch`]), or "": what its module
 --- declares that puts a directory of the host in its root, whose sockets a
 --- program that makes its own cannot be told from below Landlock ABI 9
---- (core/syscalls.c's `root_shows_no_socket`). The declaration decides,
+--- (core/sandbox_rules.c's `root_shows_no_socket`). The declaration decides,
 --- with the kind of the paths it names on this host, which the module's key
 --- records already ([`build.declared_key`]): `system`, `tool` (o/bin),
 --- a host `caches` or a private `noexec` scratch, and a `reads`
@@ -689,7 +689,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- file ([`shown_by`]): a closure's source beneath a declared directory
   -- of the tree, a `host` path beneath the system's.
   -- TODO: bind a path given to write inside one given to read at a
-  -- mount point of the sandbox's own (core/syscalls.c's build_root: the
+  -- mount point of the sandbox's own (core/sandbox_root.c's build_root: the
   -- path bound first at a name in its tmpfs, then moved into place), so
   -- no mount point is the host's dentry: a cache declared beneath a
   -- `host` directory would meet the same ENOENT were the host to rename

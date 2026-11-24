@@ -20,7 +20,7 @@
 # the rest closed by POSIX_SPAWN_CLOEXEC_DEFAULT, exec's errno as
 # posix_spawn's own, and the soft descriptor limit lowered around the
 # call; grants, promises, unveil, offline and subreaper refused ENOSYS
-# (core/syscalls.c's `spawn_program`).
+# (core/spawn.c's `spawn_program`).
 core/syscalls_test.tl
 core/syscalls_sigpipe_test.tl
 core/syscalls_tool_unsandboxed_test.tl
@@ -30,7 +30,7 @@ cosmic/child_test.tl
 cosmic/child_lua_test.tl
 cosmic/child_tool_test.tl
 # fork with the threads counted by proc_pidinfo, and a scoped one
-# refused (core/syscalls.c's `fork`); and the build's copies of itself,
+# refused (core/spawn.c's `fork`); and the build's copies of itself,
 # which that fork makes: what they compile is what one process does
 # (build/compile_fanout.tl, build/shared_compiles.tl's `fan`).
 core/fork_test.tl
@@ -38,13 +38,13 @@ build/compile_fanout_test.tl
 build/shared_compiles_test.tl
 build/importer_test.tl
 # A process's children listed by libproc where Linux reads /proc
-# (core/syscalls.c's `children`).
+# (core/spawn.c's `children`).
 core/children_darwin_test.tl
 # What a policy refuses where the platform has no sandbox: the one test
 # there is nothing to check of on Linux.
 cosmic/child_policy_anywhere_test.tl
 # Signals a child starts with: a caught one at its default through
-# exec, an ignored one ignored but SIGPIPE (core/syscalls.c's
+# exec, an ignored one ignored but SIGPIPE (core/spawn.c's
 # `spawn_program`).
 cosmic/signal_ignored_test.tl
 # The artifact's descriptor refused without openat2, and the executable

@@ -6,7 +6,7 @@
 --- test runs again when what it declares changes, and every test runs
 --- under `--all`. Where this host cannot sandbox a worker -- one
 --- nested in this test's own confinement, three deep, which the kernel
---- refuses root (core/syscalls.c's `map_ids`) -- the run says so, and
+--- refuses root (core/sandbox_root.c's `map_ids`) -- the run says so, and
 --- there is nothing more to check, unless the run is held to
 --- sandboxing ([`skip_if_unsandboxed`]): then it fails. A test that runs this
 --- program undeclared is refused it, sandboxed, and one that declares

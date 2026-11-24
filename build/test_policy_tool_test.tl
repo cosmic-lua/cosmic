@@ -36,7 +36,7 @@ Test.policy{
 --- seccomp filter, a namespace, a /proc of its own, a root it cannot
 --- build: a case of a sandboxed run then has nothing to check.
 --- The workers nest in this test's own sandbox, which a host may refuse:
---- the kernel lets root nest one only two deep (core/syscalls.c's
+--- the kernel lets root nest one only two deep (core/sandbox_root.c's
 --- `map_ids`). CI's unprivileged runners nest them.
 local function skip_if_unsandboxed(text: string)
   if text:find("no worker can be sandboxed here", 1, true) then

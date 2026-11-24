@@ -443,7 +443,7 @@ end
 
 --- A step of building the root that fails for a reason of its own says so,
 --- rather than blaming user namespaces: a name placed beneath a link in a
---- directory bound from the host (core/syscalls.c's make_target) is ELOOP.
+--- directory bound from the host (core/sandbox_root.c's make_target) is ELOOP.
 local function test_a_root_that_cannot_be_built_says_which_step_failed(tmp: string)
   local at = placed(tmp)
   assert(Fs.mkdirs(tmp .. "/linked"))

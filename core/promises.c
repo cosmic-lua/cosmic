@@ -360,7 +360,7 @@ static const struct grant basics[] = {
  * - signals to any process, not only its own: a sandbox that starts one
  *   of its own ends and reaps it by pid and group. They reach only the
  *   processes of the pid namespace the program is in, which `isolate
- *   file` gives and the start of `nest` requires (core/syscalls.c's
+ *   file` gives and the start of `nest` requires (core/spawn.c's
  *   `spawn`), and it has no Landlock signal scope to make it so.
  * The calls that only the filesystem a mount shows or the host's own
  * namespaces could make dangerous (setns, fsopen and its kind, chroot,
