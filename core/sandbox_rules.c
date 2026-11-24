@@ -813,6 +813,10 @@ int cosmic_boot_layer_apply (const char *text, char *message, size_t room) {
     int number = 0;
     if (fd < 0 || fstat(fd, &st) != 0) {
       number = errno;
+      /* A grant the child cannot open (gone since the start, or beneath a
+       * directory its user cannot search) gives it nothing to reach, and a
+       * rule left out only narrows, so it is skipped. */
+      if (number == ENOENT || number == EACCES || number == ELOOP || number == ENOTDIR) number = 0;
     } else {
       uint64_t rights = grant_rights(letters[i], abi);
       if (!S_ISDIR(st.st_mode)) rights &= LANDLOCK_FILE_ACCESS | LANDLOCK_ACCESS_FS_RESOLVE_UNIX;
@@ -838,8 +842,11 @@ int cosmic_boot_layer_apply (const char *text, char *message, size_t room) {
     snprintf(message, room, "landlock_restrict_self: %s", cosmic_errno_describe(failure, NULL));
     return failure;
   }
+  /* Where no filter is built for this architecture (ENOSYS), Landlock's
+   * EXECUTE, which no rule grants, still refuses every execve of a file. */
   if (!runs) {
     failure = cosmic_no_x_apply();
+    if (failure == ENOSYS) failure = 0;
     if (failure) {
       snprintf(message, room, "exec filter: %s", cosmic_errno_describe(failure, NULL));
       return failure;

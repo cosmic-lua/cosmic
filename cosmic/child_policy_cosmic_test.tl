@@ -138,12 +138,16 @@ end
 local function test_a_child_with_no_x_cannot_run_its_own_core_again(tmp: string)
   local work = scripted(tmp, table.concat({
     'local Child = require("cosmic.child")',
-    'local core = "/proc/self/exe"',
-    'local result, why = Child.run({ core, "--version" }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })',
-    'print(if result == nil then "refused: " .. tostring(why) else "ran" end)',
+    'local Proc = require("cosmic.proc")',
+    'local own: string = assert(Proc.executable())',
+    'for _, program in ipairs({ "/proc/self/exe", own }) do',
+    '  local result, why = Child.run({ program, "--version" }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })',
+    '  print(if result == nil then "refused: " .. tostring(why) else "ran" end)',
+    'end',
   }, "\n") .. "\n")
   local result = ran({ work .. "/run.tl" }, { profiles = { "cosmic" }, promises = { "fork" },
     grants = { { path = work, letters = "rwc" } } }, work)
-  assert(result.code == 0 and (result.stdout or ""):find("^refused: ") ~= nil, tostring(result.code) .. ": " ..
-      tostring(result.stdout) .. tostring(result.stderr))
+  local out = result.stdout or ""
+  local _, refusals = out:gsub("refused: [^\n]*not permitted", "")
+  assert(result.code == 0 and refusals == 2, tostring(result.code) .. ": " .. out .. tostring(result.stderr))
 end

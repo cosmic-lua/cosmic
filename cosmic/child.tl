@@ -3322,8 +3322,11 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- program is started by, which a relaunch runs as its core. A policy
   -- that runs this program again from the child grants it by name.
   local layer: mut {raw_process.Grant} = {}
+  -- Merging joins the profile's grant with the policy's own by path, so
+  -- it is the start's only where the policy as given names no grant of
+  -- that file itself.
   local starts: mut {string:boolean} = {}
-  for _, name in ipairs(merged.profiles or {}) do
+  for _, name in ipairs(policy.profiles or {}) do
     if name == "cosmic" then
       local own, _ = Proc.executable()
       if own ~= nil then
@@ -3332,17 +3335,23 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
       end
     end
   end
+  for _, grant in ipairs(policy.grants or {}) do
+    local named_at = grant.from or grant.path
+    local cwd = opts.cwd
+    if cwd ~= nil and named_at:sub(1, 1) ~= "/" then named_at = cwd .. "/" .. named_at end
+    local real, _ = sys.realpath(named_at)
+    if real ~= nil then starts[real] = nil end
+  end
   local unix = false
   for _, grant in ipairs(merged.grants or {}) do
     local at = grant.from or grant.path
     if base ~= nil and at:sub(1, 1) ~= "/" then at = base .. "/" .. at end -- checked: compare_disjoint
     grants[#grants + 1] = { path = at, access = grant.letters }
-    local start_only = grant == core_grant
-    if not start_only and grant.letters == "rx" and next(starts) ~= nil then
-      local real, _ = sys.realpath(at)
-      start_only = real ~= nil and starts[real] == true
-    end
-    if not start_only then layer[#layer + 1] = { path = at, access = grant.letters } end
+    -- The child reads each path from where it starts, so it is handed
+    -- the real one, not one relative to this process's directory.
+    local real, _ = sys.realpath(at)
+    local start_only = grant == core_grant or (real ~= nil and starts[real] == true)
+    if not start_only then layer[#layer + 1] = { path = real or at, access = grant.letters } end
     if lettered(grant.letters, "u") then unix = true end
   end
   local env: mut {string:string} = {}
