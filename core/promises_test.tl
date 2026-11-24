@@ -967,7 +967,7 @@ local function test_the_no_x_filter_refuses_exec_alone()
     local insns = decode(process.promise_filter({}, arch, options))
     local other = if arch == "x86_64" then "aarch64" else "x86_64" end
     assert(verdict(run(insns, audit_of(other), 0, {})) == "kill", arch .. ": another architecture")
-    local execs = arch == "x86_64" and { 59, 322 } or { 221, 281 } -- checked: and_ternary
+    local execs = if arch == "x86_64" then { 59, 322 } else { 221, 281 } end
     for number = 0, process.PROMISE_CALLS_REVIEWED + 2 do
       local got = verdict(run(insns, audit_of(arch), number, { 0, 0, 0, 0 }))
       local want = if number == execs[1] or number == execs[2] then "EPERM" else "allow" end
