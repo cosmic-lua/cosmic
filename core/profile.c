@@ -1,6 +1,10 @@
 /* The sampling profiler of Lua code: see core/profile.h. */
 
 #define _POSIX_C_SOURCE 200809L
+/* O_NOFOLLOW is outside strict POSIX on Darwin. */
+#if defined(__APPLE__)
+#define _DARWIN_C_SOURCE
+#endif
 
 #include "profile.h"
 
