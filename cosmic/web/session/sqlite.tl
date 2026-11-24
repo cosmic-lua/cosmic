@@ -40,6 +40,7 @@
 
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
+local Failure = require("cosmic.failure")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Rand = require("cosmic.rand")
@@ -170,27 +171,18 @@ function SessionSqlite.destroy_subject(store: Session.Store, subject: string): i
 end
 
 --- Runs `work` in a transaction that begins IMMEDIATE and commits when it
---- answers true, as [`Sqlite.Handle.transact`] does, which begins deferred and has no
---- option for this. When `work` answers false or raises, it rolls back.
---- TODO: once Sqlite.Handle.transact takes a begin mode, use it.
+--- returns true ([`Sqlite.Handle.transact`]). When `work` returns false or
+--- raises, it rolls back. Called inside a transaction the caller opened on
+--- the same handle, it is a savepoint of that one, and holds only the
+--- locks the caller's own `BEGIN` took.
 local function immediate(db: Sqlite.Handle, work: function(): boolean, string): boolean, string
-  local began, begin_why = db:run("BEGIN IMMEDIATE")
-  if not began then return false, tostring(begin_why) end
-  local ran, ok, why = pcall(work)
-  if not ran then
-    local _, _ = db:run("ROLLBACK")
-    error(ok, 0)
-  end
-  if not ok then
-    local _, _ = db:run("ROLLBACK")
-    assert(why, "session: a transaction that answers false says why")
-    return false, why
-  end
-  local committed, commit_why = db:run("COMMIT")
-  if not committed then
-    local _, _ = db:run("ROLLBACK")
-    return false, tostring(commit_why)
-  end
+  local ok, why = db:transact(function(): (true) | (false, Failure)
+    local done, trouble = work()
+    if done then return true end
+    assert(trouble, "session: a transaction that answers false says why")
+    return false, Failure.new(trouble)
+  end, "immediate")
+  if not ok then return false, tostring(why) end
   return true, ""
 end
 

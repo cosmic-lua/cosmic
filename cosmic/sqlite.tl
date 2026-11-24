@@ -305,6 +305,19 @@ local OK <const> = 0
 local ERROR <const> = 1
 local BUSY <const> = 5
 
+--- How [`Handle.transact`] begins a transaction: SQLite's `BEGIN DEFERRED`,
+--- `BEGIN IMMEDIATE` or `BEGIN EXCLUSIVE`.
+local enum Begin
+  "deferred"
+  "immediate"
+  "exclusive"
+end
+
+--- The statement that begins a transaction each [`Begin`] names.
+local BEGINS <const>: {Begin: string} = {
+  deferred = "BEGIN DEFERRED", immediate = "BEGIN IMMEDIATE", exclusive = "BEGIN EXCLUSIVE",
+}
+
 --- Finalizes `query`'s statement, once.
 local function finish(query: Query)
   if query.open then
@@ -650,13 +663,46 @@ local class Handle
     return each_row(statement, texts_of)
   end
 
+  --- Whether a transaction is open on the handle: a [`Handle.transact`]
+  --- running, or a `BEGIN` or `SAVEPOINT` not yet committed or rolled
+  --- back.
+  function in_transaction(self): boolean
+    return self.connection:in_transaction()
+  end
+
   --- Runs `work` inside a transaction and commits when it answers
   --- `true`. When `work` answers `false` and a [`Failure`], or the
   --- commit fails, the transaction rolls back and this answers `false`
   --- and that failure (one that says the work gave no why, where it gave
   --- none). When `work` raises, the transaction rolls back and the same
-  --- error is raised again. A transaction already open on the handle
-  --- makes `BEGIN` fail, so calls do not nest.
+  --- error is raised again.
+  ---
+  --- On a writable handle the transaction begins `IMMEDIATE`: it takes
+  --- the write lock at once, waiting for it as [`Handle.busy_timeout`]
+  --- says, so work that reads and then writes never fails part way with
+  --- [`Sqlite.BUSY`] because another connection wrote between the two,
+  --- which a deferred transaction in write-ahead mode can, without
+  --- waiting. On a read-only handle it begins `DEFERRED`, which takes a
+  --- read snapshot at its first read. `begin` names another
+  --- ("deferred", "immediate" or "exclusive"; any other raises): work
+  --- that only reads on a writable handle passes "deferred", so it does
+  --- not wait behind a writer. A handle held to queries
+  --- ([`Handle.reads_only`]) refuses every transaction.
+  ---
+  --- Called while a transaction is open on the handle, inside another
+  --- `transact` or after a `BEGIN`, it nests: the work runs inside a
+  --- `SAVEPOINT`, which a failure rolls back alone, and which commits
+  --- with the transaction around it. So a function that writes in a
+  --- transaction of its own can be called from inside a caller's. A
+  --- nested call ignores `begin`: the outer transaction has begun, and
+  --- holds the locks its own mode took.
+  ---
+  --- Work must not end its transaction itself, with a `COMMIT` or
+  --- `ROLLBACK`: this returns `false` and says so. Some failures end
+  --- it too (`INSERT OR ROLLBACK`, a trigger's `RAISE(ROLLBACK)`, a
+  --- full disk). Where either ends the transaction around a nested call,
+  --- the nested call raises, so the caller's work stops before what it
+  --- writes after commits on its own.
   ---
   --- `DETACH` of an attached database fails with "database X is locked"
   --- while a transaction that read that database is open. `ATTACH` it,
@@ -667,25 +713,58 @@ local class Handle
   ---       if not a then return false, trouble end
   ---       return db:run("INSERT INTO t (body) VALUES (?1)", { { text = "b" } })
   ---     end)
-  function transact(self, work: function(): (true) | (false, Failure)): (true) | (false, Failure)
+  function transact(self, work: function(): (true) | (false, Failure),
+                    begin?: Begin): (true) | (false, Failure)
     local connection = self.connection
-    local started = connection:exec_result("BEGIN")
+    local opening_begin: string? = if begin ~= nil then BEGINS[begin] else nil end
+    if begin ~= nil and opening_begin == nil then
+      error("sqlite: transact begins \"deferred\", \"immediate\" or \"exclusive\"", 2)
+    end
+    local nested = connection:in_transaction()
+    local opening, undoing, closing: string, string, string
+    if nested then
+      opening, undoing, closing = "SAVEPOINT cosmic_transact", "ROLLBACK TO cosmic_transact", "RELEASE cosmic_transact"
+    else
+      local default = if connection:read_only() then "BEGIN DEFERRED" else "BEGIN IMMEDIATE" end
+      opening, undoing, closing = opening_begin or default, "ROLLBACK", "COMMIT"
+    end
+    -- A savepoint rolled back to is still open: it ends at its release.
+    local function undo()
+      local _ = connection:exec_result(undoing)
+      if nested then
+        local _ = connection:exec_result(closing)
+      end
+    end
+    local started = connection:exec_result(opening)
     if started.code ~= OK then return false, failed(started) end
     local called, ok, why = pcall(function(): boolean, Failure?
       local done, trouble = work()
       return done, trouble
     end)
     if not called then
-      local _ = connection:exec_result("ROLLBACK")
+      undo()
       error(ok, 0)
     end
+    -- Some failures roll back the whole transaction (`INSERT OR
+    -- ROLLBACK`, a trigger's RAISE(ROLLBACK), a full disk), and work can
+    -- end it with a COMMIT or ROLLBACK of its own. Nested, that ends the
+    -- caller's transaction under it, and what the caller writes after
+    -- would commit at once: raise, so the caller's work stops.
+    local open = connection:in_transaction()
+    if nested and not open then
+      local cause = if ok then "the work ended it with a COMMIT or ROLLBACK of its own" else tostring(why) end
+      error("sqlite: transact: the transaction around this one ended inside it: " .. cause, 0)
+    end
     if not ok then
-      local _ = connection:exec_result("ROLLBACK")
+      undo()
       return false, why or Failure.new("sqlite: transact: the work failed and said no why")
     end
-    local committed = connection:exec_result("COMMIT")
+    if not open then
+      return false, Failure.new("sqlite: transact: the work ended its transaction with a COMMIT or ROLLBACK of its own")
+    end
+    local committed = connection:exec_result(closing)
     if committed.code ~= OK then
-      local _ = connection:exec_result("ROLLBACK")
+      undo()
       return false, failed(committed)
     end
     return true
@@ -872,6 +951,9 @@ local record Sqlite
   --- The SQLite storage class of a result cell: see [`Sqlite.Row.kind`].
   type Kind = Kind
 
+  --- How [`Handle.transact`] begins a transaction.
+  type Begin = Begin
+
   --- How [`Sqlite.open`] opens a database.
   record OpenOptions
     --- Opens for reading and writing. Without it the database is read-only.
@@ -1041,8 +1123,8 @@ end
 
 --- [`Handle.transact`] of `handle`, for ci/.
 function Sqlite.transact(handle: Handle,
-                         work: function(): (true) | (false, Failure)): (true) | (false, Failure)
-  return handle:transact(work)
+                         work: function(): (true) | (false, Failure), begin?: Begin): (true) | (false, Failure)
+  return handle:transact(work, begin)
 end
 
 Sqlite.OK = OK

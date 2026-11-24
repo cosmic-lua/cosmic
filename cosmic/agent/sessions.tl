@@ -269,10 +269,6 @@ function Sessions.open(path: string): Sqlite.Handle?, string
   if found ~= 0 then
     return refused("its schema is version " .. tostring(found) .. ", not " .. tostring(VERSION))
   end
-  -- IMMEDIATE: another run that opened it at once waits for the lock,
-  -- then finds the schema made.
-  local begun, begin_why = db:exec("BEGIN IMMEDIATE")
-  if not begun then return refused(tostring(begin_why)) end
   local function schema(): boolean, string
     local at, at_why = version_of(db)
     if at == nil then return false, at_why end
@@ -285,15 +281,14 @@ function Sessions.open(path: string): Sqlite.Handle?, string
     if not made then return false, tostring(made_why) end
     return true, ""
   end
-  local ok, ok_why = schema()
-  if ok then
-    local committed, commit_why = db:exec("COMMIT")
-    if not committed then ok, ok_why = false, tostring(commit_why) end
-  end
-  if not ok then
-    local _, _ = db:exec("ROLLBACK")
-    return refused(ok_why)
-  end
+  -- IMMEDIATE, as transact begins on a writable handle: another run that
+  -- opened it at once waits for the lock, then finds the schema made.
+  local made, made_why = db:transact(function(): (true) | (false, Failure)
+    local ok, ok_why = schema()
+    if ok then return true end
+    return false, Failure.new(ok_why)
+  end)
+  if not made then return refused(tostring(made_why)) end
   return ours()
 end
 

@@ -1141,6 +1141,22 @@ static int handle_limit (lua_State *L) {
   return luaL_error(L, "sqlite: no such limit: %s", name); /* a bug, not a failure */
 }
 
+/* Whether a transaction is open on the connection: a BEGIN, or a SAVEPOINT
+ * outside one, not yet committed or rolled back. */
+static int handle_in_transaction (lua_State *L) {
+  struct handle *h = checked_handle(L);
+  lua_pushboolean(L, !sqlite3_get_autocommit(h->db));
+  return 1;
+}
+
+/* Whether the connection's main database is read-only: opened so, or
+ * on a file it may not write. */
+static int handle_read_only (lua_State *L) {
+  struct handle *h = checked_handle(L);
+  lua_pushboolean(L, sqlite3_db_readonly(h->db, "main") == 1);
+  return 1;
+}
+
 static int handle_last_insert_rowid (lua_State *L) {
   struct handle *h = checked_handle(L);
   lua_pushinteger(L, (lua_Integer)sqlite3_last_insert_rowid(h->db));
@@ -1649,6 +1665,8 @@ static const luaL_Reg handle_methods[] = {
   {"busy_timeout", handle_busy_timeout},
   {"time_limit", handle_time_limit},
   {"reads_only", handle_reads_only},
+  {"in_transaction", handle_in_transaction},
+  {"read_only", handle_read_only},
   {"prepare_result", handle_prepare_result},
   {"prepare_cached_result", handle_prepare_cached_result},
   {NULL, NULL},

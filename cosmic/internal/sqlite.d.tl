@@ -183,6 +183,11 @@ local record sqlite
     --- Holds the handle to queries for good: see [`cosmic.sqlite`]'s
     --- [`Handle.reads_only`]. A borrowed handle raises.
     reads_only: function(Handle): boolean, string
+    --- Whether a transaction is open on the connection: a `BEGIN`, or a
+    --- `SAVEPOINT` outside one, not yet committed or rolled back.
+    in_transaction: function(Handle): boolean
+    --- Whether the connection's main database is read-only.
+    read_only: function(Handle): boolean
     --- Compiles `sql`, which must hold exactly one statement.
     prepare: function(Handle, sql: string): Statement?, string
     --- Captures a preparation's outcome before cleanup or another operation.
