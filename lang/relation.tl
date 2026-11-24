@@ -3,8 +3,8 @@
 --- type of a [`lang.types`] store may stand where another is wanted, and, where it
 --- may not, a structured reason a later error renders in the program's own terms.
 ---
---- A [`Relation.Judge`] belongs to one store. [`Relation.Judge.subtype`] answers a
---- boolean; [`Relation.Judge.refuse`] answers nil where the relation holds and a
+--- A [`Relation.Judge`] belongs to one store. [`Relation.Judge.subtype`] returns a
+--- boolean; [`Relation.Judge.refuse`] returns nil where the relation holds and a
 --- [`Relation.Refusal`] where it does not. [`Relation.Judge.accepts`] and
 --- [`Relation.Judge.refuse_argument`] are the one position where a value may
 --- reach `any`: an argument to a parameter declared `any`.
@@ -52,11 +52,11 @@
 ---   `v is T` the same `T`, since the checker removes `T` on its false edge.
 --- - A generic function is below a function type that is not generic when its type
 ---   parameters can be taken from it: each from the parameter of the type wanted in its
----   place, else from what the type wanted answers, and each meeting its bound
+---   place, else from what the type wanted returns, and each meeting its bound
 ---   ([`lang.generics`]). A parameter nothing there says anything of is `never`, the
 ---   instance that asks least of what `b` passes (`function<T>(x: integer | T)` where
 ---   `function(x: integer)` is wanted), unless a result names it: a result of type `never`
----   would drop its alternative, and a cast or a declaration answers a real value there, so
+---   would drop its alternative, and a cast or a declaration needs a real value there, so
 ---   such a parameter refuses. The function with those types in is then compared as
 ---   any other: any instance below the type wanted shows the generic function is. A generic
 ---   function type wanted is met only by itself.
@@ -352,7 +352,7 @@ end
 
 -- Instantiation -------------------------------------------------------------------------------
 
---- `t` rebuilt with `on_var` answering for each variable that reaches `level` binders out
+--- `t` rebuilt with `on_var` standing for each variable that reaches `level` binders out
 --- or more. `level` is how many binders of `t` itself the walk is inside. A type that
 --- reaches fewer is returned as it is.
 local function rewrite(
@@ -1242,7 +1242,7 @@ local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): R
       end
     end
     for _, f in ipairs(assert(a.decl.body, "an inferred record is defined where it is made").fields) do
-      -- A field that may be nil is a key that may be missing, which a read of the map answers alike.
+      -- A field that may be nil is a key that may be missing, which a read of the map treats alike.
       local held = f.type
       if (held.tag == "union") and held.nilable then
         held = j.store:non_nil(held)
@@ -1485,8 +1485,8 @@ local function hooks_of(j: Relation.Judge): Generics.Hooks
 end
 
 --- The generic function `a` where the function type `b` is wanted: `a` with its type parameters taken from what `b` is
---- called with and answers, below `b`. Each parameter of `a` is solved from the parameter of `b` in its place (the value
---- `b` passes is the one `a` takes), else from the values `b` answers, and has to meet its bounds.
+--- called with and returns, below `b`. Each parameter of `a` is solved from the parameter of `b` in its place (the value
+--- `b` passes is the one `a` takes), else from the values `b` returns, and has to meet its bounds.
 local function from_generic(j: Relation.Judge, a: Fn, b: Fn, why: boolean): Relation.Refusal?
   local solver = Generics.new(j.store, a, hooks_of(j))
   for i, p in ipairs(a.params) do
@@ -1515,7 +1515,7 @@ local function from_generic(j: Relation.Judge, a: Fn, b: Fn, why: boolean): Rela
   end
   -- The type parameters a's results name. Unsolved, one of these refuses: as `never` it would
   -- drop the alternative it is in from the store, and a body that casts (`v as T`) or a declared
-  -- generic answers a value of no type `never` stands for.
+  -- generic returns a value of no type `never` stands for.
   local answered: mut {integer: boolean} = {}
   for _, alt in ipairs(a.rets) do
     local parts: mut {Type} = {}
@@ -1609,7 +1609,7 @@ local function from_var(j: Relation.Judge, a: Var, b: Type, why: boolean): Relat
 end
 
 --- Whether `a` is below the built-in bound `b`. `Numeric` holds `integer` and `number`, for which `+`, `-`, `*`, `%`,
---- `//` and unary `-` answer the type of their operands; an integer enum is not one, since its sum is no member.
+--- `//` and unary `-` give the type of their operands; an integer enum is not one, since its sum is no member.
 --- `Ordered` holds a type all of whose values are numbers, or all strings, so that `<` of two of its values never
 --- raises: a union of a number and a string is none, and a class that declares `__lt` and `__le` is one. `Numeric` is
 --- below `Ordered`. `Key` holds the types a map is

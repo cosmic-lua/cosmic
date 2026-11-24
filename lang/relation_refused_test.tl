@@ -137,7 +137,7 @@ local function test_a_record_whose_function_may_return_is_not_one_whose_function
 end
 
 -- `test_a_generic_cannot_write_a_returning_function_into_a_never_container`: `put<T>(t: {T}, v: T)`,
--- `table.insert`, a copy that answers its argument, a generic record, a map, and the callback that
+-- `table.insert`, a copy that returns its argument, a generic record, a map, and the callback that
 -- takes the container's element. Each writes a function that may return into a container of ones
 -- that do not, and each needs the container to stand for `mut {function(): string}`, which is
 -- invariant, or the record to stand for another, which is nominal.
@@ -266,7 +266,7 @@ local function test_a_function_over_a_type_does_not_stand_for_a_function_over_an
   refused(w, nothing(w, { s.any }), nothing(w, { s.string }), "any_sink", "parameter 1")
 end
 
--- `test_a_function_index_serves_any`: a function that serves a field answers `any`, and `any` is no
+-- `test_a_function_index_serves_any`: a function that serves a field returns `any`, and `any` is no
 -- `string` (the metatable that held it is gone with the metatables; the function type is the question).
 local function test_a_function_that_answers_any_is_no_function_answering_a_type()
   local w = world()
@@ -276,12 +276,12 @@ local function test_a_function_that_answers_any_is_no_function_answering_a_type(
     "alternative 1 > item 1")
   refused(w, func(w, { node, s.any }, { s.any }), func(w, { node, s.any }, { s.integer }), "any_source",
     "alternative 1 > item 1")
-  -- and a value of a type is no `any` that a function answers
+  -- and a value of a type is no `any` that a function returns
   refused(w, func(w, { node, s.any }, { s.string }), func(w, { node, s.any }, { s.any }), "any_sink",
     "alternative 1 > item 1")
 end
 
--- `test_an_untyped_value_is_told_the_check_and_the_cast`: what [`Json.decode`] answers is `any` (with a
+-- `test_an_untyped_value_is_told_the_check_and_the_cast`: what [`Json.decode`] returns is `any` (with a
 -- nil that `any` absorbs), and it is no record, no integer, no array.
 local function test_untrusted_data_is_no_type_a_program_can_name()
   local w = world()

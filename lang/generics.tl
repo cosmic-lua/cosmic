@@ -1,6 +1,6 @@
 --- Inference of the type parameters of a generic function: what each type parameter of a function type is at one
 --- call, solved from the types its arguments have and, for a parameter no argument fixes, the type the call is
---- expected to answer. Nothing outlives the call: a [`Generics.Solver`] belongs to one.
+--- expected to return. Nothing outlives the call: a [`Generics.Solver`] belongs to one.
 ---
 --- A pattern is a type written in the function, whose own variables are those at depth 0 ([`lang.types`]); the type
 --- found is a type of the code around the call. [`Generics.match`] walks both and records, for a variable met in the

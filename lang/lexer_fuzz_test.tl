@@ -1,6 +1,6 @@
 --- Fuzz property for the new checker's lexer ([`lang.lexer`]): for any
---- bytes it answers, its tokens and comments tile the
---- source, and every error lies in the source with a message and a fix
+--- bytes it is given, its tokens and comments tile the source, and
+--- every error lies in the source with a message and a fix
 --- ([`lang.lexer_cover`]). `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
 --- (build/fuzz/init.tl).
 local Cover = require("lang.lexer_cover")

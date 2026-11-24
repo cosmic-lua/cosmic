@@ -55,7 +55,7 @@ local function raises(f: function(), fragment: string): boolean
   return not ok and tostring(why):find(fragment, 1, true) ~= nil
 end
 
---- A loader that answers from the declarations of `store`.
+--- A loader that returns the encoded declarations of `store`.
 local function loading_from(store: Types.Store): Types.Loader
   return function(module: string, name: string): string?
     local decl = store:find(module, name)
@@ -757,7 +757,7 @@ end
 
 -- a store that refuses and takes back --------------------------------------------------------------
 
---- A loader that answers the declarations of a fixture, and one that answers `text` for every path.
+--- A loader that returns the declarations of a fixture, and one that returns `text` for every path.
 local function loading_text(text: string): Types.Loader
   return function(_module: string, _name: string): string?
     return text

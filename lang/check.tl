@@ -11,15 +11,15 @@
 --- of overloads; table literals against the expected type (records included); assignments, writes to fields (fixed
 --- unless `mut`) and indexes (views are never written, and an array grows by an append); returns against the declared
 --- list; conditions (booleans or optionals) and the honest `or` and `and`; numeric keys, views and `mut` collections,
---- records and maps; `match` over a call that answers one of several lists of values.
+--- records and maps; `match` over a call that returns one of several lists of values.
 ---
 --- **Generic calls.** A call of a generic function, an overload among them, instantiates it: each type parameter is
---- solved from the receiver and the arguments, then from the type the call is expected to answer ([`lang.generics`]),
+--- solved from the receiver and the arguments, then from the type the call is expected to return ([`lang.generics`]),
 --- and met against its bound, and the instance is applied as any function is. `pcall`, `xpcall`, `ipairs`, `assert`,
 --- `table.insert` and the typed `Coroutine<Y, R, S>` are declarations of this ([`lang/stdlib.d.tl`]); a generic
 --- function is a value of the function types its parameters can be taken from ([`lang.relation`]).
 ---
---- **`match`.** The arms cover the lists the call answers exactly: `true`, `false` and `nil` select the lists that have
+--- **`match`.** The arms cover the lists the call returns exactly: `true`, `false` and `nil` select the lists that have
 --- the value at their position (`nil` the lists whose value there is never nil apart), a name takes the union of what
 --- the lists it selects have there, a list no arm takes is `match_missing`, an arm that takes no list `match_redundant`,
 --- and a pattern that tests a position the lists do not tell apart, or names another number of values, `match_pattern`.
@@ -44,7 +44,7 @@
 --- `v is T`, `type(v) == "..."`, a tag compared with a literal (`v.kind == "a"`), a call of a function declared `v is T`,
 --- `not`, `and` and `or` of these, `assert(c)` and a call of a function declared `asserts v is T`, and by a branch
 --- that ends its block (`return`, `break`, `continue`, a call of a function declared `never`). `if` and `match` meet
---- the ends of their arms; the locals of `local ok, r = f()` where `f` answers lists that begin with `true` and `false`
+--- the ends of their arms; the locals of `local ok, r = f()` where `f` returns lists that begin with `true` and `false`
 --- (`pcall`, `xpcall`, a function declared so) are tied, and `ok`, `not ok` and `ok == true` narrow `r` to the lists
 --- that `ok` selects until a local of the statement is assigned ([`Tie`]); a loop is walked to a fixed point, its head
 --- being where the entry and the back edge meet.
@@ -144,7 +144,7 @@ local record Check
     at: integer
   end
 
-  --- What checking a module answers.
+  --- What checking a module returns.
   record Checked
     --- The errors, in source order.
     errors: {Codes.Error}
@@ -169,7 +169,7 @@ local record Check
     boundaries: {Boundary}
     --- The type of each expression that was typed, by the id of its node (empty where the check was asked not to keep them,
     --- `typed` false; kept by default): the type report the readers of the build take ([`build.driver`]). A name, a
-    --- literal, a call (the first value of the first list it answers), an operator and each link of a chain has one, as the
+    --- literal, a call (the first value of the first list it returns), an operator and each link of a chain has one, as the
     --- checker left it after the narrowing there; the callee of a call of an overloaded function has the overload taken. These
     --- have none: the target of an assignment, the string of a `require`, the head name of a `function M.f()` statement, a `...`,
     --- a type name (see [`Declarations.Lowered.types`]) and a node the checker did not reach (a body it skipped).
@@ -177,13 +177,13 @@ local record Check
     --- The function each call and method call took, by the id of the call node (empty where `typed` is false): the type of
     --- the callee for a call of one function, the overload taken (instantiated, for a generic one) for a call of several.
     --- A method call has no node for its callee, so this is the only place its function type is kept
-    --- ([`build.syntax_contracts`] reads whether a method answers a reason). A call whose callee is no function has none.
+    --- ([`build.syntax_contracts`] reads whether a method returns a reason). A call whose callee is no function has none.
     callees: {integer: Type}
     --- The warnings ([`lang.warnings`]), in source order: the unused and unread names, and the `hint` ones.
     warnings: {Warnings.Warning}
   end
 
-  --- Checks `input`, which `program` has lowered into `lowered` ([`Declarations.Program.lower`]), and answers
+  --- Checks `input`, which `program` has lowered into `lowered` ([`Declarations.Program.lower`]), and returns
   --- its errors. The modules it requires must be lowered: a type whose declaration has no body raises
   --- `relation: <declaration> is not defined`. With `typed` false the type of each node is not kept ([`Check.Checked.types`]),
   --- which saves the time of recording them; the hints, which read what they need as they go, are the same.
@@ -323,7 +323,7 @@ end
 
 --- The locals a `local` statement bound to the values of one call whose lists are told apart by a first value of `true` or
 --- `false` (`local ok, r = pcall(f)`), or by a first value that is `nil` or is not (`local v, why = f()` of a call that
---- answers `(T) | (nil, E)`): the test of the first narrows the others to the lists that first value selects.
+--- returns `(T) | (nil, E)`): the test of the first narrows the others to the lists that first value selects.
 local record Tie
   --- The id of the first local, which holds the tag.
   first: integer
@@ -349,7 +349,7 @@ local record Frame
   narrowed_type: Type?
   --- The type of each value `...` stands for, or nil where it has no rest parameter.
   rest: Type?
-  --- Whether it is the module's own chunk, whose `return` is what `require` answers.
+  --- Whether it is the module's own chunk, whose `return` is what `require` returns.
   chunk: boolean
   --- Whether the return list was written, for the message.
   declared: boolean
@@ -423,7 +423,7 @@ local record Ctx
   mut cand_node: Ast.Node?
   --- The `or` that has an `and` for its left operand, by the id of the `and`.
   ternaries: mut {integer: Ast.Binary}
-  --- The calls whose one value was taken where they may answer more, by id: `or` after one cuts the rest.
+  --- The calls whose one value was taken where they may return more, by id: `or` after one cuts the rest.
   spare: mut {integer: boolean}
   --- The offsets of the names the scope builder reported unknown, once asked for.
   mut unknown: {integer: boolean}?
@@ -641,7 +641,7 @@ local function dropped_by(ctx: Ctx, node: Ast.Node): Scopes.Place?
 end
 
 --- The statement a fix puts in `if <name> == nil then ... end`, written for the place it is in: a function that may
---- answer `nil, string` returns that, one that may answer nothing or nil returns, and the module's own chunk or a function
+--- return `nil, string` returns that, one that may return nothing or nil returns, and the module's own chunk or a function
 --- whose results take no nil raises.
 function Naming.on_nil(ctx: Ctx, name: string): string
   local missing = string.format("%q", name .. " is missing")
@@ -888,7 +888,7 @@ function TableLiterals.inferred_join(ctx: Ctx, list: {Type}, join_of: function({
   return TableLiterals.inferred_of(ctx, fields)
 end
 
---- The type every type of `list` is below, or nil where there is none. A `nil` in the list makes the answer
+--- The type every type of `list` is below, or nil where there is none. A `nil` in the list makes the result
 --- optional; `never` is ignored; an empty list is `never`.
 local function join(ctx: Ctx, list: {Type}): Type?
   local store = ctx.store
@@ -1042,7 +1042,7 @@ local function members_index(ctx: Ctx, decl: Decl, value: boolean): Members?
     end
   end
   if value and decl.kind == "integer_enum" then
-    -- The table of an integer enum holds its members, each a value of the enum, and two functions: `of` answers the
+    -- The table of an integer enum holds its members, each a value of the enum, and two functions: `of` returns the
     -- member an integer is, or nil, and `name` the name of a member. No member takes either name
     -- ([`lang.declarations`]).
     local store = ctx.store
@@ -1533,7 +1533,7 @@ local function unchecked_arguments(ctx: Ctx, args: {Ast.Exp}) -- checked: not_as
   ctx.lenient = ctx.lenient - 1
 end
 
---- The lists an expression whose type is unknown answers: any number of `invalid`.
+--- The lists of values of an expression whose type is unknown: any number of `invalid`.
 local function unknown_lists(ctx: Ctx): {Alt}
   return { { items = {}, tail = ctx.invalid } }
 end
@@ -1553,7 +1553,7 @@ local function declaration_value(ctx: Ctx, decl: Decl): Type
   return ctx.store:named(decl, args, true)
 end
 
---- The value `require("name")` answers: the declaration the module returns.
+--- The value `require("name")` returns: the declaration the module returns.
 local function module_value(ctx: Ctx, node: Ast.Node, name: string): Type
   local program = ctx.program
   if program.external[name] == true then
@@ -1627,7 +1627,7 @@ local function unknown_offsets(ctx: Ctx): {integer: boolean}
 end
 
 --- The type of a global the declaration files declare. The standard library's ([`lang/stdlib.d.tl`]) say that a function that
---- answers nil where Lua does says so (`s:find(p)` is `integer?`), so each use of its result is held to that.
+--- returns nil where Lua does says so (`s:find(p)` is `integer?`), so each use of its result is held to that.
 local function global_value(ctx: Ctx, node: Ast.Name): Type
   local program = ctx.program
   local values = program.values[node.text]
@@ -1747,7 +1747,7 @@ end
 
 --- The values of an expression list.
 local record Values
-  --- One type for each value, a call or `...` at the end expanded to what it answers.
+  --- One type for each value, a call or `...` at the end expanded to what it returns.
   types: mut {Type}
   --- Set when the last expression ends in `T...` or is `...`: any number more values of this type.
   mut tail: Type?
@@ -1770,7 +1770,7 @@ local function vararg_rest(ctx: Ctx, e: Ast.Node): Type
   return rest
 end
 
---- Names that bind the values of a call answering `alts`, as a fix spells them: two at least, as many as the longest
+--- Names that bind the values of a call returning `alts`, as a fix spells them: two at least, as many as the longest
 --- list has; `ok` for a first value of `true` or `false`, `v` otherwise, then `why` for a second and `v3`, `v4`, ... for
 --- the rest; `_` in place of each when `discard` is true.
 function Naming.bound(alts: {Alt}, discard?: boolean): string
@@ -1805,7 +1805,7 @@ function Naming.call(ctx: Ctx, node: Ast.Node): string
   return text
 end
 
---- The one value a call answering `alts` gives where a value is wanted.
+--- The one value a call returning `alts` gives where a value is wanted.
 local function first_value(ctx: Ctx, node: Ast.Node, alts: {Alt}): Type
   if #alts == 0 then
     return ctx.store.never
@@ -2233,7 +2233,7 @@ function TableLiterals.wrong_shape(ctx: Ctx, item: Ast.Node, got: string, want: 
 end
 
 --- Checks the values `vals` of the positional items `exps` against `element`: each, the `T...` a last item ends in,
---- and the lists of a last item that answers several (which are no values).
+--- and the lists of a last item that returns several (which are no values).
 function TableLiterals.check_elements(ctx: Ctx, exps: {Ast.Exp}, vals: Values, element: Type, of: string)
   for i, t in ipairs(vals.types) do
     local _ = expect(ctx, exps[math.min(i, #exps)], t, element, " as an element of " .. of) -- checked: index_may_be_nil
@@ -2629,7 +2629,7 @@ local function readable(ctx: Ctx, node: Ast.Node, t: Type, what: string): Type?
 end
 
 -- TODO: check a literal given to a parameter declared `any` item by item
--- and answer it without a join, once the rule for what may reach `any` (a
+-- and type it without a join, once the rule for what may reach `any` (a
 -- literal's items, or the literal alone) is written into
 -- doc/guides/project.md: it is typed by the join of its items today, so
 -- `Json.encode_any({ a = 1, b = "x" })` is `arms_differ`, and the files that
@@ -3518,14 +3518,14 @@ local function read_out(ctx: Ctx, target: Ast.Index, base: Type): string
   return "; one read out of a collection is `mut` where that collection's type says so (`{K: mut " .. show(ctx, base) .. "}`)"
 end
 
---- Whether the return `s` answers the results of one call alone.
+--- Whether the return `s` returns the results of one call alone.
 local function returns_call(s: Ast.Return): boolean
   local only = s.values[1]
   return #s.values == 1 and only ~= nil and (only.kind == "Call" or only.kind == "MethodCall")
 end
 
 --- The fix of a value returned by a function that declares no return list: a function literal passed where one that
---- answers nothing is wanted is such a function, and the call it returns is written as a statement.
+--- returns nothing is wanted is such a function, and the call it returns is written as a statement.
 local UNDECLARED_RETURN_FIX <const> = "declare the return list: `function f(): T`"
 local UNDECLARED_CALL_FIX <const> = UNDECLARED_RETURN_FIX .. "; where a function that answers nothing is wanted, write the call as " ..
   "a statement, with no `return`"
@@ -3563,7 +3563,7 @@ local function condition_kind(ctx: Ctx, node: Ast.Node, t: Type, default?: Ast.B
     local place = peel(node).kind
     -- `or` cuts a call to its first value. Where the call would then end a list of values (a return, the arguments of
     -- a call, a table), deleting the `or` passes on the values after it, so the fix keeps the cut for a call that may
-    -- answer more. `...` is always optional and never reaches here.
+    -- return more. `...` is always optional and never reaches here.
     local cut = if ctx.spare[base_of(node).id] == true then "replace `" ..
         text_of(ctx, default) .. "` with `(" .. text_of(ctx, node) .. ")`, which keeps only the first value, as `or` did" else
       "delete `or ...`" end
@@ -4929,7 +4929,7 @@ function Operators.disjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected:
   end
   if left_kind == "bool" then
     local right = expr(ctx, node.right, expected)
-    -- A `never` left cannot occur: the answer is the right operand's, as in the `T?` path below, where `join` drops `never`.
+    -- A `never` left cannot occur: the result is the right operand's, as in the `T?` path below, where `join` drops `never`.
     if left.tag == "never" then
       return right
     end
@@ -4972,7 +4972,7 @@ function Operators.conjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected:
     local _ = expr(ctx, node.right, nil)
     return ctx.invalid
   end
-  -- A `never` left cannot occur, so it is no boolean: the answer is the right operand or nil, as for a `T?` left.
+  -- A `never` left cannot occur, so it is no boolean: the result is the right operand or nil, as for a `T?` left.
   local boolean = left_kind == "bool" and left.tag ~= "never"
   local right = expr(ctx, node.right, boolean and expected or nil) -- checked: and_ternary
   if right.tag == "invalid" then
@@ -5048,7 +5048,7 @@ function Operators.binary(ctx: Ctx, node: Ast.Binary, left: Type, expected: Type
       return ctx.invalid
     end
     if (l == 3 or r == 3) and ARITHMETIC[op] == true then
-      -- A `Numeric` parameter is `integer` or `number`: with itself or an integer the operation answers its own type, as
+      -- A `Numeric` parameter is `integer` or `number`: with itself or an integer the operation gives its own type, as
       -- Lua's arithmetic of two integers is an integer and of a float a float.
       if l == 3 and (r == 1 or right == left) then
         return left
@@ -5326,7 +5326,7 @@ local function function_type(ctx: Ctx, fn: Ast.Fn, expected: Type?, name: string
   return ctx.store:fn({ params = params, rest = rest, rets = alts })
 end
 
---- The lists of values `alts` answers, as a program writes them.
+--- The lists of values `alts` holds, as a program writes them.
 local function lists_text(ctx: Ctx, alts: {Alt}): string
   local lists: mut {string} = {}
   for i, alt in ipairs(alts) do
@@ -5343,7 +5343,7 @@ local function lists_text(ctx: Ctx, alts: {Alt}): string
   return table.concat(lists, " | ")
 end
 
---- Whether a function that answers `alts` may return no value: one of its lists is empty.
+--- Whether a function that returns `alts` may return no value: one of its lists is empty.
 local function may_end(alts: {Alt}): boolean
   for _, alt in ipairs(alts) do
     if #alt.items == 0 then
@@ -5363,7 +5363,7 @@ local function fact_type(f: Flow.State, key: string, declared: Type): Type
 end
 
 --- Checks that the function being checked makes good the narrowing it declares at `node`, a `return` or its end. A
---- function declared `v is T` answers true only where `v` is a `T` and false only where it is not: the edges of the
+--- function declared `v is T` returns true only where `v` is a `T` and false only where it is not: the edges of the
 --- value returned say so. One declared `asserts v is T` returns only where `v` is a `T`.
 local function narrows_proved(ctx: Ctx, node: Ast.Node, value: Ast.Exp?)
   local frame = ctx.frames[#ctx.frames]
@@ -5448,7 +5448,7 @@ end
 
 --- Checks a function body: its parameters are the variables of the types in `ft`, its `return`s are checked against
 --- `ft`'s return list. `names` are the type parameters of a generic function, for display. The body starts from the
---- facts of the code around it that hold inside it ([`Flow.State`]'s `enter`), and a function that answers values
+--- facts of the code around it that hold inside it ([`Flow.State`]'s `enter`), and a function that returns values
 --- reaches its end only where the flow does not.
 local function function_body(ctx: Ctx, params: {Ast.Param}, body: Ast.Block, ft: Type, names: {string}, whole: Ast.Node, -- checked: not_assigned
                              declared: boolean, fn_id: integer, owner: string)
@@ -5639,7 +5639,7 @@ local function enum_holds(m: Named, value: string): boolean
   return false
 end
 
---- Whether the return lists a function literal writes have as many values as some list of `g` answers (the relation meets
+--- Whether the return lists a function literal writes have as many values as some list of `g` returns (the relation meets
 --- the returns of a function by the number of values), or the literal writes none and takes `g`'s.
 local function returns_fit(ctx: Ctx, lit: Ast.FunctionLit, g: Fn): boolean
   local written = lit.fn.rets
@@ -5729,7 +5729,7 @@ end
 
 --- Where the `tail` (`T...`) that the last argument of a call ends in does not fit what it fills, or nil: the call
 --- passes `n` values (a receiver where `off` is 1) before it, so the tail gives the parameters from `n + 1` and then the
---- rest parameter. A parameter it may leave empty takes `T?`, and the rest parameter takes `T`. Answers the position of
+--- rest parameter. A parameter it may leave empty takes `T?`, and the rest parameter takes `T`. Returns the position of
 --- the argument (from 1, after the receiver), the type wanted there, and whether the tail fits that type and only the
 --- missing value is the fault.
 local function tail_problem(ctx: Ctx, f: Fn, off: integer, n: integer, tail: Type, strict?: boolean): integer?, Type?, boolean
@@ -5815,7 +5815,7 @@ local record Prepared
   mut tail: Type?
   --- Whether the last argument may add values (a call or `...`).
   open: boolean
-  --- The lists of a last argument that answers several, which are no values.
+  --- The lists of a last argument that returns several, which are no values.
   mut lists: {Alt}?
   --- The last argument, when it was expanded.
   mut last: Ast.Exp?
@@ -5909,7 +5909,7 @@ end
 --- Types the arguments of a call that are not literals, and notes the literals. `wants` are the types a position expects
 --- where the callee is known to expect one.
 ---
---- Given `assert` (`asserting`), a last argument that answers several lists gives the values of the one list whose first
+--- Given `assert` (`asserting`), a last argument that returns several lists gives the values of the one list whose first
 --- value is never nil or false: `assert` raises at any other, so `assert(Fs.read(path))` is the text.
 function Calls.prepare(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?, asserting?: boolean): Prepared
   local n = #args
@@ -6065,7 +6065,7 @@ function Calls.spill_note(ctx: Ctx, args: {Ast.Exp}, n: integer, position: integ
     (if call:sub(1, 7) == "assert(" then " (`assert(f())` passes every value of `f()` through)" else "" end)
 end
 
---- A call of the function `f`, with the arguments checked against its parameters. Answers its return lists. `given`
+--- A call of the function `f`, with the arguments checked against its parameters. Returns its return lists. `given`
 --- holds the values of the arguments when the caller typed them already (a generic call types its arguments to solve the
 --- function's type parameters).
 local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, args: {Ast.Exp}, recv: Type?,
@@ -6238,11 +6238,11 @@ function Calls.typed_literal(e: Ast.Exp): boolean
 end
 
 --- The function type `c`, which is generic, as a call with these arguments instantiates it: each type parameter solved
---- from the receiver and the arguments, then from what the call is `expected` to answer, then from a literal whose position
+--- from the receiver and the arguments, then from what the call is `expected` to return, then from a literal whose position
 --- names a parameter nothing else solved (typed on its own), and each checked against its bound ([`lang.generics`]). Where it cannot
 --- be, a `loud` call reports it (`infer_conflict`, `cannot_infer`, `bound_unmet`) and goes on with `invalid` for the
 --- parameter, so the arguments are checked and one mistake is one error; a call that is not loud (a candidate among
---- overloads) answers nil and why.
+--- overloads) returns nil and why.
 function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast.Exp}, prep: Prepared, off: integer,
                      recv: Type?, expected: Type?, loud: boolean): Instance
   local store = ctx.store
@@ -6268,8 +6268,8 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
     end
   end
   -- A generic function passed where the callee takes a function is instantiated from the parameters the callee passes it,
-  -- as far as the other arguments have solved them, and what the instance answers solves the callee's own parameters:
-  -- `pcall(id, v)` answers the type of `v`, where a parameter nothing fixes would be `invalid`, which every type accepts.
+  -- as far as the other arguments have solved them, and what the instance returns solves the callee's own parameters:
+  -- `pcall(id, v)` returns the type of `v`, where a parameter nothing fixes would be `invalid`, which every type accepts.
   local unmets: mut {Unmet} = {}
   for i = 1, prep.count do
     local given_fn, wanted_fn = prep.known[i], parameter_at(c, off, i)
@@ -6356,7 +6356,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
       end
     end
   end
-  -- What the call is expected to answer solves a parameter before a literal is held to the instance.
+  -- What the call is expected to return solves a parameter before a literal is held to the instance.
   if expected ~= nil then
     local alt = c.rets[1]
     local item = alt ~= nil and (alt.items[1] or alt.tail) or nil -- checked: and_ternary
@@ -6729,7 +6729,7 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
         return failure, c, own
       end
       local failure, c, own = evaluate()
-      -- The bound is the answer only if the call would be taken with it met: asked again with the function's instance
+      -- The bound is the reason only if the call would be taken with it met: asked again with the function's instance
       -- (the bounds waived) as the argument, so that the rest of the call is held to its parameters too.
       -- Every argument that met one is waived together, since the first run solved each independently of the others'
       -- instances; a bound only the instances reveal joins them, and a call that fails for another reason stays refused.
@@ -6858,7 +6858,7 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
   end
   local first = reasons[1]
   -- `unmet` is set only for a candidate that the bound alone kept from being taken: meeting it would accept the call. Several
-  -- candidates that say alike are one answer.
+  -- candidates that say alike are one reason.
   if unmet ~= nil and not ambiguous then
     report(ctx, "bound_unmet", node, unmet.message, unmet.fix, unmet.shown)
     return unknown_lists(ctx)
@@ -7117,8 +7117,8 @@ function Calls.literal_arguments(ctx: Ctx, call: Literals.Call, node: Ast.Node, 
   end
 end
 
---- The lists a call answers, where the callee has type `ft` (and the overloads `cands`, if it has several). `expected`
---- is the type the call is expected to answer, which solves a type parameter no argument does.
+--- The lists a call returns, where the callee has type `ft` (and the overloads `cands`, if it has several). `expected`
+--- is the type the call is expected to return, which solves a type parameter no argument does.
 function Calls.dispatch(ctx: Ctx, node: Ast.Node, callee_node: Ast.Node, callee: string, ft: Type, cands: {Type}?,
                         args: {Ast.Exp}, recv: Type?, recv_node: Ast.Node?, expected: Type?): {Alt}
   local list = cands or { ft }
@@ -7176,9 +7176,9 @@ end
 --- [`edges`] reads from `ctx.guards`.
 --
 -- TODO: drop the special case of `assert` here, once a narrowing declaration can say that a function returns only where
--- its argument holds and answers it (`asserts v` without a type, which the grammar leaves out): `asserts v is T`
--- narrows a place to a type and answers nothing, while `assert(x ~= nil)` and `local s = assert(find())` narrow by the
--- condition and answer the value. The type of the call is the declaration's (a generic function, solved as any is); only
+-- its argument holds and returns it (`asserts v` without a type, which the grammar leaves out): `asserts v is T`
+-- narrows a place to a type and returns nothing, while `assert(x ~= nil)` and `local s = assert(find())` narrow by the
+-- condition and return the value. The type of the call is the declaration's (a generic function, solved as any is); only
 -- what follows it is this.
 local function after_call(ctx: Ctx, node: Ast.Node, callee: Ast.Exp?, alts: {Alt}, args: {Ast.Exp},
                           receiver: Ast.Exp?)
@@ -7550,7 +7550,7 @@ local function apply(ctx: Ctx, n: Ast.Exp, t: Type, expected: Type?, wants_lists
   return ctx.invalid, nil
 end
 
---- The type of `e`, and the lists it answers where `wants_lists` and it is a call.
+--- The type of `e`, and the lists it returns where `wants_lists` and it is a call.
 local function evaluate(ctx: Ctx, e: Ast.Exp, expected: Type?, wants_lists: boolean): Type, {Alt}?
   local base = #ctx.spine
   local node: Ast.Exp = e
@@ -7608,7 +7608,7 @@ lists_of = function(ctx: Ctx, e: Ast.Exp, expected: Type?): {Alt}
   local t, alts = evaluate(ctx, e, expected, true)
   if alts ~= nil then
     if ctx.typed then
-      -- A call that answers lists has the type of the first value of its lists, for the type report.
+      -- A call that returns lists has the type of the first value of its lists, for the type report.
       local first: mut {Type} = {}
       for _, alt in ipairs(alts) do
         local item = ctx.nil_type
@@ -7664,7 +7664,7 @@ local function value_at(ctx: Ctx, vals: Values, i: integer): Type?
   return nil
 end
 
---- The fix for names given no value by `values`: a lone call that answers nothing is a statement.
+--- The fix for names given no value by `values`: a lone call that returns nothing is a statement.
 local function no_value_fix(ctx: Ctx, values: {Ast.Exp}, n: integer, what: string): string
   local only = values[1]
   if #values == 1 and only ~= nil then
@@ -7709,7 +7709,7 @@ end
 
 --- Whether a value of type `t` is nil or a value of a class or userdata record that declares `__close` as a method that
 --- is what Lua calls ([`Declarations.close_is_callable`], the one check a class's declaration is held to as well): the
---- value, and the error object if it likes, answering nothing. Every overload must be one. That is what a `<close>`
+--- value, and the error object if it likes, returning nothing. Every overload must be one. That is what a `<close>`
 --- local holds. The declaration of a userdata record is
 --- taken as true: whether any declaration matches its implementation is not this rule's to ask. A record or interface
 --- is made by a table literal and may lack the member. `invalid` and `never` stand for a mistake already reported.
@@ -7875,8 +7875,8 @@ local function tie_locals(ctx: Ctx, s: Ast.Local, vals: Values, errors: integer)
   end
   local call = peel(s.values[1])
   -- TODO: tie the results of the standard library's `coroutine` functions too, once the runtime provides the typed
-  -- `coroutine` library that lang/stdlib.d.tl declares: its `resume` is declared to answer the body's value, and the
-  -- runtime's own `coroutine.resume` answers none to a body that is not given a handle. Keyed on the declaration, so
+  -- `coroutine` library that lang/stdlib.d.tl declares: its `resume` is declared to return the body's value, and the
+  -- runtime's own `coroutine.resume` returns none to a body that is not given a handle. Keyed on the declaration, so
   -- an alias (`local co = coroutine`) is excluded too, as it is the same record, and a record of the program's own
   -- named `coroutine` is tied.
   if ctx.coroutine_reads[call.id] == true or (call.kind == "Call" and ctx.coroutine_reads[call.callee.id] == true) then
@@ -8658,7 +8658,7 @@ function Writes.counts_from_one(s: Ast.ForNum): boolean
   return given.kind == "Integer" and given.value == 1
 end
 
---- Whether the generic loop `s` is `for i, v in ipairs(t) do`: `ipairs` of the library, called with one array, answers the
+--- Whether the generic loop `s` is `for i, v in ipairs(t) do`: `ipairs` of the library, called with one array, returns the
 --- keys 1, 2, 3 and so on in turn, whatever the body does to `t`.
 function Writes.counts_ipairs(ctx: Ctx, s: Ast.ForIn): boolean
   local only = s.iterators[1]
@@ -9253,7 +9253,7 @@ local function check_return(ctx: Ctx, s: Ast.Return)
     end
     local count = #vals.types
     if vals.tail == nil and (count < #alt.items or (count > #alt.items and alt.tail == nil)) then
-      -- A last call that answers more values than are left to return is cut to its first by parentheses.
+      -- A last call that returns more values than are left to return is cut to its first by parentheses.
       local cut = ""
       if last ~= nil and (last.kind == "Call" or last.kind == "MethodCall") and n == #alt.items and count > n then
         cut = "; " .. subject(ctx, last) .. " is the last value and answers " .. tostring(count - n + 1) ..
@@ -9338,7 +9338,7 @@ end
 --- The most rounds a loop is walked quietly before it gives up what it knows of its places.
 local ROUNDS <const> = 6
 
---- Walks a loop to a fixed point. `walk` takes the state at the head of the loop and answers the state its pass ends in,
+--- Walks a loop to a fixed point. `walk` takes the state at the head of the loop and returns the state its pass ends in,
 --- which goes back to the head, and the state the loop leaves in. The head is where the entry and the back edge meet,
 --- so a place keeps a fact only if the back edge keeps it too, and a local is unset if it may be; the passes that
 --- settle it report nothing (`ctx.quiet`), and one more that reports is made from the head they settle on. A loop whose
@@ -9373,7 +9373,7 @@ local function open_loop(ctx: Ctx, fill?: Fill, grow?: Grow, span?: Span): Loop
   return loop
 end
 
---- Closes the loop `loop`. Answers the state its pass ends in (the end of the body, with the `continue`s) and the
+--- Closes the loop `loop`. Returns the state its pass ends in (the end of the body, with the `continue`s) and the
 --- states its `break`s left in.
 local function close_loop(ctx: Ctx, loop: Loop, body_end: Flow.State): Flow.State, Flow.State?
   ctx.loops[#ctx.loops] = nil
@@ -9435,7 +9435,7 @@ local function for_generic(ctx: Ctx, s: Ast.ForIn)
         subject(ctx, fourth) .. " is a fourth: Lua takes it as the value to close, and raises when it has no `__close`",
       "write at most three expressions after `in`")
   else
-    -- a call that answers a fourth value in the last place gives the same closing value
+    -- a call that returns a fourth value in the last place gives the same closing value
     local closing = vals.types[4]
     local last_expression = s.iterators[#s.iterators]
     local tail = vals.tail
@@ -9557,7 +9557,7 @@ local function for_generic(ctx: Ctx, s: Ast.ForIn)
     local back, breaks = close_loop(ctx, loop, ctx.flow)
     return back, merge_maybe(ctx, ran, breaks)
   end)
-  -- The value to close, which the iterator call may answer in the fourth place, is closed where the loop ends.
+  -- The value to close, which the iterator call may return in the fourth place, is closed where the loop ends.
   ctx.flow = Flow.forget_lengths(ctx.flow)
 end
 
@@ -9771,7 +9771,7 @@ local function jump_statement(ctx: Ctx, leaves: boolean)
   ctx.flow = Flow.dead(ctx.flow)
 end
 
---- How the tests of `arm` stand against the list `alt` the call may answer: "yes" when each `true`, `false` and `nil`
+--- How the tests of `arm` stand against the list `alt` the call may return: "yes" when each `true`, `false` and `nil`
 --- is the value the list has at its position, "no" when the list has another value there that the test tells from it
 --- (`false` at a `true`, `nil` at a `true` or `false`, a value that is never nil at a `nil`), and "unclear" when the
 --- test does not tell what the list has there (the position it is, or 0, for the message).
@@ -9900,7 +9900,7 @@ function Narrowing.typed_match(ctx: Ctx, s: Ast.Match)
   end
 end
 
---- `match`: the arms cover the lists the call may answer exactly. An arm
+--- `match`: the arms cover the lists the call may return exactly. An arm
 --- takes the lists whose value at each position it tests with `true` or
 --- `false` is that one, and a list some earlier arm takes is not its: the
 --- names of the arm are the union of what those lists have where the name

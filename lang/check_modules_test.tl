@@ -1,5 +1,5 @@
 --- A value of another module's declaration ([`lang.check`], [`lang.declarations`]): what `require` gives and what a call of
---- `Mod.new()` answers is typed with the declaration, so a method call or a field read on it is held to the rules of a
+--- `Mod.new()` returns is typed with the declaration, so a method call or a field read on it is held to the rules of a
 --- value of a declaration written in the same module, and the table of the declaration's functions stays a type of its own.
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")

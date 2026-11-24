@@ -514,7 +514,7 @@ local function test_close_not_closable_says_an_interface_with_close_is_not_a_cla
 end
 
 local function test_a_close_local_holds_a_class_a_module_answers_with_a_failure()
-  -- The shape of the signal module's guard: a class that implements an interface, answered as `T?, string` and held as
+  -- The shape of the signal module's guard: a class that implements an interface, returned as `T?, string` and held as
   -- `local g <close> = assert(M.guard())`, where `assert` narrows the optional.
   local modules: {string: string} = { held = "local interface Held\n  n: integer\nend\n" ..
       "local class Guard is Held\n  n: integer\n  function __close(self)\n  end\nend\n" ..

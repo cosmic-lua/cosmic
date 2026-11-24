@@ -6,13 +6,13 @@ local Ast = require("lang.ast")
 
 local record Truthy
   --- Whether `e` can be neither false nor nil, from its syntax alone: a literal that is no `false`, a table, a function,
-  --- an arithmetic or concatenation (the language has no metamethod to make one answer false), or a parenthesized or cast
+  --- an arithmetic or concatenation (the language has no metamethod to make one give false), or a parenthesized or cast
   --- one of those. A cast does not make a value truthy: `v as string` is false or nil when `v` is. It is what a middle operand needs for an `if`
   --- expression to be written as `c and a or b`, and what a code generator may take as truthy.
   never_false: function(e: Ast.Exp): boolean
 end
 
---- The operators that answer a number or a string.
+--- The operators that give a number or a string.
 local NUMBERY <const>: {string: boolean} = {
   ["+"] = true, ["-"] = true, ["*"] = true, ["/"] = true, ["//"] = true, ["%"] = true, ["^"] = true,
   [".."] = true, ["&"] = true, ["|"] = true, ["~"] = true, ["<<"] = true, [">>"] = true,

@@ -96,7 +96,7 @@ end
 --- A project at /p whose module `task` declares every name asked of
 --- it (`jobs.Plan`, `jobs.anything`), in <task>.tl, and whose every
 --- capitalized name is a type of that module with every member asked
---- of it (`Plan.order`), as `cosmic docs` answers a type's member. It
+--- of it (`Plan.order`), as `cosmic docs` shows a type's member. It
 --- holds nothing else: no other module's symbol, file or directory,
 --- which a task's span would name only by chance.
 local function implementing_everything(task: string): link_resolve.Context

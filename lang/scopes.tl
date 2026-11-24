@@ -4,7 +4,7 @@
 --- binding: read it, assign it, capture it in a function.
 ---
 --- [`Scopes.build`] sets `binding` on each [`Name`](lang.ast) it resolves, and
---- answers a [`Scoped`]: a [`Var`] for each binding, by the id of the
+--- returns a [`Scoped`]: a [`Var`] for each binding, by the id of the
 --- [`Binding`](lang.ast) node; `resolved`, which maps the id of each [`Name`](lang.ast),
 --- [`TypeName`](lang.ast) and [`Narrows`](lang.ast) to the id of its [`Var`]; the
 --- globals the program uses; and the [`Error`]s, each with a code, a place and
@@ -205,7 +205,7 @@ local record Scopes
     fn?: integer
   end
 
-  --- What [`Scopes.build`] answers.
+  --- What [`Scopes.build`] returns.
   record Scoped
     --- Every binding, by the id of its [`Binding`](lang.ast) node.
     vars: {integer: Var}
@@ -224,8 +224,8 @@ local record Scopes
 
   --- Resolves the names of `chunk`, which is the parse of a source named
   --- `name`, against the globals `declared`: sets `binding` on each [`Name`](lang.ast)
-  --- that refers to a binding (and clears it on one that does not) and answers the
-  --- facts. The chunk must be numbered, as [`lang.parser`] answers it. It never raises.
+  --- that refers to a binding (and clears it on one that does not) and returns the
+  --- facts. The chunk must be numbered, as [`lang.parser`] returns it. It never raises.
   build: function(chunk: Ast.Chunk, name: string, declared: {string: Global}): Scoped
 
   --- The globals a declaration file declares: its `global` declarations,
@@ -779,7 +779,7 @@ local function use_name(n: Ast.Name, write: boolean)
       report("const_assigned", token, why, fix, place_of(v.declared))
     elseif v.depth < depth and not v.exported then
       -- The write runs whenever the function does, which no position in the source bounds: it is left out of
-      -- `write_end` and `write_loop` (they answer [`Capture.after`], which only a narrowed local needs), and the
+      -- `write_end` and `write_loop` (they return [`Capture.after`], which only a narrowed local needs), and the
       -- local is marked so that the checker never narrows it.
       v.closure_assigned = true
     else

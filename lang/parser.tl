@@ -135,7 +135,7 @@ local record Parser
     length: integer
   end
 
-  --- What `parse` answers.
+  --- What `parse` returns.
   record Parsed
     chunk: Ast.Chunk
     --- The lexer's errors and the parser's, in source order.
@@ -445,7 +445,7 @@ local function settle()
 end
 
 --- Consumes the token `want` or reports it missing, saying where it belongs
---- in `after` and what to write in `fix`. Answers whether it was there.
+--- in `after` and what to write in `fix`. Returns whether it was there.
 local function expect(want: string, after: string, fix: string): boolean
   if S.text == want then
     advance()
@@ -562,7 +562,7 @@ end
 
 --- Consumes the `>` that closes a list of type arguments or parameters that
 --- opened at `open`; the first `>` of a `>>` closes one list and the second
---- the next. Answers the index of the token the list ended at.
+--- the next. Returns the index of the token the list ended at.
 local function close_angle(open: integer): integer
   if S.text == ">" then
     advance()

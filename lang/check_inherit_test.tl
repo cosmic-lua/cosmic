@@ -29,7 +29,7 @@ local function refused(source: string, codes: string, msg?: string)
   end
 end
 
---- Checks that the declarations of `source` have exactly the errors `codes`, and that the first says `msg`. Answers the
+--- Checks that the declarations of `source` have exactly the errors `codes`, and that the first says `msg`. Returns the
 --- first error.
 local function declared_wrong(source: string, codes: string, msg: string): Declarations.Error
   local r = Programs.run(source)
@@ -85,7 +85,7 @@ local function test_the_call_is_typed_by_the_inherited_method()
 end
 
 local function test_the_receiver_of_an_inherited_method_is_the_interface_that_has_it()
-  -- `again` answers a Writer in Writer, and the call on a Collector answers that Writer: only the receiver is replaced.
+  -- `again` returns a Writer in Writer, and the call on a Collector returns that Writer: only the receiver is replaced.
   accepted(CHAIN .. "local function f(c: Collector): Writer\n  return c:again()\nend\nprint(f)\n")
   refused(CHAIN .. "local function f(c: Collector): Collector\n  return c:again()\nend\nprint(f)\n", "not_assignable")
 end
@@ -193,7 +193,7 @@ local k2: K2 = { cb = function(self: K2): string return "k2" end }
 ]]
 
 local function test_an_optional_method_read_as_a_value_is_refused_through_the_interface_and_through_the_one_listing_it()
-  -- read as a value and called with another implementer, `cb` of one class would run on the other and answer nil
+  -- read as a value and called with another implementer, `cb` of one class would run on the other and return nil
   local through_child = OPTIONAL .. "local function f(a: C, b: C)\n  local g = a.cb\n  if g then\n    print(g(b))\n  end\nend\nf(k1, k2)\n"
   refused(through_child, "interface_method_value", "reads the method `cb` of the interface `C` as a value")
   refused(OPTIONAL .. "local function f(a: P, b: P)\n  local g = a.cb\n  if g then\n    print(g(b))\n  end\nend\nf(k1, k2)\n",

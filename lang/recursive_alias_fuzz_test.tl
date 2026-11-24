@@ -2,7 +2,7 @@
 --- whether a type is below `V = string | number | boolean | Null | {V} | {string: V}` is whether a definition written apart
 --- from the relation says it is: an atom of those, an enum, `Null` (a userdata record), an array or a map keyed by `string`
 --- of such types, a union of such types with no `nil`, or `V` itself; a record, a class or an interface is none of them, with
---- an array part or not. The relation answers it by reading the alias one level at a time, so a comparison that did not
+--- an array part or not. The relation decides it by reading the alias one level at a time, so a comparison that did not
 --- read it (or read it for ever) would differ from the definition on some type here. `FUZZ_SEED` and `FUZZ_ITERS` pick the
 --- inputs (build/fuzz/init.tl).
 local Fuzz = require("build.fuzz")
@@ -92,7 +92,7 @@ local function test_a_type_is_below_the_alias_when_the_definition_of_a_json_valu
         local t = TypesPrograms.generate(w.store, w.fixture, part)
         local want = defined(t, v, null)
         local got = w.judge:subtype(t, v)
-        -- The reason and the answer agree, and a refusal names the alias as written.
+        -- The reason and the result agree, and a refusal names the alias as written.
         local why = w.judge:refuse(t, v)
         if (why == nil) ~= got then
           return false, Types.display(t) .. ": the reason and the answer differ"

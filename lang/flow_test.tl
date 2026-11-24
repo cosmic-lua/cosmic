@@ -18,7 +18,7 @@ local function test_forget_lengths_takes_the_lengths_away_again_on_a_state_chang
   assert(Flow.knows_length(known, "1", 2))
   local once = Flow.forget_lengths(known)
   assert(not Flow.knows_length(once, "1", 1) and not Flow.knows_length(once, "1", 2))
-  -- A fact of a length gained after the first call is gone at the second, on the state the call answered or another.
+  -- A fact of a length gained after the first call is gone at the second, on the state the call returned or another.
   local again = Flow.know_length(narrowed(once, "2.a"), "3", 1, store.boolean, store.integer)
   assert(Flow.knows_length(again, "3", 1))
   local twice = Flow.forget_lengths(again)
@@ -49,7 +49,7 @@ local function test_forget_lengths_after_assignments_and_joins_that_drop_some_of
   assert(not Flow.knows_length(forgot, "6", 1) and Flow.get(forgot, "4.a") ~= nil)
   -- A function made at the point does not inherit the lengths, and the state before it still has them.
   assert(not Flow.knows_length(Flow.enter(both, nil), "6", 1) and Flow.knows_length(both, "6", 1))
-  -- A state with no fact at all, and one whose last fact of a length an assignment took, are answered as they are.
+  -- A state with no fact at all, and one whose last fact of a length an assignment took, are returned as they are.
   local last = Flow.assign(Flow.know_length(Flow.start(), "7", 1, store.boolean, store.integer), 7, nil)
   assert(Flow.forget_lengths(last) == last)
 end

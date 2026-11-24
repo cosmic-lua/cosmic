@@ -6,7 +6,7 @@
 ---
 --- A reader walks the whole string, as the matcher would if it reached every part: Lua raises on a pattern only where
 --- the match gets as far as the fault, which is a property of the subject, and a pattern that is wrong for some subject
---- is wrong. Each answers the first fault it finds, with what it is and the fix.
+--- is wrong. Each returns the first fault it finds, with what it is and the fix.
 local Codes = require("lang.check_codes")
 
 local record Literals
@@ -38,7 +38,7 @@ local record Literals
     --- The type each value has, in order, for `pack` (the arguments after the format) and `unpack` (its results before the
     --- position): `integer`, `number` or `string`.
     kinds: {string}
-    --- Whether it holds an option whose size depends on the value (`s`, `z`), which `packsize` cannot answer.
+    --- Whether it holds an option whose size depends on the value (`s`, `z`), which `packsize` cannot give.
     variable: boolean
     problem: Problem?
   end

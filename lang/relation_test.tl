@@ -790,7 +790,7 @@ local function test_a_generic_function_is_below_the_function_type_its_type_param
   assert(below(w, identity, func(w, { s.integer }, { s.integer })))
   assert(below(w, identity, func(w, { s.string }, { s.string })))
   assert(below(w, identity, func(w, { s:optional(s.string) }, { s:optional(s.string) })))
-  -- The value the wanted type passes is the one the function takes, and what it answers is that value.
+  -- The value the wanted type passes is the one the function takes, and what it returns is that value.
   refused(w, identity, func(w, { s.integer }, { s.string }), "generic_function")
   refused(w, identity, func(w, {}, { s.integer }), "arity")
   assert(below(w, identity, func(w, { s.integer }, { s.number })))
@@ -810,7 +810,7 @@ local function test_a_generic_function_is_below_the_function_type_its_type_param
   local peeled = s:fn({ tparams = { {} }, params = { { type = s:union({ s.integer, v }) } }, rets = {} })
   assert(below(w, peeled, func(w, { s.integer }, {})))
   -- One that a result names and nothing gives is refused: as `never` it would drop the result
-  -- from the instance, and `function<T>(v: any): T` that casts answers a real value.
+  -- from the instance, and `function<T>(v: any): T` that casts returns a real value.
   local trust = s:fn({ tparams = { {} }, params = { { type = s.string } }, rets = { { items = { v } } } })
   local either = s:fn({ params = { { type = s.string } }, rets = {
     { items = { s:atom("true"), s.string } }, { items = { s:atom("false"), s.string } } } })
@@ -1329,7 +1329,7 @@ local record Holder
 end
 
 local function test_a_loader_that_relates_types_while_a_decode_is_open_is_refused_and_leaves_no_stale_answer()
-  -- A decode that fails gives back the ids it made, which a later type reuses: an answer kept for
+  -- A decode that fails gives back the ids it made, which a later type reuses: a result kept for
   -- one would be for another.
   local holder: Holder = { raised = "" }
   local store = Types.new(function(_: string, _: string): string?

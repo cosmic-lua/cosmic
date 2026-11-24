@@ -1,7 +1,7 @@
---- The declarations of the eval harness tell the truth about nil: a path
---- that is none, a tier that does not apply, a home directory a word
---- does not name and an option the command line leaves out answer nil
---- only where their types say so. A checked run
+--- The declarations of the eval harness tell the truth about nil: for a
+--- path that is none, a tier that does not apply, a home directory a
+--- word does not name and an option the command line leaves out, the
+--- helpers return nil only where their types say so. A checked run
 --- (`cosmic test --check-types`) says whether a value crossed a typed
 --- boundary as a kind its type does not admit; in any other run the
 --- tests skip.
@@ -28,7 +28,7 @@ end
 --- A report over calls that name a path in the arena, in a system
 --- location, in the checkout, in /tmp and elsewhere, a home directory in
 --- each spelling and a word that is no path: each of the helpers that
---- answer no path, no tier or no home directory is asked.
+--- return no path, no tier or no home directory is asked.
 local function test_the_report_answers_what_it_declares_for_every_kind_of_path()
   honest("summarize", function()
     local text = table.concat({

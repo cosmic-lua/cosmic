@@ -9,7 +9,7 @@ local Test = require("cosmic.test")
 
 Test.policy{}
 
---- Every program starts with a source of nil: `find()` answers `"ab"` on its odd calls and nil on its even ones.
+--- Every program starts with a source of nil: `find()` returns `"ab"` on its odd calls and nil on its even ones.
 local PRELUDE <const> = [[
 local record State
   mut n: integer
