@@ -1054,8 +1054,9 @@ local function test_each_gives_the_lines_read_gives()
     local by_read: mut {string} = {}
     local reading = Stream.lines(make(text), 9)
     while true do
-      local line, _ = reading:read()
-      if line == nil then break end
+      local line, why = reading:read()
+      assert(line ~= nil, tostring(why))
+      if line == false then break end
       by_read[#by_read + 1] = line
     end
     local by_each: mut {string} = {}
@@ -1070,7 +1071,7 @@ local function test_each_gives_the_lines_read_gives()
     assert(long:failure():find("longer than 5 bytes", 1, true) ~= nil, long:failure())
     local mixed = Stream.lines(make("a\nb\nc\nd\ne\n"))
     local next_line = mixed:each()
-    assert(next_line() == "a" and mixed:read() == "b" and next_line() == "c")
+    assert(next_line() == "a" and line_of(mixed) == "b" and next_line() == "c")
     local after, _ = Stream.read_all(mixed:rest())
     assert(after == "d\ne\n", after)
   end
