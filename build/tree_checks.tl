@@ -1966,7 +1966,7 @@ end
 --- The modules a source requires by a literal name, as `require("m")` or `pcall(require, "m")`: the parser's own
 --- reading of the file `file`. A file that does not parse is read by its text, a name in a comment or a string counting
 --- too, which costs a key that moves for no reason and never a missed edge.
-local function required_modules(source: string, file: string): {string}
+local function parsed_requires(source: string, file: string): {string}
   local chunk, _ = SyntaxNode.parse(source, file)
   if chunk ~= nil then
     return SyntaxNode.requires(chunk)
@@ -1980,6 +1980,31 @@ local function required_modules(source: string, file: string): {string}
     end
   end
   return out
+end
+
+--- What [`parsed_requires`] returned for each text, by its digest and its dialect, which a path ending in `.d.tl`
+--- says: the checks of one run each index the tree ([`tree_of`]), and parsing every file is most of the work of
+--- one. `fix` tells it what its own parse of each file found ([`tree_checks.knows_requires`]).
+local requires_known: mut {string: {string}} = {}
+
+local function requires_key(digest: string, file: string): string
+  return digest .. (if file:find("%.d%.tl$") ~= nil then " decl" else " tl" end)
+end
+
+--- Keeps what `chunk`, the parse of `source` as the text of `file`, requires, for the checks that index the tree
+--- later in the run to read rather than parse the file again.
+function tree_checks.knows_requires(source: string, file: string, chunk: Ast.Chunk)
+  requires_known[requires_key(Hash.hex_sha256(source), file)] = SyntaxNode.requires(chunk)
+end
+
+local function required_modules(source: string, file: string, digest: string): {string}
+  local key = requires_key(digest, file)
+  local known = requires_known[key]
+  if known == nil then
+    known = parsed_requires(source, file)
+    requires_known[key] = known
+  end
+  return known
 end
 
 --- The files of the tree the new checker lowers: every `.tl` file but those of a `testdata` directory, which hold programs for
@@ -2035,14 +2060,14 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
   for _, source in ipairs(index.sources) do
     -- A declaration derived from a header is no file of the tree: its text is in the salt of the checks that read it.
     if derived[source.filename] ~= true then
+      local exact = Hash.hex_sha256(source.text)
       local row: DeclareFile = {
         file = source.filename, source = source.text, module = source.module, dialect = source.dialect,
-        imports = required_modules(source.text, source.filename), key = "",
+        imports = required_modules(source.text, source.filename, exact), key = "",
       }
       rows[#rows + 1] = row -- checked: view_written
       row_of[source] = row
       -- A module given as two files (`x.tl` and `x/init.tl`) is read from the first; the key holds both texts.
-      local exact = Hash.hex_sha256(source.text)
       hashes[row.module] = (hashes[row.module] or "") .. exact
       -- A source the build mends or writes from another file is read as its text says, comments and all.
       local held = exact
