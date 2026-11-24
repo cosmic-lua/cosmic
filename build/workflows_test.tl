@@ -1510,8 +1510,10 @@ local function test_each_kind_of_run_has_its_legs()
   for _, key in ipairs({ "runner", "target", "image" }) do
     assert(mac[key] == full_mac[key], "the queue runs macOS on another host: " .. key)
   end
-  -- alpine-x86_64's product, the longest, is two jobs: its portable suite and its regressions.
+  -- alpine-x86_64's product, the longest, is two jobs: its portable suite and its regressions. macOS's suite, of a
+  -- push too, is pinned above.
   for name, leg in pairs(push) do
+    if name == "macos-aarch64" then continue end
     local parts: {string} = if name == "alpine-x86_64" then { "suite", "portable", "regressions" } else { "suite", "product" } end
     for _, part in ipairs(parts) do
       local job = assert(queue[if part == "suite" then name else name .. "-" .. part end], name .. " has no " .. part)
@@ -1526,7 +1528,14 @@ local function test_each_kind_of_run_has_its_legs()
   for _, key in ipairs({ "runner", "target", "image" }) do
     assert(format[key] == assert(push["linux-x86_64"])[key], "the queue's format job runs on another host: " .. key)
   end
-  assert(names_of(push) == "alpine-x86_64 linux-aarch64 linux-x86_64", "a push's legs: " .. names_of(push))
+  -- A push runs three legs whole and macOS's suite, which stands on the queue's verdicts and saves macOS's caches for
+  -- the queue's next runs, which otherwise only the daily run saved (the queue's macOS job booted cold, 7.3 of its
+  -- 18.2 min on 45475769968).
+  assert(names_of(push) == "alpine-x86_64 linux-aarch64 linux-x86_64 macos-aarch64", "a push's legs: " .. names_of(push))
+  local push_mac = assert(push["macos-aarch64"])
+  for _, key in ipairs({ "part", "runner", "target", "image" }) do
+    assert(push_mac[key] == mac[key], "a push runs macOS otherwise than the queue: " .. key)
+  end
   assert(names_of(full) == "alpine-x86_64 linux-aarch64 linux-x86_64 macos-aarch64",
     "a full run's legs: " .. names_of(full))
   local keys <const>: {string} = { "name", "leg", "part", "runner", "target", "image" }
@@ -1537,7 +1546,8 @@ local function test_each_kind_of_run_has_its_legs()
     for _, key in ipairs(keys) do
       assert(leg[key] ~= nil, name .. " has no " .. key)
       for _, other in ipairs({ pr[name] or leg, push[name] or leg }) do
-        assert(other[key] == leg[key], name .. "'s " .. key .. " differs between runs")
+        assert(other[key] == leg[key] or key == "part" and other == push[name] and name == "macos-aarch64",
+          name .. "'s " .. key .. " differs between runs")
       end
     end
     local alpine = assert(leg["image"]):find("^ghcr%.io/cosmic%-lua/cosmic%-ci%-alpine@sha256:") ~= nil
@@ -1891,6 +1901,8 @@ local function test_the_relay_saves_the_queues_verdicts_under_the_queues_name()
   table.sort(relayed)
   local pushed: mut {string} = {}
   for _, leg in pairs(platform_legs("push")) do
+    -- macOS's push job saves its own: no relay runs on a macOS runner.
+    if leg["part"] == "suite" then continue end
     pushed[#pushed + 1] = assert(leg["leg"])
     assert(assert(queue_legs[assert(leg["leg"])])["part"] == "suite", "the queue runs no suite of " .. tostring(leg["leg"]))
   end
@@ -2037,7 +2049,7 @@ local function test_the_gate_needs_every_job_and_compares_the_legs_products()
     for _ in pairs(legs) do n = n + 1 end
     return n
   end
-  assert(count(platform_legs("push")) == 3 and count(platform_legs("full")) == 4, "the runs' legs")
+  assert(count(platform_legs("push")) == 4 and count(platform_legs("full")) == 4, "the runs' legs")
   -- The queue's three products, one a leg's product job (alpine-x86_64's `portable`).
   local queued = 0
   for _, leg in pairs(platform_legs("queue")) do
