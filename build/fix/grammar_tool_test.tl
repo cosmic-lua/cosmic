@@ -167,7 +167,7 @@ local function test_a_tree_that_does_not_build_says_so_before_its_links(tmp: str
   local link = said:find("FAIL  a.md:1: link: fresh.one does not resolve (not known yet: fresh is new since the last " ..
       "build, which links are checked against while the build refuses typed.tl; fix that first)", 1, true)
   assert(refusal ~= nil and link ~= nil and refusal < link, said)
-  -- A module the last build holds answers as it did: what it lacks names nothing.
+  -- A module the last build holds resolves as it did: what it lacks names nothing.
   assert(said:find("FAIL  a.md:1: link: other.nope does not resolve (no declaration, symbol or file by that name)", 1,
     true), said)
 end

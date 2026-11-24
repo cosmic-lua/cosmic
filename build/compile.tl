@@ -12,7 +12,7 @@
 --- THE LUA IS RAW: one file's text exactly as the generator writes it, no wrapper and nothing joining one file to another.
 --- A file is checked as the module its path below the root names (`--root`, the working directory by default: [`lang/flow.tl`]
 --- as [`lang.flow`]; the path may be absolute, and one outside the root is refused), and a `require` of another named file is
---- answered with that file's text, so the parts of a program see each other's types as the boot's compile gives them.
+--- resolved to that file's text, so the parts of a program see each other's types as the boot's compile gives them.
 ---
 --- Unlike `cosmic fix` or a build it does not run [`Shape.record_of`]'s resolution, check contracts or hold a file to the
 --- tree's other rules: it is the checker and the generator and nothing else.
@@ -144,7 +144,7 @@ local function counted(n: integer): string
   return tostring(n) .. (if n == 1 then " type error" else " type errors" end)
 end
 
---- Runs the command line `argv`, `compile` at slot 1, and answers the
+--- Runs the command line `argv`, `compile` at slot 1, and returns the
 --- exit code. `streams` is where it writes: what a test stands in for.
 function verb.run(argv: {string}, streams?: verb.Io): integer
   local to = streams or { out = bare.out, err = bare.err }

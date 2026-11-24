@@ -1,5 +1,5 @@
 --- `cosmic agent worker` as the run tool drives it ([`cosmic.agent.worker`]): one process that checks and runs one
---- snippet after another, answering each as its own.
+--- snippet after another, replying to each as its own.
 local AgentMcp = require("cosmic.agent.mcp")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -140,7 +140,7 @@ local function test_an_answer_holds_any_bytes_and_a_large_value_and_the_snippet_
 end
 
 --- A snippet that prints without end runs to its timeout, the worker read as it writes. What a program an earlier
---- snippet started writes after that snippet answered is not the next snippet's output, nor is a snippet's end mark
+--- snippet started writes after that snippet replied is not the next snippet's output, nor is a snippet's end mark
 --- another's.
 local function test_a_late_write_and_a_snippets_own_mark_are_not_the_next_snippets_output()
   local w = set_of_worker()
@@ -148,7 +148,7 @@ local function test_a_late_write_and_a_snippets_own_mark_are_not_the_next_snippe
   local answer, why = Worker.run(w, "while true do print(string.rep(\"z\", 4096)) end\n", { cwd = dir, seconds = 2 })
   assert(answer == nil and tostring(why):find("ran past 2 seconds", 1, true) ~= nil, tostring(why))
   -- The shell leaves a program behind in a session of its own, which outlives the shell's group and writes once the
-  -- snippet answered.
+  -- snippet has replied.
   local late = "local Child = require(\"cosmic.child\")\n" ..
     "local _ = assert(Child.run({ \"/usr/bin/setsid\", \"-f\", \"/bin/sh\", \"-c\", " ..
     "\"sleep 0.5; echo late; echo late > wrote\" },\n" ..
@@ -179,7 +179,7 @@ local function test_a_late_write_and_a_snippets_own_mark_are_not_the_next_snippe
   Worker.close(w)
 end
 
---- An answer out of step, one that is no JSON, and a worker that ends are each told, and the worker ended.
+--- A reply out of step, one that is no JSON, and a worker that ends are each told, and the worker ended.
 local function test_a_worker_that_answers_wrong_or_ends_is_ended_and_told()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
   local cases: {{string}} = {
@@ -196,7 +196,7 @@ local function test_a_worker_that_answers_wrong_or_ends_is_ended_and_told()
   end
 end
 
---- A snippet queries sessions.db through the agent, which answers it read-only, as the sql tool does, row by row.
+--- A snippet queries sessions.db through the agent, which responds to it read-only, as the sql tool does, row by row.
 local function test_a_snippet_queries_the_sessions_through_the_agent()
   local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
@@ -260,7 +260,7 @@ return assert(again[1])["n"]
   local _, _ = db:close()
 end
 
---- Outside a worker no agent answers a call.
+--- Outside a worker no agent responds to a call.
 local function test_a_snippet_calls_an_mcp_servers_tools_as_typed_functions()
   local dir = assert(Fs.mkdtemp("agent-worker-mcp-module-"))
   local script = dir .. "/server.tl"

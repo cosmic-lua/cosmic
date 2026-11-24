@@ -272,7 +272,7 @@ end
 --- ([`bin/cosmic-bootstrap`]'s `cosmic-<sha256>`), fetched first where it is not cached yet (a cleared cache, a new
 --- pin): a confined compiler, given the cache to read and no network, could not fetch it, and every check would fail
 --- with the fetch's error. The fetch is bin/cosmic-bootstrap's own (`--raw-path`), run unconfined with `variables`;
---- bin/cosmic has run it already wherever it started the check, so this is a run that did not. Answers its path, or nil
+--- bin/cosmic has run it already wherever it started the check, so this is a run that did not. Returns its path, or nil
 --- and why where it is not there after: where the script could not start (a test's sandbox that is not given it, or
 --- the `sh` it runs on), why names the script and the start's error, not a fetch that never ran.
 function c.bootstrap_cosmic(root: string, variables: {string:string}, digest: string): string?, string
@@ -365,7 +365,7 @@ local function compiler(root: string, variables: {string:string}): string, boole
   return root .. "/bin/zig", false
 end
 
---- What a test's worker would start for zig in a check ([`compiler`]), as the runner answers the requirement
+--- What a test's worker would start for zig in a check ([`compiler`]), as the runner evaluates the requirement
 --- `pinned_zig` ([`build.host_requires`]): the text a verdict key holds of it, or nil and why a worker cannot start it.
 --- That is a COSMIC_ZIG `variables` names, which a sandboxed worker (`sandboxed`) sees only under the zig cache its
 --- policy grants, else the pinned zig installed there. Where neither, a check would start [`bin/zig`], which a
@@ -407,7 +407,7 @@ end
 --- confined in an unsandboxed worker could only read, fail every such check where they hold no core for the bootstrap
 --- cosmic yet (a fresh or cleared cache, a new pin: the launcher cannot create its staging entry), and a core another
 --- program extracted there would be run in its place. A check that compiles extracts the core afresh, a copy and a hash
---- of it; one the memo answers starts no launcher.
+--- of it; one the memo settles starts no launcher.
 function c.own_caches(env: {string:string}, deps: string): {string:string}
   local out: mut {string:string} = {}
   for name, value in pairs(env) do out[name] = value end
@@ -601,7 +601,7 @@ end
 --- `variant` from the first's: its text, or that of a header of the tree it
 --- includes, names one of the variant's `tells`. A header is found as the compiler finds one of the
 --- tree's own, beside the including file or in core/; one it cannot read is
---- taken to differ. `memo` keeps what each path answered.
+--- taken to differ. `memo` keeps the result for each path.
 local function sensitive(root: string, cwd: string, file: string, variant: c.Variant,
                          memo: mut {string: boolean}): boolean
   local function visit(path: string, stack: mut {string: boolean}): boolean
@@ -710,7 +710,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
   local dirs: mut {string} = {}
   for _, dir in ipairs(include_dirs(root, cwd)) do dirs[#dirs + 1] = absolute(dir) end
   -- The key each compile's outcome is kept under, for those whose inputs can be known and that the memo lacks; those it
-  -- holds are answered here.
+  -- holds are settled here.
   local keys: mut {integer: string} = {}
   local stored = false
   if store ~= nil and install ~= nil then
@@ -764,7 +764,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     while next_job <= #jobs or #running > 0 do
       while next_job <= #jobs and #running < parallel do
         local job = nth(jobs, next_job)
-        -- A compile the memo answered is not run.
+        -- A compile the memo settled is not run.
         if results[next_job] == nil then
           local handle, trouble = Child.start(
             command(root, zig, nth(files, job.file), cwd, nth(c.variants, job.variant), job.analyze,
@@ -834,8 +834,8 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
       return ""
     end
     -- The bootstrap cosmic, fetched now where it is not cached, and only
-    -- where a compile the memo did not answer is left to run: a compile
-    -- that cannot run is told why, and an answered one keeps its answer.
+    -- where a compile the memo did not settle is left to run: a compile
+    -- that cannot run is told why, and a settled one keeps its outcome.
     local unanswered: mut {integer} = {}
     for j in ipairs(jobs) do
       if results[j] == nil then unanswered[#unanswered + 1] = j end

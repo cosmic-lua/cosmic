@@ -144,7 +144,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
     local planted = assert(again.db:text_rows(
       "SELECT count(*) FROM docs WHERE symbol = 'Planted'"))
     work.close(again)
-    -- `meta` keys `analyzer` once, and `count(*)` answers one row.
+    -- `meta` keys `analyzer` once, and `count(*)` gives one row.
     return before, after, Array.at(recorded, 1):text(1), Array.at(planted, 1):text(1) == "1", parses.parsed
   end
   -- The first boot after the suite's own binary derived: that binary's

@@ -392,7 +392,7 @@ local function test_the_core_lines_that_turn_on_the_processor_are_found()
   assert(real["core/vector.c:cosmic_vector_functions"] == nil, "the function that registers and picks")
   assert(real["core/vector.c:row_key"] ~= nil, "the scan that calls the kernel chosen")
   assert(real["core/vector.c:vector_kernel"] ~= nil, "the function that names the kernel in use")
-  -- A core that compiles no kernel answers no kernel's name.
+  -- A core that compiles no kernel gives no kernel's name.
   local kernelless: {string:{string}} = { ["core/vector.c"] = { "static int vector_kernel (void) {", "}" } }
   local kernelless_functions: {Coverage.Function} = { { path = "core/vector.c", name = "vector_kernel", line = 1 } }
   assert(#DispatchSites.reaching(c_functions.spans(kernelless_functions, kernelless), kernelless) == 0)

@@ -2,7 +2,7 @@
 --- whose text changed or that closed ([`build.lsp.dependents`]): only
 --- where what it serves them changed, a token or where one is, after its
 --- own diagnostics are published, and one at a time, each once, a message
---- that arrives meanwhile answered before the rest.
+--- that arrives meanwhile handled before the rest.
 
 local Fs = require("cosmic.fs")
 local session_fixture = require("build.lsp.session_fixture")
@@ -82,7 +82,7 @@ end
 
 --- The changed document's diagnostics are published before any of its
 --- dependents is checked, and a request that arrives while they are is
---- answered before the dependents left.
+--- handled before the dependents left.
 local function test_a_request_is_answered_before_the_dependents_left()
   local names = { "a", "b", "c" }
   local root = helped(names)
@@ -106,7 +106,7 @@ local function test_a_request_is_answered_before_the_dependents_left()
     end
   end
   -- The opens, then helper's change with no dependent checked yet, a,
-  -- the answer, and the dependents left.
+  -- the response, and the dependents left.
   assert(table.concat(order, " ") == "helper@0 a@0 b@0 c@0 helper@0 a@1 answer@1 b@2 c@3",
     table.concat(order, " "))
 end

@@ -50,8 +50,8 @@ local usage = "cosmic archive list [--json] <file>|-; " ..
   "cosmic archive extract [-C <dir>] [--force] <file>|- [<member>...]; " ..
   "cosmic archive create [--reproducible] <out.tar.gz|out.tgz|out.tar.xz|out.txz|out.tar.bz2|out.tbz2|out.tbz|out.tar.zst|out.tzst|out.tar|out.zip> <path>..."
 
---- What a run answers: an exit code and the complaint that goes with it
---- (none for 0).
+--- What a run ends with: an exit code and the complaint that goes
+--- with it (none for 0).
 local record Outcome
   code: integer
   why: string

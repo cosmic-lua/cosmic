@@ -6,7 +6,7 @@
 --- row, a row names no code, or a row leaves a part of the rule out.
 ---
 --- [`ErrorCatalog.insert`] writes a row per code to the `catalog` table ([`build.schema`]) with the kind `code`, the module
---- that emits it as `module` and the code as `symbol`, so that `cosmic docs <code>` ([`cosmic.doc`]) answers with the rule,
+--- that emits it as `module` and the code as `symbol`, so that `cosmic docs <code>` ([`cosmic.doc`]) prints the rule,
 --- why the language holds it and the fix. The `message` is left NULL: the guidance of an uncaught run-time error
 --- ([`cosmic.errors`]) matches that column alone, and a code's words are no message of a running program.
 ---
@@ -76,7 +76,7 @@ local record ErrorCatalog
   text: function(row: Row): string
 
   --- Writes a row per code to the `catalog` table of `db` (of the attached schema `schema`, "" for the main one), in the
-  --- order of `rows`, and answers how many it wrote. The index of `catalog_fts` is rebuilt by the caller
+  --- order of `rows`, and returns how many it wrote. The index of `catalog_fts` is rebuilt by the caller
   --- ([`build.schema`]'s `rebuild`) once the table is filled.
   insert: function(db: Sqlite.Handle, schema: string): integer?, string
 end

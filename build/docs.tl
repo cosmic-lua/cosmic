@@ -76,9 +76,9 @@ end
 --- The databases a lookup reads, in order: the project's own
 --- `cosmic.db` when there is one, then every database the store
 --- searches. A module found in an earlier one hides the same module in
---- a later one, so a project's build answers for its own modules and
---- the binary answers for the standard library. The project's own is
---- left out where other code than this process's wrote it
+--- a later one, so a project's build is responsible for its own
+--- modules and the binary for the standard library. The project's own
+--- is left out where other code than this process's wrote it
 --- ([`writer.other_code`]), as where it cannot be read.
 --- @param store the store's databases, [`Store.databases()`] unless the
 --- caller hands it others, as a test of databases of its own does
@@ -99,7 +99,7 @@ function docs.databases(store?: {Sqlite.Handle}, at?: string, known?: docs.Known
     assert(root ~= nil, tostring(root_trouble))
     project = root
     -- A directory with no build directory to have one in has no build of
-    -- its own; one whose build directory cannot be named is answered from
+    -- its own; one whose build directory cannot be named is looked up in
     -- the binary's databases too, as a stale build is below.
     local optional, _ = build_paths.optional(root)
     directory = optional
@@ -116,7 +116,7 @@ function docs.databases(store?: {Sqlite.Handle}, at?: string, known?: docs.Known
   if own_exists then
     -- The project's own build is best effort: one that cannot be opened
     -- or read (a directory, a file that is not a database, one a build
-    -- is rewriting) is left out, so help and docs still answer from the
+    -- is rewriting) is left out, so help and docs still read from the
     -- binary's own databases rather than failing on a stale output.
     local own, _ = Sqlite.open(own_path)
     if own ~= nil then
@@ -189,7 +189,7 @@ local function closed_in(db: Sqlite.Handle): {string: string}
 end
 
 --- The tool's verbs as the commands of a view: each is documented by its module's overview ([`cosmic.cli.test`]),
---- and its options are data (a `spec` of [`Cli.verbs`]), shown and searched as the binary answering has them.
+--- and its options are data (a `spec` of [`Cli.verbs`]), shown and searched as the binary doing the lookup has them.
 local function verbs(): {Doc.Command}
   local names: mut {string} = {}
   for verb in pairs(Cli.verbs) do names[#names + 1] = verb end
@@ -217,12 +217,12 @@ function docs.view(databases: {Sqlite.Handle}, public?: {boolean}): Doc.View?, s
   return view, ""
 end
 
---- What a lookup's summary says of the answer where its build did not
+--- What a lookup's summary says of the result where its build did not
 --- leave the projection as the tree stands ([`rebuild.here`]), "" where it
 --- did: from the last build, or from cosmic's own docs alone where the
 --- project has none this tool reads, and why -- the tree's refusal, or
 --- another run holding the build ([`rebuild.held`]). The tree's refusal is said there alone, in
---- the summary a reader sees beside the answer; any other trouble is said
+--- the summary a reader sees beside the result; any other trouble is said
 --- on a line of its own too, being the host's rather than the tree's.
 --- @param sources the databases the lookup reads ([`docs.databases`])
 local function stale_note(verb: string, built: boolean, trouble: string, sources: docs.Sources): string
@@ -270,7 +270,7 @@ local function run(argv: {string}): integer
     for _, line in ipairs(records.lines) do
       log:say(line)
     end
-    -- The records have no summary but this one, for a stale answer, which a query that finds nothing hears too.
+    -- The records have no summary but this one, for a stale result, which a query that finds nothing hears too.
     if stale ~= "" then local _, _ = logger.summary("docs", "answered " .. stale) end
     return if records.found then 0 else 1 end
   end

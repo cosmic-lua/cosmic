@@ -16,9 +16,9 @@
 --- is run by the callers. A core that compiles no such function
 --- (core/vector.c on aarch64, whose VNNI code is x86's) has nothing there.
 ---
---- A function whose answer is the processor's own is enforced too (a
+--- A function whose result is the processor's own is enforced too (a
 --- site's `answers`): `vector_kernel`, which names the kernel in use. A
---- test that asserts on its answer has an outcome that depends on the
+--- test that asserts on its result has an outcome that depends on the
 --- processor even where it runs no kernel.
 ---
 --- Entering a vendored library's dispatched code is not enforced
@@ -42,7 +42,7 @@ local record dispatch_sites
   record Site
     lines: string
     reads: {string:{string}}
-    --- Functions of a core file whose answer is the processor's own, by
+    --- Functions of a core file whose result is the processor's own, by
     --- name: a test that enters one has an outcome that depends on the
     --- processor, as one that enters the code it chooses does.
     answers?: {string}
@@ -105,14 +105,14 @@ local sites: {string:dispatch_sites.Site} = {
   ["vendor/xz/src/liblzma/check/crc_common.h"] = { lines = "02b9a4dfc40599e0", reads = {} },
   ["core/xz_config/config.h"] = { lines = "6696e76730b82c2d", reads = {} },
   -- zstd's cpuid, and the two that call it for BMI1 and BMI2: every
-  -- choice made by what it answers is under `#if DYNAMIC_BMI2`, which
+  -- choice made by what it returns is under `#if DYNAMIC_BMI2`, which
   -- build.zig sets to 0, so it chooses no code.
   ["vendor/zstd/lib/common/cpu.h"] = { lines = "2a52cdfcf036b836", reads = {} },
   ["vendor/zstd/lib/common/zstd_internal.h"] = { lines = "7db2f12b59d3e0b4", reads = {} },
   ["vendor/zstd/lib/compress/zstd_compress.c"] = { lines = "e1810b0562e88cca", reads = {} },
-  -- `cpu_features`, which answers what the processor has for a key
+  -- `cpu_features`, which returns what the processor has for a key
   -- (build/declared_key.tl's `features`), its declaration and its test:
-  -- none chooses code by it. Its answer is the processor's own, so a
+  -- none chooses code by it. Its result is the processor's own, so a
   -- test that asserts on it has an outcome that depends on the processor
   -- (core/cpu_features_test.tl declares `cpu_features`). syscalls.c asks
   -- Apple's kern.maxfilesperproc too, for the descriptor limit a start
@@ -130,7 +130,7 @@ local sites: {string:dispatch_sites.Site} = {
   -- forms) and AVX encodings, by cpuid leaf 7. It also asks cpuid leaf 1
   -- for OSXSAVE and xgetbv for the state the system saves, which are the
   -- system's and no feature of the processor.
-  -- `vector_kernel` answers which kernel is in use, or switches to one.
+  -- `vector_kernel` tells which kernel is in use, or switches to one.
   ["core/vector.c"] = { lines = "cd0767ce3aa41c0c",
     reads = { x86_64 = { "avx512f", "avx512vl", "avx512_vnni", "avx_vnni" } },
     answers = { "vector_kernel" } },
@@ -141,7 +141,7 @@ local sites: {string:dispatch_sites.Site} = {
 dispatch_sites.sites = sites
 
 --- The files of the core that are sites reading a feature, or that hold
---- a function whose answer is the processor's (`answers`), sorted.
+--- a function whose result is the processor's (`answers`), sorted.
 local function site_files(): {string}
   local out: mut {string} = {}
   for path, site in pairs(sites) do
@@ -258,7 +258,7 @@ local function in_site(spans: {c_functions.Span}, lines: {string}): {dispatch_si
 end
 
 --- The functions of `spans`, in the site file `lines`, that are named in
---- `names`: their answer is the processor's own, so each line of one is
+--- `names`: their result is the processor's own, so each line of one is
 --- a reach.
 local function answering(spans: {c_functions.Span}, lines: {string},
                          names: {string}): {dispatch_sites.Reach}
@@ -289,7 +289,7 @@ function dispatch_sites.reaching(spans: {c_functions.Span},
       if next(site.reads) ~= nil then chosen = in_site(those, lines) end
       for _, each in ipairs(chosen) do out[#out + 1] = each end
       -- A file that reads a feature but compiles no code for one on this
-      -- core (core/vector.c on aarch64) answers nothing of the processor's.
+      -- core (core/vector.c on aarch64) gives nothing of the processor's.
       if next(site.reads) == nil or #chosen > 0 then
         for _, each in ipairs(answering(those, lines, site.answers or {})) do
           out[#out + 1] = each

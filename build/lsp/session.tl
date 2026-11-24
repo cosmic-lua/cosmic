@@ -1,8 +1,8 @@
 --- One editor's session of `cosmic lsp` ([`build.lsp`]): what it opened, what it was told, and its
---- answer to each message it sends, as the protocol's lifecycle holds them
+--- reply to each message it sends, as the protocol's lifecycle holds them
 --- ([`build.lsp.protocol`]).
 ---
---- What it answers:
+--- What it serves:
 ---
 --- - Diagnostics, published as a document is opened, changed, saved or
 ---   closed, as [`build.lsp.check`] finds them, with those of the other
@@ -29,8 +29,8 @@
 --- is told once. Where the editor takes a registration of the files to watch, the session registers
 --- every `.tl` and `.tmpl` file at `initialized`.
 ---
---- A message with no method answers a request of the session's own, and is never answered, whatever
---- its id.
+--- A message with no method is a response to a request of the session's own, and gets no response,
+--- whatever its id.
 
 local Json = require("cosmic.json")
 local sys = require("cosmic.sys")
@@ -60,7 +60,7 @@ local record session
     --- Holds the tool to the tree and replaces the process by the rebuilt one where it is older,
     --- given the root and, to be called only where the process is to be replaced, the session to
     --- hand it ([`build.lsp.handoff`]); it returns only where it did not, nil unless the check or
-    --- the rebuild failed, which it then answers as an exit code, having said why. None when the
+    --- the rebuild failed, which it then returns as an exit code, having said why. None when the
     --- process cannot be replaced: a listener serves many editors, and one stdin or connection of
     --- them has no process of its own.
     reenter?: function(root: string, state: function(): handoff.Session): integer?
@@ -68,7 +68,7 @@ local record session
 
   --- One editor's session: what it opened and what it was told.
   record State
-    --- The workspace's root, which a `require` is answered below.
+    --- The workspace's root, below which a `require` is resolved.
     mut root: string
     --- "utf-16" or "utf-8": what a position's character counts.
     mut encoding: string
@@ -99,7 +99,7 @@ local record session
     reenter: (function(root: string, state: function(): handoff.Session): integer?)?
     --- Whether the person was shown that a rebuild failed: one message a session.
     mut told_stale: boolean
-    --- The messages a predecessor read and did not answer, framed, which the stream gives first
+    --- The messages a predecessor read and did not handle, framed, which the stream gives first
     --- ([`session.handed`]).
     mut inherited: string
   end
@@ -108,7 +108,8 @@ end
 local type Session = session.State
 
 --- The id of the one request the server makes, which registers the
---- files it watches: its answer is read as any response is, and dropped.
+--- files it watches: its response is read as any response is, and
+--- dropped.
 local WATCH_REQUEST <const> = 1
 
 --- The databases a message's hint looks a name up in: the docs
@@ -129,7 +130,7 @@ local function checked_at(s: Session, root: string)
   s.docs = hover.new(root, s.checker.source, s.store, s.err)
 end
 
---- A new session, before `initialize`, answering below `root`.
+--- A new session, before `initialize`, serving below `root`.
 function session.new(root: string, options?: session.Options): Session
   local given: session.Options = options or {}
   local err = given.err or bare.err
@@ -178,7 +179,7 @@ local function document_of(s: Session, params: protocol.DocumentParams, text?: s
 end
 
 --- The session `handed` left, to be served by this process: the open documents are open again, with
---- the text the editor holds, and the messages the predecessor had not answered are read first.
+--- the text the editor holds, and the messages the predecessor had not handled are read first.
 function session.handed(state: handoff.Session, options?: session.Options): Session
   local s = session.new(state.root, options)
   s.encoding = state.encoding
@@ -283,7 +284,7 @@ local function root_of(params: protocol.InitializeParams): string?
   return (path:gsub("(.)/+$", "%1"))
 end
 
---- The answer to `initialize`.
+--- The response to `initialize`.
 local function initialize(s: Session, params: protocol.InitializeParams): protocol.InitializeResult
   local root = root_of(params)
   if root ~= nil and root ~= s.root then
@@ -350,13 +351,13 @@ local function open_of(s: Session): publish.Open
   return { checker = s.checker, documents = s.documents, encoding = s.encoding }
 end
 
---- What `message` asks: each message to send in answer, encoded, in
+--- What `message` asks: each message to send in reply, encoded, in
 --- order, a request's response among them.
 local function handle(s: Session, message: protocol.Message): {string}
   local out: mut {string} = {}
   local method = message.method
   -- A response, to the registration of the files watched: JSON-RPC
-  -- answers none.
+  -- sends no reply to a response.
   if method == nil then return out end
   local id = protocol.id_of(message)
   local is_request = id ~= "null"
@@ -501,7 +502,7 @@ local function stages(method: string?): boolean
 end
 
 --- What the editor was told of the session, to hand to a successor: the root, what was negotiated
---- and the open documents, in the order of their URIs, and `input`, the messages not answered.
+--- and the open documents, in the order of their URIs, and `input`, the messages not handled.
 local function handed_of(s: Session, input: string): handoff.Session
   local uris: mut {string} = {}
   for uri in pairs(s.documents) do uris[#uris + 1] = uri end
@@ -532,7 +533,7 @@ local function reentering(s: Session, body: string, unanswered: function(): stri
     "; the server's log says why): it goes on with its own code, which stages nothing, until the tree builds"
 end
 
---- The messages to send in answer to the message `body`, encoded, and what to show the person of a
+--- The messages to send in reply to the message `body`, encoded, and what to show the person of a
 --- tool that could not be held to the tree. `unanswered` is the messages read after it and not
 --- handled.
 local function answers(s: Session, body: string, unanswered: function(): string): {string}, string?
@@ -542,7 +543,7 @@ local function answers(s: Session, body: string, unanswered: function(): string)
   if s.initialized and not s.shut_down and stages(message.method) then
     told = reentering(s, body, unanswered)
   end
-  -- A fault answering one message fails that message, not the session.
+  -- A fault handling one message fails that message, not the session.
   local ok, handled = pcall(handle, s, message)
   if ok then
     -- One message shown a session: a root outside any build has no stage
@@ -585,12 +586,12 @@ local function changed_uri(body: string): string?
   return params.textDocument.uri
 end
 
---- A message [`session.serve`] read ahead and has yet to answer.
+--- A message [`session.serve`] read ahead and has yet to handle.
 local record Ahead
   mut body: string?
 end
 
---- The next message to answer: the one read ahead, else the next of
+--- The next message to handle: the one read ahead, else the next of
 --- `frames`.
 local function next_body(frames: protocol.Frames, ahead: Ahead): string?, string
   local body = ahead.body
@@ -656,9 +657,9 @@ local function served(s: Session, frames: protocol.Frames,
       if s.shut_down then return 0 end
       return 1
     end
-    -- The answers go out before the dependents of a changed document are
-    -- checked, and each dependent's as it is checked: the editor shows
-    -- them without waiting for those after.
+    -- The responses go out before the dependents of a changed document
+    -- are checked, and each dependent's as it is checked: the editor
+    -- shows them without waiting for those after.
     local sending, told = answers(s, latest(frames, ahead, body), function(): string
       local held = ""
       local read_ahead = ahead.body
@@ -692,11 +693,11 @@ local function served(s: Session, frames: protocol.Frames,
   end
 end
 
---- Serves `s` the messages `reader` holds, writing each answer through
+--- Serves `s` the messages `reader` holds, writing each response through
 --- `write`, and asking `poll`, when given, what has arrived of them
 --- without waiting, between the dependents it checks, until `exit` or
 --- the end of the stream, then lets go of the databases the session
---- opened. Answers the exit status: 0 after `shutdown`, at `exit` or the
+--- opened. Returns the exit status: 0 after `shutdown`, at `exit` or the
 --- stream's end, and 1 at an `exit` or an end with no `shutdown` before
 --- it, a stream that breaks or a write that fails.
 function session.serve(s: Session, reader: Stream.Reader,

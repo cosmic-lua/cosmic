@@ -32,7 +32,7 @@
 --- - `all_cores`: the tool carries a core for every release target, which
 ---   `bin/zig build boot -Dboot-cores=all` gives it and a bare boot does not
 ---   (a placeholder stands where each other core goes: [`host_only`], which the
----   runner answers from the tool's prefix): only such a tool makes a
+---   runner reads from the tool's prefix): only such a tool makes a
 ---   portable program. What tests one is skipped where it is not, saying
 ---   so, and a leg that promises `all_cores` fails the run that skips;
 --- - `pinned_zig`: a test's worker can start the zig a check of the core's
@@ -45,7 +45,7 @@
 ---   without asserting permission to bind a path or connect to a peer;
 --- - `loopback`: this host permits loopback sockets, a TCP listener and
 ---   a UDP socket bound to 127.0.0.1 ([`confine.loopback_available`]).
----   Only a refusal of permission answers absent; any other failure of
+---   Only a refusal of permission means absent; any other failure of
 ---   the probe raises, since it cannot tell. A module declares it by
 ---   declaring loopback addresses, not by writing the name: the runner
 ---   derives it ([`build.test_key`]'s `ask_host`). Where this run's
@@ -66,7 +66,7 @@
 --- A name's class ([`build.host_names`]) says what an absence means: where
 --- a `platform` requirement is one the platform never has, the outcome is
 --- `na`; otherwise `skipped`. Whether a platform has a requirement at all
---- is the platform's own answer ([`confine.sandbox_platform`], which is
+--- is the platform's own to say ([`confine.sandbox_platform`], which is
 --- Linux's), never a probe's.
 ---
 --- A held run (`COSMIC_TEST_SANDBOX=1`, `COSMIC_SANDBOX=must`,
@@ -79,16 +79,16 @@
 --- always did.
 -- TODO: add a `relaunch` name (a program that can start itself again, as
 -- `Proc.relaunch() == nil` tests ask) once Proc.relaunch tells a native
--- start from a failure to reopen: both answer nil today, so a probe cannot
+-- start from a failure to reopen: both return nil today, so a probe cannot
 -- make the one n/a and raise on the other.
 --- Each probe runs once per [`host_requires.Host`], in the process that
 --- asks (the runner's, never a test's), and a probe that cannot tell raises
---- rather than answer present or absent, since a wrong "present" would run
+--- rather than say present or absent, since a wrong "present" would run
 --- a test that fails for the host and a wrong "absent" would pass one that
 --- checked nothing.
 ---
 --- It is a harness module (build/harness_epoch.tl): the runner reads it
---- before any worker starts and its answers are part of a verdict's key, so
+--- before any worker starts and its results are part of a verdict's key, so
 --- it reaches the host through the raw bindings and the libraries `library`
 --- names, and takes what it calls of them as locals when it loads.
 
@@ -117,7 +117,7 @@ local record host_requires
     "refused"
   end
 
-  --- The outcome a probe answers: whether present, and what a key holds or
+  --- The outcome a probe returns: whether present, and what a key holds or
   --- why not.
   record Found
     present: boolean
@@ -127,7 +127,7 @@ local record host_requires
   --- A requirement's table entry.
   record Entry
     --- Of a `platform` entry, whether this platform ever has it, where the
-    --- answer is no probe's but the platform's own; the outcome is `na`
+    --- result is no probe's but the platform's own; the outcome is `na`
     --- where it does not.
     platform_has?: function(host: host_requires.Host): boolean
     --- The probe, handed its argument ("" for none) and the host.
@@ -184,8 +184,8 @@ local record host_requires
     --- false keeps the direct probe of this process.
     sandboxed_workers?: boolean
     --- Whether a worker can run sandboxed here: the runner's own
-    --- [`build.test_sandbox_probe`]'s `available` answer. Without it `sandbox` is
-    --- refused, since no cheaper probe answers the same.
+    --- [`build.test_sandbox_probe`]'s `available` result. Without it `sandbox` is
+    --- refused, since no cheaper probe tells the same.
     sandbox?: function(): host_requires.Sandbox
     --- Whether this run is a portable artifact, which the runner reads from
     --- the program's `runtime_context` ("portable-v1", as its launcher key
@@ -197,7 +197,7 @@ local record host_requires
     checked?: boolean
     --- Whether the tool carries no core for some target, as a boot without
     --- `-Dboot-cores=all` leaves it, or no portable prefix at all: asked only
-    --- of a module that requires `all_cores`, since the answer reads the
+    --- of a module that requires `all_cores`, since finding out reads the
     --- whole prefix, which this module cannot reach. Nil is a tool of every
     --- core.
     host_only?: function(): boolean
@@ -206,7 +206,7 @@ local record host_requires
     --- ([`pinned_zig`]). Without it [`pinned_zig`] raises, since a wrong
     --- "present" fails every check it runs.
     pinned_zig?: function(): string?, string
-    --- Whether the platform is Linux, which is the platform's own answer
+    --- Whether the platform is Linux, which is the platform's own to say
     --- ([`confine.sandbox_platform`]) where nil. A test of the runner
     --- sets it false to make every Linux requirement not applicable on a
     --- host that has them.
@@ -350,7 +350,7 @@ local function reader(host: host_requires.Host): function(string): host_requires
 end
 
 --- The sysctl at `path` as a number, or nil where the host has none: the read
---- answers that there is no such file. Any other failure, or text that is
+--- says that there is no such file. Any other failure, or text that is
 --- no number, raises: neither is the setting's absence.
 local function sysctl(host: host_requires.Host, path: string): integer?
   local read = reader(host)(path)
@@ -368,7 +368,7 @@ end
 local CAP_SYS_ADMIN <const> = 21
 
 --- Whether this process holds CAP_SYS_ADMIN in effect; raises where
---- /proc/self/status says no `CapEff`, since nothing else answers.
+--- /proc/self/status says no `CapEff`, since nothing else tells.
 local function admin(host: host_requires.Host): boolean
   local read = reader(host)("/proc/self/status")
   if read.why ~= "" then
@@ -384,7 +384,7 @@ end
 -- user namespace of its own is cheap enough to run once a run beside
 -- `own_proc` (core/process.h has no binding for it alone): the settings
 -- say what the kernel is told, not what a seccomp filter or a security
--- module then refuses. Nor is CapEff the whole answer: it is the process's
+-- module then refuses. Nor is CapEff the whole story: it is the process's
 -- capabilities in its own user namespace, so a process holding all of them
 -- in a nested one may still be refused by the initial namespace's checks.
 --- Whether the kernel's settings allow this process a user namespace: a
@@ -496,10 +496,10 @@ local table_of: {string:Entry} = {
     end },
   loopback = { platform_has = function(_: host_requires.Host): boolean return true end,
     probe = function(_: string, host: host_requires.Host): Found
-      -- TODO: answer from a loopback bind in the sandbox probe's child
-      -- (build/test_sandbox_probe.tl): a filter of the host (seccomp, an
-      -- LSM) follows a worker into its own namespace, so `worker` can be
-      -- present where its tests are refused.
+      -- TODO: take the result from a loopback bind in the sandbox probe's
+      -- child (build/test_sandbox_probe.tl): a filter of the host (seccomp,
+      -- an LSM) follows a worker into its own namespace, so `worker` can
+      -- be present where its tests are refused.
       if host.context.sandboxed_workers == true then return present("worker") end
       local ok, why = (host.context.loopback or loopback_available)()
       if ok then return present("tcp+udp") end
@@ -628,14 +628,14 @@ function host_requires.new(context?: host_requires.Context): host_requires.Host
   return { context = context or {}, found = {} }
 end
 
---- The outcome of each of `names`, in order. A refused name answers
+--- The outcome of each of `names`, in order. A refused name gets
 --- `refused` with the rule it breaks, whatever the host; a requirement of
---- the `platform` class a platform never has answers `na` without a probe;
---- any other asks its probe, once per `host`, and answers `present` with
+--- the `platform` class a platform never has gets `na` without a probe;
+--- any other asks its probe, once per `host`, and gets `present` with
 --- its key text, or `skipped`. Raises where a probe cannot tell.
 --- @param names requirements as written
 --- @param entries the table to read in place of the real one, for a test
---- @return an answer for each
+--- @return the outcome of each
 function host_requires.answer(host: host_requires.Host, names: {string},
                               entries?: {string: host_requires.Entry}): {host_requires.Answer}
   local out: mut {host_requires.Answer} = {}

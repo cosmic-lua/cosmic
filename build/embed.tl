@@ -74,7 +74,7 @@ local record embed
     mut host_only?: boolean
   end
 
-  --- What a build of a portable program asks of the running tool, which a test answers in its place.
+  --- What a build of a portable program asks of the running tool, which a test supplies in its place.
   record Portable
     --- The tool's prefix ([`artifact.trusted_prefix`]).
     prefix: function(): string?, string
@@ -162,8 +162,8 @@ end
 --- say nothing of it, so it refuses and names the boot that renews it, which
 --- the `build` verb then runs itself where the tool is one that boots
 --- ([`reboot.every_core_into`]). `--host` needs no other core.
---- @param prefix what [`artifact.trusted_prefix`] answered, or nil
---- @param trouble and why not, where it answered none
+--- @param prefix what [`artifact.trusted_prefix`] returned, or nil
+--- @param trouble and why not, where it returned none
 function embed.portable_prefix(prefix: string?, trouble: string): string?, string
   if prefix == nil then return nil, trouble end
   if artifact.host_only(prefix) then
@@ -177,7 +177,7 @@ end
 --- What of the attached project's documentation a program carries.
 local record Readable
   --- Each module whose docs it carries, recorded in its own `public_modules`
-  --- as those its `docs` answers for.
+  --- as those its `docs` covers.
   public: {string}
   --- Each guide under `doc/guides/` it carries, by the module it compiles as (`doc.guides.<name>`): those whose
   --- name no guide of the program's own takes.
@@ -205,7 +205,7 @@ end
 --- no `Documented`, naming a module of the project, has that module carried and documented all the same, as has each
 --- string a local of that name is bound to anywhere in the file, whatever its scope. A field of a module the file
 --- requires (`local Names = require("names")`, then `{ pages = Names.pages }`) names what that module binds the
---- field to ([`strings_of_field`]): answered as references, each module and field, which [`embed.database`] reads.
+--- field to ([`strings_of_field`]): given as references, each module and field, which [`embed.database`] reads.
 --- A name made at run time names none: it is not known before the program runs. A file that does not parse names
 --- none.
 ---
@@ -940,7 +940,7 @@ local function build_tree(root: string, host?: boolean, under?: {string},
   end
   -- A compile with the new checker goes on past a module it refuses, to name them all. A program whose requires all
   -- compiled is made of the modules that did, read from a projection file of its own, so that `cosmic db` and
-  -- `docs` go on answering from the last tree that compiled whole.
+  -- `docs` go on reading from the last tree that compiled whole.
   local source = project
   if #result.refused > 0 then
     refusal = table.concat(result.refused, "\n")
@@ -963,7 +963,7 @@ local function build_tree(root: string, host?: boolean, under?: {string},
   local function tidy()
     if source ~= project then local _, _ = Fs.remove(source) end
   end
-  --- What the build answers once it made what it could.
+  --- What the build returns once it made what it could.
   local function finished(names: {string}): {string}?, string
     tidy()
     if refusal ~= "" and report == nil then
@@ -1030,7 +1030,7 @@ local function build_tree(root: string, host?: boolean, under?: {string},
     return nil, answer(tostring(mkdir_trouble))
   end
   local names: mut {string} = {}
-  --- Gives up on the program `name` and those after it, whose builds failed, and answers `trouble`.
+  --- Gives up on the program `name` and those after it, whose builds failed, and returns `trouble`.
   local function failed(name: string, trouble: string): {string}?, string
     local kept: mut {string:boolean} = {}
     for _, built in ipairs(names) do kept[built] = true end
@@ -1090,7 +1090,7 @@ end
 --- A module the checker refuses, a test among them, or one that breaks a
 --- position rule or declares a `global`, does not stop the programs whose own
 --- requires compile: they are written, and `report` carries the refusals. A
---- caller that gives no `report` is answered nil and the refusals once the
+--- caller that gives no `report` gets nil and the refusals once the
 --- programs that could be are written, so a refusal is never passed over.
 --- What stops the whole tree, for no one module is the culprit, writes no
 --- program: an import cycle, a `global` of a declaration file, a source the
@@ -1101,7 +1101,7 @@ end
 --- and the copy this build wrote in `out`; a failure of the environment
 --- (the tool lacks a core, the build directory cannot be made, the tree cannot
 --- be staged) removes nothing, for it says nothing of the programs. Where a
---- refusal and such a failure meet, the answer is the failure, with the refusal
+--- refusal and such a failure meet, the result is the failure, with the refusal
 --- named in its text.
 --- @param under paths relative to `root` that narrow it to the programs
 ---   whose `main.tl` is under one; each must hold one. None, or nil, is
@@ -1199,7 +1199,7 @@ local function run_own(argv: {string}, root: string, parsed: Flags.Parsed, out: 
     return 1
   end
   log:say(tool)
-  -- What the running tool carries is what the file holds: the file is the tool that answers.
+  -- What the running tool carries is what the file holds: the file is the tool that runs.
   local prefix, _ = artifact.trusted_prefix()
   local cores = if prefix ~= nil and artifact.host_only(prefix) then
     " (this host's core alone: bin/zig build boot -Dboot-cores=all builds every core)" else "" end

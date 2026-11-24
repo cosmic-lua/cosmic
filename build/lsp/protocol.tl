@@ -207,8 +207,8 @@ local record protocol
     mut data: ResolveData?
   end
 
-  --- What `completionItem/resolve` answers: the label of the item and what was left out of it, which the client puts in the
-  --- item it holds. Nothing is left out where the item cannot be completed again.
+  --- What `completionItem/resolve` responds with: the label of the item and what was left out of it, which the client puts
+  --- in the item it holds. Nothing is left out where the item cannot be completed again.
   record ResolvedItem
     label: string
     detail: string?
@@ -289,7 +289,7 @@ function protocol.frame(body: string): string
   return "Content-Length: " .. tostring(#body) .. "\r\n\r\n" .. body
 end
 
---- What a reader of frames has read and not yet answered.
+--- What a reader of frames has read and not yet given out.
 local record FrameState
   mut buffer: string
   mut ended: boolean
@@ -340,7 +340,7 @@ local function header_of(buffer: string): Header?, string
 end
 
 --- The messages `read` gives, one body at a time ([`protocol.Frames`]):
---- `read` answers the next chunk of the stream, as a [`Stream.Reader`]'s
+--- `read` returns the next chunk of the stream, as a [`Stream.Reader`]'s
 --- `read` does, and `poll`, when given, what has arrived of it.
 function protocol.frames_of(read: function(): string?, string, poll?: protocol.Poll): protocol.Frames
   local held: FrameState = { buffer = "", ended = false }
@@ -438,7 +438,7 @@ function protocol.uri_of(path: string): string
 end
 
 --- The segments of the absolute path `path`, the first as many of them
---- as the count answered, its `.` and `..` segments resolved and its
+--- as the count it returns, its `.` and `..` segments resolved and its
 --- slashes collapsed, as the path reads with no symlink in it: what is a
 --- link is not asked, which would read the disk.
 local function segments(path: string): {string}, integer
@@ -489,7 +489,7 @@ function protocol.shown(kind: integer, message: string): string
     ',"message":' .. Json.quote(message) .. "}}"
 end
 
---- The response to the request `id` (encoded) answering `result` (encoded).
+--- The response to the request `id` (encoded) carrying `result` (encoded).
 function protocol.response(id: string, result: string): string
   return '{"jsonrpc":"2.0","id":' .. id .. ',"result":' .. result .. "}"
 end
@@ -506,8 +506,8 @@ function protocol.id_of(message: protocol.Message): string
   return id or "null"
 end
 
---- The message `body` holds: nil and its answer where it is not JSON
---- (-32700) or not a message (-32600).
+--- The message `body` holds: nil and its error response where it is not
+--- JSON (-32700) or not a message (-32600).
 function protocol.message_of(body: string): protocol.Message?, string
   local decoded, trouble = Json.decode(body)
   if decoded == nil then

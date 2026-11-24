@@ -21,7 +21,7 @@
 --- The roles of [`build.fix.roles`] and the tree decide what an entry is; a line break the source did not have is
 --- never added.
 ---
---- A [`Continuation.Cursor`] follows the tokens in the order they are written and answers the column a line beginning
+--- A [`Continuation.Cursor`] follows the tokens in the order they are written and tells the column a line beginning
 --- with a token takes, from what was written before. It also records how far each token moved from the column it
 --- was written at, which a comment that keeps its column moves by.
 local Ast = require("lang.ast")

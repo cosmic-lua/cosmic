@@ -81,7 +81,7 @@ end
 
 local DEFINITION_SENT <const>: Shape.Typed<DefinitionSent> = Shape.record_of("DefinitionSent")
 
---- The markdown of the hover `ran` answered request `id` with, or nil.
+--- The markdown of the hover `ran` responded to request `id` with, or nil.
 local function hovered(ran: Ran, id: integer): string?
   local shown = assert(HOVER_SENT:decode_into(answer(ran, id)))
   local result = shown.result
@@ -156,7 +156,7 @@ local function test_hover_shows_the_docs_of_a_required_symbol()
   assert(hovered(ran, 3) == nil, "a name nothing documents")
 end
 
---- The location `ran` answered the definition request `id` with, or nil for `null`.
+--- The location `ran` responded to the definition request `id` with, or nil for `null`.
 local function defined(ran: Ran, id: integer): Located?
   return assert(DEFINITION_SENT:decode_into(answer(ran, id))).result
 end
@@ -465,7 +465,7 @@ local POINT <const> = "local record point\n  x: integer\nend\n\nfunction point.o
 local USES_POINT <const> = 'local point = require("lib.point")\nlocal p: point = point.origin()\nlocal _ = p.x\n'
 
 --- A place in another module is read from the `places` the stage derived, and the module is not parsed: a row changed in
---- the database moves the answer, which a parse of the file would not.
+--- the database moves the result, which a parse of the file would not.
 local function test_definition_in_another_module_is_read_from_the_places_the_stage_derived()
   local root = session_fixture.project()
   assert(Fs.mkdirs(root .. "/lib"))
@@ -483,7 +483,7 @@ local function test_definition_in_another_module_is_read_from_the_places_the_sta
   assert(ran.tally.derived == 0, tostring(ran.tally.derived))
 end
 
---- A place on an ASCII line of a module is answered without reading the module's text; one after non-ASCII on its line is
+--- A place on an ASCII line of a module is found without reading the module's text; one after non-ASCII on its line is
 --- counted in the encoding's units, which needs it.
 local function test_definition_reads_the_text_of_a_module_only_for_a_line_with_non_ascii()
   local root = session_fixture.project()
@@ -658,7 +658,7 @@ local function test_definition_of_a_generated_binary_module_s_function_is_the_he
   assert(db:close())
 end
 
---- A tool whose database lists no places (one from before the table) answers none.
+--- A tool whose database lists no places (one from before the table) gives none.
 local function test_definition_of_a_binary_module_s_field_is_null_where_the_tool_carries_no_places()
   local root = session_fixture.project()
   -- The third line is a control: the checker types [`Fs.read`] (its two lists of values are no integer), so the null below is
@@ -737,7 +737,7 @@ local function test_hover_counts_utf16_units_before_the_cursor()
   assert(after_two:find("cosmic.fs.read", 1, true) ~= nil, after_two)
 end
 
---- The edits the answer `body` to a formatting request holds.
+--- The edits the response `body` to a formatting request holds.
 local function edits_of(body: string): {Edit}
   return assert(FORMAT_SENT:decode_into(body)).result
 end

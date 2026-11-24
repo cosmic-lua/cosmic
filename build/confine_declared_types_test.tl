@@ -1,7 +1,7 @@
 --- The declarations of the stand-ins build.confine and the relay client
 --- hand out tell the truth about nil: a process that started is its pid
 --- alone, with no reason or errno beside it, and a reader of the relay's
---- answer has a reason only where it refused. A checked run
+--- reply has a reason only where it refused. A checked run
 --- (`cosmic test --check-types`) says whether a value crossed a typed
 --- boundary under build/ as a kind its type does not admit; in any other
 --- run the tests skip.
@@ -51,9 +51,9 @@ local function bytes(conn: Net.Conn, count: integer): string
   return data
 end
 
---- Runs a client that asks a relay for a host and is answered, the relay's
---- readers having no reason to give: with a login in the proxy's userinfo
---- the relay's token reader answers too.
+--- Runs a client that asks a relay for a host and gets a reply, the
+--- relay's readers having no reason to give: with a login in the proxy's
+--- userinfo the relay's token reader reads a reply too.
 local function tunnels(userinfo?: string)
   local code = { value = -1 }
   local waiting = { value = "" }

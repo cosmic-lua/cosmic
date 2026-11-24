@@ -548,8 +548,8 @@ end
 --- A decoder for `name` of text with ASCII whitespace anywhere in it.
 --- `update` refuses a character outside the alphabet at once; the other
 --- faults wait for `finish`, since only the end of the text tells a
---- length or a padding from a fault: both answer `nil` and a reason
---- naming a byte offset, from 0, counted in the input as given.
+--- length or a padding from a fault: both calls return `nil` and a
+--- reason naming a byte offset, from 0, counted in the input as given.
 --- @param name hex, base64 or base64url
 --- @param lenient whether the other padding spelling is accepted
 function verb.decoding(name: verb.Name, lenient: boolean): verb.Coder

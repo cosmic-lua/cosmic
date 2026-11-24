@@ -25,14 +25,14 @@
 --- - "failure-shape": a fallible binding fails in the other shape than
 ---   its declaration's: one declared `boolean`, an effect, fails through
 ---   `cosmic_fail_effect` (false, error, errno); one declared a value
----   fails through `cosmic_fail` (nil, error, errno) and never answers a
+---   fails through `cosmic_fail` (nil, error, errno) and never returns a
 ---   bare true -- directly, or through a helper of the file that returns
 ---   only that shape. build/gen_syscalls.tl refuses `boolean|nil`, which is
 ---   neither.
 --- - "pass-fail-int": a function a header declares to return `int` (a
 ---   file's own helpers are not held to it, only its header's promises)
 ---   returns only 0, 1 or a truth -- a comparison, a bool, a call of a
----   helper of the file that answers only truths, a local given only
+---   helper of the file that returns only truths, a local given only
 ---   truths. It is a pass or a fail, and returns `bool`. One that forwards
 ---   a library's status stays `int`, its contract said at its declaration.
 --- - "constant-return": a function of external linkage returns the same
@@ -62,7 +62,7 @@
 --- one platform's preprocessor leaves (build.c compiles for
 --- x86_64-linux-musl): a function whose returns differ under an `#ifdef`
 --- is judged by the branch compiled, and one the other branch makes a
---- real answer is exempted in `exempt`, with the reason.
+--- real result is exempted in `exempt`, with the reason.
 ---
 --- The walk is source order, not a flow analysis. A branch that ends --
 --- in a `return`, a `goto`, or a call that never returns -- leaves what

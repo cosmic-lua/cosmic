@@ -52,7 +52,7 @@ local page_width <const> = 80
 --- the overview of the verb's own module ([`cosmic.cli.run`],
 --- [`cosmic.cli.test`], ...) so this wording is never a second,
 --- hand-kept copy of what `cosmic docs build` (or any verb
---- [`cosmic.cli.order`] names) already answers.
+--- [`cosmic.cli.order`] names) already says.
 --- Falls back to naming the lookup that failed, rather than silently
 --- dropping a verb from its own help, if a verb module's database row
 --- is ever missing.
@@ -489,7 +489,7 @@ local function run_projected(file: string, argv: {string}, tree_root: Root, name
   -- The file's top level, which `require` hands its own name and loader
   -- data as `...`, finds its words in `arg`, as `lua file a b` gives them.
   rawset(_G as {string:any}, "arg", arguments) -- checked: cast_refused, unchecked_binding
-  -- What [`Proc.relaunch`] answers as `script`, so the program can start itself again.
+  -- What [`Proc.relaunch`] takes as `script`, so the program can start itself again.
   local source_run = require("cosmic.internal.source_run")
   source_run.script = tree_root.file
   -- What [`Assets.default`] reads to serve a program's own `cmd/<name>/static/` from disk, as a built one carries it.
@@ -974,7 +974,7 @@ local RETIRED_FLAGS <const>: {string: string} = {
   ["--check-format"] = "use `cosmic fix --check`",
 }
 
---- Runs the command line and answers its exit code.
+--- Runs the command line and returns its exit code.
 --- @param argv the command line, the verb at slot 1
 function Dispatch.main(argv: {string}): integer
   local word = argv[1]

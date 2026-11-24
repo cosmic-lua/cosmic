@@ -1,6 +1,6 @@
 --- `cosmic acme` (build/acme.tl), run in this process against the fake
 --- ACME server of build/acme_fixture.tl, with its files, hooks and
---- output stood in for: the keys it writes, the challenges it answers
+--- output stood in for: the keys it writes, the challenges it completes
 --- and what it refuses.
 
 local Codec = require("cosmic.codec")

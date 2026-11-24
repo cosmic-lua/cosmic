@@ -1,4 +1,4 @@
---- A stream that answers a text in chunks, for the tests of the readers
+--- A stream that gives a text in chunks, for the tests of the readers
 --- that take a [`Stream.Reader`] (cosmic/json_reader_test.tl and
 --- cosmic/json_reader_fuzz_test.tl, cosmic/http/multipart_test.tl and
 --- cosmic/http/multipart_fuzz_test.tl). Test support.
@@ -40,11 +40,11 @@ local function skip(self: Chunked, n: integer): boolean, string
   return true, ""
 end
 
---- A Reader that answers `text` in chunks of `size` bytes, then `last`
+--- A Reader that gives `text` in chunks of `size` bytes, then `last`
 --- (nil for the end) on every read after.
---- @param text what it answers
+--- @param text what it gives
 --- @param size the bytes of each chunk
---- @param last the failure every read after the text answers; the end where nil
+--- @param last the failure every read after the text returns; the end where nil
 --- @return the reader
 function chunked_reader_fixture.chunked(text: string, size: integer, last?: string): Stream.Reader
   local r: Chunked = { skip = skip, text = text, at = 1, size = size, last = last or "" }
@@ -75,7 +75,7 @@ end
 
 --- A Reader over `text` that hands out at most `n` bytes a read.
 --- @param text what it reads
---- @param n the most a read answers
+--- @param n the most a read returns
 --- @return the reader
 function chunked_reader_fixture.drip(text: string, n: integer): Stream.Reader
   local r: Dripped = { skip = dripped_skip, inner = Stream.from_string(text), most = n }

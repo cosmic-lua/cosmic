@@ -250,7 +250,7 @@ local function test_a_module_listing_says_what_each_call_does(dir: string)
 end
 
 --- A module that lists no call names none to see: its first
---- declaration, its own record here, answers as the module itself.
+--- declaration, its own record here, stands as the module itself.
 local function test_a_module_page_with_no_call_points_at_nothing(dir: string)
   local db = built(dir, { ["cosmic/consts.tl"] = source(
     "--- Constants.",
@@ -457,10 +457,10 @@ local function test_a_short_module_name_finds_the_public_module(dir: string)
   assert(#read == 1 and support.nth(read, 1).source_symbol == "Fs.read", tostring(#read))
 end
 
---- A module's member written in full is answered exactly, a field of
+--- A module's member written in full is found exactly, a field of
 --- the record its value is typed as among them, and so is a member of a
 --- type an alias stands for, spelled from its module. `cosmic docs`
---- answers the member spelled from the module's last name too.
+--- finds the member spelled from the module's last name too.
 local function test_a_modules_member_in_full_is_exact(dir: string)
   local db = built(dir, {
     ["cosmic/internal/raw.tl"] = source(
@@ -569,7 +569,7 @@ local function test_uses_of_a_typed_values_member_are_that_modules(dir: string)
   assert(db:close())
 end
 
---- A bare name that is a module and a verb answers the module, and the
+--- A bare name that is a module and a verb finds the module, and the
 --- verb is a see-also line after it: `docs test` shows [`cosmic.test`], then
 --- points to [`cosmic.cli.test`].
 local function test_a_short_module_name_leads_and_its_verb_is_a_see_also(dir: string)
@@ -604,7 +604,7 @@ local function test_a_short_module_name_leads_and_its_verb_is_a_see_also(dir: st
 end
 
 --- A module of a tool or a project that shares a verb's name is no library
---- module: the verb answers first, as `docs sql` says, and no see-also line
+--- module: the verb comes first, as `docs sql` says, and no see-also line
 --- is added.
 local function test_a_non_library_module_of_a_verbs_name_keeps_the_verb_first(dir: string)
   local db = built(dir, {
@@ -620,7 +620,7 @@ local function test_a_non_library_module_of_a_verbs_name_keeps_the_verb_first(di
   assert(db:close())
 end
 
---- Every name a verb and a module share, `docs <name>` answers the module
+--- Every name a verb and a module share, `docs <name>` shows the module
 --- first.
 local function test_every_shared_verb_and_module_name_leads_with_the_module(dir: string)
   for _, name in ipairs({ "archive", "codec", "hash", "json", "rand", "sandbox", "test", "time" }) do
@@ -772,7 +772,7 @@ local function test_the_index_marks_a_module_private_to_its_package(dir: string)
       assert(object["closed"] == nil, line)
       marked = marked + 1
     end
-    -- The library keeps its own closed directories as a project does: the binary answers for no module of one
+    -- The library keeps its own closed directories as a project does: the binary covers no module of one
     -- that does not say `--- @public`.
     assert(object["module"] ~= "cosmic.http.wire", line)
   end
@@ -831,7 +831,7 @@ local function test_a_module_listing_leaves_out_private_functions(dir: string)
   assert(#helper == 1 and support.nth(helper, 1).symbol == "write_all", tostring(#helper))
 end
 
---- A module and a symbol that both answer: the module first, then the
+--- A module and a symbol that both match: the module first, then the
 --- symbol, and an internal record only sharing the module's name left out.
 local function test_a_short_module_name_keeps_its_symbols(dir: string)
   local db = built(dir, {
@@ -887,7 +887,7 @@ local function test_a_short_module_name_skips_test_example_and_internal(dir: str
   assert(#fs >= 1 and support.nth(fs, 1).module == "cosmic.fs", support.nth(fs, 1).module)
 end
 
---- A project's own module answers a short name too, ahead of the
+--- A project's own module is found by a short name too, ahead of the
 --- standard library's, and its own symbols follow.
 local function test_a_short_module_name_finds_a_projects_module(dir: string)
   local db = built(dir, {
@@ -902,7 +902,7 @@ local function test_a_short_module_name_finds_a_projects_module(dir: string)
 end
 
 --- A query that is not lowercase-and-bare takes the symbol route: exact
---- symbols only, and a qualified name answers by its symbol.
+--- symbols only, and a qualified name is found by its symbol.
 local function test_a_capitalized_name_takes_the_symbol_route(dir: string)
   local db = built(dir, fs_tree())
   local found = assert(Doc.lookup(view({ db }), "Fs"))
@@ -1112,7 +1112,7 @@ end
 
 --- The pipeline the help shows, `cosmic docs --json ... | cosmic sql --from
 --- docs=-`, run in-process: the records load as the `docs` table and the
---- query answers a row per function.
+--- query gives a row per function.
 local function test_records_load_as_a_table_sql_can_filter(dir: string)
   local db = built(dir, fs_tree())
   local records = assert(Doc.records(view({ db }), { "Fs.read", "Fs.write" }))
@@ -1159,7 +1159,7 @@ local function test_cosmic_alone_lists_the_standard_library(dir: string)
 end
 
 --- A search with no exact match shows its first five entries whole and
---- names the rest a line each, so a broad word answers in a page.
+--- names the rest a line each, so a broad word's results fit in a page.
 local function test_a_search_shows_five_whole_and_lists_the_rest(dir: string)
   local lines: mut {string} = { "--- Many things.", "local record Many", "end", "" }
   for at = 1, 8 do
@@ -1200,7 +1200,7 @@ local function test_a_misspelt_name_is_not_a_known_example(dir: string)
   assert(not symbols.has_example_query({ db }, { false }, "Fs.reads"))
 end
 
---- A qualified name that names nothing answers from its qualifier:
+--- A qualified name that names nothing falls back to its qualifier:
 --- the members whose documentation carries the last name, or every
 --- exported function when none does -- never what another module's
 --- documentation happens to say.
@@ -1694,7 +1694,7 @@ end
 
 --- A qualifier is the record of the module the use is of: [`Fs.read`] is
 --- not a use of another module's `read`, though both are recorded as
---- `read`; the module's last name answers too, in either case, and a
+--- `read`; the module's last name works too, in either case, and a
 --- bare `read` still finds every one.
 local function test_a_qualifier_names_the_module_it_is_a_use_of(dir: string)
   local db = built(dir, {
@@ -1769,7 +1769,7 @@ local function test_a_nested_record_method_meets_its_uses(dir: string)
   end
   local lid = assert(Doc.lookup(view({ thing }), "Lid:open"))
   assert(lid.exact and #lid == 1 and support.nth(lid, 1).symbol == "Box.Lid.open", "Lid:open")
-  -- `cosmic docs` points at `cosmic uses <source_symbol>`, which must answer.
+  -- `cosmic docs` points at `cosmic uses <source_symbol>`, which must resolve.
   for _, query in ipairs({ "Thing.Box.grow", "Thing.Box:grow", "Box:grow", "grow" }) do
     assert(#assert(Doc.uses(view({ thing, caller }), query)) == 1, query)
   end
@@ -1855,7 +1855,7 @@ local function test_uses_merge_active_calling_modules(dir: string)
 end
 
 --- From outside cosmic's own tree, the binary's database is a public
---- source: it answers for the standard library's own modules and for
+--- source: it covers the standard library's own modules and
 --- nothing behind them -- not the build, not `cosmic.internal.*`, not
 --- a test -- and counts only the uses those modules make.
 local function test_a_public_source_answers_only_for_the_standard_library(dir: string)
@@ -2002,7 +2002,7 @@ local function test_an_undocumented_declaration_does_not_hide_a_documented_one()
 end
 
 --- A project's own o/cosmic.db that is not a database is left out,
---- rather than failing every lookup: help and docs still answer from
+--- rather than failing every lookup: help and docs still read from
 --- the store's databases, here one of the test's own.
 local function test_an_unreadable_own_database_is_left_out(dir: string)
   local store = built(dir, fs_tree())
@@ -2320,7 +2320,7 @@ end
 
 --- Methods and fields a public type takes from an internal record, by
 --- alias (`type Box = raw.Box`) or by extending it, are listed on the
---- public type's page with their notes, and each answers to its own
+--- public type's page with their notes, and each is found by its own
 --- dotted name. A same-module alias (`type Config = Config`) lists the
 --- record's fields, and an alias of a class (`type Lid = Lid`) its methods too.
 local function test_a_public_type_lists_what_it_takes_from_another(dir: string)
@@ -2410,7 +2410,7 @@ end
 --- A type of one public module aliased or extended in another, under
 --- whatever name that module binds its module to (`B`, not `Base`), as
 --- `type Entry = B.Entry` and `record Item is B.Entry`: the page lists
---- what it takes, each member answers to its own dotted name once, an
+--- what it takes, each member is found by its own dotted name once, an
 --- alias of that alias in a third module follows on, and a cycle of
 --- aliases across modules names nothing. A type the module declares
 --- under the bound name, in a record enclosing the reference, hides the
@@ -2521,12 +2521,12 @@ local function test_a_type_takes_members_through_a_required_module(dir: string)
   assert(found("LoopA.A.path") == "", found("LoopA.A.path"))
   assert(found("Shadow.Entry.mark") == "cosmic.shadow Shadow.Entry.mark mark: integer",
     found("Shadow.Entry.mark"))
-  -- Base.Entry.path, which answers by its last names, is not Shadow's.
+  -- Base.Entry.path, which is found by its last names, is not Shadow's.
   assert(not found("Shadow.Entry.path"):find("cosmic.shadow", 1, true),
     found("Shadow.Entry.path"))
 end
 
---- A public source answers for the modules its database records as public
+--- A public source covers the modules its database records as public
 --- and no other, whatever they are named: a module of the library's
 --- namespace it does not record is not listed or found, and one of a
 --- project's that it does record is, as a program's database holds its
@@ -2547,13 +2547,13 @@ local function test_a_public_source_answers_for_what_its_database_records(_: str
   assert(#assert(Doc.lookup(public, "cosmic.hidden")) == 0, "a module the database does not record is found by name")
   local found = assert(Doc.lookup(public, "salutation"))
   assert(#found == 1 and support.nth(found, 1).source_symbol == "Greet.hello", tostring(#found))
-  -- Read as the tree's own, the same database answers for everything.
+  -- Read as the tree's own, the same database covers everything.
   local own = assert(docs.view({ db }))
   assert(#assert(Doc.lookup(own, "veil")) == 1)
 end
 
 --- A project's own public modules are not the standard library's. In a
---- project with a module named for a verb, `cosmic docs sql` still answers
+--- project with a module named for a verb, `cosmic docs sql` still shows
 --- the verb first, and `cosmic docs cosmic` lists the library alone.
 local function test_a_project_s_public_module_is_not_the_library_s(dir: string)
   local project = database({
@@ -2681,7 +2681,7 @@ local function test_helpers_stay_when_the_calls_are_dropped(dir: string)
   assert(other:find('    local Thing = require("cosmic.thing")\n\n    local function again()', 1, true), other)
 end
 
---- What a lookup answers, an entry to a line, in order.
+--- What a lookup finds, an entry to a line, in order.
 local function listed(found: Doc.Lookup): string
   local lines: mut {string} = { tostring(found.exact) }
   for _, entry in ipairs(found) do
@@ -2696,7 +2696,7 @@ end
 --- hiding of a module's `local` declarations included; and finding a
 --- name reads its candidates through the index of last names. A local
 --- declaration hides only its own module's symbols (cosmic.box's `Fs`
---- leaves [`Fs.read`] shown), and a module's own name answers its page.
+--- leaves [`Fs.read`] shown), and a module's own name finds its page.
 local function test_a_lookup_answers_alike_with_the_indexes_or_without(dir: string)
   local db = built(dir, fs_tree({
     ["cosmic/box.tl"] = source(
@@ -2776,7 +2776,7 @@ end
 --- A project's own projection is read only where the code that wrote
 --- it, its writer and its compiler ([`writer.other_code`]), is this
 --- tool's: one either of another tool's wrote is left out, as one that
---- cannot be read is, and the store's databases answer alone.
+--- cannot be read is, and the store's databases are read alone.
 local function test_a_projection_other_code_wrote_is_left_out(dir: string)
   local store = built(dir, fs_tree())
   local directory = dir .. "/build"
@@ -2814,7 +2814,7 @@ end
 --- A single word names a topic: the module whose prose says it comes before
 --- a member that only mentions it in passing (`db: Sqlite.Handle` is the
 --- parameter of each function that takes one), though the member's prose is
---- shorter. `docs Db` answers the module about databases.
+--- shorter. `docs Db` shows the module about databases first.
 local function test_a_module_whose_prose_says_the_word_beats_members_that_take_its_handle()
   local db = database({
     { "cosmic.vector", "Vector.load", "function", "function Vector.load(db: Sqlite.Handle, name: string): Vector?",
@@ -2994,7 +2994,7 @@ local function test_a_view_searches_and_shows_what_a_command_s_help_says(dir: st
   assert(db:close())
 end
 
---- A view given no commands and no marks answers from the rows alone: the same row has no options under it, no
+--- A view given no commands and no marks works from the rows alone: the same row has no options under it, no
 --- word of them finds it, and the list of every module marks none.
 local function test_a_view_given_nothing_of_the_tool_answers_from_the_rows_alone(dir: string)
   local db = built(dir, commands_tree())
@@ -3097,7 +3097,7 @@ local function test_a_misspelling_is_put_right_as_a_whole_word(dir: string)
 end
 
 --- A word put right is looked up as that word alone would be, by name before by search: the module a bare
---- name ends answers its misspelling as it answers the name.
+--- name ends is found by its misspelling as by the name.
 local function test_a_word_put_right_is_looked_up_as_the_word_itself(dir: string)
   local db = built(dir, ledger_tree())
   local seen = view({ db })
@@ -3106,7 +3106,7 @@ local function test_a_word_put_right_is_looked_up_as_the_word_itself(dir: string
   assert(named.exact and support.nth(named, 1).module == "ledger.bank", "the name does not lead with its module")
   assert(respelled.respelled == "bank" and respelled.exact and #respelled == #named and
       support.nth(respelled, 1).module == "ledger.bank", tostring(#respelled))
-  -- Where the words put right are carried by no one row, the rows that carry some of them answer.
+  -- Where the words put right are carried by no one row, the rows that carry some of them are found.
   local some = assert(Doc.lookup(seen, "sqeezes house statement"))
   assert(some.respelled == "squeezes house statement" and some.closest and
       support.nth(some, 1).source_symbol == "Entries.press", tostring(#some))
@@ -3176,7 +3176,7 @@ local function test_the_rows_that_carry_a_word_are_counted_over_every_database()
 end
 
 --- A program's view finds the row that documents a member of a module whether or not the module has a comment
---- of its own, answers for no module of the standard library, and counts no uses.
+--- of its own, covers no module of the standard library, and counts no uses.
 local function test_a_programs_view_finds_a_member_and_answers_for_the_program_alone()
   -- Rows by hand: a project's module that has no row of its own, which the fixture's tree, cosmic's own, cannot
   -- record as public.
@@ -3194,7 +3194,7 @@ local function test_a_programs_view_finds_a_member_and_answers_for_the_program_a
   assert(row.source_symbol == "Pages.add" and Doc.shown(row.text) == "Adds an entry; see `Pages.list`.", row.text)
   local none, trouble = Doc.member(seen, "pages", "remove")
   assert(none == false and trouble == nil, tostring(trouble))
-  -- The standard library's module is in the database and is not the program's to answer for.
+  -- The standard library's module is in the database and is not the program's to cover.
   assert(#assert(Doc.lookup(seen, "Fs.basename")) == 0, "a program's view answered for the standard library")
   assert(#assert(Doc.lookup(view({ db }), "Fs.basename")) == 1)
   assert(db:close())

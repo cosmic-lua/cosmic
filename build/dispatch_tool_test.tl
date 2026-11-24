@@ -43,7 +43,7 @@ local verbs <const>: {string} = {
 }
 
 --- `-e` loads no verb and no help: it loads the checker and what the logger reads, and the module that
---- answers a chunk. A module required at dispatch's top level for a verb's sake is loaded by every child a
+--- runs a chunk. A module required at dispatch's top level for a verb's sake is loaded by every child a
 --- test starts, and fails this.
 local function test_e_loads_none_of_the_verbs(tmp: string)
   local started = this_program.program(test_child.words(tmp, "build.dispatch_tool_test", "loaded"),
@@ -73,7 +73,7 @@ local function test_a_verb_loads_its_own_cli_module_alone(tmp: string)
   assert(#clis == 1 and clis[1] == "cosmic.cli.rand", "`cosmic rand` loads " .. table.concat(clis, ", "))
 end
 
---- Runs `-e` with `chunk` and `args` and answers the child's result.
+--- Runs `-e` with `chunk` and `args` and returns the child's result.
 local function evaluate(tmp: string, chunk: string, args?: {string}): Child.Result
   local words: mut {string} = { "-e", chunk }
   for _, word in ipairs(args or {}) do words[#words + 1] = word end
