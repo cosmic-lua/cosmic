@@ -31,7 +31,7 @@
 --- project by the structure of the root ([`build.tree`]'s `standing`: a root with `core/`, `build/` and build/importer.tl is
 --- the tree, the same trust root as the reservation of `cosmic.*` to it), which is how [`build.pipeline`] chooses the options of a
 --- build (`project` is set for any other root, for `-e` and for a standalone file), so the check runs when the build says
---- `project` and a tree check ([`build.tree_checks`]'s `package_readers` and `text_loaders`) holds the tree itself.
+--- `project` and a tree check ([`build.tree_checks.readers`]'s `package_readers` and `text_loaders`) holds the tree itself.
 ---
 --- This is a check of the program the checker read, not a wall: it holds a program that is checked, and a program
 --- no checker read (a binary chunk) is held by the runtime alone.

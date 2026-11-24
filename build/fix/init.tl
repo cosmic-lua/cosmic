@@ -49,15 +49,12 @@ local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local identity = require("build.identity")
 local c_check = require("build.c")
-local c_functions = require("build.c_functions")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local Clock = require("cosmic.clock")
 local clock = require("build.clock")
 local docs = require("build.docs")
 local Doc = require("cosmic.doc")
-local docs_checks = require("build.docs_checks")
-local help_source = require("build.help_source")
 local flow = require("build.flow")
 local laid = require("build.fix.laid")
 local Format = require("build.fix.format")
@@ -76,7 +73,6 @@ local rebuild = require("build.rebuild")
 local Pipeline = require("build.pipeline")
 local template = require("cosmic.template")
 local tree = require("build.tree")
-local example_checks = require("build.example_checks")
 local Memprobe = require("build.memprobe")
 local tree_checks = require("build.tree_checks")
 local Ceilings = require("build.ceilings")
@@ -86,7 +82,6 @@ local Env = require("cosmic.env")
 local Sqlite = require("cosmic.sqlite")
 
 local logger = require("build.logger")
-local progress = require("build.progress")
 local log = logger.log
 local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")
@@ -1138,8 +1133,8 @@ function fix.read_off(file: string, chunk: Ast.Chunk, source: string, facts: mut
   facts[file] = SyntaxLinks.facts(chunk, SyntaxNode.scope(chunk, file), source)
   if compared(file) then ready[file] = candidates_from(chunk, source) end
   if plurals ~= nil then
+    local found = tree_checks.read_off(file, source, chunk)
     while file:sub(1, 2) == "./" do file = file:sub(3) end
-    local found = tree_checks.plurals_in(file, source, chunk)
     if found ~= nil then plurals[file] = found end
   end
 end
@@ -1521,7 +1516,6 @@ local function lay_out_teal(ctx: Fix)
         chunk = done.chunk
         local text = done.text
         fix.read_off(file, chunk, text, facts, ready, plurals)
-        if plurals ~= nil then tree_checks.knows_parse(text, file, chunk) end
       end
     end
   end
@@ -1594,86 +1588,6 @@ local function find_unbuilt(ctx: Fix)
   ctx.unbuilt = unbuilt
 end
 
---- What the CI legs' promises say against the requirements the tree's
---- test modules declare ([`tree_checks.promises`]), and the modules granted
---- the zig cache with no `pinned_zig` ([`tree_checks.unguarded_zig`]), the
---- declarations read from the working database the projection just wrote.
-local function promise_findings(root: string): {string}
-  local build, open_trouble = Sqlite.open(build_paths.resolve(root).working)
-  if build == nil then return { "tree checks: " .. tostring(open_trouble) } end
-  local declared, declared_trouble = tree_checks.requirements(build)
-  local unguarded, unguarded_trouble = tree_checks.unguarded_zig(build)
-  local _, _ = build:close()
-  if declared == nil then return { "tree checks: " .. declared_trouble } end
-  if unguarded == nil then return { "tree checks: " .. unguarded_trouble } end
-  for key, name in pairs(c_functions.prerequisites()) do
-    declared["C function " .. key] = { name } -- checked: view_written
-  end
-  local legs, legs_trouble = tree_checks.legs(root)
-  if legs == nil then return { "tree checks: " .. legs_trouble } end
-  local out: mut {string} = {}
-  for _, line in ipairs(tree_checks.promises(declared, legs)) do
-    out[#out + 1] = "promises: " .. line
-  end
-  for _, line in ipairs(unguarded) do out[#out + 1] = "requirements: " .. line end
-  return out
-end
-
---- The sealed test modules that name the portable launcher's contract
---- ([`tree_checks.sealed_launch`]), over the projection `db` and the
---- declarations the working database holds.
-local function sealed_launch_findings(root: string, db: Sqlite.Handle): {string}
-  local build, open_trouble = Sqlite.open(build_paths.resolve(root).working)
-  if build == nil then return { "tree checks: " .. tostring(open_trouble) } end
-  local unsealed, unsealed_trouble = tree_checks.unsealed(build)
-  local _, _ = build:close()
-  if unsealed == nil then return { "tree checks: " .. unsealed_trouble } end
-  local out: mut {string} = {}
-  for _, line in ipairs(tree_checks.sealed_launch(db, unsealed)) do
-    out[#out + 1] = "sealed launch: " .. line
-  end
-  return out
-end
-
---- Whether the build's own pipeline holds each module as the checks of the tree do, over the working database's inputs
---- ([`tree_checks.pipeline`]).
-local function pipeline_findings(root: string, memo: Sqlite.Handle?): {string}
-  local build, open_trouble = Sqlite.open(build_paths.resolve(root).working)
-  if build == nil then return { tostring(open_trouble) } end
-  local lines = tree_checks.pipeline(root, build, memo)
-  local _, _ = build:close()
-  return lines
-end
-
---- Says what the tree checks are doing, as a line of the run's log.
-local function tree_say(line: string)
-  log:say("fix: tree checks: " .. line)
-end
-
---- When the check being run began, in nanoseconds of the monotonic clock,
---- and when the tree checks did.
-local record TreeTiming
-  mut began: integer
-  run_began: integer
-end
-
---- Says on stderr which part of the tree checks begins and how long they
---- have run, so that a part that takes minutes is not silent: [`tree_took`]
---- speaks only once it is over. `step` is "n of m" for the memoed checks.
-local function tree_begin(timing: TreeTiming, name: string, step?: string)
-  local _, _ = logger.summary("fix", "tree checks: " .. name .. (if step ~= nil then " (" .. step .. ")" else "" end) ..
-      ", " .. progress.elapsed(Clock.monotonic_ns() - timing.run_began) .. " in")
-end
-
---- Says how long the check `name` took, where that is long enough to wait on, so that a run that is slow says where, and
---- starts the next check's time.
-local function tree_took(timing: TreeTiming, name: string)
-  local now = Clock.monotonic_ns()
-  local seconds = (now - timing.began) // 1000000000
-  if seconds >= 3 then tree_say(name .. ": " .. tostring(seconds) .. " s") end
-  timing.began = now
-end
-
 --- The text of `file`, the tree at `root`'s, written with `edit` made to it; the file is listed in `changed` where its
 --- text changed. A file that cannot be read or written is a failure.
 local function edit_marked(root: string, file: string, edit: function(text: string): string, changed: mut {string},
@@ -1719,7 +1633,7 @@ end
 --- stale marker.
 --
 -- TODO: mend the stale markers of the paths a narrowed `cosmic fix <paths>` is given, once the checks of the tree
--- ([`tree_checks.checked`], `declared`, `scoped`, `untyped`) take a set of files to judge and check only those; until then
+-- ([`build.tree_checks.checked`]'s `checked`, `declared`, `scoped`, `untyped`) take a set of files to judge and check only those; until then
 -- `cosmic fix .` removes them and `cosmic fix --check .` names them.
 --
 local function mend_markers(ctx: Fix, sink: Ceilings.Sink)
@@ -1778,216 +1692,40 @@ local function named_files_of(root: string, files: {string}): {string: string}
   return out
 end
 
---- The plurals of the Teal files `files` ([`tree_checks.plurals_of`]). Each file is named by its path under `root`
---- ([`named_files_of`]) with `prefix` in front, which is its path from cosmic's own root.
-local function named_plurals(root: string, prefix: string, files: {string}, findings: mut {string})
-  local texts: mut {{string}} = {}
-  for file, named in pairs(named_files_of(root, files)) do
-    local text, _ = Fs.read(file)
-    if text ~= nil then texts[#texts + 1] = { prefix .. named, text } end
-  end
-  table.sort(texts, function(a: {string}, b: {string}): boolean
-    return (a[1] or "") < (b[1] or "")
-  end)
-  for _, line in ipairs(tree_checks.plurals_of(texts)) do
-    findings[#findings + 1] = "plurals: " .. line
-  end
-end
-
 --- Whether `root` is the `ci/` of cosmic's own tree, a project of its own whose plurals that tree's check reads
---- ([`tree_checks.ci_sources`]).
+--- ([`build.tree_checks.ci.ci_sources`]).
 local function ci_tree(root: string): boolean
   if Fs.basename(root) ~= "ci" then return false end
   local standing, _ = tree.standing(Fs.dirname(root))
   return standing ~= nil and standing.own
 end
 
---- A run of some paths in cosmic's own tree makes the checks of the tree that cost it a few seconds: the names the
---- docs and help refer to, and the public docs, rendered docs and plurals of the Teal files named. The rest wait for
---- `cosmic fix --check .` (or `--changed`). Each line is the whole tree's check's, so a line
---- may name a file that was not named: a new module's name can break a reference in another. A tree that does not build
---- has no projection, and its refusal is said already.
-local function named_tree_checks(ctx: Fix, findings: mut {string})
-  local picked = assert(ctx.picked)
-  local root = assert(ctx.root)
-  if ctx.unbuilt ~= nil or #picked.files == 0 then return end
-  named_plurals(root, "", picked.files, findings)
-  local db, projection_trouble = tree_checks.projection(root, assert(ctx.standing))
-  if db == nil then
-    findings[#findings + 1] = "tree checks: " .. projection_trouble
-    return
-  end
-  local named: mut {string: boolean} = {}
-  for _, path in pairs(named_files_of(root, picked.files)) do named[path] = true end
-  for _, line in ipairs(tree_checks.public_docs(db, nil, named)) do
-    findings[#findings + 1] = "public docs: " .. line
-  end
-  local paths = build_paths.resolve(root)
-  -- A scratch name of its own: a whole run in the same checkout keeps `docs_check` open for its copies.
-  local carried, carried_trouble = docs_checks.carried(paths.projection, paths.docs_check .. ".named")
-  local help, help_trouble = help_source.texts()
-  if carried == nil then
-    findings[#findings + 1] = "tree checks: " .. carried_trouble
-  elseif help == nil then
-    findings[#findings + 1] = "tree checks: " .. help_trouble
-  else
-    for _, line in ipairs(docs_checks.references(carried, help)) do
-      findings[#findings + 1] = "doc references: " .. line
-    end
-    for _, line in ipairs(docs_checks.rendered(carried, nil, named)) do
-      findings[#findings + 1] = "rendered docs: " .. line
-    end
-  end
-  if carried ~= nil then
-    local _, _ = carried:close()
-  end
-  local _, _ = db:close()
-end
-
---- Over the whole of cosmic's own tree, what only the whole tree can
---- answer ([`build.tree_checks`]), asked of its projection built afresh:
---- a finding is the tree's, not a file's, so it is counted apart.
+--- Over the whole of cosmic's own tree, what only the whole tree can answer ([`tree_checks.whole`]), and the stale
+--- markers it found removed where the run mends; over some paths of it, the checks that cost a few seconds
+--- ([`tree_checks.named`]); in its `ci/`, the plurals of the files named. A finding is the tree's, not a file's, so it
+--- is counted apart.
 local function run_tree_checks(ctx: Fix)
   local picked = assert(ctx.picked)
   local root = assert(ctx.root)
   local findings: mut {string} = {}
   ctx.findings = findings
   if picked.whole then
-    local timing: TreeTiming = { began = Clock.monotonic_ns(), run_began = Clock.monotonic_ns() }
-    tree_begin(timing, "making the projection")
-    local db, projection_trouble = tree_checks.projection(root, assert(ctx.standing))
-    if db == nil then
-      findings[#findings + 1] = "tree checks: " .. projection_trouble
-    else
-      local guide, guide_trouble = Fs.read(root .. "/doc/guides/quickstart.md")
-      if guide == nil then
-        local said = "tree checks: " .. tostring(guide_trouble)
-        findings[#findings + 1] = said
-      end
-      local paths = build_paths.resolve(root)
-      -- Kept on disk while the checks run, for the copies that run them to open too.
-      local carried, carried_trouble = docs_checks.carried(paths.projection, paths.docs_check, true)
-      if carried == nil then
-        findings[#findings + 1] = "tree checks: " .. carried_trouble
-      end
-      local help, help_trouble = help_source.texts()
-      if help == nil then
-        findings[#findings + 1] = "tree checks: " .. help_trouble
-      end
-      tree_begin(timing, "the checks of the projection, docs and examples")
-      local function reopen(): Sqlite.Handle?, Sqlite.Handle?
-        local projection, _ = Sqlite.open(paths.projection)
-        local shown: Sqlite.Handle? = nil
-        if carried ~= nil then
-          -- A copy that cannot read the carried docs leaves its checks to the process, which can.
-          shown = assert(Sqlite.open(paths.docs_check))
-        end
-        return projection, shown
-      end
-      local ran, found = pcall(function(): {string}
-        return tree_checks.run(db, guide, tree_checks.ci_sources(root), carried, help, ctx.plurals, reopen)
-      end)
-      if carried ~= nil then
-        local _, _ = carried:close()
-      end
-      local _, _ = Fs.remove(paths.docs_check)
-      if not ran then error(found, 0) end
-      for _, line in ipairs(found) do
-        findings[#findings + 1] = line
-      end
-      for _, line in ipairs(example_checks.run(db, root)) do
-        findings[#findings + 1] = "examples as shown: " .. line
-      end
-      for _, line in ipairs(tree_checks.ci_testdata(root)) do
-        findings[#findings + 1] = "ci testdata: " .. line
-      end
-      for _, line in ipairs(tree_checks.package_readers(root)) do
-        findings[#findings + 1] = "package: " .. line
-      end
-      for _, line in ipairs(tree_checks.text_loaders(root)) do
-        findings[#findings + 1] = "loaders: " .. line
-      end
-      for _, line in ipairs(tree_checks.test_returns(root)) do
-        findings[#findings + 1] = "early returns: " .. line
-      end
-      for _, line in ipairs(tree_checks.test_clones(root)) do
-        findings[#findings + 1] = "copied helpers: " .. line
-      end
-      -- The markers hold the findings. They only fall, and the run mends the stale ones.
-      local sink: Ceilings.Sink = { unmarked = {}, stale = {}, mend = ctx.checking ~= true }
-      local marking: Ceilings.Marking = { sink = sink }
-      local marks_began = Clock.monotonic_ns()
-      local marks = tree_checks.markers(root)
-      for _, line in ipairs(marks.lines) do
-        findings[#findings + 1] = "markers: " .. line
-      end
-      -- The markers only fall: each file's are held to its merge base with main.
-      local held = CeilingsBase.check(root, Env.all(), CeilingsBase.live_git(), marks.counts)
-      for _, line in ipairs(held.lines) do
-        findings[#findings + 1] = "ceilings: " .. line
-      end
-      if held.note ~= "" then
-        tree_say("ceilings: " .. held.note .. ", read in " ..
-            tostring((Clock.monotonic_ns() - marks_began) // 1000000) .. " ms")
-      end
-      -- What the scope builder, the lowering and the checker found in a file that has not changed is kept in the build
-      -- directory; without the memo the checks run in full.
-      local memo, _ = Sqlite.open(build_paths.resolve(root).translate_check, { writable = true })
-      Memprobe.mark("tree checks: before the memoed checks")
-      timing.began = Clock.monotonic_ns()
-      tree_begin(timing, "scopes", "1 of 5")
-      for _, line in ipairs(tree_checks.scoped(root, memo, marking)) do
-        findings[#findings + 1] = "scopes: " .. line
-      end
-      tree_took(timing, "scopes")
-      Memprobe.mark("tree checks: scopes")
-      tree_begin(timing, "declarations", "2 of 5")
-      for _, line in ipairs(tree_checks.declared(root, memo, marking)) do
-        findings[#findings + 1] = "declarations: " .. line
-      end
-      tree_took(timing, "declarations")
-      Memprobe.mark("tree checks: declarations")
-      tree_begin(timing, "checker", "3 of 5")
-      for _, line in ipairs(tree_checks.checked(root, memo, nil, marking)) do
-        findings[#findings + 1] = "checker: " .. line
-      end
-      tree_took(timing, "checker")
-      Memprobe.mark("tree checks: checker")
-      tree_begin(timing, "pipeline", "4 of 5")
-      for _, line in ipairs(pipeline_findings(root, memo)) do
-        findings[#findings + 1] = "pipeline: " .. line
-      end
-      tree_took(timing, "pipeline")
-      Memprobe.mark("tree checks: pipeline")
-      -- The new checker's own count of the calls no rule judged.
-      tree_begin(timing, "untyped", "5 of 5")
-      for _, line in ipairs(tree_checks.untyped(root, memo, marking)) do
-        findings[#findings + 1] = "untyped: " .. line
-      end
-      tree_took(timing, "untyped")
-      if memo ~= nil then
-        local _, _ = memo:close()
-      end
-      if ctx.checking ~= true then
-        mend_markers(ctx, sink)
-      end
-      for _, line in ipairs(promise_findings(root)) do
-        findings[#findings + 1] = line
-      end
-      for _, line in ipairs(sealed_launch_findings(root, db)) do
-        findings[#findings + 1] = line
-      end
-      local closed, close_trouble = db:close()
-      if not closed then
-        local said = "tree checks: " .. tostring(close_trouble)
-        findings[#findings + 1] = said
-      end
-    end
+    local mends = ctx.checking ~= true
+    local found = tree_checks.whole({ root = root, standing = assert(ctx.standing), plurals = ctx.plurals,
+      mends = mends })
+    for _, line in ipairs(found.lines) do findings[#findings + 1] = line end
+    if mends then mend_markers(ctx, found.sink) end
   elseif assert(ctx.standing).own then
     hold_named_markers(root, picked.files, findings)
-    named_tree_checks(ctx, findings)
+    if ctx.unbuilt == nil and #picked.files > 0 then
+      for _, line in ipairs(tree_checks.named(root, assert(ctx.standing), named_files_of(root, picked.files))) do
+        findings[#findings + 1] = line
+      end
+    end
   elseif ctx.unbuilt == nil and ci_tree(root) then
-    named_plurals(root, "ci/", picked.files, findings)
+    for _, line in ipairs(tree_checks.named_plurals("ci/", named_files_of(root, picked.files))) do
+      findings[#findings + 1] = line
+    end
   end
 end
 

@@ -69,7 +69,7 @@ local record verb_spec
     program_slot?: function(argv: {string}): integer?
     --- The verb's section of doc/guides/quickstart.md: the text of its `## `
     --- heading, without the marks, or a string beginning "none: " that says
-    --- why the quickstart has none. [`build.tree_checks`]' `verbs` holds it to
+    --- why the quickstart has none. [`build.tree_checks.docs`]' `verbs` holds it to
     --- a heading the guide has.
     guide: string
     --- The test modules of the verb ("build.json_test"), at least one, each a

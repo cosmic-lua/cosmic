@@ -1,9 +1,9 @@
---- [`build.tree_checks`]' `anchors` on fixture trees: which records are
+--- [`build.tree_checks.docs`]' `anchors` on fixture trees: which records are
 --- doc anchors, and when two of them share a name. The tree's own are
 --- held to it by `cosmic fix --check .`, not here.
 
 local fixture = require("build.docs_fixture")
-local tree_checks = require("build.tree_checks")
+local tree_docs = require("build.tree_checks.docs")
 
 --- Lines as one source file's text.
 local function source(...: string): string
@@ -27,7 +27,7 @@ local function test_two_anchors_sharing_a_name_are_flagged(dir: string)
     ["cosmic/verbs.tl"] = anchor("Verbs", "test"),
     ["cosmic/shapes.tl"] = anchor("Shapes", "test"),
   })
-  local found = tree_checks.anchors(db, { "cosmic.verbs Verbs", "cosmic.shapes Shapes" })
+  local found = tree_docs.anchors(db, { "cosmic.verbs Verbs", "cosmic.shapes Shapes" })
   assert(#found == 1 and found[1]:find(
     "cosmic.shapes Shapes.test and cosmic.verbs Verbs.test: `cosmic docs test` answers both",
     1, true) ~= nil, table.concat(found, "\n"))
@@ -51,6 +51,6 @@ local function test_an_anchor_beside_a_real_member_is_allowed(dir: string)
       "function Thing.test(): Thing.Miss return { test = \"x\" } end",
       "return Thing"),
   })
-  local found = tree_checks.anchors(db, { "cosmic.verbs Verbs", "cosmic.shapes Shapes" })
+  local found = tree_docs.anchors(db, { "cosmic.verbs Verbs", "cosmic.shapes Shapes" })
   assert(#found == 0, table.concat(found, "\n"))
 end

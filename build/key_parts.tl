@@ -140,7 +140,7 @@ end
 --- [`Spec.compiler`]).
 local compiler_readers <const>: {string} = {
   "build.embed", "build.reboot",
-  "build.rebuild", "build.run_stamp", "build.test_key", "build.tree_checks", "core.allocation_test",
+  "build.rebuild", "build.run_stamp", "build.test_key", "build.tree_checks.build", "core.allocation_test",
   "cosmic.store_handles_test", "doc.guides.internal.portable-runtime",
 }
 

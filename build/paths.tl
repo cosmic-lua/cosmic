@@ -14,7 +14,7 @@
 --- database and its lock always name the same directory: a consumer asks
 --- [`resolve`] (or [`under`], given the directory a boot was handed)
 --- rather than spell a path of its own, which `cosmic fix --check .`
---- holds the tree to ([`build.tree_checks`]' `build_directory`).
+--- holds the tree to ([`build.tree_checks.readers`]' `build_directory`).
 ---
 --- build/zig.tl and bin/cosmic run this file standalone on the bootstrap
 --- release ([`main`]), so it uses nothing of the standard library that
