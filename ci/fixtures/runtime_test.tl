@@ -533,7 +533,7 @@ local function test_runtime_warm_core_stamp_and_repair(tmp: string)
     assert(String.starts_with(Fixture.read(stamp), prefix),
       "a cold stamp does not record the entry")
   end
-  assert(Clock.sleep_ns(1100000000))
+  assert(Clock.sleep(1100000000))
   Fixture.run("stamp-warm", { program, "help" }, work, diagnostics, values)
   local st = assert(sys.lstat(core))
   local recorded = string.format("%d|%d|%d|", st.size, st.ino, st.mtime)
@@ -569,7 +569,7 @@ local function test_runtime_warm_core_stamp_and_repair(tmp: string)
     return Fixture.call_with_environment(label, { program, "help" }, work, diagnostics, default)
   end
   Fixture.succeeded("stamp-default-cold", run_default("stamp-default-cold"))
-  assert(Clock.sleep_ns(1100000000))
+  assert(Clock.sleep(1100000000))
   Fixture.succeeded("stamp-rewarm", run_default("stamp-rewarm"))
   assert(assert(Fs.status(home_stamp)).exists == true, "the warm start in the default leaf left no stamp")
   local kept = assert(sys.lstat(home_core)).mtime

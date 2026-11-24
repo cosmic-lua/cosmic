@@ -894,7 +894,7 @@ end
 --- recording `crc`, `usize` and the length of `payload`, which is the
 --- body as stored. The bytes are built by hand from the APPNOTE layout,
 --- so no external tool is needed; the frame comes from
---- [`cosmic.compress.zstd_encoder`].
+--- [`cosmic.compress.encoder`].
 local function zstd_zip_by_hand(payload: string, crc: integer, usize: integer): string
   local name = "f"
   local lfh = "PK\3\4" .. le16(63) .. le16(0) .. le16(93) .. le16(0) .. le16(0x21) ..

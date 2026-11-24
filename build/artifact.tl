@@ -39,7 +39,7 @@ local record artifact
     stubs: {string:string}
     --- The zstd frame of a core, which the stub decodes: it names the
     --- core's size and checksum and a window within the stub's
-    --- ([`cosmic.compress.zstd`]). The caller passes it so that this
+    --- ([`cosmic.compress.encode`]). The caller passes it so that this
     --- module, which a verdict's key turns on, needs no library module.
     compress: function(string): string?, string
   end
@@ -115,7 +115,7 @@ end
 
 --- The zstd level a release stores its cores at: the highest the encoder
 --- takes, since a core is compressed once and read for the whole life of the
---- artifact. Its window is the stub's ([`cosmic.compress.zstd`]).
+--- artifact. Its window is the stub's ([`cosmic.compress.encode`]).
 function artifact.zstd_level(): integer
   return 19
 end

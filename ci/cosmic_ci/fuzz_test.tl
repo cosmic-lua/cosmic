@@ -388,7 +388,7 @@ local function until_found(path: string, text: string, seconds: integer): boolea
     local got, _ = Fs.read(path)
     local held = got or ""
     if held:find(text, 1, true) then return true end
-    Clock.sleep_ns(20 * 1000 * 1000)
+    assert(Clock.sleep(20 * 1000 * 1000))
   end
   return false
 end

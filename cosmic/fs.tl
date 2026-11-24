@@ -4,9 +4,8 @@
 --- same on Linux and on macOS. [`Fs.read`], [`Fs.stat`], [`Fs.list`],
 --- [`Fs.mkdtemp`], [`Fs.absolute`], [`Fs.readlink`], [`Fs.open_read`],
 --- [`Fs.open_write`], [`Fs.take`], [`Fs.create`], [`Fs.walk`],
---- [`Fs.walk_following`], [`Fs.scratch`] and [`Fs.relative`] return
---- `(T) | (nil, Failure)`: the value alone, or nil and a [`Failure`]
---- that names the path (none for `take`, which reads a descriptor) and
+--- [`Fs.scratch`] and [`Fs.relative`] return `(T) | (nil, Failure)`:
+--- the value alone, or nil and a [`Failure`] that names the path (none for `take`, which reads a descriptor) and
 --- the errno (0 for `relative`, which reads nothing). Other fallible calls
 --- that produce a value still return `T | nil, string`: a value and `""`
 --- on success, or nil and an error. A predicate uses the same contract, with false
@@ -909,25 +908,10 @@ end
 --- entry's relative path, its bare name second, and what the listing
 --- says it is third, a [`Fs.Kind`] as [`Fs.stat`]'s `kind` names it
 --- (`"file"`, `"dir"`, `"link"`, `"socket"` and so on), and may refuse
---- a whole directory. `opts` may also be the `skip` function alone,
---- which ci/ and the files in ci/bootstrap-files.txt pass on the pinned
---- release.
-function Fs.walk(root: string, opts?: Fs.WalkOptions | function(string, string, Fs.Kind): boolean): ({string}) | (nil, Failure)
+--- a whole directory.
+function Fs.walk(root: string, opts?: Fs.WalkOptions): ({string}) | (nil, Failure)
   if opts == nil then return walk(root, false, nil) end
-  if opts is Fs.WalkOptions then return walk(root, opts.follow == true, opts.skip) end
-  return walk(root, false, opts)
-end
-
--- TODO: once ci/cosmic-driver.pin names a release with Fs.WalkOptions,
--- move ci/ and the files in ci/bootstrap-files.txt to Fs.walk's options,
--- then delete Fs.walk_following, the bare function in Fs.walk's `opts`
--- and fs_test's test_walk_takes_a_bare_skip.
-
---- [`Fs.walk`] with `follow`, for the files in ci/bootstrap-files.txt
---- on the pinned release.
-function Fs.walk_following(root: string,
-                           skip?: function(string, string, Fs.Kind): boolean): ({string}) | (nil, Failure)
-  return walk(root, true, skip)
+  return walk(root, opts.follow == true, opts.skip)
 end
 
 local class Descriptor
