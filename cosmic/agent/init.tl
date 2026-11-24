@@ -640,7 +640,7 @@ end
 --- Opens a request with Http.open.
 local function open(url: string, opts: Http.Options): Agent.Reply?, string
   local res, why = Http.open(url, opts)
-  if res == nil then return nil, why end
+  if res == nil then return nil, tostring(why) end
   return {
     status = res.status, headers = res.headers,
     read = function(): string?, string return res:read() end,

@@ -46,7 +46,7 @@ return function(argv: {string}): integer
   local said: mut {string} = {}
   for i = 2, #argv do
     local got, why = Http.get(argv[i] or "", { ca = ca, roots = "none", timeout_ns = 20000000000 })
-    said[#said + 1] = if got ~= nil then tostring(got.status) .. " " .. got.body else "failed: " .. why end
+    said[#said + 1] = if got ~= nil then tostring(got.status) .. " " .. got.body else "failed: " .. tostring(why) end
   end
   local _, _ = Fs.put(Fs.stdout, table.concat(said, "\n"))
   return 0

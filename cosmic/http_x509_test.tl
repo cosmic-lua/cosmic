@@ -60,7 +60,7 @@ local function test_which_basic_constraints_are_read()
       ["INTEGER 0"] = "\x30\x03\x02\x01\x00",
   }) do
     local ok, why = Http.check_certificate(certificate(value))
-    assert(ok and why == "", label .. " is unreadable: " .. tostring(why))
+    assert(ok and why == nil, label .. " is unreadable: " .. tostring(why))
   end
   local refused: {string: string} = {
     ["INTEGER 1 then a path length"] = "\x30\x06\x02\x01\x01\x02\x01\x00",
@@ -69,6 +69,6 @@ local function test_which_basic_constraints_are_read()
   }
   for label, value in pairs(refused) do
     local ok, why = Http.check_certificate(certificate(value))
-    assert(not ok and why ~= "", label .. " is read as a certificate")
+    assert(not ok and tostring(why) ~= "", label .. " is read as a certificate")
   end
 end

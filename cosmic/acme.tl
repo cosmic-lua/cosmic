@@ -671,7 +671,9 @@ end
 local REQUEST_TIMEOUT <const> = Clock.minutes(1)
 
 local function default_request(method: string, url: string, opts: Http.Options): Http.Body?, string
-  return Http.request(method, url, opts)
+  local body, why = Http.request(method, url, opts)
+  if body == nil then return nil, tostring(why) end
+  return body, ""
 end
 
 --- A session with the ACME server whose directory is `opts.directory`,

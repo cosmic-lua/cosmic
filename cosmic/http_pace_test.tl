@@ -116,7 +116,7 @@ local function test_cancelled_ends_a_pacer_wait_at_once()
   local got, why = Http.get(url, { timeout_ns = Clock.seconds(60),
     pace = pacer, script = ok_script(), cancelled = function(): boolean return true end,
   })
-  assert(got == nil and why == "interrupted", tostring(why))
+  assert(got == nil and tostring(why) == "interrupted", tostring(why))
   assert(Clock.monotonic_ns() - began < Clock.seconds(5), "the wait was not ended")
 end
 
@@ -129,7 +129,7 @@ local function test_cancelled_during_a_pacer_wait_stops_waiting()
     cancelled = function(): boolean return Clock.monotonic_ns() - began > Clock.ms(300) end,
   })
   local took = Clock.monotonic_ns() - began
-  assert(got == nil and why == "interrupted", tostring(why))
+  assert(got == nil and tostring(why) == "interrupted", tostring(why))
   assert(took >= Clock.ms(300) and took < Clock.seconds(5), tostring(took))
 end
 
@@ -145,7 +145,7 @@ local function test_an_interrupted_wait_does_not_mark_a_start()
     pace = pacer, script = ok_script(),
     cancelled = function(): boolean return Clock.monotonic_ns() - began > Clock.ms(500) end,
   })
-  assert(why == "interrupted", tostring(why))
+  assert(tostring(why) == "interrupted", tostring(why))
   assert(Http.get(url, { timeout_ns = Clock.seconds(60), pace = pacer, script = ok_script() }))
   local took = Clock.monotonic_ns() - began
   assert(took >= Clock.ms(980), "the third request did not wait: " .. tostring(took))
@@ -159,7 +159,7 @@ local function test_a_refused_connection_counts_as_a_start()
   local began = Clock.monotonic_ns()
   -- Nothing binds port 1, so the connection is refused.
   local response, why = Http.get("http://127.0.0.1:1/", { timeout_ns = Clock.seconds(60), pace = pacer })
-  assert(response == nil and why ~= "", tostring(why))
+  assert(response == nil and tostring(why) ~= "", tostring(why))
   assert(Http.get(url, { timeout_ns = Clock.seconds(60), pace = pacer, script = ok_script() }))
   local took = Clock.monotonic_ns() - began
   assert(took >= Clock.ms(300), "the request after a refusal did not wait: " .. tostring(took))
@@ -195,10 +195,10 @@ local function test_a_pace_that_is_no_pacer_raises_naming_the_option(tmp: string
     return { timeout_ns = Clock.seconds(60), pace = fake, script = ok_script() }
   end
   local entries: {string:function()} = {
-    open = function() local _ = Http.open(url, opts()) end,
-    get = function() local _ = Http.get(url, opts()) end,
-    request = function() local _ = Http.request("PUT", url, opts()) end,
-    download = function() local _ = Http.download(url, tmp .. "/never", opts()) end,
+    open = function() local _, _ = Http.open(url, opts()) end,
+    get = function() local _, _ = Http.get(url, opts()) end,
+    request = function() local _, _ = Http.request("PUT", url, opts()) end,
+    download = function() local _, _ = Http.download(url, tmp .. "/never", opts()) end,
     download_result = function() local _ = Http.download_result(url, tmp .. "/never", opts()) end,
   }
   for name, entry in pairs(entries) do
@@ -240,16 +240,16 @@ local function test_a_pace_of_the_wrong_lua_type_raises_naming_the_option(tmp: s
   for _, literal in ipairs({ '"x"', "5", "1.5", "true" }) do
     local entries: {string:function(Http.Pacer)} = {
       open = function(pace: Http.Pacer)
-        local _ = Http.open(url, { timeout_ns = Clock.seconds(60), pace = pace, script = ok_script() })
+        local _, _ = Http.open(url, { timeout_ns = Clock.seconds(60), pace = pace, script = ok_script() })
       end,
       get = function(pace: Http.Pacer)
-        local _ = Http.get(url, { timeout_ns = Clock.seconds(60), pace = pace, script = ok_script() })
+        local _, _ = Http.get(url, { timeout_ns = Clock.seconds(60), pace = pace, script = ok_script() })
       end,
       request = function(pace: Http.Pacer)
-        local _ = Http.request("PUT", url, { timeout_ns = Clock.seconds(60), pace = pace, script = ok_script() })
+        local _, _ = Http.request("PUT", url, { timeout_ns = Clock.seconds(60), pace = pace, script = ok_script() })
       end,
       download = function(pace: Http.Pacer)
-        local _ = Http.download(url, tmp .. "/never", { timeout_ns = Clock.seconds(60), pace = pace, script = ok_script() })
+        local _, _ = Http.download(url, tmp .. "/never", { timeout_ns = Clock.seconds(60), pace = pace, script = ok_script() })
       end,
       download_result = function(pace: Http.Pacer)
         local _ = Http.download_result(url, tmp .. "/never", { timeout_ns = Clock.seconds(60), pace = pace, script = ok_script() })

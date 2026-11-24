@@ -223,7 +223,7 @@ local function test_a_download_cancelled_during_the_wait_stops_waiting(tmp: stri
     },
   })
   local took = Clock.monotonic_ns() - began
-  assert(not ok and why == "interrupted", tostring(why))
+  assert(not ok and tostring(why) == "interrupted", tostring(why))
   assert(took >= Clock.ms(300) and took < Clock.seconds(5), tostring(took))
   assert(not assert(Fs.status(tmp .. "/got")).exists, "the 200 was read")
 end
@@ -247,7 +247,7 @@ local function test_a_failed_open_is_not_retried()
     retry = { attempts = 3, backoff_ns = 0 },
     script = {},
   })
-  assert(response == nil and why ~= "", tostring(why))
+  assert(response == nil and tostring(why) ~= "", tostring(why))
 end
 
 --- A policy of the wrong shape raises naming the option, with a first
@@ -273,10 +273,10 @@ local function test_a_policy_of_the_wrong_shape_raises_naming_the_option(tmp: st
       return { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } }
     end
     local entries: {string:function()} = {
-      open = function() local _ = Http.open(url, opts()) end,
-      get = function() local _ = Http.get(url, opts()) end,
-      request = function() local _ = Http.request("PUT", url, opts()) end,
-      download = function() local _ = Http.download(url, tmp .. "/never", opts()) end,
+      open = function() local _, _ = Http.open(url, opts()) end,
+      get = function() local _, _ = Http.get(url, opts()) end,
+      request = function() local _, _ = Http.request("PUT", url, opts()) end,
+      download = function() local _, _ = Http.download(url, tmp .. "/never", opts()) end,
       download_result = function() local _ = Http.download_result(url, tmp .. "/never", opts()) end,
     }
     for name, entry in pairs(entries) do
@@ -331,16 +331,16 @@ local function test_a_policy_of_the_wrong_lua_type_raises_naming_the_option(tmp:
     local option = "opts.retry." .. case.option
     local entries: {string:function(Http.Retry)} = {
       open = function(policy: Http.Retry)
-        local _ = Http.open(url, { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
+        local _, _ = Http.open(url, { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
       end,
       get = function(policy: Http.Retry)
-        local _ = Http.get(url, { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
+        local _, _ = Http.get(url, { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
       end,
       request = function(policy: Http.Retry)
-        local _ = Http.request("PUT", url, { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
+        local _, _ = Http.request("PUT", url, { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
       end,
       download = function(policy: Http.Retry)
-        local _ = Http.download(url, tmp .. "/never", { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
+        local _, _ = Http.download(url, tmp .. "/never", { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
       end,
       download_result = function(policy: Http.Retry)
         local _ = Http.download_result(url, tmp .. "/never", { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
@@ -361,16 +361,16 @@ local function test_a_retry_that_is_no_table_raises_naming_the_option(tmp: strin
   for _, literal in ipairs({ '"x"', "3", "true" }) do
     local entries: {string:function(Http.Retry)} = {
       open = function(policy: Http.Retry)
-        local _ = Http.open(url, { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
+        local _, _ = Http.open(url, { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
       end,
       get = function(policy: Http.Retry)
-        local _ = Http.get(url, { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
+        local _, _ = Http.get(url, { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
       end,
       request = function(policy: Http.Retry)
-        local _ = Http.request("PUT", url, { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
+        local _, _ = Http.request("PUT", url, { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
       end,
       download = function(policy: Http.Retry)
-        local _ = Http.download(url, tmp .. "/never", { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
+        local _, _ = Http.download(url, tmp .. "/never", { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
       end,
       download_result = function(policy: Http.Retry)
         local _ = Http.download_result(url, tmp .. "/never", { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })

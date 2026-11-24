@@ -398,7 +398,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     local requested = to.requested
     if requested ~= nil then requested(url) end
     local got, why = Http.get(url, options(headers))
-    if got == nil then return nil, url .. ": " .. why end
+    if got == nil then return nil, url .. ": " .. tostring(why) end
     local status = tostring(got.status)
     if got.status == 404 then return nil, "" end
     if got.status == 403 or got.status == 429 then
@@ -585,7 +585,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local function small(name: string): string?, string
     local url = assets_url .. release.tag .. "/" .. name
     local response, open_trouble = Http.open(url, options())
-    if response == nil then return nil, url .. ": " .. open_trouble end
+    if response == nil then return nil, url .. ": " .. tostring(open_trouble) end
     local body, read_trouble: string?, string = nil, ""
     if response.status >= 200 and response.status < 300 then
       -- One byte past the cap tells a body at it from one over it.
@@ -677,7 +677,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   else
     -- Only the pin is kept, so the bytes are hashed as they arrive.
     local response, open_trouble = Http.open(binary, options())
-    if response == nil then return fail(binary .. ": " .. open_trouble) end
+    if response == nil then return fail(binary .. ": " .. tostring(open_trouble)) end
     local hashing = assert(Stream.hashing("sha256"))
     local copied, copy_trouble: integer?, string = nil, ""
     if response.status >= 200 and response.status < 300 then

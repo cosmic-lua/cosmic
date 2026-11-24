@@ -397,7 +397,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
 
   local response, open_trouble = Http.open(url, options)
   if response == nil then
-    complain(shown .. ": " .. verb.refusal(open_trouble, options.redirect_protocols))
+    complain(shown .. ": " .. verb.refusal(tostring(open_trouble), options.redirect_protocols))
     return bare.undone
   end
   local ok2 = response.status >= 200 and response.status < 300
