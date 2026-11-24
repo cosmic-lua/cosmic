@@ -214,16 +214,21 @@ end
 --- The lines that refuse the markers `held` of the tree where a file holds more of a code than the merge base held in its
 --- markers, or nil and why where the base cannot be read. A moved line keeps its marker and so its count; a marker is never
 --- added, and one for a code no file held at the base (a closed code) says its rule has no exceptions. The count of a file is
---- its own: a marker of a file renamed or split is new where it lands.
+--- its own: a marker of a file renamed or split is new where it lands. A base without build/glossary_count.tl holds no
+--- file to the glossary's count of its retired word.
 local function marks_rise(root: string, base: string, held: CeilingsBase.Held, git: CeilingsBase.Git):
     {string}?, string
   local was, why = base_marks(root, base, held, git)
   if was == nil then
     return nil, why
   end
-  -- The glossary's count holds from the commit that brings it: a base without build/glossary_count.tl counted nothing, so a
-  -- change queued beside the one that brings it is not refused for a line of its own.
-  local counted = git(root, { "cat-file", "-e", base .. ":build/glossary_count.tl" }) == 0
+  -- TODO: drop this test of the base and hold the count always, once no change in the merge queue has a base older than
+  -- the commit that brought build/glossary_count.tl: it keeps those changes from being refused for their own lines.
+  local listed, entry = git(root, { "ls-tree", base, "--", "build/glossary_count.tl" })
+  if listed ~= 0 then
+    return nil, "git ls-tree of build/glossary_count.tl at " .. base .. " failed"
+  end
+  local counted = entry ~= ""
   local files: mut {string} = {}
   for file in pairs(held) do
     files[#files + 1] = file
@@ -246,12 +251,12 @@ local function marks_rise(root: string, base: string, held: CeilingsBase.Held, g
     for _, code in ipairs(codes) do
       local now = assert(held[file])[code] or 0
       local before = (was[file] or {})[code] or 0
-      if code == GlossaryCount.code and not counted then
-        -- The base predates the count: nothing to hold the file to.
-      elseif now > before and code == GlossaryCount.code then
-        out[#out + 1] = file .. ": " .. plural.count(now, "comment line") .. " say \"" .. GlossaryCount.word .. "\" and the merge base held " ..
-          tostring(before) .. "; the count only falls: write \"returns\" for what a function gives back and \"responds\" for " ..
-          "a server's reply (doc/writing.md's glossary)"
+      if code == GlossaryCount.code then
+        if counted and now > before then
+          out[#out + 1] = file .. ": " .. plural.count(now, "comment line") .. (if now == 1 then " says \"" else " say \"" end) ..
+            GlossaryCount.word .. "\" and the merge base held " .. tostring(before) .. "; the count only falls: write " ..
+            "\"returns\" for what a function gives back and \"responds\" for a server's reply (doc/writing.md's glossary)"
+        end
       elseif now > before then
         local line = file .. ": " .. tostring(now) .. " of its markers hold " .. code .. " and the merge base held " ..
           tostring(before) .. "; a marker is never added and a count only falls: fix the finding instead"

@@ -43,6 +43,7 @@ local function holding(): Answers
       ["cat-file -e " .. BASE .. "^{commit}"] = 0,
       ["merge-base --is-ancestor " .. BASE .. " HEAD"] = 0,
       ["rev-parse --is-shallow-repository"] = 0,
+      ["ls-tree " .. BASE .. " -- build/glossary_count.tl"] = 0,
     },
     printed = { ["rev-parse --is-shallow-repository"] = "true\n" },
   }
@@ -293,7 +294,8 @@ local function test_a_file_whose_comments_use_the_retired_word_more_than_the_bas
   local root = tree_with(tmp)
   local word = "ans" .. "wers"
   local base = marked_base({ ["build/a.tl"] = "-- it " .. word .. " nil\nlocal x = 1\n" })
-  base.status["cat-file -e " .. BASE .. ":build/glossary_count.tl"] = 0
+  base.printed["ls-tree " .. BASE .. " -- build/glossary_count.tl"] = "100644 blob " .. string.rep("b", 40) ..
+    "\tbuild/glossary_count.tl\n"
   local same: CeilingsBase.Held = { ["build/a.tl"] = CeilingsBase.counts("-- it " .. word .. " nil\n", "build/a.tl") }
   local kept = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), same)
   assert(#kept.lines == 0, table.concat(kept.lines, "\n"))
@@ -313,4 +315,14 @@ local function test_a_base_from_before_the_glossary_count_holds_no_count_of_the_
   local more: CeilingsBase.Held = { ["build/a.tl"] = CeilingsBase.counts("-- it " .. word .. " nil\n", "build/a.tl") }
   local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), more)
   assert(#verdict.lines == 0, table.concat(verdict.lines, "\n"))
+end
+
+--- A git that cannot say whether the base holds build/glossary_count.tl fails the check, as a base it cannot read does.
+local function test_a_failed_look_for_the_glossary_count_at_the_base_fails_the_check(tmp: string)
+  local root = tree_with(tmp)
+  local base = marked_base({ ["build/a.tl"] = "local x = 1\n" })
+  base.status["ls-tree " .. BASE .. " -- build/glossary_count.tl"] = 128
+  local held: CeilingsBase.Held = { ["build/a.tl"] = {} }
+  local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), held)
+  assert(#verdict.lines == 1 and has(verdict.lines[1], "git ls-tree of build/glossary_count.tl"), table.concat(verdict.lines, "\n"))
 end
