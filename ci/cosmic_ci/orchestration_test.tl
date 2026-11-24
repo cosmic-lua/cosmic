@@ -1278,7 +1278,7 @@ local function test_the_checked_suite_runs_in_jobs_of_its_own_and_the_format_che
       if run ~= nil then phase = run:match("driver%.tl platform ([%w-]+)$") end
       if phase ~= nil then phases[#phases + 1] = phase end
       if phase == "performance-checked" then
-        -- Every run, once: in the queue's first share of the checked suite, which runs in two.
+        -- Every run, once: in the queue's third share of the checked suite, which runs in three.
         assert(step["if"] == nil or step["if"] == "matrix.performance == 'run'",
           "the performance fixture runs on some runs alone: " .. tostring(step["if"]))
       end
