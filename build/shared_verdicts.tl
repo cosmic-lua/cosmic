@@ -46,9 +46,10 @@ end
 
 local record shared_verdicts
   --- Remembers how [`settle`] packs one module's row of a test's hits, `row` as [`build.test`]'s `row_line` spells
-  --- it from `head` and `lines`: `head` is the whole of `row` before its tab, and `lines` its numbers, ascending. The
-  --- line each is packed to is worked out from the numbers where the row is spelled, so the settle reads no number
-  --- back out of the text. The memo is let go at the end of each [`settle`].
+  --- it from `head` and `lines`: `head` is the whole of `row` before its tab, and `lines` its numbers, ascending,
+  --- which are kept as they are and never changed after. The settle packs a row it keeps from those numbers, so it
+  --- reads no number back out of the text, and a row no run keeps is never packed. The memo is let go at the end of
+  --- each [`settle`].
   remember: function(row: string, head: string, lines: {integer})
 
   --- An open cache.
@@ -222,10 +223,13 @@ end
 
 local schema <const> = cache_formats.verdicts
 
---- Each row line already packed, by the whole of its text: [`shared_verdicts.remember`] fills it as rows are spelled,
---- and [`packed`] as it packs one it was not told of. A row's packing is a function of its text alone, so one
---- process keeps it whole.
-local packed_rows: mut {string:string} = {}
+--- The head and numbers of each row line, by the whole of its text, as [`shared_verdicts.remember`] was told them
+--- where the row was spelled: what [`packed`] packs it from.
+local record Remembered
+  head: string
+  lines: {integer}
+end
+local remembered: mut {string:Remembered} = {}
 
 --- One packed row: `head`, a tab, then `lines` (ascending) each as its distance from the one before, and a newline.
 local function distances(head: string, lines: {integer}): string
@@ -239,7 +243,7 @@ local function distances(head: string, lines: {integer}): string
 end
 
 function shared_verdicts.remember(row: string, head: string, lines: {integer})
-  if packed_rows[row] == nil then packed_rows[row] = distances(head, lines) end
+  if remembered[row] == nil then remembered[row] = { head = head, lines = lines } end
 end
 
 --- Hits as [`build.test`]'s `take_hits` writes them -- a line per module,
@@ -251,11 +255,15 @@ end
 ---
 --- `known` holds each module's line already packed, by the whole of its text, path and all, and is added to: the
 --- tests of a run hit the same lines of most modules, so a line is packed once a run, not once a test, and most are
---- packed where they were spelled ([`shared_verdicts.remember`]).
-local function packed(hits: string, known: mut {string:string}): string
+--- packed from the numbers they were spelled of ([`shared_verdicts.remember`]).
+local function packed(hits: string, known: mut {string:string}, rows: {string:Remembered}): string
   return (hits:gsub("[^\n]*\n", function(whole: string): string
     local done = known[whole]
-    if done == nil then
+    local told = if done == nil then rows[whole] else nil end
+    if told ~= nil then
+      done = distances(told.head, told.lines)
+      known[whole] = done
+    elseif done == nil then
       done = whole:gsub("([^\t\n]*)\t([^\n]*)\n", function(path: string, lines: string): string
         local numbers: mut {integer} = {}
         for line in lines:gmatch("%d+") do
@@ -501,6 +509,10 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
                                 owed: shared_verdicts.Owed, now_ns: integer): boolean, string
   local db = cache.db
   local parts = owed.parts or ""
+  -- A run's rows are let go with it, whether or not the settle goes through: what a later run spells it remembers
+  -- again.
+  local rows = remembered
+  remembered = {}
   local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
   if not begun then return false, tostring(begin_trouble) end
   local function steps(): boolean, string
@@ -511,17 +523,15 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
         if not ok then return false, tostring(trouble) end
       end
     end
-    local known = packed_rows
+    local known: mut {string:string} = {}
     for _, kept in ipairs(owed.kept) do
       local ok, trouble = db:run(
         "INSERT OR REPLACE INTO " .. declared .. " (key, test, hits, elapsed_ns, used_ns, " ..
           "origin, parts) VALUES (?1, ?2, deflate(?3), ?4, ?5, ?6, ?7)",
-        { text(kept.key), text(kept.test), text(packed(kept.hits, known)),
+        { text(kept.key), text(kept.test), text(packed(kept.hits, known, rows)),
           { integer = kept.elapsed_ns }, { integer = now_ns }, text(origin), text(parts) })
       if not ok then return false, tostring(trouble) end
     end
-    -- A run's rows are let go with it: what a later run spells it remembers again.
-    packed_rows = {}
     for _, key in ipairs(owed.used) do
       for _, name in ipairs(tables) do
         local ok, trouble = db:run("UPDATE " .. name .. " SET used_ns = ?1, " ..
