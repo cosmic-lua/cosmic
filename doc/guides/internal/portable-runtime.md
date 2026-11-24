@@ -314,8 +314,10 @@ own. A bare core has no program arguments of its own but `--boot`, so nothing
 else claims it.
 
 There is no manifest, launcher or artifact descriptor. [`core/main.c`](../../../core/main.c)
-opens the path read-only with `immutable=1` through SQLite's default VFS, not
-[`core/vfs.c`](../../../core/vfs.c)'s range, and installs it in the store's last
+opens the path once, checks that it is a regular file, and has SQLite read that
+descriptor, whole and immutable, through [`core/vfs.c`](../../../core/vfs.c):
+SQLite never opens the path again, so a path swapped after the check reaches
+nothing. It installs the database in the store's last
 slot, so reserved names and the `main` meta row resolve from it exactly as
 they do from an embedded database. `require` finds that database's modules
 alone, [`Store.databases()`] holds it alone, [`Store.requires`] reads it, and
