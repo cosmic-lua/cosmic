@@ -1,4 +1,4 @@
---- Tests of the calls that answer a value or a failure, `(T) | (nil, E)`, in [`lang.check`]: the lists are told apart
+--- Tests of the calls that return a value or a failure, `(T) | (nil, E)`, in [`lang.check`]: the lists are told apart
 --- by a first value that is `nil` or never nil, a test of the first local narrows the others, and `match` takes the lists
 --- apart with a `nil` pattern. Every program the checker takes is also run.
 local Programs = require("lang.check_programs")
@@ -154,7 +154,7 @@ local function test_a_failure_with_a_text_of_its_own_is_read_by_tostring()
 end
 
 local function test_assert_passes_the_list_that_is_no_failure()
-  -- `assert` raises at a nil or false first value, so what it answers is the one list whose first value is neither.
+  -- `assert` raises at a nil or false first value, so what it returns is the one list whose first value is neither.
   assert(type_of("local n = assert(parse(\"4\"))\n", "n") == "integer")
   stands("print(assert(parse(\"4\")) + 1)\n", "5")
   local pair = "local function pair(on: boolean): (true, integer) | (false, string)\n  if on then\n    return true, 3\n" ..

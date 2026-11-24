@@ -185,6 +185,34 @@ local function test_a_header_the_protocol_sets_cannot_be_given()
   Test.raises(function() server():handler{ authorize = Server.bearer("short") } end, "at least 16 bytes")
 end
 
+local function test_headers_go_over_plain_http_only_to_a_loopback_host()
+  local secret = { Authorization = "Bearer 0123456789abcdef" }
+  Test.raises(function()
+    Client.http("http://192.0.2.1/mcp", { timeout_ns = WAIT, headers = secret })
+  end,
+    "in the clear over http:// to 192.0.2.1; use an https:// URL")
+  Test.raises(function()
+    Client.http("HTTP://example.com:8080/mcp", { timeout_ns = WAIT, headers = secret })
+  end,
+    "to example.com")
+  Test.raises(function()
+    Client.http("http://exa mple.com/mcp", { timeout_ns = WAIT, headers = secret })
+  end,
+    "a URL that can be read")
+  for _, url in ipairs({ "http://127.0.0.1@example.com/mcp", "http://127.0.0.1:1@example.com/mcp",
+      "http://localhost/mcp", "http://127.0.0.1./mcp" }) do
+    Test.raises(function() Client.http(url, { timeout_ns = WAIT, headers = secret }) end, "in the clear")
+  end
+  Client.http("HTTP://127.0.0.1:1/mcp", { timeout_ns = WAIT, headers = secret })
+  Client.http("http://[::ffff:127.0.0.1]:1/mcp", { timeout_ns = WAIT, headers = secret })
+  Client.http("https://example.com/a b", { timeout_ns = WAIT, headers = secret })
+  Client.http("http://exa mple.com/mcp", { timeout_ns = WAIT })
+  Client.http("http://127.0.0.1:1/mcp", { timeout_ns = WAIT, headers = secret })
+  Client.http("http://[::1]:1/mcp", { timeout_ns = WAIT, headers = secret })
+  Client.http("https://example.com/mcp", { timeout_ns = WAIT, headers = secret })
+  Client.http("http://192.0.2.1/mcp", { timeout_ns = WAIT })
+end
+
 --- A tool that tells its progress `steps` times, a pause apart, and notes in `seen` when it finds itself cancelled.
 local function slow_tool(name: string, steps: integer, seen: mut {string}): Server.ToolSpec
   return {

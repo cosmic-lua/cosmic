@@ -741,13 +741,17 @@ static int mount_proc_only (int *own) {
  * keeps the host's filesystem and /proc with it. 0, or an errno. */
 static int go_offline (int unmap_root, const char *uid_map, const char *gid_map, int strict,
                        int relayed, const int *relay_ports) {
-  if (syscall(SYS_unshare, CLONE_NEWUSER | CLONE_NEWNET) != 0)
-    return staged(strict, STAGE_NAMESPACE, errno);
+  int number = syscall(SYS_unshare, CLONE_NEWUSER | CLONE_NEWNET) == 0 ? 0 : errno;
   int mapped = 1;
-  int number = map_ids(unmap_root, uid_map, gid_map, &mapped);
+  if (number == 0) number = map_ids(unmap_root, uid_map, gid_map, &mapped);
   if (number == 0) number = loopback_up();
-  /* A failure of the namespace is its stage's; the relay's is already staged. */
-  if (number != 0) return staged(strict, STAGE_NAMESPACE, number);
+  /* A failure of the namespace is its stage's; the relay's is already
+   * staged. The channel, which [`relay_listeners`] closes whatever
+   * comes of it, is closed here where it is never reached. */
+  if (number != 0) {
+    if (relayed >= 0) close(relayed);
+    return staged(strict, STAGE_NAMESPACE, number);
+  }
   if (relayed >= 0) number = relay_listeners(relayed, relay_ports);
   if (number == 0) number = drop_capabilities();
   return staged(strict, STAGE_NAMESPACE, number);
@@ -1301,7 +1305,12 @@ static _Noreturn void start_unveiled (const struct spawn_plan *plan, const int *
     failure = staged(plan->strict, STAGE_NAMESPACE,
                      map_ids(plan->unmap_root, plan->uid_map, plan->gid_map, &start.mapped));
   if (!failure && plan->offline) failure = staged(plan->strict, STAGE_NAMESPACE, loopback_up());
-  if (!failure && relayed >= 0) failure = relay_listeners(relayed, plan->relay_ports);
+  /* The channel is [`relay_listeners`]'s to close, and closed here where
+   * a step before it failed. */
+  if (relayed >= 0) {
+    if (!failure) failure = relay_listeners(relayed, plan->relay_ports);
+    else close(relayed);
+  }
   if (!failure)
     failure = raise_descriptor(open("/proc/self/exe", O_RDONLY | O_CLOEXEC), top, &start.exe);
   int started[2] = { -1, -1 }, ready[2] = { -1, -1 };

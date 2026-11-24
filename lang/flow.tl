@@ -9,7 +9,7 @@
 ---   path of fixed fields from one (`17.a.b`). A fact never changes the declared type, which it carries beside the
 ---   narrowed one so that a join that learns nothing drops it.
 --- * **lengths**: for an array place, the least number of elements it is known to have ([`Flow.know_length`]). They are
----   kept apart from the facts because code that runs may shorten any array: [`Flow.forget_lengths`] answers a state
+---   kept apart from the facts because code that runs may shorten any array: [`Flow.forget_lengths`] returns a state
 ---   that shares its other tables, at a cost that is neither the facts held nor the times it is asked.
 --- * **unset**: the locals declared with no value that no path has assigned yet (definite assignment).
 --- * **gone**: for a place that lost its fact to an assignment, where the assignment is, so that a use that relied
@@ -18,7 +18,7 @@
 --- `live` says whether control reaches the point. A state that is not live keeps the facts at the jump, and code
 --- after the jump is checked from them; a join of a live state and a dead one is the live one.
 ---
---- A state is a value: every function here answers a new state, or the very one it was given when nothing changes,
+--- A state is a value: every function here returns a new state, or the very one it was given when nothing changes,
 --- and writes to none; a state is never changed after it is made. So an edge of the flow that is kept (a loop's head, a branch, a function's entry) is
 --- never changed by what happens on another path, and "nothing changed" is an identity test.
 local Scopes = require("lang.scopes")
@@ -58,7 +58,7 @@ local record Flow
   --- The fact of the place `key`, or nil.
   get: function(f: State, key: string): Fact?
 
-  --- `f` with the place `key` narrowed to `narrowed`, which was declared `declared`. Answers `f` itself when that is
+  --- `f` with the place `key` narrowed to `narrowed`, which was declared `declared`. Returns `f` itself when that is
   --- what it holds, and a state with no fact of the place when `narrowed` is `declared`.
   narrow: function(f: State, key: string, narrowed: Type, declared: Type): State
 

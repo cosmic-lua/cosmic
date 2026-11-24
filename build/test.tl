@@ -791,27 +791,23 @@ function test.write_module_coverage(handle: Sqlite.Handle,
   local into_modules: Sqlite.Statement = prepared_modules
   local prepared_hits, hits_trouble = handle:prepare("INSERT OR IGNORE INTO temp.run_hits (path, line) VALUES (?1, ?2)")
   if prepared_hits == nil then
-    into_modules:finalize()
+    into_modules:close()
     return nil, tostring(hits_trouble)
   end
   local into_hits: Sqlite.Statement = prepared_hits
   local filled, fill_trouble = each(function(path: string, hash: string): boolean, string
-    local ok, trouble = into_modules:bind_text(1, path)
-    if ok then ok, trouble = into_modules:bind_text(2, hash) end
-    if ok then ok, trouble = bind.once(into_modules) end
-    if not ok then return false, trouble end
+    local ok, trouble = into_modules:run({ path, hash })
+    if not ok then return false, tostring(trouble) end
     for line, hit in pairs(hits[path] or {}) do
       if hit then
-        ok, trouble = into_hits:bind_text(1, path)
-        if ok then ok, trouble = into_hits:bind_integer(2, line) end
-        if ok then ok, trouble = bind.once(into_hits) end
-        if not ok then return false, trouble end
+        ok, trouble = into_hits:run({ path, line })
+        if not ok then return false, tostring(trouble) end
       end
     end
     return true, ""
   end)
-  into_modules:finalize()
-  into_hits:finalize()
+  into_modules:close()
+  into_hits:close()
   if not filled then return nil, fill_trouble end
   local missing, missing_trouble = handle:text_rows(
     "SELECT m.path FROM temp.run_modules m LEFT JOIN executable e ON e.source_hash = m.source_hash " ..
@@ -885,7 +881,7 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
   local per_test, test_trouble = handle:prepare(
     "INSERT INTO coverage_by_test (ran_at_ns, test, hits) VALUES (?1, ?2, ?3)")
   if per_test == nil then
-    coverage:finalize()
+    coverage:close()
     return 0, 0, tostring(test_trouble)
   end
   -- The core's own C sits among the modules by path: a core that
@@ -951,44 +947,18 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
           end
         end
         totals.lines = totals.lines + #lines
-        local ok, write_trouble = coverage:bind_integer(1, run_at_ns)
-        if ok then ok, write_trouble = coverage:bind_text(2, path) end
-        if ok then
-          ok, write_trouble = coverage:bind_text(3, "[" .. table.concat(lines, ",") .. "]")
-        end
-        if ok then ok, write_trouble = coverage:bind_text(4, table.concat(flags)) end
+        local ok, write_trouble = coverage:run({ run_at_ns, path, "[" .. table.concat(lines, ",") .. "]",
+          table.concat(flags) })
         if not ok then
-          return false, write_trouble
-        end
-        local state, failure = coverage:step()
-        if state == nil then
-          return false, failure
-        end
-        ok, write_trouble = coverage:reset()
-        if not ok then
-          return false, write_trouble
+          return false, tostring(write_trouble)
         end
       end
     end
     for _, test_row in ipairs(test_rows) do
       local test_name = test_row.key
-      local ok, write_trouble = per_test:bind_integer(1, run_at_ns)
-      if ok then
-        ok, write_trouble = per_test:bind_text(2, test_name)
-      end
-      if ok then
-        ok, write_trouble = per_test:bind_text(3, test_row.value)
-      end
+      local ok, write_trouble = per_test:run({ run_at_ns, test_name, test_row.value })
       if not ok then
-        return false, write_trouble
-      end
-      local state, failure = per_test:step()
-      if state == nil then
-        return false, failure
-      end
-      ok, write_trouble = per_test:reset()
-      if not ok then
-        return false, write_trouble
+        return false, tostring(write_trouble)
       end
     end
     return true, ""
@@ -999,8 +969,8 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
   -- recording transaction.
   local made, trouble = false, ""
   local called, raised = pcall(function() made, trouble = write_rows() end)
-  coverage:finalize()
-  per_test:finalize()
+  coverage:close()
+  per_test:close()
   if not called then
     return 0, 0, tostring(raised)
   end
@@ -2422,7 +2392,7 @@ end
 local function read_command(ctx: Run): integer?
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
-    log:complain(tostring(root_trouble))
+    log:complain("test: " .. tostring(root_trouble))
     return 1
   end
   ctx.root = root
@@ -2551,20 +2521,20 @@ local function hold_checkout(ctx: Run): integer?
   prune_trees(root)
   local standing, standing_trouble = tree.standing(root)
   if standing == nil then
-    log:complain(standing_trouble)
+    log:complain("test: " .. standing_trouble)
     return 1
   end
   ctx.own_tree = standing.own
   local handle, open_trouble = work.open(root, nil, "test")
   if handle == nil then
-    log:complain(open_trouble)
+    log:complain("test: " .. open_trouble)
     return 1
   end
   ctx.handle = handle
   local staged, stage_trouble = work.stage(handle, standing)
   if staged == nil then
     local _, _ = work.close(handle)
-    log:complain(stage_trouble)
+    log:complain("test: " .. stage_trouble)
     return 1
   end
   ctx.staged = staged
@@ -2593,14 +2563,14 @@ local function read_identities(ctx: Run): integer?
   local runtime, runtime_trouble = test_key.runtime_of()
   if runtime == nil then
     local _, _ = work.close(handle)
-    log:complain(runtime_trouble)
+    log:complain("test: " .. runtime_trouble)
     return 1
   end
   ctx.identity, ctx.runtime = runtime.identity, runtime.runtime
   local harness, harness_trouble = test_key.binary_harness()
   if harness == nil then
     local _, _ = work.close(handle)
-    log:complain("the running binary's test harness: " .. harness_trouble)
+    log:complain("test: the running binary's test harness: " .. harness_trouble)
     return 1
   end
   ctx.harness = harness
@@ -2721,7 +2691,7 @@ local function build_tree(ctx: Run): integer?
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
-    log:complain(compile_trouble)
+    log:complain("test: " .. compile_trouble)
     return if outcome.refused then exit_status.uncompiled else 1 end
   end
   local written, write_trouble =
@@ -2730,7 +2700,7 @@ local function build_tree(ctx: Run): integer?
     result.cached, if written then "PASS" else "FAIL" end)
   if not written then
     local _, _ = work.close(handle)
-    log:complain(write_trouble)
+    log:complain("test: " .. write_trouble)
     return 1
   end
   ctx.result = result
@@ -2806,14 +2776,14 @@ local function select_tests(ctx: Run): integer?
         if refused[selector] ~= true then absent[#absent + 1] = selector end
       end
       if #absent > 0 then
-        log:complain("no test module matches: " .. table.concat(absent, ", "))
+        log:complain("test: no test module matches: " .. table.concat(absent, ", "))
       end
       for _, line in ipairs(explained.lines) do
         log:complain(line)
       end
       for _, selector in ipairs(unmatched) do
         if refused[selector] == true then
-          log:complain(selector .. " did not compile, so it has no tests to run")
+          log:complain("test: " .. selector .. " did not compile, so it has no tests to run")
         end
       end
     end
@@ -2822,7 +2792,7 @@ local function select_tests(ctx: Run): integer?
       local _, asked = split(selector)
       local name = assert(asked)
       local near = test.nearest(name, m.tests)
-      log:complain("no test in " .. m.path .. " is named " .. name .. "; it has " ..
+      log:complain("test: no test in " .. m.path .. " is named " .. name .. "; it has " ..
           table.concat(near, ", ") .. (if #m.tests > #near then ", ..." else "" end))
     end
     return 1
@@ -2870,7 +2840,7 @@ local function open_records(ctx: Run): integer?
   local begun, begin_trouble = work.begin(handle)
   if not begun then
     local _, _ = work.close(handle)
-    log:complain(begin_trouble)
+    log:complain("test: " .. begin_trouble)
     return 1
   end
   local records_path = handle.dir .. "/build.db"
@@ -2880,7 +2850,7 @@ local function open_records(ctx: Run): integer?
   if previous == nil then
     local _, _ = work.rollback(handle)
     local _, _ = work.close(handle)
-    log:complain(records_path .. ": " .. previous_trouble)
+    log:complain("test: " .. records_path .. ": " .. previous_trouble)
     return 1
   end
   ctx.previous = previous
@@ -2888,7 +2858,7 @@ local function open_records(ctx: Run): integer?
   if verdicts == nil then
     local _, _ = work.rollback(handle)
     local _, _ = work.close(handle)
-    log:complain(records_path .. ": " .. verdicts_trouble)
+    log:complain("test: " .. records_path .. ": " .. verdicts_trouble)
     return 1
   end
   ctx.verdicts = verdicts
@@ -2896,7 +2866,7 @@ local function open_records(ctx: Run): integer?
   if epoch == nil then
     local _, _ = work.rollback(handle)
     local _, _ = work.close(handle)
-    log:complain(epoch_trouble)
+    log:complain("test: " .. epoch_trouble)
     return 1
   end
   ctx.epoch = epoch
@@ -3002,7 +2972,7 @@ local function gather_key_inputs(ctx: Run): integer?
   if trouble ~= nil then
     local _, _ = work.rollback(handle)
     local _, _ = work.close(handle)
-    log:complain(trouble)
+    log:complain("test: " .. trouble)
     return 1
   end
   return nil

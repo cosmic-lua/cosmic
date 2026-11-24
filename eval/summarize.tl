@@ -44,7 +44,7 @@ local record Call
   input: Json.Value
 end
 
---- What a tool call answered: whether it failed, and its text.
+--- What a tool call returned: whether it failed, and its text.
 local record Answer
   error: boolean
   text: string

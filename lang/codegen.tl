@@ -90,7 +90,7 @@ local record Codegen
     x: integer
   end
 
-  --- What [`generate`] answers.
+  --- What [`generate`] returns.
   record Generated
     --- The Lua. A refused construct is missing from it.
     text: string
@@ -109,8 +109,8 @@ local record Codegen
   --- "string"`): a string is no member of an enum for being a string, and a program that is told otherwise is wrong.
   --- `wraps` names, by the id of an expression, the arguments after its value of a call of `__fact` that wraps it:
   --- `__fact(v, <arguments>)`, which a run that checks what [`lang.check`] concluded of a read defines. A chunk with any begins
-  --- with a definition of it that answers `v`, where none is (a process that installed no hook, a module loaded before the
-  --- worker installs its own), as `(__cosmic_tc or select)` answers it; a call that begins a line is no call of the
+  --- with a definition of it that returns `v`, where none is (a process that installed no hook, a module loaded before the
+  --- worker installs its own), as `(__cosmic_tc or select)` returns it; a call that begins a line is no call of the
   --- line above.
   --- `kinds` says what [`lang.check`] resolved a type name to, by the id of the name: `integer`, `number`, `string`,
   --- `boolean`, `function`, `true`, `false` or `nil`. A test `v is T` of a name of another module, whose declaration
@@ -336,8 +336,8 @@ for _, word in ipairs(Lexer.lua_words) do
 end
 
 --- Whether the syntax of `e` shows it is neither false nor nil: a literal that is no `false` or `nil`, a table, a
---- function, an arithmetic or a concatenation (the language has no metamethod to make one answer false), or
---- a parenthesized or cast one. A comparison and a `not` answer false, and a name or a call can answer anything.
+--- function, an arithmetic or a concatenation (the language has no metamethod to make one give false), or
+--- a parenthesized or cast one. A comparison and a `not` give false, and a name or a call can give anything.
 local function syntactically_truthy(e: Ast.Exp): boolean
   local cur: Ast.Exp = e
   while true do
@@ -444,7 +444,7 @@ local function declaration_of(t: Ast.TypeName): Ast.Node?, boolean
   return declaration, true
 end
 
---- The Lua type a value of `t` has: what `type(v)` answers for it. A type this file does not
+--- The Lua type a value of `t` has: what `type(v)` returns for it. A type this file does not
 --- resolve (one of another module) is a table. `hops` bounds the aliases followed.
 lua_type = function(t: Ast.Type, hops: integer): string
   if (t.kind == "TypeName") then
@@ -1394,8 +1394,8 @@ block = function(b: Ast.Block): Output -- checked: not_assigned
   return out
 end
 
---- The table of the integer enum `node`: its members in the order written, and two functions. `of` answers the member
---- an integer is, or nil: the member's own integer, so a float such as `1.0` answers `1`. `name` answers a member's
+--- The table of the integer enum `node`: its members in the order written, and two functions. `of` returns the member
+--- an integer is, or nil: the member's own integer, so a float such as `1.0` gives `1`. `name` returns a member's
 --- name. Both read a table of the names by integer, written beside the members, so the table names no global but `math`
 --- for the least integer: `(function(t, names) ... return t end)({ A = 0 }, { [0] = "A" })`.
 local function integer_enum_table(node: Ast.Enum): string

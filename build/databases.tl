@@ -281,7 +281,7 @@ local function run(argv: {string}): integer
   end
   local absolute, root_trouble = Fs.absolute(".")
   if absolute == nil then
-    log:complain(tostring(root_trouble))
+    log:complain("db: " .. tostring(root_trouble))
     return 1
   end
   local root: string = absolute
@@ -292,7 +292,7 @@ local function run(argv: {string}): integer
   local layout = build_paths.resolve(root)
   local working, working_trouble = readable(layout.working)
   if working == nil then
-    log:complain(layout.working .. ": " .. working_trouble)
+    log:complain("db: " .. layout.working .. ": " .. working_trouble)
     return 1
   end
   local paths = narrow.paths(root, parsed.words)
@@ -300,7 +300,7 @@ local function run(argv: {string}): integer
   if #paths > 0 then
     local found, files_trouble = module_files(root, working)
     if found == nil then
-      log:complain(files_trouble)
+      log:complain("db: " .. files_trouble)
       return 1
     end
     files = found
@@ -322,7 +322,7 @@ local function run(argv: {string}): integer
   for _, path in ipairs(described) do
     local present, present_trouble = Fs.status(path)
     if present == nil then
-      log:complain(tostring(present_trouble))
+      log:complain("db: " .. tostring(present_trouble))
       return 1
     end
     if present.exists then
@@ -333,7 +333,7 @@ local function run(argv: {string}): integer
         counted, trouble = describe(path)
       end
       if counted == nil then
-        log:complain(path .. ": " .. trouble)
+        log:complain("db: " .. path .. ": " .. trouble)
         return 1
       end
       seen = seen + 1
@@ -346,13 +346,13 @@ local function run(argv: {string}): integer
         if #paths == 0 then
           local ok, build_trouble = builds(path)
           if not ok then
-            log:complain(path .. ": " .. build_trouble)
+            log:complain("db: " .. path .. ": " .. build_trouble)
             return 1
           end
         end
         local ok, slow_trouble = slowest(path, about)
         if not ok then
-          log:complain(path .. ": " .. slow_trouble)
+          log:complain("db: " .. path .. ": " .. slow_trouble)
           return 1
         end
       end

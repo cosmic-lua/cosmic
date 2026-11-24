@@ -15,7 +15,7 @@ local function test_a_run_captures_a_verbs_output(tmp: string)
   local verb = invoke.run({ "help", "sql" }, { cwd = tmp })
   assert(verb.code == 0, verb.stderr)
   assert(verb.stdout:find("cosmic sql", 1, true), verb.stdout)
-  assert(verb.stderr:match("^help: 1 verb, %d+ ms\n$"), verb.stderr)
+  assert(verb.stderr == "", verb.stderr)
 end
 
 --- The working directory and environment asked for are the run's, only

@@ -94,61 +94,44 @@ local record MetaRow
   value: string
 end
 
---- One column of the row a statement is standing on, bound as what it
---- was: a blob stays a blob, a null stays a null.
-local function value_at(statement: Sqlite.Statement, index: integer): Sqlite.Value
-  local kind = statement:kind(index)
-  if kind == "null" then
-    return {}
-  end
-  if kind == "blob" then
-    return { blob = statement:bytes(index) }
-  end
-  if kind == "integer" then
-    return { integer = statement:integer(index) }
-  end
-  if kind == "number" then
-    return { number = statement:number(index) }
-  end
-  return text(statement:bytes(index))
-end
-
 --- Copies every row `sql` yields from one database into a table of
 --- another, column for column, each value bound as the kind it was
---- read as. `columns` names the destination columns in `sql`'s order.
+--- read as ([`Sqlite.Row.value`]). `columns` names the destination
+--- columns in `sql`'s order.
 local function copy_rows(from: Sqlite.Handle, into: Sqlite.Handle,
                          table_name: string, columns: {string},
                          sql: string): boolean, string
-  local statement, trouble = from:prepare(sql)
-  if statement == nil then
-    return false, table_name .. ": " .. tostring(trouble)
-  end
   local slots: mut {string} = {}
   for index = 1, #columns do
     slots[index] = "?" .. tostring(index)
   end
-  local insert = "INSERT OR IGNORE INTO " .. table_name .. " (" ..
-    table.concat(columns, ", ") .. ") VALUES (" .. table.concat(slots, ", ") .. ")"
-  while true do
-    local state, step_trouble = statement:step()
-    if state == nil then
-      statement:finalize()
-      return false, table_name .. ": " .. step_trouble
-    end
-    if state == "done" then
-      break
-    end
-    local row: mut {Sqlite.Value} = {}
+  local insert, insert_trouble = into:prepare("INSERT OR IGNORE INTO " .. table_name .. " (" ..
+      table.concat(columns, ", ") .. ") VALUES (" .. table.concat(slots, ", ") .. ")")
+  if insert == nil then
+    return false, table_name .. ": " .. tostring(insert_trouble)
+  end
+  local rows, trouble = from:query(sql)
+  if rows == nil then
+    insert:close()
+    return false, table_name .. ": " .. tostring(trouble)
+  end
+  for row in rows:each() do
+    local values: mut {Sqlite.Param} = {}
     for index = 1, #columns do
-      row[index] = value_at(statement, index - 1)
+      values[index] = row:value(index)
     end
-    local ok, insert_trouble = into:run(insert, row)
+    local ok, why = insert:run(values)
     if not ok then
-      statement:finalize()
-      return false, table_name .. ": " .. tostring(insert_trouble)
+      rows:close()
+      insert:close()
+      return false, table_name .. ": " .. tostring(why)
     end
   end
-  statement:finalize()
+  insert:close()
+  local failure = rows:failure()
+  if failure ~= nil then
+    return false, table_name .. ": " .. tostring(failure)
+  end
   return true, ""
 end
 
@@ -1251,7 +1234,7 @@ function embed.run(argv: {string}, at?: string, carried?: string): integer
   end
   local root, root_trouble = Fs.absolute(at or ".")
   if root == nil then
-    log:complain(tostring(root_trouble))
+    log:complain("build: " .. tostring(root_trouble))
     return 1
   end
   local out: string? = nil
@@ -1266,7 +1249,7 @@ function embed.run(argv: {string}, at?: string, carried?: string): integer
   end
   local standing, standing_trouble = tree.standing(root, carried)
   if standing == nil then
-    log:complain(standing_trouble)
+    log:complain("build: " .. standing_trouble)
     return 1
   end
   if standing.own then return run_own(argv, root, parsed, out, started) end
@@ -1287,7 +1270,7 @@ function embed.run(argv: {string}, at?: string, carried?: string): integer
     end
   end
   if names == nil then
-    log:complain(trouble)
+    log:complain("build: " .. trouble)
     if refused then log:complain(report.refusal) end
     for _, line in ipairs(report.unbuilt) do log:complain(line) end
     for _, line in ipairs(report.removed) do log:complain(line) end
@@ -1305,7 +1288,7 @@ function embed.run(argv: {string}, at?: string, carried?: string): integer
   end
   if refused then
     -- A failed run has no `build: ` summary ([`verb_spec.Spec`]'s `summarizes_failure`); it says what it wrote.
-    log:complain("not every file compiled: wrote " .. (if #outputs > 0 then table.concat(outputs, ", ") else "no executable" end) ..
+    log:complain("build: not every file compiled: wrote " .. (if #outputs > 0 then table.concat(outputs, ", ") else "no executable" end) ..
         (if #report.unbuilt > 0 then ", and held out " .. tostring(#report.unbuilt) .. " program(s)" else "" end) ..
         ", " .. clock.took(started))
     return exit_status.uncompiled

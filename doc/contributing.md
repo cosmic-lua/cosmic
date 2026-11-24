@@ -250,6 +250,10 @@ then bring main in as "open the PR" says, fix what the checks report,
 push, and enable auto-merge again. a flake or a runner's loss is not
 this: find its cause as above.
 
+where the queue drops an entry whose own run passed, requeue.yml puts it
+back ([`ci/cosmic_ci/requeue.tl`]); do not queue it again by hand, which
+races that job.
+
 once it has merged, clean up:
 
 ```text
@@ -339,6 +343,7 @@ the tool named can be older than the tree's generator.
 [`build/seed.txt`]: ../build/seed.txt
 [`build/zig.tl`]: ../build/zig.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
+[`ci/cosmic_ci/requeue.tl`]: ../ci/cosmic_ci/requeue.tl
 [`ci/README.md`]: ../ci/README.md
 [`ci/run-local`]: ../ci/run-local
 [`core/bridge.lua`]: ../core/bridge.lua

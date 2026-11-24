@@ -1086,7 +1086,7 @@ local function gen_shape(g: Gen)
     line("end")
     line("print(" .. n .. "())")
   elseif k == 10 then
-    -- The locals of a call that answers `(true, integer) | (false, string)`: a test of the first narrows the second, until
+    -- The locals of a call that returns `(true, integer) | (false, string)`: a test of the first narrows the second, until
     -- either is assigned, in a branch, a loop or a function.
     line("local function " .. n .. "(): integer")
     line("  local ok, r = pair()")

@@ -1,5 +1,5 @@
 --- Fuzz property for [`lang.boundaries`], over the random types of [`lang.types_programs`]: a value made for a type is
---- accepted by the kinds [`Boundaries.kinds`] answers for it, as the worker's `__cosmic_tc` reads them, and a mapping that
+--- accepted by the kinds [`Boundaries.kinds`] returns for it, as the worker's `__cosmic_tc` reads them, and a mapping that
 --- leaves a kind out is caught. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 local Boundaries = require("lang.boundaries")
 local Fuzz = require("build.fuzz")
@@ -45,7 +45,7 @@ local function send_userdata(sink: Sink)
   sink.send(hasher)
 end
 
---- Hands `sink` a value of the type `t`, drawn from `walk`, and answers whether the type has one (`never` has none).
+--- Hands `sink` a value of the type `t`, drawn from `walk`, and returns whether the type has one (`never` has none).
 local function emit(walk: Walk, t: Types.Type, sink: Sink): boolean
   local current = Types.unfold(t)
   local table_value: mut {string: boolean} = {}

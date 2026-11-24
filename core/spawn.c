@@ -1996,6 +1996,8 @@ COSMIC_SYSCALL(fork, 1) {
     /* The pairs are the parent's children, not this process's: a wait
      * here ends none of them. */
     pair_count = 0;
+    /* Nor are the parent's /proc handles its own. */
+    inspected_by = 0;
     if (scoped && (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 ||
                    syscall(SYS_landlock_restrict_self, ruleset, 0) != 0)) {
       /* Unheld, it would run the caller's code where the caller was

@@ -72,7 +72,7 @@ local function test_a_failure_in_cosmic_is_one_a_line_of_stderr_opens_with()
 end
 
 --- Grades the arena at `dir` for the task `name` with its lines --
---- written to stdout -- taken into a file there, and answers its
+--- written to stdout -- taken into a file there, and returns its
 --- status and those lines. The hidden API tests are under
 --- `dir`/testdata.
 local function graded(name: string, dir: string, env?: {string:string},
@@ -131,7 +131,7 @@ local function test_a_build_that_did_not_write_notes_does_not_run_an_earlier_one
 end
 
 --- The grader asks the arena's cosmic where it builds the project, and
---- takes the project's o/ from one that answers nothing.
+--- takes the project's o/ from one that prints nothing.
 local function test_the_build_directory_is_the_arena_cosmics_answer(dir: string)
   local probe = assert(stand_in.build(dir .. "/stand-in"))
   assert(stand_in.place(probe, dir .. "/answers", "print /elsewhere/trees/key"))
@@ -216,7 +216,7 @@ end
 --- Grades the arena at `dir`, whose project's JOURNAL.md holds
 --- `journal` (none when nil), with a stand-in cosmic whose every
 --- command passes and whose `fix` fails where the journal was not set
---- aside; answers the status and lines.
+--- aside; returns the status and lines.
 local function graded_with_journal(dir: string, journal: string?): integer, string
   assert(Fs.mkdirs(dir .. "/bin"))
   assert(Fs.mkdirs(dir .. "/project"))
@@ -315,9 +315,9 @@ end
 
 --- Grades a kv arena whose stand-in cosmic, run in a directory holding
 --- kv_api_test.tl, lists that directory, writes a file and the
---- directory's path, and answers `lines` and `code`: as a hidden API
---- test that ran on a copy of the project. Answers the status and the
---- grader's lines.
+--- directory's path, and prints `lines` and exits `code`: as a hidden
+--- API test that ran on a copy of the project. Returns the status and
+--- the grader's lines.
 local function graded_api(dir: string, lines: {string}, code: integer,
                           env?: {string:string}, probes?: {string}): integer, string
   assert(Fs.mkdirs(dir .. "/bin"))

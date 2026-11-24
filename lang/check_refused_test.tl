@@ -72,7 +72,7 @@ local function test_a_value_that_may_be_nil_is_no_argument_for_a_parameter_that_
 end
 
 -- `test_an_operand_that_may_be_nil_is_refused` and `test_a_conjunction_with_a_nil_left_operand_may_be_nil`: no
--- operator takes an optional, and `x and y` answers its left operand when that is nil.
+-- operator takes an optional, and `x and y` gives its left operand when that is nil.
 local function test_a_value_that_may_be_nil_is_no_operand()
   local head = "local record R\n  name?: string\n  n?: integer\n  items?: {string}\nend\nlocal r: R = {}\n" ..
     "local function find(): string?\n  return nil\nend\nlocal s = find()\n"

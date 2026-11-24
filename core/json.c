@@ -191,6 +191,9 @@ struct decoding {
   /* The stack slot holding the caller's stand-in for `null`, or 0 when
    * `null` decodes to nil. */
   int null_index;
+  /* The stack slot holding the array metatable, which every array the
+   * value holds is given. */
+  int array_index;
   int max_depth;
   /* Whether a number no Lua number holds exactly as an integer, or at
    * all, decodes as its text rather than the nearest float. */
@@ -342,7 +345,8 @@ static enum problem push_value (struct decoding *d, yyjson_val *val,
       luaL_checkstack(L, 3, "JSON nests too deeply");
       size_t count = yyjson_arr_size(val);
       lua_createtable(L, count > INT32_MAX ? INT32_MAX : (int)count, 0);
-      luaL_setmetatable(L, ARRAY_TYPE);
+      lua_pushvalue(L, d->array_index);
+      lua_setmetatable(L, -2);
       yyjson_arr_foreach(val, idx, max, item) {
         enum problem found = push_value(d, item, depth + 1);
         if (found != NO_PROBLEM) {
@@ -908,6 +912,8 @@ static int json_decode (lua_State *L) {
   memset(&d.path, 0, sizeof d.path);
   d.repeated = NULL;
   lua_settop(L, 13);
+  luaL_getmetatable(L, ARRAY_TYPE);
+  d.array_index = lua_gettop(L);
   /* Building the value allocates, and an allocation can raise: the
    * guard frees the document then, and on every return. */
   struct cosmic_guard *guard = cosmic_guard_push(L, release_doc);
@@ -1191,12 +1197,73 @@ static int compare_sorted (const void *a, const void *b) {
   return (x->n > y->n) - (x->n < y->n);
 }
 
+/* The most members an object is written of from the stack: each one's
+ * key and value are left there as the table is walked, and sorted in
+ * place, with no second lookup of a value by its key. */
+#define STACKED_MEMBERS 32
+
+/* One member of a small object being sorted: its key's bytes, which
+ * live in the key on the stack, and the slot of that key; the value is
+ * the slot above it. */
+struct stacked_member {
+  const char *s;
+  size_t n;
+  int slot;
+};
+
+/* The object at `idx`, which has `count` string keys and nothing else and
+ * no more than STACKED_MEMBERS of them, its members in byte order of
+ * their keys. */
+static int put_small_object (struct encoding *e, int idx, lua_Integer count,
+                             int depth) {
+  lua_State *L = e->L;
+  struct stacked_member members[STACKED_MEMBERS];
+  /* `count` is at most STACKED_MEMBERS, which put_object sees to. */
+  luaL_checkstack(L, 2 * STACKED_MEMBERS + 2, "JSON nests too deeply");
+  int base = lua_gettop(L);
+  int n = 0;
+  lua_pushnil(L);
+  while (lua_next(L, idx) != 0) {
+    if (n == count) {
+      lua_settop(L, base);
+      return refuse(e, "cannot encode a table changed while it is read");
+    }
+    /* The key, the value, and a copy of the key that the next step takes. */
+    lua_pushvalue(L, -2);
+    struct stacked_member m;
+    m.slot = lua_gettop(L) - 2;
+    m.s = lua_tolstring(L, m.slot, &m.n);
+    /* Insertion sort: a record has a few members. */
+    int at = n;
+    while (at > 0) {
+      const struct stacked_member *before = &members[at - 1];
+      size_t least = before->n < m.n ? before->n : m.n;
+      int c = memcmp(before->s, m.s, least);
+      if (c < 0 || (c == 0 && before->n < m.n)) break;
+      members[at] = *before;
+      at--;
+    }
+    members[at] = m;
+    n++;
+  }
+  for (int i = 0; i < n; i++) {
+    if (put_member(e, members[i].slot, members[i].slot + 1, i == 0, depth) < 0) {
+      lua_settop(L, base);
+      return -1;
+    }
+  }
+  lua_settop(L, base);
+  if (count > 0 && put_break(e, depth) < 0) return -1;
+  return PUT_LITERAL(e, "}");
+}
+
 /* The object at `idx`, which has `count` string keys and nothing else,
  * its members in byte order of their keys. */
 static int put_object (struct encoding *e, int idx, lua_Integer count,
                        int depth) {
   lua_State *L = e->L;
   if (PUT_LITERAL(e, "{") < 0) return -1;
+  if (count <= STACKED_MEMBERS) return put_small_object(e, idx, count, depth);
   struct sorted_key *keys =
       lua_newuserdatauv(L, (size_t)count * sizeof *keys, 0);
   lua_Integer n = 0;

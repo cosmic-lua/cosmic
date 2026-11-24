@@ -22,9 +22,11 @@
 --- [`Net.Shutdown`], one of "read", "write" or "both", and any other
 --- string does not compile.
 ---
---- Every wait -- to connect, to accept, to read, to write -- lasts at
---- most the object's timeout (no limit by default; [`set_timeout`]
---- changes it), failing with [`Poll.TIMEOUT`], and ends with
+--- Every wait -- to connect, to accept, to read -- lasts at most the
+--- object's timeout (no limit by default; [`set_timeout`] changes it),
+--- and so does a whole write, however many waits it takes, so that a
+--- peer taking a byte a wait cannot hold one for ever. Each fails with
+--- [`Poll.TIMEOUT`], and ends with
 --- "interrupted", within a tenth of a second, when the innermost open
 --- [`Signal.guard`] catches SIGINT or SIGTERM, as [`cosmic.http`]'s do
 --- outside a task. A listener's and a UDP socket's methods answer these as
@@ -516,8 +518,8 @@ local record Net
     --- `tls` tells them apart. Raises without `tls`, which would serve
     --- every listener in the clear.
     clear?: {Address}
-    --- Each connection's `timeout_ns`: how long any one read or write of
-    --- it waits, from 0; nil for no limit.
+    --- Each connection's `timeout_ns`: how long any one wait of a read,
+    --- or any one write in all, takes, from 0; nil for no limit.
     timeout_ns?: integer
     --- How long a connection's TLS handshake may take in all where
     --- `timeout_ns` is nil, from 0: 30 seconds by default. A connection
@@ -551,6 +553,17 @@ local record Net
     --- [`Net.ServeSpec.on_error`], with its stack, and the server stops all
     --- the same.
     mut on_stop?: function(server: Server)
+    --- Called when the server is at `limits.connections` and a
+    --- connection waits in a listener's backlog, in a task of the
+    --- server's run: where a protocol closes a connection it holds idle,
+    --- so that the one waiting is served once that one has closed. A
+    --- listener calls it once when a connection comes to it full, and
+    --- again only after a connection has closed, if it is full again
+    --- with one waiting: about once for each client waiting. It is to
+    --- close, not to wait. What it raises goes to
+    --- [`Net.ServeSpec.on_error`], with its stack. Nil, and a connection
+    --- waits until one open closes by itself.
+    on_full?: function()
     --- Given what the protocol raised for a connection, with its stack,
     --- or why a listener failed to accept; nil to write each to stderr.
     --- What it raises, [`Net.serve`] raises, having closed every listener
@@ -1225,7 +1238,7 @@ end
 --- Accepts at `a` while the server is under its limit and not stopping.
 --- The limit is checked before each accept with no wait between, so a
 --- connection past it is never taken, only left in the backlog.
-local function accept_loop(s: Serving, a: Accepting)
+local function accepting(s: Serving, a: Accepting)
   while not s.stopping and s.open < s.most do
     local socket, why, errno = raw.accept(a.fd)
     if socket ~= nil then
@@ -1264,6 +1277,25 @@ local function accept_loop(s: Serving, a: Accepting)
         report(s, "accepting at " .. named(a.listener.address) .. ": " .. why)
       end
       local _, _ = Clock.sleep(ACCEPT_PAUSE_NS)
+    end
+  end
+end
+
+--- Accepts at `a` as [`accepting`] does, and where the server is full,
+--- calls [`Net.ServeSpec.on_full`] once a connection waits.
+local function accept_loop(s: Serving, a: Accepting)
+  while true do
+    accepting(s, a)
+    local on_full = s.spec.on_full
+    if s.stopping or on_full == nil then break end
+    -- Full: once a connection comes, the protocol may close one idle.
+    -- One that closes meanwhile leaves room, and accepting goes on.
+    local _, _ = Poll.readable(a.fd)
+    if s.stopping then break end
+    if s.open >= s.most then
+      local ok, trouble = xpcall(on_full, traced)
+      if not ok then report(s, trouble) end
+      break
     end
   end
   a.task = nil

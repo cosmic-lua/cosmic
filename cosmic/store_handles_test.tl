@@ -84,7 +84,7 @@ local function test_a_store_database_handle_only_reads()
     refused(db, "INSERT INTO meta (key, value) VALUES ('planted', 'x')")
     refused(db, "PRAGMA query_only = 0")
     refused(db, "BEGIN")
-    local statement = assert(db:prepare("SELECT count(*) FROM modules"))
+    local statement = assert(db.connection:prepare("SELECT count(*) FROM modules"))
     assert(statement:step() == "row")
     statement:finalize()
   end

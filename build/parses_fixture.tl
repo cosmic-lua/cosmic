@@ -43,7 +43,7 @@ end
 --- is quoted, `"\N"`. An empty text is quoted, `""`, when it is the only field
 --- of a row, so a row of one empty text is not no rows, and a row of one NULL
 --- is neither. Every other cell is written as its text, as
---- [`Sqlite.Handle.text_rows`] answers it, with no mark of its type: the integer 1
+--- [`Sqlite.Row.as_text`] answers it, with no mark of its type: the integer 1
 --- and the text '1' dump alike, as a blob and the text of the same bytes do.
 ---
 --- The rows are read in one pass, so a query with no ORDER BY that answers in
@@ -52,20 +52,16 @@ end
 function parses_fixture.dump(path: string, sql: string): string
   local db = assert(Sqlite.open(path))
   local statement = assert(db:prepare(sql))
-  local width = statement:columns()
+  local width = #statement:names()
   local lines: mut {string} = {}
-  while true do
-    local state = assert(statement:step())
-    if state == "done" then break end
+  for _, row in ipairs(assert(statement:rows())) do
     local record: mut {string} = {}
-    for i = 0, width - 1 do
-      local field: string? = nil
-      if statement:kind(i) ~= "null" then field = statement:bytes(i) end
-      record[#record + 1] = dumped_field(field, width == 1)
+    for i = 1, width do
+      record[#record + 1] = dumped_field(row:as_text(i), width == 1)
     end
     lines[#lines + 1] = table.concat(record, "\t")
   end
-  statement:finalize()
+  statement:close()
   assert(db:close())
   return table.concat(lines, "\n")
 end

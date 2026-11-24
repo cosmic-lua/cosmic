@@ -1022,8 +1022,19 @@ function wire.send(w: Stream.Writer, reply: wire.Reply): wire.Sent
     local ok, why = w:write(head)
     if not ok then write_why = why end
   elseif reader == nil then
-    local ok, why = w:write(if body is string then head .. body else head end)
+    -- In CHUNK slices, as a Reader body goes: a write's timeout bounds
+    -- the whole write, and a large body over a slow link would pass it.
+    -- The head goes with the body's first slice, in one write.
+    local text = if body is string then body else "" end
+    local first = CHUNK - #head
+    local ok, why = w:write(if #text <= first then head .. text else head .. text:sub(1, first) end)
     if not ok then write_why = why end
+    local from = first + 1
+    while ok and from <= #text do
+      ok, why = w:write(text:sub(from, from + CHUNK - 1))
+      if not ok then write_why = why end
+      from = from + CHUNK
+    end
   else
     local ok, why = w:write(head)
     if not ok then
