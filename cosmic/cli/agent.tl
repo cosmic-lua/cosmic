@@ -45,7 +45,7 @@
 --- - `--budget tokens=N,cost=USD,turns=N,time=N[s|m|h]` caps what each
 ---   turn may spend, any of the four; turns counts requests. The model
 ---   reads the limits with the prompt. The first limit reached ends the
----   turn for good, and the agent says which: go on with a new prompt.
+---   turn for good, and the agent says which.
 --- - `ask` and `chat` go on with the newest session in the directory,
 ---   and say so on standard error. `--new` starts a fresh one,
 ---   `--session <id>` goes on with any session, and `--fork` copies the
