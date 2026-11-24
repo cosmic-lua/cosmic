@@ -4015,6 +4015,17 @@ COSMIC_SYSCALL(restrict_self, 2) {
   if (error != 0)
     return restrict_refused(L, error, "seccomp filter: %s%s", cosmic_errno_describe(error, NULL),
                             partly);
+  /* Grants that give `x` nowhere run no program: Landlock refuses the
+   * file, and a filter of its own refuses execve and execveat first, a
+   * second layer that holds where the ruleset does not reach. */
+  bool runs = false;
+  for (int i = 0; i < grant_count; i++) runs = runs || (grant_letters[i] & GRANT_EXECUTE) != 0;
+  if (!runs) {
+    error = cosmic_no_x_apply();
+    if (error != 0)
+      return restrict_refused(L, error, "exec filter: %s%s", cosmic_errno_describe(error, NULL),
+                              partly);
+  }
   return cosmic_ok(L);
 #elif defined(__APPLE__)
   /* A profile holds the whole process, every thread of it, so unlike

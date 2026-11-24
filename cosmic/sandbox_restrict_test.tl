@@ -11,6 +11,7 @@
 
 -- The child loads these from the store, which holds this test's closure alone.
 local _net = require("cosmic.net")
+local _proc = require("cosmic.proc")
 local _sandbox = require("cosmic.sandbox")
 local _store = require("cosmic.store")
 local Child = require("cosmic.child")
@@ -97,6 +98,26 @@ say("fork", started ~= nil, trouble)
     said.raw)
   assert(assert(said.lines["fork"]):find("^false") and assert(said.lines["fork"]):find("Operation not permitted", 1, true),
     said.raw)
+end
+
+--- Grants with no `x` run no program: the exec filter refuses it (EPERM)
+--- before Landlock would (EACCES), so the text says which layer held. A
+--- process forked after the restriction inherits both.
+local function test_grants_with_no_x_run_no_program(tmp: string)
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local said = Restrict.in_child(restricted(
+    string.format("{ grants = { { path = %q, letters = \"r\" } }, promises = { \"fork\" } }", probe),
+    string.format([[
+local ran, trouble = Child.run({ %q, "print hi" }, { timeout_ns = Child.FOREVER, process_group = false, stdout = "capture" })
+if ran ~= nil then say("child", ran.ok, ran.stdout) else say("child", false, trouble) end
+local done, why = require("cosmic.proc").exec({ %q, "print replaced" })
+say("exec", done, why)
+]], probe, probe)))
+  -- The exec failed, so this process went on to say so, and was not replaced.
+  assert(said.raw:find("replaced", 1, true) == nil, said.raw)
+  assert(assert(said.lines["exec"]):find("^false") and assert(said.lines["exec"]):find("Operation not permitted", 1, true),
+    said.raw)
+  assert(assert(said.lines["child"]):find("^false"), said.raw)
 end
 
 local function test_the_fork_promise_lets_a_process_start(tmp: string)

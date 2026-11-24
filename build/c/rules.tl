@@ -176,6 +176,9 @@ local exempt: {string: string} = {
   ["core/promises.c cosmic_truncation_apply constant-return"] =
     "as cosmic_promises_apply: an errno or 0 on Linux, ENOSYS on every path " ..
     "of the macOS compile, which has no seccomp filter",
+  ["core/promises.c cosmic_no_x_apply constant-return"] =
+    "as cosmic_promises_apply: an errno or 0 on Linux, ENOSYS on every path " ..
+    "of the macOS compile, which has no seccomp filter",
   ["core/startup_hook.c cosmic_startup_test_pause constant-return"] =
     "a link-time seam: the product hook always lets startup go on, and " ..
     "test/portable/startup_hook.c, linked in its place, answers whether it may",

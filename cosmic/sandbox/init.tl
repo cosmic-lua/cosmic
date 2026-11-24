@@ -506,6 +506,13 @@ end
 --- process has already spent: lowering it below that on a process that has
 --- run long ends it by SIGKILL at once.
 ---
+--- Grants that give `x` nowhere let the process run no program, for good:
+--- Landlock refuses every file, and on Linux a seccomp filter of its own
+--- refuses execve and execveat before that (EPERM), in every thread, a
+--- second layer for what no ruleset reaches. A program that a policy
+--- started, which needed `x` on its own file to start, gives up running
+--- programs so: it restricts itself with no `x` once it runs.
+---
 --- Called again, it narrows: the kernel holds the process to every
 --- ruleset and every filter made, so what a later call grants beyond
 --- an earlier one's has no effect. Its limits narrow likewise, but a

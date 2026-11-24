@@ -500,6 +500,7 @@ COSMIC_SYSCALL(child_signal_fd, 0);
  * ---@field network_held boolean|nil whether the process can change no network namespace but one it made, so with `inet` it may make a NETLINK_ROUTE socket, which lists the interfaces (default false)
  * ---@field truncate_held boolean|nil whether the process is in a Landlock domain that handles truncation (ABI 3), so truncate, and O_TRUNC in an open that does not write, are allowed (default false)
  * ---@field truncation_only boolean|nil whether the program is the one a child a Landlock ruleset holds, with no `promises`, is held to where the ruleset does not handle truncation: it refuses truncate and an open with O_TRUNC that does not write, and allows every other call; it takes no promise, socket or hold (default false)
+ * ---@field no_x_only boolean|nil whether the program is the one `restrict_self` adds where no grant has `x`: it refuses execve and execveat, and allows every other call; it takes no promise, socket or hold, nor `truncation_only` (default false)
  * ---@field unix boolean|nil whether a unix socket may be made with socket(), and a unix socketpair of any type: a stream or seqpacket pair always may, a datagram one only with this (default false)
  * ---@field inet boolean|nil whether an AF_INET or AF_INET6 socket may be made with socket() (default false)
  */

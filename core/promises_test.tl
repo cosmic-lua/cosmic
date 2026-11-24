@@ -953,6 +953,34 @@ local function test_the_truncation_filter_refuses_truncation_alone()
   end)
 end
 
+--- The program `restrict_self` adds where no grant gives `x`, over whatever
+--- holds a process already: it refuses execve and execveat, and lets every
+--- other call through for the filters before it to answer.
+local function test_the_no_x_filter_refuses_exec_alone()
+  local options: raw_process.PromiseOptions = { no_x_only = true }
+  holds_on_both({}, {
+    call("execve", "EPERM", 0, 0, 0), call("execveat", "EPERM", -100, 0, 0, 0, 0x1000),
+    call("read", "allow"), call("ptrace", "allow"), call("mount", "allow"), call("fork", "allow"),
+    call("clone", "allow", SIGCHLD), call("socket", "allow", 2, 1, 0), call("openat", "allow", -100, 0, O_TRUNC),
+  }, options)
+  for _, arch in ipairs(ARCHES) do
+    local insns = decode(process.promise_filter({}, arch, options))
+    local other = if arch == "x86_64" then "aarch64" else "x86_64" end
+    assert(verdict(run(insns, audit_of(other), 0, {})) == "kill", arch .. ": another architecture")
+    for number = 0, process.PROMISE_CALLS_REVIEWED + 2 do
+      local got = verdict(run(insns, audit_of(arch), number, { 0, 0, 0, 0 }))
+      assert(got == "allow" or got == "EPERM", arch .. " " .. tostring(number) .. " is " .. got)
+    end
+  end
+  -- x32's execve is 520 with bit 30 set: every x32 call answers ENOSYS.
+  local x86 = decode(process.promise_filter({}, "x86_64", options))
+  assert(verdict(run(x86, audit_of("x86_64"), 0x40000000 + 520, {})) == "ENOSYS")
+  Test.raises(function() process.promise_filter({ "fork" }, "x86_64", options) end)
+  Test.raises(function()
+    process.promise_filter({}, "x86_64", { no_x_only = true, truncation_only = true })
+  end)
+end
+
 --- In a pid namespace of its own, a pid names a process of the sandbox or
 --- none: getpgid, getsid and setpgid take any. Without one they are held
 --- to the process itself, and what else asks after a process is, whatever
