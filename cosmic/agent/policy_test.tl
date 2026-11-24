@@ -268,6 +268,35 @@ local function test_a_grant_over_what_is_kept_out_is_refused()
     kept_out = { config } }))
 end
 
+--- With --network, the user's SSL_CERT_FILE is read and given to the tools, so a proxy's own root is trusted;
+--- without it, neither.
+local function test_the_cert_file_goes_with_the_network()
+  local dir, certs = scratch(), scratch()
+  local cert = certs .. "/roots.pem"
+  assert(Fs.write(cert, "-----BEGIN CERTIFICATE-----\n"))
+  local real = assert(Fs.absolute(cert))
+  local p = assert(Policy.of(dir, { mode = "write", network = true, grants = {}, cert_file = cert }))
+  assert((p.set_env or {})["SSL_CERT_FILE"] == real)
+  local granted = false
+  for _, g in ipairs(p.grants or {}) do
+    if g.path == real and g.letters == "r" then granted = true end
+  end
+  assert(granted)
+  local offline = assert(Policy.of(dir, { mode = "write", network = false, grants = {}, cert_file = cert }))
+  assert((offline.set_env or {})["SSL_CERT_FILE"] == nil)
+  -- One not there, or a directory, is given as none; one where the agent keeps its sessions is refused.
+  local missing = assert(Policy.of(dir, { mode = "write", network = true, grants = {}, cert_file = certs .. "/none" }))
+  assert((missing.set_env or {})["SSL_CERT_FILE"] == nil)
+  local p_dir = assert(Policy.of(dir, { mode = "write", network = true, grants = {}, cert_file = certs }))
+  assert((p_dir.set_env or {})["SSL_CERT_FILE"] == nil)
+  local connected = assert(Policy.of(dir, { mode = "write", network = false, connect = { "example.com:443" },
+    grants = {}, cert_file = cert }))
+  assert((connected.set_env or {})["SSL_CERT_FILE"] == real)
+  local p_kept, kept_why = Policy.of(dir, { mode = "write", network = true, grants = {}, cert_file = cert,
+    kept_out = { certs } })
+  assert(p_kept == nil and kept_why:find("keeps its sessions", 1, true) ~= nil, kept_why)
+end
+
 --- c is asked of the directory a file is made in; a write goes to the real name it checked, never through a dangling link.
 local function test_a_file_is_made_only_where_its_directory_grants_c()
   local inside, outside = scratch(), scratch()

@@ -890,6 +890,9 @@ local record Ast
     typeparams: {TypeParam}
     supers: {TypeName}
     members: {Member}
+    --- The DDL of `local schema Name [[DDL]]`: a class of handles of [`cosmic.sqlite`] that hold
+    --- its tables, and a value of [`Sqlite.schema`] of it. Such a class lists and declares nothing.
+    schema?: string
   end
   enum Enum_kind
     "Enum"
@@ -1066,7 +1069,7 @@ local SPEC <const>: {string: string} = {
   TypeParam = "name constraints*",
   Record = "scope name typeparams* supers* array members*",
   Interface = "scope name typeparams* supers* members*",
-  Class = "scope name typeparams* supers* members*",
+  Class = "scope name typeparams* supers* members* schema",
   Enum = "scope name values* numeric", EnumValue = "value number",
   Alias = "scope name typeparams* type", Import = "scope name module",
   FieldDecl = "name mut omittable type", Method = "name typeparams* params* rets body",

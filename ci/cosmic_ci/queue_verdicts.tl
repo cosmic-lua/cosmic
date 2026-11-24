@@ -6,7 +6,7 @@
 --- ref), so without these main's push ran its whole native suite again
 --- for the commit the queue had just passed, standing on no verdict.
 ---
---- The queue's linux-x86_64 leg trims its verdicts to what its run used
+--- Each of the queue's legs trims its verdicts to what its suite job used
 --- (cosmic_ci/verdicts.tl) and uploads them as `queue-verdicts-<leg>`.
 --- Main's push of the same leg finds that run (`queue-run`), downloads
 --- the artifact, and merges its rows into the verdicts it restored

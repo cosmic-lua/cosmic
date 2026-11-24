@@ -1,13 +1,14 @@
 --- A schema given to open or memory: a new file gets its tables, and
 --- a file that does not hold them fails at open, naming what differs.
+--- [`Notes`] is a `local schema`: its handles are of its type.
 local Failure = require("cosmic.failure")
 local Sqlite = require("cosmic.sqlite")
 
-local Notes <const> = Sqlite.schema([[
+local schema Notes [[
   CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL, made integer);
   CREATE INDEX notes_body ON notes (body);
   CREATE TABLE tags (note INTEGER NOT NULL, tag TEXT NOT NULL, PRIMARY KEY (note, tag));
-]])
+]]
 
 local function has(failure: Failure, text: string): boolean
   return failure.message:find(text, 1, true) ~= nil

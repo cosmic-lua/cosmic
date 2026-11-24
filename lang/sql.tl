@@ -104,16 +104,19 @@ local function made(ddl: string): Held
   return { handle = handle }
 end
 
+--- Closes every schema's database, and forgets them.
+local function forget_all()
+  for _, held in pairs(held_schemas) do
+    local handle = held.handle
+    if handle ~= nil then local _, _ = handle:close() end
+  end
+  held_schemas, held_count = {}, 0
+end
+
 local function hold(ddl: string): Held
   local known = held_schemas[ddl]
   if known ~= nil then return known end
-  if held_count >= HELD_AT_MOST then
-    for _, held in pairs(held_schemas) do
-      local handle = held.handle
-      if handle ~= nil then local _, _ = handle:close() end
-    end
-    held_schemas, held_count = {}, 0
-  end
+  if held_count >= HELD_AT_MOST then forget_all() end
   local found = made(ddl)
   held_schemas[ddl] = found
   held_count = held_count + 1
@@ -140,19 +143,45 @@ local function is_strict(handle: sqlite.Handle, name: string): boolean
   return strict
 end
 
+--- What `handle:prepare(sql)` gave: the statement, or SQLite's refusal; or the text of what the
+--- core raised, for SQL that holds no statement or more than one, and for a handle a copy of the
+--- process holds.
+local record Prepared
+  statement?: sqlite.Statement
+  refusal: string
+  raised?: string
+end
+
+local function try_prepare(handle: sqlite.Handle, sql: string): Prepared
+  local called, statement, why = pcall(function(): (sqlite.Statement?, string)
+    return handle:prepare(sql)
+  end)
+  if not called then return { refusal = "", raised = tostring(statement) } end
+  return { statement = statement, refusal = why }
+end
+
 --- What SQLite says of `sql` against the schema `ddl`: nil where the DDL itself is refused
 --- ([`Sql.schema`]), or where `sql` names an attached database or a table of one, which the
 --- schema does not cover.
 function Sql.read(ddl: string, sql: string): Sql.Read?
-  local handle = hold(ddl).handle
-  if handle == nil then return nil end
-  -- The core raises for SQL that holds no statement, or more than one.
-  local called, statement, why = pcall(function(): (sqlite.Statement?, string)
-    return handle:prepare(sql)
-  end)
-  if not called then
-    return { refused = (tostring(statement):gsub("^.-: ", "", 1)), parameters = 0, columns = {} }
+  local first = hold(ddl).handle
+  if first == nil then return nil end
+  local handle = first
+  local prepared = try_prepare(handle, sql)
+  local raised = prepared.raised
+  if raised ~= nil and raised:find("disowned its connections", 1, true) ~= nil then
+    -- A copy of the process (a worker the checker forked) opens databases of its own.
+    forget_all()
+    local fresh = hold(ddl).handle
+    if fresh == nil then return nil end
+    handle = fresh
+    prepared = try_prepare(handle, sql)
+    raised = prepared.raised
   end
+  if raised ~= nil then
+    return { refused = (raised:gsub("^.-: ", "", 1)), parameters = 0, columns = {} }
+  end
+  local statement, why = prepared.statement, prepared.refusal
   if statement == nil then
     -- An attached database's tables are not the schema's.
     local prefix = why:match("^no such table: ([%w_]+)%.")
