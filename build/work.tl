@@ -348,11 +348,6 @@ local version <const> = "35"
 ---
 --- `runs` is one row per test, keyed by the module and the test's own
 --- name inside it, so a later run of the same test replaces its row.
---- `failures` is the history it does not keep: a row for each failure
---- a run recorded, with `runs`' `key` and `message` of it, the newest
---- `kept_failures` of each test ([`build.test`]'s `prune_history`). A
---- failure whose `key` is that of a later pass is a flake: the same
---- inputs gave both.
 --- `key` is what the verdict is a function of, the digest of the
 --- test's declared inputs ([`build.declared_key`]), and, after a space,
 --- the key it is shared under; `run_at_ns` the `cosmic test`
@@ -362,6 +357,12 @@ local version <const> = "35"
 --- answered from a standing verdict it is the elapsed time of the run
 --- that produced that verdict, so `runs` always answers "how long does
 --- this test take", even when most tests are cached.
+---
+--- `failures` is the history `runs` does not keep: a row for each
+--- failure a run recorded, with its `runs` `key` and `message`, the
+--- newest `kept_failures` of each test ([`build.test`]'s
+--- `prune_history`). A failure whose nonempty `key` is that of a later
+--- pass is a flake: the same inputs gave both.
 ---
 --- `verdicts` is one row per key ever seen, with its verdict and the
 --- invocation that produced it, and `seen` the last run that relied on

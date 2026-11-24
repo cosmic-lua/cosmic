@@ -1148,12 +1148,16 @@ each test's own time ([measuring](guides/measuring.md)).
 a failure. The `failures` table of `build.db` keeps each failure a run
 recorded, with its message and key, the newest 10 of each test. A
 failure whose key is the key of a later pass is a flake: the same inputs
-gave both. A failure with another key was fixed by an edit.
+gave both. A failure with another key may be a flake too, since the key
+also moves with an edit, the host, the toolchain, the harness and the
+checkout path of an unsandboxed run ([verdicts](#verdicts-and-when-a-test-reruns)). A test
+with no key (it reaches a network beyond loopback) records an empty
+key, which tells nothing:
 
 ```text
 cosmic sql --build "SELECT f.path, f.test, f.message FROM failures f
   JOIN runs r USING (path, test) WHERE r.passed = 1 AND f.key = r.key
-  ORDER BY f.ran_at_ns DESC"
+  AND f.key <> '' ORDER BY f.ran_at_ns DESC"
 ```
 
 A run that ends in an error or is cancelled keeps no failure, as it
