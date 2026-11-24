@@ -170,6 +170,10 @@ local record Codes
     "format_malformed"
     "pack_malformed"
     "gsub_key"
+    -- SQL sent to a handle opened with a schema, read against it
+    "sql_schema"
+    "sql_refused"
+    "sql_parameters"
     -- `is` on a parenthesized place, which narrows nothing
     "paren_is"
     -- not yet checked: a form a later piece of the checker types
@@ -244,7 +248,7 @@ Codes.codes = {
   "literal_needs_type", "literal_ambiguous", "literal_shape", "literal_spread", "arms_differ", "array_of_optional", "require_unknown",
   "export_not_declared", "entry_signature", "missing_return", "not_assigned", "unreachable", "narrowing_dropped", "narrows_unproved",
   "assign_repeated", "iterator_extra", "iterator_variables", "pattern_malformed", "format_malformed", "pack_malformed",
-  "gsub_key", "paren_is",
+  "gsub_key", "sql_schema", "sql_refused", "sql_parameters", "paren_is",
   "unchecked_binding",
 }
 
@@ -724,6 +728,24 @@ Codes.catalog = {
     why = "`gsub` looks a match up in its table by the first capture, which is a string (the whole match, or the text of " ..
       "`( ... )`) or an integer (the position of `()`), so a table keyed by the other type finds nothing",
     fix = "declare the table with the key type the pattern captures: `{string: ...}` for text, `{integer: ...}` for `()`",
+  },
+  {
+    code = "sql_schema", rule = "SQL on a handle with a schema is read",
+    why = "`Sqlite.schema` runs its DDL as the program makes the schema and raises where SQLite refuses it, so DDL that " ..
+      "SQLite refuses is found where it is written",
+    fix = "write DDL that SQLite runs, and that creates the tables alone",
+  },
+  {
+    code = "sql_refused", rule = "SQL on a handle with a schema is read",
+    why = "a handle opened with a schema holds its tables, so SQL that SQLite cannot prepare against them (a table or " ..
+      "column the schema does not create, a typo) fails when it runs, and is found where it is written",
+    fix = "name only the tables and columns the schema creates, in SQL that SQLite reads",
+  },
+  {
+    code = "sql_parameters", rule = "SQL on a handle with a schema is read",
+    why = "a statement binds one value for each `?N` through the highest, and a values list of another length fails " ..
+      "when it runs",
+    fix = "give <wanted>, one for each parameter, in order",
   },
   {
     code = "paren_is", rule = "narrowing declarations",

@@ -113,3 +113,8 @@ local function test_ddl_with_a_nul_raises()
   local ok, err = pcall(Sqlite.schema, "CREATE TABLE t (x)\0")
   assert(not ok and tostring(err):find("NUL", 1, true) ~= nil)
 end
+
+local function test_an_attach_in_the_ddl_raises()
+  local ok, err = pcall(Sqlite.schema, "ATTACH ':memory:' AS other; CREATE TABLE other.t (x)")
+  assert(not ok and tostring(err):find("too many attached", 1, true) ~= nil)
+end

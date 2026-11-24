@@ -499,6 +499,12 @@ local record Ctx
   --- The text of each local that is given a string literal and never assigned, by id: what a literal pattern or format
   --- held in a local says.
   consts: mut {integer: string}
+  --- The DDL of each local given `Sqlite.schema(ddl)` with a literal `ddl` and never assigned, by id.
+  schemas: mut {integer: string}
+  --- The DDL of the schema each local handle was opened with (`Sqlite.open(path, { schema = S })`,
+  --- `Sqlite.memory({ schema = S })`, either in `assert`), where the local is never assigned, by id: the
+  --- SQL literals sent to it are read against that schema ([`lang.sql`]).
+  handle_schemas: mut {integer: string}
   --- The integer literal as written (`0`) that starts each local declared without a type, by binding: an `integer` the
   --- program may mean as a `number`.
   starts: mut {integer: string}
@@ -7126,6 +7132,165 @@ function Calls.literal_arguments(ctx: Ctx, call: Literals.Call, node: Ast.Node, 
   end
 end
 
+--- The name of the function of [`cosmic.sqlite`] that `callee` is ([`Sqlite.open`] is "open"), or nil: a field of a local
+--- that holds the module.
+function Calls.sqlite_function(ctx: Ctx, callee: Ast.Node): string?
+  local at = peel(callee)
+  if not (at.kind == "Field") then
+    return nil
+  end
+  local object = peel(at.object)
+  if not (object.kind == "Name") then
+    return nil
+  end
+  local bound = object.binding
+  if bound == nil then
+    return nil
+  end
+  local held = ctx.vars[bound]
+  if held == nil or not (held.tag == "named") or not held.value or held.decl.module ~= "cosmic.sqlite" then
+    return nil
+  end
+  return at.name
+end
+
+--- The text of `e` where every part is a literal: a string, a local that holds one, or a `..` of them.
+function Calls.joined_text(ctx: Ctx, e: Ast.Node): string?
+  local at = peel(e)
+  if (at.kind == "Binary") and at.op == ".." then
+    local left = Calls.joined_text(ctx, at.left)
+    if left == nil then
+      return nil
+    end
+    local right = Calls.joined_text(ctx, at.right)
+    if right == nil then
+      return nil
+    end
+    return left .. right
+  end
+  return Calls.literal_text(ctx, at)
+end
+
+--- The DDL and its argument where `e` is `Sqlite.schema(ddl)` with a literal `ddl`; nil otherwise.
+function Calls.schema_call(ctx: Ctx, e: Ast.Node): string?, Ast.Node?
+  local at = peel(e)
+  if not (at.kind == "Call") or Calls.sqlite_function(ctx, at.callee) ~= "schema" then
+    return nil, nil
+  end
+  local given = at.args[1]
+  if given == nil then
+    return nil, nil
+  end
+  return Calls.joined_text(ctx, given), given
+end
+
+--- The DDL of the schema a handle opened by `e` holds: `Sqlite.open(path, { schema = S })` or
+--- `Sqlite.memory({ schema = S })`, either in `assert`, where `S` is a local [`Ctx.schemas`] holds.
+function Calls.opened_schema(ctx: Ctx, e: Ast.Node): string?
+  local at = peel(e)
+  if (at.kind == "Call") then
+    local callee = peel(at.callee)
+    local first = at.args[1]
+    if (callee.kind == "Name") and callee.binding == nil and callee.text == "assert" and first ~= nil then
+      at = peel(first)
+    end
+  end
+  if not (at.kind == "Call") then
+    return nil
+  end
+  local fn = Calls.sqlite_function(ctx, at.callee)
+  local opts: Ast.Exp? = nil
+  if fn == "open" then
+    opts = at.args[2]
+  elseif fn == "memory" then
+    opts = at.args[1]
+  end
+  if opts == nil then
+    return nil
+  end
+  local given = peel(opts)
+  if not (given.kind == "Table") then
+    return nil
+  end
+  for _, item in ipairs(given.items) do
+    if (item.kind == "Named") and item.name == "schema" then
+      local named = peel(item.value)
+      local bound = if (named.kind == "Name") then named.binding else nil end
+      if bound ~= nil then
+        return ctx.schemas[bound]
+      end
+    end
+  end
+  return nil
+end
+
+--- Reads the SQL of a call on a handle opened with a schema ([`Ctx.handle_schemas`]) against that schema: SQL that SQLite
+--- refuses there, and a values list written out whose length is not the number of values the SQL binds.
+function Calls.sql_arguments(ctx: Ctx, method: string, node: Ast.Node, args: {Ast.Exp}, recv_node: Ast.Node)
+  -- Required here, not in the main chunk, whose locals are at their ceiling.
+  local Sql = require("lang.sql")
+  local valued = Sql.methods[method]
+  local receiver = peel(recv_node)
+  local sql = args[1]
+  local bound = if (receiver.kind == "Name") then receiver.binding else nil end
+  if sql == nil or bound == nil or not (receiver.kind == "Name") then
+    return
+  end
+  local ddl = ctx.handle_schemas[bound]
+  if ddl == nil or (valued == nil and method ~= "exec") then
+    return
+  end
+  local text = Calls.joined_text(ctx, sql)
+  -- SQL that may make a table or attach a database ends the reads of the handle: what it holds is
+  -- no longer the schema alone.
+  if (method == "exec" and text == nil) or (text ~= nil and Sql.changes_schema(text)) then
+    ctx.handle_schemas[bound] = nil
+    return
+  end
+  if text == nil or valued == nil then
+    return
+  end
+  local read = Sql.read(ddl, text)
+  if read == nil then
+    return
+  end
+  local refusal = read.refused
+  if refusal ~= nil then
+    local fix = if refusal:find("statement", 1, true) ~= nil then
+      "send one statement a call, or several with `" .. receiver.text .. ":exec`" else
+      "name only the tables and columns the schema creates, in SQL that SQLite reads" end
+    report(ctx, "sql_refused", sql, quoted(receiver.text) .. " was opened with a schema, and SQLite refuses this SQL " ..
+        "against it: " .. refusal, fix, { refusal })
+    return
+  end
+  if not valued then
+    return
+  end
+  local values = args[2]
+  local given = if values ~= nil then peel(values) else nil end
+  local count: integer? = nil
+  if given == nil or (given.kind == "Nil") then
+    count = 0
+  elseif (given.kind == "Table") then
+    count = #given.items
+    for k, item in ipairs(given.items) do
+      local value = if (item.kind == "Positional") then peel(item.value) else nil end
+      -- A call or `...` last in the list may give any number of values.
+      if value == nil or (k == #given.items and ((value.kind == "Call") or (value.kind == "MethodCall") or
+          (value.kind == "Vararg"))) then
+        count = nil
+        break
+      end
+    end
+  end
+  if count ~= nil and count ~= read.parameters then
+    local wanted = if read.parameters == 1 then "1 value" else tostring(read.parameters) .. " values" end
+    report(ctx, "sql_parameters", values or node, "the SQL binds " .. wanted .. ", and " .. tostring(count) ..
+        (if count == 1 then " is" else " are" end) .. " given", "give " .. wanted .. ", one for each parameter, in order",
+      { tostring(read.parameters), tostring(count) })
+  end
+end
+
 --- The lists a call returns, where the callee has type `ft` (and the overloads `cands`, if it has several). `expected`
 --- is the type the call is expected to return, which solves a type parameter no argument does.
 function Calls.dispatch(ctx: Ctx, node: Ast.Node, callee_node: Ast.Node, callee: string, ft: Type, cands: {Type}?,
@@ -7150,6 +7315,9 @@ function Calls.dispatch(ctx: Ctx, node: Ast.Node, callee_node: Ast.Node, callee:
   local library = Calls.library_call(ctx, callee_node, node, args, recv, recv_node)
   local key: string? = nil
   local refined: Fn? = nil
+  if (node.kind == "MethodCall") and recv_node ~= nil then
+    Calls.sql_arguments(ctx, node.name, node, args, recv_node)
+  end
   if library ~= nil then
     Calls.literal_arguments(ctx, library, node, args, recv_node)
     local pattern = library.fn == "gsub" and library.literals[2] or nil -- checked: and_ternary
@@ -7997,6 +8165,19 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
         ctx.consts[b.id] = literal.value
       else
         ctx.library[b.id] = Calls.library_value(ctx, literal) -- checked: nil_not_allowed
+        local ddl, given = Calls.schema_call(ctx, literal)
+        if ddl ~= nil and given ~= nil then
+          ctx.schemas[b.id] = ddl
+          local refusal = require("lang.sql").schema(ddl)
+          if refusal ~= nil then
+            report(ctx, "sql_schema", given, "SQLite refuses the schema's DDL: " .. refusal,
+              "write DDL that SQLite runs, and that creates the tables alone", { refusal })
+          end
+        end
+        local opened = Calls.opened_schema(ctx, literal)
+        if opened ~= nil then
+          ctx.handle_schemas[b.id] = opened
+        end
       end
     end
     if want ~= nil then
@@ -10197,7 +10378,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, spreads = {}, tags = {}, declared = {}, union_fields = {}, spine = {},
     ternaries = {}, spare = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
-    loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, runs = {}, inferred = {}, boundaries = {}, types = {}, callees = {}, consts = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
+    loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, runs = {}, inferred = {}, boundaries = {}, types = {}, callees = {}, consts = {}, schemas = {}, handle_schemas = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
     end,
