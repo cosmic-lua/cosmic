@@ -96,10 +96,10 @@ local function test_a_nested_program_cannot_widen_what_it_was_given(tmp: string)
   -- The directories at the names the chunk uses; the working directory is
   -- the program's own, which the root must hold.
   local policy: Sandbox.Policy = { profiles = { "cosmic" }, isolate = { "file" },
-    promises = { "fork", "nest" }, tmp = true, grants = {
+    tmp = true, grants = {
       { path = "/ro", letters = "r", from = work .. "/ro" },
       { path = "/rw", letters = "rwc", from = work .. "/rw" },
-      { path = work, letters = "r" } } }
+      { path = work, letters = "r" }, { calls = "fork" }, { calls = "nest" } } }
   local started = this_program.program(test_child.words(work, "cosmic.child_policy_nest_calls_test", "nested calls"),
     { timeout_ns = Child.FOREVER, policy = policy, cwd = work, stdout = "capture", stderr = "stdout" })
   local result, why = Child.run(started.argv, started.options)

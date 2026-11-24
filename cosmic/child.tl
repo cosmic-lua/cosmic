@@ -342,7 +342,7 @@ local record Options
   ---   and AF_INET6 sockets, and bind and connect on them; AF_UNIX
   ---   sockets only with a `u` grant. With neither, every inet socket is
   ---   refused.
-  --- - `promises` are the system calls it may make beyond its basics
+  --- - `calls` grants are the system calls it may make beyond its basics
   ---   (a seccomp filter). `nest` lets the program build a sandbox of its
   ---   own: it needs `isolate` "file", and it gives up Landlock, which the
   ---   kernel's refusal of a mount to a process it holds would make
@@ -537,7 +537,7 @@ local record Options
   --- with its text. It holds
   --- `grants` (a relative one from `cwd`, which must exist, and the child's
   --- program needs `rx` -- the "system" profile gives the host's own),
-  --- `promises` `fork`, `jit` and `fattr`, `env`, `set_env` and `limits`
+  --- the `calls` grants `fork`, `jit` and `fattr`, `env`, `set_env` and `limits`
   --- but `processes`. It fails, saying so, for what Seatbelt cannot hold --
   --- `isolate`, `loopback`, `nest`, a grant's `from`,
   --- `limits.processes`. A `connect` is served by the relay held by a profile
@@ -2390,7 +2390,7 @@ end
 --- must be beneath a grant giving `r` and one giving `x`, which may be
 --- one. A grant whose path does not exist is skipped, as spawn names
 --- it.
-local function ungranted(files: {string}, grants: {Rules.Grant}, cwd?: string): string
+local function ungranted(files: {string}, grants: {Rules.Path}, cwd?: string): string
   local reals: mut {{string}} = {}
   for _, grant in ipairs(grants) do
     local at = grant.path
@@ -2431,7 +2431,7 @@ end
 
 --- Whether `merged` promises `nest`.
 local function nests(merged: Rules.Policy): boolean
-  for _, promise in ipairs(merged.promises or {}) do
+  for _, promise in ipairs(Rules.calls(merged)) do
     if promise == "nest" then return true end
   end
   return false
@@ -2440,7 +2440,7 @@ end
 --- A policy's fields not yet met, by what each would need.
 local function unmet(merged: Rules.Policy): string
   local file = isolates(merged, "file")
-  local held = #(merged.grants or {}) + (if merged.tmp == true and not file then 1 else 0 end)
+  local held = #(Rules.paths(merged)) + (if merged.tmp == true and not file then 1 else 0 end)
   local most = if file then MAX_ISOLATED_GRANTS else MAX_GRANTS end
   if held > most then
     return "grants: the policy holds " .. tostring(held) ..
@@ -2448,11 +2448,11 @@ local function unmet(merged: Rules.Policy): string
       ", past the most a start takes, " .. tostring(most) .. "; grant a directory above them instead"
   end
   if nests(merged) and not file then
-    return "promises \"nest\" needs isolate \"file\": the root of the program's own is what " ..
+    return "calls \"nest\" needs isolate \"file\": the root of the program's own is what " ..
       "holds its files once Landlock's hold is given up, since the kernel refuses a mount to " ..
       "a process Landlock holds"
   end
-  for _, grant in ipairs(merged.grants or {}) do
+  for _, grant in ipairs(Rules.paths(merged)) do
     if grant.from ~= nil and not file then
       return "grant \"" .. grant.path .. "\" has from, which needs isolate \"file\": the host's " ..
         "path is bound at that name in a root of the program's own"
@@ -2496,7 +2496,7 @@ end
 --- A file beneath /tmp where `tmp` makes the sandbox's own /tmp needs no
 --- rule of its own: it is bound in at its name over that tmpfs, and the
 --- rule holds its inode alone, so a file made at the name gets no `x`.
-local function startable(file: string, grants: {Rules.Grant}, cwd?: string): boolean
+local function startable(file: string, grants: {Rules.Path}, cwd?: string): boolean
   local st, _ = sys.stat(file)
   if st == nil or st.kind ~= "file" then return false end
   for _, grant in ipairs(grants) do
@@ -2514,7 +2514,7 @@ end
 
 --- Whether a root of `grants` has the directory `base`, which it does when
 --- some grant is at it, beneath it (the directories above are made) or above it.
-local function holds_place(grants: {Rules.Grant}, base: string): boolean
+local function holds_place(grants: {Rules.Path}, base: string): boolean
   for _, grant in ipairs(grants) do
     local name = named(grant.path, base)
     -- Where a grant with no `from` is placed is where it resolves to.
@@ -2539,7 +2539,7 @@ local function root_of(merged: Rules.Policy, base: string, idmap: {integer: bool
   local binds: mut {raw_process.Bind} = {}
   local reads: mut {string} = {}
   local proc = true
-  for index, grant in ipairs(merged.grants or {}) do
+  for index, grant in ipairs(Rules.paths(merged)) do
     local name = named(grant.path, base)
     if name == "/proc" and grant.from ~= nil then
       return nil, "grant \"/proc\" has from, but /proc is the sandbox's own: grant its " ..
@@ -2578,14 +2578,14 @@ end
 local function unix_unheld(merged: Rules.Policy, base: string, nest: boolean): string
   local abi, _ = raw.landlock_abi()
   if not nest and (abi == nil or abi >= 9) then return "" end
-  for _, grant in ipairs(merged.grants or {}) do
+  for _, grant in ipairs(Rules.paths(merged)) do
     local st, _ = sys.stat(named(grant.from or grant.path, base))
     local kind = if st ~= nil then st.kind else "" end
     if kind == "dir" or (kind == "socket" and not lettered(grant.letters, "u")) then
       local what = if kind == "dir" then "a directory" else "a socket without `u`" end
       if nest then
         return "a `u` grant under isolate file beside " .. what .. " (" ..
-          string.format("%q", grant.path) .. ") needs Landlock, which promises \"nest\" gives " ..
+          string.format("%q", grant.path) .. ") needs Landlock, which calls \"nest\" gives " ..
           "up: the granted socket cannot be told from another socket in the root, and the " ..
           "root holds every socket a granted directory holds. Grant the socket alone (and " ..
           "files), or leave nest out"
@@ -2609,7 +2609,7 @@ end
 --- the other, a file granted `c` without `w`, and a grant of `x` without
 --- `r` are refused, naming the letters to add.
 local function nest_unheld(merged: Rules.Policy, base: string): string
-  for _, grant in ipairs(merged.grants or {}) do
+  for _, grant in ipairs(Rules.paths(merged)) do
     local letters = grant.letters
     local what = "grant " .. string.format("%q", grant.path) .. " (" .. letters .. ")"
     local st, _ = sys.stat(named(grant.from or grant.path, base))
@@ -2631,7 +2631,7 @@ end
 
 --- Whether a grant of `merged` has `u`.
 local function isolated_unix(merged: Rules.Policy): boolean
-  for _, grant in ipairs(merged.grants or {}) do
+  for _, grant in ipairs(Rules.paths(merged)) do
     if lettered(grant.letters, "u") then return true end
   end
   return false
@@ -2777,7 +2777,7 @@ local function reached_by(merged: Rules.Policy, base: string, file: boolean,
     end
   end
   local idmap: mut {integer: boolean} = {}
-  for index, grant in ipairs(merged.grants or {}) do
+  for index, grant in ipairs(Rules.paths(merged)) do
     local named_at = named(grant.from or grant.path, base)
     local real, _ = sys.realpath(named_at)
     local st: sys.Stat?
@@ -3001,7 +3001,7 @@ end
 
 --- Whether `name`, a policy's program, is this program's own file, which
 --- `grants` let it read and run.
-local function runs_this_program(name: string, cwd: string?, grants: {Rules.Grant}): boolean
+local function runs_this_program(name: string, cwd: string?, grants: {Rules.Path}): boolean
   local own = this_program(name, cwd)
   return own ~= nil and ungranted({ own }, grants, cwd) == ""
 end
@@ -3014,7 +3014,7 @@ end
 --- hard link, a copy or a bind-mounted view of it elsewhere in a granted
 --- directory still reads the program, so it does not hold against a
 --- policy author who means to reach it.
-local function reaching(file: string, grants: {Rules.Grant}, base: string?): string
+local function reaching(file: string, grants: {Rules.Path}, base: string?): string
   for _, grant in ipairs(grants) do
     local at = grant.from or grant.path
     if base ~= nil and at:sub(1, 1) ~= "/" then at = base .. "/" .. at end
@@ -3032,7 +3032,7 @@ end
 --- to, and `reach` the grants that must not reach this program's own file:
 --- the host's own (Landlock's profiles are not Seatbelt's).
 local function core_of(argv: {string}, opts: Options, merged: Rules.Policy, user: MappedUser?,
-                       base: string?, reach: {Rules.Grant}): Proc.Relaunch?, string
+                       base: string?, reach: {Rules.Path}): Proc.Relaunch?, string
   local named_database = merged.database
   local database: string = named_database and named_database.path -- checked: nil_not_allowed
   local program: string?
@@ -3042,7 +3042,7 @@ local function core_of(argv: {string}, opts: Options, merged: Rules.Policy, user
       return nil, "sandbox: database " .. database .. ": a program runs on a database only " ..
         "where it is this program's core, and " .. argv[1] .. " is not this program" -- checked: nil_not_allowed
     end
-  elseif not runs_this_program(argv[1], opts.cwd, merged.grants or {}) then -- checked: index_may_be_nil
+  elseif not runs_this_program(argv[1], opts.cwd, Rules.paths(merged)) then -- checked: index_may_be_nil
     return nil, ""
   end
   local found, relaunch_trouble = relaunch_of(user, database)
@@ -3156,7 +3156,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   local tmp_exec = false
   if file and merged.tmp == true then
     local others: mut {Rules.Grant} = {}
-    for _, grant in ipairs(merged.grants or {}) do
+    for _, grant in ipairs(Rules.paths(merged)) do
       if grant.from == nil and named(grant.path, "/") == "/tmp" then
         if grant.letters ~= "rwc" and grant.letters ~= "rwxc" then
           return nil, "sandbox: grant \"" .. grant.path .. "\" (" .. grant.letters .. ") is the " ..
@@ -3168,6 +3168,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
         others[#others + 1] = grant
       end
     end
+    for _, promise in ipairs(Rules.calls(merged)) do others[#others + 1] = { calls = promise } end
     merged.grants = others -- checked: field_fixed
   end
   -- The directory the root of `isolate` file is built around, and the one
@@ -3193,7 +3194,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   local relaunch: Proc.Relaunch?
   local named_database = merged.database
   local database: string = named_database and named_database.path -- checked: nil_not_allowed
-  local found, relaunch_trouble = core_of(argv, opts, merged, user, base, merged.grants or {})
+  local found, relaunch_trouble = core_of(argv, opts, merged, user, base, Rules.paths(merged))
   if found == nil and relaunch_trouble ~= "" then return nil, relaunch_trouble end
   -- A core on a database is started by path with no descriptor, so
   -- `nest` may run it: the root binds the core and the database read-only
@@ -3217,12 +3218,13 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- none, "too many unveiled paths" for the root they are bound into.
   -- The fix: count the grants after adding these two, and refuse with
   -- the count and the most.
-  local core_grant: Rules.Grant?
+  local core_grant: Rules.Path?
   if found ~= nil then
     relaunch = found
     local granted = assert(merged.grants)
     granted[#granted + 1] = { path = found.argv[1], letters = "rx" } -- checked: index_may_be_nil, view_written
-    core_grant = granted[#granted]
+    local last = granted[#granted]
+    core_grant = if last is Rules.Path then last else nil end
     -- A core on a database reads it, on its own start and on every
     -- relaunch of its own; the grant is what a start that stays on it
     -- needs, whether the database is the policy's or this process's.
@@ -3269,14 +3271,14 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     -- takes is not pushed past it by a grant of what it names.
     -- Under `isolate` file a grant with `from` shows another file at the
     -- name, so only one without gives the program.
-    local giving: mut {Rules.Grant} = {}
-    for _, grant in ipairs(merged.grants or {}) do
+    local giving: mut {Rules.Path} = {}
+    for _, grant in ipairs(Rules.paths(merged)) do
       if not file or grant.from == nil then giving[#giving + 1] = grant end
     end
-    local start_grants: mut {Rules.Grant} = {}
+    local start_grants: mut {Rules.Path} = {}
     for _, start_file in ipairs(files) do
       if ungranted({ start_file }, giving, base) ~= "" and
-          startable(start_file, merged.grants or {}, base) then
+          startable(start_file, Rules.paths(merged), base) then
         start_grants[#start_grants + 1] = { path = start_file, letters = "rx" }
       end
     end
@@ -3325,16 +3327,16 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   end
   -- Under `isolate` file the program runs from where the host has it, so
   -- only a grant at its own name gives it: one with `from` shows another.
-  local checked = merged.grants or {}
+  local checked = Rules.paths(merged)
   if file then
     checked = {}
-    for _, grant in ipairs(merged.grants or {}) do
+    for _, grant in ipairs(Rules.paths(merged)) do
       if grant.from == nil then checked[#checked + 1] = grant end -- checked: view_written
     end
   end
   local missing = ungranted(files, checked, base)
   if missing ~= "" then return nil, "sandbox: " .. missing end
-  if file and not holds_place(merged.grants or {}, base) then
+  if file and not holds_place(Rules.paths(merged), base) then
     return nil, "sandbox: under isolate file the root holds only what is granted, so the " ..
       "directory the program starts in, " .. string.format("%q", base) .. ", must be at, " ..
       "beneath or above a grant: grant it, or start in a directory that is"
@@ -3364,7 +3366,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
       end
     end
   end
-  for _, grant in ipairs(policy.grants or {}) do
+  for _, grant in ipairs(Rules.paths(policy)) do
     local named_at = grant.from or grant.path
     local cwd = opts.cwd
     if cwd ~= nil and named_at:sub(1, 1) ~= "/" then named_at = cwd .. "/" .. named_at end
@@ -3372,7 +3374,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     if real ~= nil then starts[real] = nil end
   end
   local unix = false
-  for _, grant in ipairs(merged.grants or {}) do
+  for _, grant in ipairs(Rules.paths(merged)) do
     local at = grant.from or grant.path
     if base ~= nil and at:sub(1, 1) ~= "/" then at = base .. "/" .. at end -- checked: compare_disjoint
     grants[#grants + 1] = { path = at, access = grant.letters }
@@ -3412,7 +3414,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   if user == nil and user_trouble ~= "" then return nil, "sandbox: " .. user_trouble end
   rlimits.nproc = counted -- checked: map_field
   local promises: mut {string} = {}
-  for _, promise in ipairs(merged.promises or {}) do promises[#promises + 1] = promise end
+  for _, promise in ipairs(Rules.calls(merged)) do promises[#promises + 1] = promise end
   -- A network namespace of its own with a loopback holds the network of a
   -- program that declares addresses of it, has a relay to reach, or has a
   -- unix socket to reach: the filter then lets it make inet sockets (the
@@ -3484,12 +3486,12 @@ end
 --- `p` with `extra` grants beside its own, every other field as it is:
 --- the policy a profile is compiled from once the start grants its
 --- program's start files, unmerged, as [`Seatbelt.compile`] takes it.
-local function with_grants(p: Rules.Policy, extra: {Rules.Grant}): Rules.Policy
+local function with_grants(p: Rules.Policy, extra: {Rules.Path}): Rules.Policy
   local grants: mut {Rules.Grant} = {}
   for _, grant in ipairs(p.grants or {}) do grants[#grants + 1] = grant end
   for _, grant in ipairs(extra) do grants[#grants + 1] = grant end
   local result: Rules.Policy = {
-    grants = grants, isolate = p.isolate, promises = p.promises,
+    grants = grants, isolate = p.isolate,
     connect = p.connect, loopback = p.loopback, env = p.env, set_env = p.set_env,
     set_env_digests = p.set_env_digests, tmp = p.tmp, limits = p.limits,
     user = p.user, group = p.group, database = p.database, profiles = p.profiles,
@@ -3574,10 +3576,10 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   -- interpreters its start reads `rx`: the starter's need, not the
   -- program's right. A relaunched core is granted above.
   if relaunch == nil then
-    local start_grants: mut {Rules.Grant} = {}
+    local start_grants: mut {Rules.Path} = {}
     for _, start_file in ipairs(files) do
-      if ungranted({ start_file }, merged.grants or {}, opts.cwd) ~= "" and
-          startable(start_file, merged.grants or {}, opts.cwd) then
+      if ungranted({ start_file }, Rules.paths(merged), opts.cwd) ~= "" and
+          startable(start_file, Rules.paths(merged), opts.cwd) then
         start_grants[#start_grants + 1] = { path = start_file, letters = "rx" }
       end
     end
@@ -3613,7 +3615,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   if relayed then options.relay_port = 65535 end
   local profile, compile_trouble = Seatbelt.compile(policy, options)
   if profile == nil then return nil, "sandbox: " .. compile_trouble end
-  local missing = ungranted(files, merged.grants or {}, opts.cwd)
+  local missing = ungranted(files, Rules.paths(merged), opts.cwd)
   if missing ~= "" then return nil, "sandbox: " .. missing end
   local env: mut {string:string} = {}
   for _, name in ipairs(merged.env or {}) do
@@ -3750,10 +3752,10 @@ local function nest_descriptors(slots: {integer:integer}): string
     if not looked and not tostring(st):find("retained", 1, true) then error(st, 0) end
     if not looked then
       return what .. " is one this runtime retains of its own (its artifact or core), which " ..
-        "promises \"nest\" cannot hand a program: it is a file open for reading alone"
+        "calls \"nest\" cannot hand a program: it is a file open for reading alone"
     end
     if st ~= nil and st.kind == "dir" then
-      return what .. " is a directory, which promises \"nest\" cannot hand a program: " ..
+      return what .. " is a directory, which calls \"nest\" cannot hand a program: " ..
         "with Landlock given up, /proc/self/fd/" .. string.format("%d", number) .. " opens every file beneath " ..
         "it and, by .., above it, and the root of its own holds no descriptor"
     elseif st ~= nil and st.kind == "file" then

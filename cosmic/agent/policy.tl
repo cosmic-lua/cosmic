@@ -113,7 +113,7 @@ local record Policy
     --- reaches public addresses alone.
     connect?: {string}
     --- More paths, each with its letters of "rwxc".
-    grants: {Sandbox.Grant}
+    grants: {Sandbox.Path}
     --- A home of the sandbox's own, kept from one session to the next:
     --- the commands' HOME, its .cache their XDG_CACHE_HOME, so a tool's
     --- downloads and builds (cosmic's, pip's, go's, npm's) outlive a
@@ -403,14 +403,15 @@ function Policy.of(cwd: string, config: Policy.Config): Sandbox.Policy?, string
   -- The kernel counts a sandbox's processes from Linux 5.17 on.
   local release, _ = Fs.read("/proc/sys/kernel/osrelease")
   local counts = linux and release ~= nil and Sandbox.counts_per_namespace((release:gsub("%s+$", "")))
+  -- calls nest: a command may hold what it runs to less (cosmic test does).
+  -- It needs a root of its own, so Linux alone, and gives up Landlock:
+  -- files are then held by that root alone.
+  local calls: {Sandbox.Promise} = if linux then { "fork", "fattr", "jit", "nest" } else { "fork", "fattr", "jit" } end
+  for _, promise in ipairs(calls) do grants[#grants + 1] = { calls = promise } end
   local own: Sandbox.Policy = {
     profiles = { "system", "programs", "proc" },
     grants = grants,
     tmp = true,
-    -- nest: a command may hold what it runs to less (cosmic test does).
-    -- It needs a root of its own, so Linux alone, and gives up Landlock:
-    -- files are then held by that root alone.
-    promises = if linux then { "fork", "fattr", "jit", "nest" } else { "fork", "fattr", "jit" } end,
     env = if config.path ~= nil then { "LANG", "LC_ALL", "TERM" } else { "PATH", "LANG", "LC_ALL", "TERM" } end,
     set_env = env_of(linux, home, if config.path ~= nil then real_path(config.path) else nil end, cert),
     connect = connect_of(config),
@@ -460,9 +461,9 @@ function Policy.describe(p: Sandbox.Policy, home?: string): {string}
   local connect = p.connect or {}
   out[#out + 1] = "network: " .. (if #connect > 0 then table.concat(connect, " ") else "none" end)
   out[#out + 1] = "grants (r reads, w writes, x runs, c creates and removes):"
-  local grants: mut {Sandbox.Grant} = {}
-  for _, g in ipairs(p.grants or {}) do grants[#grants + 1] = g end
-  table.sort(grants, function(a: Sandbox.Grant, b: Sandbox.Grant): boolean
+  local grants: mut {Sandbox.Path} = {}
+  for _, g in ipairs(Sandbox.paths(p)) do grants[#grants + 1] = g end
+  table.sort(grants, function(a: Sandbox.Path, b: Sandbox.Path): boolean
     return a.path < b.path
   end)
   for _, g in ipairs(grants) do out[#out + 1] = string.format("  %-5s %s", g.letters, g.path) end
@@ -470,7 +471,7 @@ function Policy.describe(p: Sandbox.Policy, home?: string): {string}
     out[#out + 1] = "profiles: " .. table.concat(p.profiles, " ")
   end
   if p.tmp == true then out[#out + 1] = "tmp: a fresh /tmp for each command, removed after it" end
-  out[#out + 1] = "promises: " .. table.concat(p.promises or {}, " ")
+  out[#out + 1] = "calls: " .. table.concat(Sandbox.calls(p), " ")
   out[#out + 1] = "isolate: " .. (if p.isolate ~= nil then table.concat(p.isolate, " ") else "none" end)
   local limits = p.limits
   if limits ~= nil and limits.processes ~= nil then

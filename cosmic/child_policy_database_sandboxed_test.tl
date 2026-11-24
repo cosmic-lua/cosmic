@@ -144,10 +144,10 @@ local function under_nest(tmp: string, mode: string, policy: Sandbox.Policy): {s
   local scratch = tmp .. "/scratch"
   assert(Fs.mkdirs(scratch))
   searchable.share(scratch)
-  local grants = policy.grants or {}
-  table.insert(grants, { path = scratch, letters = "rwc" }) -- checked: overload_none
+  local grants = ChildPolicy.with(policy.grants or {}, { path = scratch, letters = "rwc" }, { calls = "fork" },
+    { calls = "nest" })
   local nested: Sandbox.Policy = { ...policy, database = policy.database or { path = path },
-    isolate = { "file" }, promises = { "fork", "nest" }, set_env = { TMPDIR = scratch }, grants = grants }
+    isolate = { "file" }, set_env = { TMPDIR = scratch }, grants = grants }
   local executable = assert(Proc.executable())
   local result, why = Child.run({ executable, executable, mode, scratch },
     { policy = nested, cwd = tmp, stdout = "capture", stderr = "capture",
