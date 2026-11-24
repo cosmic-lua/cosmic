@@ -2486,8 +2486,8 @@ local function read_command(ctx: Run): integer?
 end
 
 --- Removes the build directories no run has used for thirty days, or
---- whose checkout is gone ([`build.cache_lifetime`]), saying so when it removes any. It holds
---- this checkout's rebuild lock, and fails no run.
+--- whose checkout is gone ([`build.cache_lifetime`]), saying so when it
+--- removes any. It holds this checkout's rebuild lock, and fails no run.
 local function prune_trees(root: string)
   local own, _ = build_paths.directory(root)
   if own == nil then return end

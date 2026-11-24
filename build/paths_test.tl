@@ -123,7 +123,9 @@ local function test_prepare_records_the_use(tmp: string)
   assert(paths.prepare(root, env) == directory)
   assert(assert(sys.stat(used)).mtime > now - 600, "a use was not recorded again")
   local canonical = assert(sys.realpath(root))
-  assert(assert(Fs.read(used)) == paths.view() .. "\n" .. canonical, assert(Fs.read(used)))
+  assert(assert(Fs.read(used)) == paths.record(canonical), assert(Fs.read(used)))
+  local view = paths.view()
+  assert(view == "" or view:match("^%x[%x-]* mnt:%[%d+%]$") ~= nil, view)
   assert(Fs.basename(directory) == Hash.hex_sha256(canonical))
 end
 

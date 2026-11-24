@@ -21,11 +21,8 @@
 ---   caller's own directory is in, which is this user's and writable by no
 ---   one else;
 --- - its `used` file is a regular file last modified over thirty days
----   ago, or names a checkout that is gone: its text is the view of the
----   file system and the canonical root [`build.paths`]' `prepare` wrote,
----   the view is this process's own, the root's SHA-256 is the
----   directory's name, and nothing is at the root. It is read again once
----   the lock is held;
+---   ago, or it names a checkout that is gone ([`orphaned`]).
+---   It is read again once the lock is held;
 --- - its rebuild lock ([`build.rebuild_lock`]) is taken, so no run is
 ---   building, testing or writing there, and stays held to the end;
 --- - the directory is renamed aside before anything is removed, and put
@@ -33,10 +30,9 @@
 ---   meantime, so a run that records its use before the pass reads it is
 ---   never pruned.
 ---
---- A checkout on a volume that is not mounted reads as gone, and its
---- directory is made again by its next build. A record written before
---- records named their root, or one a pass dated, names none, and its
---- directory waits out its thirty days.
+--- A record written before records named their root, one a pass
+--- dated, or one written in another view of the file system names none,
+--- and its directory waits out its thirty days.
 ---
 --- A directory without a `used` file that holds a build's files is not
 --- removed, only dated from now, so one made before the rule began lives
@@ -136,19 +132,28 @@ local function age(path: string, now: integer): Age
   return if now - st.mtime > kept_s then "stale" else "recent" end
 end
 
---- Whether the record of use at `path`, in the build directory `name`,
---- names a checkout that is gone: it was written in this process's view
---- of the file system, it names a root whose SHA-256 is `name`, and
---- looking at that root finds nothing there. A root that cannot be looked
---- at for another reason (a directory above it this user cannot search)
---- is not gone.
+--- Whether the record of use at `path` ([`build.paths`]' `record`), in
+--- the build directory `name`, names a checkout that is gone: it was
+--- written in this process's view, it names a root whose SHA-256 is
+--- `name`, the directory that held the root is there on the device it
+--- was on, and nothing is at the root. A volume not mounted, a directory
+--- above the root that is gone or cannot be searched, or a root that
+--- cannot be looked at for another reason is not gone.
+local record Viewing
+  --- The view a pass judges records in ([`build.paths`]' `view`).
+  mut current: string
+end
+local viewing: Viewing = { current = "" }
+
 local function orphaned(path: string, name: string): boolean
   local text, _ = Fs.read(path)
   if text == nil then return false end
-  local view, root = text:match("^([^\n]+)\n(/[^\n]*)$")
-  if view == nil or root == nil or view ~= build_paths.view() or Hash.hex_sha256(root) ~= name then
+  local view, root, device = text:match("^([^\n]+)\n(/[^\n]*)\n(%d+)$")
+  if view == nil or root == nil or device == nil or view == "" or view ~= viewing.current or Hash.hex_sha256(root) ~= name then
     return false
   end
+  local parent, _ = sys.stat(Fs.dirname(root))
+  if parent == nil or parent.kind ~= "dir" or tostring(parent.dev) ~= device then return false end
   local _, _, errno = sys.lstat(root)
   return errno == sys.ENOENT
 end
@@ -253,9 +258,11 @@ end
 --- Prunes the build directories beside `own`, the one a run of this
 --- checkout holds the lock of ([`rebuild_lock.hold`]), as the rules above
 --- say, at `now` (default the present), starting no removal after `budget`
---- nanoseconds (default five seconds). Never removes `own`.
-function cache_lifetime.prune(own: string, now?: integer, budget?: integer): cache_lifetime.Report
+--- nanoseconds (default five seconds), judging records of use in `view`
+--- (default this process's, [`build.paths`]' `view`). Never removes `own`.
+function cache_lifetime.prune(own: string, now?: integer, budget?: integer, view?: string): cache_lifetime.Report
   local report: cache_lifetime.Report = { removed = {}, busy = {}, troubles = {}, ran = false }
+  viewing.current = view or build_paths.view()
   now = now or (Clock.now_ns() // 1000000000)
   local base = Fs.dirname(own)
   local base_stat = look(base)

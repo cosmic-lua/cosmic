@@ -204,13 +204,30 @@ function paths.optional(root: string, environment?: {string:string}): string?, s
   return selected.output, ""
 end
 
---- What names the view of the file system this process has: the device
---- and inode of its `/`, "" where it cannot look. Another machine that
---- shares the cache, or a container, sees another `/`.
+--- What names the view of the file system this process has: the boot
+--- it runs in and its mount namespace, read from /proc; "" where it
+--- cannot read them (macOS, a sandbox without /proc). Another machine
+--- that shares the cache has another boot, and a container, a sandbox
+--- or an `unshare -m` has another namespace, so none of them judges a
+--- checkout it may not see.
 function paths.view(): string
-  local st, _ = stat("/")
-  if st == nil then return "" end
-  return tostring(st.dev) .. ":" .. tostring(st.ino)
+  local boot, _ = Fs.read("/proc/sys/kernel/random/boot_id")
+  local namespace, _ = Fs.readlink("/proc/self/ns/mnt")
+  if boot == nil or namespace == nil then return "" end
+  local id = boot:match("^(%x[%x-]*)%s*$")
+  if id == nil or namespace:match("^mnt:%[%d+%]$") == nil then return "" end
+  return id .. " " .. namespace
+end
+
+--- The record of use [`prepare`] writes for the canonical root
+--- `canonical`: the view (`view`, default [`paths.view`]), the root, and
+--- the device of the directory that holds it; "" where any cannot be
+--- read, which names no checkout.
+function paths.record(canonical: string, view?: string): string
+  view = view or paths.view()
+  local parent, _ = stat(dirname(canonical))
+  if view == "" or parent == nil then return "" end
+  return view .. "\n" .. canonical .. "\n" .. tostring(parent.dev)
 end
 
 --- `root`'s build directory, made where it is missing -- the base too,
@@ -218,10 +235,9 @@ end
 --- that fails the check is never repaired, only refused. It records the
 --- use ([`Layout.used`]), which is what keeps the directory from
 --- [`build.cache_lifetime`]'s pruning, and names in it the [`view`] and
---- the canonical root, so a pass can tell the checkout is gone: it is
---- written whole
---- beside the rest, and a failure to record it, in a directory a sandbox holds
---- read-only, is no failure to prepare.
+--- the canonical root ([`record`]), so a pass can tell the checkout is
+--- gone. It is written whole beside the rest, and a failure to record it,
+--- in a directory a sandbox holds read-only, is no failure to prepare.
 function paths.prepare(root: string, environment?: {string:string}): string?, string
   local selected, trouble = location(root, environment)
   if selected == nil then return nil, trouble end
@@ -247,9 +263,7 @@ function paths.prepare(root: string, environment?: {string:string}): string?, st
   local valid, out_trouble = trusted(out)
   if not valid then return nil, "build directory " .. out_trouble end
   local canonical, _ = sys.realpath(root)
-  local view = paths.view()
-  local record_text = if canonical ~= nil and view ~= "" then view .. "\n" .. canonical else "" end
-  local _, _ = Fs.write(under(out).used, record_text, 0x180)
+  local _, _ = Fs.write(under(out).used, if canonical ~= nil then paths.record(canonical) else "" end, 0x180)
   return out, ""
 end
 local prepare = paths.prepare
