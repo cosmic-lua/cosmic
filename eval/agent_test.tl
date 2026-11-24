@@ -21,6 +21,13 @@ local function test_the_command_line_names_tools_a_fixture_and_tasks()
   local offered = options({ "--tool", "a=/c", "--tool", "b=/c", "--offer", "b=run,read", "--fixture", "/f", "--out", "/o" })
   assert(assert(offered.tools[1]).tools == nil and assert(offered.tools[2]).tools == "run,read")
   assert(Agent.parse({ "--offer", "a=run", "--tool", "a=/c", "--fixture", "/f", "--out", "/o" }) == nil)
+  local efforts = options({ "--tool", "a=/c", "--tool", "b=/c", "--tool", "c=/c", "--effort", "b=low", "--effort",
+    "high", "--fixture", "/f", "--out", "/o" })
+  assert(assert(efforts.tools[1]).effort == "high" and assert(efforts.tools[2]).effort == "low" and
+      assert(efforts.tools[3]).effort == "high")
+  assert(assert(options({ "--tool", "a=/c", "--fixture", "/f", "--out", "/o" }).tools[1]).effort == nil)
+  assert(Agent.parse({ "--tool", "a=/c", "--effort", "a=hard", "--fixture", "/f", "--out", "/o" }) == nil)
+  assert(Agent.parse({ "--effort", "a=low", "--tool", "a=/c", "--fixture", "/f", "--out", "/o" }) == nil)
   for _, bad in ipairs({ { "--fixture", "/f", "--out", "/o" }, { "--tool", "t=/c", "--out", "/o" },
       { "--tool", "t", "--fixture", "/f", "--out", "/o" }, { "--tool", "t=/c", "--tool", "t=/d", "--fixture", "/f",
           "--out", "/o" }, { "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--tasks", "nope" },
@@ -38,7 +45,7 @@ end
 --- of an untouched copy, and a task whose truth is empty is unfit.
 local function test_runs_are_graded_against_the_truth_of_an_untouched_copy()
   local o = options({ "--tool", "good=/g", "--tool", "bad=/b", "--fixture", "/f", "--out", "/o",
-    "--tasks", "todos,rename", "--reps", "1" })
+    "--tasks", "todos,rename", "--reps", "1", "--effort", "bad=low" })
   local asked: mut {string} = {}
   local made = 0
   local system: Agent.System = {
@@ -66,6 +73,11 @@ local function test_runs_are_graded_against_the_truth_of_an_untouched_copy()
         assert(e["ANTHROPIC_API_KEY"] == "k" and e["HARNESS_ANTHROPIC_API_KEY"] == nil)
         assert(e["XDG_DATA_HOME"] == (if first == "/g" then "/o/good/data" else "/o/bad/data" end))
         assert(argv[4] == "--model" and argv[5] == "sonnet")
+        if first == "/b" then
+          assert(argv[6] == "--effort" and argv[7] == "low")
+        else
+          assert(argv[6] ~= "--effort")
+        end
         asked[#asked + 1] = first .. " " .. cwd
       end
       return { code = 0, stdout = "", stderr = "", seconds = 3 }
@@ -96,6 +108,9 @@ local function test_runs_are_graded_against_the_truth_of_an_untouched_copy()
           "  - snippets naming each Host helper: grep 2.0, bash 1.0\n", 1, true) ~= nil, report)
   assert(report:find("- bad: 0 of 1 passed", 1, true) ~= nil, report)
   assert(report:find("- good: unfit on this fixture", 1, true) ~= nil, report)
+  assert(report:find("Effort: bad low; the agent's default for the rest.", 1, true) ~= nil, report)
+  assert(report:find("## all tasks\n\n- good: 1 of 1 passed (1 unfit on this fixture, left out); $0.5000, 30 cache read, " ..
+      "40 cache write, 20 out a run; $0.500 in all\n- bad: 0 of 1 passed (1 unfit on this fixture, left out); $0.0000", 1, true) ~= nil, report)
 end
 
 --- What a run spent is its session's, the newest whose directory's name holds the run's marker.

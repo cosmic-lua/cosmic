@@ -371,6 +371,11 @@ local record Agent
     --- cache diagnosis; nil until one came, or was read from where it is
     --- kept; "" where the API refused the one named, so none is named.
     mut last_reply?: string
+    --- When the last request was sent ([`Clock.now_ns`]), one of `warm`'s
+    --- too, where it came back whole and did not compact: the cache keeps
+    --- what it read or wrote 5 minutes from then. Nil where none was, or
+    --- the last failed or compacted, as `warm` would only repeat it.
+    mut sent_ns?: integer
 
     --- Adds `text` as the user's, and runs the loop until the model ends
     --- its turn: true, or false and why. Why is the API's trouble, the
@@ -393,6 +398,13 @@ local record Agent
     --- whose output was kept with that output, one that never ended as
     --- interrupted, not run again.
     settle: function(Session): boolean, string
+    --- Sends the conversation as the last request sent it, to the user's
+    --- last word, asking for no reply: the cache keeps it 5 minutes more,
+    --- for 0.05x of its input price, where writing it again costs 1.25x.
+    --- Call it while the user is idle, before 5 minutes pass from
+    --- `sent_ns`: true, or false and why. Nothing is sent, and true
+    --- comes back, where `sent_ns` is nil.
+    warm: function(Session): boolean, string
     --- Ends the worker, the MCP servers and the background jobs, each
     --- job's output not kept yet kept. The database is the caller's to
     --- close. Safe to call more than once; the agent is not to be
@@ -668,6 +680,23 @@ local function open(url: string, opts: Http.Options): Agent.Reply?, string
   }, ""
 end
 
+--- Fills in `r` with what `reply` says it used, and what that cost.
+local function counted(s: Agent.Session, r: Sessions.Request, reply: {string: Json.Value})
+  local usage, _ = Json.to_object(reply["usage"])
+  if usage == nil then return end
+  r.input_tokens = count_of(usage["input_tokens"]) or 0
+  r.output_tokens = count_of(usage["output_tokens"]) or 0
+  r.cache_read = count_of(usage["cache_read_input_tokens"]) or 0
+  local write = count_of(usage["cache_creation_input_tokens"]) or 0
+  r.cache_write_5m, r.cache_write_1h = write, 0
+  local split, _ = Json.to_object(usage["cache_creation"])
+  if split ~= nil then
+    r.cache_write_5m = count_of(split["ephemeral_5m_input_tokens"]) or 0
+    r.cache_write_1h = count_of(split["ephemeral_1h_input_tokens"]) or 0
+  end
+  r.cost = Agent.billed(r.served or s.model, usage)
+end
+
 --- A request of `s`'s, as it is to be kept: what `call` fills in.
 local function request_of(s: Agent.Session): Sessions.Request
   return { started = Clock.now_ns() // Clock.ms(1), ms = 0, model = s.model, effort = s.effort,
@@ -675,10 +704,25 @@ local function request_of(s: Agent.Session): Sessions.Request
     build = s.build }
 end
 
+--- Whether `reply` begins anew from a compaction block: a request after
+--- it reads from there on, not what came before.
+local function compacted(reply: {string: Json.Value}): boolean
+  local content, _ = Json.to_array(reply["content"])
+  for _, block in ipairs(content or {}) do
+    local b, _ = Json.to_object(block)
+    if b ~= nil and b["type"] == "compaction" then return true end
+  end
+  return false
+end
+
 --- Sends `s`'s conversation once, as `r`, which it fills in with what
---- came back: the reply, or nil and why.
-local function call(s: Agent.Session, r: Sessions.Request): {string: Json.Value}?, string
+--- came back: the reply, or nil and why. With `warming`, the first
+--- `warming` messages alone, asking for no reply, unstreamed: a warm
+--- request, whose reply the next request does not name.
+local function call(s: Agent.Session, r: Sessions.Request, warming?: integer): {string: Json.Value}?, string
   local started = Clock.now_ns()
+  -- Kept warm only from a request that came back whole and did not compact.
+  s.sent_ns = nil
   local function failed(why: string): {string: Json.Value}?, string
     r.error, r.ms = why, (Clock.now_ns() - started) // Clock.ms(1)
     return nil, why
@@ -688,6 +732,21 @@ local function call(s: Agent.Session, r: Sessions.Request): {string: Json.Value}
     s.last_reply = Sessions.last_reply(db, id)
   end
   local body = request_body(s)
+  if warming ~= nil then
+    local whole, _ = Json.to_object(body)
+    local warm: mut {string: Json.Value} = {}
+    for k, v in pairs(whole or {}) do warm[k] = v end
+    local sent: mut {Json.Value} = {}
+    for i, m in ipairs(s.messages) do
+      if i > warming then break end
+      sent[#sent + 1] = m
+    end
+    -- No tokens asked for, which the API takes only unstreamed: it reads
+    -- the prefix (from the cache) and answers nothing.
+    warm["messages"], warm["max_tokens"], warm["stream"] = Json.array(sent), 0, false
+    body = warm
+    r.max_tokens = 0
+  end
   local text, why = Json.encode(body)
   if text == nil then return failed(tostring(why)) end
   -- The body less what is kept elsewhere: the messages, the system
@@ -728,10 +787,30 @@ local function call(s: Agent.Session, r: Sessions.Request): {string: Json.Value}
     if got.status == 400 and named ~= nil and named ~= "" and
         (said:find("previous_message_id", 1, true) ~= nil or said:find("diagnostics", 1, true) ~= nil) then
       s.last_reply = ""
-      return call(s, r)
+      return call(s, r, warming)
     end
     r.reply = said
     return failed("HTTP " .. tostring(got.status) .. ": " .. said)
+  end
+  if warming ~= nil then
+    local parts: mut {string} = {}
+    while true do
+      local chunk, _ = got.read()
+      if chunk == nil then break end
+      parts[#parts + 1] = chunk
+    end
+    got.close()
+    local said = table.concat(parts)
+    r.reply = said
+    local reply, bad = Json.decode_object(said)
+    if reply == nil then return failed("the reply is not a JSON object: " .. tostring(bad)) end
+    r.ms = (Clock.now_ns() - started) // Clock.ms(1)
+    local served, stop = reply["model"], reply["stop_reason"]
+    r.served = if served is string then served else nil end
+    r.stop_reason = if stop is string then stop else nil end
+    counted(s, r, reply)
+    s.sent_ns = started
+    return reply, ""
   end
   -- What came, kept as it came where it cannot be put back together.
   local raw: mut {string} = {}
@@ -757,20 +836,8 @@ local function call(s: Agent.Session, r: Sessions.Request): {string: Json.Value}
   local served, stop = reply["model"], reply["stop_reason"]
   r.served = if served is string then served else nil end
   r.stop_reason = if stop is string then stop else nil end
-  local usage, _ = Json.to_object(reply["usage"])
-  if usage ~= nil then
-    r.input_tokens = count_of(usage["input_tokens"]) or 0
-    r.output_tokens = count_of(usage["output_tokens"]) or 0
-    r.cache_read = count_of(usage["cache_read_input_tokens"]) or 0
-    local write = count_of(usage["cache_creation_input_tokens"]) or 0
-    r.cache_write_5m, r.cache_write_1h = write, 0
-    local split, _ = Json.to_object(usage["cache_creation"])
-    if split ~= nil then
-      r.cache_write_5m = count_of(split["ephemeral_5m_input_tokens"]) or 0
-      r.cache_write_1h = count_of(split["ephemeral_1h_input_tokens"]) or 0
-    end
-    r.cost = Agent.billed(r.served or s.model, usage)
-  end
+  counted(s, r, reply)
+  if not compacted(reply) then s.sent_ns = started end
   return reply, ""
 end
 
@@ -782,6 +849,27 @@ local function keep_request(s: Agent.Session, r: Sessions.Request): boolean, str
     if kept == nil then return false, why end
   end
   tell(s, { kind = "request", request = r })
+  return true, ""
+end
+
+--- Sends `s`'s conversation as its last request sent it, asking for no
+--- reply, and keeps that request: true, or false and why.
+local function warm(s: Agent.Session): boolean, string
+  if s.sent_ns == nil then return true, "" end
+  -- The last request ended at the user's last word: the API takes no
+  -- conversation that ends in the model's.
+  local last = #s.messages
+  while last > 0 do
+    local m, _ = Json.to_object(s.messages[last])
+    if m ~= nil and m["role"] == "user" then break end
+    last = last - 1
+  end
+  if last == 0 then return true, "" end
+  local r = request_of(s)
+  local reply, why = call(s, r, last)
+  local kept, keep_why = keep_request(s, r)
+  if reply == nil then return false, why end
+  if not kept then return false, keep_why end
   return true, ""
 end
 
@@ -1020,6 +1108,7 @@ local class AgentSession is Agent.Session
   mut ended: boolean
   mut stopped: boolean
   mut last_reply?: string
+  mut sent_ns?: integer
 
   function prompt(self, text: string): boolean, string
     return prompt(self, text)
@@ -1035,6 +1124,10 @@ local class AgentSession is Agent.Session
 
   function settle(self): boolean, string
     return settle(self)
+  end
+
+  function warm(self): boolean, string
+    return warm(self)
   end
 
   function close(self)
@@ -1061,6 +1154,7 @@ function Agent.new(options: Agent.Options): Agent.Session
     mcp = options.mcp, build = options.build, messages = held, db = options.db, id = options.id,
     restarts = options.restarts or 0, ended = options.ended == true, stopped = false,
     on = nil, before = nil, after = nil, on_failed = nil, steering = nil, stopping = nil, last_reply = nil,
+    sent_ns = nil,
   }
   return agent
 end

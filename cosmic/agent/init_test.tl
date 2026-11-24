@@ -5,6 +5,7 @@
 local Agent = require("cosmic.agent")
 local agent_fixture = require("build.agent_fixture")
 local Auth = require("cosmic.agent.auth")
+local Http = require("cosmic.http")
 local Json = require("cosmic.json")
 local Sessions = require("cosmic.agent.sessions")
 local Sqlite = require("cosmic.sqlite")
@@ -191,6 +192,72 @@ local function test_each_request_is_kept_with_its_usage_and_cost()
   assert(Agent.billed("claude-sonnet-5-5", { iterations = { { model = "another", output_tokens = 1 } } }) == nil)
   local systems = assert(db:rows("SELECT count(*) FROM systems"))
   assert(assert(systems[1]):integer(1) == 1)
+end
+
+--- A warm request sends the conversation as the last request did, asking
+--- for no reply, unstreamed; it is kept as any request, and the next
+--- names the turn's reply, not its own.
+local function test_warm_sends_the_last_request_again_asking_for_nothing()
+  local s, a, db = kept({ text_reply("hi") }, nil, "claude-sonnet-5-5")
+  -- Nothing was sent yet: there is nothing to keep warm.
+  assert(s:warm())
+  assert(#a.sent == 0 and s.sent_ns == nil)
+  assert(s:prompt("go"))
+  local before = assert(s.sent_ns)
+  local named = s.last_reply
+  local bodies: mut {{string: Json.Value}} = {}
+  local status, answer = 200, assert(Json.encode({ id = "msg_warm", model = "claude-sonnet-5-5", content = Json.array(),
+    stop_reason = "max_tokens", usage = { input_tokens = 0, output_tokens = 0, cache_read_input_tokens = 1000000 } }))
+  s.send = function(url: string, opts: Http.Options): Agent.Reply?, string
+    assert(url == "https://api.test/v1/messages" and opts.method == "POST")
+    local body = assert(Json.decode_object(opts.body or ""))
+    bodies[#bodies + 1] = body
+    local whole: string? = answer
+    return { status = status, headers = { ["request-id"] = "req_w" }, close = function() end,
+      read = function(): string?, string
+        local piece = whole
+        whole = nil
+        return piece, ""
+      end }, ""
+  end
+  local seen: mut {Sessions.Request} = {}
+  s.on = function(e: Agent.Event)
+    if e.kind == "request" then seen[#seen + 1] = e.request end
+  end
+  assert(s:warm())
+  local w = assert(bodies[1])
+  assert(w["max_tokens"] == 0 and w["stream"] == false and w["model"] == "claude-sonnet-5-5")
+  -- The model's last reply is left out: the API takes no conversation that ends in it.
+  local messages = assert(Json.to_array(w["messages"]))
+  assert(#messages == 1 and #s.messages == 2)
+  assert(assert(s.sent_ns) >= before and s.last_reply == named)
+  local q = assert(seen[1])
+  assert(q.max_tokens == 0 and q.stop_reason == "max_tokens" and q.cache_read == 1000000 and q.cost == 0.1)
+  local rows = assert(db:rows("SELECT max_tokens, status, cost, (SELECT body FROM shapes WHERE id = shape) " ..
+      "FROM requests ORDER BY id"))
+  local row = assert(rows[2])
+  assert(#rows == 2 and row:integer(1) == 0 and row:integer(2) == 200, row:text(4))
+  assert(row:text(4):find('"max_tokens":0', 1, true) ~= nil and row:text(4):find('"stream":false', 1, true) ~= nil,
+    row:text(4))
+  -- The next request, after a resume too, names the turn's reply, not the warm one's.
+  assert(Sessions.last_reply(db, assert(s.id)) == named)
+  -- A refusal is said, and kept; no warm request follows it, as it would only repeat it.
+  status, answer = 400, "stream cannot be true when max_tokens is 0"
+  local ok, why = s:warm()
+  assert(not ok and why == "HTTP 400: stream cannot be true when max_tokens is 0", why)
+  assert(#assert(db:rows("SELECT id FROM requests")) == 3 and s.sent_ns == nil)
+  assert(s:warm())
+  assert(#bodies == 2)
+end
+
+--- A reply that compacts is not kept warm: the next request reads from
+--- its compaction block on, which a warm request would not send.
+local function test_a_compacting_reply_is_not_kept_warm()
+  local s, a = kept({ { content = { { type = "compaction", content = "before" }, { type = "text", text = "hi" } },
+    stop_reason = "end_turn" } })
+  assert(s:prompt("go"))
+  assert(s.sent_ns == nil and s:warm())
+  assert(#a.sent == 1)
 end
 
 local function test_a_turn_left_unfinished_is_resumed()
