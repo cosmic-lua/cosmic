@@ -489,8 +489,25 @@ local function test_a_verb_that_reads_its_own_line_is_not_refused_first(tmp: str
   end
 end
 
+--- Whether the tool these tests start is a checkout's own ([`tree.checkout`]): it is unsandboxed, where the
+--- tool runs from its checkout's build directory, and is not in the sandbox, where that checkout is out of sight.
+--- Only a tool that is no checkout's own skips build.reboot, as a release does.
+local function checkouts_own_tool(tmp: string): boolean
+  local started = this_program.program({ "-e",
+    'local Fs = require("cosmic.fs") local own = require("build.tree").checkout(require("cosmic.store").meta(' ..
+      '"built_from")) local _, _ = Fs.put(Fs.stdout, tostring(own ~= nil))' },
+    { env = this_program.environment(), cwd = tmp, stdout = "capture", stderr = "capture",
+      timeout_ns = Clock.seconds(30) })
+  local r = assert(Child.run(started.argv, started.options))
+  assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
+  return r.stdout == "true"
+end
+
 --- `help <verb>` and `<verb> --help` read that verb's spec alone: the modules of the other verbs are not loaded.
+--- On a tool that is no checkout's own, nor are build.reboot and the build modules build/docs.tl requires only
+--- where it reads a projection or checks the tool is fresh.
 local function test_one_verbs_help_loads_no_other_verb(tmp: string)
+  local own = checkouts_own_tool(tmp)
   for _, words in ipairs({ { "help", "hash" }, { "hash", "--help" } }) do
     local env = this_program.environment()
     env["COSMIC_TRACE_REQUIRE"] = "1"
@@ -500,8 +517,35 @@ local function test_one_verbs_help_loads_no_other_verb(tmp: string)
     assert(r.ok and (r.stdout or ""):find("cosmic hash", 1, true) ~= nil, tostring(r.stdout) .. tostring(r.stderr))
     local traced = r.stderr or ""
     assert(traced:find(" build.hash ", 1, true), "no trace of build.hash: " .. traced:sub(1, 400))
-    for _, name in ipairs({ "build.test", "build.fix", "build.lsp", "build.sql", "build.archive" }) do
+    local absent: mut {string} = { "build.test", "build.fix", "build.lsp", "build.sql", "build.archive" }
+    if not own then
+      for _, name in ipairs({ "build.reboot", "build.rebuild", "build.work", "build.writer" }) do
+        absent[#absent + 1] = name
+      end
+    end
+    for _, name in ipairs(absent) do
       assert(not traced:find(" " .. name .. " ", 1, true), table.concat(words, " ") .. " loaded " .. name)
     end
   end
+end
+
+--- A verb that is not bare, fresh or `reads` asks build.reboot's checkout check only of a tool that is a
+--- checkout's own, so on any other `build` in a directory with no program loads no build.reboot. A refused line
+--- (exit 2) would load it all the same, for the stale-tool check after a refusal.
+local function test_a_tool_of_no_checkout_loads_no_reboot(tmp: string)
+  if checkouts_own_tool(tmp) then
+    Test.skip("the tool is its checkout's own, which build.reboot holds to that checkout")
+  end
+  local spec = assert(verb_list.find("build"))
+  assert(not spec.bare and spec.fresh ~= true and spec.reads ~= true, "build no longer reaches the checkout check")
+  local env = this_program.environment()
+  env["COSMIC_TRACE_REQUIRE"] = "1"
+  local started = this_program.program({ "build", "missing.tl" }, { env = env, cwd = tmp,
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
+  local r = assert(Child.run(started.argv, started.options))
+  local traced = r.stderr or ""
+  assert(r.code == 1, tostring(r.code) .. ": " .. traced:sub(-400))
+  assert(traced:find("no cmd/<name>/main.tl", 1, true), traced:sub(-400))
+  assert(traced:find(" build.embed ", 1, true), "no trace of build.embed: " .. traced:sub(1, 400))
+  assert(not traced:find(" build.reboot ", 1, true), "build loaded build.reboot")
 end
