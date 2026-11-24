@@ -239,7 +239,7 @@ local function test_a_handshake_sent_a_byte_at_a_time_is_cut_off()
       -- A handshake record's header, saying 512 bytes follow.
       assert(conn:write("\x16\x03\x01\x02\x00"))
       for _ = 1, 40 do
-        local _, _ = Poll.delay(Clock.ms(100))
+        local _, _ = Clock.sleep(Clock.ms(100))
         local _, _ = conn:write("\x01")
         conn:set_timeout(Clock.ms(1))
         local got, why = conn:read()

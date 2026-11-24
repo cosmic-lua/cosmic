@@ -10,7 +10,6 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Net = require("cosmic.net")
-local Poll = require("cosmic.poll")
 local Server = require("cosmic.http.server")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
@@ -84,7 +83,7 @@ local class Watch is Stream.Reader
       self.started = true
       return '{"Version":"1.90.0","State":6,"SessionID":"s1"}\n', ""
     end
-    local _, _ = Poll.delay(Clock.ms(20))
+    local _, _ = Clock.sleep(Clock.ms(20))
     return "\n", ""
   end
 
@@ -177,7 +176,7 @@ local function test_an_app_through_funnel_is_served_from_a_private_socket(tmp: s
           error("the app ended before it filed its site: " .. tostring(result.code) .. " " ..
               tostring(result.stdout) .. " " .. tostring(result.stderr))
         end
-        local _, _ = Poll.delay(Clock.ms(20))
+        local _, _ = Clock.sleep(Clock.ms(20))
       end
       assert(d.socket ~= "", "the app never filed its site: " .. table.concat(d.lines, "; "))
       local info = assert(Fs.stat(Fs.dirname(d.socket)))
@@ -190,7 +189,7 @@ local function test_an_app_through_funnel_is_served_from_a_private_socket(tmp: s
       local result = assert(child:wait(Clock.seconds(30)))
       note((tostring(result.stdout):gsub("%s+$", "")))
       while d.open > 0 and Clock.monotonic_ns() < deadline do
-        local _, _ = Poll.delay(Clock.ms(20))
+        local _, _ = Clock.sleep(Clock.ms(20))
       end
       note(tostring(not assert(Fs.status(Fs.dirname(d.socket))).exists))
       server:stop()

@@ -65,7 +65,7 @@ local function io_of(held: Streams, variables: {string:string}, complaints: func
     err = complaints,
     read = function(): string?, string
       while held.waiting == "" and not held.ended do
-        local ok, why = Poll.delay(Clock.ms(1))
+        local ok, why = Clock.sleep(Clock.ms(1))
         if not ok then return nil, why.message end
       end
       local data = held.waiting

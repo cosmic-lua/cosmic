@@ -72,7 +72,7 @@ local function test_closing_ends_a_task_waiting_to_receive()
       local _, trouble = socket:receive()
       why = if trouble ~= nil then trouble.message else "" end
     end)
-    assert(Poll.delay(Clock.ms(10)))
+    assert(Clock.sleep(Clock.ms(10)))
     assert(socket:close())
     assert(waiter:join(Clock.seconds(5)))
     assert(why == "net: the socket is closed", why)

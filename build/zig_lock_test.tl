@@ -33,7 +33,7 @@ if not begun then
 end
 print("held")
 local wait = %d
-if wait < 0 then local _, _ = Fs.take(Fs.stdin, 1) else Clock.sleep_ns(wait) end
+if wait < 0 then local _, _ = Fs.take(Fs.stdin, 1) else local _, _ = Clock.sleep(wait) end
 ]]
 
 local flock_tool = [[
@@ -47,7 +47,7 @@ if not sys.flock(fd, "exclusive", 0) then
 end
 print("held")
 local wait = %d
-if wait < 0 then local _, _ = Fs.take(Fs.stdin, 1) else Clock.sleep_ns(wait) end
+if wait < 0 then local _, _ = Fs.take(Fs.stdin, 1) else local _, _ = Clock.sleep(wait) end
 ]]
 
 local function start(root: string, wait_ns: integer, flock?: boolean): Child.Handle, string

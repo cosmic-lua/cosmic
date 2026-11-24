@@ -29,7 +29,7 @@ end
 local function answering(body: string, delay_ns?: integer): function(conn: Net.Conn)
   return function(conn: Net.Conn)
     if head_of(conn) == nil then return end
-    if delay_ns ~= nil then assert(Poll.delay(delay_ns)) end
+    if delay_ns ~= nil then assert(Clock.sleep(delay_ns)) end
     assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: " .. tostring(#body) ..
         "\r\nConnection: close\r\n\r\n" .. body))
   end
@@ -55,14 +55,14 @@ local function test_other_tasks_run_while_a_request_waits()
     Net.with_loopback(function(conn: Net.Conn)
       if head_of(conn) == nil then return end
       heads = heads + 1
-      while heads < 2 or ticks < 3 do assert(Poll.delay(Clock.ms(5))) end
+      while heads < 2 or ticks < 3 do assert(Clock.sleep(Clock.ms(5))) end
       assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\nlate"))
     end, function(port: integer)
       local done = false
       local ticker = Poll.spawn(function()
         while not done do
           if heads == 2 then ticks = ticks + 1 end
-          local _, _ = Poll.delay(Clock.ms(10))
+          local _, _ = Clock.sleep(Clock.ms(10))
         end
       end)
       local url = "http://127.0.0.1:" .. tostring(port) .. "/"
@@ -102,7 +102,7 @@ local function test_a_cancelled_task_ends_its_request()
     Net.with_loopback(function(conn: Net.Conn)
       if head_of(conn) == nil then return end
       held = true
-      local _, _ = Poll.delay(Poll.MOST_NS)
+      local _, _ = Clock.sleep(Poll.MOST_NS)
     end, function(port: integer)
       local answer: string = ""
       local asking = Poll.spawn(function()
@@ -110,7 +110,7 @@ local function test_a_cancelled_task_ends_its_request()
         assert(got == nil)
         answer = why
       end)
-      while not held do assert(Poll.delay(Clock.ms(5))) end
+      while not held do assert(Clock.sleep(Clock.ms(5))) end
       asking:cancel()
       assert(asking:join())
       assert(answer == Poll.CANCELLED, answer)
@@ -141,7 +141,7 @@ local function test_a_response_closed_by_another_task_ends_a_read_that_waits()
       -- The head and a first byte, then nothing.
       assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nx"))
       held = true
-      local _, _ = Poll.delay(Poll.MOST_NS)
+      local _, _ = Clock.sleep(Poll.MOST_NS)
     end, function(port: integer)
       local response = assert(Http.open("http://127.0.0.1:" .. tostring(port) .. "/", { timeout_ns = WAIT }))
       assert(response:read() == "x")
@@ -151,8 +151,8 @@ local function test_a_response_closed_by_another_task_ends_a_read_that_waits()
         assert(chunk == nil)
         answer = why
       end)
-      while not held do assert(Poll.delay(Clock.ms(5))) end
-      assert(Poll.delay(Clock.ms(50)))
+      while not held do assert(Clock.sleep(Clock.ms(5))) end
+      assert(Clock.sleep(Clock.ms(50)))
       assert(response:close())
       assert(reading:join())
       assert(answer == "http: the response is closed", answer)
@@ -177,8 +177,8 @@ local function test_a_cancelled_task_ends_its_retry_pause()
         assert(got == nil)
         answer = why
       end)
-      while not asked do assert(Poll.delay(Clock.ms(5))) end
-      assert(Poll.delay(Clock.ms(100)))
+      while not asked do assert(Clock.sleep(Clock.ms(5))) end
+      assert(Clock.sleep(Clock.ms(100)))
       asking:cancel()
       assert(asking:join())
       assert(answer == Poll.CANCELLED, answer)

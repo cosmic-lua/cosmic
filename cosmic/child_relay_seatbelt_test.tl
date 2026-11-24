@@ -417,7 +417,7 @@ local function run_under(held: raw_process.Seatbelt, argv: {string}, tmp: string
   local status = assert(process.waitpid(pid, true))
   while status.pid == 0 do
     assert(Clock.monotonic_ns() < deadline, program .. " did not end")
-    assert(Clock.sleep_ns(Clock.ms(20)))
+    assert(Clock.sleep(Clock.ms(20)))
     status = assert(process.waitpid(pid, true))
   end
   local got, _ = Fs.read(out_path)

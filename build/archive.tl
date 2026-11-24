@@ -15,7 +15,7 @@
 --- `bare = true` makes it one of the bare verbs (build/bare.tl).
 
 local Archive = require("cosmic.archive")
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.archive")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
@@ -44,7 +44,7 @@ local record verb
   end
 end
 
-local spec = Cli.verbs.archive.spec or {} -- checked: literal_needs_type, map_field
+local spec = Verb.spec or {}
 
 local usage = "cosmic archive list [--json] <file>|-; " ..
   "cosmic archive extract [-C <dir>] [--force] <file>|- [<member>...]; " ..

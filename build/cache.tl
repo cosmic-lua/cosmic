@@ -1,6 +1,6 @@
 --- The running tool's shared-cache maintenance, independent of any project.
 
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.cache")
 local Flags = require("cosmic.flags")
 local Json = require("cosmic.json")
 local bare = require("build.bare")
@@ -27,7 +27,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     complain(why .. "; " .. usage)
     return 2
   end
-  local parsed, why = Flags.parse(argv, 2, assert(Cli.verbs.cache.spec)) -- checked: map_field
+  local parsed, why = Flags.parse(argv, 2, assert(Verb.spec))
   if parsed == nil then return refuse(why) end
   if parsed.words[1] ~= "trim" then return refuse("give the trim operation") end
   local family = parsed.words[2]

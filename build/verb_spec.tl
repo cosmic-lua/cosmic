@@ -4,12 +4,12 @@
 --- table, the set of verbs that print no summary, the help prose that says
 --- what a verb takes and how it exits, and the cases in build/verb_cases.tl.
 --- What a person reads about a verb -- its description and options -- stays
---- in [`cosmic.cli`].
+--- in its module of [`cosmic.cli`] (cosmic/cli/<verb>.tl).
 
 local record verb_spec
   --- What a verb's module says about itself.
   record Spec
-    --- The word that names it on the command line; `Cli.<name>` is its prose.
+    --- The word that names it on the command line; the overview of `cosmic.cli.<name>` is its prose.
     name: string
     --- Runs the command line, `name` at slot 1, and answers the exit code.
     run: function(argv: {string}): integer

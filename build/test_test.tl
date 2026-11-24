@@ -111,6 +111,20 @@ local function test_a_modules_load_and_test_hits_are_two_lines_of_its_row()
   assert(test.take_hits({}, {}, {}, {}, { ["core/a.c"] = { [2] = true } }, {}, texts) == "core/a.c -\t2\n")
 end
 
+--- A test's lines given in order are spelled as given, the row the same as of the lines sorted.
+local function test_a_tests_lines_given_in_order_spell_its_row()
+  local texts = { ["build.a"] = "0123abcd" }
+  local tested: {integer:boolean} = { [7] = true, [2] = true, [30] = true }
+  local sorted = test.take_hits({}, {}, {}, {}, {}, { ["build.a"] = tested }, texts)
+  local given = test.take_hits({}, {}, {}, {}, {}, { ["build.a"] = tested }, texts, nil, nil, nil,
+    { ["build.a"] = { 2, 7, 30 } })
+  assert(sorted == "build.a 0123abcd\t2,7,30\n" and given == sorted, given)
+  -- Lines placed elsewhere than reported, of a module no code names, are spelled sorted, whatever order is given.
+  local placed = test.take_hits({}, {}, {}, {}, {}, { ["build.a"] = tested }, texts, nil,
+    { ["build.a"] = { [5] = true, [1] = true } }, nil, { ["build.a"] = { 2, 7, 30 } })
+  assert(placed == "build.a 0123abcd\t1,5\n", placed)
+end
+
 --- A worker given a pure store reports the lines of an imported module's numbered chunk as instruction ordinals
 --- ([`lua_tail.numbered`]), placed at the source lines this run's text gives each instruction; a module's own lines
 --- and those of a module with no ordinal are left as they are, the same table for the same table, and an ordinal

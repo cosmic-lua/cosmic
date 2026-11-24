@@ -252,12 +252,22 @@ end
 --- The next line, its LF taken and not answered, a CR before it kept:
 --- nil and why once it would take more than `budget` bytes with its
 --- LF, `input.long` set; nil and "" where the source ends first, or nil
---- and why. Each chunk read is searched once, so a line costs its
---- length however it arrives.
+--- and why. Each chunk read is searched once, the first one at most
+--- twice, so a line costs its length however it arrives.
 local function line(input: wire.Input, budget: integer): string?, string
+  input.long = false
+  do
+    -- The line whole in the buffer, as a head's lines mostly are.
+    local at = input.at
+    local lf = input.buf:find("\n", at, true)
+    if lf ~= nil and lf - at + 1 <= budget then
+      input.at = lf + 1
+      input.taken = input.taken + (lf - at + 1)
+      return input.buf:sub(at, lf - 1), ""
+    end
+  end
   local parts: mut {string} = {}
   local size = 0
-  input.long = false
   while true do
     local buf, at = input.buf, input.at
     local lf = buf:find("\n", at, true)
@@ -319,8 +329,8 @@ end
 --- One header line, without its line end, as a [`wire.Field`]; nil and
 --- why where it is no header line.
 function wire.field(text: string): wire.Field?, string
-  local first = text:sub(1, 1)
-  if first == " " or first == "\t" then
+  local first = text:byte(1)
+  if first == 32 or first == 9 then
     return nil, "a header line is folded (obs-fold)"
   end
   local colon = text:find(":", 1, true)
@@ -329,8 +339,20 @@ function wire.field(text: string): wire.Field?, string
   if not name:find(TOKEN) then
     return nil, "a header's name is no token (space before ':'?)"
   end
-  local value = trimmed(text:sub(colon + 1))
-  if value:find(VALUE_CONTROL) then
+  local start = text:find("[^ \t]", colon + 1)
+  local value = ""
+  if start ~= nil then
+    local last = #text
+    while true do
+      local byte = text:byte(last)
+      if byte ~= 32 and byte ~= 9 then break end
+      last = last - 1
+    end
+    value = text:sub(start, last)
+  end
+  -- %c, a test in C, finds a tab and every control byte: the class is
+  -- tried only where it finds one.
+  if value:find("%c") and value:find(VALUE_CONTROL) then
     return nil, "header " .. name .. " holds a control byte"
   end
   return { name = name:lower(), value = value }, ""
@@ -344,6 +366,10 @@ end
 --- The comma-separated members of a header's value, trimmed, the
 --- empty ones dropped.
 function wire.members(value: string): {string}
+  if not value:find(",", 1, true) then
+    local bare = trimmed(value)
+    return if bare == "" then {} else { bare } end
+  end
   local out: mut {string} = {}
   for member in value:gmatch("[^,]+") do
     local bare = trimmed(member)
@@ -397,6 +423,15 @@ end
 local function valid_host(value: string): boolean
   if value == "" then return true end
   if value:find("[^%w%-._~!$&'()*+;=:%[%]]") then return false end
+  -- A name or IPv4 address, and a port or not, is read here as Url.parse
+  -- reads it, and an IPv6 address in brackets goes to Url.parse. Any
+  -- other value is one Url.parse refuses, and is refused here.
+  local name, digits = value:match("^([^:%[%]]+):?(%d*)$")
+  if name ~= nil and digits ~= nil then
+    local bare = (digits:gsub("^0+", ""))
+    return #bare <= 5 and (math.tointeger(tonumber(bare)) or 0) <= 65535
+  end
+  if value:sub(1, 1) ~= "[" then return false end
   local parts, _ = Url.parse("http://" .. value .. "/")
   return parts ~= nil
 end
@@ -484,38 +519,40 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
   end
   local parts, target_why = target_parts(method, target)
   if parts == nil then return refused(400, target_why) end
-  -- Each name's values, joined once the head is read: joined as each
-  -- came, a name repeated through the head would cost the square of it.
-  local values: mut {string: mut {string}} = {}
-  local names: mut {string} = {}
+  -- Each name's first value, and the values of a name repeated, joined
+  -- once the head is read: joined as each came, a name repeated through
+  -- the head would cost the square of it.
+  local headers: mut {string:string} = {}
+  local repeated: mut {string: mut {string}} = {}
   while true do
     local text = next_line()
     if text == nil then return halted() end
     if text == "" then break end
     local got, why = wire.field(text)
     if got == nil then return refused(400, why) end
-    if values[got.name] == nil then
-      values[got.name] = {}
-      names[#names + 1] = got.name
+    local name, value = got.name, got.value
+    local had = headers[name]
+    if had == nil then
+      headers[name] = value
+    else
+      local list = repeated[name]
+      if list == nil then
+        repeated[name] = { had, value }
+      else
+        list[#list + 1] = value
+      end
     end
-    local list = assert(values[got.name])
-    list[#list + 1] = got.value
   end
-  local headers: mut {string:string} = {}
-  for _, name in ipairs(names) do
+  for name, list in pairs(repeated) do
     -- Cookie pairs are separated by "; " (RFC 6265 5.4, RFC 9113 8.2.3).
-    local list = values[name]
-    if list ~= nil then
-      headers[name] = table.concat(list, if name == "cookie" then "; " else ", " end)
-    end
+    headers[name] = table.concat(list, if name == "cookie" then "; " else ", " end)
   end
   local spent = input.taken - start
-  local host_values = values["host"]
-  local hosts = if host_values ~= nil then #host_values else 0 end
-  if hosts > 1 or (version == "HTTP/1.1" and hosts == 0) then
+  local host = headers["host"]
+  if repeated["host"] ~= nil or (version == "HTTP/1.1" and host == nil) then
     return refused(400, "an HTTP/1.1 request names exactly one Host")
   end
-  if host_values ~= nil and not valid_host(assert(host_values[1])) then
+  if host ~= nil and not valid_host(host) then
     return refused(400, "the Host is no host and port")
   end
   local length: integer? = 0

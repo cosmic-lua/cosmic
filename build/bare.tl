@@ -10,7 +10,7 @@
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
-local Stream = require("cosmic.stream")
+local type Stream = require("cosmic.stream")
 
 --- The pieces of a bare verb.
 local record bare
@@ -116,8 +116,9 @@ end
 --- @param message what the refusal says, in the verb's own words
 function bare.stdin_reader(message: string): Stream.Reader?, string
   if Proc.is_tty(Fs.stdin) then return nil, message end
-  -- [`Stream.from_fd`] borrows the descriptor, which stays open.
-  return Stream.from_fd(Fs.stdin), ""
+  -- [`Stream.from_fd`] borrows the descriptor, which stays open. cosmic.stream is required here, as only a verb that
+  -- reads standard input needs it.
+  return require("cosmic.stream").from_fd(Fs.stdin), ""
 end
 
 --- The bytes of standard input, refusing a terminal as [`stdin_reader`]
@@ -126,7 +127,7 @@ end
 function bare.stdin_text(message: string): string?, string
   local reader, why = bare.stdin_reader(message)
   if reader == nil then return nil, why end
-  local text, trouble = Stream.read_all(reader)
+  local text, trouble = require("cosmic.stream").read_all(reader)
   if text == nil then return nil, tostring(trouble) end
   return text, ""
 end

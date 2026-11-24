@@ -197,7 +197,7 @@ local function test_in_a_run_a_tcp_connect_waits_through_the_run()
       ticks_at_end = ticks
     end)
     while ticks_at_end < 0 do
-      assert(Poll.delay(Clock.ms(5)))
+      assert(Clock.sleep(Clock.ms(5)))
       ticks = ticks + 1
     end
     assert(waiting:join())

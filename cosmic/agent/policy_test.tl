@@ -215,7 +215,7 @@ local function test_background_jobs_run_until_read_killed_or_the_session_ends()
   local half = assert(Jobs.find(set, 3))
   for _ = 1, 250 do
     if Jobs.size(half) >= 2 then break end
-    local _, _ = Clock.sleep_ns(Clock.ms(20))
+    local _, _ = Clock.sleep(Clock.ms(20))
   end
   r = Tools.run("jobs", { id = 3 }, ctx)
   assert(r.text:find("\n\na$") ~= nil, r.text)
@@ -229,7 +229,7 @@ local function test_background_jobs_run_until_read_killed_or_the_session_ends()
   -- Once it has said what it says: a sandbox takes a moment to start.
   for _ = 1, 100 do
     if Jobs.size(job) > 0 then break end
-    local _, _ = Clock.sleep_ns(Clock.ms(50))
+    local _, _ = Clock.sleep(Clock.ms(50))
   end
   local handed: mut {string} = {}
   Jobs.close(set, function(j: Jobs.Job, output: string)

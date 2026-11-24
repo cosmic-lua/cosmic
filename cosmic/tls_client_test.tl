@@ -9,7 +9,6 @@ local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
-local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local Tls = require("cosmic.tls")
@@ -275,7 +274,7 @@ local function test_a_tls_client_that_closes_is_gone()
     serve = function(conn: Net.Conn)
       if not conn:handshake() then return end
       assert(conn:write("hi\n"))
-      assert(Poll.delay(Clock.ms(100)))
+      assert(Clock.sleep(Clock.ms(100)))
       seen.before = conn:gone()
       local until_ns = Clock.monotonic_ns() + Clock.seconds(3)
       while Clock.monotonic_ns() < until_ns do
@@ -283,19 +282,19 @@ local function test_a_tls_client_that_closes_is_gone()
           seen.after, seen_ns = true, Clock.monotonic_ns()
           return
         end
-        assert(Poll.delay(Clock.ms(10)))
+        assert(Clock.sleep(Clock.ms(10)))
       end
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local conn = assert(Net.connect(Net.tcp("127.0.0.1", assert(Array.at(addresses, 1).port)),
         { tls = trusting(), server_name = "localhost" }))
       assert(conn:read() == "hi\n")
-      assert(Poll.delay(Clock.ms(200)))
+      assert(Clock.sleep(Clock.ms(200)))
       closed_ns = Clock.monotonic_ns()
       assert(conn:close())
       local until_ns = closed_ns + Clock.seconds(2)
       while not seen.after and Clock.monotonic_ns() < until_ns do
-        assert(Poll.delay(Clock.ms(10)))
+        assert(Clock.sleep(Clock.ms(10)))
       end
       server:stop()
     end,

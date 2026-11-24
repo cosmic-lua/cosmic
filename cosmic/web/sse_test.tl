@@ -87,7 +87,7 @@ local function until_true(done: function(): boolean): boolean
   local deadline = Clock.monotonic_ns() + WAIT_NS
   while not done() do
     if Clock.monotonic_ns() > deadline then return false end
-    assert(Poll.delay(Clock.ms(5)))
+    assert(Clock.sleep(Clock.ms(5)))
   end
   return true
 end
@@ -507,7 +507,7 @@ local function test_a_stream_that_ignores_its_close_is_killed_at_the_grace_and_r
   local closed: mut {string} = {}
   local stuck: Sse.EventSource = { -- checked: literal_shape
     next = function(_self: Sse.EventSource, _t?: integer): Sse.Event?, string
-      local _, _ = Poll.delay(Clock.seconds(60))
+      local _, _ = Clock.sleep(Clock.seconds(60))
       return nil, ""
     end,
     close = function(_self: Sse.EventSource) end,
