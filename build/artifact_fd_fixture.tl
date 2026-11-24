@@ -175,7 +175,7 @@ function artifact_fd_fixture.swapped_link_changes_nothing(tmp: string, policy?: 
   if said ~= "flipping" then
     local ended, why = flipping:wait(Clock.seconds(2))
     error("the flipper did not start: " .. tostring(said) .. "\n" ..
-        (if ended ~= nil then tostring(ended.stderr) else why end))
+        (if ended ~= nil then tostring(ended.stderr) else tostring(why) end))
   end
   local result = assert(Child.run({ artifact_fd_fixture.program_of(relaunch), "--artifact", copy, "-e",
     filled(caller, values) }, { env = if held == nil then env else nil end, fds = fds, stdout = "capture",

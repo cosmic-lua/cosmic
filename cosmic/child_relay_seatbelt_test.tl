@@ -454,7 +454,7 @@ local function test_no_other_process_can_listen_at_the_relays_port(tmp: string)
       assert(why:find("in use", 1, true), host .. ", the relay running: " .. why)
     end
     assert(handle:stop())
-    local _ = handle:wait(Clock.seconds(20))
+    local _, _ = handle:wait(Clock.seconds(20))
   end)
 end
 
@@ -521,7 +521,7 @@ local function test_the_relay_is_held_by_a_profile_of_its_own(tmp: string)
     assert(tostring(said["read " .. secret]):find("not permitted", 1, true),
       "the relay's profile read a file it does not grant: " .. probe.output)
     assert(handle:stop())
-    local _ = handle:wait(Clock.seconds(20))
+    local _, _ = handle:wait(Clock.seconds(20))
   end)
 end
 

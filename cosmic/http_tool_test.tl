@@ -175,7 +175,7 @@ end
   local child <close> = assert(Child.start(started.argv, started.options))
   local accepted, refused = server:accept()
   if accepted == nil then
-    local died = child:wait(Clock.seconds(5))
+    local died, _ = child:wait(Clock.seconds(5))
     error(tostring(refused) .. ": " .. tostring(died ~= nil and died.stderr)) -- checked: or_mix
   end
   local conn <close> = accepted

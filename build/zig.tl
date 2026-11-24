@@ -742,7 +742,7 @@ function Zig.run(argv: {string}, env?: {string:string}): integer
       if state == nil then
         -- End the child rather than leave it running unsupervised.
         local _, _ = h:close()
-        return nil, wait_trouble
+        return nil, tostring(wait_trouble)
       end
       if state.finished then
         return state.result, ""

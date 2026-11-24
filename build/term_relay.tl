@@ -467,7 +467,7 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
     end
     local status, why = running:try_wait()
     if status == nil then
-      relay.failure = "terminal: " .. why
+      relay.failure = "terminal: " .. tostring(why)
       break
     elseif status.finished then
       result = status.result

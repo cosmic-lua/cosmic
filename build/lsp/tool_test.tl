@@ -130,7 +130,8 @@ local function listening(tmp: string, words: {string}): Listening
     local at = said:match("cosmic: lsp: listening at ([^\n]+)\n")
     if at ~= nil then return { handle = handle, at = at, err = err } end
     assert(Clock.monotonic_ns() < deadline, said)
-    assert(Child.wait_any({ handle }, Clock.ms(10)) == nil, said)
+    local ended, _ = Child.wait_any({ handle }, Clock.ms(10))
+    assert(ended == nil, said)
   end
 end
 
@@ -230,7 +231,8 @@ local function test_a_listener_beyond_the_loopback_is_warned_of(tmp: string)
   while said:find("warning: ", 1, true) == nil do
     local got, _ = Fs.read(err)
     said = got or ""
-    if Child.wait_any({ handle }, Clock.ms(10)) ~= nil then
+    local ended, _ = Child.wait_any({ handle }, Clock.ms(10))
+    if ended ~= nil then
       -- A sandboxed worker may be refused an address beyond its loopback.
       Test.skip("this host refuses a listener at 0.0.0.0: " .. said)
       return
