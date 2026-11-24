@@ -64,6 +64,9 @@ local record sqlite
     --- Bound as an array of blobs, for `carray(?N)` alone.
     blobs?: {string}
   end
+  --- One parameter as it is bound: an integer, a number, a string (as
+  --- text), a boolean (as 1 or 0), or a Value that names its type.
+  type Param = number | string | boolean | Value
   --- One prepared statement. It keeps its handle alive while it is
   --- open. Every call on a finalized statement raises.
   record Statement
@@ -82,17 +85,6 @@ local record sqlite
     bind_text: function(Statement, index: integer, value: string): boolean, string
     --- Binds `value`'s bytes as a blob to the parameter at `index`.
     bind_blob: function(Statement, index: integer, value: string): boolean, string
-    --- Binds a copy of `list` to the parameter at `index`, as an array
-    --- of 64-bit integers that `carray` reads. Raises for an element that
-    --- is no integer.
-    bind_integers: function(Statement, index: integer, list: {integer}): boolean, string
-    --- The same, as an array of floating-point numbers.
-    bind_numbers: function(Statement, index: integer, list: {number}): boolean, string
-    --- The same, as an array of texts; raises for one holding a NUL,
-    --- which carray reads to.
-    bind_texts: function(Statement, index: integer, list: {string}): boolean, string
-    --- The same, as an array of blobs.
-    bind_blobs: function(Statement, index: integer, list: {string}): boolean, string
 
     --- "row" when a row is ready, "done" when the statement is finished.
     step: function(Statement): string?, string
@@ -100,6 +92,12 @@ local record sqlite
     step_result: function(Statement): string | ExecResult
     --- Binds a dense list of explicit Values. Invalid parameter shapes raise.
     bind_values_result: function(Statement, values: {Value}): ExecResult
+    --- Binds `values[1]` to `values[n]` to the statement's n parameters in
+    --- one pass, each by its Lua type. Returns nothing where all are bound;
+    --- otherwise the position, why, and SQLite's code, or false for a value
+    --- of no shape a parameter takes (the caller raises). Only running
+    --- out of memory raises, which leaves the statement to the collector.
+    bind_all: function(Statement, values: {Param}): integer?, string?, (integer | boolean)?
     --- How many columns a row of this statement has.
     columns: function(Statement): integer
     --- The name of the column at `index`, from zero: its `AS` alias,
@@ -257,6 +255,8 @@ local record sqlite
   disown: function()
   --- The SQLite library's version, such as "3.54.1".
   version: string
+  --- The one read-only empty Value, which binds NULL.
+  NULL: Value
 end
 
 return sqlite

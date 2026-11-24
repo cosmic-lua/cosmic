@@ -8,19 +8,20 @@
 --- transaction that rolls back when the work inside it fails
 --- (`db:transact`); each answers a [`Failure`] when SQLite refuses.
 ---
---- A parameter is a one-field table naming its type, one per `?N`, in
---- order; a result row is read a column at a time by the type the caller
---- expects, from 1:
+--- Parameters are a list of values, one per `?N`, in order; a result
+--- row is read a column at a time by the type the caller expects, from
+--- 1:
 ---
 ---     local db = assert(Sqlite.open("notes.db", { writable = true }))
 ---     assert(db:exec("CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, body TEXT)"))
----     assert(db:run("INSERT INTO t (body) VALUES (?1)", { { text = "hi" } }))
+---     assert(db:run("INSERT INTO t (body) VALUES (?1)", { "hi" }))
 ---     local rows = assert(db:rows("SELECT id, body FROM t WHERE id = ?1",
----       { { integer = db:last_insert_rowid() } }))
+---       { db:last_insert_rowid() }))
 ---     print(rows[1]:integer(1), rows[1]:text(2)) -- 1  hi
 ---
---- `{ integer = n }`, `{ number = x }`, `{ text = s }` and `{ blob = b }`
---- bind those types; `{}` binds NULL. A [`Sqlite.Row`] is not a list:
+--- An integer, a float, a string (as text) and a boolean (as 1 or 0) bind
+--- as themselves; `Sqlite.blob(b)` binds bytes as a blob and [`Sqlite.NULL`]
+--- binds NULL ([`Sqlite.Param`]). A [`Sqlite.Row`] is not a list:
 --- `row:text(2)`, `row:integer(2)`, `row:number(2)` and `row:blob(2)` return
 --- column 2 when it holds that type, and raise when it does not;
 --- [`Handle.map`] turns each row into a record of such reads.
@@ -409,93 +410,16 @@ local class Query
   end
 end
 
---- Raises, blaming as [`checked`] does, when a text of `texts` holds a NUL,
---- which carray reads to its first NUL.
-local function check_texts(key: integer, texts: {string})
-  for i, text in ipairs(texts) do
-    if text:find("\0", 1, true) ~= nil then
-      error("sqlite: element " .. tostring(i) .. " of parameter " .. tostring(key) .. "'s texts holds a NUL; bind it in blobs", 5)
-    end
-  end
-end
-
---- Raises, blaming the caller of the public function that calls the
---- function that calls this, when a Value of `values` holds more than one
---- of its fields or a text of its `texts` holds a NUL. It runs before a
---- statement is prepared, so a raise leaves none to finalize. Answers the
---- highest position, 0 for none.
-local function checked(values: {raw_sqlite.Value}): integer
-  for key, value in ipairs(values) do
-    local texts = value.texts
-    if texts ~= nil then check_texts(key, texts) end
-    -- Counted field by field, with no table made: this runs for every value of every statement bound.
-    local fields = (if value.integer ~= nil then 1 else 0 end) + (if value.number ~= nil then 1 else 0 end) +
-      (if value.text ~= nil then 1 else 0 end) + (if value.blob ~= nil then 1 else 0 end) +
-      (if value.integers ~= nil then 1 else 0 end) + (if value.numbers ~= nil then 1 else 0 end) +
-      (if texts ~= nil then 1 else 0 end) + (if value.blobs ~= nil then 1 else 0 end)
-    if fields > 1 then
-      error("sqlite: parameter " .. tostring(key) .. " has more than one Value field", 4)
-    end
-  end
-  return #values
-end
-
---- Binds SQLite parameters positionally, which [`checked`] has found
---- well formed, `highest` the greatest position they hold: the positions
---- must be 1..N, matching the statement's own placeholders, or the
---- statement is refused with why: [`Sqlite.RANGE`] for a position, and
---- [`Sqlite.ERROR`] for a value SQLite would not bind. Nil where every
---- value is bound.
-local function bind(statement: raw_sqlite.Statement, values: {raw_sqlite.Value}, highest: integer): Failure?
-  local count = statement:parameters()
-  if highest > count then
-    return Failure.coded("sqlite: values holds a parameter " .. tostring(highest) ..
-        ", and the statement has " .. tostring(count), RANGE)
-  end
-  for index = 1, count do
-    local value = values[index]
-    if value == nil then
-      return Failure.coded("sqlite: parameter " .. tostring(index) .. " has no value (use {} for NULL)", RANGE)
-    end
-    local ok: boolean
-    local trouble: string
-    local integer, number, text, blob = value.integer, value.number, value.text, value.blob
-    local integers, numbers, texts, blobs = value.integers, value.numbers, value.texts, value.blobs
-    if integer ~= nil then
-      ok, trouble = statement:bind_integer(index, integer)
-    elseif number ~= nil then
-      ok, trouble = statement:bind_number(index, number)
-    elseif text ~= nil then
-      ok, trouble = statement:bind_text(index, text)
-    elseif blob ~= nil then
-      ok, trouble = statement:bind_blob(index, blob)
-    elseif integers ~= nil then
-      ok, trouble = statement:bind_integers(index, integers)
-    elseif numbers ~= nil then
-      ok, trouble = statement:bind_numbers(index, numbers)
-    elseif texts ~= nil then
-      ok, trouble = statement:bind_texts(index, texts)
-    elseif blobs ~= nil then
-      ok, trouble = statement:bind_blobs(index, blobs)
-    else
-      ok, trouble = statement:bind_null(index)
-    end
-    if not ok then
-      return Failure.coded("sqlite: parameter " .. tostring(index) .. ": " .. trouble, ERROR)
-    end
-  end
-  return nil
-end
+--- The values of a statement given none: each parameter it has is unbound.
+local NO_VALUES <const>: {raw_sqlite.Param} = {}
 
 --- `sql` prepared on `handle` with `values` bound, or nil and why; a
 --- statement that does not bind is released. A kept statement whose table
 --- has gone fails with "no such table" at its step, after its binding, and
 --- not at its prepare.
 local function prepared(handle: raw_sqlite.Handle, sql: string,
-                        given?: {raw_sqlite.Value}, unbound?: boolean,
+                        given?: {raw_sqlite.Param}, unbound?: boolean,
                         cached?: boolean): (raw_sqlite.Statement) | (nil, Failure)
-  local values = given or {}
-  local highest = checked(values)
   -- The core's `prepare_result` raises for SQL it refuses before SQLite
   -- reads it (a NUL, no statement, more than one), where `prepare`
   -- answers why; any other raise (a closed handle) `prepare` raises again.
@@ -515,12 +439,16 @@ local function prepared(handle: raw_sqlite.Handle, sql: string,
   if opened.code ~= OK then return nil, failed(opened) end
   local statement = opened.statement
   if unbound == true then return statement end
-  local why = bind(statement, values, highest)
-  if why ~= nil then
-    statement:release()
-    return nil, why
-  end
-  return statement
+  local at, why, code = statement:bind_all(given or NO_VALUES)
+  if at == nil then return statement end
+  statement:release()
+  -- Position 0 is the list as a whole: it holds a key past the last
+  -- parameter or no position at all. A code is SQLite's; none raises at
+  -- the caller of the method that called this one.
+  local said = if at == 0 then "sqlite: " .. tostring(why) else
+    "sqlite: parameter " .. tostring(at) .. tostring(why) end
+  if code is integer then return nil, Failure.coded(said, code) end
+  error(said, 3)
 end
 
 --- Every row of `statement` as `project` gives it, and the statement
@@ -570,14 +498,15 @@ local class Handle
   --- Runs a statement that yields no rows: it answers `true`, or
   --- `false` and why.
   ---
-  --- `values` is a dense list indexed by SQLite's parameter index,
-  --- through its highest index. Repeated named parameters share an
-  --- index, and a gap in `?NNN` numbers still needs an entry (use `{}`).
-  --- A missing entry or an extra key answers `false` and why
-  --- ([`Sqlite.RANGE`]). A malformed [`Sqlite.Value`] (no table, a field
-  --- it has no name for, more than one field) raises, as does a key that
-  --- is no position from 1.
-  function run(self, sql: string, values?: {raw_sqlite.Value}): (true) | (false, Failure)
+  --- `values` is a dense list of [`Sqlite.Param`] indexed by SQLite's
+  --- parameter index, through its highest index: `{ 1, "a" }` for `?1`
+  --- and `?2`. Repeated named parameters share an index, and a gap in
+  --- `?NNN` numbers still needs an entry (use [`Sqlite.NULL`]). A missing
+  --- entry or a position past the last parameter answers `false` and why
+  --- ([`Sqlite.RANGE`]). A value of no type a parameter takes (a function,
+  --- a malformed [`Sqlite.Value`]) raises, as does a key that is no
+  --- position from 1; the statement is released first.
+  function run(self, sql: string, values?: {raw_sqlite.Param}): (true) | (false, Failure)
     local statement, trouble = prepared(self.connection, sql, values, false, true)
     if statement == nil then return false, trouble end
     local state = statement:step_result()
@@ -589,7 +518,7 @@ local class Handle
   --- Every row a query yields, each a [`Sqlite.Row`] that keeps its
   --- columns' SQLite types. Answers the rows, or `nil` and why. `values`
   --- follows [`Handle.run`]'s contract.
-  function rows(self, sql: string, values?: {raw_sqlite.Value}): ({Row}) | (nil, Failure)
+  function rows(self, sql: string, values?: {raw_sqlite.Param}): ({Row}) | (nil, Failure)
     local statement, trouble = prepared(self.connection, sql, values, false, true)
     if statement == nil then return nil, trouble end
     return each_row(statement, cells_of)
@@ -610,11 +539,11 @@ local class Handle
   ---     local db = assert(Sqlite.memory())
   ---     assert(db:exec("CREATE TABLE t (name TEXT, n INTEGER); INSERT INTO t VALUES ('a', 1), ('b', 2)"))
   ---     local found = assert(db:map("SELECT name, n FROM t WHERE n > ?1 ORDER BY n",
-  ---       { { integer = 0 } }, function(r: Sqlite.Row): Named
+  ---       { 0 }, function(r: Sqlite.Row): Named
   ---         return { name = r:text(1), n = r:integer(2) }
   ---       end))
   ---     print(#found, found[2].name) -- 2  b
-  function map<T>(self, sql: string, values: {raw_sqlite.Value}?,
+  function map<T>(self, sql: string, values: {raw_sqlite.Param}?,
                   project: function(Row): T): ({T}) | (nil, Failure)
     local statement, trouble = prepared(self.connection, sql, values, false, true)
     if statement == nil then return nil, trouble end
@@ -661,7 +590,7 @@ local class Handle
   ---     local q <close> = assert(db:query("SELECT id, body FROM t"))
   ---     for row in q:each() do print(row:integer(1), row:text(2)) end
   ---     assert(q:failure() == nil, q:failure())
-  function query(self, sql: string, values?: {raw_sqlite.Value}): (Query) | (nil, Failure)
+  function query(self, sql: string, values?: {raw_sqlite.Param}): (Query) | (nil, Failure)
     local opened, trouble = prepared(self.connection, sql, values)
     if opened == nil then return nil, trouble end
     local q: Query = { statement = opened, open = true, ended = false, failed = nil }
@@ -676,7 +605,7 @@ local class Handle
   --- strings, including NUL. Such a row answers `kind` as `"text"` for
   --- every column and [`Row.is_null`] as false, and raises from `integer`,
   --- `number` and `blob`: read those from [`Handle.rows`].
-  function text_rows(self, sql: string, values?: {raw_sqlite.Value}): ({Row}) | (nil, Failure)
+  function text_rows(self, sql: string, values?: {raw_sqlite.Param}): ({Row}) | (nil, Failure)
     local statement, trouble = prepared(self.connection, sql, values, false, true)
     if statement == nil then return nil, trouble end
     return each_row(statement, texts_of)
@@ -821,9 +750,9 @@ local class Handle
   --- `transact`, and `DETACH` once the transaction has committed.
   ---
   ---     local ok, why = db:transact(function(): (true) | (false, Failure)
-  ---       local a, trouble = db:run("INSERT INTO t (body) VALUES (?1)", { { text = "a" } })
+  ---       local a, trouble = db:run("INSERT INTO t (body) VALUES (?1)", { "a" })
   ---       if not a then return false, trouble end
-  ---       return db:run("INSERT INTO t (body) VALUES (?1)", { { text = "b" } })
+  ---       return db:run("INSERT INTO t (body) VALUES (?1)", { "b" })
   ---     end)
   function transact(self, work: function(): (true) | (false, Failure),
                     begin?: Begin): (true) | (false, Failure)
@@ -891,15 +820,18 @@ local class Handle
   --- cannot close while one is open.
   ---
   ---     local insert = assert(db:prepare("INSERT INTO t (owner, n) VALUES (?1, ?2)",
-  ---       { { text = "me" }, { integer = 0 } }))
+  ---       { "me", 0 }))
   ---     for n = 1, 3 do
   ---       assert(insert:bind_integer(2, n))
   ---       assert(insert:step() == "done")
   ---       assert(insert:rewind())
   ---     end
   ---     insert:finalize()
-  function prepare(self, sql: string, values?: {raw_sqlite.Value}): (raw_sqlite.Statement) | (nil, Failure)
-    return prepared(self.connection, sql, values, values == nil)
+  function prepare(self, sql: string, values?: {raw_sqlite.Param}): (raw_sqlite.Statement) | (nil, Failure)
+    -- Not a tail call, so that a raise in `prepared` names our caller.
+    local statement, trouble = prepared(self.connection, sql, values, values == nil)
+    if statement == nil then return nil, trouble end
+    return statement
   end
 
   --- Switches the main database to write-ahead mode (`PRAGMA
@@ -1075,10 +1007,20 @@ local record Sqlite
   --- A statement a handle held to queries refused ([`Handle.reads_only`]).
   AUTH: integer
 
-  --- One bound parameter. Its field says what SQLite is told it is, so
-  --- a blob never arrives as text by accident. At most one field is
+  --- One parameter value, as a statement's `values` list holds it. An
+  --- integer, a float or a string binds as itself, a string as text; a
+  --- boolean binds as 1 or 0. A [`Sqlite.Value`] says what SQLite is told
+  --- the value is: [`Sqlite.blob`] for bytes, [`Sqlite.NULL`] for SQL
+  --- NULL, and the lists that `carray(?N)` reads. A `nil` in the list
+  --- leaves its position with no value, which answers why
+  --- ([`Sqlite.RANGE`]): use [`Sqlite.NULL`].
+  type Param = raw_sqlite.Param
+
+  --- One tagged parameter value. Its field says what SQLite is told it
+  --- is, so bytes bind as a blob and not as text. At most one field is
   --- allowed; an empty table explicitly binds SQL NULL. A value of
-  --- another shape raises where it is bound. A list in `integers`,
+  --- another shape, or a table with a metatable (but [`Sqlite.NULL`]),
+  --- raises where it is bound. A list in `integers`,
   --- `numbers`, `texts` or `blobs` is bound as an array that only
   --- `carray(?N)` reads, as a table of its elements: `x IN carray(?1)`
   --- tests membership in it. Used as a value, compared, stored or
@@ -1136,6 +1078,11 @@ local record Sqlite
 
   --- The version of SQLite the core carries.
   version: string
+
+  --- A parameter value that binds SQL NULL, where a list cannot hold
+  --- `nil`: `db:run("INSERT INTO t VALUES (?1, ?2)", { 1, Sqlite.NULL })`.
+  --- It is read-only; a write to it raises.
+  NULL: Value
 
   --- Internal: the connection a handle holds, as the core opens it. No
   --- caller outside cosmic's own tree holds one.
@@ -1246,6 +1193,14 @@ function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): (Sqlite.Handle) |
   return handle
 end
 
+--- `bytes` as a parameter value that binds as a blob: a plain string
+--- binds as text, which compares unequal to the same bytes as a blob.
+---
+---     db:run("INSERT INTO files VALUES (?1, ?2)", { name, Sqlite.blob(data) })
+function Sqlite.blob(bytes: string): Sqlite.Value
+  return { blob = bytes }
+end
+
 --- `name` quoted as an SQL identifier, for a table or column name that
 --- comes from data: in double quotes, each `"` in it doubled, so any
 --- name is read as that one name and never as SQL. A name that holds a
@@ -1262,7 +1217,7 @@ end
 --- view, a virtual table's arguments. Where SQL takes a parameter, bind
 --- the value instead ([`Handle.run`]):
 ---
----     db:run("SELECT body FROM notes WHERE title = ?1", { { text = title } })
+---     db:run("SELECT body FROM notes WHERE title = ?1", { title })
 ---
 --- Text that holds a NUL raises.
 function Sqlite.literal(text: string): string
@@ -1301,29 +1256,29 @@ end
 -- call on the pinned release.
 
 --- [`Handle.run`] of `handle`, for ci/.
-function Sqlite.run(handle: Handle, sql: string, values?: {raw_sqlite.Value}): (true) | (false, Failure)
+function Sqlite.run(handle: Handle, sql: string, values?: {raw_sqlite.Param}): (true) | (false, Failure)
   return handle:run(sql, values)
 end
 
 --- [`Handle.rows`] of `handle`, for ci/.
-function Sqlite.rows(handle: Handle, sql: string, values?: {raw_sqlite.Value}): ({Row}) | (nil, Failure)
+function Sqlite.rows(handle: Handle, sql: string, values?: {raw_sqlite.Param}): ({Row}) | (nil, Failure)
   return handle:rows(sql, values)
 end
 
 --- [`Handle.map`] of `handle`, for ci/.
-function Sqlite.map<T>(handle: Handle, sql: string, values: {raw_sqlite.Value}?,
+function Sqlite.map<T>(handle: Handle, sql: string, values: {raw_sqlite.Param}?,
                        project: function(Row): T): ({T}) | (nil, Failure)
   return handle:map(sql, values, project)
 end
 
 --- [`Handle.query`] of `handle`, for ci/.
-function Sqlite.query(handle: Handle, sql: string, values?: {raw_sqlite.Value}): (Query) | (nil, Failure)
+function Sqlite.query(handle: Handle, sql: string, values?: {raw_sqlite.Param}): (Query) | (nil, Failure)
   return handle:query(sql, values)
 end
 
 --- [`Handle.text_rows`] of `handle`, for ci/ and the files the pinned
 --- release runs.
-function Sqlite.text_rows(handle: Handle, sql: string, values?: {raw_sqlite.Value}): ({Row}) | (nil, Failure)
+function Sqlite.text_rows(handle: Handle, sql: string, values?: {raw_sqlite.Param}): ({Row}) | (nil, Failure)
   return handle:text_rows(sql, values)
 end
 
@@ -1344,5 +1299,6 @@ Sqlite.MISUSE = MISUSE
 Sqlite.RANGE = RANGE
 Sqlite.AUTH = 23
 Sqlite.version = sqlite.version
+Sqlite.NULL = sqlite.NULL
 
 return Sqlite
