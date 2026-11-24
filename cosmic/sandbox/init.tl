@@ -312,10 +312,11 @@ local ACTIONS <const>: {string:{letter: string, directory: boolean}} = {
 --- the kernel resolved it once, as the program started: give the policy
 --- with the real names the start had where the program may change what
 --- a grant's path names. The policy is merged first ([`Sandbox.merge`]);
---- one that does not merge permits nothing. A grant with `from`, and
---- /tmp where the policy isolates files and has a `tmp` of its own, name
---- other files inside the sandbox than outside, so they permit nothing
---- here; /proc is refused, since outside a pid namespace of its own it is
+--- one that does not merge permits nothing. A grant with `from`, and a
+--- grant of "/tmp" itself where the policy isolates files and has a
+--- `tmp` of its own, name other files inside the sandbox than outside,
+--- so they permit nothing here, and a refusal names them; a grant
+--- beneath /tmp is the host's directory, bound in, so it counts; /proc is refused, since outside a pid namespace of its own it is
 --- this process's.
 ---
 --- For code that acts for a held program in a process no kernel layer
@@ -373,19 +374,34 @@ function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, c
     local here, _ = sys.getcwd()
     base = here
   end
+  local checked = if of_directory then Fs.dirname(named) else named end
   local grants: mut {Sandbox.Grant} = {}
+  local skipped: mut {string} = {}
   for _, grant in ipairs(merged.grants or {}) do
     local at = grant.path
-    if at:sub(1, 1) ~= "/" and base ~= nil then at = base .. "/" .. at end
-    if grant.from == nil and not (isolated_tmp and (at == "/tmp" or at:sub(1, 5) == "/tmp/")) then
+    if at:sub(1, 1) ~= "/" and base ~= nil then
+      at = base .. (if base:sub(-1) == "/" then "" else "/" end) .. at
+    end
+    -- The start reads "/tmp" and "tmp" alike as the letters of its own /tmp.
+    local own_tmp = isolated_tmp and grant.from == nil and (grant.path == "/tmp" or grant.path == "tmp")
+    if grant.from ~= nil or own_tmp then
+      local covers = at == "/" or checked == at or checked:sub(1, #at + 1) == at .. "/"
+      if covers then
+        local why_skipped = if own_tmp then "is the sandbox's own /tmp" else "has from" end
+        skipped[#skipped + 1] = string.format("%q %s", grant.path, why_skipped)
+      end
+    else
       local resolved, _ = Fs.absolute(at)
       grants[#grants + 1] = { path = resolved or at, letters = grant.letters }
     end
   end
-  local checked = if of_directory then Fs.dirname(named) else named end
   local allowed, allow_why = rules.allows({ grants = grants }, checked, letter)
   if not allowed then
-    return nil, string.format("sandbox: the policy does not permit %s %s: %s", action, named, allow_why)
+    local note = ""
+    if #skipped > 0 then
+      note = " (" .. table.concat(skipped, ", ") .. ", so names other files inside the sandbox)"
+    end
+    return nil, string.format("sandbox: the policy does not permit %s %s: %s%s", action, named, allow_why, note)
   end
   return named, ""
 end
