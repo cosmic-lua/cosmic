@@ -774,8 +774,10 @@ local function test_a_snippet_reads_json_into_records()
       "local body = '{\"items\": [{\"name\": \"x\", \"count\": 2, \"id\": 7}], \"next\": 2}'\n" ..
       "local page = assert(Shape.decode_into(body, Shape.record_of(\"Page\").spec))\n" ..
       "for _, item in ipairs(page.items) do print(item.name .. tostring(item.count)) end\n" ..
-      "if page.next ~= nil then print(\"next \" .. tostring(page.next)) end\n" }, context)
-  assert(not ran.is_error and ran.text:find("^x2\nnext 2\n") ~= nil, ran.text)
+      "if page.next ~= nil then print(\"next \" .. tostring(page.next)) end\n" ..
+      "local last = assert(Shape.decode_into('{\"items\": []}', Shape.record_of(\"Page\").spec))\n" ..
+      "print(#last.items, last.next == nil)\n" }, context)
+  assert(not ran.is_error and ran.text:find("^x2\nnext 2\n0\ttrue\n") ~= nil, ran.text)
   Worker.close(w)
 end
 
