@@ -1,22 +1,23 @@
---- `cosmic hash [options] [file|-]...`: prints the digest of each file,
+--- `cosmic hash [options] [file|-]...` (or `cosmic hash check <sums>`): prints the digest of each file,
 --- or of standard input for `-` or no file. The line is
 --- `<hex>  <name>`, as `sha256sum` prints it, on every platform. Each
 --- input, a file or standard input, is read a chunk at a time, so its
 --- size does not change the memory used. `--json` prints an array of
 --- `{path, algorithm, digest}` instead of the lines.
 ---
---- The algorithm options are those [`cosmic.hash`] has: `--sha256` (the
---- default), `--sha512`, `--sha384`, `--sha224`, `--sha1`, `--md5`,
---- `--sha3-224`, `--sha3-256`, `--sha3-384` and `--sha3-512`.
+--- `-a` (`--algorithm`) names one of the algorithms [`cosmic.hash`] has:
+--- `sha256` (the default), `sha512`, `sha384`, `sha224`, `sha1`, `md5`,
+--- `sha3-224`, `sha3-256`, `sha3-384` and `sha3-512`.
 ---
 --- Names are written as GNU writes them. A name with a backslash, a newline
 --- or a carriage return starts its line with `\` and has `\\`, `\n` and `\r` in
---- it; all three read back. To hash a file named `-`, give it as `./-`.
+--- it; all three read back. To hash a file named `-` or `check`, give it as
+--- `./-` or `./check`.
 ---
---- `--check <sums>` (`-` for standard input) verifies a sums file in
+--- `cosmic hash check <sums>` (`-` for standard input) verifies a sums file in
 --- that format: text and `*` binary markers, escaped names, and blank
---- and `#` lines skipped. The digest size follows the algorithm option,
---- so name the algorithm for a file that is not SHA-256. Each file
+--- and `#` lines skipped. The digest size follows `-a`, so name the
+--- algorithm for a file that is not SHA-256. Each file
 --- prints `name: OK`, `name: FAILED`, or `name: FAILED open or read`,
 --- with its name escaped as above. `--quiet` prints only the failures.
 ---
@@ -45,30 +46,40 @@
 
 local Flags = require("cosmic.flags")
 
-local command: Flags.Command = {
-  about = "digest files, or check a sums file",
-  usage = "[options] [file|-]... | --check <sums|-> [options]",
-  examples = {
-    { line = "notes.txt", about = "the SHA-256 of a file" },
-    { line = "--sha512 notes.txt", about = "another algorithm" },
-    { line = "--check SHA256SUMS", about = "verify a sums file" },
-  },
-  spec = {
-    ["--md5"] = { about = "digest with MD5" },
-    ["--sha1"] = { about = "digest with SHA-1" },
-    ["--sha224"] = { about = "digest with SHA-224" },
-    ["--sha256"] = { about = "digest with SHA-256 (the default)" },
-    ["--sha384"] = { about = "digest with SHA-384" },
-    ["--sha512"] = { about = "digest with SHA-512" },
-    ["--sha3-224"] = { about = "digest with SHA3-224" },
-    ["--sha3-256"] = { about = "digest with SHA3-256" },
-    ["--sha3-384"] = { about = "digest with SHA3-384" },
-    ["--sha3-512"] = { about = "digest with SHA3-512" },
-    ["--json"] = { about = "print an array of {path, algorithm, digest}" },
-    ["--check"] = { value = "sums", about = "verify a sums file, or - for standard input" },
-    ["--quiet"] = { about = "with --check, print only the failures" },
+--- `own` with the options both of `hash`'s commands take: the algorithm, and an HMAC's key.
+local function shared(own: {string: boolean | Flags.Option}): {string: boolean | Flags.Option}
+  local spec: mut {string: boolean | Flags.Option} = {
+    ["--algorithm"] = { value = "name", aliases = { "-a" }, default = "sha256", about = "the digest's algorithm",
+      choices = { "md5", "sha1", "sha224", "sha256", "sha384", "sha512", "sha3-224", "sha3-256", "sha3-384",
+        "sha3-512" } },
     ["--hmac"] = { value = "key", about = "make each digest an HMAC under key (visible in ps)" },
     ["--hmac-file"] = { value = "path", about = "make each digest an HMAC under the bytes of a file" },
+  }
+  for name, option in pairs(own) do spec[name] = option end
+  return spec
+end
+
+local command: Flags.Command = {
+  about = "digest files, or check a sums file",
+  usage = "[check] [options] [file|-]...",
+  examples = {
+    { line = "notes.txt", about = "the SHA-256 of a file" },
+    { line = "-a sha512 notes.txt", about = "another algorithm" },
+    { line = "check SHA256SUMS", about = "verify a sums file" },
+  },
+  subcommands = {
+    digest = {
+      typed = "",
+      -- A line that names no command runs this one, so its usage is the verb's.
+      usage = "[check] [options] [file|-]...",
+      about = "print the digest of each file, or of standard input",
+      spec = shared({ ["--json"] = { about = "print an array of {path, algorithm, digest}" } }),
+    },
+    check = {
+      usage = "[options] <sums|->",
+      about = "verify the files a sums file lists, or one read from standard input for -",
+      spec = shared({ ["--quiet"] = { about = "print only the failures" } }),
+    },
   },
 }
 
