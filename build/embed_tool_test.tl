@@ -1119,9 +1119,9 @@ return function(): integer
   local records = hello .. certificate
   local flight = "\22\3\3" .. string.pack(">I2", #records) .. records
   local roots, why = Http.default_roots()
-  print(roots or why)
+  print(roots or tostring(why))
   local _, refused = Http.open("https://cosmic.test/", { timeout_ns = 60000000000, script = { flight } })
-  print((refused:gsub("\n", " ")))
+  print((tostring(refused):gsub("\n", " ")))
   return 0
 end
 ]]

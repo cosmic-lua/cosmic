@@ -44,7 +44,7 @@ end
 local function succeeds(what: string)
   local response, trouble = Http.open(url, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "hello") },
     headers = { ["X-One"] = "1" } })
-  assert(response ~= nil, "after " .. what .. ", a request failed: " .. trouble)
+  assert(response ~= nil, "after " .. what .. ", a request failed: " .. tostring(trouble))
   assert(read_all(response) == "hello", "after " .. what .. ", the body is wrong")
   response:close()
 end
@@ -113,11 +113,11 @@ local function test_each_fault_point_in_open_fails_the_request_cleanly(tmp: stri
     assert(not testing.fail_at(), what .. " was never reached")
     assert(response == nil, what .. " did not fail the request")
     local call = assert(fault.point:match("^[%w_]+"), "a fault point names a call")
-    assert(trouble:find(call, 1, true) ~= nil, what .. ": the message does not name " ..
-        call .. ": " .. trouble)
+    assert(tostring(trouble):find(call, 1, true) ~= nil, what .. ": the message does not name " ..
+        call .. ": " .. tostring(trouble))
     if fault.point:find("(", 1, true) ~= nil then
       local option = assert(fault.point:match("%((.*)%)"), "a fault point names an option")
-      assert(trouble:find(option, 1, true) ~= nil, what .. ": " .. trouble)
+      assert(tostring(trouble):find(option, 1, true) ~= nil, what .. ": " .. tostring(trouble))
     end
     assert_released(tmp, before, what)
     succeeds(what)

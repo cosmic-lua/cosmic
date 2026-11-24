@@ -217,7 +217,7 @@ function Vendor.fetch(url: string, path: string, digests: {Vendor.Digest}): stri
     sha3_256 = want["sha3-256"] }
   local ok, trouble = Http.download(url, path, options)
   if not ok then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   return path, ""
 end
@@ -513,7 +513,7 @@ local function feed_tree(tree: string, text: string, pin: Vendor.Pin,
   local _, _ = Fs.remove(path)
   local ok, trouble = Http.download(pin.feed, path, { timeout_ns = Http.FOREVER })
   if not ok then
-    return 0, pin.feed .. ": " .. trouble
+    return 0, pin.feed .. ": " .. tostring(trouble)
   end
   local body, read_trouble = Fs.read(path)
   if body == nil then

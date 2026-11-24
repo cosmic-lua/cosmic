@@ -52,6 +52,6 @@ local function test_a_connection_is_reused_for_the_same_roots_alone()
     assert(first.status == 200 and second.body == first.body,
       ("the second request came on port %s, the first on %s"):format(second.body, first.body))
     local got, why = Http.get(base, { timeout_ns = Clock.seconds(20) })
-    assert(got == nil and why:find("not correctly signed", 1, true) ~= nil, why)
+    assert(got == nil and tostring(why):find("not correctly signed", 1, true) ~= nil, why)
   end)
 end

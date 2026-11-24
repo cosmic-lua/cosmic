@@ -71,7 +71,7 @@ local function embed_texts(texts: {string}, model: string, key: string): Embedde
     body = body,
   })
   if reply == nil then
-    return nil, why
+    return nil, tostring(why)
   end
   if reply.status ~= 200 then
     return nil, "embeddings: status " .. tostring(reply.status) .. ": " .. reply.body
