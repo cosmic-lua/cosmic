@@ -122,7 +122,7 @@ local function copy_rows(from: Sqlite.Handle, into: Sqlite.Handle,
     end
     local ok, why = insert:run(values)
     if not ok then
-      rows:close()
+      local _, _ = rows:close()
       insert:close()
       return false, table_name .. ": " .. tostring(why)
     end
