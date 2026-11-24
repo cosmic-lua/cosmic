@@ -110,6 +110,9 @@ local command: Flags.Command = {
     ["--bail"] = { about = "start no test after the first failure; those already running " ..
         "finish, the tests not started keep no verdict, and the run fails " ..
         "(COSMIC_TEST_BAIL=1)" },
+    ["--deadline"] = { value = "seconds", about = "start no test once this many seconds have " ..
+        "passed since the run began; those already running finish and keep their verdicts, " ..
+        "the tests not started keep none, and the run fails (COSMIC_TEST_DEADLINE)" },
     ["--census"] = { about = "say the digests every key of the run holds, and where none " ..
         "stood on the shared cache, how many rows it holds, even in a checkout " ..
         "that ran before" },

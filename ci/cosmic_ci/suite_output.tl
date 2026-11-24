@@ -100,7 +100,7 @@ local function fail_figures(detail: string, into: SuiteOutput.Figures): boolean
   into.verdict = "fail"
   into.failed, into.tests = number(failed), number(total)
   into.errors, into.elapsed_ms = number(errors), number(ms)
-  local tail, skipped = assert(rest):match("^(.*); (%d+) not run after the first failure$")
+  local tail, skipped = assert(rest):match("^(.*); (%d+) not run after the [%w ]+$")
   if skipped then
     into.not_run = number(skipped)
     rest = tail

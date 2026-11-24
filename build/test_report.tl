@@ -591,14 +591,17 @@ end
 --- A failing run's summary, after `test: `. The runner has already
 --- decided failure before asking for it.
 ---
---- `not_run` counts the tests a bailing run (`cosmic test --bail`) never
---- started: they are in neither figure above, and are said last, after
---- what a reader of the figures by their places expects.
+--- `not_run` counts the tests a bailing run (`cosmic test --bail`) or
+--- one past its deadline (`--deadline`) never started, `stopped_by` what
+--- stopped it ("the first failure" where nil): they are in neither
+--- figure above, and are said last, after what a reader of the figures
+--- by their places expects.
 function test_report.failed(failures: integer, total: integer, errors: integer,
-                            elapsed: string, not_run?: integer): string
+                            elapsed: string, not_run?: integer, stopped_by?: string): string
   return tostring(failures) .. " of " .. plural.count(total, "test") .. " failed, " ..
     plural.count(errors, "infrastructure error") .. ", " .. elapsed ..
-    (if not_run ~= nil and not_run > 0 then ("; " .. tostring(not_run) .. " not run after the first failure") else "" end)
+    (if not_run ~= nil and not_run > 0 then ("; " .. tostring(not_run) .. " not run after " ..
+      (stopped_by or "the first failure")) else "" end)
 end
 
 return test_report

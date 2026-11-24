@@ -49,6 +49,8 @@ local record Env
     "COSMIC_TEST_ALL"
     --- "1" starts no test after the first failure.
     "COSMIC_TEST_BAIL"
+    --- Seconds from a run's start after which it starts no test (`--deadline`).
+    "COSMIC_TEST_DEADLINE"
     --- "1" shows where the checker's conclusion from a test is false.
     "COSMIC_TEST_CHECK_TYPES"
     --- For a test of the runner alone: stands in for the compiler's identity.

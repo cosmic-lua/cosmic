@@ -52,6 +52,7 @@ local record Orchestration
     low?: integer
   end
   test_words: function(env: {string:string}): {string}
+  deadlined: function(env: {string:string}, timeout_ns: integer): {string:string}
   shares: function(env: {string:string}): {string:string}
   sandboxed_fixtures: function(): {string:boolean}
   noexec_fixture: function(target: string): boolean
@@ -735,6 +736,17 @@ local checked_compile_timeout_ns <const> = Clock.seconds(300)
 local suite_timeout_ns <const> = Clock.seconds(720)
 local suite_test_timeout_s <const> = "10"
 
+--- `env`, a suite's, with the deadline its `cosmic test` stops starting
+--- tests at (COSMIC_TEST_DEADLINE, build/test.tl): five sixths of
+--- `timeout_ns`, the bound the driver ends it at. The tests running then
+--- finish and the run keeps the verdicts it reached, so a suite that
+--- runs out of time (every key moved, and nothing stood) leaves the next
+--- run something to stand on; ended by the bound, it would keep none.
+--- The last sixth is for the tests in flight and the run's settling.
+function Orchestration.deadlined(env: {string:string}, timeout_ns: integer): {string:string}
+  return Maps.with(env, { COSMIC_TEST_DEADLINE = tostring(timeout_ns * 5 // 6 // Clock.seconds(1)) })
+end
+
 --- Copies the files of `source` (modules, and where `data` the JSON
 --- files beside them that the modules read) to `destination`.
 local function copy_flat_dir(source: string, destination: string, data: boolean)
@@ -1266,7 +1278,7 @@ local function checked_suite(c: Context, target: string, work: string,
   end
   s = logged(c, "checked suite", checked_argv,
     diagnostics .. "/checked-test.out", diagnostics .. "/checked-test.err",
-    checked_suite_timeout_ns, c.root, checked_run.env)
+    checked_suite_timeout_ns, c.root, Orchestration.deadlined(checked_run.env, checked_suite_timeout_ns))
   record_suite(c, "checked", s, diagnostics .. "/checked-test.out")
   write(diagnostics .. "/checked-test.status", tostring(s) .. "\n")
   -- The suite's per-test times and verdicts (its `runs` rows), which
@@ -1355,7 +1367,7 @@ local function suite(c: Context, name: string, executable: string,
   local argv: mut {string} = { executable }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local status = logged(c, name .. " suite", argv, out, err,
-    suite_timeout_ns, c.root, values)
+    suite_timeout_ns, c.root, Orchestration.deadlined(values, suite_timeout_ns))
   record_suite(c, name, status, out)
   write(diagnostics .. "/" .. name .. "-test.status", tostring(status) .. "\n")
   local snapped: Snapped = { status = 1 }
@@ -1540,7 +1552,8 @@ local function phase_darwin_suite(p: PlatformContext): integer
   mkdir(p.local_diagnostics)
   local out = p.local_diagnostics .. "/darwin-test.out"
   local status = logged(c, "darwin suite", argv, out,
-    p.local_diagnostics .. "/darwin-test.err", suite_timeout_ns, c.root, values)
+    p.local_diagnostics .. "/darwin-test.err", suite_timeout_ns, c.root,
+    Orchestration.deadlined(values, suite_timeout_ns))
   record_suite(c, "darwin", status, out)
   if status ~= 0 then
     local _, _ = Fs.put(Fs.stderr, "darwin suite: failed (status " .. tostring(status) .. ")\n")
@@ -1593,7 +1606,8 @@ local function phase_checked_narrowing(p: PlatformContext): integer
   local out = p.local_diagnostics .. "/checked-narrowing-test.out"
   local values = release_promises(run.env)
   local status = logged(c, "checked narrowing", argv, out,
-    p.local_diagnostics .. "/checked-narrowing-test.err", checked_narrowing_timeout_ns, c.root, values)
+    p.local_diagnostics .. "/checked-narrowing-test.err", checked_narrowing_timeout_ns, c.root,
+    Orchestration.deadlined(values, checked_narrowing_timeout_ns))
   -- A run that prints no "run-time types" line (the summary of a checked
   -- run) was not one: its modules carried no checks.
   local text = read(out)
