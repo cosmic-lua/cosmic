@@ -231,11 +231,12 @@ and push. never skip or disable a test to get green.
 the queue's run tests what main's push does: every Linux leg (its native
 suite, and beside it assemble, the regressions and the product suite), the
 checked suite, the checked narrowing run, and the format check of what the
-change touched. it also runs macOS's native suite. macOS's product and its
-fixtures run in main's daily scheduled run alone, so a failure only they
-show turns main's next prerelease red after the change lands; fix it, or
-revert the change, at once. a change to the launcher, the product or its
-fixtures that macOS may answer otherwise runs CI on its branch first: a
+change touched. it also runs macOS's native suite. macOS's product, its
+fixtures and its checked regressions run in main's daily scheduled run
+alone, so a failure only they show turns main's next prerelease red after
+the change lands; fix it, or revert the change, at once. a change macOS may
+answer otherwise there (the core's C, the launcher, the product or its
+fixtures) runs CI on its branch first: a
 manual run (`workflow_dispatch` on the branch, from the Actions tab or
 `gh workflow run ci.yml --ref <branch>`) runs what main's run does.
 
