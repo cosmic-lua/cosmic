@@ -643,6 +643,7 @@ local record StandIn
   raw: function(v: any): string
   raw_attr: function(v: any): string
   raw_url: function(v: any): string
+  filled: function(v: any): boolean
 end
 
 --- The core's escapers (cosmic.html), for what they do to bytes, each
@@ -652,6 +653,8 @@ end
 --- whole-URL slot and `B` to a part, as a template given an origin in one
 --- slot and a hostile value in another.
 local STAND_IN <const>: StandIn = {
+  -- The data the tests render is strings, so `filled` is the core's for them.
+  filled = function(v: any): boolean return v ~= nil and v ~= false and v ~= "" end,
   escape = function(s: any): {string: string} return { s = "\1" .. esc(s) .. "\2" } end,
   escape_attr = function(s: any): {string: string} return { s = "\3" .. esc_attr(s) .. "\4" } end,
   href = function(s: any): {string: string}
@@ -705,9 +708,11 @@ local STAND_IN <const>: StandIn = {
 
 --- The generated source with Teal's types struck out, in the shapes the
 --- generator writes, to run as Lua. Those templates have no stage, so
---- `_one` and its `<T>` are never there to strike.
+--- `_one` is never there; `_sure`, which a block that reads its tested
+--- value uses, is the identity it is once the test has passed.
 local function lua_of(source: string): string
   local lua = source:gsub("local type [%w_]+ = require%b() ", "")
+  lua = lua:gsub("local function _sure<T>%(v: T%?%): T return %(assert%(v%)%) end", "local function _sure(v) return v end")
   lua = lua:gsub("%(([%a_][%w_]*): [^()]-%)", "(%1)")
   lua = lua:gsub("%): [%w%.]+ ", ") ")
   lua = lua:gsub("local v: [^=]+= ", "local v = ")
