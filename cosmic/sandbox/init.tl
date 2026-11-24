@@ -208,6 +208,12 @@ end
 --- disagree. A grant with `from` meets only a grant of its own path and
 --- source. Nil and why for no layer, or one [`Sandbox.merge`] refuses.
 ---
+--- Paths are met as written, cleaned, while the kernel meets the files
+--- they name: a link (`/lib` to `/usr/lib`) or a relative path read from
+--- two directories is not seen. Give real, absolute paths where the
+--- answer is to be exact. A `connect` target of "*" meets names alone,
+--- since the relay opens no address or tailnet node by it.
+---
 ---     local a = { grants = { { path = "/srv", letters = "rwx" } }, connect = { "*:443" } }
 ---     local b = { grants = { { path = "/srv/data", letters = "r" } }, connect = { "api.github.com:*" } }
 ---     local both = assert(Sandbox.intersect(a, b))
@@ -221,8 +227,11 @@ end
 --- directory above it, gives every letter; false and why otherwise. The
 --- policy is merged first, so it may name `profiles`. `path` is compared
 --- as written, cleaned: to check a real file, resolve its links first,
---- since the kernel reads the path it opens. A second layer for code
---- that runs in a process no kernel layer holds, never the only one.
+--- since the kernel reads the path it opens. `c` is asked of the
+--- directory a file is made or removed in, as Landlock grants it beneath a
+--- directory: a `c` grant on a plain file gives nothing. Letters outside
+--- "rwxcu", or none, are refused. A second layer for code that runs in a
+--- process no kernel layer holds, never the only one.
 ---
 ---     local p = { grants = { { path = "/srv", letters = "rw" } } }
 ---     print((Sandbox.allows(p, "/srv/a/b", "r")), (Sandbox.allows(p, "/etc", "r"))) -- true  false
@@ -236,10 +245,31 @@ end
 --- in the order it was given them.
 local restricted: mut {Sandbox.Policy} = {}
 
+--- Records `merged`, which [`Sandbox.restrict`] just held this process
+--- to, with `extra` grants beside its own, each relative path made
+--- absolute against the directory it was opened from.
+local function record_held(merged: Sandbox.Policy, extra: {Sandbox.Grant})
+  local cwd, _ = sys.getcwd()
+  local grants: mut {Sandbox.Grant} = {}
+  for _, list in ipairs({ merged.grants or {}, extra }) do
+    for _, grant in ipairs(list) do
+      local path = grant.path
+      if path:sub(1, 1) ~= "/" and cwd ~= nil then path = cwd .. "/" .. path end
+      grants[#grants + 1] = { path = path, letters = grant.letters, from = grant.from }
+    end
+  end
+  local held, _ = rules.merge({ grants = grants, promises = merged.promises, limits = merged.limits })
+  if held ~= nil then restricted[#restricted + 1] = held end
+end
+
 --- What this process is held to by [`Sandbox.restrict`]: the
 --- intersection of every policy it was restricted to ([`Sandbox.intersect`]),
---- or nil for none. A process started under a policy by [`Child.start`]
---- is held to that policy too, which this does not know.
+--- or nil for none. Each is recorded with its relative paths made
+--- absolute against the directory the call was made in, which is where
+--- the kernel opened them, and on macOS with the runtime's own grants
+--- the profile adds (the store's files and this program's). A process
+--- started under a policy by [`Child.start`] is held to that policy too,
+--- which this does not know.
 ---
 ---     print(Sandbox.held()) -- nil, in a process never restricted
 function Sandbox.held(): Sandbox.Policy?
@@ -642,7 +672,7 @@ function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOpti
   if rules.on_macos() then
     local done, seatbelt_why = held_by_seatbelt(policy, kept)
     if not done then return false, seatbelt_why end
-    restricted[#restricted + 1] = merged
+    record_held(merged, runtime_grants())
     return true, ""
   end
   local grants: mut {raw_process.Grant} = {}
@@ -661,7 +691,7 @@ function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOpti
     end
     return denied(held)
   end
-  restricted[#restricted + 1] = merged
+  record_held(merged, {})
   return true, ""
 end
 

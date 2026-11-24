@@ -650,3 +650,33 @@ end
 local function test_held_is_nil_in_a_process_never_restricted()
   assert(Sandbox.held() == nil)
 end
+
+local function test_intersect_meets_targets_as_the_relay_reads_them()
+  local function met(a: string, b: string): string
+    local both = assert(Sandbox.intersect({ connect = { a } }, { connect = { b } }))
+    return table.concat(assert(both.connect), ",")
+  end
+  -- "*" grants names alone: never an address or a tailnet node.
+  assert(met("*:443", "10.0.0.5:443") == "")
+  assert(met("*:*", "[::1]:443") == "")
+  assert(met("*:*", "tag:db:5432") == "")
+  assert(met("*:*", "api.github.com:443") == "api.github.com:443")
+  -- Hosts are met canonical.
+  assert(met("API.github.com.:443", "api.github.com:*") == "api.github.com:443")
+  assert(met("[0::1]:443", "[::1]:*") == "[::1]:443")
+  assert(met("tag:db:*", "tag:db:5432") == "tag:db:5432")
+  assert(met("user:Will@Example.com:*", "user:will@example.com:22") == "user:will@example.com:22")
+  assert(met("a.example:1", "a.example:2") == "")
+end
+
+local function test_intersect_holds_a_layer_with_no_open_files_to_the_default()
+  local both = assert(Sandbox.intersect({ limits = { open_files = 4096 } }, {}))
+  assert(assert(both.limits).open_files == 1024, tostring(assert(both.limits).open_files))
+end
+
+local function test_allows_refuses_letters_outside_rwxcu_or_none()
+  local p: Sandbox.Policy = { grants = { { path = "/srv", letters = "rw" } } }
+  assert(not Sandbox.allows(p, "/srv", ""))
+  local ok, why = Sandbox.allows(p, "/srv", "rz")
+  assert(not ok and why:find("rwxcu", 1, true) ~= nil, why)
+end

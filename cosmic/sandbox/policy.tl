@@ -717,6 +717,10 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
   return result, ""
 end
 
+--- The most open files a process under a policy may hold unless its
+--- `open_files` says.
+local DEFAULT_OPEN_FILES <const> = 1024
+
 --- Whether `inner` is `outer` or a path beneath it, both cleaned: an
 --- absolute path is never beneath a relative one, nor one beneath the
 --- other.
@@ -747,20 +751,52 @@ local function common<T is Key>(a: {T}, b: {T}): {T}
   return out
 end
 
---- The host and the port of a `connect` target, "host:port", split at its
---- last colon: a tailnet target's host holds its own ("tag:db").
-local function host_port(target: string): string, string
-  local host, port = target:match("^(.*):([^:]*)$")
-  if host == nil or port == nil then return target, "" end
-  return host, port
+--- A `connect` target read for a meet: its kind ("any", "name", "ipv4",
+--- "ipv6", or "tag" and "user" for the tailnet's), its host in canonical
+--- form, and its port, 0 for any. Nil for a target neither reader takes,
+--- which [`rules.merge`] has already refused.
+local record Reach
+  kind: string
+  host: string
+  port: integer
 end
 
---- What one part of two targets, a host or a port, both reach: the other
---- where one is "*", the part where they are equal, nil where neither.
-local function meet(a: string, b: string): string?
-  if a == "*" then return b end
-  if b == "*" or a == b then return a end
-  return nil
+local function reach_of(target: string): Reach?
+  local node, _ = Grant.tailnet(target)
+  if node ~= nil then return { kind = node.kind, host = node.name, port = node.port } end
+  local read, _ = Grant.parse(target)
+  if read == nil then return nil end
+  return { kind = read.kind, host = read.host, port = read.port }
+end
+
+--- `reach` written as a `connect` target again, canonical.
+local function target_of(reach: Reach): string
+  local port = if reach.port == 0 then "*" else tostring(reach.port) end
+  if reach.kind == "user" then return "user:" .. reach.host .. ":" .. port end
+  if reach.kind == "ipv6" then return "[" .. reach.host .. "]:" .. port end
+  return reach.host .. ":" .. port
+end
+
+--- What two `connect` targets both reach, as the relay reads them, or nil
+--- for nothing: a "*" host reaches every name and never an address or a
+--- tailnet's node ([`cosmic.relay.grant`]), so it meets a name and leaves
+--- the rest; any other host meets only itself, compared canonical; a port
+--- of 0 (any) meets every port.
+local function meet_targets(a: string, b: string): string?
+  local ra, rb = reach_of(a), reach_of(b)
+  if ra == nil or rb == nil then return nil end
+  local host: Reach? = nil
+  if ra.kind == "any" and (rb.kind == "any" or rb.kind == "name") then
+    host = rb
+  elseif rb.kind == "any" and ra.kind == "name" then
+    host = ra
+  elseif ra.kind == rb.kind and ra.host == rb.host then
+    host = ra
+  end
+  if host == nil then return nil end
+  local port = if ra.port == 0 then rb.port elseif rb.port == 0 or ra.port == rb.port then ra.port else -1 end
+  if port < 0 then return nil end
+  return target_of({ kind = host.kind, host = host.host, port = port })
 end
 
 --- The lower of two limits, either nil for none.
@@ -812,10 +848,8 @@ local function intersect_two(a: rules.Policy, b: rules.Policy): rules.Policy?, s
   local connect: mut {string} = {}
   for _, ta in ipairs(a.connect or {}) do
     for _, tb in ipairs(b.connect or {}) do
-      local ha, pa = host_port(ta)
-      local hb, pb = host_port(tb)
-      local host, port = meet(ha, hb), meet(pa, pb)
-      if host ~= nil and port ~= nil then connect[#connect + 1] = host .. ":" .. port end
+      local met = meet_targets(ta, tb)
+      if met ~= nil then connect[#connect + 1] = met end
     end
   end
   local function shown(value: integer?): string?
@@ -834,7 +868,10 @@ local function intersect_two(a: rules.Policy, b: rules.Policy): rules.Policy?, s
   if why ~= "" then return refuse(why) end
   local la, lb = a.limits or {}, b.limits or {}
   local limits: rules.Limits = {
-    open_files = lower(la.open_files, lb.open_files), file_bytes = lower(la.file_bytes, lb.file_bytes),
+    -- A start holds a layer with no `open_files` to the default, so the
+    -- lower of the two is taken against it.
+    open_files = if la.open_files == nil and lb.open_files == nil then nil
+      else lower(la.open_files or DEFAULT_OPEN_FILES, lb.open_files or DEFAULT_OPEN_FILES) end, file_bytes = lower(la.file_bytes, lb.file_bytes),
     cpu_seconds = lower(la.cpu_seconds, lb.cpu_seconds), processes = lower(la.processes, lb.processes),
   }
   -- What is not a right joins as a merge joins it: the variables set, and
@@ -872,6 +909,9 @@ end
 
 --- [`Sandbox.allows`] of a policy already merged.
 function rules.allows(p: rules.Policy, path: string, letters: string): boolean, string
+  if letters == "" or letters:find("[^" .. LETTERS .. "]") ~= nil then
+    return false, "sandbox: letters are of \"" .. LETTERS .. "\", at least one: " .. string.format("%q", letters)
+  end
   local at = clean_path(path)
   local missing = letters
   for _, grant in ipairs(p.grants or {}) do
@@ -895,10 +935,6 @@ function rules.with_connect(p: rules.Policy, connect: {string}): rules.Policy
   }
   return result
 end
-
---- The most open files a process under a policy may hold unless its
---- `open_files` says.
-local DEFAULT_OPEN_FILES <const> = 1024
 
 --- The rlimits `limits` hold a process to, by the names spawn and
 --- restriction take: `nofile` its `open_files`, or 1024 -- lowered to this
