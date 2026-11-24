@@ -330,8 +330,8 @@ Agent.tasks = {
   },
   {
     name = "header",
-    prompt = "cosmic/agent/tools.tl starts with a block of lines that each start `---`. Replace that whole block " ..
-      "with the one line `--- The tools of cosmic agent.` and change nothing else.",
+    prompt = "cosmic/agent/tools.tl starts with a block of lines that each start `---`. Replace that whole block, " ..
+      "its first line too, with the one line `--- The tools of cosmic agent.` and change nothing else.",
     truth = [==[head -1 cosmic/agent/tools.tl | grep -q '^---' && awk 'h && /^---/ {next} h {print "--- The tools of cosmic agent."; h=0} {print}' h=1 cosmic/agent/tools.tl | sha256sum | cut -c1-64]==],
     check = "sha256sum cosmic/agent/tools.tl | cut -c1-64",
   },

@@ -1044,7 +1044,7 @@ local ALL <const>: {Tools.Tool} = {
       "capture).\n" ..
       "- Host.sort(list, by?) -> {string}, by the key `by(item)` gives where given; Host.uniq(keys) -> {string: integer}, each key's count; Host.top(counts, " ..
       "n?) -> {{key, count}}, most first, ties by key.\n" ..
-      "- Host.bash(command) -> {output, ok, code}; Host.edit(path, {{old = ..., new = ...}}) -> integer; " ..
+      "- Host.bash(command) -> {output, ok, code}; " ..
       "Host.sql(query) -> rows; Host.store(key, value) / Host.load(key).value.\n" ..
       "- Host.fetch(url, {method?, headers?, body?}?) -> {status, headers, body}: no redirect followed, public " ..
       "addresses only, in a session with --network.\n" ..
