@@ -11,10 +11,12 @@
 ---     Worker.close(w)
 ---
 --- The worker reads requests, `{"id":1,"code":"..."}`, one JSON object a line, and answers each with a line holding
---- the request's `id` and one of: `refused`, the checker's lines, for a snippet that did not run; `ok` true,
---- `output` (what it wrote to standard output and standard error together, its last 64KB as UTF-8, `cut` true where
---- more was written) and `value` (the JSON of what it returned, where it returned one, at most 64KB); `ok` false with `output` and `error`,
---- for one that raised; or `error` alone, for a request it could not read. Before its answer, a snippet may call the
+--- the request's `id` and one of: `refused`, the checker's lines, for a snippet that did not run; `ok` true and `value`
+--- (the JSON of what it returned, where it returned one, at most 64KB); `ok` false and `error`, for one that raised; or
+--- `error` alone, for a request it could not read. What a snippet writes to standard output and standard error goes to
+--- the worker's standard error, a pipe this module reads while the snippet runs, between [`Worker.MARK_START`] and
+--- [`Worker.MARK_END`]: an answer of `ok` gains `output`, the last 64KB of it as UTF-8, and `cut` true where more was
+--- written. Only the end is held, so a snippet that prints without end fills no file. Before its answer, a snippet may call the
 --- agent ([`cosmic.agent.host`]): a line `{"id":1,"call":"sql","args":{...}}`, which [`Worker.Options.serve`] answers
 --- in the agent and the reply goes back on the worker's input, `{"reply":...}` or `{"failed":"..."}`. A snippet sets no global, which the checker
 --- refuses; what it keeps for the next it writes to a file. Its standard input is /dev/null.
@@ -33,12 +35,15 @@ local Proc = require("cosmic.proc")
 local String = require("cosmic.string")
 local Sandbox = require("cosmic.sandbox")
 local Stream = require("cosmic.stream")
-local sys = require("cosmic.sys")
 
 local record Worker
-  --- The most bytes a file the worker writes, or a program a snippet starts, may hold: a snippet that writes past it,
-  --- printing without end, ends the worker, and the run says so.
-  FILE_BYTES: integer
+  --- The most bytes of a snippet's output an answer holds: 64KB.
+  OUTPUT_BYTES: integer
+  --- What the worker writes on its output before a request's, which ends what came before: a program an earlier
+  --- snippet started may still write.
+  MARK_START: string
+  --- What the worker writes on its output after a request's.
+  MARK_END: string
 
   --- What one snippet runs with.
   record Options
@@ -78,13 +83,12 @@ local record Worker
     mut lines?: Stream.Lines
     --- Its requests.
     mut writer?: Stream.Writer
+    --- The output of its snippets.
+    mut output?: Stream.Reader
     --- The id the next request is sent with.
     mut next: integer
     --- How many workers it started.
     mut started: integer
-    --- The most bytes a file the worker writes may hold, as the worker is started with it: [`Worker.FILE_BYTES`] but
-    --- in a test.
-    file_bytes: integer
   end
 
   --- What the worker answered for a snippet, as it sent it: see above.
@@ -94,21 +98,23 @@ end
 --- How often a wait for an answer looks whether the user stopped the turn.
 local STOP_CHECK <const> = Clock.ms(100)
 
---- A set with no worker yet, started by `argv` where given, with the `env` and `fds` of `base`; `file_bytes` where
---- `argv` starts a worker held to another limit than [`Worker.FILE_BYTES`], which a run that writes past it tells.
-function Worker.new(argv?: {string}, base?: Child.Options, file_bytes?: integer): Worker.Set
+--- How long the output of a snippet that answered may take to end.
+local OUTPUT_WAIT <const> = Clock.seconds(5)
+
+--- A set with no worker yet, started by `argv` where given, with the `env` and `fds` of `base`.
+function Worker.new(argv?: {string}, base?: Child.Options): Worker.Set
   local command = argv
   if command == nil then
     local self, _ = Proc.executable()
     command = { self or "cosmic", "agent", "worker" }
   end
-  return { argv = command, base = base, next = 1, started = 0, file_bytes = file_bytes or Worker.FILE_BYTES }
+  return { argv = command, base = base, next = 1, started = 0 }
 end
 
 --- Ends the worker of `set`, if one runs; the next snippet starts another.
 function Worker.close(set: Worker.Set)
   local writer, handle = set.writer, set.handle
-  set.writer, set.lines, set.handle = nil, nil, nil
+  set.writer, set.lines, set.handle, set.output = nil, nil, nil, nil
   if writer ~= nil then local _, _ = writer:close() end
   if handle ~= nil then local _, _ = handle:close() end
 end
@@ -133,17 +139,17 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
       tmp = merged.tmp, limits = merged.limits, user = merged.user, group = merged.group, database = merged.database }
   end
   local base = set.base
-  local handle, why = Child.start(set.argv, { cwd = opts.cwd, stdin = "stream", stdout = "stream", stderr = "null",
+  local handle, why = Child.start(set.argv, { cwd = opts.cwd, stdin = "stream", stdout = "stream", stderr = "stream",
     policy = policy, timeout_ns = Child.FOREVER, env = if base ~= nil then base.env else nil end,
     fds = if base ~= nil then base.fds else nil end })
   if handle == nil then return nil, Failure.new("worker: starting it: " .. tostring(why)) end
-  local reader, writer = handle.stdout_stream, handle.stdin_stream
-  if reader == nil or writer == nil then
+  local reader, writer, output = handle.stdout_stream, handle.stdin_stream, handle.stderr_stream
+  if reader == nil or writer == nil or output == nil then
     local _, _ = handle:close()
     return nil, Failure.new("worker: it has no pipes")
   end
   lines = Stream.lines(reader)
-  set.handle, set.writer, set.lines = handle, writer, lines
+  set.handle, set.writer, set.lines, set.output = handle, writer, lines, output
   set.started = set.started + 1
   return lines
 end
@@ -182,12 +188,58 @@ local function answer_of(lines: Stream.Lines, writer: Stream.Writer, id: integer
   end
 end
 
+--- The last [`Worker.OUTPUT_BYTES`] of `text`, from a character's start, as UTF-8.
+function Worker.tail(text: string): string
+  if #text <= Worker.OUTPUT_BYTES then return String.as_utf8(text) end
+  local from = #text - Worker.OUTPUT_BYTES + 1
+  while from <= #text and (text:byte(from) or 0) & 0xC0 == 0x80 do from = from + 1 end
+  return String.as_utf8(text:sub(from))
+end
+
+--- A request's output, as it is read: what came after its start mark, at most its last [`Worker.OUTPUT_BYTES`] and a
+--- few, and whether more came.
+local record Output
+  mut started: boolean
+  mut ended: boolean
+  mut kept: string
+  mut cut: boolean
+end
+
+--- `output` with `chunk` read: what comes before the start mark dropped, what comes after the end mark too, and only the
+--- end kept, with a mark's length beside it, which may be the start of a mark cut in two.
+local function took(output: Output, chunk: string)
+  local text = output.kept .. chunk
+  if not output.started then
+    local _, at = text:find(Worker.MARK_START, 1, true)
+    if at == nil then
+      output.kept = text:sub(-(#Worker.MARK_START - 1))
+      return
+    end
+    output.started = true
+    text = text:sub(at + 1)
+  end
+  local ends = text:find(Worker.MARK_END, 1, true)
+  if ends ~= nil then
+    text = text:sub(1, ends - 1)
+    output.ended = true
+  end
+  -- 4 more than an answer holds, so that a character cut at the start is told apart from one more byte.
+  local hold = Worker.OUTPUT_BYTES + 4 + (if output.ended then 0 else #Worker.MARK_END - 1 end)
+  if #text > hold then
+    text = text:sub(-hold)
+    output.cut = true
+  end
+  output.kept = text
+end
+
 --- Checks and runs `code` in the worker of `set`, starting one under `opts` where none runs: the worker's answer, or
 --- why there is none. A snippet that runs past `opts.seconds` ends the worker, and is answered so.
 function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worker.Answer) | (nil, Failure)
   local lines, why = started(set, opts)
   if lines == nil then return nil, why end
   local writer = assert(set.writer)
+  local reader = assert(set.output)
+  local output: Output = { started = false, ended = false, kept = "", cut = false }
   local id = set.next
   set.next = id + 1
   local request, encode_why = Json.encode({ id = id, code = code })
@@ -216,6 +268,13 @@ function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worke
     local reading = Poll.spawn(function()
       answer, trouble = answer_of(lines, writer, id, opts.serve, budget)
     end)
+    local printed = Poll.spawn(function()
+      while not output.ended do
+        local chunk, _ = reader:read()
+        if chunk == nil then return end
+        took(output, chunk)
+      end
+    end)
     while true do
       local slice = STOP_CHECK
       if deadline ~= nil then
@@ -234,21 +293,16 @@ function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worke
         break
       end
     end
+    -- The worker marks the end of the output before it answers, so it is near once the answer is in.
+    if answer ~= nil and not timed_out and not halted then
+      local _, _ = printed:join(OUTPUT_WAIT)
+    end
+    printed:cancel()
+    local _, _ = printed:join()
   end)
   local got = answer
   if timed_out or halted or got == nil then
-    -- A worker that ended by itself may have written past what a file holds: its signal says so.
-    local handle = set.handle
-    local ended: Child.Result? = nil
-    if handle ~= nil and got == nil and not timed_out and not halted then
-      local done, _ = handle:wait(Clock.ms(500))
-      ended = done
-    end
     Worker.close(set)
-    if ended ~= nil and ended.signal == sys.SIGXFSZ then
-      return nil, Failure.new("the snippet wrote past the " .. String.counted(set.file_bytes, "byte") .. " a file may " ..
-          "hold (its output, or a file it wrote); the worker was ended, and the next run starts a new one")
-    end
     if halted then return nil, Failure.new("stopped by the user; the worker was ended") end
     if timed_out then
       return nil, Failure.new("the snippet ran past " .. String.counted(seconds or 0, "second") .. "; the worker was ended, " ..
@@ -256,9 +310,22 @@ function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worke
     end
     return nil, Failure.new("worker: " .. trouble .. "; the next run starts a new one")
   end
+  if got["ok"] ~= nil then
+    if not output.ended then
+      Worker.close(set)
+      return nil, Failure.new("worker: its output has no end; the worker was ended, and the next run starts a new one")
+    end
+    local with: mut {string: Json.Value} = {}
+    for k, v in pairs(got) do with[k] = v end
+    with["output"] = Worker.tail(output.kept)
+    if output.cut or #output.kept > Worker.OUTPUT_BYTES then with["cut"] = true end
+    return with
+  end
   return got
 end
 
-Worker.FILE_BYTES = 1024 * 1024 * 1024
+Worker.OUTPUT_BYTES = 64 * 1024
+Worker.MARK_START = "\0\0cosmic agent worker: start\0\0"
+Worker.MARK_END = "\0\0cosmic agent worker: end\0\0"
 
 return Worker

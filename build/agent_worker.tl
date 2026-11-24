@@ -44,42 +44,27 @@ local sys = require("cosmic.sys")
 
 local record worker
   --- `cosmic agent worker`: answers requests on standard input until it ends. 0 at its end, 1 where it could not start.
-  --- `file_bytes` where a file it writes holds less than [`Worker.FILE_BYTES`]: a test's.
-  main: function(file_bytes?: integer): integer
+  main: function(): integer
 end
 
 --- An answer, as it is sent.
 local type Answer = {string: Json.Value}
 
---- What a run within a capture answered, and what it wrote.
-local record Ran
-  answer: Answer
-  output: string
-end
-
 --- Where a snippet's output goes while it runs.
 local record Capture
-  --- Runs `f` with descriptors 1 and 2 pointed at a file: what `f` answered and what was written there.
-  run: function(Capture, f: function(): Answer): Ran
+  --- Runs `f` with descriptors 1 and 2 pointed at the agent's output pipe: what `f` answered.
+  run: function(Capture, f: function(): Answer): Answer
 end
 
---- The most bytes of a snippet's output an answer holds, and of the JSON of what it returned: well within the line of
---- 1MB the agent reads an answer in, escaped.
-local MAX_OUTPUT <const> = 64 * 1024
+--- The most bytes of the JSON of what a snippet returned an answer holds: well within the line of 1MB the agent reads an
+--- answer in, escaped.
+local MAX_OUTPUT <const> = Worker.OUTPUT_BYTES
 
 --- The name each snippet is checked and run as.
 local SNIPPET <const> = "run.tl"
 
 local function failed(id: Json.Value, why: string): Answer
   return { id = id, error = why }
-end
-
---- The last MAX_OUTPUT bytes of `text`, from a character's start, as UTF-8, and whether that is less than all of it.
-local function cut(text: string): string, boolean
-  if #text <= MAX_OUTPUT then return String.as_utf8(text), false end
-  local from = #text - MAX_OUTPUT + 1
-  while from <= #text and (text:byte(from) or 0) & 0xC0 == 0x80 do from = from + 1 end
-  return String.as_utf8(text:sub(from)), true
 end
 
 --- What a snippet returned, as an answer holds it: its JSON where that is within MAX_OUTPUT, else its text, cut.
@@ -93,8 +78,7 @@ local function value_of(value: any): Json.Value
   if text ~= nil and #text > MAX_OUTPUT then
     return "(" .. String.counted(#text, "byte") .. " of JSON, more than an answer holds: write it to a file)"
   end
-  local most, _ = cut(shown)
-  return most
+  return Worker.tail(shown)
 end
 
 --- The lines between the worker and the agent: the requests and the replies to calls come in on `input`, a line each,
@@ -248,87 +232,55 @@ local function answer_to(kept: Pipeline.Kept, modules: Modules, capture: Capture
   local chunk, load_trouble = standalone.loaded_with(SNIPPET, lua, values)
   if chunk == nil then return failed(id, load_trouble) end
   local ran: mut {string: Json.Value} = {}
-  local done_run = capture:run(function(): Answer
+  local answer = capture:run(function(): Answer
     local done, value = pcall(function(): any return (chunk()) end)
     if not done then return { ok = false, error = String.as_utf8(tostring(value)) } end
     if value == nil then return { ok = true } end
     return { ok = true, value = value_of(value) }
   end)
-  for k, v in pairs(done_run.answer) do ran[k] = v end
-  local shown, was_cut = cut(done_run.output)
+  for k, v in pairs(answer) do ran[k] = v end
   ran["id"] = id
-  ran["output"] = shown
-  if was_cut then ran["cut"] = true end
   return ran
 end
 
---- The last `most` bytes of the file `path`, read a chunk at a time so that no more is held; "" where it cannot be read.
-local function tail_of(path: string, most: integer): string
-  local fd, _ = sys.open(path, sys.O_RDONLY)
-  if fd == nil then return "" end
-  local kept = ""
-  while true do
-    local chunk, _ = sys.read(fd, 1 << 20)
-    if chunk == nil or chunk == "" then break end
-    kept = kept .. chunk
-    if #kept > most then kept = kept:sub(-most) end
-  end
-  local _, _ = sys.close(fd)
-  return kept
-end
-
---- A capture through a file in `dir`, with `null` the descriptor 0, 1 and 2 point at but while a snippet runs: then 1
---- and 2 are the file, and 0 stays /dev/null, so neither the snippet nor a program it starts reads the requests.
-local function capture_in(dir: string, null: integer): Capture
-  local path = dir .. "/output"
+--- A capture through `output`, the pipe the agent reads a snippet's output on, with `null` the descriptor 0, 1 and 2
+--- point at but while a snippet runs: then 1 and 2 are `output`, and 0 stays /dev/null, so neither the snippet nor a
+--- program it starts reads the requests. The agent reads the pipe while the snippet runs, keeping its end alone, so no
+--- file holds what a snippet prints without end.
+local function capture_on(output: integer, null: integer): Capture
   return {
-    run = function(_self: Capture, f: function(): Answer): Ran
-      local fd, why = sys.open(path, sys.O_RDWR | sys.O_CREAT | sys.O_TRUNC, 0x180)
-      if fd == nil then
-        return { answer = { ok = false, error = "no file for the output: " .. why }, output = "" }
-      end
-      local _, _ = sys.dup2(fd, 1)
-      local _, _ = sys.dup2(fd, 2)
+    run = function(_self: Capture, f: function(): Answer): Answer
+      local _, _ = sys.dup2(output, 1)
+      local _, _ = sys.dup2(output, 2)
       local answer = f()
       local _, _ = sys.dup2(null, 1)
       local _, _ = sys.dup2(null, 2)
-      local _, _ = sys.close(fd)
-      return { answer = answer, output = tail_of(path, MAX_OUTPUT + 4) }
+      return answer
     end,
   }
 end
 
-function worker.main(file_bytes?: integer): integer
+function worker.main(): integer
   local options, why = Pipeline.alone()
   if options == nil then
     local _, _ = Fs.put(Fs.stderr, "cosmic: agent worker: " .. why .. "\n")
     return 1
   end
-  -- The requests come in on a copy of standard input and the answers go out on a copy of standard output; descriptors
-  -- 0, 1 and 2 are /dev/null, but 1 and 2 while a snippet runs.
+  -- The requests come in on a copy of standard input, the answers go out on a copy of standard output, and a
+  -- snippet's output on a copy of standard error ([`Worker.MARK_START`]); descriptors 0, 1 and 2 are /dev/null, but 1
+  -- and 2 while a snippet runs.
   local input, input_why = sys.dup(0)
   local out, out_why = sys.dup(1)
+  local output, output_why = sys.dup(2)
   local null, null_why = sys.open("/dev/null", sys.O_RDWR)
-  -- TODO: remove the directory as a signal ends the worker, once cosmic.signal runs a handler at SIGTERM: the agent
-  -- ends it so, and under --sandbox off the directory is the host's.
-  local dir, dir_why = Fs.mkdtemp("cosmic-agent-worker-")
-  if input == nil or out == nil or null == nil or dir == nil then
-    local _, _ = Fs.put(Fs.stderr, "cosmic: agent worker: " .. input_why .. out_why .. null_why .. tostring(dir_why) ..
-        "\n")
+  if input == nil or out == nil or output == nil or null == nil then
+    local _, _ = Fs.put(Fs.stderr, "cosmic: agent worker: " .. input_why .. out_why .. output_why .. null_why .. "\n")
     return 1
   end
   local _, _ = sys.dup2(null, 0)
   local _, _ = sys.dup2(null, 1)
   local _, _ = sys.dup2(null, 2)
-  local most = file_bytes or Worker.FILE_BYTES
-  -- A file it writes holds at most Worker.FILE_BYTES (RLIMIT_FSIZE): a write past it ends the worker with SIGXFSZ, which
-  -- the agent tells. It bounds the file a snippet's output goes to, which a snippet that prints without end would grow
-  -- until the disk under it is full. Never above what this process is held to already, which it may not raise.
-  local held, _ = sys.getrlimit(sys.RLIMIT_FSIZE)
-  if held ~= nil then
-    local _, _ = sys.setrlimit(sys.RLIMIT_FSIZE, math.min(held.soft, most), math.min(held.hard, most))
-  end
-  local capture = capture_in(dir, null)
+  local capture = capture_on(output, null)
   -- The checker reads an MCP server's module where the binary has none of its name.
   local modules: Modules = { teal = {}, values = {} }
   local standard = options.standard or Pipeline.carried()
@@ -342,7 +294,11 @@ function worker.main(file_bytes?: integer): integer
   while true do
     local line = line_of(channel)
     if line == nil then break end
+    -- What comes on the output between the marks is this request's: before the start, a program an earlier snippet
+    -- started may still write.
+    local _, _ = Fs.put(output, Worker.MARK_START)
     local answer = answer_to(kept, modules, capture, channel, line)
+    local _, _ = Fs.put(output, Worker.MARK_END)
     local text, encode_why = Json.encode(answer)
     if text == nil then
       local id = answer["id"]
@@ -352,7 +308,6 @@ function worker.main(file_bytes?: integer): integer
     local sent, _ = Fs.put(out, text .. "\n")
     if not sent then break end
   end
-  local _, _ = Fs.remove_tree(dir)
   return 0
 end
 
