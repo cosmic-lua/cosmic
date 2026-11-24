@@ -227,10 +227,11 @@ CREATE TABLE shapes (id INTEGER PRIMARY KEY, digest BLOB NOT NULL UNIQUE, body T
 ]]
 
 --- The id of the last reply kept for session `id`, which the next
---- request names for its cache diagnosis; nil where there is none.
+--- request names for its cache diagnosis; nil where there is none. A
+--- warm request's (max_tokens 0) is not one: the next names the reply before it.
 function Sessions.last_reply(db: Sqlite.Handle, id: integer): string?
   local rows, _ = db:rows([[SELECT reply ->> '$.id' AS reply_id FROM requests
-    WHERE session = ?1 AND status = 200 AND json_valid(reply) ORDER BY id DESC LIMIT 1]], { { integer = id } })
+    WHERE session = ?1 AND status = 200 AND max_tokens > 0 AND json_valid(reply) ORDER BY id DESC LIMIT 1]], { { integer = id } })
   local row = (rows or {})[1]
   if row == nil or row:is_null(1) then return nil end
   return row:text(1)

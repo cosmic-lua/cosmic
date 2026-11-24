@@ -1056,6 +1056,17 @@ local class LineReader is Stream.Lines
   function each(self): function(): string?
     if self.rested then error(rested, 2) end
     return function(): string?
+      -- A line the chunk in hand ends, with nothing held from before it, is cut here without a call of `read`:
+      -- most lines are such, and the call cost a third of a line's time.
+      if self.held == 0 and self.failed == "" and not self.rested then
+        local chunk, at = self.chunk, self.at
+        local newline = chunk:find("\n", at, true)
+        if newline ~= nil and newline - at <= self.limit then
+          self.at = newline + 1
+          self.paused = ""
+          return chunk:sub(at, newline - 1)
+        end
+      end
       local line, _ = self:read()
       if line == false then return nil end
       return line

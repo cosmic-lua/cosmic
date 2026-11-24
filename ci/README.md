@@ -365,7 +365,9 @@ network.
 push run on main that passed or failed and after a full run's failed first
 attempt, checks out main's tip, only what `publish` does, and holds an
 `actions: write` and `issues: write` token, which only the pinned driver running main's own `ci/` uses. After a green push run, where no daily or manual run of main
-started in the last six hours, it starts a manual run of main
+that may still publish (one going, one that passed, or a first attempt
+that failed and is tried again) started in the last six hours, it starts
+a manual run of main
 (`POST .../workflows/ci.yml/dispatches`), so a prerelease follows main
 within hours. After a daily or manual run's first attempt failed, it
 re-runs that run's failed jobs once, so one flaky test does not cost the
@@ -377,7 +379,9 @@ comments which run passed and closes it. It reads the triggering run's
 `GH_TOKEN`; [`cosmic_ci/prerelease_follow_test.tl`] drives it against a
 fake client.
 
-`prerelease-sweep` is prerelease.yml's hourly `sweep` job. A full run
+`prerelease-sweep` is prerelease.yml's `sweep` job, which runs after each
+push run of main and each hour (GitHub may start a scheduled run hours
+late). A full run
 that `follow` starts with the job's own token fires no workflow_run when
 it ends, since GitHub starts no workflow from an event that token caused,
 so neither `publish` nor `follow` sees it end; nor does a daily run that

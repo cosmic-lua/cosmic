@@ -5,10 +5,13 @@
 --- example, the agent with code mode and the release before it.
 ---
 ---     cosmic --standalone eval/agent.tl --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR
----         [--offer NAME=TOOL,...] [--tasks T,...|all] [--reps N] [--model M] [--timeout S]
+---         [--offer NAME=TOOL,...] [--effort [NAME=]LEVEL] [--tasks T,...|all] [--reps N] [--model M]
+---         [--timeout S]
 ---
 --- `--offer NAME=run,read` runs the agent of the tool NAME with `--tools run,read`: one binary under two names
---- compares, for example, the agent with bash and without it.
+--- compares, for example, the agent with bash and without it. `--effort NAME=low` runs the agent of the tool NAME
+--- with `--effort low`, and `--effort low` every tool not named so: one binary under two names compares two efforts.
+--- Where none is given, the agent takes its own default.
 --- The fixture is a tree the tasks read, such as this repository at a commit
 --- (`git archive <commit> | tar -x -C DIR`); the report names it, and a task whose truth comes out empty on it is
 --- marked unfit rather than graded. A task of an MCP server (mcp-*) gives the run `--mcp`, a config of the
@@ -60,6 +63,8 @@ local record Agent
     path: string
     --- The tools its agent offers (`--tools`), as `--offer NAME=LIST` names them; nil for all.
     tools?: string
+    --- How hard its agent thinks (`--effort`); nil for the agent's default.
+    effort?: string
   end
 
   --- What the command line asked for.
@@ -317,6 +322,20 @@ Agent.tasks = {
     check = "sha256sum cosmic/agent/tools.tl | cut -c1-64",
   },
   {
+    name = "imports",
+    prompt = "Across the .tl files under cosmic/agent/, count each `require(\"cosmic.<...>\")` text, every time it " ..
+      "appears. Write to answer.txt the five modules named most, as `count cosmic.<...>`, most first, ties by name.",
+    truth = [==[grep -rho --include='*.tl' 'require("cosmic\.[^"]*")' cosmic/agent | sed 's/require("//; s/")//' | sort | uniq -c | awk '{print $1" "$2}' | sort -k1,1nr -k2,2 | head -5]==],
+    check = "cat answer.txt",
+  },
+  {
+    name = "header",
+    prompt = "cosmic/agent/tools.tl starts with a block of lines that each start `---`. Replace that whole block " ..
+      "with the one line `--- The tools of cosmic agent.` and change nothing else.",
+    truth = [==[head -1 cosmic/agent/tools.tl | grep -q '^---' && awk 'h && /^---/ {next} h {print "--- The tools of cosmic agent."; h=0} {print}' h=1 cosmic/agent/tools.tl | sha256sum | cut -c1-64]==],
+    check = "sha256sum cosmic/agent/tools.tl | cut -c1-64",
+  },
+  {
     name = "mcp-value",
     prompt = "The inventory MCP server lists items and tells each one's category, price in cents and stock. " ..
       "Write to answer.txt, for each category, the sum over its items of price_cents times stock, as " ..
@@ -336,7 +355,9 @@ Agent.tasks = {
 }
 
 local USAGE <const> = "usage: eval/agent --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR " ..
-  "[--offer NAME=TOOL,...] [--tasks T,...|all] [--reps N] [--model M] [--timeout S]"
+  "[--offer NAME=TOOL,...] [--effort [NAME=]LEVEL] [--tasks T,...|all] [--reps N] [--model M] [--timeout S]"
+
+local EFFORTS <const>: {string: boolean} = { low = true, medium = true, high = true, xhigh = true, max = true }
 
 local function positive(text: string): integer?
   if not text:match("^[1-9]%d*$") then return nil end
@@ -347,6 +368,8 @@ end
 function Agent.parse(argv: {string}): Agent.Options?, string
   local tools: mut {Agent.Tool} = {}
   local offers: mut {string: string} = {}
+  local efforts: mut {string: string} = {}
+  local effort: string? = nil
   local fixture, out, model = "", "", "sonnet"
   local reps, timeout = 2, 1200
   local tasks: mut {Agent.Task} = {}
@@ -373,6 +396,22 @@ function Agent.parse(argv: {string}): Agent.Options?, string
       end
       if not found then return nil, "--offer " .. name .. ": name a --tool given before it" end
       offers[name] = list
+    elseif word == "--effort" then
+      local name, level = value:match("^([%w_-]+)=(.+)$")
+      local wanted = level or value
+      if EFFORTS[wanted] ~= true then
+        return nil, "--effort takes low, medium, high, xhigh or max, or NAME=LEVEL: " .. value
+      end
+      if name == nil then
+        effort = wanted
+      else
+        local found = false
+        for _, t in ipairs(tools) do
+          if t.name == name then found = true end
+        end
+        if not found then return nil, "--effort " .. name .. ": name a --tool given before it" end
+        efforts[name] = wanted
+      end
     elseif word == "--fixture" then
       fixture = value
     elseif word == "--out" then
@@ -411,7 +450,7 @@ function Agent.parse(argv: {string}): Agent.Options?, string
   if #tasks == 0 then return nil, "--tasks names no task" end
   local offering: mut {Agent.Tool} = {}
   for _, t in ipairs(tools) do
-    offering[#offering + 1] = { name = t.name, path = t.path, tools = offers[t.name] }
+    offering[#offering + 1] = { name = t.name, path = t.path, tools = offers[t.name], effort = efforts[t.name] or effort }
   end
   return { tools = offering, fixture = fixture, out = out, tasks = tasks, reps = reps, model = model,
     timeout = timeout }, ""
@@ -488,6 +527,11 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
         local work = system.fresh(marker)
         system.run({ "cp", "-a", options.fixture .. "/.", work }, "/", nil, 600)
         local argv: mut {string} = { tool.path, "agent", "ask", "--model", options.model }
+        local effort = tool.effort
+        if effort ~= nil then
+          argv[#argv + 1] = "--effort"
+          argv[#argv + 1] = effort
+        end
         local offered = tool.tools
         if offered ~= nil then
           argv[#argv + 1] = "--tools"
@@ -574,6 +618,41 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}): string
   local lines: mut {string} = { "# cosmic agent evals", "",
     "Model " .. options.model .. "; runs of each task with each tool: " .. tostring(options.reps) .. "; fixture " ..
       options.fixture .. ". Each number is the mean of a run.", "" }
+  local set: mut {string} = {}
+  for _, tool in ipairs(options.tools) do
+    local effort = tool.effort
+    if effort ~= nil then set[#set + 1] = tool.name .. " " .. effort end
+  end
+  if #set > 0 then
+    lines[#lines + 1] = "Effort: " .. table.concat(set, ", ") .. "; the agent's default for the rest."
+    lines[#lines + 1] = ""
+  end
+  -- Each tool over every task: what a comparison reads first.
+  lines[#lines + 1] = "## all tasks"
+  lines[#lines + 1] = ""
+  for _, tool in ipairs(options.tools) do
+    local passed, n, unfit, counted = 0, 0, 0, 0
+    local cost, write, read, output = 0.0, 0.0, 0.0, 0.0
+    for _, r in ipairs(results) do
+      if r.tool == tool.name and r.grade == "unfit" then
+        unfit = unfit + 1
+      elseif r.tool == tool.name then
+        n = n + 1
+        if r.grade == "pass" then passed = passed + 1 end
+        local spent = r.spent
+        if spent ~= nil then
+          counted = counted + 1
+          cost, write = cost + spent.cost, write + spent.cache_write
+          read, output = read + spent.cache_read, output + spent.output
+        end
+      end
+    end
+    local d = math.max(counted, 1)
+    local left = if unfit > 0 then " (" .. tostring(unfit) .. " unfit on this fixture, left out)" else "" end
+    lines[#lines + 1] = string.format("- %s: %d of %d passed%s; $%.4f, %.0f cache read, %.0f cache write, " ..
+        "%.0f out a run; $%.3f in all", tool.name, passed, n, left, cost / d, read / d, write / d, output / d, cost)
+  end
+  lines[#lines + 1] = ""
   for _, task in ipairs(options.tasks) do
     lines[#lines + 1] = "## " .. task.name
     lines[#lines + 1] = ""
