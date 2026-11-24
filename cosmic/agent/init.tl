@@ -677,8 +677,9 @@ local function record(s: Agent.Session, call: string, tool: string, input: Tools
   if output == nil then return nil, why end
   -- What sql says is kept already, and it says where to find more.
   if result.raw == nil or tool == "sql" then return result.text, "" end
-  local how = if Tools.find(s.tools, "sql") ~= nil then "use sql"
-    elseif Tools.find(s.tools, "run") ~= nil then "use require(\"cosmic.agent.host\").sql in run"
+  local sql, run = Tools.find(s.tools, "sql"), Tools.find(s.tools, "run")
+  local how = if sql ~= nil and Tools.for_model(sql) then "use sql"
+    elseif run ~= nil and Tools.for_model(run) then "use require(\"cosmic.agent.host\").sql in run"
     else "" end
   if how == "" then return result.text, "" end
   local shown = result.text .. "\n\n[The whole output is kept as output " .. tostring(output) .. ": " .. how .. ".]"

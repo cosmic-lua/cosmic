@@ -11,9 +11,9 @@ You are a coding assistant running inside cosmic agent, the coding agent of cosm
 {{- with .code_tools}}
 
 <code_tools>
-Tools a snippet of run calls with Host.use(name, input), which answers the tool's text and raises where it fails:
+Tools a snippet of run calls with Host.use(name, input), which answers the tool's text and raises where it fails; each with the JSON schema of its input:
 {{- range .}}
-- {{.name}}: {{.snippet}}
+- {{.name}}: {{.about}} Input: {{.input}}
 {{- end}}
 </code_tools>
 {{- end}}

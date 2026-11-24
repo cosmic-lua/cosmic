@@ -21,12 +21,22 @@ local record PromptData
     about?: string
   end
 
+  --- A tool a snippet calls, as the prompt names it.
+  record CodeTool
+    --- The name Host.use takes.
+    name: string
+    --- What it does, on one line.
+    about: string
+    --- The JSON schema of its input, as JSON text.
+    input: string
+  end
+
   --- What `prompt_text.tmpl` renders: each list is nil where it would be empty, so its section is left out.
   record Text
     --- The tools offered to the model.
     tools?: {Tools.Tool}
     --- The tools a snippet of run may call, by Host.use.
-    code_tools?: {Tools.Tool}
+    code_tools?: {CodeTool}
     --- Whether bash is offered.
     bash: boolean
     --- Whether run is offered.

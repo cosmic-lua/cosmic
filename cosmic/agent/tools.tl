@@ -207,7 +207,10 @@ local record Tools
     paths?: function(input: Object, cwd: string): {Touch}
     --- Who may call it; "model" where nil. A tool code may call is called from a snippet of run with
     --- `Host.use(name, input)`, under the same `before` and `after` as the model's calls, as a call by code; one
-    --- for code alone is not offered to the model, which reads of it only in the system prompt.
+    --- for code alone is not offered to the model, which reads of it only in the system prompt. A call by code
+    --- runs in the agent, outside the snippet's sandbox, so the tool checks its paths itself ([`Sandbox.permits`]), as
+    --- read does; it is held to the snippet's time (`stopped`, `deadline_ns`) and given no worker; and the tasks of
+    --- one snippet may call it at once. A name of a host call (sql, store.get, ...) is refused to code.
     callers?: Callers
   end
 end
@@ -1006,12 +1009,16 @@ end
 --- What a tool code may call ([`Tools.for_code`]) answers a snippet of `context` that calls it with `args`,
 --- `{name, input}` ([`Host.use`]): its text, or its error result as a failure. The call is asked of the guard first,
 --- and given to the amend after, by the tool's own name, as the model's calls of it are.
-local function used(context: Tools.Context, args: Json.Value): (Json.Value) | (nil, Failure)
+local function used(context: Tools.Context, args: Json.Value, budget: Worker.Budget): (Json.Value) | (nil, Failure)
   local fields, _ = Json.to_object(args)
   local given: {string: Json.Value} = fields or {}
   local named = given["name"]
   if not (named is string) then return nil, Failure.new("the call names no tool") end
   local t = Tools.find(context.tools or {}, named)
+  -- A host call's name is the host call's: a hook told it could not tell the two apart.
+  if t ~= nil and Tools.for_code(t) and SERVED[named] == true then
+    return nil, Failure.new("the tool " .. named .. " has the name of a host call, so code cannot call it by Host.use")
+  end
   if t == nil or not Tools.for_code(t) then
     local callable: mut {string} = {}
     for _, other in ipairs(context.tools or {}) do
@@ -1032,7 +1039,17 @@ local function used(context: Tools.Context, args: Json.Value): (Json.Value) | (n
     end
     if reason ~= nil then return nil, Failure.new("Blocked: " .. tostring(reason)) end
   end
-  local tool_ran, answered = pcall(t.run, input, context)
+  -- The tool runs in the agent, outside the snippet's sandbox, held to the snippet's time, with no worker: the
+  -- snippet that called it holds the worker until it answers.
+  Jobs.check(context.jobs)
+  local left = budget.left()
+  local deadline = context.deadline_ns
+  if left ~= nil then
+    local by_snippet = Clock.monotonic_ns() + left
+    if deadline == nil or by_snippet < deadline then deadline = by_snippet end
+  end
+  local scoped: Tools.Context = { ...context, stopped = budget.over, deadline_ns = deadline, worker = nil }
+  local tool_ran, answered = pcall(t.run, input, scoped)
   local result: Tools.Result = if tool_ran then answered else
     { text = "the tool " .. named .. " failed: " .. tostring(answered), is_error = true } end
   local amend = context.amend
@@ -1041,9 +1058,16 @@ local function used(context: Tools.Context, args: Json.Value): (Json.Value) | (n
     if not amend_ran then
       return nil, Failure.new("the agent's after hook failed: " .. tostring(made))
     end
+    if not (made.text is string) then
+      return nil, Failure.new("the agent's after hook answered no text")
+    end
     result = made
   end
   if result.is_error then return nil, Failure.new(result.text) end
+  if #result.text > MAX_REPLY then
+    return nil, Failure.new("the tool's answer is " .. String.counted(#result.text, "byte") .. ", more than the " ..
+        String.counted(MAX_REPLY, "byte") .. " a reply holds")
+  end
   return result.text
 end
 
@@ -1053,7 +1077,7 @@ end
 local function served(context: Tools.Context): Worker.Serve
   local answer_of = served_unguarded(context)
   return function(name: string, args: Json.Value, budget: Worker.Budget): (Json.Value) | (nil, Failure)
-    if name == "use" then return used(context, args) end
+    if name == "use" then return used(context, args, budget) end
     if SERVED[name] ~= true then
       return nil, Failure.new("the agent serves no call " .. Json.quote(String.as_utf8(name)) ..
           ": it serves sql, store.put, store.get, mcp.servers, mcp.tools, mcp.call and use")

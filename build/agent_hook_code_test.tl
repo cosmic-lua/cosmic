@@ -132,8 +132,10 @@ local function test_a_tool_for_code_is_called_from_a_snippet_alone()
     end }
   local code = "local Host = require(\"cosmic.agent.host\")\n" ..
     "local _, bad = pcall(Host.use, \"stamp\", {})\n" ..
+    "local _, held = pcall(Host.use, \"stamp\", { word = \"no\" })\n" ..
     "local _, other = pcall(Host.use, \"read\", { path = \"x\" })\n" ..
-    "return Host.use(\"stamp\", { word = \"hi\" }) .. \" / \" .. tostring(bad) .. \" / \" .. tostring(other)\n"
+    "return Host.use(\"stamp\", { word = \"hi\" }) .. \" / \" .. tostring(bad) .. \" / \" .. tostring(other) .. " ..
+    "\" / \" .. tostring(held)\n"
   local a = agent_fixture.api({
     { content = { { type = "tool_use", id = "t1", name = "stamp", input = { word = "x" } } }, stop_reason = "tool_use" },
     { content = { { type = "tool_use", id = "t2", name = "run", input = { code = code } } }, stop_reason = "tool_use" },
@@ -146,6 +148,13 @@ local function test_a_tool_for_code_is_called_from_a_snippet_alone()
   s.before = function(call: Agent.Call): string?
     local touched = call.paths[1]
     calls[#calls + 1] = call.name .. ":" .. call.caller .. (if touched ~= nil then ":" .. touched.action else "" end)
+    if call.input["word"] == "no" then return "no word no" end
+    return nil
+  end
+  s.after = function(call: Agent.Call, result: Tools.Result): Tools.Result?
+    if call.name == "stamp" and not result.is_error then
+      return { text = result.text:upper(), is_error = false }
+    end
     return nil
   end
   assert(s:prompt("go"))
@@ -155,9 +164,12 @@ local function test_a_tool_for_code_is_called_from_a_snippet_alone()
   local second = agent_fixture.said(a, 2)
   assert(second:find("Tool stamp not found", 1, true) ~= nil, second)
   local answer = agent_fixture.said(a, 3)
-  assert(answer:find("stamped hi", 1, true) ~= nil, answer)
+  -- after made the answer the snippet read; before blocked the call it refused.
+  assert(answer:find("STAMPED HI", 1, true) ~= nil, answer)
+  assert(answer:find("Blocked: no word no", 1, true) ~= nil, answer)
   assert(answer:find("host: use: no word", 1, true) ~= nil, answer)
   assert(answer:find("is one code may call; these are: stamp", 1, true) ~= nil, answer)
-  assert(table.concat(calls, " ") == "run:model stamp:code:write stamp:code:write", table.concat(calls, " "))
+  assert(table.concat(calls, " ") == "run:model stamp:code:write stamp:code:write stamp:code:write",
+    table.concat(calls, " "))
   s:close()
 end
