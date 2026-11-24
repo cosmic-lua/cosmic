@@ -197,6 +197,9 @@ function standalone.code(file: string, source: string, variables?: {string:strin
       options = { globals = options.globals, types = options.types,
         standard = Pipeline.carried_own(), project = options.project }
     end
+    -- A run is no review: an unused name is let pass, as an agent's snippet lets it pass. `cosmic fix` and a tree's
+    -- tests still refuse it.
+    options.lax = true
     -- A file's entry point is held to a declaration, as `cosmic fix` holds it in a tree; a chunk's exit code is not.
     local generated, generate_trouble = Pipeline.lone(file, source, options, nil, own ~= true)
     if generated == nil then

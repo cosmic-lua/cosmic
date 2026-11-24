@@ -166,6 +166,19 @@ local function test_check_types_a_file_without_running_it(tmp: string)
   assert(assert(Child.run(usage.argv, usage.options)).code == 2)
 end
 
+--- A run is no review: a file run alone, or `-e`, runs with a name it never uses, as an agent's snippet does.
+local function test_a_run_lets_an_unused_name_pass(tmp: string)
+  local file = tmp .. "/unused.tl"
+  assert(Fs.write(file, 'local unused = 1\nlocal function never() end\nprint("ran")\n'))
+  for _, args in ipairs({ { "--standalone", file }, { "-e", 'local unused = 1\nprint("ran")' } }) do
+    local started = this_program.program(args, { cwd = tmp, env = { XDG_CACHE_HOME = tmp .. "/cache" },
+      stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
+    local ran = assert(Child.run(started.argv, started.options))
+    assert(ran.code == 0 and ran.stdout == "ran\n", tostring(ran.stderr))
+    assert(tostring(ran.stderr):find("unused", 1, true) == nil, tostring(ran.stderr))
+  end
+end
+
 --- A file's top level finds its words in `arg`, as `lua file a b` gives
 --- them, where `...` is what `require` handed it.
 local function test_a_file_finds_its_words_in_arg_at_its_top_level(tmp: string)
