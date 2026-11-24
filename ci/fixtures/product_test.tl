@@ -156,19 +156,28 @@ end
 
 --- The product runs from outside the build directory of the checkout it
 --- was built from. So in a project it is held to no tree, as a release is.
---- `help`'s index then starts without build.reboot and the build modules
---- it requires.
+--- `help`'s index, and one verb's help, then start without build.reboot
+--- and the build modules it requires, and one verb's help loads no other
+--- verb's module.
 local function test_the_product_answers_help_without_the_reboot_guard(tmp: string)
   local product = Fixture.placed("product")
   local diagnostics = tmp .. "/logs"
   Fixture.mkdir(tmp .. "/run")
-  local helped = Fixture.run("help-traced", { product .. "/cosmic", "help" },
-    tmp .. "/run", diagnostics, { COSMIC_PORTABLE_CACHE = tmp .. "/cache",
-      COSMIC_TRACE_REQUIRE = "1" })
-  Fixture.contains(helped.out, "cosmic help")
-  local traced = Fixture.read(helped.err)
-  assert(traced:find("require: build.dispatch", 1, true),
-    "help printed no require trace: " .. traced:sub(1, 400))
-  assert(not traced:find("build.reboot", 1, true),
-    "the product's help loaded build.reboot")
+  local asks: {{string}} = { { "help" }, { "help", "hash" }, { "hash", "--help" } }
+  for slot, words in ipairs(asks) do
+    local argv: mut {string} = { product .. "/cosmic" }
+    for _, word in ipairs(words) do argv[#argv + 1] = word end
+    local helped = Fixture.run("help-traced-" .. tostring(slot), argv,
+      tmp .. "/run", diagnostics, { COSMIC_PORTABLE_CACHE = tmp .. "/cache",
+        COSMIC_TRACE_REQUIRE = "1" })
+    local shown = table.concat(words, " ")
+    Fixture.contains(helped.out, if #words == 1 then "cosmic help" else "cosmic hash" end)
+    local traced = Fixture.read(helped.err)
+    assert(traced:find("require: build.dispatch", 1, true),
+      shown .. " printed no require trace: " .. traced:sub(1, 400))
+    for _, name in ipairs({ "build.reboot", "build.writer", "build.test", "build.fix" }) do
+      assert(not traced:find(" " .. name .. " ", 1, true),
+        "the product's " .. shown .. " loaded " .. name)
+    end
+  end
 end
