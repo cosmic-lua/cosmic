@@ -1,6 +1,6 @@
 # MCP servers and clients
 
-<!-- policy: profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
+<!-- policy: loopback = { "127.0.0.1" }, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
 
 The Model Context Protocol (MCP) lets a program offer tools, resources and
 prompts to a model's host, and lets a host ask for them. [`cosmic.mcp.server`]
@@ -255,10 +255,64 @@ local server = McpServer.new{ info = { name = "words", version = "1" }, tools = 
 assert(server:serve_stdio())
 ```
 
-## over HTTP, behind OAuth
+## over HTTP, with a token
 
 [`McpServer.Instance.handler`] serves the endpoint under
-[`cosmic.http.server`]. With `oauth`, the endpoint is an OAuth 2.1 resource
+[`cosmic.http.server`]. [`McpServer.bearer`], given as `authorize`, lets in
+only a request that carries the token, which must be at least 16 bytes. A
+request without it gets HTTP 401. A client sends the token in its
+`Authorization` header. A plain `http://` endpoint is safe for this only on
+loopback. Elsewhere, put TLS in front of it, or use OAuth as the next section
+shows. Here the server and its client run in one program. The client with
+the token gets the tools, and one without it gets HTTP 401.
+
+```teal
+local Clock = require("cosmic.clock")
+local Codec = require("cosmic.codec")
+local Failure = require("cosmic.failure")
+local HttpServer = require("cosmic.http.server")
+local Json = require("cosmic.json")
+local Mcp = require("cosmic.mcp")
+local McpClient = require("cosmic.mcp.client")
+local McpServer = require("cosmic.mcp.server")
+local Net = require("cosmic.net")
+local Rand = require("cosmic.rand")
+
+local server = McpServer.new{ info = { name = "notes", version = "1" }, tools = { {
+  tool = { name = "count", inputSchema = Mcp.object_schema({}) },
+  call = function(_: {string: Json.Value}, _: McpServer.Call): (Mcp.ToolResult) | (nil, Failure)
+    return Mcp.result({ "0" })
+  end,
+} } }
+-- A real server reads its token from where it is kept, as `--token-env`
+-- does. This one makes a new one.
+local bytes = assert(Rand.entropy(32))
+local token = Codec.hex(bytes)
+assert(HttpServer.serve{
+  listeners = { Net.tcp("127.0.0.1", 0) },
+  handle = server:handler{ authorize = McpServer.bearer(token) },
+  on_ready = function(addresses: {Net.Address}, running: Net.Server)
+    local url = "http://127.0.0.1:" .. tostring(assert(addresses[1]).port) .. "/mcp"
+    local session = McpClient.http(url, { timeout_ns = Clock.seconds(30),
+      headers = { Authorization = "Bearer " .. token } })
+    local tools = assert(session:tools())
+    print(#tools, assert(tools[1]).name)
+    local stranger = McpClient.http(url, { timeout_ns = Clock.seconds(30) })
+    local _, why = stranger:tools()
+    print(tostring(why):match("401") ~= nil)
+    running:stop()
+  end,
+})
+```
+
+```output
+1	count
+true
+```
+
+## over HTTP, behind OAuth
+
+With `oauth` in place of `authorize`, the endpoint is an OAuth 2.1 resource
 server. A request needs an access token that `verify` takes. A request
 with no token gets HTTP 401, with a challenge that says where the
 authorization server is. [`McpServer.jwt`] takes a JWT access token only
@@ -333,6 +387,7 @@ none of them. Elicitation is there: a handler asks the person for input with
 [`Failure`]: ../../cosmic/failure.tl
 [`Mcp.structured`]: ../../cosmic/mcp/init.tl
 [`McpClient.spawn`]: ../../cosmic/mcp/client.tl
+[`McpServer.bearer`]: ../../cosmic/mcp/server.tl
 [`McpServer.command`]: ../../cosmic/mcp/server.tl
 [`McpServer.Instance.answer`]: ../../cosmic/mcp/server.tl
 [`McpServer.Instance.handler`]: ../../cosmic/mcp/server.tl

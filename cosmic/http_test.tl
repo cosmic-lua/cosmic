@@ -426,7 +426,7 @@ end
 local function test_download_writes_verifies_and_renames(tmp: string)
   local path = tmp .. "/got"
   local data = "downloaded bytes"
-  local ok, trouble = Http.download(url, path, { timeout_ns = Clock.seconds(60), sha256 = Hash.hex_sha256(data),
+  local ok, trouble = Http.download(url, path, { timeout_ns = Clock.seconds(60), digests = { ["sha256"] = Hash.hex_sha256(data) },
     script = { reply("200 OK", "", data) } })
   assert(ok, trouble)
   assert(assert(Fs.read(path)) == data)
@@ -448,7 +448,7 @@ end
 
 local function test_download_removes_its_temporary_file_on_a_mismatch(tmp: string)
   local path = tmp .. "/bad"
-  local ok, trouble = Http.download(url, path, { timeout_ns = Clock.seconds(60), sha256 = string.rep("0", 64),
+  local ok, trouble = Http.download(url, path, { timeout_ns = Clock.seconds(60), digests = { ["sha256"] = string.rep("0", 64) },
     script = { reply("200 OK", "", "not what was promised") } })
   assert(not ok)
   assert(trouble:find("mismatch", 1, true) ~= nil, trouble)
@@ -893,12 +893,12 @@ local function test_a_download_checks_every_digest_it_is_given(tmp: string)
   local s256 = Hash.hex_sha256("hello")
   local s512 = Codec.hex(Hash.digest("sha512", "hello"))
   local ok, why = Http.download(url, path, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "hello") },
-    sha256 = s256, sha512 = s512:upper() })
+    digests = { ["sha256"] = s256, ["sha512"] = s512:upper() } })
   assert(ok, why)
   assert(assert(Fs.read(path)) == "hello")
   local other = tmp .. "/other.bin"
   local bad, bad_why = Http.download(url, other, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "hello") },
-    sha256 = s256, sha512 = string.rep("0", 128) })
+    digests = { ["sha256"] = s256, ["sha512"] = string.rep("0", 128) } })
   assert(not bad and bad_why:find("sha512 mismatch: want " .. string.rep("0", 128) .. ", got " .. s512, 1, true) ~= nil, bad_why)
   assert(not assert(Fs.status(other)).exists, "the target was created")
   for _, name in ipairs((assert(Fs.list(tmp)))) do
@@ -909,12 +909,12 @@ end
 local function test_a_download_with_only_a_sha512_checks_that_alone(tmp: string)
   local path = tmp .. "/only512.bin"
   local s512 = Codec.hex(Hash.digest("sha512", "hello"))
-  local ok, why = Http.download(url, path, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "hello") }, sha512 = s512 })
+  local ok, why = Http.download(url, path, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "hello") }, digests = { ["sha512"] = s512 } })
   assert(ok, why)
   assert(assert(Fs.read(path)) == "hello")
   local other = tmp .. "/wrong512.bin"
   local zeros = string.rep("0", 128)
-  local bad, bad_why = Http.download(url, other, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "hello") }, sha512 = zeros })
+  local bad, bad_why = Http.download(url, other, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "hello") }, digests = { ["sha512"] = zeros } })
   assert(not bad and bad_why:find("sha512 mismatch: want " .. zeros .. ", got " .. s512, 1, true) ~= nil, bad_why)
   assert(not bad_why:find("sha256", 1, true), bad_why)
   assert(not assert(Fs.status(other)).exists, "the target was created")
@@ -942,7 +942,7 @@ local function test_download_result_success_has_no_failure_fields(tmp: string)
   assert(Fs.write(path, "old"))
   local data = string.rep("new", 100000)
   local result = Http.download_result(url, path, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", data) },
-    sha256 = Hash.hex_sha256(data):upper(), sha512 = Codec.hex(Hash.digest("sha512", data)):upper() })
+    digests = { ["sha256"] = Hash.hex_sha256(data):upper(), ["sha512"] = Codec.hex(Hash.digest("sha512", data)):upper() } })
   assert(result.kind == "downloaded" and result.reason == "")
   assert(result.status == nil and result.algorithm == nil and result.expected == nil and result.actual == nil)
   assert(assert(Fs.read(path)) == data and #assert(Fs.list(tmp)) == 1)
@@ -968,7 +968,8 @@ end
 local function test_download_result_checksums_keep_typed_digests_and_legacy_text(tmp: string)
   local path = tmp .. "/got"
   assert(Fs.write(path, "old"))
-  for _, algorithm in ipairs({ "sha256", "sha512" } as {Hash.Algorithm}) do -- checked: cast_refused
+  local algorithms: {Hash.Algorithm} = { "sha256", "sha512" }
+  for _, algorithm in ipairs(algorithms) do
     for _, expected in ipairs({ "ABC", "not HEX", string.rep("0", if algorithm == "sha256" then 64 else 128 end) }) do
       local options: Http.Options = { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "body") },
         sha256 = if algorithm == "sha256" then expected else nil end,
@@ -994,6 +995,54 @@ local function test_download_result_bad_checksum_shape_raises_before_publication
   local options: Http.Options = { timeout_ns = Clock.seconds(60), sha256 = true as string, script = {} } -- checked: cast_refused
   local ok = pcall(Http.download_result, url, path, options) -- checked: alternatives_as_value
   assert(not ok and #assert(Fs.list(tmp)) == 0)
+end
+
+local function test_a_download_checks_a_digest_of_any_algorithm(tmp: string)
+  local path = tmp .. "/got"
+  local s384 = Codec.hex(Hash.digest("sha384", "body"))
+  assert(Http.download(url, path, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "body") },
+    digests = { ["sha384"] = s384, ["md5"] = Codec.hex(Hash.digest("md5", "body")) } }))
+  assert(assert(Fs.read(path)) == "body")
+  local wrong = Http.download_result(url, tmp .. "/wrong", { timeout_ns = Clock.seconds(60),
+    script = { reply("200 OK", "", "body") }, digests = { ["sha3-512"] = string.rep("0", 128) } })
+  assert(wrong.kind == "digest_mismatch" and wrong.algorithm == "sha3-512", wrong.reason)
+end
+
+local function test_a_download_refuses_an_empty_digest_and_two_that_differ(tmp: string)
+  local path = tmp .. "/got"
+  local empty = Test.raises(function()
+    local _ = Http.download_result(url, path, { timeout_ns = Clock.seconds(60), script = {}, digests = { ["sha256"] = "" } })
+  end, 'opts.digests["sha256"] must be a digest in hex')
+  assert(empty:find("^cosmic%.http_test:%d+: ") ~= nil, empty)
+  local differ = Test.raises(function()
+    local _ = Http.download_result(url, path, { timeout_ns = Clock.seconds(60), script = {},
+      sha256 = string.rep("a", 64), digests = { ["sha256"] = string.rep("b", 64) } })
+  end, 'opts.sha256 and opts.digests["sha256"] differ')
+  assert(differ:find("^cosmic%.http_test:%d+: ") ~= nil, differ)
+  assert(#assert(Fs.list(tmp)) == 0)
+  local same = string.rep("A", 64)
+  local agreed = Http.download_result(url, path, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "body") },
+    sha256 = same, digests = { ["sha256"] = same:lower() } })
+  assert(agreed.kind == "digest_mismatch" and agreed.expected == same:lower(), agreed.reason)
+end
+
+local function test_a_download_refuses_a_digest_of_no_known_algorithm(tmp: string)
+  local path = tmp .. "/got"
+  local options: Http.Options = { timeout_ns = Clock.seconds(60), script = {},
+    digests = { ["sha999"] = "ab" } as {Hash.Algorithm:string} } -- checked: cast_refused
+  local why = Test.raises(function() local _ = Http.download(url, path, options) end,
+    "opts.digests names sha999, which is no Hash.Algorithm")
+  assert(why:find("^cosmic%.http_test:%d+: ") ~= nil, why)
+  assert(#assert(Fs.list(tmp)) == 0)
+end
+
+local function test_a_download_reports_the_first_mismatch_in_a_fixed_order(tmp: string)
+  for _ = 1, 4 do
+    local result = Http.download_result(url, tmp .. "/got", { timeout_ns = Clock.seconds(60),
+      script = { reply("200 OK", "", "body") },
+      digests = { ["md5"] = string.rep("0", 32), ["sha3-256"] = string.rep("0", 64), ["sha512"] = string.rep("0", 128) } })
+    assert(result.kind == "digest_mismatch" and result.algorithm == "sha512", result.reason)
+  end
 end
 
 local function test_download_result_transport_and_create_failures_are_not_status(tmp: string)
@@ -1083,7 +1132,7 @@ local function test_download_result_digest_failure_is_not_a_mismatch(tmp: string
     end
     return writer
   end
-  local result = Http.download_result(url, path, { timeout_ns = Clock.seconds(60), sha256 = Hash.hex_sha256("body"),
+  local result = Http.download_result(url, path, { timeout_ns = Clock.seconds(60), digests = { ["sha256"] = Hash.hex_sha256("body") },
     script = { reply("200 OK", "", "body") } })
   Stream.hashing = hashing -- checked: field_fixed
   assert(result.kind == "failed" and result.reason == reason)
@@ -1120,7 +1169,7 @@ local function test_download_result_interleaved_publishers_own_their_staged_file
     local published: boolean = false
     local result = Http.download_result(url, path, { timeout_ns = Clock.seconds(60),
       script = { reply("200 OK", "", "outer") },
-      sha256 = if mismatch then string.rep("0", 64) else Hash.hex_sha256("outer") end,
+      digests = { ["sha256"] = if mismatch then string.rep("0", 64) else Hash.hex_sha256("outer") end },
       cancelled = function(): boolean
         if not published then
           published = true
@@ -1365,7 +1414,7 @@ local function test_request_and_download_decompress_too(tmp: string)
   local got = assert(Http.get(url, { timeout_ns = Clock.seconds(60), decompress = true, script = script }))
   assert(got.body == plain)
   local path = tmp .. "/decoded"
-  assert(Http.download(url, path, { timeout_ns = Clock.seconds(60), decompress = true, sha256 = Hash.hex_sha256(plain), script = script }))
+  assert(Http.download(url, path, { timeout_ns = Clock.seconds(60), decompress = true, digests = { ["sha256"] = Hash.hex_sha256(plain) }, script = script }))
   assert(assert(Fs.read(path)) == plain)
 end
 
