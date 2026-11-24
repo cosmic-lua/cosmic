@@ -213,7 +213,7 @@ local function test_whois_result_tells_a_stranger_from_a_daemon_that_is_not_ther
   local refused = ts:whois_result("100.64.0.4")
   say(refused.kind .. " " .. tostring(refused.status) .. " " .. refused.reason)
   local who, why = ts:whois("192.0.2.7")
-  say(tostring(who) .. " " .. why)
+  say(tostring(who) .. " " .. tostring(why))
   local gone = assert(Tailscale.connect({ socket = (argv[1] or "") .. ".none" }))
   local failed = gone:whois_result("100.64.0.2")
   say(failed.kind .. " " .. tostring(failed.status) .. " " .. tostring(failed.reason:find("tailscale: ", 1, true) == 1))
@@ -273,9 +273,9 @@ local function test_cert_splits_the_key_from_the_chain_and_passes_on_a_refusal(t
   local pair = assert(ts:cert("box.tail1234.ts.net"))
   say(pair.key .. "|" .. pair.cert)
   local _, why = ts:cert("other.tail1234.ts.net")
-  say(why)
+  say(tostring(why))
   local _, odd = ts:cert("box/../status")
-  say(odd)
+  say(tostring(odd))
 ]]))
   assert(said == "-----BEGIN EC PRIVATE KEY-----\nKEY\n-----END EC PRIVATE KEY-----\n|" ..
       "-----BEGIN CERTIFICATE-----\nLEAF\n-----END CERTIFICATE-----\n" ..
@@ -292,9 +292,9 @@ local function test_ping_answers_the_round_trip_or_why_none_came(tmp: string)
   local ping = assert(ts:ping("100.64.0.2"))
   say(tostring(ping.latency_ns) .. " " .. tostring(ping.endpoint) .. " " .. tostring(ping.derp_region))
   local _, why = ts:ping("100.64.0.9", "TSMP")
-  say(why)
+  say(tostring(why))
   local _, refused = ts:ping("100.64.0.8")
-  say(refused)
+  say(tostring(refused))
 ]]))
   assert(said == "12500000 192.0.2.1:41641 nil\ntailscale: ping 100.64.0.9: timeout\n" ..
       "tailscale: /localapi/v0/ping: no matching peer\n", said)
@@ -310,17 +310,26 @@ local function test_watch_reads_an_event_a_line(tmp: string)
   while true do
     local event, why = events:read()
     if event == nil then
-      say("end " .. why)
+      say("end " .. tostring(why))
+      break
+    end
+    if event == false then
+      say("end ")
       break
     end
     say(tostring(event.state) .. " " .. tostring(event.browse_url) .. " " .. tostring(event.login_finished) ..
       " " .. tostring(event.version))
   end
   local engine <close> = assert(ts:watch({ engine = true, initial_status = true }))
-  local nulls = assert(engine:read())
+  local nulls, nulls_why = engine:read()
+  assert(nulls ~= nil, nulls_why)
+  assert(nulls ~= false, "the stream ended")
   say(tostring(nulls.state) .. " " .. tostring(nulls.login_finished))
   local bare <close> = assert(ts:watch({ initial_state = false }))
-  say(tostring(assert(bare:read()).state))
+  local first, first_why = bare:read()
+  assert(first ~= nil, first_why)
+  assert(first ~= false, "the stream ended")
+  say(tostring(first.state))
 ]]))
   assert(said == table.concat({
     "Starting nil false 1.90.0",
@@ -369,14 +378,15 @@ end
 
 --- Options that cannot be met together are a caller's bug and raise.
 local function test_connect_refuses_options_that_conflict()
-  local ok, why = pcall(Tailscale.connect, { socket = "/s", port = 1 })
+  local function connect(opts: Tailscale.Daemon) local _, _ = Tailscale.connect(opts) end
+  local ok, why = pcall(connect, { socket = "/s", port = 1 })
   assert(not ok and tostring(why):find("socket or port", 1, true) ~= nil, tostring(why))
-  ok, why = pcall(Tailscale.connect, { token = "t" })
+  ok, why = pcall(connect, { token = "t" })
   assert(not ok and tostring(why):find("token needs port", 1, true) ~= nil, tostring(why))
-  ok, why = pcall(Tailscale.connect, { port = 70000 })
+  ok, why = pcall(connect, { port = 70000 })
   assert(not ok and tostring(why):find("1 to 65535", 1, true) ~= nil, tostring(why))
   local client, empty = Tailscale.connect({ socket = "" })
-  assert(client == nil and empty == "tailscale: the socket path is empty", empty)
+  assert(client == nil and tostring(empty) == "tailscale: the socket path is empty", tostring(empty))
 end
 
 --- A call waits as a task of the run it is made in, so a server's own
@@ -392,7 +402,7 @@ local function test_a_call_in_a_task_lets_the_run_answer_it(tmp: string)
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local ts = assert(Tailscale.connect({ socket = assert(Array.at(addresses, 1).path), timeout_ns = Clock.seconds(5) }))
       local who, why = ts:whois("100.64.0.2:443")
-      said[1] = if who ~= nil then who.user.login_name else why end
+      said[1] = if who ~= nil then who.user.login_name else tostring(why) end
       server:stop()
     end,
   })

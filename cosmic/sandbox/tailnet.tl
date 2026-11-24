@@ -105,9 +105,9 @@ end
 local function status_of(daemon?: Tailscale.Daemon): Tailscale.Status?, string
   local Live = require("cosmic.tailscale")
   local ts, why = Live.connect(daemon)
-  if ts == nil then return nil, why end
+  if ts == nil then return nil, tostring(why) end
   local status, trouble = ts:status()
-  if status == nil then return nil, trouble end
+  if status == nil then return nil, tostring(trouble) end
   if status.backend_state ~= "Running" then
     return nil, "tailscale: the node is " .. status.backend_state .. ", so it knows no peers"
   end
