@@ -335,8 +335,8 @@ local record Body is Stream.Reader
 end
 
 --- Ends the stream once: frees its slot (if it took one), closes the
---- source, tells the caller. Never waits, and never raises (it may run in a `<close>`
---- handler of a killed task or inside the app's stop).
+--- source, tells the caller. Never raises (it may run in a `<close>` handler of a
+--- killed task or inside the app's stop), and waits only where `on_close` does.
 local function finish(self: Body, why: string)
   if self.done then return end
   self.done = true

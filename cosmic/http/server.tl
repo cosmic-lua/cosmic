@@ -151,7 +151,11 @@ local record Server
     --- that task, then as the reply ends. A request the client sends
     --- after this one is no going. Not for a body that must arrive
     --- whole: a client that half-closes and still reads would lose the
-    --- rest.
+    --- rest. The task that closes it is the connection's no longer once
+    --- it has begun: a close that waits (an `on_close`) runs to its end
+    --- after the server stops. A [`cosmic.web`] response sets it on the
+    --- response a constructor answers (`res.until_gone = true`), as
+    --- [`Sse.EventStream`] does.
     mut until_gone?: boolean
   end
 
