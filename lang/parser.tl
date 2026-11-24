@@ -2206,6 +2206,24 @@ local function parse_local_binding(what: string): Ast.Binding
   return b
 end
 
+--- `local schema Name [[DDL]]`: a class of the handles that hold the tables of the DDL, and the
+--- value of `require("cosmic.sqlite").schema` of it. The module is required as any is.
+local function parse_schema(first: integer): Ast.Class
+  advance()
+  local name = binding("a schema")
+  name.doc = doc_of(first)
+  declared({ name.name }, first)
+  local ddl = S.tokens.value[S.pos] or ""
+  advance()
+  local node: Ast.Class = {
+    kind = "Class", id = 0, first = first, last = S.pos - 1, scope = "local", name = name, typeparams = {}, supers = {},
+    members = {}, schema = ddl,
+  }
+  S.requires[#S.requires + 1] = { module = "cosmic.sqlite", node = 0 }
+  S.require_nodes[#S.require_nodes + 1] = node
+  return node
+end
+
 local function parse_local(): Ast.Stat
   local first = S.pos
   local scope: Ast.Scope = if S.text == "global" then "global" else "local" end
@@ -2226,6 +2244,8 @@ local function parse_local(): Ast.Stat
     end
     local fn = parse_fn(ffirst, "function `" .. name.name .. "`")
     return { kind = "LocalFunction", id = 0, first = first, last = S.pos - 1, name = name, typeparams = typeparams, fn = fn }
+  elseif S.text == "schema" and scope == "local" and peek_kind(1) == "identifier" and peek_kind(2) == "string" then
+    return parse_schema(first)
   elseif S.kind == "identifier" and DECL_WORD[S.text] == true and peek_kind(1) == "identifier" then
     local decl = parse_typedecl(first, scope)
     -- A class, a record and an import are values in the Lua written for them.
