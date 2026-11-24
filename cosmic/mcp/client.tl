@@ -952,7 +952,9 @@ function McpClient.spawn(argv: {string}, opts: Child.Options, client_opts?: McpC
       local result, _ = handle:wait(5 * 1000000000)
       if result == nil then
         local closed, trouble = handle:close()
-        if not closed then return false, Failure.new("mcp: ending the server: " .. trouble) end
+        if not closed then
+          return false, Failure.new("mcp: ending the server: " .. tostring(trouble))
+        end
       end
       return true
     end)

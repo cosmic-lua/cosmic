@@ -89,7 +89,7 @@ local function test_d_unstarted() assert(true) end
   local deadline = Clock.monotonic_ns() + Clock.seconds(20)
   while not assert(Fs.status(marker)).exists do
     assert(Clock.monotonic_ns() < deadline, assert(Fs.read(output)))
-    local done = Child.wait_any({ handle }, Clock.ms(10))
+    local done, _ = Child.wait_any({ handle }, Clock.ms(10))
     assert(done == nil, assert(Fs.read(output)))
   end
   -- Jobs run singly: the unfinished worker starts only after the failure

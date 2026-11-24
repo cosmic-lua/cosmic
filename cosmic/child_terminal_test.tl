@@ -62,5 +62,5 @@ local function test_start_on_pty_applies_the_size()
   local size = assert(sys.winsize(started.master))
   assert(size.rows == 7 and size.columns == 33)
   assert(sys.close(started.master))
-  started.child:wait()
+  local _, _ = started.child:wait()
 end
