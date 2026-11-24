@@ -117,7 +117,7 @@ local function start(script: string, opts: Child.Options): Child.Handle
   local started: Child.Options = { env = opts.env, stdin = opts.stdin, input = opts.input, stdout = opts.stdout,
     stderr = opts.stderr, fds = opts.fds, capture_limit = opts.capture_limit, process_group = opts.process_group,
     sandbox = opts.sandbox, policy = opts.policy, timeout_ns = Clock.seconds(60), cwd = "/" }
-  local child, why = Child.start({ exe, "sandbox", "--system", "--env", "PATH", "--promise", "fork",
+  local child, why = Child.start({ exe, "sandbox", "--system", "--programs", "--env", "PATH", "--promise", "fork",
     "--", "/bin/sh", "-c", script }, started)
   assert(child, why)
   return child
