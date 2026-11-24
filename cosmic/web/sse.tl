@@ -64,9 +64,9 @@ local record Sse
     --- The next event, waiting at most `timeout_ns` (no limit when nil):
     --- `false` at the end of the stream, nil and a [`Failure`] of kind
     --- "timeout" when none came in time, and nil and another Failure
-    --- when it failed, which also ends the stream. The stream asks with a timeout no longer than its
-    --- next heartbeat or its end (`max_age_ns`), and none when it has
-    --- neither: the server closes the stream of a client that leaves
+    --- when it failed, which also ends the stream. The stream asks with
+    --- a timeout no longer than its next heartbeat or its end
+    --- (`max_age_ns`), and none when it has neither: the server closes the stream of a client that leaves
     --- ([`cosmic.http.server.Reply`]'s `until_gone`), which closes the
     --- source and wakes the wait. A source whose `close` does not wake its `next` holds such
     --- a stream open until the server kills its task.
