@@ -20,10 +20,12 @@
 ---
 --- A 401 that says the token is refused (`invalid_token`) refreshes it
 --- first, where there is a refresh token; a refresh that fails drops
---- the refresh token, and the next 401 signs in. A sign-in asks for the
---- scopes already granted with those the challenge names, so a 403 of
---- `insufficient_scope` steps up. A request is sent again once after a
---- 401 and once after a 403, so a server that takes no token ends it.
+--- the refresh token, and signs in. A token the refresh gave that is
+--- refused too signs in. A sign-in asks for the scopes already granted
+--- with those the challenge names, so a 403 of `insufficient_scope`
+--- steps up. A request is sent again once after a refresh, once after a
+--- 401's sign-in and once after a 403's, so a server that takes no
+--- token ends it.
 --- Requests of a session in flight at once sign in once: the others
 --- wait for that sign-in, and use what it got.
 ---
@@ -111,9 +113,16 @@ local record McpOAuth
     --- The `Authorization` header to send, or nil before a sign-in.
     authorization: function(): string?
     --- After an answer of `status` (401 or 403) with the challenge
-    --- `header`: signs in, refreshes or steps up. True where the request
-    --- is to be sent again.
-    challenged: function(status: integer, header?: string): (true) | (false, Failure)
+    --- `header`: refreshes (where `may_refresh`), signs in or steps up,
+    --- for the request to be sent again; how, or why it cannot be.
+    challenged: function(status: integer, header?: string, may_refresh?: boolean): (Remedy) | (nil, Failure)
+  end
+
+  --- How a refusal was met: the token refreshed, or a sign-in (this
+  --- request's or another's it waited for).
+  enum Remedy
+    "refreshed"
+    "signed_in"
   end
 end
 
@@ -520,6 +529,8 @@ function McpOAuth.new(resource: string, opts: McpOAuth.Options): McpOAuth.Auth
   -- A sign-in under way, and what the requests that came during it wait on (nil outside a task).
   local busy = false
   local finished: Poll.Notifier? = nil
+  -- How the last sign-in or refresh went, for the requests that waited on it.
+  local last: McpOAuth.Remedy? = nil
 
   local function keep(got: McpOAuth.Tokens)
     tokens = got
@@ -569,55 +580,61 @@ function McpOAuth.new(resource: string, opts: McpOAuth.Options): McpOAuth.Auth
     return "Bearer " .. held.access_token
   end
 
-  local function answer(status: integer, header?: string): (true) | (false, Failure)
+  local function answer(status: integer, header: string?, may_refresh: boolean): (McpOAuth.Remedy) | (nil, Failure)
     local said = if header ~= nil then wire.challenge(header) else nil end
     if said == nil then
-      return false, Failure.new("mcp: oauth: the server answered HTTP " .. tostring(status) .. " with no Bearer challenge")
+      return nil, Failure.new("mcp: oauth: the server answered HTTP " .. tostring(status) .. " with no Bearer challenge")
     end
-    if status == 401 and said.error == "invalid_token" and refreshed() then return true end
+    if status == 401 and said.error == "invalid_token" and may_refresh and refreshed() then
+      return "refreshed"
+    end
     if status == 403 and said.error ~= "insufficient_scope" then
-      return false, Failure.new("mcp: oauth: the server refused the token (HTTP 403)")
+      return nil, Failure.new("mcp: oauth: the server refused the token (HTTP 403)")
     end
     local found, why = resource_of(resource, said.resource_metadata, timeout_ns, local_ok)
-    if found == nil then return false, why end
+    if found == nil then return nil, why end
     local server, swhy = issuer_of(assert(found.authorization_servers[1]), timeout_ns, local_ok)
-    if server == nil then return false, swhy end
+    if server == nil then return nil, swhy end
     local none: {string} = {}
     local wanted = said.scope or found.scopes or opts.scopes or none
     -- With the scopes already granted, so a new token does not lose them.
     local held = tokens
     if held ~= nil then wanted = union(held.scopes, wanted) end
     local got, gwhy = sign_in(opts, resource, server, wanted)
-    if got == nil then return false, gwhy end
+    if got == nil then return nil, gwhy end
     keep(got)
-    return true
+    return "signed_in"
   end
 
-  local function challenged(status: integer, header?: string): (true) | (false, Failure)
+  local function challenged(status: integer, header?: string, may_refresh?: boolean): (McpOAuth.Remedy) | (nil, Failure)
     if busy then
       -- Another request of the session signs in now: wait for it, and send again with what it got.
       local wait = finished
       while busy and wait ~= nil do
         local ok, why = wait:wait()
-        if not ok then return false, why end
+        if not ok then return nil, why end
       end
-      return true
+      -- What the other did: a refresh lets this request, too, sign in if the token it gave is refused.
+      return last or "signed_in"
     end
     busy = true
     finished = if Poll.in_task() then Poll.notifier() else nil end
-    local signed, why = false, Failure.new("mcp: oauth: the sign-in failed")
+    local remedy: McpOAuth.Remedy? = nil
+    local why = Failure.new("mcp: oauth: the sign-in failed")
     -- Whatever `open` or the store raises, the requests waiting are woken.
     local ran, raised = pcall(function()
-      local ok, failure = answer(status, header)
-      if ok then signed = true else why = failure end
+      local got, failure = answer(status, header, may_refresh ~= false)
+      if got ~= nil then remedy = got else why = failure end
     end)
+    last = remedy
     busy = false
     local wait = finished
     finished = nil
     if wait ~= nil then wait:notify_all() end
     if not ran then error(raised, 0) end
-    if not signed then return false, why end
-    return true
+    local got = remedy
+    if got == nil then return nil, why end
+    return got
   end
 
   return { authorization = authorization, challenged = challenged }

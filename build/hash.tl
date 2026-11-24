@@ -8,13 +8,13 @@
 --- Like `cosmic json` it prints no summary: its standard output is
 --- data (or, with `--check`, the per-file lines), and its exit status is
 --- the verdict: 0 all well, 1 a check failed or a listed file could not
---- be read, 2 a command line, a file to hash or a sums file it cannot
---- use, or a failed write to standard output. Complaints go to standard
+--- be read, 2 a command line it refused, 5 a file to hash or a sums file it
+--- cannot use, or a failed write to standard output. Complaints go to standard
 --- error as `cosmic: hash: ...`. Its `spec` (build/verb_spec.tl) is `bare`.
 ---
 --- `--check` differs from GNU's in three ways. A line it cannot read (a
 --- BSD `SHA256 (file) = hex` line, a one-space separator, a bad escape)
---- makes it exit 2 even when every entry is OK, where GNU only warns
+--- makes it exit 5 even when every entry is OK, where GNU only warns
 --- without `--strict`. A CRLF sums file leaves the CR in each name, as
 --- GNU does. And it opens the paths a sums file lists as given, so an
 --- untrusted sums file can name any readable path; it refuses one that
@@ -31,7 +31,6 @@ local Codec = require("cosmic.codec")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
-local Json = require("cosmic.json")
 local Stream = require("cosmic.stream")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
@@ -211,6 +210,9 @@ local record Request
   json: boolean
   --- The HMAC key; nil for a plain digest.
   mut key?: string
+  --- The file `--hmac-file` names, read into `key` once the line is accepted: a file it cannot read is not the
+  --- command line's fault.
+  mut key_file?: string
   --- A complaint to make before running, or "".
   mut warning: string
 end
@@ -252,15 +254,7 @@ local function arguments(argv: {string}): Request?, string
     return nil, "name one of --hmac and --hmac-file, not both"
   end
   request.key = literal
-  if key_file ~= nil then
-    local text, why = Fs.read(key_file)
-    if text == nil then return nil, "--hmac-file: " .. tostring(why) end
-    request.key = text
-    if text:sub(-1) == "\n" then
-      request.warning = "--hmac-file: the key ends in a newline, which is part of it; " ..
-        "write the file with `printf %s` if that is not meant"
-    end
-  end
+  request.key_file = key_file
   for _, name in ipairs(request.files) do
     if name == "" then return nil, bare.empty_file end
   end
@@ -308,8 +302,8 @@ end
 
 --- `cosmic hash [options] [<file>|-]...` and `cosmic hash --check <sums>`:
 --- returns the exit code: 0 all well, 1 a check failed or a listed file
---- could not be read, 2 a command line, a file to hash, a sums file, or a
---- write it cannot use.
+--- could not be read, 2 a command line it refused, 5 a file to hash, a sums
+--- file, or a write it cannot use.
 --- @param argv the command line, `hash` at slot 1
 --- @param io where the text is read and written; the process's own when nil
 function verb.run(argv: {string}, io?: verb.Io): integer
@@ -319,6 +313,19 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   if request == nil then
     complain(trouble .. "; " .. usage)
     return bare.refused
+  end
+  local key_file = request.key_file
+  if key_file ~= nil then
+    local text, why = Fs.read(key_file)
+    if text == nil then
+      complain("--hmac-file: " .. tostring(why))
+      return bare.undone
+    end
+    request.key = text
+    if text:sub(-1) == "\n" then
+      request.warning = "--hmac-file: the key ends in a newline, which is part of it; " ..
+        "write the file with `printf %s` if that is not meant"
+    end
   end
   if request.warning ~= "" then complain(request.warning) end
   local label = if request.key ~= nil then "hmac-" .. request.algorithm else request.algorithm end
@@ -331,25 +338,27 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       local digest, why = digest_named(to, request, name)
       if digest == nil then
         complain(why)
-        code = bare.refused
+        code = bare.undone
       elseif request.json then
+        -- Only `--json` writes JSON, so only it loads the module.
+        local Json = require("cosmic.json")
         local row, refused = Json.encode({ path = name, algorithm = label, digest = digest }, { pretty = false })
         if row == nil then
           complain(Json.quote(name) .. ": --json cannot write this path: " .. tostring(refused))
-          code = bare.refused
+          code = bare.undone
         else
           rows[#rows + 1] = "  " .. row
         end
       else
         if not bare.delivered(complain, to.out(verb.format_line(digest, name) .. "\n")) then
-          return bare.refused
+          return bare.undone
         end
       end
     end
     if request.json then
       local text = if #rows == 0 then "[]\n" else "[\n" .. table.concat(rows, ",\n") .. "\n]\n" end
       if not bare.delivered(complain, to.out(text)) then
-        return bare.refused
+        return bare.undone
       end
     end
     return code
@@ -362,19 +371,19 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     local reader, why = to.stdin()
     if reader == nil then
       complain(why)
-      return bare.refused
+      return bare.undone
     end
     local read, read_why = Stream.read_all(reader)
     if read == nil then
       complain("standard input: " .. tostring(read_why))
-      return bare.refused
+      return bare.undone
     end
     text = read
   else
     local read, read_why = Fs.read(sums_name)
     if read == nil then
       complain(tostring(read_why))
-      return bare.refused
+      return bare.undone
     end
     text = read
   end
@@ -386,7 +395,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     if #sums.bad == 0 then
       complain((if sums_name == "-" then "standard input" else sums_name end) .. ": no checksum lines found")
     end
-    return bare.refused
+    return bare.undone
   end
   local failed, unread = 0, 0
   for _, entry in ipairs(sums.entries) do
@@ -414,7 +423,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     end
     if line ~= nil then
       if not bare.delivered(complain, to.out(line)) then
-        return bare.refused
+        return bare.undone
       end
     end
   end
@@ -424,7 +433,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   if unread > 0 then
     complain(tostring(unread) .. " listed " .. (if unread == 1 then "file" else "files" end) .. " could not be read")
   end
-  if #sums.bad > 0 then return 2 end
+  if #sums.bad > 0 then return bare.undone end
   return if failed > 0 or unread > 0 then bare.failed else bare.ok end
 end
 
@@ -437,7 +446,7 @@ verb.spec = {
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "the files to digest",
-  exits = "`hash` prints digests, and exits 1 when a `--check` fails.",
+  exits = "`hash` prints digests, and exits 1 when a `--check` fails, 2 for a command line it refused, 5 for a file or sums file it could not read, or a write that failed.",
   passthrough = "its output is data for a pipe, so its exit status is the verdict (build/hash_test.tl)",
 }
 

@@ -32,7 +32,10 @@ end
 
 local current: Local.Calls = {
   child_run = function(argv: {string}, options?: Child.Options): Child.Result?, string
-    return Child.run(argv, options or { timeout_ns = Child.FOREVER })
+    -- In words, as the pinned release's Child.run answers them too.
+    local result, why = Child.run(argv, options or { timeout_ns = Child.FOREVER })
+    if result == nil then return nil, tostring(why) end
+    return result, ""
   end,
   env_all = Env.all,
   fs_put = function(fd: integer, data: string): boolean, string

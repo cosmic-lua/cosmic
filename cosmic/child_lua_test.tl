@@ -58,7 +58,7 @@ local AGAIN <const> = fixture.AGAIN
 local function test_start_failure_is_not_exit_127()
   local h, trouble = Child.start({ "/definitely/not/a/cosmic-command" }, { timeout_ns = Child.FOREVER })
   assert(h == nil)
-  assert(trouble:find("start:", 1, true))
+  assert(trouble.message:find("start:", 1, true))
   local r = assert(Child.run(lua("return 127")))
   assert(r.code == 127 and not r.ok)
 end
@@ -191,20 +191,22 @@ end
 -- its option is refused before a start, and a sandboxed worker has no
 -- sh to find, so a refusal that regressed fails the case either way.
 local function test_invalid_inputs_do_not_poison_signal_guard()
-  Test.raises(function() Child.run({ "/bin/sh\0bad" }, { timeout_ns = Child.FOREVER }) end)
   Test.raises(function()
-    Child.run({ "/bin/sh" }, { timeout_ns = Child.FOREVER, cwd = "/tmp\0bad" })
+    local _, _ = Child.run({ "/bin/sh\0bad" }, { timeout_ns = Child.FOREVER })
   end)
   Test.raises(function()
-    Child.run({ "/bin/sh" },
+    local _, _ = Child.run({ "/bin/sh" }, { timeout_ns = Child.FOREVER, cwd = "/tmp\0bad" })
+  end)
+  Test.raises(function()
+    local _, _ = Child.run({ "/bin/sh" },
       { timeout_ns = Child.FOREVER, env = { ["BAD=NAME"] = "value" } })
   end)
   Test.raises(function()
-    Child.run({ "/bin/sh" },
+    local _, _ = Child.run({ "/bin/sh" },
       { timeout_ns = Child.FOREVER, env = { NAME = "value\0tail" } })
   end)
   Test.raises(function()
-    Child.run({ "/bin/sh" },
+    local _, _ = Child.run({ "/bin/sh" },
       { timeout_ns = Child.FOREVER, stdout = 2147483648 })
   end)
   Test.raises(function() sys.kill(2147483648, 0) end)
@@ -212,13 +214,14 @@ local function test_invalid_inputs_do_not_poison_signal_guard()
   assert(result.ok)
 end
 
---- Successful public child operations always fill the error slot.
+--- Successful public child operations answer no failure, or an empty
+--- error slot where they still answer one in words.
 local function test_success_results_carry_empty_errors()
   local result, run_trouble = Child.run(lua(""))
-  assert(result ~= nil and run_trouble == "")
+  assert(result ~= nil and run_trouble == nil)
 
   local first, start_trouble = Child.start(lua(""))
-  assert(first ~= nil and start_trouble == "")
+  assert(first ~= nil and start_trouble == nil)
   local waited, wait_trouble = first:wait()
   assert(waited ~= nil and wait_trouble == "")
 

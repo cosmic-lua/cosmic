@@ -374,7 +374,7 @@ local function command(argv: {string}, fixture: Fixture): Child.Result
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   if result == nil then
     if fixture.logs ~= "" then
-      local failure: Failure = { argv = argv, trouble = trouble }
+      local failure: Failure = { argv = argv, trouble = tostring(trouble) }
       save(fixture.logs .. "/failure.json", failure)
     end
     error(trouble)

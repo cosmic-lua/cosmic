@@ -126,7 +126,7 @@ local function docker(env: {string:string}, words: {string},
     label = label .. " " .. word
   end
   local result, trouble = Child.run(argv, options)
-  if result == nil then return 1, label .. ": " .. trouble, "" end
+  if result == nil then return 1, label .. ": " .. tostring(trouble), "" end
   if result.ok then return 0, "", result.stdout or "" end
   if result.signal then
     return Child.shell_status(result), label .. ": signal " .. tostring(result.signal), ""

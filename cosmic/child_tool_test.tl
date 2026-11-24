@@ -227,7 +227,7 @@ local function test_a_sandboxed_child_is_refused_where_the_platform_has_no_sandb
   -- Only as a kernel that cannot sandbox refuses.
   local refused = false
   for _, errno in ipairs({ sys.ENOSYS, sys.EPERM, sys.EACCES, sys.EINVAL, sys.ENOSPC }) do
-    if trouble == "child: start: " .. sys.errno_message(errno) then refused = true end
+    if trouble.message == "child: start: " .. sys.errno_message(errno) then refused = true end
   end
   assert(refused, trouble)
 end
@@ -343,7 +343,8 @@ return function(argv: {string}): integer
   local r, why = Child.run(this("local sys = require('cosmic.sys') " ..
     "assert(sys.kill(" .. tostring(sys.getpid()) .. ", sys.SIGTERM)) " ..
     "require('cosmic.clock').sleep_ns(30000000000)"), options)
-  answers[#answers + 1] = tostring(r == nil) .. " " .. why
+  answers[#answers + 1] = tostring(r == nil) .. " " .. tostring(why)
+  answers[#answers + 1] = if why ~= nil then why.kind else "" end
   answers[#answers + 1] = tostring(guard:cancelled())
   local after = assert(Child.run(this("return 4"), options))
   answers[#answers + 1] = tostring(after.code)
@@ -360,6 +361,6 @@ end
       " " .. tostring(r.stderr))
   local term = tostring(sys.SIGTERM)
   local got, _ = Fs.read(report)
-  assert(got == table.concat({ "true child: cancelled by signal " .. term, term, "4", term }, "|"),
+  assert(got == table.concat({ "true child: cancelled by signal " .. term, "cancelled", term, "4", term }, "|"),
     tostring(got))
 end

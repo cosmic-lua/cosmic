@@ -261,20 +261,8 @@ end
 --- Its columns are asked after each step: a schema change re-prepares the
 --- statement, and its columns with it.
 local function cells_of(statement: raw_sqlite.Statement, as_text?: boolean): Row
-  local row: Stored = setmetatable({}, stored_mt) -- checked: setmetatable_call -- untyped: call
-  for index = 0, statement:columns() - 1 do
-    local kind = if as_text == true then "text" else statement:kind(index) end
-    local at = 2 * index + 1
-    if kind == "integer" then
-      row[at], row[at + 1] = "integer", statement:integer(index) -- checked: view_written*2
-    elseif kind == "number" then
-      row[at], row[at + 1] = "number", statement:number(index) -- checked: view_written*2
-    elseif kind == "text" or kind == "blob" then
-      row[at], row[at + 1] = kind, statement:bytes(index) -- checked: view_written*2
-    else
-      row[at], row[at + 1] = "null", false -- checked: view_written*2
-    end
-  end
+  -- The core builds the whole row in one call ([`raw_sqlite.Statement.row`]), as the loop over its columns here did.
+  local row: Stored = statement:row(stored_mt, as_text)
   return row as Row -- checked: cast_refused
 end
 
@@ -408,11 +396,11 @@ local function checked(values: {raw_sqlite.Value}): integer
   for key, value in ipairs(values) do
     local texts = value.texts
     if texts ~= nil then check_texts(key, texts) end
-    local fields = 0
-    for _, held in ipairs({ value.integer ~= nil, value.number ~= nil, value.text ~= nil, value.blob ~= nil,
-        value.integers ~= nil, value.numbers ~= nil, value.texts ~= nil, value.blobs ~= nil }) do
-      if held then fields = fields + 1 end
-    end
+    -- Counted field by field, with no table made: this runs for every value of every statement bound.
+    local fields = (if value.integer ~= nil then 1 else 0 end) + (if value.number ~= nil then 1 else 0 end) +
+      (if value.text ~= nil then 1 else 0 end) + (if value.blob ~= nil then 1 else 0 end) +
+      (if value.integers ~= nil then 1 else 0 end) + (if value.numbers ~= nil then 1 else 0 end) +
+      (if texts ~= nil then 1 else 0 end) + (if value.blobs ~= nil then 1 else 0 end)
     if fields > 1 then
       error("sqlite: parameter " .. tostring(key) .. " has more than one Value field", 4)
     end
@@ -468,15 +456,22 @@ local function bind(statement: raw_sqlite.Statement, values: {raw_sqlite.Value},
 end
 
 --- `sql` prepared on `handle` with `values` bound, or nil and why; a
---- statement that does not bind is finalized.
+--- statement that does not bind is released. A kept statement whose table
+--- has gone fails with "no such table" at its step, after its binding, and
+--- not at its prepare.
 local function prepared(handle: raw_sqlite.Handle, sql: string,
-                        given?: {raw_sqlite.Value}, unbound?: boolean): (raw_sqlite.Statement) | (nil, Failure)
+                        given?: {raw_sqlite.Value}, unbound?: boolean,
+                        cached?: boolean): (raw_sqlite.Statement) | (nil, Failure)
   local values = given or {}
   local highest = checked(values)
   -- The core's `prepare_result` raises for SQL it refuses before SQLite
   -- reads it (a NUL, no statement, more than one), where `prepare`
   -- answers why; any other raise (a closed handle) `prepare` raises again.
-  local called, opened = pcall(handle.prepare_result, handle, sql)
+  -- `cached`, the statement is one the handle kept from a `release` of
+  -- the same SQL where it kept one, which skips SQLite's prepare.
+  local prepare = handle.prepare_result
+  if cached == true then prepare = handle.prepare_cached_result end
+  local called, opened = pcall(prepare, handle, sql)
   if not called then
     local statement, why = handle:prepare(sql)
     if statement ~= nil then
@@ -490,21 +485,21 @@ local function prepared(handle: raw_sqlite.Handle, sql: string,
   if unbound == true then return statement end
   local why = bind(statement, values, highest)
   if why ~= nil then
-    statement:finalize()
+    statement:release()
     return nil, why
   end
   return statement
 end
 
 --- Every row of `statement` as `project` gives it, and the statement
---- finalized: the rows, or `nil` and why a step failed.
+--- released ([`raw_sqlite.Statement.release`]): the rows, or `nil` and why a step failed.
 local function each_row<T>(statement: raw_sqlite.Statement,
                            project: function(raw_sqlite.Statement): T): ({T}) | (nil, Failure)
   local out: mut {T} = {}
   while true do
     local row, failure = step_row(statement, project)
     if row == nil then
-      statement:finalize()
+      statement:release()
       if failure ~= nil then return nil, failure end
       return out
     end
@@ -551,10 +546,10 @@ local class Handle
   --- it has no name for, more than one field) raises, as does a key that
   --- is no position from 1.
   function run(self, sql: string, values?: {raw_sqlite.Value}): (true) | (false, Failure)
-    local statement, trouble = prepared(self.connection, sql, values)
+    local statement, trouble = prepared(self.connection, sql, values, false, true)
     if statement == nil then return false, trouble end
     local state = statement:step_result()
-    statement:finalize()
+    statement:release()
     if state is raw_sqlite.ExecResult then return false, failed(state) end
     return true
   end
@@ -563,7 +558,7 @@ local class Handle
   --- columns' SQLite types. Answers the rows, or `nil` and why. `values`
   --- follows [`Handle.run`]'s contract.
   function rows(self, sql: string, values?: {raw_sqlite.Value}): ({Row}) | (nil, Failure)
-    local statement, trouble = prepared(self.connection, sql, values)
+    local statement, trouble = prepared(self.connection, sql, values, false, true)
     if statement == nil then return nil, trouble end
     return each_row(statement, cells_of)
   end
@@ -589,26 +584,26 @@ local class Handle
   ---     print(#found, found[2].name) -- 2  b
   function map<T>(self, sql: string, values: {raw_sqlite.Value}?,
                   project: function(Row): T): ({T}) | (nil, Failure)
-    local statement, trouble = prepared(self.connection, sql, values)
+    local statement, trouble = prepared(self.connection, sql, values, false, true)
     if statement == nil then return nil, trouble end
     local out: mut {T} = {}
     while true do
       local state = statement:step_result()
       if state is raw_sqlite.ExecResult then
-        statement:finalize()
+        statement:release()
         return nil, failed(state)
       end
       if state == "done" then
-        statement:finalize()
+        statement:release()
         return out
       end
       local called, made = pcall(project, cells_of(statement))
       if not called then
-        statement:finalize()
+        statement:release()
         error(made, 0)
       end
       if made == nil then
-        statement:finalize()
+        statement:release()
         error("sqlite: map: project answered nil for a row; answer a value", 2)
       end
       out[#out + 1] = made
@@ -650,7 +645,7 @@ local class Handle
   --- every column and [`Row.is_null`] as false, and raises from `integer`,
   --- `number` and `blob`: read those from [`Handle.rows`].
   function text_rows(self, sql: string, values?: {raw_sqlite.Value}): ({Row}) | (nil, Failure)
-    local statement, trouble = prepared(self.connection, sql, values)
+    local statement, trouble = prepared(self.connection, sql, values, false, true)
     if statement == nil then return nil, trouble end
     return each_row(statement, texts_of)
   end
@@ -857,6 +852,10 @@ local record Sqlite
     --- Opens read-only a database that nothing will change while it is
     --- open: see [`Sqlite.open`]. Giving it with `writable` raises.
     immutable?: boolean
+    --- False turns SQLite's defensive mode off, for a caller that writes
+    --- the schema itself, as `PRAGMA schema_version = N` does: see
+    --- [`Sqlite.open`]. Every other handle keeps it.
+    defensive?: boolean
   end
 
   --- One result row: see [`Handle.rows`].
@@ -891,6 +890,18 @@ end
 --- show: open a database that is being written without `immutable`.
 --- Giving `immutable` with `writable` raises.
 ---
+--- Every handle is in SQLite's defensive mode, so no SQL it runs can
+--- corrupt the file on purpose: a write to `sqlite_schema` or to the shadow tables
+--- of an FTS5 or R*Tree table fails, even after `PRAGMA writable_schema
+--- = ON`, and `PRAGMA schema_version = N` and `PRAGMA journal_mode = OFF`
+--- run but change nothing (`MEMORY` keeps the journal off the disk
+--- instead, for a file that is thrown away if the process stops while
+--- writing it). Each cell is checked against its page as it is read
+--- (`PRAGMA cell_size_check`, on in every connection the core opens), so a damaged or crafted file fails with
+--- [`Sqlite.CORRUPT`] rather than being read past its end.
+--- `opts.defensive = false` turns defensive mode off, for code that
+--- writes the schema itself.
+---
 --- Every handle adds these SQL functions, each answering NULL for a NULL
 --- argument:
 ---
@@ -910,11 +921,12 @@ end
 --- to at most 125; the refusal of one too many says so.
 function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): (Sqlite.Handle) | (nil, Failure)
   local writable, immutable, create = opts and opts.writable, opts and opts.immutable, opts and opts.create
+  local defensive = not (opts ~= nil and opts.defensive == false)
   -- `open_result` raises for a path it refuses before SQLite reads it (a
   -- NUL), where `open` answers why; any other raise `open` raises again.
-  local called, opened = pcall(sqlite.open_result, path, writable, immutable, create)
+  local called, opened = pcall(sqlite.open_result, path, writable, immutable, create, defensive)
   if not called then
-    local handle, why = sqlite.open(path, writable, immutable, create)
+    local handle, why = sqlite.open(path, writable, immutable, create, defensive)
     if handle ~= nil then
       local _, _ = handle:close()
       error(opened, 0)

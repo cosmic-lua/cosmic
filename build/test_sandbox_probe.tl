@@ -123,7 +123,7 @@ local function ran_under(argv: {string}, fds: {integer:integer | string},
   local handle, trouble = Child.start(argv, { timeout_ns = Child.FOREVER, policy = policy, fds = given, cwd = "/",
     stdin = "null", stdout = "capture", stderr = "stdout", process_group = false })
   if handle == nil then
-    return { ok = false, why = test_sandbox.refusal(trouble), broken = not host_limit(trouble) }
+    return { ok = false, why = test_sandbox.refusal(tostring(trouble)), broken = not host_limit(tostring(trouble)) }
   end
   -- Past the bound, `wait` ends it, and its pid namespace with it;
   -- `close` makes sure of it if the wait failed.

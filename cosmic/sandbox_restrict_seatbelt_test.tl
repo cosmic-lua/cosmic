@@ -259,9 +259,9 @@ local function test_a_child_started_without_a_policy_is_held_by_the_profile(tmp:
   local said = in_child(string.format([[
 say("restrict", Sandbox.restrict({ profiles = { "system" }, promises = { "fork" },
   grants = { { path = %q, letters = "r" } } }))
-local granted = Child.run({ "/bin/cat", %q }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
+local granted, _ = Child.run({ "/bin/cat", %q }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
 if granted ~= nil then say("granted", granted.ok, granted.stdout) else say("granted", nil, nil) end
-local other = Child.run({ "/bin/cat", %q }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
+local other, _ = Child.run({ "/bin/cat", %q }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
 if other ~= nil then say("other", other.ok, other.stdout, other.stderr) else say("other", nil, nil, nil) end
 ]], tmp .. "/granted", tmp .. "/granted", tmp .. "/other"))
   assert(said.lines["restrict"] == "true ", said.raw)

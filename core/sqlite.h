@@ -27,8 +27,9 @@ void cosmic_sqlite_push_borrowed (lua_State *L, sqlite3 *db);
 /* Readies `db` as every handle this module opens is, so a connection
  * opened elsewhere (the store's) answers the same queries under the same
  * rules: turns PRAGMA trusted_schema off, so the views and triggers a
- * database file holds may call only what SQLite marks innocuous, and
- * registers `sha256`, `digest`, `hmac`, `deflate`, `inflate` and the
+ * database file holds may call only what SQLite marks innocuous, turns
+ * SQLite's defensive mode on, so no SQL it runs can write the schema or a
+ * shadow table directly, and registers `sha256`, `digest`, `hmac`, `deflate`, `inflate` and the
  * functions of the SQLite extensions the core is built with
  * (`generate_series`, `regexp`, `decimal`, `uuid`, `sha1`, `sha3`,
  * `base64`, `base85`, `compress`, ...). Forwards SQLite's status:

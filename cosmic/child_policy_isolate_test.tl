@@ -151,9 +151,9 @@ local function test_a_start_takes_as_many_grants_as_a_sandbox_unveils_paths_less
   local none, why = Child.start({ at.probe, "print hi" },
     { timeout_ns = Child.FOREVER, policy = { isolate = { "file" }, grants = grants(most + 1) }, cwd = at.work })
   assert(none == nil, "a start over the most was made")
-  assert(why:find("^child: start: sandbox: grants: "), why)
-  assert(why:find("/proc is one more", 1, true), why)
-  assert(why:find("takes, " .. tostring(most) .. ";", 1, true), why)
+  assert(why.message:find("^child: start: sandbox: grants: "), why)
+  assert(why.message:find("/proc is one more", 1, true), why)
+  assert(why.message:find("takes, " .. tostring(most) .. ";", 1, true), why)
 end
 
 local function test_isolate_file_has_a_proc_of_its_own_holding_its_own_processes(tmp: string)
@@ -267,7 +267,7 @@ local function test_a_grant_of_tmp_with_x_makes_the_sandboxs_own_tmp_executable(
   -- /tmp has no other letters than the two.
   local odd: Sandbox.Policy = { isolate = { "file" }, tmp = true,
     grants = ChildPolicy.with(at.grants, { path = "/tmp", letters = "r" }) }
-  local why = select(2, Child.run({ at.probe, "print x" }, { timeout_ns = Child.FOREVER, policy = odd, cwd = at.work }))
+  local _, why = Child.run({ at.probe, "print x" }, { timeout_ns = Child.FOREVER, policy = odd, cwd = at.work })
   assert(tostring(why):find("sandbox's own /tmp, which tmp makes", 1, true), tostring(why))
 end
 
@@ -358,13 +358,13 @@ local function test_a_u_grant_beside_a_directory_of_sockets_is_refused_or_held(t
   local result, why = Child.run({ at.probe, "connect " .. tmp .. "/socks/s2.sock" },
     { timeout_ns = Child.FOREVER, policy = policy, cwd = at.home, stdout = "capture", stderr = "stdout" })
   if result == nil then
-    if why:find("ABI 9", 1, true) then
-      assert(why:find("beside a directory", 1, true), why)
+    if why.message:find("ABI 9", 1, true) then
+      assert(why.message:find("beside a directory", 1, true), why)
     else
-      assert(ChildPolicy.unsandboxable(why), why)
+      assert(ChildPolicy.unsandboxable(tostring(why)), why)
       assert(granted:close())
       assert(other:close())
-      Test.skip(why)
+      Test.skip(tostring(why))
       return
     end
   else
@@ -454,13 +454,13 @@ local function test_a_root_that_cannot_be_built_says_which_step_failed(tmp: stri
     { path = "/x/l/y", letters = "r", from = tmp .. "/under" }) }
   local result, why = Child.run({ at.probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = policy, cwd = at.home })
   assert(result == nil)
-  if not why:find("root could not be built", 1, true) then
-    assert(ChildPolicy.unsandboxable(why), why)
-    Test.skip(why)
+  if not why.message:find("root could not be built", 1, true) then
+    assert(ChildPolicy.unsandboxable(tostring(why)), why)
+    Test.skip(tostring(why))
     return
   end
-  assert(why:find("Symbolic link loop", 1, true) and why:find("step of making", 1, true), why)
-  assert(not why:find("user namespace", 1, true), why)
+  assert(why.message:find("Symbolic link loop", 1, true) and why.message:find("step of making", 1, true), why)
+  assert(not why.message:find("user namespace", 1, true), why)
 end
 
 local function test_a_directory_nothing_grants_cannot_be_started_in_under_isolate_file(tmp: string)
@@ -468,11 +468,11 @@ local function test_a_directory_nothing_grants_cannot_be_started_in_under_isolat
   local result, why = Child.run({ at.probe, "print hi" }, { timeout_ns = Child.FOREVER, cwd = tmp .. "/other",
     policy = { isolate = { "file" }, grants = at.grants } })
   assert(result == nil)
-  if ChildPolicy.unsandboxable(why) then
-    Test.skip(why)
+  if ChildPolicy.unsandboxable(tostring(why)) then
+    Test.skip(tostring(why))
     return
   end
-  assert(why:find("must be at, beneath or above a grant", 1, true), why)
+  assert(why.message:find("must be at, beneath or above a grant", 1, true), why)
 end
 
 local function test_a_refused_namespace_fails_naming_the_remedy(tmp: string)

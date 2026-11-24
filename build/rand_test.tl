@@ -312,7 +312,7 @@ end
 
 local function test_pick_asking_for_more_lines_than_there_are_is_refused()
   local ran = run({ "pick", "-n", "5" }, { stdin = "a\nb\n" })
-  assert(ran.code == 2 and ran.out == "", ran.out)
+  assert(ran.code == 5 and ran.out == "", ran.out)
   assert(ran.err:find("cannot pick 5 of 2 lines", 1, true), ran.err)
 end
 
@@ -320,7 +320,7 @@ local function test_empty_input()
   local shuffled = run({ "shuffle" }, { stdin = "" })
   assert(shuffled.code == 0 and shuffled.out == "" and shuffled.err == "", shuffled.err)
   local picked = run({ "pick" }, { stdin = "" })
-  assert(picked.code == 2 and picked.out == "", picked.out)
+  assert(picked.code == 5 and picked.out == "", picked.out)
   assert(picked.err:find("cannot pick 1 of 0 lines", 1, true), picked.err)
   -- One blank line is a line; a last newline ends a line, it starts none.
   local blank = run({ "shuffle" }, { stdin = "\n" })
@@ -335,14 +335,14 @@ local function test_a_file_names_the_lines(tmp: string)
   local ran = run({ "shuffle", "--seed", "1", path })
   assert(ran.code == 0 and ran.out == "b\nd\nc\na\n", ran.out .. ran.err)
   local missing = run({ "shuffle", tmp .. "/nope.txt" })
-  assert(missing.code == 2 and missing.out == "" and missing.err:find("cosmic: rand: ", 1, true) == 1)
+  assert(missing.code == 5 and missing.out == "" and missing.err:find("cosmic: rand: ", 1, true) == 1)
   local unreadable = run({ "pick" })
-  assert(unreadable.code == 2 and unreadable.err:find("no standard input", 1, true) ~= nil, unreadable.err)
+  assert(unreadable.code == 5 and unreadable.err:find("no standard input", 1, true) ~= nil, unreadable.err)
   local two = run({ "shuffle", path, path })
   assert(two.code == 2, two.err)
 end
 
-local function test_a_failed_write_to_standard_output_is_exit_2()
+local function test_a_failed_write_to_standard_output_is_exit_5()
   local function refuse(): Stand
     return { out = function(_text: string): boolean, string
       return false, "No space left on device"
@@ -353,20 +353,20 @@ local function test_a_failed_write_to_standard_output_is_exit_2()
   }
   for _, words in ipairs(cases) do
     local ran = run(words, refuse())
-    assert(ran.code == 2, table.concat(words, " "))
+    assert(ran.code == 5, table.concat(words, " "))
     assert(ran.err == "cosmic: rand: standard output: No space left on device\n", ran.err)
   end
   local stand = refuse()
   stand.stdin = "a\nb\n"
   local shuffled = run({ "shuffle" }, stand)
-  assert(shuffled.code == 2 and shuffled.err:find("standard output", 1, true) ~= nil, shuffled.err)
+  assert(shuffled.code == 5 and shuffled.err:find("standard output", 1, true) ~= nil, shuffled.err)
 end
 
-local function test_a_failing_entropy_source_is_exit_1_and_says_so()
+local function test_a_failing_entropy_source_is_exit_5_and_says_so()
   local ran = run({ "uuid" }, { entropy = function(_count: integer): string?, string
     return nil, "rand: entropy: no source"
   end })
-  assert(ran.code == 1 and ran.out == "", ran.out)
+  assert(ran.code == 5 and ran.out == "", ran.out)
   assert(ran.err:find("entropy source failed: rand: entropy: no source", 1, true), ran.err)
 end
 
@@ -399,7 +399,7 @@ local function test_v7_refuses_a_clock_before_1970()
   -- A negative clock has no version 7 layout: a refusal with the reason,
   -- never a raised error or a wrapped timestamp.
   local ran = run({ "uuid", "--v7" }, { now_ns = function(): integer return -1 end })
-  assert(ran.code == 2 and ran.out == "", ran.out)
+  assert(ran.code == 5 and ran.out == "", ran.out)
   assert(ran.err:find("cosmic: rand: uuid: the clock reads -1 ns, before 1970", 1, true), ran.err)
   -- The values drawn before the refusal are still written.
   local readings = { 5000000000, -1 }
@@ -408,7 +408,7 @@ local function test_v7_refuses_a_clock_before_1970()
     at = at + 1
     return readings[at] or -1
   end })
-  assert(partial.code == 2 and #lines(partial.out) == 1, partial.out)
+  assert(partial.code == 5 and #lines(partial.out) == 1, partial.out)
   local epoch = run({ "uuid", "--v7" }, { now_ns = function(): integer return 0 end,
     entropy = function(count: integer): string?, string return string.rep("\0", count), "" end })
   assert(epoch.code == 0 and epoch.out == "00000000-0000-7000-8000-000000000000\n", epoch.out .. epoch.err)
@@ -422,7 +422,7 @@ local function test_a_negative_count_is_refused_and_a_negative_bound_is_a_bound(
   assert(bound.code == 0 and bound.out == "-4\n-4\n", bound.out .. bound.err)
   -- Only int reads a word that begins with `-` as a number, not an option.
   local other = run({ "shuffle", "-5" }, { stdin = "a\n" })
-  assert(other.code == 2, other.err)
+  assert(other.code == 5, other.err)
 end
 
 local function test_crlf_input_reads_as_lf()
@@ -609,7 +609,7 @@ local function test_normal_and_gamma_count_is_bounded_like_int()
   -- The most is allowed to parse; a failed write ends the run early.
   local stopped = run({ "normal", "-n", tostring(rand.MAX_COUNT) }, { entropy = entropy_of(1),
     out = function(_text: string): boolean, string return false, "closed" end })
-  assert(stopped.code == 2, stopped.err)
+  assert(stopped.code == 5, stopped.err)
   assert(stopped.err:find("standard output: closed", 1, true), stopped.err)
 end
 
@@ -620,12 +620,12 @@ local function test_normal_and_gamma_report_an_entropy_failure_and_a_failed_writ
   local commands: {{string}} = { { "normal" }, { "gamma", "--shape", "3" } }
   for _, words in ipairs(commands) do
     local ran = run(words, { entropy = broken })
-    assert(ran.code == 1 and ran.out == "", table.concat(words, " "))
+    assert(ran.code == 5 and ran.out == "", table.concat(words, " "))
     assert(ran.err:find("entropy source failed: rand: entropy: no source", 1, true), ran.err)
     local refused = run(words, { out = function(_text: string): boolean, string
       return false, "No space left on device"
     end })
-    assert(refused.code == 2, table.concat(words, " "))
+    assert(refused.code == 5, table.concat(words, " "))
     assert(refused.err == "cosmic: rand: standard output: No space left on device\n", refused.err)
   end
 end

@@ -122,7 +122,7 @@ local function test_a_redirect_loop_fails()
   local script: mut {string} = {}
   for _ = 1, 12 do script[#script + 1] = reply("302 Found", "Location: /again\r\n") end
   local ran = run({ url }, script)
-  assert(ran.code == 1 and ran.out == "", ran.err)
+  assert(ran.code == 5 and ran.out == "", ran.err)
   assert(ran.err:find("cosmic: fetch: ", 1, true) == 1, ran.err)
 end
 
@@ -176,19 +176,19 @@ end
 local function test_a_refused_connection_fails()
   local refused = "http://127.0.0.1:" .. tostring(closed_port()) .. "/"
   local ran = run({ refused })
-  assert(ran.code == 1, tostring(ran.code) .. ran.err)
+  assert(ran.code == 5, tostring(ran.code) .. ran.err)
   assert(ran.out == "" and ran.err:find("cosmic: fetch: " .. refused, 1, true) == 1, ran.err)
 end
 
-local function test_a_failed_write_to_standard_output_exits_two()
+local function test_a_failed_write_to_standard_output_exits_five()
   local ran = run({ url }, { reply("200 OK", "", "hello") }, "no space left")
-  assert(ran.code == 2, tostring(ran.code))
+  assert(ran.code == 5, tostring(ran.code))
   assert(ran.err:find("standard output: no space left", 1, true), ran.err)
   local head = run({ "--head", url }, { reply("200 OK", "") }, "broken pipe")
-  assert(head.code == 2, tostring(head.code))
+  assert(head.code == 5, tostring(head.code))
   local verified = run({ "--sha256", Hash.hex_sha256("hello"), url },
     { reply("200 OK", "", "hello") }, "broken pipe")
-  assert(verified.code == 2, tostring(verified.code))
+  assert(verified.code == 5, tostring(verified.code))
 end
 
 local function test_credentials_never_reach_a_message_or_the_json(tmp: string)
@@ -213,7 +213,7 @@ local function test_credentials_never_reach_a_message_or_the_json(tmp: string)
   assert(moved.code == 0 and not moved.out:find("hunter2", 1, true), moved.out .. moved.err)
   assert(moved.out:find('"url": "http://cosmic.test/final"', 1, true), moved.out)
   local refused = run({ "http://user:hunter2@127.0.0.1:" .. tostring(closed_port()) .. "/" })
-  assert(refused.code == 1 and not refused.err:find("hunter2", 1, true), refused.err)
+  assert(refused.code == 5 and not refused.err:find("hunter2", 1, true), refused.err)
 end
 
 local function test_head_escapes_control_bytes_in_header_values()
@@ -226,10 +226,10 @@ end
 local function test_a_truncated_body_fails_after_what_arrived()
   local cut = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabc"
   local ran = run({ url }, { cut })
-  assert(ran.code == 1, tostring(ran.code) .. ran.err)
+  assert(ran.code == 5, tostring(ran.code) .. ran.err)
   assert(ran.err:find("cosmic: fetch: ", 1, true) == 1, ran.err)
   local verified = run({ "--sha256", string.rep("0", 64), url }, { cut })
-  assert(verified.code == 1 and verified.out == "", verified.out .. verified.err)
+  assert(verified.code == 5 and verified.out == "", verified.out .. verified.err)
 end
 
 local function test_sha256_on_standard_output_with_a_bad_status_sends_nothing()
@@ -282,7 +282,7 @@ local function test_a_cancelled_download_leaves_no_file_and_fails(tmp: string)
     err = function(line: string) err[#err + 1] = line end,
     cancelled = function(): boolean return true end,
   })
-  assert(code == 1, tostring(code))
+  assert(code == 5, tostring(code))
   assert(table.concat(err):find("interrupted", 1, true) ~= nil, table.concat(err))
   assert(not assert(Fs.status(path)).exists, "the target was created")
   for _, name in ipairs((assert(Fs.list(tmp)))) do
@@ -441,8 +441,8 @@ local function test_download_status_uses_typed_code_instead_of_diagnostic_text(t
   assert(ran.out == "" and #assert(Fs.list(tmp)) == 0)
 end
 
---- `--roots`, `--cacert` and `--pin` of a shape the verb cannot use,
---- or a `--cacert` it cannot read, are exit 2 before any request.
+--- `--roots` and `--pin` of a shape the verb cannot use are exit 2 before
+--- any request, and a `--cacert` it cannot read is exit 5.
 local function test_trust_flags_it_cannot_use_are_usage_errors(tmp: string)
   local record Case
     flag: string
@@ -454,25 +454,26 @@ local function test_trust_flags_it_cannot_use_are_usage_errors(tmp: string)
     { flag = "--roots", value = string.rep("a", 63) },
     { flag = "--pin", value = "sha256//short=" },
     { flag = "--pin", value = "C5+lpZ7tcVwmwQIMcRtPbsQtWLABXhQzejna0wHFr8M=" },
-    { flag = "--cacert", value = tmp .. "/missing.pem" },
   }
   for _, case in ipairs(cases) do
     local ran = run({ case.flag, case.value, url }, {})
     assert(ran.code == 2, case.flag .. " " .. case.value .. ": " .. tostring(ran.code) .. " " .. ran.err)
     assert(ran.err:find(case.flag, 1, true) ~= nil, ran.err)
   end
+  local unread = run({ "--cacert", tmp .. "/missing.pem", url }, {})
+  assert(unread.code == 5 and unread.err:find("--cacert", 1, true) ~= nil, tostring(unread.code) .. " " .. unread.err)
 end
 
 --- The trust flags reach the request: a choice that trusts nothing, or a
---- `--cacert` that holds no certificate, fails it (exit 1); a set and
+--- `--cacert` that holds no certificate, fails it (exit 5); a set and
 --- pins that can be used leave a plain http fetch as it was.
 local function test_trust_flags_reach_the_request(tmp: string)
   local nothing = run({ "--roots", "none", url }, { reply("200 OK", "", "hello") })
-  assert(nothing.code == 1 and nothing.err:find("no CA roots to trust", 1, true) ~= nil, nothing.err)
+  assert(nothing.code == 5 and nothing.err:find("no CA roots to trust", 1, true) ~= nil, nothing.err)
   local junk = tmp .. "/junk.pem"
   assert(Fs.write(junk, "not a certificate"))
   local unread = run({ "--cacert", junk, url }, { reply("200 OK", "", "hello") })
-  assert(unread.code == 1 and unread.err:find("opts.ca:", 1, true) ~= nil, unread.err)
+  assert(unread.code == 5 and unread.err:find("opts.ca:", 1, true) ~= nil, unread.err)
   local pin = "sha256//C5+lpZ7tcVwmwQIMcRtPbsQtWLABXhQzejna0wHFr8M="
   local usable: {{string}} = {
     { "--roots", "minimal" },

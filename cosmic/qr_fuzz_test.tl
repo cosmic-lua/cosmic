@@ -160,6 +160,11 @@ local function test_encode_is_total_and_keeps_to_its_options(tmp: string)
     dir = tmp,
     gen = gen,
     check = check,
+    -- A check encodes a text up to three times, the first trying all 8
+    -- masks: a version near 40 spends about 60M VM instructions under
+    -- coverage, past the default budget, where a code that runs for
+    -- good would spend it many times over.
+    budget = 200000000,
     requires = { "refused", "version information" },
   })
 end

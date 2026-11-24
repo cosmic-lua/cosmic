@@ -226,12 +226,75 @@ local ELICIT_RESULT <const>: Shape.Typed<wire.ElicitResult> = Shape.record_of("w
 local COMPLETE_PARAMS <const>: Shape.Typed<wire.CompleteParams> = Shape.record_of("wire.CompleteParams")
 local COMPLETE_RESULT <const>: Shape.Typed<wire.CompleteResult> = Shape.record_of("wire.CompleteResult")
 
+--- Which nulls of a value are kept: all of them, or those below the members or items named.
+local record Keep
+  all?: boolean
+  --- Below the member of each name given.
+  members?: {string: Keep}
+  --- Below every member.
+  each_member?: Keep
+  --- Below every item of an array.
+  each_item?: Keep
+end
+
+local ALL <const>: Keep = { all = true }
+
+local RESPONSES <const>: Keep = { each_member = { members = { content = ALL } } }
+
+--- Where a message keeps its nulls: the values a JSON Schema checks, where `null` is not the same as absent. A
+--- tool call's arguments are one; a prompt's are strings, and a null one is absent, as before.
+local KEEPS_NULLS_CALL <const>: Keep = { members = {
+  params = { members = { arguments = ALL, inputResponses = RESPONSES } },
+} }
+
+local KEEPS_NULLS <const>: Keep = { members = {
+  params = { members = { inputResponses = RESPONSES } },
+  result = { members = {
+    structuredContent = ALL,
+    tools = { each_item = { members = { inputSchema = ALL, outputSchema = ALL } } },
+    inputRequests = { each_member = { members = { params = { members = { requestedSchema = ALL } } } } },
+  } },
+} }
+
+--- `v` with each member that is [`Json.null`] taken out, as a decode without them reads it (a null member is absent),
+--- but where `keep` says to keep them. A null item of an array is kept, so an array has no holes.
+local function unnulled(v: Json.Value, keep?: Keep): Json.Value?
+  if v == Json.null then return nil end
+  if keep ~= nil and keep.all == true then return v end
+  local items = Json.array_of(v)
+  if items ~= nil then
+    local below = if keep ~= nil then keep.each_item else nil end
+    local out: mut {Json.Value} = {}
+    -- A null item stays: taking it out would leave a hole, or move the items after it.
+    for _, item in ipairs(items) do
+      local got = unnulled(item, below)
+      out[#out + 1] = if got ~= nil then got else Json.null end
+    end
+    return Json.array(out)
+  end
+  local members = Json.object_of(v)
+  if members ~= nil then
+    local named = if keep ~= nil then keep.members else nil end
+    local each = if keep ~= nil then keep.each_member else nil end
+    local out: mut {string: Json.Value} = {}
+    for k, x in pairs(members) do
+      local below = if named ~= nil and named[k] ~= nil then named[k] else each end
+      local got = unnulled(x, below)
+      if got ~= nil then out[k] = got end
+    end
+    return out
+  end
+  return v
+end
+
 --- The message `text` holds, or nil and a failure whose `code` is
 --- JSON-RPC's for it: -32700 for text that is not JSON, -32600 for JSON
 --- that is not a JSON-RPC 2.0 message.
 function wire.message(text: string): (wire.Message) | (nil, Failure)
-  local decoded, bad = Json.decode(text)
-  if decoded == nil then return nil, Failure.coded(tostring(bad), Mcp.PARSE_ERROR) end
+  local read, bad = Json.decode(text, { null_value = Json.null })
+  if read == nil then return nil, Failure.coded(tostring(bad), Mcp.PARSE_ERROR) end
+  local top = Json.object_of(read)
+  local decoded = unnulled(read, if top ~= nil and top["method"] == "tools/call" then KEEPS_NULLS_CALL else KEEPS_NULLS end)
   local envelope, invalid = ENVELOPE:into(decoded)
   if envelope == nil then
     return nil, Failure.coded("not a JSON-RPC message: " .. invalid, Mcp.INVALID_REQUEST)
