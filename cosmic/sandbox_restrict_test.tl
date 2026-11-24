@@ -136,6 +136,7 @@ say("exec", why)
   assert(said.raw:find("replaced", 1, true) == nil, said.raw)
   assert(assert(said.lines["again"]):find("^true"), said.raw)
   assert(assert(said.lines["exec"]):find("Operation not permitted", 1, true), said.raw)
+end
 
 --- Two restrictions stacked hold the process to what
 --- [`Sandbox.intersect`] answers of the two: the kernel's verdict on each
