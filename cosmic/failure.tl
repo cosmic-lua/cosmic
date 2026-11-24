@@ -20,7 +20,7 @@ local sys = require("cosmic.sys")
 
 --- What went wrong, where, and why, returned by [`Failure.new`],
 --- [`Failure.at`], [`Failure.system`], [`Failure.coded`],
---- [`Failure.timeout`] or [`Failure.cancelled`].
+--- [`Failure.timeout`], [`Failure.cancelled`] or [`Failure.mismatch`].
 local class Failure
   --- What kind of failure it is, for a caller that acts on the cause
   --- rather than the words: `if why.kind == "timeout" then retry() end`.
@@ -43,6 +43,9 @@ local class Failure
     --- of [`Poll.run`], or a signal the caller's [`Signal.guard`] holds
     --- ([`Failure.cancelled`]).
     "cancelled"
+    --- What was read is not what was wanted: a download whose digest
+    --- differs from the one given ([`Failure.mismatch`]).
+    "mismatch"
   end
 
   --- What kind of failure it is.
@@ -136,6 +139,14 @@ end
 --- ("cancelled" when nil), about `path` when one is given. Its errno is 0.
 function Failure.cancelled(message?: string, path?: string): Failure
   return { kind = "cancelled", message = message or "cancelled", path = path, errno = 0, line = nil, column = nil,
+    code = nil, extended_code = nil }
+end
+
+--- What was read is not what was wanted, `message` saying how, about
+--- `path` when one is given: a digest a download does not have. Its
+--- errno is 0.
+function Failure.mismatch(message: string, path?: string): Failure
+  return { kind = "mismatch", message = message, path = path, errno = 0, line = nil, column = nil,
     code = nil, extended_code = nil }
 end
 
