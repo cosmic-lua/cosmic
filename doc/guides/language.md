@@ -635,6 +635,36 @@ print(total(colors))
 A literal whose value is `nil` or of a type parameter has no record to make, and is `literal_needs_type`: declare the
 type where the literal is made.
 
+## a record type in braces
+
+Two or more fields in braces write a record type where it is used: `{x: number, y: number}`. A field may be left out
+where `?` follows its name (`{n: integer, note?: string}`). One pair in braces is still a map, `{string: integer}`,
+and its key is a type. With two or more pairs each key is a field name, even one that spells a type:
+`{string: integer, number: integer}` is a record with the fields `string` and `number`. Two record types in braces with
+the same fields and types are one type, in any order of the fields and in any module, so a module's function that takes
+one takes the other. One is below another where each of its fields is below the other's and it has no field more:
+`{x: number, y: integer}` is passed where `{x: number, y?: number}` is wanted. A table literal is held to it as to a
+declared record, and a literal with no type fits it by its fields. Its fields are fixed: declare a record with a `mut`
+field to assign one. A declared record is a type of its own, which the braces with its fields are not.
+
+```teal
+local function dist(a: {x: number, y: number}, b: {y: number, x: number}): number
+  return math.sqrt((a.x - b.x) ^ 2 + (a.y - b.y) ^ 2)
+end
+
+local origin: {x: number, y: number} = { x = 0, y = 0 }
+local corner = { x = 3.0, y = 4.0 }
+print(dist(origin, corner))
+```
+
+```output
+5.0
+```
+
+A field in braces may not name a type parameter, since the braces are one type wherever they are written
+(`shape_generic`): declare a generic record (`local record Pair<T> ... end`). A key that is a type, or a field named
+twice, is `inline_record`.
+
 ## comparing and adding values of a type parameter
 
 A type parameter ranges over every type, so a generic body may not apply `<` or `+` to its values (`generic_op`). A

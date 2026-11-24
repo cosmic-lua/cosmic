@@ -565,6 +565,21 @@ local record Types
   --- The module that holds the enums of one value that string literal types are.
   LITERALS: string
 
+  --- The record written in braces with the fields `fields` (`{a: A, b?: B}`): a record declared in the module of shapes
+  --- ([`Types.SHAPES`]) under a name its fields spell, so that one written with the same fields, in any module and any
+  --- store, is the same declaration. The fields' types are closed (no type variable) and the fields are fixed.
+  shape: function(store: Store, fields: {Field}): Type
+
+  --- Whether `decl` is a record written in braces ([`Types.shape`]), which is shown by its fields.
+  shape_record: function(decl: Decl): boolean
+
+  --- The module that holds the records written in braces.
+  SHAPES: string
+
+  --- The name of `decl` as a message writes it: its name, or the fields of a record written in braces
+  --- (`{ n: integer, name: string }`).
+  decl_name: function(decl: Decl): string
+
   --- What meets the built-in bound `tag`, for a message: "a number type, a string type, or a class that declares `__lt` and `__le`" for `Ordered`.
   bound_meets: function(tag: string): string
 
@@ -958,6 +973,7 @@ function Types.inferred_record(decl: Decl): boolean
 end
 
 Types.LITERALS = "@"
+Types.SHAPES = "{}"
 
 local HEX_DIGITS = "0123456789abcdef"
 
@@ -968,6 +984,30 @@ local function literal_name(value: string): string
     return string.format("%02x", (assert(c:byte(), "a character has a byte")))
   end)
   return "__" .. hex
+end
+
+--- The name of a shape's declaration that spells `text`: its letters and digits as they are and each other byte as `_`
+--- and two hexadecimal digits, so that a shape whose fields name a shape grows by what it adds, not twofold.
+local function shape_name(text: string): string
+  local escaped = text:gsub("[^%w]", function(c: string): string
+    return string.format("_%02x", (assert(c:byte(), "a character has a byte")))
+  end)
+  return "__" .. escaped
+end
+
+--- The text a shape's declaration name spells, or nil where `name` is not one.
+local function shape_of_name(name: string): string?
+  local escaped = name:match("^__([%w_]*)$")
+  if escaped == nil or escaped:gsub("_[0-9a-f][0-9a-f]", ""):find("_", 1, true) ~= nil then
+    return nil
+  end
+  local out = escaped:gsub("_([0-9a-f][0-9a-f])", function(pair: string): string
+    local high = assert(HEX_DIGITS:find(pair:sub(1, 1), 1, true), "a hexadecimal digit")
+    local low = assert(HEX_DIGITS:find(pair:sub(2, 2), 1, true), "a hexadecimal digit")
+    return string.char((high - 1) * 16 + low - 1)
+  end)
+  -- One text has one name: a letter written as `_xx` names no shape.
+  return if shape_name(out) == name then out else nil end
 end
 
 --- The value a literal's declaration name spells, or nil where `name` is not one.
@@ -1286,10 +1326,16 @@ show = function(t: Type, names: Names, parenthesized: boolean): string
           return "\\" .. tostring(c:byte())
         end)
       end
-    elseif body ~= nil and Types.inferred_record(t.decl) then
+    elseif body ~= nil and (Types.inferred_record(t.decl) or Types.shape_record(t.decl)) then
       local fields: mut {string} = {}
       for _, f in ipairs(body.fields) do
-        fields[#fields + 1] = (if f.mut == true then "mut " else "" end) .. f.name .. ": " .. show(f.type, names, false)
+        local shown_type = show(f.type, names, false)
+        if f.omittable == true and shown_type:sub(-1) == "?" then
+          -- What may be left out may be nil, which its `?` after the name says.
+          shown_type = shown_type:sub(1, -2)
+        end
+        fields[#fields + 1] = (if f.mut == true then "mut " else "" end) .. f.name ..
+          (if f.omittable == true then "?" else "" end) .. ": " .. shown_type
       end
       text = "{ " .. table.concat(fields, ", ") .. " }"
     end
@@ -1634,6 +1680,35 @@ function Types.forget(self: Store, decls: {Decl})
   if next(dead) == nil then
     return
   end
+  -- A shape's declaration is of no module: it goes with each declaration its fields name, and so with each shape that
+  -- names it in turn.
+  local function names_dead(t: Type): boolean
+    if t.tag == "named" and dead[t.decl] == true then
+      return true
+    end
+    for _, part in ipairs(Types.parts(t)) do
+      if names_dead(part) then
+        return true
+      end
+    end
+    return false
+  end
+  local more = true
+  while more do
+    more = false
+    for _, decl in ipairs(self.list) do
+      local body = decl.body
+      if dead[decl] ~= true and Types.shape_record(decl) and body ~= nil then
+        for _, field in ipairs(body.fields) do
+          if names_dead(field.type) then
+            dead[decl] = true
+            more = true
+            break
+          end
+        end
+      end
+    end
+  end
   -- A type is made after its parts, so one pass in the order of the ids finds every type that names a declaration.
   local gone: mut {integer: boolean} = {}
   local forgotten: mut {Type} = {}
@@ -1972,6 +2047,50 @@ local function declaration_text(decl: Decl, body: Body): string
   return table.concat(parts)
 end
 
+--- The text the name of a shape's declaration spells: its fields as a declaration writes them.
+local function shape_fields_text(fields: {Types.Field}): string
+  local parts: mut {string} = {}
+  for _, field in ipairs(fields) do
+    parts[#parts + 1] = " (field " .. quote(field.name) .. " " .. slot_text(field.type, field.omittable) .. ")"
+  end
+  return table.concat(parts)
+end
+
+function Types.shape_record(decl: Decl): boolean
+  return decl.module == Types.SHAPES
+end
+
+function Types.decl_name(decl: Decl): string
+  local body = decl.body
+  if body == nil or not Types.shape_record(decl) then
+    return decl.name
+  end
+  local fields: mut {string} = {}
+  for _, f in ipairs(body.fields) do
+    local shown_type = Types.display(f.type)
+    if f.omittable == true and shown_type:sub(-1) == "?" then
+      shown_type = shown_type:sub(1, -2)
+    end
+    fields[#fields + 1] = f.name .. (if f.omittable == true then "?" else "" end) .. ": " .. shown_type
+  end
+  return "{ " .. table.concat(fields, ", ") .. " }"
+end
+
+function Types.shape(store: Store, fields: {Types.Field}): Type
+  local sorted: mut {Types.Field} = {}
+  for _, f in ipairs(fields) do
+    -- `a?: T?` is `a?: T`: a field that may be left out may be nil, and the one is named as the other.
+    local t = if f.omittable == true and (f.type.tag == "union") and f.type.nilable then store:non_nil(f.type) else f.type end
+    sorted[#sorted + 1] = { name = f.name, type = t, omittable = if f.omittable == true then true else nil end }
+  end
+  table.sort(sorted, function(a: Types.Field, b: Types.Field): boolean return a.name < b.name end)
+  local decl = store:declare("record", Types.SHAPES, { shape_name(shape_fields_text(sorted)) }, 0)
+  if decl.body == nil then
+    store:define(decl, { tparams = {}, supers = {}, fields = sorted, methods = {}, values = {} })
+  end
+  return store:named(decl)
+end
+
 function Types.encode_declaration(decl: Decl): string
   local body = decl.body
   if body == nil then
@@ -2102,6 +2221,12 @@ local function resolve(r: Reader, module: string, name: string): Decl -- checked
       fail(r, "the declaration " .. module .. " " .. name .. " has no body")
     end
     return found
+  end
+  local fields = if module == Types.SHAPES then shape_of_name(name) else nil end
+  if fields ~= nil then
+    -- A shape's declaration is read from its name, in any store.
+    return read_declaration(store, "(decl record " .. quote(module) .. " " .. quote(name) .. " (tparams) (supers) (fields" ..
+        fields .. ") (elements) (methods) (values))", module, name)
   end
   local literal = if module == Types.LITERALS then literal_of_name(name) else nil end
   if literal ~= nil then
