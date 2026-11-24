@@ -129,6 +129,10 @@ local record Agent
     --- The system prompt; [`Prompt.build`]'s for `cwd` and `tools` by default,
     --- which names no MCP server: build one with `servers` and `tools` when you give `mcp`.
     system?: string
+    --- What the system prompt is followed by, in a block past its cache mark; [`Prompt.where`]'s for `cwd`
+    --- by default, "" for nothing. The working directory is here, not in `system`, so `system` is the same
+    --- in each directory and read from the cache that a session elsewhere wrote.
+    where?: string
     --- What opens a request; Http.open by default.
     send?: Send
     --- What the tools are held to (cosmic.agent.policy); nil for nothing.
@@ -321,8 +325,10 @@ local record Agent
     --- built again when they change: set `system` to
     --- `Prompt.build(cwd, Prompt.contexts(cwd), { tools = tools })` too.
     mut tools: {Tools.Tool}
-    --- The system prompt.
+    --- The system prompt, sent as a block with a cache mark of its own.
     mut system: string
+    --- What follows the system prompt, past its cache mark: the working directory; "" for nothing.
+    mut where: string
     --- Where the tools run from.
     cwd: string
     --- What opens a request; Http.open where nil.
@@ -559,7 +565,6 @@ local function request_body(s: Agent.Session): Json.Value
   local body: mut {string: Json.Value} = {
     model = s.model,
     max_tokens = MAX_TOKENS,
-    system = s.system,
     tools = Tools.definitions(s.tools),
     messages = Json.array(s.messages),
     stream = true,
@@ -572,6 +577,16 @@ local function request_body(s: Agent.Session): Json.Value
     -- compaction block), and later requests are read from there on.
     context_management = { edits = Json.array({ { type = "compact_20260112" } }) },
   }
+  -- The system prompt has a cache mark of its own, as the tools have:
+  -- both are read by each session whose project has the same
+  -- instructions, whatever its directory and messages. The working
+  -- directory comes after the mark. The API takes no empty block.
+  local system: mut {Json.Value} = {}
+  if s.system ~= "" then
+    system[#system + 1] = { type = "text", text = s.system, cache_control = { type = "ephemeral" } }
+  end
+  if s.where ~= "" then system[#system + 1] = { type = "text", text = s.where } end
+  if #system > 0 then body["system"] = Json.array(system) end
   -- The reply says why the cache missed, against the last reply; naming
   -- none still asks, so that the API keeps this one to name next.
   local last = s.last_reply
@@ -1000,6 +1015,7 @@ local class AgentSession is Agent.Session
   mut base_url?: string
   mut tools: {Tools.Tool}
   mut system: string
+  mut where: string
   cwd: string
   mut send?: Agent.Send
   mut sandbox?: Sandbox.Policy
@@ -1056,7 +1072,8 @@ function Agent.new(options: Agent.Options): Agent.Session
   local agent: AgentSession = {
     model = options.model or Agent.MODELS.opus, effort = options.effort or Agent.EFFORT, sign = options.sign, base_url = options.base_url,
     tools = tools,
-    system = options.system or Prompt.build(options.cwd, Prompt.contexts(options.cwd), { tools = tools }), cwd = options.cwd,
+    system = options.system or Prompt.build(options.cwd, Prompt.contexts(options.cwd), { tools = tools }),
+    where = options.where or Prompt.where(options.cwd), cwd = options.cwd,
     send = options.send, sandbox = options.sandbox, jobs = options.jobs, worker = options.worker,
     mcp = options.mcp, build = options.build, messages = held, db = options.db, id = options.id,
     restarts = options.restarts or 0, ended = options.ended == true, stopped = false,

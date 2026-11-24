@@ -1256,7 +1256,7 @@ end
 
 --- `tools` as the Messages API takes them. The last is a cache breakpoint: the tools come first in a request, and
 --- are the same in every session of a model whatever its directory and prompt, so each session reads them from the
---- cache another wrote, where the system prompt and the messages after them differ.
+--- cache another wrote, where the project's instructions in the system prompt and the messages after them differ.
 function Tools.definitions(tools: {Tools.Tool}): Json.Value
   local out: mut {Json.Value} = {}
   local offers_bash = Tools.find(tools, "bash") ~= nil
