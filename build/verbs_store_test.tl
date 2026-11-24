@@ -3,7 +3,9 @@
 --- and docs, which read every module's docs, and the verbs run in this
 --- process ([`build.invoke`]), which read every module's rows.
 
+local Child = require("cosmic.child")
 local Cli = require("cosmic.cli")
+local Clock = require("cosmic.clock")
 local exit_status = require("build.exit_status")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
@@ -15,6 +17,7 @@ local verb_list = require("build.verb_list")
 local verbs_fixture = require("build.verbs_fixture")
 local String = require("cosmic.string")
 local support = require("build.test_support_fixture")
+local this_program = require("build.this_program")
 
 --- The tool itself, whose core a program `build` writes runs on, the CA
 --- bundle `refresh` reads, and what bin/zig reads to find or fetch zig.
@@ -483,5 +486,22 @@ local function test_a_verb_that_reads_its_own_line_is_not_refused_first(tmp: str
     local refused = verbs_fixture.run(tmp, { verb, "--zzqq" })
     assert(refused.code == 2 and refused.stderr:find("no such option: --zzqq", 1, true) ~= nil and
         not refused.stderr:find("; usage: cosmic " .. verb, 1, true), verb .. ": " .. refused.stderr)
+  end
+end
+
+--- `help <verb>` and `<verb> --help` read that verb's spec alone: the modules of the other verbs are not loaded.
+local function test_one_verbs_help_loads_no_other_verb(tmp: string)
+  for _, words in ipairs({ { "help", "hash" }, { "hash", "--help" } }) do
+    local env = this_program.environment()
+    env["COSMIC_TRACE_REQUIRE"] = "1"
+    local started = this_program.program(words, { env = env, cwd = tmp, stdout = "capture", stderr = "capture",
+      timeout_ns = Clock.seconds(30) })
+    local r = assert(Child.run(started.argv, started.options))
+    assert(r.ok and (r.stdout or ""):find("cosmic hash", 1, true) ~= nil, tostring(r.stdout) .. tostring(r.stderr))
+    local traced = r.stderr or ""
+    assert(traced:find(" build.hash ", 1, true), "no trace of build.hash: " .. traced:sub(1, 400))
+    for _, name in ipairs({ "build.test", "build.fix", "build.lsp", "build.sql", "build.archive" }) do
+      assert(not traced:find(" " .. name .. " ", 1, true), table.concat(words, " ") .. " loaded " .. name)
+    end
   end
 end

@@ -237,15 +237,25 @@ local function exit_help(specs: {verb_spec.Spec}): string
       help_programs .. " " .. table.concat(sentences, " "), help_width) .. "\n"
 end
 
+--- `help` is dispatch's own spec (below): [`spec_for`] and `help` read it, so
+--- it is declared here and set once `help` exists.
+local help_spec: verb_spec.Spec?
+
+--- The spec `help` reads for `verb`: its own for `help`, else the verb's
+--- from its module alone ([`verb_list.find`]), or nil for a verb with
+--- none (`run`, `standalone`, `eval`, `version`). Loading no other verb's
+--- module keeps `cosmic help <verb>` and `cosmic <verb> --help` from
+--- paying for every verb's requires.
+local function spec_for(verb: string): verb_spec.Spec?
+  if verb == "help" then return help_spec end
+  return require("build.verb_list").find(verb)
+end
+
 --- The text of `cosmic help <verb>`: the verb's docs, its options, then
 --- what its spec says of its command line.
---- @param specs every verb's spec, the `help` verb's included
+--- @param spec the verb's spec ([`spec_for`])
 --- @param docs the verb's own text if already read ([`verb_help`])
-local function verb_text(verb: string, specs: {verb_spec.Spec}, docs?: string): string
-  local spec: verb_spec.Spec? = nil
-  for _, candidate in ipairs(specs) do
-    if candidate.name == verb then spec = candidate end
-  end
+local function verb_text(verb: string, spec: verb_spec.Spec?, docs?: string): string
   local text = docs or verb_help({ verb })[verb]
   assert(text, "verb_help answers each verb it is asked")
   return text .. "\n" .. spec_notes(verb, spec)
@@ -693,6 +703,18 @@ local function stale_exit(argv: {string}, reads: boolean): integer?
   return require("build.reboot").stale_exit(argv, reads)
 end
 
+--- [`reboot.checkout_exit`] for a verb run in the project at `root`. It
+--- loads build.reboot only where the tool is the own tool of a checkout
+--- that is still cosmic's own tree ([`tree.checkout`]): any other tool,
+--- a release among them, holds itself to no checkout, and that check
+--- returns nil for it.
+local function checkout_exit(argv: {string}, root: string): integer?
+  if require("build.tree").checkout(require("cosmic.store").meta("built_from")) == nil then
+    return nil
+  end
+  return require("build.reboot").checkout_exit(argv, root)
+end
+
 --- `cosmic --version`: the SHA-256 of the file this binary runs from,
 --- read in pieces, as a release's SHA256SUMS names it: `cosmic <hex>`.
 local function version(argv: {string}): integer
@@ -755,10 +777,6 @@ local function evaluate(argv: {string}): integer
   return exit_status.of("-e", (loaded(table.unpack(arguments))))
 end
 
---- `help` is dispatch's own spec (below): it prints the specs of every other
---- verb, so it is declared here and set once `help` exists.
-local help_spec: verb_spec.Spec?
-
 --- `cosmic help [verb | exit]`: the index, or one verb's full text, or the
 --- exit codes, then its summary on stderr.
 --- @param asked the verb `cosmic <verb> --help` asked about, or nil to
@@ -776,7 +794,7 @@ local function help(argv: {string}, asked: string?, asked_sub?: string): integer
   -- candidate database or passing through the stale-tool guard.
   if asked == "cache" or (asked == nil and argv[2] == "cache" and argv[3] == nil) then
     local spec = assert(verb_list.find("cache"))
-    log:say(verb_text("cache", { spec }, verb_help({ "cache" }, true).cache) .. "\n") -- checked: map_field
+    log:say(verb_text("cache", spec, verb_help({ "cache" }, true).cache) .. "\n") -- checked: map_field
     local _, _ = logger.summary("help", "1 verb, " .. clock.took(started))
     return 0
   end
@@ -849,13 +867,13 @@ local function help(argv: {string}, asked: string?, asked_sub?: string): integer
       log:complain("help: no such verb: " .. requested .. meant(requested, topics))
       return 2
     end
-    local specs = verb_list.specs()
     local own_help = assert(help_spec, "help's spec is set before a verb is dispatched")
-    specs[#specs + 1] = own_help
     if requested == "exit" then
+      local specs = verb_list.specs()
+      specs[#specs + 1] = own_help
       log:say(exit_help(specs))
     else
-      log:say(verb_text(requested, specs) .. "\n")
+      log:say(verb_text(requested, spec_for(requested)) .. "\n")
     end
     local _, _ = logger.summary("help", "1 verb, " .. clock.took(started))
     return 0
@@ -929,7 +947,7 @@ local function help_texts(): {string: string}
   local out: mut {string: string} = { [""] = index_help(), exit = exit_help(specs) }
   local texts = verb_help(Cli.order)
   for _, verb in ipairs(Cli.order) do
-    out[verb] = verb_text(verb, specs, texts[verb])
+    out[verb] = verb_text(verb, spec_for(verb), texts[verb])
   end
   return out
 end
@@ -1044,6 +1062,7 @@ function Dispatch.main(argv: {string}): integer
         return help(line, asked, asked_sub)
       end,
       bare = false,
+      reads = own_spec.reads,
       recheck_on_refusal = false,
       takes = own_spec.takes,
       guide = own_spec.guide,
@@ -1085,7 +1104,7 @@ function Dispatch.main(argv: {string}): integer
         log:complain(verb .. ": " .. tostring(here_trouble))
         return 1
       end
-      local stale = require("build.reboot").checkout_exit(argv, here)
+      local stale = checkout_exit(argv, here)
       if stale ~= nil then
         return stale
       end
