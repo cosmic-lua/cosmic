@@ -293,8 +293,8 @@ local function test_a_policy_child_leads_a_session_and_opens_no_terminal(tmp: st
   local child = assert(Child.start({ "/bin/sleep", "30" }, { timeout_ns = Child.FOREVER, policy = policy }))
   local pid = child.pid
   local group = sys.getpgid(pid)
-  child:stop(sys.SIGKILL)
-  child:wait()
+  local _, _ = child:stop(sys.SIGKILL)
+  local _, _ = child:wait()
   assert(group == pid, "the child leads no group of its own: " .. tostring(group))
 end
 

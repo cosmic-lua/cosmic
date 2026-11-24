@@ -27,9 +27,6 @@ local record rules
 end
 
 local exempt: {string: string} = {
-  ["cosmic/child.tl:Child.wait_any"] =
-    "a finished handle comes back with its group's lingering-member " ..
-    "trouble, which a caller reports beside the handle's result",
 }
 
 local parsing: {string: string} = {

@@ -193,7 +193,7 @@ for name, value in pairs(relaunch.env) do env[name] = value end
 local result, trouble = Child.run(argv,
   { env = env, fds = relaunch.fds, stdout = fd, timeout_ns = Clock.seconds(5) })
 assert(Fs.close(fd))
-if result == nil then error(trouble) end
+if result == nil then error(tostring(trouble)) end
 local finished = assert(result)
 assert(finished.ok and finished.code == 0)
 
@@ -210,13 +210,12 @@ exit 0
 
 [`Child.start`] returns a running child instead, and [`Child.wait_any`]
 waits for the first of several to finish. When the timeout passes
-first, it returns `nil` and [`Poll.TIMEOUT`]. Any other reason is a
-failure to report.
+first, it returns `nil` and a [`Failure`] of kind "timeout". A Failure
+of any other kind is a failure to report.
 
 ```teal
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
-local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local Clock = require("cosmic.clock")
 
@@ -230,7 +229,7 @@ local env = Env.all()
 for name, value in pairs(relaunch.env) do env[name] = value end
 local sleeper <close> = assert(Child.start(argv, { timeout_ns = Child.FOREVER, env = env, fds = relaunch.fds }))
 local done, trouble = Child.wait_any({ sleeper }, Clock.ms(10))
-if done == nil and trouble ~= Poll.TIMEOUT then error(trouble) end
+if done == nil and trouble.kind ~= "timeout" then error(tostring(trouble)) end
 print(if done == nil then "still running" else "finished" end)
 local ended = assert(sleeper:wait())
 print("exit " .. tostring(ended.code))
@@ -304,6 +303,7 @@ its options.
 [`cosmic.fs`]: ../../cosmic/fs.tl
 [`cosmic.hash`]: ../../cosmic/hash.tl
 [`cosmic.sys`]: ../../core/syscalls.h
+[`Failure`]: ../../cosmic/failure.tl
 [`Fs.mkdtemp`]: ../../cosmic/fs.tl
 [`Fs.read`]: ../../cosmic/fs.tl
 [`Fs.write`]: ../../cosmic/fs.tl
@@ -311,7 +311,6 @@ its options.
 [`Json.decode`]: ../../cosmic/json.tl
 [`Json.get`]: ../../cosmic/json.tl
 [`McpServer.Instance.main`]: ../../cosmic/mcp/server.tl
-[`Poll.TIMEOUT`]: ../../cosmic/poll.tl
 [`Proc.exit`]: ../../cosmic/proc.tl
 [`Qr.text`]: ../../cosmic/qr.tl
 [`Rand.uuid`]: ../../cosmic/rand.tl

@@ -802,9 +802,25 @@ local function test_a_generic_function_is_below_the_function_type_its_type_param
   -- A type parameter only the result gives is taken from it.
   local make = s:fn({ tparams = { {} }, params = {}, rets = { { items = { s:array(v) } } } })
   assert(below(w, make, func(w, {}, { s:array(s.integer) })))
-  -- A type parameter nothing gives has no type to take.
+  -- A type parameter nothing gives is `never`, and the instance is compared as any other.
   local unused = s:fn({ tparams = { {} }, params = {}, rets = { { items = { s.integer } } } })
-  refused(w, unused, func(w, {}, { s.integer }), "generic_function")
+  assert(below(w, unused, func(w, {}, { s.integer })))
+  refused(w, unused, func(w, {}, { s.string }), "mismatch", "alternative 1 > item 1")
+  -- So is one that a union peels away: `integer | T` takes an integer whatever `T` is.
+  local peeled = s:fn({ tparams = { {} }, params = { { type = s:union({ s.integer, v }) } }, rets = {} })
+  assert(below(w, peeled, func(w, { s.integer }, {})))
+  -- One that a result names and nothing gives is refused: as `never` it would drop the result
+  -- from the instance, and `function<T>(v: any): T` that casts answers a real value.
+  local trust = s:fn({ tparams = { {} }, params = { { type = s.string } }, rets = { { items = { v } } } })
+  local either = s:fn({ params = { { type = s.string } }, rets = {
+    { items = { s:atom("true"), s.string } }, { items = { s:atom("false"), s.string } } } })
+  refused(w, trust, either, "generic_function")
+  local pair = s:fn({ tparams = { {} }, params = {}, rets = { { items = { s.integer, v } } } })
+  refused(w, pair, func(w, {}, { s.string }), "generic_function")
+  local listed = s:fn({ tparams = { {} }, params = {}, rets = { { items = { s:atom("true"), s:array(v) } } } })
+  local listed_or = s:fn({ params = {}, rets = {
+    { items = { s:atom("true"), s:array(s.string) } }, { items = { s:atom("false"), s.string } } } })
+  refused(w, listed, listed_or, "generic_function")
 end
 
 local function test_a_generic_function_is_below_a_function_type_only_if_its_instance_meets_the_bound()

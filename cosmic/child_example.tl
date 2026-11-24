@@ -5,7 +5,6 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local Signal = require("cosmic.signal")
 local Stream = require("cosmic.stream")
@@ -41,7 +40,7 @@ function Example.guard()
   end
   while #running > 0 and guard:cancelled() == 0 do
     local done, trouble = Child.wait_any(running, Clock.ms(100))
-    if done == nil and trouble ~= Poll.TIMEOUT then error(trouble) end
+    if done == nil and trouble.kind ~= "timeout" then error(tostring(trouble)) end
     local still: mut {Child.Handle} = {}
     for _, h in ipairs(running) do
       if rawequal(h, done) then
@@ -79,7 +78,7 @@ function Example.supervisor()
   local report: mut {string} = {}
   while #running > 0 and guard:cancelled() == 0 do
     local done, trouble = Child.wait_any(running, Clock.ms(100))
-    if done == nil and trouble ~= Poll.TIMEOUT then error(trouble) end
+    if done == nil and trouble.kind ~= "timeout" then error(tostring(trouble)) end
     local still: mut {Child.Handle} = {}
     for _, h in ipairs(running) do
       if rawequal(h, done) then
