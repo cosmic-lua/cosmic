@@ -666,9 +666,9 @@ end
 
 --- The response to a request of `url`, which follows no redirect
 --- ([`cosmic.agent.fetch`]): made from the snippet's sandbox, which reaches no network in a session started without
---- --network or --connect, and no loopback, private or link-local address but those --connect names. A response of
---- a status under 400 is answered, a redirect's too; a status of 400 or more raises, as `curl -f` fails, with the
---- status and the start of the body, unless `any_status` is given; a request that gets no response raises.
+--- --network or --connect, and no loopback, private or link-local address but those --connect names. A status under
+--- 400 is answered; one of 400 or more raises, as `curl -f` fails, with the status and the start of the body in the
+--- message, unless `any_status` is given; a request that gets no response raises.
 function Host.fetch(url: string, options?: Host.FetchOptions): Host.Fetched
   local o: Host.FetchOptions = options or {}
   local got, why = AgentFetch.fetch({ url = url, method = o.method, headers = o.headers, body = o.body,
