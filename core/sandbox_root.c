@@ -603,8 +603,7 @@ static int build_root (const char *root, char *const *paths, char *const *names,
   if (tmp) {
     int made = snprintf(target, sizeof target, "%s/tmp", root);
     if (made < 0 || (size_t)made >= sizeof target) return ENAMETOOLONG;
-    /* The mode made here never shows: a tmpfs covers it, or the chmod below sets it,
-     * and a sticky bit asked of mkdir is one a `nest` program's filter refuses. */
+    /* The mode made here never shows: a tmpfs covers it, or the chmod below sets it. */
     if (mkdir(target, 0777) != 0) return errno;
     if (strict) {
       /* Writable and so not executable, as a grant `rwc` is, unless the

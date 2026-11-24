@@ -221,16 +221,30 @@ local function test_a_warm_start_runs_no_program(tmp: string)
   assert(r.ok and r.stdout == "ok\n", tostring(r.stderr))
 end
 
---- What a warm start's shell cannot see, startup checks: a leaf group or others can write is refused with its
---- remedy, though the shell ran no `stat` to see it.
+--- What a warm start's shell cannot see, startup checks: a sticky leaf group or others can write is refused with
+--- its remedy, though the shell ran no `stat` to see it.
 local function test_a_warm_start_refuses_a_leaf_others_can_write(tmp: string)
   local program, cache = stamped_cache(tmp)
-  assert(Fs.chmod(cache, 0x1f8))
+  assert(Fs.chmod(cache, 0x3f8))
   local r = launch_bare(program, cache, tmp)
-  assert(Fs.chmod(cache, 0x1c0))
+  assert(Fs.chmod(cache, 0x3c0))
   local err = r.stderr or ""
   assert(not r.ok and err:find("writable by group or others", 1, true) ~= nil and
       err:find("chmod go-w", 1, true) ~= nil, err)
+end
+
+--- A leaf with no sticky bit, as one made before the warm start needed it, takes the full path, which gives it
+--- the bit, so the next start is warm.
+local function test_a_leaf_with_no_sticky_bit_is_given_one(tmp: string)
+  local program, cache = stamped_cache(tmp)
+  assert(Fs.chmod(cache, 0x1c0))
+  local cold = launch_bare(program, cache, tmp)
+  assert(not cold.ok and (cold.stderr or ""):find("cannot inspect cache leaf", 1, true) ~= nil,
+    "a leaf with no sticky bit started warm: " .. tostring(cold.stderr))
+  launch(program, cache, tmp)
+  assert(assert(sys.stat(cache)).mode & 0xfff == 0x3c0, "the leaf was not given the sticky bit")
+  local warm = launch_bare(program, cache, tmp)
+  assert(warm.ok and warm.stdout == "ok\n", tostring(warm.stderr))
 end
 
 --- An entry that is no longer mode 0500 is refused by startup and removed with its stamp, so the next launch

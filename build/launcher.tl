@@ -165,34 +165,37 @@ portable_exec_failed() {
   esac
 }
 
-# A warm start, with no child process, on Linux: a leaf this user owns, an
+# A warm start, with no child process: a sticky leaf this user owns, an
 # entry and the stamp startup leaves beside an entry it has hashed, none a
-# symbolic link; the entry is opened, and what is run is the file opened,
-# through /proc/self/fd, once the shell's own test has found it a regular
-# file this user owns and can run. So whoever else could rename a file into
-# the leaf (one others can write) cannot have theirs run, since only this
-# user's own file is, which no one else can write while it keeps the 0500
-# the launcher gives it. The entry opened is not newer than its stamp.
-# Startup stamps an entry only once a second has passed since it last
-# changed, so a healthy entry is older than its stamp, and an entry written
-# since, such as one damaged in place, is newer and takes the path below,
-# which hashes and repairs it before it runs. A write that sets the old time
-# back, or one in the stamp's own second where test(1) compares whole
-# seconds (BusyBox), still reaches startup. What these builtins
-# cannot see -- the leaf's mode, the entry's, and whether the entry answers
-# all its stamp records -- startup checks before anything else runs
+# symbolic link; the entry is run once the shell's own test has found it a
+# regular file this user owns and can run. In a sticky directory only a
+# file's owner, the directory's or root may rename or remove it, so whoever
+# else could write the leaf cannot replace this user's entry between the test
+# and the run, and no one else can write the entry while it keeps the 0500
+# the launcher gives it. On Linux what is run is the file opened, through
+# /proc/self/fd, which holds even where an ancestor of the leaf is another's
+# to rename; macOS refuses execve of /dev/fd/N, so there the entry is run by
+# its name, as the path below runs it on both. The entry is not newer than
+# its stamp. Startup stamps an entry only once a second has passed since it
+# last changed, so a healthy entry is older than its stamp, and an entry
+# written since, such as one damaged in place, is newer and takes the path
+# below, which hashes and repairs it before it runs. A write that sets the
+# old time back, or one in the stamp's own second where test(1) compares
+# whole seconds (BusyBox), still reaches startup. What these builtins cannot
+# see -- the leaf's mode, the entry's, and whether the entry answers all its
+# stamp records -- startup checks before anything else runs
 # (core/startup.c), and it removes an entry it refuses, so the next start
-# takes the path below. Anything else takes that path now:
-# it inspects everything here, repairs what it can, and hashes an entry no
-# stamp holds. So do macOS, with no /proc, and a shell whose test(1) has no
-# -O (status 2). `command` keeps a failed open from ending the shell.
-# macOS has no other way to run the file opened: its kernel refuses execve
-# of /dev/fd/N (EACCES), and test -x there reads the descriptor's open
-# mode, never x. Builtin tests of the entry's name would let a file renamed
-# into the leaf after them run, as no builtin reads the leaf's mode, so
-# macOS pays the path below's uname and stat forks.
-cosmic_run=/proc/self/fd/$cosmic_core_fd
+# takes the path below. Anything else takes that path now: it inspects
+# everything here, repairs what it can, and hashes an entry no stamp holds.
+# So do a leaf with no sticky bit, which that path gives it, a Linux with no
+# /proc, and a shell whose test(1) has no -O (status 2). `command` keeps a
+# failed open from ending the shell.
+case $cosmic_os in
+  Darwin) cosmic_run=$cosmic_core ;;
+  *) cosmic_run=/proc/self/fd/$cosmic_core_fd ;;
+esac
 if [ -d "$cosmic_cache" ] && [ ! -L "$cosmic_cache" ] && [ -O "$cosmic_cache" ] &&
+   [ -k "$cosmic_cache" ] &&
    [ -f "$cosmic_core" ] && [ ! -L "$cosmic_core" ] &&
    [ -f "$cosmic_stamp" ] && [ ! -L "$cosmic_stamp" ] &&
    { command eval 'exec '"$cosmic_core_fd"'<"$cosmic_core"'; } 2>/dev/null &&
@@ -297,6 +300,12 @@ case $portable_mode in
   *5??) cosmic_cache_writable=0 ;;
   *) portable_die "cache leaf owner needs mode 7 or 5, not $portable_mode: $cosmic_cache (run chmod u=rwx '$cosmic_cache', or name a directory only you control in COSMIC_PORTABLE_CACHE)" ;;
 esac
+# A leaf with no sticky bit takes this path on every start, as the warm one
+# above needs the bit: it is given one here, once. Where a filter refuses the
+# bit (a sandbox's), the leaf stays as it is and only the warm start is lost.
+if [ "$cosmic_cache_writable" = 1 ] && [ ! -k "$cosmic_cache" ]; then
+  chmod +t "$cosmic_cache" 2>/dev/null || :
+fi
 
 # Sets portable_actual to a file's SHA-256, or empty when it cannot.
 portable_sha256() {
