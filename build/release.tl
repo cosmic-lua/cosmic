@@ -89,7 +89,7 @@
 --- not the ones the pin and bin/cosmic-bootstrap name.
 
 local bare = require("build.bare")
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.release")
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Env = require("cosmic.env")
@@ -148,7 +148,7 @@ local record verb
   pin_text: function(tag: string, commit: string, digest: string): string
 end
 
-local spec <const> = assert((assert(Cli.verbs["release"])).spec)
+local spec <const> = assert(Verb.spec)
 
 local usage = "usage: cosmic release [--commit <hex>] [--until <time>] " ..
   "[--list [-n <count>] | -o <file> | --cache] [--pin <file> | --launcher <file>] [--json]"

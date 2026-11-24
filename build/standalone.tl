@@ -17,8 +17,9 @@
 --- costs far more than running it, so a clean compile is remembered:
 --- its Lua is kept under `$XDG_CACHE_HOME/cosmic/standalone` (default
 --- `$HOME/.cache/cosmic/standalone`), named by the sha256 of this
---- binary's own boot hash and the file's bytes, so a different binary
---- or a single changed byte compiles afresh. That cache is the one
+--- binary's own boot hash, the kind of source (a file, or a chunk of
+--- `cosmic -e`) and its bytes, so a different binary or a single changed
+--- byte compiles afresh. That cache is the one
 --- thing a run writes; one that cannot be written is skipped. Cached
 --- Lua is run without another check, so the cache lives only where
 --- [`Fs.cache_dir`] vouches no other user can write -- a directory of
@@ -58,15 +59,26 @@ end
 
 --- Where a clean compile of `source` by this binary is kept: nil when
 --- there is no cache directory [`Fs.cache_dir`] will vouch for, and so
---- no cache.
+--- no cache; nil too for a chunk that takes the tool's own modules (`own`)
+--- where the binary records no boot hash. A database with no boot hash (a
+--- test's closure store) names no build its sources are fixed in, so a key
+--- without one would outlive an edit of the modules it was checked against.
 local function cached_path(source: string, variables?: {string:string}, own?: boolean): string?
+  local boot = Store.meta("boot_hash") or ""
+  -- TODO: keep no file's compile either where boot is "", once
+  -- build/standalone_tool_test.tl's cache test runs a tool that records a
+  -- boot hash: a file run in a test's child is keyed as stale as a chunk.
+  if own == true and boot == "" then
+    return nil
+  end
   local dir, _ = Fs.cache_dir("standalone", { environment = variables })
   if dir == nil then
     return nil
   end
-  -- A chunk that takes the tool's own modules is checked against more than a file is, so its Lua is kept apart.
-  local key = Hash.hex_sha256((Store.meta("boot_hash") or "") .. "\0grammar-new\0" .. (if own == true then "own\0" else "" end) ..
-      source)
+  -- A chunk that takes the tool's own modules is checked against more than a file is, so its Lua is kept apart. The
+  -- kind is a word ahead of a separator, so no source spells another kind's key.
+  local kind = if own == true then "own" else "file" end
+  local key = Hash.hex_sha256(boot .. "\0grammar-new\0" .. kind .. "\0" .. source)
   return dir .. "/" .. key .. ".lua"
 end
 
@@ -102,13 +114,12 @@ end
 --- every complaint of the checker when the file is not clean. Every check
 --- creates its own program; previous declarations are not shared. The new
 --- checker ([`build.pipeline`]) holds the file to no ceiling and takes `cosmic.*` from this binary. With `own`, as `cosmic -e` asks, the file
---- may also require the tool's own modules, which the checker types from their sources ([`build.standard_text`]'s `own`),
---- and it is checked each time and kept nowhere.
+--- may also require the tool's own modules, which the checker types from their sources ([`build.standard_text`]'s `own`):
+--- the binary's database holds those as it holds the standard library's, so its Lua is kept as a file's is, under a
+--- key of its own kind, where the binary records a boot hash ([`cached_path`]).
 function standalone.code(file: string, source: string, variables?: {string:string}, own?: boolean,
                          outcome?: importer.Outcome): string?, string
-  -- A chunk of `-e` is not kept: it is checked against more than a file is, runs once and is written afresh each time.
-  local cached: string? = nil
-  if own ~= true then cached = cached_path(source, variables) end
+  local cached = cached_path(source, variables, own)
   local code: string?
   if cached ~= nil then
     -- A cache that cannot be read is a miss.
@@ -116,9 +127,9 @@ function standalone.code(file: string, source: string, variables?: {string:strin
     code = read
   end
   if code == nil then
-    -- What the checker reads besides the file is the declarations of the standard library, which the tool carries (so
-    -- they are part of the binary the cache name holds), read only for a file the cache does not hold. So is the checker
-    -- itself: a cached run loads none of its hundred modules (build/standalone_test.tl holds it to that).
+    -- What the checker reads besides the file is the declarations of the standard library (and for `own` the tool's
+    -- modules), which the tool carries, read only for a file the cache does not hold. So is the checker itself: a
+    -- cached run loads none of its hundred modules (build/standalone_test.tl holds it to that).
     local Pipeline = require("build.pipeline")
     local options, trouble = Pipeline.alone()
     if options == nil then

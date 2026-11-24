@@ -84,7 +84,7 @@ local function test_a_fresh_cache_entry_is_stamped_once_it_settles(tmp: string)
   local cache = tmp .. "/cache"
   assert(Fs.write(tmp .. "/ok.tl", "return function(): integer print('ok') return 0 end\n"))
   launch(program, cache, tmp)
-  assert(Clock.sleep_ns(1100000000))
+  assert(Clock.sleep(1100000000))
   launch(program, cache, tmp)
   assert(stamps(cache) == 1, "a settled entry is stamped")
 end
@@ -199,7 +199,7 @@ local function stamped_cache(tmp: string): (string, string)
   local cache = tmp .. "/cache"
   assert(Fs.write(tmp .. "/ok.tl", "return function(): integer print('ok') return 0 end\n"))
   launch(program, cache, tmp)
-  assert(Clock.sleep_ns(1100000000))
+  assert(Clock.sleep(1100000000))
   launch(program, cache, tmp)
   assert(stamps(cache) == 1, "a settled entry is stamped")
   return program, cache
@@ -293,7 +293,7 @@ local function test_a_warm_start_removes_a_damaged_entry(tmp: string)
     assert(not r.ok and err:find(damage.says, 1, true) ~= nil, err)
     assert(not assert(Fs.status(entry)).exists and stamps(cache) == 0, "the damaged entry or its stamp is left")
     launch(program, cache, tmp)
-    assert(Clock.sleep_ns(1100000000))
+    assert(Clock.sleep(1100000000))
     launch(program, cache, tmp)
     assert(stamps(cache) == 1, "the extracted entry is stamped again")
   end

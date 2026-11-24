@@ -186,6 +186,20 @@ local function test_binary_decode_is_total_and_what_it_reads_is_written_back(tmp
       if kind <= 3 then return Fuzz.mutate(src, gen_objects(src), 2) end
       return Fuzz.mutate(src, gen_binary(src), 3)
     end,
+    starved = function(input: string): string
+      local value, why = Plist.decode(input)
+      if value == nil then return "refused: " .. tostring(why) end
+      local binary, binary_why = Plist.encode(value)
+      local function line(text: string): string return (text:gsub("\n", "\\n")) end
+      local lines: mut {string} = { "binary: " .. line(if binary ~= nil then binary else tostring(binary_why) end) }
+      if binary ~= nil then
+        local _, again_why = Plist.decode(binary)
+        lines[#lines + 1] = "read back: " .. tostring(again_why)
+      end
+      local text, text_why = Plist.encode(value, { form = "xml" })
+      lines[#lines + 1] = "xml: " .. line(if text ~= nil then text else tostring(text_why) end)
+      return table.concat(lines, "\n")
+    end,
     check = function(input: string): boolean, string
       local value, why = Plist.decode(input)
       if value == nil then

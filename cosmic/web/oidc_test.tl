@@ -2,6 +2,7 @@
 --- a whole login, and each answer of the provider or the browser that
 --- must not log anyone in.
 
+local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
@@ -654,7 +655,7 @@ local function test_trades_under_way_from_one_address_are_limited()
       local b, state = assert(browsers[i]), assert(states[i])
       tasks[#tasks + 1] = Poll.spawn(function() statuses[i] = callback(b, state).status end)
     end
-    while hold:waiting() < 10 do assert(Poll.delay(1000000)) end
+    while hold:waiting() < 10 do assert(Clock.sleep(1000000)) end
     statuses[11] = callback(assert(browsers[11]), assert(states[11])).status
     p.hold = nil
     hold:notify_all()

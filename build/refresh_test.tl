@@ -3,7 +3,7 @@
 --- PyPI's answer. The refreshes of a program `cosmic build` wrote, and
 --- the searches of this program's docs, are in `refresh_tool_test.tl`.
 
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.refresh")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local Vendor = require("build.vendor")
@@ -54,7 +54,7 @@ end
 --- Every dataset is an option naming a file to read it from.
 local function test_every_dataset_is_an_option()
   for _, dataset in ipairs(refresh.datasets) do
-    assert(assert(Cli.verbs.refresh.spec)["--" .. dataset.name] ~= nil, dataset.name) -- checked: map_field
+    assert(assert(Verb.spec)["--" .. dataset.name] ~= nil, dataset.name)
   end
 end
 

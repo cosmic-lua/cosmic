@@ -226,7 +226,7 @@ local function test_seconds_bound_how_long_a_property_draws()
   local checked: Tally = { value = 0 }
   local function slow(_input: string): boolean, string
     checked.value = checked.value + 1
-    local _, _ = Clock.sleep_ns(Clock.ms(20))
+    local _, _ = Clock.sleep(Clock.ms(20))
     return true, ""
   end
   local n = Fuzz.run({ name = "slow", iters = 1000, seconds = 1, gen = any_bytes, check = slow })
@@ -245,7 +245,7 @@ local function test_a_run_stopped_by_its_seconds_holds_its_shares_to_what_it_dre
     check = function(_input: string): boolean, string
       reached.value = reached.value + 1
       Fuzz.label("all")
-      local _, _ = Clock.sleep_ns(Clock.ms(20))
+      local _, _ = Clock.sleep(Clock.ms(20))
       return true, ""
     end })
   assert(n == reached.value and n >= 64 and n < 100000, "drew " .. tostring(n))

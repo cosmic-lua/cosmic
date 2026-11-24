@@ -5,7 +5,7 @@
 --- build/sandbox_tool_test.tl starts programs in a sandbox.
 
 local Child = require("cosmic.child")
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.sandbox")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
@@ -446,8 +446,8 @@ local function test_every_policy_field_has_a_flag()
     if exempt[name] == nil and name ~= "limits" then
       local words = samples[name]
       assert(words ~= nil, "Policy." .. name .. " has no flag: add one to cosmic sandbox and to " ..
-          "Cli.verbs.sandbox.spec, and a sample here")
-      assert(assert(assert(Cli.verbs["sandbox"]).spec)[support.nth(words, 1)] ~= nil, support.nth(words, 1) .. " is not in the spec")
+          "cosmic.cli.sandbox's spec, and a sample here")
+      assert(assert(Verb.spec)[support.nth(words, 1)] ~= nil, support.nth(words, 1) .. " is not in the spec")
       seen[support.nth(words, 1)] = true
       assert(holds(policy_after(words)[name]), support.nth(words, 1) .. " does not set Policy." .. name)
     end
@@ -457,7 +457,7 @@ local function test_every_policy_field_has_a_flag()
   for name in pairs(assert(limits.fields)) do
     local words = samples[name]
     assert(words ~= nil, "Policy.limits." .. name .. " has no flag: add one to cosmic sandbox " ..
-        "and to Cli.verbs.sandbox.spec, and a sample here")
+        "and to cosmic.cli.sandbox's spec, and a sample here")
     seen[support.nth(words, 1)] = true
     local set = (policy_after(words)["limits"] as {string:any}) -- checked: cast_refused
     assert(set ~= nil and set[name] == 5, support.nth(words, 1) .. " does not set Policy.limits." .. name)
@@ -469,11 +469,11 @@ local function test_every_policy_field_has_a_flag()
     assert(name == "path" or name == "letters" or name == "from", "Policy.grants[]." .. name ..
         " has no flag: add one, and say so here")
   end
-  for flag in pairs(assert(Cli.verbs["sandbox"]).spec or {}) do
+  for flag in pairs(Verb.spec or {}) do
     assert(seen[flag] == true or others[flag] == true, flag .. " sets no field of the policy")
   end
   for name in pairs(samples) do
     local sample = assert(samples[name], name .. " has a sample")
-    assert(assert(assert(Cli.verbs["sandbox"]).spec)[support.nth(sample, 1)] ~= nil, name .. ": no such flag")
+    assert(assert(Verb.spec)[support.nth(sample, 1)] ~= nil, name .. ": no such flag")
   end
 end

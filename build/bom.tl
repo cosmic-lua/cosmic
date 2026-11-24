@@ -36,7 +36,7 @@
 --- list to check against; [`build/bom_test.tl`] only holds it to the
 --- `SPDX-License-Identifier` tags its tree's own files carry.
 
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.bom")
 local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
@@ -543,7 +543,7 @@ local function run(argv: {string}): integer
     return 0
   end
   local usage = "usage: cosmic bom [--licenses | --json <path>]"
-  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.bom.spec)) -- checked: map_field
+  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Verb.spec))
   if parsed == nil then
     log:complain("bom: " .. parse_trouble .. "; " .. usage)
     return 2

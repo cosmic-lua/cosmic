@@ -1028,7 +1028,7 @@ local function watching(handles: {Handle}, feeding?: Handle): mut {Entry}
   return entries
 end
 
---- What a shielded [`Poll.delay`] answered, which a shield hands back to
+--- What a shielded [`Clock.sleep`] returned, which a shield hands back to
 --- [`pump`] in a table.
 local record Delayed
   mut paused?: boolean
@@ -1055,16 +1055,17 @@ end
 --- serves -- ending a child, emptying its pipes -- must finish.
 local function pump(entries: mut {Entry}, timeout_ns: integer,
                     cancellable?: boolean, signalled?: boolean): boolean, string
-  -- TODO: wait through Poll.delay and Poll.ready alone, here and in
-  -- Child.end_strays's sleep, once it is decided how they answer where
-  -- no task can wait. (a) They go on, holding the thread, outside a run
-  -- and in the `<close>` handler of a task being killed, as Poll.wait
-  -- does outside a run: this module's cleanup, which must wait there,
-  -- loses its thread-held branches, and poll_test's
+  -- TODO: wait through Clock.sleep and Poll.ready alone, here and in
+  -- Child.end_strays's sleep, once it is decided what Poll.ready returns
+  -- where no task can wait. Clock.sleep already holds the thread there.
+  -- (a) Poll.ready goes on, holding the thread, outside a run and in the
+  -- `<close>` handler of a task being killed, as Poll.wait does outside
+  -- a run: this module's cleanup, which must wait there, loses its
+  -- thread-held branches, and poll_test's
   -- test_waiting_outside_a_task_raises and
   -- test_kill_raises_what_a_close_handler_raises and net_serve_test's
   -- test_a_killed_protocols_close_cannot_wait, which hold those waits
-  -- to raising, break with it. (b) They stay task-only, and the
+  -- to raising, break with it. (b) It stays task-only, and the
   -- branches here stay.
   -- A wait that yields never, as one with no time to wait does, is
   -- no wait of the run's: it looks and goes on.
@@ -1084,7 +1085,7 @@ local function pump(entries: mut {Entry}, timeout_ns: integer,
     if in_run then
       local waited: Delayed = {}
       local function pause()
-        local paused, why = Poll.delay(timeout_ns)
+        local paused, why = Clock.sleep(timeout_ns)
         waited.paused = paused
         if why ~= nil then waited.cancelled = why.message end
       end
@@ -2334,7 +2335,7 @@ local record Held
   seatbelt_options?: Seatbelt.Options
 end
 
---- The most grants spawn takes (`GRANT_MAX` in core/syscalls.c, which is
+--- The most grants spawn takes (`GRANT_MAX` in core/sandbox.h, which is
 --- `UNVEIL_MAX`: under `isolate` file each is a path the root unveils), the
 --- temporary directory's included.
 local MAX_GRANTS <const> = raw.UNVEIL_MAX
@@ -2507,7 +2508,7 @@ end
 --- directory grant waits on ABI 9, at which Landlock holds it, unless
 --- `nest` gives Landlock up, which leaves the root alone to.
 -- TODO: hold a `u` grant beside a directory grant below ABI 9, once the
--- kernels the suite runs on give Landlock ABI 9 (core/syscalls.c's
+-- kernels the suite runs on give Landlock ABI 9 (core/sandbox_rules.c's
 -- TODO on the same): the directory may hold a socket the grant does not
 -- name, which the filter cannot tell from the granted one.
 local function unix_unheld(merged: Rules.Policy, base: string, nest: boolean): string
@@ -2736,7 +2737,7 @@ local function reached_by(merged: Rules.Policy, base: string, file: boolean,
         -- The mount shows the grant's owner as the program's user, and so
         -- cannot show that user's own files as its own too: a user
         -- namespace's map takes each outside id once. They show as the
-        -- owner's instead (core/syscalls.c's swapped_map), which a
+        -- owner's instead (core/sandbox_root.c's swapped_map), which a
         -- policy's `user` reaches by their mode for everyone (and for the
         -- group, where it is the owner's).
         idmap[index] = true
@@ -3148,7 +3149,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- TODO: [`unmet`] counts the grants before these two are added, so a
   -- start at the most raises inside spawn rather than refusing with a
   -- message: "too many grants" where the grants are handed to it
-  -- (core/syscalls.c's `read_grants`), and under `nest`, which hands
+  -- (core/sandbox_rules.c's `read_grants`), and under `nest`, which hands
   -- none, "too many unveiled paths" for the root they are bound into.
   -- The fix: count the grants after adding these two, and refuse with
   -- the count and the most.
@@ -3338,7 +3339,7 @@ local holds_by_seatbelt <const> = Rules.on_macos
 --- carries credentials on Linux alone, so the program runs as this process
 --- does.
 --- TODO: run the program as the policy's `user` and `group`, and drop root,
---- once core/syscalls.c carries credentials outside Linux (#2852).
+--- once core/sandbox_root.c carries credentials outside Linux (#2852).
 local function seatbelt_credentials(merged: Rules.Policy): string
   return Seatbelt.credentials_unmet(merged, effective_user(), effective_group())
 end
@@ -4326,7 +4327,7 @@ function Child.end_strays(spared?: {integer}): integer
       -- Shielded: ending the strays is a cleanup, which a cancel does
       -- not cut short.
       Poll.shielded(function()
-        local _, _ = Poll.delay(POLL_NS // 10)
+        local _, _ = Clock.sleep(POLL_NS // 10)
       end)
     else
       local _, _ = sys.nanosleep(POLL_NS // 10)

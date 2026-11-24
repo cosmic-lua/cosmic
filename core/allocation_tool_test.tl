@@ -56,7 +56,7 @@ end
 --- the process.
 local function test_an_exit_watch_leaves_no_descriptor_whenever_an_allocation_fails(tmp: string)
   -- A child still running, as one a watch is opened for is.
-  local pid = spawn_again('require("cosmic.clock").sleep_ns(60 * 1000000000)')
+  local pid = spawn_again('local _, _ = require("cosmic.clock").sleep(60 * 1000000000)')
   local probe = tmp .. "/probe"
   local function next_descriptor(): integer
     local fd = assert(sys.open(probe, sys.O_CREAT | sys.O_RDWR, 420))

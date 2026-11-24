@@ -115,7 +115,7 @@
 local Child = require("cosmic.child")
 local type Failure = require("cosmic.failure")
 local Signal = require("cosmic.signal")
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.test")
 local Clock = require("cosmic.clock")
 local Coverage = require("cosmic.coverage")
 local Env = require("cosmic.env")
@@ -1111,13 +1111,18 @@ end
 --- ([`row_line`]), kept in `spelled` by the table
 --- [`worker.decode`] shares among the reports that held them.
 local function spell(spelled: mut {{integer:boolean}:string}, path: string, -- declared: key_type
-                     per_line: {integer:boolean}, named: string): string
+                     per_line: {integer:boolean}, named: string, ordered?: {integer}): string
   local row = spelled[per_line]
   if row == nil then
-    local lines: mut {integer} = {}
-    for line in pairs(per_line) do lines[#lines + 1] = line end
-    table.sort(lines)
+    local lines = ordered
+    if lines == nil then
+      local listed: mut {integer} = {}
+      for line in pairs(per_line) do listed[#listed + 1] = line end
+      table.sort(listed)
+      lines = listed
+    end
     row = row_line(named, path, lines)
+    shared_verdicts.remember(row, path .. " " .. named, lines)
     spelled[per_line] = row
   end
   return row
@@ -1142,13 +1147,16 @@ end
 --- folded once and spelled once, whatever the number of tests: the work
 --- of one test is its own few lines. `folded` and `spelled` remember
 --- which tables have been, and are one run's, since a table folded into
---- another run's `hits` is not in this one's.
+--- another run's `hits` is not in this one's. `test_ordered` holds the
+--- lines of a module of `test_hits` in ascending order, as the report wrote
+--- them ([`worker.Report`]'s), which its row is spelled of without sorting.
 function test.take_hits(hits: Coverage.Hits, unowned: Coverage.Hits,
                         folded: mut {{integer:boolean}:boolean}, -- declared: key_type
                         spelled: {{integer:boolean}:string}, -- declared: key_type
                         load_hits: Coverage.Hits, test_hits: Coverage.Hits,
                         identities: {string:string}, load_placed?: Coverage.Hits,
-                        test_placed?: Coverage.Hits, codes?: {string:string}): string
+                        test_placed?: Coverage.Hits, codes?: {string:string},
+                        test_ordered?: {string:{integer}}): string
   local out: mut {string} = {}
   for index, taken in ipairs({ load_hits, test_hits }) do
     local placed = (if index == 1 then load_placed else test_placed end) or taken
@@ -1168,8 +1176,12 @@ function test.take_hits(hits: Coverage.Hits, unowned: Coverage.Hits,
         for line in pairs(lines) do into[line] = true end -- checked: view_written
       end
       local code = if codes ~= nil then codes[path] else nil end
+      -- The reported lines come in order from the report where it wrote them so; placed ones are sorted.
+      local ordered = if index == 2 and test_ordered ~= nil then test_ordered[path] else nil end
       if lines ~= per_line and code ~= nil then
-        out[#out + 1] = spell(spelled, path, per_line, code)
+        out[#out + 1] = spell(spelled, path, per_line, code, ordered)
+      elseif lines == per_line then
+        out[#out + 1] = spell(spelled, path, lines, identities[path] or "-", ordered)
       else
         out[#out + 1] = spell(spelled, path, lines, identities[path] or "-")
       end
@@ -1552,7 +1564,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
     end
     local tested = test.place_hits(reported.test_hits, rec.identities, lines_of, rec.placed, rec.unplaced)
     rec.by_test[id] = taken.row .. test.take_hits(rec.hits, rec.unowned, rec.folded, rec.spelled, {},
-      reported.test_hits, rec.identities, nil, tested.hits, codes_of(rec))
+      reported.test_hits, rec.identities, nil, tested.hits, codes_of(rec), reported.test_ordered)
     -- A row that lacks lines the test reached would credit too few to every run that stands on it, saying
     -- nothing: no verdict of it is kept, so the next run runs it again (and says why, as this one does).
     if not (taken.whole and tested.whole) then
@@ -2414,7 +2426,7 @@ local function read_command(ctx: Run): integer?
     return 1
   end
   ctx.root = root
-  local parsed, parse_trouble = Flags.parse(ctx.argv, 2, assert(Cli.verbs.test.spec)) -- checked: map_field
+  local parsed, parse_trouble = Flags.parse(ctx.argv, 2, assert(Verb.spec))
   if parsed == nil then
     log:complain("test: " .. parse_trouble)
     return 2

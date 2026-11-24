@@ -47,7 +47,7 @@
 
 local Acme = require("cosmic.acme")
 local Child = require("cosmic.child")
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.acme")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
@@ -84,12 +84,12 @@ local record verb
     run: function(argv: {string}): boolean, string
     --- Sends a request to the ACME server: [`Http.request`].
     request: Acme.Request
-    --- Pauses between polls, for nanoseconds: [`Clock.sleep_ns`] when nil.
+    --- Pauses between polls, for nanoseconds: [`Clock.sleep`] when nil.
     pause?: function(ns: integer): boolean, string
   end
 end
 
-local spec = assert(assert(Cli.verbs["acme"]).spec)
+local spec = assert(Verb.spec)
 
 local usage = "cosmic acme key [--rsa] [--bits N] <file|-> | cosmic acme issue --account <file> --key <file> " ..
   "(--webroot <dir> | --dns-hook <program>) [--staging | --directory <url>] [--contact <url>]... [--agree-tos] " ..

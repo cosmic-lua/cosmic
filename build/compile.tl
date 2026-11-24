@@ -31,7 +31,7 @@
 --- after a refusal, or a write that failed, the directory of `-o` must not be used, for an earlier run's files may be in it.
 --- Complaints go to standard error as `cosmic: compile: ...`. Its `spec` (build/verb_spec.tl) is `bare`.
 
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.compile")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local bare = require("build.bare")
@@ -55,7 +55,7 @@ local record verb
   end
 end
 
-local spec = Cli.verbs.compile.spec or {} -- checked: literal_needs_type, map_field
+local spec = Verb.spec or {}
 
 local usage = "cosmic compile [--errors] [--root <dir>] [-o <dir>] <file.tl>..."
 

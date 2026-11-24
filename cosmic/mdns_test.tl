@@ -637,7 +637,7 @@ local function test_a_cancelled_tasks_search_ends_at_once_with_cancelled()
         timeout_ns = Clock.seconds(20) })
     end)
     -- Long enough for the search to be waiting for an answer.
-    assert(Poll.delay(Clock.ms(50)))
+    assert(Clock.sleep(Clock.ms(50)))
     search:cancel()
     assert(search:join(Clock.seconds(10)))
     assert(found == nil and assert(why).kind == "cancelled", tostring(why))
@@ -653,7 +653,7 @@ local function test_other_tasks_go_on_while_a_search_waits()
     local ticker = Poll.spawn(function()
       while ticking do
         ticks = ticks + 1
-        assert(Poll.delay(Clock.ms(10)))
+        assert(Clock.sleep(Clock.ms(10)))
       end
     end)
     local found = assert(Mdns.browse(HTTP, { address = LOOPBACK, port = assert(silent.address.port),
@@ -870,7 +870,7 @@ local function test_the_socket_is_closed_when_the_search_is_cancelled()
       _found, why = Mdns.browse(HTTP, { listen = "group", address = "239.255.53.7", via = { LOOPBACK },
         port = port, timeout_ns = Clock.seconds(20) })
     end)
-    assert(Poll.delay(Clock.ms(50)))
+    assert(Clock.sleep(Clock.ms(50)))
     assert(not is_free(port))
     search:cancel()
     assert(search:join(Clock.seconds(10)))
@@ -1140,7 +1140,7 @@ local function test_another_task_has_its_turns_while_a_search_reads_a_flood()
     local ticker = Poll.spawn(function()
       while ticking do
         ticks = ticks + 1
-        assert(Poll.delay(0))
+        assert(Clock.sleep(0))
       end
     end)
     local found = assert(Mdns.browse(HTTP, { ...opts, limit = 1, found = function(_: Mdns.Instance)
@@ -1166,7 +1166,7 @@ local function test_a_flood_that_never_stops_does_not_outlast_the_time_limit()
       while flooding do
         for _ = 1, 50 do assert(device:send("x", packet.address)) end
         sent = sent + 50
-        assert(Poll.delay(0))
+        assert(Clock.sleep(0))
       end
     end)
     local started = Clock.monotonic_ns()
@@ -1501,7 +1501,7 @@ local function test_a_cancelled_search_gives_found_what_it_held()
           told[#told + 1] = instance
         end })
     end)
-    while #told == 0 do assert(Poll.delay(Clock.ms(5))) end
+    while #told == 0 do assert(Clock.sleep(Clock.ms(5))) end
     search:cancel()
     assert(search:join(Clock.seconds(10)))
     assert(found == nil and assert(why).kind == "cancelled", tostring(why))
@@ -1968,7 +1968,7 @@ local function test_a_cancelled_tasks_responder_ends_with_cancelled_and_a_closed
       started = true
       served, why = responder:serve()
     end)
-    while not started do assert(Poll.delay(Clock.ms(1))) end
+    while not started do assert(Clock.sleep(Clock.ms(1))) end
     answering:cancel()
     assert(answering:join(Clock.seconds(10)))
     assert(not served and why == Poll.CANCELLED, why)
@@ -2066,7 +2066,7 @@ local function test_another_task_has_its_turns_while_a_responder_reads_a_flood()
     local ticker = Poll.spawn(function()
       while ticking do
         ticks = ticks + 1
-        assert(Poll.delay(0))
+        assert(Clock.sleep(0))
       end
     end)
     for _ = 1, 120 do assert(asker:send("x", to)) end

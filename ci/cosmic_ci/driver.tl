@@ -3,6 +3,7 @@ local Compiles = require("cosmic_ci.compiles")
 local CeilingsBase = require("cosmic_ci.ceilings_base")
 local ChangedPaths = require("cosmic_ci.changed_paths")
 local Context = require("cosmic_ci.context")
+local Failures = require("cosmic_ci.failures")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Fuzz = require("cosmic_ci.fuzz")
@@ -108,6 +109,8 @@ local commands: {string:Command} = {
     usage = "PHASE TIMEOUT_NS -- EXECUTABLE [ARG...]", handler = run },
   summarize = { about = "write the operations recorded so far as a table",
     usage = "", handler = summarize },
+  failures = { about = "say again what the job's failed commands said of why, at the end of its log",
+    usage = "", handler = Failures.command },
   ["compiles-trim"] = { about = "trim the build cache to the compiles used since SINCE, digest it, and count those RESTORED lacks",
     usage = "SINCE [RESTORED]", handler = Compiles.trim_command },
   ["verdicts-trim"] = { about = "trim the test verdicts to those used since SINCE, and digest them",

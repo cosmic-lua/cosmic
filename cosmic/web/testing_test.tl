@@ -189,7 +189,7 @@ end
 
 local function test_a_handler_may_wait_in_the_loop_the_client_runs_it_in()
   local app = Web.app{ routes = { Web.get("/slow", function(_req: Web.Request): Web.Response
-    assert(Poll.delay(Clock.ms(5)))
+    assert(Clock.sleep(Clock.ms(5)))
     return Web.text("waited")
   end) } }
   assert(Web.test_client(app):get("/slow"):text() == "waited", "outside a task: the client runs its own")

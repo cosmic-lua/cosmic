@@ -26,7 +26,7 @@
 --- ([`embed.tree_tool`]).
 
 local build_paths = require("build.paths")
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.build")
 local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
@@ -1238,7 +1238,7 @@ end
 --- @param carried the `built_from` the tool carries, as [`tree.standing`] takes it
 function embed.run(argv: {string}, at?: string, carried?: string): integer
   local started = Clock.monotonic_ns()
-  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.build.spec)) -- checked: map_field
+  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Verb.spec))
   if parsed == nil then
     log:complain("build: " .. parse_trouble)
     return 2

@@ -43,13 +43,14 @@ end
 --- same.
 local function test_a_host_that_is_no_host_and_port_is_refused()
   for _, host in ipairs({ "h", "h.test:8080", "H.Test", "[::1]", "[::1]:8443", "10.0.0.1:80", "a-b_c~d", "h:",
-      "h:65535", "[2001:db8::1]:443" }) do
+      "h:65535", "[2001:db8::1]:443", "h:0000080", "h:0" }) do
     local got = read("GET / HTTP/1.1\r\nHost: " .. host .. "\r\n\r\n").head
     assert(got ~= nil and got.headers["host"] == host, host)
   end
   assert(assert(read("GET / HTTP/1.0\r\nHost:\r\n\r\n").head).headers["host"] == "")
   for _, host in ipairs({ "a, b", "a,b", "evil.test/x?y", "u@h", "h:80:80", "h:123456", "%31.2.3.4", "h h",
-      "[::1", "[::1]x", ":80", "h:99999", "h:65536", "[:::]", "[.]", "[a]", "[1:2]", "caf\xc3\xa9.test" }) do
+      "[::1", "[::1]x", ":80", "h:99999", "h:65536", "[:::]", "[.]", "[a]", "[1:2]", "caf\xc3\xa9.test",
+      "a]b", "h]:80", "h:8a", "h:00065536", "h::", "::1" }) do
     assert(refusal("GET / HTTP/1.1\r\nHost: " .. host .. "\r\n\r\n") == 400, host)
   end
   assert(refusal("GET http://%31.2.3.4/ HTTP/1.1\r\nHost: h\r\n\r\n") == 400)

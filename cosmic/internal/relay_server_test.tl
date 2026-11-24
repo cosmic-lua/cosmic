@@ -274,7 +274,7 @@ local function until_it(done: function(): boolean)
   local deadline = Clock.monotonic_ns() + Clock.seconds(5)
   while not done() do
     assert(Clock.monotonic_ns() < deadline, "timed out waiting")
-    assert(Poll.delay(Clock.ms(5)))
+    assert(Clock.sleep(Clock.ms(5)))
   end
 end
 
@@ -537,7 +537,7 @@ local function test_the_connect_timeout_bounds_every_address_together(tmp: strin
         asked[#asked + 1] = address
         given[#given + 1] = timeout_ns
         -- A host that never answers: the attempt lasts what it is given.
-        assert(Poll.delay(timeout_ns))
+        assert(Clock.sleep(timeout_ns))
         return nil, Poll.TIMEOUT
       end })
     local began = Clock.monotonic_ns()
@@ -628,7 +628,7 @@ local function test_a_lookup_that_is_not_answered_stalls_only_its_own_connection
       local _, _ = conn:close()
     end)
     -- Let the lookup start, then use the relay for something else.
-    assert(Poll.delay(Clock.ms(100)))
+    assert(Clock.sleep(Clock.ms(100)))
     local conn, head = connect_to(rig, "127.0.0.1:" .. tostring(port))
     assert(status_line(head):find("^HTTP/1.1 200 "), head)
     assert(conn:write("meanwhile"))
@@ -689,7 +689,7 @@ local function test_a_connection_that_fails_or_times_out_says_which(tmp: string)
       timeouts = { connect = Clock.ms(750) },
       connect = function(_address: string, _port: integer, timeout_ns: integer): Net.Conn?, string
         assert(timeout_ns == Clock.ms(750), "the connect timeout reaches `connect`")
-        assert(Poll.delay(Clock.ms(5)))
+        assert(Clock.sleep(Clock.ms(5)))
         return nil, outcome
       end })
     local record Case
@@ -760,7 +760,7 @@ local function test_a_hello_split_across_writes_is_judged_whole(tmp: string)
     local hello = Fixture.records(Fixture.hello({ name = "svc.test" }), { 40 })
     local conn = connect_to(rig, "svc.test:" .. tostring(port))
     assert(conn:write(hello:sub(1, 3)))
-    assert(Poll.delay(Clock.ms(30)))
+    assert(Clock.sleep(Clock.ms(30)))
     assert(server.received == "", "nothing is passed on while the hello is incomplete")
     assert(conn:write(hello:sub(4)))
     assert(Fixture.read_exact(conn, 3) == "ack")
@@ -871,7 +871,7 @@ local function test_bytes_that_are_not_tls_pass_on_any_port(tmp: string)
     -- A server that speaks first is not waited on for the client's hello.
     assert(Fixture.read_exact(conn, 16) == "SSH-2.0-origin\r\n")
     assert(conn:write("SSH-2.0-client\r\n"))
-    assert(Poll.delay(Clock.ms(30)))
+    assert(Clock.sleep(Clock.ms(30)))
     assert(server.received == "SSH-2.0-client\r\n", server.received)
     assert(conn:write("and plain bytes " .. ("\22\3\1"):rep(3)))
     until_it(function(): boolean return #server.received > 16 end)
@@ -894,14 +894,14 @@ local function test_a_client_that_waits_for_a_server_that_speaks_first_is_not_ti
     local conn = connect_to(rig, "127.0.0.1:" .. tostring(server.port))
     assert(Fixture.read_exact(conn, 16) == "SSH-2.0-origin\r\n")
     -- Silent for longer than the head timeout, as a client waiting on a prompt is.
-    assert(Poll.delay(Clock.ms(450)))
+    assert(Clock.sleep(Clock.ms(450)))
     assert(rig.server:stats().open == 1, "still open")
     assert(conn:write("SSH-2.0-client\r\n"))
     until_it(function(): boolean return server.received == "SSH-2.0-client\r\n" end)
     assert(#lines_with(rig, "refused") == 0 and #lines_with(rig, "closed") == 0, table.concat(rig.log, "\n"))
     -- The clock starts at the first byte of a hello that then stops.
     local late = connect_to(rig, "127.0.0.1:" .. tostring(server.port))
-    assert(Poll.delay(Clock.ms(300)))
+    assert(Clock.sleep(Clock.ms(300)))
     assert(late:write(Fixture.records(Fixture.hello({})):sub(1, 10)))
     assert(read_all(late):find("\21\3\3", 1, true) == 17, "a hello that stops is refused (after the banner)")
     local _, _ = conn:close()
@@ -963,14 +963,14 @@ local function test_a_connection_made_after_stop_is_closed(tmp: string)
     local server = origin(echo)
     local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(server.port) },
       connect = function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
-        assert(Poll.delay(Clock.ms(150)))
+        assert(Clock.sleep(Clock.ms(150)))
         local got, failure = Net.connect(Net.tcp(address, port), { timeout_ns = timeout_ns })
         if got == nil then return nil, tostring(failure) end
         return got, ""
       end })
     local conn = dial(rig.http)
     assert(conn:write(Fixture.connect("127.0.0.1:" .. tostring(server.port))))
-    assert(Poll.delay(Clock.ms(40)))
+    assert(Clock.sleep(Clock.ms(40)))
     rig.server:stop()
     until_it(function(): boolean return server.connections == 1 end)
     rig.server:wait()
@@ -1016,7 +1016,7 @@ local function test_a_tunnel_nothing_moves_in_ends_at_the_idle_timeout(tmp: stri
     local started = Clock.monotonic_ns()
     -- Bytes keep it open past the timeout.
     for _ = 1, 4 do
-      assert(Poll.delay(Clock.ms(100)))
+      assert(Clock.sleep(Clock.ms(100)))
       assert(conn:write("x"))
       assert(Fixture.read_exact(conn, 1) == "x")
     end
@@ -1800,7 +1800,7 @@ local function test_authenticating_has_its_own_short_wait_and_the_request_its_ow
     assert(socks_greet(late, "\2") == "\5\2")
     assert(late:write(auth_message("u", TOKEN)))
     assert(Fixture.read_exact(late, 2) == "\1\0")
-    assert(Poll.delay(Clock.ms(500)))
+    assert(Clock.sleep(Clock.ms(500)))
     assert(late:write(Fixture.socks_request(1, 1, "\127\0\0\1", server.port)))
     assert(Fixture.read_exact(late, 10):byte(2) == 0, "the request has the head wait")
     local _, _ = late:close()

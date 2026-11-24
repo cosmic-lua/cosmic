@@ -68,7 +68,7 @@ if [ "${1-}" = start ]; then
   # procfs of its own only where the one it has is wholly visible
   # (mount_too_revealing; subset=pid does not escape it). Without it, a
   # confined child falls back to the container's /proc, read-only
-  # (core/syscalls.c's `place_proc`), so it sees the container's
+  # (core/sandbox_root.c's `place_proc`), so it sees the container's
   # processes and cannot confine one of its own. The container's own
   # user is unprivileged for every step but the builder's creation, and
   # its /proc/sys is root's to write, as on the host.

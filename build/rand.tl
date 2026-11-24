@@ -56,7 +56,7 @@
 --- each line with "\n".
 
 local Codec = require("cosmic.codec")
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.rand")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Rand = require("cosmic.rand")
@@ -93,8 +93,8 @@ end
 verb.MAX_BYTES = 1048576
 verb.MAX_COUNT = 10000000
 
---- The subcommands, each with the options it takes, as [`cosmic.cli`] describes them.
-local subcommands = Cli.verbs.rand.subcommands or {} -- checked: literal_needs_type, map_field
+--- The subcommands, each with the options it takes, as [`cosmic.cli.rand`] describes them.
+local subcommands = Verb.subcommands or {}
 
 --- What a run wants of one draw of numbers: `int(lo, hi)` uniform over
 --- the inclusive range, `normal(mean, stddev)` and `gamma(shape, scale)`
@@ -144,7 +144,7 @@ end
 local function usage_of(command?: string): string
   local described = if command ~= nil then subcommands[command] else nil end
   local help = if command ~= nil and described ~= nil then Flags.help(described, "cosmic rand " .. command)
-    else Flags.help(assert(Cli.verbs["rand"]), "cosmic rand") end
+    else Flags.help(Verb, "cosmic rand") end
   return help:match("^[^\n]*") or ""
 end
 
