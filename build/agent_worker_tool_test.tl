@@ -227,6 +227,19 @@ return assert(again[1])["n"]
   local other = Tools.run("run", { code = "local Host = require(\"cosmic.agent.host\")\n" ..
       "local _, why = Host.call(\"bash\", { command = \"id\" })\nreturn tostring(why)\n" }, context)
   assert(other.text:find("serves no call", 1, true) ~= nil and other.text:find("it serves sql", 1, true) ~= nil, other.text)
+  assert(w.started == 1, "one worker answered all")
+  Worker.close(w)
+  local _, _ = db:close()
+end
+
+--- What a query answers is held to JSON and to the reply's limit: no infinity, one column of a name, and control
+--- characters counted as their escapes.
+local function test_a_snippets_query_answer_is_held_to_json_and_its_limit()
+  local w = set_of_worker()
+  local dir = assert(Fs.mkdtemp("agent-worker-"))
+  local db = assert(Sessions.open(dir .. "/sessions.db"))
+  local id = assert(Sessions.start(db, "/", "m", 0))
+  local context: Tools.Context = { cwd = dir, worker = w, db = db, session = id }
   local function returned(query: string): string
     local r = Tools.run("run", { code = "local Host = require(\"cosmic.agent.host\")\n" ..
         "local rows, why = Host.sql(" .. Json.quote(query) .. ")\n" ..
@@ -241,6 +254,18 @@ return assert(again[1])["n"]
   local escaped = returned("SELECT replace(printf('%.100000c', 'x'), 'x', char(1)) AS c")
   assert(escaped:find("narrow the query", 1, true) ~= nil, escaped:sub(1, 300))
   assert(w.started == 1, "one worker answered all")
+  Worker.close(w)
+  local _, _ = db:close()
+end
+
+--- A query past the snippet's time is stopped, between its rows or in one endless step, and the worker ended; a
+--- worker with no agent to serve it refuses the call. Apart from the test above, so each holds to its own time.
+local function test_a_snippets_query_is_stopped_at_its_time()
+  local w = set_of_worker()
+  local dir = assert(Fs.mkdtemp("agent-worker-"))
+  local db = assert(Sessions.open(dir .. "/sessions.db"))
+  local id = assert(Sessions.start(db, "/", "m", 0))
+  local context: Tools.Context = { cwd = dir, worker = w, db = db, session = id }
   -- A query that runs past the snippet's time is stopped between its rows, and the worker ended.
   local slow = Tools.run("run", { code = "local Host = require(\"cosmic.agent.host\")\n" ..
       "local _, _ = Host.sql(\"SELECT NULL AS n FROM generate_series(1, 1000000000000) WHERE value % 200000 = 0\")\n",
