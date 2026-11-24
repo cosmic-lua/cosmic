@@ -122,7 +122,7 @@ local function test_a_call_cut_off_ends_its_server(tmp: string)
   AgentMcp.close(set)
 end
 
---- It writes more than a pipe holds before it ends, which only a read while the call is out lets it.
+--- It writes much before it ends; only the end is kept and told.
 local function test_a_server_that_ends_unanswered_tells_the_end_of_its_standard_error(tmp: string)
   local script = "read line; i=0; while [ $i -lt 8000 ]; do echo noise $i >&2; i=$((i+1)); done; " ..
     "echo 'boom: no token in NOTES_TOKEN' >&2; exit 3"

@@ -21,10 +21,13 @@
 --- lower-case letters, digits and `_`, from a letter. `description` says what the server is for, which the model
 --- reads.
 ---
---- A server's standard error is dropped. What a server answers is untrusted input, as its tools' descriptions are: the snippet and the model read it.
+--- What a server answers is untrusted input, as its tools' descriptions are: the snippet and the model read it. So is
+--- the end of its standard error, which a call that gets no answer tells, with the values of the environment variables
+--- its policy passes put as their names.
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
+local Env = require("cosmic.env")
 local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
@@ -226,8 +229,8 @@ local function session_of(set: AgentMcp.Set, name: string): (McpClient.Session) 
     return nil, Failure.new("the MCP server " .. name .. "'s program " .. program .. " lies in the working directory, " ..
         "which the tools write: it is not run")
   end
-  -- Its standard error is read while a call to it is out ([`draining`]): between calls the pipe holds what the server
-  -- writes, and a server that fills it waits, as one with no call to answer may.
+  -- Its standard error is read while a call to it is out ([`draining`]), and the child queues it while its stdout is
+  -- read; between calls the pipe holds what the server writes, and a server that fills it waits.
   local handle, why = Child.start(argv, { cwd = set.cwd, stdin = "stream", stdout = "stream", stderr = "stream",
     policy = server.policy, timeout_ns = Child.FOREVER })
   if handle == nil then
@@ -244,14 +247,16 @@ local function session_of(set: AgentMcp.Set, name: string): (McpClient.Session) 
 end
 
 --- Runs `f`, reading what the server `name` of `set` writes to its standard error while it runs, its last TAIL bytes
---- kept in `set.tails`.
-local function draining(set: AgentMcp.Set, name: string, f: function())
+--- kept in `set.tails`; with no `f`, reads until the stream ends or `wait_ns` passes. The child queues a streamed
+--- stderr while its stdout is read, up to its capture limit; this keeps the end alone, and reads on while a call is out.
+local function draining(set: AgentMcp.Set, name: string, f?: function(), wait_ns?: integer)
   local handle = set.handles[name]
   local reader = if handle ~= nil then handle.stderr_stream else nil end
   if reader == nil then
-    f()
+    if f ~= nil then f() end
     return
   end
+  local raised: string? = nil
   Poll.within(function()
     local drain = Poll.spawn(function()
       while true do
@@ -261,20 +266,42 @@ local function draining(set: AgentMcp.Set, name: string, f: function())
         set.tails[name] = if #kept > TAIL then kept:sub(-TAIL) else kept end
       end
     end)
-    f()
+    if f ~= nil then
+      -- The drain ends with the call, raise or not: left running, it would write an old server's bytes over a new one's.
+      local ok, err = pcall(f)
+      if not ok then raised = tostring(err) end
+    else
+      local _, _ = drain:join(wait_ns or 0)
+    end
     drain:cancel()
     local _, _ = drain:join()
   end)
+  if raised ~= nil then error(raised, 0) end
+end
+
+--- `text` with each value of an environment variable `server` is given ([`Sandbox.Policy`]'s `env`) put as its name in
+--- brackets, and each control byte but a newline and a tab taken out: what a crashed server printed may hold its key.
+local function told_of(server: AgentMcp.Server?, text: string): string
+  local out = text
+  local policy = if server ~= nil then server.policy else nil end
+  local none: {string} = {}
+  for _, key in ipairs(if policy ~= nil then policy.env or none else none end) do
+    local value = Env.get(key)
+    if value ~= nil and #value >= 4 then
+      out = out:gsub(value:gsub("%W", "%%%0"), "[" .. key .. "]")
+    end
+  end
+  return (String.as_utf8(out):gsub("[%z\1-\8\11-\31\127]", ""))
 end
 
 --- Why a call to the server `name` of `set` got no answer, `why`, and the end of what it wrote to its standard error,
---- read a little longer: a server that ended has said why there.
+--- read until it ends or LAST_READ passes: a server that ended has said why there. What it wrote is untrusted input.
 local function unanswered(set: AgentMcp.Set, name: string, why: string): string
-  draining(set, name, function() local _, _ = Poll.delay(LAST_READ) end)
+  draining(set, name, nil, LAST_READ)
   local tail = set.tails[name]
   if tail == nil or tail == "" then return why end
   local told = if #tail > TOLD then "..." .. tail:sub(-TOLD) else tail end
-  return why .. "; the end of its standard error: " .. String.as_utf8(told)
+  return why .. "; the end of its standard error: " .. told_of(set.servers[name], told)
 end
 
 --- Ends the server `name` of `set`, where it was started: a call that failed with no answer may have left it out of
