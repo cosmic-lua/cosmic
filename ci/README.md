@@ -489,6 +489,9 @@ macOS's whole leg. A branch's push runs nothing.
   suite and its boundary, the darwin suite, the sandbox probe and the
   credential proofs; `<leg>-product` (part `product`) runs assemble, the
   regressions, the portable suite, the attestation and the product.
+  alpine-x86_64's product, the longest, is two jobs, each assembling:
+  `alpine-x86_64-portable` (the portable suite, the attestation and the
+  product) and `alpine-x86_64-regressions`.
   `macos-aarch64` (part `suite`) runs macOS's native suite and darwin
   suite, which a push does not: macOS's failures were met only by the
   daily run, and each held up the prerelease. Beside
