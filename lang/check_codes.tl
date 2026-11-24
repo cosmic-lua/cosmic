@@ -170,7 +170,7 @@ local record Codes
     "format_malformed"
     "pack_malformed"
     "gsub_key"
-    -- SQL sent to a handle opened with a schema, read against it
+    -- SQL sent to a handle of a `local schema`, read against it
     "sql_schema"
     "sql_refused"
     "sql_parameters"
@@ -731,26 +731,27 @@ Codes.catalog = {
     fix = "declare the table with the key type the pattern captures: `{string: ...}` for text, `{integer: ...}` for `()`",
   },
   {
-    code = "sql_schema", rule = "SQL on a handle with a schema is read",
-    why = "`Sqlite.schema` runs its DDL as the program makes the schema and raises where SQLite refuses it, so DDL that " ..
-      "SQLite refuses is found where it is written",
+    code = "sql_schema", rule = "SQL on a handle of a schema is read",
+    why = "a `local schema` and `Sqlite.schema` run their DDL as the program makes the schema, and raise where SQLite " ..
+      "refuses it, so DDL that SQLite refuses is found where it is written",
     fix = "write DDL that SQLite runs, and that creates the tables alone",
   },
   {
-    code = "sql_refused", rule = "SQL on a handle with a schema is read",
-    why = "a handle opened with a schema holds its tables, so SQL that SQLite cannot prepare against them (a table or " ..
+    code = "sql_refused", rule = "SQL on a handle of a schema is read",
+    why = "a handle of a `local schema` (what `Sqlite.open` and `Sqlite.memory` give for `{ schema = S }`) holds its " ..
+      "tables, so SQL that SQLite cannot prepare against them (a table or " ..
       "column the schema does not create, a typo) fails when it runs, and is found where it is written",
     fix = "name only the tables and columns the schema creates, in SQL that SQLite reads",
   },
   {
-    code = "sql_parameters", rule = "SQL on a handle with a schema is read",
+    code = "sql_parameters", rule = "SQL on a handle of a schema is read",
     why = "a statement binds one value for each `?N` through the highest, and a values list of another length fails " ..
       "when it runs",
     fix = "give <wanted>, one for each parameter, in order",
   },
   {
-    code = "sql_column", rule = "SQL on a handle with a schema is read",
-    why = "a row read from SQL on a handle with a schema has the columns the SQL gives, each of the type its table " ..
+    code = "sql_column", rule = "SQL on a handle of a schema is read",
+    why = "a row read from SQL on a handle of a schema has the columns the SQL gives, each of the type its table " ..
       "declares, so a read past the last column, or a read that raises on every cell of the declared type (`text` of an " ..
       "`INTEGER` column), fails when it runs, and is found where it is written",
     fix = "read a column the SQL gives with the read of its declared type: <what>",

@@ -565,7 +565,7 @@ function Host.top(counts: {string: integer}, most?: integer): {Host.Count}
 end
 
 --- A sorted copy of `list`, by `by`'s key where given ([`Shell.sort`]).
-function Host.sort(list: {string}, by?: function(string): string): {string}
+function Host.sort(list: {string}, by?: function(string): string): mut {string}
   return Shell.sort(list, by)
 end
 

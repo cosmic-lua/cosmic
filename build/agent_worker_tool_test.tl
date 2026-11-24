@@ -761,3 +761,33 @@ local function test_a_snippet_uses_sqlite_and_hash()
   assert(ran.text:find("host: sqlite: ", 1, true) ~= nil and ran.text:find("nope", 1, true) ~= nil, ran.text)
   Worker.close(w)
 end
+
+--- JSON of a known shape is read into records, as the run guide shows: a declared record is checked in a snippet
+--- as in a file, and a key the record does not name is dropped.
+local function test_a_snippet_reads_json_into_records()
+  local w = set_of_worker()
+  local dir = assert(Fs.mkdtemp("agent-worker-"))
+  local context: Tools.Context = { cwd = dir, worker = w }
+  local ran = Tools.run("run", { code = "local Shape = require(\"cosmic.shape\")\n" ..
+      "local record Item name: string count: integer end\n" ..
+      "local record Page items: {Item} next?: integer end\n" ..
+      "local body = '{\"items\": [{\"name\": \"x\", \"count\": 2, \"id\": 7}], \"next\": 2}'\n" ..
+      "local page = assert(Shape.decode_into(body, Shape.record_of(\"Page\").spec))\n" ..
+      "for _, item in ipairs(page.items) do print(item.name .. tostring(item.count)) end\n" ..
+      "if page.next ~= nil then print(\"next \" .. tostring(page.next)) end\n" ..
+      "local last = assert(Shape.decode_into('{\"items\": []}', Shape.record_of(\"Page\").spec))\n" ..
+      "print(#last.items, last.next == nil)\n" }, context)
+  assert(not ran.is_error and ran.text:find("^x2\nnext 2\n0\ttrue\n") ~= nil, ran.text)
+  Worker.close(w)
+end
+
+--- Host.sort answers a new list the snippet may add to, so a list sorted in place of itself still checks.
+local function test_a_snippet_sorts_a_list_into_itself_and_adds_to_it()
+  local w = set_of_worker()
+  local dir = assert(Fs.mkdtemp("agent-worker-"))
+  local context: Tools.Context = { cwd = dir, worker = w }
+  local ran = Tools.run("run", { code = "local rows: mut {string} = { \"b\", \"a\" }\n" ..
+      "rows = Host.sort(rows)\nrows[#rows + 1] = \"c\"\nprint(table.concat(rows, \",\"))\n" }, context)
+  assert(not ran.is_error and ran.text:find("^a,b,c\n") ~= nil, ran.text)
+  Worker.close(w)
+end

@@ -237,6 +237,23 @@ local function test_tmp_under_isolate_file_is_a_tmpfs_of_the_sandboxs_own(tmp: s
   assert(gone.code == 1, gone.said)
 end
 
+--- A program beneath /tmp is the host's file, bound in over the sandbox's own /tmp: its start grants it `rx`,
+--- with a grant of `r` alone of its directory.
+local function test_a_program_beneath_tmp_starts_over_the_sandboxs_own_tmp(tmp: string)
+  if tmp:sub(1, 5) ~= "/tmp/" then
+    Test.skip("the test's directory is not beneath /tmp: " .. tmp)
+  end
+  local at = placed(tmp)
+  local dir = tmp .. "/beneath-tmp"
+  assert(Fs.mkdirs(dir))
+  local program = dir .. "/stand-in"
+  assert(Fs.write(program, assert(Fs.read(at.probe))))
+  assert(Fs.chmod(program, 0x1ed)) -- rwxr-xr-x
+  local policy: Sandbox.Policy = { isolate = { "file" }, tmp = true, grants = { { path = dir, letters = "r" } } }
+  local ran = ChildPolicy.under(program, policy, dir, "env-of TMPDIR")
+  assert(ran.code == 0 and ran.said == "TMPDIR=/tmp\n", ran.said)
+end
+
 local function test_a_grant_of_tmp_with_x_makes_the_sandboxs_own_tmp_executable(tmp: string)
   local at = placed(tmp)
   local script = "mkdirs /tmp/mine && copy " .. at.probe .. " /tmp/mine/p && chmod /tmp/mine/p 755 " ..

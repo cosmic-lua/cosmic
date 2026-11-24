@@ -363,6 +363,9 @@ local record Types
     methods: mut {Method}
     values: mut {string}
     mut alias?: Type
+    --- The DDL of a class of `local schema`, whose handles hold its tables: the class lists
+    --- the class of [`cosmic.sqlite`]'s handles, and is below it.
+    mut schema?: string
   end
 
   --- A declaration: a path and, once defined, a body. Its identity is the path.
@@ -1956,6 +1959,12 @@ local function normal_body(store: Store, decl: Decl, body: Body): Body
     seen[v] = true
     made.values[#made.values + 1] = v
   end
+  if body.schema ~= nil then
+    if decl.kind ~= "class" then
+      error("types: only a class holds a schema", 3)
+    end
+    made.schema = body.schema
+  end
   -- The only binder a variable of the body may name is the declaration's own.
   local checked: {string: boolean} = {}
   for _, root in ipairs(roots) do
@@ -2042,6 +2051,10 @@ local function declaration_text(decl: Decl, body: Body): string
   local named = body.alias
   if named ~= nil then
     parts[#parts + 1] = " (alias " .. written(named) .. ")"
+  end
+  local ddl = body.schema
+  if ddl ~= nil then
+    parts[#parts + 1] = " (schema " .. quote(ddl) .. ")"
   end
   parts[#parts + 1] = ")"
   return table.concat(parts)
@@ -2443,9 +2456,15 @@ local function read_body(r: Reader, decl: Decl): Body
     table.insert(body.values, string_of(r))
   end
   close(r)
-  if peek(r) == "(" then
+  skip(r)
+  if r.text:match("^%(alias%f[^%w_]", r.at) ~= nil then
     expect(r, "alias")
     body.alias = read_type(r)
+    close(r)
+  end
+  if peek(r) == "(" then
+    expect(r, "schema")
+    body.schema = string_of(r)
     close(r)
   end
   return body

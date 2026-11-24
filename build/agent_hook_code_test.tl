@@ -68,7 +68,7 @@ local function test_an_agents_before_sees_a_snippets_calls_as_code()
     stop_reason = "tool_use" }, { content = { { type = "text", text = "done" } }, stop_reason = "end_turn" } })
   local w = Worker.new()
   local s = Agent.new({ sign = agent_fixture.keyed("k"), cwd = dir, base_url = "https://api.test", send = a.send,
-    system = "", worker = w, sandbox = assert(Policy.of(dir, { mode = "write", network = false, grants = {} })) })
+    system = "", worker = w, sandbox = { (assert(Policy.of(dir, { mode = "write", network = false, grants = {} }))) } })
   local calls: mut {string} = {}
   s.before = function(call: Agent.Call): string?
     calls[#calls + 1] = call.name .. ":" .. call.caller
@@ -99,7 +99,7 @@ local function test_an_agents_after_sees_a_snippets_answers()
   local db = assert(Sessions.open(dir .. "/sessions.db"))
   local s = Agent.new({ sign = agent_fixture.keyed("k"), cwd = dir, base_url = "https://api.test", send = a.send,
     system = "", worker = w, db = db, id = assert(Sessions.start(db, dir, "m", 0)),
-    sandbox = assert(Policy.of(dir, { mode = "write", network = false, grants = {} })) })
+    sandbox = { (assert(Policy.of(dir, { mode = "write", network = false, grants = {} }))) } })
   local callers: mut {string} = {}
   s.after = function(call: Agent.Call, result: Tools.Result): Tools.Result?
     callers[#callers + 1] = call.name .. ":" .. call.caller

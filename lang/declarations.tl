@@ -137,6 +137,8 @@ local record Declarations
     "thread_type"
     -- a type parameter that no parameter and no result of its function names
     "unused_type_parameter"
+    -- a function statement of a `local schema`, whose handles never reach the table of the schema
+    "schema_member"
     -- a field named with two underscores that is the name of no metamethod
     "metamethod_unknown"
     -- `is {K: V}` on a record, which declares a map where the array part is a `{T}`
@@ -381,7 +383,7 @@ Declarations.codes = {
   "array_of_optional", "float_key", "key_type", "shape_generic", "repeated_field", "repeated_value", "type_arguments",
   "type_too_deep", "alias_cycle", "bound_not_interface", "bound_as_type", "lists_overlap", "bound_not_met", "outer_type_parameter", "member_missing",
   "param_untyped", "metamethod_signature", "class_metamethod", "optional_metamethod", "thread_type",
-  "unused_type_parameter", "metamethod_unknown", "array_part_map", "store_refused",
+  "unused_type_parameter", "schema_member", "metamethod_unknown", "array_part_map", "store_refused",
 }
 
 Declarations.catalog = {
@@ -555,6 +557,13 @@ Declarations.catalog = {
     fix = "remove <name> from the type parameters, or use it in a parameter or a result (`x: <name>`)",
   },
   {
+    code = "schema_member", rule = "dispatch only through declared types",
+    why = "the handles of a `local schema` are handles of `cosmic.sqlite`, whose metatable is its `Handle` class, and the " ..
+      "schema's value is `Sqlite.schema` of the DDL: a function written into the schema is reached by neither, so " ..
+      "`db:f()` or `Schema.f()` would call nil",
+    fix = "write a function that takes the handle (`local function <name>(db: <schema>, ...)`), or a record of them",
+  },
+  {
     code = "metamethod_unknown", rule = "dispatch only through declared types",
     why = "a name that begins with two underscores is read by Lua as a metamethod of the table that holds it, and the field " ..
       "of a record or interface with such a name stands for one (the fork wrote `metamethod __x:`), so a name that is " ..
@@ -653,6 +662,8 @@ local record Build
   fields: mut {Types.Field}
   methods: mut {Types.Method}
   mut array: Type?
+  --- The DDL of a class of `local schema`.
+  mut schema?: string
   --- The node that first gave each name, and whether every one that gave it may be repeated as an
   --- overload of a declaration file.
   first_of: mut {string: Ast.Node}
@@ -2316,7 +2327,7 @@ local function finish_build(ctx: Ctx, build: Build, frames_names: {{string}}) --
   local store = ctx.store
   local body: Types.Body = {
     tparams = build.tparams, supers = build.supers, fields = build.fields, array = build.array,
-    methods = build.methods, values = {},
+    methods = build.methods, values = {}, schema = build.schema,
   }
   local ok, why = pcall(function()
     store:define(build.decl, body)
@@ -2334,6 +2345,29 @@ local function finish_build(ctx: Ctx, build: Build, frames_names: {{string}}) --
     return
   end
   queue_checks(ctx, build, frames_names)
+end
+
+--- The class of `local schema Name [[DDL]]`: it lists the class of [`cosmic.sqlite`]'s handles and
+--- holds its fields and methods, so that a handle of the schema is used as any handle is.
+local function schema_body(ctx: Ctx, build: Build, node: Ast.Class)
+  build.schema = node.schema
+  local _ = known_module(ctx, "cosmic.sqlite")
+  local entry = ctx.program.entries[entry_key("cosmic.sqlite", { "Handle" })]
+  local handle = if entry ~= nil then entry.decl else nil end
+  local body = if handle ~= nil then handle.body else nil end
+  if handle == nil or body == nil then
+    report_at(ctx, "member_missing", node.name, "the module \"cosmic.sqlite\" declares no class Handle, which a schema's " ..
+        "handles are", "write `local schema` in a program that the checker finds `cosmic.sqlite` for")
+    return
+  end
+  local listed = ctx.store:named(handle, {})
+  build.supers[#build.supers + 1] = listed
+  for _, f in ipairs(body.fields) do
+    build.fields[#build.fields + 1] = f
+  end
+  for _, m in ipairs(body.methods) do
+    build.methods[#build.methods + 1] = m
+  end
 end
 
 --- Lowers a record, interface or class: its type parameters, what it lists, its fields and methods. Returns
@@ -2360,6 +2394,9 @@ local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
     supers = node.supers
   end
   lower_supers(ctx, build, supers)
+  if (node.kind == "Class") and node.schema ~= nil then
+    schema_body(ctx, build, node)
+  end
   if (node.kind == "Record") then
     local array = node.array
     if array ~= nil then
@@ -2398,7 +2435,12 @@ local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
   -- declares one: that field is then what the statement implements. An instance of `R` has no such field.
   for _, f in ipairs(ctx.statics[decl] or {}) do
     local name = assert(f.path[2], "`collect_statics` keeps the functions whose path has two names").text
-    if decl.kind == "class" and metamethod_name(name) then
+    if build.schema ~= nil then
+      report_at(ctx, "schema_member", f, "the function " .. quoted(decl.name .. "." .. name) .. " is written into the " ..
+          "schema " .. quoted(decl.name) .. ", whose handles have the methods of `cosmic.sqlite`'s Handle alone and " ..
+          "whose value is `Sqlite.schema` of its DDL, so neither reaches it",
+        "write a function that takes the handle: `local function " .. name .. "(db: " .. decl.name .. ", ...)`")
+    elseif decl.kind == "class" and metamethod_name(name) then
       report_at(ctx, "class_metamethod", f, "the function " .. quoted(decl.name .. "." .. name) .. " is a name Lua reads as a " ..
           "metamethod of the values of " .. quoted(decl.name) .. ", and `__close`, `__gc`, `__tostring`, `__lt` and `__le` are written as methods",
         "rename " .. quoted(name) .. ", or write it as a method inside the class")
@@ -2652,7 +2694,8 @@ local function check_listing(ctx: Ctx, build: Build, names: {{string}}): boolean
 end
 
 queue_checks = function(ctx: Ctx, build: Build, names: {{string}})
-  if #build.supers == 0 then
+  -- A schema's class holds the members of the class it lists as they are.
+  if #build.supers == 0 or build.schema ~= nil then
     return
   end
   ctx.checks[#ctx.checks + 1] = function(): boolean

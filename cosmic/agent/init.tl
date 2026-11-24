@@ -160,8 +160,9 @@ local record Agent
     where?: string
     --- What opens a request; Http.open by default.
     send?: Send
-    --- What the tools are held to (cosmic.agent.policy); nil for nothing.
-    sandbox?: Sandbox.Policy
+    --- The layers the tools are held to (cosmic.agent.policy), each held stacked: only what every layer lets
+    --- them do ([`Sandbox.intersect`]); nil or {} for nothing.
+    sandbox?: {Sandbox.Policy}
     --- The background jobs the tools start (cosmic.agent.jobs); nil for none.
     jobs?: Jobs.Set
     --- The worker the run tool sends its snippets to (cosmic.agent.worker); nil for none.
@@ -363,8 +364,9 @@ local record Agent
     cwd: string
     --- What opens a request; Http.open where nil.
     mut send?: Send
-    --- What the tools are held to (cosmic.agent.policy); nil for nothing.
-    mut sandbox?: Sandbox.Policy
+    --- The layers the tools are held to (cosmic.agent.policy), stacked as [`Sandbox.intersect`] joins them at
+    --- each call; nil or {} for nothing. A call is blocked when they do not join.
+    mut sandbox?: {Sandbox.Policy}
     --- The background jobs the tools start (cosmic.agent.jobs); nil for none.
     mut jobs?: Jobs.Set
     --- The worker the run tool sends its snippets to (cosmic.agent.worker); nil for none.
@@ -508,6 +510,69 @@ local function tell(s: Agent.Session, event: Agent.Event)
   if on == nil then return end
   local ran, err = pcall(on, event)
   if not ran and s.on_failed == nil then s.on_failed = told(err) end
+end
+
+--- What `layers` hold stacked, and "": nil for no sandbox where `layers` is nil; nil and why for no layer, or
+--- layers that do not join. A profile every layer names stays a profile, as one layer's does: Child.start reads the
+--- "cosmic" profile's `rx` on this program as the start's alone, which a grant of it is not.
+local function joined(layers?: {Sandbox.Policy}): Sandbox.Policy?, string
+  if layers == nil then return nil, "" end
+  if #layers == 0 then return nil, "the sandbox has no layer: give nil for none" end
+  if #layers == 1 then return layers[1], "" end
+  local common: mut {string} = {}
+  for _, name in ipairs(layers[1].profiles or {}) do
+    local everywhere = true
+    for _, layer in ipairs(layers) do
+      local named = false
+      for _, other in ipairs(layer.profiles or {}) do
+        if other == name then named = true end
+      end
+      if not named then everywhere = false end
+    end
+    if everywhere then common[#common + 1] = name end
+  end
+  local stripped: mut {Sandbox.Policy} = {}
+  for _, layer in ipairs(layers) do
+    local rest: mut {string} = {}
+    for _, name in ipairs(layer.profiles or {}) do
+      local shared = false
+      for _, held in ipairs(common) do
+        if held == name then shared = true end
+      end
+      if not shared then rest[#rest + 1] = name end
+    end
+    stripped[#stripped + 1] = { ...layer, profiles = rest }
+  end
+  local policy, why = Sandbox.intersect(table.unpack(stripped))
+  if policy == nil then return nil, "the sandbox's layers do not join: " .. why end
+  if #common > 0 then return { ...policy, profiles = common }, "" end
+  return policy, ""
+end
+
+--- [`joined`] of `s.sandbox`, kept while its layers are the same: the worker runs on under the policy it was
+--- started with, and starts again under another.
+local record Joined
+  from: {Sandbox.Policy}
+  policy?: Sandbox.Policy
+end
+local JOINED: mut {Agent.Session: Joined} = setmetatable({}, { __mode = "k" })
+
+local function held_policy(s: Agent.Session): Sandbox.Policy?, string
+  local layers = s.sandbox
+  local kept = JOINED[s]
+  if layers ~= nil and kept ~= nil and #kept.from == #layers then
+    local same = true
+    for i, layer in ipairs(layers) do
+      if kept.from[i] ~= layer then same = false end
+    end
+    if same then return kept.policy, "" end
+  end
+  local policy, why = joined(layers)
+  if policy == nil and why ~= "" then return nil, why end
+  local copy: mut {Sandbox.Policy} = {}
+  for _, layer in ipairs(layers or {}) do copy[#copy + 1] = layer end
+  if layers ~= nil then JOINED[s] = { from = copy, policy = policy } else JOINED[s] = nil end
+  return policy, ""
 end
 
 --- What `before` of `s` says of `call`: nil to run it, or why not.
@@ -1149,13 +1214,15 @@ local function loop(s: Agent.Session): boolean, string
           local asked_call: Agent.Call = { name = called, input = given, caller = "model", cwd = s.cwd, id = s.id,
             paths = touched, stopped = asking }
           local result: Tools.Result
+          local policy, unjoined = held_policy(s)
+          if reason == nil and unjoined ~= "" then reason = unjoined end
           if reason == nil and tool ~= nil then reason = blocked(s, asked_call) end
           if reason ~= nil then
             result = { text = "Blocked: " .. reason, is_error = true }
             tell(s, { kind = "blocked", name = called, caller = "model", input = given, reason = reason })
           else
             local context: Tools.Context = { cwd = s.cwd, db = s.db, session = s.id,
-              policy = s.sandbox, jobs = s.jobs, worker = s.worker,
+              policy = policy, jobs = s.jobs, worker = s.worker,
               mcp = s.mcp, stopped = asking, deadline_ns = deadline, tools = s.tools,
               commands = Tools.find(s.tools, "bash") ~= nil,
               guard = if s.before == nil then nil else function(host: string, args: Tools.Object): string?
@@ -1284,7 +1351,7 @@ local class AgentSession is Agent.Session
   mut where: string
   cwd: string
   mut send?: Agent.Send
-  mut sandbox?: Sandbox.Policy
+  mut sandbox?: {Sandbox.Policy}
   mut jobs?: Jobs.Set
   mut worker?: Worker.Set
   mut mcp?: AgentMcp.Set

@@ -6,8 +6,10 @@ local Agent = require("cosmic.agent")
 local agent_fixture = require("build.agent_fixture")
 local Auth = require("cosmic.agent.auth")
 local Clock = require("cosmic.clock")
+local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
+local Sandbox = require("cosmic.sandbox")
 local Sessions = require("cosmic.agent.sessions")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
@@ -84,6 +86,51 @@ local function test_the_loop_runs_tools_until_the_turn_ends()
   assert(s:prompt("more"))
   local again, _ = Json.to_array(sent(b, 1)["messages"])
   assert(again ~= nil and #again == 5)
+end
+
+--- The sandbox is a list of layers, held stacked: a write one layer lets and another does not is refused, and
+--- layers that do not join block the call, naming why.
+local function test_the_sandbox_layers_are_held_stacked()
+  local dir = scratch()
+  local write = function(id: string): Json.Value
+    return { content = { { type = "tool_use", id = id, name = "write", input = { path = "out.txt", content = "made" } } },
+      stop_reason = "tool_use" }
+  end
+  local _, send = api({ write("t1"), text_reply("done") })
+  local writes: Sandbox.Policy = { grants = { { path = dir, letters = "rwc" } } }
+  local reads: Sandbox.Policy = { grants = { { path = dir, letters = "r" } } }
+  local s = Agent.new({ sign = keyed("k"), base_url = "https://api.test", system = "sys", cwd = dir, send = send,
+    sandbox = { writes, reads } })
+  local seen = agent_fixture.events()
+  s.on = seen.on
+  assert(s:prompt("make out.txt"))
+  local none, _ = Fs.read(dir .. "/out.txt")
+  assert(none == nil)
+  local refused = assert(Json.encode(Json.array(s.messages)))
+  assert(refused:find("does not let the agent write", 1, true) ~= nil, refused)
+  -- One layer alone lets it.
+  local _, send2 = api({ write("t2"), text_reply("done") })
+  s.send, s.sandbox = send2, { writes }
+  assert(s:prompt("again"))
+  assert(slurp(dir .. "/out.txt") == "made")
+  -- Layers that do not join hold nothing: the call is blocked.
+  assert(Fs.remove(dir .. "/out.txt"))
+  local _, send3 = api({ write("t3"), text_reply("done") })
+  local mapped: Sandbox.Policy = { grants = { { path = dir, from = "/elsewhere", letters = "r" } } }
+  s.send, s.sandbox = send3, { writes, mapped }
+  assert(s:prompt("once more"))
+  local blocked = assert(Json.encode(Json.array(s.messages)))
+  assert(blocked:find("Blocked: the sandbox's layers do not join", 1, true) ~= nil, blocked)
+  local still, _ = Fs.read(dir .. "/out.txt")
+  assert(still == nil)
+  -- No layer is no sandbox only as nil: an empty list blocks the call.
+  local _, send4 = api({ write("t4"), text_reply("done") })
+  s.send, s.sandbox = send4, {}
+  assert(s:prompt("and again"))
+  local empty = assert(Json.encode(Json.array(s.messages)))
+  assert(empty:find("Blocked: the sandbox has no layer", 1, true) ~= nil, empty)
+  local left, _ = Fs.read(dir .. "/out.txt")
+  assert(left == nil)
 end
 
 local function test_the_loop_says_why_it_stops()
