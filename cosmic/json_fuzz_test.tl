@@ -237,19 +237,22 @@ end
 
 --- What [`decode_holds`] asks of the module, for a run with its
 --- allocations cut short: every mode's decode, and the encoding and the
---- format of what one reads, each result or refusal a line.
+--- format of what it reads, one line for each mode, since a mode reads
+--- the text afresh whatever the one before it met.
 local function decode_starved(input: string): string
+  local function flat(text: string): string return (text:gsub("\n", "\\n")) end
   local lines: mut {string} = {}
   for _, json5 in ipairs({ false, true }) do
     for _, big in ipairs({ false, true }) do
       local value, why = Json.decode(input, { null_value = Json.null, json5 = json5, big_numbers_as_strings = big })
-      lines[#lines + 1] = "decode: " .. (tostring(why):gsub("\n", "\\n"))
+      local line = "decode: " .. flat(tostring(why))
       if value ~= nil then
         local encoded, ewhy = Json.encode(value)
-        lines[#lines + 1] = "encode: " .. ((if encoded ~= nil then encoded else tostring(ewhy) end):gsub("\n", "\\n"))
+        line = line .. " encode: " .. flat(if encoded ~= nil then encoded else tostring(ewhy) end)
         local formatted, fwhy = Json.format(input, { json5 = json5, duplicate_keys = true })
-        lines[#lines + 1] = "format: " .. ((if formatted ~= nil then formatted else tostring(fwhy) end):gsub("\n", "\\n"))
+        line = line .. " format: " .. flat(if formatted ~= nil then formatted else tostring(fwhy) end)
       end
+      lines[#lines + 1] = line
     end
   end
   return table.concat(lines, "\n")
