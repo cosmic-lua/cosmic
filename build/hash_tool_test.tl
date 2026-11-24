@@ -18,18 +18,25 @@ local function test_it_reads_standard_input_and_prints_no_summary(tmp: string)
   local ran = tool_fixture.cosmic(tmp, { "hash" }, "abc")
   assert(ran.code == 0, ran.err)
   assert(ran.out == ABC .. "  -\n" and ran.err == "", ran.out .. ran.err)
-  local dash = tool_fixture.cosmic(tmp, { "hash", "--sha1", "-" }, "abc")
+  local dash = tool_fixture.cosmic(tmp, { "hash", "-a", "sha1", "-" }, "abc")
   assert(dash.out == "a9993e364706816aba3e25717850c26c9cd0d89d  -\n", dash.out)
+end
+
+--- `check` has a help page of its own, and `cosmic hash` with no words passes the dispatcher's check of its line.
+local function test_check_has_its_own_help(tmp: string)
+  local help = tool_fixture.cosmic(tmp, { "help", "hash", "check" })
+  assert(help.code == 0 and help.out:find("usage: cosmic hash check [options] <sums|->\n", 1, true) == 1, help.out)
+  assert(help.out:find("--quiet", 1, true) ~= nil and help.out:find("--json", 1, true) == nil, help.out)
 end
 
 local function test_check_exits_1_on_a_failure_and_2_on_a_usage_error(tmp: string)
   assert(Fs.write(tmp .. "/a", "abc"))
   assert(Fs.write(tmp .. "/sums", ABC .. "  a\n" .. ABC .. "  b\n"))
-  local checked = tool_fixture.cosmic(tmp, { "hash", "--check", "sums" })
+  local checked = tool_fixture.cosmic(tmp, { "hash", "check", "sums" })
   assert(checked.code == 1, checked.code)
   assert(checked.out == "a: OK\nb: FAILED open or read\n", checked.out)
   assert(not checked.err:find("hash: FAIL", 1, true), checked.err)
-  local usage = tool_fixture.cosmic(tmp, { "hash", "--sha1", "--md5", "a" })
+  local usage = tool_fixture.cosmic(tmp, { "hash", "-a", "nope", "a" })
   assert(usage.code == 2 and usage.out == "", usage.out)
   assert(not usage.err:find("hash: FAIL", 1, true), usage.err)
 end
@@ -40,7 +47,7 @@ local function test_a_large_file_streams(tmp: string)
   local writer = (assert(Stream.create(tmp .. "/big")))
   for _ = 1, 16 do assert(writer:write(chunk)) end
   assert(writer:close())
-  local ran = tool_fixture.cosmic(tmp, { "hash", "--md5", "big" })
+  local ran = tool_fixture.cosmic(tmp, { "hash", "-a", "md5", "big" })
   assert(ran.code == 0, ran.err)
   local expected = (assert(Stream.hashing("md5")))
   for _ = 1, 16 do assert(expected:write(chunk)) end

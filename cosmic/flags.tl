@@ -1398,7 +1398,7 @@ end
 --- typed as ([`Flags.Command`]'s `typed`), and then not by its name: an
 --- option's spelling ("--version"), or no word at all, which is the command
 --- a first word that names no other runs, that word being the first of its
---- own ("prog notes.txt"). With such a command no first word is refused as
+--- own ("prog notes.txt"), and a line of no words runs it too. With such a command no first word is refused as
 --- no command, a mistyped one among them, and a file named "help" is not
 --- run. Help calls a command as it is typed, and `help` takes that word or
 --- the name. A command's `rest` says from which slot the words are its
@@ -1671,8 +1671,8 @@ end
 --- Runs the command line `argv`, the words after the program's name, as a
 --- program's main does, and answers its exit status. An empty line
 --- writes the program's help ([`Flags.program_help`]) to `to.out` and
---- answers [`Flags.REFUSED`], as [`Flags.dispatch`] runs no command
---- for one. Any other line is
+--- answers [`Flags.REFUSED`], even where a command is typed by no word
+--- (which [`Flags.dispatch`] runs for an empty line). Any other line is
 --- [`Flags.dispatch`]'s from slot 1: help it answers goes to `to.out`
 --- with the status 0, a command answers its own status, and a line it
 --- refuses is said on `to.err` with where the commands are listed, and
