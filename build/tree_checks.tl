@@ -57,7 +57,7 @@ local refusals = require("build.refusals")
 local Ast = require("lang.ast")
 local Check = require("lang.check")
 local Ceilings = require("build.ceilings")
-local CeilingsBase = require("build.ceilings_base")
+local Markers = require("build.markers")
 local Report = require("build.syntax_report")
 local SyntaxContracts = require("build.syntax_contracts")
 local Declarations = require("lang.declarations")
@@ -2734,8 +2734,7 @@ local record Marked
   mut counts: mut {string: {string: integer}}
 end
 
---- The markers of the tree at `root`: the counts of each file's markers by `<stage> <code>`, and of its comment lines that
---- use the glossary's retired word ([`build.glossary_count`]), the ratchet's side of the tree.
+--- The markers of the tree at `root`: the counts of each file's markers by `<stage> <code>`, the ratchet's side of the tree.
 function tree_checks.markers(root: string): Marked
   local out: Marked = { lines = {}, counts = {} }
   local files, trouble = sources_of(root)
@@ -2745,8 +2744,8 @@ function tree_checks.markers(root: string): Marked
   end
   for _, entry in ipairs(files) do
     local file, source = nth(entry, 1), nth(entry, 2)
-    if CeilingsBase.mentions(source) then
-      local held = CeilingsBase.counts(source, file)
+    if Markers.mentions(source) then
+      local held = Markers.counts(source, file)
       if next(held) ~= nil then
         out.counts[file] = held
       end
