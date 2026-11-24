@@ -577,7 +577,7 @@ local function close_angle(open: integer): integer
     return S.pos
   end
   close(">", open, "list of type arguments")
-  return S.pos - 1
+  return end_of()
 end
 
 --- The source text of the tokens `first` to `last`, spaced as the source spaces
@@ -900,7 +900,7 @@ local function parse_function_type(): Ast.Type -- checked: not_assigned*2
   if S.text ~= "(" then
     report("bare_function_type", S.pos, "a bare `function` is not a type: found " .. shown(S.pos) .. " where its parameters begin",
       "write the signature: `function(x: T): U`, and `function()` for a function with no parameters")
-    return { kind = "TypeFunction", id = 0, first = first, last = S.pos - 1, typeparams = typeparams, params = params }
+    return { kind = "TypeFunction", id = 0, first = first, last = end_of(), typeparams = typeparams, params = params }
   end
   local open = S.pos
   advance()
@@ -986,7 +986,7 @@ local function parse_collection(): Ast.Type
     node = { kind = "TypeArray", id = 0, first = open, last = S.pos, element = first_type }
   end
   close("}", open, "collection type")
-  base_of(node).last = S.pos - 1
+  base_of(node).last = end_of()
   return node
 end
 
@@ -1026,10 +1026,10 @@ parse_base_inner = function(first: integer, t: string, k: Lexer.Kind): Ast.Type
       report("mut_needs_collection", S.pos, "`mut` applies to an array or a map type, found " .. shown(S.pos) .. " after it",
         "write `mut {T}` or `mut {K: V}`; a field that is reassigned is `mut name: T`")
       local other = parse_base()
-      return { kind = "TypeMut", id = 0, first = first, last = S.pos - 1, inner = other }
+      return { kind = "TypeMut", id = 0, first = first, last = end_of(), inner = other }
     end
     local inner = parse_collection()
-    return { kind = "TypeMut", id = 0, first = first, last = S.pos - 1, inner = inner }
+    return { kind = "TypeMut", id = 0, first = first, last = end_of(), inner = inner }
   elseif t == "nil" then
     advance()
     return { kind = "TypeNil", id = 0, first = first, last = first }
