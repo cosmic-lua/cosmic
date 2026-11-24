@@ -134,6 +134,24 @@ local record Tools
     --- The tools the agent offers; every tool ([`Tools.all`]) where nil.
     --- A tool's hints name only tools offered.
     tools?: {Tool}
+    --- What a snippet's call of the agent is asked first (the agent's
+    --- `before`, as a call by code): nil lets it run, a string is why
+    --- not, raised in the snippet; a raise blocks it too. `name` is the
+    --- call's: sql, store.get, store.put, mcp.servers, mcp.tools or
+    --- mcp.call, a name the snippet chose only among those. `input` is
+    --- the arguments it sent, `{}` where they are no object, unchecked:
+    --- sql's `{query}`, store's `{key, value?}` (put with no value or
+    --- null lets the key go), mcp's `{server?, tool?, arguments?}`.
+    --- Calls may come at once, from a snippet's tasks, and while its
+    --- time runs.
+    guard?: function(name: string, input: Object): string?
+    --- What a snippet's call of the agent that ran is given to before
+    --- the snippet reads it (the agent's `after`): its answer as JSON
+    --- text (escaped as JSON is), or its failure as an error result; the
+    --- result it answers is what the snippet reads, as JSON where it is
+    --- JSON, else as a string, and an error result raises in the
+    --- snippet. `raw` is not read. A raise fails the call.
+    amend?: function(name: string, input: Object, result: Result): Result
   end
 
   --- A path a call touches, and how: the letters of a grant
@@ -753,8 +771,9 @@ local function stored(context: Tools.Context, name: string, given: {string: Json
   return true
 end
 
---- What answers the calls a snippet of `context` makes of the agent: sql alone, as the sql tool runs it.
-local function served(context: Tools.Context): Worker.Serve
+--- What answers the calls a snippet of `context` makes of the agent, as they come, with no guard: sql as the
+--- sql tool runs it, store, and the MCP servers.
+local function served_unguarded(context: Tools.Context): Worker.Serve
   return function(name: string, args: Json.Value, budget: Worker.Budget): (Json.Value) | (nil, Failure)
     local fields, _ = Json.to_object(args)
     local given: {string: Json.Value} = fields or {}
@@ -808,6 +827,72 @@ local function served(context: Tools.Context): Worker.Serve
           String.counted(MAX_REPLY, "byte") .. " a reply holds")
     end
     return answer
+  end
+end
+
+--- The calls a snippet may make of the agent, each by the name its guard and amend know it by.
+local SERVED <const>: {string: boolean} = {
+  ["sql"] = true, ["store.get"] = true, ["store.put"] = true,
+  ["mcp.servers"] = true, ["mcp.tools"] = true, ["mcp.call"] = true,
+}
+
+--- What `context`'s amend makes of the host call `name` with `given`, which answered `result`: the value the
+--- snippet reads, or nil and why. An amend that raises, or answers no text, makes the call fail.
+local function amended(context: Tools.Context, name: string, given: Tools.Object, result: Tools.Result):
+    (Json.Value) | (nil, Failure)
+  local amend = context.amend
+  if amend == nil then return nil, Failure.new("no amend") end
+  local amend_ran, made = pcall(amend, name, given, result)
+  if not amend_ran then
+    return nil, Failure.new("the agent's after hook failed: " .. tostring(made))
+  end
+  local text = made.text
+  if not (text is string) then
+    return nil, Failure.new("the agent's after hook answered no text")
+  end
+  if made.is_error then return nil, Failure.new(text) end
+  if #text > MAX_REPLY then
+    return nil, Failure.new("the after hook's answer is " .. String.counted(#text, "byte") .. ", more than the " ..
+        String.counted(MAX_REPLY, "byte") .. " a reply holds")
+  end
+  local value, _ = Json.decode(text, { null_value = Json.null })
+  if value == nil then return text end
+  return value
+end
+
+--- What answers the calls a snippet of `context` makes of the agent (sql as the sql tool runs it, store.get,
+--- store.put, and mcp.servers, mcp.tools and mcp.call), each asked of its guard first and given to its amend
+--- after, failed or not. A call of no other name is refused before either is asked.
+local function served(context: Tools.Context): Worker.Serve
+  local answer_of = served_unguarded(context)
+  return function(name: string, args: Json.Value, budget: Worker.Budget): (Json.Value) | (nil, Failure)
+    if SERVED[name] ~= true then
+      return nil, Failure.new("the agent serves no call " .. Json.quote(String.as_utf8(name)) ..
+          ": it serves sql, store.put, store.get, mcp.servers, mcp.tools and mcp.call")
+    end
+    local fields, _ = Json.to_object(args)
+    local given: {string: Json.Value} = fields or {}
+    local guard = context.guard
+    if guard ~= nil then
+      local guard_ran, reason = pcall(guard, name, given)
+      if not guard_ran then
+        return nil, Failure.new("Blocked: the agent's before hook failed: " .. tostring(reason))
+      end
+      if reason ~= nil then return nil, Failure.new("Blocked: " .. tostring(reason)) end
+    end
+    local answer, why = answer_of(name, args, budget)
+    if context.amend == nil then
+      if answer == nil then return nil, why end
+      return answer
+    end
+    if answer == nil then
+      return amended(context, name, given, { text = tostring(why), is_error = true })
+    end
+    local text, encode_why = Json.encode(answer)
+    if text == nil then
+      return nil, Failure.new("the answer is no JSON: " .. tostring(encode_why))
+    end
+    return amended(context, name, given, { text = text, is_error = false })
   end
 end
 

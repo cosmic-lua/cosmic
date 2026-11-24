@@ -5,6 +5,11 @@
 --- cosmic.agent.policy) holds what code that runs can do, whatever it
 --- means.
 ---
+--- Each sees the model's tool calls and a snippet's calls of the agent
+--- (`caller` "code", named sql, store.get, store.put, mcp.servers,
+--- mcp.tools or mcp.call) alike: name a snippet's calls too where it is
+--- to make them.
+---
 ---     agent.before = Check.all({
 ---       Check.only({ "read", "edit" }),
 ---       Check.paths({ grants = { { path = cwd, letters = "rwc" } } }),
@@ -30,7 +35,10 @@ function Check.all(checks: {Agent.Before}): Agent.Before
   end
 end
 
---- Blocks a call of any tool not in `names`.
+--- Blocks a call of any name not in `names`: a tool, or a snippet's call
+--- of the agent, so `{ "read", "run" }` lets a snippet make none, and
+--- `{ "read", "run", "sql", "mcp.servers", "mcp.tools", "mcp.call" }`
+--- lets it query and reach the MCP servers.
 function Check.only(names: {string}): Agent.Before
   local named: mut {string: boolean} = {}
   for _, n in ipairs(names) do named[n] = true end
@@ -43,7 +51,8 @@ end
 --- Blocks the calls of each tool in `counts` past its count: they are
 --- counted from when the check is made, so make one an agent. A call it
 --- lets by is counted, so put it last in [`Check.all`], where the checks
---- before it have let the call by too.
+--- before it have let the call by too. It counts by name, whoever calls:
+--- the model's sql and a snippet's share one count.
 ---
 ---     agent.before = Check.budget({ run = 20, write = 5 })
 function Check.budget(counts: {string: integer}): Agent.Before
@@ -65,7 +74,8 @@ end
 --- checked as its real name, links followed (cosmic.agent.policy). It
 --- reads only `grants`, not `profiles`. A tool that says no paths
 --- passes, and bash, run and sql say none, though they reach what the
---- sandbox lets them: hold those with the sandbox, or [`Check.only`].
+--- sandbox lets them: hold those with the sandbox, or [`Check.only`]. A
+--- snippet's call of the agent has none.
 ---
 ---     agent.before = Check.paths({ grants = { { path = cwd, letters = "rwc" }, { path = "/usr", letters = "r" } } })
 function Check.paths(policy: Sandbox.Policy): Agent.Before
