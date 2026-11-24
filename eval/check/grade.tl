@@ -1856,16 +1856,16 @@ local function packed(g: Grade, site: Site, name: string, dirs: boolean): boolea
   if dirs then
     for _, dir in ipairs({ "sub", "sub/deep" }) do
       local added, why = writer:add_dir(dir)
-      if not added then trouble = why end
+      if not added then trouble = tostring(why) end
     end
   end
   for _, path in ipairs(paths) do
     local added, why = writer:add_file(path, content(site, path))
-    if not added then trouble = why end
+    if not added then trouble = tostring(why) end
   end
   local closed, why = writer:close()
   if not closed or trouble ~= "" then
-    fail(g, "could not write " .. name .. ": " .. (if closed then trouble else why end))
+    fail(g, "could not write " .. name .. ": " .. (if closed then trouble else tostring(why) end))
     return false
   end
   return true

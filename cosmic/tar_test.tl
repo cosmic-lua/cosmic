@@ -12,6 +12,21 @@ local String = require("cosmic.string")
 local Tar = require("cosmic.tar")
 local type Failure = require("cosmic.failure")
 
+-- The next entry of `r`, which must be there.
+local function entry_of(r: Tar.Reader): Tar.Entry
+  local entry, why = r:next()
+  assert(entry ~= nil, why)
+  assert(entry ~= false, "the archive ended")
+  return entry
+end
+
+-- Whether `r` has reached its end, failing if it fails.
+local function ended(r: Tar.Reader): boolean
+  local entry, why = r:next()
+  assert(entry ~= nil, why)
+  return entry == false
+end
+
 local GNU_TAR_B64 <const> =
   "c2hvcnQudHh0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAwMDA2NDQAMDAwMDAwMAAwMDAwMDAwADAwMDAwMDAwMDI0ADE1MjU0NjYzMjYwADAxMTQ2MQAgMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB1c3RhciAgAHJvb3QAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcm9vdAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABzaG9ydCBmaWxlIGNvbnRlbnRzCgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGFkaXIvAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwMDAwNzU1ADAwMDAwMDAAMDAwMDAwMAAwMDAwMDAwMDAwMAAxNTI1NDY2MzI2MAAwMTA1MDQAIDUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAdXN0YXIgIAByb290AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHJvb3QAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYWRpci9hbGluawAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAwMDA3NzcAMDAwMDAwMAAwMDAwMDAwADAwMDAwMDAwMDAwADE1MjU0NjYzMjYwADAxMzQyMgAgMnNob3J0LnR4dAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB1c3RhciAgAHJvb3QAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcm9vdAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB0aGlzaXNhdmVyeXZlcnl2ZXJ5bG9uZ2RpcmVjdG9yeW5hbWV0b3Rlc3R0aGV1c3RhcnByZWZpeHNwbGl0bG9naWN3aGljaG5lZWRzdG9iZWxvbmcvAAAAAAAAAAAAAAAAAAAAMDAwMDc1NQAwMDAwMDAwADAwMDAwMDAAMDAwMDAwMDAwMDAAMTUyNTQ2NjMyNjAAMDMxNTUwACA1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHVzdGFyICAAcm9vdAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAByb290AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC4vLi9ATG9uZ0xpbmsAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwMDAwNjQ0ADAwMDAwMDAAMDAwMDAwMAAwMDAwMDAwMDIyNwAwMDAwMDAwMDAwMAAwMTE2MDQAIEwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAdXN0YXIgIAByb290AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHJvb3QAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAdGhpc2lzYXZlcnl2ZXJ5dmVyeWxvbmdkaXJlY3RvcnluYW1ldG90ZXN0dGhldXN0YXJwcmVmaXhzcGxpdGxvZ2ljd2hpY2huZWVkc3RvYmVsb25nL2Fub3RoZXJsb25nc3ViZGlyZWN0b3J5bmFtZXRvcHVzaHRoZXBhdGhwYXN0b25laHVuZHJlZGNoYXJhY3RlcnMvAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB0aGlzaXNhdmVyeXZlcnl2ZXJ5bG9uZ2RpcmVjdG9yeW5hbWV0b3Rlc3R0aGV1c3RhcnByZWZpeHNwbGl0bG9naWN3aGljaG5lZWRzdG9iZWxvbmcvYW5vdGhlcmxvbmdzdWJkMDAwMDc1NQAwMDAwMDAwADAwMDAwMDAAMDAwMDAwMDAwMDAAMTUyNTQ2NjMyNjAAMDM0NjY3ACA1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHVzdGFyICAAcm9vdAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAByb290AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC4vLi9ATG9uZ0xpbmsAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwMDAwNjQ0ADAwMDAwMDAAMDAwMDAwMAAwMDAwMDAwMDIzNwAwMDAwMDAwMDAwMAAwMTE2MDUAIEwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAdXN0YXIgIAByb290AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHJvb3QAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAdGhpc2lzYXZlcnl2ZXJ5dmVyeWxvbmdkaXJlY3RvcnluYW1ldG90ZXN0dGhldXN0YXJwcmVmaXhzcGxpdGxvZ2ljd2hpY2huZWVkc3RvYmVsb25nL2Fub3RoZXJsb25nc3ViZGlyZWN0b3J5bmFtZXRvcHVzaHRoZXBhdGhwYXN0b25laHVuZHJlZGNoYXJhY3RlcnMvZGVlcC50eHQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB0aGlzaXNhdmVyeXZlcnl2ZXJ5bG9uZ2RpcmVjdG9yeW5hbWV0b3Rlc3R0aGV1c3RhcnByZWZpeHNwbGl0bG9naWN3aGljaG5lZWRzdG9iZWxvbmcvYW5vdGhlcmxvbmdzdWJkMDAwMDY0NAAwMDAwMDAwADAwMDAwMDAAMDAwMDAwMDAwMTIAMTUyNTQ2NjMyNjAAMDM0NjYyACAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHVzdGFyICAAcm9vdAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAByb290AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGRlZXAgZmlsZQoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
 
@@ -24,10 +39,8 @@ local function summary(r: Tar.Reader, read_bodies: boolean): {string}?, string
   local lines: mut {string} = {}
   while true do
     local entry, trouble = r:next()
-    if entry == nil then
-      if trouble ~= "" then return nil, trouble end
-      return lines, ""
-    end
+    if entry == nil then return nil, tostring(trouble) end
+    if entry == false then return lines, "" end
     local body = ""
     if read_bodies and entry.kind == "file" then
       local reader = assert(entry:open())
@@ -70,11 +83,10 @@ local function test_a_long_path_round_trips_through_a_pax_header()
   assert(w:close())
 
   local r = Tar.reader(Stream.from_string(c:result()))
-  local entry = assert(r:next())
+  local entry = entry_of(r)
   assert(entry.path == long_path, entry.path)
   assert(assert(Stream.read_all((assert(entry:open())))) == "payload")
-  local last, trouble = r:next()
-  assert(last == nil and trouble == "")
+  assert(ended(r))
 end
 
 -- Found by tar_fuzz_test.tl: a `/` then 100 bytes split at the leading
@@ -85,7 +97,7 @@ local function test_a_leading_slash_survives_a_path_just_past_the_name_field()
   local w = Tar.writer(c)
   assert(w:add_file(path, "x"))
   assert(w:close())
-  local entry = assert(Tar.reader(Stream.from_string(c:result())):next())
+  local entry = entry_of(Tar.reader(Stream.from_string(c:result())))
   assert(entry.path == path, entry.path)
 end
 
@@ -95,7 +107,7 @@ local function test_deterministic_mode_zeroes_mtime_uid_and_gid()
   assert(w:add_file("f", "x", { mtime = 12345 }))
   assert(w:close())
   local r = Tar.reader(Stream.from_string(c:result()))
-  local entry = assert(r:next())
+  local entry = entry_of(r)
   assert(entry.mtime == 0 and entry.uid == 0 and entry.gid == 0)
 end
 
@@ -124,7 +136,7 @@ local function test_add_file_from_a_reader_needs_an_explicit_size()
   local c = Stream.collect()
   local w = Tar.writer(c)
   local ok, trouble = w:add_file("f", Stream.from_string("abc"))
-  assert(not ok and trouble:find("opts.size", 1, true) ~= nil, trouble)
+  assert(not ok and tostring(trouble):find("opts.size", 1, true) ~= nil, tostring(trouble))
   -- nothing was written, so the writer is still usable
   assert(w:add_file("g", "x"))
   assert(w:close())
@@ -136,7 +148,7 @@ local function test_add_file_from_a_reader_streams_the_body()
   assert(w:add_file("f", Stream.from_string("abcdef"), { size = 6 }))
   assert(w:close())
   local r = Tar.reader(Stream.from_string(c:result()))
-  local entry = assert(r:next())
+  local entry = entry_of(r)
   assert(assert(Stream.read_all((assert(entry:open())))) == "abcdef")
 end
 
@@ -147,10 +159,10 @@ local function test_a_body_not_opened_is_skipped_automatically()
   assert(w:add_file("second", "two"))
   assert(w:close())
   local r = Tar.reader(Stream.from_string(c:result()))
-  local first = assert(r:next())
+  local first = entry_of(r)
   assert(first.path == "first")
   -- first.open() is never called: next() must skip its body itself
-  local second = assert(r:next())
+  local second = entry_of(r)
   assert(second.path == "second")
   assert(assert(Stream.read_all((assert(second:open())))) == "two")
 end
@@ -162,9 +174,9 @@ local function test_an_entry_reader_is_invalid_once_the_next_entry_is_asked_for(
   assert(w:add_file("second", "two"))
   assert(w:close())
   local r = Tar.reader(Stream.from_string(c:result()))
-  local first = assert(r:next())
+  local first = entry_of(r)
   local stale = assert(first:open())
-  assert(r:next())
+  entry_of(r)
   local chunk, _ = stale:read()
   assert(chunk == nil)
 end
@@ -200,7 +212,7 @@ local function test_a_negative_base256_mtime_decodes_as_negative()
   local patched = raw:sub(1, 136) .. base256_field_12(target) .. raw:sub(149)
   patched = recompute_checksum(patched)
   local r = Tar.reader(Stream.from_string(patched))
-  local entry = assert(r:next())
+  local entry = entry_of(r)
   assert(entry.mtime == target, tostring(entry.mtime))
 end
 
@@ -219,7 +231,7 @@ local function test_a_base256_size_past_64_bits_is_refused_not_wrapped()
   -- 2^64: its low 64 bits, all a wrap would keep, say 0.
   local archive = with_field_12(125, "\x80\0\0\x01" .. string.rep("\0", 8))
   local entry, trouble = Tar.reader(Stream.from_string(archive)):next()
-  assert(entry == nil and trouble:find("size field", 1, true) ~= nil, trouble)
+  assert(entry == nil and tostring(trouble):find("size field", 1, true) ~= nil, tostring(trouble))
 end
 
 local function test_a_base256_mtime_past_64_bits_either_way_is_refused()
@@ -229,7 +241,7 @@ local function test_a_base256_mtime_past_64_bits_either_way_is_refused()
       "\xff\xff\xff\xff\x7f" .. string.rep("\xff", 7),
   }) do
     local entry, trouble = Tar.reader(Stream.from_string(with_field_12(137, field))):next()
-    assert(entry == nil and trouble:find("mtime field", 1, true) ~= nil, trouble)
+    assert(entry == nil and tostring(trouble):find("mtime field", 1, true) ~= nil, tostring(trouble))
   end
 end
 
@@ -238,7 +250,7 @@ local function test_a_base256_mtime_at_either_end_of_the_integer_range_is_read()
     -- A positive value's first byte needs the marker bit set.
     local field = base256_field_12(n)
     field = string.char(String.byte_at(field, 1) | 0x80) .. field:sub(2)
-    local entry = assert(Tar.reader(Stream.from_string(with_field_12(137, field))):next())
+    local entry = entry_of(Tar.reader(Stream.from_string(with_field_12(137, field))))
     assert(entry.mtime == n, tostring(entry.mtime))
   end
 end
@@ -249,11 +261,11 @@ local function test_opening_an_entry_a_second_time_is_refused()
   assert(w:add_file("f", "hello"))
   assert(w:close())
   local r = Tar.reader(Stream.from_string(c:result()))
-  local entry = assert(r:next())
+  local entry = entry_of(r)
   local first = assert(entry:open())
   assert(assert(Stream.read_all(first)) == "hello")
   local second, trouble = entry:open()
-  assert(second == nil and trouble:find("already opened", 1, true) ~= nil, trouble)
+  assert(second == nil and tostring(trouble):find("already opened", 1, true) ~= nil, tostring(trouble))
 end
 
 local function test_a_corrupt_checksum_is_refused()
@@ -266,13 +278,12 @@ local function test_a_corrupt_checksum_is_refused()
   local corrupt = "X" .. raw:sub(2)
   local r = Tar.reader(Stream.from_string(corrupt))
   local entry, trouble = r:next()
-  assert(entry == nil and trouble:find("checksum", 1, true) ~= nil, trouble)
+  assert(entry == nil and tostring(trouble):find("checksum", 1, true) ~= nil, tostring(trouble))
 end
 
 local function test_an_empty_stream_ends_the_archive_immediately()
   local r = Tar.reader(Stream.from_string(""))
-  local entry, trouble = r:next()
-  assert(entry == nil and trouble == "")
+  assert(ended(r))
 end
 
 local function test_gnu_long_name_archive_from_system_tar()
@@ -332,10 +343,10 @@ local function test_a_pax_header_claiming_a_huge_body_is_refused_without_reading
   local raw = header("PaxHeaders/f", "x", 1 << 30) .. string.rep("\0", 512)
   local r = Tar.reader(Stream.from_string(raw))
   local entry, trouble = r:next()
-  assert(entry == nil and trouble:find("limit", 1, true) ~= nil, trouble)
+  assert(entry == nil and tostring(trouble):find("limit", 1, true) ~= nil, tostring(trouble))
   -- and the failure is sticky
   local again, again_trouble = r:next()
-  assert(again == nil and again_trouble == trouble, again_trouble)
+  assert(again == nil and tostring(again_trouble) == tostring(trouble), tostring(again_trouble))
 end
 
 local function test_a_nul_byte_in_a_pax_path_or_linkpath_is_refused()
@@ -345,7 +356,7 @@ local function test_a_nul_byte_in_a_pax_path_or_linkpath_is_refused()
     local raw = header("PaxHeaders/f", "x", #rec) .. padded(rec) .. header("f", "2", 0) .. END
     local r = Tar.reader(Stream.from_string(raw))
     local entry, trouble = r:next()
-    assert(entry == nil and trouble:find("NUL", 1, true) ~= nil, key .. ": " .. tostring(trouble))
+    assert(entry == nil and tostring(trouble):find("NUL", 1, true) ~= nil, key .. ": " .. tostring(trouble))
   end
 end
 
@@ -379,8 +390,7 @@ local function test_global_pax_headers_keep_only_the_keys_the_reader_uses()
   local r = Tar.reader(Stream.from_string(global_pax_archive()))
   collectgarbage()
   local before = collectgarbage("count")
-  local entry, trouble = r:next()
-  assert(entry ~= nil, trouble)
+  local entry = entry_of(r)
   collectgarbage()
   local grown = collectgarbage("count") - before
   assert(grown < 1024, "reader retained " .. tostring(grown) .. " KiB")
@@ -393,7 +403,7 @@ local function test_a_nul_byte_inside_a_gnu_long_name_is_refused()
   local raw = header("././@LongLink", "L", #name) .. padded(name) .. header("f", "0", 0) .. END
   local r = Tar.reader(Stream.from_string(raw))
   local entry, trouble = r:next()
-  assert(entry == nil and trouble:find("NUL", 1, true) ~= nil, trouble)
+  assert(entry == nil and tostring(trouble):find("NUL", 1, true) ~= nil, tostring(trouble))
 end
 
 local function test_typeflag_7_is_a_file_and_sparse_or_unknown_ones_are_other()
@@ -410,8 +420,8 @@ local function test_typeflag_7_is_a_file_and_sparse_or_unknown_ones_are_other()
   local last: Tar.Entry?
   while true do
     local entry, trouble = r:next()
-    assert(trouble == "", trouble)
-    if entry == nil then break end
+    assert(entry ~= nil, trouble)
+    if entry == false then break end
     local e: Tar.Entry = entry
     kinds[#kinds + 1] = e.path .. "=" .. e.kind
     last = e
@@ -431,8 +441,9 @@ local function test_mtimes_outside_the_octal_field_round_trip_through_pax()
   local r = Tar.reader(Stream.from_string(c:result()))
   local seen: mut {string:integer} = {}
   while true do
-    local entry = r:next()
-    if entry == nil then break end
+    local entry, trouble = r:next()
+    assert(entry ~= nil, trouble)
+    if entry == false then break end
     local e: Tar.Entry = entry
     seen[e.path] = e.mtime
   end
@@ -446,8 +457,8 @@ local function test_a_failed_add_aborts_the_archive_and_fails_every_later_call(t
   local w = Tar.writer((assert(Stream.create(path))))
   assert(w:add_file("ok", "fine"))
   local ok, trouble = w:add_file("short", Stream.from_string("abc"), { size = 10 })
-  assert(not ok and trouble:find("stated size", 1, true) ~= nil, trouble)
-  local again = w:add_file("later", "x")
+  assert(not ok and tostring(trouble):find("stated size", 1, true) ~= nil, tostring(trouble))
+  local again, _ = w:add_file("later", "x")
   assert(not again)
   local closed, close_trouble = w:close()
   assert(not closed and close_trouble == trouble, close_trouble)
@@ -461,7 +472,7 @@ local function test_a_writer_refuses_entries_after_close()
   assert(w:close())
   assert(w:close())
   local ok, trouble = w:add_file("late", "x")
-  assert(not ok and trouble:find("closed", 1, true) ~= nil, trouble)
+  assert(not ok and tostring(trouble):find("closed", 1, true) ~= nil, tostring(trouble))
 end
 
 local function test_a_file_backed_reader_skips_bodies_and_notices_truncation(tmp: string)
@@ -471,26 +482,26 @@ local function test_a_file_backed_reader_skips_bodies_and_notices_truncation(tmp
   assert(w:add_file("small", "tiny"))
   assert(w:close())
   local r = Tar.reader((assert(Stream.open(path))))
-  assert((assert(r:next())).path == "big")
-  local small = assert(r:next())
+  assert(entry_of(r).path == "big")
+  local small = entry_of(r)
   assert(small.path == "small" and assert(Stream.read_all((assert(small:open())))) == "tiny")
-  assert(r:next() == nil)
+  assert(ended(r))
   assert(r:close())
   assert(r:close())
-  local after, after_trouble = r:next()
-  assert(after == nil and after_trouble ~= "")
+  local after, _ = r:next()
+  assert(after == nil)
 
   -- cut the file inside the first body: skipping it must fail, not end
   local whole = assert(Fs.read(path))
   local cut = tmp .. "/cut.tar"
   assert(Fs.write(cut, whole:sub(1, 100000)))
   local rc = Tar.reader((assert(Stream.open(cut))))
-  assert(rc:next())
+  local _ = entry_of(rc)
   local none, trouble = rc:next()
   assert(none == nil and
-      trouble == "tar: cannot skip to the next entry: stream: skip past the end of the file",
-    trouble)
-  rc:close()
+      tostring(trouble) == "tar: cannot skip to the next entry: stream: skip past the end of the file",
+    tostring(trouble))
+  local _, _ = rc:close()
 end
 
 local function test_numeric_and_text_fields_read_to_their_edges()
@@ -502,14 +513,14 @@ local function test_numeric_and_text_fields_read_to_their_edges()
     octal(0, 12) .. octal(7, 12) .. string.rep(" ", 8) .. "2" .. link ..
     "ustar\0" .. "00" .. string.rep("\0", 247)
   local r = Tar.reader(Stream.from_string(recompute_checksum(block) .. END))
-  local entry = assert(r:next())
+  local entry = entry_of(r)
   assert(entry.path == name, entry.path)
   assert(entry.linkpath == link, entry.linkpath)
   assert(entry.mode == 0x1a4, tostring(entry.mode))
   assert(entry.uid == 1000, tostring(entry.uid))
   assert(entry.gid == 25, tostring(entry.gid))
   assert(entry.mtime == 7, tostring(entry.mtime))
-  assert(r:next() == nil)
+  assert(ended(r))
 end
 
 --- A Reader over `data` that hands out at most `step` bytes a read
@@ -540,15 +551,14 @@ local function test_bodies_read_and_skipped_through_a_trickling_unseekable_reade
   assert(w:close())
   for _, step in ipairs({ 7, 512, 100000 }) do
     local r = Tar.reader(trickle(c:result(), step))
-    local a = assert(r:next())
+    local a = entry_of(r)
     assert(assert(Stream.read_all((assert(a:open())))) == "first")
-    local b = assert(r:next())
+    local b = entry_of(r)
     assert(assert(Stream.read_all((assert(b:open())))) == big)
-    assert((assert(r:next())).path == "skipped")
-    local last = assert(r:next())
+    assert(entry_of(r).path == "skipped")
+    local last = entry_of(r)
     assert(last.path == "b" and assert(Stream.read_all((assert(last:open())))) == "last")
-    local none, trouble = r:next()
-    assert(none == nil and trouble == "", trouble)
+    assert(ended(r))
   end
 end
 
@@ -559,10 +569,10 @@ local function test_a_stale_entry_cannot_be_opened()
   assert(w:add_file("b", "two"))
   assert(w:close())
   local r = Tar.reader(Stream.from_string(c:result()))
-  local a = assert(r:next())
-  local b = assert(r:next())
+  local a = entry_of(r)
+  local b = entry_of(r)
   local body, trouble = a:open()
-  assert(body == nil and trouble:find("no longer current", 1, true) ~= nil, trouble)
+  assert(body == nil and tostring(trouble):find("no longer current", 1, true) ~= nil, tostring(trouble))
   assert(assert(Stream.read_all((assert(b:open())))) == "two")
 end
 
@@ -574,7 +584,7 @@ local function test_a_reader_body_is_read_to_its_stated_size_and_no_further()
   assert(w:close())
   assert(assert(Stream.read_all(source)) == "efghij", "the writer read past its stated size")
   local r = Tar.reader(Stream.from_string(c:result()))
-  local entry = assert(r:next())
+  local entry = entry_of(r)
   assert(entry.size == 4 and assert(Stream.read_all((assert(entry:open())))) == "abcd")
 end
 
@@ -587,14 +597,17 @@ local function test_a_failing_body_names_what_the_writer_was_doing()
     close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
   local ok, trouble = w:add_file("f", bad, { size = 3 })
-  assert(not ok and trouble == "tar: add_file: disk on fire", trouble)
-  assert(not w:add_file("g", "x"))
+  assert(not ok and tostring(trouble) == "tar: add_file: disk on fire", tostring(trouble))
+  do
+    local done, _ = w:add_file("g", "x")
+    assert(not done)
+  end
 end
 
 local function test_a_link_target_holding_a_nul_byte_is_refused()
   local w = Tar.writer(Stream.collect())
   local ok, trouble = w:add_symlink("l", "a\0b")
-  assert(not ok and trouble == "tar: NUL byte in a link target", trouble)
+  assert(not ok and tostring(trouble) == "tar: NUL byte in a link target", tostring(trouble))
   -- A refused argument is not a failed write.
   assert(w:add_symlink("l", "ok"))
 end
@@ -611,9 +624,9 @@ local function test_a_failing_underlying_writer_is_answered_as_it_said_it()
   }
   local w = Tar.writer(full)
   local ok, trouble = w:add_file("f", Stream.from_string(string.rep("x", 100000)), { size = 100000 })
-  assert(not ok and trouble == "disk full", trouble)
+  assert(not ok and tostring(trouble) == "disk full", tostring(trouble))
   ok, trouble = w:close()
-  assert(not ok and trouble == "disk full", trouble)
+  assert(not ok and tostring(trouble) == "disk full", tostring(trouble))
 end
 
 local function test_a_header_checksum_counts_unsigned_bytes_and_its_own_field_as_spaces()
@@ -630,13 +643,13 @@ local function test_a_header_checksum_counts_unsigned_bytes_and_its_own_field_as
   assert(expected > 20 * 255)
   assert(tonumber(block:sub(149, 154), 8) == expected, block:sub(149, 156))
   local r = Tar.reader(Stream.from_string(c:result()))
-  local entry = assert(r:next())
+  local entry = entry_of(r)
   assert(entry.path == name, entry.path)
 end
 
 local function test_a_header_with_a_checksum_over_high_bytes_is_read()
   local block = header(("\200"):rep(30), "0", 0)
   local r = Tar.reader(Stream.from_string(block .. END))
-  local entry = assert(r:next())
+  local entry = entry_of(r)
   assert(entry.path == ("\200"):rep(30), entry.path)
 end

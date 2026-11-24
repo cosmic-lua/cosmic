@@ -70,16 +70,20 @@ local function write(fields: {string}): string?
       -- Half the bodies go in streamed, with a data descriptor: the
       -- reader, which goes by the central directory, must read both alike.
       if #body % 2 == 0 then
-        ok = zw:add_file(path, Stream.from_string(body), { method = method })
+        local made, _ = zw:add_file(path, Stream.from_string(body), { method = method })
+        ok = made
       else
-        ok = zw:add_file(path, body, { method = method })
+        local made, _ = zw:add_file(path, body, { method = method })
+        ok = made
       end
     else
-      ok = zw:add_dir(path)
+      local made, _ = zw:add_dir(path)
+      ok = made
     end
     if not ok then return nil end
   end
-  if not zw:close() then return nil end
+  local wrote, _ = zw:close()
+  if not wrote then return nil end
   return out:result()
 end
 
@@ -88,17 +92,15 @@ end
 local function walk(input: string): boolean, string
   local zr, trouble = Zip.open_string(input)
   if zr == nil then
-    if trouble == "" then return false, "open: nil without a reason" end
-    Fuzz.label(if trouble:find("not found", 1, true) then "no end record" else "refused at open" end)
+    Fuzz.label(if tostring(trouble):find("not found", 1, true) then "no end record" else "refused at open" end)
     return true, ""
   end
   Fuzz.label("opened")
   local ended = false
   for _ = 1, 10000 do
-    local e, ntrouble = zr:next()
-    if e == nil then
-      if ntrouble == nil then return false, "next: nil without a reason" end -- checked: compare_disjoint
-      Fuzz.label(if ntrouble == "" then "ended" else "refused" end)
+    local e, _ = zr:next()
+    if e == nil or e == false then
+      Fuzz.label(if e == false then "ended" else "refused" end)
       ended = true
       break
     else
@@ -108,7 +110,7 @@ local function walk(input: string): boolean, string
       end
       local body, otrouble = e:open()
       if body == nil then
-        Fuzz.label(if otrouble:find("local file header", 1, true) then "local header refused" else
+        Fuzz.label(if tostring(otrouble):find("local file header", 1, true) then "local header refused" else
           "body refused" end)
       end
       if body ~= nil then
@@ -123,7 +125,7 @@ local function walk(input: string): boolean, string
   end
   if not ended then return false, "more than 10000 entries from one input" end
   local _, _ = zr:entries()
-  zr:close()
+  local _, _ = zr:close()
   return true, ""
 end
 
@@ -132,23 +134,27 @@ end
 local function trail(input: string): string
   local lines: mut {string} = {}
   local zr, trouble = Zip.open_string(input)
-  if zr == nil then return "open: " .. trouble end
+  if zr == nil then return "open: " .. tostring(trouble) end
   for _ = 1, 10000 do
     local e, ntrouble = zr:next()
     if e == nil then
       lines[#lines + 1] = "end: " .. tostring(ntrouble)
       break
     end
+    if e == false then
+      lines[#lines + 1] = "end: "
+      break
+    end
     lines[#lines + 1] = (("entry %q %d"):format(e.path, e.size):gsub("\n", "n"))
     local body, otrouble = e:open()
     if body == nil then
-      lines[#lines + 1] = "body: " .. otrouble
+      lines[#lines + 1] = "body: " .. tostring(otrouble)
     else
       local data, rtrouble = Stream.read_all(body)
       lines[#lines + 1] = if data ~= nil then ("body %d"):format(#data) else "body: " .. tostring(rtrouble) end
     end
   end
-  zr:close()
+  local _, _ = zr:close()
   return table.concat(lines, "\n")
 end
 
@@ -391,12 +397,17 @@ local function test_what_the_writer_writes_the_reader_reads_back(tmp: string)
       if archive == nil then return true, "" end
       Fuzz.label("written")
       local zr, trouble = Zip.open_string(archive)
-      if zr == nil then return false, "open: " .. trouble end
+      if zr == nil then return false, "open: " .. tostring(trouble) end
       for i = 1, #fields, 4 do
         -- Four fields per entry, as in `write`.
         local kind, path, body = Array.at(fields, i), Array.at(fields, i + 1), Array.at(fields, i + 3)
         local e, ntrouble = zr:next()
-        if e == nil then return false, ("entry %d (%q): %s"):format(i // 4 + 1, path, ntrouble) end
+        if e == nil then
+          return false, ("entry %d (%q): %s"):format(i // 4 + 1, path, tostring(ntrouble))
+        end
+        if e == false then
+          return false, ("entry %d (%q): the archive ended"):format(i // 4 + 1, path)
+        end
         if (e.path:gsub("/+$", "")) ~= (path:gsub("/+$", "")) then
           return false, ("wrote path %q, read %q"):format(path, e.path)
         end
@@ -405,15 +416,17 @@ local function test_what_the_writer_writes_the_reader_reads_back(tmp: string)
         end
         if kind == "file" then
           local r, otrouble = e:open()
-          if r == nil then return false, ("%q: open: %s"):format(path, otrouble) end
+          if r == nil then return false, ("%q: open: %s"):format(path, tostring(otrouble)) end
           local data, rtrouble = Stream.read_all(r)
-          if data ~= body then return false, ("%q: the body differs: %s"):format(path, rtrouble) end
+          if data ~= body then
+            return false, ("%q: the body differs: %s"):format(path, tostring(rtrouble))
+          end
         end
       end
       local e, ntrouble = zr:next()
-      if e ~= nil then return false, "read an entry past the last written: " .. e.path end
-      if ntrouble ~= "" then return false, "the end read as a failure: " .. ntrouble end
-      zr:close()
+      if e == nil then return false, "the end read as a failure: " .. tostring(ntrouble) end
+      if e ~= false then return false, "read an entry past the last written: " .. e.path end
+      local _, _ = zr:close()
       return true, ""
     end,
   })

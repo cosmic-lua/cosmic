@@ -20,10 +20,8 @@ function Example.writer()
   local kinds: mut {string} = {}
   while true do
     local entry, trouble = r:next()
-    if entry == nil then
-      assert(trouble == "", trouble)
-      break
-    end
+    assert(entry ~= nil, trouble)
+    if entry == false then break end
     print(entry.path, entry.kind)
     kinds[#kinds + 1] = entry.kind
   end
