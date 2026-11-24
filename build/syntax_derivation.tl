@@ -2,10 +2,12 @@
 --- source requires, whether it returns a value and under what name, the tests it defines and the policy it declares,
 --- the failure messages it catalogs, the symbols it documents, the members of other modules it refers to, the names it
 --- binds to a module, its worked examples, the links of its comments, where it declares a global, where it declares a
---- type or a member of one, and its stub. It is the port of [`build.derivation`]'s `parse_fresh` for a source already
---- parsed ([`build.syntax_analyzer`] and [`build.syntax_link_text`] read it), which [`build.parse_derive`]'s `derive` calls.
+--- type or a member of one, its stub, and which of its lines could ever run. It is the port of [`build.derivation`]'s
+--- `parse_fresh` for a source already parsed ([`build.syntax_analyzer`] and [`build.syntax_link_text`] read it), which
+--- [`build.parse_derive`]'s `derive` calls.
 local Analyzer = require("build.syntax_analyzer")
 local Ast = require("lang.ast")
+local Executable = require("build.syntax_executable")
 local Globals = require("build.syntax_globals")
 local LinkText = require("cosmic.internal.link_text")
 local Members = require("build.syntax_members")
@@ -36,6 +38,8 @@ local record Derivation
     --- The links of its comments. A source that is generated from another (`mapped`) keeps none: they would name
     --- lines the file does not have.
     links: {LinkText.Found}
+    --- Which lines could ever run ([`build.syntax_executable.of_chunk`]), as the `executable` table holds them.
+    executable: string
   end
 
   --- What a caller that analysed `chunk` already holds of it: its scopes and [`build.syntax_analyzer`]'s analysis of it as
@@ -143,7 +147,8 @@ function Derivation.rows_of(chunk: Ast.Chunk, source: string, file: string, mapp
     places = kept
   end
   return { requires = Node.requires(chunk), globals = Globals.found(chunk), places = places,
-    members = Members.found(chunk), stub = stub, analysis = analysis, links = links }, ""
+    members = Members.found(chunk), stub = stub, analysis = analysis, links = links,
+    executable = Executable.joined(Executable.of_chunk(chunk)) }, ""
 end
 
 function Derivation.insert_stub(db: Sqlite.Handle, source_hash: string, file: string,
@@ -326,6 +331,11 @@ function Derivation.insert(db: Sqlite.Handle, source_hash: string, file: string,
     if not ok then
       return false, why
     end
+  end
+  -- OR REPLACE: [`build.coverage.syntax_lines.executable_cached`] writes a row of its own for a source it finds none of.
+  ok, why = put("INSERT OR REPLACE INTO executable (source_hash, lines) VALUES (?1, ?2)", { hash, text(rows.executable) })
+  if not ok then
+    return false, why
   end
   local stub = rows.stub
   if stub ~= nil and given ~= nil then

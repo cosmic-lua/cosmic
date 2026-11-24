@@ -1,7 +1,9 @@
 --- Tests of [`build.coverage.syntax_lines`]: the executable lines of a source in the new grammar, and the
---- `executable` table [`build.work`]'s schema adds so a run where a module's source has not changed answers from
---- `build.db` instead of reparsing it.
+--- `executable` table ([`build.analysis_schema`]'s) that a parse fills, so a run where a module's source has not changed
+--- answers from `build.db` instead of reparsing it.
 local Array = require("cosmic.array")
+local Derivation = require("build.syntax_derivation")
+local Node = require("build.syntax_node")
 local Hits = require("build.coverage_hits")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
@@ -86,6 +88,20 @@ local function test_a_hit_returns_the_stored_answer_without_reparsing(tmp: strin
     "local a = 1\nlocal b = 2\nlocal c = 3\n", "hit.tl")
   assert(second ~= nil, second_trouble)
   assert(same_lines(first, second), "a hit should return the first call's answer, not a fresh parse")
+  assert(count(handle.db, "executable") == 1)
+  assert(work.close(handle))
+end
+
+--- The row a build's parse writes is the one read: coverage parses nothing where the build did.
+local function test_a_parse_s_row_is_read_without_parsing_again(tmp: string)
+  local handle = assert(work.open(tmp))
+  local source = "local x = 1\nlocal y = 2\n"
+  local chunk = assert(Node.parse(source, "m.tl"))
+  assert(Derivation.insert(handle.db, "parsed-hash", "m.tl", source, chunk, false))
+  -- Text that does not parse: answered from the row, so it is never read.
+  local found, trouble = lines.executable_cached(handle.db, "parsed-hash", "local (", "m.tl")
+  assert(found ~= nil, trouble)
+  assert(found[1] == true and found[2] == true)
   assert(count(handle.db, "executable") == 1)
   assert(work.close(handle))
 end
