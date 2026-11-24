@@ -956,7 +956,7 @@ end
 
 --- The program `restrict_self` adds where no grant gives `x`, over whatever
 --- holds a process already: it refuses execve and execveat, and lets every
---- other call through for the filters before it to answer.
+--- other call through for the filters before it to decide.
 local function test_the_no_x_filter_refuses_exec_alone()
   local options: raw_process.PromiseOptions = { no_x_only = true }
   holds_on_both({}, {
@@ -975,7 +975,7 @@ local function test_the_no_x_filter_refuses_exec_alone()
       assert(got == want, arch .. " " .. tostring(number) .. " is " .. got .. ", not " .. want)
     end
   end
-  -- x32's execve is 520 with bit 30 set: every x32 call answers ENOSYS.
+  -- x32's execve is 520 with bit 30 set: every x32 call fails with ENOSYS.
   local x86 = decode(process.promise_filter({}, "x86_64", options))
   assert(verdict(run(x86, audit_of("x86_64"), 0x40000000 + 520, {})) == "ENOSYS")
   Test.raises(function() process.promise_filter({ "fork" }, "x86_64", options) end)

@@ -241,7 +241,7 @@ local record Test
   end
 
   --- What the run of a test does that makes the same work cost more than
-  --- a plain run does: what [`Test.mode`] answers. A test that holds one
+  --- a plain run does: what [`Test.mode`] returns. A test that holds one
   --- piece of work to a multiple of another ([`lang.speed`]) reads it to
   --- give each mode a limit of its own, since a mode need not slow both
   --- sides alike.

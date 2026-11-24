@@ -219,7 +219,7 @@ end
 --- Paths are met as written, cleaned, while the kernel meets the files
 --- they name: a link (`/lib` to `/usr/lib`) or a relative path read from
 --- two directories is not seen. Give real, absolute paths where the
---- answer is to be exact. A `connect` target of "*" meets names alone,
+--- result is to be exact. A `connect` target of "*" meets names alone,
 --- since the relay opens no address or tailnet node by it.
 ---
 ---     local a = { grants = { { path = "/srv", letters = "rwx" } }, connect = { "*:443" } }
@@ -605,7 +605,7 @@ end
 --- Grants that give `x` nowhere refuse every execve, for good: Landlock
 --- refuses every file, and on Linux a seccomp filter derived from the
 --- grants refuses execve and execveat first (EPERM, where Landlock
---- answers EACCES), in every thread, a second layer for what no ruleset
+--- fails with EACCES), in every thread, a second layer for what no ruleset
 --- reaches, such as a memfd run by its descriptor. It is no refusal of
 --- foreign code: a file the process may read it may still map executable,
 --- which native code could run with no execve (the cosmic environment

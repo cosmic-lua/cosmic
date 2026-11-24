@@ -87,7 +87,7 @@ function Proc.executable(): (string) | (nil, Failure)
   return path
 end
 
---- Looks up an explicitly named account, answering its uid and primary
+--- Looks up an explicitly named account, returning its uid and primary
 --- gid, or nil and a [`Failure`]: of kind "other" and the message
 --- [`Proc.NO_ACCOUNT`] for a name no account has, or of kind "system"
 --- with the lookup's errno where it failed. Empty names and NUL bytes
@@ -179,10 +179,10 @@ local DEFAULT_PATH <const> = "/bin:/usr/bin"
 --- itself when it holds a slash, otherwise the first executable regular
 --- file in `path`, a colon-separated list that defaults to PATH (or
 --- /bin:/usr/bin when PATH is unset). Empty entries search the working
---- directory; relative entries give relative answers. A slash-containing
+--- directory; relative entries give relative results. A slash-containing
 --- name is resolved without checking that it exists or can execute.
 ---
---- With no executable match it answers nil and a system [`Failure`], as
+--- With no executable match it returns nil and a system [`Failure`], as
 --- a shell's 127 and 126 tell apart: `EACCES` about the first regular
 --- file this process cannot execute, else `ENOENT` about `name`. A
 --- directory or a path that cannot be inspected is not a candidate. An

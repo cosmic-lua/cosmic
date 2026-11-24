@@ -1082,11 +1082,11 @@ static size_t truncation_program_for (struct cosmic_insn *out, enum cosmic_arch 
 
 /* Writes to `out`, room for COSMIC_PROMISE_INSNS, the program a process
  * of `arch` holds itself to so that it runs no program from then on, over
- * whatever filter and ruleset already hold it: execve and execveat answer
- * EPERM, a call of x86_64's x32 numbers (whose execve is 520 | bit 30)
- * answers ENOSYS, as [`truncation_program_for`] answers it, and a call of
+ * whatever filter and ruleset already hold it: execve and execveat fail
+ * with EPERM, a call of x86_64's x32 numbers (whose execve is 520 | bit 30)
+ * fails with ENOSYS, as [`truncation_program_for`] has it, and a call of
  * another architecture ends the process. Every other call is allowed, for
- * the filters before it to answer. Answers how many instructions it is. */
+ * the filters before it to decide. Returns how many instructions it is. */
 static size_t no_x_program_for (struct cosmic_insn *out, enum cosmic_arch arch) {
   const short *numbers = arch == COSMIC_ARCH_X86_64 ? x86_64_numbers : aarch64_numbers;
   uint32_t audit = arch == COSMIC_ARCH_X86_64 ? AUDIT_X86_64 : AUDIT_AARCH64;
@@ -1221,7 +1221,7 @@ int cosmic_no_x_apply (void) {
    * second thread already, so this is a second guard, not the only one. */
   long synced = syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_TSYNC, &program);
   if (synced < 0) return errno;
-  /* A positive answer names a thread that could not take the filter. */
+  /* A positive result names a thread that could not take the filter. */
   if (synced > 0) return EBUSY;
   return 0;
 #else

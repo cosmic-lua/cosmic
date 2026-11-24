@@ -305,7 +305,7 @@ local BUSY <const> = 5
 local FIRST_PAUSE <const> = 1000000
 local LONGEST_PAUSE <const> = 50000000
 
---- How a call the core answered BUSY without waiting goes on: "again"
+--- How a call the core returned BUSY for without waiting goes on: "again"
 --- once this task has paused, "blocks" where the caller cannot park
 --- (no task of [`Poll.run`], or one being killed), "spent" once the
 --- handle's wait has passed, and "cancelled" where the task was
@@ -517,18 +517,18 @@ local class Query
   --- `each` loop that ran out, nil means every row was read. A `break`,
   --- or a `close` inside the loop, ends it early with no failure of its
   --- own; a statement that writes, closed so, can fail as it commits,
-  --- which this then answers.
+  --- which this then returns.
   function failure(self): Failure?
     return self.failed
   end
 
   --- Finalizes the statement, so the handle can close; the last
   --- row, a failure and a `<close>` variable each do it too. A read
-  --- afterward fails. Answers `true`, or `false` and why the rows
+  --- afterward fails. Returns `true`, or `false` and why the rows
   --- failed ([`Query.failure`]): a write that returns rows
   --- (`INSERT ... RETURNING`) closed before its last row commits here
-  --- in autocommit, and can fail. Closing again answers the same. A
-  --- `<close>` variable drops that answer: close such a write by hand.
+  --- in autocommit, and can fail. Closing again returns the same. A
+  --- `<close>` variable drops that result: close such a write by hand.
   function close(self): (true) | (false, Failure)
     finish(self)
     local failure = self.failed
@@ -602,7 +602,7 @@ local function prepared(handle: raw_sqlite.Handle, sql: string,
   error(said, 3)
 end
 
---- `sql`, one statement that binds nothing and answers no row, run once
+--- `sql`, one statement that binds nothing and yields no row, run once
 --- on `handle` through its kept statements: nil, or why it failed.
 local function executed(handle: raw_sqlite.Handle, sql: string): Failure?
   local statement, trouble = prepared(handle, sql, nil, true, true)
@@ -1218,7 +1218,7 @@ local class Handle
   --- task waits so, another task's run or query on the same handle waits
   --- its turn behind it, and its `db:exec` fails [`Sqlite.BUSY`] at once.
   --- These hold the thread while they wait, as outside a task: a step
-  --- after a query's first row, a PRAGMA (a checkpoint answers its busy
+  --- after a query's first row, a PRAGMA (a checkpoint yields its busy
   --- row where the wait is declined), `db:exec`, a commit at the reset
   --- of a statement stopped on a row, [`Handle.wal`] and a borrowed
   --- handle. A write in rollback mode that parks gives up its claim on

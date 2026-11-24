@@ -105,11 +105,11 @@ struct statement {
    * it until `release` hands it to the cache. */
   char *sql;
   size_t len;
-  /* Whether a step of this run has answered a row: a BUSY after one is
+  /* Whether a step of this run has yielded a row: a BUSY after one is
    * not parked, since the step run again would start the rows over. */
   bool rowed;
   /* Whether its BUSY may park: no PRAGMA, since a checkpoint (`PRAGMA
-   * wal_checkpoint`) calls the busy handler and answers its row as busy
+   * wal_checkpoint`) calls the busy handler and yields its row as busy
    * when the handler declines, with no BUSY to try again on. */
   bool parkable;
 };
@@ -156,7 +156,7 @@ static int wait_busy (void *context, int previous) {
 }
 
 /* Whether a call on `h` that starts a run must wait for the statement
- * parked on it (`parked_on` in struct handle); when it must, the call answers BUSY with
+ * parked on it (`parked_on` in struct handle); when it must, the call returns BUSY with
  * this reason ([`stopped_reason`]) and parks as `parks` says. */
 static bool turn_taken (struct handle *h, const struct statement *s) {
   if (h->parked_on == NULL || h->parked_on == s) return false;

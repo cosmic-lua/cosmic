@@ -137,7 +137,7 @@ int cosmic_truncation_apply (void);
 /* Holds the calling process, for good, to call no execve: no_new_privs,
  * and a filter over whatever holds it already that refuses execve and
  * execveat with EPERM (and x32's calls with ENOSYS) in every thread,
- * allowing every other call for the filters before it to answer
+ * allowing every other call for the filters before it to decide
  * (core/promises.c's `no_x_program_for`). `restrict_self`
  * (core/syscalls.c) adds it where no grant gives `x`: a layer derived
  * from the grants, under Landlock's. A file the process reads it may

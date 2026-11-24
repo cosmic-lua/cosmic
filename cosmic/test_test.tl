@@ -56,7 +56,7 @@ local function test_skip_raises_what_the_runner_answers()
   assert(#given == 1 and given[1] == "no kernel")
 end
 
---- `mode` answers what the runner says of the run. Run under stand-in
+--- `mode` returns what the runner says of the run. Run under stand-in
 --- runners, put back as it was.
 local function test_mode_reads_what_the_runner_says()
   local module = fields_of(Test)

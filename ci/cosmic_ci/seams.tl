@@ -128,7 +128,7 @@ local current: Seams.Calls = {
     if text == nil then return nil, tostring(why) end
     return text, ""
   end,
-  -- Words on both checkers: the pinned release answers a string, this checkout a Failure.
+  -- Words on both checkers: the pinned release returns a string, this checkout a Failure.
   proc_user = function(name: string): Proc.User?, string
     local account, why = Proc.user(name)
     if account == nil then return nil, tostring(why) end
