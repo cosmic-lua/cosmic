@@ -2851,6 +2851,12 @@ function Parser.parse(lexed: Lexer.Lexed, name: string, dialect: Ast.Dialect): P
   for i, req in ipairs(S.requires) do
     req.node = base_of(S.require_nodes[i]).id -- checked: index_may_be_nil
   end
+  -- A call that error recovery left out of the tree has no id: its
+  -- require is of no node, so it is not one of the chunk's.
+  for i = #S.requires, 1, -1 do
+    local req = S.requires[i]
+    if req ~= nil and req.node == 0 then table.remove(S.requires, i) end
+  end
   local errors = S.errors
   for _, e in ipairs(lexed.errors) do
     errors[#errors + 1] = {
