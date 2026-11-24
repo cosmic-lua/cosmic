@@ -491,6 +491,14 @@ int cosmic_sqlite_functions (sqlite3 *db) {
    * pragma_optimize, which runs ANALYZE. */
   int rc = sqlite3_db_config(db, SQLITE_DBCONFIG_TRUSTED_SCHEMA, 0,
                              (int *)NULL);
+  /* Nor is the SQL a connection runs: in defensive mode, what ordinary SQL
+   * could otherwise use to corrupt a file is refused (a write to
+   * sqlite_schema, whatever PRAGMA writable_schema says, or to the shadow
+   * tables of FTS5 and the R*Tree) or changes nothing (PRAGMA
+   * journal_mode = OFF and schema_version = N). A handle opened with `defensive`
+   * false ([`open_database`]) turns it off again. */
+  if (rc == SQLITE_OK)
+    rc = sqlite3_db_config(db, SQLITE_DBCONFIG_DEFENSIVE, 1, (int *)NULL);
   for (size_t i = 0; rc == SQLITE_OK && i < sizeof functions / sizeof *functions;
        i++) {
     rc = sqlite3_create_function(
@@ -547,6 +555,7 @@ static int open_database (lua_State *L, bool result) {
   int writable = lua_toboolean(L, 2);
   int immutable = lua_toboolean(L, 3);
   int create = lua_isnoneornil(L, 4) || lua_toboolean(L, 4);
+  int defensive = lua_isnoneornil(L, 5) || lua_toboolean(L, 5);
   if (writable && immutable) {
     return luaL_error(L, "sqlite: a database cannot be both writable and immutable");
   }
@@ -600,6 +609,8 @@ static int open_database (lua_State *L, bool result) {
   if (rc == SQLITE_OK) rc = sqlite3_busy_timeout(h->db, 60000);
   if (rc == SQLITE_OK) sqlite3_limit(h->db, SQLITE_LIMIT_ATTACHED, ATTACHED_DEFAULT);
   if (rc == SQLITE_OK) rc = cosmic_sqlite_functions(h->db);
+  if (rc == SQLITE_OK && !defensive)
+    rc = sqlite3_db_config(h->db, SQLITE_DBCONFIG_DEFENSIVE, 0, (int *)NULL);
   if (result) {
     capture(L, &out, h->db, rc, NULL);
     if (rc != SQLITE_OK) {

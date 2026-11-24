@@ -158,11 +158,19 @@ local function test_a_schema_of_more_than_a_table_is_refused(tmp: string)
   local from, into = tmp .. "/queue", tmp .. "/verdicts"
   assert(Fs.mkdirs(from))
   assert(Fs.mkdirs(into))
+  -- The second statement goes in over a comment of the same length, in the
+  -- file's bytes: a defensive handle writes no schema text.
+  local marker = "/*" .. string.rep("A", 20) .. "*/"
+  -- The `--` comments out the table's own `)`, so the second statement is a whole one. SQLite refuses a schema
+  -- row with text past its statement as malformed, which is one of the refusals this test allows.
+  local hostile = "); DROP TABLE kept --" .. string.rep(" ", #marker - 21)
   local db = assert(Sqlite.open(from .. "/verdicts.db", { writable = true }))
-  assert(db:exec("CREATE TABLE declared_v1 (key TEXT PRIMARY KEY, origin TEXT NOT NULL); " ..
-      "INSERT INTO declared_v1 VALUES ('a', 'queue'); PRAGMA writable_schema = ON; " ..
-      "UPDATE sqlite_schema SET sql = sql || '; DROP TABLE kept' WHERE name = 'declared_v1'"))
+  assert(db:exec("CREATE TABLE declared_v1 (key TEXT PRIMARY KEY, origin TEXT NOT NULL" .. marker .. "); " ..
+      "INSERT INTO declared_v1 VALUES ('a', 'queue')"))
   assert(db:close())
+  local bytes = assert(Fs.read(from .. "/verdicts.db"))
+  local at = assert(bytes:find(marker, 1, true), "the schema text is in the file")
+  assert(Fs.write(from .. "/verdicts.db", bytes:sub(1, at - 1) .. hostile .. bytes:sub(at + #marker)))
   db = assert(Sqlite.open(into .. "/verdicts.db", { writable = true }))
   assert(db:exec("CREATE TABLE kept (key TEXT PRIMARY KEY)"))
   assert(db:close())

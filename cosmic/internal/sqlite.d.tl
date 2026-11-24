@@ -225,10 +225,12 @@ local record sqlite
   --- so a database with commits still in its `-wal` shows without them:
   --- open it the ordinary read-only way instead. Giving it with
   --- `writable` raises. Writable opens create a missing file unless
-  --- `create` is explicitly false; read-only opens never create.
-  open: function(path: string, writable?: boolean, immutable?: boolean, create?: boolean): Handle?, string
+  --- `create` is explicitly false; read-only opens never create. Every
+  --- handle checks each cell's size as it reads it, and is in SQLite's
+  --- defensive mode unless `defensive` is explicitly false.
+  open: function(path: string, writable?: boolean, immutable?: boolean, create?: boolean, defensive?: boolean): Handle?, string
   --- A captured open outcome. Invalid path/options raise.
-  open_result: function(path: string, writable?: boolean, immutable?: boolean, create?: boolean): OpenResult
+  open_result: function(path: string, writable?: boolean, immutable?: boolean, create?: boolean, defensive?: boolean): OpenResult
   --- Disowns every connection this process has open through this module ([`cosmic.sqlite`]'s `disown`).
   disown: function()
   --- The SQLite library's version, such as "3.54.1".
