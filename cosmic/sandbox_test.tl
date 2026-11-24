@@ -709,7 +709,7 @@ end
 
 --- Each action asks one letter: `c` of the directory that holds the name,
 --- the rest of the path itself, as the kernel decides; a write of a name
---- not there yet makes it, and asks `c` too.
+--- not there yet makes it, and asks `w` and `c` of its directory.
 local function test_permits_asks_each_action_of_the_path_or_its_directory(tmp: string)
   local base = assert(Fs.absolute(tmp))
   local inside, outside = base .. "/in", base .. "/out"
@@ -726,9 +726,12 @@ local function test_permits_asks_each_action_of_the_path_or_its_directory(tmp: s
   local dir: Sandbox.Policy = { grants = { { path = inside, letters = "rwc" } } }
   assert(permitted(dir, inside .. "/new.txt", "create") and not permitted(dir, outside .. "/new.txt", "create"))
   assert(not permitted(dir, inside .. "/f.txt", "run"))
-  -- A write of a name not there makes it: `w` alone does not.
+  -- A write of a name not there makes it and writes it: `w` alone, or
+  -- `c` alone, does not.
   local written: Sandbox.Policy = { grants = { { path = inside, letters = "rw" } } }
   assert(permitted(written, inside .. "/f.txt", "write") and not permitted(written, inside .. "/new.txt", "write"))
+  local made_only: Sandbox.Policy = { grants = { { path = inside, letters = "rc" } } }
+  assert(permitted(made_only, inside .. "/new.txt", "create") and not permitted(made_only, inside .. "/new.txt", "write"))
   assert(permitted(dir, inside .. "/new.txt", "write"))
   -- A link outside the grant is written at its target, in it; it is
   -- removed or made again where it is, outside.

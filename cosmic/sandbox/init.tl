@@ -303,9 +303,10 @@ local ACTIONS <const>: {string:{letter: string, directory: boolean}} = {
 --- "remove" ask `c` of the directory that holds the name, as Landlock
 --- grants it, and do not follow a link that is the last name, as unlink
 --- and a create of the name do not; "write" of a name not there yet asks
---- that `c` too, since writing it makes it. Every other name is checked
---- by its real name ([`Sandbox.real`]), so a link out of a grant is
---- checked at its target, and a dangling link is refused.
+--- `w` and `c` of its directory, since writing it makes it, and a grant
+--- of the name alone named the file that was there. Every other name is
+--- checked by its real name ([`Sandbox.real`]), so a link out of a grant
+--- is checked at its target, and a dangling link is refused.
 ---
 --- Each grant is resolved by its real name as this is called, a relative
 --- one from `cwd` (this process's working directory where nil), while
@@ -336,6 +337,7 @@ function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, c
   local merged, why = rules.merge(policy)
   if merged == nil then return nil, why end
   local letter, of_directory = asked.letter, asked.directory
+  local creates = false
   local real = ""
   if of_directory or action == "write" then
     local name = Fs.basename(path)
@@ -348,8 +350,7 @@ function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, c
     if action == "write" then
       local there, _ = sys.lstat(real)
       if there == nil then
-        of_directory = true
-        letter = "c"
+        creates = true
       else
         local resolved, resolve_why = Sandbox.real(path)
         if resolved == nil then return nil, resolve_why end
@@ -374,7 +375,9 @@ function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, c
     local here, _ = sys.getcwd()
     base = here
   end
-  local checked = if of_directory then Fs.dirname(named) else named end
+  -- A new name has no grant of its own yet: its `w`, as its `c`, comes
+  -- from its directory's.
+  local checked = if of_directory or creates then Fs.dirname(named) else named end
   local grants: mut {Sandbox.Grant} = {}
   local skipped: mut {string} = {}
   for _, grant in ipairs(merged.grants or {}) do
@@ -396,6 +399,10 @@ function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, c
     end
   end
   local allowed, allow_why = rules.allows({ grants = grants }, checked, letter)
+  if allowed and creates then
+    -- Opening a new name to write it needs w on it and c in its directory.
+    allowed, allow_why = rules.allows({ grants = grants }, checked, "c")
+  end
   if not allowed then
     local note = ""
     if #skipped > 0 then
