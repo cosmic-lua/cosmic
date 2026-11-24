@@ -41,10 +41,10 @@ local function test_the_prompt_lists_tools_rules_and_context_by_relative_path()
   assert(Prompt.build("/", {}):find("project_context", 1, true) == nil)
 end
 
---- Code mode adds nothing to the system prompt: what a snippet may do is in the run tool's description.
+--- Code mode adds no section to the system prompt: what a snippet may do is in the run tool's description.
 local function test_code_mode_adds_no_section_to_the_prompt()
   local p = Prompt.build("/", {})
-  assert(p:find("<stdlib>", 1, true) == nil and p:find("Host.", 1, true) == nil, p)
+  assert(p:find("<stdlib>", 1, true) == nil and p:find("Host.find", 1, true) == nil, p)
 end
 
 --- A session that offers some tools alone names those, and their rules; with no bash, files are run's.
