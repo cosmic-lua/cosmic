@@ -451,7 +451,8 @@ local function laid_out(system: Agent.System, server: Agent.Server, tool: Agent.
     command = Json.array({ tool.path, "--standalone", dir .. "/server.tl", dir .. "/data.tsv" }),
     policy = { profiles = Json.array({ "cosmic" }), grants = Json.array({ { path = dir, letters = "r" } }) },
   } }
-  system.put(dir .. "/mcp.json", assert(Json.encode({ servers = servers })))
+  local encoded = assert(Json.encode({ servers = servers }))
+  system.put(dir .. "/mcp.json", encoded)
   local opened = system.run({ "chmod", "-R", "a+rX", dir }, "/", nil, 60)
   assert(opened.code == 0, "chmod " .. dir .. ": " .. opened.stderr)
   return dir .. "/mcp.json"
