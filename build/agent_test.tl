@@ -328,7 +328,7 @@ local function test_the_sandbox_on_the_command_line()
   local read_only, ra = cli({ "ask", "--new", "--sandbox", "read", "--without", "sql", "go" }, KEYED, { text_reply("done") })
   local offered = ra.bodies[1] or ("no request: " .. read_only.err)
   assert(read_only.code == 0 and offered:find('"name":"edit"', 1, true) == nil and
-    offered:find('"name":"write"', 1, true) == nil and offered:find('"name":"read"', 1, true) ~= nil, offered)
+      offered:find('"name":"write"', 1, true) == nil and offered:find('"name":"read"', 1, true) ~= nil, offered)
   local shown = cli({ "policy" }, KEYED, {})
   assert(shown.out:find("^programs: ") ~= nil, shown.out)
   local with_bash = cli({ "policy", "--with", "bash" }, KEYED, {})

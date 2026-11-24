@@ -345,7 +345,9 @@ function Policy.of(cwd: string, config: Policy.Config): Sandbox.Policy?, string
   local cert: string? = nil
   if config.network and config.cert_file ~= nil and config.cert_file ~= "" then
     local real, real_why = Fs.absolute(config.cert_file)
-    if real == nil then return nil, "SSL_CERT_FILE " .. tostring(config.cert_file) .. ": " .. tostring(real_why) end
+    if real == nil then
+      return nil, "SSL_CERT_FILE " .. tostring(config.cert_file) .. ": " .. tostring(real_why)
+    end
     cert = real
     grants[#grants + 1] = { path = real, letters = "r" }
   end

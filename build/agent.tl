@@ -1,7 +1,7 @@
 --- `cosmic agent`: a small coding agent, after pi. Claude, through the
 --- Messages API, with tools to read, write and edit files, run commands
---- (in the foreground or as background jobs), check and run snippets of
---- Teal, and query what it has kept, held to a sandbox. `cosmic agent
+--- (in the foreground or as background jobs), check and run snippets in
+--- the cosmic environment, and query what it has kept, held to a sandbox. `cosmic agent
 --- worker` is the process that runs the snippets ([`build.agent_worker`]);
 --- the agent starts it. [`cosmic.agent`] runs the loop; this reads the
 --- command line, opens the sessions database and writes what the model
@@ -10,7 +10,9 @@
 --- `cosmic agent ask [prompt...]` runs one prompt to the end: the words
 --- given, else all of standard input. `chat` takes a prompt a line, in
 --- one conversation, until `/exit` or the end of standard input. `resume`
---- finishes the turn a run left unfinished. `rpc` runs one session for
+--- finishes the turn a run left unfinished. ask and chat go on with the
+--- newest session here unless `--new`; `--fork` goes on in a copy of
+--- one. `rpc` runs one session for
 --- another program. `sessions` lists the newest sessions in the working
 --- directory, `prompt` prints the system prompt the model reads (then the
 --- working directory, which follows it past its cache mark), and
@@ -479,7 +481,7 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
     end
   elseif #held > 0 then
     r.io.err("cosmic: agent: going on with session " .. tostring(id) .. " (" .. String.counted(#held, "message") ..
-      "); --new starts a fresh one")
+        "); --new starts a fresh one")
   end
   local s = Agent.new({ model = model, effort = effort, sign = sign, base_url = base, cwd = here,
     send = r.io.send, system = Prompt.build(here, Prompt.contexts(here), { servers = servers, tools = offered }),
@@ -905,10 +907,10 @@ local function policy(r: Run, got: Flags.Parsed): integer
     r.io.out("programs: bash runs those the grants below let it run (x)")
   elseif not Sandbox.on_macos() then
     r.io.out("programs: none run, since no tool offered is bash: the sandbox lets no file but cosmic's own run, " ..
-      "whatever x the grants below give (--with bash runs them)")
+        "whatever x the grants below give (--with bash runs them)")
   else
     r.io.out("programs: no tool offered is bash, but on macOS a snippet may still run those the grants below let it " ..
-      "run (x)")
+        "run (x)")
   end
   for _, line in ipairs(Policy.describe(merged, sandbox_home(r))) do r.io.out(line) end
   return bare.ok
