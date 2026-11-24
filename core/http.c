@@ -40,6 +40,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <arpa/inet.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -1322,6 +1323,84 @@ static CURLcode set_method (struct transfer *t, const struct request *r,
   return CURLE_OK;
 }
 
+/* Whether `host`, as a parsed URL holds it (an IPv6 address in
+ * brackets), is this machine: 127/8, ::1, IPv4-mapped 127/8, or
+ * "localhost", which curl resolves to loopback itself. */
+static bool loopback_host (const char *host) {
+  char inner[64];
+  size_t n = strlen(host);
+  if (strcasecmp(host, "localhost") == 0) return true;
+  if (n >= 2 && host[0] == '[' && host[n - 1] == ']' && n - 2 < sizeof inner) {
+    memcpy(inner, host + 1, n - 2);
+    inner[n - 2] = '\0';
+    host = inner;
+  }
+  unsigned char a[16];
+  if (inet_pton(AF_INET, host, a) == 1) return a[0] == 127;
+  if (inet_pton(AF_INET6, host, a) != 1) return false;
+  static const unsigned char one[16] = {[15] = 1};
+  static const unsigned char mapped[12] = {[10] = 0xff, [11] = 0xff};
+  return memcmp(a, one, 16) == 0 || (memcmp(a, mapped, 12) == 0 && a[12] == 127);
+}
+
+/* The host `url` names, for the caller to curl_free; NULL where it
+ * cannot be read. A proxy may be given with no scheme. */
+static char *host_of (const char *url) {
+  CURLU *u = curl_url();
+  char *host = NULL;
+  if (u != NULL && curl_url_set(u, CURLUPART_URL, url, CURLU_GUESS_SCHEME) == CURLUE_OK &&
+      curl_url_get(u, CURLUPART_HOST, &host, 0) != CURLUE_OK) {
+    host = NULL;
+  }
+  curl_url_cleanup(u);
+  return host;
+}
+
+/* The proxy curl would take from the environment for `scheme`, as
+ * curl reads it: http_proxy in lower case only for http, then
+ * all_proxy. NULL for none. */
+static const char *env_proxy (const char *scheme) {
+  const char *got = NULL;
+  if (strcasecmp(scheme, "https") == 0) {
+    got = getenv("https_proxy");
+    if (got == NULL || *got == '\0') got = getenv("HTTPS_PROXY");
+  } else {
+    got = getenv("http_proxy");
+  }
+  if (got == NULL || *got == '\0') got = getenv("all_proxy");
+  if (got == NULL || *got == '\0') got = getenv("ALL_PROXY");
+  return got != NULL && *got != '\0' ? got : NULL;
+}
+
+/* Whether a request to `url` must not take the environment's proxy:
+ * its host is this machine and the proxy is not, so the request, and
+ * a token in its headers, would leave the machine, in the clear for
+ * http. A proxy on this machine, such as a sandbox's relay to the
+ * host's services, is kept. With redirects followed, the hops after
+ * the first go direct too. A URL that cannot be read keeps the proxy,
+ * which curl then refuses or uses as it would have; a proxy that cannot
+ * be read is skipped. */
+static bool skips_proxy (const char *url) {
+  CURLU *u = curl_url();
+  char *scheme = NULL;
+  char *host = NULL;
+  bool skips = false;
+  if (u != NULL && curl_url_set(u, CURLUPART_URL, url, 0) == CURLUE_OK &&
+      curl_url_get(u, CURLUPART_SCHEME, &scheme, 0) == CURLUE_OK &&
+      curl_url_get(u, CURLUPART_HOST, &host, 0) == CURLUE_OK && loopback_host(host)) {
+    const char *proxy = env_proxy(scheme);
+    if (proxy != NULL) {
+      char *at = host_of(proxy);
+      skips = at == NULL || !loopback_host(at);
+      curl_free(at);
+    }
+  }
+  curl_free(scheme);
+  curl_free(host);
+  curl_url_cleanup(u);
+  return skips;
+}
+
 /* Every option but the headers and the script. */
 static CURLcode configure (struct transfer *t, const struct request *r,
                            const char **which) {
@@ -1349,6 +1428,7 @@ static CURLcode configure (struct transfer *t, const struct request *r,
   /* Servers and CDNs refuse a request with none; a header the caller
    * sets by that name replaces it. */
   SET(CURLOPT_USERAGENT, "cosmic");
+  if (skips_proxy(r->url)) SET(CURLOPT_PROXY, "");
   if (r->ca_blob != NULL) {
     /* curl parses the blob into each connection's own chain, and keys
      * connection reuse and TLS session resumption on it, so a request
