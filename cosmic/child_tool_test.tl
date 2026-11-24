@@ -162,7 +162,8 @@ end
 --- in a relaunched process, since one that already ignores SIGPIPE (a
 --- test runner that fed some child `input`) has no case to show.
 local function test_writing_to_a_gone_stdin_stream_fails_instead_of_ending(tmp: string)
-  if Proc.relaunch() == nil then
+  local relaunched, _ = Proc.relaunch()
+  if relaunched == nil then
     Test.skip("a native start has nothing to relaunch")
     return
   end

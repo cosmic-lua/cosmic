@@ -45,7 +45,7 @@ function VerifyCodesign.verify(sysname: string, binary: string, path?: string): 
   -- message says which.
   local tool, missing = Proc.find("codesign", path)
   if tool == nil then
-    log:complain(missing)
+    log:complain(tostring(missing))
     return 127
   end
   for _, args in ipairs({

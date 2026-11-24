@@ -10,7 +10,6 @@
 local Array = require("cosmic.array")
 local Test = require("cosmic.test")
 local Child = require("cosmic.child")
-local TypeWatch = require("build.type_watch")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 
@@ -147,7 +146,7 @@ end
 --- refuses the call at the declared parameter first, and fails the test
 --- that makes it, so the test skips there.
 local function test_a_start_with_no_options_raises()
-  if TypeWatch.checked() then
+  if Test.mode().types_checked then
     Test.skip("a checked run refuses a nil `opts` at Child.start's declared parameter first")
   end
   local ok, why: boolean, any = pcall(function()

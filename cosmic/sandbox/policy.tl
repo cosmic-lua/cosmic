@@ -542,7 +542,7 @@ end
 local function cosmic_profile(): rules.Policy?, string
   local path, why = Proc.executable()
   if path == nil then
-    return refuse("profile \"cosmic\": this process has no executable: " .. why)
+    return refuse("profile \"cosmic\": this process has no executable: " .. tostring(why))
   end
   return { grants = { { path = path, letters = "rx" } } }, ""
 end

@@ -306,7 +306,7 @@ local function test_a_program_that_is_not_there_exits_127(tmp: string)
     { why = "child: start: sandbox: " .. tmp .. "/absent: No such file or directory" })
   assert(ran.code == 127, tostring(ran.code) .. ran.err)
   assert(ran.err:find("No such file", 1, true))
-  ran = run({ "zzqqx-no-such-program" }, { why = "child: start: zzqqx-no-such-program: not found" })
+  ran = run({ "zzqqx-no-such-program" }, { why = "child: start: zzqqx-no-such-program: No such file or directory" })
   assert(ran.code == 127, tostring(ran.code) .. ran.err)
 end
 

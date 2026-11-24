@@ -608,7 +608,7 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
       command = given_command
     else
       local program, why = Proc.executable()
-      if program == nil then return false, "web: dev: no program to run: " .. why end
+      if program == nil then return false, "web: dev: no program to run: " .. tostring(why) end
       command = { program, "app.tl" }
     end
     start = function(env: {string:string}): Child.Handle?, string

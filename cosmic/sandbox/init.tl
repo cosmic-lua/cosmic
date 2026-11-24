@@ -418,7 +418,7 @@ end
 --- file has its header at no offset a path tells).
 local function store_unheld(): string
   for _, db in ipairs(store_databases()) do
-    local rows, why = db:text_rows("SELECT count(*) FROM sqlite_schema")
+    local rows, why = db:rows("SELECT count(*) FROM sqlite_schema")
     if rows == nil then return "the store cannot be read: " .. tostring(why) end
   end
   for _, path in ipairs(store_paths()) do

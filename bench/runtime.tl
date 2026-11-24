@@ -113,7 +113,7 @@ case("sqlite.query each 1000", function(n: integer)
     for row in q:each() do
       if row:integer(1) > 0 then count = count + 1 end
     end
-    q:close()
+    local _, _ = q:close()
     assert(count == 1000)
   end
 end)

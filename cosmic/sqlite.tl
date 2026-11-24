@@ -438,18 +438,22 @@ end
 --- is rewound for its next run, unless that was closed, and any other
 --- is finalized.
 local function finish(query: Query)
-  if query.open then
-    query.open = false
-    local kept = query.kept
-    if kept == nil then
-      query.statement:finalize()
-      return
-    end
-    kept.busy = false
-    if not kept.closed then
-      local _, _ = query.statement:reset()
-    end
+  if not query.open then return end
+  query.open = false
+  local kept = query.kept
+  if kept ~= nil then kept.busy = false end
+  if kept ~= nil and kept.closed then return end
+  local statement = query.statement
+  -- Ended early, on a row: a write (`INSERT ... RETURNING`) in
+  -- autocommit commits at this reset, and a failure there (a deferred
+  -- foreign key, a full disk) is the query's.
+  if not query.ended and query.failed == nil then
+    local reset = statement:reset_result()
+    if reset.code ~= OK then query.failed = failed(reset) end
+  elseif kept ~= nil then
+    local _, _ = statement:reset()
   end
+  if kept == nil then statement:finalize() end
 end
 
 --- A query's rows read one at a time: see [`Handle.query`]. It is a class,
@@ -481,8 +485,10 @@ local class Query
     if not self.open then return nil, Failure.coded("sqlite: the query is closed", MISUSE) end
     local kept = self.kept
     if kept ~= nil and kept.closed then
+      local closed = Failure.coded("sqlite: the query's statement is closed", MISUSE)
+      self.failed = closed
       finish(self)
-      return nil, Failure.coded("sqlite: the query's statement is closed", MISUSE)
+      return nil, closed
     end
     local row, failure = step_row(self.statement, cells_of)
     if row == nil then
@@ -508,20 +514,29 @@ local class Query
 
   --- Why the rows ended early, or nil when they have not: after an
   --- `each` loop that ran out, nil means every row was read. A `break`,
-  --- or a `close` inside the loop, ends it early with no failure.
+  --- or a `close` inside the loop, ends it early with no failure of its
+  --- own; a statement that writes, closed so, can fail as it commits,
+  --- which this then answers.
   function failure(self): Failure?
     return self.failed
   end
 
   --- Finalizes the statement, so the handle can close; the last
   --- row, a failure and a `<close>` variable each do it too. A read
-  --- afterward fails. Closing again does nothing.
-  function close(self)
+  --- afterward fails. Answers `true`, or `false` and why the rows
+  --- failed ([`Query.failure`]): a write that returns rows
+  --- (`INSERT ... RETURNING`) closed before its last row commits here
+  --- in autocommit, and can fail. Closing again answers the same. A
+  --- `<close>` variable drops that answer: close such a write by hand.
+  function close(self): (true) | (false, Failure)
     finish(self)
+    local failure = self.failed
+    if failure ~= nil then return false, failure end
+    return true
   end
 
   function __close(self)
-    self:close()
+    local _, _ = self:close()
   end
 end
 

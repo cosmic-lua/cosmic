@@ -139,24 +139,36 @@ local function test_an_answer_holds_any_bytes_and_a_large_value_and_the_snippet_
   Worker.close(w)
 end
 
---- A snippet that prints without end runs to its timeout, the worker read as it writes. What a program an earlier
---- snippet started writes after that snippet answered is not the next snippet's output, nor is a snippet's end mark
---- another's.
-local function test_a_late_write_and_a_snippets_own_mark_are_not_the_next_snippets_output()
+--- A snippet that prints without end runs to its timeout, the worker read as it writes.
+local function test_a_snippet_that_prints_without_end_runs_to_its_timeout()
   local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
   local answer, why = Worker.run(w, "while true do print(string.rep(\"z\", 4096)) end\n", { cwd = dir, seconds = 2 })
   assert(answer == nil and tostring(why):find("ran past 2 seconds", 1, true) ~= nil, tostring(why))
+  Worker.close(w)
+end
+
+--- What a program an earlier snippet started writes after that snippet answered is not the next snippet's output,
+--- nor is a snippet's end mark another's.
+local function test_a_late_write_and_a_snippets_own_mark_are_not_the_next_snippets_output()
+  local w = set_of_worker()
+  local dir = assert(Fs.mkdtemp("agent-worker-"))
   -- The shell leaves a program behind in a session of its own, which outlives the shell's group and writes once the
   -- snippet answered.
+  -- setsid's fork joins a session of its own only once it runs, and Child.run ends what is left of its group when
+  -- the program it ran exits: under load that took the fork before it ran. So the shell Child.run runs waits for
+  -- the left one, past setsid, to say it is up.
   local late = "local Child = require(\"cosmic.child\")\n" ..
-    "local _ = assert(Child.run({ \"/usr/bin/setsid\", \"-f\", \"/bin/sh\", \"-c\", " ..
-    "\"sleep 0.5; echo late; echo late > wrote\" },\n" ..
+    "local _ = assert(Child.run({ \"/bin/sh\", \"-c\", " ..
+    "\"/usr/bin/setsid -f /bin/sh -c 'echo > up; until [ -e go ]; do sleep 0.05; done; echo late; echo late > wrote'; " ..
+    "until [ -e up ]; do sleep 0.05; done\" },\n" ..
     "  { stdout = \"inherit\", stderr = \"inherit\", timeout_ns = 10 * 1000000000 }))\n" ..
     "print(\"now\")\n"
   local first = run(w, late, nil, dir)
   assert(first["ok"] == true and first["output"] == "now\n", shown(first))
-  local deadline = Clock.monotonic_ns() + Clock.seconds(10)
+  -- The left program writes once the snippet answered, when told to.
+  assert(Fs.write(dir .. "/go", ""))
+  local deadline = Clock.monotonic_ns() + Clock.seconds(5)
   local wrote, _ = Fs.read(dir .. "/wrote")
   -- The shell makes the file before it writes the line, so an empty file is one not yet written.
   while wrote ~= "late\n" and Clock.monotonic_ns() < deadline do
@@ -165,7 +177,9 @@ local function test_a_late_write_and_a_snippets_own_mark_are_not_the_next_snippe
     wrote = again
   end
   -- Past the file, the echo to the pipe came first.
-  assert(wrote == "late\n", "the late program wrote")
+  local listed, _ = Fs.list(dir)
+  assert(wrote == "late\n", "the late program wrote: " .. tostring(wrote) .. " in " ..
+      (if listed ~= nil then table.concat(listed, ",") else "?" end))
   local after = run(w, "print(\"next\")\n", nil, dir)
   assert(after["ok"] == true and after["output"] == "next\n", shown(after))
   -- A snippet that prints another request's end mark ends no output but its own.
@@ -227,6 +241,19 @@ return assert(again[1])["n"]
   local other = Tools.run("run", { code = "local Host = require(\"cosmic.agent.host\")\n" ..
       "local _, why = Host.call(\"bash\", { command = \"id\" })\nreturn tostring(why)\n" }, context)
   assert(other.text:find("serves no call", 1, true) ~= nil and other.text:find("it serves sql", 1, true) ~= nil, other.text)
+  assert(w.started == 1, "one worker answered all")
+  Worker.close(w)
+  local _, _ = db:close()
+end
+
+--- What a query answers is held to JSON and to the reply's limit: no infinity, one column of a name, and control
+--- characters counted as their escapes.
+local function test_a_snippets_query_answer_is_held_to_json_and_its_limit()
+  local w = set_of_worker()
+  local dir = assert(Fs.mkdtemp("agent-worker-"))
+  local db = assert(Sessions.open(dir .. "/sessions.db"))
+  local id = assert(Sessions.start(db, "/", "m", 0))
+  local context: Tools.Context = { cwd = dir, worker = w, db = db, session = id }
   local function returned(query: string): string
     local r = Tools.run("run", { code = "local Host = require(\"cosmic.agent.host\")\n" ..
         "local rows, why = Host.sql(" .. Json.quote(query) .. ")\n" ..
@@ -241,11 +268,35 @@ return assert(again[1])["n"]
   local escaped = returned("SELECT replace(printf('%.100000c', 'x'), 'x', char(1)) AS c")
   assert(escaped:find("narrow the query", 1, true) ~= nil, escaped:sub(1, 300))
   assert(w.started == 1, "one worker answered all")
+  Worker.close(w)
+  local _, _ = db:close()
+end
+
+--- A query past the snippet's time is stopped, between its rows or in one endless step, and the worker ended; a
+--- worker with no agent to serve it refuses the call. Apart from the test above, so each holds to its own time.
+local function test_a_snippets_query_is_stopped_at_its_time()
+  local w = set_of_worker()
+  local dir = assert(Fs.mkdtemp("agent-worker-"))
+  local db = assert(Sessions.open(dir .. "/sessions.db"))
+  local id = assert(Sessions.start(db, "/", "m", 0))
+  local context: Tools.Context = { cwd = dir, worker = w, db = db, session = id }
   -- A query that runs past the snippet's time is stopped between its rows, and the worker ended.
   local slow = Tools.run("run", { code = "local Host = require(\"cosmic.agent.host\")\n" ..
       "local _, _ = Host.sql(\"SELECT NULL AS n FROM generate_series(1, 1000000000000) WHERE value % 200000 = 0\")\n",
     timeout = 2 }, context)
   assert(slow.is_error and slow.text:find("ran past 2 seconds", 1, true) ~= nil, slow.text)
+  Worker.close(w)
+  local _, _ = db:close()
+end
+
+--- One query step that never ends by itself is stopped at the snippet's time too, and the agent is not held; a
+--- worker with no agent to serve it refuses the call.
+local function test_a_snippets_endless_query_step_is_stopped_at_its_time()
+  local w = set_of_worker()
+  local dir = assert(Fs.mkdtemp("agent-worker-"))
+  local db = assert(Sessions.open(dir .. "/sessions.db"))
+  local id = assert(Sessions.start(db, "/", "m", 0))
+  local context: Tools.Context = { cwd = dir, worker = w, db = db, session = id }
   -- One step that never ends by itself is stopped at the snippet's time too: the agent is not held.
   local began = Clock.monotonic_ns()
   local endless = Tools.run("run", { code = "local Host = require(\"cosmic.agent.host\")\n" ..

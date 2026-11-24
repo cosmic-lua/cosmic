@@ -7,7 +7,6 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Test = require("cosmic.test")
-local TypeWatch = require("build.type_watch")
 
 Test.policy{ loopback = { "127.0.0.1" } }
 
@@ -218,7 +217,7 @@ end
 local function raised_with(literal: string, entry: any): string
   -- A checked run (`cosmic test --check-types`) checks a typed parameter on entry, so the
   -- mistyped value is refused there before the option's own check can see it.
-  if TypeWatch.checked() then
+  if Test.mode().types_checked then
     Test.skip("a checked run refuses the mistyped value at the typed parameter it is handed to, first")
   end
   local chunk = assert(load("local entry = ...\nlocal ok, err = pcall(entry, " .. literal ..

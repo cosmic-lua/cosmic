@@ -11,7 +11,7 @@ local confine = require("build.confine")
 Test.policy{ promises = { "nest" } }
 
 local function test_a_worker_that_only_nests_runs_on_a_sealed_database()
-  local relaunch = Proc.relaunch()
+  local relaunch, _ = Proc.relaunch()
   local on_database = relaunch ~= nil and relaunch.argv[2] == "--database"
   if Env.get(confine.held_variable) ~= nil then
     assert(on_database, "a sandboxed worker that only nests was not given a sealed database")

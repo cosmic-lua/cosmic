@@ -1,6 +1,7 @@
 --- The running process itself.
 
 local Env = require("cosmic.env")
+local Failure = require("cosmic.failure")
 local sys = require("cosmic.sys")
 
 -- `relaunch` lives in the raw process table, under the reserved
@@ -14,23 +15,8 @@ local record Proc
   --- A named account's numeric user and primary group identifiers.
   type User = raw_process.User
 
-  --- The outcome of [`Proc.find_result`], without reading its diagnostic.
-  record FindResult
-    enum Kind
-      "resolved"
-      "not_found"
-      "not_executable"
-    end
-
-    --- Whether a spelling was selected, no candidate was found, or a
-    --- regular candidate could not execute.
-    kind: Kind
-    --- The selected spelling when resolved, or the first regular file
-    --- this process cannot execute. Nil when no candidate was found.
-    path?: string
-    --- Empty when resolved; the reason lookup refused otherwise.
-    reason: string
-  end
+  --- The message of [`Proc.user`]'s failure for a name no account has.
+  NO_ACCOUNT: string
 
   --- What [`Proc.exec`] reads.
   record ExecOptions
@@ -73,6 +59,8 @@ end
 
 local cached: Cached = {}
 
+Proc.NO_ACCOUNT = "no such account"
+
 --- Ends the process with a status. This is the explicit replacement for
 --- os.exit; it does not run finalizers and does not return.
 --
@@ -90,25 +78,29 @@ end
 
 --- The logical path that directly relaunches this program. A portable program
 --- returns its artifact path rather than the private cached native core.
-function Proc.executable(): string?, string
+--- Nil and a [`Failure`] where the path cannot be read.
+function Proc.executable(): (string) | (nil, Failure)
   local path, trouble = sys.executable()
   if path == nil then
-    return nil, trouble
+    return nil, Failure.new(trouble)
   end
-  return path, ""
+  return path
 end
 
 --- Looks up an explicitly named account, answering its uid and primary
---- gid. A missing account is nil and an empty reason; a lookup failure
---- is nil and its reason. Empty names and NUL bytes raise.
+--- gid, or nil and a [`Failure`]: of kind "other" and the message
+--- [`Proc.NO_ACCOUNT`] for a name no account has, or of kind "system"
+--- with the lookup's errno where it failed. Empty names and NUL bytes
+--- raise.
 --- This consults the host's account service in the calling process, so
 --- resolve names before entering a sandbox or starting a child. The
 --- caller buffer grows up to 1 MiB; that limits neither libc's own
 --- allocation nor the time a directory service may take.
-function Proc.user(name: string): Proc.User?, string
-  local user, trouble = raw.user(name)
-  if user == nil then return nil, trouble end
-  return user, ""
+function Proc.user(name: string): (Proc.User) | (nil, Failure)
+  local user, _, errno = raw.user(name)
+  if user ~= nil then return user end
+  if errno == 0 then return nil, Failure.new(Proc.NO_ACCOUNT, name) end
+  return nil, Failure.system(errno, name)
 end
 
 --- How many processors are online, at least one: what `getconf
@@ -150,8 +142,9 @@ end
 --- database: `argv` is the core, `--database` and the database's absolute
 --- path, and `env` and `fds` are empty, so a child stays on it. Append the
 --- child's own arguments to `argv`, add `env` to its environment, and pass
---- `fds` to [`Child.start`]. Returns nil and why when this process has no
---- artifact to start again, or its executable or core cannot be reopened.
+--- `fds` to [`Child.start`]. Returns nil and a [`Failure`] when this
+--- process has no artifact to start again, or its executable or core
+--- cannot be reopened.
 ---
 --- Under a source run (`cosmic <file.tl>`) the program is cosmic: `argv`
 --- starts cosmic, as a script that drives cosmic's verbs needs, and
@@ -162,11 +155,11 @@ end
 --- builds another tree, where the project's modules may not be. Each such
 --- child checks the tree and runs the source as it is when the child
 --- starts.
-function Proc.relaunch(): Proc.Relaunch?, string
+function Proc.relaunch(): (Proc.Relaunch) | (nil, Failure)
   local relaunch = cached.relaunch
   if relaunch == nil then
     local found, trouble = started()
-    if found == nil then return nil, trouble end
+    if found == nil then return nil, Failure.new(trouble) end
     relaunch = found
   end
   -- Read on each call: one the tool makes before it loads the file finds
@@ -176,29 +169,33 @@ function Proc.relaunch(): Proc.Relaunch?, string
     relaunch = { argv = relaunch.argv, env = relaunch.env, fds = relaunch.fds, cwd = relaunch.cwd, script = script }
   end
   cached.relaunch = relaunch
-  return relaunch, ""
+  return relaunch
 end
 
 -- The search list `find` uses when PATH is unset, as execvp does.
 local DEFAULT_PATH <const> = "/bin:/usr/bin"
 
---- Selects a spelling for the program `name`: itself when it holds a
---- slash, otherwise the first executable regular file in `path`, a
---- colon-separated list that defaults to PATH (or /bin:/usr/bin when
---- PATH is unset). Empty entries search the working directory; relative
---- entries give relative answers. A slash-containing name is resolved
---- without checking that it exists or can execute.
+--- Where a shell's `which` or `command -v` finds the program `name`:
+--- itself when it holds a slash, otherwise the first executable regular
+--- file in `path`, a colon-separated list that defaults to PATH (or
+--- /bin:/usr/bin when PATH is unset). Empty entries search the working
+--- directory; relative entries give relative answers. A slash-containing
+--- name is resolved without checking that it exists or can execute.
 ---
---- With no executable match, the first regular file this process cannot
---- execute gives `not_executable`; no regular candidate gives `not_found`.
---- A directory or a path that cannot be inspected is not a candidate.
---- An empty name raises.
-function Proc.find_result(name: string, path?: string): Proc.FindResult
+--- With no executable match it answers nil and a system [`Failure`], as
+--- a shell's 127 and 126 tell apart: `EACCES` about the first regular
+--- file this process cannot execute, else `ENOENT` about `name`. A
+--- directory or a path that cannot be inspected is not a candidate. An
+--- empty name raises.
+---
+---     local git, why = Proc.find("git")
+---     if git == nil and why.errno == sys.ENOENT then print("no git") end
+function Proc.find(name: string, path?: string): (string) | (nil, Failure)
   if name == "" then
-    error("proc: find_result's name is empty", 2)
+    error("proc: find's name is empty", 2)
   end
   if name:find("/", 1, true) ~= nil then
-    return { kind = "resolved", path = name, reason = "" }
+    return name
   end
   local search = path or Env.read("PATH") or DEFAULT_PATH
   local unrunnable: string? = nil
@@ -210,29 +207,15 @@ function Proc.find_result(name: string, path?: string): Proc.FindResult
       -- others hold is no use to it.
       local runnable, _ = sys.access(candidate, sys.X_OK)
       if runnable then
-        return { kind = "resolved", path = candidate, reason = "" }
+        return candidate
       end
       unrunnable = unrunnable or candidate
     end
   end
   if unrunnable ~= nil then
-    return { kind = "not_executable", path = unrunnable, reason = unrunnable .. ": not executable" }
+    return nil, Failure.system(sys.EACCES, unrunnable)
   end
-  return { kind = "not_found", reason = name .. ": not found" }
-end
-
---- Where a shell's `which` or `command -v` finds a program:
---- [`Proc.find_result`]'s resolved path, or nil and its reason for
---- refusal. A slash-containing name passes through without being checked;
---- an empty name raises. The refusal distinguishes no such program from
---- a regular file this process cannot execute (a shell's 127 and 126).
-function Proc.find(name: string, path?: string): string?, string
-  if name == "" then
-    error("proc: find's name is empty", 2)
-  end
-  local result = Proc.find_result(name, path)
-  if result.kind == "resolved" then return result.path, "" end
-  return nil, result.reason
+  return nil, Failure.system(sys.ENOENT, name)
 end
 
 --- Whether a stream is a terminal: `isatty`, or the shell's `test -t`.
@@ -245,13 +228,14 @@ end
 --- and `opts.env` as its whole environment, by default this process's
 --- own; the process id stays the same. As [`Child.start`] takes
 --- `argv` and `opts.env`. No shell is involved, and no `PATH` is
---- searched. It returns only when it fails.
-function Proc.exec(argv: {string}, opts?: Proc.ExecOptions): boolean, string
+--- searched. It returns only when it fails, with a [`Failure`] about the
+--- path.
+function Proc.exec(argv: {string}, opts?: Proc.ExecOptions): Failure
   local path = argv[1]
   if path == nil then error("proc: argv is empty", 2) end
   local environment = if opts ~= nil then opts.env else nil end
-  local _, trouble = sys.execve(path, argv, environment or sys.environ())
-  return false, path .. ": " .. trouble
+  local _, _, errno = sys.execve(path, argv, environment or sys.environ())
+  return Failure.system(errno, path)
 end
 
 return Proc

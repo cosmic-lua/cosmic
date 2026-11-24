@@ -54,7 +54,7 @@ function tree.own_tool(root: string, executable?: string): boolean?, string
   if running == nil then
     local found, trouble = Proc.executable()
     if found == nil then
-      return nil, trouble
+      return nil, tostring(trouble)
     end
     running = found
   end
