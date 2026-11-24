@@ -100,7 +100,7 @@ local record Multipart
     --- malformed or its source fails (the source's own reason, as it gave it).
     next_part: function(Reader): Part?, string
     --- Ends the parser; it does not close the source.
-    close: function(Reader): boolean, string
+    close: function(Reader): (true) | (false, Failure)
   end
 end
 
@@ -154,9 +154,9 @@ local class BodyReader is Stream.Reader
     return chunk
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.finished = true
-    return true, ""
+    return true
   end
 end
 
@@ -530,10 +530,10 @@ local class Parser is Multipart.Reader
     return part, ""
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     if self.state ~= "failed" then self.state = "done" end
     self.buf = ""
-    return true, ""
+    return true
   end
 end
 

@@ -346,7 +346,7 @@ local function chunked(bytes: string): Stream.Reader
       at = at + #chunk
       return chunk
     end,
-    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
   return r
 end

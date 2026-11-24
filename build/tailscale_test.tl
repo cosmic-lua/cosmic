@@ -6,6 +6,7 @@
 --- for.
 
 local Array = require("cosmic.array")
+local type Failure = require("cosmic.failure")
 local Net = require("cosmic.net")
 local Server = require("cosmic.http.server")
 local Stream = require("cosmic.stream")
@@ -113,18 +114,18 @@ local class Sink is Stream.Writer
   path: string
   parts: mut {string}
 
-  function write(self, chunk: string): boolean, string
+  function write(self, chunk: string): (true) | (false, Failure)
     self.parts[#self.parts + 1] = chunk
-    return true, ""
+    return true
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.ran.files[self.path] = table.concat(self.parts)
-    return true, ""
+    return true
   end
 
-  function abort(self): boolean, string
-    return true, ""
+  function abort(self): (true) | (false, Failure)
+    return true
   end
 end
 

@@ -816,7 +816,7 @@ local function exchange(port: integer, request: string, head_only: boolean,
   local sent, strouble = conn:write(request)
   if not sent then
     local _, _ = conn:close()
-    return nil, strouble
+    return nil, tostring(strouble)
   end
   local answer, trouble = receive(conn, head_only, to_close)
   local _, _ = conn:close()

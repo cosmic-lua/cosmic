@@ -127,10 +127,10 @@ local class HandleReader is Stream.Reader
     return chunk
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.closed = true
     self.handle:close()
-    return true, ""
+    return true
   end
 end
 
@@ -151,7 +151,7 @@ local class Response is Stream.Reader
   handle: raw_http.Handle
   --- Internal: present only on a response whose body is decoded (see `opts.decompress`).
   --- No caller reads or writes it.
-  mut skip?: function(Response, n: integer): boolean, string -- declared: interface_disagrees
+  mut skip?: function(Response, n: integer): (true) | (false, Failure) -- declared: interface_disagrees
 
   --- The next chunk of the body, as [`Stream.Reader`] reads it; decoded
   --- when `opts.decompress` asked for it.
@@ -161,7 +161,7 @@ local class Response is Stream.Reader
 
   --- Releases the body, each decoder freeing its codec and closing the
   --- reader beneath it, down to the handle.
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     return self.body:close()
   end
 
@@ -554,19 +554,19 @@ local function zlib_header(head: string): boolean
   return cmf & 0x0f == 8 and (cmf * 256 + flg) % 31 == 0
 end
 
---- Moves `reader` forward `n` bytes by reading and discarding them: nil
---- and why when it fails or ends first.
-local function discard(reader: Stream.Reader, n: integer): boolean, string
+--- Moves `reader` forward `n` bytes by reading and discarding them:
+--- false and a Failure when it fails or ends first.
+local function discard(reader: Stream.Reader, n: integer): (true) | (false, Failure)
   local left = n
   while left > 0 do
     local chunk, trouble = reader:read(math.min(left, 65536))
-    if chunk == nil then return false, tostring(trouble) end
+    if chunk == nil then return false, trouble end
     if chunk == false then
-      return false, "http: truncated body while skipping"
+      return false, Failure.new("http: truncated body while skipping")
     end
     left = left - #chunk
   end
-  return true, ""
+  return true
 end
 
 --- A Reader of `source` decoded from `coding` ("zstd", "gzip",
@@ -582,7 +582,7 @@ local class DecodingReader is Stream.Reader
   mut ended: boolean
   --- The failure every read answers after the first, its kind kept.
   mut failed?: Failure
-  skip?: function(DecodingReader, n: integer): boolean, string
+  skip?: function(DecodingReader, n: integer): (true) | (false, Failure)
 
   --- Fails the reader for good, as every Reader here does after an error.
   function fail(self, why: string): Failure
@@ -662,7 +662,7 @@ local class DecodingReader is Stream.Reader
     end
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     local codec = self.codec
     if codec ~= nil then
       -- Frees the decoder now, not at collection.
@@ -673,11 +673,11 @@ local class DecodingReader is Stream.Reader
   end
 end
 
-local function skip_decoding(self: DecodingReader, n: integer): boolean, string
+local function skip_decoding(self: DecodingReader, n: integer): (true) | (false, Failure)
   return discard(self, n)
 end
 
-local function skip_decoded(self: Response, n: integer): boolean, string
+local function skip_decoded(self: Response, n: integer): (true) | (false, Failure)
   return discard(self.body, n)
 end
 
@@ -1371,7 +1371,7 @@ local class CancellableReader is Stream.Reader
     return chunk
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     return self.response:close()
   end
 end
@@ -1522,7 +1522,7 @@ local function downloading(url: string, path: string,
   local committed, commit_trouble = file:sync()
   if committed then committed, commit_trouble = file:close() end
   if not committed then
-    return { kind = "failed", reason = commit_trouble }
+    return { kind = "failed", reason = tostring(commit_trouble) }
   end
   pending.file = nil
   return { kind = "downloaded", reason = "" }

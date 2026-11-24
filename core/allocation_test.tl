@@ -1150,7 +1150,7 @@ local function exchange(options: Http.Options): string
     end
     parts[#parts + 1] = chunk
   end
-  response:close()
+  local _, _ = response:close()
   return table.concat(parts)
 end
 

@@ -201,7 +201,7 @@ local function test_a_failed_start_tls_leaves_the_connection_of_no_use()
     local data, again = conn:read()
     assert(data == nil and tostring(again) == why, again)
     local wrote, still = conn:write("x")
-    assert(not wrote and still == why, still)
+    assert(not wrote and tostring(still) == why, still)
   end)
 end
 

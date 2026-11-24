@@ -48,7 +48,7 @@ return function(_argv: {string}): integer
   local accepted = assert(server:accept())
   assert(accepted:close())
   local ok, why = client:write(string.rep("x", 1 << 20))
-  local _, _ = Fs.put(Fs.stdout, tostring(ok) .. " " .. why)
+  local _, _ = Fs.put(Fs.stdout, tostring(ok) .. " " .. tostring(why))
   local _, _ = client:close()
   local _, _ = server:close()
   return 0

@@ -370,7 +370,7 @@ function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worke
   local wrote, write_why = writer:write(request .. "\n")
   if not wrote then
     Worker.close(set)
-    return nil, Failure.new("worker: it ended: " .. write_why)
+    return nil, Failure.new("worker: it ended: " .. tostring(write_why))
   end
   local seconds = opts.seconds
   local answer: Worker.Answer? = nil

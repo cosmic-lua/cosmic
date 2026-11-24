@@ -248,9 +248,9 @@ local class Watched is Stream.Reader
     return false
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.closed = true
-    return true, ""
+    return true
   end
 end
 
@@ -516,7 +516,8 @@ local function test_a_slow_head_and_an_idle_connection_are_closed()
     local started = Clock.monotonic_ns()
     local request = get("/")
     for i = 1, #request do
-      if not slow.conn:write(request:sub(i, i)) then break end
+      local wrote, _ = slow.conn:write(request:sub(i, i))
+      if not wrote then break end
       local _, _ = Clock.sleep(Clock.ms(20))
       if Clock.monotonic_ns() - started > Clock.seconds(2) then break end
     end
@@ -738,9 +739,9 @@ local class Raising is Stream.Reader
     error("the body broke")
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.closed = true
-    return true, ""
+    return true
   end
 end
 
@@ -773,8 +774,8 @@ local class Lenient is Stream.Reader
     return piece
   end
 
-  function close(self): boolean, string
-    return true, ""
+  function close(self): (true) | (false, Failure)
+    return true
   end
 end
 
@@ -928,7 +929,8 @@ local function test_a_body_slower_than_body_ns_is_answered_408()
     -- BSD, so how late the 408 is read must not set whether it arrives.
     p.conn:set_timeout(Clock.ms(30))
     for _ = 1, 40 do
-      if not p.conn:write("x") then break end
+      local wrote, _ = p.conn:write("x")
+      if not wrote then break end
       local piece, why = p.conn:read()
       if piece is string then
         p.buf = p.buf .. piece
@@ -968,7 +970,8 @@ local function test_body_ns_bounds_the_drop_and_spares_what_is_in_time()
     assert(reply(slow).body == "ok")
     local started = Clock.monotonic_ns()
     while Clock.monotonic_ns() - started < Clock.seconds(3) do
-      if not slow.conn:write("x") then break end
+      local wrote, _ = slow.conn:write("x")
+      if not wrote then break end
       local _, _ = Clock.sleep(Clock.ms(30))
     end
     assert(vanished(slow), "something followed the reply")
@@ -1570,8 +1573,8 @@ local class Watching is Stream.Reader
     return false
   end
 
-  function close(self): boolean, string
-    return true, ""
+  function close(self): (true) | (false, Failure)
+    return true
   end
 end
 
@@ -1593,8 +1596,8 @@ local class Waiting is Stream.Reader
     return false
   end
 
-  function close(self): boolean, string
-    return true, ""
+  function close(self): (true) | (false, Failure)
+    return true
   end
 end
 
@@ -1648,10 +1651,10 @@ local class Quiet is Stream.Reader
     return false
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     if self.closed_ns == nil then self.closed_ns = Clock.monotonic_ns() end
     self.notifier:notify_all()
-    return true, ""
+    return true
   end
 end
 
@@ -1703,8 +1706,8 @@ local class Slow is Stream.Reader
     return piece
   end
 
-  function close(self): boolean, string
-    return true, ""
+  function close(self): (true) | (false, Failure)
+    return true
   end
 end
 

@@ -143,7 +143,9 @@ local function spool(source: Stream.Reader): string?, string
   local _, _ = source:close()
   local closed, close_why = false, ""
   if copied ~= nil then
-    closed, close_why = sink:close()
+    local ok, trouble = sink:close()
+    closed = ok
+    if not ok then close_why = tostring(trouble) end
   else
     local _, _ = sink:abort()
   end

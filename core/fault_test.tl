@@ -46,7 +46,7 @@ local function succeeds(what: string)
     headers = { ["X-One"] = "1" } })
   assert(response ~= nil, "after " .. what .. ", a request failed: " .. tostring(trouble))
   assert(read_all(response) == "hello", "after " .. what .. ", the body is wrong")
-  response:close()
+  local _, _ = response:close()
 end
 
 --- What a process holds before a fault, to hold it to after.
@@ -139,7 +139,7 @@ local function test_a_fault_point_in_read_fails_the_read_cleanly(tmp: string)
     assert(not testing.fail_at(), point .. " was never reached by read")
     assert(got == nil and trouble:find(point, 1, true) ~= nil,
       point .. ": the read did not fail naming it: " .. tostring(trouble))
-    response:close()
+    local _, _ = response:close()
     assert_released(tmp, before, point .. " in read")
     succeeds(point .. " in read")
   end

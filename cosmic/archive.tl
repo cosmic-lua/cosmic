@@ -633,11 +633,11 @@ local function extract_from(from: string | Archive.Reader, dest: string,
       local ok, wtrouble = w:write(chunk)
       if not ok then
         local _, _ = w:abort()
-        return false, wtrouble
+        return false, tostring(wtrouble)
       end
     end
     local ok, wtrouble = w:close()
-    if not ok then return false, wtrouble end
+    if not ok then return false, tostring(wtrouble) end
     tally = tally + size
     local _, _ = Fs.set_mtime(dest_path, entry.mtime)
     return true, ""

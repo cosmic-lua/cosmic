@@ -8,7 +8,7 @@ Host (cosmic.agent.host), Fs (cosmic.fs) and Json (cosmic.json) need no require.
 - Host.sed(path, pattern, replacement, plain?) -> integer: replaces every match, line by line (`%1` a capture).
 - Host.sort(list, by?) -> {string}, by the key `by(item)` gives where given; Host.uniq(keys) -> {string: integer}, each key's count; Host.top(counts, n?) -> {{"{{"}}key, count}}, most first, ties by key.
 - Host.bash(command) -> {output, ok, code}; Host.sql(query) -> rows; Host.store(key, value) / Host.load(key).value.
-- Host.fetch(url, {method?, headers?, body?}?) -> {status, headers, body}: no redirect followed, public addresses only, in a session with --network.
+- Host.fetch(url, {method?, headers?, body?}?) -> {status, headers, body}: no redirect followed; public addresses with --network, and the targets of --connect.
 - Host.sqlite(path, statement, {values}?) -> {row}: one SQL statement on a SQLite file, made where missing (`?1` binds the first value; with no values, a script of several); a row's column is `row["name"]`. Host.sha256(path) -> hex.
 - print(Host.modules()) lists the cosmic.* modules a snippet may require (not io or os); print(Host.docs("cosmic.fs")) shows one. Their calls that may fail answer a value, or nil and why: take it with assert (`local text = assert(Fs.read(path))`), as a statement too (`assert(Fs.write(path, text))`).
 
