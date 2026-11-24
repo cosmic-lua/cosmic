@@ -1350,13 +1350,16 @@ static CURLcode configure (struct transfer *t, const struct request *r,
    * sets by that name replaces it. */
   SET(CURLOPT_USERAGENT, "cosmic");
   if (r->ca_blob != NULL) {
-    /* curl copies the blob, parses it into each connection's own chain,
-     * and keys connection reuse and TLS session resumption on it, so a
-     * request trusting other roots never takes over a connection or a
-     * session verified against the store. A proxy's connection is
-     * verified against the same roots. */
+    /* curl parses the blob into each connection's own chain, and keys
+     * connection reuse and TLS session resumption on it, so a request
+     * trusting other roots never takes over a connection or a session
+     * verified against the store. A proxy's connection is verified
+     * against the same roots. The blob is the handle's second uservalue,
+     * alive for as long as curl may read it, so curl takes it without a
+     * copy of the 40 KB the "minimal" roots make per request. A new
+     * connection keeps a copy of its own. */
     struct curl_blob blob = {(void *)r->ca_blob, r->ca_blob_len,
-      CURL_BLOB_COPY};
+      CURL_BLOB_NOCOPY};
     SET(CURLOPT_CAINFO_BLOB, &blob);
     SET(CURLOPT_PROXY_CAINFO_BLOB, &blob);
   } else {
@@ -1569,9 +1572,10 @@ static int http_open (lua_State *L) {
   const char *trouble = http_ready(L);
   if (trouble != NULL) return failed(L, trouble);
 
-  /* The body's one uservalue keeps it alive for as long as curl may
-   * still be sending it, which is well past `open`'s return. */
-  struct transfer *t = lua_newuserdatauv(L, sizeof *t, 1); /* index 10 */
+  /* The two uservalues, the body and the CA blob, keep them alive for
+   * as long as curl may still read them, which is well past `open`'s
+   * return. */
+  struct transfer *t = lua_newuserdatauv(L, sizeof *t, 2); /* index 10 */
   memset(t, 0, sizeof *t);
 #ifdef COSMIC_CHECKED
   cosmic_http_live_transfers++;
@@ -1580,6 +1584,10 @@ static int http_open (lua_State *L) {
   if (r.body != NULL) {
     lua_pushvalue(L, 4);
     lua_setiuservalue(L, 10, 1);
+  }
+  if (r.ca_blob != NULL) {
+    lua_pushvalue(L, 8);
+    lua_setiuservalue(L, 10, 2);
   }
 
   t->easy = COSMIC_FAULT("curl_easy_init") ? NULL : curl_easy_init();

@@ -305,6 +305,38 @@ local OK <const> = 0
 local ERROR <const> = 1
 local BUSY <const> = 5
 
+--- How [`Handle.transact`] begins a transaction: SQLite's `BEGIN DEFERRED`,
+--- `BEGIN IMMEDIATE` or `BEGIN EXCLUSIVE`.
+local enum Begin
+  "deferred"
+  "immediate"
+  "exclusive"
+end
+
+--- The statement that begins a transaction each [`Begin`] names.
+local BEGINS <const>: {Begin: string} = {
+  deferred = "BEGIN DEFERRED", immediate = "BEGIN IMMEDIATE", exclusive = "BEGIN EXCLUSIVE",
+}
+
+--- How hard SQLite works to keep a commit through a power loss: its
+--- `PRAGMA synchronous`. "full" syncs the journal at every commit; in
+--- write-ahead mode "normal" syncs only at a checkpoint, so a power loss
+--- can undo the last commits but never corrupts the file; "off" never
+--- syncs; "extra" also syncs the directory a deleted journal was in.
+local enum Synchronous
+  "off"
+  "normal"
+  "full"
+  "extra"
+end
+
+--- One step of [`Handle.migrate`]: SQL that [`Handle.exec`] runs, or work
+--- on the handle that returns as [`Handle.transact`]'s work does.
+local type Migration = string | function(Handle): (true) | (false, Failure)
+
+--- The value `PRAGMA synchronous` takes for each [`Synchronous`].
+local SYNCHRONOUS <const>: {Synchronous: string} = { off = "OFF", normal = "NORMAL", full = "FULL", extra = "EXTRA" }
+
 --- Finalizes `query`'s statement, once.
 local function finish(query: Query)
   if query.open then
@@ -650,13 +682,139 @@ local class Handle
     return each_row(statement, texts_of)
   end
 
+  --- Brings the database's schema up to date: `steps[k]` makes version
+  --- `k` from version `k - 1`, as SQL that [`Handle.exec`] runs (any
+  --- number of statements) or as work on the handle. The version is the
+  --- database's `PRAGMA user_version`. A database at `#steps` returns at
+  --- once, with no lock taken. Otherwise the steps past its version run
+  --- in order in one transaction ([`Handle.transact`]: two processes that
+  --- open the database at once take turns, and the second finds the
+  --- first's work done), which then sets the version to `#steps`.
+  --- Returns that version, or `nil` and why, with nothing changed, for:
+  ---
+  --- - a step that fails, named by its number, with the step's code
+  ---   (one that raises rolls back too, and its error is raised again);
+  --- - a version past `#steps` (a newer program's database), or below 0;
+  --- - version 0 on a database that holds a schema already (a table,
+  ---   index, view or trigger): another program's, or one made before it
+  ---   used `migrate`. Set its `user_version` to the step it is at, once,
+  ---   to adopt it.
+  ---
+  --- A refusal of the database has no `code`. Add steps only at the
+  --- end: a step that has run on a database never runs on it again, so
+  --- a changed step changes nothing there. A step runs inside the
+  --- transaction, so it must not `BEGIN`, `COMMIT` or `ROLLBACK` (one
+  --- that ends the transaction fails, named), its `PRAGMA user_version`
+  --- is overwritten, and what SQLite refuses or ignores inside a
+  --- transaction (`VACUUM`, `PRAGMA foreign_keys`) is no step: set
+  --- `foreign_keys` off around the call to rebuild a table.
+  ---
+  ---     local version, why = db:migrate({
+  ---       "CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL)",
+  ---       "ALTER TABLE notes ADD COLUMN made INTEGER",
+  ---     })
+  function migrate(self, steps: {Migration}): (integer) | (nil, Failure)
+    local wanted = #steps
+    local function counted(sql: string): (integer) | (nil, Failure)
+      local rows, why = self:rows(sql)
+      if rows == nil then return nil, why end
+      local row = rows[1]
+      if row == nil then return nil, Failure.new("sqlite: migrate: " .. sql .. " gave no row") end
+      return row:integer(1)
+    end
+    local function refusal(at: integer): Failure?
+      if at > wanted or at < 0 then
+        return Failure.new(("sqlite: migrate: the database's schema is version %d, and the steps given end at " ..
+          "version %d: another program, or a newer one, made it"):format(at, wanted))
+      end
+      return nil
+    end
+    local function run_step(step: Migration): (true) | (false, Failure)
+      if step is string then return self:exec(step) end
+      return step(self)
+    end
+    -- Read first, with no lock: a database at its version, the usual
+    -- case, waits behind no writer.
+    local first, first_why = counted("PRAGMA user_version")
+    if first == nil then return nil, first_why end
+    local early = refusal(first)
+    if early ~= nil then return nil, early end
+    if first == wanted then return wanted end
+    local ok, why = self:transact(function(): (true) | (false, Failure)
+      local at, at_why = counted("PRAGMA user_version")
+      if at == nil then return false, at_why end
+      local refused = refusal(at)
+      if refused ~= nil then return false, refused end
+      if at == wanted then return true end
+      if at == 0 then
+        local objects, objects_why = counted("SELECT count(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite\\_%' ESCAPE '\\'")
+        if objects == nil then return false, objects_why end
+        if objects ~= 0 then
+          return false, Failure.new("sqlite: migrate: the database holds a schema but no version (user_version 0): " ..
+              "another program's database, or one made before migrate; set PRAGMA user_version to the step it is " ..
+              "at to adopt it")
+        end
+      end
+      for k, step in ipairs(steps) do
+        if k > at then
+          local done, step_why = run_step(step)
+          if not done then
+            local said = ("sqlite: migrate: step %d: %s"):format(k, tostring(step_why))
+            if step_why.code == nil then return false, Failure.new(said) end
+            return false, Failure.coded(said, step_why.code, step_why.extended_code, step_why.kind)
+          end
+          if not self:in_transaction() then
+            return false, Failure.new(("sqlite: migrate: step %d ended the transaction with a COMMIT or ROLLBACK " ..
+              "of its own, so what it wrote is not undone; no step after it ran"):format(k))
+          end
+        end
+      end
+      return self:exec(("PRAGMA user_version = %d"):format(wanted))
+    end)
+    if not ok then return nil, why end
+    return wanted
+  end
+
+  --- Whether a transaction is open on the handle: a [`Handle.transact`]
+  --- running, or a `BEGIN` or `SAVEPOINT` not yet committed or rolled
+  --- back.
+  function in_transaction(self): boolean
+    return self.connection:in_transaction()
+  end
+
   --- Runs `work` inside a transaction and commits when it answers
   --- `true`. When `work` answers `false` and a [`Failure`], or the
   --- commit fails, the transaction rolls back and this answers `false`
   --- and that failure (one that says the work gave no why, where it gave
   --- none). When `work` raises, the transaction rolls back and the same
-  --- error is raised again. A transaction already open on the handle
-  --- makes `BEGIN` fail, so calls do not nest.
+  --- error is raised again.
+  ---
+  --- On a writable handle the transaction begins `IMMEDIATE`: it takes
+  --- the write lock at once, waiting for it as [`Handle.busy_timeout`]
+  --- says, so work that reads and then writes never fails part way with
+  --- [`Sqlite.BUSY`] because another connection wrote between the two,
+  --- which a deferred transaction in write-ahead mode can, without
+  --- waiting. On a read-only handle it begins `DEFERRED`, which takes a
+  --- read snapshot at its first read. `begin` names another
+  --- ("deferred", "immediate" or "exclusive"; any other raises): work
+  --- that only reads on a writable handle passes "deferred", so it does
+  --- not wait behind a writer. A handle held to queries
+  --- ([`Handle.reads_only`]) refuses every transaction.
+  ---
+  --- Called while a transaction is open on the handle, inside another
+  --- `transact` or after a `BEGIN`, it nests: the work runs inside a
+  --- `SAVEPOINT`, which a failure rolls back alone, and which commits
+  --- with the transaction around it. So a function that writes in a
+  --- transaction of its own can be called from inside a caller's. A
+  --- nested call ignores `begin`: the outer transaction has begun, and
+  --- holds the locks its own mode took.
+  ---
+  --- Work must not end its transaction itself, with a `COMMIT` or
+  --- `ROLLBACK`: this returns `false` and says so. Some failures end
+  --- it too (`INSERT OR ROLLBACK`, a trigger's `RAISE(ROLLBACK)`, a
+  --- full disk). Where either ends the transaction around a nested call,
+  --- the nested call raises, so the caller's work stops before what it
+  --- writes after commits on its own.
   ---
   --- `DETACH` of an attached database fails with "database X is locked"
   --- while a transaction that read that database is open. `ATTACH` it,
@@ -667,25 +825,58 @@ local class Handle
   ---       if not a then return false, trouble end
   ---       return db:run("INSERT INTO t (body) VALUES (?1)", { { text = "b" } })
   ---     end)
-  function transact(self, work: function(): (true) | (false, Failure)): (true) | (false, Failure)
+  function transact(self, work: function(): (true) | (false, Failure),
+                    begin?: Begin): (true) | (false, Failure)
     local connection = self.connection
-    local started = connection:exec_result("BEGIN")
+    local opening_begin: string? = if begin ~= nil then BEGINS[begin] else nil end
+    if begin ~= nil and opening_begin == nil then
+      error("sqlite: transact begins \"deferred\", \"immediate\" or \"exclusive\"", 2)
+    end
+    local nested = connection:in_transaction()
+    local opening, undoing, closing: string, string, string
+    if nested then
+      opening, undoing, closing = "SAVEPOINT cosmic_transact", "ROLLBACK TO cosmic_transact", "RELEASE cosmic_transact"
+    else
+      local default = if connection:read_only() then "BEGIN DEFERRED" else "BEGIN IMMEDIATE" end
+      opening, undoing, closing = opening_begin or default, "ROLLBACK", "COMMIT"
+    end
+    -- A savepoint rolled back to is still open: it ends at its release.
+    local function undo()
+      local _ = connection:exec_result(undoing)
+      if nested then
+        local _ = connection:exec_result(closing)
+      end
+    end
+    local started = connection:exec_result(opening)
     if started.code ~= OK then return false, failed(started) end
     local called, ok, why = pcall(function(): boolean, Failure?
       local done, trouble = work()
       return done, trouble
     end)
     if not called then
-      local _ = connection:exec_result("ROLLBACK")
+      undo()
       error(ok, 0)
     end
+    -- Some failures roll back the whole transaction (`INSERT OR
+    -- ROLLBACK`, a trigger's RAISE(ROLLBACK), a full disk), and work can
+    -- end it with a COMMIT or ROLLBACK of its own. Nested, that ends the
+    -- caller's transaction under it, and what the caller writes after
+    -- would commit at once: raise, so the caller's work stops.
+    local open = connection:in_transaction()
+    if nested and not open then
+      local cause = if ok then "the work ended it with a COMMIT or ROLLBACK of its own" else tostring(why) end
+      error("sqlite: transact: the transaction around this one ended inside it: " .. cause, 0)
+    end
     if not ok then
-      local _ = connection:exec_result("ROLLBACK")
+      undo()
       return false, why or Failure.new("sqlite: transact: the work failed and said no why")
     end
-    local committed = connection:exec_result("COMMIT")
+    if not open then
+      return false, Failure.new("sqlite: transact: the work ended its transaction with a COMMIT or ROLLBACK of its own")
+    end
+    local committed = connection:exec_result(closing)
     if committed.code ~= OK then
-      local _ = connection:exec_result("ROLLBACK")
+      undo()
       return false, failed(committed)
     end
     return true
@@ -711,6 +902,30 @@ local class Handle
     return prepared(self.connection, sql, values, values == nil)
   end
 
+  --- Switches the main database to write-ahead mode (`PRAGMA
+  --- journal_mode = WAL`), so readers of the file read beside a writer.
+  --- The switch needs the file to itself for a moment, and SQLite can
+  --- refuse it as busy without waiting, so a busy refusal is tried again
+  --- until the handle's wait ([`Handle.busy_timeout`]) has passed, or a
+  --- signal the innermost guard caught stops it (a failure of kind
+  --- "cancelled"). A memory or temporary database ([`Sqlite.memory()`], a
+  --- path of `""`) has no file to keep a log beside, keeps the journal it
+  --- has, and returns true too. Returns `false` and why when the switch
+  --- failed: a read-only handle's file that is not in WAL mode returns
+  --- SQLite's `SQLITE_READONLY` (8), and an immutable one says the mode stayed as it
+  --- was. A borrowed handle raises.
+  ---
+  ---     local db = assert(Sqlite.open(path, { writable = true }))
+  ---     assert(db:wal())
+  function wal(self): (true) | (false, Failure)
+    local outcome = self.connection:wal_result()
+    if outcome.code ~= OK then return false, failed(outcome) end
+    if outcome.mode ~= "wal" and not outcome.temporary then
+      return false, Failure.coded("sqlite: the journal mode stayed " .. outcome.mode .. ", not wal", ERROR)
+    end
+    return true
+  end
+
   --- Waits up to `timeout_ns` at locks, rounded up to milliseconds,
   --- checking the innermost guard's unread signal without taking it: a
   --- signal stops the wait, and the call returns a failure of kind
@@ -718,7 +933,8 @@ local class Handle
   --- rollback is implied). Each call shares one budget across its
   --- locking events, starting at the first contention. Zero never
   --- sleeps. A negative or noninteger duration raises, as does a
-  --- borrowed handle. Without a guard, only the time limits it.
+  --- borrowed handle. Without a guard, only the time limits it. A
+  --- handle waits so for a minute until this sets another wait.
   --- `PRAGMA busy_timeout` reads zero for this handler; writing that
   --- pragma replaces it, and calling this again reinstalls it. SQLite
   --- can refuse a lock without calling any busy handler.
@@ -736,6 +952,34 @@ local class Handle
   --- handle.
   function time_limit(self, limit_ns: integer?)
     self.connection:time_limit(limit_ns)
+  end
+
+  --- Holds the handle to queries, for good: for SQL that someone else
+  --- wrote, a person's at a prompt or a model's. Each statement is
+  --- refused as it is prepared unless it is a `SELECT` (with the
+  --- functions it calls and `WITH RECURSIVE`) or a PRAGMA that reads:
+  --- the lists of tables, columns, indexes and foreign keys,
+  --- `integrity_check` and `quick_check`, and a setting read without a
+  --- value (`PRAGMA user_version`, not `PRAGMA user_version = 2`).
+  --- `VACUUM` and `VACUUM INTO` are refused too. Behind that, `PRAGMA
+  --- query_only` is set, so no write reaches a database as a statement
+  --- runs, and nothing may be attached; raising the `"attached"` limit
+  --- after raises. No SQL makes or writes a file, but SQLite itself may:
+  --- opening a database in write-ahead mode makes its `-wal` and `-shm`
+  --- files beside it where they are missing (`immutable` opens none).
+  --- A refusal returns [`Sqlite.AUTH`] and says what was refused. Returns
+  --- true, or false and why; calling it again does nothing. A borrowed
+  --- handle, such as the store's, raises: the store holds its own to
+  --- queries already. [`Sqlite.open`]'s `reads_only` does this as it opens.
+  ---
+  ---     local db = assert(Sqlite.open("notes.db", { reads_only = true }))
+  ---     assert(db:rows("SELECT count(*) FROM t"))
+  ---     local ok, why = db:run("DELETE FROM t")
+  ---     print(ok, why.code == Sqlite.AUTH) -- false  true
+  function reads_only(self): (true) | (false, Failure)
+    local held, why = self.connection:reads_only()
+    if not held then return false, Failure.coded("sqlite: " .. why, ERROR) end
+    return true
   end
 
   --- Closes the connection: true, or false and why, [`Sqlite.BUSY`] as
@@ -828,6 +1072,8 @@ local record Sqlite
   --- A parameter at no position the statement has, or a position with
   --- no parameter.
   RANGE: integer
+  --- A statement a handle held to queries refused ([`Handle.reads_only`]).
+  AUTH: integer
 
   --- One bound parameter. Its field says what SQLite is told it is, so
   --- a blob never arrives as text by accident. At most one field is
@@ -841,6 +1087,15 @@ local record Sqlite
 
   --- The SQLite storage class of a result cell: see [`Sqlite.Row.kind`].
   type Kind = Kind
+
+  --- How [`Handle.transact`] begins a transaction.
+  type Begin = Begin
+
+  --- How hard SQLite works to keep a commit through a power loss.
+  type Synchronous = Synchronous
+
+  --- One step of [`Handle.migrate`]: SQL, or work on the handle.
+  type Migration = Migration
 
   --- How [`Sqlite.open`] opens a database.
   record OpenOptions
@@ -856,6 +1111,18 @@ local record Sqlite
     --- the schema itself, as `PRAGMA schema_version = N` does: see
     --- [`Sqlite.open`]. Every other handle keeps it.
     defensive?: boolean
+    --- Holds the handle to queries as it opens: see [`Handle.reads_only`].
+    --- Giving it with `writable` raises.
+    reads_only?: boolean
+    --- How long a call waits at another connection's lock, in
+    --- nanoseconds: see [`Handle.busy_timeout`]. A minute when nil.
+    wait?: integer
+    --- Switches the database to write-ahead mode as it opens: see
+    --- [`Handle.wal`]. Giving it without `writable` raises.
+    wal?: boolean
+    --- Sets `PRAGMA synchronous` as it opens: see [`Sqlite.Synchronous`].
+    --- "normal" is the usual choice with `wal`.
+    synchronous?: Synchronous
   end
 
   --- One result row: see [`Handle.rows`].
@@ -890,6 +1157,15 @@ end
 --- show: open a database that is being written without `immutable`.
 --- Giving `immutable` with `writable` raises.
 ---
+--- A call waits up to a minute at another connection's lock, and a signal
+--- the innermost guard catches stops the wait: `opts.wait` sets another
+--- wait, in nanoseconds ([`Handle.busy_timeout`]). `opts.wal` switches a
+--- writable database to write-ahead mode ([`Handle.wal`]), and
+--- `opts.synchronous` sets how hard a commit is kept through a power
+--- loss: a file that readers share beside one writer opens as
+---
+---     Sqlite.open(path, { writable = true, wal = true, synchronous = "normal" })
+---
 --- Every handle is in SQLite's defensive mode, so no SQL it runs can
 --- corrupt the file on purpose: a write to `sqlite_schema` or to the shadow tables
 --- of an FTS5 or R*Tree table fails, even after `PRAGMA writable_schema
@@ -921,6 +1197,21 @@ end
 --- to at most 125; the refusal of one too many says so.
 function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): (Sqlite.Handle) | (nil, Failure)
   local writable, immutable, create = opts and opts.writable, opts and opts.immutable, opts and opts.create
+  local held = opts ~= nil and opts.reads_only == true
+  if held and writable == true then
+    error("sqlite: a database cannot be both writable and reads_only", 2)
+  end
+  local wait, wal, synchronous = opts and opts.wait, opts ~= nil and opts.wal == true, opts and opts.synchronous
+  if wal and writable ~= true then
+    error("sqlite: only a writable database is switched to wal", 2)
+  end
+  if wait ~= nil and (math.type(wait) ~= "integer" or wait < 0) then
+    error("sqlite: wait is a nonnegative number of nanoseconds", 2)
+  end
+  local syncs: string? = if synchronous ~= nil then SYNCHRONOUS[synchronous] else nil end
+  if synchronous ~= nil and syncs == nil then
+    error("sqlite: synchronous is \"off\", \"normal\", \"full\" or \"extra\"", 2)
+  end
   local defensive = not (opts ~= nil and opts.defensive == false)
   -- `open_result` raises for a path it refuses before SQLite reads it (a
   -- NUL), where `open` answers why; any other raise `open` raises again.
@@ -934,7 +1225,49 @@ function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): (Sqlite.Handle) |
     return nil, Failure.coded("sqlite: " .. why, MISUSE)
   end
   if opened.code ~= OK then return nil, failed(opened) end
-  return handle_of(opened.handle)
+  local handle = handle_of(opened.handle)
+  local function refused(why: Failure): nil, Failure
+    local _, _ = handle:close()
+    return nil, why
+  end
+  if wait ~= nil then handle:busy_timeout(wait) end
+  if wal then
+    local switched, why = handle:wal()
+    if not switched then return refused(why) end
+  end
+  if syncs ~= nil then
+    local set, why = handle:exec("PRAGMA main.synchronous = " .. syncs)
+    if not set then return refused(why) end
+  end
+  if held then
+    local holding, why = handle:reads_only()
+    if not holding then return refused(why) end
+  end
+  return handle
+end
+
+--- `name` quoted as an SQL identifier, for a table or column name that
+--- comes from data: in double quotes, each `"` in it doubled, so any
+--- name is read as that one name and never as SQL. A name that holds a
+--- NUL raises: SQLite ends the statement's text there.
+---
+---     db:exec("CREATE TABLE " .. Sqlite.identifier('my "notes"') .. " (body)")
+function Sqlite.identifier(name: string): string
+  if name:find("\0", 1, true) ~= nil then error("sqlite: an identifier cannot hold a NUL", 2) end
+  return '"' .. name:gsub('"', '""') .. '"'
+end
+
+--- `text` quoted as an SQL string literal, each `'` in it doubled, for a
+--- statement that cannot take a `?` parameter: a column's `DEFAULT`, a
+--- view, a virtual table's arguments. Where SQL takes a parameter, bind
+--- the value instead ([`Handle.run`]):
+---
+---     db:run("SELECT body FROM notes WHERE title = ?1", { { text = title } })
+---
+--- Text that holds a NUL raises.
+function Sqlite.literal(text: string): string
+  if text:find("\0", 1, true) ~= nil then error("sqlite: a literal cannot hold a NUL", 2) end
+  return "'" .. text:gsub("'", "''") .. "'"
 end
 
 --- Disowns every connection this process has open: for a process that is a
@@ -996,8 +1329,8 @@ end
 
 --- [`Handle.transact`] of `handle`, for ci/.
 function Sqlite.transact(handle: Handle,
-                         work: function(): (true) | (false, Failure)): (true) | (false, Failure)
-  return handle:transact(work)
+                         work: function(): (true) | (false, Failure), begin?: Begin): (true) | (false, Failure)
+  return handle:transact(work, begin)
 end
 
 Sqlite.OK = OK
@@ -1009,6 +1342,7 @@ Sqlite.ERROR = ERROR
 Sqlite.BUSY = BUSY
 Sqlite.MISUSE = MISUSE
 Sqlite.RANGE = RANGE
+Sqlite.AUTH = 23
 Sqlite.version = sqlite.version
 
 return Sqlite

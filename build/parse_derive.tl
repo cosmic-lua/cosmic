@@ -62,7 +62,7 @@ local skipped = ParseDerive.skipped
 
 function ParseDerive.index(entries: {{string}}, kinds: {string: string}): SourceParse.Index
   return SourceParse.index(entries, skipped, function(file: string, _text: string): SourceParse.Extra
-    return { tests = kinds[file] == "test" }
+    return { tests = kinds[file] == "test", entry = kinds[file] == "entry" }
   end)
 end
 

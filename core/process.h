@@ -11,8 +11,8 @@
  * LuaCATS annotation block followed by COSMIC_SYSCALL naming it, which
  * [`build/gen_syscalls.tl`] turns into the declaration of
  * [`cosmic.internal.process`]. The functions themselves live in
- * core/syscalls.c, with the signal state and descriptor handling they
- * share with `execve`.
+ * core/syscalls.c and core/spawn.c, with the sandbox setup in
+ * core/sandbox_root.c and core/sandbox_rules.c.
  */
 
 #ifndef COSMIC_PROCESS_H
@@ -52,7 +52,7 @@
  * pipe's two ends; the ruleset; and, for an unveiled child, /proc/self
  * and the mapping pipe's two ends for one that gives root up, this
  * program, and the started and ready pipes' four ends
- * (core/syscalls.c's `start_unveiled`); and the relay's channel
+ * (core/sandbox_root.c's `start_unveiled`); and the relay's channel
  * (`Sandbox`'s `relay`). F_DUPFD refuses them past
  * RLIMIT_NOFILE's soft limit; cosmic.child's `start` says so where the
  * limit leaves too few. A descriptor placed there besides counts here. */
@@ -114,7 +114,7 @@ int cosmic_paused (int64_t deadline, int64_t *pause);
 #include <stdbool.h>
 
 /* The name an unveiled child's init runs this program under, as its
- * argv[0] and nothing else (core/syscalls.c's `start_init`). */
+ * argv[0] and nothing else (core/sandbox_root.c's `start_init`). */
 #define COSMIC_SANDBOX_INIT "cosmic sandbox init"
 
 /* The name it goes by (/proc/<pid>/comm), for a reader of `ps`. */
@@ -128,7 +128,7 @@ int cosmic_paused (int64_t deadline, int64_t *pause);
  * start. */
 bool cosmic_sandbox_init_asked (int argc, char **argv);
 
-/* Pid 1 of an unveiled child's pid namespace (core/syscalls.c). */
+/* Pid 1 of an unveiled child's pid namespace (core/sandbox_root.c). */
 _Noreturn void cosmic_sandbox_init (void);
 #endif
 
@@ -137,7 +137,7 @@ _Noreturn void cosmic_sandbox_init (void);
 
 /* The name Darwin's child start runs this program under, as its argv[0],
  * to give a child what posix_spawn has no step for before its own exec
- * (core/syscalls.c's `spawn_program`). */
+ * (core/spawn.c's `spawn_program`). */
 #define COSMIC_TRAMPOLINE "cosmic trampoline"
 
 /* Whether this start is a child's trampoline: argv[0] is
@@ -151,7 +151,7 @@ bool cosmic_trampoline_asked (int argc, char **argv);
  * this process's environment: it is that program's, which no step of the
  * start touched. A failure, and a profile's refusal above all, is
  * reported over the status descriptor and ends this process, never
- * the program (core/syscalls.c). */
+ * the program (core/sandbox_rules.c). */
 _Noreturn void cosmic_trampoline (int argc, char **argv);
 #endif
 

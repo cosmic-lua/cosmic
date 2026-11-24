@@ -226,6 +226,20 @@ own operation records. A returned failure keeps its status without another
 diagnostic. An exception records exit code 1 and its full text, also written
 to stderr. The operations database stays outside the candidate checkout.
 
+A command that fails says why again where a reader finds it
+([`cosmic_ci/failures.tl`]): the lines of its output that say what failed
+(a test's or the tree check's `FAIL`, a checker's, C compiler's, linker's
+or git's error, an uncovered C function, a timeout) become `::error::`
+annotations and a block of the job's summary page, and are kept in
+`$RUNNER_TEMP/cosmic-ci/failures.txt`. A failed leg's step "say again what
+failed" (`driver.tl failures`) prints them just before the tree is moved
+back, so the log ends near the failure. The phases' build and check
+commands, as a suite does, keep their output in files beside the
+operations database (`said/`), which they say whole once they end. Each
+such command, and each suite and fixture, is named while it runs, in a file of `running/` beside the
+database, so a job cancelled or timed out under it still has the step
+print the end of what that command said.
+
 Each suite a platform phase runs -- the native (`local`) suite, the
 checked and portable suites, and each fixture's `cosmic test` -- writes
 one row to the operations database's `suite_runs` table once it ends
@@ -362,6 +376,18 @@ comments which run passed and closes it. It reads the triggering run's
 `EVENT`, `CONCLUSION`, `ATTEMPT`, `RUN_ID`, `BRANCH` and `HEAD_SHA`, with `REPOSITORY` and
 `GH_TOKEN`; [`cosmic_ci/prerelease_follow_test.tl`] drives it against a
 fake client.
+
+`prerelease-sweep` is prerelease.yml's hourly `sweep` job. A full run
+that `follow` starts with the job's own token fires no workflow_run when
+it ends, since GitHub starts no workflow from an event that token caused,
+so neither `publish` nor `follow` sees it end; nor does a daily run that
+`follow` re-ran with that token. The sweep looks at the newest full run of
+main that token last started, within the last day: where it passed and no
+release's tag ends in its commit, it writes `run_id` and `head_sha` to
+`$GITHUB_OUTPUT`, and `publish` publishes that run; where its first
+attempt failed, it re-runs the failed jobs once. It reads `REPOSITORY`,
+`GITHUB_OUTPUT` and `GH_TOKEN`; [`cosmic_ci/prerelease_sweep_test.tl`]
+drives it against a fake client.
 
 `fuzz` and `fuzz-cancelled` are fuzz.yml's, and record no operation.
 `fuzz` runs the sanitized tool (`sanitized/bin/cosmic` in the build
@@ -653,12 +679,14 @@ the first tried once, with the clearing and sleeping step between them.
 [`cosmic_ci/cache_trim.tl`]: cosmic_ci/cache_trim.tl
 [`cosmic_ci/prerelease_test.tl`]: cosmic_ci/prerelease_test.tl
 [`cosmic_ci/prerelease_follow_test.tl`]: cosmic_ci/prerelease_follow_test.tl
+[`cosmic_ci/prerelease_sweep_test.tl`]: cosmic_ci/prerelease_sweep_test.tl
 [`agents/weekly-review.md`]: agents/weekly-review.md
 [`cosmic_ci/review.tl`]: cosmic_ci/review.tl
 [`cosmic_ci/review_test.tl`]: cosmic_ci/review_test.tl
 [`cosmic_ci/github_api.tl`]: cosmic_ci/github_api.tl
 [`cosmic_ci/github_api_test.tl`]: cosmic_ci/github_api_test.tl
 [`cosmic_ci/report_test.tl`]: cosmic_ci/report_test.tl
+[`cosmic_ci/failures.tl`]: cosmic_ci/failures.tl
 [`cosmic_ci/suite_output.tl`]: cosmic_ci/suite_output.tl
 [`cosmic_ci/zig_prune.tl`]: cosmic_ci/zig_prune.tl
 

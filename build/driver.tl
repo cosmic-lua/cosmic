@@ -551,6 +551,7 @@ function Driver.new(options: Driver.Options): Driver.Build
       result = result, lowered = false, closed = false, checked = false, bodies = false,
       input = {
         module = source.module, filename = source.filename, chunk = read.chunk, dialect = source.dialect, scoped = scoped,
+        entry = source.entry,
       },
     }
   end
@@ -837,7 +838,8 @@ function Driver.new(options: Driver.Options): Driver.Build
       return nil
     end
     local old = held.result.source
-    local source = make(old.module, old.filename, text, old.dialect, old.checked, old.aliases, old.tests, old.pinned)
+    local source = make(old.module, old.filename, text, old.dialect, old.checked, old.aliases, old.tests, old.pinned,
+      old.entry)
     local started = Clock.monotonic_ns()
     local fresh = entry_of(read_source(source, text))
     timing.prepare = timing.prepare + Clock.monotonic_ns() - started

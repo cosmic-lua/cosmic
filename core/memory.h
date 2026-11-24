@@ -15,8 +15,8 @@
  * core, whose blocks carry a header libc knows nothing of.
  *
  * TODO: route the rest of what this C allocates and frees through here
- * too: core/syscalls.c's `execve` and `spawn` argument and environment
- * arrays and its sandbox pairs, core/syscalls_fs.c's tree walk, and
+ * too: core/syscalls.c's `execve` and core/spawn.c's `spawn` argument and
+ * environment arrays and its sandbox pairs, core/syscalls_fs.c's tree walk, and
  * core/store.c's `push_portable_runtime` still call libc by name, so the
  * checked core neither counts them nor fails them. `spawn`'s must stay
  * allocated before the child is cloned.

@@ -1560,7 +1560,7 @@ local function check_alone(ctx: Fix)
     elseif options == nil then
       failures[#failures + 1] = file .. ": not an input of the tree at " .. root .. " and not checked: " .. options_trouble
     else
-      local made = Pipeline.checked_alone(file, source, options)
+      local made = Pipeline.checked_alone(file, source, options, nil, nil, true)
       local why = "not an input of the tree at " .. root .. ", checked alone"
       if made.code == nil then
         -- One failure for the file, its problems on lines of their own as the build's refusal lists them.

@@ -265,7 +265,8 @@ end
 ]]
 
 --- Lowers `source` as the module `module` of `program`.
---- `parsed` is the parse of `source` where the caller has it already.
+--- `parsed` is the parse of `source` where the caller has it already. A module named as a program's main
+--- (`cmd.<name>.main`), or `lone`, is an entry point ([`Declarations.Input.entry`]), as a build marks a file it runs.
 local function lower(program: Declarations.Program, module: string, source: string, dialect: Ast.Dialect,
                      globals: {string: Scopes.Global}, required?: {string: Programs.Run}, read?: Parser.Parsed): Programs.Run
   local name = module .. (if dialect == "decl" then ".d.tl" else ".tl" end)
@@ -273,6 +274,7 @@ local function lower(program: Declarations.Program, module: string, source: stri
   local scoped = Scopes.build(parsed.chunk, name, globals)
   local input: Declarations.Input = {
     module = module, filename = name, chunk = parsed.chunk, scoped = scoped, dialect = dialect,
+    entry = module:match("^cmd%.[^.]+%.main$") ~= nil or module == "lone",
   }
   local lowered = program:lower(input)
   local before: mut {string} = {}

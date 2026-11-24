@@ -361,9 +361,7 @@ promises lean on come first:
 - [`cosmic.web`] past its first release, each once an app needs it:
   - WebSockets over a `Reply.take` seam in [`cosmic.http.server`] that hands
     the connection to a callback after the head is written, with `cosmic.web.ws` (the
-    handshake, an Origin allowlist, RFC 6455 frames, a fuzz test) on top. The seam
-    also gives event streams prompt disconnect detection: a stream finds
-    a client that left only by a write, a heartbeat later.
+    handshake, an Origin allowlist, RFC 6455 frames, a fuzz test) on top.
   - `epoll` and `kqueue` under `Poll`, for the thousands of idle
     streams a poll(2) loop rescans on every wake.
   - An event hub across processes (a SQLite table or a Unix socket), and

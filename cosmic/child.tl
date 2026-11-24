@@ -57,8 +57,8 @@
 --- pidfd on Linux, a kqueue on Darwin) -- a moment after the child's
 --- last act, which its teardown and a busy host's scheduling lengthen
 --- -- and is looked for every 10 ms elsewhere. A wait whose task is cancelled
---- returns nil (or false) and [`Poll.CANCELLED`] (from [`Child.run`], a
---- Failure of kind "cancelled"), and leaves the child running, for its handle to end. Ending a
+--- returns nil (or false) and a Failure of kind "cancelled" (from a
+--- stream end, the words [`Poll.CANCELLED`]), and leaves the child running, for its handle to end. Ending a
 --- child in a cancelled task -- [`Child.run`]'s, a close, a timeout --
 --- waits through the run all the same ([`Poll.shielded`]) until it is
 --- done: a second or so for each child that ignores SIGTERM, most of it
@@ -127,6 +127,10 @@ local record Result
   captured: mut {integer:string}
   --- Whether any captured stream lost its beginning to `capture_limit`.
   mut truncated: boolean
+  --- What settling the child could not clear, in words: members of its
+  --- process group still alive after SIGKILL, or a policy's `tmp`
+  --- directory that could not be removed. Nil when it cleared all.
+  mut remains?: string
 end
 
 --- The paths a sandbox gives a child ([`Sandbox.unveil`]), each
@@ -1148,17 +1152,18 @@ end
 --- `fork` promise that left its group) may swap a subdirectory for a link
 --- to a host directory while the walk runs, and a walk by path would
 --- delete through it.
--- TODO: report a removal that failed -- a directory the child made
--- unreadable (its `fattr` promise lets it chmod), or one a surviving
--- descendant keeps filling -- on the Result or the Handle, once Result
--- carries a field beside the exit status for what a settle left behind
--- (see the TODO at Child.wait_any); until then the tree is left behind and
--- nothing says so.
-local function remove_tmp(self: Handle)
+-- A removal fails for a directory the child made unreadable (its `fattr`
+-- promise lets it chmod), or one a surviving descendant keeps filling:
+-- the settle says so on the Result's `remains`.
+local function remove_tmp(self: Handle): string
   local dir = self._tmp
-  if dir == nil then return end
+  if dir == nil then return "" end
   self._tmp = nil
-  local _, _ = Fs.remove_tree(dir)
+  local removed, why = Fs.remove_tree(dir)
+  if not removed then
+    return "child: the policy's tmp " .. dir .. " was not removed: " .. tostring(why)
+  end
+  return ""
 end
 
 relay_lost = function(self: Handle)
@@ -1167,9 +1172,8 @@ relay_lost = function(self: Handle)
   local status, _ = exited(relay)
   if status == nil then return end
   self._relay_gone = true
-  -- TODO: say why on the Result, once it carries a field beside the exit
-  -- status for what a settle left behind (see the TODO at Child.wait_any):
-  -- today a program whose relay died is a SIGKILL like any other.
+  -- TODO: say on the Result that the relay died: today a program whose
+  -- relay died is a SIGKILL like any other.
   -- TODO: end the program the moment its relay dies, not at the next wait
   -- on it, once a handle has a task of its own to watch the relay's exit.
   local _, _ = sys.kill(target(self), sys.SIGKILL)
@@ -1197,8 +1201,9 @@ end
 --- `timed_out`; what its group has left after the leader is gone is
 --- ended the same way. What its pipes still hold is then drained, and
 --- every descriptor of its own is closed. Nil and why when the child
---- cannot be signalled, does not exit after SIGKILL, or leaves its group
---- members after it: the Result is kept for a later call all the same.
+--- cannot be signalled or does not exit after SIGKILL. Group members
+--- still alive after SIGKILL, or a policy `tmp` that could not be
+--- removed, are not a failure: the Result says so in `remains`.
 ---
 --- Its waits go through the run in a task, shielded, for a cleanup does
 --- not end with its task's cancel. In a `<close>` handler of a task
@@ -1292,11 +1297,21 @@ local function end_child(self: Handle): Result?, string
     r.stderr = r.captured[2]
   end
   self._result, self._closed = r, true
-  remove_tmp(self)
+  local remains: mut {string} = {}
   if not cleared then
-    return refuse("process group " .. tostring(self.pid) .. " still has members after SIGKILL")
+    remains[#remains + 1] = "child: process group " .. tostring(self.pid) .. " still has members after SIGKILL"
   end
+  local tmp_trouble = remove_tmp(self)
+  if tmp_trouble ~= "" then remains[#remains + 1] = tmp_trouble end
+  if #remains > 0 then r.remains = table.concat(remains, "; ") end
   return r, ""
+end
+
+--- [`end_child`], its failure a [`Failure`].
+local function settled(self: Handle): (Result) | (nil, Failure)
+  local r, why = end_child(self)
+  if r == nil then return nil, failure_of(why) end
+  return r
 end
 
 local closed_reader <const> = "child: the reader is closed"
@@ -1732,20 +1747,21 @@ local class Handle
   --- leaves every child running. While a [`Signal.guard`] is open, a
   --- SIGINT or SIGTERM it catches ends the wait, timed or not, the same
   --- way: a child that has not exited is ended and the wait answers nil
-  --- and "child: cancelled by signal N"; the guard keeps the signal, and a
-  --- later wait answers the ended child's Result. In a task of
-  --- [`Poll.run`] that is cancelled, it answers nil and
-  --- [`Poll.CANCELLED`], and leaves the child running. A `timeout_ns`
+  --- and a [`Failure`] of kind "cancelled" ("child: cancelled by signal
+  --- N"); the guard keeps the signal, and a later wait answers the ended
+  --- child's Result. In a task of [`Poll.run`] that is cancelled, it
+  --- answers nil and a Failure of kind "cancelled", and leaves the child
+  --- running. A `timeout_ns`
   --- below 0 or past [`Poll.MOST_NS`] raises.
-  function wait(self, timeout_ns?: integer): Result?, string
+  function wait(self, timeout_ns?: integer): (Result) | (nil, Failure)
     Poll.checked_ns(timeout_ns, "child", "timeout_ns", 2)
     local _result = self._result
-    if _result then return _result, "" end
+    if _result then return _result end
     if timeout_ns == nil and self._deadline == nil and Innermost.active() == nil and not self._streams and
         not self._input_fd and self._relay == nil and not through_run() then
       local status, trouble = exited(self, true)
-      if not status then return nil, trouble end
-      return end_child(self)
+      if not status then return nil, failure_of(trouble) end
+      return settled(self)
     end
     local deadline: integer?
     if timeout_ns ~= nil then deadline = now() + timeout_ns end
@@ -1756,7 +1772,7 @@ local class Handle
     local why = ""
     while true do
       local status, trouble = exited(self)
-      if status ~= nil then return end_child(self) end
+      if status ~= nil then return settled(self) end
       why = trouble
       if why ~= "" then break end
       local active = Innermost.active()
@@ -1781,12 +1797,12 @@ local class Handle
       local _, ended_trouble = end_child(self)
       if ended_trouble ~= "" then
         -- `why` names the module already.
-        return nil, why .. "; " .. (ended_trouble:gsub("^child: ", ""))
+        return nil, failure_of(why .. "; " .. (ended_trouble:gsub("^child: ", "")))
       end
-      return nil, why
+      return nil, failure_of(why)
     end
-    if why ~= "" then return nil, why end
-    return end_child(self)
+    if why ~= "" then return nil, failure_of(why) end
+    return settled(self)
   end
 
   --- Fairly copies streamed outputs to borrowed Writers within both required
@@ -1809,45 +1825,47 @@ local class Handle
   --- captured and streamed outputs and input meanwhile. Once the child's
   --- own [`Options.timeout_ns`] has passed, a child still running is
   --- ended as an expired `wait` ends it, which waits for it to go, and
-  --- `finished` is true, its Result `timed_out`. Nil and why when
-  --- settling the child fails.
-  function try_wait(self): TryWait?, string
+  --- `finished` is true, its Result `timed_out`. Nil and a [`Failure`]
+  --- when settling the child fails.
+  function try_wait(self): (TryWait) | (nil, Failure)
     local _result = self._result
-    if _result then return { finished = true, result = _result }, "" end
+    if _result then return { finished = true, result = _result } end
     local _, _ = pump(watching({ self }), 0)
     local status, trouble = exited(self)
     if status == nil then
-      if trouble ~= "" then return nil, trouble end
-      if not overdue(self) then return { finished = false }, "" end
+      if trouble ~= "" then return nil, failure_of(trouble) end
+      if not overdue(self) then return { finished = false } end
     end
     local r, settle_trouble = end_child(self)
-    if r == nil then return nil, settle_trouble end
-    return { finished = true, result = r }, ""
+    if r == nil then return nil, failure_of(settle_trouble) end
+    return { finished = true, result = r }
   end
 
   --- Sends `signal` (SIGTERM by default) to the child, or to its whole
-  --- group when `process_group` is true. It does not wait. False and why when the child
-  --- has been reaped already or the signal cannot be sent.
-  function stop(self, signal?: integer): boolean, string
-    if self._closed then return false, "child: process already reaped" end
+  --- group when `process_group` is true. It does not wait. False and a
+  --- [`Failure`] when the child has been reaped already or the signal
+  --- cannot be sent.
+  function stop(self, signal?: integer): (true) | (false, Failure)
+    if self._closed then return false, Failure.new("child: process already reaped") end
     local ok, trouble = sys.kill(target(self), signal or sys.SIGTERM)
-    if not ok then return false, trouble end
-    return true, ""
+    if not ok then return false, Failure.new(trouble) end
+    return true
   end
 
   --- Ends the child if it is still running, as an expired `wait` does,
   --- reaps it and closes its stdin stream, and ends its streamed outputs so
   --- their readers read what is queued and stop. Closing a settled
-  --- handle only ends the streamed outputs. False and why when the
-  --- child or its group cannot be ended.
-  function close(self): boolean, string
+  --- handle only ends the streamed outputs. False and a [`Failure`] when
+  --- the child cannot be ended; what its settle could not clear is on
+  --- the Result's `remains`.
+  function close(self): (true) | (false, Failure)
     closing_outputs(self)
     if not self._closed then
       local r, trouble = end_child(self)
-      if not r then return false, trouble end
+      if not r then return false, failure_of(trouble) end
     end
     end_streamed(self)
-    return true, ""
+    return true
   end
 
   function __close(self)
@@ -2316,7 +2334,7 @@ local record Held
   seatbelt_options?: Seatbelt.Options
 end
 
---- The most grants spawn takes (`GRANT_MAX` in core/syscalls.c, which is
+--- The most grants spawn takes (`GRANT_MAX` in core/sandbox.h, which is
 --- `UNVEIL_MAX`: under `isolate` file each is a path the root unveils), the
 --- temporary directory's included.
 local MAX_GRANTS <const> = raw.UNVEIL_MAX
@@ -2489,7 +2507,7 @@ end
 --- directory grant waits on ABI 9, at which Landlock holds it, unless
 --- `nest` gives Landlock up, which leaves the root alone to.
 -- TODO: hold a `u` grant beside a directory grant below ABI 9, once the
--- kernels the suite runs on give Landlock ABI 9 (core/syscalls.c's
+-- kernels the suite runs on give Landlock ABI 9 (core/sandbox_rules.c's
 -- TODO on the same): the directory may hold a socket the grant does not
 -- name, which the filter cannot tell from the granted one.
 local function unix_unheld(merged: Rules.Policy, base: string, nest: boolean): string
@@ -2718,7 +2736,7 @@ local function reached_by(merged: Rules.Policy, base: string, file: boolean,
         -- The mount shows the grant's owner as the program's user, and so
         -- cannot show that user's own files as its own too: a user
         -- namespace's map takes each outside id once. They show as the
-        -- owner's instead (core/syscalls.c's swapped_map), which a
+        -- owner's instead (core/sandbox_root.c's swapped_map), which a
         -- policy's `user` reaches by their mode for everyone (and for the
         -- group, where it is the owner's).
         idmap[index] = true
@@ -3130,7 +3148,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- TODO: [`unmet`] counts the grants before these two are added, so a
   -- start at the most raises inside spawn rather than refusing with a
   -- message: "too many grants" where the grants are handed to it
-  -- (core/syscalls.c's `read_grants`), and under `nest`, which hands
+  -- (core/sandbox_rules.c's `read_grants`), and under `nest`, which hands
   -- none, "too many unveiled paths" for the root they are bound into.
   -- The fix: count the grants after adding these two, and refuse with
   -- the count and the most.
@@ -3320,7 +3338,7 @@ local holds_by_seatbelt <const> = Rules.on_macos
 --- carries credentials on Linux alone, so the program runs as this process
 --- does.
 --- TODO: run the program as the policy's `user` and `group`, and drop root,
---- once core/syscalls.c carries credentials outside Linux (#2852).
+--- once core/sandbox_root.c carries credentials outside Linux (#2852).
 local function seatbelt_credentials(merged: Rules.Policy): string
   return Seatbelt.credentials_unmet(merged, effective_user(), effective_group())
 end
@@ -4207,38 +4225,36 @@ function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): (Pt
 end
 
 --- Waits for the first of several handles to finish, servicing every
---- one's streams meanwhile, and returns it settled: its [`wait()`] answers
---- at once. Nil and [`Poll.TIMEOUT`] when `timeout_ns` passes first --
---- no handle finished, and nothing failed -- and the handles are left
---- running: a timeout is `done == nil and trouble == Poll.TIMEOUT`, and
---- any other trouble beside a nil `done` is a failure. A handle whose
+--- one's streams meanwhile, and returns it finished: its [`wait()`] answers
+--- the Result, at once when the settle worked; when the settle failed,
+--- the wait tries again and says why. Nil and a
+--- [`Failure`] of kind "timeout" when `timeout_ns` passes first -- no
+--- handle finished, and nothing failed -- and the handles are left
+--- running; a Failure of another kind is a failure of the wait itself. A handle whose
 --- own [`Options.timeout_ns`] passes first is ended, as an expired
 --- [`Handle.wait`] ends it -- which waits for it to go, so the call
 --- can outlast its own `timeout_ns` by the grace period -- and is
 --- answered settled, its Result `timed_out`. In a task of
---- [`Poll.run`] that is cancelled, it answers nil and
---- [`Poll.CANCELLED`], the handles left running too. A `timeout_ns`
+--- [`Poll.run`] that is cancelled, it answers nil and a Failure of kind
+--- "cancelled", the handles left running too. A `timeout_ns`
 --- below 0 or past [`Poll.MOST_NS`] raises.
-function Child.wait_any(handles: {Handle}, timeout_ns?: integer): Handle?, string
-  -- TODO: carry a settled group's lingering members on Child.Result, a
-  -- field beside the exit status, and answer the handle with "" here:
-  -- build/test.tl reads the trouble beside the handle's result today, and
-  -- build.syntax_contracts exempts this pair from the error-slot rules until then.
+function Child.wait_any(handles: {Handle}, timeout_ns?: integer): (Handle) | (nil, Failure)
   if #handles == 0 then error("child: no handles to wait for", 2) end
   Poll.checked_ns(timeout_ns, "child", "timeout_ns", 2)
   local deadline = if timeout_ns ~= nil then now() + timeout_ns else nil end
   while true do
     for _, h in ipairs(handles) do
-      if h._result then return h, "" end
+      if h._result then return h end
       local status, trouble = exited(h)
+      -- A settle that fails leaves the handle unsettled: its `wait` says why.
       if status ~= nil then
-        local _, settle_trouble = end_child(h)
-        return h, settle_trouble
+        local _, _ = end_child(h)
+        return h
       end
-      if trouble ~= "" then return nil, trouble end
+      if trouble ~= "" then return nil, failure_of(trouble) end
       if overdue(h) then
-        local _, settle_trouble = end_child(h)
-        return h, settle_trouble
+        local _, _ = end_child(h)
+        return h
       end
     end
     local soonest = deadline
@@ -4246,9 +4262,9 @@ function Child.wait_any(handles: {Handle}, timeout_ns?: integer): Handle?, strin
     local left = slice(soonest, handles)
     if left ~= nil then
       local _, cancelled = pump(watching(handles), left, true)
-      if cancelled ~= "" then return nil, cancelled end
+      if cancelled ~= "" then return nil, failure_of(cancelled) end
     elseif deadline ~= nil and now() >= deadline then
-      return nil, Poll.TIMEOUT
+      return nil, Failure.timeout(Poll.TIMEOUT)
     end
   end
 end
@@ -4327,14 +4343,16 @@ local function run_checked(argv: {string}, opts: Options): (Result) | (nil, Fail
   -- Closed after the child is ended, as the run is left: the child is
   -- ended before the guard gives back the signals.
   local guard <close>: Guard = held
-  local started, wait_trouble = start(argv, opts)
+  local started, start_trouble = start(argv, opts)
   local r: Result?
+  local waited: Failure?
   local cleanup_trouble: string?
   if started ~= nil then
     -- Ends the child where the run is left by a raise, or a task's kill.
     local _ending <close> = started
     -- Bounded by the deadline `start` gave it from `opts.timeout_ns`.
-    r, wait_trouble = started:wait()
+    local got, why = started:wait()
+    r, waited = got, why
     if not started._closed and (guard:cancelled() ~= 0 or r == nil) then
       local _, failure = end_or_kill(started)
       if failure ~= "" then cleanup_trouble = failure end
@@ -4347,17 +4365,21 @@ local function run_checked(argv: {string}, opts: Options): (Result) | (nil, Fail
   end
   local cancellation = guard:cancelled()
   if cancellation ~= 0 then
-    -- TODO: test a signal caught after a clean wait, once Child.run lets a test act between its wait and this read of the guard: a child that exits first is seen exited before the guard, so no test reaches this branch with `wait_trouble` empty.
+    -- TODO: test a signal caught after a clean wait, once Child.run lets a test act between its wait and this read of the guard: a child that exits first is seen exited before the guard, so no test reaches this branch with `waited` nil.
     if cleanup_trouble then return nil, Failure.cancelled(cleanup_trouble) end
-    return nil, Failure.cancelled(if wait_trouble ~= "" then wait_trouble else cancelled_by(cancellation) end)
+    local because = if waited ~= nil then waited.message else start_trouble end
+    return nil, Failure.cancelled(if because ~= "" then because else cancelled_by(cancellation) end)
   end
   if cleanup_trouble then
     -- A cancelled task's run stays "cancelled" though its cleanup failed.
-    if wait_trouble == Poll.CANCELLED then return nil, Failure.cancelled(cleanup_trouble) end
+    if waited ~= nil and waited.kind == "cancelled" then
+      return nil, Failure.cancelled(cleanup_trouble)
+    end
     return nil, failure_of(cleanup_trouble)
   end
   if r then return r end
-  return nil, failure_of(wait_trouble)
+  if waited ~= nil then return nil, waited end
+  return nil, failure_of(start_trouble)
 end
 
 --- Runs a program -- one executable path -- to completion and answers its
@@ -4373,7 +4395,9 @@ end
 --- `stdout = "stream"`, and read the handle's `stdout_stream` a line at a
 --- time, as the tee example of [`cosmic/child_example.tl`] does.
 --- The child owns a new process group by default, so timeout cleanup
---- includes descendants.
+--- includes descendants. What the cleanup could not clear -- group members
+--- alive after SIGKILL, a policy `tmp` not removed -- is in the Result's
+--- `remains`, and is not a failure of the run.
 ---
 --- While the child runs, SIGINT and SIGTERM are held in a [`Signal.guard`]:
 --- either one ends the child and its group, then the caller's

@@ -295,7 +295,7 @@ end
 
 analysis_schema.tables = {
   "parsed", "requires", "tests", "catalog", "docs", "refs", "bound", "examples", "test_inputs", "links",
-  "stubs", "globals", "places", "members",
+  "stubs", "globals", "places", "members", "executable",
 }
 
 analysis_schema.statements = {
@@ -407,6 +407,8 @@ analysis_schema.statements = {
                                         scope TEXT NOT NULL,
                                         type TEXT NOT NULL,
                                         PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS executable (source_hash TEXT PRIMARY KEY,
+                                           lines TEXT NOT NULL) WITHOUT ROWID]],
 }
 
 return analysis_schema

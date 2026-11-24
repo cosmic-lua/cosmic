@@ -139,7 +139,7 @@ local checked_only <const> = "every file refers to it through a macro of its hea
 --- The findings a rule cannot see past, and why each is not one, by
 --- `"<file> <function> <rule>"`.
 local exempt: {string: string} = {
-  ["core/syscalls.c cosmic_sys_relaunch descriptor-argument"] =
+  ["core/spawn.c cosmic_sys_relaunch descriptor-argument"] =
     "its artifact_fd and core_fd are the numbers the child is to see its " ..
     "descriptors as, 3 to 255, not descriptors of this process",
   ["core/boot.c slurp held-across-raise"] =
@@ -149,7 +149,7 @@ local exempt: {string: string} = {
     "every argv and environment value it reads once argv is taken was checked " ..
     "to be a string before the calloc, so lua_tolstring converts nothing and " ..
     "cannot raise",
-  ["core/syscalls.c cosmic_sys_spawn held-across-raise"] =
+  ["core/spawn.c cosmic_sys_spawn held-across-raise"] =
     "every value it reads once argv is taken was checked to be a string first, " ..
     "so lua_tolstring converts nothing and cannot raise",
   ["core/syscalls.c cosmic_sys_openpty held-across-raise"] =
@@ -161,6 +161,9 @@ local exempt: {string: string} = {
   ["core/http.h cosmic_tls_distrust single-file"] =
     "its caller is curl's mbedtls verify callback, which patch/curl/05-distrust-after.txt " ..
     "adds to vendor/curl, out of the core's own C these rules read",
+  ["core/sandbox.h restored_descriptor_limit single-file"] =
+    "core/spawn.c's spawn_program calls it off Linux, before posix_spawn, " ..
+    "which the check's Linux compile does not see",
   ["core/memory.h cosmic_malloc single-file"] = checked_only,
   ["core/memory.h cosmic_calloc single-file"] = checked_only,
   ["core/memory.h cosmic_realloc single-file"] = checked_only,

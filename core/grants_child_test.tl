@@ -1,5 +1,5 @@
 --- `spawn`'s `grants` (core/process.h) on a live child: the kernel's own
---- verdict on the Landlock ruleset `grants_ruleset` (core/syscalls.c)
+--- verdict on the Landlock ruleset `grants_ruleset` (core/sandbox_rules.c)
 --- builds from each grant's descriptor. The child is a stand-in
 --- (build/stand_in.tl), which does what its script says, so a path the
 --- ruleset refuses shows as a command that fails, with the errno Landlock

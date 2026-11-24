@@ -1,7 +1,7 @@
 --- [`Child.start`]'s `policy` on macOS (cosmic/child.tl), which holds a
 --- child by Seatbelt: a process of this program applies the compiled
 --- profile (cosmic/sandbox/seatbelt.tl) to itself and executes the child's program
---- last (core/syscalls.c's trampoline). macOS alone has Seatbelt, and no
+--- last (core/sandbox_rules.c's trampoline). macOS alone has Seatbelt, and no
 --- `requires` name stands for it, so every test here calls [`Test.skip`] on any
 --- other host, where Landlock and seccomp hold a child
 --- (cosmic/child_policy_test.tl). The one that holds on every host --
@@ -293,8 +293,8 @@ local function test_a_policy_child_leads_a_session_and_opens_no_terminal(tmp: st
   local child = assert(Child.start({ "/bin/sleep", "30" }, { timeout_ns = Child.FOREVER, policy = policy }))
   local pid = child.pid
   local group = sys.getpgid(pid)
-  child:stop(sys.SIGKILL)
-  child:wait()
+  local _, _ = child:stop(sys.SIGKILL)
+  local _, _ = child:wait()
   assert(group == pid, "the child leads no group of its own: " .. tostring(group))
 end
 

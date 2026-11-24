@@ -326,6 +326,8 @@ local record Watch is Sse.EventSource
   roots: {string}
   ignored: function(string, string): boolean
   interval_ns: integer
+  --- When the next scan is due, in monotonic nanoseconds: a `next` that times out sooner scans nothing.
+  mut look_at: integer
   mut last: {string:string}?
   mut trouble: boolean
   sink: Types.Sink
@@ -375,7 +377,7 @@ function Watch.next(self: Watch, timeout_ns?: integer): Sse.Event?, string
   while true do
     if self.queue[1] ~= nil then return table.remove(self.queue, 1), "" end
     if self.shut then return nil, "" end
-    local wait = self.interval_ns
+    local wait = math.max(self.look_at - Clock.monotonic_ns(), 0)
     if deadline ~= nil then
       local left = deadline - Clock.monotonic_ns()
       if left <= 0 then return nil, Poll.TIMEOUT end
@@ -383,7 +385,11 @@ function Watch.next(self: Watch, timeout_ns?: integer): Sse.Event?, string
     end
     local _, _ = self.notifier:wait(wait)
     if self.shut then return nil, "" end
-    look(self)
+    local now = Clock.monotonic_ns()
+    if now >= self.look_at then
+      self.look_at = now + self.interval_ns
+      look(self)
+    end
   end
 end
 
@@ -401,7 +407,7 @@ local function events(req: Types.Request, boot: string, roots: {string}, interva
   local ignored = ignorer({ ".*" })
   local first, _ = scan(roots, ignored, true)
   local source: Watch = {
-    roots = roots, ignored = ignored, interval_ns = interval_ns, last = first,
+    roots = roots, ignored = ignored, interval_ns = interval_ns, look_at = Clock.monotonic_ns() + interval_ns, last = first,
     trouble = first == nil, sink = assert(req.app.spec.sink),
     queue = {}, shut = false, notifier = Poll.notifier(), next = Watch.next, close = Watch.close,
   }
@@ -649,7 +655,7 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
     -- one that is ending this supervisor, and skips the grace. `wait_any`
     -- is not ended by the guard and answers the program reaped.
     local done, trouble = Child.wait_any({ h }, grace_ns)
-    if done == nil and trouble == Poll.TIMEOUT then
+    if done == nil and trouble.kind == "timeout" then
       local _, _ = h:stop(sys.SIGKILL)
       local _, _ = Child.wait_any({ h }, KILLED_NS)
     end

@@ -47,7 +47,6 @@
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
-local Poll = require("cosmic.poll")
 local String = require("cosmic.string")
 local gen_syscalls = require("build.gen_syscalls")
 local confine = require("build.confine")
@@ -184,7 +183,7 @@ c.own_warnings = {
 c.analyzed = {
   "assertions.c", "bigint.c", "boot.c", "cipher.c", "coverage.c", "compress.c", "crypto.c",
   "environment.c", "errnos.c", "executable.c", "hash.c", "html.c", "http.c", "json.c", "xml.c", "namespace_calls.c",
-  "sign.c", "protobuf.c", "socket.c", "sqlite.c", "store.c", "strnlen.c", "surface.c", "syscalls.c", "syscalls_fs.c", "tls.c",
+  "sign.c", "protobuf.c", "socket.c", "sqlite.c", "store.c", "strnlen.c", "surface.c", "sandbox_root.c", "sandbox_rules.c", "spawn.c", "syscalls.c", "syscalls_fs.c", "tls.c",
   "vector.c", "vfs.c", "main.c", "portable.c", "profile.c", "promises.c", "rand.c", "startup.c",
   "entry.c", "startup_hook.c", "testing.c", "testing_checked.c", "unzstd.c",
 }
@@ -785,9 +784,10 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
       if #running > 0 then
         -- The analyzer takes far longer over a large file than a dump does.
         local limit_s = if analyzing then 600 else 120 end
-        local done, trouble = Child.wait_any(running, Clock.seconds(limit_s))
+        local done, failed = Child.wait_any(running, Clock.seconds(limit_s))
         if done == nil then
-          if trouble == Poll.TIMEOUT then
+          local trouble = failed.message
+          if failed.kind == "timeout" then
             trouble = "clang gave no answer in " .. plural.count(limit_s, "second")
           end
           for _, handle in ipairs(running) do
@@ -797,7 +797,8 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
           end
           running = {}
         else
-          local result, wait_trouble = done:wait()
+          local result, wait_failed = done:wait()
+          local wait_trouble = if wait_failed ~= nil then wait_failed.message else "" end
           local finished = held_in(which, done)
           local job = nth(jobs, finished)
           local made, unit: c.Outcome, rules.Unit?

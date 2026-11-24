@@ -4,7 +4,7 @@
 --- waited for, a grant of a path that is not there. Each case restricts a
 --- child of this program (build/sandbox_restrict_fixture.tl); one whose
 --- every restriction is refused ends unrestricted, reporting the C it
---- entered (the checks of core/syscalls.c's `restrict_self`) to the
+--- entered (the checks of core/sandbox_rules.c's `restrict_self`) to the
 --- test's coverage.
 --- They need no Landlock, which comes after them, and run wherever the
 --- kernel lists a process's children (`requires`), which the checks read;

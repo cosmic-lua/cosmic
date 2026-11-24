@@ -81,9 +81,9 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
+local quoted = Sqlite.identifier
 local Failure = require("cosmic.failure")
 local plural = require("build.plural")
-local quoted = require("build.sql_name").quoted
 
 --- What a failure of this module answers, nil and `why` under the
 --- module's name.
