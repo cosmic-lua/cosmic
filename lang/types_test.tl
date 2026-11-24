@@ -743,6 +743,28 @@ local function test_a_declaration_has_text_that_decodes_to_the_same_declaration(
   assert(Types.encode_declaration(declared(w, "File")):find('(field "open" mut boolean)', 1, true) ~= nil)
 end
 
+--- A schema's DDL is part of its class's text, and reads back; only a class holds one.
+local function test_a_schema_class_keeps_its_ddl_through_its_text()
+  local s = Types.new()
+  local handle = s:declare("class", "cosmic.sqlite", { "Handle" }, 0)
+  s:define(handle, { tparams = {}, supers = {}, fields = {}, methods = {}, values = {} })
+  local notes = s:declare("class", "m", { "Notes" }, 0)
+  local ddl = "CREATE TABLE notes (id INTEGER PRIMARY KEY, \"body\" TEXT);\n"
+  s:define(notes, { tparams = {}, supers = { s:named(handle, {}) }, fields = {}, methods = {}, values = {}, schema = ddl })
+  local text = Types.encode_declaration(notes)
+  assert(text:find("(schema ", 1, true) ~= nil, text)
+  local second = Types.new(loading_from(s))
+  local there, why = second:decode_declaration(text)
+  assert(there ~= nil, why)
+  local body = assert(there.body)
+  assert(body.schema == ddl)
+  same(Types.encode_declaration(there), text)
+  local record_decl = s:declare("record", "m", { "R" }, 0)
+  assert(raises(function()
+    s:define(record_decl, { tparams = {}, supers = {}, fields = {}, methods = {}, values = {}, schema = ddl })
+  end, "only a class holds a schema"))
+end
+
 local function test_a_declaration_without_a_body_has_no_text()
   local s = Types.new()
   local r = s:declare("record", "m", { "R" })
