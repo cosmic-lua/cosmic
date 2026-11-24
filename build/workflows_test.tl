@@ -1919,12 +1919,23 @@ local function test_the_gate_needs_every_job_and_compares_four_products()
       publish:find("workflow_run.event == 'push'", 1, true) == nil,
     "prerelease.yml publishes from a run of fewer than four legs")
   local follow = job_of(prerelease.jobs, "follow")
-  assert(map_of(follow.permissions)["contents"] == "read" and map_of(follow.permissions)["actions"] == "write",
+  assert(map_of(follow.permissions)["contents"] == "read" and map_of(follow.permissions)["actions"] == "write" and
+      map_of(follow.permissions)["issues"] == "write",
     "prerelease.yml's follow job's permissions")
   local follows = follow["if"] or ""
   assert(follows:find("github.repository == 'cosmic-lua/cosmic' && github.event.workflow_run.head_branch == 'main' && ", 1, true) == 1 and
       follows:find("pull_request", 1, true) == nil and follows:find("merge_group", 1, true) == nil,
     "prerelease.yml's follow job runs after a run of another repository, branch or event: " .. follows)
+  assert(follows:find("(github.event.workflow_run.event == 'push' && (github.event.workflow_run.conclusion == 'success' || " ..
+      "github.event.workflow_run.conclusion == 'failure'))", 1, true) ~= nil,
+    "prerelease.yml's follow job does not run after a green and a red push run: " .. follows)
+  local follow_env: mut {string: string} = {}
+  for _, step in ipairs(follow.steps) do
+    for name, value in pairs(map_of(step.env)) do follow_env[name] = value end
+  end
+  for _, name in ipairs({ "EVENT", "CONCLUSION", "ATTEMPT", "RUN_ID", "BRANCH", "HEAD_SHA", "REPOSITORY", "GH_TOKEN" }) do
+    assert(follow_env[name] ~= nil, "prerelease.yml's follow job does not set " .. name .. ", which prerelease-follow needs")
+  end
   for name in pairs(jobs) do
     assert(name == "platform" or name == "checked" or name == "narrowing" or name == "driver" or name == "ci",
       "ci.yml has a job " .. name)

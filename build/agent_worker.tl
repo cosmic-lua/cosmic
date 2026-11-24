@@ -25,11 +25,17 @@
 ---
 --- While a snippet runs, each call it makes of the agent ([`cosmic.agent.host`]) goes out as a line too, the request's
 --- `id` beside `call` and `args`, and the snippet waits for the next line in: `{"reply":...}`, or `{"failed":"..."}`.
+---
+--- A snippet that requires `mcp.<server>` gets the module of that MCP server's tools ([`cosmic.agent.mcp_module`]): at
+--- the first snippet that requires it, the worker asks the agent for the server's tools, and the checker reads the
+--- module's types from then on. A server whose tools cannot be listed refuses the snippet.
 
+local Driver = require("build.driver")
 local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Host = require("cosmic.agent.host")
 local Json = require("cosmic.json")
+local McpModule = require("cosmic.agent.mcp_module")
 local Pipeline = require("build.pipeline")
 local String = require("cosmic.string")
 local standalone = require("build.standalone")
@@ -148,8 +154,74 @@ local function transport_of(channel: Channel): Host.Transport
   end
 end
 
---- The answer to the request `line` holds, checked by `kept` and run within `capture`, its calls sent on `channel`.
-local function answer_to(kept: Pipeline.Kept, capture: Capture, channel: Channel, line: string): Answer
+--- The module of each MCP server a snippet required, by its name ("mcp.notes"): the Teal the checker reads of it, and
+--- the table `require` answers.
+local record Modules
+  teal: mut {string: string}
+  values: mut {string: {string: Call}}
+end
+
+--- A function of an MCP server's module, as it runs: what the snippet's checker reads as the tool's own types.
+local type Call = function(arguments?: {string: Json.Value}): (Json.Value) | (nil, Failure)
+
+--- `result` as the table a snippet reads as a [`Host.Result`].
+local function result_value(result: Host.Result): Json.Value
+  local content: mut {Json.Value} = {}
+  for i, block in ipairs(result.content) do content[i] = block end
+  local out: mut {string: Json.Value} = { text = result.text, content = Json.array(content) }
+  local structured = result.structured
+  if structured ~= nil then out["structured"] = structured end
+  return out
+end
+
+--- `arguments` as `input`, a tool's schema, says to send them ([`McpModule.shaped`]).
+local function sent_as(input: {string: Json.Value}, arguments?: {string: Json.Value}): {string: Json.Value}?
+  if arguments == nil then return nil end
+  return Json.object_of(McpModule.shaped(input, arguments)) or arguments
+end
+
+--- The table of the functions of `made`, each calling its tool of `server`.
+local function value_of_module(server: string, made: McpModule.Made): {string: Call}
+  local out: mut {string: Call} = {}
+  for _, f in ipairs(made.functions) do
+    local tool, input = f.tool, f.input
+    if f.structured then
+      out[f.name] = function(arguments?: {string: Json.Value}): (Json.Value) | (nil, Failure)
+        return Host.structured(server, tool, sent_as(input, arguments))
+      end
+    else
+      out[f.name] = function(arguments?: {string: Json.Value}): (Json.Value) | (nil, Failure)
+        local result, why = Host.tool(server, tool, sent_as(input, arguments))
+        if result == nil then return nil, why end
+        return result_value(result)
+      end
+    end
+  end
+  return out
+end
+
+--- Makes the module of each MCP server `code` requires that `modules` lacks ([`cosmic.agent.mcp_module`]), of the tools
+--- the server lists now, and lets the snippet's `require` answer it: nil, or the line of why a server's could not be made, which
+--- refuses the snippet.
+local function provide(modules: Modules, code: string): string?
+  for server in code:gmatch("require%s*%(?%s*[\"']mcp%.([%w_]+)[\"']") do
+    local module = "mcp." .. server
+    if modules.teal[module] == nil then
+      local tools, why = Host.tools(server)
+      if tools == nil then
+        return SNIPPET .. ": require(" .. Json.quote(module) .. "): " .. tostring(why)
+      end
+      local made = McpModule.made(server, tools)
+      modules.teal[module] = made.teal
+      modules.values[module] = value_of_module(server, made)
+    end
+  end
+  return nil
+end
+
+--- The answer to the request `line` holds, checked by `kept` and run within `capture`, its calls sent on `channel`;
+--- the MCP modules a snippet requires are made into `modules`, which `kept` reads.
+local function answer_to(kept: Pipeline.Kept, modules: Modules, capture: Capture, channel: Channel, line: string): Answer
   local request, why = Json.decode_object(line)
   if request == nil then
     return failed(Json.null, "the request is no JSON object: " .. tostring(why))
@@ -159,10 +231,19 @@ local function answer_to(kept: Pipeline.Kept, capture: Capture, channel: Channel
   local code = request["code"]
   if not (code is string) then return failed(id, "the request has no code") end
   channel.id = id
+  local trouble = provide(modules, code)
+  if trouble ~= nil then return { id = id, refused = Json.array({ trouble }) } end
   local made = kept:check(code)
   local lua = made.code
   if lua == nil then return { id = id, refused = Json.array(made.lines) } end
-  local chunk, load_trouble = standalone.loaded(SNIPPET, lua)
+  -- Each snippet gets tables of its own, so one that sets a function changes it for none after.
+  local values: mut {string: {string: Call}} = {}
+  for module, functions in pairs(modules.values) do
+    local copy: mut {string: Call} = {}
+    for name, call in pairs(functions) do copy[name] = call end
+    values[module] = copy
+  end
+  local chunk, load_trouble = standalone.loaded_with(SNIPPET, lua, values)
   if chunk == nil then return failed(id, load_trouble) end
   local ran: mut {string: Json.Value} = {}
   local done_run = capture:run(function(): Answer
@@ -226,13 +307,20 @@ function worker.main(): integer
   local _, _ = sys.dup2(null, 1)
   local _, _ = sys.dup2(null, 2)
   local capture = capture_in(dir, null)
+  -- The checker reads an MCP server's module where the binary has none of its name.
+  local modules: Modules = { teal = {}, values = {} }
+  local standard = options.standard or Pipeline.carried()
+  local made = Driver.stubs(modules.teal)
+  options.standard = function(module: string): Driver.Source?
+    return made(module) or standard(module)
+  end
   local kept = Pipeline.kept_alone(SNIPPET, options)
   local channel: Channel = { input = input, out = out, pending = "", id = Json.null }
   Host.connect(transport_of(channel))
   while true do
     local line = line_of(channel)
     if line == nil then break end
-    local answer = answer_to(kept, capture, channel, line)
+    local answer = answer_to(kept, modules, capture, channel, line)
     local text, encode_why = Json.encode(answer)
     if text == nil then
       local id = answer["id"]

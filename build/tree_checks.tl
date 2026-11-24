@@ -123,8 +123,8 @@ allowed["cosmic.sqlite.INTERRUPT"] = "public API: the code a call fails with whe
   "signal stopped it, beside BUSY and the other codes a caller compares"
 allowed["cosmic.agent.host.servers"] = "public API: what a snippet of cosmic agent's run tool calls to name the " ..
   "MCP servers it may call; snippets, which the tree never holds, are its users"
-allowed["cosmic.agent.host.tools"] = "public API: what a snippet of cosmic agent's run tool calls to list an MCP " ..
-  "server's tools; snippets, which the tree never holds, are its users"
+allowed["cosmic.agent.host.declaration"] = "public API: what a snippet of cosmic agent's run tool calls to read the " ..
+  "Teal of an MCP server's module; snippets, which the tree never holds, are its users"
 allowed["cosmic.agent.host.mcp"] = "public API: what a snippet of cosmic agent's run tool calls to call an MCP " ..
   "server's tool; snippets, which the tree never holds, are its users"
 allowed["cosmic.agent.host.sql"] = "public API: what a snippet of cosmic agent's run tool calls to query sessions.db; " ..
