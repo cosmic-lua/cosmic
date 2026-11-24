@@ -180,6 +180,9 @@ local record sqlite
     --- guard's signal still stops a call. A negative or noninteger
     --- duration and a borrowed or closed handle raise.
     time_limit: function(Handle, timeout_ns?: integer)
+    --- Holds the handle to queries for good: see [`cosmic.sqlite`]'s
+    --- [`Handle.reads_only`]. A borrowed handle raises.
+    reads_only: function(Handle): boolean, string
     --- Compiles `sql`, which must hold exactly one statement.
     prepare: function(Handle, sql: string): Statement?, string
     --- Captures a preparation's outcome before cleanup or another operation.

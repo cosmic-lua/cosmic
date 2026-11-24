@@ -85,11 +85,13 @@ local function test_the_default_is_the_project_database_else_the_binarys_own()
   assert(not opened.owned)
   local lines = assert(sql.query(opened.db, "SELECT count(*) > 0 AS any FROM sqlite_schema"))
   assert(#lines == 2 and lines[1] == "any" and lines[2] == "1", table.concat(lines, "|"))
-  -- A PRAGMA it refuses is answered with what a query can tell instead.
+  -- A PRAGMA that reads returns; one that sets is refused, saying what returns.
   local code, said = run(root, { "--store", "PRAGMA table_info(modules)" })
+  assert(code == 0 and #said.out > 1 and said.out[1]:find("name", 1, true) ~= nil, table.concat(said.out, "|"))
+  code, said = run(root, { "--store", "PRAGMA user_version = 3" })
   assert(code == 1 and #said.out == 0)
   local refusal = Array.at(said.err, 1)
-  assert(refusal:find("not authorized; the binary's own database answers a query",
+  assert(refusal:find("not authorized; the binary's own database answers a query and a PRAGMA that reads",
     1, true) ~= nil, refusal)
   -- A plain SQLite failure is not the authorizer's refusal, and gets no hint.
   code, said = run(root, { "--store", "SELEC 1" })

@@ -453,42 +453,22 @@ static int store_searcher (lua_State *L) {
   return 1;
 }
 
-/* What a statement on a store connection may do: read. Every connection
- * the store searches is handed out as a borrowed handle
- * ([`store_databases`]), and a read-only open still leaves a connection
- * its own writable temp schema -- where a `CREATE TEMP TABLE modules`
- * would stand in front of the rows `require` loads -- and ATTACH.
- * Anything but a query is refused when it is prepared. FTS5, which the
- * catalog lookup uses, asks for data_version on its own. */
-static int reads_only (void *unused, int action, const char *first,
-                       const char *second, const char *database,
-                       const char *trigger) {
-  (void)unused;
-  (void)database;
-  (void)trigger;
-  switch (action) {
-    case SQLITE_SELECT:
-    case SQLITE_READ:
-    case SQLITE_FUNCTION:
-    case SQLITE_RECURSIVE:
-    return SQLITE_OK;
-    case SQLITE_PRAGMA:
-    return second == NULL && first != NULL &&
-                   strcmp(first, "data_version") == 0
-               ? SQLITE_OK
-               : SQLITE_DENY;
-    default:
-    return SQLITE_DENY;
-  }
-}
-
 static void release_database (void *db) { sqlite3_close_v2(db); }
 
 /* Whether [`store_alone`] has set the attached databases aside: nothing is
  * attached until it puts them back, so its restore never grows the list. */
 static int set_aside;
 
-/* Opens another database and searches it ahead of every other, which is
+/* What a statement on a store connection may do: read. Every connection
+ * the store searches is handed out as a borrowed handle
+ * ([`store_databases`]), and a read-only open still leaves a connection
+ * its own writable temp schema -- where a `CREATE TEMP TABLE modules`
+ * would stand in front of the rows `require` loads -- and ATTACH.
+ * Anything but a query is refused when it is prepared
+ * (`cosmic_sqlite_hold_to_queries`). FTS5, which the catalog lookup uses,
+ * asks for data_version on its own, a PRAGMA that reads.
+ *
+ * Opens another database and searches it ahead of every other, which is
  * what a project's own build database needs. The connection is held by a
  * guard until the list holds it: the message a failure copies out and the
  * list's growth both allocate, and an allocation can raise past the
@@ -508,7 +488,7 @@ static int store_attach (lua_State *L) {
   int rc = sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, NULL);
   guard->resource = db;
   if (rc == SQLITE_OK) {
-    rc = sqlite3_set_authorizer(db, reads_only, NULL);
+    rc = cosmic_sqlite_hold_to_queries(db, NULL);
   }
   if (rc == SQLITE_OK) {
     rc = cosmic_sqlite_functions(db);
@@ -873,7 +853,7 @@ static int store_alone (lua_State *L) {
  * borrowed [`cosmic.sqlite`] handle: what a verb that reads the shipped
  * tables -- `cosmic docs` over `docs` and `uses` -- queries, without a
  * path to any of them, since the binary's own is inside the binary.
- * The handles read only -- [`reads_only`] refuses anything but a query on
+ * The handles read only -- `cosmic_sqlite_hold_to_queries` refuses anything but a query on
  * the store's connections, a temp table and ATTACH included; `close` on
  * one is a no-op, and the store keeps the connections for as long as
  * the process runs. */
@@ -1296,7 +1276,7 @@ void cosmic_store_install (lua_State *L, sqlite3 *binary,
                            const struct cosmic_artifact *artifact) {
   lua_newtable(L);
   if (binary != NULL) {
-    sqlite3_set_authorizer(binary, reads_only, NULL);
+    cosmic_sqlite_hold_to_queries(binary, NULL);
     /* Without them a query of the binary's rows answers "no such
      * function", which is all a failure here costs. */
     (void)cosmic_sqlite_functions(binary);

@@ -738,6 +738,34 @@ local class Handle
     self.connection:time_limit(limit_ns)
   end
 
+  --- Holds the handle to queries, for good: for SQL that someone else
+  --- wrote, a person's at a prompt or a model's. Each statement is
+  --- refused as it is prepared unless it is a `SELECT` (with the
+  --- functions it calls and `WITH RECURSIVE`) or a PRAGMA that reads:
+  --- the lists of tables, columns, indexes and foreign keys,
+  --- `integrity_check` and `quick_check`, and a setting read without a
+  --- value (`PRAGMA user_version`, not `PRAGMA user_version = 2`).
+  --- `VACUUM` and `VACUUM INTO` are refused too. Behind that, `PRAGMA
+  --- query_only` is set, so no write reaches a database as a statement
+  --- runs, and nothing may be attached; raising the `"attached"` limit
+  --- after raises. No SQL makes or writes a file, but SQLite itself may:
+  --- opening a database in write-ahead mode makes its `-wal` and `-shm`
+  --- files beside it where they are missing (`immutable` opens none).
+  --- A refusal returns [`Sqlite.AUTH`] and says what was refused. Returns
+  --- true, or false and why; calling it again does nothing. A borrowed
+  --- handle, such as the store's, raises: the store holds its own to
+  --- queries already. [`Sqlite.open`]'s `reads_only` does this as it opens.
+  ---
+  ---     local db = assert(Sqlite.open("notes.db", { reads_only = true }))
+  ---     assert(db:rows("SELECT count(*) FROM t"))
+  ---     local ok, why = db:run("DELETE FROM t")
+  ---     print(ok, why.code == Sqlite.AUTH) -- false  true
+  function reads_only(self): (true) | (false, Failure)
+    local held, why = self.connection:reads_only()
+    if not held then return false, Failure.coded("sqlite: " .. why, ERROR) end
+    return true
+  end
+
   --- Closes the connection: true, or false and why, [`Sqlite.BUSY`] as
   --- SQLite answers it, while a statement or query is still open.
   --- Closing one already closed does nothing. A borrowed handle, such as
@@ -828,6 +856,8 @@ local record Sqlite
   --- A parameter at no position the statement has, or a position with
   --- no parameter.
   RANGE: integer
+  --- A statement a handle held to queries refused ([`Handle.reads_only`]).
+  AUTH: integer
 
   --- One bound parameter. Its field says what SQLite is told it is, so
   --- a blob never arrives as text by accident. At most one field is
@@ -856,6 +886,9 @@ local record Sqlite
     --- the schema itself, as `PRAGMA schema_version = N` does: see
     --- [`Sqlite.open`]. Every other handle keeps it.
     defensive?: boolean
+    --- Holds the handle to queries as it opens: see [`Handle.reads_only`].
+    --- Giving it with `writable` raises.
+    reads_only?: boolean
   end
 
   --- One result row: see [`Handle.rows`].
@@ -921,6 +954,10 @@ end
 --- to at most 125; the refusal of one too many says so.
 function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): (Sqlite.Handle) | (nil, Failure)
   local writable, immutable, create = opts and opts.writable, opts and opts.immutable, opts and opts.create
+  local held = opts ~= nil and opts.reads_only == true
+  if held and writable == true then
+    error("sqlite: a database cannot be both writable and reads_only", 2)
+  end
   local defensive = not (opts ~= nil and opts.defensive == false)
   -- `open_result` raises for a path it refuses before SQLite reads it (a
   -- NUL), where `open` answers why; any other raise `open` raises again.
@@ -934,7 +971,15 @@ function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): (Sqlite.Handle) |
     return nil, Failure.coded("sqlite: " .. why, MISUSE)
   end
   if opened.code ~= OK then return nil, failed(opened) end
-  return handle_of(opened.handle)
+  local handle = handle_of(opened.handle)
+  if held then
+    local holding, why = handle:reads_only()
+    if not holding then
+      local _, _ = handle:close()
+      return nil, why
+    end
+  end
+  return handle
 end
 
 --- Disowns every connection this process has open: for a process that is a
@@ -1009,6 +1054,7 @@ Sqlite.ERROR = ERROR
 Sqlite.BUSY = BUSY
 Sqlite.MISUSE = MISUSE
 Sqlite.RANGE = RANGE
+Sqlite.AUTH = 23
 Sqlite.version = sqlite.version
 
 return Sqlite
