@@ -755,8 +755,8 @@ end
 --- a chunk the checker refuses does not run, and exits 4 ([`exit_status.uncompiled`]) with the checker's own messages. It reaches the standard library as a file does, by
 --- `require("cosmic.json")` with a literal name, and may require the tool's own modules too, which are the
 --- tool's one-liner's to use; nothing is bound for it. The words after it are its `...` (each a `string?`); what it
---- returns is the exit code as a file run's is -- see build/exit_status.tl -- except a table, which is printed as JSON and
---- exits 0.
+--- returns is the exit code as a file run's is -- see build/exit_status.tl -- except a table or [`Json.null`], which is printed as
+--- JSON and exits 0.
 --- @param argv the whole command line, `-e` at slot 1
 local function evaluate(argv: {string}): integer
   local chunk = argv[2]
@@ -782,17 +782,20 @@ local function evaluate(argv: {string}): integer
     given = argv[slot]
   end
   local returned = loaded(table.unpack(arguments))
-  -- A table is an answer, not a status: it is printed as JSON, as an agent's snippet hands back what it returns.
-  if returned is table then
-    local Fs = require("cosmic.fs")
+  -- A table is an answer, not a status: it is printed as JSON, as an agent's snippet hands back what it returns. A
+  -- status (nothing, a number, text) loads no JSON.
+  if not (returned == nil or returned is number or returned is string) then
     local Json = require("cosmic.json")
-    local text, why = Json.encode_any(returned)
-    if text == nil then
-      log:complain("-e returned a table that is not JSON: " .. tostring(why))
-      return 2
+    if returned is table or returned == Json.null then
+      local Fs = require("cosmic.fs")
+      local text, why = Json.encode_any(returned)
+      if text == nil then
+        log:complain("-e returned a table that is not JSON: " .. tostring(why))
+        return 2
+      end
+      local _, _ = Fs.put(Fs.stdout, text .. "\n")
+      return 0
     end
-    local _, _ = Fs.put(Fs.stdout, text .. "\n")
-    return 0
   end
   return exit_status.of("-e", returned)
 end

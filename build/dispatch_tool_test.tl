@@ -191,7 +191,9 @@ end
 local function test_e_prints_a_returned_table_as_json(tmp: string)
   local answer = evaluate(tmp, 'return { n = 1, seen = { "a", "b" } }')
   assert(answer.code == 0 and answer.stdout == '{"n":1,"seen":["a","b"]}\n', tostring(answer.stdout) ..
-    tostring(answer.stderr))
+      tostring(answer.stderr))
+  local null = evaluate(tmp, 'return require("cosmic.json").null')
+  assert(null.code == 0 and null.stdout == "null\n", tostring(null.stdout) .. tostring(null.stderr))
   local no_json = evaluate(tmp, "return { f = print }")
   assert(no_json.code == 2 and no_json.stdout == "" and says(no_json, "not JSON"), tostring(no_json.stderr))
 end
