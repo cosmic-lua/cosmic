@@ -99,3 +99,18 @@ local function test_a_dir_writes_the_longest_name(tmp: string)
   assert(d:write(long, "x"))
   assert(assert(d:read(long)) == "x")
 end
+
+--- sys.unlinkat removes one name, a link as itself, from a held directory; a name of more than one part is EINVAL.
+local function test_unlinkat_removes_one_name(tmp: string)
+  local root = real(tmp)
+  assert(Fs.write(root .. "/kept", "k"))
+  assert(Fs.symlink(root .. "/kept", root .. "/link"))
+  local dir = assert(sys.open_dir(root))
+  assert(sys.unlinkat(dir, "link"))
+  assert(assert(Fs.read(root .. "/kept")) == "k")
+  local _, _, errno = sys.unlinkat(dir, "a/b")
+  assert(errno == sys.EINVAL, tostring(errno))
+  local _, _, gone = sys.unlinkat(dir, "link")
+  assert(gone == sys.ENOENT, tostring(gone))
+  assert(sys.close(dir))
+end
