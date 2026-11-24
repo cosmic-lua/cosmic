@@ -67,8 +67,8 @@ local record Sse
     --- the stream. The stream asks with a timeout no longer than its
     --- next heartbeat or its end (`max_age_ns`), and none when it has
     --- neither: the server closes the stream of a client that leaves
-    --- ([`cosmic.http.server.Reply`]'s `body`), which closes the source and
-    --- wakes the wait. A source whose `close` does not wake its `next` holds such
+    --- ([`cosmic.http.server.Reply`]'s `until_gone`), which closes the
+    --- source and wakes the wait. A source whose `close` does not wake its `next` holds such
     --- a stream open until the server kills its task.
     next: function(EventSource, timeout_ns?: integer): Event?, string
     --- Ends the source: a `next` that waits wakes and answers the end.
@@ -521,7 +521,10 @@ local function event_stream(req: Types.Request, source: Sse.EventSource,
     ["Cache-Control"] = "no-cache, no-transform", ["X-Accel-Buffering"] = "no",
   }
   for name, value in pairs(given.headers or {}) do headers[name] = value end
-  return Response.stream(body, "text/event-stream", { headers = headers })
+  local res = Response.stream(body, "text/event-stream", { headers = headers })
+  -- The server closes the stream as soon as its client goes.
+  res.until_gone = true
+  return res
 end
 
 -- The hub.

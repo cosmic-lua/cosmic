@@ -50,6 +50,28 @@ local function test_a_read_with_a_timeout_fails_with_the_timeout_word(tmp: strin
   assert(sys.close(reader))
 end
 
+--- A read parked in a task wakes when another task closes the Reader,
+--- and answers it closed, rather than waiting on, or reading, whatever
+--- descriptor next takes the number.
+local function test_a_read_parked_in_a_task_wakes_when_another_task_closes_it(tmp: string)
+  local reader, writer = fifo(tmp, "closed")
+  local r = Stream.from_fd(reader, { nonblocking = true })
+  local why = ""
+  Poll.run(function()
+    local waiting = Poll.spawn(function()
+      local chunk, trouble = r:read()
+      assert(chunk == nil)
+      why = trouble
+    end)
+    assert(Poll.delay(Clock.ms(20)))
+    assert(r:close())
+    assert(waiting:join(Clock.seconds(5)))
+  end)
+  assert(why == "stream: the reader is closed", why)
+  assert(sys.close(writer))
+  assert(sys.close(reader))
+end
+
 --- Only a regular file can seek, so only its Reader has a `skip`: a pipe's
 --- is read and discarded by [`Stream.skip`].
 local function test_a_reader_over_a_pipe_has_no_skip(tmp: string)

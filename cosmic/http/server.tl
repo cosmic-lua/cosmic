@@ -94,8 +94,8 @@ local record Server
     --- passes, the task is cancelled or the connection is closed here.
     --- A handler that works a long time before it replies can wait on
     --- it in a task of its own ([`Poll.spawn`]) and give up once it
-    --- answers true; a Reader reply needs none, as the server closes
-    --- it when the client goes (`Reply.body`). A request the client
+    --- answers true; a stream of events needs none, as the server closes
+    --- it when the client goes ([`Reply.until_gone`]). A request the client
     --- sends meanwhile does not end it.
     wait_gone: function(timeout_ns?: integer): boolean
     --- What the connection's TLS handshake settled -- its version, the
@@ -133,12 +133,7 @@ local record Server
     mut headers?: {string: string | {string}}
     --- nil for none, the bytes, or a Reader, which the server reads to
     --- its end (or to `length`) as it writes and then closes, read or
-    --- not. A client that leaves while a Reader is being sent has it
-    --- closed at once, from another task, with the reply cut short: a
-    --- Reader whose read waits (a stream of events) must answer the end
-    --- once closed, so a quiet stream ends with its client and not at
-    --- its next write. A request the client sent after this one does
-    --- not count as leaving.
+    --- not.
     mut body?: string | Stream.Reader
     --- The body's size in bytes, as a `Content-Length` header gives it:
     --- the two, given both, must agree. A Reader without either goes
@@ -146,6 +141,18 @@ local record Server
     mut length?: integer
     --- Close the connection after this reply.
     mut close?: boolean
+    --- The Reader body is a stream that lasts as long as its client (a
+    --- stream of events): the server closes it, from another task, as
+    --- soon as the client goes, as the request's `gone` sees it -- a
+    --- half-close of the client's sending side counted as going -- and
+    --- the reply is cut short with no report. Its read, waiting for an
+    --- event, must then answer the end, so a quiet stream ends with its
+    --- client and not at its next write. Its close may come twice: from
+    --- that task, then as the reply ends. A request the client sends
+    --- after this one is no going. Not for a body that must arrive
+    --- whole: a client that half-closes and still reads would lose the
+    --- rest.
+    mut until_gone?: boolean
   end
 
   --- What [`Server.serve`] serves, and how. A field of the wrong shape, or
@@ -301,7 +308,7 @@ local LIMIT_FIELDS <const>: {string:boolean} = {
 }
 
 local REPLY_FIELDS <const>: {string:boolean} = {
-  status = true, headers = true, body = true, length = true, close = true,
+  status = true, headers = true, body = true, length = true, close = true, until_gone = true,
 }
 
 --- Raises for the spec's `field`, at the caller of [`Server.serve`].
@@ -759,7 +766,8 @@ local function revalidated(accepts: string?, reply: Server.Reply): Server.Reply
   if coding ~= "zstd" and coding ~= "gzip" then return reply end
   local out = varied(headers, false)
   weakened(out)
-  return { status = reply.status, headers = out, body = reply.body, length = reply.length, close = reply.close }
+  return { status = reply.status, headers = out, body = reply.body, length = reply.length, close = reply.close,
+    until_gone = reply.until_gone }
 end
 
 --- `reply` for a request of `accepts` (its Accept-Encoding) compressed
@@ -792,7 +800,7 @@ local function compressed(min_bytes: integer, accepts: string?, reply: Server.Re
       headers = varied({ ["Content-Type"] = "text/plain; charset=utf-8" }, false) }
   end
   local unchanged: Server.Reply = { status = status, headers = varied(headers, false), body = body,
-    length = reply.length, close = reply.close }
+    length = reply.length, close = reply.close, until_gone = reply.until_gone }
   if coding == "identity" then return unchanged end
   local encoder = encoder_for(coding)
   if encoder == nil then return unchanged end
@@ -807,7 +815,7 @@ local function compressed(min_bytes: integer, accepts: string?, reply: Server.Re
   local out_headers = varied(headers, true)
   out_headers["Content-Encoding"] = coding
   weakened(out_headers)
-  return { status = status, headers = out_headers, body = smaller, close = reply.close }
+  return { status = status, headers = out_headers, body = smaller, close = reply.close, until_gone = reply.until_gone }
 end
 
 --- Serves the request `head` read from `input`: calls the handler and
@@ -878,8 +886,8 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   end
   local given: Server.Reply = reply
   -- The handler's own Reader, which the server closes once the client
-  -- goes: not the encoder compression wraps it in, whose read is the
-  -- one waiting.
+  -- goes (`until_gone`): not the encoder compression wraps it in, whose
+  -- read is the one waiting.
   local handed = reply.body
   if s.compress_from ~= nil then
     local compressing, result = xpcall(compressed, traced, s.compress_from, head.headers["accept-encoding"], given)
@@ -918,16 +926,19 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
       date = now_date(),
     })
   end
-  -- While a Reader is sent, a task waits for the client to go and closes
-  -- the Reader then, which ends a read that waits for events.
+  -- While a stream that lasts as long as its client is sent, a task waits
+  -- for the client to go and closes the Reader then, which ends a read
+  -- that waits for events.
   local watcher: Poll.Task? = nil
-  local left = false
+  local left, ended = false, false
   local sends_body = head.method ~= "HEAD" and given.status >= 200 and given.status ~= 204 and given.status ~= 304
-  if handed ~= nil and not handed is string and sends_body and Poll.in_task() then
+  if given.until_gone == true and handed ~= nil and not handed is string and sends_body and Poll.in_task() then
     local reader: Stream.Reader = handed
     watcher = Poll.spawn(function()
       local gone, _ = conn:wait_gone()
-      if not gone then return end
+      -- A watcher first run after the reply ended (one sent without a
+      -- wait) leaves the Reader alone.
+      if not gone or ended then return end
       left = true
       local closing, raised = pcall(function() local _, _ = reader:close() end)
       if not closing then
@@ -936,7 +947,10 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     end)
   end
   local sending, sent = xpcall(send_reply, traced, conn)
-  if watcher ~= nil then watcher:cancel() end
+  ended = true
+  -- A watcher that is closing the Reader runs on to its end: its close
+  -- (an SSE stream's on_close) may wait.
+  if watcher ~= nil and not left then watcher:cancel() end
   if left then
     drop_body(given)
     return false

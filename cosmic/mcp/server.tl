@@ -1929,7 +1929,7 @@ local function streamed(self: State, message: wire.Message, req: HttpServer.Requ
     notifier:notify_all()
   end)
   return { status = 200, headers = { ["Content-Type"] = "text/event-stream", ["Cache-Control"] = "no-cache, no-transform" },
-    body = body }
+    body = body, until_gone = true }
 end
 
 --- Whether `accept` names `want` itself, not by a wildcard: a client that asks for an event stream says so.

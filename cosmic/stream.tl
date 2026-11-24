@@ -521,12 +521,18 @@ local class FdReader is Stream.Reader
         self.failed = why
         return nil, why
       end
+      -- Closed by another task while this one waited.
+      if self.closed then return nil, closed_reader end
     end
   end
 
   function close(self): boolean, string
     if self.closed then return true, "" end
     self.closed = true
+    -- A read another task has parked on the descriptor wakes and finds
+    -- the Reader closed, rather than reading whatever descriptor next
+    -- takes its number.
+    Poll.closing(self.fd)
     return release(self)
   end
 end
