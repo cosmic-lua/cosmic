@@ -4168,10 +4168,10 @@ struct spawn_options {
   gid_t credential_group;
 };
 
-/* The name an unveiled path is bound at, from the table at -1 under
- * `what`: absolute, plain, not /, beneath no /.old (the root's own, where
- * the old root is put aside as it pivots), and not one another path is
- * bound at already. */
+/* The name an unveiled path is bound at, the string at -1 (`what`
+ * names it in an error): absolute, plain, not /, beneath no /.old (the
+ * root's own, where the old root is put aside as it pivots), and not
+ * one another path is bound at already. */
 static const char *bound_name (lua_State *L, const struct spawn_options *o, const char *what,
                                const char *refused, const char *old_refused) {
   const char *name = plain_string(L, -1, what);
@@ -4674,9 +4674,13 @@ static int resolve_root (const char **path_given, const char **cwd_given, struct
 /* What `spawn` answers once the child has started or failed to: it
  * reads the errno the child wrote to `status_read` before its exec, if
  * it wrote one, closes `status_read` and removes the empty `root_dir`.
- * `pid` is the program's, or -1. */
+ * `pid` is the child running the program (an unveiled start's
+ * program), or -1. */
 static int spawn_answer (lua_State *L, int status_read, pid_t pid, const char *root_dir,
                          const struct spawn_options *o, const char *idmap_path) {
+#if !defined(__linux__)
+  (void)idmap_path;
+#endif
   int child_error = 0;
   size_t received = 0;
   int read_error = 0;
