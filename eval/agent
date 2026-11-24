@@ -3,8 +3,8 @@
 # their grades and what they spent: see eval/agent.tl, which this runs
 # on the checkout's own bin/cosmic, so that it may require modules of the
 # tree, such as its report's template (eval/report.tmpl). It runs from the
-# checkout's root, which is the tree a file is built in; give its paths
-# absolute, as the runs read them from other directories too.
+# checkout's root, which is the tree a file is built in; eval/agent.tl
+# takes its paths absolute, as the runs read them from other directories.
 #
 #   eval/agent --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR
 #              [--tasks T,...|all] [--reps N] [--model M] [--timeout S]

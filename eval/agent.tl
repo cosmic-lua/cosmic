@@ -694,6 +694,10 @@ function Agent.parse(argv: {string}): Agent.Options?, string
     if word == "--tool" then
       local name, path = value:match("^([%w_-]+)=(.+)$")
       if name == nil or path == nil then return nil, "--tool takes NAME=PATH: " .. value end
+      -- A run starts the tool from its work copy: a path is absolute, or a bare name found on PATH.
+      if path:find("/", 1, true) ~= nil and path:sub(1, 1) ~= "/" then
+        return nil, "--tool " .. name .. ": give an absolute path or a name on PATH, not " .. path
+      end
       for _, t in ipairs(tools) do
         if t.name == name then return nil, "two tools named " .. name end
       end
@@ -760,6 +764,10 @@ function Agent.parse(argv: {string}): Agent.Options?, string
   end
   if #tools == 0 then return nil, "--tool is required; " .. USAGE end
   if fixture == "" or out == "" then return nil, "--fixture and --out are required; " .. USAGE end
+  -- The runs read and write them from other directories, and eval/agent runs from the checkout's root.
+  if fixture:sub(1, 1) ~= "/" or out:sub(1, 1) ~= "/" then
+    return nil, "--fixture and --out take absolute paths: " .. (if fixture:sub(1, 1) ~= "/" then fixture else out end)
+  end
   if #tasks == 0 then return nil, "--tasks names no task" end
   local offering: mut {Agent.Tool} = {}
   for _, t in ipairs(tools) do
