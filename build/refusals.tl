@@ -144,7 +144,8 @@ function refusals.text(lines: {string}, roots: {string:{integer}}): string
 end
 
 --- Whether `file` is a test or test support, which a tool carries none of and no module it carries may require
---- ([`build.positions`]).
+--- ([`build.positions`]). By its path alone ([`analysis_schema.kind_of`]): a guide under `doc/guides/` is of the test
+--- kind in `inputs`, but the tool carries its prose, so it is not one here.
 local function test_side(file: string): boolean
   return AnalysisSchema.kind_of(file) == "test" or AnalysisSchema.is_support(file)
 end
