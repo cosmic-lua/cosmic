@@ -47,6 +47,9 @@
 ---       for i = 1, 3 do local _ = Poll.spawn(function() got[i] = notes.get({ id = i }).text end) end
 ---     end)
 ---
+--- The helpers named after commands ([`Host.find`], [`Host.grep`], [`Host.sed`], [`Host.wc`], [`Host.sort`],
+--- [`Host.sqlite`], ...) are [`cosmic.shell`]'s calls, run in the snippet's own process, raising where they fail.
+---
 --- Outside a worker no agent answers, and each call raises so.
 
 local AgentFetch = require("cosmic.agent.fetch")
@@ -58,6 +61,7 @@ local type Doc = require("cosmic.doc")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
+local Shell = require("cosmic.shell")
 local Json = require("cosmic.json")
 local McpModule = require("cosmic.agent.mcp_module")
 local Sqlite = require("cosmic.sqlite")
@@ -148,23 +152,11 @@ local record Host
     timed_out: boolean
   end
 
-  --- A line [`Host.grep`] found.
-  record Hit
-    --- The file, as the list given named it.
-    path: string
-    --- Its number, from 1.
-    line: integer
-    --- The line, without its newline.
-    text: string
-  end
+  --- A line [`Host.grep`] found ([`Shell.Hit`]).
+  type Hit = Shell.Hit
 
-  --- A key and how often it was counted, as [`Host.top`] lists it.
-  record Count
-    --- What was counted.
-    key: string
-    --- How often.
-    count: integer
-  end
+  --- A key and how often it was counted, as [`Host.top`] lists it ([`Shell.Count`]).
+  type Count = Shell.Count
 
   --- What [`Host.search`] found.
   record Searched
@@ -518,19 +510,16 @@ end
 -- The helpers below raise where they fail, so a snippet needs no assert: what raises ends the snippet, and the
 -- error is what it answers.
 
---- Every file under `dir`, at any depth, as the command `find` names them (`path` alone where `dir` is `"."`),
---- sorted; only those whose names end with `suffix` where given (`".tl"`). Raises where `dir` cannot be walked.
+--- Raises `why` as the failure of the call `name`, at the snippet's line.
+local function raise(name: string, why: Failure): never
+  error("host: " .. name .. ": " .. tostring(why), 3)
+end
+
+--- Every file under `dir` ([`Shell.find`]); raises where `dir` cannot be walked.
 function Host.find(dir: string, suffix?: string): {string}
-  local found, why = Fs.walk(dir)
-  if found == nil then error("host: find: " .. tostring(why), 2) end
-  local out: mut {string} = {}
-  for _, path in ipairs(found) do
-    if suffix == nil or suffix == "" or path:sub(-#suffix) == suffix then
-      local base = dir:gsub("/+$", "")
-      out[#out + 1] = if dir == "." then path elseif base == "" then "/" .. path else base .. "/" .. path end
-    end
-  end
-  return out
+  local found, why = Shell.find(dir, suffix)
+  if found == nil then raise("find", why) end
+  return found
 end
 
 --- The text of the file `path`, as `cat` prints it. Raises where it cannot be read.
@@ -540,29 +529,11 @@ function Host.cat(path: string): string
   return text
 end
 
---- The lines of `text`, each without its newline: a last line with no newline is one too, and none follows a last
---- newline.
-local function split(text: string): {string}
-  local out: mut {string} = {}
-  -- The start of the line after each newline, so the last line is a `sub`: matching `([^\n]+)$` tries every start
-  -- in the text, and backs off each, which took seconds over a tree.
-  local rest = 1
-  for line, after in text:gmatch("([^\n]*)\n()") do
-    out[#out + 1] = line
-    rest = after
-  end
-  if rest <= #text then out[#out + 1] = text:sub(rest) end
-  return out
-end
-
---- The lines of the file `path`, without their newlines (or a `\r` before one); a last line with no newline is one
---- too. Raises where it cannot be read.
+--- The lines of the file `path` ([`Shell.lines`]); raises where it cannot be read.
 function Host.lines(path: string): {string}
-  local text, why = Fs.read(path)
-  if text == nil then error("host: lines: " .. tostring(why), 2) end
-  local out: mut {string} = {}
-  for _, line in ipairs(split(text)) do out[#out + 1] = (line:gsub("\r$", "")) end
-  return out
+  local lines, why = Shell.lines(path)
+  if lines == nil then raise("lines", why) end
+  return lines
 end
 
 --- Whether anything is at `path`, as `test -e` tells: false where it or a parent is missing. Raises where it cannot
@@ -581,171 +552,47 @@ function Host.write(path: string, text: string | {string})
   if not ok then error("host: write: " .. tostring(why), 2) end
 end
 
---- Each line of the files `paths` that holds `pattern`, a Lua pattern, or plain text where `plain`, as `grep -n`
---- finds them: in the order of `paths`, then of lines. Raises where a file cannot be read.
+--- The lines of `paths` that hold `pattern` ([`Shell.grep`]); raises where a file cannot
+--- be read or the pattern is malformed.
 function Host.grep(pattern: string, paths: {string}, plain?: boolean): {Host.Hit}
-  local out: mut {Host.Hit} = {}
-  for _, path in ipairs(paths) do
-    local text, why = Fs.read(path)
-    if text == nil then error("host: grep: " .. tostring(why), 2) end
-    for i, line in ipairs(split(text)) do
-      local bare = line:gsub("\r$", "")
-      local found = false
-      -- A malformed pattern raises in find: told as grep's, at the snippet's line.
-      local ok, trouble = pcall(function() found = bare:find(pattern, 1, plain == true) ~= nil end)
-      if not ok then error("host: grep: " .. pattern .. ": " .. tostring(trouble), 2) end
-      if found then out[#out + 1] = { path = path, line = i, text = bare } end
-    end
-  end
-  return out
+  local hits, why = Shell.grep(pattern, paths, plain)
+  if hits == nil then raise("grep", why) end
+  return hits
 end
 
---- Replaces every match of `pattern` (a Lua pattern, or plain text where `plain`) in the file `path` with
---- `replacement` (where `%1` is a capture, unless `plain`), as `sed -i 's/.../.../g'` does, line by line: `^` and `$`
---- hold at each line's ends, and a match spans no newline. How many it replaced; a file with none is not written.
---- Raises where it cannot be read or written.
+--- Replaces `pattern` in the file `path`, and answers how many ([`Shell.sed`]); raises where it
+--- cannot be read or written, or the pattern is malformed.
 function Host.sed(path: string, pattern: string, replacement: string, plain?: boolean): integer
-  local text, why = Fs.read(path)
-  if text == nil then error("host: sed: " .. tostring(why), 2) end
-  local find = if plain == true then (pattern:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0")) else pattern end
-  local put = if plain == true then (replacement:gsub("%%", "%%%%")) else replacement end
-  local out: mut {string} = {}
-  local count = 0
-  for _, line in ipairs(split(text)) do
-    local bare = line:gsub("\r$", "")
-    local cr = if #bare < #line then "\r" else "" end
-    local changed, n = bare, 0
-    -- A malformed pattern raises in gsub: told as sed's, at the snippet's line.
-    local ok, trouble = pcall(function() changed, n = bare:gsub(find, put) end)
-    if not ok then error("host: sed: " .. tostring(trouble), 2) end
-    out[#out + 1] = changed .. cr
-    count = count + n
-  end
-  if count > 0 then
-    local ends = if text:sub(-1) == "\n" then "\n" else "" end
-    local wrote, write_why = Fs.write(path, table.concat(out, "\n") .. ends)
-    if not wrote then error("host: sed: " .. tostring(write_why), 2) end
-  end
+  local count, why = Shell.sed(path, pattern, replacement, plain)
+  if count == nil then raise("sed", why) end
   return count
 end
 
---- How many lines the file `path` has, as `wc -l` counts them: its newlines. Raises where it cannot be read.
+--- How many lines the file `path` has ([`Shell.wc`]); raises where it cannot be read.
 function Host.wc(path: string): integer
-  local text, why = Fs.read(path)
-  if text == nil then error("host: wc: " .. tostring(why), 2) end
-  local _, newlines = text:gsub("\n", "")
-  return newlines
+  local count, why = Shell.wc(path)
+  if count == nil then raise("wc", why) end
+  return count
 end
 
---- How often each of `keys` is in it, as `sort | uniq -c` counts.
-function Host.uniq(keys: {string}): {string: integer}
-  local out: mut {string: integer} = {}
-  for _, key in ipairs(keys) do out[key] = (out[key] or 0) + 1 end
-  return out
-end
+--- How often each of `keys` is in it ([`Shell.uniq`]).
+function Host.uniq(keys: {string}): {string: integer} return Shell.uniq(keys) end
 
---- `counts` as a list, the most first, ties by key, as `sort -k1,1nr -k2 | head -n most` lists them; only the first
---- `most` where given.
+--- The most counted of `counts` first ([`Shell.top`]).
 function Host.top(counts: {string: integer}, most?: integer): {Host.Count}
-  local out: mut {Host.Count} = {}
-  for key, count in pairs(counts) do out[#out + 1] = { key = key, count = count } end
-  table.sort(out, function(a: Host.Count, b: Host.Count): boolean
-    if a.count ~= b.count then return a.count > b.count end
-    return a.key < b.key
-  end)
-  if most ~= nil then
-    while #out > math.max(most, 0) do out[#out] = nil end
-  end
-  return out
+  return Shell.top(counts, most)
 end
 
---- A sorted copy of `list`, as `sort` orders bytes; by the key `by` gives each item where given, as `sort -k` orders
---- by a field (`Host.sort(lines, function(l: string): string return l:match("%S+$") or l end)`), ties by the whole
---- item.
+--- A sorted copy of `list`, by `by`'s key where given ([`Shell.sort`]).
 function Host.sort(list: {string}, by?: function(string): string): {string}
-  local out: mut {string} = {}
-  for _, v in ipairs(list) do out[#out + 1] = v end
-  if by == nil then
-    table.sort(out)
-    return out
-  end
-  local keys: mut {string: string} = {}
-  for _, v in ipairs(out) do keys[v] = by(v) end
-  table.sort(out, function(a: string, b: string): boolean
-    local ka, kb = keys[a] or a, keys[b] or b
-    if ka ~= kb then return ka < kb end
-    return a < b
-  end)
-  return out
+  return Shell.sort(list, by)
 end
 
---- `values` as SQLite binds them, `?1` first: a string as text, an integer or a number as itself, a boolean as 1 or
---- 0, [`Json.null`] as NULL. Or nil, and why one cannot be bound.
-local function params_of(values: {Json.Value}): {Sqlite.Param}, string?
-  local out: mut {Sqlite.Param} = {}
-  for i, v in ipairs(values) do
-    if v is string or v is number or v is boolean then
-      out[#out + 1] = v
-    elseif v == Json.null then
-      out[#out + 1] = Sqlite.NULL
-    else
-      return {}, "value " .. tostring(i) .. " is a table: bind a string, a number, a boolean or Json.null"
-    end
-  end
-  return out, nil
-end
-
---- The rows of one SQL statement on the SQLite file `path`, made where it is missing, as the command `sqlite3`
---- runs it: each row an object of its columns, as [`Host.sql`]'s are (NULL is [`Json.null`]); `values` bind `?1`,
---- `?2`, ... (a string as text, a number as itself, a boolean as 1 or 0). A statement that changes the file answers
---- no rows; with no `values`, `statement` may be a script of several (`create table ...; insert ...`), which
---- answers none. Raises where it fails.
+--- The rows of `statement` on the SQLite file `path` ([`Shell.sqlite`]); raises where it
+--- fails.
 function Host.sqlite(path: string, statement: string, values?: {Json.Value}): {Host.Row}
-  local db, open_why = Sqlite.open(path, { writable = true })
-  if db == nil then error("host: sqlite: " .. tostring(open_why), 2) end
-  local prepared, why = db:prepare(statement)
-  if prepared == nil then
-    -- A script of several statements runs whole, as sqlite3 runs one.
-    if values == nil then
-      local ran, _ = db:exec(statement)
-      if ran then
-        local _, _ = db:close()
-        return {}
-      end
-    end
-    local _, _ = db:close()
-    error("host: sqlite: " .. tostring(why), 2)
-  end
-  local params, bind_why = params_of(values or {})
-  local got: {Sqlite.Row} = {}
-  local rows_why: Failure? = nil
-  if bind_why == nil then
-    local read, read_why = prepared:rows(params)
-    if read == nil then rows_why = read_why else got = read end
-  end
-  local names = prepared:names()
-  prepared:close()
-  local _, _ = db:close()
-  if bind_why ~= nil then error("host: sqlite: " .. bind_why, 2) end
-  if rows_why ~= nil then error("host: sqlite: " .. tostring(rows_why), 2) end
-  local rows: mut {Host.Row} = {}
-  for _, got_row in ipairs(got) do
-    local row: mut {string: Json.Value} = {}
-    for i, name in ipairs(names) do
-      local kind = got_row:kind(i)
-      local key = String.as_utf8(name)
-      if kind == "null" then
-        row[key] = Json.null
-      elseif kind == "integer" then
-        row[key] = got_row:integer(i)
-      elseif kind == "number" then
-        row[key] = got_row:number(i)
-      else
-        row[key] = String.as_utf8(got_row:bytes(i))
-      end
-    end
-    rows[#rows + 1] = row
-  end
+  local rows, why = Shell.sqlite(path, statement, values)
+  if rows == nil then raise("sqlite", why) end
   return rows
 end
 
