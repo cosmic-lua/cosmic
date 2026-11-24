@@ -467,6 +467,11 @@ local function turn(r: Run, s: Agent.Session, on: function(event: Agent.Event), 
   end
   local ok, why = go(s)
   s.on, s.steering, s.stopping = was_on, was_steering, was_stopping
+  local lost = s.on_failed
+  if lost ~= nil then
+    r.io.err("cosmic: agent: an event could not be shown: " .. lost)
+    s.on_failed = nil
+  end
   -- A signal but Ctrl-C ends the run as the hold ends: the jobs first.
   local caught = held_signals.caught()
   if caught ~= 0 and caught ~= 2 then s:close() end

@@ -61,13 +61,14 @@ function Show.text(out: function(line: string), err: function(line: string)): fu
 end
 
 --- The JSON object `cosmic agent ask --json` writes for `e`, or nil for one it writes nothing of (text, which the
---- message that holds it carries): `{type = "tool", name, input}`, `{type = "result", name, is_error}`,
+--- message that holds it carries): `{type = "tool", name, input}`, `{type = "result", name, is_error}`, `{type = "blocked", name, reason}`,
 --- `{type = "message", message}`, or `{type = "request", request = {model, status, ms, the token counts, cost}}`.
 function Show.object(e: Agent.Event): Json.Value?
   if e.kind == "tool" then return { type = "tool", name = e.name, input = e.input } end
   if e.kind == "result" then
     return { type = "result", name = e.name, is_error = e.result.is_error }
   end
+  if e.kind == "blocked" then return { type = "blocked", name = e.name, reason = e.reason } end
   if e.kind == "message" then return { type = "message", message = e.message } end
   if e.kind == "request" then
     local q = e.request

@@ -19,6 +19,17 @@
 --- are how a program of its own hears the agent and steers it
 --- ([`Agent.Event`], [`cosmic.agent.show`]).
 ---
+--- `before` and `after` are the agent's own policy over each tool call
+--- the model makes: `before` may block a call, with a reason the model
+--- reads, and `after` may change a result before it is kept
+--- ([`Agent.Before`], [`Agent.After`], [`cosmic.agent.check`]). They are
+--- one layer, over what a call means to do: the sandbox holds what the
+--- code that runs can do, and what a snippet of run calls through its
+--- host (sql, MCP) is not asked of them yet.
+---
+---     agent.tools = Tools.only(Tools.all(), { "read", "edit" })
+---     agent.before = Check.all({ Check.paths({ grants = { { path = cwd, letters = "rwc" } } }), Check.budget({ edit = 20 }) })
+---
 --- How the agent works, which is how pi works:
 ---
 --- 1. the prompt joins the conversation, as the user's
@@ -194,13 +205,69 @@ local record Agent
     request: Sessions.Request
   end
 
+  --- The kind of a [`Agent.BlockedEvent`].
+  enum BlockedKind "blocked" end
+
+  --- The agent's `before` blocked a call of the tool `name`, for `reason`;
+  --- the model reads the reason as the call's result.
+  record BlockedEvent
+    --- "blocked".
+    kind: BlockedKind
+    --- The tool's name.
+    name: string
+    --- What the model gave it.
+    input: Tools.Object
+    --- Why: what `before` said, or what it raised.
+    reason: string
+  end
+
+  --- Who made a [`Agent.Call`]: the model, or a snippet's code (which
+  --- no call is yet: a snippet's host calls are not asked of the hooks).
+  enum Caller "model" "code" end
+
+  --- A call of a tool, as `before` and `after` see it.
+  record Call
+    --- The tool's name.
+    name: string
+    --- What it was given, as the tool gets it: read it, and change none of it.
+    input: Tools.Object
+    --- Who made it.
+    caller: Caller
+    --- The agent's working directory.
+    cwd: string
+    --- The session's id where it is kept; nil where it is not.
+    id?: integer
+    --- The paths it touches, as the tool says ([`Tools.Tool`]'s `paths`);
+    --- none for a tool that says none, which may touch any (bash, run).
+    paths: {Tools.Touch}
+    --- Whether the user stopped the turn.
+    stopped: function(): boolean
+  end
+
+  --- What runs before each tool call the model makes: nil lets it run, a
+  --- string blocks it, and the model reads that string as the reason. A
+  --- hook that raises blocks the call, with the error as the reason, so a
+  --- bug fails closed; so does a tool's `paths` that raises. A call of a
+  --- tool the agent does not offer is not asked: it is answered as not
+  --- found. cosmic.agent.check makes the common ones.
+  type Before = function(call: Call): string?
+
+  --- What runs after each call that ran, before its result is kept and
+  --- the model reads it: nil keeps the result, a result takes its place
+  --- (to redact a secret, or cut it short). What is kept is `raw` where
+  --- it is set, else `text`: redact both, or give a result with no `raw`.
+  --- A hook that raises makes the result an error that says so. What a
+  --- background job of bash wrote is kept as it is, when the job ends
+  --- unread (`close`): it is not asked.
+  type After = function(call: Call, result: Tools.Result): Tools.Result?
+
   --- What an agent tells its `on` as it goes, each after what it tells
   --- of is kept: `kind` tells them apart.
   ---
   ---     agent.on = function(e: Agent.Event)
   ---       if e.kind == "text" then print(e.text) elseif e.kind == "tool" then print("> " .. e.name) end
   ---     end
-  type Event = TextEvent | ToolEvent | ResultEvent | MessageEvent | RequestEvent
+  type Event = TextEvent | ToolEvent | ResultEvent | BlockedEvent | MessageEvent | RequestEvent
 
   --- What a model costs, in USD a million tokens: a cache read, and
   --- input and output. A cache write is 1.25 times input for five
@@ -250,10 +317,16 @@ local record Agent
     mut mcp?: AgentMcp.Set
     --- The build of cosmic, kept with each request.
     mut build?: string
-    --- Hears each [`Agent.Event`]; nil for none. It must not raise: an
-    --- error ends the turn where it is, and the next prompt needs
-    --- `settle` first.
+    --- Hears each [`Agent.Event`]; nil for none. An error it raises does not
+    --- end the turn: the event is lost, and the first error is `on_failed`.
     mut on?: function(event: Event)
+    --- Asked before each call ([`Agent.Before`]); nil lets each run.
+    mut before?: Before
+    --- Asked after each call that ran ([`Agent.After`]); nil keeps each result.
+    mut after?: After
+    --- The first error `on` raised; nil where it raised none. Set it to
+    --- nil to hear of the next.
+    mut on_failed?: string
     --- What the user sent while the model worked: given to the model
     --- after the tool call that runs, and the calls after it skipped.
     mut steering?: function(): {string}
@@ -344,6 +417,43 @@ local PRICES <const>: {string: Agent.Price} = {
 local VERSION <const> = "2026-10-21"
 local MAX_TOKENS <const> = 32000
 
+--- What an error says, where even its tostring raises.
+local function told(err: any): string
+  local ran, text = pcall(tostring, err)
+  if ran then return text end
+  return "an error that cannot be shown"
+end
+
+--- Tells `s`'s `on` of `event`, where it has one; an error it raises is
+--- kept as `on_failed`, the first only, and the agent goes on.
+local function tell(s: Agent.Session, event: Agent.Event)
+  local on = s.on
+  if on == nil then return end
+  local ran, err = pcall(on, event)
+  if not ran and s.on_failed == nil then s.on_failed = told(err) end
+end
+
+--- What `before` of `s` says of `call`: nil to run it, or why not.
+local function blocked(s: Agent.Session, call: Agent.Call): string?
+  local before = s.before
+  if before == nil then return nil end
+  local ran, reason = pcall(before, call)
+  if not ran then return "the agent's before hook failed: " .. told(reason) end
+  if reason == nil then return nil end
+  return told(reason)
+end
+
+--- `result` of `call`, as `after` of `s` makes it.
+local function afterward(s: Agent.Session, call: Agent.Call, result: Tools.Result): Tools.Result
+  local after = s.after
+  if after == nil then return result end
+  local ran, made = pcall(after, call, result)
+  if not ran then
+    return { text = "The agent's after hook failed: " .. told(made), is_error = true }
+  end
+  return made or result
+end
+
 --- Adds `message` to `s`, and keeps it where `s` is kept: false and
 --- why, and `s` as it was, where it cannot be kept.
 local function add(s: Agent.Session, message: Json.Value): boolean, string
@@ -354,8 +464,7 @@ local function add(s: Agent.Session, message: Json.Value): boolean, string
   end
   local messages = s.messages
   messages[#messages + 1] = message
-  local on = s.on
-  if on ~= nil then on({ kind = "message", message = message }) end
+  tell(s, { kind = "message", message = message })
   return true, ""
 end
 
@@ -652,8 +761,7 @@ local function keep_request(s: Agent.Session, r: Sessions.Request): boolean, str
     local kept, why = Sessions.request(db, id, r)
     if kept == nil then return false, why end
   end
-  local on = s.on
-  if on ~= nil then on({ kind = "request", request = r }) end
+  tell(s, { kind = "request", request = r })
   return true, ""
 end
 
@@ -721,8 +829,7 @@ local function loop(s: Agent.Session): boolean, string
       local said_text = block and block["text"]
       local name = block and block["name"]
       if kind == "text" and said_text is string then
-        local on = s.on
-        if on ~= nil then on({ kind = "text", text = said_text }) end
+        tell(s, { kind = "text", text = said_text })
       elseif block ~= nil and kind == "tool_use" then
         local id = block["id"]
         local call_id = if id is string then id else "" end
@@ -739,15 +846,33 @@ local function loop(s: Agent.Session): boolean, string
           local called = if name is string then name else "?" end
           local input, _ = Json.to_object(block["input"])
           local given = input or {}
-          local on = s.on
-          if on ~= nil then on({ kind = "tool", name = called, input = given }) end
-          local context: Tools.Context = { cwd = s.cwd, db = s.db, session = s.id,
-            policy = s.sandbox, jobs = s.jobs, worker = s.worker,
-            mcp = s.mcp, stopped = function(): boolean return stopped(s) end, tools = s.tools }
-          local result = Tools.dispatch(s.tools, called, given, context)
+          tell(s, { kind = "tool", name = called, input = given })
+          local asking = function(): boolean return stopped(s) end
+          local tool = Tools.find(s.tools, called)
+          local paths = tool and tool.paths
+          local touched: {Tools.Touch} = {}
+          local reason: string? = nil
+          if paths ~= nil and (s.before ~= nil or s.after ~= nil) then
+            local ran, found = pcall(paths, given, s.cwd)
+            if ran then touched = found else reason = "the tool's paths failed: " .. told(found) end
+          end
+          local asked_call: Agent.Call = { name = called, input = given, caller = "model", cwd = s.cwd, id = s.id,
+            paths = touched, stopped = asking }
+          local result: Tools.Result
+          if reason == nil and tool ~= nil then reason = blocked(s, asked_call) end
+          if reason ~= nil then
+            result = { text = "Blocked: " .. reason, is_error = true }
+            tell(s, { kind = "blocked", name = called, input = given, reason = reason })
+          else
+            local context: Tools.Context = { cwd = s.cwd, db = s.db, session = s.id,
+              policy = s.sandbox, jobs = s.jobs, worker = s.worker,
+              mcp = s.mcp, stopped = asking, tools = s.tools }
+            result = Tools.dispatch(s.tools, called, given, context)
+            if tool ~= nil then result = afterward(s, asked_call, result) end
+          end
           local shown, record_why = record(s, call_id, called, given, result)
           if shown == nil then failed = record_why end
-          if on ~= nil then on({ kind = "result", name = called, result = result }) end
+          tell(s, { kind = "result", name = called, result = result })
           results[#results + 1] = { type = "tool_result", tool_use_id = call_id, content = shown or result.text,
             is_error = result.is_error }
         end
@@ -847,6 +972,9 @@ local class AgentSession is Agent.Session
   mut mcp?: AgentMcp.Set
   mut build?: string
   mut on?: function(event: Agent.Event)
+  mut before?: Agent.Before
+  mut after?: Agent.After
+  mut on_failed?: string
   mut steering?: function(): {string}
   mut stopping?: function(): boolean
   messages: mut {Json.Value}
@@ -896,7 +1024,7 @@ function Agent.new(options: Agent.Options): Agent.Session
     send = options.send, sandbox = options.sandbox, jobs = options.jobs, worker = options.worker,
     mcp = options.mcp, build = options.build, messages = held, db = options.db, id = options.id,
     restarts = options.restarts or 0, ended = options.ended == true, stopped = false,
-    on = nil, steering = nil, stopping = nil, last_reply = nil,
+    on = nil, before = nil, after = nil, on_failed = nil, steering = nil, stopping = nil, last_reply = nil,
   }
   return agent
 end

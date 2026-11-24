@@ -128,6 +128,16 @@ local record Tools
     tools?: {Tool}
   end
 
+  --- A path a call touches, and how: the letters of a grant
+  --- (cosmic.sandbox), r to read, w to write, c to create.
+  record Touch
+    --- The absolute path, with no `.` or `..` in it, but its links not
+    --- followed: check it with [`Policy.allows`], which follows them.
+    path: string
+    --- r, w and c, as it needs them.
+    letters: string
+  end
+
   --- One tool: what the model reads of it, and what does it. Make one of
   --- your own to give an agent a tool of its own.
   ---
@@ -152,6 +162,10 @@ local record Tools
     --- Does it, in `context`. It never raises: what goes wrong is a
     --- result marked as an error.
     run: function(input: Object, context: Context): Result
+    --- The paths a call of it with `input` touches, from `cwd`, for a
+    --- hook to check ([`Check.paths`]); nil for a tool that touches none
+    --- the hook can see.
+    paths?: function(input: Object, cwd: string): {Touch}
   end
 end
 
@@ -816,6 +830,23 @@ local function schema(properties: {string: Json.Value}, required: {string}): Too
   return { type = "object", properties = properties, required = Json.array(names) }
 end
 
+--- What a tool of one `path` touches: that path, with `letters`.
+local function touches(letters: string): function(input: Tools.Object, cwd: string): {Tools.Touch}
+  return function(input: Tools.Object, cwd: string): {Tools.Touch}
+    local path = input["path"]
+    if not path is string then return {} end
+    local parts: mut {string} = {}
+    for part in resolve(path, cwd):gmatch("[^/]+") do
+      if part == ".." then
+        if #parts > 0 then table.remove(parts) end
+      elseif part ~= "." then
+        parts[#parts + 1] = part
+      end
+    end
+    return { { path = "/" .. table.concat(parts, "/"), letters = letters } }
+  end
+end
+
 --- Every tool, in the order the system prompt lists them.
 local ALL <const>: {Tools.Tool} = {
   {
@@ -830,6 +861,7 @@ local ALL <const>: {Tools.Tool} = {
       limit = integer_field("Maximum number of lines to read"),
     }, { "path" }),
     run = read,
+    paths = touches("r"),
   },
   {
     name = "bash",
@@ -918,6 +950,7 @@ local ALL <const>: {Tools.Tool} = {
       },
     }, { "path", "edits" }),
     run = edit,
+    paths = touches("rwc"),
   },
   {
     name = "write",
@@ -930,6 +963,7 @@ local ALL <const>: {Tools.Tool} = {
       content = string_field("Content to write to the file"),
     }, { "path", "content" }),
     run = write,
+    paths = touches("wc"),
   },
   {
     name = "sql",
