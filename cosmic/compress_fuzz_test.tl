@@ -58,10 +58,14 @@ local function test_decoding_any_bytes_is_total_bounded_and_split_alike()
   Fuzz.run({
     name = "zstd decode total",
     gen = gen_frame,
-    starved = function(input: string)
+    starved = function(input: string): string
       local fields = Fuzz.unpack(input)
       local frame = fields[1] or ""
-      local _, _ = decode(frame, math.max(1, #frame), 1 << 20)
+      local step = math.max(1, math.tointeger(tonumber(fields[2] or "1")) or 1)
+      local max_bytes = math.max(1, math.tointeger(tonumber(fields[3] or "1")) or 1)
+      local whole, whole_trouble = decode(frame, math.max(1, #frame), 1 << 20)
+      local split, split_trouble = decode(frame, step, max_bytes)
+      return table.concat({ whole, whole_trouble, split, split_trouble }, "\n")
     end,
     requires = { "decoded", "refused" },
     check = function(input: string): boolean, string

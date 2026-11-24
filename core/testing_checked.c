@@ -58,6 +58,12 @@ static struct {
   int failing;
   lua_Integer left;
   lua_Integer refused;
+  /* Allocations granted since fail_allocations. */
+  lua_Integer used;
+  /* Refuse only the allocation the countdown ends on and the one after
+   * it, Lua's own retry of it after an emergency collection (lmem.c's
+   * tryagain), and grant the rest; 0 to refuse every one. */
+  int once;
 } allocator;
 
 /* Whether the next growing allocation, Lua's or the C heap's, is
@@ -66,9 +72,11 @@ static int granted (void) {
   if (!allocator.failing) return 1;
   if (allocator.left == 0) {
     allocator.refused++;
+    if (allocator.once && --allocator.once == 0) allocator.left = -1;
     return 0;
   }
-  allocator.left--;
+  if (allocator.left > 0) allocator.left--;
+  allocator.used++;
   return 1;
 }
 
@@ -154,8 +162,10 @@ bool cosmic_fault (const char *point) {
 
 /* ---- the instruments ----------------------------------------------- */
 
-/* fail_allocations(after): grants the next `after` growing allocations
- * and refuses every one past them, until allow_allocations. */
+/* fail_allocations(after, once): grants the next `after` growing
+ * allocations and refuses every one past them, until allow_allocations;
+ * with `once`, refuses only the one after them (and Lua's retry of it)
+ * and grants the rest. */
 static int testing_fail_allocations (lua_State *L) {
   lua_Integer after = luaL_checkinteger(L, 1);
   luaL_argcheck(L, after >= 0, 1, "a count of allocations is not negative");
@@ -166,17 +176,21 @@ static int testing_fail_allocations (lua_State *L) {
   }
   allocator.left = after;
   allocator.refused = 0;
+  allocator.used = 0;
+  allocator.once = lua_toboolean(L, 2) ? 2 : 0;
   allocator.failing = 1;
   return 0;
 }
 
 /* allow_allocations(): grants every allocation again, and answers how
- * many were refused since fail_allocations. */
+ * many were refused since fail_allocations, and how many granted. */
 static int testing_allow_allocations (lua_State *L) {
   allocator.failing = 0;
   lua_pushinteger(L, allocator.refused);
+  lua_pushinteger(L, allocator.used);
   allocator.refused = 0;
-  return 1;
+  allocator.used = 0;
+  return 2;
 }
 
 /* Core-created sockets suppress SIGPIPE already. The macOS regression

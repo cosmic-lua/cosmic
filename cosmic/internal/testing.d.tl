@@ -15,12 +15,16 @@ local record testing
   --- past them, until [`allow_allocations`]: a refused one raises "not
   --- enough memory" wherever Lua asked for it. The core's own C heap
   --- (core/memory.h) draws from the same count, and a refusal there is
-  --- the NULL its caller must handle.
-  fail_allocations: function(after: integer)
+  --- the NULL its caller must handle. With `once`, only the one
+  --- allocation after them is refused (twice, since Lua tries a refused
+  --- one again after a collection), and every later one granted, so what
+  --- code does after it handles a refusal runs as it would.
+  fail_allocations: function(after: integer, once?: boolean)
 
   --- Grants every allocation again, and answers how many were refused
-  --- since [`fail_allocations`], Lua's and the C heap's together.
-  allow_allocations: function(): integer
+  --- since [`fail_allocations`], Lua's and the C heap's together, and how
+  --- many were granted.
+  allow_allocations: function(): integer, integer
 
   --- How many statements are prepared and not yet finalized, across
   --- every database the store searches.

@@ -40,10 +40,12 @@
 --- it draws anything: the report says how to copy the shrunk input
 --- there, so a fixed bug stays fixed whatever seed a later run draws.
 ---
---- On the checked core, a property's `starved` runs on each drawn input
---- with its allocations cut short after a number drawn from the input's
---- case, so the code that handles a refused allocation is fuzzed too; it
---- prints how many runs were starved and how many a refusal ended.
+--- On the checked core, a property's `starved` runs on each input the
+--- check holds for, drawn or of the corpus, with its allocations cut short
+--- at a point drawn from the input's case, so the code that handles a
+--- refused allocation is fuzzed too: it must return what an unstarved run
+--- returns, or say that memory ran out. `run` prints how many runs were
+--- starved and how many a refusal ended.
 ---
 --- A check can `label` what an input reached ("opened", "read a
 --- body"); `run` prints how many inputs reached each label, and a
@@ -153,15 +155,21 @@ local record Fuzz
     dir?: string
     --- Work to run on an input with its allocations cut short, on the
     --- checked core: the input's own code under test, such as the decode
-    --- the check calls. After `check` holds for a drawn input, `run`
-    --- grants this the first n allocations, Lua's and the core's C heap's,
-    --- and refuses the rest ([`testing.fail_allocations`]); n is drawn from
-    --- the input's case seed. The work may return anything, or raise
-    --- that memory ran out; any other raise fails the input, and so does a
-    --- check that no longer holds for it once allocations are granted
-    --- again, as a refusal that left shared state broken would make it.
-    --- A crash in C is the sanitizer's to report. Any other core skips it.
-    starved?: function(input: string)
+    --- the check calls, returning what it found as text. After `check`
+    --- holds for an input (drawn or of the corpus), `run` runs this once
+    --- to learn what it returns and how many allocations it makes, then again
+    --- with the first n of them granted, Lua's and the core's C heap's
+    --- ([`testing.fail_allocations`]), and either the one after them or
+    --- every one after them refused; n and which are drawn from the
+    --- input's case (a corpus input's hash). The starved run must return
+    --- what the first did, or return or raise that memory ran out, and
+    --- `check` must hold again after it, as a refusal that left shared
+    --- state broken would make it not. When every allocation after the n-th
+    --- is refused, what the work raises after it handles the refusal is
+    --- itself refused, and reads as memory running out: the runs that
+    --- refuse one are those that see it. A crash in C is the sanitizer's
+    --- to report. Any other core skips it.
+    starved?: function(input: string): string
     --- Iterations, in place of `FUZZ_ITERS`.
     iters?: integer
     --- The most iterations `FUZZ_ITERS` may ask for, for a property whose
@@ -291,18 +299,26 @@ end
 --- Whether this core has allocations to refuse: only the checked one does.
 local CHECKED <const> = testing.configuration == "sanitized"
 
---- What a refused allocation raises: Lua's own message, or the coverage
---- collector's when the hook is the one refused (core/coverage.c).
-local function out_of_memory(raised: string): boolean
-  return raised:find("not enough memory", 1, true) ~= nil or raised:find("out of memory", 1, true) ~= nil
+--- Whether `text` says that memory ran out: Lua's "not enough memory",
+--- the coverage collector's "out of memory", an errno's "Out of memory",
+--- a library's "no memory for ...".
+local function names_memory(text: string): boolean
+  return text:lower():find("memory", 1, true) ~= nil
 end
 
---- How many allocations a starved run of the input `case` names is
---- granted: up to 2^14, most of them few, from a source of its own so the
---- input's draws are the same with it or without.
-local function granted_of(case: integer): integer
+--- How a starved run of an input is cut short: after which share of the
+--- allocations an unstarved run of it makes, in 2^-30ths, and whether
+--- only that one allocation is refused or every one after it too.
+local record Starve
+  share: integer
+  once: boolean
+end
+
+--- The [`Starve`] of the input `case` names, from a source of its own so
+--- the input's draws are the same with it or without.
+local function starve_of(case: integer): Starve
   local rng = Rand.new(case ~ 0x73746172766564)
-  return rng:int(0, 1 << rng:int(0, 14))
+  return { share = rng:int(0, 1 << 30), once = rng:int(0, 1) == 1 }
 end
 
 --- What starved runs a property has made: how many, how many had an
@@ -314,43 +330,84 @@ local record Starving
 end
 local starving: Starving = { runs = 0, refused = 0, raised = 0 }
 
---- [`attempt`] of `check`, then, on the checked core, of `starved` with
---- `granted` allocations and of `check` again: what an input of a
---- property with `starved` must hold to.
-local function attempt_all(p: Fuzz.Property, input: string, budget: integer, granted: integer): boolean, string
-  local held, why = attempt(p.check, input, budget)
-  local starved = p.starved
-  if not held then return false, why end
-  if starved == nil or not CHECKED then return true, "" end
-  local reached = counting.reached
-  counting.reached = nil
+--- One run of a property's `starved`: whether it returned, what it
+--- returned or raised, and how many allocations were refused and granted.
+local record Run
+  returned: boolean
+  text: string
+  refused: integer
+  used: integer
+end
+
+--- Runs `work` on `input` with `fail_allocations(after, once)` under the budget.
+local function starved_run(work: function(string): string, input: string, budget: integer, after: integer,
+                           once: boolean): Run
   if arm then
     arm(if (read_hook()) ~= nil then budget * CHECKED_BUDGET_FACTOR else budget end)
   end
-  testing.fail_allocations(granted)
-  local ok, raised = pcall(starved, input)
-  local refused = testing.allow_allocations()
+  testing.fail_allocations(after, once)
+  local returned, text = pcall(work, input)
+  local refused, used = testing.allow_allocations()
   if arm then arm() end
   collectgarbage("collect")
+  return { returned = returned, text = tostring(text), refused = refused, used = used }
+end
+
+--- What an input of a property was found to do: whether it held, why
+--- not, and whether the starved run or the check after it failed rather
+--- than the first check.
+local record Verdict
+  held: boolean
+  why: string
+  by_starving: boolean
+end
+
+--- [`attempt`] of `check`, then, on the checked core, of `starved` cut
+--- short as `starve` says and of `check` again: what an input of a
+--- property with `starved` must hold to. `by_starving` is true when
+--- the starved run or the check after it failed, not the first check.
+local function attempt_all(p: Fuzz.Property, input: string, budget: integer, starve: Starve): Verdict
+  local held, why = attempt(p.check, input, budget)
+  local starved = p.starved
+  if not held then return { held = false, why = why, by_starving = false } end
+  if starved == nil or not CHECKED then return { held = true, why = "", by_starving = false } end
+  local reached = counting.reached
+  counting.reached = nil
+  -- Unstarved first: what the work returns, and how many allocations it makes.
+  local want = starved_run(starved, input, budget, math.maxinteger, false)
+  local after = (starve.share * want.used) >> 30
+  local got = want
+  if want.returned then got = starved_run(starved, input, budget, after, starve.once) end
   counting.reached = reached
+  local function failed(text: string): Verdict
+    return { held = false, why = text, by_starving = true }
+  end
+  if not want.returned then
+    if String.ends_with(want.text, BUDGET_MESSAGE) then
+      return failed(("starved, unstarved run: spent its budget of %d VM instructions"):format(budget))
+    end
+    return failed("starved, unstarved run: raised: " .. want.text)
+  end
+  local how = ("starved after %s of %d%s (%d refused)"):format(plural.count(after, "allocation"), want.used,
+    if starve.once then ", refusing one" else "" end, got.refused)
   starving.runs = starving.runs + 1
-  if refused > 0 then starving.refused = starving.refused + 1 end
-  if not ok then
+  if got.refused > 0 then starving.refused = starving.refused + 1 end
+  if not got.returned then
     starving.raised = starving.raised + 1
-    local text = tostring(raised)
-    if String.ends_with(text, BUDGET_MESSAGE) then
-      return false, ("starved after %s: spent its budget of %d VM instructions"):format(plural.count(granted, "allocation"), budget)
+    if String.ends_with(got.text, BUDGET_MESSAGE) then
+      return failed(("%s: spent its budget of %d VM instructions"):format(how, budget))
     end
-    if refused == 0 or not out_of_memory(text) then
-      return false, ("starved after %s (%d refused): raised: %s"):format(plural.count(granted, "allocation"), refused, text)
+    if got.refused == 0 or not names_memory(got.text) then
+      return failed(("%s: raised: %s"):format(how, got.text))
     end
+  elseif got.text ~= want.text and not (got.refused > 0 and names_memory(got.text)) then
+    return failed(("%s: returned %q, where unstarved it returns %q"):format(how, got.text, want.text))
   end
   local again, again_why = attempt(p.check, input, budget)
   if not again then
-    return false, ("after a run starved at %s (%d refused), the check no longer holds: %s"):
-      format(plural.count(granted, "allocation"), refused, again_why)
+    return failed(("after a run %s, the check no longer holds: %s"):format(how, again_why))
   end
-  return true, ""
+  return { held = true, why = "", by_starving = false }
 end
 
 --- A file name for the property, from its name.
@@ -413,8 +470,10 @@ local function check_corpus(p: Fuzz.Property, budget: integer, kept: string?): i
         error(("fuzz %s: corpus %s: %s"):format(p.name, path, rtrouble), 0)
       end
       if kept ~= nil then local _, _ = Fs.write(kept, input) end
-      local held, why = attempt(p.check, input, budget)
-      assert(held or corpus_failed(p, path, why, input))
+      -- Starved as its hash says, so a kept input starves the same way every run.
+      local case = (string.unpack("<i8", Hash.sha256(input)))
+      local verdict = attempt_all(p, input, budget, starve_of(case))
+      assert(verdict.held or corpus_failed(p, path, verdict.why, input))
       checked = checked + 1
     end
   end
@@ -565,8 +624,9 @@ local function run(p: Fuzz.Property): integer
       error(input, 0)
     end
     if kept ~= nil then local _, _ = Fs.write(kept, input) end
-    local granted = granted_of(case)
-    local held, why = attempt_all(p, input, budget, granted)
+    local starve = starve_of(case)
+    local verdict = attempt_all(p, input, budget, starve)
+    local held, why, by_starving = verdict.held, verdict.why, verdict.by_starving
     counting.reached = nil
     for name in pairs(mine) do counts[name] = (counts[name] or 0) + 1 end
     -- Raises the report of an input that failed, after shrinking it; the
@@ -577,7 +637,7 @@ local function run(p: Fuzz.Property): integer
       -- A check that fails an input once and holds for it the next time
       -- depends on something beside the input: shrinking would chase
       -- noise, so the report says so and stops.
-      local again, _ = attempt_all(p, input, budget, granted)
+      local again = attempt_all(p, input, budget, starve).held
       if again then
         error(("fuzz %s: %s: flaky: failed (%s), then held when the same input was " ..
           "checked again; it depends on something beside its input\n" ..
@@ -589,13 +649,19 @@ local function run(p: Fuzz.Property): integer
       local function fails(values: {integer}): boolean, {Draw}
         local candidate, used = build_within(p.gen, values, budget)
         if candidate == nil then return false, used end
-        local still, _ = attempt_all(p, candidate, budget, granted)
-        return not still, used
+        -- A failure of the check is shrunk as one; a starved one keeps
+        -- its share of the allocations, which falls where it may.
+        if not by_starving then
+          local still, _ = attempt(p.check, candidate, budget)
+          return not still, used
+        end
+        return not attempt_all(p, candidate, budget, starve).held, used
       end
       local shrunk = shrink.shrink(draws, fails, SHRINK_TRIES)
       local smallest, tries = shrunk.draws, shrunk.tries
       local small = build(p.gen, shrink.values_of(smallest))
-      local small_held, small_why = attempt_all(p, small, budget, granted)
+      local small_verdict = attempt_all(p, small, budget, starve)
+      local small_held, small_why = small_verdict.held, small_verdict.why
       local flaky = ""
       if not small_held then
         reason = small_why

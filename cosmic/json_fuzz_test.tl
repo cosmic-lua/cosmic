@@ -236,18 +236,23 @@ local function holds_key_twice(compact: string?): boolean?
 end
 
 --- What [`decode_holds`] asks of the module, for a run with its
---- allocations cut short: every mode's decode, and the format of what one
---- reads.
-local function decode_starved(input: string)
+--- allocations cut short: every mode's decode, and the encoding and the
+--- format of what one reads, each result or refusal a line.
+local function decode_starved(input: string): string
+  local lines: mut {string} = {}
   for _, json5 in ipairs({ false, true }) do
     for _, big in ipairs({ false, true }) do
-      local value, _ = Json.decode(input, { null_value = Json.null, json5 = json5, big_numbers_as_strings = big })
+      local value, why = Json.decode(input, { null_value = Json.null, json5 = json5, big_numbers_as_strings = big })
+      lines[#lines + 1] = "decode: " .. tostring(why)
       if value ~= nil then
-        local _, _ = Json.encode(value)
-        local _, _ = Json.format(input, { json5 = json5, duplicate_keys = true })
+        local encoded, ewhy = Json.encode(value)
+        lines[#lines + 1] = "encode: " .. (if encoded ~= nil then encoded else tostring(ewhy) end)
+        local formatted, fwhy = Json.format(input, { json5 = json5, duplicate_keys = true })
+        lines[#lines + 1] = "format: " .. (if formatted ~= nil then formatted else tostring(fwhy) end)
       end
     end
   end
+  return table.concat(lines, "\n")
 end
 
 local function decode_holds(input: string): boolean, string

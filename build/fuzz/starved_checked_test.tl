@@ -30,18 +30,39 @@ local function allocate(input: string): {string}
 end
 
 local function test_a_starved_run_that_raises_that_memory_ran_out_holds()
+  local seen = { refused = 0 }
   local n = Fuzz.run({ name = "starved holds", iters = 64, gen = any_bytes, check = holds,
-    starved = function(input: string) local _ = allocate(input) end })
+    starved = function(input: string): string
+      local ok, _ = pcall(allocate, input)
+      if not ok then
+        seen.refused = seen.refused + 1
+        error("not enough memory", 0)
+      end
+      return "read"
+    end })
   assert(n == 64)
+  assert(seen.refused > 0, "no starved run was refused an allocation")
 end
 
 local function test_a_starved_run_that_raises_anything_else_fails()
+  -- Seen in a run that refuses only one allocation: in one that refuses
+  -- all after it, the formatting of the message is refused too.
   local err = report({ name = "starved raises", iters = 64, gen = any_bytes, check = holds,
-    starved = function(input: string)
+    starved = function(input: string): string
       local ok, _ = pcall(allocate, input)
-      if not ok then error("boom", 0) end
+      if not ok then error(("decoder bug at byte %d"):format(#input), 0) end
+      return "read"
     end })
-  assert(err:find("starved after %d+ allocations? %(%d+ refused%): raised: boom") ~= nil, err)
+  assert(err:find("starved after %d+ allocations? of %d+, refusing one %(%d+ refused%): raised: decoder bug at byte") ~= nil, err)
+end
+
+local function test_a_starved_run_that_answers_otherwise_fails()
+  local err = report({ name = "starved answers", iters = 64, gen = any_bytes, check = holds,
+    starved = function(input: string): string
+      local ok, _ = pcall(allocate, input)
+      return if ok then "all of it" else "part of it" end
+    end })
+  assert(err:find('returned "part of it", where unstarved it returns "all of it"', 1, true) ~= nil, err)
 end
 
 local function test_a_check_that_a_starved_run_broke_fails()
@@ -51,12 +72,13 @@ local function test_a_check_that_a_starved_run_broke_fails()
       if state.broken then return false, "broken" end
       return true, ""
     end,
-    starved = function(input: string)
+    starved = function(input: string): string
       state.broken = true
       local _ = allocate(input)
       state.broken = false
+      return "read"
     end })
   -- The run fails at the first input a starved run broke; shrinking then
   -- meets the state it left, so the report's reason may be the check's own.
-  assert(err:find("fuzz starved breaks: seed=1 iteration=1: ", 1, true) ~= nil and err:find("broken", 1, true) ~= nil, err)
+  assert(err:find("broken", 1, true) ~= nil, err)
 end

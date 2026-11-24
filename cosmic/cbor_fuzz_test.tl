@@ -21,9 +21,12 @@ local function test_decode_is_total_and_reads_back(tmp: string)
       if src:int(0, 7) == 0 then return Fuzz.bytes(src, 200) end
       return Fuzz.mutate(src, seed, 4)
     end,
-    starved = function(input: string)
-      local item, _ = Cbor.decode(input)
-      if item ~= nil then local _, _ = Cbor.decode(Cbor.encode(item)) end
+    starved = function(input: string): string
+      local item, why = Cbor.decode(input)
+      if item == nil then return "refused: " .. why end
+      local written = Cbor.encode(item)
+      local _, again_why = Cbor.decode(written)
+      return written .. "\n" .. tostring(again_why)
     end,
     check = function(input: string): boolean, string
       local item, why = Cbor.decode(input)

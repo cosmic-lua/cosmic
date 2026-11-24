@@ -64,7 +64,7 @@ local function test_chunks_never_change_what_a_document_reads(tmp: string)
     end,
     requires = { "read", "refused" },
     shares = { read = 0.05, refused = 0.2 },
-    starved = function(text: string) local _ = read(text, 7) end,
+    starved = function(text: string): string return read(text, 7) end,
     check = function(text: string): boolean, string
       local whole = read(text, math.max(#text, 1))
       for _, size in ipairs({ 1, 2, 7 }) do
