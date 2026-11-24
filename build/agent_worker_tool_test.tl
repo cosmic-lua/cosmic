@@ -209,13 +209,13 @@ local function test_a_late_write_and_a_snippets_own_mark_are_not_the_next_snippe
   local dir = assert(Fs.mkdtemp("agent-worker-"))
   -- The shell leaves a program behind in a session of its own, which outlives the shell's group and writes once the
   -- snippet answered.
-  -- setsid's fork joins a session of its own only once it runs, and Child.run ends what is left of its group when
-  -- the program it ran exits: under load that took the fork before it ran. So the shell Child.run runs waits for
-  -- the left one, past setsid, to say it is up.
+  -- The left one runs in the background of the shell, not as a leader of its group, so setsid makes its session at
+  -- once with no fork of its own and no -f, which busybox's setsid (Alpine's) has not. Child.run ends what is left of
+  -- its group when the shell exits, so the shell waits, up to 5 s, for the left one, past setsid, to say it is up.
   local late = "local Child = require(\"cosmic.child\")\n" ..
     "local _ = assert(Child.run({ \"/bin/sh\", \"-c\", " ..
-    "\"/usr/bin/setsid -f /bin/sh -c 'echo > up; until [ -e go ]; do sleep 0.05; done; echo late; echo late > wrote'; " ..
-    "until [ -e up ]; do sleep 0.05; done\" },\n" ..
+    "\"/usr/bin/setsid /bin/sh -c 'echo > up; until [ -e go ]; do sleep 0.05; done; echo late; echo late > wrote' & " ..
+    "i=0; until [ -e up ] || [ $i -ge 100 ]; do sleep 0.05; i=$((i + 1)); done\" },\n" ..
     "  { stdout = \"inherit\", stderr = \"inherit\", timeout_ns = 10 * 1000000000 }))\n" ..
     "print(\"now\")\n"
   local first = run(w, late, nil, dir)
