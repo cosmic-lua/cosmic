@@ -1,6 +1,7 @@
 --- `cosmic agent worker` as the run tool drives it ([`cosmic.agent.worker`]): one process that checks and runs one
 --- snippet after another, answering each as its own.
 local AgentMcp = require("cosmic.agent.mcp")
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Host = require("cosmic.agent.host")
 local Json = require("cosmic.json")
@@ -200,6 +201,13 @@ return assert(again[1])["n"]
       "local _, _ = Host.sql(\"SELECT NULL AS n FROM generate_series(1, 1000000000000) WHERE value % 200000 = 0\")\n",
     timeout = 2 }, context)
   assert(slow.is_error and slow.text:find("ran past 2 seconds", 1, true) ~= nil, slow.text)
+  -- One step that never ends by itself is stopped at the snippet's time too: the agent is not held.
+  local began = Clock.monotonic_ns()
+  local endless = Tools.run("run", { code = "local Host = require(\"cosmic.agent.host\")\n" ..
+      "local _, why = Host.sql(\"WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT count(*) FROM c\")\n" ..
+      "return tostring(why)\n", timeout = 2 }, context)
+  assert(endless.is_error or endless.text:find("time limit", 1, true) ~= nil, endless.text)
+  assert(Clock.monotonic_ns() - began < Clock.seconds(20), "the query was stopped near the snippet's time")
   local served, _ = Worker.run(w, "local Host = require(\"cosmic.agent.host\")\nlocal _, why = Host.sql(\"SELECT 1\")\n" ..
       "return tostring(why)\n", { cwd = dir, seconds = 30 })
   assert(served ~= nil and tostring(served["value"]):find("serves no call to this worker", 1, true) ~= nil, if served ~= nil then shown(served) else "nil" end)

@@ -115,10 +115,11 @@ end
 
 --- A failure of `message` that a library answered with its own `code`,
 --- and `extended_code` where it gives one: what [`cosmic.sqlite`]
---- answers. Its kind is "cancelled" when `cancelled`, as a busy wait a
---- caught signal stopped is, else "library". Its errno is 0.
-function Failure.coded(message: string, code: integer, extended_code?: integer, cancelled?: boolean): Failure
-  return { kind = if cancelled == true then "cancelled" else "library" end, message = message, path = nil, errno = 0,
+--- answers. Its kind is `kind` where given: "cancelled" for a call a
+--- caught signal stopped, "timeout" for one past its time limit; else
+--- "library". Its errno is 0.
+function Failure.coded(message: string, code: integer, extended_code?: integer, kind?: Failure.Kind): Failure
+  return { kind = kind or "library", message = message, path = nil, errno = 0,
     line = nil, column = nil, code = code, extended_code = extended_code }
 end
 

@@ -63,9 +63,10 @@ local function test_each_constructor_gives_its_kind()
   assert(Failure.at("x", 1).kind == "parse")
   assert(Failure.system(sys.ENOENT).kind == "system")
   assert(Failure.coded("busy", 5).kind == "library")
-  assert(Failure.coded("busy", 5, 5, false).kind == "library")
-  local stopped = Failure.coded("interrupted", 9, 9, true)
+  assert(Failure.coded("busy", 5, 5, "library").kind == "library")
+  local stopped = Failure.coded("interrupted", 9, 9, "cancelled")
   assert(stopped.kind == "cancelled" and stopped.code == 9 and stopped.extended_code == 9)
+  assert(Failure.coded("interrupted", 9, 9, "timeout").kind == "timeout")
 end
 
 local function test_a_timeout_and_a_cancel_say_what_they_are()
