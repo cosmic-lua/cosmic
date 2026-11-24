@@ -95,22 +95,36 @@ local function pump(): boolean, string
   return true, ""
 end
 
+--- The [`Failure`] for the words a request's failure gave: kind
+--- "timeout" for [`Poll.TIMEOUT`], "cancelled" for [`Poll.CANCELLED`] and
+--- for "interrupted" (a signal a [`Signal.guard`] caught), else "other".
+local function failure_of(why: string): Failure
+  if why == Poll.TIMEOUT then return Failure.timeout(why) end
+  if why == Poll.CANCELLED or why == "interrupted" then return Failure.cancelled(why) end
+  return Failure.new(why)
+end
+
 --- The body of a curl handle, which it owns.
 local class HandleReader is Stream.Reader
   handle: raw_http.Handle
   mut closed: boolean
 
-  function read(self, max_bytes?: integer): string?, string
-    if self.closed then return nil, "http: the response is closed" end
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
+    if self.closed then return nil, failure_of("http: the response is closed") end
     if Poll.in_task() then
       while self.handle:waiting() do
         local pumped, why = pump()
-        if not pumped then return nil, why end
+        if not pumped then return nil, failure_of(why) end
         -- Another task may close the response while this one waits.
-        if self.closed then return nil, "http: the response is closed" end
+        if self.closed then return nil, failure_of("http: the response is closed") end
       end
     end
-    return self.handle:read(max_bytes)
+    local chunk, why = self.handle:read(max_bytes)
+    if chunk == nil then
+      if why == "" then return false end
+      return nil, failure_of(why)
+    end
+    return chunk
   end
 
   function close(self): boolean, string
@@ -141,7 +155,7 @@ local class Response is Stream.Reader
 
   --- The next chunk of the body, as [`Stream.Reader`] reads it; decoded
   --- when `opts.decompress` asked for it.
-  function read(self, max_bytes?: integer): string?, string
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     return self.body:read(max_bytes)
   end
 
@@ -457,8 +471,8 @@ local record Http
   --- An open response, and a [`cosmic.stream`] Reader of its body.
   --- `status`, `headers` and `url` (the effective URL, after every
   --- redirect taken) are already known when [`Http.open`] returns them;
-  --- `read` pulls the body a chunk at a time, `nil, ""` at its clean
-  --- end and the same error again after a failure. `headers` is keyed
+  --- `read` pulls the body a chunk at a time, `false` at its clean
+  --- end and the same [`Failure`] again after a failure. `headers` is keyed
   --- by lowercased name, and a name the response repeats has its
   --- values joined with ", " (RFC 9110 5.3) -- Set-Cookie's, which may
   --- hold commas themselves, with "\n" instead. `close` always
@@ -546,8 +560,8 @@ local function discard(reader: Stream.Reader, n: integer): boolean, string
   local left = n
   while left > 0 do
     local chunk, trouble = reader:read(math.min(left, 65536))
-    if chunk == nil then
-      if trouble ~= "" then return false, trouble end
+    if chunk == nil then return false, tostring(trouble) end
+    if chunk == false then
       return false, "http: truncated body while skipping"
     end
     left = left - #chunk
@@ -566,15 +580,16 @@ local class DecodingReader is Stream.Reader
   --- Bytes held until there are two, to tell zlib from raw deflate.
   mut head: string
   mut ended: boolean
-  mut failed?: string
+  --- The failure every read answers after the first, its kind kept.
+  mut failed?: Failure
   skip?: function(DecodingReader, n: integer): boolean, string
 
   --- Fails the reader for good, as every Reader here does after an error.
-  function fail(self, why: string): nil, string
-    local failed = ("http: cannot decode the %s body: %s"):format(self.coding, why)
+  function fail(self, why: string): Failure
+    local failed = Failure.new(("http: cannot decode the %s body: %s"):format(self.coding, why))
     self.failed = failed
     local _, _ = self.source:close()
-    return nil, failed
+    return failed
   end
 
   --- The codec for the reader's coding, made from `head`, the body's
@@ -588,23 +603,23 @@ local class DecodingReader is Stream.Reader
   end
 
   --- What the codec gives for `chunk`: its output, possibly "".
-  function feed(self, chunk: string, max_bytes: integer?): string?, string
+  function feed(self, chunk: string, max_bytes: integer?): (string) | (nil, Failure)
     local codec = self.codec
     if codec == nil then
       self.head = self.head .. chunk
-      if #self.head < 2 and not self.ended then return "", "" end
+      if #self.head < 2 and not self.ended then return "" end
       local made, trouble = self:start(self.head)
-      if made == nil then return self:fail(tostring(trouble)) end
+      if made == nil then return nil, self:fail(tostring(trouble)) end
       codec = made
       self.codec = made
       chunk, self.head = self.head, ""
     end
     local out, trouble = codec:update(chunk, max_bytes)
-    if out == nil then return self:fail(trouble) end
-    return out, ""
+    if out == nil then return nil, self:fail(trouble) end
+    return out
   end
 
-  function read(self, max_bytes?: integer): string?, string
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     local failed = self.failed
     if failed ~= nil then return nil, failed end
     while true do
@@ -612,18 +627,18 @@ local class DecodingReader is Stream.Reader
       if codec ~= nil and codec:pending() then
         local out, trouble = self:feed("", max_bytes)
         if out == nil then return nil, trouble end
-        if out ~= "" then return out, "" end
+        if out ~= "" then return out end
       elseif self.ended then
-        return nil, ""
+        return false
       else
         local chunk, why = self.source:read()
         if chunk == nil then
-          if why ~= "" then
-            self.failed = why
-            return nil, why
-          end
+          self.failed = why
+          return nil, why
+        end
+        if chunk == false then
           self.ended = true
-          if codec == nil and self.head == "" then return nil, "" end
+          if codec == nil and self.head == "" then return false end
           -- A lone byte is too short for any coding: the codec it starts
           -- refuses it at finish, as it does any truncated body.
           if codec == nil then
@@ -631,18 +646,18 @@ local class DecodingReader is Stream.Reader
             if out == nil then return nil, trouble end
             codec = self.codec
           end
-          if codec == nil then return self:fail("no codec") end
+          if codec == nil then return nil, self:fail("no codec") end
           local last, trouble = codec:finish()
-          if last == nil then return self:fail(trouble) end
+          if last == nil then return nil, self:fail(trouble) end
           if codec:rest() ~= "" then
-            return self:fail("bytes follow the compressed data")
+            return nil, self:fail("bytes follow the compressed data")
           end
-          if last ~= "" then return last, "" end
-          return nil, ""
+          if last ~= "" then return last end
+          return false
         end
         local out, trouble = self:feed(chunk, max_bytes)
         if out == nil then return nil, trouble end
-        if out ~= "" then return out, "" end
+        if out ~= "" then return out end
       end
     end
   end
@@ -719,15 +734,6 @@ local function counted(ns: integer?, unit: integer, most_ns: integer,
     error(("http: opts.%s must be between 0 and %d"):format(name, most_ns), CALLER)
   end
   return Clock.ceil(ns, unit)
-end
-
---- The [`Failure`] for the words a request's failure gave: kind
---- "timeout" for [`Poll.TIMEOUT`], "cancelled" for [`Poll.CANCELLED`] and
---- for "interrupted" (a signal a [`Signal.guard`] caught), else "other".
-local function failure_of(why: string): Failure
-  if why == Poll.TIMEOUT then return Failure.timeout(why) end
-  if why == Poll.CANCELLED or why == "interrupted" then return Failure.cancelled(why) end
-  return Failure.new(why)
 end
 
 --- The roots a request that names none trusts, "minimal" or "mozilla":
@@ -1234,7 +1240,10 @@ local function whole(response: Response, limit: integer, encoded: boolean, metho
     local chunk, trouble = response:read(want)
     if chunk == nil then
       local _, _ = response:close()
-      if trouble ~= "" then return nil, trouble end
+      return nil, tostring(trouble)
+    end
+    if chunk == false then
+      local _, _ = response:close()
       break
     end
     got = got + #chunk
@@ -1249,7 +1258,7 @@ end
 
 --- Opens `url`, blocking until the final response's headers arrive.
 --- The body is not read yet -- call `response:read(max_bytes)` until it
---- returns `nil, ""` for a clean end, or use [`Http.request`] (or
+--- returns `false` for a clean end, or use [`Http.request`] (or
 --- [`Http.get`]) to read it all at once.
 ---
 --- Past its host, `url` is sent with each byte a URL never holds
@@ -1354,12 +1363,12 @@ local class CancellableReader is Stream.Reader
   response: Response
   cancelled: function(): boolean
 
-  function read(self, max_bytes?: integer): string?, string
-    if self.cancelled() then return nil, "interrupted" end
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
+    if self.cancelled() then return nil, failure_of("interrupted") end
     local chunk, why = self.response:read(max_bytes)
-    if chunk ~= nil then return chunk, "" end
-    if why == "" and self.cancelled() then return nil, "interrupted" end
-    return nil, why
+    if chunk == nil then return nil, why end
+    if chunk == false and self.cancelled() then return nil, failure_of("interrupted") end
+    return chunk
   end
 
   function close(self): boolean, string

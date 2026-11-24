@@ -105,7 +105,7 @@ local function test_no_bytes_but_the_token_reach_the_upstream(tmp: string)
         local reply = ""
         while true do
           local data, _ = conn:read()
-          if data == nil then break end
+          if data == nil or data == false then break end
           reply = reply .. data
         end
         local _, _ = conn:close()

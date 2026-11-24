@@ -64,7 +64,8 @@ local chosen64 = "  'Linux aarch64') portable_die 'chose the aarch64 core' ;;"
 --- Runs the rendered launcher as an aarch64 Linux machine, whose arm ([`chosen64`]) says it was chosen. The
 --- machine is named by a /proc/sys/kernel of the test's own (`ostype` and `arch`), and a `uname` ahead of the real
 --- one on PATH refuses `-sm`, which a launch the kernel answers never runs. With `by_uname`, that directory holds
---- `ostype` alone, as a kernel with no `arch` has it, and the `uname` answers `-sm` instead.
+--- `ostype` alone, as a kernel with no `arch` has it, and the `uname` answers `-sm` instead. OSTYPE is Linux's, so
+--- a Mac's bash, its /bin/sh, does not name the machine `Darwin arm64` in uname's place.
 local function launch_aarch64(tmp: string, by_uname?: boolean): Child.Result
   local script = tmp .. "/launcher"
   assert(Fs.write(script, launcher.render(chosen64, true), 0x1ed))
@@ -89,6 +90,7 @@ local function launch_aarch64(tmp: string, by_uname?: boolean): Child.Result
     PATH = tmp .. "/bin:/usr/bin:/bin",
     COSMIC_PORTABLE_CACHE = tmp .. "/cache",
     COSMIC_PORTABLE_TEST_KERNEL = kernel,
+    OSTYPE = "linux-gnu",
   }
   return (assert(Child.run({ "/bin/sh", script }, { env = env, cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })))

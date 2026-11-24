@@ -1443,16 +1443,21 @@ local class PipeReader is Stream.Reader
   --- allocation.
   owner: Consumption
 
-  function read(self, max_bytes?: integer): string?, string
+  function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     if max_bytes ~= nil and max_bytes < 1 then
       error("child: read's max_bytes must be positive", 2)
     end
     local pipe = self.pipe
     if pipe.consuming then error("child: output is already being consumed", 2) end
-    if self.failed ~= "" then return nil, self.failed end
-    if self.closed then return nil, closed_reader end
-    if pipe.size ~= 0 then return take_chunk(pipe, max_bytes or CHUNK), "" end
-    return waiting_read(self, max_bytes)
+    if self.failed ~= "" then return nil, failure_of(self.failed) end
+    if self.closed then return nil, failure_of(closed_reader) end
+    if pipe.size ~= 0 then return take_chunk(pipe, max_bytes or CHUNK) end
+    local chunk, why = waiting_read(self, max_bytes)
+    if chunk == nil then
+      if why == "" then return false end
+      return nil, failure_of(why)
+    end
+    return chunk
   end
 
   function close(self): boolean, string
@@ -3898,11 +3903,11 @@ end
 local function relay_says(launch: RelayLaunch, wanted: string, log: RelayLog | integer): boolean, string
   local line, read_trouble = launch.lines:read()
   if line == wanted then return true, "" end
-  if line ~= nil then
+  if line is string then
     kill_relay(launch.handle)
     return false, (line:gsub("^error: ", ""))
   end
-  return false, relay_ended(launch.handle, read_trouble, log)
+  return false, relay_ended(launch.handle, if read_trouble ~= nil then tostring(read_trouble) else "" end, log)
 end
 
 --- Waits for the relay to say it serves, which it does once the program's

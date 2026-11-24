@@ -7,6 +7,7 @@ local Json = require("cosmic.json")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
 local ChunkedReader = require("build.chunked_reader_fixture")
+local type Failure = require("cosmic.failure")
 
 --- The value of a value-and-reason pair, which is there: `assert` takes no optional that may hold `false`, which it would
 --- raise for as for nil.
@@ -737,9 +738,11 @@ local function test_an_n_waits_for_its_next_byte()
   local chunks = { "[", "n", "", "", "an", "]" }
   local at: integer = 0
   local source: Stream.Reader = { -- checked: literal_shape
-    read = function(_self: Stream.Reader, _max?: integer): string?, string
+    read = function(_self: Stream.Reader, _max?: integer): (string | false) | (nil, Failure)
       at = at + 1
-      return chunks[at], ""
+      local chunk = chunks[at]
+      if chunk == nil then return false end
+      return chunk
     end,
     close = function(_self: Stream.Reader): boolean, string return true, "" end,
   }

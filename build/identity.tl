@@ -2,7 +2,9 @@
 --- These read the staged rows; [`build.work`] owns how they are staged.
 
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local analysis_schema = require("build.analysis_schema")
 local bind = require("build.bind")
@@ -62,6 +64,10 @@ local record identity
     runtime_basis: string
     writer: string
   end
+
+  --- What names the lexer this process runs, which the code hashes `code_hashes` keeps are of: the boot hash of the
+  --- tool, or nil where none is carried (a boot, a test's worker), which keeps none. A test sets it to reach the cache.
+  mut lexed_by: function(): string?
 end
 
 local text = bind.text
@@ -468,24 +474,76 @@ local function requires_in(db: Sqlite.Handle): function(string): {string}?, stri
   end
 end
 
---- The hash of the source hash of each of `names` the tree holds, by
---- path, then `extra`, an SQL expression.
+identity.lexed_by = function(): string? return Store.meta("boot_hash") end
+
+--- The hash of the code of each of `names` the tree holds, by path: the hash of a module's code text
+--- ([`build.code_text`]), so that an edit to a comment or to layout moves no identity, and of a declaration's source.
+--- Then `extra`, an SQL expression.
+---
+--- A module's hash is kept in `code_hashes` by its source's hash and the boot hash of the tool that lexed it, whose
+--- lexer the hash is of ([`identity.lexed_by`]), so a build of an unchanged tree lexes nothing.
 local function hash_of(db: Sqlite.Handle, names: {string}, extra: string): string?, string
   local slots: mut {string} = {}
-  local values: mut {Sqlite.Value} = {}
+  local by = identity.lexed_by()
+  local values: mut {Sqlite.Value} = { text(by or "") }
   for index, name in ipairs(names) do
-    slots[#slots + 1] = "?" .. tostring(index)
+    slots[#slots + 1] = "?" .. tostring(index + 1)
     values[#values + 1] = text(name)
   end
-  local rows, trouble = db:text_rows(
-    "SELECT lower(hex(sha256(coalesce((SELECT group_concat(path || ' ' || " ..
-      "source_hash, char(10) ORDER BY path) FROM inputs WHERE path IN (" ..
-      table.concat(slots, ", ") .. ")), '') || char(10) || " .. extra .. ")))", values)
+  local rows, trouble = db:text_rows("SELECT i.path, i.file, i.source_hash, coalesce(c.code_hash, '') FROM inputs i " ..
+      "LEFT JOIN code_hashes c ON c.source_hash = i.source_hash AND c.by = ?1 WHERE i.path IN (" ..
+      table.concat(slots, ", ") .. ") ORDER BY i.path, i.file", values)
   if rows == nil then
     return nil, tostring(trouble)
   end
-  local row = assert(rows[1], "a hash query answers one row")
-  return row:text(1), ""
+  local tail, tail_trouble = db:text_rows("SELECT " .. extra)
+  if tail == nil then
+    return nil, tostring(tail_trouble)
+  end
+  local lines: mut {string} = {}
+  local found: mut {string:string} = {}
+  local missed = false
+  for _, row in ipairs(rows) do
+    local file, source_hash = row:text(2), row:text(3)
+    local code_hash = row:text(4)
+    if file:match("%.d%.tl$") ~= nil then
+      -- A declaration's comments are data: its leading block names its kind (`--- @kind`), which the build reads.
+      -- Its hash is its source's, and no row of `code_hashes`, which holds the code hashes of modules alone.
+      code_hash = Hash.hex_sha256("source\n" .. source_hash)
+    elseif code_hash == "" then
+      local sources = assert(db:text_rows("SELECT source FROM inputs WHERE source_hash = ?1 LIMIT 1",
+        { text(source_hash) }))
+      local source = assert(sources[1], "an input's source_hash names its source"):text(1)
+      code_hash = Hash.hex_sha256(require("build.code_text").of(source, file))
+      found[source_hash] = code_hash
+      missed = true
+    end
+    lines[#lines + 1] = row:text(1) .. " " .. code_hash
+  end
+  if by ~= nil and missed then
+    -- A cache: a database another process holds, or one opened to be read, keeps none and loses nothing. A write
+    -- that fails is taken back to the savepoint, so it leaves no part of itself and nothing else of the caller's.
+    local began, begin_trouble = db:exec("SAVEPOINT code_hashes")
+    if not began then
+      return nil, tostring(begin_trouble)
+    end
+    local kept, _ = db:run("DELETE FROM code_hashes WHERE by <> ?1", { text(by) })
+    for source_hash, code_hash in pairs(found) do
+      if kept then
+        kept, _ = db:run("INSERT OR REPLACE INTO code_hashes (source_hash, by, code_hash) VALUES (?1, ?2, ?3)",
+          { text(source_hash), text(by), text(code_hash) })
+      end
+    end
+    if not kept then
+      local _, _ = db:exec("ROLLBACK TO code_hashes")
+    end
+    local released, release_trouble = db:exec("RELEASE code_hashes")
+    if not released then
+      return nil, tostring(release_trouble)
+    end
+  end
+  lines[#lines + 1] = assert(tail[1], "a select of one expression answers one row"):text(1)
+  return Hash.hex_sha256(table.concat(lines, "\n")), ""
 end
 
 --- Where the compiler's identity starts ([`identity.compiler_modules`]):
@@ -539,7 +597,7 @@ function identity.compiler_modules(requires: function(string): {string}?, string
 end
 
 --- The compiler's identity ([`Identities.compiler`]) over what the
---- working database holds now, recorded nowhere: the source hash of each
+--- working database holds now, recorded nowhere: the code text ([`build.code_text`]) of each
 --- of [`identity.compiler_modules`] the tree holds, the declarations the new checker
 --- types a program with and Lua's pins and patches.
 ---
@@ -547,7 +605,7 @@ end
 --- only a parse fills. So before [`build.importer.derive`] the walk
 --- reaches only what earlier parses found: the same modules, and so the
 --- same identity, while none of them has changed, and another whenever
---- one it reaches has, since each one's source hash is in it.
+--- one it reaches has, since each one's code text is in it.
 ---
 --- It holds what a compile or a parse stores is a function of beyond its
 --- own key (a module's Lua, bytecode, record-field uses and refusal, and
@@ -658,7 +716,7 @@ function identity.writer_left_out(): {string:string}
 end
 
 --- The writer's identity ([`Identities.writer`]) over what the working
---- database holds now, recorded nowhere: the source hash of each of
+--- database holds now, recorded nowhere: the code text of each of
 --- [`identity.writer_modules`] the tree holds, and the core image's hash
 --- (`image_hash`), whose SQLite writes the bytes. What a module requires
 --- is what `requires` holds of its source, as for [`compiler_identity`].

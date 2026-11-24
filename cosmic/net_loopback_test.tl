@@ -4,6 +4,14 @@ local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 
+--- The next line of `lines`: raises where they ended or failed.
+local function line_of(lines: Stream.Lines): string
+  local line, why = lines:read()
+  if line == nil then error(tostring(why), 2) end
+  if line == false then error("the lines ended", 2) end
+  return line
+end
+
 Test.policy{ loopback = { "127.0.0.1" } }
 
 --- How long a client here waits for what the server never fails to do.
@@ -22,7 +30,7 @@ end
 --- Sends `line` and reads the line that answers it.
 local function asked(conn: Net.Conn, line: string): string
   assert(conn:write(line .. "\n"))
-  local answer = assert(Stream.lines(conn):read())
+  local answer = line_of(Stream.lines(conn))
   return answer
 end
 
@@ -63,12 +71,12 @@ local function test_the_server_ends_with_the_body()
     local client = dial(port)
     -- Read from the handler, so the connection is one the server holds,
     -- not one left in the backlog.
-    assert(Stream.lines(client):read() == "held")
+    assert(line_of(Stream.lines(client)) == "held")
     kept = client
   end)
   local client = assert(kept)
   local data, why = client:read()
-  assert(data == nil and why == "", tostring(data) .. " " .. why)
+  assert(data == false, tostring(data) .. " " .. tostring(why))
   assert(client:close())
   assert(not returned, "a handler went on past the end of the server")
   local conn, refused = Net.connect(Net.tcp("127.0.0.1", port_given), { timeout_ns = WAIT })
@@ -153,8 +161,8 @@ local function test_a_connection_is_closed_once_its_handler_returns()
   end, function(port: integer)
     local client <close> = dial(port)
     read = assert(Stream.read_all(client))
-    local _, why = client:read()
-    ended = why
+    local last, why = client:read()
+    ended = if last == false then "" else tostring(why) end
   end)
   assert(read == "bye", read)
   assert(ended == "", ended)
@@ -189,7 +197,7 @@ local function test_what_a_killed_handlers_close_raises_is_raised()
   local why = Test.raises(function()
     Net.with_loopback(holding(held), function(port: integer)
       local client = dial(port)
-      assert(Stream.lines(client):read() == "held")
+      assert(line_of(Stream.lines(client)) == "held")
       kept = client
     end)
   end, "the handler's close failed")
@@ -210,7 +218,7 @@ local function test_a_caller_killed_in_its_body_still_ends_the_server()
       Net.with_loopback(holding(held), function(port: integer)
         port_given = port
         local client <close> = dial(port)
-        assert(Stream.lines(client):read() == "held")
+        assert(line_of(Stream.lines(client)) == "held")
         reached = true
         local _, _ = Clock.sleep(Poll.MOST_NS)
         returned = true

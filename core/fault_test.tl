@@ -32,8 +32,8 @@ local function read_all(response: Http.Response): string?, string
   local parts: mut {string} = {}
   while true do
     local chunk, trouble = response:read()
-    if chunk == nil then
-      if trouble ~= "" then return nil, trouble end
+    if chunk == nil then return nil, tostring(trouble) end
+    if chunk == false then
       return table.concat(parts), ""
     end
     parts[#parts + 1] = chunk

@@ -44,8 +44,8 @@ end
 local function bytes(conn: Net.Conn, count: integer): string
   local data = ""
   while #data < count do
-    local chunk = conn:read(count - #data)
-    if chunk == nil then break end
+    local chunk, _ = conn:read(count - #data)
+    if chunk == nil or chunk == false then break end
     data = data .. chunk
   end
   return data

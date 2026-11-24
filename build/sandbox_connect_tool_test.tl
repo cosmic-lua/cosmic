@@ -67,8 +67,8 @@ local function echoing(listener: Net.Listener, heard: function(data: string)): P
         conn:set_timeout(Clock.seconds(30))
         local data = ""
         while true do
-          local chunk = conn:read(4096)
-          if chunk == nil then break end
+          local chunk, _ = conn:read(4096)
+          if chunk == nil or chunk == false then break end
           data = data .. chunk
         end
         heard(data)
@@ -159,16 +159,16 @@ local function test_a_callers_https_proxy_is_the_relays_upstream(tmp: string)
       conn:set_timeout(Clock.seconds(30))
       local head = ""
       while not head:find("\r\n\r\n", 1, true) do
-        local chunk = conn:read(4096)
-        if chunk == nil then return end
+        local chunk, _ = conn:read(4096)
+        if chunk == nil or chunk == false then return end
         head = head .. chunk
       end
       request.value = head:match("^[^\r]*")
       assert(conn:write("HTTP/1.1 200 Connection established\r\n\r\n"))
       local data = ""
       while true do
-        local chunk = conn:read(4096)
-        if chunk == nil then break end
+        local chunk, _ = conn:read(4096)
+        if chunk == nil or chunk == false then break end
         data = data .. chunk
       end
       carried.value = data

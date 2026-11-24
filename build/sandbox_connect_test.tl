@@ -88,8 +88,8 @@ end
 local function bytes(conn: Net.Conn, count: integer): string
   local data = ""
   while #data < count do
-    local chunk = conn:read(count - #data)
-    if chunk == nil then break end
+    local chunk, _ = conn:read(count - #data)
+    if chunk == nil or chunk == false then break end
     data = data .. chunk
   end
   return data
@@ -185,7 +185,8 @@ local function test_a_name_is_asked_for_as_a_name_and_the_bytes_go_both_ways()
     finish()
     -- The end of what the client sends reaches the relay as a half-close, and
     -- the relay can still answer.
-    assert(relay:read(1) == nil, "the relay sees the end")
+    local ended, _ = relay:read(1)
+    assert(ended == false, "the relay sees the end")
     seen_end.value = true
     assert(relay:write("pong"))
     assert(relay:shutdown("write"))

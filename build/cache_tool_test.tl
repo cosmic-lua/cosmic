@@ -13,6 +13,14 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
+--- The next chunk of `reader`: raises where it ended or failed.
+local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
+  local chunk, why = reader:read(max_bytes)
+  if chunk == nil then error(tostring(why), 2) end
+  if chunk == false then error("the stream ended", 2) end
+  return chunk
+end
+
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function run(dir: string, words: {string}): Child.Result
@@ -34,8 +42,19 @@ local function test_bare_success_usage_and_help_ignore_broken_project(tmp: strin
     local help = run(tmp, words)
     assert(help.code == 0 and (help.stdout or ""):find("--since-ns", 1, true) ~= nil, help.stderr)
   end
+  for _, words in ipairs({ { "cache", "trim", "verdicts", "--help" }, { "help", "cache", "trim", "verdicts" } }) do
+    local help = run(tmp, words)
+    assert(help.code == 0 and (help.stdout or ""):find("usage: cosmic cache trim verdicts", 1, true) ~= nil,
+      help.stderr)
+    assert(not (help.stderr or ""):find("stale", 1, true), help.stderr)
+  end
   local usage = run(tmp, { "cache", "trim", "verdicts", "relative", "--whole" })
   assert(usage.code == 2 and not (usage.stderr or ""):find("stale", 1, true), usage.stderr)
+  assert((usage.stderr or ""):find("; usage: cosmic cache trim verdicts (--since-ns N | --whole) [--json] PATH...\n",
+    1, true) ~= nil, usage.stderr)
+  local none = run(tmp, { "cache", "trim" })
+  assert(none.code == 2 and (none.stderr or ""):find("; usage: cosmic cache trim <compiles|verdicts> ...\n", 1, true) ~=
+      nil, none.stderr)
   assert(not assert(Fs.status(tmp .. "/o")).exists and not assert(Fs.status(tmp .. "/missing")).exists)
 end
 
@@ -68,7 +87,7 @@ local function test_long_lived_reader_prevents_a_save_ready_wal_snapshot(tmp: st
   local reader_start = this_program.program({ "-e", script }, { timeout_ns = Child.FOREVER, cwd = tmp,
     stdin = "stream", stdout = "stream", stderr = "capture" })
   local reader <close> = assert(Child.start(reader_start.argv, reader_start.options))
-  assert(assert(reader.stdout_stream):read(1) == "r")
+  assert(chunk_of(assert(reader.stdout_stream), 1) == "r")
   assert(db:exec("INSERT INTO keep VALUES ('later')"))
   local started = this_program.program({ "cache", "trim", "verdicts", path, "--whole", "--json" },
     { cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.ms(200) })
