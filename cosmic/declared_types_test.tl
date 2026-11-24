@@ -185,7 +185,7 @@ local function test_sqlite_runs_without_values_as_declared(tmp: string)
     -- in cosmic/sqlite.tl.)
     while query:read() ~= nil do count = count + 1 end
     assert(count == 3 and query:failure() == nil)
-    assert(query:close() == nil) -- checked: no_value
+    assert(query:close())
     assert(db:close())
   end)
 end

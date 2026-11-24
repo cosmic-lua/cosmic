@@ -26,7 +26,7 @@ local outside <const>: {string} = { "cosmic.zip", "build.writer", "build.sealed_
 --- held worker: build.confine's `held_variable`); an unmarked worker is
 --- skipped where it is not.
 local function skip_unless_sealed()
-  local relaunch = Proc.relaunch()
+  local relaunch, _ = Proc.relaunch()
   local on_database = relaunch ~= nil and relaunch.argv[2] == "--database"
   if Env.get(confine.held_variable) ~= nil then
     assert(on_database, "a sandboxed worker was not given a sealed database")

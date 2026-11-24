@@ -209,7 +209,7 @@ Test.policy { loopback = { HOSTS } }
 
 local function test_refused()
   local response, trouble = Http.open("http://127.0.0.1:1/", { timeout_ns = Clock.seconds(60), connect_timeout_ns = Clock.seconds(2) })
-  assert(response == nil and trouble ~= "")
+  assert(response == nil and tostring(trouble) ~= "")
   if PROBE then local ns, _ = Fs.readlink("/proc/self/ns/net") error("NAME in " .. tostring(ns) .. " |") end
 end
 ]]
@@ -256,7 +256,7 @@ local Env = require("cosmic.env")
 local Proc = require("cosmic.proc")
 
 local function started(args: {string}): Child.Result?, string
-  local relaunch = Proc.relaunch()
+  local relaunch, _ = Proc.relaunch()
   local argv: mut {string} = {}
   local env: mut {string: string} = {}
   for name, value in pairs(Env.all()) do env[name] = value end
@@ -1244,7 +1244,7 @@ end
 --- `nests` runs the core on the sealed database of its closure too, where
 --- the program is a portable artifact.
 local function test_an_unsandboxed_worker_runs_on_a_sealed_database(tmp: string)
-  local launched = Proc.relaunch()
+  local launched, _ = Proc.relaunch()
   if launched == nil or launched.argv[2] ~= "--artifact" then
     Test.skip("this program is no portable artifact")
     return

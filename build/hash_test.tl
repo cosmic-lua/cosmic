@@ -1,6 +1,6 @@
 --- `cosmic hash` (build/hash.tl), run in this process with its standard
 --- input and output stood in for: each algorithm's digest, standard input,
---- several files, names that need escaping, `--check` and `--quiet`,
+--- several files, names that need escaping, `check` and `--quiet`,
 --- HMAC (RFC 4231 for SHA-256, and every algorithm against [`Hash.hmac`]),
 --- `--json`, a lost write, and a large input in bounded memory.
 --- build/hash_tool_test.tl starts the program for what a process alone
@@ -95,7 +95,7 @@ local ALGORITHMS <const>: {Hash.Algorithm} = {
 local function test_each_algorithm_has_its_known_digest(tmp: string)
   local path = file(tmp, "abc", "abc")
   for _, algorithm in ipairs(ALGORITHMS) do
-    local ran = run({ "--" .. algorithm, path })
+    local ran = run({ "-a", algorithm, path })
     assert(ran.code == 0 and ran.err == "", algorithm .. ": " .. ran.err)
     assert(ran.out == abc(algorithm) .. "  " .. path .. "\n", algorithm .. ": " .. ran.out)
   end
@@ -104,7 +104,7 @@ end
 local function test_sha256_is_the_default_and_stdin_is_a_dash(tmp: string)
   local bare = run({}, "abc")
   assert(bare.code == 0 and bare.out == abc("sha256") .. "  -\n", bare.out)
-  local dash = run({ "--sha1", "-" }, "abc")
+  local dash = run({ "-a", "sha1", "-" }, "abc")
   assert(dash.out == abc("sha1") .. "  -\n", dash.out)
   local empty = run({ file(tmp, "empty", "") })
   assert(empty.out == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  " .. tmp .. "/empty\n", empty.out)
@@ -112,7 +112,7 @@ end
 
 local function test_several_files_print_in_order_and_stdin_may_be_among_them(tmp: string)
   local a, b = file(tmp, "a", "abc"), file(tmp, "b", "")
-  local ran = run({ "--md5", a, "-", b }, "abc")
+  local ran = run({ "-a", "md5", a, "-", b }, "abc")
   assert(ran.code == 0, ran.err)
   assert(ran.out == abc("md5") .. "  " .. a .. "\n" .. abc("md5") .. "  -\n" ..
       "d41d8cd98f00b204e9800998ecf8427e  " .. b .. "\n", ran.out)
@@ -140,7 +140,7 @@ local function test_names_with_a_backslash_or_newline_are_escaped_as_gnu_does(tm
       abc("sha256") .. "  " .. plain .. "\n", ran.out)
   -- What it printed, it checks.
   local sums = file(tmp, "sums", ran.out)
-  local checked = run({ "--check", sums })
+  local checked = run({ "check", sums })
   assert(checked.code == 0 and checked.err == "", checked.err)
   -- Names come back escaped, as GNU prints them.
   assert(checked.out == "\\" .. prefix .. "/a\\nb: OK\n\\" .. prefix .. "/c\\\\d: OK\n" .. plain .. ": OK\n", checked.out)
@@ -148,7 +148,7 @@ end
 
 local function test_a_carriage_return_is_escaped_and_gnus_own_bytes_are_read(tmp: string)
   local cr = file(tmp, "a\rb", "abc")
-  local ran = run({ "--md5", cr })
+  local ran = run({ "-a", "md5", cr })
   local prefix = tmp:gsub("\\", "\\\\")
   assert(ran.out == "\\" .. abc("md5") .. "  " .. prefix .. "/a\\rb\n", ran.out)
   -- The bytes coreutils 9.4 writes for `a\rb`, `c\d`, and a newline in a name.
@@ -157,15 +157,15 @@ local function test_a_carriage_return_is_escaped_and_gnus_own_bytes_are_read(tmp
   assert(Fs.write(tmp .. "/a\rb", "abc"))
   assert(Fs.write(tmp .. "/c\\d", "abc"))
   assert(Fs.write(tmp .. "/n\nl", "abc"))
-  local checked = run({ "--md5", "--check", gnu }, nil)
+  local checked = run({ "check", "-a", "md5", gnu }, nil)
   -- The names are relative to `tmp`, which this run is not in: each
   -- fails to open, named as the list escapes it.
   assert(checked.code == 1 and checked.out:find("\\a\\rb: FAILED open or read", 1, true) ~= nil, checked.out)
   local absolute = file(tmp, "abs", "\\" .. abc("md5") .. "  " .. prefix .. "/a\\rb\n")
-  local found = run({ "--md5", "--check", absolute })
+  local found = run({ "check", "-a", "md5", absolute })
   assert(found.code == 0 and found.out == "\\" .. prefix .. "/a\\rb: OK\n", found.out .. found.err)
   -- Any other escape is refused.
-  local bad = run({ "--md5", "--check", file(tmp, "bad", "\\" .. abc("md5") .. "  a\\tb\n") })
+  local bad = run({ "check", "-a", "md5", file(tmp, "bad", "\\" .. abc("md5") .. "  a\\tb\n") })
   assert(bad.code == 5 and bad.err:find("bad escape", 1, true) ~= nil, bad.err)
 end
 
@@ -189,7 +189,7 @@ end
 
 local function test_check_refuses_a_path_that_is_not_a_regular_file(tmp: string)
   local sums = file(tmp, "sums", abc("sha256") .. "  " .. tmp .. "\n" .. abc("sha256") .. "  /dev/zero\n")
-  local ran = run({ "--check", sums })
+  local ran = run({ "check", sums })
   assert(ran.code == 1, ran.code)
   assert(ran.out == tmp .. ": FAILED open or read\n/dev/zero: FAILED open or read\n", ran.out)
   assert(ran.err:find("not a regular file", 1, true), ran.err)
@@ -197,7 +197,7 @@ end
 
 local function test_a_crlf_sums_file_leaves_the_cr_in_the_name(tmp: string)
   local a = file(tmp, "a", "abc")
-  local ran = run({ "--check", file(tmp, "crlf", abc("sha256") .. "  " .. a .. "\r\n") })
+  local ran = run({ "check", file(tmp, "crlf", abc("sha256") .. "  " .. a .. "\r\n") })
   assert(ran.code == 1 and ran.out == "\\" .. a .. "\\r: FAILED open or read\n", ran.out)
 end
 
@@ -210,7 +210,7 @@ end
 
 local function test_json_is_an_array_of_path_algorithm_digest(tmp: string)
   local a = file(tmp, "a", "abc")
-  local ran = run({ "--json", "--sha1", a, "-" }, "abc")
+  local ran = run({ "--json", "-a", "sha1", a, "-" }, "abc")
   assert(ran.code == 0, ran.err)
   local rows = rows_of(ran.out)
   assert(#rows == 2)
@@ -232,7 +232,7 @@ end
 
 local function test_check_says_ok_failed_and_missing_and_exits_1(tmp: string)
   local sums = mixed(tmp)
-  local ran = run({ "--check", sums })
+  local ran = run({ "check", sums })
   assert(ran.code == 1, ran.code)
   assert(ran.out == tmp .. "/a: OK\n" .. tmp .. "/b: FAILED\n" .. tmp .. "/gone: FAILED open or read\n", ran.out)
   assert(ran.err:find("1 of 3 computed checksum did NOT match", 1, true), ran.err)
@@ -242,16 +242,16 @@ end
 local function test_check_of_only_matches_exits_0(tmp: string)
   local a = file(tmp, "a", "abc")
   local sums = file(tmp, "sums", abc("sha256") .. "  " .. a .. "\n")
-  local ran = run({ "--check", sums })
+  local ran = run({ "check", sums })
   assert(ran.code == 0 and ran.out == a .. ": OK\n" and ran.err == "", ran.out .. ran.err)
 end
 
 local function test_quiet_prints_only_the_failures(tmp: string)
-  local ran = run({ "--check", mixed(tmp), "--quiet" })
+  local ran = run({ "check", mixed(tmp), "--quiet" })
   assert(ran.code == 1)
   assert(ran.out == tmp .. "/b: FAILED\n" .. tmp .. "/gone: FAILED open or read\n", ran.out)
   local a = file(tmp, "a", "abc")
-  local ok = run({ "--quiet", "--check", file(tmp, "ok", abc("sha256") .. "  " .. a .. "\n") })
+  local ok = run({ "check", "--quiet", file(tmp, "ok", abc("sha256") .. "  " .. a .. "\n") })
   assert(ok.code == 0 and ok.out == "", ok.out)
 end
 
@@ -259,11 +259,11 @@ local function test_check_reads_markers_uppercase_comments_and_the_algorithm(tmp
   local a = file(tmp, "a", "abc")
   local sums = file(tmp, "sums", "# a comment\n\n" .. abc("sha1"):upper() .. " *" .. a .. "\n" ..
       abc("sha1") .. "  " .. a)
-  local ran = run({ "--sha1", "--check", sums })
+  local ran = run({ "check", "-a", "sha1", sums })
   assert(ran.code == 0, ran.err)
   assert(ran.out == a .. ": OK\n" .. a .. ": OK\n", ran.out)
   -- The same file is not a SHA-256 list: its digests are the wrong length.
-  local wrong = run({ "--check", sums })
+  local wrong = run({ "check", sums })
   assert(wrong.code == 5 and wrong.out == "", wrong.out)
 end
 
@@ -271,25 +271,25 @@ local function test_a_malformed_line_is_reported_and_exits_5(tmp: string)
   local a = file(tmp, "a", "abc")
   local sums = file(tmp, "sums", abc("sha256") .. "  " .. a .. "\nthis is not a sum\n" ..
       abc("sha256") .. " " .. a .. "\n")
-  local ran = run({ "--check", sums })
+  local ran = run({ "check", sums })
   assert(ran.code == 5, ran.code)
   assert(ran.out == a .. ": OK\n", ran.out)
   assert(ran.err:find(sums .. ":2: improperly formatted", 1, true), ran.err)
   assert(ran.err:find(sums .. ":3: improperly formatted", 1, true), ran.err)
-  local none = run({ "--check", file(tmp, "empty", "") })
+  local none = run({ "check", file(tmp, "empty", "") })
   assert(none.code == 5 and none.err:find("no checksum lines found", 1, true) ~= nil, none.err)
-  assert(run({ "--check", tmp .. "/absent" }).code == 5)
+  assert(run({ "check", tmp .. "/absent" }).code == 5)
 end
 
 local function test_check_reads_a_sums_file_from_stdin(tmp: string)
   local a = file(tmp, "a", "abc")
-  local ran = run({ "--check", "-" }, abc("sha256") .. "  " .. a .. "\n")
+  local ran = run({ "check", "-" }, abc("sha256") .. "  " .. a .. "\n")
   assert(ran.code == 0 and ran.out == a .. ": OK\n", ran.out .. ran.err)
   -- A `-` entry cannot read the standard input that holds the list.
-  local self = run({ "--check", "-" }, abc("sha256") .. "  -\n")
+  local self = run({ "check", "-" }, abc("sha256") .. "  -\n")
   assert(self.code == 1 and self.out == "-: FAILED open or read\n", self.out)
   -- From a file, it reads standard input.
-  local piped = run({ "--check", file(tmp, "s", abc("sha256") .. "  -\n") }, "abc")
+  local piped = run({ "check", file(tmp, "s", abc("sha256") .. "  -\n") }, "abc")
   assert(piped.code == 0 and piped.out == "-: OK\n", piped.out)
 end
 
@@ -314,7 +314,7 @@ local function test_hmac_of_every_algorithm_agrees_with_hash_hmac(tmp: string)
     for _, key in ipairs(keys) do
       local key_file = file(tmp, "key", key)
       for _, message in ipairs(messages) do
-        local ran = run({ "--" .. algorithm, "--hmac-file", key_file }, message)
+        local ran = run({ "-a", algorithm, "--hmac-file", key_file }, message)
         local want = Codec.hex(Hash.hmac(algorithm, key, message))
         assert(ran.out == want .. "  -\n", algorithm .. " key " .. tostring(#key) .. " message " .. tostring(#message))
       end
@@ -325,10 +325,10 @@ end
 local function test_check_verifies_an_hmac_only_under_its_key(tmp: string)
   local a = file(tmp, "a", "abc")
   local sums = file(tmp, "sums", run({ "--hmac", "secret", a }).out)
-  assert(run({ "--check", sums, "--hmac", "secret" }).code == 0)
-  local wrong = run({ "--check", sums, "--hmac", "other" })
+  assert(run({ "check", sums, "--hmac", "secret" }).code == 0)
+  local wrong = run({ "check", sums, "--hmac", "other" })
   assert(wrong.code == 1 and wrong.out == a .. ": FAILED\n", wrong.out)
-  assert(run({ "--check", sums }).code == 1)
+  assert(run({ "check", sums }).code == 1)
 end
 
 local function test_hmac_key_file_keeps_its_bytes_exactly(tmp: string)
@@ -344,28 +344,42 @@ local function test_a_bad_command_line_exits_2_and_prints_nothing(tmp: string)
   local a = file(tmp, "a", "abc")
   local sums = file(tmp, "sums", abc("sha256") .. "  " .. a .. "\n")
   for _, words in ipairs({ -- checked: cast_refused
-      { "--sha1", "--sha256", a }, { "--quiet", a }, { "--json", "--check", sums },
-      { "--check", sums, a }, { "--hmac", "a", "--hmac-file", a, a }, { "--bogus", a },
-      { "--check", "" }, { "" },
+      { "-a", "sha9", a }, { "--quiet", a }, { "check", "--json", sums }, { "check" },
+      { "check", sums, a }, { "--hmac", "a", "--hmac-file", a, a }, { "--bogus", a },
+      { "check", "" }, { "" },
   } as {{string}}) do
     local ran = run(words, "")
     assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. ": " .. ran.out)
     assert(ran.err:find("cosmic: hash: ", 1, true), table.concat(words, " "))
   end
-  assert(run({ "--sha1", "--sha256", a }).err:find("name one algorithm", 1, true))
+  assert(run({ "-a", "sha9", a }).err:find("-a takes md5, sha1,", 1, true))
+  assert(run({ "check", sums, a }).err:find("cosmic: hash: check: takes one sums file", 1, true))
+  assert(run({ "check", sums, a }).err:find("; usage: cosmic hash check [options] <sums|->", 1, true))
+  assert(run({ "check" }).err:find("but was given none", 1, true))
+  -- The spellings before `-a` and `check` point at what replaced them.
+  assert(run({ "--check", sums }).err:find("`cosmic hash check <sums>` checks a sums file", 1, true))
+  assert(run({ "--sha512", a }).err:find("name the algorithm with -a sha512", 1, true))
+end
+
+--- `check` is a command only as the first word, and `./check` is the file of that name.
+local function test_a_file_named_check_is_hashed_as_dot_check(tmp: string)
+  local named = file(tmp, "check", "abc")
+  local here = Fs.dirname(named)
+  local ran = run({ here .. "/./check" })
+  assert(ran.code == 0 and ran.out == abc("sha256") .. "  " .. here .. "/./check\n", ran.out .. ran.err)
 end
 
 local function test_a_failed_write_exits_5_in_every_mode(tmp: string)
   local a = file(tmp, "a", "abc")
   local sums = file(tmp, "sums", abc("sha256") .. "  " .. a .. "\n")
   local function full(_: string): boolean, string return false, "No space left on device" end
-  for _, words in ipairs({ { a }, { "--json", a }, { "--check", sums }, { "--check", "-" } } as {{string}}) do -- checked: cast_refused
+  for _, words in ipairs({ { a }, { "--json", a }, { "check", sums }, { "check", "-" } } as {{string}}) do -- checked: cast_refused
     local ran = run(words, abc("sha256") .. "  " .. a .. "\n", full)
     assert(ran.code == 5, table.concat(words, " ") .. ": " .. tostring(ran.code))
     assert(ran.err == "cosmic: hash: standard output: No space left on device\n", ran.err)
   end
   -- A `--quiet` check that has nothing to say has nothing to lose.
-  assert(run({ "--check", sums, "--quiet" }, nil, full).code == 0)
+  assert(run({ "check", sums, "--quiet" }, nil, full).code == 0)
 end
 
 --- A Reader of `total` bytes of one repeating chunk, noting the most Lua

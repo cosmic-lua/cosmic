@@ -54,6 +54,7 @@
 
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
+local Failure = require("cosmic.failure")
 local Hash = require("cosmic.hash")
 local type raw_tls = require("cosmic.internal.tls")
 
@@ -447,13 +448,13 @@ function Tls.info(session: raw_tls.Session): Info
 end
 
 --- A client that trusts what `opts` chooses: see [`ClientOptions`]. Nil
---- and why where the roots cannot be had (the binary carries none, or
+--- and a [`Failure`] where the roots cannot be had (the binary carries none, or
 --- `ca` holds what the TLS stack cannot read), or `identity` cannot be
 --- read or its key is not its certificate's. Raises on options of the
 --- wrong shape, naming them.
 ---
 ---     local client = assert(Tls.client({ roots = "none", ca = assert(Fs.read("ca.pem")) }))
-function Tls.client(opts?: ClientOptions): Client?, string
+function Tls.client(opts?: ClientOptions): (Client) | (nil, Failure)
   local o: ClientOptions = opts or {}
   local alpn = o.alpn
   if alpn ~= nil then
@@ -475,24 +476,26 @@ function Tls.client(opts?: ClientOptions): Client?, string
     -- trust store.
     local Trust = require("cosmic.internal.trust")
     local chosen, untold = Trust.chosen(o.roots, o.ca, "tls", 2)
-    if untold ~= "" then return nil, untold end
+    if untold ~= "" then return nil, Failure.new(untold) end
     local pem, why = Trust.pem(chosen or Trust.everything(), "tls")
-    if pem == nil then return nil, why end
+    if pem == nil then return nil, Failure.new(why) end
     roots = pem
   end
   local config, refused = raw.client(roots, alpn, o.identity)
-  if config == nil then return nil, refused end
+  if config == nil then return nil, Failure.new(refused) end
   local client: Client = { config = config, verify = verify, pins = pins }
-  return client, ""
+  return client
 end
 
 --- What the first certificate of the PEM chain `pem` says of itself;
---- nil and why where it cannot be read.
+--- nil and a [`Failure`] where it cannot be read.
 ---
 ---     local leaf = assert(Tls.leaf(pair.cert))
 ---     print(leaf.names[1], (leaf.not_after_ns - Clock.now_ns()) // Clock.hours(24), "days left")
-function Tls.leaf(pem: string): Leaf?, string
-  return leaf_of(pem)
+function Tls.leaf(pem: string): (Leaf) | (nil, Failure)
+  local leaf, why = leaf_of(pem)
+  if leaf == nil then return nil, Failure.new(why) end
+  return leaf
 end
 
 --- A source that always answers the pairs `held`: certificates the program

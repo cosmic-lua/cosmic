@@ -209,7 +209,7 @@ end
 
 --- A test's child runs from a closure store, which records no boot hash: no build names the sources it checks the chunk
 --- against, so a kept compile would outlive an edit of them. It keeps none, and checks the chunk on every run. (A
---- release keeps one: ci/fixtures/product_test.tl.)
+--- binary that records one keeps it: build/standalone_cache_tool_test.tl.)
 local function test_e_keeps_no_compile_where_the_program_records_no_boot_hash(tmp: string)
   local Store = require("cosmic.store")
   assert(Store.meta("boot_hash") == nil, "a test's closure store records a boot hash")

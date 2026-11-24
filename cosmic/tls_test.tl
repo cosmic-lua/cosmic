@@ -26,7 +26,7 @@ local function test_a_leaf_names_its_hosts_and_its_dates()
   local b = assert(Tls.leaf(fixture("b.pem")))
   assert(#b.names == 1 and b.names[1] == "b.test")
   local none, why = Tls.leaf("not a certificate")
-  assert(none == nil and why:find("^tls: the certificate: ") ~= nil, why)
+  assert(none == nil and tostring(why):find("^tls: the certificate: ") ~= nil, why)
 end
 
 local function test_a_load_serves_the_pairs_and_says_when_they_renew()

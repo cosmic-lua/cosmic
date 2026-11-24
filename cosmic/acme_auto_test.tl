@@ -47,7 +47,7 @@ local function fake_ca(port: integer): FakeCa
   local ca = acme_fixture.new_server()
   ca.chain = fixture("d.pem")
   ca.check = function(_domain: string, token: string): string
-    local got = Http.get("http://127.0.0.1:" .. tostring(port) .. "/.well-known/acme-challenge/" .. token,
+    local got, _ = Http.get("http://127.0.0.1:" .. tostring(port) .. "/.well-known/acme-challenge/" .. token,
       { timeout_ns = WAIT })
     if got == nil or got.status ~= 200 then return "invalid" end
     if got.body:sub(1, #token + 1) ~= token .. "." then return "invalid" end

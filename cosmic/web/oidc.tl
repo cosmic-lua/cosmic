@@ -393,7 +393,11 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
   local keep: mut {string} = {}
   for _, name in ipairs(STANDARD) do keep[#keep + 1] = name end
   for _, name in ipairs(opts.keep_claims or {}) do keep[#keep + 1] = name end
-  local fetch: Oidc.Fetch = opts.fetch or Http.request
+  local fetch: Oidc.Fetch = opts.fetch or function(method: string, url: string, o: Http.Options): Http.Body?, string
+    local body, why = Http.request(method, url, o)
+    if body == nil then return nil, tostring(why) end
+    return body, ""
+  end
   local now = opts.now or function(): integer return Clock.now_ns() // 1000000000 end
   -- A test's clock moves the limits too.
   local now_ns: (function(): integer)? = nil

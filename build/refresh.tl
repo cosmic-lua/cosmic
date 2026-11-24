@@ -240,7 +240,7 @@ end
 local function fetch_text(url: string): string?, string
   local got, trouble = Http.get(url, refresh.fetching())
   if got == nil then
-    return nil, url .. ": " .. trouble
+    return nil, url .. ": " .. tostring(trouble)
   end
   if got.status < 200 or got.status > 299 then
     return nil, url .. ": HTTP " .. tostring(got.status)
@@ -261,7 +261,7 @@ local cacert: refresh.Dataset = {
       end
       local got, trouble = Http.get(page, { timeout_ns = Clock.seconds(60), headers = github_headers, roots = refresh.fetching().roots })
       if got == nil then
-        return nil, page .. ": " .. trouble
+        return nil, page .. ": " .. tostring(trouble)
       end
       if got.status < 200 or got.status > 299 then
         return nil, page .. ": HTTP " .. tostring(got.status)
@@ -311,7 +311,7 @@ local cacert: refresh.Dataset = {
     for i, one in ipairs(found) do
       local ok, why = Http.check_certificate(one.der)
       if not ok then
-        left_out[#left_out + 1] = ("certificate %d (%s): %s"):format(i, one.label, why)
+        left_out[#left_out + 1] = ("certificate %d (%s): %s"):format(i, one.label, tostring(why))
       else
         readable[#readable + 1] = one
         local digest = Hash.sha256(one.der)
@@ -414,7 +414,7 @@ local tzdata: refresh.Dataset = {
     local ok, download_trouble = Http.download(source.url, source.path,
       { timeout_ns = Http.FOREVER, digests = { ["sha256"] = source.sha256 }, roots = refresh.fetching().roots })
     if not ok then
-      return nil, source.url .. ": " .. download_trouble
+      return nil, source.url .. ": " .. tostring(download_trouble)
     end
     return source, ""
   end,
@@ -708,7 +708,8 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
   return lines, ""
 end
 
-local usage <const> = "cosmic refresh -o <path> [--binary <path>] [--<dataset> <file>...] [dataset...]"
+--- The usage line a refusal ends with: the spec's ([`Flags.usage`]).
+local usage <const> = Flags.usage(Verb, "cosmic refresh")
 
 --- `cosmic refresh`'s command line: see [`cosmic.cli.refresh`].
 local function run(argv: {string}): integer
@@ -770,7 +771,7 @@ local function run(argv: {string}): integer
   if binary == nil then
     local running, trouble = Proc.executable()
     if running == nil then
-      log:complain("refresh: " .. trouble)
+      log:complain("refresh: " .. tostring(trouble))
       return 1
     end
     binary = running

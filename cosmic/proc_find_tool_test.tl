@@ -20,10 +20,8 @@ local function lookup(dir: string, path: string?): string
   local script = [[
 local Env = require("cosmic.env")
 local Proc = require("cosmic.proc")
-local result = Proc.find_result("sh")
-local legacy, reason = Proc.find("sh")
-assert(legacy == result.path and reason == result.reason)
-print(if Env.get("PATH") == nil then "unset" else "set" end, result.kind, result.path, result.reason)
+local found, why = Proc.find("sh")
+print(if Env.get("PATH") == nil then "unset" else "set" end, found or "", if why ~= nil then tostring(why) else "" end)
 ]]
   local started = this_program.program({ "-e", script }, {
     env = env, cwd = dir, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(10),
@@ -35,11 +33,11 @@ end
 
 --- Unset PATH uses the default list, not the working directory; an empty
 --- PATH and empty components explicitly select the working directory.
-local function test_find_result_distinguishes_unset_and_empty_path(dir: string)
+local function test_find_distinguishes_unset_and_empty_path(dir: string)
   assert(Fs.write(dir .. "/sh", "", 0x1c0))
-  assert(lookup(dir, nil) == "unset\tresolved\t/bin/sh\t\n")
+  assert(lookup(dir, nil) == "unset\t/bin/sh\t\n")
   for _, path in ipairs({ "", ":", dir .. "/missing:", dir .. "/missing::" .. dir .. "/elsewhere" }) do
-    assert(lookup(dir, path) == "set\tresolved\t./sh\t\n", path)
+    assert(lookup(dir, path) == "set\t./sh\t\n", path)
   end
-  assert(lookup(dir, dir) == "set\tresolved\t" .. dir .. "/sh\t\n")
+  assert(lookup(dir, dir) == "set\t" .. dir .. "/sh\t\n")
 end

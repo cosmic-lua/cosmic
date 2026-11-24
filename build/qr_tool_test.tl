@@ -52,7 +52,7 @@ end
 local function test_help_names_the_verb_and_its_options(tmp: string)
   local ran = tool_fixture.cosmic(tmp, { "qr", "--help" })
   assert(ran.code == 0, ran.err)
-  for _, word in ipairs({ "cosmic qr", "--svg", "--invert", "--ascii", "--color", "--quiet", "--level", "--max-version", "--read" }) do
+  for _, word in ipairs({ "cosmic qr", "--svg", "--invert", "--ascii", "--color", "--border", "--level", "--max-version", "--read" }) do
     assert(ran.out:find(word, 1, true), "the help does not name " .. word)
   end
 end

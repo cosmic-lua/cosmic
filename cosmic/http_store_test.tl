@@ -47,20 +47,20 @@ end
 local function test_an_https_peer_is_verified_against_the_carried_roots()
   local root = carried_root("ISRG Root X1")
   local _, trusted = Http.open("https://cosmic.test/", { timeout_ns = Clock.seconds(60), script = { first_flight(root) } })
-  assert(trusted:find("Common Name", 1, true), trusted)
-  assert(not trusted:find("not correctly signed", 1, true),
-    "a carried root is not trusted: " .. trusted)
+  assert(tostring(trusted):find("Common Name", 1, true), trusted)
+  assert(not tostring(trusted):find("not correctly signed", 1, true),
+    "a carried root is not trusted: " .. tostring(trusted))
   local broken = root:sub(1, -2) .. string.char(String.byte_at(root, #root) ~ 1)
   local _, refused = Http.open("https://cosmic.test/", { timeout_ns = Clock.seconds(60), script = { first_flight(broken) }, roots = "mozilla" })
-  assert(refused:find("not correctly signed by the trusted CA", 1, true), refused)
+  assert(tostring(refused):find("not correctly signed by the trusted CA", 1, true), refused)
   -- Trusting every root the binary carries, the carried roots may be what
   -- is stale: the failure says how to get newer ones.
-  assert(refused:find("`cosmic refresh cacert --binary <this program> -o <copy>`", 1, true), refused)
-  assert(not trusted:find("cosmic refresh", 1, true), trusted)
+  assert(tostring(refused):find("`cosmic refresh cacert --binary <this program> -o <copy>`", 1, true), refused)
+  assert(not tostring(trusted):find("cosmic refresh", 1, true), trusted)
   -- Trusting the minimal roots, as a request does by default, it says
   -- how to trust them all.
   local _, fewer = Http.open("https://cosmic.test/", { timeout_ns = Clock.seconds(60), script = { first_flight(broken) } })
-  assert(fewer:find("COSMIC_CA_ROOTS=mozilla", 1, true), fewer)
+  assert(tostring(fewer):find("COSMIC_CA_ROOTS=mozilla", 1, true), fewer)
 end
 
 --- Every root this binary carries reads as a certificate; a DER
@@ -72,11 +72,11 @@ local function test_check_certificate_reads_what_the_binary_trusts()
   assert(#roots > 0)
   for _, row in ipairs(roots) do
     local ok, why = Http.check_certificate(row:blob(1))
-    assert(ok and why == "", row:text(2) .. ": " .. tostring(why))
+    assert(ok and why == nil, row:text(2) .. ": " .. tostring(why))
   end
   for _, der in ipairs({ "", "\x30\x03abc", "not der" }) do
     local ok, why = Http.check_certificate(der)
-    assert(not ok and why ~= "", Codec.hex(der))
+    assert(not ok and tostring(why) ~= "", Codec.hex(der))
   end
 end
 
@@ -87,10 +87,10 @@ local function verdict(der: string, opts: Http.Options): string
   local response, why = Http.open("https://cosmic.test/",
     { timeout_ns = Clock.seconds(60), script = { first_flight(der) }, roots = opts.roots, ca = opts.ca, pin = opts.pin })
   assert(response == nil, "a canned first flight completes no handshake")
-  if why:find("Common Name", 1, true) ~= nil and why:find("not correctly signed", 1, true) == nil then
+  if tostring(why):find("Common Name", 1, true) ~= nil and tostring(why):find("not correctly signed", 1, true) == nil then
     return "trusted"
   end
-  return why
+  return tostring(why)
 end
 
 --- `der` as PEM.
@@ -149,7 +149,7 @@ local function test_ca_pins_a_certificate_in_code()
   local refused = verdict(listed, { timeout_ns = Clock.seconds(60), roots = "none", ca = pem(outside) })
   assert(refused:find("not correctly signed", 1, true), refused)
   local _, nothing = Http.open("https://cosmic.test/", { timeout_ns = Clock.seconds(60), roots = "none" })
-  assert(nothing:find("no CA roots to trust", 1, true), nothing)
+  assert(tostring(nothing):find("no CA roots to trust", 1, true), nothing)
   -- An empty list trusts none of the carried roots ($SSL_CERT_FILE's
   -- may still be trusted, or nothing at all).
   local none_listed: {string} = {}
@@ -167,14 +167,14 @@ local function test_an_unreadable_ca_fails_the_request()
   }
   for ca, want in pairs(cases) do
     local response, why = Http.open("https://cosmic.test/", { timeout_ns = Clock.seconds(60), ca = ca, script = { "" } })
-    assert(response == nil and why:find(want, 1, true) ~= nil, want .. ": " .. tostring(why))
+    assert(response == nil and tostring(why):find(want, 1, true) ~= nil, want .. ": " .. tostring(why))
   end
 end
 
 --- Options of the wrong shape raise, naming the option.
 local function test_trust_options_of_the_wrong_shape_raise()
   local function raised(opts: Http.Options): string
-    local ok, err = pcall(Http.open, "https://cosmic.test/", opts)
+    local ok, err = pcall(function() local _, _ = Http.open("https://cosmic.test/", opts) end)
     assert(not ok, "no raise")
     return tostring(err)
   end
@@ -192,12 +192,12 @@ end
 local function test_public_key_pin_is_the_spki_hash()
   local root = carried_root("ISRG Root X1")
   local want = "sha256//C5+lpZ7tcVwmwQIMcRtPbsQtWLABXhQzejna0wHFr8M="
-  assert(Http.public_key_pin(root) == want)
-  assert(Http.public_key_pin(pem(root)) == want)
+  assert(assert(Http.public_key_pin(root)) == want)
+  assert(assert(Http.public_key_pin(pem(root))) == want)
   local none, why = Http.public_key_pin("not a certificate")
-  assert(none == nil and why:find("not an X.509 certificate", 1, true) ~= nil, why)
+  assert(none == nil and tostring(why):find("not an X.509 certificate", 1, true) ~= nil, tostring(why))
   local two, both = Http.public_key_pin(pem(root) .. pem(carried_root(OUTSIDE)))
-  assert(two == nil and both == "more than one certificate", both)
+  assert(two == nil and tostring(both) == "more than one certificate", tostring(both))
   -- Taken: what fails here is the canned handshake, not the pin's shape.
   -- TODO: show a pin the server's key does not hash to failing the
   -- request, once a test can complete a TLS handshake: a canned first
@@ -230,5 +230,5 @@ end
 --- ones.
 local function test_the_default_roots_are_the_minimal_ones()
   local roots, why = Http.default_roots()
-  assert(roots == "minimal" and why == "", tostring(roots) .. " " .. why)
+  assert(roots == "minimal" and why == nil, tostring(roots) .. " " .. tostring(why))
 end

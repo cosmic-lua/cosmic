@@ -27,7 +27,6 @@ Test.policy{
     { path = "/bin/mktemp", letters = "r" }, { path = "/usr/bin/mktemp", letters = "r" },
     { path = "/bin/head", letters = "r" }, { path = "/usr/bin/head", letters = "r" },
     { path = "/bin/rm", letters = "r" }, { path = "/usr/bin/rm", letters = "r" },
-    { path = "/bin/wc", letters = "r" }, { path = "/usr/bin/wc", letters = "r" },
     { path = "/bin/dd", letters = "r" }, { path = "/usr/bin/dd", letters = "r" },
     { path = "/bin/chmod", letters = "r" }, { path = "/usr/bin/chmod", letters = "r" },
     { path = "/bin/id", letters = "r" }, { path = "/usr/bin/id", letters = "r" },
@@ -42,7 +41,7 @@ Test.policy{
 -- TODO: have those modules name this list, in place of the path of each program under /bin and /usr/bin that
 -- each spells out, once a declaration can name a program (`processes` by name, which the sandbox resolves, with
 -- what its loader reads).
-local programs <const>: {string} = { "sh", "uname", "mkdir", "stat", "mktemp", "head", "rm", "wc", "dd", "chmod",
+local programs <const>: {string} = { "sh", "uname", "mkdir", "stat", "mktemp", "head", "rm", "dd", "chmod",
   "id", "ln", "rmdir", "sha256sum" }
 
 --- Those of them the launcher runs to start a core its cache already holds: `sha256sum` only where the entry's

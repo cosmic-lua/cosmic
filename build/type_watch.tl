@@ -14,22 +14,13 @@
 -- asks the declared-types tests (`*declared_types_test.tl`), so it must fail where one of them skips for want of a
 -- checked run.
 local Test = require("cosmic.test")
-local Globals = require("cosmic.internal.globals")
 local worker = require("build.test_worker")
 
 local record TypeWatch
 end
 
---- Whether this run compiled the run-time checks in.
-function TypeWatch.checked(): boolean
-  -- The hook a checked run defines as a global; read by a chunk, since the
-  -- global is no field of the checker's `_G`.
-  local read = assert(load("return __cosmic_tc", "=type_watch", "t", Globals.table()))
-  return (read()) ~= nil
-end
-
---- Why `during` skips the test, for a run that `checked` says is checked or
---- not: a plain run carries no checks at all, and a checked run carries only
+--- Why `during` skips the test, for a run that checks types
+--- ([`Test.mode`]) or not: a plain run carries no checks at all, and a checked run carries only
 --- those of narrowed reads, not of declared boundaries.
 function TypeWatch.skip_reason(checked: boolean): string
   if not checked then
@@ -45,7 +36,7 @@ end
 --- actual (at place)`; skips the test in every run for now, since none
 --- compiles the checks of returns and fields in ([`skip_reason`]).
 function TypeWatch.during(fn: function(), under?: string): {string}
-  Test.skip(TypeWatch.skip_reason(TypeWatch.checked()))
+  Test.skip(TypeWatch.skip_reason(Test.mode().types_checked))
   local prefix = under or "cosmic/"
   local before: mut {string:integer} = {}
   -- A parameter is declared where its target names, in parentheses; a

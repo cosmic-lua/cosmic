@@ -112,6 +112,8 @@ typedef enum {
 #define GZ_FEXTRA 0x04u
 #define GZ_FNAME 0x08u
 #define GZ_FCOMMENT 0x10u
+/* The flag bits RFC 1952 reserves, which must be zero. */
+#define GZ_FRESERVED 0xe0u
 
 /* What one step of a member's decoder ended on. */
 enum {
@@ -144,6 +146,9 @@ struct inflate_state {
   size_t field_have;
   unsigned flg;
   size_t extra_remaining;
+  /* The CRC-32 of the member's header so far, whose low 16 bits FHCRC
+   * holds. */
+  uint32_t hcrc;
   uint32_t crc;   /* the current gzip member's output CRC-32 */
   uint32_t isize; /* ... and its length, mod 2^32 */
   /* What the current deflate body has taken in and given out, whole,
@@ -434,22 +439,35 @@ static int gzip_step (struct stream *s, const unsigned char *p, size_t n,
   size_t i = 0;
   for (;;) {
     switch (f->gstate) {
-      case GZ_FIXED:
-      if (!gzip_collect(f, p, n, &i, 10)) goto starved;
-      if (f->field[2] != 8) {
-        *err = "unsupported gzip compression method";
-        return STEP_ERROR;
+      case GZ_FIXED: {
+        size_t from = i;
+        bool whole = gzip_collect(f, p, n, &i, 10);
+        f->hcrc = lzma_crc32(p + from, i - from, f->hcrc);
+        if (!whole) goto starved;
+        if (f->field[2] != 8) {
+          *err = "unsupported gzip compression method";
+          return STEP_ERROR;
+        }
+        if (f->field[3] & GZ_FRESERVED) {
+          *err = "gzip header sets reserved flags";
+          return STEP_ERROR;
+        }
+        f->flg = f->field[3];
+        gzip_next(f);
+        break;
       }
-      f->flg = f->field[3];
-      gzip_next(f);
-      break;
-      case GZ_XLEN:
-      if (!gzip_collect(f, p, n, &i, 2)) goto starved;
-      f->extra_remaining = (size_t)f->field[0] | ((size_t)f->field[1] << 8);
-      f->gstate = GZ_EXTRA;
-      break;
+      case GZ_XLEN: {
+        size_t from = i;
+        bool whole = gzip_collect(f, p, n, &i, 2);
+        f->hcrc = lzma_crc32(p + from, i - from, f->hcrc);
+        if (!whole) goto starved;
+        f->extra_remaining = (size_t)f->field[0] | ((size_t)f->field[1] << 8);
+        f->gstate = GZ_EXTRA;
+        break;
+      }
       case GZ_EXTRA: {
         size_t take = n - i < f->extra_remaining ? n - i : f->extra_remaining;
+        f->hcrc = lzma_crc32(p + i, take, f->hcrc);
         i += take;
         f->extra_remaining -= take;
         if (f->extra_remaining > 0) goto starved;
@@ -460,17 +478,20 @@ static int gzip_step (struct stream *s, const unsigned char *p, size_t n,
       case GZ_NAME:
       case GZ_COMMENT: {
         const unsigned char *nul = i < n ? memchr(p + i, 0, n - i) : NULL;
-        if (nul == NULL) {
-          i = n;
-          goto starved;
-        }
-        i = (size_t)(nul - p) + 1;
+        size_t end = nul == NULL ? n : (size_t)(nul - p) + 1;
+        f->hcrc = lzma_crc32(p + i, end - i, f->hcrc);
+        i = end;
+        if (nul == NULL) goto starved;
         f->flg &= f->gstate == GZ_NAME ? ~GZ_FNAME : ~GZ_FCOMMENT;
         gzip_next(f);
         break;
       }
       case GZ_HCRC:
       if (!gzip_collect(f, p, n, &i, 2)) goto starved;
+      if (((uint32_t)f->field[0] | (uint32_t)f->field[1] << 8) != (f->hcrc & 0xffffu)) {
+        *err = "gzip header CRC mismatch";
+        return STEP_ERROR;
+      }
       f->flg &= ~GZ_FHCRC;
       gzip_next(f);
       break;
@@ -601,7 +622,7 @@ static void zstd_free (void *opaque, void *block) {
 
 static const ZSTD_customMem zstd_memory = {zstd_alloc, zstd_free, NULL};
 
-/* liblzma's allocator for the encoder: the core's own, as zstd's above.
+/* liblzma's allocator, both directions: the core's own, as zstd's above.
  * liblzma asks for `nmemb` items of `size` bytes and zeroes them itself
  * where it needs zeros. */
 /* The shim has no calloc, so liblzma's lzma_alloc_zero memsets the hash
@@ -618,6 +639,18 @@ static void xz_free (void *opaque, void *block) {
 }
 
 static const lzma_allocator xz_memory = {xz_alloc, xz_free, NULL};
+
+/* bzip2's allocator: the core's own, as zstd's above. */
+static void *bz2_alloc (void *opaque, int items, int size) {
+  (void)opaque;
+  if (items < 0 || size < 0) return NULL;
+  return cosmic_malloc((size_t)items * (size_t)size);
+}
+
+static void bz2_free (void *opaque, void *block) {
+  (void)opaque;
+  cosmic_free(block);
+}
 
 /* What a zstd failure says, for one of the decoder's codes. */
 static const char *zstd_why (size_t rc) {
@@ -749,12 +782,16 @@ static int start_member (struct stream *s, const char **err) {
   if (s->op == OP_INFLATE) {
     s->inf->gstate = GZ_FIXED;
     s->inf->field_have = 0;
+    s->inf->hcrc = 0;
     return 0;
   }
   if (s->op == OP_BZ2) {
     memset(&s->u.bz, 0, sizeof s->u.bz);
-    if (BZ2_bzDecompressInit(&s->u.bz, 0, 0) != BZ_OK) {
-      *err = "cannot start the bzip2 decoder";
+    s->u.bz.bzalloc = bz2_alloc;
+    s->u.bz.bzfree = bz2_free;
+    int rc = BZ2_bzDecompressInit(&s->u.bz, 0, 0);
+    if (rc != BZ_OK) {
+      *err = rc == BZ_MEM_ERROR ? "out of memory" : "cannot start the bzip2 decoder";
       return -1;
     }
     s->codec_open = 1;
@@ -768,7 +805,10 @@ static int start_member (struct stream *s, const char **err) {
    * what follows the last stream are this file's to judge, the same
    * way gzip and bzip2 members are. Re-initializing a live decoder
    * reuses its memory. */
-  if (!s->codec_open) s->u.lzma = (lzma_stream)LZMA_STREAM_INIT;
+  if (!s->codec_open) {
+    s->u.lzma = (lzma_stream)LZMA_STREAM_INIT;
+    s->u.lzma.allocator = &xz_memory;
+  }
   lzma_ret rc = lzma_stream_decoder(&s->u.lzma, s->memlimit, 0);
   if (rc != LZMA_OK) {
     *err = rc == LZMA_MEM_ERROR ? "out of memory"
@@ -1011,18 +1051,6 @@ static int zstd_decoder (lua_State *L) {
   (void)ZSTD_DCtx_setParameter(s->zd, ZSTD_d_windowLogMax,
                                window_log(max_window));
   return cosmic_succeeded(L);
-}
-
-/* bzip2's allocator: the core's own, as for zstd above. */
-static void *bz2_alloc (void *opaque, int items, int size) {
-  (void)opaque;
-  if (items < 0 || size < 0) return NULL;
-  return cosmic_malloc((size_t)items * (size_t)size);
-}
-
-static void bz2_free (void *opaque, void *block) {
-  (void)opaque;
-  cosmic_free(block);
 }
 
 static int bz2_encoder (lua_State *L) {

@@ -45,6 +45,7 @@ build/vendor.tl
 build/verify_codesign.tl
 build/zig.tl
 build/zig_fetch.tl
+eval/agent.tl
 eval/arena.tl
 eval/check/grade.tl
 eval/result.tl

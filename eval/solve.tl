@@ -297,7 +297,7 @@ function Solve.main(argv: {string}): integer
   end
   local claude, ctrouble = Proc.find("claude")
   if claude == nil then
-    complain("claude: " .. ctrouble)
+    complain("claude: " .. tostring(ctrouble))
     return 2
   end
   local resolved, rtrouble = Fs.absolute(claude)

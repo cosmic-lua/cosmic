@@ -177,6 +177,28 @@ local function test_help_refuses_its_line_ending_in_its_usage(tmp: string)
   end
 end
 
+--- `fetch` and `bom` take their modes as subcommands: help reaches each, a word no subcommand names is the
+--- default's, and a refusal ends in the subcommand's own usage.
+local function test_fetch_and_bom_take_their_modes_as_subcommands(tmp: string)
+  local whole = verbs_fixture.run(tmp, { "help", "fetch" })
+  local asked = verbs_fixture.run(tmp, { "fetch", "https://example.com/", "--help" })
+  assert(asked.code == 0 and asked.stdout == whole.stdout and whole.stdout:find("\n  -o <file> ", 1, true) ~= nil, asked.stderr)
+  local get = verbs_fixture.run(tmp, { "help", "fetch", "get" })
+  assert(get.code == 0 and get.stdout:find("^usage: cosmic fetch <url") ~= nil, get.stdout)
+  local refusals: {{string}} = {
+    { "fetch", "head", "--bogus", "https://example.com/" }, { "fetch", "--json", "https://example.com/" },
+    { "bom", "zz" }, { "bom", "--licenses" }, { "bom", "list", "x" }, { "bom", "cyclonedx", "-o" },
+  }
+  local endings: {string} = { "usage: cosmic fetch head [--json] [options] <url>\n", "usage: cosmic fetch <url",
+    "usage: cosmic bom [list", "usage: cosmic bom [list", "usage: cosmic bom list\n", "usage: cosmic bom cyclonedx [options]\n" }
+  for slot, words in ipairs(refusals) do
+    local r = verbs_fixture.run(tmp, words)
+    local ending = assert(endings[slot])
+    assert(r.code == 2 and r.stderr:find("^cosmic: " .. assert(words[1]) .. ": ") ~= nil and r.stderr:find(ending, 1, true) ~= nil,
+      table.concat(words, " ") .. ": " .. r.stderr)
+  end
+end
+
 --- Bare `cosmic help` is an index, not the text of every verb.
 local function test_help_is_a_short_index_of_every_verb(tmp: string)
   local all = verbs_fixture.expect(tmp, "help", { "help" }, 0).stdout
@@ -203,7 +225,7 @@ local function test_help_is_a_short_index_of_every_verb(tmp: string)
   -- where a verb has no word of its own.
   for _, line in ipairs({ "\n  cosmic test [selector...]  ", "\n  cosmic <file.tl> [args]  ",
       "\n  cosmic --standalone [--check] <file.tl> [args]\n", "\n  cosmic -e '<chunk>' [args]  ",
-      "\n  cosmic --version  ", "\n  cosmic bom  " }) do
+      "\n  cosmic --version  ", "\n  cosmic bom [list | licenses | cyclonedx] ...\n" }) do
     assert(all:find(line, 1, true), line .. ":\n" .. all)
   end
   for _, pointer in ipairs({ "cosmic help <verb>", "cosmic help exit", "cosmic docs <module>",

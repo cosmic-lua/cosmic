@@ -162,7 +162,9 @@ local standard: verb.Io = {
   end,
   run = default_run,
   request = function(method: string, url: string, opts: Http.Options): Http.Body?, string
-    return Http.request(method, url, opts)
+    local body, why = Http.request(method, url, opts)
+    if body == nil then return nil, tostring(why) end
+    return body, ""
   end,
 }
 

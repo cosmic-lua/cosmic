@@ -1119,9 +1119,9 @@ return function(): integer
   local records = hello .. certificate
   local flight = "\22\3\3" .. string.pack(">I2", #records) .. records
   local roots, why = Http.default_roots()
-  print(roots or why)
+  print(roots or tostring(why))
   local _, refused = Http.open("https://cosmic.test/", { timeout_ns = 60000000000, script = { flight } })
-  print((refused:gsub("\n", " ")))
+  print((tostring(refused):gsub("\n", " ")))
   return 0
 end
 ]]
@@ -1199,7 +1199,7 @@ end
 --- artifact holds only its compressed frame: the cached raw core the start
 --- runs from, checked against the manifest's digest.
 local function test_trusted_core_is_the_cached_raw_core_of_a_compressed_start()
-  local relaunch = Proc.relaunch()
+  local relaunch, _ = Proc.relaunch()
   if relaunch == nil then
     Test.skip("a native start has no cached core to read")
     return

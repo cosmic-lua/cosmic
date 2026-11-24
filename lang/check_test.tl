@@ -2100,6 +2100,32 @@ local function test_a_read_at_the_index_of_a_loop_over_the_length_of_the_array_i
       "total = sum()\n") == "")
 end
 
+--- `math.min` answers the least of its arguments, so a limit of `math.min(n, #t)` is at most `#t`.
+local function test_a_read_at_the_index_of_a_loop_to_the_least_of_a_number_and_the_length_is_not_optional()
+  assert(counted("for i = 1, math.min(2, #xs) do\n  total = total + xs[i]\nend\n") == "")
+  assert(counted("for i = 1, math.min(#xs, total, 5) do\n  total = total + xs[i]\nend\n") == "")
+  assert(counted("for i = 1, math.min(h.items[1] or 0, #xs) do\n  total = total + xs[i]\nend\n") == "")
+  assert(counted("for i = 2, math.min(total, #xs - 1) do\n  total = xs[i - 1] + xs[i + 1]\nend\n") == "")
+  assert(counted("for i = 1, math.min(3, #xs) do\n  xs[i] = 0\nend\n") == "")
+  assert(counted("for i = 1, math.min(#xs, 2.5) do\n  total = total + xs[i]\nend\n") == "")
+end
+
+--- A `math.min` holds its limit at the length only where nothing else it reads can change the array first.
+local function test_a_read_at_the_index_of_a_loop_to_the_least_of_values_stays_optional_where_another_runs_code()
+  local function stays(loop: string)
+    local got = counted(loop)
+    assert(got == "index_may_be_nil", got .. " in\n" .. loop)
+  end
+  stays("for i = 1, math.min(#xs, other(xs)) do\n  total = xs[i]\nend\n")
+  stays("for i = 1, math.min(5, #ys) do\n  total = xs[i]\nend\n")
+  stays("for i = 1, math.max(2, #xs) do\n  total = xs[i]\nend\n")
+  stays("for i = 1, math.min(2, #xs) - 1 do\n  total = xs[i + 1]\nend\n")
+  stays("for i = 1, math.min(2, #xs) do\n  table.remove(xs)\n  total = xs[i]\nend\n")
+  -- what proves less, kept so that a change is deliberate: a nested `math.min`, a call before the length
+  stays("for i = 1, math.min(math.min(#xs, 2), 3) do\n  total = xs[i]\nend\n")
+  stays("for i = 1, math.min(other(xs), #xs) do\n  total = xs[i]\nend\n")
+end
+
 local function test_a_read_at_the_index_of_a_counted_loop_stays_optional_where_the_loop_is_not_the_proof()
   -- `also` is the other code the program has, which does not change the verdict on the read
   local function stays(loop: string, also?: string)

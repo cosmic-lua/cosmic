@@ -258,7 +258,8 @@ local record Fill
   var: integer
   --- The local `t`, as the loop writes it.
   object: Ast.Exp
-  --- Whether the loop steps by 1 (no step, or a literal 1), so that it reaches each key from its start to `#t`.
+  --- Whether the loop steps by 1 (no step, or a literal 1). It need not reach `#t`: a limit of `math.min(n, #t)` stops
+  --- short of it.
   unit: boolean
 end
 
@@ -8066,7 +8067,8 @@ end
 --- a class declare only `__close`, `__tostring` (both reached by the forms above), `__lt`, `__le` and `__gc` (which the VM
 --- runs only at a call that is not inert, or of `collectgarbage`, patch/lua/19-finalizers-at-calls-gc.txt), `setmetatable_call`
 --- refuses `setmetatable`, and `operand_type` refuses any other operator on a record or a class. The loop rule must be
---- revisited if any of the three is relaxed; lang/check_test.tl pins them beside the loop tests.
+--- revisited if any of the three is relaxed; lang/check_test.tl pins them beside the loop tests. [`Writes.length_limit`]
+--- also relies on `math.min` taking only `Numeric` values (lang/stdlib.d.tl), so that its comparisons call no `__lt`.
 function Writes.scalar_math(call: Ast.Call, var: integer): boolean
   local callee = call.callee
   if not ((callee.kind == "Field") and (callee.object.kind == "Name") and callee.object.binding == nil and callee.object.text == "math") then
@@ -8165,13 +8167,66 @@ function Writes.keeps_length(body: Ast.Node, array: integer, var: integer): bool
   return #marks == 0
 end
 
---- What the numeric loop `s` knows of its index, if it counts the keys of an array: `for i = 1, #t do`, from a literal
+--- The local `t` whose length the limit `to` of a numeric loop with the index `var` is at most, and the literal `b`
+--- it stops short of that length by: `#t`, `#t - b`, or a `math.min` of such a one and other values that run no code
+--- of the program ([`Writes.keeps_length`] of each), so that nothing they run can change `t` between its length and the
+--- loop. `math.min` answers the least of its arguments, so the limit is at most `#t - b`. Nil for another form.
+function Writes.length_limit(to: Ast.Exp, var: integer): (Ast.Exp, integer) | (nil, integer)
+  local at = peel(to)
+  local slack = 0
+  if (at.kind == "Binary") and at.op == "-" then
+    local by = peel(at.right)
+    if not ((by.kind == "Integer") and by.value >= 0) then
+      return nil, 0
+    end
+    slack = by.value
+    at = peel(at.left)
+  end
+  if (at.kind == "Unary") and at.op == "#" then
+    local operand = peel(at.operand)
+    if (operand.kind == "Name") then
+      return operand, slack
+    end
+    return nil, 0
+  end
+  if not ((at.kind == "Call") and slack == 0) then
+    return nil, 0
+  end
+  local callee = peel(at.callee)
+  if not ((callee.kind == "Field") and callee.name == "min" and (callee.object.kind == "Name") and
+      callee.object.binding == nil and callee.object.text == "math") then
+    return nil, 0
+  end
+  local found: Ast.Exp? = nil
+  local inner = 0
+  local which = 0
+  for i, given in ipairs(at.args) do
+    if found == nil and peel(given).kind ~= "Call" then
+      local object, short = Writes.length_limit(given, var)
+      if object ~= nil then
+        found, inner, which = object, short, i
+      end
+    end
+  end
+  local held = if found ~= nil and (found.kind == "Name") then found.binding else nil end
+  if found == nil or held == nil then
+    return nil, 0
+  end
+  for i, given in ipairs(at.args) do
+    if i ~= which and not Writes.keeps_length(given, held, var) then
+      return nil, 0
+    end
+  end
+  return found, inner
+end
+
+--- What the numeric loop `s` knows of its index, if it counts the keys of an array: `for i = 1, #t do` (or a limit
+--- [`Writes.length_limit`] holds at most `#t`, such as `math.min(n, #t)`), from a literal
 --- of 1 or more by a literal step of 1 or more, over a local `t` that the body does not assign, append to, shorten or
 --- pass to a call, and whose index nothing assigns. `t` has at least as many elements at each pass as it had when the
 --- loop began, so `i` is a key it has.
 function Writes.fill_of(s: Ast.ForNum): Fill?
   local from = peel(s.from)
-  local to = peel(s.to)
   local step = s.step
   if not ((from.kind == "Integer") and from.value >= 1) then
     return nil
@@ -8181,11 +8236,8 @@ function Writes.fill_of(s: Ast.ForNum): Fill?
       return nil
     end
   end
-  if not ((to.kind == "Unary") and to.op == "#") then
-    return nil
-  end
-  local object = peel(to.operand)
-  if not (object.kind == "Name") then
+  local object, slack = Writes.length_limit(s.to, s.var.id)
+  if object == nil or slack ~= 0 or not (object.kind == "Name") then
     return nil
   end
   local held = object.binding
@@ -8295,8 +8347,8 @@ function Writes.ranges_of(cond: Ast.Exp, body: Ast.Block): {Fill}
 end
 
 --- What the numeric loop `s` knows of the keys around its index, if it counts keys of an array by 1: `for i = a, #t do`
---- or `for i = a, #t - b do`, from a literal `a` of 1 or more to the length of a local `t` less a literal `b` of 0 or
---- more, with no step or a literal step of 1, where [`Writes.keeps_length`] says the body cannot shorten `t`, assign `t`
+--- or `for i = a, #t - b do`, or a limit of `math.min(n, #t - b)` ([`Writes.length_limit`]), from a literal `a` of 1
+--- or more to at most the length of a local `t` less a literal `b` of 0 or more, with no step or a literal step of 1, where [`Writes.keeps_length`] says the body cannot shorten `t`, assign `t`
 --- or assign `i`. The limit is computed once, before the first pass, so `a <= i <= #t - b` for the length `t` had then,
 --- and `t` has at least as many elements at each pass.
 function Writes.span_of(s: Ast.ForNum): Span?
@@ -8310,21 +8362,8 @@ function Writes.span_of(s: Ast.ForNum): Span?
       return nil
     end
   end
-  local to = peel(s.to)
-  local slack = 0
-  if (to.kind == "Binary") and to.op == "-" then
-    local by = peel(to.right)
-    if not ((by.kind == "Integer") and by.value >= 0) then
-      return nil
-    end
-    slack = by.value
-    to = peel(to.left)
-  end
-  if not ((to.kind == "Unary") and to.op == "#") then
-    return nil
-  end
-  local object = peel(to.operand)
-  if not (object.kind == "Name") then
+  local object, slack = Writes.length_limit(s.to, s.var.id)
+  if object == nil or not (object.kind == "Name") then
     return nil
   end
   local held = object.binding

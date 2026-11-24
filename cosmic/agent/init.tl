@@ -20,12 +20,15 @@
 --- ([`Agent.Event`], [`cosmic.agent.show`]).
 ---
 --- `before` and `after` are the agent's own policy over each tool call
---- the model makes: `before` may block a call, with a reason the model
---- reads, and `after` may change a result before it is kept
+--- the model makes, and each call a snippet of run makes of the agent
+--- (sql, store, mcp): `before` may block a call, with a reason the model
+--- reads (or the snippet, raised), and `after` may change a result
+--- before it is kept or read
 --- ([`Agent.Before`], [`Agent.After`], [`cosmic.agent.check`]). They are
 --- one layer, over what a call means to do: the sandbox holds what the
---- code that runs can do, and what a snippet of run calls through its
---- host (sql, MCP) is not asked of them yet.
+--- code that runs can do, and what a snippet does with no call of the
+--- agent (its Host helpers, fetch through the relay) only the sandbox
+--- sees.
 ---
 ---     agent.tools = Tools.only(Tools.all(), { "read", "edit" })
 ---     agent.before = Check.all({ Check.paths({ grants = { { path = cwd, letters = "rwc" } } }), Check.budget({ edit = 20 }) })
@@ -205,29 +208,34 @@ local record Agent
     request: Sessions.Request
   end
 
+  --- Who made a [`Agent.Call`]: the model, or a snippet's code, through
+  --- its host: sql, store or mcp, each asked as a call of its own.
+  enum Caller "model" "code" end
+
   --- The kind of a [`Agent.BlockedEvent`].
   enum BlockedKind "blocked" end
 
-  --- The agent's `before` blocked a call of the tool `name`, for `reason`;
-  --- the model reads the reason as the call's result.
+  --- The agent's `before` blocked a call `name`, for `reason`: a tool
+  --- call of the model, which reads the reason as its result, or a
+  --- snippet's call of the agent, which raises it in the snippet.
   record BlockedEvent
     --- "blocked".
     kind: BlockedKind
-    --- The tool's name.
+    --- The call's name ([`Agent.Call`]'s).
     name: string
-    --- What the model gave it.
+    --- Who made it.
+    caller: Caller
+    --- What it was given.
     input: Tools.Object
     --- Why: what `before` said, or what it raised.
     reason: string
   end
 
-  --- Who made a [`Agent.Call`]: the model, or a snippet's code (which
-  --- no call is yet: a snippet's host calls are not asked of the hooks).
-  enum Caller "model" "code" end
-
-  --- A call of a tool, as `before` and `after` see it.
+  --- A call, as `before` and `after` see it: a tool call of the model,
+  --- or a snippet's call of the agent.
   record Call
-    --- The tool's name.
+    --- The tool's name, or the snippet's call's: sql, store.get,
+    --- store.put, mcp.servers, mcp.tools or mcp.call.
     name: string
     --- What it was given, as the tool gets it: read it, and change none of it.
     input: Tools.Object
@@ -244,19 +252,31 @@ local record Agent
     stopped: function(): boolean
   end
 
-  --- What runs before each tool call the model makes: nil lets it run, a
-  --- string blocks it, and the model reads that string as the reason. A
-  --- hook that raises blocks the call, with the error as the reason, so a
-  --- bug fails closed; so does a tool's `paths` that raises. A call of a
-  --- tool the agent does not offer is not asked: it is answered as not
-  --- found. cosmic.agent.check makes the common ones.
+  --- What runs before each tool call the model makes, and each call a
+  --- snippet makes of the agent: nil lets it run, a string blocks it,
+  --- and the model reads that string as the reason. A hook that raises
+  --- blocks the call, with the error as the reason, so a bug fails
+  --- closed; so does a tool's `paths` that raises. A call of a tool the
+  --- agent does not offer is not asked: it is answered as not found.
+  --- cosmic.agent.check makes the common ones.
+  ---
+  --- A snippet's call has `caller` "code", its name the call's, its
+  --- input the arguments the snippet sent, unchecked, and no paths
+  --- ([`Tools.Context`] `guard` lists them); a blocked one raises
+  --- "Blocked: <reason>" in the snippet, which the model reads only as
+  --- the snippet passes it on. Such calls may come at once, from a
+  --- snippet's tasks, and while its time runs.
   type Before = function(call: Call): string?
 
   --- What runs after each call that ran, before its result is kept and
-  --- the model reads it: nil keeps the result, a result takes its place
+  --- the model reads it, or a snippet reads it (where nothing is kept):
+  --- nil keeps the result, a result takes its place
   --- (to redact a secret, or cut it short). What is kept is `raw` where
   --- it is set, else `text`: redact both, or give a result with no `raw`.
-  --- A hook that raises makes the result an error that says so. What a
+  --- A snippet's call gives its answer as JSON text, escaped as JSON is,
+  --- or its failure as an error result; the text it is given back is
+  --- read as JSON where it is JSON. A hook that raises makes the result
+  --- an error that says so. What a
   --- background job of bash wrote is kept as it is, when the job ends
   --- unread (`close`): it is not asked.
   type After = function(call: Call, result: Tools.Result): Tools.Result?
@@ -640,7 +660,7 @@ end
 --- Opens a request with Http.open.
 local function open(url: string, opts: Http.Options): Agent.Reply?, string
   local res, why = Http.open(url, opts)
-  if res == nil then return nil, why end
+  if res == nil then return nil, tostring(why) end
   return {
     status = res.status, headers = res.headers,
     read = function(): string?, string return res:read() end,
@@ -862,11 +882,27 @@ local function loop(s: Agent.Session): boolean, string
           if reason == nil and tool ~= nil then reason = blocked(s, asked_call) end
           if reason ~= nil then
             result = { text = "Blocked: " .. reason, is_error = true }
-            tell(s, { kind = "blocked", name = called, input = given, reason = reason })
+            tell(s, { kind = "blocked", name = called, caller = "model", input = given, reason = reason })
           else
             local context: Tools.Context = { cwd = s.cwd, db = s.db, session = s.id,
               policy = s.sandbox, jobs = s.jobs, worker = s.worker,
-              mcp = s.mcp, stopped = asking, tools = s.tools }
+              mcp = s.mcp, stopped = asking, tools = s.tools,
+              commands = Tools.find(s.tools, "bash") ~= nil,
+              guard = if s.before == nil then nil else function(host: string, args: Tools.Object): string?
+                local by_code: Agent.Call = { name = host, input = args, caller = "code", cwd = s.cwd, id = s.id,
+                  paths = {}, stopped = asking }
+                local why_not = blocked(s, by_code)
+                if why_not ~= nil then
+                  tell(s, { kind = "blocked", name = host, caller = "code", input = args, reason = why_not })
+                end
+                return why_not
+              end end,
+              amend = if s.after == nil then nil else function(host: string, args: Tools.Object,
+                                                               answered: Tools.Result): Tools.Result
+                local by_code: Agent.Call = { name = host, input = args, caller = "code", cwd = s.cwd, id = s.id,
+                  paths = {}, stopped = asking }
+                return afterward(s, by_code, answered)
+              end end }
             result = Tools.dispatch(s.tools, called, given, context)
             if tool ~= nil then result = afterward(s, asked_call, result) end
           end

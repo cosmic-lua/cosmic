@@ -50,8 +50,8 @@ end
 
 local spec = assert(Verb.spec)
 
-local usage = "cosmic mcp <discover|tools|resources|templates|prompts|call <tool> [json]|read <uri>|" ..
-  "prompt <name> [json]> [--url URL [--token-env NAME]] [--timeout seconds] [-- program args...]"
+--- The usage line a refusal ends with: the spec's ([`Flags.usage`]).
+local usage <const> = Flags.usage(Verb, "cosmic mcp")
 
 --- How many words each action takes after its name: the least and the most.
 local ACTIONS <const>: {string: {integer}} = {

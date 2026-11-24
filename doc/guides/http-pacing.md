@@ -38,6 +38,7 @@ the waits happened.
 
 ```teal
 local Clock = require("cosmic.clock")
+local Failure = require("cosmic.failure")
 local Http = require("cosmic.http")
 local Signal = require("cosmic.signal")
 local sys = require("cosmic.sys")
@@ -47,18 +48,18 @@ local backoff_ns = Clock.ms(50)
 local api = Http.pacer(interval_ns)
 
 -- `script` is for tests alone: a real call leaves it nil.
-local function fetch(id: integer, script: {string}?): Http.Body?, string
+local function fetch(id: integer, script: {string}?): (Http.Body) | (nil, Failure)
   return Http.get("http://api.test/items/" .. tostring(id), { timeout_ns = Clock.seconds(30),
     pace = api, retry = { attempts = 3, backoff_ns = backoff_ns }, script = script,
   })
 end
 
 local function crawl(ids: {integer},
-    get: function(integer): Http.Body?, string): {string}, string
+    get: function(integer): (Http.Body) | (nil, Failure)): {string}, string
   local bodies: mut {string} = {}
   for _, id in ipairs(ids) do
     local got, trouble = get(id)
-    if got == nil then return bodies, trouble end
+    if got == nil then return bodies, tostring(trouble) end
     bodies[#bodies + 1] = got.body
   end
   return bodies, ""
@@ -75,7 +76,7 @@ local canned: mut {integer: {string}} = {
   [2] = { reply("429 Too Many Requests", "", "slow down"), reply("200 OK", "", "two") },
   [3] = { reply("200 OK", "", "three") },
 }
-local function get_canned(id: integer): Http.Body?, string return fetch(id, canned[id]) end
+local function get_canned(id: integer): (Http.Body) | (nil, Failure) return fetch(id, canned[id]) end
 
 local began = Clock.monotonic_ns()
 local items = assert(crawl({ 1, 2, 3 }, get_canned))
@@ -106,7 +107,7 @@ https to http itself.
 local Url = require("cosmic.url")
 
 local function get_paced(url: string, pacer: Http.Pacer, limit: integer,
-    script_for: function(integer): {string}?): Http.Body?, string
+    script_for: function(integer): {string}?): (Http.Body) | (nil, Failure)
   local here = url
   for hop = 0, limit do
     local got, trouble = Http.get(here, { timeout_ns = Clock.seconds(30),
@@ -117,15 +118,15 @@ local function get_paced(url: string, pacer: Http.Pacer, limit: integer,
     local location = got.headers["location"]
     if (s ~= 301 and s ~= 302 and s ~= 303 and s ~= 307 and s ~= 308)
         or location == nil or location == "" then
-      return got, ""
+      return got
     end
     local next_url = Url.resolve(here, location)
     if here:find("^https:") and next_url:find("^http:") then
-      return nil, "redirect from https to http refused"
+      return nil, Failure.new("redirect from https to http refused")
     end
     here = next_url
   end
-  return nil, "too many redirects"
+  return nil, Failure.new("too many redirects")
 end
 
 -- The canned replies: a chain of two hops, then the item.
@@ -144,8 +145,9 @@ local chain_took = Clock.monotonic_ns() - chain_began
 -- the first. The upper bound is loose, for a slow host.
 assert(chain_took >= 2 * hop_ns)
 assert(chain_took < 2 * hop_ns + Clock.seconds(2))
-assert(not get_paced("http://api.test/old", hop_pacer, 1,
-  function(hop: integer): {string}? return chain[hop + 1] end))
+local stopped_short, _ = get_paced("http://api.test/old", hop_pacer, 1,
+  function(hop: integer): {string}? return chain[hop + 1] end)
+assert(stopped_short == nil)
 print(landed.status, landed.body)
 ```
 
@@ -193,12 +195,12 @@ local function refused(id: integer, got: Http.Body): string?
     got.headers["retry-after"] or "?")
 end
 
-local function crawl_politely(ids: {integer}, get: function(integer): Http.Body?, string
+local function crawl_politely(ids: {integer}, get: function(integer): (Http.Body) | (nil, Failure)
     ): {string}, string
   local bodies: mut {string} = {}
   for _, id in ipairs(ids) do
     local got, trouble = get(id)
-    if got == nil then return bodies, trouble end
+    if got == nil then return bodies, tostring(trouble) end
     local why = refused(id, got)
     if why ~= nil then return bodies, why end
     bodies[#bodies + 1] = got.body
@@ -286,13 +288,13 @@ local function wait(ns: integer, stopped: function(): boolean): boolean
   return ns <= 0 or not stopped()
 end
 
-local function crawl_slowly(ids: {integer}, get: function(integer): Http.Body?, string,
+local function crawl_slowly(ids: {integer}, get: function(integer): (Http.Body) | (nil, Failure),
     second_ns: integer, stopped: function(): boolean, each: function(integer)): {string}, string
   local bodies: mut {string} = {}
   for i, id in ipairs(ids) do
     if stopped() then return bodies, "interrupted" end
     local got, trouble = get(id)
-    if got == nil then return bodies, trouble end
+    if got == nil then return bodies, tostring(trouble) end
     local why = refused(id, got)
     if why ~= nil then return bodies, why end
     bodies[#bodies + 1] = got.body
@@ -332,7 +334,7 @@ every way out of the block. These examples close it by hand:
 local function fetch_all(ids: {integer}): {string}, string
   local guard = assert(Signal.guard())
   local bodies, why = crawl_slowly(ids,
-    function(id: integer): Http.Body?, string return fetch(id, nil) end,
+    function(id: integer): (Http.Body) | (nil, Failure) return fetch(id, nil) end,
     one_second, function(): boolean return guard:cancelled() ~= 0 end, nothing)
   assert(guard:close())
   return bodies, why
@@ -346,8 +348,8 @@ it would have, after the loop has had its say.
 While the innermost guard has caught a signal during a wait of `retry`
 or `pace`, the wait ends and the call fails with "interrupted", and so
 does an open still waiting for its response. The failure is the loop's
-cue to stop and report: the same `nil` and why as any other, told apart
-by the word.
+cue to stop and report: the same `nil` and failure as any other, told apart
+by its kind, "cancelled".
 
 A signal caught before the call is another matter. A wait that begins
 after it does not end on it. What does refuse is the open, if nothing has
@@ -396,7 +398,7 @@ print(none == nil, interrupted)
 
 ## what is not retried
 
-`retry` sends the request again after a 429 or 503. A request that fails (`nil` and why: a
+`retry` sends the request again after a 429 or 503. A request that fails (`nil` and a failure: a
 refused or reset connection, a timeout, a reply that is not HTTP) is not
 retried, since the server may have acted on it, and sending it again is
 the caller's decision.
@@ -411,17 +413,17 @@ pacer spaces them too.
 ```teal continue
 -- Sends a request again when it fails with no response, `tries` in all, waiting
 -- `first_wait_ns` and then twice as long between them. Idempotent requests only.
-local function send_again(send: function(): Http.Body?, string, tries: integer,
-    first_wait_ns: integer, stopped: function(): boolean): Http.Body?, string
-  local trouble = ""
+local function send_again(send: function(): (Http.Body) | (nil, Failure), tries: integer,
+    first_wait_ns: integer, stopped: function(): boolean): (Http.Body) | (nil, Failure)
+  local trouble = Failure.new("no tries")
   local pause = first_wait_ns
   for try = 1, tries do
     local got, why = send()
-    if got ~= nil then return got, "" end
-    if why == "interrupted" then return nil, why end
+    if got ~= nil then return got end
+    if why.kind == "cancelled" then return nil, why end
     trouble = why
     if try < tries then
-      if not wait(pause, stopped) then return nil, "interrupted" end
+      if not wait(pause, stopped) then return nil, Failure.cancelled("interrupted") end
       pause = pause * 2
     end
   end
@@ -432,7 +434,7 @@ end
 --   function() return Http.get(url, { timeout_ns = Clock.seconds(30), pace = api, retry = { attempts = 3 } }) end
 local replies = { "not http\r\n\r\n", "not http\r\n\r\n", reply("200 OK", "", "one") }
 local tries_made = 0
-local function flaky(): Http.Body?, string
+local function flaky(): (Http.Body) | (nil, Failure)
   tries_made = tries_made + 1
   local script = { assert(replies[tries_made]) }
   return Http.get("http://api.test/items/1", { timeout_ns = Clock.seconds(30), pace = api, script = script })

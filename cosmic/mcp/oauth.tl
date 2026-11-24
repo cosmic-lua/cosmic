@@ -189,7 +189,7 @@ end
 local function fetch(url: string, timeout_ns: integer, what: string): (Fetched) | (nil, Failure)
   local got, why = Http.request("GET", url, { timeout_ns = timeout_ns, follow = false, max_bytes = MAX_DOC_BYTES,
     headers = { Accept = "application/json" } })
-  if got == nil then return nil, Failure.new("mcp: oauth: " .. what .. ": " .. why) end
+  if got == nil then return nil, Failure.new("mcp: oauth: " .. what .. ": " .. tostring(why)) end
   if got.status >= 400 and got.status < 500 then return { doc = nil } end
   if got.status ~= 200 then
     return nil, Failure.new("mcp: oauth: " .. what .. ": HTTP " .. tostring(got.status) .. " from " .. url)
@@ -465,7 +465,9 @@ local function token_request(server: Issuer, pairs_: {Url.Pair}, timeout_ns: int
   local got, why = Http.request("POST", server.token_endpoint, { timeout_ns = timeout_ns, follow = false,
     max_bytes = MAX_DOC_BYTES, body = Url.encode_query(pairs_),
     headers = { ["Content-Type"] = "application/x-www-form-urlencoded", Accept = "application/json" } })
-  if got == nil then return nil, Failure.new("mcp: oauth: the token endpoint: " .. why) end
+  if got == nil then
+    return nil, Failure.new("mcp: oauth: the token endpoint: " .. tostring(why))
+  end
   return got
 end
 

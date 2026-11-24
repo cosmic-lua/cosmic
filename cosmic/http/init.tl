@@ -23,6 +23,14 @@
 --- and [`Http.download`] streams it straight to a file, verifying a
 --- checksum while it goes.
 ---
+--- A proxy that the environment names (`http_proxy`, `https_proxy`,
+--- `all_proxy`, `no_proxy`) is used as curl uses it, with one exception.
+--- A request to this machine (127/8, ::1, localhost and the names under
+--- it) skips a proxy that is not on this machine, so the request and a
+--- token in its headers do not leave the machine. With `follow`, the
+--- redirects after it go direct too. A proxy on loopback, such as a
+--- sandbox's relay, is kept.
+---
 --- To call a rate-limited API in a loop, with [`Http.Options.retry`] and
 --- [`Http.Options.pace`], see [the rate-limit guide](../../doc/guides/http-pacing.md).
 ---
@@ -713,12 +721,23 @@ local function counted(ns: integer?, unit: integer, most_ns: integer,
   return Clock.ceil(ns, unit)
 end
 
---- The roots a request that names none trusts, "minimal" or "mozilla",
---- and "": `COSMIC_CA_ROOTS` when it is set, else what `cosmic build
---- --roots` recorded in this executable, else "minimal". Nil and why
+--- The [`Failure`] for the words a request's failure gave: kind
+--- "timeout" for [`Poll.TIMEOUT`], "cancelled" for [`Poll.CANCELLED`] and
+--- for "interrupted" (a signal a [`Signal.guard`] caught), else "other".
+local function failure_of(why: string): Failure
+  if why == Poll.TIMEOUT then return Failure.timeout(why) end
+  if why == Poll.CANCELLED or why == "interrupted" then return Failure.cancelled(why) end
+  return Failure.new(why)
+end
+
+--- The roots a request that names none trusts, "minimal" or "mozilla":
+--- `COSMIC_CA_ROOTS` when it is set, else what `cosmic build --roots`
+--- recorded in this executable, else "minimal". Nil and a [`Failure`]
 --- when either names anything else.
-function Http.default_roots(): string?, string
-  return Trust.default_roots("http")
+function Http.default_roots(): (string) | (nil, Failure)
+  local roots, why = Trust.default_roots("http")
+  if roots == nil then return nil, Failure.new(why) end
+  return roots
 end
 
 --- `opts.pin` as curl takes it, `;` between pins, or nil for none.
@@ -1246,13 +1265,17 @@ end
 --- in through [`Url.escape`], a path segment or query value at a time.
 --- A space or control byte in the host or user info fails, naming
 --- the byte; a user name or password goes in through [`Url.escape`].
-function Http.open(url: string, opts: Http.Options): Response?, string
+--- A failure is nil and a [`Failure`]: of kind "cancelled" when a caught
+--- signal or `opts.cancelled` stopped it, "timeout" when the wait of a
+--- [`Poll`] task ran out ([`Poll.TIMEOUT`]), else "other". A transfer past `opts.timeout_ns` is
+--- "other" for now, its message curl's ("Operation timed out after ...").
+function Http.open(url: string, opts: Http.Options): (Response) | (nil, Failure)
   stated(opts)
   local response, trouble = opened(url, opts, nil)
   if response == nil then
-    return nil, trouble
+    return nil, failure_of(trouble)
   end
-  return response, ""
+  return response
 end
 
 --- Sends a GET for `url` and reads the whole body: [`Http.request`]
@@ -1262,7 +1285,7 @@ end
 --- `result.status`. An `opts.method` other than "GET", or an
 --- `opts.body`, raises, naming [`Http.request`], which sends any method
 --- and a body.
-function Http.get(url: string, opts: Http.Options): Http.Body?, string
+function Http.get(url: string, opts: Http.Options): (Http.Body) | (nil, Failure)
   stated(opts)
   local method = opts.method
   if method ~= nil and method ~= "GET" then
@@ -1275,9 +1298,11 @@ function Http.get(url: string, opts: Http.Options): Http.Body?, string
   local limit = body_limit(opts)
   local response, trouble = opened(url, opts, nil)
   if response == nil then
-    return nil, trouble
+    return nil, failure_of(trouble)
   end
-  return whole(response, limit, opts.decompress == true, "GET")
+  local body, why = whole(response, limit, opts.decompress == true, "GET")
+  if body == nil then return nil, failure_of(why) end
+  return body
 end
 
 --- Sends `method` to `url`, with `opts.body` when given, and reads the
@@ -1298,7 +1323,7 @@ end
 --- An empty `method`, an `opts.method` that differs from it, or an
 --- `opts.body` with "GET" or "HEAD" raises: the request would not be
 --- the one asked for.
-function Http.request(method: string, url: string, opts: Http.Options): Http.Body?, string
+function Http.request(method: string, url: string, opts: Http.Options): (Http.Body) | (nil, Failure)
   stated(opts)
   if method == nil or method == "" then -- checked: compare_disjoint
     error("http: Http.request's method is empty; name one, as \"GET\" or \"PUT\"", 2)
@@ -1316,9 +1341,11 @@ function Http.request(method: string, url: string, opts: Http.Options): Http.Bod
   local limit = body_limit(opts)
   local response, trouble = opened(url, opts, method)
   if response == nil then
-    return nil, trouble
+    return nil, failure_of(trouble)
   end
-  return whole(response, limit, opts.decompress == true, method)
+  local body, why = whole(response, limit, opts.decompress == true, method)
+  if body == nil then return nil, failure_of(why) end
+  return body
 end
 
 --- A Reader over a Response that fails with "interrupted" once
@@ -1452,7 +1479,7 @@ local function downloading(url: string, path: string,
   local _, _ = raw_options(opts)
   local response, open_trouble = Http.open(url, opts)
   pending.response = response
-  if response == nil then return { kind = "failed", reason = open_trouble } end
+  if response == nil then return { kind = "failed", reason = tostring(open_trouble) } end
   if response.status < 200 or response.status >= 300 then
     return { kind = "http_status", status = response.status, reason = "HTTP " .. tostring(response.status) }
   end
@@ -1511,47 +1538,56 @@ function Http.download_result(url: string, path: string, opts: Http.Options): Ht
 end
 
 --- Downloads as `curl -fLo` or `wget` would: [`Http.download_result`]'s
---- streaming, verified and atomic download as
---- `true, ""`, or `false` and a reason. An HTTP rejection's reason starts
---- with `url`; a checksum mismatch names `path`, the algorithm and both
---- digests. Other failures retain their underlying reason.
-function Http.download(url: string, path: string, opts: Http.Options): boolean, string
+--- streaming, verified and atomic download as `true`, or `false` and a
+--- [`Failure`]. An HTTP rejection is of kind "library", its `code` the
+--- status and its message `url: HTTP 404`; a checksum mismatch's path is
+--- `path` and its message names the algorithm and both digests. Other
+--- failures keep their words, of kind "cancelled" where a signal or
+--- `opts.cancelled` stopped it, as [`Http.open`] gives them.
+---
+--- TODO: drop [`Http.download_result`] once ci/cosmic-driver.pin names a
+--- release with this shape: ci/ and the bootstrap's files read its record
+--- on the pinned release too.
+function Http.download(url: string, path: string, opts: Http.Options): (true) | (false, Failure)
   stated(opts)
   local result = downloading(url, path, opts)
-  if result.kind == "downloaded" then return true, "" end
-  if result.kind == "http_status" then
-    return false, url .. ": HTTP " .. tostring(result.status)
+  if result.kind == "downloaded" then return true end
+  local status = result.status
+  if result.kind == "http_status" and status ~= nil then
+    return false, Failure.coded(url .. ": HTTP " .. tostring(status), status)
   end
   if result.kind == "digest_mismatch" then
-    return false, path .. ": " .. assert(result.algorithm) .. " mismatch: want " .. assert(result.expected) ..
-      ", got " .. assert(result.actual)
+    return false, Failure.new(assert(result.algorithm) .. " mismatch: want " .. assert(result.expected) ..
+        ", got " .. assert(result.actual), path)
   end
-  return false, result.reason
+  return false, failure_of(result.reason)
 end
 
 --- Whether the TLS stack reads `der` as one X.509 certificate, as it
---- reads each CA root this binary trusts: true and "", or false and its
---- reason. A certificate it cannot read is one it would never trust, so
---- a set of roots is worth checking with this before a binary carries
---- it. Raises when there was no memory to read it.
-function Http.check_certificate(der: string): boolean, string
-  return http.check_certificate(der)
+--- reads each CA root this binary trusts: true, or false and a
+--- [`Failure`]. A certificate it cannot read is one it would never
+--- trust, so a set of roots is worth checking with this before a binary
+--- carries it. Raises when there was no memory to read it.
+function Http.check_certificate(der: string): (true) | (false, Failure)
+  local ok, why = http.check_certificate(der)
+  if not ok then return false, Failure.new(why) end
+  return true
 end
 
 --- The public key pin of `cert`, one certificate as PEM or DER, as
 --- `opts.pin` and curl's `--pinnedpubkey` take it: `sha256//` and the
---- base64 of the SHA-256 of its SubjectPublicKeyInfo, and "". Nil and
---- why when the TLS stack cannot read `cert` as exactly one
+--- base64 of the SHA-256 of its SubjectPublicKeyInfo. Nil and a
+--- [`Failure`] when the TLS stack cannot read `cert` as exactly one
 --- certificate. Raises when there was no memory to read it.
 ---
 ---     local pin = assert(Http.public_key_pin(assert(Fs.read("server.pem"))))
 ---     local got = assert(Http.get("https://internal.example/", { timeout_ns = Clock.seconds(30), pin = pin }))
-function Http.public_key_pin(cert: string): string?, string
+function Http.public_key_pin(cert: string): (string) | (nil, Failure)
   local spki, why = http.public_key(cert)
   if spki == nil then
-    return nil, why
+    return nil, Failure.new(why)
   end
-  return "sha256//" .. Codec.base64(Hash.sha256(spki)), ""
+  return "sha256//" .. Codec.base64(Hash.sha256(spki))
 end
 
 return Http

@@ -13,7 +13,7 @@ local Test = require("cosmic.test")
 Test.policy{ store_text = true }
 
 local function test_a_sealed_database_holds_the_places_of_the_closure_s_modules()
-  local relaunch = Proc.relaunch()
+  local relaunch, _ = Proc.relaunch()
   if relaunch == nil or relaunch.argv[2] ~= "--database" then
     Test.skip("this worker does not run on a sealed database")
   end

@@ -1,5 +1,5 @@
---- `cosmic fetch <url[#sha256=hex]> [-o file] [--sha256 hex] [--sha512 hex] [--allow-downgrade] [--head [--json]]
---- [--roots set] [--cacert file] [--pin pin]`: makes one GET, like a small
+--- `cosmic fetch <url[#sha256=hex]> [-o file] [--sha256 hex] [--sha512 hex] [--allow-downgrade]
+--- [--roots set] [--cacert file] [--pin pin]`, or `cosmic fetch head [--json] <url> [...]`: makes one GET, like a small
 --- curl. GET is the only method, by design: for a header, a body or
 --- another method, write a script with [`cosmic.http`].
 ---
@@ -32,7 +32,7 @@
 --- - A status outside 2xx fails (exit 1, with the status on standard
 ---   error), as `curl -f` does. Nothing turns this off, so an error page
 ---   never reaches a pipe.
---- - `--head` prints `HTTP <status>` and the headers, with names
+--- - `fetch head` prints `HTTP <status>` and the headers, with names
 ---   lowercased and sorted. With `--json` it prints an object of `status`,
 ---   `url` and `headers`. It also fails on a status outside 2xx.
 --- - Redirects are followed, up to 10, as [`cosmic.http`] follows them.
@@ -65,26 +65,45 @@
 
 local Flags = require("cosmic.flags")
 
-local command: Flags.Command = {
-  about = "GET a URL, verifying what it keeps",
-  usage = "<url>",
-  examples = {
-    { line = "https://example.com/", about = "print the body" },
-    { line = "-o tool.tgz https://example.com/tool.tgz --sha256 2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae", about = "save it, if it has this digest" },
-  },
-  spec = {
-    ["-o"] = { value = "file", about = "write the body to file, renamed into place once complete and verified" },
-    ["--sha256"] = { value = "hex", about = "fail unless the body has this sha256; on stdout, buffer until verified" },
-    ["--sha512"] = { value = "hex", about = "fail unless the body has this sha512 (also checked with --sha256)" },
+--- `own` with the options both of `fetch`'s commands take: what to trust, and whether a downgrade is followed.
+local function fetch_spec(own: {string: boolean | Flags.Option}): {string: boolean | Flags.Option}
+  local spec: mut {string: boolean | Flags.Option} = {
     ["--allow-downgrade"] = { about = "follow a redirect from https to http, which is refused by default" },
-    ["--head"] = { about = "print the status and headers, not the body" },
-    ["--json"] = { about = "with --head, print them as a JSON object" },
     ["--roots"] = { value = "set", about = "trust these CA roots: minimal (the default), mozilla, none, " ..
         "or root sha256 digests joined by commas" },
     ["--cacert"] = { value = "file", about = "also trust the certificates in this PEM or DER file; " ..
         "with --roots none, only them" },
     ["--pin"] = { value = "pin", about = "fail unless the server's key hashes to this sha256//<base64>; " ..
         "repeat for more than one" },
+  }
+  for name, option in pairs(own) do spec[name] = option end
+  return spec
+end
+
+local command: Flags.Command = {
+  about = "GET a URL, verifying what it keeps",
+  usage = "[head] <url>",
+  examples = {
+    { line = "https://example.com/", about = "print the body" },
+    { line = "-o tool.tgz https://example.com/tool.tgz --sha256 2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae", about = "save it, if it has this digest" },
+    { line = "head --json https://example.com/", about = "its status and headers, as JSON" },
+  },
+  subcommands = {
+    get = {
+      typed = "",
+      about = "print the body, or save it",
+      usage = "<url[#sha256=<hex>]>",
+      spec = fetch_spec({
+        ["-o"] = { value = "file", about = "write the body to file, renamed into place once complete and verified" },
+        ["--sha256"] = { value = "hex", about = "fail unless the body has this sha256; on stdout, buffer until verified" },
+        ["--sha512"] = { value = "hex", about = "fail unless the body has this sha512 (also checked with --sha256)" },
+      }),
+    },
+    head = {
+      about = "print the status and headers, not the body",
+      usage = "[--json] [options] <url>",
+      spec = fetch_spec({ ["--json"] = { about = "print them as a JSON object" } }),
+    },
   },
 }
 

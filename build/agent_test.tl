@@ -23,8 +23,6 @@ Test.policy{
     { path = "/bin/sleep", letters = "r" }, { path = "/usr/bin/sleep", letters = "r" },
   },
   env = { "PATH", "TMPDIR" },
-  -- The prompt names the standard library's modules from its docs.
-  store_text = true,
 }
 
 local type Api = agent_fixture.Api
@@ -62,13 +60,16 @@ local function cli(argv: {string}, env: {string: string}, replies: {Json.Value},
   local err: mut {string} = {}
   local at = 0
   local full: mut {string} = { "agent" }
-  local named = false
+  local named, picked = false, false
   for _, word in ipairs(argv) do
     full[#full + 1] = word
     if word == "--sandbox" then named = true end
+    if word == "--tools" then picked = true end
   end
   local runs = { ask = true, chat = true, resume = true, rpc = true }
   if not named and runs[argv[1] or ""] == true then full[#full + 1] = "--sandbox=off" end
+  -- The scripted replies call every tool, bash among them, which the default leaves out.
+  if not picked and runs[argv[1] or ""] == true then full[#full + 1] = "--tools=all" end
   local code = agent.run(full, {
     out = function(line: string) out[#out + 1] = line end,
     err = function(line: string) err[#err + 1] = line end,
@@ -112,6 +113,13 @@ local function test_ask_and_chat()
   r = cli({ "ask", "x" }, KEYED, { { content = { { type = "tool_use", id = "t", name = "read",
     input = { path = "/no/such/file" } } }, stop_reason = "tool_use" }, text_reply("gone") })
   assert(r.code == 0 and r.err:find("read failed", 1, true) ~= nil, r.err)
+  -- --tools shows the model those tools alone, and a name no tool has is refused before any request.
+  r, a = cli({ "ask", "--tools", "run,read", "x" }, KEYED, { text_reply("ok") })
+  local body = assert(a.bodies[1])
+  assert(r.code == 0 and body:find('"name":"read"', 1, true) ~= nil and body:find('"name":"bash"', 1, true) == nil,
+    body)
+  r, a = cli({ "ask", "--tools", "nope", "x" }, KEYED, {})
+  assert(r.code ~= 0 and #a.sent == 0 and r.err:find("--tools: no tool nope", 1, true) ~= nil, r.err)
   r, a = cli({ "chat" }, KEYED, { text_reply("one"), "down", text_reply("three") },
     { "first", "", "second", "third", "/exit", "never" })
   assert(r.code == 0 and r.out == "one\nthree" and r.err:find("HTTP 500") ~= nil, r.out .. r.err)
@@ -257,11 +265,19 @@ local function test_the_command_line_is_refused_where_it_should_be()
   assert(model.err:find("chat: --model takes opus or sonnet, not haiku", 1, true) ~= nil, model.err)
   local p = cli({ "prompt" }, {}, {})
   assert(p.code == 0 and p.out:find("<cwd>", 1, true) ~= nil and p.out:find("cosmic agent", 1, true) ~= nil, p.out)
+  -- By default the model is shown no tool that runs a program.
+  assert(p.out:find("- run: ", 1, true) ~= nil and p.out:find("- bash: ", 1, true) == nil and
+      p.out:find("- jobs: ", 1, true) == nil, p.out)
+  local every = cli({ "prompt", "--tools", "all" }, {}, {})
+  assert(every.code == 0 and every.out:find("- bash: ", 1, true) ~= nil, every.out)
   local extra = cli({ "prompt", "x" }, {}, {})
   assert(extra.code == Flags.REFUSED and extra.err:find("prompt: takes no words; usage: cosmic agent prompt", 1, true) ~=
       nil, extra.err)
   local chat = cli({ "chat", "--json" }, KEYED, {})
   assert(chat.err:find("; usage: cosmic agent chat [options]", 1, true) ~= nil, chat.err)
+  local shown = cli({ "prompt", "--tools", "run,read" }, {}, {})
+  assert(shown.code == 0 and shown.out:find("- run: ", 1, true) ~= nil and shown.out:find("- bash: ", 1, true) == nil,
+    shown.out)
   -- The sessions database is the data directory's, its owner's alone.
   assert(cli({ "sessions" }, KEYED, {}).code == 0)
   assert(assert(Fs.stat(home .. "/.local/share/cosmic/agent/sessions.db")).mode & 0x1ff == 0x180)

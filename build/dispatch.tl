@@ -340,8 +340,11 @@ local function described_only(command: flags.Command): flags.Command
   if given ~= nil then
     for word, sub in pairs(given) do subcommands[word] = described_only(sub) end
   end
-  return { spec = command.spec, usage = command.usage, subcommands = if given ~= nil then subcommands else nil end,
-    run = function(_: flags.Parsed): integer return 0 end }
+  -- `typed` stays: a subcommand typed by no word (`fetch`'s `get`) is what a line naming none runs.
+  return { spec = command.spec, usage = command.usage, typed = command.typed,
+    subcommands = if given ~= nil then subcommands else nil end, run = function(_: flags.Parsed): integer
+      return 0
+    end }
 end
 
 --- Why Flags.dispatch refuses the line `own` of the verb `verb`, whose options `command` names, or "" where it
@@ -730,7 +733,7 @@ local function version(argv: {string}): integer
   end
   local path, path_trouble = Proc.executable()
   if path == nil then
-    log:complain("--version: " .. path_trouble)
+    log:complain("--version: " .. tostring(path_trouble))
     return 1
   end
   -- TODO: hash the artifact descriptor startup retained rather than
@@ -850,7 +853,8 @@ local function help(argv: {string}, asked: string?, asked_subs?: {string}): inte
         log:complain("help: " .. named .. " has no command " .. word .. meant(word, names) .. help_usage)
         return 2
       end
-      sub, named = found, named .. " " .. word
+      -- A subcommand typed by no word is called as its parent alone.
+      sub, named = found, if found.typed == "" then named else named .. " " .. word end
       local deeper = found.subcommands
       if deeper == nil and slot < #words then
         log:complain("help: " .. named .. " has no commands of its own, so not " .. assert(words[slot + 1]) .. help_usage)
@@ -1070,6 +1074,17 @@ function Dispatch.main(argv: {string}): integer
   local load_command = require("build.verb_list").commands[verb]
   local command = if chosen ~= nil and load_command ~= nil then load_command() else nil end
   local options = if chosen ~= nil and command ~= nil then command.spec or {} else {} end -- checked: literal_needs_type
+  -- A subcommand typed by no word (`fetch`'s `get`) runs for a line that names none, so its options are the verb's.
+  local default_sub: string? = nil
+  local listed_subs = if command ~= nil then command.subcommands else nil end
+  if listed_subs ~= nil then
+    for name, sub in pairs(listed_subs) do
+      if sub.typed == "" then
+        default_sub = name
+        if sub.spec ~= nil then options = sub.spec end
+      end
+    end
+  end
   -- The words of a program a verb runs are not the verb's to read.
   local own = argv
   if chosen ~= nil and chosen.program_slot ~= nil then
@@ -1090,15 +1105,18 @@ function Dispatch.main(argv: {string}): integer
     -- `cosmic <verb> --help` is `cosmic help <verb>`, and `cosmic <verb> <sub> --help` and
     -- `cosmic <verb> help <sub>` are `cosmic help <verb> <sub>`.
     local asked = verb
-    -- The words that name subcommands, down from the verb, and the first one that names none.
+    -- The words that name subcommands, down from the verb, and the first one that names none. A word no
+    -- subcommand is named by is a default subcommand's, where a level has one (`cosmic fetch <url> --help`).
     local asked_subs: mut {string} = {}
     local level = verb_subcommands
-    local slot = if asks_sub_help then 3 else 2 end
+    local first = if asks_sub_help then 3 else 2 end
+    local slot = first
     while level ~= nil do
       local typed = own[slot]
       if typed == nil or typed:sub(1, 1) == "-" then break end
-      asked_subs[#asked_subs + 1] = typed
       local found = level[typed]
+      if found == nil and slot == first and default_sub ~= nil then break end
+      asked_subs[#asked_subs + 1] = typed
       level = if found ~= nil then found.subcommands else nil end
       slot = slot + 1
     end

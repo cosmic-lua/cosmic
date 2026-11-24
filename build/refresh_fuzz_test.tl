@@ -73,7 +73,7 @@ local function test_a_bundle_parses_back_or_is_refused(tmp: string)
         -- an answer, never a raise.
         local readable, why = Http.check_certificate(one.der)
         Fuzz.label(if readable then "readable" else "unreadable" end)
-        if not readable and why == "" then return false, "unreadable without a reason" end
+        if not readable and tostring(why) == "" then return false, "unreadable without a reason" end
         ders[#ders + 1] = one.der
       end
       if fields[2] ~= "" and table.concat(ders, "\0\0") ~= fields[2] then

@@ -70,7 +70,6 @@ local Auth = require("cosmic.agent.auth")
 local Child = require("cosmic.child")
 local Verb = require("cosmic.cli.agent")
 local Clock = require("cosmic.clock")
-local Doc = require("cosmic.doc")
 local Env = require("cosmic.env")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
@@ -88,7 +87,6 @@ local Sessions = require("cosmic.agent.sessions")
 local Show = require("cosmic.agent.show")
 local Signal = require("cosmic.signal")
 local Sqlite = require("cosmic.sqlite")
-local Store = require("cosmic.store")
 local Tools = require("cosmic.agent.tools")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
@@ -232,15 +230,6 @@ local record Run
   environment: {string: string}
 end
 
---- The modules of the standard library this binary holds, with the first sentence of each ([`Doc.index`]), for the
---- prompt to name what a snippet may require; none where its docs cannot be read.
-local function library(): {Doc.Summary}
-  local view, _ = Doc.view(Store.databases())
-  if view == nil then return {} end
-  local index, _ = Doc.index(view)
-  return index or {}
-end
-
 --- The working directory.
 local function cwd(r: Run): string
   local here, _ = Fs.absolute(".")
@@ -368,17 +357,17 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
   if policy == nil and policy_why ~= "" then return nil, policy_why end
   local servers, servers_why = mcp_servers(r, got)
   if servers == nil then return nil, servers_why end
+  local offered, picked_why = Tools.named(got.values["--tools"] or "default")
+  if offered == nil then return nil, "--tools: " .. picked_why end
   if id == nil then
     local started, why = Sessions.start(db, here, model, Clock.now_ns() // Clock.seconds(1))
     if started == nil then return nil, why end
     id = started
   end
-  local tools = Tools.all()
-  local s = Agent.new({ model = model, effort = effort, sign = sign, base_url = base, cwd = here, tools = tools,
-    send = r.io.send, system = Prompt.build(here, Prompt.contexts(here), { servers = servers, library = library(),
-      tools = tools }),
+  local s = Agent.new({ model = model, effort = effort, sign = sign, base_url = base, cwd = here,
+    send = r.io.send, system = Prompt.build(here, Prompt.contexts(here), { servers = servers, tools = offered }),
     sandbox = policy, jobs = Jobs.new(), worker = Worker.new(), mcp = AgentMcp.new(servers, here), build = build(),
-    messages = held, db = db, id = id, restarts = restarts, ended = ended })
+    tools = offered, messages = held, db = db, id = id, restarts = restarts, ended = ended })
   local settled, settle_why = s:settle()
   if not settled then return nil, settle_why end
   return s, ""
@@ -658,7 +647,12 @@ local function prompt(r: Run, got: Flags.Parsed): integer
     return bare.refused
   end
   local here = cwd(r)
-  r.io.out(Prompt.build(here, Prompt.contexts(here), { library = library(), tools = Tools.all() }))
+  local offered, why = Tools.named(got.values["--tools"] or "default")
+  if offered == nil then
+    r.complain("prompt: --tools: " .. why)
+    return bare.refused
+  end
+  r.io.out(Prompt.build(here, Prompt.contexts(here), { tools = offered }))
   return bare.ok
 end
 

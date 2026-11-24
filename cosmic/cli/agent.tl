@@ -66,13 +66,17 @@
 ---
 --- The sandbox (`cosmic docs cosmic.agent.policy`):
 ---
---- - The tools can read and change the working directory and run the
----   host's programs. They have a home of their own, which outlives each
----   command. They reach nothing else, not even the network.
+--- - The tools can read and change the working directory. They have a
+---   home of their own, which outlives each command. They reach nothing
+---   else, not even the network.
+--- - With the default tools (no bash), no program runs: on Linux the
+---   sandbox refuses every file but cosmic's own the right to run.
+---   On macOS, or with `--sandbox off`, a snippet may still run one.
 --- - `--sandbox read` lets them change nothing.
 --- - `--sandbox off` runs them with your user's rights and environment,
 ---   your API key included.
---- - `--network` lets bash reach the network.
+--- - `--network` lets the tools reach the network: Host.fetch, and bash
+---   where it is offered.
 --- - `--grant path[:rwxc]` adds a path.
 ---
 --- Output and sessions:
@@ -99,8 +103,10 @@ local continue_: Flags.Option = { about = "go on with the newest session in this
 local session: Flags.Option = { value = "id", about = "go on with the session of this id" }
 local sandbox: Flags.Option = { value = "mode", about = "what the tools may change",
   choices = { "write", "read", "off" }, default = "write" }
-local network: Flags.Option = { about = "let bash reach the network" }
+local network: Flags.Option = { about = "let bash and snippets (Host.fetch, cosmic.http) reach the network" }
 local grant: Flags.Option = { value = "path[:rwxc]", about = "let the tools reach this path too, read alone unless letters say more" }
+local tools: Flags.Option = { value = "names", about = "the tools the model is shown, such as run,read,edit,write,bash, " ..
+    "all, or default (every tool but bash and jobs, which run no program)" }
 local mcp: Flags.Option = { value = "file",
   about = "the MCP servers snippets may call (default ~/.config/cosmic/mcp.json; see cosmic.agent.mcp)" }
 
@@ -108,7 +114,7 @@ local mcp: Flags.Option = { value = "file",
 local function session_spec(): mut {string: Flags.Option}
   return {
     ["--model"] = model, ["--effort"] = effort, ["--continue"] = continue_, ["--session"] = session,
-    ["--sandbox"] = sandbox, ["--network"] = network, ["--grant"] = grant, ["--mcp"] = mcp,
+    ["--sandbox"] = sandbox, ["--network"] = network, ["--grant"] = grant, ["--mcp"] = mcp, ["--tools"] = tools,
   }
 end
 
@@ -130,7 +136,7 @@ local command: Flags.Command = {
     resume = { about = "finish the turn a run left unfinished", spec = session_spec() },
     rpc = { about = "one session for another program, as JSON lines", spec = session_spec() },
     sessions = { about = "the newest sessions in this directory" },
-    prompt = { about = "the system prompt the model reads" },
+    prompt = { about = "the system prompt the model reads", spec = { ["--tools"] = tools } },
     policy = { about = "the sandbox the tools would run under here; clear-home empties their kept home",
       usage = "[options] [clear-home]",
       spec = { ["--sandbox"] = sandbox, ["--network"] = network, ["--grant"] = grant } },

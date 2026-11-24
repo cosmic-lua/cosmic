@@ -3,6 +3,7 @@
 
 #include "startup.h"
 
+#include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <stdint.h>
@@ -141,6 +142,7 @@ void cosmic_startup_portable (struct cosmic_startup *startup,
    * artifact by its path and the core by itself. Naming one alone is no
    * contract. */
   bool by_path = values[0] == NULL && values[1] == NULL;
+  const char *hashed = getenv(COSMIC_PORTABLE_ENV_CORE_HASHED);
   uint64_t artifact_fd = 0, core_fd = 0, target, configuration, offset, length;
   if (!by_path && (!decimal(values[0], INT_MAX, &artifact_fd) || artifact_fd < 3))
     startup->contract_error = "portable artifact descriptor field is invalid";
@@ -160,7 +162,14 @@ void cosmic_startup_portable (struct cosmic_startup *startup,
     startup->contract_error = "portable launcher core length is invalid";
   else if (!hex_digest(values[6], startup->launcher_core_sha256))
     startup->contract_error = "portable launcher core digest is invalid";
+  else if (hashed != NULL && strcmp(hashed, "1") != 0)
+    startup->contract_error = "portable launcher hashed field is invalid";
+  /* Only a launcher hashes what it hands over: a start by path, which no
+   * launcher made, has nothing the word could be true of. */
+  else if (hashed != NULL && by_path)
+    startup->contract_error = "portable launcher hashed field names no handed core";
   else {
+    startup->launcher_hashed = hashed != NULL;
     startup->by_path = by_path;
     startup->artifact_fd = by_path ? -1 : (int)artifact_fd;
     startup->core_fd = by_path ? -1 : (int)core_fd;
@@ -286,12 +295,62 @@ static const char *entry_refusal (const char *directory, const char *stamp,
   return why;
 }
 
+/* The first line of the small file `path`, in `text`, or false. */
+static bool first_line (const char *path, char *text, size_t room) {
+  int fd = open(path, O_RDONLY | O_CLOEXEC);
+  if (fd < 0) return false;
+  ssize_t length = read(fd, text, room - 1);
+  close(fd);
+  if (length <= 0) return false;
+  text[length] = '\0';
+  char *end = strchr(text, '\n');
+  if (end != NULL) *end = '\0';
+  return true;
+}
+
+/* Whether this process is in a user namespace other than the first: its
+ * uid_map is there and is not the whole range mapped to itself. */
+static bool namespaced (void) {
+  char map[128];
+  if (!first_line("/proc/self/uid_map", map, sizeof map)) return false;
+  unsigned long inside, outside, count;
+  char extra;
+  if (sscanf(map, " %lu %lu %lu %c", &inside, &outside, &count, &extra) != 3)
+    return true;
+  return !(inside == 0 && outside == 0 && count == 4294967295UL);
+}
+
+/* The uid a file of a user unmapped in this namespace shows: the kernel's
+ * overflowuid, 65534 where the file is missing or does not hold one. */
+static uid_t overflow_uid (void) {
+  char text[24];
+  if (!first_line("/proc/sys/kernel/overflowuid", text, sizeof text) ||
+      text[0] < '0' || text[0] > '9')
+    return 65534;
+  errno = 0;
+  char *end = NULL;
+  unsigned long value = strtoul(text, &end, 10);
+  if (errno != 0 || *end != '\0' || value >= 0xffffffffUL) return 65534;
+  return (uid_t)value;
+}
+
+/* Whether a 0555 entry owned by `owner` in a leaf owned by `leaf_owner`
+ * is root's copy, as `user` sees it: root's in root's leaf, or, in a user
+ * namespace whose root holds a leaf of this user's (isolate "file"), owned
+ * by a root it cannot name, the overflow uid, which is never this user. */
+static bool roots_entry (uid_t owner, uid_t leaf_owner, uid_t user) {
+  if (owner == 0) return leaf_owner == 0;
+  return leaf_owner == user && owner != user && owner == overflow_uid() &&
+         namespaced();
+}
+
 /* Why the cache entry this core runs from, in the leaf `directory`, may not
  * run, or NULL where it may: what a warm launch takes on trust, since its
  * shell sees no mode or length (build/launcher.tl). The leaf is this
  * user's, or root's, and no group or others can write it, so no one else
  * can plant an entry there; the entry is mode 0500 and the manifest's
- * length, as the launcher publishes it. Root's leaf is trusted as root is:
+ * length, as the launcher publishes it, or root's own 0555 (the copies a
+ * root caller's sandboxed child runs, [`roots_entry`]). Root's leaf is trusted as root is:
  * a worker that a root run of `cosmic test` starts as a user of its own
  * runs root's cached core. The entry's owner is not judged here: only the
  * leaf's owner can have put it there, and the launcher's warm start runs
@@ -317,10 +376,16 @@ static const char *cache_refusal (const char *directory, const char *stamp,
              (unsigned)(leaf.st_mode & 0777), directory, directory);
     return why;
   }
-  if ((core_stat->st_mode & 07777) != 0500) {
+  /* A 0555 entry of root's is a copy cosmic/child.tl makes in
+   * /run/cosmic-sandbox-cores for the user a root caller's child runs as.
+   * Under isolate "file" the child sees it in a leaf of its own, owned by
+   * a root it cannot name (the overflow uid). Either way only root writes
+   * or changes it, and its digest is checked below unless a stamp holds. */
+  mode_t mode = core_stat->st_mode & 07777;
+  if (mode != 0500 && !(mode == 0555 && roots_entry(core_stat->st_uid, leaf.st_uid, user))) {
     char reason[64];
     snprintf(reason, sizeof reason, "is not mode 0500 (mode %o)",
-             (unsigned)(core_stat->st_mode & 07777));
+             (unsigned)mode);
     return entry_refusal(directory, stamp, reason);
   }
   if ((uint64_t)core_stat->st_size != length)
@@ -501,9 +566,13 @@ bool cosmic_startup_adopt (const struct cosmic_startup *startup,
     return fail_adoption(artifact, core_fd, -1, error,
                          "executing core length differs from manifest");
   }
-  /* A stamp that holds says the entry was hashed and not written since. */
+  /* A stamp that holds says the entry was hashed and not written since; a
+   * launcher that hashed the entry it hands over says so too. Only a cache
+   * entry, in a leaf cache_refusal found no one else can write, is taken on
+   * the launcher's word. */
   bool fresh = stamped && stamp_holds(stamp, &core_stat);
-  if (!fresh && !cosmic_sha256_range_matches(core_fd, 0,
+  bool hashed = fresh || (stamped && startup->launcher_hashed);
+  if (!hashed && !cosmic_sha256_range_matches(core_fd, 0,
                                              selected->length,
                                              selected->sha256)) {
     /* A warm launch leaves a cached core's digest to this one pass, so a

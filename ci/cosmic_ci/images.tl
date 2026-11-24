@@ -105,7 +105,7 @@ end
 local function docker(env: {string:string}, words: {string},
                       input?: string, capture?: boolean): integer, string, string
   local found, missing = Proc.find("docker", env["PATH"])
-  if found == nil then return 127, "docker: " .. missing, "" end
+  if found == nil then return 127, "docker: " .. tostring(missing), "" end
   -- A relative PATH entry names docker from the driver's cwd, not the
   -- checkout's root it runs in.
   found = assert(Fs.absolute(found))

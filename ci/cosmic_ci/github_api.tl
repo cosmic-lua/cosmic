@@ -207,7 +207,7 @@ function GithubApi.live(env: {string:string}, test?: GithubApi.Live): GithubApi.
       headers = headers, body = request.body, follow = false,
       timeout_ns = request.timeout_ns or request_ns,
       script = script() })
-    if response == nil then return nil, trouble end
+    if response == nil then return nil, tostring(trouble) end
     local body, read_trouble = Stream.read_all(response)
     local on_sent = test and test.sent
     if on_sent ~= nil then on_sent(response:sent()) end
