@@ -39,6 +39,35 @@ tables of an FTS5 or R*Tree table, and `PRAGMA schema_version = N` and
 writable = true, defensive = false })` turns defensive mode off, for code
 that writes the schema itself.
 
+A call waits up to a minute at another connection's lock, and a signal
+stops the wait. A file that readers share beside one writer opens in
+write-ahead mode: `Sqlite.open(path, { writable = true, wal = true,
+synchronous = "normal" })`. `wait` sets another wait, in nanoseconds.
+
+A value goes in a statement as a bound parameter. A table or column
+name that comes from data goes in as `Sqlite.identifier(name)`, which
+quotes it so SQL reads it as that one name; `Sqlite.literal(text)` quotes
+a text for the few places SQL takes no parameter, such as a column's
+`DEFAULT`.
+
+`db:migrate(steps)` brings a schema up to date: each step is SQL, or a
+function of the handle, that makes the next `PRAGMA user_version`. The
+steps the database lacks run in one transaction. A version past the last
+step is refused, and so is version 0 on a database that holds a schema
+already; to adopt such a database, set its `user_version` to the step it
+is at, once.
+
+```teal
+local Sqlite = require("cosmic.sqlite")
+
+local db = assert(Sqlite.memory())
+local version = assert(db:migrate({
+  "CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL)",
+  "ALTER TABLE notes ADD COLUMN made INTEGER",
+}))
+assert(version == 2)
+```
+
 ```teal
 local Sqlite = require("cosmic.sqlite")
 
