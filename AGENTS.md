@@ -77,7 +77,7 @@ worktree's build directory when you delete the worktree.
    file it refuses (a syntax error, or a layout that is not the same file) is
    left as it is, with the reason. `fix --check` fails on a Teal file that is
    not laid out and on one it refuses. A run over some paths of cosmic's
-   own tree also makes the cheap checks of the tree (exports, doc references, the public docs
+   own tree also makes the cheap checks of the tree (doc references, the public docs
    and plurals of the Teal files named, their markers' ceilings), and in `ci/` the plurals.
    The rest of the checks only the whole tree can answer ([`build/tree_checks.tl`]) run in `bin/cosmic fix --check .`,
    as CI runs it, which also refuses a tree that does not build: run it
