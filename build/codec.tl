@@ -4,7 +4,7 @@
 --- `-d` the bytes it spells -- and nothing else: like `cosmic json` it
 --- prints no summary (its `spec` is `bare`), because its
 --- standard output is data for a pipe. Its exit status is the verdict:
---- 0 done, 2 a command line, an input or a write it cannot honor.
+--- 0 done, 2 a command line it refused, 5 an input or a write it could not use.
 --- Complaints go to standard error as `cosmic: codec: ...`.
 ---
 --- The encodings are [`cosmic.codec`]'s: hex, base64 and base64url, and no
@@ -20,7 +20,7 @@
 --- newline, return, form feed, vertical tab), so wrapped output and a
 --- trailing newline read back. Everything else is strict, as
 --- [`cosmic.codec`] is: an invalid character, misplaced padding, a bad
---- length or nonzero trailing bits exits 2 and names the byte offset
+--- length or nonzero trailing bits exits 5 and names the byte offset
 --- (from 0, counted in the input as given, whitespace included) of the
 --- first fault, or for a length or trailing-bits fault of the last
 --- character. The defaults are what each encoder writes: base64 must be
@@ -669,7 +669,7 @@ end
 
 --- `cosmic codec <encoding> [options] [<file>|-]`: writes the encoding
 --- of the input, or with `-d` the bytes it spells, and returns the exit
---- code: 0 done, 2 a command line, an input or a write it refused.
+--- code: 0 done, 2 a command line it refused, 5 an input or a write it could not use.
 --- @param argv the command line, `codec` at slot 1
 --- @param io where the text is read and written; the process's own when nil
 function verb.run(argv: {string}, io?: verb.Io): integer
@@ -697,7 +697,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
   if opened == nil then
     complain(read_trouble)
-    return bare.refused
+    return bare.undone
   end
   local reader: Stream.Reader = opened
   local decode = request.decode
@@ -716,7 +716,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     complain(line)
     local _, _ = sink:abort()
     local _, _ = reader:close()
-    return bare.refused
+    return bare.undone
   end
   --- The complaint for what `sink` refused: a lost write or a coder's refusal.
   local function blame(why: string): string
@@ -737,7 +737,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local closed, close_why = reader:close()
   if not closed then
     complain(close_why)
-    return bare.refused
+    return bare.undone
   end
   return bare.ok
 end
@@ -751,7 +751,7 @@ verb.spec = {
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "an encoding and a file",
-  exits = "`codec` prints its text or bytes and nothing after, and exits 0 or 2.",
+  exits = "`codec` prints its text or bytes and nothing after, and exits 0 when it wrote them, 2 for a command line it refused, 5 for an input it could not read or decode, or a write that failed.",
   passthrough = "its output is data for a pipe, so its exit status is the verdict (build/codec_test.tl)",
 }
 

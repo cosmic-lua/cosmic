@@ -42,7 +42,7 @@ end
 local function refused(argv: {string}, policy: Sandbox.Policy): string
   local handle, why = Child.start(argv, { timeout_ns = Child.FOREVER, policy = policy })
   assert(handle == nil, "the start was not refused")
-  return why
+  return tostring(why)
 end
 
 --- The stand-in, built in the test's directory, which is searchable.
@@ -84,7 +84,7 @@ local function test_a_start_under_a_policy_is_refused_where_the_platform_has_no_
     -- start directory must be at, beneath or above a grant.
     local result, why = Child.run({ probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = policy, cwd = probe:match("^(.*)/") })
     assert(result == nil, "policy " .. tostring(i) .. " started a child where there is no sandbox")
-    assert(ChildPolicy.unsandboxable(why), "policy " .. tostring(i) .. ": " .. why)
+    assert(ChildPolicy.unsandboxable(tostring(why)), "policy " .. tostring(i) .. ": " .. tostring(why))
   end
 end
 
@@ -93,13 +93,13 @@ local function test_a_program_nobody_granted_does_not_start_and_the_failure_name
   local real = assert(sys.realpath(probe))
   local none, why = Child.start({ probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = {} })
   assert(none == nil)
-  assert(why:find("^child: start: sandbox: "), why)
-  assert(why:find(real, 1, true) and why:find("r and x", 1, true), why)
-  assert(why:find("system", 1, true) and why:find("the program", 1, true), why)
+  assert(why.message:find("^child: start: sandbox: "), why)
+  assert(why.message:find(real, 1, true) and why.message:find("r and x", 1, true), why)
+  assert(why.message:find("system", 1, true) and why.message:find("the program", 1, true), why)
   -- Read without run names what is missing.
   local read, trouble = Child.start({ probe, "print hi" },
     { timeout_ns = Child.FOREVER, policy = { grants = { { path = probe, letters = "r" } } } })
-  assert(read == nil and trouble:find("not granted x:", 1, true) ~= nil, trouble)
+  assert(read == nil and trouble.message:find("not granted x:", 1, true) ~= nil, trouble)
 end
 
 local function test_an_interpreter_must_be_granted_too(tmp: string)
@@ -108,21 +108,23 @@ local function test_an_interpreter_must_be_granted_too(tmp: string)
   assert(Fs.write(tmp .. "/scripts/run", "#!" .. probe .. "\nprint scripted\n", 493))
   local policy: Sandbox.Policy = { grants = { { path = tmp .. "/scripts", letters = "rx" } } }
   local none, why = Child.start({ tmp .. "/scripts/run" }, { timeout_ns = Child.FOREVER, policy = policy })
-  assert(none == nil and why:find("interpreter", 1, true) ~= nil and why:find(assert(sys.realpath(probe)), 1, true) ~= nil, why)
+  assert(none == nil and why.message:find("interpreter", 1, true) ~= nil and why.message:find(assert(sys.realpath(probe)), 1, true) ~= nil, why)
 end
 
 local function test_a_program_named_without_a_path_must_be_found(tmp: string)
   local probe = stand_in_of(tmp)
   local none, why = Child.start({ "no-such-program-here" }, { timeout_ns = Child.FOREVER, policy = { grants = itself(probe) } })
-  assert(none == nil and why:find("no-such-program-here", 1, true) ~= nil, why)
+  assert(none == nil and why.message:find("no-such-program-here", 1, true) ~= nil, why)
 end
 
 local function test_env_beside_a_policy_raises(tmp: string)
   local probe = stand_in_of(tmp)
   Test.raises(function()
-    Child.start({ probe }, { timeout_ns = Child.FOREVER, policy = { grants = itself(probe) }, env = {} })
+    local _, _ = Child.start({ probe }, { timeout_ns = Child.FOREVER, policy = { grants = itself(probe) }, env = {} })
   end, "policy and env exclude each other")
-  local other, trouble = pcall(Child.start, { probe }, { timeout_ns = Child.FOREVER, policy = {}, sandbox = { offline = true } })
+  local other, trouble = pcall(function()
+    local _, _ = Child.start({ probe }, { timeout_ns = Child.FOREVER, policy = {}, sandbox = { offline = true } })
+  end)
   assert(not other and tostring(trouble):find("policy and sandbox", 1, true) ~= nil, tostring(trouble))
 end
 
@@ -145,14 +147,14 @@ local function test_a_policy_that_is_not_met_fails_naming_the_field(tmp: string)
   for _, case in ipairs(cases) do
     local none, why = Child.start({ probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = case.policy })
     assert(none == nil, case.says)
-    assert(why:find("^child: start: sandbox: ") and why:find(case.says, 1, true), why)
-    assert(why:find("not yet available", 1, true) or why:find("cannot start", 1, true), why)
+    assert(why.message:find("^child: start: sandbox: ") and why.message:find(case.says, 1, true), why)
+    assert(why.message:find("not yet available", 1, true) or why.message:find("cannot start", 1, true), why)
   end
   local from = grants()
   from[#from + 1] = { path = "/data", letters = "r", from = "/srv/data" }
   local none, why = Child.start({ probe }, { timeout_ns = Child.FOREVER, policy = { grants = from } })
-  assert(none == nil and why:find('grant "/data"', 1, true) ~= nil and why:find("from", 1, true) ~= nil, why)
-  assert(why:find('isolate "file"', 1, true), why)
+  assert(none == nil and why.message:find('grant "/data"', 1, true) ~= nil and why.message:find("from", 1, true) ~= nil, why)
+  assert(why.message:find('isolate "file"', 1, true), why)
 end
 
 --- The proxy variables a policy with `connect` is given are the relay's, so
@@ -175,7 +177,7 @@ local function test_a_policy_with_connect_may_not_name_a_proxy_variable(tmp: str
   local free, why = Child.run({ probe, "env-of HTTPS_PROXY" }, { timeout_ns = Child.FOREVER, policy = { grants = itself(probe),
     set_env = { HTTPS_PROXY = "http://mine:1" } }, stdout = "capture", cwd = probe:match("^(.*)/") })
   if free == nil then
-    assert(ChildPolicy.unsandboxable(why), why)
+    assert(ChildPolicy.unsandboxable(tostring(why)), why)
   else
     assert(free.stdout == "HTTPS_PROXY=http://mine:1\n", tostring(free.stdout))
   end
@@ -185,7 +187,7 @@ local function test_a_relay_log_is_null_inherit_or_a_descriptor(tmp: string)
   local probe = stand_in_of(tmp)
   for _, value in ipairs({ -1, 4294967296 }) do
     local wrong: Child.Options = { timeout_ns = Child.FOREVER, relay_log = value }
-    local refused_ok, refused_why = pcall(Child.start, { probe }, wrong)
+    local refused_ok, refused_why = pcall(function() local _, _ = Child.start({ probe }, wrong) end)
     assert(not refused_ok and tostring(refused_why):find("or a descriptor", 1, true) ~= nil, tostring(value))
   end
 end
@@ -208,9 +210,9 @@ end
 local function test_a_policy_that_does_not_merge_fails_naming_the_field(tmp: string)
   local probe = stand_in_of(tmp)
   local none, why = Child.start({ probe }, { timeout_ns = Child.FOREVER, policy = { grants = { { path = probe, letters = "q" } } } })
-  assert(none == nil and why:find("$.grants[0].letters", 1, true) ~= nil, why)
+  assert(none == nil and why.message:find("$.grants[0].letters", 1, true) ~= nil, why)
   local profile, trouble = Child.start({ probe }, { timeout_ns = Child.FOREVER, policy = { profiles = { "bogus" } } })
-  assert(profile == nil and trouble:find("bogus", 1, true) ~= nil, trouble)
+  assert(profile == nil and trouble.message:find("bogus", 1, true) ~= nil, trouble)
 end
 
 local function test_a_policy_of_too_many_grants_fails_before_it_makes_anything(tmp: string)
@@ -226,8 +228,8 @@ local function test_a_policy_of_too_many_grants_fails_before_it_makes_anything(t
     end
     local none, why = Child.start({ probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = { grants = grants, tmp = true } })
     assert(none == nil, "a start over the most was made")
-    assert(why:find("^child: start: sandbox: grants: "), why)
-    assert(why:find("takes, " .. tostring(most) .. ";", 1, true), why)
+    assert(why.message:find("^child: start: sandbox: grants: "), why)
+    assert(why.message:find("takes, " .. tostring(most) .. ";", 1, true), why)
     assert(#sandbox_directories() == before, tostring(count) .. " grants left a directory behind")
   end
 end
@@ -309,7 +311,7 @@ local function test_a_root_caller_that_cannot_map_a_user_fails_naming_why()
   end
   local handle, why = Child.start({ "/bin/true" }, { timeout_ns = Child.FOREVER, policy = { isolate = { "proc" }, profiles = { "system" } }, cwd = "/" })
   assert(handle == nil, "the start was not refused")
-  assert(why:find("never runs as root", 1, true) and why:find("CAP_SETFCAP", 1, true), why)
+  assert(why.message:find("never runs as root", 1, true) and why.message:find("CAP_SETFCAP", 1, true), why)
 end
 
 --- A program and a directory to start it in.

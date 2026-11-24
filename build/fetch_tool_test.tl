@@ -36,9 +36,9 @@ local function test_a_refusal_is_two_and_prints_no_summary(tmp: string)
   assert(not err:find("fetch: FAIL", 1, true), err)
 end
 
-local function test_a_failed_fetch_is_one_and_prints_no_summary(tmp: string)
+local function test_a_failed_fetch_is_five_and_prints_no_summary(tmp: string)
   local code, out, err = cosmic(tmp, { "fetch", "http://127.0.0.1:1/" })
-  assert(code == 1 and out == "", out)
+  assert(code == 5 and out == "", out)
   assert(not err:find("fetch: FAIL", 1, true), err)
 end
 

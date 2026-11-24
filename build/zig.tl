@@ -256,7 +256,7 @@ local function standalone(root: string, script: string,
   end
   local result, trouble = Child.run(argv, { env = env, fds = fds, stdout = "capture", timeout_ns = Child.FOREVER })
   if result == nil then
-    return nil, script .. ": " .. trouble
+    return nil, script .. ": " .. tostring(trouble)
   end
   return result, ""
 end
@@ -734,7 +734,7 @@ function Zig.run(argv: {string}, env?: {string:string}): integer
   local function supervise(): Child.Result?, string
     local h, trouble = Child.start(argv, { process_group = false, env = env, timeout_ns = Child.FOREVER })
     if h == nil then
-      return nil, trouble
+      return nil, tostring(trouble)
     end
     local pass_on_at = 0
     while true do

@@ -73,7 +73,7 @@ end
 local function test_a_syntax_error_is_refused_naming_the_file_and_line(tmp: string)
   local path = file(tmp, "broken.tl", "local a = 1\nlocal b = = 2\nreturn a\n")
   local ran = run({ path })
-  assert(ran.code == 2, ran.code)
+  assert(ran.code == 4, ran.code)
   assert(ran.out == "", ran.out)
   assert(ran.err:find("broken.tl:2:", 1, true), ran.err)
   assert(ran.err:find("syntax error", 1, true) and ran.err:find("fix the line", 1, true), ran.err)
@@ -83,7 +83,7 @@ local function test_a_syntax_error_writes_no_file_at_all(tmp: string)
   local good = file(tmp, "good.tl", "return 1\n")
   local bad = file(tmp, "bad.tl", "return (\n")
   local ran = run({ "-o", tmp .. "/out", good, bad })
-  assert(ran.code == 2, ran.code)
+  assert(ran.code == 4, ran.code)
   assert(ran.err:find("bad.tl:", 1, true), ran.err)
   assert(not assert(Fs.status(tmp .. "/out/good.lua")).exists, "good.lua was written beside a refused file")
   assert(not assert(Fs.status(tmp .. "/out/bad.lua")).exists)
@@ -118,19 +118,23 @@ local function test_a_command_line_it_refuses_says_how_to_fix_it(tmp: string)
   local one = file(tmp, "one.tl", "return 1\n")
   local two = file(tmp, "two.tl", "return 2\n")
   local decl = file(tmp, "types.d.tl", "return {}\n")
-  local function refused(words: {string}, fix: string)
+  local function refused(words: {string}, fix: string, code?: integer)
     local ran = run(words)
-    assert(ran.code == 2 and ran.out == "", tostring(ran.code) .. ran.out)
+    assert(ran.code == (code or 2) and ran.out == "", tostring(ran.code) .. ran.out)
     assert(ran.err:find(fix, 1, true), "wanted " .. fix .. " in " .. ran.err)
     assert(ran.err:find("cosmic: compile: ", 1, true), ran.err)
   end
   refused({}, "name at least one .tl file")
   refused({ one, two }, "give -o <dir>")
-  refused({ tmp .. "/missing.tl" }, "check the path")
+  -- A file that is not there is found only by reading it: the run could not be done.
+  refused({ tmp .. "/missing.tl" }, "check the path", 5)
   refused({ decl }, "every file named is a .d.tl")
   local pair = file(tmp, "one.d.tl", "local record One\nend\nreturn One\n")
   refused({ "-o", tmp .. "/o", one, pair }, pair .. ": " .. one .. " is already the module one")
   refused({ "-o", tmp .. "/o", pair, one }, "delete " .. pair)
+  -- A declaration whose own text names no kind is refused as a build refuses it: it does not compile.
+  local unnamed = file(tmp, "m.d.tl", "-- nothing\nlocal x: integer\n")
+  refused({ "-o", tmp .. "/o", one, unnamed }, "must name what it is", 4)
   local named: {{string}} = { { "math.tl", "math" }, { "string.d.tl", "string" }, { "table.tl", "table" } }
   for _, each in ipairs(named) do
     local name, module = assert(each[1]), assert(each[2])
@@ -138,18 +142,19 @@ local function test_a_command_line_it_refuses_says_how_to_fix_it(tmp: string)
     refused({ "-o", tmp .. "/o", one, language }, name .. ": its module is named for `" .. module ..
         "`, which the binary answers at run time with the language's own module")
   end
-  -- `language` is for the build of cosmic's own tree: a file given here is refused for it, whatever its path.
+  -- `language` is for the build of cosmic's own tree: a file given here is refused for it, whatever its path, as the
+  -- declarations that name no kind are.
   assert(Fs.mkdirs(tmp .. "/lang"))
   for _, name in ipairs({ "lang/prelude.d.tl", "lang/stdlib.d.tl" }) do
     local language = file(tmp, name, "--- @kind language\nglobal count: integer\n")
-    refused({ "-o", tmp .. "/o", one, language }, name .. ": `--- @kind language` is accepted only when building cosmic's own tree")
+    refused({ "-o", tmp .. "/o", one, language }, name .. ": `--- @kind language` is accepted only when building cosmic's own tree", 4)
   end
   local near = file(tmp, "mathlib.tl", "local n: integer = 1\nreturn n\n")
   assert(run({ "-o", tmp .. "/near", near }).code == 0)
-  refused({ one, "--root", tmp .. "/nowhere" }, "--root must name a directory")
+  refused({ one, "--root", tmp .. "/nowhere" }, "--root must name a directory", 5)
   refused({ tmp .. "/readme.md" }, "not a .tl source")
   refused({ "-o", tmp .. "/o", one, tmp .. "/./one.tl" }, "named twice: name it once")
-  refused({ "--root", one, one }, "--root must name a directory")
+  refused({ "--root", one, one }, "--root must name a directory", 5)
   refused({ "--nosuch", one }, "--nosuch")
 end
 
@@ -200,7 +205,7 @@ end
 local function test_a_directory_that_is_a_file_is_named_once(tmp: string)
   local one = file(tmp, "one.tl", "local n: integer = 1\nreturn n\n")
   local ran = run({ "-o", one, one })
-  assert(ran.code == 2, ran.code)
+  assert(ran.code == 5, ran.code)
   local first = ran.err:find(one, 1, true)
   assert(first ~= nil and ran.err:find(one, first + 1, true) == nil, ran.err)
 end

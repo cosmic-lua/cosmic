@@ -941,7 +941,7 @@ function McpClient.spawn(argv: {string}, opts: Child.Options, client_opts?: McpC
   }
   local handle, why = Child.start(argv, given)
   if handle == nil then
-    return nil, Failure.new("mcp: starting " .. (argv[1] or "") .. ": " .. why)
+    return nil, Failure.new("mcp: starting " .. (argv[1] or "") .. ": " .. tostring(why))
   end
   local reader, writer = handle.stdout_stream, handle.stdin_stream
   if reader == nil or writer == nil then return nil, Failure.new("mcp: the server has no pipes") end

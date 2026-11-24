@@ -2439,7 +2439,7 @@ function McpServer.command(spec: McpServer.CommandSpec): McpServer.ToolSpec
       -- How the run failed (a start refused, or the server told to stop while it waited) names the host's paths and
       -- the policy's shape: the server's to read, not the client's.
       if ran == nil then
-        error("command: " .. name .. ": the program did not start, or did not run to its end: " .. trouble, 0)
+        error("command: " .. name .. ": the program did not start, or did not run to its end: " .. tostring(trouble), 0)
       end
       if ran.timed_out then return Mcp.result({ "the tool ran past its time" }, true) end
       if ran.truncated then

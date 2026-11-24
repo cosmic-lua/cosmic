@@ -124,7 +124,7 @@ function Islands.complaint(root: string, path: string, env: {string:string}): st
   for _, word in ipairs({ "--standalone", "--check", path }) do argv[#argv + 1] = word end
   local answer, why = Child.run(argv, { env = driver.env, fds = driver.fds, cwd = root, stdin = "null",
     stdout = "null", stderr = "capture", timeout_ns = Clock.seconds(60) })
-  if answer == nil then return "could not run the driver: " .. why end
+  if answer == nil then return "could not run the driver: " .. tostring(why) end
   if answer.timed_out then return "the driver's standalone check did not finish in 60 s" end
   local said: mut {string} = {}
   for line in (answer.stderr or ""):gmatch("[^\n]+") do
@@ -167,7 +167,7 @@ function Islands.project(root: string, env: {string:string}): string?
   local driver = BuildPaths.driver({ "fix", "--check" }, values)
   local answer, why = Child.run(driver.argv, { env = driver.env, fds = driver.fds, cwd = root .. "/ci", stdin = "null",
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(120) })
-  if answer == nil then return "could not run the driver: " .. why end
+  if answer == nil then return "could not run the driver: " .. tostring(why) end
   if answer.timed_out then return "the driver's `fix --check` of ci/ did not finish in 120 s" end
   if answer.code ~= 0 then
     return "the pinned release's `fix --check` refuses ci/ (ci/cosmic-driver.pin, which these files run on):\n" ..

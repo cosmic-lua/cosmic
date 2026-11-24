@@ -284,7 +284,7 @@ local function command_step(g: Grade, argv: {string}, cwd: string,
     local result, trouble = Child.run(argv, { cwd = cwd, env = environment, stdout = out, stderr = "stdout",
       timeout_ns = within(g, Clock.seconds(120)) })
     if result == nil then
-      local _, _ = Fs.put(out, trouble .. "\n")
+      local _, _ = Fs.put(out, tostring(trouble) .. "\n")
       return false
     end
     return status(result) == 0
@@ -466,7 +466,7 @@ local function hidden_api(g: Grade, cosmic: string, project: string, test: strin
     local result, rtrouble = Child.run({ cosmic, "test", "--timeout", "5", name }, { cwd = copy,
       env = env, stdout = "capture", stderr = "stdout", timeout_ns = within(g, Clock.seconds(20)) })
     if result == nil then
-      ready, why = false, rtrouble
+      ready, why = false, tostring(rtrouble)
     else
       output = result.stdout or ""
     end
@@ -504,7 +504,7 @@ local function run(g: Grade, args: {string}, env?: {string: string}): Child.Resu
   local result, trouble = Child.run(argv_of(g, args), options)
   due(g)
   if result == nil then
-    return { code = 127, ok = false, timed_out = false, stdout = "", stderr = trouble,
+    return { code = 127, ok = false, timed_out = false, stdout = "", stderr = tostring(trouble),
       captured = {}, truncated = false }
   end
   return result
@@ -681,7 +681,7 @@ local function serves(g: Grade, args: {string}, log?: string): Served?
   local server, trouble = Child.start(argv_of(g, args), options)
   local _, _ = Fs.close(out)
   if server == nil then
-    fail(g, what .. " did not start: " .. trouble)
+    fail(g, what .. " did not start: " .. tostring(trouble))
     return nil
   end
   local deadline = Clock.monotonic_ns() + Clock.seconds(5)
@@ -848,7 +848,7 @@ local function notes_expect(g: Grade, want: string?, args: {string}, env?: {stri
     ok(what .. " -> " .. first_line(assert(want)))
   else
     local said = got
-    if result == nil then said = trouble end
+    if result == nil then said = tostring(trouble) end
     fail(g, what .. ": exit " .. tostring(code) .. ", got '" .. said .. "', wanted '" .. (want or "exit 0") .. "'")
   end
 end
@@ -1352,7 +1352,7 @@ local function jobs_interrupt(g: Grade, w: string): integer
   local handle, trouble = Child.start(argv_of(g, args), { cwd = g.empty, env = {},
     stdout = "capture", stderr = "capture", stdin = "null", process_group = false, timeout_ns = Child.FOREVER })
   if handle == nil then
-    fail(g, label(g, args) .. " did not start: " .. trouble)
+    fail(g, label(g, args) .. " did not start: " .. tostring(trouble))
     return 0
   end
   local deadline = Clock.monotonic_ns() + Clock.seconds(3)

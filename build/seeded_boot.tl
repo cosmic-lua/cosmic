@@ -311,7 +311,7 @@ end
 local function core_of(program: string, script: string, work: string): string?, string
   local result, trouble = Child.run({ program, "--standalone", script, "--core" },
     { cwd = work, stdout = "capture", stderr = "capture", timeout_ns = Child.FOREVER })
-  if result == nil then return nil, trouble end
+  if result == nil then return nil, tostring(trouble) end
   local core = (result.stdout or ""):match("^(/[^\n]+)\n")
   if not result.ok or core == nil then return nil, "it names no core: " .. (result.stderr or "") end
   return core, ""
@@ -401,7 +401,7 @@ local function compile_seed(root: string, into: string): boolean, string
   for name, value in pairs(relaunch.env) do env[name] = value end
   local result, run_trouble = Child.run(argv, { cwd = root, env = env, fds = relaunch.fds,
     stdout = "capture", stderr = "capture", timeout_ns = Child.FOREVER })
-  if result == nil then return false, run_trouble end
+  if result == nil then return false, tostring(run_trouble) end
   if not result.ok then
     return false, "the seed did not compile: " .. (result.stderr or "") .. (result.stdout or "")
   end
@@ -429,7 +429,7 @@ local function boot(root: string, output: string, manifest: string, core: string
   for _, mode in ipairs({ "--stage", "--assemble" }) do
     local result, trouble = Child.run({ own, "--boot", root, seed, "--host-only", mode, target, records, output },
       { cwd = root, timeout_ns = Child.FOREVER })
-    if result == nil then return false, trouble end
+    if result == nil then return false, tostring(trouble) end
     if not result.ok then
       return false, "the bridge's " .. mode .. " ended with " .. tostring(result.code)
     end

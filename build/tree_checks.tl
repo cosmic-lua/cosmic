@@ -1,5 +1,5 @@
 --- The checks over cosmic's whole tree, which no one module's test can
---- make: every export earned, every type an API names a member of its
+--- make: every type an API names a member of its
 --- module, no two doc anchors sharing a name, every
 --- reader of the compiler's identity named, every familiar command
 --- finding what stands in for it, every docs query a compile advertises
@@ -23,7 +23,7 @@
 --- tree that does not build fails them all.
 ---
 --- Each check takes the projection and, optionally, what it holds the
---- tree to (`allowed`, the anchors expected, ...), which defaults to the
+--- tree to (the anchors expected, the exemptions, ...), which defaults to the
 --- tree's own, so its test can hand it a fixture database and a list of
 --- its own.
 
@@ -57,7 +57,7 @@ local refusals = require("build.refusals")
 local Ast = require("lang.ast")
 local Check = require("lang.check")
 local Ceilings = require("build.ceilings")
-local CeilingsBase = require("build.ceilings_base")
+local Markers = require("build.markers")
 local Report = require("build.syntax_report")
 local SyntaxContracts = require("build.syntax_contracts")
 local Declarations = require("lang.declarations")
@@ -100,438 +100,6 @@ local record tree_checks
     source: string
     sites: {{string}}
   end
-end
-
---- The exports kept although nothing outside their module but a test
---- uses them, by `<module>.<member>`, and why each is kept.
-local allowed: mut {string: string} = {}
-
-allowed["build.c.bootstrap_cosmic"] = "the bootstrap cosmic a check's compiler runs on, fetched unconfined " ..
-  "where it is not cached; the module's toolchain calls it, and a test holds it to saying why where it cannot be had"
-allowed["build.c.own_caches"] = "the environment c.check gives a confined compiler, with every cache it writes in " ..
-  "the check's own directory, which a test holds to the cores among them: the host's fail a check where they are cold"
-allowed["build.compile_fanout.meminfo"] = "text a test gives in place of the host's /proc/meminfo: a sandbox's /proc has " ..
-  "none, and no test is to depend on what its host has free"
-allowed["build.compile_fanout.ended_well"] = "how many copies ended well, which a test reads to know that copies " ..
-  "did the work, where the process doing it alone would answer the same"
-allowed["build.dataset.read"] = "the reader load_text composes and falls back on, tested directly " ..
-  "over each format's text, and with load the reference load_text's fuzz property is held to"
-
-allowed["cosmic.agent.host.call"] = "public API: what a snippet of cosmic agent's run tool calls to reach the agent; " ..
-  "snippets, which the tree never holds, are its users"
-allowed["cosmic.sqlite.INTERRUPT"] = "public API: the code a call fails with where handle:time_limit or a guard's " ..
-  "signal stopped it, beside BUSY and the other codes a caller compares"
-allowed["cosmic.agent.host.servers"] = "public API: what a snippet of cosmic agent's run tool calls to name the " ..
-  "MCP servers it may call; snippets, which the tree never holds, are its users"
-allowed["cosmic.agent.host.declaration"] = "public API: what a snippet of cosmic agent's run tool calls to read the " ..
-  "Teal of an MCP server's module; snippets, which the tree never holds, are its users"
-allowed["cosmic.agent.host.mcp"] = "public API: what a snippet of cosmic agent's run tool calls to call an MCP " ..
-  "server's tool; snippets, which the tree never holds, are its users"
-allowed["cosmic.agent.host.sql"] = "public API: what a snippet of cosmic agent's run tool calls to query sessions.db; " ..
-  "snippets, which the tree never holds, are its users"
-allowed["cosmic.mcp.MISSING_CAPABILITY"] = "public API: the protocol's code for a request that needs a capability the " ..
-  "client did not declare, which a client tests a failure's code against"
-allowed["cosmic.mcp.text"] = "public API: a text block of a tool's result or a prompt's message, which a server builds"
-allowed["cosmic.mcp.image"] = "public API: an image block of a tool's result, its bytes in base64, which a server builds"
-allowed["cosmic.mcp.audio"] = "public API: an audio block of a tool's result, its bytes in base64, which a server builds"
-allowed["cosmic.mcp.link"] = "public API: a block that links a resource from a tool's result, which a server builds"
-allowed["cosmic.mcp.embedded"] = "public API: a block that embeds a resource's contents, which a server builds"
-allowed["cosmic.mcp.server.bearer"] = "public API: an authorize that lets in a request with the server's bearer token"
-allowed["cosmic.mcp.server.anyone"] = "public API: an authorize that lets every request in, for a loopback endpoint"
-allowed["cosmic.mcp.structured"] = "public API: a tool's result whose structuredContent holds to its outputSchema, which a server builds"
-allowed["cosmic.mcp.elicit_form"] = "public API: a form a tool's handler asks the person to fill in, through call.elicit"
-allowed["cosmic.mcp.elicit_url"] = "public API: a URL a tool's handler asks the person to open, through call.elicit"
-
-allowed["cosmic.compress.zstd_encoder"] = "ci/ calls it on the pinned release, which has no Compress.encoder; " ..
-  "goes with the TODO in cosmic/compress.tl"
-allowed["cosmic.compress.zstd_decoder"] = "ci/ calls it on the pinned release, which has no Compress.decoder; " ..
-  "goes with the TODO in cosmic/compress.tl"
-allowed["cosmic.compress.zstd"] = "ci/ calls it on the pinned release, which has no Compress.encode; " ..
-  "goes with the TODO in cosmic/compress.tl"
-allowed["cosmic.sqlite.run"] = "ci/ calls it on the pinned release, whose handle has no run method; " ..
-  "goes with the TODO in cosmic/sqlite.tl"
-allowed["cosmic.sqlite.rows"] = "ci/ calls it on the pinned release, whose handle has no rows method; " ..
-  "goes with the TODO in cosmic/sqlite.tl"
-allowed["cosmic.sqlite.map"] = "ci/ calls it on the pinned release, whose handle has no map method; " ..
-  "goes with the TODO in cosmic/sqlite.tl"
-allowed["cosmic.sqlite.query"] = "ci/ calls it on the pinned release, whose handle has no query method; " ..
-  "goes with the TODO in cosmic/sqlite.tl"
-allowed["cosmic.sqlite.transact"] = "ci/ calls it on the pinned release, whose handle has no transact method; " ..
-  "goes with the TODO in cosmic/sqlite.tl"
-allowed["cosmic.agent.cost"] = "public API: what a reply's usage costs at the list prices, which a program that " ..
-  "runs the loop reads; the loop keeps each request's cost through billed"
-allowed["cosmic.agent.billed"] = "public API: what a request cost, each attempt of a fallback at its own model's " ..
-  "price; the loop keeps it with each request, and a test holds it to each case"
-allowed["cosmic.agent.auth.now_ns"] = "the clock a test stands in for, so an exchanged token is held to its expiry " ..
-  "without waiting for it"
-allowed["cosmic.acme.auto"] = "public API: a certificate from an ACME CA kept current for a server, " ..
-  "which a program passes to Web.serve's `acme`; the tree's own servers take theirs from tailscaled"
-allowed["cosmic.web.tailnet_funnel"] = "how a public app served through Funnel tells a request from the " ..
-  "internet from one of the tailnet; no app of the tree serves through Funnel"
-allowed["cosmic.failure.path"] = "public API: the path a failure concerns, which a caller reads; the standard " ..
-  "library's own calls move to it one module at a time"
-allowed["cosmic.failure.line"] = "public API: the line of a decoder's refusal (Failure.at), which a caller reads " ..
-  "to point at the place, as an editor jumps to it; the stdlib only prints it"
-allowed["cosmic.failure.column"] = "public API: the column of a decoder's refusal (Failure.at), read with `line`"
-allowed["cosmic.failure.extended_code"] = "public API: the extended code of a SQLite failure (Failure.coded), which " ..
-  "tells one constraint from another where `code` does not"
-allowed["cosmic.sqlite.ERROR"] = "public API: the code of a statement SQLite refused, which a caller tests"
-allowed["cosmic.sqlite.MISUSE"] = "public API: the code of SQL the core refuses before SQLite reads it, which a caller tests"
-allowed["cosmic.sqlite.RANGE"] = "public API: the code of a parameter at no position, which a caller tests"
-allowed["cosmic.defer.run"] = "the function a Defer runs, which its `__close` calls: a field of the class, set by " ..
-  "Defer.new, that no caller needs to read"
-allowed["cosmic.tls.client"] = "public API: the TLS client a program connects with, Net.connect's `tls`; " ..
-  "the tree's own clients speak through cosmic.http, so only its tests make one"
-allowed["cosmic.web.require_client_cert"] = "public API: middleware admitting the clients of mutual TLS; " ..
-  "no app in the tree serves mutual TLS, so only its tests use it"
-allowed["cosmic.hash.file"] = "the raw-digest form of hex_file, which is its only caller outside tests"
-
-allowed["build.importer.due"] = "when a compile says a refusal ahead of its report; the compile loop asks it of the " ..
-  "clock, and build/importer_test.tl of times it chooses"
-
-allowed["build.shared_verdicts.rows_kept"] = "the bound a file of a checked run's verdicts keeps, which the file's name decides; the settle of the same module applies it, and a test holds the names to it"
-allowed["build.test_key.requirements"] = "the names a module requires of its host, `loopback` derived from its declared addresses, which `ask_host` asks and a test holds to the derivation"
-allowed["build.test_key.met_nothing"] = "whether a checked run's report holds a violation, which `judge` asks and a test holds to the report's two clauses (a row, and rows that went unrecorded)"
-allowed["build.work.lock_holder_in"] = "the reading of /proc/locks `holding` names a lock's holder by, which a test " ..
-  "holds to lines a sandboxed worker's /proc cannot show it"
-allowed["build.work.holder_line"] = "what `holding` says of what it read of the host, which a test holds to hosts " ..
-  "a sandboxed worker cannot be"
-allowed["build.work.waiting_line"] = "the line a run waiting for the working database's write lock says, which " ..
-  "only a run another holds the lock against reaches; its test holds the wording without a second process"
-allowed["build.memprobe.enabled"] = "the switch `COSMIC_MEMPROBE` sets for a run, which a test turns on to read the line a mark writes"
-
-allowed["build.type_watch.skip_reason"] = "the reason `during` skips with, which a test reads for a checked and a plain run " ..
-  "since a skipping test cannot show it"
-
-allowed["build.memprobe.sink"] = "where a mark writes its line, which a test takes in place of standard error"
-allowed["build.dataset.load"] = "the loader load_text composes and falls back on, tested directly " ..
-  "over rows a test builds, whose keys no file need hold"
-
-allowed["cosmic.http.public_key_pin"] = "public API: how a program makes the pin `opts.pin` holds a " ..
-  "server's key to; cosmic's own fetches choose roots, not pins"
-
-allowed["cosmic.http.default_roots"] = "public API: the roots a request naming none trusts, for a " ..
-  "program to say which it runs with"
-
-allowed["cosmic.http.minimal_roots"] = "public API: the roots `opts.roots = \"minimal\"` names, for a " ..
-  "program to read or start a list of its own from"
-
-local function allow(names: {string}, why: string)
-  for _, name in ipairs(names) do
-    allowed[name] = why
-  end
-end
-
-allow({
-  "build.syntax_analyzer.analyze",
-  "build.syntax_match.matches", "build.syntax_match.text",
-}, "a reader of the syntax tree (build/syntax_*.tl) that the build reaches through its callers (`analysis_of`, " ..
-    "`docs`, the pipeline's derive) and that its tests call directly, to say what one read of a source gives")
-
-allow({
-  "build.error_catalog.rows", "build.error_catalog.check", "build.error_catalog.problems",
-  "build.error_catalog.text", "build.error_catalog.emitted", "build.error_render.lines",
-  "build.error_render.complain",
-}, "the checker's error reporting (build/error_catalog.tl, build/error_render.tl), which the compile prints and writes " ..
-    "through `insert` and `line`, and whose parts its tests call directly")
-
-allow({ "build.seed.compile", "build.seed.program" }, "the two things the bridge asks of the seed (core/bridge.lua, which is " ..
-    "Lua and loads the seed's Lua by name), which no Teal calls")
-
-allow({ "build.plans.full_keys" }, "the keys made of nothing kept, which build/dependency_keys_test.tl holds " ..
-    "the keys `dependency_keys` keeps to, edit by edit")
-allow({
-  "build.syntax_receivers.blind", "build.syntax_rewrite.find_all", "build.doctest.blocks",
-  "build.plural_sites.lines", "build.coverage.syntax_lines.executable", "build.withheld.package_fields",
-  "build.syntax_contracts.rules", "build.syntax_receivers.known",
-}, "tested directly: a reader whose callers outside its module take it through a composed reader (`references`, `rewrite`, " ..
-    "`generate`, `mode`, `sites`, `lines`, `globals`), each tested over sources or tables of its own")
-
-allow({ "build.todos.run" }, "the verb's run, which a test calls with a tree and a `reboot.Seen` to run it " ..
-    "as that tree's own tool would; the verb's spec calls it with the command line alone")
-
-allow({ "build.pipeline.over" }, "the build's compile with the new checker: a build over given sources, which the " ..
-    "pipeline's own tests are the callers of")
-
-allow({ "build.pipeline.project" }, "tested directly: the options of a project given the texts of the declarations (a worker's " ..
-    "store holds none of the tool's)")
-
-allowed["cosmic.net.nameservers"] = "the public way to list the system's DNS servers for " ..
-  "callers outside this tree; tested directly over a resolv.conf"
-
-allowed["cosmic.internal.relay_config.parse_addresses"] = "tested directly: the reading of Linux's " ..
-  "interface tables over fixture text, which host_addresses makes of the host's own"
-for _, name in ipairs({ "resolved_upstream", "loopback_listeners" }) do
-  allowed["cosmic.internal.relay_start." .. name] = "tested directly: a step of `handover` and " ..
-    "`hold_loopback`, which are composed from it, each tested over fixtures of its own"
-end
-for _, name in ipairs({ "named", "resolved" }) do
-  allowed["cosmic.sandbox.tailnet." .. name] = "tested directly: a step of `tailnet.policy`, " ..
-    "checked over fixture statuses with no stand-in daemon"
-end
-for _, name in ipairs({ "dropped_violations", "most_kept", "fact", "cross" }) do
-  allowed["build.test_worker." .. name] = "the seam that lets a test run the hook a checked run's Lua calls " ..
-    "in its own process, over Lua it compiled with the checks, and read what the hook met; " ..
-    "`run` calls them for a worker"
-end
-allowed["cosmic.sandbox.policy.system_profile"] = "the seam that lets a test draw the " ..
-  "other host's \"system\" profile; rules.profile calls it with this host's"
-allowed["build.c.own_warnings"] = "the warnings the C check's analyzer runs under, written out as build.zig " ..
-  "has no form to read them from; build/c/variants_test.tl holds them to it"
-allowed["build.c.variants"] = "the ways the C check dumps a file, written out as build.zig " ..
-  "has no form to read them from; build/c/variants_test.tl holds them to it"
-allowed["cosmic.sandbox.restrict"] = "tested directly: it holds the process that calls it " ..
-  "for good, so a worked example would hold the run that shows it; the test restricts " ..
-  "a child of this program, and the harness holds its workers with it once the " ..
-  "design's test phase lands (the TODO at build.confine's forbid_running)"
-allowed["cosmic.web.tailnet"] = "public API: the middleware that finds who a request comes from on the " ..
-  "tailnet, which an app names in its own middleware"
-allowed["cosmic.web.require_cap"] = "public API: the middleware an app puts on a route that needs a " ..
-  "capability the tailnet policy grants"
-allowed["cosmic.test.needs_of"] = "tested directly: the worker's translation of a policy, " ..
-  "which the build's own reading of one (build.syntax_analyzer, which cannot require this " ..
-  "module) is held to by cosmic/test_policy_test.tl"
-allowed["build.assertions.lua_assert"] = "tested directly: Lua's own `assert`, kept " ..
-  "for build/assertions_test.tl to hold the counting one to, case by case, so a Lua " ..
-  "upgrade that changes luaB_assert fails there rather than drifting"
-allowed["build.c.layout.same"] = "tested directly: whether two layouts are one " ..
-  "token stream is the rule `cosmic fix` holds a C rewrite to, and the test " ..
-  "states it on sources too small to be a file"
-for _, name in ipairs({ "names", "class" }) do
-  allowed["build.host_names." .. name] = "tested directly: the table's own reading, which " ..
-    "`parse` and `check`, the only calls outside the module, are made of"
-end
-allowed["build.flow.bare"] = "the subset build/workflows_test.tl holds " ..
-  "workflows to takes a bare key by the same rule the layout writes one by"
-allowed["build.flow.problems"] = "the subset build/workflows_test.tl holds " ..
-  "the workflows to, which the layout is also held to"
-allowed["build.flow.comments"] = "what the fuzz test holds a layout to keep"
-for _, name in ipairs({ "parse", "render", "scalar", "from", "write", "value", "get", "set", "update" }) do
-  allowed["build.flow." .. name] = "the API a program generates or edits a workflow " ..
-    "through, which no program in the tree does yet; its test and the workflows' own do"
-end
-for _, name in ipairs({ "captures_mark", "bare_shapes" }) do
-  allowed["build.check_draws." .. name] = "the checker's fuzz generators and the line " ..
-    "that marks a program the checker must refuse, and the bare prologue of the shapes, which " ..
-    "lang/check_flow_fuzz_test.tl and lang/check_total_fuzz_test.tl draw their inputs from"
-end
-for _, name in ipairs({ "pack", "unpack" }) do
-  allowed["build.fuzz." .. name] = "the fuzz tests' inputs of several fields; only tests " ..
-    "pack them"
-end
-allowed["build.verb_list.loads"] = "what build/verb_list_test.tl holds each verb's spec name to"
-allowed["build.identity.compiler_modules"] = "what build/importer_test.tl holds the tree to, " ..
-  "walked over the running binary's modules: every module build.importer requires is " ..
-  "in the compiler's identity or left out of it with a reason"
-allowed["build.identity.writer_modules"] = "what build/importer_test.tl holds the tree to, " ..
-  "walked over the running binary's modules: what build.writer reaches is in the " ..
-  "writer's identity, the compiler's, or neither with a reason"
-allowed["build.identity.writer_left_out"] = "what build/importer_test.tl holds to the " ..
-  "requires of the writer's roots"
-allowed["build.test_key.sealed_meta"] = "what build/sealed_meta_test.tl holds the rows of a " ..
-  "sealed database to: the value of a row its worker reads, the marker of one it does not, and a " ..
-  "refusal where the process has no value to hand on"
-allowed["build.reboot.carries_tree_code"] = "what build/reboot_test.tl holds to " ..
-  "the modules a tree holds and the binary carries"
-allowed["build.declared_key.preimage"] = "what build/declared_key_fuzz_test.tl " ..
-  "holds to distinct specs spelling apart, before a key hashes it"
-allowed["build.dispatch_sites.sites"] = "what build/dispatched_features_test.tl " ..
-  "holds the tree's CPU dispatch sites to"
-allowed["build.declared_key.dispatched"] = "what build/dispatched_features_test.tl " ..
-  "holds the tree's CPU dispatch sites to: the features a key holds are the ones they read"
-allowed["build.declared_key.system_sources"] = "what build/host_features_test.tl " ..
-  "holds ci/testdata/host_features to: a key names each recorded host as ci/cosmic_ci/host_id.tl does"
-allowed["build.declared_key.host_identity"] = "what build/declared_key_test.tl " ..
-  "holds the host's identity to, the first of the `host_split` the harness keys by"
-allowed["build.shared_verdicts.host_of"] = "what build/shared_verdicts_test.tl " ..
-  "holds the parts a row names its host by to"
-allowed["build.confine.confine"] = "a test's own declaration: " ..
-  "what the processes a test starts need, which only a test makes"
-allowed["build.confine.must_confine"] = "a test's own declaration: " ..
-  "what the processes a test starts need, with no fallback, which only a test makes"
-for _, name in ipairs({ "key", "open", "close", "look", "settle", "analyzers", "requires",
-    "look_parse" }) do
-  allowed["build.shared_compiles." .. name] = "tested directly: build/shared_compiles_test.tl, " ..
-    "build/shared_parses_test.tl and build/importer_test.tl read and write the cache file " ..
-    "itself, to see what a build shared and what a salt does to a key"
-end
-allowed["build.importer.analyzer_modules"] = "tested directly: the test holds the " ..
-  "list to every module the analysis requires"
-allowed["build.lsp.reentry"] = "tested directly: the test hands it checks that answer stale " ..
-  "or fresh, since a real exec into a rebuilt tool replaces the test's own process"
-allowed["build.importer.tree_code"] = "tested directly: the test holds what a " ..
-  "boot names its analyzer by to what the tool it writes names it by, around a " ..
-  "derive run as a boot runs it, which no binary under the suite otherwise does"
-allowed["build.test_key.harness_part"] = "tested directly: build/harness_epoch_test.tl holds " ..
-  "that an edit to a harness module's code moves it and one to its comments does not"
-allowed["build.harness_epoch.retired"] = "every token the harness's epoch held " ..
-  "before, which only its test reads: it holds the epoch's count to one past them, so " ..
-  "each bump draws a token of its own"
-allowed["build.harness_epoch.library"] = "the standard-library modules the harness " ..
-  "may reach, each with its reason, which only its test reads: a rule the test holds " ..
-  "the harness's digests to, not code the harness runs"
-allowed["build.test_child.run"] = "what the chunk of `words` calls in the child, by name, from text the test " ..
-  "hands `cosmic -e`: no file of the tree calls it"
-allowed["build.test_inputs.lua_loads"] = "what build/lua_children_test.tl holds " ..
-  "a child's `-e` to loading no more than, as the artifact a `lua` module's children " ..
-  "run carries them"
-allowed["build.test_inputs.standalone_loads"] = "what build/lua_standalone_test.tl " ..
-  "holds a child's `--standalone` to loading no more than, beside `lua_loads`, as the " ..
-  "artifact a module that requires build.standalone's children run carries them"
-allow({ "build.test_key.worker_environment", "build.test_key.scratch" },
-  "tested directly: the tests hand them what the running binary alone gives the runner -- " ..
-    "a tree's or a fixture's modules, an environment with no startup hook of its own, a " ..
-    "directory made as a worker is given one")
-allowed["build.test_key.program_database"] = "tested directly: the test holds it to the ranges it reads of a file " ..
-  "laid out as an artifact, which a run that seals reads only of the running program"
-allowed["build.test_key.value_imports"] = "tested directly: the harness's test reads, " ..
-  "by it, what each module the harness runs requires by value, as `key_code` walks it"
-allowed["build.test_key.type_only_imports"] = "tested directly: the harness's test holds " ..
-  "it to the edges `value_imports` leaves out; `run` reads it through the projection"
-allowed["build.importer.prune_references"] = "tested directly: the test asks " ..
-  "SQLite for the statement's plan, which must read `compiled` once rather " ..
-  "than probe it per row, and no behaviour tells the two apart"
-allowed["build.reboot.auto_boot"] = "tested directly: the test hands it an " ..
-  "environment rather than setting COSMIC_AUTO_BOOT on the whole run"
-allowed["build.reboot.boot_into"] = "tested directly: the test runs it on a tree " ..
-  "whose bin/zig is a stand-in, which no stale tool can reach"
-allow({ "build.reboot.boot_command" }, "tested directly: the test hands it each kind of tool, " ..
-    "where the running one is only one of them")
-allowed["build.reboot.compiler_moved"] = "tested directly: the test hands it " ..
-  "identities, where a stale tool's compiler can only be had by building one"
-allowed["build.reboot.rebuild_failed"] = "tested directly: the test runs it on a " ..
-  "tree whose bin/zig is a stand-in, which no stale tool can reach"
-allowed["build.tree.standing_of"] = "tested directly: the test hands it a tool that records no checkout, " ..
-  "as a release does, which the running binary never lacks"
-allowed["build.reboot.web_assets"] = "tested directly: the test hands it a database " ..
-  "from before the table, which no running binary is"
-allowed["build.writer.signature"] = "tested directly: the test signs a database " ..
-  "as an older binary would"
-
---- Every export the projection `db` holds that nothing earns, as
---- `<file>:<line>: <module>.<member>`, sorted.
----
---- An export earns its place (doc/design.md, principle 5) by a use
---- outside its own module that is not a test. For the standard library
---- that use may be a worked example (`cosmic/<module>_example.tl`) or a
---- guide under doc/guides, each of which is compiled and run like any
---- other code, so an export no program calls is kept only when a
---- runnable example shows it. An export only its own tests call is made
---- local -- the test goes through the public entry -- or is named in
---- `allowed` with the reason it is tested directly. A use is one the
---- build found, through a `require` alias ([`build.syntax_analyzer`]) or a
---- value's checked type ([`build.syntax_receivers`]).
----
---- What counts as an export: a function or a value field of a module's
---- returned record, in a module whose file is in `build/`, `cmd/` or
---- `eval/`, or in `cosmic/`, a Teal module of `cosmic/internal/` among
---- them. Left out:
----
---- - a record, enum or type the module declares, and a field naming
----   one (`Module: Module`, a type's CamelCase name): a type is a
----   shape its members' uses already account for;
---- - a nested record's own fields (`Writer.add_file`): the shape of
----   a value the module hands out, which its caller reads or fills in
----   through that value;
---- - `main`, which `cosmic <file>` and `cosmic --standalone` call on a
----   module that returns a record carrying one, and a module that
----   returns a function ([`build/boot.tl`]), which its loader calls;
---- - a declaration file (`*.d.tl`, as every raw table of
----   `cosmic/internal/`) and [`cosmic.sys`], whose members are
----   declared in C ([`core/syscalls.h`]), not in Teal.
----
---- What earns one: a use from another module that is not a `*_test.tl`;
---- for a module only tests import ([`build/docs_fixture.tl`], test
---- support), a use from a test other than the module's own; and for a
---- program in `build/`, `cmd/` or `eval/` -- a module whose record
---- exports `main`, `run` or `spec` (a verb's entry,
---- build/verb_spec.tl), which fetches, execs or reads the working
---- tree and prints -- a use from its own tests, which drive each step
---- directly on a fixture. A module's own tests are `<module>_test`,
---- `<module>_<topic>_test` and the tests in its directory when it is
---- one (`build/fix/`), except the test of another module: `<x>_test`
---- where `<x>` is itself a module ([`build.test_worker_test`] is not
---- [`build.test`]'s). A public `cosmic/` module is never a program here:
---- what its tests call still needs a caller or an example.
--- TODO: the check is not transitive: an export used only by another
--- export that is itself allowed, or itself unused, counts as earned.
--- Walk the uses from what is earned outright once a use records the
--- function it sits in, not only its module and line.
--- TODO: [`cosmic.sys`] is left out, so a constant or binding in
--- core/syscalls.h that nothing uses (`EISDIR`, `SIGUSR1`)
--- is never flagged; hold its members to the same rule once the check
--- can tell a binding the Teal layer wraps from one nothing reaches.
--- TODO: hold a private build/ function's optional parameter to the same
--- standard -- one no call passes, tests included, is dropped -- once
--- `refs` records how many arguments each call passes; build/c/rules.tl's
--- `declared?` and build/artifact.tl's `selected_configuration?` on `test_prefix` were found by hand.
-local function unearned(db: Sqlite.Handle): {string}?, string
-  local rows, trouble = db:text_rows(
-    "SELECT d.file || ':' || d.line || ': ' || d.module || '.' || d.symbol " ..
-      "FROM docs d " ..
-      "WHERE d.exported = 1 AND d.symbol <> '' AND instr(d.symbol, '.') = 0 " ..
-      "AND d.kind IN ('function', 'method', 'field') " ..
-      "AND d.signature NOT GLOB 'type *' AND d.symbol NOT GLOB '[A-Z]*[a-z]*' " ..
-      "AND d.symbol <> 'main' " ..
-      "AND NOT (d.kind = 'function' AND d.symbol = d.source_symbol) " ..
-      "AND (d.file GLOB 'build/*' OR d.file GLOB 'cmd/*' OR d.file GLOB 'eval/*' " ..
-      "OR d.file GLOB 'cosmic/*') " ..
-      "AND d.file GLOB '*.tl' AND d.file NOT GLOB '*.d.tl' " ..
-      "AND NOT EXISTS (SELECT 1 FROM uses u " ..
-      "WHERE u.module = d.module AND u.symbol = d.symbol " ..
-      "AND u.from_module <> d.module " ..
-      "AND (u.from_file NOT GLOB '*_test.tl' " ..
-      "OR (u.from_module <> d.module || '_test' AND NOT EXISTS (SELECT 1 FROM imports i " ..
-      "WHERE i.requires = d.module AND i.path NOT GLOB '*_test')) " ..
-      "OR (d.file NOT GLOB 'cosmic/*' " ..
-      "AND (u.from_module GLOB d.module || '_*' OR u.from_module GLOB d.module || '.*') " ..
-      "AND (substr(u.from_module, 1, length(u.from_module) - 5) = d.module " ..
-      "OR NOT EXISTS (SELECT 1 FROM imports j " ..
-      "WHERE j.path = substr(u.from_module, 1, length(u.from_module) - 5) " ..
-      "OR j.requires = substr(u.from_module, 1, length(u.from_module) - 5))) " ..
-      "AND EXISTS (SELECT 1 FROM docs p WHERE p.module = d.module AND p.exported = 1 " ..
-      "AND p.symbol IN ('main', 'run', 'spec'))))) " ..
-      "ORDER BY d.file, d.line")
-  if rows == nil then
-    return nil, tostring(trouble)
-  end
-  local out: mut {string} = {}
-  for _, row in ipairs(rows) do
-    out[#out + 1] = row:text(1)
-  end
-  return out, ""
-end
-
---- Every export of `db` that nothing earns (see `unearned`) and
---- `excused`, by default `allowed`, does not name, as `<file>:<line>:
---- <module>.<member>: ...`, and then each name in `excused` that
---- nothing unearned answers to any more: an allowance outlives the
---- reason for it when the export is used or gone.
-function tree_checks.exports(db: Sqlite.Handle, excused?: {string: string}): {string}
-  excused = excused or allowed
-  local lines, trouble = unearned(db)
-  if lines == nil then
-    return { "reading the exports: " .. trouble }
-  end
-  local found: mut {string: boolean} = {}
-  local out: mut {string} = {}
-  for _, line in ipairs(lines) do
-    local name = line:match(": ([^ ]+)$")
-    if name ~= nil then found[name] = true end
-    if name == nil or excused[name] == nil then
-      out[#out + 1] = line .. ": nothing outside its module uses it but a test -- " ..
-        "make it local, or name it in build/tree_checks.tl's `allowed` with why"
-    end
-  end
-  local stale: mut {string} = {}
-  for name in pairs(excused) do
-    if found[name] ~= true then
-      stale[#stale + 1] = name .. ": allowed, but now used or gone -- remove its allowance"
-    end
-  end
-  table.sort(stale)
-  for _, line in ipairs(stale) do out[#out + 1] = line end
-  return out
 end
 
 --- The name of the record `source` returns, or nil for none: the returned
@@ -3166,8 +2734,7 @@ local record Marked
   mut counts: mut {string: {string: integer}}
 end
 
---- The markers of the tree at `root`: the counts of each file's markers by `<stage> <code>`, and of its comment lines that
---- use the glossary's retired word ([`build.glossary_count`]), the ratchet's side of the tree.
+--- The markers of the tree at `root`: the counts of each file's markers by `<stage> <code>`, the ratchet's side of the tree.
 function tree_checks.markers(root: string): Marked
   local out: Marked = { lines = {}, counts = {} }
   local files, trouble = sources_of(root)
@@ -3177,8 +2744,8 @@ function tree_checks.markers(root: string): Marked
   end
   for _, entry in ipairs(files) do
     local file, source = nth(entry, 1), nth(entry, 2)
-    if CeilingsBase.mentions(source) then
-      local held = CeilingsBase.counts(source, file)
+    if Markers.mentions(source) then
+      local held = Markers.counts(source, file)
       if next(held) ~= nil then
         out.counts[file] = held
       end
@@ -3514,7 +3081,7 @@ function tree_checks.run(db: Sqlite.Handle, quickstart: string?, extra?: {{strin
   -- Each check, slowest first, so the copies' shares are near alike.
   local checks: {string} = {
     "rendered docs", "doc references", "public docs", "compiler readers", "doc anchors", "plurals",
-    "image_hash readers", "text readers", "exports", "stand-ins", "build directory", "unnamed types", "verbs",
+    "image_hash readers", "text readers", "stand-ins", "build directory", "unnamed types", "verbs",
     "docs queries", "declarations", "restricted", "quieted",
   }
   local function lines_of(name: string, on: Sqlite.Handle, shown: Sqlite.Handle): {string}
@@ -3534,8 +3101,6 @@ function tree_checks.run(db: Sqlite.Handle, quickstart: string?, extra?: {{strin
       return tree_checks.meta_readers(on, "image_hash")
     elseif name == "text readers" then
       return tree_checks.text_readers(on)
-    elseif name == "exports" then
-      return tree_checks.exports(on)
     elseif name == "stand-ins" then
       return tree_checks.stand_ins(on)
     elseif name == "build directory" then
@@ -3594,7 +3159,7 @@ function tree_checks.run(db: Sqlite.Handle, quickstart: string?, extra?: {{strin
   end
   local out: mut {string} = {}
   -- The lines in the order they are printed, whichever process ran each check.
-  for _, name in ipairs({ "text readers", "image_hash readers", "exports", "unnamed types", "doc anchors",
+  for _, name in ipairs({ "text readers", "image_hash readers", "unnamed types", "doc anchors",
       "compiler readers", "build directory", "stand-ins", "docs queries", "quieted", "restricted", "declarations",
       "verbs", "rendered docs", "doc references", "public docs", "plurals" }) do
     local lines = found[name] or lines_of(name, db, carried or db)

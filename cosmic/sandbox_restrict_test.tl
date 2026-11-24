@@ -121,7 +121,7 @@ local function test_the_signal_scope_lets_a_forked_process_signal_what_is_inside
   local said = Restrict.in_child(restricted(
     string.format("{ grants = { { path = %q, letters = \"rx\" } }, promises = { \"fork\" } }", probe),
     string.format([[
-local own = Child.run({ %q, "signal TERM" }, { timeout_ns = Child.FOREVER, process_group = false, stdout = "capture", stderr = "stdout" })
+local own, _ = Child.run({ %q, "signal TERM" }, { timeout_ns = Child.FOREVER, process_group = false, stdout = "capture", stderr = "stdout" })
 if own ~= nil then say("self", own.signal, own.code, own.stdout) else say("self", nil, nil, nil) end
 local held = assert(Child.start({ %q, "sleep-forever" }, { timeout_ns = Child.FOREVER, process_group = false }))
 local ended, kill_why = sys.kill(held.pid, sys.SIGKILL)

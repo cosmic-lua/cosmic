@@ -338,7 +338,8 @@ local function test_rtree_finds_the_boxes_a_box_overlaps()
 end
 
 local function test_rtree_checks_a_lying_depth_in_bounded_time()
-  local handle = assert(Sqlite.memory())
+  -- Not defensive: the lie is written to the tree's shadow table.
+  local handle = assert(Sqlite.open(":memory:", { writable = true, defensive = false }))
   assert(handle:exec("CREATE VIRTUAL TABLE b USING rtree_i32(id, x0, x1, y0, y1)"))
   for i = 1, 60 do
     assert(handle:run("INSERT INTO b VALUES (?1, ?1, ?1 + 1, ?1, ?1 + 1)", { { integer = i } }))

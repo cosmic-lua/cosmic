@@ -9,7 +9,9 @@ Test.policy{ profiles = { "cosmic" } }
 --- one the pty takes names no descriptor of the caller's.
 local function test_start_on_pty_refuses_what_could_name_a_terminal_of_the_callers()
   local function raises(opts: Child.Options, streams: {integer}, why: string)
-    Test.raises(function() Child.start_on_pty({ "/bin/true" }, opts, { streams = streams }) end, why)
+    Test.raises(function()
+      local _, _ = Child.start_on_pty({ "/bin/true" }, opts, { streams = streams })
+    end, why)
   end
   raises({ timeout_ns = Child.FOREVER, stdin = "null" }, { 0 }, "takes no stdin")
   raises({ timeout_ns = Child.FOREVER, input = "x" }, { 0 }, "takes no stdin")
@@ -34,8 +36,10 @@ local function test_start_on_pty_validates_the_size_before_opening_a_pty()
   local before = lowest_free()
   local function raises(rows: integer?, columns: integer?, why: string)
     for _ = 1, 4 do
-      local ok, trouble = pcall(Child.start_on_pty, { "/bin/true" }, { timeout_ns = Child.FOREVER },
-        { streams = { 1 }, rows = rows, columns = columns })
+      local ok, trouble = pcall(function()
+        local _, _ = Child.start_on_pty({ "/bin/true" }, { timeout_ns = Child.FOREVER },
+          { streams = { 1 }, rows = rows, columns = columns })
+      end)
       assert(not ok and tostring(trouble):find(why, 1, true) ~= nil, tostring(trouble))
     end
   end

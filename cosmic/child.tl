@@ -2,7 +2,7 @@
 --- end and returns a [`Child.Result`]: its exit `code` (or the `signal`
 --- that ended it), `ok`, and the output it captured. [`Child.start`]
 --- starts one and returns a handle to wait on or close. Each returns nil
---- and a reason when the program cannot start. Each takes an argv and
+--- and a [`Failure`] when the program cannot start. Each takes an argv and
 --- runs the program with no shell, and options for the environment, the
 --- directory, the descriptors and a timeout. A bare name in `argv[1]` is
 --- not searched on PATH ([`Proc.find`] finds it), except under a
@@ -57,8 +57,8 @@
 --- pidfd on Linux, a kqueue on Darwin) -- a moment after the child's
 --- last act, which its teardown and a busy host's scheduling lengthen
 --- -- and is looked for every 10 ms elsewhere. A wait whose task is cancelled
---- returns nil (or false) and [`Poll.CANCELLED`], as [`cosmic.net`]'s
---- do, and leaves the child running, for its handle to end. Ending a
+--- returns nil (or false) and [`Poll.CANCELLED`] (from [`Child.run`], a
+--- Failure of kind "cancelled"), and leaves the child running, for its handle to end. Ending a
 --- child in a cancelled task -- [`Child.run`]'s, a close, a timeout --
 --- waits through the run all the same ([`Poll.shielded`]) until it is
 --- done: a second or so for each child that ignores SIGTERM, most of it
@@ -75,6 +75,7 @@
 --- child is left to wait until the caller reads. Nothing streamed is
 --- dropped, and nothing is kept for the Result.
 local Env = require("cosmic.env")
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Poll = require("cosmic.poll")
@@ -687,6 +688,18 @@ end
 --- The message a wait or a run cancelled by `signal` answers.
 local function cancelled_by(signal: integer): string
   return "child: cancelled by signal " .. tostring(signal)
+end
+
+--- The [`Failure`] a public function answers for the words its body
+--- gave: kind "timeout" for [`Poll.TIMEOUT`], "cancelled" for
+--- [`Poll.CANCELLED`] and for a signal a guard caught
+--- ([`cancelled_by`]), else "other".
+local function failure_of(why: string): Failure
+  if why == Poll.TIMEOUT then return Failure.timeout(why) end
+  if why == Poll.CANCELLED or why:find("child: cancelled by signal ", 1, true) == 1 then
+    return Failure.cancelled(why)
+  end
+  return Failure.new(why)
 end
 
 --- Every pid a handle owns until the handle has settled it. Pids, not
@@ -4092,10 +4105,13 @@ end
 --- child and its group; `wait(timeout)` does the same on expiry, and so
 --- does a wait once the child's `timeout_ns`, counted from here, has
 --- passed. Nothing ends it for `timeout_ns` while nothing waits on it
---- ([`Options.timeout_ns`]).
-function Child.start(argv: {string}, opts: Options): Handle?, string
+--- ([`Options.timeout_ns`]). Nil and a [`Failure`] where the child
+--- cannot be started.
+function Child.start(argv: {string}, opts: Options): (Handle) | (nil, Failure)
   validate(argv, opts)
-  return start(argv, opts)
+  local started, why = start(argv, opts)
+  if started == nil then return nil, failure_of(why) end
+  return started
 end
 
 --- The two ends of a pty [`Child.start_on_pty`] has opened, closed when
@@ -4134,15 +4150,15 @@ end
 --- confinement, so `process_group` has no say; without stdin it has none.
 --- Under a `policy` on macOS the profile grants the child that terminal
 --- and `/dev/tty`, which it is not otherwise given.
---- Nil and why where the pty cannot be opened, its size cannot be set or
---- the start fails. A `pty.rows` or `pty.columns` that is not given with
+--- Nil and a [`Failure`] where the pty cannot be opened, its size cannot
+--- be set or the start fails. A `pty.rows` or `pty.columns` that is not given with
 --- the other, or is not in 0..65535, raises before a pty opens.
 --- @param argv the program and its arguments, as [`Child.start`] takes them
 --- @param opts the start's options, naming none of the pty's streams
 --- @param pty the pty's streams and size
 --- @return the child and the master, or nil
---- @return why, when there is none
-function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): PtyStart?, string
+--- @return a [`Failure`], when there is none
+function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): (PtyStart) | (nil, Failure)
   validate(argv, opts)
   local streams: mut {integer:boolean} = {}
   for _, number in ipairs(pty.streams) do
@@ -4165,7 +4181,7 @@ function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): Pty
     error("child: a pty's rows and columns are each in 0..65535", 2)
   end
   local made, why = sys.openpty()
-  if made == nil then return refuse("pty: " .. why) end
+  if made == nil then return nil, failure_of("child: pty: " .. why) end
   -- Closes both ends where the start raises, or fails; the slave on any
   -- return, the master unless the caller is to have it.
   local holding <close>: PtyHolder = { master = made.master, slave = made.slave, keep = false, keep_slave = false }
@@ -4173,21 +4189,21 @@ function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): Pty
     local sized, size_why = sys.setwinsize(made.master, rows, columns)
     -- TODO: test this branch once the checked core has a fault point that
     -- makes TIOCSWINSZ fail on a fresh master, or a platform refuses it.
-    if not sized then return refuse("pty size: " .. size_why) end
+    if not sized then return nil, failure_of("child: pty size: " .. size_why) end
   end
   -- Darwin's start opens the slave by name to make it the controlling
   -- terminal, and its profile grants that path; Linux has no use for it.
   local slave_path: string?
   if streams[0] == true and holds_by_seatbelt() then
     local found, name_why = sys.ttyname(made.slave)
-    if found == nil then return refuse("pty: " .. name_why) end
+    if found == nil then return nil, failure_of("child: pty: " .. name_why) end
     slave_path = found
   end
   local started, trouble = start(argv, opts, { slave = made.slave, streams = streams, name = slave_path })
-  if started == nil then return nil, trouble end
+  if started == nil then return nil, failure_of(trouble) end
   holding.keep = true
   holding.keep_slave = pty.keep_slave == true
-  return { child = started, master = made.master, slave = if holding.keep_slave then made.slave else -1 end }, ""
+  return { child = started, master = made.master, slave = if holding.keep_slave then made.slave else -1 end }
 end
 
 --- Waits for the first of several handles to finish, servicing every
@@ -4302,39 +4318,12 @@ function Child.end_strays(spared?: {integer}): integer
   end
 end
 
---- Runs a program -- one executable path -- to completion and answers its
---- [`Result`]. A child that exits nonzero, or is ended by a signal or its
---- timeout, is still a [`Result`], with `ok` false. `argv[1]` is used exactly as given:
---- there is no PATH search, and [`Proc.find`] finds a program by name. A nil
---- environment inherits this process's environment; a table replaces it
---- exactly. Standard streams inherit by default, or accept caller-owned
---- descriptors (which remain open here), "null", or "capture"; "stream"
---- is refused, as nothing could read or write it before the run returns.
---- A captured stream is seen once the child has ended: to show a child's
---- output as it comes and keep it too, start it with [`Child.start`] and
---- `stdout = "stream"`, and read the handle's `stdout_stream` a line at a
---- time, as the tee example of [`cosmic/child_example.tl`] does.
---- The child owns a new process group by default, so timeout cleanup
---- includes descendants.
----
---- While the child runs, SIGINT and SIGTERM are held in a [`Signal.guard`]:
---- either one ends the child and its group, then the caller's
---- dispositions are restored and the signal delivered again. The run
---- then answers nil and "child: cancelled by signal N". A run made while the
---- caller holds a [`Signal.guard`] holds one inside it: a signal the
---- caller's guard caught before the run began does not end it, and one
---- that ends it is left to the caller's guard rather than delivered.
---- It also answers nil and why when the child cannot be started, and
---- nil and "child: signal guard: ..." when its guard cannot be opened.
---- In a task of [`Poll.run`] that is cancelled, it ends the child, as a
---- timeout would, and answers nil and [`Poll.CANCELLED`].
-function Child.run(argv: {string}, opts: Options): Result?, string
-  validate(argv, opts)
-  if opts.stdin == "stream" or opts.stdout == "stream" or opts.stderr == "stream" then
-    error("child: a \"stream\" is read or written while the child runs: use Child.start", 2)
-  end
+--- The body of [`Child.run`], once its arguments are checked.
+local function run_checked(argv: {string}, opts: Options): (Result) | (nil, Failure)
   local held, guard_trouble = Signal.guard()
-  if held == nil then return refuse("signal guard: " .. tostring(guard_trouble)) end
+  if held == nil then
+    return nil, Failure.new("child: signal guard: " .. tostring(guard_trouble))
+  end
   -- Closed after the child is ended, as the run is left: the child is
   -- ended before the guard gives back the signals.
   local guard <close>: Guard = held
@@ -4353,15 +4342,58 @@ function Child.run(argv: {string}, opts: Options): Result?, string
   end
   -- Closing re-delivers a caught signal, after the cleanup above.
   local restored, restore_trouble = guard:close()
-  if not restored then return refuse("signal restore: " .. tostring(restore_trouble)) end
+  if not restored then
+    return nil, Failure.new("child: signal restore: " .. tostring(restore_trouble))
+  end
   local cancellation = guard:cancelled()
   if cancellation ~= 0 then
     -- TODO: test a signal caught after a clean wait, once Child.run lets a test act between its wait and this read of the guard: a child that exits first is seen exited before the guard, so no test reaches this branch with `wait_trouble` empty.
-    return nil, cleanup_trouble or (if wait_trouble ~= "" then wait_trouble else cancelled_by(cancellation) end)
+    if cleanup_trouble then return nil, Failure.cancelled(cleanup_trouble) end
+    return nil, Failure.cancelled(if wait_trouble ~= "" then wait_trouble else cancelled_by(cancellation) end)
   end
-  if cleanup_trouble then return nil, cleanup_trouble end
-  if r then return r, "" end
-  return nil, wait_trouble
+  if cleanup_trouble then
+    -- A cancelled task's run stays "cancelled" though its cleanup failed.
+    if wait_trouble == Poll.CANCELLED then return nil, Failure.cancelled(cleanup_trouble) end
+    return nil, failure_of(cleanup_trouble)
+  end
+  if r then return r end
+  return nil, failure_of(wait_trouble)
+end
+
+--- Runs a program -- one executable path -- to completion and answers its
+--- [`Result`]. A child that exits nonzero, or is ended by a signal or its
+--- timeout, is still a [`Result`], with `ok` false. `argv[1]` is used exactly as given:
+--- there is no PATH search, and [`Proc.find`] finds a program by name. A nil
+--- environment inherits this process's environment; a table replaces it
+--- exactly. Standard streams inherit by default, or accept caller-owned
+--- descriptors (which remain open here), "null", or "capture"; "stream"
+--- is refused, as nothing could read or write it before the run returns.
+--- A captured stream is seen once the child has ended: to show a child's
+--- output as it comes and keep it too, start it with [`Child.start`] and
+--- `stdout = "stream"`, and read the handle's `stdout_stream` a line at a
+--- time, as the tee example of [`cosmic/child_example.tl`] does.
+--- The child owns a new process group by default, so timeout cleanup
+--- includes descendants.
+---
+--- While the child runs, SIGINT and SIGTERM are held in a [`Signal.guard`]:
+--- either one ends the child and its group, then the caller's
+--- dispositions are restored and the signal delivered again. The run
+--- then answers nil and a [`Failure`] of kind "cancelled", with the message
+--- "child: cancelled by signal N". A run made while the
+--- caller holds a [`Signal.guard`] holds one inside it: a signal the
+--- caller's guard caught before the run began does not end it, and one
+--- that ends it is left to the caller's guard rather than delivered.
+--- It also answers nil and a Failure when the child cannot be started,
+--- and one whose message is "child: signal guard: ..." when its guard
+--- cannot be opened. In a task of [`Poll.run`] that is cancelled, it ends
+--- the child, as a timeout would, and answers nil and a Failure of kind
+--- "cancelled" ([`Poll.CANCELLED`]).
+function Child.run(argv: {string}, opts: Options): (Result) | (nil, Failure)
+  validate(argv, opts)
+  if opts.stdin == "stream" or opts.stdout == "stream" or opts.stderr == "stream" then
+    error("child: a \"stream\" is read or written while the child runs: use Child.start", 2)
+  end
+  return run_checked(argv, opts)
 end
 
 return Child
