@@ -111,7 +111,8 @@ end
 
 function Report.home_of(program: Declarations.Program, decl: Types.Decl): Report.Owner?
   local kind = decl.kind
-  if #decl.names == 0 or decl.module:find("@", 1, true) ~= nil or
+  -- A record in braces is declared in no module, and is no home.
+  if #decl.names == 0 or decl.module:find("@", 1, true) ~= nil or Types.shape_record(decl) or
       (kind ~= "record" and kind ~= "class" and kind ~= "interface") then
     return nil
   end

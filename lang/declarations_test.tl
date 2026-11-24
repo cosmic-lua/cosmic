@@ -126,6 +126,12 @@ local CASES <const>: {Case} = {
     fix = "key by `integer`, `string`, `boolean`, an enum, or a record, class, interface or userdata",
   },
   {
+    code = "shape_generic",
+    source = "local function f<T>(x: {a: T, b: integer})\n  local _ = x\nend\nlocal _ = f\n",
+    msg = "a record type in braces cannot hold a type parameter",
+    fix = "declare a generic record",
+  },
+  {
     code = "repeated_field",
     source = "local class C\n  n: integer\n  function n(self)\n  end\nend\n",
     msg = "`n` is declared twice in `C`",

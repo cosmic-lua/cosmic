@@ -45,6 +45,14 @@
 --- whole, so it pulls back what it needs and no more: with substr(),
 --- or with FTS5 (MATCH, snippet()) over every session's outputs.
 ---
+--- Each tool is a value ([`Tools.Tool`]): an agent's `tools` is the list
+--- it offers the model, and a program of its own picks or makes its own.
+--- [`Tools.all`] is every tool above; [`Tools.default`] is all but bash
+--- and jobs, so the model starts no program but what a snippet's worker
+--- may; [`Tools.only`] and [`Tools.without`] pick by name.
+---
+---     local agent = Agent.new({ sign = sign, cwd = cwd, tools = Tools.only(Tools.all(), { "read", "sql" }) })
+---
 --- A relative path is from the working directory; ~ is HOME. A tool
 --- that fails says why to the model, which goes on from there. Each
 --- is held to the sandbox (`cosmic docs cosmic.agent.policy`).
@@ -87,12 +95,16 @@ local record Tools
     text: string
     --- Whether it is an error.
     is_error: boolean
-    --- The whole output, where `text` holds less of it.
+    --- The whole output, where `text` holds less of it: it is what the
+    --- sessions database keeps, and the model is told its id.
     mut raw?: string
   end
 
   --- Where a tool runs: the working directory, the database of the
-  --- sessions kept and the current one's id (nil where none is).
+  --- sessions kept and the current one's id (nil where none is). The
+  --- sandbox is not put on a tool from outside: a tool of your own that
+  --- reads or writes a path asks `Policy.allows(context.policy, path,
+  --- mode)` first, as read, write and edit do (cosmic.agent.policy).
   record Context
     --- The working directory, which a relative path is from.
     cwd: string
@@ -108,13 +120,36 @@ local record Tools
     worker?: Worker.Set
     --- The MCP servers a snippet may call (cosmic.agent.mcp); nil for none.
     mcp?: AgentMcp.Set
-    --- Whether the user stopped the turn, which ends a wait.
+    --- Whether the user stopped the turn: a tool that waits asks it, and
+    --- ends its wait when it says so.
     stopped?: function(): boolean
+    --- The tools the agent offers; every tool ([`Tools.all`]) where nil.
+    --- A tool's hints name only tools offered.
+    tools?: {Tool}
   end
 
-  --- One tool.
+  --- A path a call touches, and how: the letters of a grant
+  --- (cosmic.sandbox), r to read, w to write, c to create.
+  record Touch
+    --- The absolute path, with no `.` or `..` in it, but its links not
+    --- followed: check it with [`Policy.allows`], which follows them.
+    path: string
+    --- r, w and c, as it needs them.
+    letters: string
+  end
+
+  --- One tool: what the model reads of it, and what does it. Make one of
+  --- your own to give an agent a tool of its own.
+  ---
+  ---     local none: {string: Json.Value} = {}
+  ---     local now: Tools.Tool = { name = "now", snippet = "Say the time", guidelines = {},
+  ---       description = "The time, in seconds since 1970.", schema = { type = "object", properties = none },
+  ---       run = function(_: Tools.Object, _: Tools.Context): Tools.Result
+  ---         return { text = tostring(Clock.now_ns() // Clock.seconds(1)), is_error = false }
+  ---       end }
   record Tool
-    --- The name the model calls it by.
+    --- The name the model calls it by: unique among an agent's tools, of
+    --- letters, digits, `_` and `-`, at most 64 (as the API takes it).
     name: string
     --- Its line in the system prompt's list of tools.
     snippet: string
@@ -124,12 +159,14 @@ local record Tools
     description: string
     --- The JSON schema of its input.
     schema: Object
-    --- Does it, in `context`.
+    --- Does it, in `context`. It never raises: what goes wrong is a
+    --- result marked as an error.
     run: function(input: Object, context: Context): Result
+    --- The paths a call of it with `input` touches, from `cwd`, for a
+    --- hook to check ([`Check.paths`]); nil for a tool that touches none
+    --- the hook can see.
+    paths?: function(input: Object, cwd: string): {Touch}
   end
-
-  --- The tools, in the order the system prompt lists them.
-  list: {Tool}
 end
 
 --- The most lines of output a tool gives the model.
@@ -146,6 +183,14 @@ end
 
 local function fail(text: string): Tools.Result
   return { text = text, is_error = true }
+end
+
+--- The first of `tools` named `name`, or nil.
+function Tools.find(tools: {Tools.Tool}, name: string): Tools.Tool?
+  for _, t in ipairs(tools) do
+    if t.name == name then return t end
+  end
+  return nil
 end
 
 --- `path` from `cwd`: absolute as given, `~` as HOME, else under `cwd`.
@@ -241,8 +286,12 @@ local function read(input: Tools.Object, context: Tools.Context): Tools.Result
   if not allowed then return fail(refused) end
   local body, read_why = Fs.read(full)
   if body == nil then return fail(tostring(read_why)) end
-  return page(body, offset, limit, string.format(" Use bash: sed -n '%dp' %s | head -c %d", math.max(offset or 1, 1),
-    path, MAX_BYTES))
+  local line = math.max(offset or 1, 1)
+  local offered = context.tools
+  local hint = if offered == nil or Tools.find(offered, "bash") ~= nil then
+    string.format(" Use bash: sed -n '%dp' %s | head -c %d", line, path, MAX_BYTES)
+    else string.format(" Use run: read %s with cosmic.fs and print a part of line %d", path, line) end
+  return page(body, offset, limit, hint)
 end
 
 local function write(input: Tools.Object, context: Tools.Context): Tools.Result
@@ -781,8 +830,25 @@ local function schema(properties: {string: Json.Value}, required: {string}): Too
   return { type = "object", properties = properties, required = Json.array(names) }
 end
 
---- The tools, in the order the system prompt lists them.
-Tools.list = {
+--- What a tool of one `path` touches: that path, with `letters`.
+local function touches(letters: string): function(input: Tools.Object, cwd: string): {Tools.Touch}
+  return function(input: Tools.Object, cwd: string): {Tools.Touch}
+    local path = input["path"]
+    if not path is string then return {} end
+    local parts: mut {string} = {}
+    for part in resolve(path, cwd):gmatch("[^/]+") do
+      if part == ".." then
+        if #parts > 0 then table.remove(parts) end
+      elseif part ~= "." then
+        parts[#parts + 1] = part
+      end
+    end
+    return { { path = "/" .. table.concat(parts, "/"), letters = letters } }
+  end
+end
+
+--- Every tool, in the order the system prompt lists them.
+local ALL <const>: {Tools.Tool} = {
   {
     name = "read",
     snippet = "Read file contents",
@@ -795,13 +861,12 @@ Tools.list = {
       limit = integer_field("Maximum number of lines to read"),
     }, { "path" }),
     run = read,
+    paths = touches("r"),
   },
   {
     name = "bash",
     snippet = "Execute bash commands (ls, grep, find, etc.)",
-    guidelines = { "Tools may run in a sandbox: where one is refused (a read-only file system, a path " ..
-        "not there, no network), say so rather than working around it.",
-      "Check a change with the project's own checks and tests before calling it done, and say what you ran." },
+    guidelines = {},
     description = "Execute a bash command in the current working directory. Returns stdout and stderr. " ..
       "Output is truncated to last " .. LIMIT ..
       " (whichever is hit first). If truncated, full output is saved to a temp file. " ..
@@ -830,7 +895,7 @@ Tools.list = {
         "Call several tools in one snippet.",
     },
     description = "Check and run a snippet of Teal, the typed Lua of cosmic, in a worker process kept for the " ..
-      "session, under the same sandbox as bash. The snippet may require cosmic.* modules (cosmic.fs, cosmic.json, " ..
+      "session, under the agent's sandbox, as every tool runs. The snippet may require cosmic.* modules (cosmic.fs, cosmic.json, " ..
       "cosmic.sqlite, cosmic.child, cosmic.http, ...). It is checked first, in milliseconds; one the checker refuses " ..
       "does not run, and the answer is the checker's lines, each with its fix. Returns what it printed (its last " ..
       tostring(RUN_BYTES // 1024) .. "KB) and the JSON of what it returned. Timeout in seconds, " ..
@@ -885,6 +950,7 @@ Tools.list = {
       },
     }, { "path", "edits" }),
     run = edit,
+    paths = touches("rwc"),
   },
   {
     name = "write",
@@ -897,6 +963,7 @@ Tools.list = {
       content = string_field("Content to write to the file"),
     }, { "path", "content" }),
     run = write,
+    paths = touches("wc"),
   },
   {
     name = "sql",
@@ -918,29 +985,77 @@ Tools.list = {
   },
 }
 
---- The tool named `name`, or nil.
-local function find(name: string): Tools.Tool?
-  for _, t in ipairs(Tools.list) do
-    if t.name == name then return t end
-  end
-  return nil
+--- Every tool, in the order the system prompt lists them: a new list,
+--- yours to change.
+---
+---     for _, t in ipairs(Tools.all()) do print(t.name) end -- read bash run jobs edit write sql
+function Tools.all(): mut {Tools.Tool}
+  local out: mut {Tools.Tool} = {}
+  for _, t in ipairs(ALL) do out[#out + 1] = t end
+  return out
 end
 
---- Runs the tool `name` on `input` in `context`; an unknown tool is an
---- error result.
-function Tools.run(name: string, input: Tools.Object, context: Tools.Context): Tools.Result
-  -- The jobs are looked at as each call comes: those that exited are
-  -- settled, and their timeouts and the bound on their output kept.
+--- Those of `tools` named in `names`, in the order of `tools`; a name
+--- that none of them has is passed over.
+---
+---     local reading = Tools.only(Tools.all(), { "read", "sql" })
+function Tools.only(tools: {Tools.Tool}, names: {string}): mut {Tools.Tool}
+  local named: mut {string: boolean} = {}
+  for _, n in ipairs(names) do named[n] = true end
+  local out: mut {Tools.Tool} = {}
+  for _, t in ipairs(tools) do
+    if named[t.name] == true then out[#out + 1] = t end
+  end
+  return out
+end
+
+--- Those of `tools` not named in `names`, in the order of `tools`.
+---
+---     local quiet = Tools.without(Tools.all(), { "bash", "jobs" })
+function Tools.without(tools: {Tools.Tool}, names: {string}): mut {Tools.Tool}
+  local named: mut {string: boolean} = {}
+  for _, n in ipairs(names) do named[n] = true end
+  local out: mut {Tools.Tool} = {}
+  for _, t in ipairs(tools) do
+    if named[t.name] == nil then out[#out + 1] = t end
+  end
+  return out
+end
+
+--- What an agent offers unless told: every tool but bash and jobs, so
+--- the model runs no program of its own. A snippet's worker still may,
+--- as its sandbox lets it (`cosmic docs cosmic.agent.worker`).
+function Tools.default(): mut {Tools.Tool}
+  return Tools.without(ALL, { "bash", "jobs" })
+end
+
+--- Runs `tool` on `input` in `context`, the background jobs looked at
+--- first: those that exited are settled, and their timeouts and the
+--- bound on their output kept.
+function Tools.call(tool: Tools.Tool, input: Tools.Object, context: Tools.Context): Tools.Result
   Jobs.check(context.jobs)
-  local t = find(name)
+  return tool.run(input, context)
+end
+
+--- Runs the first of `tools` named `name` on `input` in `context`, as
+--- [`Tools.call`] does; one not there is an error result.
+function Tools.dispatch(tools: {Tools.Tool}, name: string, input: Tools.Object, context: Tools.Context): Tools.Result
+  Jobs.check(context.jobs)
+  local t = Tools.find(tools, name)
   if t == nil then return fail("Tool " .. name .. " not found") end
   return t.run(input, context)
 end
 
---- The tools as the Messages API takes them.
-function Tools.definitions(): Json.Value
+--- Runs the tool of [`Tools.all`] named `name` on `input` in `context`;
+--- an unknown tool is an error result.
+function Tools.run(name: string, input: Tools.Object, context: Tools.Context): Tools.Result
+  return Tools.dispatch(ALL, name, input, context)
+end
+
+--- `tools` as the Messages API takes them.
+function Tools.definitions(tools: {Tools.Tool}): Json.Value
   local out: mut {Json.Value} = {}
-  for _, t in ipairs(Tools.list) do
+  for _, t in ipairs(tools) do
     out[#out + 1] = { name = t.name, description = t.description, input_schema = t.schema }
   end
   return Json.array(out)

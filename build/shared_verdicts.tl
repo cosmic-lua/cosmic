@@ -45,6 +45,13 @@ local record Bound
 end
 
 local record shared_verdicts
+  --- Remembers how [`settle`] packs one module's row of a test's hits, `row` as [`build.test`]'s `row_line` spells
+  --- it from `head` and `lines`: `head` is the whole of `row` before its tab, and `lines` its numbers, ascending,
+  --- which are kept as they are and never changed after. The settle packs a row it keeps from those numbers, so it
+  --- reads no number back out of the text, and a row no run keeps is never packed. The memo is let go at the end of
+  --- each [`settle`].
+  remember: function(row: string, head: string, lines: {integer})
+
   --- An open cache.
   record Cache
     db: Sqlite.Handle
@@ -216,6 +223,29 @@ end
 
 local schema <const> = cache_formats.verdicts
 
+--- The head and numbers of each row line, by the whole of its text, as [`shared_verdicts.remember`] was told them
+--- where the row was spelled: what [`packed`] packs it from.
+local record Remembered
+  head: string
+  lines: {integer}
+end
+local remembered: mut {string:Remembered} = {}
+
+--- One packed row: `head`, a tab, then `lines` (ascending) each as its distance from the one before, and a newline.
+local function distances(head: string, lines: {integer}): string
+  local out: mut {string} = {}
+  local last = 0
+  for i, number in ipairs(lines) do
+    out[i] = tostring(number - last)
+    last = number
+  end
+  return head .. "\t" .. table.concat(out, ",") .. "\n"
+end
+
+function shared_verdicts.remember(row: string, head: string, lines: {integer})
+  if remembered[row] == nil then remembered[row] = { head = head, lines = lines } end
+end
+
 --- Hits as [`build.test`]'s `take_hits` writes them -- a line per module,
 --- its path and the text its lines are numbered in, a tab, then the lines
 --- it hit, ascending and comma-separated -- with each line after a module's
@@ -224,20 +254,22 @@ local schema <const> = cache_formats.verdicts
 --- carried as it is.
 ---
 --- `known` holds each module's line already packed, by the whole of its text, path and all, and is added to: the
---- tests of a run hit the same lines of most modules, so a line is packed once a run, not once a test.
-local function packed(hits: string, known: mut {string:string}): string
+--- tests of a run hit the same lines of most modules, so a line is packed once a run, not once a test, and most are
+--- packed from the numbers they were spelled of ([`shared_verdicts.remember`]).
+local function packed(hits: string, known: mut {string:string}, rows: {string:Remembered}): string
   return (hits:gsub("[^\n]*\n", function(whole: string): string
     local done = known[whole]
-    if done == nil then
+    local told = if done == nil then rows[whole] else nil end
+    if told ~= nil then
+      done = distances(told.head, told.lines)
+      known[whole] = done
+    elseif done == nil then
       done = whole:gsub("([^\t\n]*)\t([^\n]*)\n", function(path: string, lines: string): string
-        local out: mut {string} = {}
-        local last = 0
+        local numbers: mut {integer} = {}
         for line in lines:gmatch("%d+") do
-          local number = math.tointeger(tonumber(line)) or 0
-          out[#out + 1] = tostring(number - last)
-          last = number
+          numbers[#numbers + 1] = math.tointeger(tonumber(line)) or 0
         end
-        return path .. "\t" .. table.concat(out, ",") .. "\n"
+        return distances(path, numbers)
       end)
       known[whole] = done
     end
@@ -477,6 +509,10 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
                                 owed: shared_verdicts.Owed, now_ns: integer): boolean, string
   local db = cache.db
   local parts = owed.parts or ""
+  -- A run's rows are let go with it, whether or not the settle goes through: what a later run spells it remembers
+  -- again.
+  local rows = remembered
+  remembered = {}
   local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
   if not begun then return false, tostring(begin_trouble) end
   local function steps(): boolean, string
@@ -492,7 +528,7 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
       local ok, trouble = db:run(
         "INSERT OR REPLACE INTO " .. declared .. " (key, test, hits, elapsed_ns, used_ns, " ..
           "origin, parts) VALUES (?1, ?2, deflate(?3), ?4, ?5, ?6, ?7)",
-        { text(kept.key), text(kept.test), text(packed(kept.hits, known)),
+        { text(kept.key), text(kept.test), text(packed(kept.hits, known, rows)),
           { integer = kept.elapsed_ns }, { integer = now_ns }, text(origin), text(parts) })
       if not ok then return false, tostring(trouble) end
     end

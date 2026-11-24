@@ -62,6 +62,7 @@ local record Pair<K, V is Ordered> is Base<K>
   end
   enum Kind "a" "b" end
   type Alias = {K: V}
+  type Shape = {k: K, v?: V}
   array: {integer}
   fn: function<A>(self: Pair, n?: integer, ...: any): (true, A) | (false, nil), asserts n is integer
   m: function(): string?, mut {string}

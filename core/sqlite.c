@@ -20,6 +20,7 @@
 
 #define HANDLE_TYPE "cosmic.sqlite.handle"
 #define STATEMENT_TYPE "cosmic.sqlite.statement"
+#define NULL_KEY "cosmic.sqlite.NULL"
 
 /* How many databases a connection opened here may attach until it raises
  * the limit: SQLite's own default, well below the ceiling build.zig
@@ -1355,30 +1356,6 @@ static int bind_array (lua_State *L, sqlite3_stmt *stmt, int param, int index, i
   return rc;
 }
 
-/* Binds the list at argument 3 for carray() as `kind`. */
-static int bind_list (lua_State *L, int kind) {
-  struct statement *s = checked_statement(L);
-  int index = cosmic_checkint(L, 2);
-  luaL_checktype(L, 3, LUA_TTABLE);
-  return bound(L, bind_array(L, s->stmt, index, 3, kind), s->db);
-}
-
-static int statement_bind_integers (lua_State *L) {
-  return bind_list(L, ARRAY_KIND(SQLITE_CARRAY_INT64));
-}
-
-static int statement_bind_numbers (lua_State *L) {
-  return bind_list(L, ARRAY_KIND(SQLITE_CARRAY_DOUBLE));
-}
-
-static int statement_bind_texts (lua_State *L) {
-  return bind_list(L, ARRAY_KIND(SQLITE_CARRAY_TEXT));
-}
-
-static int statement_bind_blobs (lua_State *L) {
-  return bind_list(L, ARRAY_KIND(SQLITE_CARRAY_BLOB));
-}
-
 /* Values are read raw: neither a metatable nor a coercion may run Lua
  * between checking this statement and binding its parameters. */
 static int value_kind (lua_State *L, int index) {
@@ -1405,6 +1382,27 @@ static int value_kind (lua_State *L, int index) {
   return kind;
 }
 
+/* Binds the Value at stack `value`, of `kind` as value_kind found it,
+ * to parameter `index`: SQLite's code. */
+static int bind_value (lua_State *L, sqlite3_stmt *stmt, int index, int value, int kind) {
+  if (kind == SQLITE_NULL) return sqlite3_bind_null(stmt, index);
+  int rc;
+  lua_pushnil(L);
+  lua_next(L, value);
+  if (kind >= ARRAY_KIND(0)) rc = bind_array(L, stmt, index, lua_gettop(L), kind);
+  else if (kind == SQLITE_INTEGER) rc = sqlite3_bind_int64(stmt, index, lua_tointeger(L, -1));
+  else if (kind == SQLITE_FLOAT) rc = sqlite3_bind_double(stmt, index, lua_tonumber(L, -1));
+  else {
+    size_t len;
+    const char *bytes = lua_tolstring(L, -1, &len);
+    rc = kind == SQLITE_TEXT ?
+      sqlite3_bind_text64(stmt, index, bytes, (sqlite3_uint64)len, SQLITE_TRANSIENT, SQLITE_UTF8) :
+      sqlite3_bind_blob64(stmt, index, bytes, (sqlite3_uint64)len, SQLITE_TRANSIENT);
+  }
+  lua_pop(L, 2);
+  return rc;
+}
+
 static int statement_bind_values_result (lua_State *L) {
   luaL_checktype(L, 2, LUA_TTABLE);
   struct outcome out = {0};
@@ -1427,29 +1425,130 @@ static int statement_bind_values_result (lua_State *L) {
   for (int index = 1; index <= count; index++) {
     lua_rawgeti(L, 2, index);
     int kind = value_kind(L, lua_gettop(L));
-    if (kind == SQLITE_NULL) {
-      rc = sqlite3_bind_null(s->stmt, index);
-    } else {
-      lua_pushnil(L);
-      lua_next(L, -2);
-      if (kind >= ARRAY_KIND(0)) rc = bind_array(L, s->stmt, index, lua_gettop(L), kind);
-      else if (kind == SQLITE_INTEGER) rc = sqlite3_bind_int64(s->stmt, index, lua_tointeger(L, -1));
-      else if (kind == SQLITE_FLOAT) rc = sqlite3_bind_double(s->stmt, index, lua_tonumber(L, -1));
-      else {
-        size_t len;
-        const char *value = lua_tolstring(L, -1, &len);
-        rc = kind == SQLITE_TEXT ?
-          sqlite3_bind_text64(s->stmt, index, value, (sqlite3_uint64)len, SQLITE_TRANSIENT, SQLITE_UTF8) :
-          sqlite3_bind_blob64(s->stmt, index, value, (sqlite3_uint64)len, SQLITE_TRANSIENT);
-      }
-      lua_pop(L, 2);
-    }
+    rc = bind_value(L, s->stmt, index, lua_gettop(L), kind);
     lua_pop(L, 1);
     if (rc != SQLITE_OK) break;
   }
   capture(L, &out, s->db, rc, NULL);
   push_outcome(L, &out, false);
   return 1;
+}
+
+/* kind_of(value, kind): value_kind run under lua_pcall by bind_all, its
+ * answer stored in the int `kind` points to, so that a
+ * malformed Value is returned to bind_all's caller, which releases the
+ * statement before it raises. */
+static int kind_of (lua_State *L) {
+  int *kind = lua_touserdata(L, 2);
+  *kind = value_kind(L, 1);
+  return 0;
+}
+
+/* Pushes bind_all's failure: the position (0 for the list as a whole),
+ * why, and SQLite's code, or false for values of no shape a statement
+ * takes, which the caller raises once it has released the statement. */
+static int bind_failed (lua_State *L, int index, int code) {
+  lua_pushinteger(L, index);
+  lua_insert(L, -2);
+  if (code == 0) lua_pushboolean(L, 0);
+  else lua_pushinteger(L, code);
+  return 3;
+}
+
+/* bind_all(values): binds values[1] to values[n] to the statement's n
+ * parameters in one pass, each by its Lua type: an integer as an integer,
+ * a float as a number, a string as text, a boolean as 1 or 0, and a table
+ * as the Value its one field names ({} for NULL, {blob = s} for bytes, a
+ * list for carray). Returns nothing where every value is bound, and
+ * allocates nothing then unless a value is a Value table. Otherwise it
+ * returns what bind_failed pushes; it raises only for a statement that
+ * is gone or values that are no table. */
+static int statement_bind_all (lua_State *L) {
+  struct statement *s = checked_statement(L);
+  luaL_checktype(L, 2, LUA_TTABLE);
+  int count = sqlite3_bind_parameter_count(s->stmt);
+  for (int index = 1; index <= count; index++) {
+    int rc;
+    int type = lua_rawgeti(L, 2, index);
+    switch (type) {
+      case LUA_TNUMBER:
+      rc = lua_isinteger(L, -1) ? sqlite3_bind_int64(s->stmt, index, (sqlite3_int64)lua_tointeger(L, -1))
+                                : sqlite3_bind_double(s->stmt, index, (double)lua_tonumber(L, -1));
+      break;
+      case LUA_TSTRING: {
+        size_t len;
+        const char *text = lua_tolstring(L, -1, &len);
+        rc = sqlite3_bind_text64(s->stmt, index, text, (sqlite3_uint64)len, SQLITE_TRANSIENT, SQLITE_UTF8);
+        break;
+      }
+      case LUA_TBOOLEAN:
+      rc = sqlite3_bind_int64(s->stmt, index, lua_toboolean(L, -1) ? 1 : 0);
+      break;
+      case LUA_TTABLE: {
+        int value = lua_gettop(L);
+        /* value_kind reads raw fields, so a Value whose fields come
+         * through __index would bind as NULL: refuse it, but for the
+         * module's own read-only NULL. */
+        if (lua_getmetatable(L, value)) {
+          lua_pop(L, 1);
+          lua_getfield(L, LUA_REGISTRYINDEX, NULL_KEY);
+          int is_null = lua_rawequal(L, -1, value);
+          lua_pop(L, 1);
+          if (is_null) {
+            rc = sqlite3_bind_null(s->stmt, index);
+            break;
+          }
+          lua_pushliteral(L, " is a table with a metatable, which a Value is not: give a plain table");
+          return bind_failed(L, index, 0);
+        }
+        lua_pushcfunction(L, kind_of);
+        lua_pushvalue(L, value);
+        int kind = SQLITE_NULL;
+        lua_pushlightuserdata(L, &kind);
+        if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
+          const char *why = lua_tostring(L, -1);
+          if (why == NULL) why = "a malformed Value";
+          if (strncmp(why, "sqlite: ", 8) == 0) why += 8;
+          lua_pushfstring(L, ": %s", why);
+          return bind_failed(L, index, 0);
+        }
+        rc = bind_value(L, s->stmt, index, value, kind);
+        break;
+      }
+      case LUA_TNIL:
+      lua_pushliteral(L, " has no value (Sqlite.NULL binds NULL)");
+      return bind_failed(L, index, SQLITE_RANGE);
+      default:
+      lua_pushfstring(L, " is a %s, which no parameter takes: give an integer, number, string, boolean or Value",
+                      luaL_typename(L, -1));
+      return bind_failed(L, index, 0);
+    }
+    lua_pop(L, 1);
+    if (rc != SQLITE_OK) {
+      lua_pushfstring(L, ": %s", sqlite3_errstr(rc));
+      return bind_failed(L, index, rc & 0xff);
+    }
+  }
+  /* Every position from 1 to count holds a value, so any other key is
+   * one too many. A key that is no position at all raises, whatever else
+   * the list holds; otherwise the highest position past the last
+   * parameter is named, as RANGE. */
+  lua_Integer highest = 0;
+  lua_pushnil(L);
+  while (lua_next(L, 2) != 0) {
+    lua_pop(L, 1);
+    if (!lua_isinteger(L, -1) || lua_tointeger(L, -1) < 1) {
+      lua_pop(L, 1);
+      lua_pushliteral(L, "values holds a key that is no parameter position from 1");
+      return bind_failed(L, 0, 0);
+    }
+    if (lua_tointeger(L, -1) > count && lua_tointeger(L, -1) > highest) highest = lua_tointeger(L, -1);
+  }
+  if (highest > 0) {
+    lua_pushfstring(L, "values holds a parameter %I, and the statement has %d", (LUAI_UACINT)highest, count);
+    return bind_failed(L, 0, SQLITE_RANGE);
+  }
+  return 0;
 }
 
 /* The empty guard is cached across successful rows. Detach it before
@@ -1600,6 +1699,22 @@ static int statement_reset (lua_State *L) {
   return rewound(L, 1);
 }
 
+/* reset_result(): as reset, but answers an ExecResult with SQLite's
+ * codes, as step_result does: a statement stopped before its end, in
+ * autocommit, commits at this reset, and a failure there (a deferred
+ * foreign key, BUSY) is the statement's. */
+static int statement_reset_result (lua_State *L) {
+  struct outcome out = {0};
+  out.message = cosmic_guard_push(L, release_message);
+  struct statement *s = checked_statement(L);
+  begin_wait(s->owner);
+  sqlite3_clear_bindings(s->stmt);
+  int rc = sqlite3_reset(s->stmt);
+  capture(L, &out, s->db, rc, NULL);
+  push_outcome(L, &out, false);
+  return 1;
+}
+
 static int statement_rewind (lua_State *L) {
   return rewound(L, 0);
 }
@@ -1738,13 +1853,10 @@ static const luaL_Reg statement_methods[] = {
   {"bind_number", statement_bind_number},
   {"bind_text", statement_bind_text},
   {"bind_blob", statement_bind_blob},
-  {"bind_integers", statement_bind_integers},
-  {"bind_numbers", statement_bind_numbers},
-  {"bind_texts", statement_bind_texts},
-  {"bind_blobs", statement_bind_blobs},
   {"step", statement_step},
   {"step_result", statement_step_result},
   {"bind_values_result", statement_bind_values_result},
+  {"bind_all", statement_bind_all},
   {"columns", statement_columns},
   {"name", statement_name},
   {"kind", statement_kind},
@@ -1752,6 +1864,7 @@ static const luaL_Reg statement_methods[] = {
   {"number", statement_number},
   {"bytes", statement_bytes},
   {"reset", statement_reset},
+  {"reset_result", statement_reset_result},
   {"rewind", statement_rewind},
   {"finalize", statement_finalize},
   {"release", statement_release},
@@ -1770,6 +1883,26 @@ static void make_type (lua_State *L, const char *name, const luaL_Reg *methods,
   lua_pop(L, 1);
 }
 
+static int null_written (lua_State *L) {
+  return luaL_error(L, "sqlite: Sqlite.NULL is read-only");
+}
+
+/* Pushes the one read-only empty Value that binds NULL, kept in the
+ * registry under NULL_KEY so bind_all knows it by identity. */
+static void make_null (lua_State *L) {
+  if (lua_getfield(L, LUA_REGISTRYINDEX, NULL_KEY) == LUA_TTABLE) return;
+  lua_pop(L, 1);
+  lua_newtable(L);
+  lua_createtable(L, 0, 2);
+  lua_pushcfunction(L, null_written);
+  lua_setfield(L, -2, "__newindex");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "__metatable");
+  lua_setmetatable(L, -2);
+  lua_pushvalue(L, -1);
+  lua_setfield(L, LUA_REGISTRYINDEX, NULL_KEY);
+}
+
 static const luaL_Reg module[] = {
   {"open", sqlite_open},
   {"open_result", sqlite_open_result},
@@ -1784,5 +1917,7 @@ int cosmic_open_sqlite (lua_State *L) {
   luaL_newlib(L, module);
   lua_pushstring(L, sqlite3_libversion());
   lua_setfield(L, -2, "version");
+  make_null(L);
+  lua_setfield(L, -2, "NULL");
   return 1;
 }

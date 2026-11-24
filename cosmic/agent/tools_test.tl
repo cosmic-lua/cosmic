@@ -139,3 +139,49 @@ local function test_sql_reads_what_is_kept()
   assert(#loaded.messages == 1 and loaded.model == "m")
   local _, _ = db:close()
 end
+
+local function names(tools: {Tools.Tool}): string
+  local out: mut {string} = {}
+  for _, t in ipairs(tools) do out[#out + 1] = t.name end
+  return table.concat(out, " ")
+end
+
+local function test_tools_are_values_to_pick_and_make()
+  assert(names(Tools.all()) == "read bash run jobs edit write sql", names(Tools.all()))
+  assert(names(Tools.default()) == "read run edit write sql", names(Tools.default()))
+  assert(names(Tools.only(Tools.all(), { "sql", "read", "nope" })) == "read sql")
+  assert(names(Tools.without(Tools.all(), { "run" })) == "read bash jobs edit write sql")
+  assert(assert(Tools.find(Tools.all(), "edit")).name == "edit" and Tools.find(Tools.default(), "bash") == nil)
+  -- A hint names only tools offered.
+  local dir = scratch()
+  assert(Fs.write(dir .. "/wide.txt", string.rep("w", 60000)))
+  local wide = Tools.dispatch(Tools.default(), "read", { path = "wide.txt" }, { cwd = dir, tools = Tools.default() })
+  assert(wide.text:find("Use run: read wide.txt", 1, true) ~= nil and wide.text:find("bash") == nil, wide.text:sub(-200))
+  assert(Tools.run("read", { path = "wide.txt" }, { cwd = dir }).text:find("Use bash: sed", 1, true) ~= nil)
+  assert(Tools.dispatch(Tools.default(), "bash", { command = "true" }, { cwd = dir }).text == "Tool bash not found")
+  -- Each call gives a new list: a change to one is not seen in the next.
+  local mine = Tools.all()
+  table.remove(mine, 1)
+  assert(#Tools.all() == 7 and #mine == 6)
+  -- A tool of one's own: offered to the model, and run when it calls it.
+  local none: {string: Json.Value} = {}
+  local now: Tools.Tool = { name = "now", snippet = "Say the time", guidelines = { "Ask now for the time." },
+    description = "The time.", schema = { type = "object", properties = none },
+    run = function(_: Tools.Object, c: Tools.Context): Tools.Result
+      return { text = "noon in " .. c.cwd, is_error = false }
+    end }
+  local a = agent_fixture.api({ { content = { { type = "tool_use", id = "t1", name = "now", input = none },
+    { type = "tool_use", id = "t2", name = "bash", input = { command = "true" } } }, stop_reason = "tool_use" },
+    { content = { { type = "text", text = "ok" } }, stop_reason = "end_turn" } })
+  local s = Agent.new({ sign = keyed("k"), cwd = "/", base_url = "https://api.test", send = a.send, tools = { now } })
+  assert(s.system:find("- now: Say the time", 1, true) ~= nil and s.system:find("- Ask now for the time.", 1, true) ~= nil)
+  assert(s.system:find("bash", 1, true) == nil, s.system)
+  assert(s:prompt("what time is it?"))
+  local listed = agent_fixture.sent(a, 1)["tools"]
+  assert(listed ~= nil)
+  local offered = assert(Json.encode(listed))
+  assert(offered == '[{"description":"The time.","input_schema":{"properties":{},"type":"object"},"name":"now"}]', offered)
+  local answers = agent_fixture.said(a, 2)
+  assert(answers:find('"content":"noon in /"', 1, true) ~= nil, answers)
+  assert(answers:find("Tool bash not found", 1, true) ~= nil, answers)
+end

@@ -142,7 +142,7 @@ local record McpClient
     tools: function(Session): ({Mcp.Tool}) | (nil, Failure)
     --- Calls the tool `name` with `arguments`, as `opts` says. A tool that ran and
     --- failed is a result with `isError`; a call the server refused is
-    --- a failure. Where [`Session.tools`] listed the tool with an
+    --- a failure. Where [`cosmic.mcp.client.Session.tools`] listed the tool with an
     --- `outputSchema` this client can check, a result that is not an
     --- error and whose `structuredContent` does not hold to it is a
     --- failure too.
