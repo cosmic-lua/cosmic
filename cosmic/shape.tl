@@ -26,10 +26,14 @@
 ---
 ---     local server, err = decode_into(text, SERVER.spec)
 ---
---- A field that is one of several shapes has no shape to check: a union of
---- more than one type is refused when the module is built. Write it as a
---- tagged record, with a `kind` enum and an optional field for each kind,
---- and test `kind` after `into`:
+--- A field that is one of several records has a shape where each record
+--- requires a field no other declares: the value is the record whose
+--- field it holds, and `is` tells them apart after `into`
+--- (`grants: {Path | Calls}`, where only `Path` declares `path` and only
+--- `Calls` declares `calls`). Any other union of more than one type is
+--- refused when the module is built. Write it as a tagged record, with a
+--- `kind` enum and an optional field for each kind, and test `kind` after
+--- `into`:
 ---
 ---     local record Event
 ---       enum Kind
@@ -115,6 +119,7 @@ local record Shape
     "map"
     "record"
     "one_of"
+    "union"
   end
 
   --- What the build read of a record's declaration, for what needs its structure: [`Input.bind_strings`] binds the
@@ -133,6 +138,10 @@ local record Shape
     strict?: boolean
     --- The values admitted, for "one_of".
     values?: {string | number | boolean}
+    --- The records a "union" is one of, each told by the field of `by` at its index, which only it declares.
+    arms?: {Node}
+    --- For "union", the field that tells each of `arms`: a value is the first whose field it holds.
+    by?: {string}
   end
 
   --- A shape, and the type `T` of what it checks: a value that passes it is a `T`. It is a check, and nothing else:
@@ -199,6 +208,9 @@ local record Shape
     failed: function(why: string, path: string): string
     --- The failure of an enumeration, as [`one_of`] words it.
     not_one_of: function(path: string, value: any, ...: string): string
+    --- Which of the records of a union `value` is: the index in `names` of the first field it holds, each a field one
+    --- record alone declares, and ""; nil and why where it is no table, a JSON array, or holds none or two of them.
+    which: function(value: any, path: string, names: {string}): integer?, string
   end
 
   --- `value` checked against `spec`, as a new value holding what the spec
@@ -288,7 +300,8 @@ local record Shape
   --- `T | nil`, which may be missing. A JSON object inside the payload, such as
   --- `{"cfg": {"x": 2}}`, is a field typed by another record (`cfg: Settings`),
   --- with both records declared at the module's top level: the check the build
-  --- writes there cannot name a record that a function declares. A function, a union of more
+  --- writes there cannot name a record that a function declares. A union of records each told by a field it alone
+  --- declares is the one whose field the payload holds. A function, any other union of more
   --- than one type, a generic, an interface and a record that holds itself
   --- are refused when the module is built, naming the field. A field of type
   --- `any` may be missing, since `any` holds nil: a payload that
@@ -621,9 +634,17 @@ local function strict_node(node: Shape.Node): Shape.Node
     fields = own
   end
   local of = node.of
+  local arms: {Shape.Node}? = nil
+  if node.arms ~= nil then
+    local own: mut {Shape.Node} = {}
+    for i, arm in ipairs(node.arms) do
+      own[i] = strict_node(arm)
+    end
+    arms = own
+  end
   return {
     kind = node.kind, optional = node.optional, of = if of ~= nil then strict_node(of) else nil end, fields = fields,
-    strict = if node.kind == "record" then true else node.strict end, values = node.values,
+    strict = if node.kind == "record" then true else node.strict end, values = node.values, arms = arms, by = node.by,
   }
 end
 
@@ -744,6 +765,24 @@ local BUILD: Shape.Build = {
       return ("%s: want %s, got %s"):format(path, wanted(allowed), shown(value))
     end
     return mismatch(path, wanted(allowed), value)
+  end,
+  which = function(value: any, path: string, names: {string}): integer?, string
+    local t = as_table(value)
+    if t == nil or Json.is_array(t) then return nil, mismatch(path, "record", value) end
+    local found: integer? = nil
+    for i, name in ipairs(names) do
+      if not absent(rawget(t, name)) then
+        if found ~= nil then
+          return nil, ("%s: holds both %s and %s, which tell different records apart; keep one"):format(path,
+            quoted(names[found] or ""), quoted(name))
+        end
+        found = i
+      end
+    end
+    if found ~= nil then return found, "" end
+    local fields: mut {string} = {}
+    for i, name in ipairs(names) do fields[i] = quoted(name) end
+    return nil, ("%s: want a record with one of the fields %s"):format(path, table.concat(fields, ", "))
   end,
 }
 

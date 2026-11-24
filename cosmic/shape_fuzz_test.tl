@@ -141,6 +141,10 @@ local function gen_value(r: Recipe, spec: Shape.Node, depth: integer, strict: bo
       if assert(spec.fields)[extra] == nil then t[extra] = "extra" end -- checked: any_use
     end
     return t -- checked: any_use
+  elseif kind == "union" then
+    -- One of the records, which holds the field that tells it.
+    local arms = assert(spec.arms)
+    return gen_value(r, assert(arms[byte(r, #arms) + 1]), depth, strict)
   end
 end
 
