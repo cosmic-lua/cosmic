@@ -27,6 +27,11 @@ local function test_check_has_its_own_help(tmp: string)
   local help = tool_fixture.cosmic(tmp, { "help", "hash", "check" })
   assert(help.code == 0 and help.out:find("usage: cosmic hash check [options] <sums|->\n", 1, true) == 1, help.out)
   assert(help.out:find("--quiet", 1, true) ~= nil and help.out:find("--json", 1, true) == nil, help.out)
+  -- Through the binary, the spellings before `check` and `-a` point at them.
+  local moved = tool_fixture.cosmic(tmp, { "hash", "--check", "sums" })
+  assert(moved.code == 2 and moved.err:find("`cosmic hash check <sums>` checks a sums file", 1, true) ~= nil, moved.err)
+  local switch = tool_fixture.cosmic(tmp, { "hash", "--sha512" }, "abc")
+  assert(switch.code == 2 and switch.err:find("name the algorithm with -a sha512", 1, true) ~= nil, switch.err)
 end
 
 local function test_check_exits_1_on_a_failure_and_2_on_a_usage_error(tmp: string)

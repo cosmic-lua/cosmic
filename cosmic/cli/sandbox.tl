@@ -7,14 +7,15 @@
 ---
 --- The program is the first word that is not an option, or the word after
 --- `--`. Every word after the program is its own argument, also a word
---- that looks like an option. The program is found on the PATH. Its own
---- file and its loader must be granted for it to run: `--system` grants
---- what a host's programs need to start, and `--cosmic` grants this
---- program's own file.
+--- that looks like an option. The program is found on the PATH. The
+--- start grants the program and its loader to run, and nothing else:
+--- `--system` grants the libraries and files a host's programs read,
+--- `--programs` lets the program run the host's programs in turn (a
+--- shell's commands), and `--cosmic` grants this program's own file.
 ---
 ---     cosmic sandbox --system --read . -- ls -l
----     cosmic sandbox --system --read . --promise fork -- sh -c 'ls | wc -l'
----     cosmic sandbox --system --path rwxc:. --tmp --promise fork \
+---     cosmic sandbox --system --programs --read . --promise fork -- sh -c 'ls | wc -l'
+---     cosmic sandbox --system --programs --path rwxc:. --tmp --promise fork \
 ---       --isolate file -- make
 ---
 --- Each option is one field of the policy, and each number is a whole
@@ -155,7 +156,8 @@ local command: Flags.Command = {
     ["--run"] = { value = "path", about = "grant a path to read and run (rx)" },
     ["--write"] = { value = "path", about = "grant a path to read, write and create in (rwc)" },
     ["--path"] = { value = "letters:path", about = "grant a path the letters of rwxcu, in that order" },
-    ["--system"] = { about = "what a host's programs need to start" },
+    ["--system"] = { about = "the libraries and files a host's programs read" },
+    ["--programs"] = { about = "run the host's programs from the program, as a shell does" },
     ["--database"] = { value = "path", about = "run this program on a sealed database: only its modules load" },
     ["--modules"] = { value = "a,b,...", about = "seal these modules (the first the main) and run on that" },
     ["--closure"] = { about = "seal a script and the modules it requires, and run it on that" },

@@ -30,6 +30,7 @@ local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
+local raw = require("cosmic.internal.text")
 
 local record Shell
   --- A row [`Shell.sqlite`] answers: each column by its name, NULL as [`Json.null`].
@@ -74,18 +75,8 @@ end
 --- newline is one too, and none follows a last newline. A `\r` before a
 --- newline stays.
 function Shell.split(text: string): {string}
-  local out: mut {string} = {}
-  -- Plain finds of each newline: a pattern of `([^\n]+)$` tries every start in the text and backs off each, which
-  -- took seconds over a tree, and a gmatch with captures is slower than these finds.
-  local from = 1
-  local at = text:find("\n", from, true)
-  while at ~= nil do
-    out[#out + 1] = text:sub(from, at - 1)
-    from = at + 1
-    at = text:find("\n", from, true)
-  end
-  if from <= #text then out[#out + 1] = text:sub(from) end
-  return out
+  -- In C: a split in Lua took 5 ms a MiB, as long as wc -l takes to start and count.
+  return raw.lines(text, false)
 end
 
 --- `line` without a `\r` at its end.
@@ -100,9 +91,24 @@ end
 function Shell.lines(path: string): ({string}) | (nil, Failure)
   local text, why = Fs.read(path)
   if text == nil then return nil, why end
-  local out: mut {string} = {}
-  for _, line in ipairs(Shell.split(text)) do out[#out + 1] = bare(line) end
-  return out
+  return raw.lines(text, true)
+end
+
+--- The lines of `text`, from the file `path`, that hold `needle`, plain text with no newline or `\r`, added to `out`:
+--- one search of the whole text, as grep -F makes, not one a line, and the newlines between counted in C.
+local function plain_hits(path: string, text: string, needle: string, out: mut {Shell.Hit})
+  local line, start, from = 1, 1, 1
+  local at = text:find(needle, 1, true)
+  while at ~= nil do
+    local passed, last = raw.newlines(text, from, at - 1)
+    line = line + passed
+    if last > 0 then start = last + 1 end
+    local stop = (text:find("\n", at, true) or #text + 1) - 1
+    local held = bare(text:sub(start, stop))
+    out[#out + 1] = { path = path, line = line, text = held }
+    line, start, from = line + 1, stop + 2, stop + 2
+    at = text:find(needle, from, true)
+  end
 end
 
 --- Each line of the files `paths` that holds `pattern`, a Lua pattern,
@@ -114,16 +120,19 @@ function Shell.grep(pattern: string, paths: {string}, plain?: boolean): ({Shell.
     local text, why = Fs.read(path)
     if text == nil then return nil, why end
     local exact = plain == true
-    -- A malformed pattern raises in find, once a line reaches the part that is malformed: one guard a file.
-    local ok, trouble = pcall(function()
-      for i, line in ipairs(Shell.split(text)) do
-        local held = bare(line)
-        if held:find(pattern, 1, exact) ~= nil then
-          out[#out + 1] = { path = path, line = i, text = held }
+    if exact and pattern ~= "" and pattern:find("[\r\n]") == nil then
+      plain_hits(path, text, pattern, out)
+    else
+      -- A malformed pattern raises in find, once a line reaches the part that is malformed: one guard a file.
+      local ok, trouble = pcall(function()
+        for i, held in ipairs(raw.lines(text, true)) do
+          if held:find(pattern, 1, exact) ~= nil then
+            out[#out + 1] = { path = path, line = i, text = held }
+          end
         end
-      end
-    end)
-    if not ok then return nil, Failure.new(pattern .. ": " .. tostring(trouble)) end
+      end)
+      if not ok then return nil, Failure.new(pattern .. ": " .. tostring(trouble)) end
+    end
   end
   return out
 end
@@ -165,11 +174,7 @@ end
 function Shell.wc(path: string): (integer) | (nil, Failure)
   local text, why = Fs.read(path)
   if text == nil then return nil, why end
-  local newlines, at = 0, text:find("\n", 1, true)
-  while at ~= nil do
-    newlines = newlines + 1
-    at = text:find("\n", at + 1, true)
-  end
+  local newlines, _ = raw.newlines(text, 1, #text)
   return newlines
 end
 
@@ -201,12 +206,10 @@ end
 --- (`Shell.sort(lines, function(l: string): string return l:match("%S+$") or l end)`),
 --- ties by the whole item.
 function Shell.sort(list: {string}, by?: function(string): string): {string}
+  -- In C with no key: table.sort took 21 ms on 16k lines, sort(1) 7 ms with its start.
+  if by == nil then return raw.sort(list) end
   local out: mut {string} = {}
   for _, v in ipairs(list) do out[#out + 1] = v end
-  if by == nil then
-    table.sort(out)
-    return out
-  end
   local keys: mut {string: string} = {}
   for _, v in ipairs(out) do keys[v] = by(v) end
   table.sort(out, function(a: string, b: string): boolean
