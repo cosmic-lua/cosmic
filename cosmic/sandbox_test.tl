@@ -680,3 +680,59 @@ local function test_allows_refuses_letters_outside_rwxcu_or_none()
   local ok, why = Sandbox.allows(p, "/srv", "rz")
   assert(not ok and why:find("rwxcu", 1, true) ~= nil, why)
 end
+
+--- A path is checked at its real name: a link out of a grant is checked
+--- at its target, and a name not there yet below the nearest directory
+--- that is. A `.` or `..` below that names no real path.
+local function test_real_follows_links_and_keeps_what_is_not_there(tmp: string)
+  local base = assert(Fs.absolute(tmp))
+  assert(Fs.mkdirs(base .. "/in"))
+  assert(Fs.symlink(base .. "/in", base .. "/link"))
+  assert(Sandbox.real(base .. "/link/new/file") == base .. "/in/new/file")
+  assert(Sandbox.real(base .. "/in") == base .. "/in")
+  assert(Sandbox.real(base .. "/in/no/../../escape") == nil)
+  assert(Sandbox.real("/") == "")
+end
+
+--- Each action asks one letter: `c` of the directory a file is made or
+--- removed in, the rest of the path itself, as the kernel decides.
+local function test_permits_asks_each_action_of_the_path_or_its_directory(tmp: string)
+  local base = assert(Fs.absolute(tmp))
+  local inside, outside = base .. "/in", base .. "/out"
+  assert(Fs.mkdirs(inside))
+  assert(Fs.mkdirs(outside))
+  assert(Fs.write(inside .. "/f.txt", "old"))
+  local file: Sandbox.Policy = { grants = { { path = inside .. "/f.txt", letters = "rw" } } }
+  assert(Sandbox.permits(file, inside .. "/f.txt", "read") and Sandbox.permits(file, inside .. "/f.txt", "write"))
+  -- A grant of the file alone lets it be changed, not made or removed.
+  local ok, why = Sandbox.permits(file, inside .. "/f.txt", "create")
+  assert(not ok and why:find("no c at " .. inside, 1, true) ~= nil, why)
+  assert(not Sandbox.permits(file, inside .. "/f.txt", "remove"))
+  local dir: Sandbox.Policy = { grants = { { path = inside, letters = "rwc" } } }
+  assert(Sandbox.permits(dir, inside .. "/new.txt", "create") and not Sandbox.permits(dir, outside .. "/new.txt", "create"))
+  assert(not Sandbox.permits(dir, inside .. "/f.txt", "run"))
+  -- A link outside the grant is checked at its target, in it.
+  assert(Fs.symlink(inside .. "/f.txt", outside .. "/link.txt"))
+  assert(Sandbox.permits(dir, outside .. "/link.txt", "write"))
+  assert(not Sandbox.permits(dir, inside .. "/no/../../out/x", "create"))
+  local _, unknown = Sandbox.permits(dir, inside, "append")
+  assert(unknown:find("is no action", 1, true) ~= nil, unknown)
+end
+
+--- Profiles count, as a merge reads them; a grant with `from` names
+--- another file inside the sandbox, so it permits nothing outside; /proc
+--- is refused whatever is granted; a policy that does not merge permits
+--- nothing, and says why.
+local function test_permits_reads_profiles_and_refuses_from_grants_and_proc(tmp: string)
+  local base = assert(Fs.absolute(tmp))
+  local cosmic: Sandbox.Policy = { profiles = { "cosmic" } }
+  local own = assert(Fs.absolute(assert(Proc.executable())))
+  assert(Sandbox.permits(cosmic, own, "read") and not Sandbox.permits(cosmic, own, "write"))
+  local mapped: Sandbox.Policy = { grants = { { path = "/etc", letters = "r", from = base } } }
+  assert(not Sandbox.permits(mapped, "/etc/hosts", "read"))
+  local everything: Sandbox.Policy = { grants = { { path = "/", letters = "rwxc" } } }
+  local ok, why = Sandbox.permits(everything, "/proc/self/environ", "read")
+  assert(not ok and why:find("/proc", 1, true) ~= nil, why)
+  local _, none = Sandbox.permits({ profiles = { "nosuch" } }, base, "read")
+  assert(none:find("nosuch", 1, true) ~= nil, none)
+end

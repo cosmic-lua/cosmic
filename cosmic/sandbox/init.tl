@@ -12,6 +12,9 @@
 --- - [`Sandbox.intersect`] is what stacked layers hold: only what each
 ---   allows. [`Sandbox.held`] is that for this process's restrictions.
 --- - [`Sandbox.allows`] says whether a policy gives letters at a path.
+--- - [`Sandbox.permits`] says whether a policy lets a program read, write,
+---   run, create or remove a path by its real name ([`Sandbox.real`]), for
+---   code that acts for a held program outside the sandbox.
 --- - [`Sandbox.profile`] is what a named profile holds on this host:
 ---   "system", "programs", "cosmic" and "proc".
 --- - [`Sandbox.loaders`] is what a program needs read and run to start.
@@ -44,6 +47,7 @@
 --- ([`Seatbelt.compile`]); the module that writes it, [`cosmic.sandbox.seatbelt`],
 --- is required by its own name.
 
+local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local rules = require("cosmic.sandbox.policy")
 local Seatbelt = require("cosmic.sandbox.seatbelt")
@@ -249,6 +253,84 @@ function Sandbox.allows(policy: Sandbox.Policy, path: string, letters: string): 
   local merged, why = rules.merge(policy)
   if merged == nil then return false, why end
   return rules.allows(merged, path, letters)
+end
+
+--- The real name of the absolute `path`, links followed: the real name
+--- of the nearest directory above it that is there, and the rest, where
+--- it is not there yet; nil where a `.` or `..` is in what is not there,
+--- which could leave a grant. A program that checks a path with
+--- [`Sandbox.permits`] and then opens this name changes what it checked.
+---
+---     print(Sandbox.real("/tmp/not-yet/file")) -- /private/tmp/not-yet/file on macOS
+function Sandbox.real(path: string): string?
+  local real: string? = nil
+  local rest, at = "", path
+  while real == nil do
+    local found, _ = Fs.absolute(at)
+    real = found
+    if real == nil then
+      local name = Fs.basename(at)
+      if name == ".." or name == "." or at == Fs.dirname(at) then return nil end
+      rest = "/" .. name .. rest
+      at = Fs.dirname(at)
+    end
+  end
+  return (if real == "/" then "" else real end) .. rest
+end
+
+--- The letter [`Sandbox.permits`] asks for each of its actions, and
+--- whether it is asked of the path's directory.
+local ACTIONS <const>: {string:{letter: string, directory: boolean}} = {
+  read = { letter = "r", directory = false }, write = { letter = "w", directory = false },
+  run = { letter = "x", directory = false }, create = { letter = "c", directory = true },
+  remove = { letter = "c", directory = true },
+}
+
+--- Whether `policy` lets a program held by it do `action` at the absolute
+--- `path`, as the kernel would decide outside any namespace: true, or
+--- false and why. `action` is "read", "write" (a file that is there),
+--- "run", "create" or "remove" (a file in its directory, asked `c` of the
+--- directory, as Landlock grants it). The path is checked as its real
+--- name ([`Sandbox.real`]), and each grant as its real name too, so a link
+--- out of a grant is checked at its target. The policy is merged first
+--- ([`Sandbox.merge`]); one that does not merge permits nothing. A grant
+--- with `from` is passed over, since its path names another file inside
+--- the sandbox than outside, and /proc is refused, since outside a pid
+--- namespace of its own it is this process's. For code that acts for a
+--- held program in a process no kernel layer holds, as a second layer;
+--- [`Sandbox.allows`] is the plain rule under it.
+---
+---     local policy = { grants = { { path = "/srv/data", letters = "rwc" } } }
+---     print(Sandbox.permits(policy, "/srv/data/new.txt", "create")) -- true
+---     print(Sandbox.permits(policy, "/srv/other", "read")) -- false  ...
+function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string): boolean, string
+  local asked = ACTIONS[action]
+  if asked == nil then
+    return false, string.format("%q is no action: read, write, run, create or remove", action)
+  end
+  local letter, of_directory = asked.letter, asked.directory
+  local real = Sandbox.real(path)
+  if real == nil then
+    return false, path .. ": a . or .. names no real path below the files that are there"
+  end
+  if real == "/proc" or real:sub(1, 6) == "/proc/" then
+    return false, real .. ": /proc is this process's own outside a sandbox's pid namespace"
+  end
+  local merged, why = rules.merge(policy)
+  if merged == nil then return false, why end
+  local grants: mut {Sandbox.Grant} = {}
+  for _, grant in ipairs(merged.grants or {}) do
+    if grant.from == nil then
+      local resolved, _ = Fs.absolute(grant.path)
+      grants[#grants + 1] = { path = resolved or grant.path, letters = grant.letters }
+    end
+  end
+  local at = if of_directory then Fs.dirname(real) else real end
+  local allowed, _ = rules.allows({ grants = grants }, at, letter)
+  if not allowed then
+    return false, string.format("the policy gives no %s at %s, so it does not permit %s %s", letter, at, action, real)
+  end
+  return true, ""
 end
 
 --- The policies [`Sandbox.restrict`] has held this process to, merged,
