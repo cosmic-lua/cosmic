@@ -174,6 +174,7 @@ local record Codes
     "sql_schema"
     "sql_refused"
     "sql_parameters"
+    "sql_column"
     -- `is` on a parenthesized place, which narrows nothing
     "paren_is"
     -- not yet checked: a form a later piece of the checker types
@@ -248,7 +249,7 @@ Codes.codes = {
   "literal_needs_type", "literal_ambiguous", "literal_shape", "literal_spread", "arms_differ", "array_of_optional", "require_unknown",
   "export_not_declared", "entry_signature", "missing_return", "not_assigned", "unreachable", "narrowing_dropped", "narrows_unproved",
   "assign_repeated", "iterator_extra", "iterator_variables", "pattern_malformed", "format_malformed", "pack_malformed",
-  "gsub_key", "sql_schema", "sql_refused", "sql_parameters", "paren_is",
+  "gsub_key", "sql_schema", "sql_refused", "sql_parameters", "sql_column", "paren_is",
   "unchecked_binding",
 }
 
@@ -746,6 +747,13 @@ Codes.catalog = {
     why = "a statement binds one value for each `?N` through the highest, and a values list of another length fails " ..
       "when it runs",
     fix = "give <wanted>, one for each parameter, in order",
+  },
+  {
+    code = "sql_column", rule = "SQL on a handle with a schema is read",
+    why = "a row read from SQL on a handle with a schema has the columns the SQL gives, each of the type its table " ..
+      "declares, so a read past the last column, or a read that raises on every cell of the declared type (`text` of an " ..
+      "`INTEGER` column), fails when it runs, and is found where it is written",
+    fix = "read a column the SQL gives with the read of its declared type: <what>",
   },
   {
     code = "paren_is", rule = "narrowing declarations",
