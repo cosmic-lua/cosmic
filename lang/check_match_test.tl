@@ -165,6 +165,20 @@ local function test_a_refused_protected_call_names_the_limits_of_the_overloads()
   assert(refusal.fix:find("answers at most 3 values and none that answers `T...`", 1, true) ~= nil, refusal.fix)
 end
 
+--- A refused call of a builtin with many overloads names the few that take as many arguments as it gives, counts the
+--- rest, and says how a function that answers alternatives goes to `pcall`.
+local function test_a_refused_protected_call_names_its_nearest_overloads_and_counts_the_rest()
+  local r = Programs.run(HEAD .. "local function f(a: integer, b: integer): (integer) | (nil, string)\n" ..
+      "  if a > b then return a end\n  return nil, \"no\"\nend\nlocal okay, v = pcall(f, 1, 2)\n")
+  assert(#r.errors == 1 and r.errors[1].code == "overload_none", Programs.codes(r))
+  local fix = assert(r.errors[1], "the refusal of the call").fix
+  assert(fix:find("function<T, U>((function(T, U)), T, U)", 1, true) ~= nil, fix)
+  assert(fix:find("too many arguments", 1, true) == nil, fix)
+  assert(fix:find("; and %d+ more overloads? of `pcall` refused$") ~= nil, fix)
+  assert(fix:find("closure that binds its values", 1, true) ~= nil, fix)
+  assert(#fix < 1500, tostring(#fix))
+end
+
 local function test_a_protected_call_is_no_value_to_one_name_and_its_failure_is_untrusted_data()
   refused("local function f(): integer\n  return 1\nend\nlocal okay = pcall(f)\n", "alternatives_as_value")
   refused("local function f(): integer\n  return 1\nend\nlocal okay, why = pcall(f)\nlocal n: string = why\n", "any_use")

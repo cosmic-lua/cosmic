@@ -6183,12 +6183,37 @@ end
 
 Calls.fixes = { -- checked: field_fixed
   pcall = "`pcall` passes on at most 6 values, takes a function that answers at most 3 values and none that answers `T...`, " ..
-    "and takes no function that may be nil: pass arguments one overload accepts, in its order",
+    "and takes no function that may be nil; a function that answers alternatives (`(T) | (nil, Failure)`) goes in a " ..
+    "closure that binds its values (`pcall(function(): T? local v, _ = f(x) return v end)`): pass arguments one " ..
+    "overload accepts, in its order",
   xpcall = "`xpcall` passes on at most 3 values, takes a function that answers at most 3 values and none that answers " ..
     "`T...`, and takes no function that may be nil: pass arguments one overload accepts, in its order",
   ["table.sort"] = "pass a comparator (`table.sort(xs, function(a, b) return a.key < b.key end)`), because `<` orders only " ..
     "numbers and strings of one type, and classes that declare `__lt` and `__le`; or pass arguments one overload accepts, in its order",
 }
+
+--- How many refused overloads an `overload_none` names: a builtin such as `pcall` has about 30, and every one's reason
+--- is about 4 KB of text the reader pays for and does not need.
+local shown_overloads <const> = 3
+
+--- The reasons an `overload_none` gives, of `reasons` (one per refused candidate, in their order): those of the
+--- candidates that take as many arguments as the call gives (`counted`) come first, at most `shown_overloads` of them,
+--- and the rest are counted.
+function Calls.nearest_reasons(reasons: {string}, counted: {boolean}, callee: string): string
+  if #reasons <= shown_overloads then return table.concat(reasons, "; ") end
+  local picked: mut {string} = {}
+  for pass = 1, 2 do
+    for i, reason in ipairs(reasons) do
+      if #picked < shown_overloads and (counted[i] == true) == (pass == 1) then
+        picked[#picked + 1] = reason
+      end
+    end
+  end
+  local rest <const> = #reasons - #picked
+  return table.concat(picked, "; ") .. "; and " .. tostring(rest) .. " more " .. (if rest == 1 then "overload" else "overloads" end) ..
+    " of " .. quoted(callee) ..
+    " refused"
+end
 
 --- Where a type came from, in the words of a message: the receiver, or an argument.
 function Calls.source(at: integer): string
@@ -6633,6 +6658,8 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
       Tests.quiet_callee(node.callee))
   local known, pending, tail, count = prep.known, prep.pending, prep.tail, prep.count
   local reasons: mut {string} = {}
+  -- Whether each of `reasons` is of a candidate that takes as many arguments as the call gives.
+  local counted: mut {boolean} = {}
   local unmet: Unmet? = nil
   -- Set when two candidates each reach `bound_unmet` with a different message: the order of the overloads does not say
   -- which the call meant, so none is named.
@@ -6779,6 +6806,7 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
         return c.rets
       end
       reasons[#reasons + 1] = overload_line(ctx, declared, failure)
+      counted[#counted + 1] = wrong_count == nil
     end
   end
   for i, a in ipairs(args) do
@@ -6837,7 +6865,8 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
   end
   report(ctx, "overload_none", node, "no overload of " .. quoted(callee) .. " takes the arguments (" ..
       table.concat(shown, ", ") .. ")",
-    (Calls.fixes[callee] or "pass arguments one overload accepts, in its order") .. ": " .. table.concat(reasons, "; "),
+    (Calls.fixes[callee] or "pass arguments one overload accepts, in its order") .. ": " ..
+      Calls.nearest_reasons(reasons, counted, callee),
     { first or "" })
   return unknown_lists(ctx)
 end
