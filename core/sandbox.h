@@ -264,6 +264,13 @@ int grants_ruleset (const char *const *paths, const unsigned *letters, int count
                     size_t room, int *error, unsigned *held);
 
 uint64_t grant_rights (unsigned letters, long abi);
+
+/* The process that opened the /proc handles a restriction reads
+ * (core/sandbox_rules.c's `inspected`), or 0 for none. A copy a fork gave
+ * another process names its parent's /proc, so the next restriction there
+ * closes it and opens its own. A fork's child sets this to 0, so its copy
+ * is closed even where a later process has the pid the parent had. */
+extern pid_t inspected_by;
 #endif
 
 #if defined(__APPLE__)
