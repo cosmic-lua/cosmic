@@ -1496,9 +1496,15 @@ end
 local function test_each_kind_of_run_has_its_legs()
   local pr, queue, push, full = platform_legs("pr"), platform_legs("queue"), platform_legs("push"), platform_legs("full")
   assert(names_of(pr) == "linux-x86_64", "a pull request's legs: " .. names_of(pr))
-  -- The queue runs a push's legs, each as its suite and its product at once, and linux-x86_64's format check beside.
+  -- The queue runs a push's legs, each as its suite and its product at once, linux-x86_64's format check beside, and
+  -- macOS's suite, which a push does not run: only the daily run met its failures, and they held up the prerelease.
   assert(names_of(queue) == "alpine-x86_64 alpine-x86_64-product linux-aarch64 linux-aarch64-product linux-x86_64 " ..
-      "linux-x86_64-format linux-x86_64-product", "the queue's legs: " .. names_of(queue))
+      "linux-x86_64-format linux-x86_64-product macos-aarch64", "the queue's legs: " .. names_of(queue))
+  local mac, full_mac = assert(queue["macos-aarch64"]), assert(full["macos-aarch64"])
+  assert(mac["part"] == "suite" and mac["leg"] == "macos-aarch64", "the queue runs macOS otherwise")
+  for _, key in ipairs({ "runner", "target", "image" }) do
+    assert(mac[key] == full_mac[key], "the queue runs macOS on another host: " .. key)
+  end
   for name, leg in pairs(push) do
     local suite, product = assert(queue[name]), assert(queue[name .. "-product"])
     assert(suite["part"] == "suite" and product["part"] == "product" and product["leg"] == name and suite["leg"] == name,
@@ -1858,7 +1864,7 @@ local function test_the_relay_saves_the_queues_verdicts_under_the_queues_name()
   assert(concurrency["group"] == "relay" and concurrency["cancel-in-progress"] == false,
     "the relay is not in a group of its own, or is cancelled")
   local job = job_of(relay.jobs, "relay")
-  -- A job a leg the merge queue runs, each relaying its own leg's.
+  -- A job a leg main's push runs, each relaying its own leg's: the queue's macOS suite has no push to relay to.
   local relayed: mut {string} = {}
   local queue_legs = platform_legs("queue")
   for _, entry in ipairs(legs_of(job, "full")) do
@@ -1868,13 +1874,14 @@ local function test_the_relay_saves_the_queues_verdicts_under_the_queues_name()
       "the relay of " .. leg .. " runs on another runner than its leg's")
   end
   table.sort(relayed)
-  local queued: mut {string} = {}
-  for _, leg in pairs(platform_legs("queue")) do
-    if leg["part"] == "suite" then queued[#queued + 1] = assert(leg["leg"]) end
+  local pushed: mut {string} = {}
+  for _, leg in pairs(platform_legs("push")) do
+    pushed[#pushed + 1] = assert(leg["leg"])
+    assert(assert(queue_legs[assert(leg["leg"])])["part"] == "suite", "the queue runs no suite of " .. tostring(leg["leg"]))
   end
-  table.sort(queued)
-  assert(table.concat(relayed, " ") == table.concat(queued, " "),
-    "the relay's legs " .. table.concat(relayed, " ") .. " are not the queue's " .. table.concat(queued, " "))
+  table.sort(pushed)
+  assert(table.concat(relayed, " ") == table.concat(pushed, " "),
+    "the relay's legs " .. table.concat(relayed, " ") .. " are not a push's " .. table.concat(pushed, " "))
   assert(map_of(job.permissions)["actions"] == "read" and map_of(job.permissions)["contents"] == "read",
     "the relay's permissions")
   local steps = job.steps

@@ -462,8 +462,9 @@ drives it against a fake host.
 ### what runs where
 
 The merge queue gates a merge and runs what main's push runs, so a
-commit that would turn main red fails its queue entry instead; the
-daily and a manual run add macOS. A branch's push runs nothing.
+commit that would turn main red fails its queue entry instead. The
+queue also runs macOS's native suite; the daily and a manual run add
+macOS's whole leg. A branch's push runs nothing.
 
 - **a push to a branch** runs no CI. The merge queue tests every change
   before it lands, and the author's local checks (`bin/cosmic fix`,
@@ -487,7 +488,10 @@ daily and a manual run add macOS. A branch's push runs nothing.
   at once, each booting the tree: `<leg>` (part `suite`) runs the native
   suite and its boundary, the darwin suite, the sandbox probe and the
   credential proofs; `<leg>-product` (part `product`) runs assemble, the
-  regressions, the portable suite, the attestation and the product. Beside
+  regressions, the portable suite, the attestation and the product.
+  `macos-aarch64` (part `suite`) runs macOS's native suite and darwin
+  suite, which a push does not: macOS's failures were met only by the
+  daily run, and each held up the prerelease. Beside
   them `linux-x86_64-format` (part `format`) checks the bootstrap's
   scripts and the tree's format over the paths the commit changed since
   main, as a pull request does, and `linux-x86_64-driver` (the `driver`
@@ -566,8 +570,8 @@ never given).
 
 The platform job's `include` is an expression that chooses one of four
 lists by the kind of run (linux-x86_64 alone for a pull request; for the
-queue every leg but macOS as its suite and its product, and linux-x86_64's
-format check; every leg but macOS for a push to main; all four otherwise),
+queue every leg but macOS as its suite and its product, linux-x86_64's
+format check and macOS's suite; every leg but macOS for a push to main; all four otherwise),
 each listing every job: an `include` entry naming a leg
 no dimension holds would start that leg anyway (GitHub adds an entry that
 fits no combination as one of its own). Each entry names the job
