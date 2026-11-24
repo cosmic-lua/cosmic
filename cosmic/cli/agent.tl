@@ -23,6 +23,12 @@
 --- - `rpc` runs one session for another program. It reads commands as
 ---   JSON lines on standard input and writes events on standard output.
 ---   A failed turn does not end the session.
+--- - While `chat` or `rpc` waits for a line, it sends the last request
+---   again every 4.5 minutes, asking for no reply, for up to an hour
+---   (`--keep-warm`). The API then keeps the conversation in its cache:
+---   each such request costs 0.05x of the conversation's input price, and
+---   the cache miss it saves costs 1.25x. rpc tells each as a request
+---   event, with `"warm": true`.
 --- - `sessions` lists the newest sessions in this directory.
 --- - `prompt` prints the system prompt that the model reads.
 --- - `policy` prints, path by path, the sandbox that the tools would run
@@ -118,6 +124,14 @@ local function session_spec(): mut {string: Flags.Option}
   }
 end
 
+--- The options of a session that waits for its next prompt: chat's and rpc's.
+local function waiting_spec(): mut {string: Flags.Option}
+  local spec = session_spec()
+  spec["--keep-warm"] = { value = "minutes",
+    about = "keep the conversation in the API's cache this long while idle (default 60; 0 for never)" }
+  return spec
+end
+
 local ask_spec = session_spec()
 ask_spec["--json"] = { about = "print each event as a line of JSON, not the model's words" }
 
@@ -132,9 +146,9 @@ local command: Flags.Command = {
   subcommands = {
     ask = { about = "run one prompt to the end: the words, else all of standard input",
       usage = "[options] [prompt...]", spec = ask_spec },
-    chat = { about = "a conversation, a prompt a line, until /exit", spec = session_spec() },
+    chat = { about = "a conversation, a prompt a line, until /exit", spec = waiting_spec() },
     resume = { about = "finish the turn a run left unfinished", spec = session_spec() },
-    rpc = { about = "one session for another program, as JSON lines", spec = session_spec() },
+    rpc = { about = "one session for another program, as JSON lines", spec = waiting_spec() },
     sessions = { about = "the newest sessions in this directory" },
     prompt = { about = "the system prompt the model reads", spec = { ["--tools"] = tools } },
     policy = { about = "the sandbox the tools would run under here; clear-home empties their kept home",

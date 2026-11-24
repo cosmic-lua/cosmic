@@ -114,6 +114,12 @@ local record verb
     --- The next line typed, `prompt` shown first where standard input
     --- is a terminal: nil at its end.
     read_line: function(prompt: string): string?
+    --- Waits at most `ns` nanoseconds for a whole line, or the end, on
+    --- standard input: whether one came, for [`read_line`] to take. Nil
+    --- where nothing waits: [`read_line`] alone is used.
+    wait?: function(ns: integer): boolean
+    --- The time, as [`Clock.now_ns`] gives it; nil for that.
+    now?: function(): integer
     --- All of standard input.
     read_all: function(): string
     --- The next whole line typed while the model works, without
@@ -153,6 +159,21 @@ local function read_line(prompt: string): string?
     end
     pending = pending .. chunk
   end
+end
+
+local function wait(ns: integer): boolean
+  local deadline = Clock.now_ns() + ns
+  while pending:find("\n", 1, true) == nil do
+    local left = deadline - Clock.now_ns()
+    if left <= 0 then return false end
+    local ready, _ = Poll.readable(Fs.stdin, left)
+    if not ready then return false end
+    local chunk, _ = Fs.take(Fs.stdin, 4096)
+    -- The end is for read_line to see.
+    if chunk == nil or chunk == "" then return true end
+    pending = pending .. chunk
+  end
+  return true
 end
 
 local function typed(): string?
@@ -200,6 +221,7 @@ local standard: verb.Io = {
   out = function(line: string) local _, _ = bare.out(line .. "\n") end,
   err = bare.err,
   read_line = read_line,
+  wait = wait,
   read_all = read_all,
   typed = typed,
   hold = hold,
@@ -375,6 +397,63 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
 end
 
 --- Runs `go` with a session from `got`: its exit status.
+-- The cache keeps a request's prefix 5 minutes from when it was sent: a
+-- warm request goes out at 4.5, while the user is idle for at most
+-- `--keep-warm` minutes (60 unless given). Each costs 0.05x of the
+-- conversation's input price, where a miss writes it all again at
+-- 1.25x: an hour of them costs about half of one miss.
+local WARM_EVERY <const> = Clock.seconds(270)
+local WARM_FOR <const> = 60
+
+--- How long `got` says to keep the cache warm while idle, in
+--- nanoseconds (0 for not at all): nil and why for a value not a
+--- whole number of minutes.
+local function warm_for(got: Flags.Parsed): integer?, string
+  local given = got.values["--keep-warm"]
+  if given == nil then return Clock.minutes(WARM_FOR), "" end
+  if not given:match("^%d+$") then
+    return nil, "--keep-warm takes whole minutes, such as 60, or 0 for never: " .. given
+  end
+  return Clock.minutes(assert(math.tointeger(tonumber(given)))), ""
+end
+
+--- The next line `r` reads, `prompt` shown first, keeping `s`'s cache
+--- warm while it waits, for at most `keep` nanoseconds: nil at the
+--- input's end. Each warm request is told to `on`.
+local function next_line(r: Run, s: Agent.Session, name: string, prompt: string, keep: integer,
+                         on?: function(event: Agent.Event)): string?
+  local waits = r.io.wait
+  local sent = s.sent_ns
+  if waits == nil or sent == nil or keep <= 0 then return r.io.read_line(prompt) end
+  local clock = r.io.now or Clock.now_ns
+  local idle = clock()
+  -- When the next warm request is due, on `clock`: the last request was
+  -- sent `Clock.now_ns() - sent` ago.
+  local due = idle + WARM_EVERY - (Clock.now_ns() - sent)
+  local shown = r.io.tty()
+  if shown then local _, _ = bare.out(prompt) end
+  while true do
+    local now = clock()
+    if now - idle >= keep then break end
+    if due > now then
+      if waits(math.min(due, idle + keep) - now) then break end
+    else
+      local before = s.on
+      s.on = on
+      local ok, why = s:warm()
+      s.on = before
+      if not ok then
+        r.complain(name .. ": keeping the cache warm: " .. why)
+        -- The complaint took the prompt's line.
+        if shown then local _, _ = bare.out(prompt) end
+        break
+      end
+      due = clock() + WARM_EVERY
+    end
+  end
+  return r.io.read_line("")
+end
+
 local function with_session(r: Run, name: string, got: Flags.Parsed, go: function(s: Agent.Session): integer,
                             newest?: boolean): integer
   local db, why = store(r)
@@ -496,6 +575,11 @@ local function chat(r: Run, got: Flags.Parsed): integer
     r.complain("chat: takes no words; type the prompts; " .. Flags.usage(Verb, "cosmic agent", { "chat" }))
     return bare.refused
   end
+  local keep, keep_why = warm_for(got)
+  if keep == nil then
+    r.complain("chat: " .. keep_why)
+    return bare.refused
+  end
   local events = Show.text(r.io.out, r.io.err)
   return with_session(r, "chat", got, function(s: Agent.Session): integer
     local later: mut {string} = {}
@@ -521,7 +605,7 @@ local function chat(r: Run, got: Flags.Parsed): integer
       if not ok then r.complain("chat: the unfinished turn: " .. trouble) end
     end
     while true do
-      local line = table.remove(steers, 1) or table.remove(later, 1) or r.io.read_line("> ")
+      local line = table.remove(steers, 1) or table.remove(later, 1) or next_line(r, s, "chat", "> ", keep)
       if line == nil or line == "/exit" then return bare.ok end
       if not line:match("^%s*$") then
         local ok, trouble = turn(r, s, events, prompting(line), poll, steers)
@@ -553,6 +637,11 @@ end
 local function rpc(r: Run, got: Flags.Parsed): integer
   if #got.words > 0 then
     r.complain("rpc: takes no words; " .. Flags.usage(Verb, "cosmic agent", { "rpc" }))
+    return bare.refused
+  end
+  local keep, keep_why = warm_for(got)
+  if keep == nil then
+    r.complain("rpc: " .. keep_why)
     return bare.refused
   end
   local events = Show.json(r.io.out)
@@ -588,7 +677,7 @@ local function rpc(r: Run, got: Flags.Parsed): integer
     while true do
       local c = table.remove(queue, 1)
       if c == nil then
-        local line = r.io.read_line("")
+        local line = next_line(r, s, "rpc", "", keep, events)
         if line == nil then return bare.ok end
         c = command(line)
       end
