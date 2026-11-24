@@ -317,6 +317,20 @@ Agent.tasks = {
     check = "sha256sum cosmic/agent/tools.tl | cut -c1-64",
   },
   {
+    name = "imports",
+    prompt = "Across the .tl files under cosmic/agent/, count each `require(\"cosmic.<...>\")` text, every time it " ..
+      "appears. Write to answer.txt the five modules named most, as `count cosmic.<...>`, most first, ties by name.",
+    truth = [==[grep -rho --include='*.tl' 'require("cosmic\.[^"]*")' cosmic/agent | sed 's/require("//; s/")//' | sort | uniq -c | awk '{print $1" "$2}' | sort -k1,1nr -k2,2 | head -5]==],
+    check = "cat answer.txt",
+  },
+  {
+    name = "header",
+    prompt = "cosmic/agent/tools.tl starts with a block of lines that each start `---`. Replace that whole block " ..
+      "with the one line `--- The tools of cosmic agent.` and change nothing else.",
+    truth = [==[head -1 cosmic/agent/tools.tl | grep -q '^---' && awk 'h && /^---/ {next} h {print "--- The tools of cosmic agent."; h=0} {print}' h=1 cosmic/agent/tools.tl | sha256sum | cut -c1-64]==],
+    check = "sha256sum cosmic/agent/tools.tl | cut -c1-64",
+  },
+  {
     name = "mcp-value",
     prompt = "The inventory MCP server lists items and tells each one's category, price in cents and stock. " ..
       "Write to answer.txt, for each category, the sum over its items of price_cents times stock, as " ..
