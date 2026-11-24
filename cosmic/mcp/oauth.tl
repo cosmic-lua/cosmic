@@ -118,7 +118,7 @@ local record McpOAuth
     challenged: function(status: integer, header?: string, may_refresh?: boolean): (Remedy) | (nil, Failure)
   end
 
-  --- How a refusal was answered: the token refreshed, or a sign-in (this
+  --- How a refusal was met: the token refreshed, or a sign-in (this
   --- request's or another's it waited for).
   enum Remedy
     "refreshed"
@@ -529,7 +529,7 @@ function McpOAuth.new(resource: string, opts: McpOAuth.Options): McpOAuth.Auth
   -- A sign-in under way, and what the requests that came during it wait on (nil outside a task).
   local busy = false
   local finished: Poll.Notifier? = nil
-  -- How the last sign-in or refresh answered, for the requests that waited on it.
+  -- How the last sign-in or refresh went, for the requests that waited on it.
   local last: McpOAuth.Remedy? = nil
 
   local function keep(got: McpOAuth.Tokens)

@@ -1117,7 +1117,7 @@ function McpClient.http(url: string, opts: McpClient.HttpOptions): McpClient.Ses
     return message
   end
   local send = function(req: Request): (wire.Message) | (nil, Failure)
-    -- A 401 refreshes or signs in, and one after a refresh signs in; a 403 may step up. A sign-in answers each status
+    -- A 401 refreshes or signs in, and one after a refresh signs in; a 403 may step up. A sign-in serves each status
     -- once, so a server that refuses every token ends.
     local answered: mut {integer: boolean} = {}
     local may_refresh = true
