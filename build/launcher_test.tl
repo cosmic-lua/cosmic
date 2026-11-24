@@ -105,6 +105,36 @@ local function test_the_kernel_names_the_machine_and_uname_answers_where_it_does
   assert(by_uname.code == 126 and by_uname.stderr == chose, tostring(by_uname.stderr))
 end
 
+--- An arm64 macOS arm that says it was chosen, and goes no further.
+local chosen_mac = "  'Darwin arm64') portable_die 'chose the macOS core' ;;"
+
+--- Where /proc/sys/kernel does not answer, bash's own OSTYPE and HOSTTYPE name a Mac with no `uname` run (whose
+--- stub fails here); a machine they do not name still asks `uname -sm`.
+local function test_bash_names_a_mac_with_no_uname(tmp: string)
+  local script = tmp .. "/launcher"
+  assert(Fs.write(script, launcher.render(chosen_mac, true), 0x1ed))
+  assert(Fs.mkdirs(tmp .. "/bin"))
+  assert(Fs.write(tmp .. "/bin/uname", "#!/bin/sh\necho 'uname ran' >&2\nexit 1\n", 0x1ed))
+  local function launch(env: {string:string}): Child.Result
+    local given: mut {string:string} = {
+      PATH = tmp .. "/bin:/usr/bin:/bin",
+      COSMIC_PORTABLE_CACHE = tmp .. "/cache",
+      COSMIC_PORTABLE_TEST_KERNEL = tmp .. "/no-kernel",
+    }
+    for name, value in pairs(env) do given[name] = value end
+    return (assert(Child.run({ "/bin/sh", script }, { env = given, cwd = tmp,
+      stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })))
+  end
+  -- The test's /bin/sh may be dash, which sets none of the three, so they are given as bash sets them.
+  local mac = launch({ BASH_VERSION = "3.2.57(1)-release", OSTYPE = "darwin25", HOSTTYPE = "arm64" })
+  assert(mac.code == 126 and mac.stderr == "cosmic portable: chose the macOS core\n", tostring(mac.stderr))
+  for _, env in ipairs({ { BASH_VERSION = "3.2.57(1)-release", OSTYPE = "darwin25", HOSTTYPE = "x86_64" },
+      { BASH_VERSION = "5.2.21(1)-release", OSTYPE = "linux-gnu", HOSTTYPE = "arm64" } }) do
+    local asked = launch(env)
+    assert(asked.code ~= 0 and (asked.stderr or ""):find("uname ran", 1, true) ~= nil, tostring(asked.stderr))
+  end
+end
+
 --- What a shell reads as a word to run that is no program of the host's: its own words.
 local shell_words <const>: {string:boolean} = {
   ["case"] = true, esac = true, ["for"] = true, ["in"] = true, ["do"] = true, done = true, ["if"] = true,
