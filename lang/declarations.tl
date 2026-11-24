@@ -2036,8 +2036,8 @@ local function check_metamethod(ctx: Ctx, build: Build, m: Ast.Method, made: Typ
     return
   end
   if name == "__gc" then
-    -- Lua calls a finalizer with the value alone and drops what it answers; it runs only where the program calls a Lua
-    -- function or `collectgarbage` (patch/lua/19-finalizers-at-calls-gc.txt), so no fact about lengths spans one.
+    -- Lua calls a finalizer with the value alone and drops what it answers; it runs only at a call the checker does not
+    -- count as inert (patch/lua/19-finalizers-at-calls-gc.txt), so no fact about lengths spans one.
     local alt = made.rets[1]
     if #made.params ~= 1 or made.rest ~= nil or #made.rets ~= 1 or alt == nil or #alt.items ~= 0 or alt.tail ~= nil then
       report_at(ctx, "metamethod_signature", m.name, "the method `__gc` of " .. class .. " takes more than the value " ..

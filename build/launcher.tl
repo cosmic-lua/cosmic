@@ -165,10 +165,17 @@ portable_exec_failed() {
 # file this user owns and can run. So whoever else could rename a file into
 # the leaf (one others can write) cannot have theirs run, since only this
 # user's own file is, which no one else can write while it keeps the 0500
-# the launcher gives it. What these builtins cannot see -- the leaf's mode, the entry's, and
-# whether the entry still answers its stamp -- startup checks before
-# anything else runs (core/startup.c), and it removes an entry it refuses,
-# so the next start takes the path below. Anything else takes that path now:
+# the launcher gives it. The entry opened is not newer than its stamp.
+# Startup stamps an entry only once a second has passed since it last
+# changed, so a healthy entry is older than its stamp, and an entry written
+# since, such as one damaged in place, is newer and takes the path below,
+# which hashes and repairs it before it runs. A write that sets the old time
+# back, or one in the stamp's own second where test(1) compares whole
+# seconds (BusyBox), still reaches startup. What these builtins
+# cannot see -- the leaf's mode, the entry's, and whether the entry answers
+# all its stamp records -- startup checks before anything else runs
+# (core/startup.c), and it removes an entry it refuses, so the next start
+# takes the path below. Anything else takes that path now:
 # it inspects everything here, repairs what it can, and hashes an entry no
 # stamp holds. So do macOS, with no /proc, and a shell whose test(1) has no
 # -O (status 2). `command` keeps a failed open from ending the shell.
@@ -177,7 +184,8 @@ if [ -d "$cosmic_cache" ] && [ ! -L "$cosmic_cache" ] && [ -O "$cosmic_cache" ] 
    [ -f "$cosmic_core" ] && [ ! -L "$cosmic_core" ] &&
    [ -f "$cosmic_stamp" ] && [ ! -L "$cosmic_stamp" ] &&
    { command eval 'exec '"$cosmic_core_fd"'<"$cosmic_core"'; } 2>/dev/null &&
-   [ -f "$cosmic_run" ] && [ -O "$cosmic_run" ] && [ -x "$cosmic_run" ]; then
+   [ -f "$cosmic_run" ] && [ -O "$cosmic_run" ] && [ -x "$cosmic_run" ] &&
+   [ ! "$cosmic_run" -nt "$cosmic_stamp" ]; then
   portable_start "$@"
 fi
 

@@ -1,6 +1,7 @@
 #include "assertions.h"
 
 #include "lauxlib.h"
+#include "surface.h"
 
 /* The registry slot (by address) of the calls counted so far. */
 static char count_key;
@@ -48,6 +49,10 @@ static int assertions_reset (lua_State *L) {
 int cosmic_open_assertions (lua_State *L) {
   lua_createtable(L, 0, 3);
   lua_pushcfunction(L, counting_assert);
+  /* The checker counts `assert` as running no code of the program, so
+   * the one that stands for it runs no pending finalizer either. */
+  if (!cosmic_surface_set_inert(L, -1))
+    return luaL_error(L, "the VM's list of inert C functions is full");
   lua_setfield(L, -2, "assert");
   lua_pushcfunction(L, assertions_count);
   lua_setfield(L, -2, "count");

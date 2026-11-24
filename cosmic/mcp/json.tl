@@ -64,6 +64,10 @@ function McpJson.discovery(d: Mcp.Discovery): Json.Value
     if resources.subscribe == true then entry["subscribe"] = true end
     caps["resources"] = entry
   end
+  if c.completions ~= nil then
+    local none: {string: Json.Value} = {}
+    caps["completions"] = none
+  end
   local out: mut {string: Json.Value} = { supportedVersions = wire.strings(d.supportedVersions), capabilities = caps }
   if d.instructions ~= nil then out["instructions"] = d.instructions end
   local info = d.serverInfo

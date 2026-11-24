@@ -260,15 +260,19 @@ local function test_an_entry_with_no_run_bit_is_repaired(tmp: string)
     tostring(r.stderr))
 end
 
---- Writes `bytes` over the entry `entry`, leaving it mode 0500 as the launcher made it.
+--- Writes `bytes` over the entry `entry`, leaving it mode 0500 as the launcher made it, with the modification time
+--- it had, so it is no newer than its stamp.
 local function overwrite(entry: string, bytes: string)
+  local mtime = assert(sys.lstat(entry)).mtime
   assert(Fs.chmod(entry, 0x1c0))
   assert(Fs.write(entry, bytes, 0x1c0))
   assert(Fs.chmod(entry, 0x140))
+  assert(Fs.set_mtime(entry, mtime))
 end
 
---- A stamped entry damaged in place, shorter than its core or of its length, is refused by startup and removed with
---- its stamp, so the next launch extracts it again and runs.
+--- A stamped entry damaged in place with its old modification time, shorter than its core or of its length, reaches
+--- the warm start, is refused by startup and removed with its stamp, so the next launch extracts it again and runs.
+--- (One damaged with a later time takes the launcher's full path, which repairs it: ci/fixtures/runtime_test.tl.)
 local function test_a_warm_start_removes_a_damaged_entry(tmp: string)
   local program, cache = stamped_cache(tmp)
   local entry = entry_of(cache)
@@ -293,4 +297,22 @@ local function test_a_warm_start_removes_a_damaged_entry(tmp: string)
     launch(program, cache, tmp)
     assert(stamps(cache) == 1, "the extracted entry is stamped again")
   end
+end
+
+--- An entry written since its stamp, newer than it, is not taken by the warm start: the launcher's full path hashes
+--- it and repairs it in the same launch, which runs.
+local function test_an_entry_newer_than_its_stamp_is_repaired(tmp: string)
+  local program, cache = stamped_cache(tmp)
+  local entry = entry_of(cache)
+  local bytes = assert(Fs.read(entry))
+  local stamp = cache .. "/.verified-" .. assert(entry:match("[^/]+$"))
+  overwrite(entry, bytes:sub(1, #bytes - 1) .. (if bytes:sub(-1) == "x" then "y" else "x" end))
+  assert(Fs.set_mtime(entry, assert(sys.lstat(stamp)).mtime + 1))
+  local env = environment()
+  env["COSMIC_PORTABLE_CACHE"] = cache
+  local r = assert(Child.run({ program, "ok.tl" }, { env = env, cwd = tmp,
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
+  assert(r.ok and r.stdout == "ok\n" and (r.stderr or ""):find("digest differs; repairing", 1, true) ~= nil,
+    tostring(r.stderr))
+  assert(assert(Fs.read(entry)) == bytes, "the repair did not restore the entry")
 end

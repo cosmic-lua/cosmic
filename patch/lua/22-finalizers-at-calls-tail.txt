@@ -1,5 +1,5 @@
 file: src/ldo.c
-note: The pending finalizers run as a Lua function is called, here for a tail call and in luaD_precall for any other (patch/lua/23-finalizers-at-calls-run.txt) (patch/lua/19-finalizers-at-calls-gc.txt), before its frame is made: the caller's frame is L->ci and its arguments lie below L->top, where GCTM pushes the finalizer. A finalizer may grow the stack, so 'func' is kept as an offset across it. A C function's call runs none: the checker counts the calls of some C functions (`string.len`, `math.floor`) as running no code of the program.
+note: The pending finalizers run as a Lua function is called, here for a tail call and in luaD_precall for any other (patch/lua/23-finalizers-at-calls-run.txt) (patch/lua/19-finalizers-at-calls-gc.txt), before its frame is made: the caller's frame is L->ci and its arguments lie below L->top, where GCTM pushes the finalizer. A finalizer may grow the stack, so 'func' is kept as an offset across it. A C function's call runs them in lvm.c instead, unless the checker counts it as running no code of the program (`string.len`, `math.floor`): patch/lua/31-finalizers-at-c-calls-run-call.txt.
 --- find
     case LUA_VLCL: {  /* Lua function */
       Proto *p = clLvalue(s2v(func))->p;

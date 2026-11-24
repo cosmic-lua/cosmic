@@ -1,6 +1,6 @@
 --- Fuzz properties for what [`cosmic.mcp`] reads from a peer it does not trust: [`wire.message`] and the decoders of
---- each result, the event stream splitter, the `Bearer` challenge parser, and a server's answer to any text. Each is
---- total, answering for whatever it is handed and never raising, and the splitter gives the events a stream holds
+--- each result, the event stream splitter, the `Bearer` challenge parser, and a server's reply to any text. Each is
+--- total, returning for whatever it is handed and never raising, and the splitter gives the events a stream holds
 --- however it is cut. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Failure = require("cosmic.failure")
@@ -22,7 +22,7 @@ local MESSAGES <const>: {string} = {
     '"requestState":"s"}}',
 }
 
---- Results as a server answers them, to mutate and hand each decoder.
+--- Results as a server sends them, to mutate and hand each decoder.
 local RESULTS <const>: {string} = {
   '{"tools":[{"name":"echo","description":"d","inputSchema":{"type":"object"},"outputSchema":{"type":"object"},' ..
     '"annotations":{"readOnlyHint":true}}],"nextCursor":"c"}',
@@ -34,6 +34,9 @@ local RESULTS <const>: {string} = {
   '{"resultType":"input_required","inputRequests":{"k":{"method":"elicitation/create","params":{"mode":"url",' ..
     '"message":"go","url":"https://example.com/x"}}},"requestState":"s"}',
   '{"action":"accept","content":{"n":"ada","ok":true,"k":3}}',
+  '{"completion":{"values":["python","perl"],"total":2,"hasMore":false}}',
+  '{"ref":{"type":"ref/resource","uri":"repo://{owner}/{name}"},"argument":{"name":"name","value":"co"},' ..
+    '"context":{"arguments":{"owner":"will"}}}',
 }
 
 --- Event streams as a server sends them, to mutate: every line end, an event cut off by the end, one the end's CR
@@ -74,7 +77,7 @@ local function test_message_is_total(tmp: string)
       Fuzz.label("accepted")
       local id = message.id
       if id ~= nil then
-        -- The id is the JSON of a string or an integer, so an answer can name it.
+        -- The id is the JSON of a string or an integer, so a reply can name it.
         local back, _ = Json.decode(id)
         if not (back is string or math.type(back) == "integer") then
           return false, "an id that is not a string or an integer"
@@ -122,6 +125,16 @@ local function test_decoders_are_total(tmp: string)
     function(v: any): boolean
       local r, w = wire.prompts(v)
       return r ~= nil or said(w)
+    end,
+    function(v: any): boolean
+      local r, w = wire.completion_of(v)
+      if r ~= nil and #r.values > Mcp.MAX_COMPLETIONS then return false end
+      return r ~= nil or said(w)
+    end,
+    function(v: any): boolean
+      local r, w = wire.completing_of(v)
+      if r ~= nil and (r.prompt == nil) == (r.template == nil) then return false end
+      return r ~= nil or w ~= ""
     end,
   }
   Fuzz.run({
@@ -433,7 +446,7 @@ local function test_a_server_answers_any_text(tmp: string)
       if (message.error == nil) == (message.result == nil) then
         return false, "an answer with both or neither of result and error"
       end
-      -- An answer to a request names it; one to what is not a message names none.
+      -- A reply to a request names it; one to what is not a message names none.
       if asked == nil and message.id ~= nil then
         return false, "the answer to what is not a message names " .. tostring(message.id)
       end

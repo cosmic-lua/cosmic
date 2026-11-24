@@ -10,8 +10,8 @@
     # testing every change before it lands. A manual run of a branch runs
     # what main's run does.
     push: {branches: ["main"]},
-    # A pull request runs the light check alone (linux-x86_64's leg, below),
-    # which reports the `ci` check the merge queue requires of it.
+    # A pull request runs the light check alone (linux-x86_64's leg, below,
+    # with the launcher fixtures where it changes what they check), which reports the `ci` check the merge queue requires of it.
     pull_request: {},
     # main takes changes only through the merge queue, which waits on
     # the `ci` check for the queued merge commit.
@@ -77,7 +77,7 @@
     # the `driver` job's check of the pinned CI driver: one after the
     # other, the two took some 15 minutes. A pull request runs
     # lighter still, linux-x86_64's boot and the format check of what it
-    # changed. A push to main runs
+    # changed (and the launcher fixtures, where it reaches them). A push to main runs
     # three legs whole, all but macOS; the daily scheduled run and a
     # manual run run all four, macOS among them.
     platform: {
@@ -486,10 +486,14 @@
           if: "runner.os == 'Linux' && github.event_name != 'pull_request' && matrix.part != 'format'",
           run: "cosmic-driver cosmic_ci/driver.tl platform sandbox",
         },
+        # A pull request builds them and runs the regressions only where a
+        # path it changed reaches what they check, or where the paths
+        # changed are not known (driver.tl changed-paths): the queue runs
+        # neither.
         {
           name: "build local portable and checked artifacts",
           id: "assemble",
-          if: "github.event_name != 'merge_group' && github.event_name != 'pull_request'",
+          if: "(github.event_name != 'merge_group' && github.event_name != 'pull_request') || (github.event_name == 'pull_request' && steps.changed.outputs.fixtures != 'skip')",
           run: "cosmic-driver cosmic_ci/driver.tl platform assemble",
         },
         # What a save of zig's caches would carry that no build of this tree
@@ -501,7 +505,7 @@
         },
         {
           name: "run runtime, launcher, rebuild, and identity regressions",
-          if: "github.event_name != 'merge_group' && github.event_name != 'pull_request'",
+          if: "(github.event_name != 'merge_group' && github.event_name != 'pull_request') || (github.event_name == 'pull_request' && steps.changed.outputs.fixtures != 'skip')",
           run: "cosmic-driver cosmic_ci/driver.tl platform fixtures",
         },
         {
