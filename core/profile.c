@@ -108,10 +108,10 @@ static void count_stack (const uint32_t *ids, uint32_t depth) {
 
 static void profile_hook (lua_State *L, lua_Debug *ar) {
   (void)ar;
-  uint32_t ids[PROFILE_DEPTH];
+  uint32_t ids[PROFILE_DEPTH] = {0};
   uint32_t depth = 0;
   lua_Debug d;
-  char text[512];
+  char text[512] = "";
   while (depth < PROFILE_DEPTH && lua_getstack(L, (int)depth, &d)) {
     if (!lua_getinfo(L, "Sn", &d)) break;
     const char *name = d.name != NULL ? d.name : "?";
