@@ -857,6 +857,10 @@ local record Sqlite
     --- Opens read-only a database that nothing will change while it is
     --- open: see [`Sqlite.open`]. Giving it with `writable` raises.
     immutable?: boolean
+    --- False turns SQLite's defensive mode off, for a caller that writes
+    --- the schema itself, as `PRAGMA schema_version = N` does: see
+    --- [`Sqlite.open`]. Every other handle keeps it.
+    defensive?: boolean
   end
 
   --- One result row: see [`Handle.rows`].
@@ -891,6 +895,18 @@ end
 --- show: open a database that is being written without `immutable`.
 --- Giving `immutable` with `writable` raises.
 ---
+--- Every handle is in SQLite's defensive mode, so no SQL it runs can
+--- corrupt the file on purpose: a write to `sqlite_schema` or to the shadow tables
+--- of an FTS5 or R*Tree table fails, even after `PRAGMA writable_schema
+--- = ON`, and `PRAGMA schema_version = N` and `PRAGMA journal_mode = OFF`
+--- run but change nothing (`MEMORY` keeps the journal off the disk
+--- instead, for a file that is thrown away if the process stops while
+--- writing it). Each cell is checked against its page as it is read
+--- (`PRAGMA cell_size_check`, on in every connection the core opens), so a damaged or crafted file fails with
+--- [`Sqlite.CORRUPT`] rather than being read past its end.
+--- `opts.defensive = false` turns defensive mode off, for code that
+--- writes the schema itself.
+---
 --- Every handle adds these SQL functions, each answering NULL for a NULL
 --- argument:
 ---
@@ -910,11 +926,12 @@ end
 --- to at most 125; the refusal of one too many says so.
 function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): (Sqlite.Handle) | (nil, Failure)
   local writable, immutable, create = opts and opts.writable, opts and opts.immutable, opts and opts.create
+  local defensive = not (opts ~= nil and opts.defensive == false)
   -- `open_result` raises for a path it refuses before SQLite reads it (a
   -- NUL), where `open` answers why; any other raise `open` raises again.
-  local called, opened = pcall(sqlite.open_result, path, writable, immutable, create)
+  local called, opened = pcall(sqlite.open_result, path, writable, immutable, create, defensive)
   if not called then
-    local handle, why = sqlite.open(path, writable, immutable, create)
+    local handle, why = sqlite.open(path, writable, immutable, create, defensive)
     if handle ~= nil then
       local _, _ = handle:close()
       error(opened, 0)
