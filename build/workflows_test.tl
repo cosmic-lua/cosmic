@@ -1926,6 +1926,12 @@ local function test_the_gate_needs_every_job_and_compares_four_products()
       "github.event.workflow_run.event == 'workflow_dispatch')", 1, true) ~= nil and
       publish:find("workflow_run.event == 'push'", 1, true) == nil,
     "prerelease.yml publishes from a run of fewer than four legs")
+  assert(publish:find("(github.event_name == 'schedule' && needs.sweep.outputs.run_id != '')", 1, true) ~= nil,
+    "prerelease.yml publishes no run that sweep names: " .. publish)
+  local sweep = job_of(prerelease.jobs, "sweep")
+  assert(map_of(sweep.permissions)["contents"] == "read" and map_of(sweep.permissions)["actions"] == "write" and
+      sweep["if"] == "github.repository == 'cosmic-lua/cosmic' && github.event_name == 'schedule'",
+    "prerelease.yml's sweep job runs other than on the hourly schedule, or holds more than it needs")
   local follow = job_of(prerelease.jobs, "follow")
   assert(map_of(follow.permissions)["contents"] == "read" and map_of(follow.permissions)["actions"] == "write" and
       map_of(follow.permissions)["issues"] == "write",

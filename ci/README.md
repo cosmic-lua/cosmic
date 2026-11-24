@@ -363,6 +363,17 @@ comments which run passed and closes it. It reads the triggering run's
 `GH_TOKEN`; [`cosmic_ci/prerelease_follow_test.tl`] drives it against a
 fake client.
 
+`prerelease-sweep` is prerelease.yml's hourly `sweep` job. A full run
+that `follow` starts with the job's own token fires no workflow_run when
+it ends, since GitHub starts no workflow from an event that token caused,
+so neither `publish` nor `follow` sees it end. The sweep looks at the
+newest such run of main started in the last day: where it passed and no
+release's tag ends in its commit, it writes `run_id` and `head_sha` to
+`$GITHUB_OUTPUT`, and `publish` publishes that run; where its first
+attempt failed, it re-runs the failed jobs once. It reads `REPOSITORY`,
+`GITHUB_OUTPUT` and `GH_TOKEN`; [`cosmic_ci/prerelease_sweep_test.tl`]
+drives it against a fake client.
+
 `fuzz` and `fuzz-cancelled` are fuzz.yml's, and record no operation.
 `fuzz` runs the sanitized tool (`sanitized/bin/cosmic` in the build
 directory `build/paths.tl` names) as `test --all` from `GITHUB_WORKSPACE`
@@ -653,6 +664,7 @@ the first tried once, with the clearing and sleeping step between them.
 [`cosmic_ci/cache_trim.tl`]: cosmic_ci/cache_trim.tl
 [`cosmic_ci/prerelease_test.tl`]: cosmic_ci/prerelease_test.tl
 [`cosmic_ci/prerelease_follow_test.tl`]: cosmic_ci/prerelease_follow_test.tl
+[`cosmic_ci/prerelease_sweep_test.tl`]: cosmic_ci/prerelease_sweep_test.tl
 [`agents/weekly-review.md`]: agents/weekly-review.md
 [`cosmic_ci/review.tl`]: cosmic_ci/review.tl
 [`cosmic_ci/review_test.tl`]: cosmic_ci/review_test.tl
