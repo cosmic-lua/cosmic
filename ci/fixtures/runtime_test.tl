@@ -572,6 +572,14 @@ local function test_runtime_warm_core_stamp_and_repair(tmp: string)
   assert(Clock.sleep_ns(1100000000))
   Fixture.succeeded("stamp-rewarm", run_default("stamp-rewarm"))
   assert(assert(Fs.status(home_stamp)).exists == true, "the warm start in the default leaf left no stamp")
+  -- The warm start needs a sticky leaf, which the launcher could not give
+  -- where the worker's filter refuses the bit: the pinned driver's does
+  -- (core/launcher_cache_test.tl holds the warm case in the tree).
+  -- TODO: drop this skip once ci/cosmic-driver.pin names a release whose
+  -- `fattr` allows the sticky bit.
+  if assert(sys.stat(home_leaf)).mode & 0x200 == 0 then
+    Test.skip("the worker's filter refuses the sticky bit the warm start needs")
+  end
   local kept = assert(sys.lstat(home_core)).mtime
   Fixture.write(home_core, bytes:sub(1, #bytes - 1) .. last, 0x140)
   assert(Fs.set_mtime(home_core, kept))
