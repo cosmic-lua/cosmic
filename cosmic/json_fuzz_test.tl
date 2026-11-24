@@ -250,8 +250,19 @@ local function decode_holds(input: string): boolean, string
       if not once_ok then return false, once_err end
       -- Whether a text that reads holds a key twice is answered from
       -- the members `format` writes, not by decode's own check.
-      if err == "" then
-        local twice = holds_key_twice((assert(Json.format(input, { json5 = json5, duplicate_keys = true }))))
+      -- `format` reads a text as `decode` reads it without
+      -- big_numbers_as_strings, so a number past a double's range
+      -- (`1e400`) that only big_numbers_as_strings reads is refused there;
+      -- and it refuses JSON5's NaN and infinities, which JSON has no text for.
+      local formatted, format_err = Json.format(input, { json5 = json5, duplicate_keys = true })
+      if err == "" and formatted == nil then
+        local said = tostring(format_err)
+        if not big and not said:match("^json: cannot format ") then
+          return false, where .. ": read, but format refused it: " .. said
+        end
+        Fuzz.label("format refused what decode read")
+      elseif err == "" then
+        local twice = holds_key_twice(formatted)
         if twice ~= nil then
           Fuzz.label(if twice then "oracle saw a key twice" else "oracle saw no key twice" end)
           if twice ~= (once_err ~= "") then

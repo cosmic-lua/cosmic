@@ -143,7 +143,13 @@ function Gen.exp(src: Fuzz.Source, depth: integer, out: mut {string})
   elseif k == 7 then
     Gen.exp(src, depth - 1, out)
     add(out, Fuzz.pick(src, BINARY))
+    local op_at = #out
     Gen.exp(src, depth - 1, out)
+    -- `a < b > (c)` on a line is refused (type_argument: it reads as a
+    -- call given type arguments), so a `>` before a `(` is a `>=`.
+    if op_at >= 1 and op_at <= #out and out[op_at] == ">" and out[op_at + 1] == "(" then
+      out[op_at] = ">="
+    end
   elseif k == 8 then
     add(out, Fuzz.pick(src, { "not", "#", "-", "~" }))
     Gen.exp(src, depth - 1, out)
