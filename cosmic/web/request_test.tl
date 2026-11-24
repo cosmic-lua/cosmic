@@ -68,7 +68,8 @@ local function test_a_failed_body_read_answers_nil_and_why()
     end,
     close = function(_self: Stream.Reader): boolean, string return true, "" end,
   }
-  local raw: Server.Request = { gone = function(): boolean return false end, method = "POST", target = "/", path = "/", query = "", version = "HTTP/1.1",
+  local raw: Server.Request = { gone = function(): boolean return false end,
+    wait_gone = function(_?: integer): boolean return false end, method = "POST", target = "/", path = "/", query = "", version = "HTTP/1.1",
     headers = { host = "x" }, body = broken, length = 5 }
   assert(app.handle(raw).status == 200)
   local data, why = assert(req, "the handler never ran"):bytes()
@@ -150,10 +151,12 @@ local function test_a_connection_without_a_peer_has_no_client()
     seen = r
     return Web.text("ok")
   end) } }
-  local raw: Server.Request = { gone = function(): boolean return false end, method = "GET", target = "/", path = "/", query = "", version = "HTTP/1.1",
+  local raw: Server.Request = { gone = function(): boolean return false end,
+    wait_gone = function(_?: integer): boolean return false end, method = "GET", target = "/", path = "/", query = "", version = "HTTP/1.1",
     headers = { host = "x" }, body = Stream.from_string(""), length = 0 }
   assert(app.handle(raw).status == 200 and assert(seen, "the handler never ran").client == nil)
-  local unix: Server.Request = { gone = function(): boolean return false end, method = "GET", target = "/", path = "/", query = "", version = "HTTP/1.1",
+  local unix: Server.Request = { gone = function(): boolean return false end,
+    wait_gone = function(_?: integer): boolean return false end, method = "GET", target = "/", path = "/", query = "", version = "HTTP/1.1",
     headers = {}, body = Stream.from_string(""), length = 0, peer = Net.unix("/tmp/x") }
   assert(app.handle(unix).status == 200)
   local over_unix = assert(seen, "the handler never ran")
@@ -243,7 +246,8 @@ local function test_a_failed_body_read_is_remembered()
     end,
     close = function(_self: Stream.Reader): boolean, string return true, "" end,
   }
-  local raw: Server.Request = { gone = function(): boolean return false end, method = "POST", target = "/", path = "/", query = "", version = "HTTP/1.1",
+  local raw: Server.Request = { gone = function(): boolean return false end,
+    wait_gone = function(_?: integer): boolean return false end, method = "POST", target = "/", path = "/", query = "", version = "HTTP/1.1",
     headers = { host = "x" }, body = body, length = 5 }
   assert(app.handle(raw).status == 200)
   local request = assert(seen, "the handler never ran")

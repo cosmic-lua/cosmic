@@ -178,3 +178,23 @@ local function test_e_without_a_chunk_is_a_usage_error(tmp: string)
   local r = assert(Child.run(started.argv, started.options))
   assert(r.code == 2 and says(r, "usage: cosmic -e"), tostring(r.stderr))
 end
+
+--- A test's child runs from a closure store, which records no boot hash: no build names the sources it checks the chunk
+--- against, so a kept compile would outlive an edit of them. It keeps none, and checks the chunk on every run. (A
+--- release keeps one: ci/fixtures/product_test.tl.)
+local function test_e_keeps_no_compile_where_the_program_records_no_boot_hash(tmp: string)
+  local Fs = require("cosmic.fs")
+  local Store = require("cosmic.store")
+  assert(Store.meta("boot_hash") == nil, "a test's closure store records a boot hash")
+  local chunk = 'local exit_status = require("build.exit_status") print(exit_status.uncompiled) return 0'
+  local env = { XDG_CACHE_HOME = tmp .. "/cache", COSMIC_TRACE_REQUIRE = "1" }
+  for round = 1, 2 do
+    local started = this_program.program({ "-e", chunk }, { env = env, cwd = tmp, stdout = "capture",
+      stderr = "capture", timeout_ns = Clock.seconds(30) })
+    local r = assert(Child.run(started.argv, started.options))
+    assert(r.ok and r.stdout == "4\n", tostring(round) .. tostring(r.stdout) .. tostring(r.stderr))
+    assert(says(r, " build.pipeline "), ("run %d of the chunk loaded no checker"):format(round))
+  end
+  local kept, _ = Fs.list(tmp .. "/cache/cosmic/standalone")
+  assert(kept == nil or #kept == 0, "a compile is kept")
+end

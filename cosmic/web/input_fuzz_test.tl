@@ -168,7 +168,8 @@ local function test_json_refusals_point_at_the_field_they_name(tmp: string)
     shares = { pointed = 0.1 },
     check = function(input: string): boolean, string
       last = nil
-      local raw: Server.Request = { gone = function(): boolean return false end, method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
+      local raw: Server.Request = { gone = function(): boolean return false end,
+        wait_gone = function(_?: integer): boolean return false end, method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
         headers = { host = "x", ["content-type"] = "application/json" }, body = Stream.from_string(input),
         length = #input }
       local res = app.handle(raw)

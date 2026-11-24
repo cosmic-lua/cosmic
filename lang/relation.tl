@@ -1109,8 +1109,8 @@ local function field_pairs(j: Relation.Judge, b: Named, a: Named): {Type}?
   return out
 end
 
---- Whether `a`, a record inferred for a literal of named items ([`Types.inferred_record`]), is below the record `b`,
---- declared or inferred, as the literal would be: it has each field of `b` that is not omittable or nilable, and no
+--- Whether `a`, a record inferred for a literal of named items ([`Types.inferred_record`]) or a record type in braces
+--- ([`Types.shape`]), is below the record `b`, declared, inferred or in braces, as the literal would be: it has each field of `b` that is not omittable or nilable, and no
 --- field `b` lacks; a field `b` declares `mut` is of exactly its type, since a write through `b` would store one, and
 --- another is below its type. Nil where it is, else the refusal naming the first field that differs.
 local function shaped(j: Relation.Judge, a: Named, b: Named, why: boolean): Relation.Refusal?
@@ -1147,7 +1147,8 @@ local function shaped(j: Relation.Judge, a: Named, b: Named, why: boolean): Rela
         if mine.type.tag ~= "invalid" and s.type.tag ~= "invalid" and (mine.mut ~= true or mine.type ~= s.type) then
           return refused(field, true)
         end
-      elseif rel(j, mine.type, if s.omittable then j.store:optional(s.type) else s.type end, false) ~= nil then
+      elseif rel(j, if mine.omittable == true then j.store:optional(mine.type) else mine.type end,
+          if s.omittable then j.store:optional(s.type) else s.type end, false) ~= nil then
         return refused(field, true)
       end
     end
@@ -1187,7 +1188,10 @@ local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): R
       end
       return Variance.args_below(j, a.decl, a.args, b.args, why)
     end
-    if not a.value and not b.value and Types.inferred_record(a.decl) and b.decl.kind ~= "interface" then
+    -- A record type in braces is below one in braces as a literal of its fields would be, and stays apart from a
+    -- declared record, which is a type of its own.
+    if not a.value and not b.value and b.decl.kind ~= "interface" and
+        (Types.inferred_record(a.decl) or (Types.shape_record(a.decl) and Types.shape_record(b.decl))) then
       return shaped(j, a, b, why)
     end
     if not a.value and a.decl.kind == "enum" and b.decl.kind == "enum" then
@@ -1229,8 +1233,8 @@ local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): R
       return through(why, "array_part", nil, r)
     end
     return nil
-  elseif (b.tag == "map") and not a.value and Types.inferred_record(a.decl) then
-    -- A record inferred for a literal of named items is a map of strings to what each of its fields is below, read
+  elseif (b.tag == "map") and not a.value and (Types.inferred_record(a.decl) or Types.shape_record(a.decl)) then
+    -- A record inferred for a literal of named items, or one in braces, is a map of strings to what each of its fields is below, read
     -- only: a write through the map would add a key or change the type of a field.
     if b.mut then
       return leaf(j, why, "view_as_mut", a, b)
@@ -1241,7 +1245,7 @@ local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): R
         return through(why, "key", nil, r)
       end
     end
-    for _, f in ipairs(assert(a.decl.body, "an inferred record is defined where it is made").fields) do
+    for _, f in ipairs(assert(a.decl.body, "an inferred record or a shape is defined where it is made").fields) do
       -- A field that may be nil is a key that may be missing, which a read of the map treats alike.
       local held = f.type
       if (held.tag == "union") and held.nilable then

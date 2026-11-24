@@ -80,7 +80,7 @@ local record Parser
     "mut_needs_collection" "string_call" "variadic_type" "optional_type" "tuple_type"
     "bare_function_type" "metamethod" "several_supers"
     "generic_function_literal" "bad_attribute"
-    -- `f<T>(x)`, a call with a type argument; `{ a: A, b: B }`, a record written as a type in braces
+    -- `f<T>(x)`, a call with a type argument; a record type in braces whose key is no name, or names a field twice
     "type_argument" "inline_record"
     -- an `if` expression with no `else`; a `match` of what is no call
     "if_needs_else" "match_needs_call"
@@ -952,7 +952,67 @@ local function parse_function_type(): Ast.Type -- checked: not_assigned*2
   return { kind = "TypeFunction", id = 0, first = first, last = end_of(), typeparams = typeparams, params = params, rets = rets }
 end
 
---- `{T}` or `{K: V}`, at the `{`.
+--- The field name a key written before `:` in braces spells: a name alone, or one with `?` after it (`name?`), and
+--- whether it is the second. Nil where the key is a type of another form.
+local function field_name_of(key: Ast.Type): (string, boolean) | (nil, boolean)
+  local optional = false
+  local t = key
+  if t.kind == "TypeOptional" then
+    optional = true
+    t = t.inner
+  end
+  if t.kind == "TypeName" and #t.path == 1 and #t.args == 0 then
+    return t.path[1], optional
+  end
+  return nil, optional
+end
+
+--- The rest of an inline record type `{a: A, b: B}` (an [`Ast.TypeRecord`]), at the `,` after its first field,
+--- `first`. Each later field is `name: T` or `name?: T`; a field named twice is refused, as a key that is no name is.
+local function parse_record_fields(open: integer, first: Ast.PType): Ast.Type
+  local fields: mut {Ast.PType} = { first }
+  local seen: mut {string: boolean} = { [assert(first.name)] = true }
+  while S.text == "," do
+    advance()
+    if S.text == "}" then
+      break
+    end
+    local ffirst = S.pos
+    local name: string? = nil
+    local optional = false
+    if S.kind == "identifier" and peek_text(1) == ":" then
+      name = S.text
+      advance()
+      advance()
+    elseif S.kind == "identifier" and peek_text(1) == "?" and peek_text(2) == ":" then
+      name = S.text
+      optional = true
+      advance()
+      advance()
+      advance()
+    else
+      report("inline_record", S.pos, "a field of a record type in braces is `name: T` or `name?: T`",
+        "name each field, as `{ a: integer, b: string }` does")
+    end
+    local t = parse_type()
+    if name == nil and S.text == ":" then
+      -- The key that is no name was read as the type: its own type follows the `:`.
+      advance()
+      parse_type()
+    end
+    if name ~= nil and seen[name] == true then
+      report("inline_record", ffirst, "the field `" .. name .. "` is named twice in this record type",
+        "name each field once")
+    elseif name ~= nil then
+      seen[name] = true
+      fields[#fields + 1] = { kind = "PType", id = 0, first = ffirst, last = end_of(), name = name, optional = optional,
+        variadic = false, type = t }
+    end
+  end
+  return { kind = "TypeRecord", id = 0, first = open, last = S.pos, fields = fields }
+end
+
+--- `{T}`, `{K: V}`, or a record of two or more fields `{a: A, b: B}`, at the `{`.
 local function parse_collection(): Ast.Type
   local open = S.pos
   advance()
@@ -961,19 +1021,38 @@ local function parse_collection(): Ast.Type
   if S.text == ":" then
     advance()
     local value = parse_type()
-    if S.text == "," then
-      report("inline_record", S.pos, "a record type is not written in braces: `{K: V}` is a map of one key type to one value type",
-        "declare the record (`local record R ... end`) and name it here")
-      while S.text == "," do
-        advance()
-        parse_type()
-        if S.text == ":" then
+    if S.text == "," and peek_text(1) ~= "}" then
+      local name, optional = field_name_of(first_type)
+      if name == nil then
+        report("inline_record", base_of(first_type).first, "a record type in braces names its fields, and this key is a type",
+          "write `{ a: A, b: B }` with a name before each `:`, or `{K: V}` for a map of one key type")
+        while S.text == "," do
           advance()
           parse_type()
+          if S.text == ":" then
+            advance()
+            parse_type()
+          end
         end
+        node = { kind = "TypeMap", id = 0, first = open, last = S.pos, key = first_type, value = value }
+      else
+        local field: Ast.PType = { kind = "PType", id = 0, first = base_of(first_type).first, last = end_of(), name = name,
+          optional = optional, variadic = false, type = value }
+        node = parse_record_fields(open, field)
       end
+    else
+      local key_name, _ = field_name_of(first_type)
+      if first_type.kind == "TypeOptional" and key_name ~= nil then
+        report("inline_record", base_of(first_type).first, "a record type in braces has two or more fields, and a " ..
+            "map's key type is never optional", "declare a record (`local record R ... end`) for a single field, or " ..
+            "write `{K: V}` for a map")
+      end
+      if S.text == "," then
+        -- A comma closes one pair as it closes the last of several: `{string: integer,}` is the map.
+        advance()
+      end
+      node = { kind = "TypeMap", id = 0, first = open, last = S.pos, key = first_type, value = value }
     end
-    node = { kind = "TypeMap", id = 0, first = open, last = S.pos, key = first_type, value = value }
   else
     if S.text == "," then
       report("tuple_type", S.pos, "a tuple type `{A, B}` is not in the grammar",

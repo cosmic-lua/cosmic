@@ -84,6 +84,12 @@ case("sqlite.run insert", function(n: integer)
       { { integer = next_id }, { text = "name" }, { number = 1.5 } }))
   end
 end)
+case("sqlite.run insert plain", function(n: integer)
+  for _ = 1, n do
+    next_id = next_id + 1
+    assert(db:run("insert into w (id, name, score) values (?, ?, ?)", { next_id, "name", 1.5 }))
+  end
+end)
 for i = 1, 1000 do
   assert(db:run("insert into t (id, name, score) values (?, ?, ?)",
     { { integer = i }, { text = "name" .. tostring(i) }, { number = i / 3 } }))

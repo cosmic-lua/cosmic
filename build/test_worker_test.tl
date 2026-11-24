@@ -53,6 +53,32 @@ local function test_a_line_of_hits_read_twice_is_one_table()
   assert(worker.decode(malformed) == nil)
 end
 
+--- A report's test hits come back with each module's lines in ascending order, as its text wrote them, which the
+--- runner spells a row of without sorting; a text that wrote them out of order gives the lines but no order.
+local function test_a_reports_test_lines_come_back_in_order()
+  local report = passing({})
+  report.test_hits = { ["build.a"] = { [2] = true, [9] = true, [3] = true, [4] = true } }
+  local back = assert(worker.decode(worker.encode(report)))
+  local back_ordered = assert(back.test_ordered, "the report has its lines in order")
+  local ordered = assert(back_ordered["build.a"], "the lines of build.a come in order")
+  assert(table.concat(ordered, ",") == "2,3,4,9", table.concat(ordered, ","))
+  local hex = "6275696c642e62" -- "build.b"
+  local unordered = worker.encode(passing({})):gsub("\nend\n$", "\ntest-hit " .. hex .. " 9,3-4\nend\n")
+  local read = assert(worker.decode(unordered))
+  local lines = assert(read.test_hits["build.b"], "the lines of build.b are read")
+  assert(lines[9] == true and lines[3] == true and lines[4] == true)
+  local read_ordered = read.test_ordered
+  assert(read_ordered == nil or read_ordered["build.b"] == nil)
+  -- A module written twice has the lines of its last line, and that line's order: none, where it wrote none.
+  local twice = worker.encode(passing({})):gsub("\nend\n$", "\ntest-hit " .. hex .. " 1-3\ntest-hit " .. hex ..
+      " 9,5\nend\n")
+  local last = assert(worker.decode(twice))
+  local last_lines = assert(last.test_hits["build.b"], "the last line of build.b is read")
+  assert(last_lines[9] == true and last_lines[1] == nil)
+  local last_ordered = last.test_ordered
+  assert(last_ordered == nil or last_ordered["build.b"] == nil)
+end
+
 --- The hits of a load reported again, the same lines of the same modules, are the one table the first report had
 --- of them, by which the runner knows a load it has taken; a load that differs in a line is another. A `load-hit`
 --- line met apart from the rest is read into the report that holds it alone, and one that is no hit, or a line of

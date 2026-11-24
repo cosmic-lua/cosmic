@@ -413,9 +413,10 @@ visit = function(s: Generics.Solver, pattern: Type, actual: Type, dir: Generics.
       visit(s, pattern.element, element, dir, at)
     end
   elseif (pattern.tag == "map") then
-    local body = if (actual.tag == "named") and not actual.value and Types.inferred_record(actual.decl) then actual.decl.body else nil end
+    local body = if (actual.tag == "named") and not actual.value and
+        (Types.inferred_record(actual.decl) or Types.shape_record(actual.decl)) then actual.decl.body else nil end
     if body ~= nil and not pattern.mut then
-      -- A record inferred for a literal of named items is a map of strings to its fields, read only.
+      -- A record inferred for a literal of named items, or one in braces, is a map of strings to its fields, read only.
       visit(s, pattern.key, s.store.string, "both", at)
       for _, f in ipairs(body.fields) do
         visit(s, pattern.value, s.store:non_nil(f.type), dir, at)

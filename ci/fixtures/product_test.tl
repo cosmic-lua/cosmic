@@ -154,6 +154,28 @@ local function test_transported_product(tmp: string)
   check_hashes(product)
 end
 
+--- The product keeps a clean compile of a `-e` chunk, so a second run of it loads no checker; and the key is the
+--- chunk's own: a file whose bytes are a chunk's key words ahead of the chunk is still refused as a file.
+local function test_the_product_keeps_a_chunks_compile_under_its_own_key(tmp: string)
+  local product = Fixture.placed("product")
+  local diagnostics = tmp .. "/logs"
+  Fixture.mkdir(tmp .. "/run")
+  local chunk = 'local exit_status = require("build.exit_status") print("ran", exit_status.uncompiled) return 0'
+  local env = { COSMIC_PORTABLE_CACHE = tmp .. "/cache", XDG_CACHE_HOME = tmp .. "/xdg", COSMIC_TRACE_REQUIRE = "1" }
+  for round = 1, 2 do
+    local ran = Fixture.run("chunk-" .. tostring(round), { product .. "/cosmic", "-e", chunk }, tmp .. "/run",
+      diagnostics, env)
+    Fixture.contains(ran.out, "ran\t4")
+    local checked = Fixture.read(ran.err):find(" build.pipeline ", 1, true) ~= nil
+    assert(checked == (round == 1), ("run %d of the chunk loaded the checker: %s"):format(round, tostring(checked)))
+  end
+  Fixture.write(tmp .. "/run/spelled.tl", "own\0" .. chunk)
+  local file = Fixture.call("spelled-file", { product .. "/cosmic", "--standalone", "spelled.tl" }, tmp .. "/run",
+    diagnostics, env)
+  assert(file.result.code == 4 and not Fixture.read(file.out):find("ran", 1, true),
+    "a file spelled as a chunk's key ran: " .. tostring(file.result.code))
+end
+
 --- The product runs from outside the build directory of the checkout it
 --- was built from. So in a project it is held to no tree, as a release is.
 --- `help`'s index, and one verb's help, then start without build.reboot
