@@ -245,7 +245,7 @@ local record Flags
     failed: Verdict
     --- Says why on `err`, and answers [`Flags.REFUSED`].
     refused: Verdict
-    --- Says why on `err`, and answers [`Flags.UNDONE`].
+    --- Says why on `err`, and returns [`Flags.UNDONE`].
     undone: Verdict
   end
 
@@ -255,7 +255,7 @@ local record Flags
   --- [`Flags.dispatch`]'s example gives for a word that names no command.
   REFUSED: integer
   --- The exit code of a command that could not do what was asked: 5. A file it could not read or write,
-  --- a request that failed, or input data it refused. [`Flags.FAILED`] is the answer "no" (not found, a
+  --- a request that failed, or input data it refused. [`Flags.FAILED`] is the reply "no" (not found, a
   --- check that did not pass); this is "could not tell".
   UNDONE: integer
 end

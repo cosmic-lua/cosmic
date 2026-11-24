@@ -54,8 +54,8 @@ bare.ok = 0
 bare.failed = Flags.FAILED
 bare.refused = Flags.REFUSED
 -- TODO: give archive, tailscale, acme, agent, time and cache `undone` for a read or a request that failed
--- (each answers `undone` only for a write to standard output, through `written`), once each is on
--- `subcommands`; then mcp and release, whose failed requests still answer `failed`; then the verbs that are not
+-- (each returns `undone` only for a write to standard output, through `written`), once each is on
+-- `subcommands`; then mcp and release, whose failed requests still return `failed`; then the verbs that are not
 -- bare, whose `cosmic help exit` text still counts a failed read or write as 1, and a file run's
 -- missing file.
 bare.undone = Flags.UNDONE
@@ -103,7 +103,7 @@ function bare.delivered(complain: function(line: string), ok: boolean, why: stri
   return false
 end
 
---- What a write to standard output answers as an exit code: 0, or
+--- What a write to standard output returns as an exit code: 0, or
 --- [`bare.undone`] and a complaint, since a value lost to a full disk or a closed pipe
 --- is no success. Takes what `out` answers.
 function bare.written(complain: function(line: string), ok: boolean, why: string): integer
