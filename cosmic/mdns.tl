@@ -182,7 +182,9 @@ local class MdnsResponder
   --- Closes the socket, which leaves the group and ends `serve`. Safe to call more than once.
   function close(self): boolean, string
     self.closed = true
-    return self.socket:close()
+    local ok, why = self.socket:close()
+    if ok then return true, "" end
+    return false, why.message
   end
 
   function __close(self)
@@ -487,11 +489,15 @@ end
 --- Joins `group` on each interface of `vias`, or on the system's choice where there is none: true
 --- where one joined, else false and why the last did not.
 local function join(socket: Net.Datagram, group: string, vias: {string}): boolean, string
-  if #vias == 0 then return socket:join(group) end
+  if #vias == 0 then
+    local ok, why = socket:join(group)
+    if ok then return true, "" end
+    return false, why.message
+  end
   local joined, trouble = false, ""
   for _, via in ipairs(vias) do
     local ok, refused = socket:join(group, via)
-    if ok then joined = true else trouble = refused end
+    if ok then joined = true else trouble = refused.message end
   end
   if joined then return true, "" end
   return false, trouble
@@ -500,12 +506,16 @@ end
 --- Sends `bytes` to `to` by each interface of `vias`, or by the system's choice where there is
 --- none: true where one took it, else false and why the last did not.
 local function send_by(socket: Net.Datagram, vias: {string}, bytes: string, to: Net.Address): boolean, string
-  if #vias == 0 then return socket:send(bytes, to) end
+  if #vias == 0 then
+    local ok, why = socket:send(bytes, to)
+    if ok then return true, "" end
+    return false, why.message
+  end
   local sent, trouble = false, ""
   for _, via in ipairs(vias) do
     local ok, refused = socket:set_multicast({ via = via })
     if ok then ok, refused = socket:send(bytes, to) end
-    if ok then sent = true else trouble = refused end
+    if ok then sent = true else trouble = if refused ~= nil then refused.message else "" end end
   end
   if sent then return true, "" end
   return false, trouble
@@ -542,7 +552,8 @@ local function open(opts: Mdns.Options): Hunt?, string
   if socket == nil then return nil, tostring(why) end
   local vias: {string} = {}
   if is_group(address) then vias = opts.via or default_vias() end
-  local ready, trouble = socket:set_multicast({ hops = HOPS })
+  local ready, failed = socket:set_multicast({ hops = HOPS })
+  local trouble = if failed ~= nil then failed.message else "" end
   if ready and grouped then ready, trouble = join(socket, address, vias) end
   if not ready then
     local _, _ = socket:close()
@@ -899,8 +910,8 @@ local function run(hunt: Hunt, done: function(): integer?): boolean, string
         if not went_on then return false, cancelled.message end
         now = Clock.monotonic_ns()
       end
-    elseif why ~= Poll.TIMEOUT then
-      return false, why
+    elseif why.kind ~= "timeout" then
+      return false, why.message
     end
   end
   return true, ""
@@ -1247,7 +1258,7 @@ local function respond(socket: Net.Datagram, port: integer, group: Net.Address, 
   local heard = 0
   while true do
     local packet, why = socket:receive()
-    if packet == nil then return false, why end
+    if packet == nil then return false, why.message end
     -- TODO: drop a query that did not arrive with 255 hops, the proof that it came from the local
     -- link (RFC 6762 section 11), once Net.Datagram's receive answers the hops a datagram arrived
     -- with: until then a machine past the link that reaches the port draws an answer to the
@@ -1313,7 +1324,8 @@ local function responder_text(instances: {Mdns.Published}, opts?: Mdns.Responder
   local socket, why = Net.datagram(Net.udp("0.0.0.0", port), { shared = true })
   if socket == nil then return nil, tostring(why) end
   local vias = options.via or default_vias()
-  local ready, trouble = socket:set_multicast({ hops = HOPS })
+  local ready, failed = socket:set_multicast({ hops = HOPS })
+  local trouble = if failed ~= nil then failed.message else "" end
   if ready then ready, trouble = join(socket, address, vias) end
   if not ready then
     local _, _ = socket:close()

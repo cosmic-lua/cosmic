@@ -176,32 +176,11 @@ local function arguments(argv: {string}): Request?, string
     return nil, "name one of --hex and --base64url, not both"
   end
   if parsed.set["--hex"] == true then request.encoding = "hex" end
-  local given = parsed.values["-n"]
-  if given ~= nil then
-    local count = integer_of(given)
-    if count == nil or count < 1 or count > verb.MAX_COUNT then
-      return nil, "-n needs a whole number from 1 to " .. tostring(verb.MAX_COUNT) .. ", not " .. given
-    end
-    request.count = count
-  end
-  given = parsed.values["--bytes"]
-  if given ~= nil then
-    local bytes = integer_of(given)
-    if bytes == nil or bytes < 1 or bytes > verb.MAX_BYTES then
-      return nil, "--bytes needs a whole number from 1 to " .. tostring(verb.MAX_BYTES) .. ", not " .. given
-    end
-    request.bytes = bytes
-  end
-  given = parsed.values["--seed"]
-  if given ~= nil then
-    local seed = integer_of(given)
-    if seed == nil then
-      return nil, "--seed needs a whole number, not " .. given
-    end
-    request.seed = seed
-  end
+  request.count = parsed.integers["-n"]
+  request.bytes = parsed.integers["--bytes"] or request.bytes
+  request.seed = parsed.integers["--seed"]
   for _, name in ipairs({ "--mean", "--stddev", "--shape", "--scale" }) do
-    given = parsed.values[name]
+    local given = parsed.values[name]
     if given ~= nil then
       local value = number_of(given)
       if value == nil then

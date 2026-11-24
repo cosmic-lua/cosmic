@@ -56,3 +56,42 @@ end
   assert(text_of(secret) == "refused", text_of(secret))
   AgentMcp.close(set)
 end
+
+local function test_a_server_that_crashes_tells_its_stderr_with_its_keys_put_as_names()
+  local dir = assert(Fs.mkdtemp("agent-mcp-crash-"))
+  local script = dir .. "/server.tl"
+  assert(Fs.write(script, [=[
+local Env = require("cosmic.env")
+local Failure = require("cosmic.failure")
+local Fs = require("cosmic.fs")
+local Json = require("cosmic.json")
+local Mcp = require("cosmic.mcp")
+local Proc = require("cosmic.proc")
+local Server = require("cosmic.mcp.server")
+return function(_: {string}): integer
+  local server = Server.new{
+    info = { name = "crash", version = "1" },
+    tools = { {
+      tool = { name = "crash", inputSchema = Mcp.object_schema({}) },
+      call = function(_: {string: Json.Value}, _: Server.Call): (Mcp.ToolResult) | (nil, Failure)
+        local _, _ = Fs.put(Fs.stderr, "\27[31mcrashed with key " .. tostring(Env.get("PATH")) .. "\n")
+        Proc.exit(3)
+      end,
+    } },
+  }
+  assert(server:serve_stdio())
+  return 0
+end
+]=]))
+  local self = assert(Proc.executable())
+  local config = assert(Json.encode({ servers = { crash = { command = Json.array({ self, "--standalone", script }),
+    policy = { profiles = Json.array({ "cosmic" }), env = Json.array({ "PATH" }),
+      grants = Json.array({ { path = dir, letters = "r" } }) } } } }))
+  assert(Fs.write(dir .. "/mcp.json", config))
+  local set = AgentMcp.new(assert(AgentMcp.load(dir .. "/mcp.json")), dir)
+  local _, why = AgentMcp.call(set, "crash", "crash", {})
+  local said = tostring(why)
+  assert(said:find("the end of its standard error: [31mcrashed with key [PATH]\n", 1, true) ~= nil, said)
+  assert(said:find("\27", 1, true) == nil, "a control byte is taken out")
+  AgentMcp.close(set)
+end

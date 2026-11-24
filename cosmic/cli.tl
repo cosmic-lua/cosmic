@@ -1688,14 +1688,14 @@ local module: Module = {
           spec = {
             ["--v4"] = { about = "version 4, random (the default)" },
             ["--v7"] = { about = "version 7, time-ordered within a run" },
-            ["-n"] = { value = "n", about = "how many (default 1)" },
+            ["-n"] = { value = "n", about = "how many", integer = { min = 1, max = 10000000 }, default = "1" },
             ["--seed"] = { value = "n", about = "refused: the output is secret" },
           },
         },
         token = {
           about = "a random token",
           spec = {
-            ["--bytes"] = { value = "n", about = "bytes of entropy, 1 to 1048576 (default 32)" },
+            ["--bytes"] = { value = "n", about = "bytes of entropy", integer = { min = 1, max = 1048576 }, default = "32" },
             ["--hex"] = { about = "lowercase hex" },
             ["--base64url"] = { about = "unpadded base64url (the default)" },
             ["--seed"] = { value = "n", about = "refused: the output is secret" },
@@ -1705,41 +1705,41 @@ local module: Module = {
           about = "integers, uniform over lo..hi inclusive",
           usage = "[options] [--] <lo> <hi>",
           spec = {
-            ["-n"] = { value = "n", about = "how many (default 1)" },
-            ["--seed"] = { value = "n", about = "replayable, NOT secret" },
+            ["-n"] = { value = "n", about = "how many", integer = { min = 1, max = 10000000 }, default = "1" },
+            ["--seed"] = { value = "n", about = "replayable, NOT secret", integer = {} },
           },
         },
         pick = {
           about = "distinct lines of a file",
           usage = "[options] [file|-]",
           spec = {
-            ["-n"] = { value = "n", about = "how many (default 1)" },
-            ["--seed"] = { value = "n", about = "replayable, NOT secret" },
+            ["-n"] = { value = "n", about = "how many", integer = { min = 1, max = 10000000 }, default = "1" },
+            ["--seed"] = { value = "n", about = "replayable, NOT secret", integer = {} },
           },
         },
         shuffle = {
           about = "every line of a file, shuffled",
           usage = "[options] [file|-]",
           spec = {
-            ["--seed"] = { value = "n", about = "replayable, NOT secret" },
+            ["--seed"] = { value = "n", about = "replayable, NOT secret", integer = {} },
           },
         },
         normal = {
           about = "draws from the normal distribution",
           spec = {
-            ["-n"] = { value = "n", about = "how many (default 1)" },
-            ["--seed"] = { value = "n", about = "replayable, NOT secret" },
-            ["--mean"] = { value = "m", about = "the mean (default 0)" },
-            ["--stddev"] = { value = "sd", about = "the standard deviation, not negative (default 1)" },
+            ["-n"] = { value = "n", about = "how many", integer = { min = 1, max = 10000000 }, default = "1" },
+            ["--seed"] = { value = "n", about = "replayable, NOT secret", integer = {} },
+            ["--mean"] = { value = "m", about = "the mean", default = "0" },
+            ["--stddev"] = { value = "sd", about = "the standard deviation, not negative", default = "1" },
           },
         },
         gamma = {
           about = "draws from the gamma distribution",
           spec = {
-            ["-n"] = { value = "n", about = "how many (default 1)" },
-            ["--seed"] = { value = "n", about = "replayable, NOT secret" },
+            ["-n"] = { value = "n", about = "how many", integer = { min = 1, max = 10000000 }, default = "1" },
+            ["--seed"] = { value = "n", about = "replayable, NOT secret", integer = {} },
             ["--shape"] = { value = "k", about = "the shape, above 0", required = true },
-            ["--scale"] = { value = "t", about = "the scale, above 0 (default 1)" },
+            ["--scale"] = { value = "t", about = "the scale, above 0", default = "1" },
           },
         },
       },

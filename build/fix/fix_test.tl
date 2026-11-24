@@ -117,6 +117,30 @@ local function test_only_the_whole_own_tree_is_whole(tmp: string)
   assert(not assert(chosen(other, { other })).whole, "a tree of another's is never whole")
 end
 
+--- A Teal file named outside cosmic's own tree is checked alone, as it is
+--- for any other project: laid out only, a type error in it would pass.
+--- The tree's own files, ci/ among them, are not, nor is a file of
+--- another checkout of cosmic.
+local function test_a_file_outside_the_own_tree_is_checked_alone(tmp: string)
+  local own = tmp .. "/own"
+  assert(Fs.mkdirs(own .. "/core"))
+  assert(Fs.mkdirs(own .. "/build"))
+  assert(Fs.mkdirs(own .. "/ci"))
+  assert(Fs.mkdirs(own .. "/vendor/lua"))
+  assert(Fs.write(own .. "/build/importer.tl", "return {}\n"))
+  assert(Fs.write(own .. "/ci/step.tl", "return {}\n"))
+  assert(Fs.write(tmp .. "/try.tl", "return {}\n"))
+  local picked = assert(chosen(own, { tmp .. "/try.tl", own .. "/build/importer.tl", own .. "/ci/step.tl" }, true))
+  local alone = picked.alone or {}
+  assert(#alone == 1 and alone[1] == tmp .. "/try.tl", table.concat(alone, ", "))
+  -- A file of another checkout of cosmic is laid out only: alone, it could not see its own modules.
+  local other = tmp .. "/other"
+  for _, dir in ipairs({ "/core", "/build" }) do assert(Fs.mkdirs(other .. dir)) end
+  assert(Fs.write(other .. "/build/importer.tl", "return {}\n"))
+  local theirs = assert(chosen(own, { other .. "/build/importer.tl" }, true))
+  assert(theirs.alone == nil or #theirs.alone == 0, table.concat(theirs.alone or {}, ", "))
+end
+
 --- A program's modules, as its own database holds them, which
 --- [`fix.narrowed`] reads: every module that checks each file alone,
 --- the reading of Teal's requiring cosmic.string.

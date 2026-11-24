@@ -6,6 +6,7 @@
 --- beside the workspace, so actions/cache's paths relative to the
 --- workspace resolve through it. The names are checked against vectors
 --- recorded from the original shell implementation.
+local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local PlaceTree = require("cosmic_ci.place_tree")
 
@@ -398,7 +399,9 @@ local function test_a_move_onto_an_existing_directory_is_refused()
 end
 
 local function test_the_command_refuses_both_options_and_an_extra_word()
-  local both: mut {string:boolean} = { ["--name"] = true, ["--restore"] = true }
-  assert(PlaceTree.command({ set = both, values = {}, all = {}, given = {}, words = {} }) == 2)
-  assert(PlaceTree.command({ set = {}, values = {}, all = {}, given = {}, words = { "extra" } }) == 2)
+  -- The lines are read as the driver reads them, so the test holds whatever fields Flags.Parsed has.
+  local both = assert(Flags.parse({ "--name", "--restore" }, 1, PlaceTree.spec()))
+  assert(PlaceTree.command(both) == 2)
+  local extra = assert(Flags.parse({ "extra" }, 1, PlaceTree.spec()))
+  assert(PlaceTree.command(extra) == 2)
 end

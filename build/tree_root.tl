@@ -187,6 +187,13 @@ function tree_root.move(argv: {string},
       literal = true
     elseif not literal and word:sub(1, 1) == "-" and word ~= "-" then
       local option = options[word]
+      for _, entry in pairs(options) do
+        if option == nil and entry is Flags.Option then
+          for _, alias in ipairs(entry.aliases or {}) do
+            if alias == word then option = entry end
+          end
+        end
+      end
       if option is Flags.Option and option.value ~= nil and word:find("=", 1, true) == nil then
         slot = slot + 1
       end

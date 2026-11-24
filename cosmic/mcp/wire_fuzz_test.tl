@@ -34,6 +34,9 @@ local RESULTS <const>: {string} = {
   '{"resultType":"input_required","inputRequests":{"k":{"method":"elicitation/create","params":{"mode":"url",' ..
     '"message":"go","url":"https://example.com/x"}}},"requestState":"s"}',
   '{"action":"accept","content":{"n":"ada","ok":true,"k":3}}',
+  '{"completion":{"values":["python","perl"],"total":2,"hasMore":false}}',
+  '{"ref":{"type":"ref/resource","uri":"repo://{owner}/{name}"},"argument":{"name":"name","value":"co"},' ..
+    '"context":{"arguments":{"owner":"will"}}}',
 }
 
 --- Event streams as a server sends them, to mutate: every line end, an event cut off by the end, one the end's CR
@@ -122,6 +125,16 @@ local function test_decoders_are_total(tmp: string)
     function(v: any): boolean
       local r, w = wire.prompts(v)
       return r ~= nil or said(w)
+    end,
+    function(v: any): boolean
+      local r, w = wire.completion_of(v)
+      if r ~= nil and #r.values > Mcp.MAX_COMPLETIONS then return false end
+      return r ~= nil or said(w)
+    end,
+    function(v: any): boolean
+      local r, w = wire.completing_of(v)
+      if r ~= nil and (r.prompt == nil) == (r.template == nil) then return false end
+      return r ~= nil or w ~= ""
     end,
   }
   Fuzz.run({
