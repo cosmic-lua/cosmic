@@ -909,13 +909,14 @@ seeded source. A check must hold for all of them. The module doc of
   share of drawn inputs that must reach a label, set well under what a
   run reaches. Neither is held when `FUZZ_ITERS` is below 64.
 - A property of code that allocates gives `starved`: the module's own
-  work on an input, returning what it found as text. On the checked
-  core, after `check` holds for an input (drawn or of the corpus),
-  `run` runs it once whole, then again with an allocation refused at a
-  point drawn from the input's case: either that one alone or every one
-  after it. The paths that handle a refused allocation run under the
-  sanitizer. The starved run must return what the whole one did, or
-  say that memory ran out, and `check` must hold again after it. Other
+  work on an input, returning what it found as lines of text. On the
+  checked core, after `check` holds for an input, `run` runs it once
+  whole, then again with an allocation refused: either that one alone
+  or every one after it. A drawn input is refused at a point drawn from
+  its case, a corpus input at 16 points spread over its allocations.
+  The paths that handle a refused allocation run under the sanitizer.
+  The starved run must return what the whole one did, but that a line
+  may say memory ran out, and `check` must hold again after it. Other
   cores skip it.
 - CI runs that gate a merge set `FUZZ_ITERS=0` and draw nothing. The
   weekly `fuzz.yml` fuzzes every property on the checked core with a

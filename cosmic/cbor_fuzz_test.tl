@@ -26,7 +26,7 @@ local function test_decode_is_total_and_reads_back(tmp: string)
       if item == nil then return "refused: " .. why end
       local written = Cbor.encode(item)
       local _, again_why = Cbor.decode(written)
-      return written .. "\n" .. tostring(again_why)
+      return (written:gsub("\n", "\\n")) .. "\n" .. tostring(again_why)
     end,
     check = function(input: string): boolean, string
       local item, why = Cbor.decode(input)

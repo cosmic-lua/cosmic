@@ -16,8 +16,8 @@ local record testing
   --- enough memory" wherever Lua asked for it. The core's own C heap
   --- (core/memory.h) draws from the same count, and a refusal there is
   --- the NULL its caller must handle. With `once`, only the one
-  --- allocation after them is refused (twice, since Lua tries a refused
-  --- one again after a collection), and every later one granted, so what
+  --- allocation after them is refused (and, when it is Lua's, the retry
+  --- Lua makes of it after a collection), and every later one granted, so what
   --- code does after it handles a refusal runs as it would.
   fail_allocations: function(after: integer, once?: boolean)
 

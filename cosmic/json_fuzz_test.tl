@@ -243,12 +243,12 @@ local function decode_starved(input: string): string
   for _, json5 in ipairs({ false, true }) do
     for _, big in ipairs({ false, true }) do
       local value, why = Json.decode(input, { null_value = Json.null, json5 = json5, big_numbers_as_strings = big })
-      lines[#lines + 1] = "decode: " .. tostring(why)
+      lines[#lines + 1] = "decode: " .. (tostring(why):gsub("\n", "\\n"))
       if value ~= nil then
         local encoded, ewhy = Json.encode(value)
-        lines[#lines + 1] = "encode: " .. (if encoded ~= nil then encoded else tostring(ewhy) end)
+        lines[#lines + 1] = "encode: " .. ((if encoded ~= nil then encoded else tostring(ewhy) end):gsub("\n", "\\n"))
         local formatted, fwhy = Json.format(input, { json5 = json5, duplicate_keys = true })
-        lines[#lines + 1] = "format: " .. (if formatted ~= nil then formatted else tostring(fwhy) end)
+        lines[#lines + 1] = "format: " .. ((if formatted ~= nil then formatted else tostring(fwhy) end):gsub("\n", "\\n"))
       end
     end
   end

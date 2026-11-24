@@ -65,7 +65,11 @@ local function test_decoding_any_bytes_is_total_bounded_and_split_alike()
       local max_bytes = math.max(1, math.tointeger(tonumber(fields[3] or "1")) or 1)
       local whole, whole_trouble = decode(frame, math.max(1, #frame), 1 << 20)
       local split, split_trouble = decode(frame, step, max_bytes)
-      return table.concat({ whole, whole_trouble, split, split_trouble }, "\n")
+      local function line(bytes: string, trouble: string): string
+        if trouble ~= "" then return "refused: " .. trouble end
+        return (bytes:gsub("\n", "\\n"))
+      end
+      return line(whole, whole_trouble) .. "\n" .. line(split, split_trouble)
     end,
     requires = { "decoded", "refused" },
     check = function(input: string): boolean, string

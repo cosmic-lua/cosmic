@@ -2,6 +2,7 @@
 --- checked core makes: a raise that is no refusal's fails the input, and
 --- so does a check that a starved run broke.
 
+local Fs = require("cosmic.fs")
 local Fuzz = require("build.fuzz")
 local Test = require("cosmic.test")
 
@@ -80,5 +81,37 @@ local function test_a_check_that_a_starved_run_broke_fails()
     end })
   -- The run fails at the first input a starved run broke; shrinking then
   -- meets the state it left, so the report's reason may be the check's own.
-  assert(err:find("broken", 1, true) ~= nil, err)
+  assert(err:find("fuzz starved breaks: seed=1 iteration=", 1, true) ~= nil and err:find("broken", 1, true) ~= nil, err)
+end
+
+local function test_a_line_may_say_memory_ran_out_and_the_lines_after_it_are_held()
+  -- Each line a step of its own: the first refused, the second after it.
+  local function starved_with(second: function(boolean): string): function(string): string
+    return function(input: string): string
+      local ok, _ = pcall(allocate, input)
+      return (if ok then "read" else "out of memory" end) .. "\n" .. second(ok)
+    end
+  end
+  local n = Fuzz.run({ name = "starved lines hold", iters = 64, gen = any_bytes, check = holds,
+    starved = starved_with(function(_ok: boolean): string return "next" end) })
+  assert(n == 64)
+  local err = report({ name = "starved lines differ", iters = 64, gen = any_bytes, check = holds,
+    starved = starved_with(function(ok: boolean): string
+      return if ok then "next" else "wrong" end
+    end) })
+  assert(err:find('line 2 is "wrong", where unstarved it is "next"', 1, true) ~= nil, err)
+end
+
+local function test_a_corpus_input_is_starved_too(tmp: string)
+  local corpus = tmp .. "/corpus"
+  assert(Fs.mkdirs(corpus))
+  assert(Fs.write(corpus .. "/a.input", string.rep("x", 40)))
+  local err = report({ name = "starved corpus", corpus = corpus, iters = 0, gen = any_bytes, check = holds,
+    starved = function(input: string): string
+      local ok, _ = pcall(allocate, input)
+      if not ok then error(("decoder bug at byte %d"):format(#input), 0) end
+      return "read"
+    end })
+  assert(err:find("fuzz starved corpus: corpus input " .. corpus .. "/a.input: starved after", 1, true) ~= nil, err)
+  assert(err:find("raised: decoder bug at byte 40", 1, true) ~= nil, err)
 end

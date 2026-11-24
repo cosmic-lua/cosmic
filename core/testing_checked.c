@@ -68,11 +68,13 @@ static struct {
 
 /* Whether the next growing allocation, Lua's or the C heap's, is
  * granted: always, unless a countdown is running and has run out. */
-static int granted (void) {
+static int granted (int lua) {
   if (!allocator.failing) return 1;
   if (allocator.left == 0) {
     allocator.refused++;
-    if (allocator.once && --allocator.once == 0) allocator.left = -1;
+    /* Lua tries a refused allocation once more, after a collection; the
+     * C heap does not. */
+    if (allocator.once && (!lua || --allocator.once == 0)) allocator.left = -1;
     return 0;
   }
   if (allocator.left > 0) allocator.left--;
@@ -84,7 +86,7 @@ static void *failing_alloc (void *ud, void *ptr, size_t osize, size_t nsize) {
   (void)ud;
   /* With ptr NULL, osize names the kind of object, not a size. */
   int grows = nsize > 0 && (ptr == NULL || nsize > osize);
-  if (grows && !granted()) return NULL;
+  if (grows && !granted(1)) return NULL;
   return allocator.real(allocator.real_ud, ptr, osize, nsize);
 }
 
@@ -103,7 +105,7 @@ static struct {
 } c_heap;
 
 void *cosmic_malloc (size_t size) {
-  if (size > SIZE_MAX - sizeof(block_header) || !granted()) return NULL;
+  if (size > SIZE_MAX - sizeof(block_header) || !granted(0)) return NULL;
   block_header *h = malloc(sizeof *h + size);
   if (h == NULL) return NULL;
   h->size = size;
@@ -126,7 +128,7 @@ void *cosmic_realloc (void *block, size_t size) {
   block_header *h = (block_header *)block - 1;
   size_t old = h->size;
   if (size > SIZE_MAX - sizeof(block_header)) return NULL;
-  if (size > old && !granted()) return NULL;
+  if (size > old && !granted(0)) return NULL;
   block_header *moved = realloc(h, sizeof *h + size);
   if (moved == NULL) return NULL;
   moved->size = size;
@@ -164,8 +166,8 @@ bool cosmic_fault (const char *point) {
 
 /* fail_allocations(after, once): grants the next `after` growing
  * allocations and refuses every one past them, until allow_allocations;
- * with `once`, refuses only the one after them (and Lua's retry of it)
- * and grants the rest. */
+ * with `once`, refuses only the one after them (and Lua's retry of it,
+ * when it is Lua's) and grants the rest. */
 static int testing_fail_allocations (lua_State *L) {
   lua_Integer after = luaL_checkinteger(L, 1);
   luaL_argcheck(L, after >= 0, 1, "a count of allocations is not negative");
