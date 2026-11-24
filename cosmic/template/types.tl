@@ -161,8 +161,9 @@ local record Types
     module_path: string
     --- The function's name in that module.
     func: string
-    --- Where its word stands.
+    --- The line its word stands on.
     line: integer
+    --- The column its word starts at.
     col: integer
   end
 
@@ -249,11 +250,13 @@ local record Types
     type_name: string
     --- What it writes.
     body: {Node}
-    --- Where its `{{define}}` stands.
+    --- The line of its `{{define}}`.
     line: integer
+    --- The column of its `{{define}}`.
     col: integer
-    --- Where its `{{end}}` stands: its body ends just before.
+    --- The line of its `{{end}}`: its body ends just before.
     end_line: integer
+    --- The column of its `{{end}}`.
     end_col: integer
   end
 
@@ -272,9 +275,11 @@ local record Types
     dialects: {string}
     --- The nodes after the declaration, up to the first `{{define}}`.
     body: {Node}
-    --- Where the body ends: the first `{{define}}`'s `{{`, or just past the
-    --- template's last byte.
+    --- The line the body ends on: the first `{{define}}`'s, or the
+    --- template's last.
     body_end_line: integer
+    --- The column the body ends at: the first `{{define}}`'s `{{`, or just
+    --- past the template's last byte.
     body_end_col: integer
     --- The `{{define}}`s, in order.
     defines: {Define}

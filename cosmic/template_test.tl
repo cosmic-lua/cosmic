@@ -322,9 +322,9 @@ end
 
 local function test_a_define_keeps_lines_through_trimming_and_crlf()
   for _, src in ipairs({
-    HEAD .. "a\n{{- define x T -}}\n<b>{{.n}}</b>\n{{- end -}}\n\n{{define\n  y T}}\n{{.m}}{{end}}\n",
-    "{{type T from m.t}}\r\nx{{. | z}}\r\n{{define z T}}\r\n{{.q}}\r\n{{end}}\r\n",
-    "{{type T from m.t}}{{mode text}}\n{{define w T}}{{.q}}{{end}}",
+      HEAD .. "a\n{{- define x T -}}\n<b>{{.n}}</b>\n{{- end -}}\n\n{{define\n  y T}}\n{{.m}}{{end}}\n",
+      "{{type T from m.t}}\r\nx{{. | z}}\r\n{{define z T}}\r\n{{.q}}\r\n{{end}}\r\n",
+      "{{type T from m.t}}{{mode text}}\n{{define w T}}{{.q}}{{end}}",
   }) do
     local out = compiled(src)
     assert(newlines(out) == newlines(src) + 1, src .. "\n" .. out)

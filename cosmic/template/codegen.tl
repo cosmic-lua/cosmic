@@ -146,6 +146,10 @@ local record Gen
   defines: mut {string: string}
 end
 
+--- The declaration of the output's pieces, which each function of the
+--- module starts with.
+local PIECES <const> = "local parts: mut {string} = {}"
+
 --- The start of a statement that adds to the output.
 local APPEND <const> = "parts[#parts + 1] = "
 
@@ -574,7 +578,7 @@ function Codegen.generate(template: types.Template): string
     emit(g, define.body, root)
     g.patched[header] = assert(g.pieces[header], "put made the piece at this place") ..
       "function _Module." .. define.name .. "(" .. (if root.used then "d" else "_" end) .. ": " .. type_alias .. "." ..
-      define.type_name .. "): " .. result .. " local parts: mut {string} = {}"
+      define.type_name .. "): " .. result .. " " .. PIECES
     to_line(g, define.end_line)
     put(g, finish)
   end
@@ -608,7 +612,7 @@ function Codegen.generate(template: types.Template): string
     head[#head + 1] = "local record _Module end function _Module.render" .. signature
     ending = "return _Module"
   end
-  head[#head + 1] = "local parts: mut {string} = {}"
+  head[#head + 1] = PIECES
 
   to_line(g, template.lines)
   put(g, ending)
