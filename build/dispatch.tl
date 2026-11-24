@@ -700,8 +700,8 @@ end
 
 --- `cosmic -e <chunk> [args...]`: runs `chunk` as the body of a Teal file, against this binary's own standard
 --- library, with no tree around it. The chunk is parsed, checked as strictly as a tree build checks (a warning
---- is refused with an error) and compiled by [`build.standalone`]; a chunk the checker refuses does not run, and
---- exits 4 ([`exit_status.uncompiled`]) with the checker's own messages. It reaches the standard library as a file does, by
+--- is refused with an error) and compiled by [`build.standalone`], which keeps a clean compile as it keeps a file's;
+--- a chunk the checker refuses does not run, and exits 4 ([`exit_status.uncompiled`]) with the checker's own messages. It reaches the standard library as a file does, by
 --- `require("cosmic.json")` with a literal name, and may require the tool's own modules too, which are the
 --- tool's one-liner's to use; nothing is bound for it. The words after it are its `...` (each a `string?`); what it
 --- returns is the exit code as a file run's is -- see build/exit_status.tl.
