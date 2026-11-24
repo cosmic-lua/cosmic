@@ -760,24 +760,22 @@ end
 local help_spec: verb_spec.Spec?
 
 --- `cosmic help [verb | exit]`: the index, or one verb's full text, or the
---- exit codes, then its summary on stderr.
+--- exit codes, with no summary after it.
 --- @param asked the verb `cosmic <verb> --help` asked about, or nil to
 ---   read the words after `help` itself
 --- @param asked_sub the verb's subcommand `cosmic <verb> <sub> --help` asked about, or nil
+--- The ending of each refusal of `help`'s own line, as Flags.dispatch ends every other verb's.
+local help_usage <const> = "; usage: cosmic help [verb | exit | <verb> <subcommand>]"
+
 local function help(argv: {string}, asked: string?, asked_sub?: string): integer
   local Cli = require("cosmic.cli")
-  local Clock = require("cosmic.clock")
-  local clock = require("build.clock")
-  local plural = require("build.plural")
   local verb_list = require("build.verb_list")
-  local started = Clock.monotonic_ns()
   -- Cache maintenance must remain usable when this directory's candidate
   -- cannot build. Its help comes from this binary too, without opening a
   -- candidate database or passing through the stale-tool guard.
   if asked == "cache" or (asked == nil and argv[2] == "cache" and argv[3] == nil) then
     local spec = assert(verb_list.find("cache"))
     log:say(verb_text("cache", { spec }, verb_help({ "cache" }, true).cache) .. "\n") -- checked: map_field
-    local _, _ = logger.summary("help", "1 verb, " .. clock.took(started))
     return 0
   end
   -- The staleness guard `test` applies: a fingerprint compare when the
@@ -805,7 +803,7 @@ local function help(argv: {string}, asked: string?, asked_sub?: string): integer
     end
     local parsed, parse_trouble = require("cosmic.flags").parse(line, 2, { ["--help"] = { about = "the index" }, ["-h"] = { about = "the index" } })
     if parsed == nil then
-      log:complain("help: " .. parse_trouble)
+      log:complain("help: " .. parse_trouble .. help_usage)
       return 2
     end
     words = parsed.words
@@ -820,19 +818,19 @@ local function help(argv: {string}, asked: string?, asked_sub?: string): integer
     if sub == nil then
       local names: mut {string} = {}
       for name in pairs(subcommands) do names[#names + 1] = name end
-      log:complain("help: " .. requested .. " has no command " .. word .. meant(word, names))
+      log:complain("help: " .. requested .. " has no command " .. word .. meant(word, names) .. help_usage)
       return 2
     end
     log:say(require("cosmic.flags").help(sub, typed_name(requested) .. " " .. word, page_width) .. "\n")
-    local _, _ = logger.summary("help", "1 verb, " .. clock.took(started))
     return 0
   end
   if #words > 2 and subcommands ~= nil then
-    log:complain("help: one subcommand of " .. tostring(requested) .. " at a time, not " .. tostring(#words - 1))
+    log:complain("help: one subcommand of " .. tostring(requested) .. " at a time, not " .. tostring(#words - 1) ..
+        help_usage)
     return 2
   end
   if #words > 1 then
-    log:complain("help: one verb at a time, not " .. tostring(#words))
+    log:complain("help: one verb at a time, not " .. tostring(#words) .. help_usage)
     return 2
   end
   if #words == 1 and requested ~= nil then
@@ -846,7 +844,7 @@ local function help(argv: {string}, asked: string?, asked_sub?: string): integer
     if not known then
       local topics: mut {string} = { "exit" }
       for _, verb in ipairs(Cli.order) do topics[#topics + 1] = verb end
-      log:complain("help: no such verb: " .. requested .. meant(requested, topics))
+      log:complain("help: no such verb: " .. requested .. meant(requested, topics) .. help_usage)
       return 2
     end
     local specs = verb_list.specs()
@@ -857,11 +855,9 @@ local function help(argv: {string}, asked: string?, asked_sub?: string): integer
     else
       log:say(verb_text(requested, specs) .. "\n")
     end
-    local _, _ = logger.summary("help", "1 verb, " .. clock.took(started))
     return 0
   end
   log:say(index_help())
-  local _, _ = logger.summary("help", plural.count(#Cli.order, "verb") .. ", " .. clock.took(started))
   return 0
 end
 
@@ -872,7 +868,11 @@ help_spec = {
   run = function(argv: {string}): integer
     return help(argv, nil)
   end,
-  bare = false,
+  -- Its output is the text asked for, and nothing after it: a summary would be one more line to read past.
+  bare = true,
+  exits = "`help` prints the text asked for and nothing after; it exits 0 when it did, 2 when it refuses its " ..
+    "command line or does not know the verb or topic, and 3 when the tool is older than the tree and did not " ..
+    "rebuild itself.",
   reads = true,
   recheck_on_refusal = false,
   takes = "a verb, or `exit`",
@@ -1066,7 +1066,8 @@ function Dispatch.main(argv: {string}): integer
       run = function(line: {string}): integer
         return help(line, asked, asked_sub)
       end,
-      bare = false,
+      bare = own_spec.bare,
+      reads = own_spec.reads,
       recheck_on_refusal = false,
       takes = own_spec.takes,
       guide = own_spec.guide,

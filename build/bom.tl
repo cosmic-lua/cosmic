@@ -542,14 +542,14 @@ local function run(argv: {string}): integer
     local _, _ = logger.summary("bom", detail .. ", " .. clock.took(started))
     return 0
   end
-  local usage = "cosmic bom [--licenses | --json <path>]"
+  local usage = "usage: cosmic bom [--licenses | --json <path>]"
   local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.bom.spec)) -- checked: map_field
   if parsed == nil then
     log:complain("bom: " .. parse_trouble .. "; " .. usage)
     return 2
   end
   if #parsed.words > 0 or #parsed.given > 1 then
-    log:complain("bom: takes one option at most, and no words: " .. usage)
+    log:complain("bom: takes one option at most, and no words; " .. usage)
     return 2
   end
   local databases = Store.databases()

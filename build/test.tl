@@ -2392,7 +2392,7 @@ end
 local function read_command(ctx: Run): integer?
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
-    log:complain(tostring(root_trouble))
+    log:complain("test: " .. tostring(root_trouble))
     return 1
   end
   ctx.root = root
@@ -2521,20 +2521,20 @@ local function hold_checkout(ctx: Run): integer?
   prune_trees(root)
   local standing, standing_trouble = tree.standing(root)
   if standing == nil then
-    log:complain(standing_trouble)
+    log:complain("test: " .. standing_trouble)
     return 1
   end
   ctx.own_tree = standing.own
   local handle, open_trouble = work.open(root, nil, "test")
   if handle == nil then
-    log:complain(open_trouble)
+    log:complain("test: " .. open_trouble)
     return 1
   end
   ctx.handle = handle
   local staged, stage_trouble = work.stage(handle, standing)
   if staged == nil then
     local _, _ = work.close(handle)
-    log:complain(stage_trouble)
+    log:complain("test: " .. stage_trouble)
     return 1
   end
   ctx.staged = staged
@@ -2563,14 +2563,14 @@ local function read_identities(ctx: Run): integer?
   local runtime, runtime_trouble = test_key.runtime_of()
   if runtime == nil then
     local _, _ = work.close(handle)
-    log:complain(runtime_trouble)
+    log:complain("test: " .. runtime_trouble)
     return 1
   end
   ctx.identity, ctx.runtime = runtime.identity, runtime.runtime
   local harness, harness_trouble = test_key.binary_harness()
   if harness == nil then
     local _, _ = work.close(handle)
-    log:complain("the running binary's test harness: " .. harness_trouble)
+    log:complain("test: the running binary's test harness: " .. harness_trouble)
     return 1
   end
   ctx.harness = harness
@@ -2691,7 +2691,7 @@ local function build_tree(ctx: Run): integer?
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
-    log:complain(compile_trouble)
+    log:complain("test: " .. compile_trouble)
     return if outcome.refused then exit_status.uncompiled else 1 end
   end
   local written, write_trouble =
@@ -2700,7 +2700,7 @@ local function build_tree(ctx: Run): integer?
     result.cached, if written then "PASS" else "FAIL" end)
   if not written then
     local _, _ = work.close(handle)
-    log:complain(write_trouble)
+    log:complain("test: " .. write_trouble)
     return 1
   end
   ctx.result = result
@@ -2776,14 +2776,14 @@ local function select_tests(ctx: Run): integer?
         if refused[selector] ~= true then absent[#absent + 1] = selector end
       end
       if #absent > 0 then
-        log:complain("no test module matches: " .. table.concat(absent, ", "))
+        log:complain("test: no test module matches: " .. table.concat(absent, ", "))
       end
       for _, line in ipairs(explained.lines) do
         log:complain(line)
       end
       for _, selector in ipairs(unmatched) do
         if refused[selector] == true then
-          log:complain(selector .. " did not compile, so it has no tests to run")
+          log:complain("test: " .. selector .. " did not compile, so it has no tests to run")
         end
       end
     end
@@ -2792,7 +2792,7 @@ local function select_tests(ctx: Run): integer?
       local _, asked = split(selector)
       local name = assert(asked)
       local near = test.nearest(name, m.tests)
-      log:complain("no test in " .. m.path .. " is named " .. name .. "; it has " ..
+      log:complain("test: no test in " .. m.path .. " is named " .. name .. "; it has " ..
           table.concat(near, ", ") .. (if #m.tests > #near then ", ..." else "" end))
     end
     return 1
@@ -2840,7 +2840,7 @@ local function open_records(ctx: Run): integer?
   local begun, begin_trouble = work.begin(handle)
   if not begun then
     local _, _ = work.close(handle)
-    log:complain(begin_trouble)
+    log:complain("test: " .. begin_trouble)
     return 1
   end
   local records_path = handle.dir .. "/build.db"
@@ -2850,7 +2850,7 @@ local function open_records(ctx: Run): integer?
   if previous == nil then
     local _, _ = work.rollback(handle)
     local _, _ = work.close(handle)
-    log:complain(records_path .. ": " .. previous_trouble)
+    log:complain("test: " .. records_path .. ": " .. previous_trouble)
     return 1
   end
   ctx.previous = previous
@@ -2858,7 +2858,7 @@ local function open_records(ctx: Run): integer?
   if verdicts == nil then
     local _, _ = work.rollback(handle)
     local _, _ = work.close(handle)
-    log:complain(records_path .. ": " .. verdicts_trouble)
+    log:complain("test: " .. records_path .. ": " .. verdicts_trouble)
     return 1
   end
   ctx.verdicts = verdicts
@@ -2866,7 +2866,7 @@ local function open_records(ctx: Run): integer?
   if epoch == nil then
     local _, _ = work.rollback(handle)
     local _, _ = work.close(handle)
-    log:complain(epoch_trouble)
+    log:complain("test: " .. epoch_trouble)
     return 1
   end
   ctx.epoch = epoch
@@ -2972,7 +2972,7 @@ local function gather_key_inputs(ctx: Run): integer?
   if trouble ~= nil then
     local _, _ = work.rollback(handle)
     local _, _ = work.close(handle)
-    log:complain(trouble)
+    log:complain("test: " .. trouble)
     return 1
   end
   return nil

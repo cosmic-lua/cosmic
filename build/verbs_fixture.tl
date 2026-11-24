@@ -109,6 +109,9 @@ function verbs_fixture.expect(dir: string, verb: string, args: {string}, code: i
     local summary = last_line(out)
     local pattern = if code == 0 then "^test: %d+ tests? passed in " else "^test: %d+ of %d+ tests? failed, " end
     assert(summary:find(pattern) ~= nil, "expected the summary last on stdout: " .. shown)
+  elseif code == 0 and verb == "help" then
+    -- `help` is bare: its output is the text asked for, with no summary.
+    assert(err == "", "expected no summary from " .. shown)
   elseif code == 0 then
     assert(String.starts_with(last_line(err), verb .. ": "),
       "expected the summary last on stderr: " .. shown)
