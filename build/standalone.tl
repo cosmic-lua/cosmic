@@ -25,7 +25,8 @@
 --- [`Fs.cache_dir`] vouches no other user can write -- a directory of
 --- this user's own, 0700 when made, never a shared fallback such as
 --- `/tmp` -- and each file is written 0600; with no such directory
---- (neither variable set, say) every run compiles afresh.
+--- (neither variable set, say), or a binary that records no boot hash
+--- (a test's closure store), every run compiles afresh.
 ---
 --- The file may require `cosmic.*` modules only -- the binary's own,
 --- typed from its own sources -- and a `require` of anything else is
@@ -58,17 +59,14 @@ local record standalone
 end
 
 --- Where a clean compile of `source` by this binary is kept: nil when
---- there is no cache directory [`Fs.cache_dir`] will vouch for, and so
---- no cache; nil too for a chunk that takes the tool's own modules (`own`)
---- where the binary records no boot hash. A database with no boot hash (a
---- test's closure store) names no build its sources are fixed in, so a key
---- without one would outlive an edit of the modules it was checked against.
+--- there is no cache directory [`Fs.cache_dir`] will vouch for, or the
+--- binary records no boot hash, and so no cache. A database with no boot
+--- hash (a test's closure store) names no build its sources are fixed in,
+--- so a key without one would outlive an edit of the modules the source was
+--- checked against.
 local function cached_path(source: string, variables?: {string:string}, own?: boolean): string?
   local boot = Store.meta("boot_hash") or ""
-  -- TODO: keep no file's compile either where boot is "", once
-  -- build/standalone_tool_test.tl's cache test runs a tool that records a
-  -- boot hash: a file run in a test's child is keyed as stale as a chunk.
-  if own == true and boot == "" then
+  if boot == "" then
     return nil
   end
   local dir, _ = Fs.cache_dir("standalone", { environment = variables })
@@ -116,7 +114,7 @@ end
 --- checker ([`build.pipeline`]) holds the file to no ceiling and takes `cosmic.*` from this binary. With `own`, as `cosmic -e` asks, the file
 --- may also require the tool's own modules, which the checker types from their sources ([`build.standard_text`]'s `own`):
 --- the binary's database holds those as it holds the standard library's, so its Lua is kept as a file's is, under a
---- key of its own kind, where the binary records a boot hash ([`cached_path`]).
+--- key of its own kind ([`cached_path`]).
 function standalone.code(file: string, source: string, variables?: {string:string}, own?: boolean,
                          outcome?: importer.Outcome): string?, string
   local cached = cached_path(source, variables, own)
