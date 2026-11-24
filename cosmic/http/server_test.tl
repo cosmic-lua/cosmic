@@ -361,16 +361,18 @@ local function test_each_limit_is_answered()
     local over = reply(chunked)
     assert(over.status == 413, tostring(over.status))
     assert(handled == 1, tostring(handled))
-    -- One connection at a time: a second waits, unanswered.
+    -- One connection at a time: a second waits, unanswered, while the
+    -- first is busy (see the test of a full server for one idle).
     local first <close> = peer(address)
-    send(first, get("/"))
-    assert(reply(first).status == 200)
+    send(first, "PUT / HTTP/1.1\r\nHost: test\r\nContent-Length: 2\r\n\r\n")
     local second <close> = peer(address)
     send(second, get("/"))
     second.conn:set_timeout(Clock.ms(100))
     local nothing, why = second.conn:read()
     assert(nothing == nil and why == Poll.TIMEOUT, why)
     second.conn:set_timeout(Clock.seconds(5))
+    send(first, "ok")
+    assert(reply(first).body == "ok")
     local _, _ = first.conn:close()
     assert(reply(second).status == 200)
   end, { limits = { head_bytes = 1024, body_bytes = 100, connections = 1 } })
@@ -552,6 +554,65 @@ local function test_stopping_closes_idle_connections_at_once()
   local in_flight_value = in_flight
   assert(in_flight_value ~= nil, "the reply in flight never came")
   assert(in_flight_value.status == 200 and in_flight_value.headers["connection"] == "close")
+  assert(Clock.monotonic_ns() - started < Clock.seconds(10))
+end
+
+--- A string body longer than a write's timeout lets go out at once is
+--- sent whole to a client that reads it slowly but steadily: the
+--- timeout bounds each 64 KiB of it, not all of it.
+local function test_a_large_string_body_reaches_a_slow_reader()
+  local size = 32 * 1024 * 1024
+  local troubles = serving(function(_: Server.Request): Server.Reply
+    return { status = 200, body = string.rep("x", size) }
+  end, function(address: Net.Address)
+    local slow <close> = peer(address)
+    send(slow, get("/", "Connection: close\r\n"))
+    local got = 0
+    while true do
+      local piece, _ = slow.conn:read(128 * 1024)
+      if piece == nil then break end
+      got = got + #piece
+      assert(Poll.delay(Clock.ms(5)))
+    end
+    -- At 26 MB a second the body takes about 1.3 s, past the 500 ms.
+    assert(got > size, ("read %d bytes of a %d byte body"):format(got, size))
+  end, { timeout_ns = Clock.ms(500) })
+  assert(#troubles == 0, troubles[1])
+end
+
+--- At the connection limit, a client that comes is served in the place
+--- of a connection idle between requests, which closes; where none is
+--- idle, the next reply says it closes. Neither waits out `idle_ns`.
+local function test_a_full_server_closes_an_idle_connection_for_a_client_waiting()
+  local started = Clock.monotonic_ns()
+  local release: boolean = false
+  local troubles = serving(function(req: Server.Request): Server.Reply
+    if req.path == "/slow" then
+      while not release do assert(Poll.delay(Clock.ms(5))) end
+    end
+    return { status = 200, body = req.path }
+  end, function(address: Net.Address)
+    local idle <close> = peer(address)
+    send(idle, get("/first"))
+    assert(reply(idle).body == "/first")
+    local waiting <close> = peer(address)
+    send(waiting, get("/second"))
+    assert(reply(waiting).body == "/second")
+    assert(ended(idle), "the idle connection stayed open")
+    -- Now `waiting` is the one open, and busy.
+    send(waiting, get("/slow"))
+    assert(Poll.delay(Clock.ms(20)))
+    local third <close> = peer(address)
+    send(third, get("/third"))
+    -- Time for the server to see `third` waiting while `waiting` is busy.
+    assert(Poll.delay(Clock.ms(100)))
+    release = true
+    local slow = reply(waiting)
+    assert(slow.body == "/slow" and slow.headers["connection"] == "close", slow.headers["connection"])
+    assert(ended(waiting), "the connection that made room stayed open")
+    assert(reply(third).body == "/third")
+  end, { limits = { connections = 1 }, idle_ns = Clock.seconds(60) })
+  assert(#troubles == 0, troubles[1])
   assert(Clock.monotonic_ns() - started < Clock.seconds(10))
 end
 
