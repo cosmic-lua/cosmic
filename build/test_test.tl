@@ -901,24 +901,20 @@ local function test_coverage_is_kept_for_the_newest_ten_runs_only()
   assert(db:close())
 end
 
---- A failure stays in `failures` after a later run of its test replaces
---- its `runs` row, and only the newest 200 failures are kept.
-local function test_failures_outlive_a_rerun_and_the_newest_are_kept()
+--- A run keeps each test's newest ten failures, whatever another test's
+--- count.
+local function test_failures_keep_each_tests_newest_ten()
   local db = assert(Sqlite.open(":memory:", { writable = true }))
   for _, statement in ipairs(work.schema) do assert(db:exec(statement)) end
-  assert(test.record_failure(db, "a_test", "test_x", "boom", 1, 1))
-  assert(db:exec("INSERT OR REPLACE INTO runs (path, test, passed, message, ran_at_ns, key, " ..
-      "run_at_ns, elapsed_ns) VALUES ('a_test', 'test_x', 1, '', 2, 'k', 2, 0)"))
-  local flaked = assert(db:text_rows("SELECT f.test, f.message FROM failures f " ..
-      "JOIN runs r USING (path, test) WHERE r.passed = 1"))
-  assert(#flaked == 1, "flaked: " .. tostring(#flaked))
-  local row = assert(flaked[1])
-  assert(row:text(1) == "test_x" and row:text(2) == "boom", "flaked: " .. row:text(1))
-  for at = 2, 205 do assert(test.record_failure(db, "a_test", "test_y", "again", at, at)) end
+  assert(test.record_failure(db, "a_test", "test_x", "boom", 1, "k", 1))
+  for at = 2, 30 do assert(test.record_failure(db, "a_test", "test_y", "again", at, "k", at)) end
   assert(test.prune_history(db, 100))
-  local kept = assert(assert(db:text_rows(
-    "SELECT count(*), min(ran_at_ns), max(ran_at_ns) FROM failures"))[1]):texts()
-  assert(kept[1] == "200" and kept[2] == "6" and kept[3] == "205", "failures kept: " .. table.concat(kept, " "))
+  local kept = assert(db:text_rows(
+    "SELECT test, count(*), min(ran_at_ns), max(ran_at_ns) FROM failures GROUP BY test ORDER BY test"))
+  assert(#kept == 2, "failures kept of " .. tostring(#kept) .. " tests")
+  local x, y = assert(kept[1]):texts(), assert(kept[2]):texts()
+  assert(table.concat(x, " ") == "test_x 1 1 1", "test_x kept: " .. table.concat(x, " "))
+  assert(table.concat(y, " ") == "test_y 10 21 30", "test_y kept: " .. table.concat(y, " "))
   assert(db:close())
 end
 

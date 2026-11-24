@@ -1142,15 +1142,23 @@ processors), not how many ran at once.
 `settling` is the coverage and the records kept. The `runs` table holds
 each test's own time ([measuring](guides/measuring.md)).
 
+### failures
+
 `runs` holds only each test's latest run, so a rerun that passes replaces
-a failure. The `failures` table keeps each failure with its message, the
-newest 200 of them. A test that failed and then passed is a flake to
-record:
+a failure. The `failures` table of `build.db` keeps each failure a run
+recorded, with its message and key, the newest 10 of each test. A
+failure whose key is the key of a later pass is a flake: the same inputs
+gave both. A failure with another key was fixed by an edit.
 
 ```text
 cosmic sql --build "SELECT f.path, f.test, f.message FROM failures f
-  JOIN runs r USING (path, test) WHERE r.passed = 1 ORDER BY f.ran_at_ns DESC"
+  JOIN runs r USING (path, test) WHERE r.passed = 1 AND f.key = r.key
+  ORDER BY f.ran_at_ns DESC"
 ```
+
+A run that ends in an error or is cancelled keeps no failure, as it
+keeps no `runs` row. A module the compiler refuses has no test that ran,
+so it has no row either.
 
 ### coverage
 

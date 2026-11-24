@@ -347,8 +347,12 @@ local version <const> = "35"
 --- it; its `ms` stops at that commit and leaves the publication out.
 ---
 --- `runs` is one row per test, keyed by the module and the test's own
---- name inside it, so a later run of the same test replaces its row
---- rather than piling up a history the runner has no use for yet.
+--- name inside it, so a later run of the same test replaces its row.
+--- `failures` is the history it does not keep: a row for each failure
+--- a run recorded, with `runs`' `key` and `message` of it, the newest
+--- `kept_failures` of each test ([`build.test`]'s `prune_history`). A
+--- failure whose `key` is that of a later pass is a flake: the same
+--- inputs gave both.
 --- `key` is what the verdict is a function of, the digest of the
 --- test's declared inputs ([`build.declared_key`]), and, after a space,
 --- the key it is shared under; `run_at_ns` the `cosmic test`
@@ -600,6 +604,7 @@ for _, statement in ipairs({
                                          test TEXT NOT NULL,
                                          message TEXT NOT NULL,
                                          ran_at_ns INTEGER NOT NULL,
+                                         key TEXT NOT NULL,
                                          run_at_ns INTEGER NOT NULL,
                                          PRIMARY KEY (path, test, ran_at_ns)) WITHOUT ROWID]],
     [[CREATE TABLE IF NOT EXISTS verdicts (key TEXT PRIMARY KEY,
