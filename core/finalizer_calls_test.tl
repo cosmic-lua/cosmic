@@ -34,7 +34,8 @@ local function test_a_loop_of_calls_of_a_c_function_runs_the_pending_finalizers(
 end
 
 local function test_a_loop_of_calls_the_checker_counts_inert_runs_none()
-  -- `string.rep` (also as a method), `math.max` and `math.random` (a C closure) run no code of the program, so no finalizer runs at their calls, however much they
+  -- `string.rep` (also as a method), `math.max` and `math.random` (a C closure) run no code of the
+  -- program, so no finalizer runs at their calls, however much they
   -- allocate (lang/check.tl's [`Tests.inert_callee`]).
   local seen = finalized_during([[
     for i = 1, 200000 do
@@ -46,8 +47,9 @@ end
 
 local function test_a_loop_of_calls_of_a_value_whose_call_is_a_c_function_runs_them()
   local seen = finalized_during([[
-    local callable = setmetatable({}, { __call = rawequal })
-    for _ = 1, 200000 do local s = string.rep("x", 100); callable(s) end
+    local inner = setmetatable({}, { __call = rawequal })
+    local callable = setmetatable({}, { __call = inner })
+    for _ = 1, 200000 do local s = string.rep("x", 100); callable(s); inner(s) end
   ]])
   assert(seen > 0, "no finalizer ran in a loop of calls of a value whose __call is rawequal")
 end

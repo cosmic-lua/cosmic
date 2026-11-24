@@ -13,17 +13,21 @@ note: A Lua function's call of a C function runs the pending finalizers first, u
 ** '__call' that is one, runs them in luaD_precall.
 */
 static int runsfinalizers (lua_State *L, const TValue *f) {
-  const TValue *tm;
-  switch (ttypetag(f)) {
-    case LUA_VLCF: return !luaC_inert(fvalue(f));
-    case LUA_VCCL: return !luaC_inert(clCvalue(f)->f);
-    case LUA_VLCL: return 0;
-    default:
-      tm = luaT_gettmbyobj(L, f, TM_CALL);
-      if (ttislcf(tm)) return !luaC_inert(fvalue(tm));
-      if (ttisCclosure(tm)) return !luaC_inert(clCvalue(tm)->f);
-      return 0;
+  int links;
+  /* A '__call' may be a value with a '__call' of its own, as
+     luaD_precall's tryfuncTM follows; a chain longer than this is
+     called with none run. */
+  for (links = 0; links < 64; links++) {
+    switch (ttypetag(f)) {
+      case LUA_VLCF: return !luaC_inert(fvalue(f));
+      case LUA_VCCL: return !luaC_inert(clCvalue(f)->f);
+      case LUA_VLCL: return 0;
+      default:
+        f = luaT_gettmbyobj(L, f, TM_CALL);
+        if (notm(f)) return 0;
+    }
   }
+  return 0;
 }
 
 
