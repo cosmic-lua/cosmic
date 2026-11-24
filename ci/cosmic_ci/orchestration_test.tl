@@ -1901,6 +1901,9 @@ local function test_a_fixtures_time_is_said_against_its_bound()
   local past = Orchestration.bound_lines("some-regression", 500 * s, 440 * s)
   local first = assert(past[1])
   assert(first:find("(113%)", 1, true) ~= nil, first)
+  local suite = Orchestration.bound_lines("local", 900 * s, 1200 * s, "suite")
+  assert(#suite == 2 and suite[1] == "suite: local: took 900 s of its 1200 s bound (75%)" and
+      suite[2]:find("^::warning::suite local took 900 s") ~= nil, table.concat(suite, "|"))
 end
 
 --- A fixture's figures reach the job's log, each line with the fixture's
