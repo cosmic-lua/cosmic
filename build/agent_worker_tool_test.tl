@@ -349,12 +349,11 @@ local function test_a_snippet_keeps_a_value_for_a_later_one()
   Worker.close(w)
 end
 
---- A snippet runs the agent's own bash and edit in its sandbox, and reads what they did as values: a command's output
---- and how it ended, and an edit that does not match as a failure that changed nothing.
-local function test_a_snippet_runs_the_agents_own_bash_and_edit()
+--- A snippet runs the agent's own bash in its sandbox, and reads what it did as values: a command's output and how it
+--- ended.
+local function test_a_snippet_runs_the_agents_own_bash()
   local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
-  assert(Fs.write(dir .. "/notes.txt", "one teh two\r\nthree\r\n"))
   local context: Tools.Context = { cwd = dir, worker = w }
   local ran = Tools.run("run", { code = [[
 local Host = require("cosmic.agent.host")
@@ -366,23 +365,10 @@ local killed = Host.bash("kill -9 $$")
 print(killed.code == nil, killed.signal)
 local _, long = pcall(Host.bash, "true", { timeout = 10000000000 })
 print(tostring(long))
-print(Host.edit("notes.txt", { { old = "three", new = "3\nfour" }, { old = "teh", new = "the" } }))
-local _, why = pcall(Host.edit, "notes.txt", { { old = "absent", new = "x" } })
-print(tostring(why))
-local _, overlap = pcall(Host.edit, "notes.txt", { { old = "one the", new = "x" }, { old = "the two", new = "y" } })
-print(tostring(overlap))
-local _, none = pcall(Host.edit, "notes.txt", {})
-print(tostring(none))
 ]] }, context)
   assert(not ran.is_error and ran.text:find("a\nb\tfalse\t3\tfalse\tfalse\nfalse\ttrue\ntrue\t9\n", 1, true) ~= nil,
     ran.text)
-  assert(ran.text:find("timeout is 10000000000: give 1 to", 1, true) ~= nil and ran.text:find("\n2\n", 1, true) ~= nil,
-    ran.text)
-  assert(ran.text:find("Could not find edits[0] in notes.txt. The old must match", 1, true) ~= nil, ran.text)
-  assert(ran.text:find("Two edits overlap in notes.txt", 1, true) ~= nil, ran.text)
-  assert(ran.text:find("edits must hold at least one replacement", 1, true) ~= nil, ran.text)
-  local body, _ = Fs.read(dir .. "/notes.txt")
-  assert(body == "one the two\r\n3\r\nfour\r\n", body)
+  assert(ran.text:find("timeout is 10000000000: give 1 to", 1, true) ~= nil, ran.text)
   -- The calls the run tool's description shows check as written.
   local described = Tools.run("run", { code = "local Host = require(\"cosmic.agent.host\")\nprint(Host.modules())\n" ..
       "print(Host.docs(\"cosmic.fs\"))\nlocal Fs = require(\"cosmic.fs\")\n" ..
@@ -396,6 +382,7 @@ print(tostring(none))
   end
   local example = assert(assert(run_tool).description:match("For example:\n(.*)$"))
   assert(Fs.write(dir .. "/one.tl", "x\n"))
+  assert(Fs.write(dir .. "/notes.txt", "x\n"))
   local shown_example = Tools.run("run", { code = example }, context)
   assert(not shown_example.is_error and shown_example.text:find("^txt 2\ntl 1\n") ~= nil, shown_example.text)
   -- Host, Fs and Json need no require; a snippet's own local of the name is its own, and the lines stay its own.

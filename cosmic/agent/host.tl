@@ -31,13 +31,11 @@
 --- [`Host.store`] keeps a small value for a later snippet of the session, which [`Host.load`] reads, as a file would, but
 --- with the session: a resumed session reads it again.
 ---
---- The agent's own tools are there too, run in the snippet's sandbox, with results a snippet reads as values:
---- [`Host.bash`] runs a command and answers its output and how it ended, and [`Host.edit`] replaces text in a file as
---- the edit tool does, each `old` found once:
+--- The agent's own bash tool is there too, run in the snippet's sandbox, with a result a snippet reads as a value:
+--- [`Host.bash`] runs a command and answers its output and how it ended:
 ---
 ---     local ran = Host.bash("git status --short")
 ---     for line in ran.output:gmatch("[^\n]+") do print(line) end
----     Host.edit("README.md", { { old = "teh", new = "the" } })
 ---
 --- Calls made from tasks of one run ([`Poll.run`]) are out at once, and the agent serves each as it can, so calls that
 --- wait on a server overlap:
@@ -49,11 +47,11 @@
 ---
 --- The helpers named after commands ([`Host.find`], [`Host.grep`], [`Host.sed`], [`Host.wc`], [`Host.sort`],
 --- [`Host.sqlite`], ...) are [`cosmic.shell`]'s calls, run in the snippet's own process, raising where they fail.
+--- A file is edited with [`Host.lines`] and [`Host.write`], or with [`Host.sed`].
 ---
 --- Outside a worker no agent answers, and each call raises so.
 
 local AgentFetch = require("cosmic.agent.fetch")
-local AgentEdit = require("cosmic.agent.edit")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Failure = require("cosmic.failure")
@@ -102,9 +100,6 @@ local record Host
     --- What was kept: nil for nothing.
     value?: Json.Value
   end
-
-  --- One replacement of [`Host.edit`]: `old`, which the file holds once, becomes `new`.
-  type Edit = AgentEdit.Replacement
 
   --- How [`Host.bash`] runs a command.
   record BashOptions
@@ -421,20 +416,6 @@ local function load_of(key: string): (Host.Loaded) | (nil, Failure)
   return { value = value }
 end
 
---- Replaces each `old` of `edits` with its `new` in the file at `path`, as the edit tool does ([`cosmic.agent.edit`]):
---- each `old` must be in the file once, as it was before any replacement, and no two may overlap; a file of CRLF line
---- ends keeps them. The file is written once, with every replacement, or not at all: how many were made. It runs in
---- the snippet's own sandbox, `path` from the session's directory.
-local function edit_of(path: string, edits: {Host.Edit}): (integer) | (nil, Failure)
-  local raw, read_why = Fs.read(path)
-  if raw == nil then return nil, Failure.new("host: edit: " .. tostring(read_why)) end
-  local edited, made = AgentEdit.apply(raw, edits, path, "old")
-  if edited == nil then return nil, Failure.new("host: edit: " .. made) end
-  local wrote, wrote_why = Fs.write(path, edited)
-  if not wrote then return nil, Failure.new("host: edit: " .. tostring(wrote_why)) end
-  return made
-end
-
 --- The most seconds [`Host.bash`] may be given: a wait's most ([`Poll.MOST_NS`]), 24 days.
 local MOST_SECONDS <const> = 24 * 24 * 60 * 60
 
@@ -669,14 +650,6 @@ end
 --- What [`Host.store`] kept under `key` in this session: its `value`, nil for nothing. Raises where it fails, as "host: ...".
 function Host.load(key: string): Host.Loaded
   local value, why = load_of(key)
-  if value == nil then error(tostring(why), 2) end
-  return value
-end
-
---- Replaces each `old` of `edits` with its `new` in the file at `path`, as the edit tool does: each `old` once in
---- the file, no two overlapping, all written or none. How many it replaced. Raises where it fails, as "host: ...".
-function Host.edit(path: string, edits: {Host.Edit}): integer
-  local value, why = edit_of(path, edits)
   if value == nil then error(tostring(why), 2) end
   return value
 end
