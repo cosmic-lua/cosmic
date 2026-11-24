@@ -1050,7 +1050,7 @@ function Dispatch.main(argv: {string}): integer
       tests = own_spec.tests,
     }
   end
-  if chosen ~= nil and verb ~= "help" then
+  if chosen ~= nil and verb ~= "help" and require("build.verb_list").tree_paths[verb] ~= nil then
     -- A tree verb started below an established tree's root runs at the
     -- root ([`build.tree_root`]), its paths still read from here.
     local tree_root = require("build.tree_root")
