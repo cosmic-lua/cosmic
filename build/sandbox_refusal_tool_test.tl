@@ -40,15 +40,12 @@ local function test_a_command_line_it_refuses_exits_2(tmp: string)
   end
 end
 
-local function test_a_program_not_granted_exits_125_not_127(tmp: string)
-  -- It is found on the PATH; the policy lacks the grants to run it.
-  local ran = cosmic(tmp, { "sandbox", "--", "true" })
-  assert(ran.code == 125 and ran.out == "", tostring(ran.code) .. ran.err)
-  assert(ran.err:find("not granted", 1, true) and ran.err:find("system", 1, true), ran.err)
-  assert(not ran.err:find("no PATH search", 1, true), ran.err)
-  -- A missing grant is the start's, not the program's, whatever the program.
+--- A start the policy cannot make is the start's failure, 125, not the
+--- program's 127, whatever the program: here a grant of a path that is not there.
+local function test_a_start_the_policy_cannot_make_exits_125_not_127(tmp: string)
   local grant = cosmic(tmp, { "sandbox", "--system", "--read", tmp .. "/absent", "--", "ls" })
-  assert(grant.code == 125 and not grant.err:find("no PATH search", 1, true), tostring(grant.code) .. grant.err)
+  assert(grant.code == 125 and grant.out == "" and not grant.err:find("no PATH search", 1, true),
+    tostring(grant.code) .. grant.err)
 end
 
 local function test_a_program_that_cannot_be_run_exits_126(tmp: string)
