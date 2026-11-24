@@ -476,12 +476,17 @@ end
 
 --- A command line it cannot run is refused before the daemon is asked.
 local function test_a_command_line_it_cannot_run_is_refused(tmp: string)
+  -- Each line, and the usage its refusal ends with: the subcommand's own, or the verb's where it names none.
   local lines: {{string}} = { {}, { "up" }, { "status", "--kind", "disco" }, { "whois" }, { "status", "x" },
-    { "cert", "a", "b" } }
-  for _, words in ipairs(lines) do
+    { "cert", "a", "b" }, { "file", "get" }, { "file", "list", "x" } }
+  local usages: {string} = { "<cert|file|ping|status|whois> ...", "<cert|file|ping|status|whois> ...",
+    "status [options]", "whois [--json] <address|name>", "status [options]", "cert [options] [domain]",
+    "file get [options] <dir>", "file list [options]" }
+  for i, words in ipairs(lines) do
     local ran = run(tmp, words)
     assert(ran.code == 2, table.concat(words, " ") .. ": " .. tostring(ran.code))
-    assert(ran.err:find("; usage: cosmic tailscale ", 1, true) ~= nil, ran.err)
+    local usage = "; usage: cosmic tailscale " .. assert(usages[i]) .. "\n"
+    assert(ran.err:sub(-#usage) == usage, ran.err)
     assert(#ran.seen == 0, table.concat(ran.seen, "\n"))
   end
 end

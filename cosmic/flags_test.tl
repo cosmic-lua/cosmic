@@ -400,9 +400,9 @@ local function test_dispatch_runs_a_subcommand_with_its_own_options()
   assert(refused == nil and why:find("^time: add: ") ~= nil and why:find("usage: prog time add [options] <time>",
     1, true) ~= nil and why:find("now", 1, true) == nil, why)
   local none, none_why = Flags.dispatch({ "time" }, 1, commands, "prog")
-  assert(none == nil and none_why == "time: needs a command: add, now", none_why)
+  assert(none == nil and none_why == "time: needs a command: add, now; usage: prog time <add|now> ...", none_why)
   local wrong, wrong_why = Flags.dispatch({ "time", "ad" }, 1, commands, "prog")
-  assert(wrong == nil and wrong_why:find("time: no such command: ad; did you mean add?", 1, true) ~= nil, wrong_why)
+  assert(wrong == nil and wrong_why == "time: no such command: ad; did you mean add?; usage: prog time <add|now> ...", wrong_why)
   for _, line in ipairs({ { "help", "time", "add" }, { "time", "add", "--help" }, { "time", "help", "add" } }) do
     local helped = assert(Flags.dispatch(line, 1, commands, "prog"))
     assert(helped.code == 0 and helped.help:find("^usage: prog time add %[options%] <time>") ~= nil and

@@ -257,7 +257,11 @@ local function test_the_command_line_is_refused_where_it_should_be()
   assert(model.err:find("chat: --model takes opus or sonnet, not haiku", 1, true) ~= nil, model.err)
   local p = cli({ "prompt" }, {}, {})
   assert(p.code == 0 and p.out:find("<cwd>", 1, true) ~= nil and p.out:find("cosmic agent", 1, true) ~= nil, p.out)
-  assert(cli({ "prompt", "x" }, {}, {}).code == Flags.REFUSED)
+  local extra = cli({ "prompt", "x" }, {}, {})
+  assert(extra.code == Flags.REFUSED and extra.err:find("prompt: takes no words; usage: cosmic agent prompt", 1, true) ~=
+      nil, extra.err)
+  local chat = cli({ "chat", "--json" }, KEYED, {})
+  assert(chat.err:find("; usage: cosmic agent chat [options]", 1, true) ~= nil, chat.err)
   -- The sessions database is the data directory's, its owner's alone.
   assert(cli({ "sessions" }, KEYED, {}).code == 0)
   assert(assert(Fs.stat(home .. "/.local/share/cosmic/agent/sessions.db")).mode & 0x1ff == 0x180)

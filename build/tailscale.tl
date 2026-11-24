@@ -441,22 +441,22 @@ local function validity(complain: function(line: string), text: string): integer
     return nil
   end
   if (d.years or 0) ~= 0 or (d.months or 0) ~= 0 then
-    complain("--min-validity is days, hours, minutes and seconds, not years or months: " .. text)
+    complain("--min-validity is days, hours, minutes and seconds, not years or months: " .. text .. "; " .. usage("cert"))
     return nil
   end
   local days, rest = d.days or 0, d.ns or 0
   if days < 0 or rest < 0 then
-    complain("--min-validity is not negative: " .. text)
+    complain("--min-validity is not negative: " .. text .. "; " .. usage("cert"))
     return nil
   end
   -- Past what nanoseconds hold, and no certificate lives so long.
   if days > (math.maxinteger - rest) // DAY_NS then
-    complain("--min-validity is too long: " .. text)
+    complain("--min-validity is too long: " .. text .. "; " .. usage("cert"))
     return nil
   end
   local ns = days * DAY_NS + rest
   if ns < 0 then
-    complain("--min-validity is not negative: " .. text)
+    complain("--min-validity is not negative: " .. text .. "; " .. usage("cert"))
     return nil
   end
   return ns
@@ -489,7 +489,7 @@ local function write_cert(to: verb.Io, complain: function(line: string), ts: Tai
     return bare.refused
   end
   if cert_file ~= nil and cert_file == key_file and cert_file ~= "-" then
-    complain("--cert-file and --key-file name one file, which the key would write over")
+    complain("--cert-file and --key-file name one file, which the key would write over; " .. usage("cert"))
     return bare.refused
   end
   local domain = parsed.words[1]
@@ -667,7 +667,7 @@ local function file_send(to: verb.Io, complain: function(line: string), ts: Tail
   end
   if not Tailscale.file_name_ok(name) then
     complain("no file may go as " .. string.format("%q", name) ..
-        ": a name is one path element, with no control byte or backslash, not ending in .partial or .deleted")
+        ": a name is one path element, with no control byte or backslash, not ending in .partial or .deleted; " .. usage("file", "send"))
     return bare.refused
   end
   local body: Stream.Reader

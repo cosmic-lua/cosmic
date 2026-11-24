@@ -115,9 +115,9 @@ local function test_key_refuses_a_file_that_is_there_and_options_it_does_not_tak
   world.files["account.pem"] = "kept"
   local cases: {{string}} = {
     { "key account.pem", "there already" },
-    { "key", "key takes one file, not 0" },
+    { "key", "key takes one file, not 0; usage: cosmic acme key [--rsa [--bits n]] <file>|-\n" },
     { "key a.pem b.pem", "key takes one file, not 2" },
-    { "key --bits 3072 a.pem", "--bits is for --rsa" },
+    { "key --bits 3072 a.pem", "--bits is for --rsa; usage: cosmic acme key " },
     { "key --rsa --bits 1024 a.pem", "key: --bits takes 2048, 3072 or 4096, not 1024" },
     { "key --rsa --bits 2048.0 a.pem", "key: --bits takes 2048, 3072 or 4096, not 2048.0" },
     { "key --webroot /var/www a.pem", "key: no such option: --webroot" },
@@ -190,6 +190,7 @@ local function test_issue_refuses_a_line_or_a_key_it_cannot_use()
     { base .. " example.com", "one of --webroot (http-01) and --dns-hook (dns-01)" },
     { base .. " --webroot /w --dns-hook /h example.com", "one of --webroot" },
     { "issue --key site.pem --webroot /w example.com", "--account names a key file" },
+    { "issue --account account.pem --key site.pem --webroot /w", "names the certificate's DNS names; usage: cosmic acme issue " },
     { "issue --account account.pem --key missing.pem --webroot /w example.com", "missing.pem: no such file" },
     { "issue --account broken.pem --key site.pem --webroot /w example.com", "broken.pem: no private key" },
     { "issue --account ed25519.pem --key site.pem --webroot /w example.com", "ed25519.pem: an Ed25519 key" },

@@ -40,7 +40,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     paths[#paths + 1] = path
   end
   if #paths == 0 or (family == "compiles" and #paths ~= 1) then
-    return refuse("compiles takes one path; verdicts takes one or more")
+    return refuse(if family == "compiles" then "compiles takes one path" else "verdicts takes one or more paths" end)
   end
   local whole = parsed.set["--whole"] == true
   local since = parsed.integers["--since-ns"]

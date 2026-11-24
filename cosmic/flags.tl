@@ -70,7 +70,7 @@ local record Flags
 
   -- TODO: move the other verbs' value checks onto `choices` and `integer` (qr, codec, release, sandbox,
   -- test, build, sql, lsp), their "(default ...)" text onto `default`, and json's -r and codec's -d onto
-  -- `aliases`; each still words its own refusal of a bad value.
+  -- `aliases`; each still words its own refusal of a bad value. A gap: it waits on nothing.
 
   --- The bounds of a whole number an option takes, each inclusive; no bound where nil.
   record Range
@@ -1636,7 +1636,12 @@ function Flags.dispatch(argv: {string}, from: integer,
     -- The word after the command names one of its own, which reads the rest of the line.
     local answered, why = Flags.dispatch(argv, first, subcommands, called(program, name, command))
     if answered == nil then
-      return nil, name .. ": " .. why
+      -- A line that names none of its subcommands is answered with the command's own usage, naming them; a
+      -- refusal by one of them, or by help, ends with its own.
+      local named = argv[first]
+      local reached = named ~= nil and (subcommands[named] ~= nil or named == "help")
+      local usage = if reached then "" else "; " .. Flags.usage(command, called(program, name, command)) end
+      return nil, name .. ": " .. why .. usage
     end
     return answered, ""
   end

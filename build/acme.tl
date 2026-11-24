@@ -175,7 +175,7 @@ local function make_key(to: verb.Io, complain: function(line: string), parsed: F
   end
   local file = assert(parsed.words[1])
   if file == "" then
-    complain(bare.empty_file)
+    complain(bare.empty_file .. "; " .. usage("key"))
     return bare.refused
   end
   local bits_word = parsed.values["--bits"]
