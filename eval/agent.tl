@@ -44,6 +44,18 @@ local record Agent
     --- An MCP server the run is given, where the task needs one. Its truth runs with `$data` the path of the
     --- server's data.
     server?: Server
+    --- A web API the run reaches over HTTP at a loopback port, where the task needs one: `{url}` in the prompt is
+    --- its URL, and the run is given `--connect` to it. Its truth runs with `$data` the path of its data.
+    site?: Site
+  end
+
+  --- A web API of a task: a program started for each run, which serves its data at 127.0.0.1 on a port the
+  --- kernel chose, and writes that port to the file its second argument names once it serves.
+  record Site
+    --- The Teal of its program, a main taking the data's path and the port file's.
+    source: string
+    --- The data it serves, in data.tsv beside it.
+    data: string
   end
 
   --- An MCP server of a task: written for each run to a directory of its own beside its config, which the
@@ -132,6 +144,9 @@ local record Agent
     spent: function(tool: string, marker: string): Agent.Spent?
     --- Writes `text` to the file `path`.
     put: function(path: string, text: string)
+    --- Starts `argv` in `cwd` and waits, for at most `seconds`, until the file `ready` holds a port: the port,
+    --- and a call that ends the program. Nil and why where it ended or did not say so in time.
+    serve: function(argv: {string}, cwd: string, ready: string, seconds: integer): (string, function()) | (nil, string)
   end
 
   --- Every task, in the order a report lists them.
@@ -222,6 +237,56 @@ return function(argv: {string}): integer
     } },
   }
   assert(server:serve_stdio())
+  return 0
+end
+]==]
+
+--- The inventory web API, the same items over HTTP at a loopback port the kernel chose: GET /items?page=N answers
+--- JSON, `{items, next}`, 40 items a page, each with every field, and `next` the page after it, which the last
+--- page has not. It writes its port to the file its second argument names once it serves.
+local INVENTORY_SITE <const> = [==[
+local Fs = require("cosmic.fs")
+local Json = require("cosmic.json")
+local Net = require("cosmic.net")
+local Server = require("cosmic.http.server")
+
+local PAGE <const> = 40
+
+return function(argv: {string}): integer
+  local text, why = Fs.read(argv[1] or "")
+  if text == nil then error("inventory: the data: " .. tostring(why)) end
+  local ready = argv[2] or ""
+  local items: mut {Json.Value} = {}
+  for line in text:gmatch("[^\n]+") do
+    local id, name, category, price, stock = line:match("^([^\t]+)\t([^\t]+)\t([^\t]+)\t(%d+)\t(%d+)$")
+    if id ~= nil and name ~= nil and category ~= nil and price ~= nil and stock ~= nil then
+      local item: {string: Json.Value} = { id = id, name = name, category = category,
+        price_cents = assert(math.tointeger(tonumber(price))), stock = assert(math.tointeger(tonumber(stock))) }
+      items[#items + 1] = item
+    end
+  end
+  assert(Server.serve{
+    listeners = { Net.tcp("127.0.0.1", 0) },
+    on_ready = function(addresses: {Net.Address}, _: Net.Server)
+      assert(Fs.write(ready, tostring(assert(addresses[1]).port)))
+    end,
+    handle = function(req: Server.Request): Server.Reply
+      if req.method ~= "GET" or req.path ~= "/items" then
+        return { status = 404, body = "no such page: GET /items?page=N, from 1\n" }
+      end
+      local page = math.tointeger(tonumber(("&" .. req.query):match("&page=(%d+)") or "1")) or 1
+      local first = (page - 1) * PAGE + 1
+      local out: mut {Json.Value} = {}
+      for i = first, math.min(first + PAGE - 1, #items) do
+        local item = items[i]
+        if item ~= nil then out[#out + 1] = item end
+      end
+      local body: mut {string: Json.Value} = { items = Json.array(out) }
+      if first + PAGE <= #items then body["next"] = page + 1 end
+      return { status = 200, headers = { ["Content-Type"] = "application/json" },
+        body = assert(Json.encode(body)) .. "\n" }
+    end,
+  })
   return 0
 end
 ]==]
@@ -352,6 +417,15 @@ Agent.tasks = {
     check = "cat answer.txt",
     server = { name = "inventory", source = INVENTORY_SERVER, data = inventory() },
   },
+  {
+    name = "web-low",
+    prompt = "The inventory web API at {url} answers GET /items?page=N, from page 1, with JSON: `items`, each " ..
+      "with id, name, category, price_cents and stock, and `next`, the page after it, which the last page has " ..
+      "not. Write to answer.txt each item whose stock is below 3, as `id stock`, one a line, sorted by id.",
+    truth = "awk -F'\\t' '$5 < 3 {print $1\" \"$5}' \"$data\" | sort",
+    check = "cat answer.txt",
+    site = { source = INVENTORY_SITE, data = inventory() },
+  },
 }
 
 local USAGE <const> = "usage: eval/agent --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR " ..
@@ -472,6 +546,11 @@ local function env_of(base: {string: string}, key: string, data: string, home: s
   e["HARNESS_ANTHROPIC_API_KEY"] = nil
   e["XDG_DATA_HOME"] = data
   e["HOME"] = home
+  -- The web API's 127.0.0.1 is this host's: a relay behind an https_proxy reaches only what no_proxy names directly.
+  for _, name in ipairs({ "NO_PROXY", "no_proxy" }) do
+    local listed = e[name]
+    e[name] = if listed ~= nil and listed ~= "" then listed .. ",127.0.0.1" else "127.0.0.1" end
+  end
   return e
 end
 
@@ -508,10 +587,11 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
     local pristine = system.fresh("truth-" .. task.name .. "-")
     system.run({ "cp", "-a", options.fixture .. "/.", pristine }, "/", nil, 600)
     local script = task.truth
-    local server = task.server
-    if server ~= nil then
+    local server, site = task.server, task.site
+    local served: string? = if server ~= nil then server.data elseif site ~= nil then site.data else nil end
+    if served ~= nil then
       local data = system.fresh("data-" .. task.name .. "-") .. "/data.tsv"
-      system.put(data, server.data)
+      system.put(data, served)
       script = "data=" .. quoted(data) .. "; " .. script
     end
     local truth = system.run({ "bash", "-c", script }, pristine, nil, 60)
@@ -539,11 +619,37 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
         end
         local server = task.server
         if server ~= nil then
+          local config = laid_out(system, server, tool, "mcp-" .. tool.name .. "-" .. task.name .. "-")
           argv[#argv + 1] = "--mcp"
-          argv[#argv + 1] = laid_out(system, server, tool, "mcp-" .. tool.name .. "-" .. task.name .. "-")
+          argv[#argv + 1] = config
         end
-        argv[#argv + 1] = task.prompt
-        local asked = system.run(argv, work, env, options.timeout)
+        local prompt = task.prompt
+        local stop: function() = function() end
+        local unserved: string? = nil
+        local site = task.site
+        if site ~= nil then
+          local dir = system.fresh("site-" .. tool.name .. "-" .. task.name .. "-")
+          system.put(dir .. "/site.tl", site.source)
+          system.put(dir .. "/data.tsv", site.data)
+          local port, ended = system.serve({ tool.path, "--standalone", dir .. "/site.tl", dir .. "/data.tsv",
+            dir .. "/port" }, dir, dir .. "/port", 60)
+          if port == nil then
+            unserved = "the web API did not start: " .. tostring(ended)
+          else
+            stop = ended
+            argv[#argv + 1] = "--connect"
+            argv[#argv + 1] = "127.0.0.1:" .. port
+            prompt = (prompt:gsub("{url}", "http://127.0.0.1:" .. port))
+          end
+        end
+        argv[#argv + 1] = prompt
+        -- A run that raises still ends the web API.
+        local asked: Agent.Output = { code = 127, stdout = "", stderr = unserved or "" }
+        local ran, why = pcall(function()
+          if unserved == nil then asked = system.run(argv, work, env, options.timeout) end
+        end)
+        stop()
+        if not ran then error(why, 0) end
         local truth = truths[task.name] or ""
         local left = Agent.lines_of(system.run({ "bash", "-c", task.check }, work, nil, 60).stdout)
         local grade = "fail"
@@ -769,7 +875,28 @@ local function real(out: string): Agent.System
   local function put(path: string, text: string)
     assert(Fs.write(path, text))
   end
-  return { run = run, fresh = fresh, spent = spent, put = put }
+  local function serve(argv: {string}, cwd: string, ready: string, seconds: integer): (string, function()) |
+      (nil, string)
+    local handle, why = Child.start(argv, { cwd = cwd, stdin = "null", stdout = "inherit", stderr = "inherit",
+      timeout_ns = Child.FOREVER })
+    if handle == nil then return nil, tostring(why) end
+    local stop = function() local _, _ = handle:close() end
+    local deadline = Clock.monotonic_ns() + seconds * 1000000000
+    while Clock.monotonic_ns() < deadline do
+      local text, _ = Fs.read(ready)
+      local port = text and text:match("^(%d+)")
+      if port ~= nil then return port, stop end
+      local done, _ = handle:try_wait()
+      if done ~= nil and done.finished then
+        stop()
+        return nil, "it ended before it served"
+      end
+      local _, _ = Clock.sleep_ns(50000000)
+    end
+    stop()
+    return nil, "it did not serve in " .. tostring(seconds) .. " s"
+  end
+  return { run = run, fresh = fresh, spent = spent, put = put, serve = serve }
 end
 
 --- Runs the evals `argv` asks for: 0 when every graded run passed, 1 when one did not, 2 for a bad command line.

@@ -74,6 +74,7 @@ local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local Grant = require("cosmic.relay.grant")
 local Hash = require("cosmic.hash")
 local Jobs = require("cosmic.agent.jobs")
 local Worker = require("cosmic.agent.worker")
@@ -334,12 +335,18 @@ local function policy_of(r: Run, got: Flags.Parsed, here: string): Sandbox.Polic
     if real == nil then return nil, "--grant " .. given_grant .. ": " .. tostring(real_why) end
     grants[#grants + 1] = { path = real, letters = letters or "r" }
   end
-  if got.values["--sandbox"] == "off" and (#grants > 0 or got.set["--network"] == true) then
-    return nil, "--network and --grant hold a sandbox, which --sandbox off has none of"
+  local connect: mut {string} = {}
+  for _, target in ipairs(got.all["--connect"] or {}) do
+    local parsed, parse_why = Grant.parse(target)
+    if parsed == nil then return nil, "--connect " .. target .. ": " .. tostring(parse_why) end
+    connect[#connect + 1] = parsed.text
+  end
+  if got.values["--sandbox"] == "off" and (#grants > 0 or #connect > 0 or got.set["--network"] == true) then
+    return nil, "--network, --connect and --grant hold a sandbox, which --sandbox off has none of"
   end
   return Policy.of(here, { mode = got.values["--sandbox"] or "write", home = sandbox_home(r),
     path = r.io.env("PATH"), user_home = r.io.env("HOME"), kept_out = kept_out(r, got.values["--mcp"]),
-    network = got.set["--network"] == true, grants = grants })
+    network = got.set["--network"] == true, connect = connect, grants = grants })
 end
 
 -- What each unit of --budget's time is, in seconds.
