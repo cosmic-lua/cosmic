@@ -110,12 +110,12 @@ local function test_grants_with_no_x_run_no_program(tmp: string)
     string.format([[
 local ran, trouble = Child.run({ %q, "print hi" }, { timeout_ns = Child.FOREVER, process_group = false, stdout = "capture" })
 if ran ~= nil then say("child", ran.ok, ran.stdout) else say("child", false, trouble) end
-local done, why = require("cosmic.proc").exec({ %q, "print replaced" })
-say("exec", done, why)
+local why = require("cosmic.proc").exec({ %q, "print replaced" })
+say("exec", why)
 ]], probe, probe)))
   -- The exec failed, so this process went on to say so, and was not replaced.
   assert(said.raw:find("replaced", 1, true) == nil, said.raw)
-  assert(assert(said.lines["exec"]):find("^false") and assert(said.lines["exec"]):find("Operation not permitted", 1, true),
+  assert(assert(said.lines["exec"]):find("Operation not permitted", 1, true),
     said.raw)
   assert(assert(said.lines["child"]):find("^false"), said.raw)
 end
@@ -129,8 +129,8 @@ local function test_a_later_x_grant_runs_no_program_after_none(tmp: string)
     string.format([[
 local again, again_why = Sandbox.restrict({ grants = { { path = %q, letters = "rx" } } })
 say("again", again, again_why)
-local done, why = require("cosmic.proc").exec({ %q, "print replaced" })
-say("exec", done, why)
+local why = require("cosmic.proc").exec({ %q, "print replaced" })
+say("exec", why)
 ]], probe, probe)))
   assert(said.raw:find("replaced", 1, true) == nil, said.raw)
   assert(assert(said.lines["again"]):find("^true"), said.raw)
