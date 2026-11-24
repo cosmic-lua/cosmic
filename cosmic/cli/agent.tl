@@ -97,6 +97,12 @@
 --- - `--network` lets the tools reach the network: Host.fetch, and bash
 ---   where it is offered. Your SSL_CERT_FILE goes with it, so a proxy
 ---   that signs with its own root is trusted.
+--- - `--connect host:port` lets them reach one more target. An address
+---   written out, loopback or private too (`--connect 127.0.0.1:8123`),
+---   is reached directly; a name reaches only public addresses, as
+---   `--network` does. A port of `*` opens every port of the host.
+---   Behind an `https_proxy`, an address `no_proxy` does not name is
+---   asked of the proxy, which reaches its own host's loopback.
 --- - `--grant path[:rwxc]` adds a path.
 ---
 --- Output and sessions:
@@ -129,6 +135,8 @@ local session: Flags.Option = { value = "id", about = "go on with the session of
 local sandbox: Flags.Option = { value = "mode", about = "what the tools may change",
   choices = { "write", "read", "off" }, default = "write" }
 local network: Flags.Option = { about = "let bash and snippets (Host.fetch, cosmic.http) reach the network" }
+local connect: Flags.Option = { value = "host:port", about = "let the tools reach this target too: an address " ..
+    "written out may be loopback or private (127.0.0.1:8123); a port of * opens every port" }
 local grant: Flags.Option = { value = "path[:rwxc]",
   about = "let the tools reach this path too, read alone unless letters say more" }
 local tools: Flags.Option = { value = "names", about = "the tools the model is shown, such as run,read " ..
@@ -146,8 +154,8 @@ local function session_spec(): mut {string: Flags.Option}
   return {
     ["--model"] = model, ["--effort"] = effort, ["--continue"] = continue_, ["--session"] = session,
     ["--new"] = new, ["--fork"] = fork,
-    ["--sandbox"] = sandbox, ["--network"] = network, ["--grant"] = grant, ["--mcp"] = mcp, ["--tools"] = tools,
-    ["--with"] = with, ["--without"] = without, ["--budget"] = budget,
+    ["--sandbox"] = sandbox, ["--network"] = network, ["--connect"] = connect, ["--grant"] = grant, ["--mcp"] = mcp,
+    ["--tools"] = tools, ["--with"] = with, ["--without"] = without, ["--budget"] = budget,
   }
 end
 
@@ -181,8 +189,8 @@ local command: Flags.Command = {
       spec = { ["--tools"] = tools, ["--with"] = with, ["--without"] = without } },
     policy = { about = "the sandbox the tools would run under here; clear-home empties their kept home",
       usage = "[options] [clear-home]",
-      spec = { ["--sandbox"] = sandbox, ["--network"] = network, ["--grant"] = grant, ["--tools"] = tools,
-        ["--with"] = with, ["--without"] = without } },
+      spec = { ["--sandbox"] = sandbox, ["--network"] = network, ["--connect"] = connect, ["--grant"] = grant,
+        ["--tools"] = tools, ["--with"] = with, ["--without"] = without } },
     worker = { about = "the process that runs the snippets; the agent starts it" },
   },
 }

@@ -374,10 +374,10 @@ local class SpanReader is Stream.Reader
     return chunk
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.left = 0
     self.held = nil
-    return true, ""
+    return true
   end
 end
 
@@ -427,7 +427,7 @@ local class CheckedReader is Stream.Reader
     return chunk
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     return self.inner:close()
   end
 end
@@ -943,6 +943,19 @@ local function emit(self: FeedWriter, data: string): boolean, string
   return self.put(data)
 end
 
+--- Counts and sums `chunk`, compresses it if the body is, and emits it.
+local function feed_chunk(self: FeedWriter, chunk: string): boolean, string
+  local done = self.done
+  done.usize = done.usize + #chunk
+  if not self.wide and done.usize >= U32_MAX then return self.fail(self.too_big) end
+  done.crc = sums.crc32(chunk, done.crc)
+  local encoder = self.encoder
+  if encoder == nil then return emit(self, chunk) end
+  local out, etrouble = encoder:update(chunk)
+  if out == nil then return self.fail(etrouble) end
+  return emit(self, out)
+end
+
 --- What a streamed body is copied to: compressed, if it is, as it goes,
 --- into the writer's sink, counting what it comes to in `done`.
 local class FeedWriter is Stream.Writer
@@ -957,24 +970,18 @@ local class FeedWriter is Stream.Writer
   wide: boolean
   too_big: string
 
-  function write(self, chunk: string): boolean, string
-    local done = self.done
-    done.usize = done.usize + #chunk
-    if not self.wide and done.usize >= U32_MAX then return self.fail(self.too_big) end
-    done.crc = sums.crc32(chunk, done.crc)
-    local encoder = self.encoder
-    if encoder == nil then return emit(self, chunk) end
-    local out, etrouble = encoder:update(chunk)
-    if out == nil then return self.fail(etrouble) end
-    return emit(self, out)
+  function write(self, chunk: string): (true) | (false, Failure)
+    local ok, why = feed_chunk(self, chunk)
+    if not ok then return false, Failure.new(why) end
+    return true
   end
 
-  function close(self): boolean, string
-    return true, ""
+  function close(self): (true) | (false, Failure)
+    return true
   end
 
-  function abort(self): boolean, string
-    return true, ""
+  function abort(self): (true) | (false, Failure)
+    return true
   end
 end
 
@@ -1100,17 +1107,19 @@ local class BodyWriter is Stream.Writer
   --- What the first `close` or `abort` answered: "" for success.
   mut outcome: string
 
-  function write(self, chunk: string): boolean, string
-    if self.ended then return false, "zip: " .. self.streamed.path .. ": the entry is closed" end
+  function write(self, chunk: string): (true) | (false, Failure)
+    if self.ended then
+      return false, Failure.new("zip: " .. self.streamed.path .. ": the entry is closed")
+    end
     local usable, why = self.owner.sink:usable()
-    if not usable then return false, why end
+    if not usable then return false, Failure.new(why) end
     return self.streamed.feed:write(chunk)
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     if self.ended then
-      if self.outcome ~= "" then return false, self.outcome end
-      return true, ""
+      if self.outcome ~= "" then return false, Failure.new(self.outcome) end
+      return true
     end
     self.ended = true
     self.owner.open = nil
@@ -1118,20 +1127,20 @@ local class BodyWriter is Stream.Writer
     if ok then ok, why = finish_streamed(self.owner, self.streamed) end
     if not ok then
       self.outcome = why
-      return false, why
+      return false, Failure.new(why)
     end
-    return true, ""
+    return true
   end
 
-  function abort(self): boolean, string
-    if self.ended then return true, "" end
+  function abort(self): (true) | (false, Failure)
+    if self.ended then return true end
     self.ended = true
     self.owner.open = nil
     -- The entry's header is written already: the archive cannot be whole,
     -- so its own close answers this rather than committing.
     self.outcome = "zip: " .. self.streamed.path .. ": the entry was abandoned"
     local _, _ = self.owner.sink:fail(self.outcome)
-    return true, ""
+    return true
   end
 end
 

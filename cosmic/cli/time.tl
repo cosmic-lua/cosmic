@@ -3,14 +3,16 @@
 --- the IANA names of the tz database the binary carries. `now` prints
 --- the time (RFC 3339 in the host's zone, or `--zone`; `--format`
 --- rfc3339, date, http or epoch); `convert <time>` writes a time in
---- `--to`'s zone; `between <a> <b>` is `1y2mo3d4h5m6s` from a to b, or
+--- `--zone`'s zone; `between <a> <b>` is `1y2mo3d4h5m6s` from a to b, or
 --- with `--days`, `--months` or `--seconds` one number; `add <time>
 --- <duration>` moves a time by `1y2mo3d4h5m6s` (negative with a leading
 --- `-`, which follows the time: `add 2026-03-31 -1d`). A time is RFC 3339
 --- (`2026-09-25T04:09:21Z`, with an optional `[Zone]` suffix), a date,
---- a local `2026-09-25T04:09[:21]` read in `--from` (or `--zone`), or
---- `@<epoch seconds>`. A local time a zone skipped (a spring-forward
---- gap) or has twice (an overlap) is read as `--disambiguate` says:
+--- a local `2026-09-25T04:09[:21]`, or `@<epoch seconds>`. `add` and
+--- `between` read a local time in `--zone`; `convert` reads it in
+--- `--local-zone` and writes it in `--zone`. A local time a zone
+--- skipped (a spring-forward gap) or has twice (an overlap) is read as
+--- `--disambiguate` says:
 --- "compatible" by default, a gap landing after the gap and an overlap
 --- taking the earlier moment; "earlier", "later" or "reject" (which fails)
 --- choose otherwise. `add` moves years and months first, keeping the
@@ -39,7 +41,7 @@ local command: Flags.Command = {
   usage = "<add|between|convert|now> ...",
   examples = {
     { line = "now --zone Asia/Tokyo", about = "the time in a zone" },
-    { line = "convert 2026-03-08T12:00Z --to America/New_York", about = "convert a time" },
+    { line = "convert 2026-03-08T12:00Z --zone America/New_York", about = "convert a time" },
     { line = "between 2026-01-01 2026-09-28 --days", about = "count the days between two dates" },
   },
   subcommands = {
@@ -51,8 +53,10 @@ local command: Flags.Command = {
       about = "a time in another zone",
       usage = "<time>",
       spec = {
-        ["--from"] = { value = "IANA", about = "the zone a local time is read in (default: the host's)" },
-        ["--to"] = { value = "IANA", about = "the zone to write in (default: the host's)" },
+        ["--local-zone"] = { value = "IANA", about = "the zone a local time is read in (default: the host's)" },
+        ["--zone"] = { value = "IANA", about = "the zone to write in, not to read a local time in (default: the host's)" },
+        ["--from"] = { moved = "--local-zone names the zone a local time is read in" },
+        ["--to"] = { moved = "--zone names the zone to write in" },
         ["--format"] = format, ["--json"] = json, ["--disambiguate"] = disambiguate,
       },
     },

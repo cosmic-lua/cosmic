@@ -664,8 +664,8 @@ end
 
 --- The response to a request of `url`, which follows no redirect
 --- ([`cosmic.agent.fetch`]): made from the snippet's sandbox, which reaches no network in a session started without
---- --network, and no loopback, private or link-local address in one with it. A response of any status is answered;
---- a request that gets none raises.
+--- --network or --connect, and no loopback, private or link-local address but those --connect names. A response of
+--- any status is answered; a request that gets none raises.
 function Host.fetch(url: string, options?: Host.FetchOptions): Host.Fetched
   local o: Host.FetchOptions = options or {}
   local got, why = AgentFetch.fetch({ url = url, method = o.method, headers = o.headers, body = o.body,

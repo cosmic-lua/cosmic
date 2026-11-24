@@ -393,8 +393,8 @@ local class Giving is Stream.Reader
     return piece
   end
 
-  function close(self): boolean, string
-    return true, ""
+  function close(self): (true) | (false, Failure)
+    return true
   end
 end
 

@@ -625,7 +625,7 @@ end
 local function test_a_write_whose_stream_closes_meanwhile_writes_nothing_else(tmp: string)
   local victim = tmp .. "/victim"
   local wrote: boolean? = nil
-  local why: string? = nil
+  local why: Failure? = nil
   Poll.run(function()
     -- The child outlives the write, and its handle's close ends it: one
     -- that exited first would fail the write with EPIPE instead.
@@ -640,7 +640,7 @@ local function test_a_write_whose_stream_closes_meanwhile_writes_nothing_else(tm
     assert(writer:join(Clock.seconds(5)))
     assert(Fs.close(fd))
   end)
-  assert(wrote ~= true and why == "child: the writer is closed", tostring(why))
+  assert(wrote ~= true and tostring(why) == "child: the writer is closed", tostring(why))
   assert(assert(Fs.read(victim)) == "", "the write went on into another file")
 end
 

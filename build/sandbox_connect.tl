@@ -227,7 +227,7 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io, trac
       if not sent then
         -- Whether this is a fault or the far side's closing is known once
         -- the other task has read to the end of what it sends.
-        write_failed = "writing to the relay: " .. send_why
+        write_failed = "writing to the relay: " .. tostring(send_why)
         return
       end
     end
@@ -329,7 +329,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
     return bare.failed
   end
   local sent, sent_why = conn:write(RelayWire.socks_client_greeting(login ~= nil))
-  if not sent then return fail("writing to the relay: " .. sent_why) end
+  if not sent then return fail("writing to the relay: " .. tostring(sent_why)) end
   trace("greeting sent")
   local method = RelayWire.socks_method_reader(login ~= nil)
   local after_method, method_why = answered(conn, relay, function(chunk: string): string, integer, string?
@@ -341,7 +341,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
   if after_method ~= "" then return fail("the relay answered before it was asked") end
   if login ~= nil then
     local logged, logged_why = conn:write(login)
-    if not logged then return fail("writing to the relay: " .. logged_why) end
+    if not logged then return fail("writing to the relay: " .. tostring(logged_why)) end
     trace("token sent")
     local verdict = RelayWire.socks_auth_status_reader()
     local token_accepted: boolean? = false
@@ -356,7 +356,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
     trace("token accepted")
   end
   local asked, asked_why = conn:write(request)
-  if not asked then return fail("writing to the relay: " .. asked_why) end
+  if not asked then return fail("writing to the relay: " .. tostring(asked_why)) end
   trace("request sent")
   local reader = RelayWire.socks_answer_reader()
   local reply_code: integer? = 0

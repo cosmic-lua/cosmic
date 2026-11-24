@@ -744,7 +744,7 @@ local function test_an_n_waits_for_its_next_byte()
       if chunk == nil then return false end
       return chunk
     end,
-    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
   local r = Json.reader(source, JSON5)
   assert(assert(r:next()).kind == "array")

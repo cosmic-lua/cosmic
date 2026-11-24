@@ -392,7 +392,7 @@ local function test_a_killed_protocols_close_cannot_wait()
     serve = function(conn: Net.Conn)
       local _ <close> = closer(function()
         local _, why = conn:write(string.rep("x", 8 * 1024 * 1024))
-        wrote = why
+        wrote = tostring(why)
         assert(Poll.delay(0))
       end)
       started = true

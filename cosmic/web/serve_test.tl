@@ -40,7 +40,7 @@ local function pieces_of(pieces: {string}): Stream.Reader
       if piece == nil then return false end
       return piece
     end,
-    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
 end
 
@@ -165,7 +165,7 @@ local function test_stopping_ends_a_stream_and_runs_the_stop_functions_in_order(
           events[#events + 1] = "stream saw stopping"
           return false
         end,
-        close = function(_self: Stream.Reader): boolean, string return true, "" end,
+        close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
       }, "text/event-stream")
     end) },
     lifespan = function(_app: Web.App): Web.Shutdown?, string
@@ -257,7 +257,7 @@ local function test_a_handler_that_ignores_stopping_is_cut_off_at_the_grace()
         assert(Clock.sleep(Clock.ms(5)))
         return "x"
       end,
-      close = function(_self: Stream.Reader): boolean, string return true, "" end,
+      close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
     }, "text/plain")
   end) } }
   local started = Clock.monotonic_ns()

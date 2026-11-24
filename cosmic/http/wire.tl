@@ -806,9 +806,9 @@ local class BodyReader is wire.Body
 
   --- Closing the body leaves the connection be: what of it is unread,
   --- the server discards before the next request.
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.closed = true
-    return true, ""
+    return true
   end
 
   function drain(self): boolean
@@ -1009,17 +1009,12 @@ local function copy_body(w: Stream.Writer, body: Stream.Reader, length: integer?
       return "", "the reply body's Reader gave more bytes than asked for"
     end
     if left ~= nil then left = left - #piece end
-    local ok, write_why: boolean, string
-    if chunked then
-      ok, write_why = w:write(("%x\r\n"):format(#piece) .. piece .. "\r\n")
-    else
-      ok, write_why = w:write(piece)
-    end
-    if not ok then return write_why, "" end
+    local ok, write_why = w:write(if chunked then ("%x\r\n"):format(#piece) .. piece .. "\r\n" else piece end)
+    if not ok then return tostring(write_why), "" end
   end
   if chunked then
     local ok, why = w:write("0\r\n\r\n")
-    if not ok then return why, "" end
+    if not ok then return tostring(why), "" end
   end
   return "", ""
 end
@@ -1039,7 +1034,7 @@ function wire.send(w: Stream.Writer, reply: wire.Reply): wire.Sent
   local write_why, body_why = "", ""
   if reply.method == "HEAD" or bodiless(reply.status) then
     local ok, why = w:write(head)
-    if not ok then write_why = why end
+    if not ok then write_why = tostring(why) end
   elseif reader == nil then
     -- In CHUNK slices, as a Reader body goes: a write's timeout bounds
     -- the whole write, and a large body over a slow link would pass it.
@@ -1047,17 +1042,18 @@ function wire.send(w: Stream.Writer, reply: wire.Reply): wire.Sent
     local text = if body is string then body else "" end
     local first = CHUNK - #head
     local ok, why = w:write(if #text <= first then head .. text else head .. text:sub(1, first) end)
-    if not ok then write_why = why end
+    if not ok then write_why = tostring(why) end
     local from = first + 1
     while ok and from <= #text do
-      ok, why = w:write(text:sub(from, from + CHUNK - 1))
-      if not ok then write_why = why end
+      local wrote, trouble = w:write(text:sub(from, from + CHUNK - 1))
+      ok = wrote
+      if not wrote then write_why = tostring(trouble) end
       from = from + CHUNK
     end
   else
     local ok, why = w:write(head)
     if not ok then
-      write_why = why
+      write_why = tostring(why)
     else
       write_why, body_why = copy_body(w, reader, length, chunked)
     end
