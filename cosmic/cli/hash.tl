@@ -56,6 +56,11 @@ local function shared(own: {string: boolean | Flags.Option}): {string: boolean |
     ["--hmac"] = { value = "key", about = "make each digest an HMAC under key (visible in ps)" },
     ["--hmac-file"] = { value = "path", about = "make each digest an HMAC under the bytes of a file" },
   }
+  -- The algorithms' own options, before -a named them.
+  for _, name in ipairs({ "md5", "sha1", "sha224", "sha256", "sha384", "sha512", "sha3-224", "sha3-256", "sha3-384",
+      "sha3-512" }) do
+    spec["--" .. name] = { moved = "name the algorithm with -a " .. name }
+  end
   for name, option in pairs(own) do spec[name] = option end
   return spec
 end
@@ -74,7 +79,10 @@ local command: Flags.Command = {
       -- A line that names no command runs this one, so its usage is the verb's.
       usage = "[options] [file|-]... | check [options] <sums|->",
       about = "print the digest of each file, or of standard input",
-      spec = shared({ ["--json"] = { about = "print an array of {path, algorithm, digest}" } }),
+      spec = shared({
+        ["--json"] = { about = "print an array of {path, algorithm, digest}" },
+        ["--check"] = { moved = "`cosmic hash check <sums>` checks a sums file" },
+      }),
     },
     check = {
       usage = "[options] <sums|->",

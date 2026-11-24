@@ -114,12 +114,12 @@ INSERT INTO outputs VALUES (2, 'run', '{}', 'The checker refused the snippet, so
 -e:1: x (view_written): y
 -e:2: z (view_written): w
 -e:3: q (semicolon): r'), (2, 'bash', '', ''), (2, 'run', '{"code":"Host.bash(\\"ls\\")"}', 'ok'),
-  (2, 'run', '{"code":"Host.grep(\\"a\\", Host.find(\\".\\")) Host.grep(\\"b\\", {}) local c: {Host.Count} = MyHost.top()"}', 'ok'), (1, 'read', '', '');
+  (2, 'run', '{"code":"Host.grep(\"a\", Host.find(\".\")) Host.grep(\"b\", {}) local c: {Host.Count} = MyHost.top()\nHost.write(\"x\", \"\")"}', 'ok'), (1, 'read', '', '');
 ]]))
   local s = assert(Agent.spent_in(db, "bench-a-todos-2"))
   assert(s.requests == 3 and s.input == 30 and s.output == 3 and s.cache_read == 300 and s.cache_write == 12)
   assert(s.cost == 0.75 and s.seconds == 2 and s.tools == 4 and s.runs == 3)
-  assert(s.helpers["bash"] == 1 and s.helpers["grep"] == 1 and s.helpers["find"] == 1)
+  assert(s.helpers["bash"] == 1 and s.helpers["grep"] == 1 and s.helpers["find"] == 1 and s.helpers["write"] == 1)
   assert(s.helpers["Count"] == nil and s.helpers["top"] == nil)
   assert(s.refused == 1 and s.codes["view_written"] == 1 and s.codes["semicolon"] == 1 and s.first_read == 100)
   assert(Agent.spent_in(db, "bench-b-") == nil)

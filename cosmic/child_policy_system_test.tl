@@ -76,7 +76,15 @@ local function test_the_system_profile_runs_no_program_and_programs_does(tmp: st
   searchable.open(tmp)
   assert(Fs.write(tmp .. "/a", "alpha\n"))
   local refused, code = shell({ "system" })
-  assert(code == 0 and refused:find("status=126", 1, true) ~= nil and refused:find("alpha", 1, true) == nil, refused)
+  -- Where one file is both the shell and the program (busybox, as on
+  -- Alpine), the start's grant of the shell runs the program too.
+  local cat_real, _ = sys.realpath(CAT)
+  local sh_real, _ = sys.realpath("/bin/sh")
+  if cat_real ~= nil and cat_real == sh_real then
+    assert(code == 0 and refused == "alpha\nstatus=0\n", refused)
+  else
+    assert(code == 0 and refused:find("status=126", 1, true) ~= nil and refused:find("alpha", 1, true) == nil, refused)
+  end
   local ran, ran_code = shell({ "system", "programs" })
   assert(ran_code == 0 and ran == "alpha\nstatus=0\n", ran)
 end
