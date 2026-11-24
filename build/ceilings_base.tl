@@ -221,6 +221,9 @@ local function marks_rise(root: string, base: string, held: CeilingsBase.Held, g
   if was == nil then
     return nil, why
   end
+  -- The glossary's count holds from the commit that brings it: a base without build/glossary_count.tl counted nothing, so a
+  -- change queued beside the one that brings it is not refused for a line of its own.
+  local counted = git(root, { "cat-file", "-e", base .. ":build/glossary_count.tl" }) == 0
   local files: mut {string} = {}
   for file in pairs(held) do
     files[#files + 1] = file
@@ -243,7 +246,9 @@ local function marks_rise(root: string, base: string, held: CeilingsBase.Held, g
     for _, code in ipairs(codes) do
       local now = assert(held[file])[code] or 0
       local before = (was[file] or {})[code] or 0
-      if now > before and code == GlossaryCount.code then
+      if code == GlossaryCount.code and not counted then
+        -- The base predates the count: nothing to hold the file to.
+      elseif now > before and code == GlossaryCount.code then
         out[#out + 1] = file .. ": " .. plural.count(now, "comment line") .. " say \"" .. GlossaryCount.word .. "\" and the merge base held " ..
           tostring(before) .. "; the count only falls: write \"returns\" for what a function gives back and \"responds\" for " ..
           "a server's reply (doc/writing.md's glossary)"

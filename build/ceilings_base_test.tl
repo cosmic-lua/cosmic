@@ -293,6 +293,7 @@ local function test_a_file_whose_comments_use_the_retired_word_more_than_the_bas
   local root = tree_with(tmp)
   local word = "ans" .. "wers"
   local base = marked_base({ ["build/a.tl"] = "-- it " .. word .. " nil\nlocal x = 1\n" })
+  base.status["cat-file -e " .. BASE .. ":build/glossary_count.tl"] = 0
   local same: CeilingsBase.Held = { ["build/a.tl"] = CeilingsBase.counts("-- it " .. word .. " nil\n", "build/a.tl") }
   local kept = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), same)
   assert(#kept.lines == 0, table.concat(kept.lines, "\n"))
@@ -301,4 +302,15 @@ local function test_a_file_whose_comments_use_the_retired_word_more_than_the_bas
   local refused = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), more)
   assert(#refused.lines == 1 and has(refused.lines[1], "build/a.tl: 2 comment lines say") and
       has(refused.lines[1], "the merge base held 1") and has(refused.lines[1], "\"returns\""), table.concat(refused.lines, "\n"))
+end
+
+--- A base from before the glossary's count (no build/glossary_count.tl) holds a file to no count of the word, so a change
+--- queued beside the one that brings the count is not refused.
+local function test_a_base_from_before_the_glossary_count_holds_no_count_of_the_word(tmp: string)
+  local root = tree_with(tmp)
+  local word = "ans" .. "wers"
+  local base = marked_base({ ["build/a.tl"] = "local x = 1\n" })
+  local more: CeilingsBase.Held = { ["build/a.tl"] = CeilingsBase.counts("-- it " .. word .. " nil\n", "build/a.tl") }
+  local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), more)
+  assert(#verdict.lines == 0, table.concat(verdict.lines, "\n"))
 end
