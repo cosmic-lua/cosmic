@@ -328,6 +328,90 @@ local function permitted(context: Tools.Context, full: string, actions: {string}
   return real, ""
 end
 
+--- The directory that holds `full`, held with no link on its path ([`Fs.dir`]), and the name in it, under a policy:
+--- the real name [`permitted`] checked is what is opened, as a link swapped in on it after the check is met, not
+--- followed. With `make`, each missing directory is made in the one above it, one name at a time. Nil and why where
+--- the directory cannot be held.
+local record Held
+  --- The directory, held.
+  dir: Fs.Dir
+  --- The name in it.
+  name: string
+end
+
+local function held(full: string, make: boolean): Held?, string
+  local dir = Fs.dirname(full)
+  local missing: mut {string} = {}
+  if make then
+    while dir ~= Fs.dirname(dir) do
+      local status, _ = Fs.status(dir)
+      if status ~= nil and status.exists then break end
+      table.insert(missing, 1, Fs.basename(dir))
+      dir = Fs.dirname(dir)
+    end
+  end
+  local d, why = Fs.dir(dir)
+  if d == nil then return nil, tostring(why) end
+  for _, name in ipairs(missing) do
+    local made, made_why = d:mkdir(name)
+    local inner, inner_why = d:dir(name)
+    d:close()
+    if inner == nil then return nil, tostring(if made then inner_why else made_why end) end
+    d = inner
+  end
+  return { dir = d, name = Fs.basename(full) }, ""
+end
+
+--- The bytes of `full`, a file: through [`held`] under a policy, by its name where there is none.
+local function read_file(full: string, path: string, policy?: Sandbox.Policy): string?, string
+  if policy == nil then
+    -- A device or a pipe may never end: only a file is read whole.
+    local status, _ = Fs.status(full)
+    local st = status and status.stat
+    if st ~= nil and st.kind ~= "file" then
+      return nil, path .. " is no file (" .. st.kind .. "): read reads files"
+    end
+    local body, why = Fs.read(full)
+    if body == nil then return nil, tostring(why) end
+    return body, ""
+  end
+  local at, why = held(full, false)
+  if at == nil then return nil, why end
+  local d, name = at.dir, at.name
+  local status, status_why = d:status(name)
+  local st = status and status.stat
+  if st ~= nil and st.kind ~= "file" then
+    d:close()
+    return nil, path .. " is no file (" .. st.kind .. "): read reads files"
+  end
+  if status == nil then
+    d:close()
+    return nil, tostring(status_why)
+  end
+  local body, read_why = d:read(name)
+  d:close()
+  if body == nil then return nil, tostring(read_why) end
+  return body, ""
+end
+
+--- Writes `content` to `full`, making the directories above it: through [`held`] under a policy.
+local function write_file(full: string, content: string, policy?: Sandbox.Policy): boolean, string
+  if policy == nil then
+    local made, made_why = Fs.mkdirs(Fs.dirname(full))
+    if not made then return false, tostring(made_why) end
+    local wrote, wrote_why = Fs.write(full, content)
+    if not wrote then return false, tostring(wrote_why) end
+    return true, ""
+  end
+  local at, why = held(full, true)
+  if at == nil then return false, why end
+  local d, name = at.dir, at.name
+  local wrote, wrote_why = d:write(name, content)
+  d:close()
+  if not wrote then return false, tostring(wrote_why) end
+  return true, ""
+end
+
 local function read(input: Tools.Object, context: Tools.Context): Tools.Result
   local path, why = text_of(input, "path")
   if path == nil then return fail(why) end
@@ -336,14 +420,8 @@ local function read(input: Tools.Object, context: Tools.Context): Tools.Result
   if offset_why ~= "" or limit_why ~= "" then return fail(offset_why .. limit_why) end
   local full, refused = permitted(context, resolve(path, context.cwd), { "read" })
   if full == nil then return fail(refused) end
-  -- A device or a pipe may never end: only a file is read whole.
-  local status, _ = Fs.status(full)
-  local st = status and status.stat
-  if st ~= nil and st.kind ~= "file" and st.kind ~= "link" then
-    return fail(path .. " is no file (" .. st.kind .. "): read reads files")
-  end
-  local body, read_why = Fs.read(full)
-  if body == nil then return fail(tostring(read_why)) end
+  local body, read_why = read_file(full, path, context.policy)
+  if body == nil then return fail(read_why) end
   local line = math.max(offset or 1, 1)
   local offered = context.tools
   local hint = if offered == nil or Tools.find(offered, "bash") ~= nil then
@@ -373,10 +451,8 @@ local function write(input: Tools.Object, context: Tools.Context): Tools.Result
       dir = Fs.dirname(dir)
     end
   end
-  local made, made_why = Fs.mkdirs(Fs.dirname(full))
-  if not made then return fail(tostring(made_why)) end
-  local wrote, wrote_why = Fs.write(full, content)
-  if not wrote then return fail(tostring(wrote_why)) end
+  local wrote, wrote_why = write_file(full, content, policy)
+  if not wrote then return fail(wrote_why) end
   return ok(string.format("Successfully wrote %s to %s", String.counted(#content, "byte"), path))
 end
 
@@ -417,12 +493,12 @@ local function edit(input: Tools.Object, context: Tools.Context): Tools.Result
   if edits == nil then return fail(edits_why) end
   local full, refused = permitted(context, resolve(path, context.cwd), { "read", "write", "create" })
   if full == nil then return fail(refused) end
-  local raw, read_why = Fs.read(full)
-  if raw == nil then return fail(tostring(read_why)) end
+  local raw, read_why = read_file(full, path, context.policy)
+  if raw == nil then return fail(read_why) end
   local edited, made = AgentEdit.apply(raw, edits, path, "oldText")
   if edited == nil then return fail(made) end
-  local wrote, wrote_why = Fs.write(full, edited)
-  if not wrote then return fail(tostring(wrote_why)) end
+  local wrote, wrote_why = write_file(full, edited, context.policy)
+  if not wrote then return fail(wrote_why) end
   return ok(string.format("Successfully replaced %d block(s) in %s.", made, path))
 end
 

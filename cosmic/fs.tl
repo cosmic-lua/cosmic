@@ -55,6 +55,148 @@ local class Scratch
   end
 end
 
+--- What [`Fs.status`] finds at a path: whether anything is there,
+--- whether it is a directory, and its [`Fs.Stat`] when it is there. A
+--- missing path is a Status, not a failure.
+local record Status
+  --- Whether anything is at the path.
+  exists: boolean
+  --- Whether a directory is at the path.
+  is_dir: boolean
+  --- What [`Fs.stat`] answers for the path, there only where it exists.
+  stat?: sys.Stat
+end
+
+--- The failure of a call on `path` that answered `why` and `errno`.
+local function dir_failure(errno: integer, why: string, path: string): Failure
+  if errno ~= 0 then return Failure.system(errno, path) end
+  return Failure.new(why, path)
+end
+
+--- How many temporary files [`Fs.Dir`]'s `write` made, to name the next one.
+local dir_writes = 0
+
+--- What [`Fs.dir`] returns.
+--- A directory held by a descriptor, as [`Fs.dir`] opens it: reached
+--- with no link on its path, and acted on by one name in it at a time,
+--- never through a link. A name with "/", or "." or "..", fails. Use it
+--- where a check of a path and the act on it must meet the same file:
+--- a link a process swaps in on the path after [`Fs.dir`] is met, not
+--- followed. Close it with `close`, or hold it in a `<close>` variable.
+local class Dir
+  --- The path it was opened by.
+  path: string
+  --- Its descriptor; -1 once closed. Leave it to the methods.
+  mut fd: integer
+
+  --- The bytes of the file `name`, as [`Fs.read`] answers them.
+  function read(self, name: string): (string) | (nil, Failure)
+    local named = self.path .. "/" .. name
+    if self.fd < 0 then return nil, Failure.new("the directory is closed", named) end
+    local fd, why, errno = sys.openat(self.fd, name, sys.O_RDONLY)
+    if fd == nil then return nil, dir_failure(errno, why, named) end
+    local parts: mut {string} = {}
+    while true do
+      local chunk, _, read_errno = sys.read(fd, 1 << 16)
+      if chunk == nil then
+        local _, _ = sys.close(fd)
+        return nil, Failure.system(read_errno, named)
+      end
+      if #chunk == 0 then break end
+      parts[#parts + 1] = chunk
+    end
+    local _, _ = sys.close(fd)
+    return table.concat(parts)
+  end
+
+  --- Writes `data` to `name` through a temporary neighbor in this
+  --- directory and a rename, as [`Fs.write`] does; `mode` defaults
+  --- to 0644, less the umask.
+  function write(self, name: string, data: string, mode?: integer): (true) | (false, Failure)
+    local named = self.path .. "/" .. name
+    if self.fd < 0 then return false, Failure.new("the directory is closed", named) end
+    local temporary: string = ""
+    local fd: integer? = nil
+    local why, errno = "", 0
+    for _ = 1, 100 do
+      dir_writes = dir_writes + 1
+      temporary = name .. ".writing." .. tostring(sys.getpid()) .. "." .. tostring(dir_writes)
+      fd, why, errno = sys.openat(self.fd, temporary, sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, mode or 0x1a4)
+      if fd ~= nil or errno ~= sys.EEXIST then break end
+    end
+    if fd == nil then return false, dir_failure(errno, why, named) end
+    local wrote, write_why, write_errno = true, "", 0
+    local at = 1
+    while wrote and at <= #data do
+      local put, put_why, put_errno = sys.write(fd, if at == 1 then data else data:sub(at) end)
+      if put == nil then
+        wrote, write_why, write_errno = false, put_why, put_errno
+      elseif put == 0 then
+        wrote, write_why = false, "write made no progress"
+      else
+        at = at + put
+      end
+    end
+    local closed, close_why, close_errno = sys.close(fd)
+    local failed_why, failed_errno = "", 0
+    if not wrote then
+      failed_why, failed_errno = write_why, write_errno
+    elseif not closed then
+      failed_why, failed_errno = close_why, close_errno
+    else
+      local moved, move_why, move_errno = sys.renameat(self.fd, temporary, name)
+      if moved then return true end
+      failed_why, failed_errno = move_why, move_errno
+    end
+    local _, _ = sys.unlinkat(self.fd, temporary)
+    return false, dir_failure(failed_errno, failed_why, named)
+  end
+
+  --- What is at `name`, a link as itself, as [`Fs.status`] answers it.
+  function status(self, name: string): (Status) | (nil, Failure)
+    local named = self.path .. "/" .. name
+    if self.fd < 0 then return nil, Failure.new("the directory is closed", named) end
+    local st, why, errno = sys.fstatat(self.fd, name)
+    if st ~= nil then return { exists = true, is_dir = st.kind == "dir", stat = st } end
+    if errno == sys.ENOENT then return { exists = false, is_dir = false } end
+    return nil, dir_failure(errno, why, named)
+  end
+
+  --- Makes the directory `name`; `mode` defaults to 0755, less the umask.
+  function mkdir(self, name: string, mode?: integer): (true) | (false, Failure)
+    local named = self.path .. "/" .. name
+    if self.fd < 0 then return false, Failure.new("the directory is closed", named) end
+    local made, why, errno = sys.mkdirat(self.fd, name, mode or 0x1ed)
+    if not made then return false, dir_failure(errno, why, named) end
+    return true
+  end
+
+  --- The directory `name` in this one, opened as [`Fs.dir`] opens a path.
+  function dir(self, name: string): (Dir) | (nil, Failure)
+    local named = self.path .. "/" .. name
+    if self.fd < 0 then return nil, Failure.new("the directory is closed", named) end
+    if name == "" or name:find("/", 1, true) ~= nil or name == "." or name == ".." then
+      return nil, Failure.system(sys.EINVAL, named)
+    end
+    local fd, why, errno = sys.open_dir(named)
+    if fd == nil then return nil, dir_failure(errno, why, named) end
+    local held: Dir = { path = named, fd = fd }
+    return held
+  end
+
+  --- Closes its descriptor; safe to call more than once.
+  function close(self)
+    if self.fd < 0 then return end
+    local fd = self.fd
+    self.fd = -1
+    local _, _ = sys.close(fd)
+  end
+
+  function __close(self)
+    self:close()
+  end
+end
+
 local record Fs
   --- What a path is and what it holds.
   Stat: sys.Stat
@@ -91,14 +233,7 @@ local record Fs
   --- What [`Fs.status`] finds at a path: whether anything is there,
   --- whether it is a directory, and its [`Stat`] when it is there. A
   --- missing path is a Status, not a failure.
-  record Status
-    --- Whether anything is at the path.
-    exists: boolean
-    --- Whether a directory is at the path.
-    is_dir: boolean
-    --- What [`Fs.stat`] answers for the path, there only where it exists.
-    stat?: sys.Stat
-  end
+  type Status = Status
 
   --- A file at a path being written through a temporary neighbor and a
   --- rename, as [`Fs.create`] returns it: the calls of a
@@ -122,6 +257,9 @@ local record Fs
     --- cannot fail, and is safe to call more than once.
     abort: function(Staged)
   end
+
+  --- A directory held by a descriptor, as [`Fs.dir`] opens it.
+  type Dir = Dir
 
   --- What [`Fs.cache_dir`], [`Fs.program_cache_dir`] and
   --- [`Fs.data_dir`] read.
@@ -580,6 +718,22 @@ local function unslashed(path: string): string
   local to = #path
   while to > 0 and path:byte(to) == 47 do to = to - 1 end
   return path:sub(1, to)
+end
+
+--- Opens the directory `path` names as an [`Fs.Dir`], reached with no
+--- link anywhere on its path, its last part included: a link met fails
+--- with ELOOP, a part that is no directory with ENOTDIR. Each part is
+--- opened from the one before it, so a link swapped in on the path
+--- meanwhile is met, not followed.
+---
+---     local d <close> = assert(Fs.dir("/srv/data"))
+---     assert(d:write("note.txt", "kept"))
+---     print(assert(d:read("note.txt"))) -- kept
+function Fs.dir(path: string): (Fs.Dir) | (nil, Failure)
+  local fd, why, errno = sys.open_dir(path)
+  if fd == nil then return nil, failure_of(errno, why, path) end
+  local held: Dir = { path = unslashed(path), fd = fd }
+  return held
 end
 
 --- Creates a directory and every missing directory above it, as

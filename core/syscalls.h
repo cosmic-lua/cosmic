@@ -287,6 +287,69 @@ COSMIC_SYSCALL(remove_tree, 1);
 COSMIC_SYSCALL(rename, 2);
 
 /*
+ * --- Opens the directory `path` names, reached with no link anywhere on it, its last part included: a link met is ELOOP, a part that is no directory ENOTDIR. Each part is opened from the one before it, so a link a process swaps in on the path meanwhile is met, not followed. The descriptor is for the *at calls below (`openat`, `fstatat`, `mkdirat`, `renameat`, `unlinkat`), which act on one name in it; on Linux it is an O_PATH descriptor, which reads nothing itself.
+ * ---@param path string the directory
+ * ---@return integer|nil fd the descriptor, or nil on failure
+ * ---@return string error what went wrong, when fd is nil
+ * ---@return integer errno the error number, when fd is nil
+ */
+COSMIC_SYSCALL(open_dir, 1);
+
+/*
+ * --- Opens `name` in the directory `dir` holds, never through a link: a link at the name is ELOOP. Close-on-exec, as `open` is. A name with "/", or "." or "..", is EINVAL.
+ * ---@param dir integer a directory's descriptor, from `open_dir`
+ * ---@param name string one name in it
+ * ---@param flags integer the O_* flags, such as `O_RDONLY` or `O_WRONLY | O_CREAT | O_EXCL`
+ * ---@param mode? integer the mode for a newly created file, default 0o644
+ * ---@return integer|nil fd the descriptor, or nil on failure
+ * ---@return string error what went wrong, when fd is nil
+ * ---@return integer errno the error number, when fd is nil
+ */
+COSMIC_SYSCALL(openat, 4);
+
+/*
+ * --- Describes `name` in the directory `dir` holds, a link as itself. A name with "/", or "." or "..", is EINVAL.
+ * ---@param dir integer a directory's descriptor, from `open_dir`
+ * ---@param name string one name in it
+ * ---@return Stat|nil stat the description, or nil on failure
+ * ---@return string error what went wrong, when stat is nil
+ * ---@return integer errno the error number, when stat is nil
+ */
+COSMIC_SYSCALL(fstatat, 2);
+
+/*
+ * --- Creates the directory `name` in the directory `dir` holds. A name with "/", or "." or "..", is EINVAL.
+ * ---@param dir integer a directory's descriptor, from `open_dir`
+ * ---@param name string one name in it
+ * ---@param mode? integer the mode to create it with, default 0o755
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(mkdirat, 3);
+
+/*
+ * --- Moves `from` to `to`, both names in the directory `dir` holds, replacing `to` if it exists. A name with "/", or "." or "..", is EINVAL.
+ * ---@param dir integer a directory's descriptor, from `open_dir`
+ * ---@param from string the name to move
+ * ---@param to string its new name
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(renameat, 3);
+
+/*
+ * --- Removes `name`, a file or a link, from the directory `dir` holds. A name with "/", or "." or "..", is EINVAL.
+ * ---@param dir integer a directory's descriptor, from `open_dir`
+ * ---@param name string one name in it
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(unlinkat, 2);
+
+/*
  * --- Sets a path's permission bits. The program's own file named through a
  * --- descriptor of it (/proc/self/fd/<n>, /dev/fd/<n>) is refused, EACCES.
  * ---@param path string the path to change
@@ -985,6 +1048,7 @@ COSMIC_SYSCALL(poll, 3);
  * ---@field ENOSPC integer no room is left, as when no more user namespaces may be made
  * ---@field EINVAL integer an argument is invalid, such as a path holding a NUL byte
  * ---@field EMFILE integer no descriptor is free below RLIMIT_NOFILE's soft limit
+ * ---@field ELOOP integer a link was met where none may be, or too many links were followed
  * ---@field SIGHUP integer the terminal hung up
  * ---@field SIGINT integer interrupt, as from a terminal
  * ---@field SIGQUIT integer quit, as from a terminal
@@ -1046,6 +1110,7 @@ COSMIC_CONSTANT(EPERM)
 COSMIC_CONSTANT(ENOSPC)
 COSMIC_CONSTANT(EINVAL)
 COSMIC_CONSTANT(EMFILE)
+COSMIC_CONSTANT(ELOOP)
 COSMIC_CONSTANT(SIGHUP)
 COSMIC_CONSTANT(SIGINT)
 COSMIC_CONSTANT(SIGQUIT)
