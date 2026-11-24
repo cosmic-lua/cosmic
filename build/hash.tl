@@ -228,15 +228,6 @@ local function arguments(argv: {string}): Request?, string
   local spec = assert(command.spec, "each command has options")
   local parsed, trouble = Flags.parse(argv, if checking then 3 else 2 end, spec)
   if parsed == nil then
-    -- The spellings before `-a` and `check`, pointed at what replaced them.
-    for _, word in ipairs(argv) do
-      local retired = word:match("^%-%-([%w-]+)$")
-      if retired == "check" then
-        return nil, trouble .. "; `cosmic hash check <sums>` checks a sums file"
-      elseif retired ~= nil and SIZE[retired] ~= nil then
-        return nil, trouble .. "; name the algorithm with -a " .. retired
-      end
-    end
     return nil, trouble
   end
   local named = parsed.values["--algorithm"]
