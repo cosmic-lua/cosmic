@@ -891,3 +891,49 @@ local function test_a_null_argument_is_a_value_the_schema_and_the_handler_see()
   local listed = decoded(server:answer(request(3, "tools/list", '"cursor":null')).body)
   assert(listed["result"] ~= nil, tostring(listed["error"]))
 end
+
+local function test_a_feature_offered_while_empty_is_announced_when_it_comes()
+  local function blank(): Server.Instance
+    return Server.new{ info = { name = "blank", version = "1" }, offers = { "prompts" } }
+  end
+  local caps = object(object(decoded(blank():answer(request(1, "server/discover")).body)["result"])["capabilities"])
+  assert(caps["prompts"] ~= nil and caps["tools"] == nil)
+  local listed = object(decoded(blank():answer(request(2, "prompts/list")).body)["result"])
+  assert(#list(listed["prompts"]) == 0 and Json.is_array(listed["prompts"]))
+  Poll.run(function()
+    local up, down = duct(), duct()
+    local server = blank()
+    local served = Poll.spawn(function()
+      local server_in: DuctReader = { duct = up, skip = nil }
+      local server_out: DuctWriter = { duct = down }
+      assert(server:serve_stdio(server_in, server_out))
+    end)
+    local client_in: DuctReader = { duct = down, skip = nil }
+    local client_out: DuctWriter = { duct = up }
+    local session = Client.stdio(client_in, client_out)
+    local agreed: Client.Subscription? = nil
+    local notices: mut {string} = {}
+    local listener = Poll.spawn(function()
+      local ok, why = session:listen({ prompts = true }, function(n: Client.Notice)
+        notices[#notices + 1] = n.kind
+      end,
+        function(a: Client.Subscription) agreed = a end)
+      assert(ok, tostring(why))
+    end)
+    until_true(function(): boolean return agreed ~= nil end)
+    assert(assert(agreed).prompts == true, "a feature offered while empty is one a subscription hears of")
+    server:update({ prompts = { {
+      prompt = { name = "hi" },
+      get = function(_: {string: string}, _: Server.Call): (Mcp.PromptResult) | (nil, Failure)
+        return { messages = {} }
+      end,
+    } } })
+    until_true(function(): boolean return #notices >= 1 end)
+    assert(notices[1] == "prompts")
+    assert(#assert(session:prompts()) == 1)
+    server:end_subscriptions()
+    assert(listener:join(Clock.seconds(20)))
+    assert(session:close())
+    assert(served:join(Clock.seconds(20)))
+  end)
+end
