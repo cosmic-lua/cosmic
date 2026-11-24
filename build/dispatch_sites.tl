@@ -123,7 +123,7 @@ local sites: {string:dispatch_sites.Site} = {
   -- test starts asks the processor for its key, so any module that runs
   -- the tool hits the function, and holding them would put all of those
   -- under a processor key.
-  ["core/syscalls.c"] = { lines = "77f298f7ee8f34a0", reads = {} },
+  ["core/syscalls.c"] = { lines = "bff51bb98ddaffd2", reads = {} },
   ["core/syscalls.h"] = { lines = "297b223c6bbcbc65", reads = {} },
   ["core/cpu_features_test.tl"] = { lines = "3532478522195952", reads = {} },
   -- The int8 dot product of [`Vector.corpus`]: VNNI in its AVX-512 (256-bit
