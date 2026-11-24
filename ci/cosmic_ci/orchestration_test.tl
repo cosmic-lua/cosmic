@@ -1263,7 +1263,8 @@ local function test_the_checked_suite_runs_in_jobs_of_its_own_and_the_format_che
       formats = formats + 1
       -- linux-x86_64's, on every run but main's push and the daily one,
       -- whose commit the merge queue checked.
-      assert(step["if"] == "matrix.leg == 'linux-x86_64' && matrix.part != 'suite' && github.event_name != 'push' && " ..
+      assert(step["if"] == "matrix.leg == 'linux-x86_64' && (matrix.part == 'all' || matrix.part == 'format') && " ..
+          "github.event_name != 'push' && " ..
           "github.event.schedule != '41 3 * * 1-6'" and assert(step.env)["COSMIC_CI_FORMAT"] == "run",
         "the format check runs on another leg, or is skipped: " .. tostring(step["if"]))
     end

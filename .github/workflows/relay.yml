@@ -30,15 +30,23 @@
   jobs: {
     # One job a leg the merge queue runs: each leg's verdicts and compiles
     # are its own; the tree checks' memo is linux-x86_64's format job's.
+    # Each runs on its leg's runner, so what it saves is what that leg's
+    # restore asks for (a cache's version holds its path and compression).
     relay: {
       name: "relay ${{ matrix.leg }}",
       if: "github.repository == 'cosmic-lua/cosmic'",
       strategy: {
         "fail-fast": false,
-        matrix: {leg: ["linux-x86_64", "linux-aarch64", "alpine-x86_64"]},
+        matrix: {
+          include: [
+            {leg: "linux-x86_64", runner: "ubuntu-24.04"},
+            {leg: "linux-aarch64", runner: "ubuntu-24.04-arm"},
+            {leg: "alpine-x86_64", runner: "ubuntu-24.04"},
+          ],
+        },
       },
       defaults: {run: {"working-directory": "ci", shell: "sh"}},
-      "runs-on": "ubuntu-24.04",
+      "runs-on": "${{ matrix.runner }}",
       # actions: to find and download the merge queue's artifacts.
       permissions: {contents: "read", actions: "read"},
       "timeout-minutes": 15,
