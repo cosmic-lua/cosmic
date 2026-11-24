@@ -157,8 +157,9 @@ local record Agent
     where?: string
     --- What opens a request; Http.open by default.
     send?: Send
-    --- What the tools are held to (cosmic.agent.policy); nil for nothing.
-    sandbox?: Sandbox.Policy
+    --- The layers the tools are held to (cosmic.agent.policy), each held stacked: only what every layer lets
+    --- them do ([`Sandbox.intersect`]); nil or {} for nothing.
+    sandbox?: {Sandbox.Policy}
     --- The background jobs the tools start (cosmic.agent.jobs); nil for none.
     jobs?: Jobs.Set
     --- The worker the run tool sends its snippets to (cosmic.agent.worker); nil for none.
@@ -357,8 +358,9 @@ local record Agent
     cwd: string
     --- What opens a request; Http.open where nil.
     mut send?: Send
-    --- What the tools are held to (cosmic.agent.policy); nil for nothing.
-    mut sandbox?: Sandbox.Policy
+    --- The layers the tools are held to (cosmic.agent.policy), stacked as [`Sandbox.intersect`] joins them at
+    --- each call; nil or {} for nothing. A call is blocked when they do not join.
+    mut sandbox?: {Sandbox.Policy}
     --- The background jobs the tools start (cosmic.agent.jobs); nil for none.
     mut jobs?: Jobs.Set
     --- The worker the run tool sends its snippets to (cosmic.agent.worker); nil for none.
@@ -499,6 +501,15 @@ local function tell(s: Agent.Session, event: Agent.Event)
   if on == nil then return end
   local ran, err = pcall(on, event)
   if not ran and s.on_failed == nil then s.on_failed = told(err) end
+end
+
+--- What `layers` hold stacked, and "": nil for none; nil and why where they do not join.
+local function joined(layers?: {Sandbox.Policy}): Sandbox.Policy?, string
+  if layers == nil or #layers == 0 then return nil, "" end
+  if #layers == 1 then return layers[1], "" end
+  local policy, why = Sandbox.intersect(table.unpack(layers))
+  if policy == nil then return nil, "the sandbox's layers do not join: " .. why end
+  return policy, ""
 end
 
 --- What `before` of `s` says of `call`: nil to run it, or why not.
@@ -1079,13 +1090,15 @@ local function loop(s: Agent.Session): boolean, string
           local asked_call: Agent.Call = { name = called, input = given, caller = "model", cwd = s.cwd, id = s.id,
             paths = touched, stopped = asking }
           local result: Tools.Result
+          local policy, unjoined = joined(s.sandbox)
+          if reason == nil and unjoined ~= "" then reason = unjoined end
           if reason == nil and tool ~= nil then reason = blocked(s, asked_call) end
           if reason ~= nil then
             result = { text = "Blocked: " .. reason, is_error = true }
             tell(s, { kind = "blocked", name = called, caller = "model", input = given, reason = reason })
           else
             local context: Tools.Context = { cwd = s.cwd, db = s.db, session = s.id,
-              policy = s.sandbox, jobs = s.jobs, worker = s.worker,
+              policy = policy, jobs = s.jobs, worker = s.worker,
               mcp = s.mcp, stopped = asking, deadline_ns = deadline, tools = s.tools,
               commands = Tools.find(s.tools, "bash") ~= nil,
               guard = if s.before == nil then nil else function(host: string, args: Tools.Object): string?
@@ -1204,7 +1217,7 @@ local class AgentSession is Agent.Session
   mut where: string
   cwd: string
   mut send?: Agent.Send
-  mut sandbox?: Sandbox.Policy
+  mut sandbox?: {Sandbox.Policy}
   mut jobs?: Jobs.Set
   mut worker?: Worker.Set
   mut mcp?: AgentMcp.Set

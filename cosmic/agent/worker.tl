@@ -157,14 +157,18 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
     -- TODO: hold an x grant on macOS as map-only (Seatbelt's file-map-executable alone) once a grant can say so.
     local strip = not runs and not Sandbox.on_macos()
     for _, grant in ipairs(merged.grants or {}) do
-      -- With no commands, no other grant runs a file, so the worker cannot become another program either; as this
-      -- one, it is held as it was, with no process to start. A grant of `x` alone is then no grant.
-      local letters = if strip and grant.path ~= self then (grant.letters:gsub("x", "")) else grant.letters end
+      -- With no commands, no grant runs a file. The grant of this program is left to the "cosmic" profile, named
+      -- below, so it is the start's alone: the core holds its policy again at boot without it, and with no grant
+      -- left with `x` the exec filter holds too, so the worker cannot become another program, nor run itself again.
+      -- A grant of `x` alone is then no grant.
+      local letters = if not strip then grant.letters elseif grant.path == self then "" else
+        (grant.letters:gsub("x", "")) end
       if letters ~= "" then
         grants[#grants + 1] = { path = grant.path, letters = letters, from = grant.from }
       end
     end
-    policy = { grants = grants, isolate = merged.isolate, promises = promises, connect = merged.connect,
+    policy = { grants = grants, profiles = if strip then { "cosmic" } else nil end, isolate = merged.isolate,
+      promises = promises, connect = merged.connect,
       loopback = merged.loopback, env = merged.env, set_env = merged.set_env, set_env_digests = merged.set_env_digests,
       tmp = merged.tmp, limits = merged.limits, user = merged.user, group = merged.group, database = merged.database }
   end

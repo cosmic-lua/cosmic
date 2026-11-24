@@ -2475,12 +2475,13 @@ end
 --- gives no way to change or replace. A file a grant giving `w` or `c`
 --- covers could be rewritten after the start and then run, as a policy
 --- with no `x` grant never lets, so it needs a grant of `x` of its own;
---- so does a file at a name a grant with `from` shows another file at,
---- and, where `tmp` makes the sandbox's own /tmp, one beneath /tmp.
-local function startable(file: string, grants: {Rules.Grant}, cwd?: string, own_tmp?: boolean): boolean
+--- so does a file at a name a grant with `from` shows another file at.
+--- A file beneath /tmp where `tmp` makes the sandbox's own /tmp needs no
+--- rule of its own: it is bound in at its name over that tmpfs, and the
+--- rule holds its inode alone, so a file made at the name gets no `x`.
+local function startable(file: string, grants: {Rules.Grant}, cwd?: string): boolean
   local st, _ = sys.stat(file)
   if st == nil or st.kind ~= "file" then return false end
-  if own_tmp == true and beneath(file, "/tmp") then return false end
   for _, grant in ipairs(grants) do
     local at = grant.path
     if cwd ~= nil and at:sub(1, 1) ~= "/" then at = cwd .. "/" .. at end
@@ -3258,7 +3259,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     local start_grants: mut {Rules.Grant} = {}
     for _, start_file in ipairs(files) do
       if ungranted({ start_file }, giving, base) ~= "" and
-          startable(start_file, merged.grants or {}, base, file and merged.tmp == true) then
+          startable(start_file, merged.grants or {}, base) then
         start_grants[#start_grants + 1] = { path = start_file, letters = "rx" }
       end
     end
