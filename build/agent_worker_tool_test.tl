@@ -778,3 +778,14 @@ local function test_a_snippet_reads_json_into_records()
   assert(not ran.is_error and ran.text:find("^x2\nnext 2\n") ~= nil, ran.text)
   Worker.close(w)
 end
+
+--- Host.sort answers a new list the snippet may add to, so a list sorted in place of itself still checks.
+local function test_a_snippet_sorts_a_list_into_itself_and_adds_to_it()
+  local w = set_of_worker()
+  local dir = assert(Fs.mkdtemp("agent-worker-"))
+  local context: Tools.Context = { cwd = dir, worker = w }
+  local ran = Tools.run("run", { code = "local rows: mut {string} = { \"b\", \"a\" }\n" ..
+      "rows = Host.sort(rows)\nrows[#rows + 1] = \"c\"\nprint(table.concat(rows, \",\"))\n" }, context)
+  assert(not ran.is_error and ran.text:find("^a,b,c\n") ~= nil, ran.text)
+  Worker.close(w)
+end
