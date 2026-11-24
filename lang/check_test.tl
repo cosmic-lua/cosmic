@@ -32,6 +32,8 @@ local record Case
   codes?: string
   --- The line and column of the error.
   at?: Place
+  --- The module the source is, where its name matters (an entry point's); "t" when absent.
+  module?: string
 end
 
 local RECORD <const> = "local record R\n  name: string\n  n: integer\nend\n"
@@ -426,6 +428,12 @@ local CASES <const>: {Case} = {
     msg = "this module returns `t`, which no declaration describes", fix = "return a record, class, interface or enum of the module",
   },
   {
+    code = "entry_signature", module = "cmd.tool.main", source = "return function(n: integer): integer\n  return n\nend\n",
+    at = { line = 1, column = 8 },
+    msg = "the function this entry point returns is `function(integer): integer`, which cannot take the command line's words",
+    fix = "declare it `function(argv: {string}): integer`",
+  },
+  {
     code = "missing_return", source = "local function f(): integer\n  local x = 1\nend\n", at = { line = 2, column = 3 },
     msg = "control can reach the end of this function, which answers (integer), with no `return`",
     fix = "end every path with a `return` of (integer) (or `error(...)`)",
@@ -534,7 +542,9 @@ local function test_each_case_has_its_error_with_place_message_and_fix()
   local seen: mut {string: boolean} = {}
   local problems: mut {string} = {}
   for i, case in ipairs(CASES) do
-    local r = Programs.run(case.source, case.modules)
+    local module = case.module
+    local r = if module ~= nil then Programs.runner()(case.source, module, case.modules) else
+      Programs.run(case.source, case.modules) end
     local label = "case " .. tostring(i) .. " " .. case.code
     seen[case.code] = true
     if #r.before > 0 then

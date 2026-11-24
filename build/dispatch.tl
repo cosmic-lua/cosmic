@@ -503,6 +503,9 @@ local function run_projected(file: string, argv: {string}, tree_root: Root, name
   return 0
 end
 
+-- TODO: hold a module of the tree that a run calls as an entry point ([`Declarations.Input.entry`]); the checker holds
+-- only a program's cmd/<name>/main.tl and a file run alone so, since any module of a tree may be run.
+
 --- Runs a file. The file is a module: it is required once its tree is
 --- built, with its arguments (below) set in the global `arg` before its
 --- top level runs, and if what it returns is a function, that function is
