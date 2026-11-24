@@ -16,8 +16,12 @@ Test.policy{
 
 --- How many times the cost of lexing and parsing a source that formatting it may cost. Formatting parses the source four
 --- times (the layout, the reads of the source and of its layout, and the layout of that layout), writes two layouts
---- and compares two trees; it costs about 25 times lexing and parsing it once, and this allows twice that.
-local BUDGET <const>: integer = 50
+--- and compares two trees; it costs about 16 times lexing and parsing it once, and this allows three times that. A run
+--- that checks types ([`Test.mode`]) slows the formatter's code more than the parser's: there it costs about 34 times,
+--- and this allows three times that.
+local function budget(): integer
+  return if Test.mode().types_checked then 100 else 50 end
+end
 
 --- The statements of a program of the grammar, to repeat.
 local SAMPLE <const> = [[
@@ -60,12 +64,12 @@ end
 local function test_formatting_a_large_module_of_the_tree_costs_a_small_multiple_of_parsing_it()
   local source = assert(Fs.read("build/fix/continuation.tl"))
   assert(#source > 15000, "the module is large")
-  local ok, why = formatting_within(source, BUDGET)
+  local ok, why = formatting_within(source, budget())
   assert(ok, "formatting " .. why)
 end
 
 local function test_formatting_a_program_costs_a_small_multiple_of_parsing_it()
-  local ok, why = formatting_within(SAMPLE:rep(20), BUDGET)
+  local ok, why = formatting_within(SAMPLE:rep(20), budget())
   assert(ok, "formatting " .. why)
 end
 
