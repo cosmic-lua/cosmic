@@ -283,7 +283,7 @@ function Requeue.context(env: {string:string}): Requeue.Context
     started = need("STARTED"),
     bot = need("BOT"),
     sleep = function(seconds: integer)
-      local _, _ = Clock.sleep_ns(Clock.seconds(seconds))
+      local _, _ = Clock.sleep(Clock.seconds(seconds))
     end,
   }
 end

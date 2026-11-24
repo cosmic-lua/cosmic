@@ -79,7 +79,7 @@ local function scripted(replies: {string:{Http.DownloadResult}}, calls: mut {str
   local clock = { value = 0 }
   return {
     download = function(url: string, path: string, opts: Http.Options): Http.DownloadResult
-      assert(opts.sha256 == "abc")
+      assert(assert(opts.digests)["sha256"] == "abc")
       local connect_timeout_ns = opts.connect_timeout_ns
       local low_speed_bytes = opts.low_speed_bytes
       local low_speed_ns = opts.low_speed_ns

@@ -90,7 +90,7 @@ from one runtime context from standing in another.
 [`build.artifact`](../../../build/artifact.tl) parses `targets.tsv`, reads each raw
 core, and renders launcher arms with
 [`build.launcher`](../../../build/launcher.tl). A release writes each core as one
-zstd frame ([`Compress.zstd`]) beside the decoder stub built for its target. It
+zstd frame ([`Compress.encode`]) beside the decoder stub built for its target. It
 aligns every stored range, hashes the exact bytes, and writes one fixed-size
 manifest entry per range. An entry has a kind (a core, or the stub of a
 target's core) and a codec (raw or zstd). It names the stored bytes by offset,
@@ -576,7 +576,7 @@ manifest: names the running core
 [`build.artifact.trusted_prefix`]: ../../../build/artifact.tl
 [`Child.start`]: ../../../cosmic/child.tl
 [`ci/cosmic_ci/orchestration.tl`]: ../../../ci/cosmic_ci/orchestration.tl
-[`Compress.zstd`]: ../../../cosmic/compress.tl
+[`Compress.encode`]: ../../../cosmic/compress.tl
 [`core/bridge.lua`]: ../../../core/bridge.lua
 [`core/check.h`]: ../../../core/check.h
 [`core/unzstd.c`]: ../../../core/unzstd.c

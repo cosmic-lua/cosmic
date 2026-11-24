@@ -17,25 +17,25 @@ local s <const> = 1000000000
 --- and a table of another shape beside them.
 local function cache(path: string, used: {integer})
   local db = assert(Sqlite.open(path, { writable = true }))
-  assert(Sqlite.text_rows(db, "PRAGMA journal_mode = WAL"))
+  assert(db:text_rows("PRAGMA journal_mode = WAL"))
   assert(db:exec("CREATE TABLE declared_v1 (key TEXT PRIMARY KEY, test TEXT NOT NULL, " ..
       "hits BLOB NOT NULL, elapsed_ns INTEGER NOT NULL, used_ns INTEGER NOT NULL, " ..
       "origin TEXT NOT NULL); CREATE INDEX declared_v1_by_use ON declared_v1 (used_ns); " ..
       "CREATE TABLE verdicts_v3 (key TEXT PRIMARY KEY, hits BLOB NOT NULL, " ..
       "used_ns INTEGER NOT NULL); CREATE TABLE declared_v9 (key TEXT PRIMARY KEY)"))
   for i, at in ipairs(used) do
-    assert(Sqlite.run(db, "INSERT INTO declared_v1 VALUES (?1, ?2, zeroblob(16384), 1, ?3, 'o')",
+    assert(db:run("INSERT INTO declared_v1 VALUES (?1, ?2, zeroblob(16384), 1, ?3, 'o')",
       { { text = "k" .. tostring(i) }, { text = "t.tl test_" .. tostring(i) }, { integer = at * s } }))
   end
-  assert(Sqlite.run(db, "INSERT INTO verdicts_v3 VALUES ('old', zeroblob(16384), 1)"))
-  assert(Sqlite.run(db, "INSERT INTO declared_v9 VALUES ('other')"))
+  assert(db:run("INSERT INTO verdicts_v3 VALUES ('old', zeroblob(16384), 1)"))
+  assert(db:run("INSERT INTO declared_v9 VALUES ('other')"))
   assert(db:close())
 end
 
 local function keys(path: string): {string}
   local db = assert(Sqlite.open(path))
   local out: mut {string} = {}
-  for _, row in ipairs((assert(Sqlite.text_rows(db,
+  for _, row in ipairs((assert(db:text_rows(
       "SELECT key FROM declared_v1 UNION ALL SELECT key FROM verdicts_v3 ORDER BY 1")))) do
     out[#out + 1] = row:text(1)
   end
@@ -124,7 +124,7 @@ local function stores(path: string, used: {integer})
   assert(db:exec("CREATE TABLE stores_v1 (address TEXT PRIMARY KEY, digest TEXT NOT NULL, " ..
       "used_ns INTEGER NOT NULL); CREATE INDEX stores_v1_by_use ON stores_v1 (used_ns)"))
   for i, at in ipairs(used) do
-    assert(Sqlite.run(db, "INSERT INTO stores_v1 VALUES (?1, 'd', ?2)",
+    assert(db:run("INSERT INTO stores_v1 VALUES (?1, 'd', ?2)",
       { { text = "a" .. tostring(i) }, { integer = at * s } }))
   end
   assert(db:close())
@@ -135,7 +135,7 @@ end
 local function addresses(path: string): string
   local db = assert(Sqlite.open(path))
   local out: mut {string} = {}
-  for _, row in ipairs((assert(Sqlite.text_rows(db,
+  for _, row in ipairs((assert(db:text_rows(
       "SELECT address, used_ns / 1000000000 FROM stores_v1 ORDER BY address")))) do
     out[#out + 1] = table.concat(row:texts(), " ")
   end

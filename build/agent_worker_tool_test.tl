@@ -231,7 +231,7 @@ local function test_a_late_write_and_a_snippets_own_mark_are_not_the_next_snippe
   local wrote, _ = Fs.read(dir .. "/wrote")
   -- The shell makes the file before it writes the line, so an empty file is one not yet written.
   while wrote ~= "late\n" and Clock.monotonic_ns() < deadline do
-    local _, _ = Clock.sleep_ns(Clock.ms(50))
+    local _, _ = Clock.sleep(Clock.ms(50))
     local again, _ = Fs.read(dir .. "/wrote")
     wrote = again
   end

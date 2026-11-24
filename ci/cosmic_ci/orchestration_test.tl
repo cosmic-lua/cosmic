@@ -677,7 +677,7 @@ local function test_the_self_rebuild_seed_copies_the_legs_compiles(tmp: string)
   end
   local function seeded_from(path: string): string
     local db = assert(Sqlite.open(path))
-    local rows = assert(Sqlite.text_rows(db, "SELECT key FROM compiles"))
+    local rows = assert(db:text_rows("SELECT key FROM compiles"))
     assert(db:close())
     assert(#rows == 1, path .. ": " .. tostring(#rows) .. " rows")
     return assert(rows[1]):text(1)
@@ -1204,7 +1204,7 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
     assert(outcome.result.ok, case.name .. ": the build phase failed: " .. err)
     local db = assert(Sqlite.open(database))
     if case.broken then
-      local count = assert(Sqlite.text_rows(db, "SELECT COUNT(*) FROM suite_runs"))
+      local count = assert(db:text_rows("SELECT COUNT(*) FROM suite_runs"))
       assert(assert(count[1]):text(1) == "0", case.name .. ": " .. assert(count[1]):text(1) .. " rows")
       assert(err:find("local suite: row not recorded", 1, true), err)
     else
@@ -1217,7 +1217,7 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
       local parts = assert(row.parts)
       assert(parts["runtime"] == "04" and parts["harness"] == "06")
     end
-    local phases = assert(Sqlite.text_rows(db, "SELECT phase, status FROM operation_events " ..
+    local phases = assert(db:text_rows("SELECT phase, status FROM operation_events " ..
         "WHERE event = 'complete' AND phase IN ('local suite', 'platform: build') ORDER BY id"))
     assert(#phases == 2 and assert(phases[1]):text(2) == "success" and assert(phases[2]):text(2) == "success",
       case.name .. ": the phases did not succeed")
@@ -2094,7 +2094,7 @@ end
 local function pid_of(path: string): integer
   local waited = Clock.monotonic_ns()
   while not assert(Fs.status(path)).exists and Clock.monotonic_ns() - waited < lane_hang_guard do
-    Clock.sleep_ns(Clock.ms(10))
+    assert(Clock.sleep(Clock.ms(10)))
   end
   return assert(math.tointeger(tonumber((assert(Fs.read(path)):gsub("%s", "")))))
 end
