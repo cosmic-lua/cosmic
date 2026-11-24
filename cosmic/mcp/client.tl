@@ -40,8 +40,10 @@ local Poll = require("cosmic.poll")
 local JsonSchema = require("cosmic.jsonschema")
 local Mcp = require("cosmic.mcp")
 local McpOAuth = require("cosmic.mcp.oauth")
+local Net = require("cosmic.net")
 local Stream = require("cosmic.stream")
 local String = require("cosmic.string")
+local Url = require("cosmic.url")
 local wire = require("cosmic.mcp.wire")
 
 local record McpClient
@@ -50,7 +52,8 @@ local record McpClient
     --- How long one request may take, as [`Http.Options.timeout_ns`].
     timeout_ns: integer
     --- Headers sent with each request: `Authorization`, say. The
-    --- protocol's own are set here and cannot be given.
+    --- protocol's own are set here and cannot be given. Over plain
+    --- `http://`, headers go only to a loopback host.
     headers?: {string: string}
     --- How this client names itself (`cosmic`).
     info?: Mcp.Implementation
@@ -1040,8 +1043,18 @@ end
 --- A session with the server whose MCP endpoint is `url`, one POST a
 --- request. Redirects are not followed: a server that moves answers
 --- with a failure naming the status. `opts.headers` go with every
---- request; one that names a header the protocol sets raises.
+--- request; one that names a header the protocol sets raises. So do
+--- headers with a plain `http://` URL whose host is not loopback: they
+--- would go in the clear, and a token among them could be read on the way.
 function McpClient.http(url: string, opts: McpClient.HttpOptions): McpClient.Session
+  local parts, unread = Url.parse(url)
+  if next(opts.headers or {}) ~= nil and parts == nil then
+    error("mcp: http: opts.headers go only to a URL that can be read: " .. tostring(unread), 2)
+  end
+  if parts ~= nil and parts.scheme == "http" and next(opts.headers or {}) ~= nil and not Net.is_loopback(parts.host) then
+    error("mcp: http: opts.headers would go in the clear over http:// to " .. parts.host ..
+        "; use an https:// URL, or a loopback host such as 127.0.0.1", 2)
+  end
   for name in pairs(opts.headers or {}) do
     local lower = name:lower()
     if OWN_HEADERS[lower] == true or lower:sub(1, 10) == "mcp-param-" then
