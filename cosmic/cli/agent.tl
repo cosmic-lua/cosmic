@@ -23,6 +23,12 @@
 --- - `rpc` runs one session for another program. It reads commands as
 ---   JSON lines on standard input and writes events on standard output.
 ---   A failed turn does not end the session.
+--- - While `chat` or `rpc` waits for a line, it sends the last request
+---   again every 4.5 minutes, asking for no reply, for up to an hour
+---   (`--keep-warm`). The API then keeps the conversation in its cache:
+---   each such request costs 0.05x of the conversation's input price, and
+---   the cache miss it saves costs 1.25x. rpc tells each as a request
+---   event, with `"warm": true`.
 --- - `sessions` lists the newest sessions in this directory.
 --- - `prompt` prints the system prompt that the model reads.
 --- - `policy` prints, path by path, the sandbox that the tools would run
@@ -109,6 +115,7 @@ local command: Flags.Command = {
     ["--continue"] = { about = "ask, chat, rpc: go on with the newest session in this directory" },
     ["--session"] = { value = "id", about = "ask, chat, resume, rpc: go on with the session of this id" },
     ["--json"] = { about = "ask: print each event as a line of JSON, not the model's words" },
+    ["--keep-warm"] = { value = "minutes", about = "chat, rpc: keep the conversation in the API's cache this long while idle (default 60; 0 for never)" },
     ["--sandbox"] = { value = "mode", about = "write (the default), read or off: what the tools may change" },
     ["--network"] = { about = "let bash and snippets (Host.fetch, cosmic.http) reach the network" },
     ["--grant"] = { value = "path[:rwxc]", about = "let the tools reach this path too, read alone unless letters say more" },
