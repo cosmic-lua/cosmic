@@ -503,12 +503,66 @@ local function tell(s: Agent.Session, event: Agent.Event)
   if not ran and s.on_failed == nil then s.on_failed = told(err) end
 end
 
---- What `layers` hold stacked, and "": nil for none; nil and why where they do not join.
+--- What `layers` hold stacked, and "": nil for no sandbox where `layers` is nil; nil and why for no layer, or
+--- layers that do not join. A profile every layer names stays a profile, as one layer's does: Child.start reads the
+--- "cosmic" profile's `rx` on this program as the start's alone, which a grant of it is not.
 local function joined(layers?: {Sandbox.Policy}): Sandbox.Policy?, string
-  if layers == nil or #layers == 0 then return nil, "" end
+  if layers == nil then return nil, "" end
+  if #layers == 0 then return nil, "the sandbox has no layer: give nil for none" end
   if #layers == 1 then return layers[1], "" end
-  local policy, why = Sandbox.intersect(table.unpack(layers))
+  local common: mut {string} = {}
+  for _, name in ipairs(layers[1].profiles or {}) do
+    local everywhere = true
+    for _, layer in ipairs(layers) do
+      local named = false
+      for _, other in ipairs(layer.profiles or {}) do
+        if other == name then named = true end
+      end
+      if not named then everywhere = false end
+    end
+    if everywhere then common[#common + 1] = name end
+  end
+  local stripped: mut {Sandbox.Policy} = {}
+  for _, layer in ipairs(layers) do
+    local rest: mut {string} = {}
+    for _, name in ipairs(layer.profiles or {}) do
+      local shared = false
+      for _, held in ipairs(common) do
+        if held == name then shared = true end
+      end
+      if not shared then rest[#rest + 1] = name end
+    end
+    stripped[#stripped + 1] = { ...layer, profiles = rest }
+  end
+  local policy, why = Sandbox.intersect(table.unpack(stripped))
   if policy == nil then return nil, "the sandbox's layers do not join: " .. why end
+  if #common > 0 then return { ...policy, profiles = common }, "" end
+  return policy, ""
+end
+
+--- [`joined`] of `s.sandbox`, kept while its layers are the same: the worker runs on under the policy it was
+--- started with, and starts again under another.
+local record Joined
+  from: {Sandbox.Policy}
+  policy?: Sandbox.Policy
+end
+local JOINED: mut {Agent.Session: Joined} = setmetatable({}, { __mode = "k" })
+
+local function held_policy(s: Agent.Session): Sandbox.Policy?, string
+  local layers = s.sandbox
+  local kept = JOINED[s]
+  if layers ~= nil and kept ~= nil and #kept.from == #layers then
+    local same = true
+    for i, layer in ipairs(layers) do
+      if kept.from[i] ~= layer then same = false end
+    end
+    if same then return kept.policy, "" end
+  end
+  local policy, why = joined(layers)
+  if policy == nil and why ~= "" then return nil, why end
+  local copy: mut {Sandbox.Policy} = {}
+  for _, layer in ipairs(layers or {}) do copy[#copy + 1] = layer end
+  if layers ~= nil then JOINED[s] = { from = copy, policy = policy } else JOINED[s] = nil end
   return policy, ""
 end
 
@@ -1090,7 +1144,7 @@ local function loop(s: Agent.Session): boolean, string
           local asked_call: Agent.Call = { name = called, input = given, caller = "model", cwd = s.cwd, id = s.id,
             paths = touched, stopped = asking }
           local result: Tools.Result
-          local policy, unjoined = joined(s.sandbox)
+          local policy, unjoined = held_policy(s)
           if reason == nil and unjoined ~= "" then reason = unjoined end
           if reason == nil and tool ~= nil then reason = blocked(s, asked_call) end
           if reason ~= nil then

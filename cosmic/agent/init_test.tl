@@ -122,6 +122,14 @@ local function test_the_sandbox_layers_are_held_stacked()
   assert(blocked:find("Blocked: the sandbox's layers do not join", 1, true) ~= nil, blocked)
   local still, _ = Fs.read(dir .. "/out.txt")
   assert(still == nil)
+  -- No layer is no sandbox only as nil: an empty list blocks the call.
+  local _, send4 = api({ write("t4"), text_reply("done") })
+  s.send, s.sandbox = send4, {}
+  assert(s:prompt("and again"))
+  local empty = assert(Json.encode(Json.array(s.messages)))
+  assert(empty:find("Blocked: the sandbox has no layer", 1, true) ~= nil, empty)
+  local left, _ = Fs.read(dir .. "/out.txt")
+  assert(left == nil)
 end
 
 local function test_the_loop_says_why_it_stops()
