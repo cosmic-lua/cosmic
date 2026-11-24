@@ -865,11 +865,11 @@ local function all_lines(reader: Stream.Reader, max_bytes?: integer): {string}, 
 end
 
 --- A Reader handing out `s` a byte at a time, whatever it is asked for.
-local function trickle(s: string): Stream.Reader
+local function trickle(s: string, size?: integer): Stream.Reader
   local inner = Stream.from_string(s)
   local r: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
-      return inner:read(1)
+      return inner:read(size or 1)
     end,
     close = function(_self: Stream.Reader): boolean, string
       return inner:close()
@@ -1012,6 +1012,38 @@ local function test_each_reads_every_line_and_leaves_no_failure()
   local seen: mut {string} = {}
   for line in lines:each() do seen[#seen + 1] = line end
   assert(table.concat(seen, "|") == "x|y" and lines:failure() == "")
+end
+
+--- `each` gives the lines `read` gives, whatever the chunks: a line one chunk ends, one spread over chunks, one past
+--- the limit (which ends the lines with why), and an empty one; and lines from `each`, `read` and `rest` taken in turn
+--- are the text in order.
+local function test_each_gives_the_lines_read_gives()
+  local text = "one\n\n" .. string.rep("x", 9) .. "\nfour\n123456\nafter"
+  local function in_threes(s: string): Stream.Reader return trickle(s, 3) end
+  for _, make in ipairs({ Stream.from_string, trickle, in_threes }) do
+    local by_read: mut {string} = {}
+    local reading = Stream.lines(make(text), 9)
+    while true do
+      local line, _ = reading:read()
+      if line == nil then break end
+      by_read[#by_read + 1] = line
+    end
+    local by_each: mut {string} = {}
+    local each = Stream.lines(make(text), 9)
+    for line in each:each() do by_each[#by_each + 1] = line end
+    assert(table.concat(by_each, "|") == table.concat(by_read, "|"), table.concat(by_each, "|"))
+    assert(table.concat(by_each, "|") == "one||xxxxxxxxx|four|123456|after", table.concat(by_each, "|"))
+    local long = Stream.lines(make("ab\n" .. string.rep("y", 6) .. "\nz\n"), 5)
+    local got: mut {string} = {}
+    for line in long:each() do got[#got + 1] = line end
+    assert(table.concat(got, "|") == "ab", table.concat(got, "|"))
+    assert(long:failure():find("longer than 5 bytes", 1, true) ~= nil, long:failure())
+    local mixed = Stream.lines(make("a\nb\nc\nd\ne\n"))
+    local next_line = mixed:each()
+    assert(next_line() == "a" and mixed:read() == "b" and next_line() == "c")
+    local after, _ = Stream.read_all(mixed:rest())
+    assert(after == "d\ne\n", after)
+  end
 end
 
 --- `rest` gives exactly the bytes after the last line read: those the
