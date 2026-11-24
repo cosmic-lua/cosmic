@@ -1142,6 +1142,16 @@ processors), not how many ran at once.
 `settling` is the coverage and the records kept. The `runs` table holds
 each test's own time ([measuring](guides/measuring.md)).
 
+`runs` holds only each test's latest run, so a rerun that passes replaces
+a failure. The `failures` table keeps each failure with its message, the
+newest 200 of them. A test that failed and then passed is a flake to
+record:
+
+```text
+cosmic sql --build "SELECT f.path, f.test, f.message FROM failures f
+  JOIN runs r USING (path, test) WHERE r.passed = 1 ORDER BY f.ran_at_ns DESC"
+```
+
 ### coverage
 
 Every run records the lines the tests reached in the `coverage` table of
