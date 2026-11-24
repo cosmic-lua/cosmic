@@ -88,6 +88,15 @@ local record Server
     --- (a half-close) is gone, as one that closes is. Asked after its
     --- reply, it speaks for the connection, not the request.
     gone: function(): boolean
+    --- Waits until the client has gone, as `gone` sees it, at most
+    --- `timeout_ns` nanoseconds (no limit when nil), as [`Net.Conn`]'s
+    --- [`wait_gone`] does: true once it has, false once the time
+    --- passes, the task is cancelled or the connection is closed here.
+    --- A reply that streams waits on it in a task of its own
+    --- ([`Poll.spawn`]) and ends once it answers true, so a client that
+    --- leaves a quiet stream is seen at once, with no wake between. A
+    --- request the client sends meanwhile does not end it.
+    wait_gone: function(timeout_ns?: integer): boolean
     --- What the connection's TLS handshake settled -- its version, the
     --- protocol ALPN chose, the host the client asked for (SNI) --
     --- where [`Server.ServeSpec.tls`] serves it; nil in the clear.
@@ -802,6 +811,10 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     method = head.method, target = head.target, path = head.path, query = head.query,
     version = head.version, headers = head.headers, body = body, length = head.length, peer = peer,
     listener = conn.listener, tls = conn:tls(), gone = function(): boolean return conn:gone() end,
+    wait_gone = function(timeout_ns?: integer): boolean
+      local gone, _ = conn:wait_gone(timeout_ns)
+      return gone
+    end,
   }
   local ok, reply = xpcall(s.spec.handle, traced, request)
   -- A body that failed is answered for, whatever the handler made of

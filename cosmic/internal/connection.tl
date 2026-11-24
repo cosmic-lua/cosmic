@@ -4,6 +4,7 @@
 --- answer.
 
 local Clock = require("cosmic.clock")
+local Failure = require("cosmic.failure")
 local Poll = require("cosmic.poll")
 local Tls = require("cosmic.tls")
 local sys = require("cosmic.sys")
@@ -18,6 +19,10 @@ local DEFAULT_READ <const> = 64 * 1024
 
 --- The most a TLS session's read answers: one record's plaintext.
 local RECORD_BYTES <const> = 16 * 1024
+
+--- How often [`SocketConn.wait_gone`] asks whether the peer has gone,
+--- where the system has no event that says it (macOS).
+local GONE_SLICE_NS <const> = Clock.ms(250)
 
 --- Waits for `fd` to be readable, or writable, at most `timeout_ns`, which
 --- the caller has held to what a wait can last: in a
@@ -354,6 +359,43 @@ local class SocketConn is Duplex
   function gone(self): boolean
     if not self.open then return true end
     return raw.peer_gone(self.fd)
+  end
+
+  --- Waits until the peer has gone, as [`gone`] sees it, at most
+  --- `timeout_ns` nanoseconds (no limit when nil): true once it has,
+  --- false and a Failure of kind "timeout" once `timeout_ns` passes first,
+  --- false and a Failure of kind "cancelled" once the task is cancelled,
+  --- or false and a Failure once the connection is closed here, as
+  --- [`close`] ends the wait. It reads nothing, so bytes the peer sends
+  --- meanwhile neither end the wait nor are lost: they wait for the next
+  --- read. In a task the other tasks run meanwhile, a [`read`] or
+  --- [`write`] of this connection among them. On Linux the wait is the
+  --- kernel's ([`sys.POLLRDHUP`]); where the system has no such event
+  --- (macOS) it asks [`gone`] each [`GONE_SLICE_NS`], so the end is seen
+  --- within that long.
+  function wait_gone(self, timeout_ns?: integer): (true) | (false, Failure)
+    Poll.checked_ns(timeout_ns, "net", "timeout_ns", 2)
+    local deadline = deadline_of(timeout_ns)
+    while true do
+      if not self.open then return false, Failure.new("net: the connection is closed") end
+      if raw.peer_gone(self.fd) then return true end
+      local rest = left(deadline)
+      if rest == 0 then return false, Failure.timeout(Poll.TIMEOUT) end
+      if sys.POLLRDHUP ~= 0 then
+        -- Only the end, a hang-up or an error wakes it: bytes the peer
+        -- pipelines behind a request do not.
+        local ok, why = Poll.wait(self.fd, sys.POLLRDHUP, rest)
+        if not ok then return false, why end
+      else
+        local slice = if rest ~= nil then math.min(rest, GONE_SLICE_NS) else GONE_SLICE_NS end
+        if Poll.in_task() then
+          local ok, why = Poll.delay(slice)
+          if not ok then return false, why end
+        else
+          local _, _ = Clock.sleep_ns(slice)
+        end
+      end
+    end
   end
 
   --- Where this end is: its own numeric TCP address, as the kernel

@@ -1822,10 +1822,6 @@ end
 --- connection open.
 local KEEPALIVE_NS <const> = 5 * 1000000000
 
---- How often a quiet event stream asks whether its client (one that closed, or half-closed its sending side) has gone ([`cosmic.http.server.Request`]'s `gone`), so a call
---- its client gave up on (by closing) is cancelled within about this long.
-local GONE_NS <const> = 250 * 1000000
-
 --- The most notices an event stream holds for a client that has not read them; past it the stream ends, as a
 --- client too slow to keep up is told by its end to start again.
 local MAX_QUEUED <const> = 256
@@ -1845,8 +1841,8 @@ local class EventReader is Stream.Reader
   mut answer?: string
   mut task?: Poll.Task
   mut finished: boolean
-  --- Whether the client has gone: the request's `gone`.
-  gone: function(): boolean
+  --- The task that waits for the client to go (the request's `wait_gone`) and closes the stream when it does.
+  mut watcher?: Poll.Task
   --- When the stream ends, its grant's time past, in nanoseconds since the epoch; nil: never by time.
   ends_ns?: integer
 
@@ -1869,13 +1865,10 @@ local class EventReader is Stream.Reader
         return "event: message\ndata: " .. final .. "\n\n", ""
       end
       if self.finished then return nil, "" end
-      -- TODO: wait on the notifier and on the connection's hang-up together,
-      -- rather than waking each GONE_NS to ask `gone`, once cosmic.poll can
-      -- wait on a notifier and a descriptor at once (and HttpServer.Request
-      -- hands out what to wait on).
+      -- A client that leaves closes the stream (`watcher`), which wakes this wait.
       local quiet_ns = Clock.monotonic_ns() + KEEPALIVE_NS
       while true do
-        local wait_ns = math.min(GONE_NS, quiet_ns - Clock.monotonic_ns())
+        local wait_ns = quiet_ns - Clock.monotonic_ns()
         local ends_ns = self.ends_ns
         if ends_ns ~= nil then
           local left = ends_ns - Clock.now_ns()
@@ -1889,10 +1882,6 @@ local class EventReader is Stream.Reader
         local ok, why = self.notifier:wait(math.max(wait_ns, 0))
         if ok then break end
         if why.kind ~= "timeout" then return nil, why.message end
-        if self.gone() then
-          local _, _ = self:close()
-          return nil, ""
-        end
         if Clock.monotonic_ns() >= quiet_ns then return ": working\n\n", "" end
       end
     end
@@ -1905,6 +1894,14 @@ local class EventReader is Stream.Reader
       self.flight.done = true
       local task = self.task
       if task ~= nil then task:cancel() end
+      -- A read waiting for a notice sees the end.
+      self.notifier:notify_all()
+    end
+    -- Ended by its answer, the stream still has its watcher to stop.
+    local watcher = self.watcher
+    if watcher ~= nil then
+      self.watcher = nil
+      watcher:cancel()
     end
     self.queue, self.head, self.tail, self.latest, self.answer = {}, 1, 1, nil, nil
     return true, ""
@@ -1919,7 +1916,7 @@ local function streamed(self: State, message: wire.Message, req: HttpServer.Requ
   local expires = if grant ~= nil then grant.expires else nil end
   local body: EventReader = { notifier = notifier, flight = flight, queue = {}, head = 1, tail = 1, finished = false,
     latest = nil, answer = nil, task = nil, skip = nil,
-    gone = req.gone,
+    watcher = nil,
     ends_ns = if expires ~= nil then expires * 1000000000 else nil end }
   flight.emit = function(text: string, lossy: boolean)
     if body.finished then return end
@@ -1933,6 +1930,9 @@ local function streamed(self: State, message: wire.Message, req: HttpServer.Requ
     end
     notifier:notify_all()
   end
+  body.watcher = Poll.spawn(function()
+    if req.wait_gone() then local _, _ = body:close() end
+  end)
   body.task = Poll.spawn(function()
     local said = answer_message(self, message, req, flight)
     if flight.cancelled then return end

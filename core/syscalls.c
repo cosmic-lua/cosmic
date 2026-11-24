@@ -11,6 +11,11 @@
 #include <limits.h>
 #include <math.h>
 #include <poll.h>
+/* Only Linux says a peer's end of what it sends apart from a hang-up;
+ * elsewhere the constant is 0, an event no poll answers. */
+#if !defined(POLLRDHUP)
+#define POLLRDHUP 0
+#endif
 #include <pwd.h>
 #include <stdarg.h>
 #include <stdbool.h>

@@ -85,7 +85,8 @@ local function test_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string
         max_files = max_files, max_parts = max_parts, max_bytes = 600 }
       local chunked = f[6] == "1"
       outcome = nil
-      local raw: Server.Request = { gone = function(): boolean return false end, method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
+      local raw: Server.Request = { gone = function(): boolean return false end,
+        wait_gone = function(_?: integer): boolean return false end, method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
         headers = { host = "x", ["content-type"] = "multipart/form-data; boundary=" .. B },
         body = Stream.from_string(text), length = if not chunked then #text else nil end }
       local ok, reply = pcall(app.handle, raw)

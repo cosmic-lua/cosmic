@@ -492,7 +492,8 @@ local function test_a_chunked_body_over_the_limit_is_413_without_reading_it_all(
     status = bad and bad.status or 0
     return Web.text("ok")
   end) } }
-  local raw: Server.Request = { gone = function(): boolean return false end, method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
+  local raw: Server.Request = { gone = function(): boolean return false end,
+    wait_gone = function(_?: integer): boolean return false end, method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
     headers = { host = "x", ["content-type"] = "application/x-www-form-urlencoded" }, body = reader }
   assert(app.handle(raw).status == 200)
   assert(status == 413)
@@ -520,7 +521,8 @@ local function failing_body(why: string): integer, integer
     second = bad and bad.status or 0
     return Web.text("ok")
   end) } }
-  local raw: Server.Request = { gone = function(): boolean return false end, method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
+  local raw: Server.Request = { gone = function(): boolean return false end,
+    wait_gone = function(_?: integer): boolean return false end, method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
     headers = { host = "x", ["content-type"] = "application/x-www-form-urlencoded" }, body = reader }
   assert(app.handle(raw).status == 200)
   return first, second
@@ -558,7 +560,8 @@ local function test_a_body_read_over_the_limit_stays_failed_for_a_later_reader()
     bytes_status = if data == nil then "failed" else "truncated" end
     return Web.text("ok")
   end) } }
-  local raw: Server.Request = { gone = function(): boolean return false end, method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
+  local raw: Server.Request = { gone = function(): boolean return false end,
+    wait_gone = function(_?: integer): boolean return false end, method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
     headers = { host = "x", ["content-type"] = "application/x-www-form-urlencoded" }, body = reader }
   assert(app.handle(raw).status == 200)
   assert(statuses[1] == 413 and statuses[2] == 413, "a larger limit later is still 413")
