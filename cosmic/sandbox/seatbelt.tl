@@ -136,7 +136,12 @@ end
 --- `fattr` adds the attribute writes a `w` or `c` then allows, and `map_only`
 --- makes an `x` a library's mapping alone, never a program's run.
 local function allow(text: mut {string}, fattr: boolean, letters: string, at: string, map_only?: boolean)
-  if letters:find("r", 1, true) then text[#text + 1] = "(allow file-read* " .. at .. ")" end
+  -- A file read may be mapped executable, as Landlock, which holds no
+  -- mapping, lets it be on Linux: so a library is loaded from a grant of
+  -- `r`, and only `x` runs a program.
+  if letters:find("r", 1, true) then
+    text[#text + 1] = "(allow file-read* file-map-executable " .. at .. ")"
+  end
   if letters:find("w", 1, true) then
     text[#text + 1] = "(allow file-write-data " .. at .. ")"
   end
@@ -208,8 +213,8 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     return ""
   end
   for _, name in ipairs(policy.profiles or {}) do
-    if name == "system" then
-      for _, entry in ipairs(rules.system_paths("darwin")) do
+    if name == "system" or name == "programs" then
+      for _, entry in ipairs(assert(rules.profile_paths(name, "darwin"))) do
         local at = assert(entry[1], "a system path entry names its path")
         local letters = assert(entry[2], "a system path entry names its letters")
         if paths[at] ~= nil then
@@ -381,8 +386,8 @@ end
 function Seatbelt.grants(policy: rules.Policy): {rules.Grant}
   local out: mut {rules.Grant} = {}
   for _, name in ipairs(policy.profiles or {}) do
-    if name == "system" then
-      for _, entry in ipairs(rules.system_paths("darwin")) do
+    if name == "system" or name == "programs" then
+      for _, entry in ipairs(assert(rules.profile_paths(name, "darwin"))) do
         local path = assert(entry[1], "a system path entry names its path")
         local letters = assert(entry[2], "a system path entry names its letters")
         out[#out + 1] = { path = path, letters = letters }
@@ -414,9 +419,9 @@ function Seatbelt.resolve(policy: rules.Policy, base?: string, executable?: stri
     return ""
   end
   for _, name in ipairs(policy.profiles or {}) do
-    if name == "system" then
+    if name == "system" or name == "programs" then
       -- A path this host lacks is one its system has none of.
-      for _, entry in ipairs(rules.system_paths("darwin")) do
+      for _, entry in ipairs(assert(rules.profile_paths(name, "darwin"))) do
         local named = assert(entry[1], "a system path entry names its path")
         local _ = look(named, named)
       end

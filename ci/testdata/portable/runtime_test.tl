@@ -25,7 +25,7 @@ local function test_runtime_identity_change_runs_again()
   assert(#basis == 64 and basis:match("^[0-9a-f]+$") ~= nil)
   assert(#runtime == 64 and runtime:match("^[0-9a-f]+$") ~= nil)
   assert(runtime ~= basis)
-  assert(Proc.executable() == artifact)
+  assert(assert(Proc.executable()) == artifact)
   assert(sys.executable() == artifact)
   local counted, _ = Fs.read(counter)
   local before = counted or ""

@@ -1584,7 +1584,7 @@ static void resolution_release (void *resource) {
   struct resolution *resolution = resource;
   if (resolution->channel != NULL) ares_destroy(resolution->channel);
   if (resolution->found != NULL) ares_freeaddrinfo(resolution->found);
-  free(resolution);
+  cosmic_free(resolution);
 }
 
 static void resolved (void *arg, int status, int timeouts, struct ares_addrinfo *found) {
@@ -1906,7 +1906,7 @@ COSMIC_SYSCALL(lookup, 4) {
   if (resolve_refused(name, size) || (hosts_given && hosts == NULL)) return cosmic_fail (L, EINVAL);
   struct lookup *lookup = lookup_push(L);
   int owner = lua_gettop(L);
-  struct resolution *resolution = calloc(1, sizeof *resolution);
+  struct resolution *resolution = cosmic_calloc(1, sizeof *resolution);
   if (resolution == NULL) return cosmic_fail (L, ENOMEM);
   lookup->resolution = resolution;
   if (numeric_literal(name, size, &resolution->literal_family, resolution->literal)) {
@@ -1932,14 +1932,14 @@ static void listing_release (void *resource) {
   struct listing *listing = resource;
   if (listing->listed != NULL) ares_free_string(listing->listed);
   if (listing->channel != NULL) ares_destroy(listing->channel);
-  free(listing);
+  cosmic_free(listing);
 }
 
 COSMIC_SYSCALL(nameservers, 1) {
   const char *path = lua_isnoneornil(L, 1) ? NULL : cosmic_path(L, 1);
   if (!lua_isnoneornil(L, 1) && path == NULL) return cosmic_fail (L, EINVAL);
   struct cosmic_guard *guard = cosmic_guard_push(L, listing_release);
-  struct listing *listing = calloc(1, sizeof *listing);
+  struct listing *listing = cosmic_calloc(1, sizeof *listing);
   if (listing == NULL) return cosmic_fail (L, ENOMEM);
   guard->resource = listing;
   struct ares_options options;

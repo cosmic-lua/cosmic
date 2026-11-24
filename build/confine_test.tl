@@ -77,7 +77,8 @@ end)
 --- test where there is no portable artifact to start again or no sandbox
 --- to be had.
 local function sandboxed_worker(tmp: string): {string}
-  if Proc.relaunch() == nil then
+  local relaunched, _ = Proc.relaunch()
+  if relaunched == nil then
     Test.skip("this program is no portable artifact to start again")
     return {}
   end

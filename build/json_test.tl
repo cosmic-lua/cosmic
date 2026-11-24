@@ -185,7 +185,7 @@ local function test_a_path_without_a_dollar_is_refused(tmp: string)
   for _, path in ipairs({ ".n", "n", "users[0]", "[0]", "..id" }) do
     local ran = run({ path, file(tmp) })
     assert(ran.code == 2 and ran.out == "", path .. ": " .. ran.out)
-    assert(ran.err:find("cosmic: json: JSONPath byte 1: a query starts with `$`; cosmic json ", 1, true), ran.err)
+    assert(ran.err:find("cosmic: json: JSONPath byte 1: a query starts with `$`; usage: cosmic json ", 1, true), ran.err)
   end
 end
 

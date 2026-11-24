@@ -672,9 +672,9 @@ function Report.report(o: Report.Options): string
   local runs = Report.runs(api(o, "repos/" .. o.repo .. "/actions/workflows/" ..
       o.workflow .. "/runs?" .. query))
   local shown: mut {Report.Run} = {}
-  for i = 1, math.min(o.runs, #runs) do
-    local run = runs[i]
-    if run ~= nil then shown[#shown + 1] = run end
+  for i, run in ipairs(runs) do
+    if i > o.runs then break end
+    shown[#shown + 1] = run
   end
   local scratch = assert(Fs.mkdtemp("cosmic-ci-report-"))
   local called, trouble = pcall(function(): boolean

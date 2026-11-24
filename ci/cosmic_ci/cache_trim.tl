@@ -202,7 +202,7 @@ end
 --- Runs the driver's trim of `request`'s files and reads its report.
 local function invoke(request: CacheTrim.Request): Invoked
   local start, why = Proc.relaunch()
-  if start == nil then return { trouble = why } end
+  if start == nil then return { trouble = tostring(why) } end
   local argv: mut {string} = {}
   for _, word in ipairs(start.argv) do argv[#argv + 1] = word end
   for _, word in ipairs({ "cache", "trim", request.family }) do argv[#argv + 1] = word end

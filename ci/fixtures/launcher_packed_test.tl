@@ -148,7 +148,7 @@ local function test_a_damaged_stub_is_refused_before_it_runs(tmp: string)
   refused(ctx, "stub-first", "extracted decoder digest differs", first)
   local truncated = ctx.work .. "/stub-truncated"
   Fixture.write(truncated, bytes:sub(1, arm.stub_offset + arm.stub_length - 1), 0x1ed)
-  refused(ctx, "stub-truncated", "extracted decoder is truncated", truncated)
+  refused(ctx, "stub-truncated", "extracted decoder digest differs", truncated)
 end
 
 local function test_a_damaged_compressed_core_is_refused_before_it_is_published(tmp: string)
@@ -173,7 +173,7 @@ local function test_a_stub_that_fails_or_writes_the_wrong_bytes_stops_the_launch
   local answer = refused(fails, "stub-fails", "decoder stub failed with status 7")
   Fixture.contains(answer.err, "stand-in decoder: refusing")
   local short = packed(tmp .. "/short-dir", "stub-short")
-  refused(short, "stub-short", "extracted core is truncated")
+  refused(short, "stub-short", "extracted core digest differs")
   local zero = packed(tmp .. "/zero-dir", "stub-zero")
   refused(zero, "stub-zero", "extracted core digest differs")
 end

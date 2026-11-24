@@ -245,7 +245,7 @@ local function standalone(root: string, script: string,
   else
     local self, self_trouble = Proc.executable()
     if self == nil then
-      return nil, self_trouble
+      return nil, tostring(self_trouble)
     end
     argv[#argv + 1] = self
   end
@@ -296,10 +296,21 @@ function Zig.ensure_installed(root: string, cache: string, install: string, pin:
   return zig, ""
 end
 
---- Where `name` runs from, or its typed lookup failure. Names holding a
---- slash pass through unchanged; a bare name searches `path` once.
-function Zig.resolve(name: string, path: string): Proc.FindResult
-  return Proc.find_result(name, path)
+--- Where `name` runs from, or nil and the status a shell exits with:
+--- 126 where a regular file in `path` has the name and cannot run, else
+--- 127. Names holding a slash pass through unchanged; a bare name searches
+--- `path`.
+-- The status is read from the files, not from [`Proc.find`]'s failure:
+-- the bootstrap compiles this module against the seed's cosmic.proc,
+-- whose failure is words.
+function Zig.resolve(name: string, path: string): (string) | (nil, integer)
+  local found, _ = Proc.find(name, path)
+  if found ~= nil then return found end
+  for dir in (path .. ":"):gmatch("([^:]*):") do
+    local st, _ = sys.stat((if dir == "" then "." else dir end) .. "/" .. name)
+    if st ~= nil and st.kind == "file" then return nil, 126 end
+  end
+  return nil, 127
 end
 
 --- How many of a pin's sha256 hex digits name its install. The name
@@ -1159,14 +1170,12 @@ function Zig.enter(argv: {string}, script: string): integer
     end
     if lib ~= nil then environment["ZIG_LIB_DIR"] = lib end
   end
-  local resolved = Zig.resolve(zig, Env.get("PATH") or "/usr/bin:/bin")
-  if resolved.kind ~= "resolved" then
-    local status = if resolved.kind == "not_executable" then 126 else 127 end
+  local program, status = Zig.resolve(zig, Env.get("PATH") or "/usr/bin:/bin")
+  if program == nil then
     log:complain(zig .. ": " .. (if status == 127 then "not found" else "permission denied" end))
     return status
   end
 
-  local program = assert(resolved.path)
   local given: mut {string} = {}
   for _, word in ipairs(argv) do
     given[#given + 1] = word

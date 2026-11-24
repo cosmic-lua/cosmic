@@ -225,9 +225,9 @@ local function test_client_refuses_options_out_of_range()
     local _, _ = Tls.client({ alpn = { "a", "b", "c", "d", "e", "f", "g", "h", "i" } })
   end, "at most 8 protocols")
   local none, why = Tls.client({ roots = "none", ca = "not a certificate" })
-  assert(none == nil and why:find("^tls: opts.ca: ") ~= nil, why)
+  assert(none == nil and tostring(why):find("^tls: opts.ca: ") ~= nil, why)
   local mismatched, wrong = Tls.client({ verify = false, identity = { cert = A.cert, key = B.key } })
-  assert(mismatched == nil and wrong:find("the identity's key, which is not the certificate's", 1, true) ~= nil, wrong)
+  assert(mismatched == nil and tostring(wrong):find("the identity's key, which is not the certificate's", 1, true) ~= nil, wrong)
   assert(Tls.client({ verify = false, identity = A }))
 end
 

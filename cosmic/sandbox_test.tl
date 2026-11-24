@@ -585,3 +585,98 @@ local function test_restrict_refuses_a_database_before_it_holds_anything(tmp: st
   assert(not ok and why:find("^sandbox: restrict: ") ~= nil, why)
   assert(why:find("database", 1, true) and why:find("Child.start", 1, true), why)
 end
+
+local function test_intersect_keeps_the_deeper_path_with_the_letters_of_both()
+  local a: Sandbox.Policy = { grants = { { path = "/srv", letters = "rwx" } } }
+  local b: Sandbox.Policy = { grants = { { path = "/srv/data", letters = "rc" }, { path = "/etc", letters = "r" } } }
+  local both = assert(Sandbox.intersect(a, b))
+  local grants = assert(both.grants)
+  assert(#grants == 1, tostring(#grants))
+  assert(assert(grants[1]).path == "/srv/data" and assert(grants[1]).letters == "r")
+end
+
+local function test_intersect_meets_connect_targets_and_lists()
+  local a: Sandbox.Policy = { connect = { "*:443", "db.internal:5432" }, promises = { "fork", "jit" }, env = { "HOME", "PATH" } }
+  local b: Sandbox.Policy = { connect = { "api.github.com:*" }, promises = { "fork" }, env = { "PATH" } }
+  local both = assert(Sandbox.intersect(a, b))
+  assert(table.concat(assert(both.connect), ",") == "api.github.com:443", table.concat(assert(both.connect), ","))
+  assert(table.concat(assert(both.promises), ",") == "fork")
+  assert(table.concat(assert(both.env), ",") == "PATH")
+end
+
+local function test_intersect_takes_the_lower_limit_the_wider_isolation_and_tmp_of_both()
+  local a: Sandbox.Policy = { limits = { cpu_seconds = 5 }, isolate = { "proc" }, tmp = true }
+  local b: Sandbox.Policy = { limits = { cpu_seconds = 2, open_files = 64 }, isolate = { "file" } }
+  local both = assert(Sandbox.intersect(a, b))
+  local limits = assert(both.limits)
+  assert(limits.cpu_seconds == 2 and limits.open_files == 64)
+  assert(table.concat(assert(both.isolate), ",") == "file,proc")
+  assert(both.tmp == false)
+end
+
+local function test_intersect_joins_what_the_start_sets_up_and_refuses_two_users()
+  local both = assert(Sandbox.intersect({ set_env = { A = "1" } }, { set_env = { B = "2" } }))
+  local set = assert(both.set_env)
+  assert(set["A"] == "1" and set["B"] == "2")
+  local none, why = Sandbox.intersect({ user = 1000 }, { user = 1001 })
+  assert(none == nil and why:find("user", 1, true) ~= nil, why)
+  local empty, empty_why = Sandbox.intersect()
+  assert(empty == nil and empty_why:find("^sandbox: ") ~= nil, empty_why)
+end
+
+local function test_intersect_with_itself_is_the_merged_policy()
+  local p: Sandbox.Policy = { grants = { { path = "/a", letters = "rw" }, { path = "/a/b", letters = "x" } }, connect = { "h:1" } }
+  local merged = assert(Sandbox.merge(p))
+  local both = assert(Sandbox.intersect(p, p))
+  for _, path in ipairs({ "/a", "/a/b", "/a/b/c", "/z" }) do
+    for _, letters in ipairs({ "r", "w", "x", "rwx" }) do
+      local want = Sandbox.allows(merged, path, letters)
+      assert(Sandbox.allows(both, path, letters) == want, path .. " " .. letters)
+    end
+  end
+end
+
+local function test_allows_reads_a_grant_as_landlock_does()
+  local p: Sandbox.Policy = { grants = { { path = "/srv", letters = "rw" }, { path = "rel/dir", letters = "r" } } }
+  assert(Sandbox.allows(p, "/srv", "rw"))
+  assert(Sandbox.allows(p, "/srv/a//b/", "r"))
+  assert(not Sandbox.allows(p, "/srvx", "r"))
+  assert(not Sandbox.allows(p, "/srv/a", "x"))
+  assert(Sandbox.allows(p, "rel/dir/f", "r") and not Sandbox.allows(p, "/rel/dir/f", "r"))
+  local ok, why = Sandbox.allows(p, "/etc/passwd", "r")
+  assert(not ok and why == "sandbox: no grant gives r on /etc/passwd", why)
+end
+
+local function test_held_is_nil_in_a_process_never_restricted()
+  assert(Sandbox.held() == nil)
+end
+
+local function test_intersect_meets_targets_as_the_relay_reads_them()
+  local function met(a: string, b: string): string
+    local both = assert(Sandbox.intersect({ connect = { a } }, { connect = { b } }))
+    return table.concat(assert(both.connect), ",")
+  end
+  -- "*" grants names alone: never an address or a tailnet node.
+  assert(met("*:443", "10.0.0.5:443") == "")
+  assert(met("*:*", "[::1]:443") == "")
+  assert(met("*:*", "tag:db:5432") == "")
+  assert(met("*:*", "api.github.com:443") == "api.github.com:443")
+  -- Hosts are met canonical.
+  assert(met("API.github.com.:443", "api.github.com:*") == "api.github.com:443")
+  assert(met("[0::1]:443", "[::1]:*") == "[::1]:443")
+  assert(met("tag:db:*", "tag:db:5432") == "tag:db:5432")
+  assert(met("user:Will@Example.com:*", "user:will@example.com:22") == "user:will@example.com:22")
+  assert(met("a.example:1", "a.example:2") == "")
+end
+
+local function test_intersect_holds_a_layer_with_no_open_files_to_the_default()
+  local both = assert(Sandbox.intersect({ limits = { open_files = 4096 } }, {}))
+  assert(assert(both.limits).open_files == 1024, tostring(assert(both.limits).open_files))
+end
+
+local function test_allows_refuses_letters_outside_rwxcu_or_none()
+  local p: Sandbox.Policy = { grants = { { path = "/srv", letters = "rw" } } }
+  assert(not Sandbox.allows(p, "/srv", ""))
+  local ok, why = Sandbox.allows(p, "/srv", "rz")
+  assert(not ok and why:find("rwxcu", 1, true) ~= nil, why)
+end

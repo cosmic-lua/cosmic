@@ -4,10 +4,10 @@
 --- tool's `inputSchema`, and its result a record made of its `outputSchema` where it lists one, or a [`Host.Result`]:
 ---
 ---     local notes = require("mcp.notes")
----     local found = assert(notes.search({ query = "teal" }))
----     print(found.text)
+---     print(notes.search({ query = "teal" }).text)
 ---
---- A wrong argument is refused before the snippet runs, as any type error is. [`Host.declaration`] shows a server's
+--- A wrong argument is refused before the snippet runs, as any type error is; a call that fails raises, as
+--- [`Host.tool`] does. [`Host.declaration`] shows a server's
 --- module. The worker makes it at the first snippet that requires it, from the tools the server lists then.
 ---
 --- A schema of a shape a record cannot hold is read as [`Json.Value`]: a member whose name is no Teal name, `anyOf`,
@@ -37,6 +37,10 @@ local record McpModule
     structured: boolean
     --- The tool's `inputSchema`, which [`McpModule.shaped`] reads its arguments by.
     input: {string: Json.Value}
+    --- The tool's description, as the server gave it: "" for none.
+    description: string
+    --- The Teal of the module with this function alone: its records and its line, named as in the whole module.
+    teal: string
   end
 end
 
@@ -194,6 +198,15 @@ local function function_name(name: string): string
   return out
 end
 
+--- The Teal of the module `local_name` of the MCP server `server`, holding `body`: its records and its functions.
+local function module_of(server: string, local_name: string, body: string): string
+  return "local Host = require(\"cosmic.agent.host\")\n" ..
+    "local Json = require(\"cosmic.json\")\n\n" ..
+    "--- The tools of the MCP server " .. Json.quote(server) .. ".\n" ..
+    "local record " .. local_name .. "\n" .. body .. "end\n\n" ..
+    "return " .. local_name .. "\n"
+end
+
 --- The module of `server`'s `tools`, as [`Host.tools`] returns them.
 function McpModule.made(server: string, tools: {{string: Json.Value}}): McpModule.Made
   local local_name = if teal_name(server) then server else "server" end
@@ -213,6 +226,7 @@ function McpModule.made(server: string, tools: {{string: Json.Value}}): McpModul
       end
       used[fn] = true
       local stem = pascal(fn)
+      local first = #records.lines + 1
       local input = Json.object_of(tool["inputSchema"]) or {}
       records.output = false
       local typed = Walk.type_of(records, input, stem .. "Input", 1)
@@ -227,17 +241,16 @@ function McpModule.made(server: string, tools: {{string: Json.Value}}): McpModul
       local answer = if structured then assert(output_type) else "Host.Result" end
       local about = doc_of(tool, "  ")
       if fn ~= name then about = about .. "  --- The tool " .. Json.quote(name) .. ".\n" end
-      functions[#functions + 1] = about .. "  " .. fn .. ": function(arguments" .. (if optional then "?" else "" end) ..
-        ": " .. input_type .. "): (" .. answer .. ") | (nil, Failure)\n"
-      made[#made + 1] = { name = fn, tool = name, structured = structured, input = input }
+      local line = about .. "  " .. fn .. ": function(arguments" .. (if optional then "?" else "" end) ..
+        ": " .. input_type .. "): " .. answer .. "\n"
+      functions[#functions + 1] = line
+      local own = table.concat(records.lines, "", first, #records.lines) .. line
+      local described = tool["description"]
+      made[#made + 1] = { name = fn, tool = name, structured = structured, input = input,
+        description = if described is string then described else "" end, teal = module_of(server, local_name, own) }
     end
   end
-  local teal = "local Failure = require(\"cosmic.failure\")\n" ..
-    "local Host = require(\"cosmic.agent.host\")\n" ..
-    "local Json = require(\"cosmic.json\")\n\n" ..
-    "--- The tools of the MCP server " .. Json.quote(server) .. ".\n" ..
-    "local record " .. local_name .. "\n" .. table.concat(records.lines) .. table.concat(functions) .. "end\n\n" ..
-    "return " .. local_name .. "\n"
+  local teal = module_of(server, local_name, table.concat(records.lines) .. table.concat(functions))
   return { module = "mcp." .. server, teal = teal, functions = made }
 end
 

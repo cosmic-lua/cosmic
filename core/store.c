@@ -15,6 +15,7 @@
 
 #include "assertions.h"
 #include "bigint.h"
+#include "text.h"
 #include "check.h"
 #include "cipher.h"
 #include "fail.h"
@@ -134,6 +135,7 @@ static const struct raw_value {
   {"cosmic.internal.sign", cosmic_open_sign, 1},
   {"cosmic.internal.tls", cosmic_open_tls, 1},
   {"cosmic.internal.bigint", cosmic_open_bigint, 1},
+  {"cosmic.internal.text", cosmic_open_text, 1},
   {"cosmic.internal.budget", cosmic_open_budget, 0},
   {"cosmic.internal.assertions", cosmic_open_assertions, 0},
 };

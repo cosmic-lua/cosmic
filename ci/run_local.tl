@@ -48,7 +48,12 @@ local current: Local.Calls = {
     if text == nil then return nil, tostring(why) end
     return text, ""
   end,
-  proc_user = Proc.user,
+  -- Words on both checkers: the pinned release answers a string, this checkout a Failure.
+  proc_user = function(name: string): Proc.User?, string
+    local account, why = Proc.user(name)
+    if account == nil then return nil, tostring(why) end
+    return account, ""
+  end,
   signal_guard = function(): Signal.Guard?, string
     local guard, why = Signal.guard()
     if guard == nil then return nil, tostring(why) end
@@ -250,7 +255,8 @@ local function execute(argv: {string}, program: string): integer
     user = dropped_user(env)
     local account, why = current.proc_user(user)
     local reason = why
-    if reason == "" then reason = "no user " .. user .. "; set COSMIC_CI_LOCAL_USER" end
+    if reason == "" then reason = "no user " .. user end
+    reason = reason .. "; set COSMIC_CI_LOCAL_USER"
     assert(account ~= nil, reason)
     assert(account.uid ~= 0 and account.gid ~= 0, "COSMIC_CI_LOCAL_USER must have nonzero user and group IDs")
     credentials = { user = account.uid, group = account.gid }

@@ -246,7 +246,7 @@ end
 --- runs a program by its path alone.
 local function found(argv: {string}): {string}?, string
   local path, trouble = Proc.find(assert(argv[1]))
-  if path == nil then return nil, trouble end
+  if path == nil then return nil, tostring(trouble) end
   local whole: mut {string} = { path }
   for i, word in ipairs(argv) do
     if i > 1 then whole[#whole + 1] = word end
@@ -258,7 +258,9 @@ end
 local function live(guard: Signal.Guard): Review.Host
   return {
     get = function(url: string, headers: {string:string}): Http.Body?, string
-      return Http.get(url, { headers = headers, timeout_ns = Clock.seconds(30) })
+      local got, why = Http.get(url, { headers = headers, timeout_ns = Clock.seconds(30) })
+      if got == nil then return nil, tostring(why) end
+      return got, ""
     end,
     run = function(argv: {string}): Child.Result?, string
       local whole, trouble = found(argv)

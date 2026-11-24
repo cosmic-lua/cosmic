@@ -1125,7 +1125,7 @@ local function test_records_load_as_a_table_sql_can_filter(dir: string)
   for row in q:each() do
     seen[#seen + 1] = row:text(1)
   end
-  q:close()
+  local _, _ = q:close()
   assert(table.concat(seen, ",") == "Fs.read,Fs.write", table.concat(seen, ","))
 end
 

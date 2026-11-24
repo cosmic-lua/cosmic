@@ -5,6 +5,7 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Failure = require("cosmic.failure")
 local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
@@ -20,8 +21,9 @@ Test.policy{
 --- Swaps [`Proc.relaunch`] for one returning `relaunch` while `fn` runs.
 local function relaunching(relaunch: Proc.Relaunch?, fn: function())
   local real = Proc.relaunch
-  Proc.relaunch = function(): Proc.Relaunch?, string -- checked: field_fixed
-    return relaunch, if relaunch == nil then "no artifact" else "" end
+  Proc.relaunch = function(): (Proc.Relaunch) | (nil, Failure) -- checked: field_fixed
+    if relaunch == nil then return nil, Failure.new("no artifact") end
+    return relaunch
   end
   local ok, trouble = pcall(function(): string
     fn()
@@ -54,9 +56,9 @@ local function test_program_starts_the_relaunch_or_else_the_executable()
     assert(assert(started.options.fds)[3] == 1 and next(assert(started.options.fds), 3) == nil)
   end)
   -- And this very program's: its relaunch where it has one.
-  local relaunch = Proc.relaunch()
+  local relaunch, _ = Proc.relaunch()
   local argv = this_program.program({ "x" }).argv
-  local lead = if relaunch ~= nil then relaunch.argv else { assert(Proc.executable()) } end -- checked: arms_differ
+  local lead = if relaunch ~= nil then relaunch.argv else { assert(Proc.executable()) } end
   assert(#argv == #lead + 1 and argv[#argv] == "x", table.concat(argv, " "))
   for i, word in ipairs(lead) do assert(argv[i] == word, table.concat(argv, " ")) end
 end
@@ -131,7 +133,7 @@ if cmdline ~= nil then print(cmdline:match("^[^%z]*")) else print("") end
 ]] }, { env = {}, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
-  local relaunch = Proc.relaunch()
+  local relaunch, _ = Proc.relaunch()
   if relaunch == nil then
     Test.skip("a native start has no relaunch to compare")
     return

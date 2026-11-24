@@ -324,7 +324,7 @@ return function(): integer
     local records = hello .. certificate
     local flight = "\22\3\3" .. string.pack(">I2", #records) .. records
     local _, why = Http.open("https://cosmic.test/", { timeout_ns = 60000000000, script = { flight } })
-    print((why:gsub("\n", " ")))
+    print((tostring(why):gsub("\n", " ")))
   end
   return 0
 end

@@ -12,7 +12,7 @@
 --- shell's line is not part of what was meant. An empty text is refused:
 --- its code would show nothing.
 ---
---- `--read [file|-]` reads a code back instead: the text or SVG that
+--- `cosmic qr read [file|-]` reads a code back instead: the text or SVG that
 --- `cosmic qr` drew, from the file or standard input ([`Qr.read`]), and
 --- prints what it holds with a newline after it.
 ---
@@ -50,10 +50,14 @@ local record verb
   end
 end
 
-local spec = assert(Verb.spec)
+--- `qr`'s two commands: `draw`, typed by no word, and `read`.
+local commands = assert(Verb.subcommands, "qr names its commands")
+local spec = assert((assert(commands["draw"], "qr has a draw")).spec, "draw has options")
+local read_command = assert(commands["read"], "qr has a read")
 
-local usage = "cosmic qr [--level L|M|Q|H] [--max-version N] [--quiet N] [--invert] [--ascii] [--color] " ..
-  "[--svg <file|-> [--scale N] [--title T]] [--] [text...] | cosmic qr --read [file|-]"
+--- The usage line a refusal ends with: the spec's ([`Flags.usage`]).
+local usage <const> = Flags.usage(Verb, "cosmic qr")
+local read_usage <const> = Flags.usage(read_command, "cosmic qr read")
 
 local LEVELS <const>: {string: Qr.Level} = { L = "L", M = "M", Q = "Q", H = "H" }
 
@@ -69,7 +73,7 @@ local record Request
   mut scale: integer
   mut title?: string
   mut text?: string
-  --- `--read`: the drawing to read, "-" for standard input.
+  --- `read`: the drawing to read, "-" for standard input.
   mut reading?: string
 end
 
@@ -83,20 +87,19 @@ end
 
 --- What `argv` asks for, or nil and why it is refused.
 local function arguments(argv: {string}): Request?, string
-  local parsed, trouble = Flags.parse(argv, 2, spec)
-  if parsed == nil then return nil, trouble end
-  if parsed.set["--read"] == true then
-    for _, name in ipairs(parsed.given) do
-      if name ~= "--read" then return nil, name .. " is for drawing a code, not --read" end
-    end
+  if argv[2] == "read" then
+    local parsed, trouble = Flags.parse(argv, 3, {})
+    if parsed == nil then return nil, trouble end
     if #parsed.words > 1 then
-      return nil, ("--read takes one file at most, not %d"):format(#parsed.words)
+      return nil, ("takes one file at most, not %d"):format(#parsed.words)
     end
     local file = parsed.words[1] or "-"
     if file == "" then return nil, bare.empty_file end
     return { level = "M", max_version = 40, quiet = 4, invert = false, ascii = false, color = false, scale = 8,
       reading = file }, ""
   end
+  local parsed, trouble = Flags.parse(argv, 2, spec)
+  if parsed == nil then return nil, trouble end
   local request: Request = { level = "M", max_version = 40, quiet = 4, invert = parsed.set["--invert"] == true,
     ascii = parsed.set["--ascii"] == true, color = parsed.set["--color"] == true, scale = 8,
     svg = parsed.values["--svg"], title = parsed.values["--title"] }
@@ -106,7 +109,7 @@ local function arguments(argv: {string}): Request?, string
     if named == nil then return nil, "--level is L, M, Q or H, not " .. level end
     request.level = named
   end
-  local bounds: {{string | integer}} = { { "--max-version", 1, 40 }, { "--quiet", 0, 16 }, { "--scale", 1, 1000 } }
+  local bounds: {{string | integer}} = { { "--max-version", 1, 40 }, { "--border", 0, 16 }, { "--scale", 1, 1000 } }
   for _, bound in ipairs(bounds) do
     local name, lo, hi = bound[1], bound[2], bound[3]
     assert(name is string and lo is integer and hi is integer)
@@ -118,7 +121,7 @@ local function arguments(argv: {string}): Request?, string
       end
       if name == "--max-version" then
         request.max_version = n
-      elseif name == "--quiet" then
+      elseif name == "--border" then
         request.quiet = n
       else
         request.scale = n
@@ -160,7 +163,7 @@ local standard: verb.Io = {
   end,
 }
 
---- `cosmic qr --read`: prints the text of the code drawn in `file` ("-":
+--- `cosmic qr read`: prints the text of the code drawn in `file` ("-":
 --- standard input), and returns the exit code.
 local function read_back(to: verb.Io, complain: function(line: string), file: string): integer
   local drawing, why: string?, string
@@ -186,7 +189,7 @@ local function read_back(to: verb.Io, complain: function(line: string), file: st
 end
 
 --- `cosmic qr [options] [text...]`: prints the code of the text, or
---- writes its SVG, or with `--read` prints the text of a code drawn,
+--- writes its SVG, or with `read` prints the text of a code drawn,
 --- and returns the exit code: 0 ok, 1 a text too large or a drawing it
 --- cannot read, 2 a command line it refuses, 5 an input or a write it could not use.
 --- @param argv the command line, `qr` at slot 1
@@ -196,7 +199,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local complain = bare.complainer("qr", to.err)
   local found, trouble = arguments(argv)
   if found == nil then
-    complain(trouble .. "; " .. usage)
+    local reading = argv[2] == "read"
+    complain((if reading then "read: " else "" end) .. trouble .. "; " .. (if reading then read_usage else usage end))
     return bare.refused
   end
   local request: Request = found
@@ -212,9 +216,13 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     text = read:gsub("\r?\n$", "", 1)
   end
   if text == "" then
-    complain("the text is empty; give the text or pipe it in")
     -- An empty word is the command line's; an empty standard input is the data's.
-    return if request.text ~= nil then bare.refused else bare.undone end
+    if request.text ~= nil then
+      complain("the text is empty; give the text or pipe it in; " .. usage)
+      return bare.refused
+    end
+    complain("the text is empty; give the text or pipe it in")
+    return bare.undone
   end
   local code, why = Qr.encode(text, { level = request.level, max_version = request.max_version })
   if code == nil then
@@ -244,7 +252,7 @@ verb.spec = {
   tests = { "build.qr_test", "build.qr_tool_test" },
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
-  takes = "options and the text",
+  takes = "options and the text, or read and a file",
   exits = "`qr` prints the code, its SVG or the text it read, and nothing after; it exits 1 when the text is too large for a code or a drawing holds no code it can read, 2 when it refuses its command line, 5 when it cannot read its input or a write fails.",
   passthrough = "its output is data for a pipe, so its exit status is the verdict (build/qr_test.tl)",
 }

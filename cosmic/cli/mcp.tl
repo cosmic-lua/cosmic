@@ -21,7 +21,7 @@ local Flags = require("cosmic.flags")
 
 local command: Flags.Command = {
   about = "ask an MCP server, or run its tools",
-  usage = "<action> [words...] [-- program...]",
+  usage = "<action> [options] [words...] [-- program...]",
   spec = {
     ["--url"] = { value = "url", about = "the server's Streamable HTTP endpoint, not a program" },
     ["--token-env"] = { value = "name", about = "url: the variable that holds the bearer token" },

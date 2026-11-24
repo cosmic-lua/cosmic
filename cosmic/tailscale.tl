@@ -1226,7 +1226,7 @@ end
 local function bus(endpoint: Endpoint, default_ns: integer, mask: integer): Events?, string
   local path = "/localapi/v0/watch-ipn-bus?mask=" .. tostring(mask)
   local response, why = Http.open(endpoint.url .. path, options(endpoint, default_ns, "GET", nil, 0))
-  if response == nil then return nil, "tailscale: " .. why end
+  if response == nil then return nil, "tailscale: " .. tostring(why) end
   if response.status ~= 200 then
     local said, _ = Stream.read_up_to(response, 4096)
     local _, _ = response:close()

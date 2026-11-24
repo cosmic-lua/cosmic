@@ -48,8 +48,10 @@
 --- Each tool is a value ([`Tools.Tool`]): an agent's `tools` is the list
 --- it offers the model, and a program of its own picks or makes its own.
 --- [`Tools.all`] is every tool above; [`Tools.default`] is all but bash
---- and jobs, so the model starts no program but what a snippet's worker
---- may; [`Tools.only`] and [`Tools.without`] pick by name.
+--- and jobs, so no program runs: without bash a snippet's worker starts
+--- no process either ([`Worker.Options`] `commands`, on Linux under a
+--- sandbox); [`Tools.only`] and
+--- [`Tools.without`] pick by name.
 ---
 ---     local agent = Agent.new({ sign = sign, cwd = cwd, tools = Tools.only(Tools.all(), { "read", "sql" }) })
 ---
@@ -69,6 +71,7 @@
 --- in a session of its own (setsid) leaves the job, and kill does not
 --- reach it.
 
+local AgentEdit = require("cosmic.agent.edit")
 local AgentMcp = require("cosmic.agent.mcp")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -80,6 +83,7 @@ local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local Policy = require("cosmic.agent.policy")
 local Sandbox = require("cosmic.sandbox")
+local Sessions = require("cosmic.agent.sessions")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local Worker = require("cosmic.agent.worker")
@@ -123,9 +127,31 @@ local record Tools
     --- Whether the user stopped the turn: a tool that waits asks it, and
     --- ends its wait when it says so.
     stopped?: function(): boolean
+    --- Whether a snippet of run may run programs ([`Worker.Options`] `commands`): only where bash is offered too.
+    --- A worker keeps what it was started with: one started with programs, then given a list with no bash, runs
+    --- them still until it is closed.
+    commands?: boolean
     --- The tools the agent offers; every tool ([`Tools.all`]) where nil.
     --- A tool's hints name only tools offered.
     tools?: {Tool}
+    --- What a snippet's call of the agent is asked first (the agent's
+    --- `before`, as a call by code): nil lets it run, a string is why
+    --- not, raised in the snippet; a raise blocks it too. `name` is the
+    --- call's: sql, store.get, store.put, mcp.servers, mcp.tools or
+    --- mcp.call, a name the snippet chose only among those. `input` is
+    --- the arguments it sent, `{}` where they are no object, unchecked:
+    --- sql's `{query}`, store's `{key, value?}` (put with no value or
+    --- null lets the key go), mcp's `{server?, tool?, arguments?}`.
+    --- Calls may come at once, from a snippet's tasks, and while its
+    --- time runs.
+    guard?: function(name: string, input: Object): string?
+    --- What a snippet's call of the agent that ran is given to before
+    --- the snippet reads it (the agent's `after`): its result as JSON
+    --- text (escaped as JSON is), or its failure as an error result; the
+    --- result it returns is what the snippet reads, as JSON where it is
+    --- JSON, else as a string, and an error result raises in the
+    --- snippet. `raw` is not read. A raise fails the call.
+    amend?: function(name: string, input: Object, result: Result): Result
   end
 
   --- A path a call touches, and how: the letters of a grant
@@ -227,7 +253,10 @@ local function count(input: Tools.Object, name: string): integer?, string
   local v = input[name]
   if v == nil then return nil, "" end
   if v is integer then return v, "" end
-  if v is number and v == math.floor(v) then return math.tointeger(v), "" end
+  if v is number and v == math.floor(v) then
+    local n = math.tointeger(v)
+    if n ~= nil then return n, "" end
+  end
   return nil, name .. " must be an integer"
 end
 
@@ -284,6 +313,12 @@ local function read(input: Tools.Object, context: Tools.Context): Tools.Result
   local full = resolve(path, context.cwd)
   local allowed, refused = Policy.allows(context.policy, full, "r")
   if not allowed then return fail(refused) end
+  -- A device or a pipe may never end: only a file is read whole.
+  local status, _ = Fs.status(full)
+  local st = status and status.stat
+  if st ~= nil and st.kind ~= "file" and st.kind ~= "link" then
+    return fail(path .. " is no file (" .. st.kind .. "): read reads files")
+  end
   local body, read_why = Fs.read(full)
   if body == nil then return fail(tostring(read_why)) end
   local line = math.max(offset or 1, 1)
@@ -302,6 +337,8 @@ local function write(input: Tools.Object, context: Tools.Context): Tools.Result
   -- A write replaces the file whole, and may make directories: it creates.
   local allowed, refused = Policy.allows(context.policy, full, "wc")
   if not allowed then return fail(refused) end
+  -- What was checked is what is written: the real name, not a link to it.
+  if context.policy ~= nil then full = Policy.real(full) or full end
   local made, made_why = Fs.mkdirs(Fs.dirname(full))
   if not made then return fail(tostring(made_why)) end
   local wrote, wrote_why = Fs.write(full, content)
@@ -309,23 +346,10 @@ local function write(input: Tools.Object, context: Tools.Context): Tools.Result
   return ok(string.format("Successfully wrote %s to %s", String.counted(#content, "byte"), path))
 end
 
---- One replacement of edit's input.
-local record Edit
-  old: string
-  new: string
-  mut at: integer
-end
-
---- `text` with LF line ends.
-local function lf(text: string): string
-  local out = text:gsub("\r\n", "\n")
-  return out
-end
-
 --- The replacements `input` asks for: its `edits`, and the one of its
 --- own `oldText` and `newText` that some models send.
-local function edits_of(input: Tools.Object): {Edit}?, string
-  local out: mut {Edit} = {}
+local function edits_of(input: Tools.Object): {AgentEdit.Replacement}?, string
+  local out: mut {AgentEdit.Replacement} = {}
   local list = input["edits"]
   if list is string then
     local decoded, _ = Json.decode(list)
@@ -340,11 +364,11 @@ local function edits_of(input: Tools.Object): {Edit}?, string
     if not (old is string) or not (new is string) then
       return nil, string.format("edits[%d]", i - 1) .. " needs oldText and newText, each a string"
     end
-    out[#out + 1] = { old = lf(old), new = lf(new), at = 0 }
+    out[#out + 1] = { old = old, new = new }
   end
   local old, new = input["oldText"], input["newText"]
   if old is string and new is string then
-    out[#out + 1] = { old = lf(old), new = lf(new), at = 0 }
+    out[#out + 1] = { old = old, new = new }
   end
   if #out == 0 then return nil, "edits must hold at least one replacement" end
   return out, ""
@@ -358,46 +382,14 @@ local function edit(input: Tools.Object, context: Tools.Context): Tools.Result
   local full = resolve(path, context.cwd)
   local allowed, refused = Policy.allows(context.policy, full, "rwc")
   if not allowed then return fail(refused) end
+  if context.policy ~= nil then full = Policy.real(full) or full end
   local raw, read_why = Fs.read(full)
   if raw == nil then return fail(tostring(read_why)) end
-  -- Matched with LF line ends, as the model writes them; a CRLF file keeps its own.
-  local crlf = raw:find("\r\n", 1, true) ~= nil
-  local body = lf(raw)
-  for i, e in ipairs(edits) do
-    local name = string.format("edits[%d]", i - 1)
-    if e.old == "" then return fail(name .. ".oldText must not be empty") end
-    local at = body:find(e.old, 1, true)
-    if at == nil then
-      return fail("Could not find " .. name .. " in " .. path ..
-          ". The oldText must match exactly, including all whitespace and newlines.")
-    end
-    if body:find(e.old, at + 1, true) ~= nil then
-      return fail("Found more than one occurrence of " .. name .. " in " .. path ..
-          ". Each oldText must be unique: give more context to make it so.")
-    end
-    e.at = at
-  end
-  local sorted: mut {Edit} = {}
-  for _, e in ipairs(edits) do sorted[#sorted + 1] = e end
-  table.sort(sorted, function(a: Edit, b: Edit): boolean return a.at < b.at end)
-  local ends = 0
-  for _, e in ipairs(sorted) do
-    if e.at < ends then return fail("Two edits overlap in " .. path .. ": merge them into one.") end
-    ends = e.at + #e.old
-  end
-  local out: mut {string} = {}
-  local from = 1
-  for _, e in ipairs(sorted) do
-    out[#out + 1] = body:sub(from, e.at - 1)
-    out[#out + 1] = e.new
-    from = e.at + #e.old
-  end
-  out[#out + 1] = body:sub(from)
-  local edited = table.concat(out)
-  if crlf then edited = edited:gsub("\n", "\r\n") end
+  local edited, made = AgentEdit.apply(raw, edits, path, "oldText")
+  if edited == nil then return fail(made) end
   local wrote, wrote_why = Fs.write(full, edited)
   if not wrote then return fail(tostring(wrote_why)) end
-  return ok(string.format("Successfully replaced %d block(s) in %s.", #sorted, path))
+  return ok(string.format("Successfully replaced %d block(s) in %s.", made, path))
 end
 
 --- The last MAX_LINES lines of `text`, within MAX_BYTES, and whether
@@ -423,6 +415,15 @@ local function tail(text: string): string, boolean
   return table.concat(all, "\n", first), first > 1
 end
 
+--- The most seconds a timeout may be: a wait's most ([`Poll.MOST_NS`]), 24 days.
+local MOST_SECONDS <const> = 24 * 24 * 60 * 60
+
+--- Why `seconds`, a timeout, is past [`MOST_SECONDS`]; "" where it is not.
+local function too_long(seconds?: integer): string
+  if seconds == nil or seconds <= MOST_SECONDS then return "" end
+  return "timeout is " .. tostring(seconds) .. ": give at most " .. String.counted(MOST_SECONDS, "second")
+end
+
 --- Starts `command` as a background job.
 local function background(command: string, seconds: integer?, context: Tools.Context): Tools.Result
   local set = context.jobs
@@ -433,23 +434,31 @@ local function background(command: string, seconds: integer?, context: Tools.Con
     job.id, job.id))
 end
 
+--- Runs `command` with bash, or sh where there is none, in `context`, for at most `timeout_ns`: stdout and stderr
+--- captured together.
+local function shell(command: string, timeout_ns: integer, context: Tools.Context): Child.Result?, string
+  local found, _ = Proc.find("bash")
+  local res, why = Child.run({ found or "/bin/sh", "-c", command }, { cwd = context.cwd, stdin = "null",
+    stdout = "capture", stderr = "stdout", policy = context.policy, timeout_ns = timeout_ns })
+  -- On Linux, what the command left running outside its group ends
+  -- with it; the background jobs' groups are spared.
+  local _ = Child.end_strays(Jobs.groups(context.jobs))
+  if res == nil then return nil, tostring(why) end
+  return res, ""
+end
+
 local function bash(input: Tools.Object, context: Tools.Context): Tools.Result
   local command, why = text_of(input, "command")
   if command == nil then return fail(why) end
   local seconds, seconds_why = count(input, "timeout")
   if seconds_why ~= "" then return fail(seconds_why) end
+  if too_long(seconds) ~= "" then return fail(too_long(seconds)) end
   local bg = input["background"]
   if bg ~= nil and not (bg is boolean) then return fail("background must be true or false") end
   if bg == true then return background(command, seconds, context) end
-  local found, _ = Proc.find("bash")
-  local shell = found or "/bin/sh"
-  local res, run_why = Child.run({ shell, "-c", command }, { cwd = context.cwd, stdin = "null",
-    stdout = "capture", stderr = "stdout", policy = context.policy,
-    timeout_ns = if seconds ~= nil and seconds > 0 then Clock.seconds(seconds) else Child.FOREVER end })
-  -- On Linux, what the command left running outside its group ends
-  -- with it; the background jobs' groups are spared.
-  local _ = Child.end_strays(Jobs.groups(context.jobs))
-  if res == nil then return fail(tostring(run_why)) end
+  local res, run_why = shell(command, if seconds ~= nil and seconds > 0 then Clock.seconds(seconds) else Child.FOREVER end,
+    context)
+  if res == nil then return fail(run_why) end
   local said = res.stdout or ""
   local text, cut = tail(said)
   if cut or res.truncated then
@@ -473,14 +482,26 @@ local RUN_BYTES <const> = 8 * 1024
 --- How long a snippet may run, in seconds, unless the model says.
 local RUN_SECONDS <const> = 120
 
---- The last RUN_BYTES of `text`, from a line's start where one is near, and whether that is less than all of it.
-local function run_tail(text: string): string, boolean
-  if #text <= RUN_BYTES then return text, false end
-  local from = #text - RUN_BYTES + 1
-  local nl = text:find("\n", from, true)
-  if nl ~= nil and nl < #text then from = nl + 1 end
-  while from <= #text and (text:byte(from) or 0) & 0xC0 == 0x80 do from = from + 1 end
-  return text:sub(from), true
+--- The most bytes of a snippet's output the model may ask run for.
+local RUN_MOST <const> = 64 * 1024
+
+--- An output within about `most` bytes: all of `text` where it fits, else the first quarter of `start` and the last three
+--- of `ending`, each cut at a line's end or start where one is near, with a line between them that says how many of the
+--- `total` bytes written were cut; and whether it was cut. `start` and `ending` are `text` but where the worker cut it.
+local function run_shown(text: string, start: string, ending: string, total: integer, most: integer): string, boolean
+  if #text <= most and start == text then return text, false end
+  local head = String.cut(start, most // 4)
+  local nl = head:match("^.*()\n")
+  if nl ~= nil and nl > #head // 2 then head = head:sub(1, nl) end
+  local from = math.max(#ending - (most - most // 4) + 1, 1)
+  local next_line = ending:find("\n", from, true)
+  if next_line ~= nil and next_line < #ending and next_line - from < most // 8 then
+    from = next_line + 1
+  end
+  while from <= #ending and (ending:byte(from) or 0) & 0xC0 == 0x80 do from = from + 1 end
+  local shown_end = ending:sub(from)
+  return head .. (if head:sub(-1) == "\n" then "" else "\n" end) .. "[... " ..
+    String.counted(math.max(total - #head - #shown_end, 1), "byte") .. " cut ...]\n" .. shown_end, true
 end
 
 --- How `job` stands: running, or how it ended.
@@ -603,7 +624,7 @@ local function rows_of(db: Sqlite.Handle, query: string, session?: integer): Too
     out[#out + 1] = line
     bytes, rows, lines_used = bytes + 1 + #line, rows + 1, lines_used + 1 + breaks
   end
-  found:close()
+  local _, _ = found:close()
   statement:close()
   local failure = found:failure()
   if failure ~= nil then return fail("sql: " .. tostring(failure)) end
@@ -673,7 +694,7 @@ local function objects_of(db: Sqlite.Handle, query: string, session: integer?, o
   local rows: mut {Json.Value} = {}
   local bytes = 2
   local function refused(trouble: string): (nil, Failure)
-    found:close()
+    local _, _ = found:close()
     statement:close()
     return nil, Failure.new(trouble)
   end
@@ -721,8 +742,47 @@ local function objects_of(db: Sqlite.Handle, query: string, session: integer?, o
   return Json.array(rows)
 end
 
---- What handles the calls a snippet of `context` makes of the agent: sql alone, as the sql tool runs it.
-local function served(context: Tools.Context): Worker.Serve
+--- The most bytes of a key a snippet keeps a value under.
+local KEY_BYTES <const> = 256
+
+--- What a snippet of `context` keeps for a later one, in sessions.db ([`Sessions.keep`]): `store.put` keeps `value`
+--- under `key` (no value lets it go), and `store.get` reads what is kept, null for nothing.
+local function stored(context: Tools.Context, name: string, given: {string: Json.Value}): (Json.Value) | (nil, Failure)
+  local db, session = context.db, context.session
+  if db == nil or session == nil then
+    return nil, Failure.new("no session is kept here, so nothing is stored")
+  end
+  local key = given["key"]
+  if not (key is string) or key == "" or #key > KEY_BYTES then
+    return nil, Failure.new("a key is a string of 1 to " .. String.counted(KEY_BYTES, "byte"))
+  end
+  if name == "store.get" then
+    local text, why = Sessions.kept(db, session, key)
+    if text == nil then
+      if why ~= "" then return nil, Failure.new(why) end
+      return Json.null
+    end
+    local value, decode_why = Json.decode(text, { null_value = Json.null })
+    if value == nil then
+      return nil, Failure.new("what is kept is no JSON: " .. tostring(decode_why))
+    end
+    return value
+  end
+  local value = given["value"]
+  local text: string? = nil
+  if value ~= nil and value ~= Json.null then
+    local encoded, encode_why = Json.encode(value)
+    if encoded == nil then return nil, Failure.new(tostring(encode_why)) end
+    text = encoded
+  end
+  local kept, why = Sessions.keep(db, session, key, text)
+  if not kept then return nil, Failure.new(why) end
+  return true
+end
+
+--- What carries out the calls a snippet of `context` makes of the agent, as they come, with no guard: sql as the
+--- sql tool runs it, store, and the MCP servers.
+local function served_unguarded(context: Tools.Context): Worker.Serve
   return function(name: string, args: Json.Value, budget: Worker.Budget): (Json.Value) | (nil, Failure)
     local fields, _ = Json.to_object(args)
     local given: {string: Json.Value} = fields or {}
@@ -736,9 +796,10 @@ local function served(context: Tools.Context): Worker.Serve
       if rows == nil then return nil, why end
       return rows
     end
+    if name == "store.put" or name == "store.get" then return stored(context, name, given) end
     if name ~= "mcp.servers" and name ~= "mcp.tools" and name ~= "mcp.call" then
       return nil, Failure.new("the agent serves no call " .. Json.quote(String.as_utf8(name)) ..
-          ": it serves sql, mcp.servers, mcp.tools and mcp.call")
+          ": it serves sql, store.put, store.get, mcp.servers, mcp.tools and mcp.call")
     end
     local set = context.mcp
     if name == "mcp.servers" then
@@ -778,14 +839,86 @@ local function served(context: Tools.Context): Worker.Serve
   end
 end
 
+--- The calls a snippet may make of the agent, each by the name its guard and amend know it by.
+local SERVED <const>: {string: boolean} = {
+  ["sql"] = true, ["store.get"] = true, ["store.put"] = true,
+  ["mcp.servers"] = true, ["mcp.tools"] = true, ["mcp.call"] = true,
+}
+
+--- What `context`'s amend makes of the host call `name` with `given`, whose result was `result`: the value the
+--- snippet reads, or nil and why. An amend that raises, or returns no text, makes the call fail.
+local function amended(context: Tools.Context, name: string, given: Tools.Object, result: Tools.Result):
+    (Json.Value) | (nil, Failure)
+  local amend = context.amend
+  if amend == nil then return nil, Failure.new("no amend") end
+  local amend_ran, made = pcall(amend, name, given, result)
+  if not amend_ran then
+    return nil, Failure.new("the agent's after hook failed: " .. tostring(made))
+  end
+  local text = made.text
+  if not (text is string) then
+    return nil, Failure.new("the agent's after hook answered no text")
+  end
+  if made.is_error then return nil, Failure.new(text) end
+  if #text > MAX_REPLY then
+    return nil, Failure.new("the after hook's answer is " .. String.counted(#text, "byte") .. ", more than the " ..
+        String.counted(MAX_REPLY, "byte") .. " a reply holds")
+  end
+  local value, _ = Json.decode(text, { null_value = Json.null })
+  if value == nil then return text end
+  return value
+end
+
+--- What carries out the calls a snippet of `context` makes of the agent (sql as the sql tool runs it, store.get,
+--- store.put, and mcp.servers, mcp.tools and mcp.call), each asked of its guard first and given to its amend
+--- after, failed or not. A call of no other name is refused before either is asked.
+local function served(context: Tools.Context): Worker.Serve
+  local answer_of = served_unguarded(context)
+  return function(name: string, args: Json.Value, budget: Worker.Budget): (Json.Value) | (nil, Failure)
+    if SERVED[name] ~= true then
+      return nil, Failure.new("the agent serves no call " .. Json.quote(String.as_utf8(name)) ..
+          ": it serves sql, store.put, store.get, mcp.servers, mcp.tools and mcp.call")
+    end
+    local fields, _ = Json.to_object(args)
+    local given: {string: Json.Value} = fields or {}
+    local guard = context.guard
+    if guard ~= nil then
+      local guard_ran, reason = pcall(guard, name, given)
+      if not guard_ran then
+        return nil, Failure.new("Blocked: the agent's before hook failed: " .. tostring(reason))
+      end
+      if reason ~= nil then return nil, Failure.new("Blocked: " .. tostring(reason)) end
+    end
+    local answer, why = answer_of(name, args, budget)
+    if context.amend == nil then
+      if answer == nil then return nil, why end
+      return answer
+    end
+    if answer == nil then
+      return amended(context, name, given, { text = tostring(why), is_error = true })
+    end
+    local text, encode_why = Json.encode(answer)
+    if text == nil then
+      return nil, Failure.new("the answer is no JSON: " .. tostring(encode_why))
+    end
+    return amended(context, name, given, { text = text, is_error = false })
+  end
+end
+
 local function run(input: Tools.Object, context: Tools.Context): Tools.Result
   local code, why = text_of(input, "code")
   if code == nil then return fail(why) end
   local seconds, seconds_why = count(input, "timeout")
   if seconds_why ~= "" then return fail(seconds_why) end
+  if too_long(seconds) ~= "" then return fail(too_long(seconds)) end
+  local most, most_why = count(input, "output_bytes")
+  if most_why ~= "" then return fail(most_why) end
+  if most ~= nil and (most < 1024 or most > RUN_MOST) then
+    return fail("output_bytes is " .. tostring(most) .. ": give 1024 to " .. tostring(RUN_MOST))
+  end
   local set = context.worker
   if set == nil then return fail("No worker runs snippets here") end
-  local answer, run_why = Worker.run(set, code, { cwd = context.cwd, policy = context.policy,
+  local answer, run_why = Worker.run(set, code, { cwd = context.cwd, policy = context.policy, commands = context.commands,
     seconds = seconds or RUN_SECONDS, stopped = context.stopped, serve = served(context) })
   if answer == nil then return fail(tostring(run_why)) end
   local refused, _ = Json.to_array(answer["refused"])
@@ -797,9 +930,18 @@ local function run(input: Tools.Object, context: Tools.Context): Tools.Result
   local trouble = answer["error"]
   local output = answer["output"]
   local said = if output is string then output else "" end
-  local text, cut = run_tail(said)
-  if cut or answer["cut"] == true then
-    text = "[Output truncated to its last part; the whole is kept in sessions.db.]\n" .. text
+  local written = answer["bytes"]
+  local head_bytes, tail_bytes = answer["head_bytes"], answer["tail_bytes"]
+  local start, ending, total = said, said, #said
+  if answer["cut"] == true and head_bytes is integer and tail_bytes is integer and written is integer then
+    start, ending, total = said:sub(1, head_bytes), said:sub(#said - tail_bytes + 1), written
+  end
+  local text, cut = run_shown(said, start, ending, total, most or RUN_BYTES)
+  if answer["cut"] == true then
+    text = "[Output cut: " .. (if written is integer then String.counted(written, "byte") .. " written; " else "" end) ..
+      "its start and end are shown, and the first 16KB and last 48KB kept in sessions.db.]\n" .. text
+  elseif cut then
+    text = "[Output cut: its start and end are shown; the whole is kept in sessions.db.]\n" .. text
   end
   local value = answer["value"]
   if value ~= nil then
@@ -884,29 +1026,63 @@ local ALL <const>: {Tools.Tool} = {
   },
   {
     name = "run",
-    snippet = "Check and run a snippet of Teal against cosmic's standard library, in a worker kept for the session",
-    guidelines = {
-      "Use run for work of several steps (reading and changing many files, parsing JSON, SQLite, running " ..
-        "programs with cosmic.child): one snippet in place of many tool calls. Print only what you need.",
-      "A snippet is type-checked before it runs, as `cosmic -e` checks a chunk; a refusal gives the fix: " ..
-        "make it and run again. A snippet reaches cosmic.* alone, and its locals end with it.",
-      "From a snippet, `require(\"cosmic.agent.host\").sql(query)` answers the sql tool's query as a list of rows, " ..
-        "each an object of its columns: read sessions.db and act on it in one snippet.",
-      "From a snippet, `require(\"mcp.<server>\")` answers the MCP server's tools as typed functions: each takes " ..
-        "a record of the tool's arguments and answers a record of its output, or a Host.Result {text, content, " ..
-        "structured}, or nil and a Failure. print(Host.declaration(server)) shows the types (cosmic.agent.host). " ..
-        "Call several tools in one snippet.",
-    },
-    description = "Check and run a snippet of Teal, the typed Lua of cosmic, in a worker process kept for the " ..
-      "session, under the agent's sandbox, as every tool runs. The snippet may require cosmic.* modules (cosmic.fs, cosmic.json, " ..
-      "cosmic.sqlite, cosmic.child, cosmic.http, ...). It is checked first, in milliseconds; one the checker refuses " ..
-      "does not run, and the answer is the checker's lines, each with its fix. Returns what it printed (its last " ..
-      tostring(RUN_BYTES // 1024) .. "KB) and the JSON of what it returned. Timeout in seconds, " ..
-      tostring(RUN_SECONDS) .. " unless given, counted from when the snippet is sent (a first run starts the worker " ..
-      "too), and 0 for none; a snippet that runs past it ends the worker, and the next run starts another.",
+    snippet = "Run a checked cosmic program in place of many tool calls",
+    guidelines = {},
+    description = "Run a program in cosmic, a typed language of its own with a library of its own (its syntax is much like " ..
+      "Lua's), in a worker kept for the session, under the session's sandbox: one program in place of many tool calls, " ..
+      "printing only what you need; its locals end with it. It is " ..
+      "type-checked first: a refusal runs nothing, costs a turn, and gives the fix. Returns what it printed (its " ..
+      "start and end past " .. tostring(RUN_BYTES // 1024) .. "KB) and the JSON of what it returned.\n\n" ..
+      "Host (cosmic.agent.host), Fs (cosmic.fs) and Json (cosmic.json) need no require. Host's calls do as the " ..
+      "commands they are named for, and raise where they fail, so they need no assert:\n" ..
+      "- Host.find(dir, suffix?) -> {string}: every file under dir, sorted (`Host.find(\"src\", \".tl\")`).\n" ..
+      "- Host.cat(path) -> string; Host.lines(path) -> {string}; Host.wc(path) -> integer, its newlines as `wc -l`; " ..
+      "Host.write(path, text or {lines}); Host.exists(path) -> boolean.\n" ..
+      "- Host.grep(pattern, paths, plain?) -> {{path, line, text}}: the lines that hold a pattern " ..
+      "(`%d`, `%.`, `[^/]+`; no regex).\n" ..
+      "- Host.sed(path, pattern, replacement, plain?) -> integer: replaces every match, line by line (`%1` a " ..
+      "capture).\n" ..
+      "- Host.sort(list, by?) -> {string}, by the key `by(item)` gives where given; Host.uniq(keys) -> {string: integer}, each key's count; Host.top(counts, " ..
+      "n?) -> {{key, count}}, most first, ties by key.\n" ..
+      "- Host.bash(command) -> {output, ok, code}; Host.edit(path, {{old = ..., new = ...}}) -> integer; " ..
+      "Host.sql(query) -> rows; Host.store(key, value) / Host.load(key).value.\n" ..
+      "- Host.fetch(url, {method?, headers?, body?}?) -> {status, headers, body}: no redirect followed, public " ..
+      "addresses only, in a session with --network.\n" ..
+      "- Host.sqlite(path, statement, {values}?) -> {row}: one SQL statement on a SQLite file, made where missing " ..
+      "(`?1` binds the first value; with no values, a script of several); a row's column is `row[\"name\"]`. " ..
+      "Host.sha256(path) -> hex.\n" ..
+      "- print(Host.modules()) lists the cosmic.* modules a snippet may require (not io or os); " ..
+      "print(Host.docs(\"cosmic.fs\")) shows one. Their calls that may fail answer a value, or nil and why: take it " ..
+      "with assert (`local text = assert(Fs.read(path))`), as a statement too (`assert(Fs.write(path, text))`).\n\n" ..
+      "The checker refuses, so write:\n" ..
+      "- A table you fill is declared: `local out: mut {string} = {}`, `local n: mut {string: integer} = {}`; " ..
+      "append with `out[#out + 1] = v`.\n" ..
+      "- A local that starts nil is optional: `local cursor: string? = nil`; test it with `if cursor ~= nil " ..
+      "then`. A local of a plain type is never compared with nil.\n" ..
+      "- A local function declares its parameters and results: `local function f(x: integer): string`.\n" ..
+      "- A read that may be nil (`t[i]`, `m[k]`, `s:match(...)`, `tonumber(s)`) is tested, given a default " ..
+      "(`m[k] or 0`) or taken with assert(...). Walk a list with ipairs, a map with pairs.\n" ..
+      "- A condition is a boolean or an optional of no boolean: `if s ~= \"\" then`; for a {string: boolean} " ..
+      "set, `if seen[k] == nil then`.\n" ..
+      "- `..` joins strings: `tostring(n)`; `%d` takes an integer: `math.floor(x)`.\n" ..
+      "- `if c then a else b end`, with its `end` even inside a call, in place of `c and a or b`.\n" ..
+      "- `{key: string, count: integer}` is a record type, `{string: integer}` a map, and `mut {{key: string}}` " ..
+      "a list one may add to. Host.top answers `{Host.Count}`.\n" ..
+      "- The first n of a list: `for i, v in ipairs(list) do if i > n then break end ... end`.\n" ..
+      "- Records, not tuples (`{A, B}`); `T?`, not `T | nil`; no `;`; no goto.\n\n" ..
+      "For example:\n" ..
+      "local exts: mut {string} = {}\n" ..
+      "for _, path in ipairs(Host.find(\".\")) do\n" ..
+      "  local ext = path:match(\"%.(%w+)$\")\n" ..
+      "  if ext ~= nil then exts[#exts + 1] = ext end\n" ..
+      "end\n" ..
+      "for _, c in ipairs(Host.top(Host.uniq(exts))) do print(c.key .. \" \" .. tostring(c.count)) end",
     schema = schema({
-      code = string_field("The snippet of Teal, as the body of a file: `local Fs = require(\"cosmic.fs\")` ..."),
-      timeout = integer_field("Timeout in seconds (optional, " .. tostring(RUN_SECONDS) .. " by default)"),
+      code = string_field("The cosmic program, as the body of a file"),
+      timeout = integer_field("Seconds, " .. tostring(RUN_SECONDS) .. " by default, 0 for none; past it the " ..
+          "worker ends"),
+      output_bytes = integer_field("About the most bytes of output to show, " .. tostring(RUN_BYTES) ..
+          " by default, 1024 to " .. tostring(RUN_MOST)),
     }, { "code" }),
     run = run,
   },
@@ -1026,8 +1202,8 @@ function Tools.without(tools: {Tools.Tool}, names: {string}): mut {Tools.Tool}
 end
 
 --- What an agent offers unless told: every tool but bash and jobs, so
---- the model runs no program of its own. A snippet's worker still may,
---- as its sandbox lets it (`cosmic docs cosmic.agent.worker`).
+--- no program runs: without bash a snippet's worker starts no process
+--- either ([`Worker.Options`] `commands`, on Linux under a sandbox).
 function Tools.default(): mut {Tools.Tool}
   return Tools.without(ALL, { "bash", "jobs" })
 end
@@ -1055,11 +1231,42 @@ function Tools.run(name: string, input: Tools.Object, context: Tools.Context): T
   return Tools.dispatch(ALL, name, input, context)
 end
 
---- `tools` as the Messages API takes them.
+--- The tools of `names`, a list such as "run,read,edit,write", "all" for every tool ([`Tools.all`]) or "default"
+--- for [`Tools.default`]'s, in the order of [`Tools.all`]: or nil and why, for an empty list or a name no tool has.
+function Tools.named(names: string): ({Tools.Tool}) | (nil, string)
+  if names == "all" then return Tools.all() end
+  if names == "default" then return Tools.default() end
+  local picked: mut {string} = {}
+  local wanted: mut {string: boolean} = {}
+  for name in names:gmatch("[^,%s]+") do
+    if Tools.find(ALL, name) == nil then
+      local known: mut {string} = {}
+      for _, t in ipairs(ALL) do known[#known + 1] = t.name end
+      return nil, "no tool " .. name .. "; the tools are " .. table.concat(known, ", ")
+    end
+    picked[#picked + 1] = name
+    wanted[name] = true
+  end
+  if #picked == 0 then return nil, "name at least one tool" end
+  if wanted["jobs"] == true and wanted["bash"] ~= true then
+    return nil, "jobs reads bash's background jobs: offer bash too"
+  end
+  return Tools.only(ALL, picked)
+end
+
+--- `tools` as the Messages API takes them. The last is a cache breakpoint: the tools come first in a request, and
+--- are the same in every session of a model whatever its directory and prompt, so each session reads them from the
+--- cache another wrote, where the system prompt and the messages after them differ.
 function Tools.definitions(tools: {Tools.Tool}): Json.Value
   local out: mut {Json.Value} = {}
-  for _, t in ipairs(tools) do
-    out[#out + 1] = { name = t.name, description = t.description, input_schema = t.schema }
+  local offers_bash = Tools.find(tools, "bash") ~= nil
+  for i, t in ipairs(tools) do
+    -- Without bash a snippet runs no program, so run's description names no Host.bash.
+    local description = if t.name == "run" and not offers_bash then
+      (t.description:gsub("Host%.bash%(command%) %-> {output, ok, code}; ", "")) else t.description end
+    local def: mut {string: Json.Value} = { name = t.name, description = description, input_schema = t.schema }
+    if i == #tools then def["cache_control"] = { type = "ephemeral" } end
+    out[#out + 1] = def
   end
   return Json.array(out)
 end

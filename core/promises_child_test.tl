@@ -114,13 +114,19 @@ local function test_the_mode_of_a_file_changes_only_with_fattr(tmp: string)
   local with = under(tmp, { "fattr" }, "chmod " .. file .. " 600", probe)
   assert(with.code == 0, with.said)
   assert(assert(sys.stat(file)).mode & 0xfff == 384)
-  -- Never a bit that gives its owner's authority to a program: setuid, setgid, sticky.
-  for _, bits in ipairs({ "4755", "2755", "1755" }) do
+  -- Never a bit that gives its owner's authority to a program: setuid, setgid.
+  for _, bits in ipairs({ "4755", "2755" }) do
     local special = under(tmp, { "fattr" }, "chmod " .. file .. " " .. bits, probe)
     assert(special.code == 1 and special.said:find("not permitted", 1, true) ~= nil,
       bits .. " is refused: " .. tostring(special.code) .. " " .. special.said)
     assert(assert(sys.stat(file)).mode & 0xfff == 384)
   end
+  -- The sticky bit gives none: a directory's keeps others from replacing a file in it (build/launcher.tl).
+  local dir = tmp .. "/sticky"
+  assert(Fs.mkdirs(dir))
+  local sticky = under(tmp, { "fattr" }, "chmod " .. dir .. " 1700", probe)
+  assert(sticky.code == 0, sticky.said)
+  assert(assert(sys.stat(dir)).mode & 0xfff == 0x3c0)
 end
 
 local function test_no_socket_is_made_but_a_socketpair(tmp: string)

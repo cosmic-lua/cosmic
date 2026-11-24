@@ -121,8 +121,8 @@ static mode_t mirrored_mode (const char *path, size_t skip) {
  * process's own) with `mode`, whatever the umask, which is cleared while
  * it does and put back, so no chmod is asked of a child whose filter
  * grants none (a `nest` program, whose start of its own builds a root as
- * this does): a mode with a setuid, setgid or sticky bit is made without
- * them where the filter refuses one, as it does a mode made with them,
+ * this does): a mode with a setuid or setgid bit is made without them
+ * where the filter refuses one, as it does a mode made with them,
  * and the bits the kernel does not make a directory with are set after,
  * where that is allowed. 0, or an errno. */
 static int make_directory (int dir, const char *name, mode_t mode) {
@@ -130,9 +130,9 @@ static int make_directory (int dir, const char *name, mode_t mode) {
   int number = 0;
   if (mkdirat(dir, name, mode) != 0 && errno != EEXIST) {
     number = errno;
-    if (number == EPERM && (mode & 07000) != 0) {
+    if (number == EPERM && (mode & 06000) != 0) {
       number = 0;
-      mode &= 0777;
+      mode &= 01777;
       if (mkdirat(dir, name, mode) != 0 && errno != EEXIST) number = errno;
     }
   }
@@ -603,8 +603,7 @@ static int build_root (const char *root, char *const *paths, char *const *names,
   if (tmp) {
     int made = snprintf(target, sizeof target, "%s/tmp", root);
     if (made < 0 || (size_t)made >= sizeof target) return ENAMETOOLONG;
-    /* The mode made here never shows: a tmpfs covers it, or the chmod below sets it,
-     * and a sticky bit asked of mkdir is one a `nest` program's filter refuses. */
+    /* The mode made here never shows: a tmpfs covers it, or the chmod below sets it. */
     if (mkdir(target, 0777) != 0) return errno;
     if (strict) {
       /* Writable and so not executable, as a grant `rwc` is, unless the

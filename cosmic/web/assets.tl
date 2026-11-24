@@ -280,7 +280,7 @@ end
 --- skipped.
 local function payload_query(sql: string, values: {Sqlite.Value}): Sqlite.Rows?
   for _, handle in ipairs(Store.databases()) do
-    local rows, _ = handle:text_rows(sql, values)
+    local rows, _ = handle:rows(sql, values)
     if rows ~= nil and #rows > 0 then return rows end
   end
   return nil
@@ -301,17 +301,15 @@ function Assets.embedded(): Assets.Source
       local asset = held[path]
       if asset ~= nil then return asset, "" end
       local rows = payload_query(
-        "SELECT data, sha256, type, gzip, gzip IS NOT NULL, zstd, zstd IS NOT NULL " ..
+        "SELECT data, sha256, type, gzip, zstd " ..
           "FROM payload WHERE path = ?",
         { { text = path } })
       if rows == nil then return miss(path, "not held") end
       local row = rows[1]
       if row == nil then return miss(path, "not held") end
-      local packed: string? = nil
-      if row:text(5) == "1" then packed = row:text(4) end
-      local squeezed: string? = nil
-      if row:text(7) == "1" then squeezed = row:text(6) end
-      asset = make(path, row:text(1),
+      local packed: string? = if row:is_null(4) then nil else row:bytes(4) end
+      local squeezed: string? = if row:is_null(5) then nil else row:bytes(5) end
+      asset = make(path, row:bytes(1),
         { sha256 = row:text(2), type = row:text(3), gzip = packed, zstd = squeezed })
       held[path] = asset
       return asset, ""

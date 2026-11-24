@@ -22,7 +22,7 @@ local Flags = require("cosmic.flags")
 
 local command: Flags.Command = {
   about = "encode or decode base64, hex and the like",
-  usage = "<encoding> [file]",
+  usage = "<hex|base64|base64url> [options] [file|-]",
   examples = {
     { line = "base64 notes.txt", about = "encode a file" },
     { line = "base64 -d notes.b64", about = "decode it" },

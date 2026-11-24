@@ -107,6 +107,9 @@ local exempt: {string: string} = {
   ["core/promises.c:cosmic_truncation_apply"] = "runs only in a child that `grants` hold with no promises on a " ..
     "kernel whose Landlock is below ABI 3, which does not handle truncation; core/grants_child_test.tl's truncation " ..
     "test enters it on such a kernel, and core/promises_test.tl runs the program it installs on every host",
+  ["core/promises.c:cosmic_no_x_apply"] = "runs only in a process a restriction holds with no `x` grant, which no " ..
+    "grant lets write its worker's coverage directory once it has; cosmic/sandbox_restrict_test.tl sees what it " ..
+    "refuses, and core/promises_test.tl runs the program it installs on every host",
   ["core/compress.c:bz_internal_error"] =
     "libbzip2 calls it only when one of its own internal assertions fails, which no input reaches",
 }

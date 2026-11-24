@@ -207,8 +207,7 @@ local function enter(program: string, argv: {string}, given: {string:string}): s
     if extra == nil then return why end
     for name, value in pairs(extra) do environment[name] = value end
   end
-  local _, trouble = Proc.exec(reentry(program, argv), { env = environment })
-  return trouble
+  return tostring(Proc.exec(reentry(program, argv), { env = environment }))
 end
 
 --- Compares the tree's fingerprints with the running binary's.
@@ -369,7 +368,7 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
   end
   local out, executable_trouble = Proc.executable()
   if out == nil then
-    return closing(handle, executable_trouble), false
+    return closing(handle, tostring(executable_trouble)), false
   end
 
   -- The zones and web assets it carries, which only a boot reads from
@@ -695,7 +694,7 @@ local function serialize(handle: work.Handle, root: string,
   end
   local out, executable_trouble = Proc.executable()
   if out == nil then
-    log:complain(closing(handle, executable_trouble))
+    log:complain(closing(handle, tostring(executable_trouble)))
     return 1
   end
   if taken == "held" then

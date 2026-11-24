@@ -707,7 +707,7 @@ only part of the lines. A floor on a failing run is judged and named
 beside the failures.
 
 A test whose verdict stands brings the lines it hit when it ran. Those are
-the `coverage_by_test` rows of that run, or the ones another checkout
+the `hits_by_test` rows of that run, or the ones another checkout
 shared. Shared rows are kept as the shared verdicts hold them: under a
 first line `lines as distances`, each module's lines after its first as
 the distance from the one before.
@@ -880,6 +880,11 @@ platform checked-narrowing`, `--check-types --shard I/2`). They stand on
 the checked verdicts of earlier runs, as the legs' suites stand on theirs
 (ci/README.md's `checked-narrowing`). `bin/cosmic test --check-types` runs
 it anywhere.
+
+The wraps slow some code more than other code, so a speed test that
+holds one piece of work to a multiple of another ([`lang.speed`]) reads
+[`Test.mode`]'s `types_checked` and gives that run a limit of its own
+([`build/fix/format_speed_test.tl`]'s `budget`).
 
 ## fuzz tests
 
@@ -1137,6 +1142,28 @@ processors), not how many ran at once.
 `settling` is the coverage and the records kept. The `runs` table holds
 each test's own time ([measuring](guides/measuring.md)).
 
+### failures
+
+`runs` holds only each test's latest run, so a rerun that passes replaces
+a failure. The `failures` table of `build.db` keeps each failure a run
+recorded, with its message and key, the newest 10 of each test. A
+failure whose key is the key of a later pass is a flake: the same inputs
+gave both. A failure with another key may be a flake too, since the key
+also moves with an edit, the host, the toolchain, the harness and the
+checkout path of an unsandboxed run ([verdicts](#verdicts-and-when-a-test-reruns)). A test
+with no key (it reaches a network beyond loopback) records an empty
+key, which tells nothing:
+
+```text
+cosmic sql --build "SELECT f.path, f.test, f.message FROM failures f
+  JOIN runs r USING (path, test) WHERE r.passed = 1 AND f.key = r.key
+  AND f.key <> '' ORDER BY f.ran_at_ns DESC"
+```
+
+A run that ends in an error or is cancelled keeps no failure, as it
+keeps no `runs` row. A module the compiler refuses has no test that ran,
+so it has no row either.
+
 ### coverage
 
 Every run records the lines the tests reached in the `coverage` table of
@@ -1150,8 +1177,12 @@ cosmic sql --build "SELECT path, count(*) AS lines, sum(hit > 0) AS hit
   GROUP BY path ORDER BY hit * 1.0 / lines LIMIT 10"
 ```
 
-`coverage_by_test` holds the lines each test reached. Each module's lines
-are beside the text they are numbered in. A module a pure store imported
+`hits_by_test` holds the lines each test reached. Each module's lines
+are beside the text they are numbered in. A run of adjacent lines is
+written as its first line, a `+`, and the count of lines after it: `5+3`
+is lines 5 to 8. The older table `coverage_by_test` writes each line as a
+number of its own. A binary from before `hits_by_test` reads only that
+table, so it never reads `5+3` as the two lines 5 and 3. A module a pure store imported
 is the exception. For it the row holds the numbers of the instructions it
 ran, each past 2^24 ([`build.lua_tail`]'s `ordinal_base`). They are beside
 a prefix of the digest of its bytecode stripped. A row taken from another
@@ -1312,6 +1343,7 @@ Other rules:
 [`build/dispatch_sites.tl`]: ../build/dispatch_sites.tl
 [`build/dispatched_features_test.tl`]: ../build/dispatched_features_test.tl
 [`build/fact_hook_tool_test.tl`]: ../build/fact_hook_tool_test.tl
+[`build/fix/format_speed_test.tl`]: ../build/fix/format_speed_test.tl
 [`build/harness_epoch_test.tl`]: ../build/harness_epoch_test.tl
 [`build/rebuild_lock_tool_test.tl`]: ../build/rebuild_lock_tool_test.tl
 [`build/stamp.tl`]: ../build/stamp.tl
@@ -1348,11 +1380,13 @@ Other rules:
 [`lang.check_programs`]: ../lang/check_programs.tl
 [`lang.codegen`]: ../lang/codegen.tl
 [`lang.fact_wraps`]: ../lang/fact_wraps.tl
+[`lang.speed`]: ../lang/speed.tl
 [`lang/check_assigned_fuzz_test.tl`]: ../lang/check_assigned_fuzz_test.tl
 [`lang/check_flow_fuzz_test.tl`]: ../lang/check_flow_fuzz_test.tl
 [`lang/check_total_fuzz_test.tl`]: ../lang/check_total_fuzz_test.tl
 [`Store.withheld`]: ../cosmic/store.tl
 [`sys.cpu_features`]: ../core/syscalls.h
+[`Test.mode`]: ../cosmic/test.tl
 [`Test.passed_unchecked`]: ../cosmic/test.tl
 [`Test.policy`]: ../cosmic/test.tl
 [`Test.skip`]: ../cosmic/test.tl

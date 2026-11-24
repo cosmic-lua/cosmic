@@ -77,8 +77,8 @@ local function test_a_closed_query_fails_a_read()
   local db = numbers(2)
   local q = assert(db:query("SELECT n FROM t"))
   assert(q:read())
-  q:close()
-  q:close()
+  local _, _ = q:close()
+  local _, _ = q:close()
   local row, trouble = q:read()
   assert(row == nil and tostring(trouble):find("closed", 1, true) ~= nil, trouble)
   assert(db:close())
@@ -124,7 +124,7 @@ local function test_a_query_reads_the_columns_the_statement_has_now()
     assert(row ~= nil, change .. ": " .. tostring(trouble))
     local want = if change:find("DROP", 1, true) then 1 else 3 end
     assert(row:count() == want, change .. ": " .. tostring(row:count()) .. " columns")
-    q:close()
+    local _, _ = q:close()
     assert(db:close())
   end
 end
@@ -137,5 +137,26 @@ local function test_datetime_floor_of_a_24_hour_time_is_the_next_day()
   local row = rows[1]
   assert(row, "the statement yields a row")
   assert(row:text(1) == "2025-05-01 00:00:00", row:text(1))
+  assert(db:close())
+end
+
+--- A write that returns rows, closed after its first, commits at the
+--- close in autocommit: a failure there is the close's, and the query's.
+local function test_a_write_closed_early_answers_its_commit_failure()
+  local db = assert(Sqlite.memory())
+  assert(db:exec("PRAGMA foreign_keys = ON"))
+  assert(db:exec("CREATE TABLE parent (id INTEGER PRIMARY KEY); " ..
+      "CREATE TABLE child (parent_id INTEGER REFERENCES parent(id) DEFERRABLE INITIALLY DEFERRED)"))
+  local q = assert(db:query("INSERT INTO child VALUES (1), (2) RETURNING parent_id"))
+  assert(q:read())
+  local closed, why = q:close()
+  assert(not closed and tostring(why):find("FOREIGN KEY", 1, true) ~= nil)
+  assert(q:failure() == why)
+  assert(#assert(db:rows("SELECT parent_id FROM child")) == 0)
+  -- One read to its end commits at its last step, and closes clean.
+  assert(db:run("INSERT INTO parent VALUES (1)"))
+  local whole = assert(db:query("INSERT INTO child VALUES (1) RETURNING parent_id"))
+  for _ in whole:each() do end
+  assert(whole:close())
   assert(db:close())
 end

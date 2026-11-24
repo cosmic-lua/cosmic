@@ -81,6 +81,9 @@ eval 'exec '"$cosmic_artifact_fd"'<"$cosmic_artifact"' ||
   portable_die 'cannot open the portable artifact'
 @ADOPT_HOOK@
 
+# 1 only for the leaf the launcher names under HOME, the one start whose
+# leaf and parents it makes itself; see the warm start below.
+cosmic_cache_own=0
 if [ "${COSMIC_PORTABLE_CACHE+x}" = x ]; then
   cosmic_cache=${COSMIC_PORTABLE_CACHE-}
   case $cosmic_cache in
@@ -89,7 +92,14 @@ if [ "${COSMIC_PORTABLE_CACHE+x}" = x ]; then
   esac
 else
   case ${XDG_CACHE_HOME-} in
-    /*) cosmic_cache=$XDG_CACHE_HOME/cosmic/cores ;;
+    /*)
+      cosmic_cache=$XDG_CACHE_HOME/cosmic/cores
+      # The default spelled out (cosmic agent's policy sets it so) is the
+      # leaf under HOME too.
+      case ${HOME-} in
+        /*) if [ "$XDG_CACHE_HOME" = "$HOME/.cache" ]; then cosmic_cache_own=1; fi ;;
+      esac
+      ;;
     *)
       case ${HOME-} in
         /*)
@@ -97,6 +107,7 @@ else
             Darwin) cosmic_cache=$HOME/Library/Caches/cosmic/cores ;;
             *) cosmic_cache=$HOME/.cache/cosmic/cores ;;
           esac
+          cosmic_cache_own=1
           ;;
         *)
           # No absolute HOME: a leaf of its own directly in the temp
@@ -125,6 +136,8 @@ cosmic_key=core-$cosmic_target_id-$cosmic_configuration_id-$cosmic_length-$cosmi
 cosmic_core=$cosmic_cache/$cosmic_key
 cosmic_repair_lock=$cosmic_cache/.repair-$cosmic_key
 cosmic_stamp=$cosmic_cache/.verified-$cosmic_key
+# Whether the entry to run was hashed by this launcher, just now.
+cosmic_core_hashed=0
 
 # Replaces this shell with the core at `cosmic_run`, open on its descriptor,
 # handing it the artifact and what the launcher chose.
@@ -137,6 +150,13 @@ portable_start() {
   COSMIC_PORTABLE_CORE_OFFSET=$cosmic_offset
   COSMIC_PORTABLE_CORE_LENGTH=$cosmic_length
   COSMIC_PORTABLE_CORE_SHA256=$cosmic_sha256
+  # The entry was hashed here, just now: startup need not hash it again.
+  if [ "$cosmic_core_hashed" = 1 ]; then
+    COSMIC_PORTABLE_CORE_HASHED=1
+    export COSMIC_PORTABLE_CORE_HASHED
+  else
+    unset COSMIC_PORTABLE_CORE_HASHED
+  fi
   export COSMIC_PORTABLE_ARTIFACT_FD COSMIC_PORTABLE_CORE_FD
   export COSMIC_PORTABLE_TARGET_ID COSMIC_PORTABLE_CONFIGURATION_ID
   export COSMIC_PORTABLE_CORE_OFFSET COSMIC_PORTABLE_CORE_LENGTH
@@ -165,34 +185,47 @@ portable_exec_failed() {
   esac
 }
 
-# A warm start, with no child process, on Linux: a leaf this user owns, an
+# A warm start, with no child process: a sticky leaf this user owns, an
 # entry and the stamp startup leaves beside an entry it has hashed, none a
-# symbolic link; the entry is opened, and what is run is the file opened,
-# through /proc/self/fd, once the shell's own test has found it a regular
-# file this user owns and can run. So whoever else could rename a file into
-# the leaf (one others can write) cannot have theirs run, since only this
-# user's own file is, which no one else can write while it keeps the 0500
-# the launcher gives it. The entry opened is not newer than its stamp.
-# Startup stamps an entry only once a second has passed since it last
-# changed, so a healthy entry is older than its stamp, and an entry written
-# since, such as one damaged in place, is newer and takes the path below,
-# which hashes and repairs it before it runs. A write that sets the old time
-# back, or one in the stamp's own second where test(1) compares whole
-# seconds (BusyBox), still reaches startup. What these builtins
-# cannot see -- the leaf's mode, the entry's, and whether the entry answers
-# all its stamp records -- startup checks before anything else runs
+# symbolic link; the entry is run once the shell's own test has found it a
+# regular file this user owns and can run. In a sticky directory only a
+# file's owner, the directory's or root may rename or remove it, so whoever
+# else could write the leaf cannot replace this user's entry between the test
+# and the run, and no one else can write the entry while it keeps the 0500
+# the launcher gives it. On Linux what is run is the file opened, through
+# /proc/self/fd, which holds even where an ancestor of the leaf is another's
+# to rename; macOS refuses execve of /dev/fd/N, so there the entry is run by
+# its name, as the path below runs it on both. A sticky bit still lets anyone
+# who can write the leaf add a hard link to another file this user owns under
+# an absent name, and no builtin reads a mode, so only the leaf under HOME
+# starts here: HOME is this user's own, and the launcher makes the leaf
+# private. One this user has since opened to others there is this user's
+# choice, refused by startup only once what it holds has run. A leaf named by
+# COSMIC_PORTABLE_CACHE, by any other XDG_CACHE_HOME, or one in the temp
+# directory may be another's to write, so it takes the path below, which
+# reads its mode, on every start. The entry is not newer than
+# its stamp. Startup stamps an entry only once a second has passed since it
+# last changed, so a healthy entry is older than its stamp, and an entry
+# written since, such as one damaged in place, is newer and takes the path
+# below, which hashes and repairs it before it runs. A write that sets the
+# old time back, or one in the stamp's own second where test(1) compares
+# whole seconds (BusyBox, and bash 3.2, macOS's /bin/sh), still reaches
+# startup. What these builtins cannot
+# see -- the leaf's mode, the entry's, and whether the entry answers all its
+# stamp records -- startup checks before anything else runs
 # (core/startup.c), and it removes an entry it refuses, so the next start
-# takes the path below. Anything else takes that path now:
-# it inspects everything here, repairs what it can, and hashes an entry no
-# stamp holds. So do macOS, with no /proc, and a shell whose test(1) has no
-# -O (status 2). `command` keeps a failed open from ending the shell.
-# macOS has no other way to run the file opened: its kernel refuses execve
-# of /dev/fd/N (EACCES), and test -x there reads the descriptor's open
-# mode, never x. Builtin tests of the entry's name would let a file renamed
-# into the leaf after them run, as no builtin reads the leaf's mode, so
-# macOS pays the path below's uname and stat forks.
-cosmic_run=/proc/self/fd/$cosmic_core_fd
-if [ -d "$cosmic_cache" ] && [ ! -L "$cosmic_cache" ] && [ -O "$cosmic_cache" ] &&
+# takes the path below. Anything else takes that path now: it inspects
+# everything here, repairs what it can, and hashes an entry no stamp holds.
+# So do a leaf with no sticky bit, which that path gives it, a Linux with no
+# /proc, and a shell whose test(1) has no -O (status 2). `command` keeps a
+# failed open from ending the shell.
+case $cosmic_os in
+  Darwin) cosmic_run=$cosmic_core ;;
+  *) cosmic_run=/proc/self/fd/$cosmic_core_fd ;;
+esac
+if [ "$cosmic_cache_own" = 1 ] &&
+   [ -d "$cosmic_cache" ] && [ ! -L "$cosmic_cache" ] && [ -O "$cosmic_cache" ] &&
+   [ -k "$cosmic_cache" ] &&
    [ -f "$cosmic_core" ] && [ ! -L "$cosmic_core" ] &&
    [ -f "$cosmic_stamp" ] && [ ! -L "$cosmic_stamp" ] &&
    { command eval 'exec '"$cosmic_core_fd"'<"$cosmic_core"'; } 2>/dev/null &&
@@ -204,10 +237,12 @@ fi
 if [ -L "$cosmic_cache" ]; then
   portable_die "cache leaf is a symbolic link: $cosmic_cache"
 fi
-# The leaf and any parent made here are private. Only mkdir needs the umask:
+# The leaf and any parent made here are private, and the leaf is sticky, as
+# the warm start needs (one mkdir, which sets the bit itself). Where a filter
+# refuses that bit, the leaf is made without it. Only mkdir needs the umask:
 # mktemp makes its file 0600 whatever the umask, and the core is chmod 500.
 if [ ! -e "$cosmic_cache" ]; then
-  (umask 077 && mkdir -p "$cosmic_cache") ||
+  (umask 077 && { mkdir -p -m 1700 "$cosmic_cache" 2>/dev/null || mkdir -p "$cosmic_cache"; }) ||
     portable_die "cannot create cache leaf: $cosmic_cache"
 fi
 
@@ -297,6 +332,13 @@ case $portable_mode in
   *5??) cosmic_cache_writable=0 ;;
   *) portable_die "cache leaf owner needs mode 7 or 5, not $portable_mode: $cosmic_cache (run chmod u=rwx '$cosmic_cache', or name a directory only you control in COSMIC_PORTABLE_CACHE)" ;;
 esac
+# The leaf under HOME takes this path on every start while it has no sticky
+# bit, as the warm one above needs the bit: it is given one here, once. Where
+# it cannot be given one (a read-only file system), the leaf stays as it is,
+# and every start pays this path and the chmod.
+if [ "$cosmic_cache_own" = 1 ] && [ ! -k "$cosmic_cache" ]; then
+  chmod +t "$cosmic_cache" 2>/dev/null || :
+fi
 
 # Sets portable_actual to a file's SHA-256, or empty when it cannot.
 portable_sha256() {
@@ -329,6 +371,7 @@ trap 'exit 126' HUP INT TERM
 portable_entry_state=
 portable_entry_reason=
 portable_inspect_entry() {
+  cosmic_core_hashed=0
   if [ -L "$cosmic_core" ]; then
     portable_entry_state=invalid
     portable_entry_reason='is a symbolic link'
@@ -388,6 +431,7 @@ portable_inspect_entry() {
       portable_entry_reason='digest differs'
       return 0
     fi
+    cosmic_core_hashed=1
   fi
   portable_entry_state=valid
   portable_entry_reason=
@@ -406,16 +450,12 @@ portable_link() {
   esac
   # BSD ln can interpret an existing real directory as the destination even
   # with -h. Refuse that result and remove only the link this call just made.
-  if ! portable_stat "$2"; then return 1; fi
-  case $portable_kind in
-    'regular file'|'Regular File') return 0 ;;
-    *)
-      portable_nested=$2/${1##*/}
-      rm -f "$portable_nested" 2>/dev/null || :
-      return 1
-      ;;
-  esac
+  if [ -f "$2" ] && [ ! -L "$2" ]; then return 0; fi
+  portable_nested=$2/${1##*/}
+  rm -f "$portable_nested" 2>/dev/null || :
+  return 1
 }
+
 
 portable_release_repair_lock() {
   rm -f "$cosmic_repair_lock" || portable_die 'cannot release cache repair lock'
@@ -501,8 +541,8 @@ if [ "$cosmic_core_verified" != 1 ]; then
     dd bs=16384 skip="$cosmic_stub_block" count="$cosmic_blocks" \
       <&"$cosmic_artifact_fd" 2>/dev/null |
       head -c "$cosmic_stub_length" > "$cosmic_stub_stage"
-    portable_bytes=$(wc -c < "$cosmic_stub_stage") || portable_die 'cannot size extracted decoder'
-    [ "$portable_bytes" -eq "$cosmic_stub_length" ] || portable_die 'extracted decoder is truncated'
+    # Its digest is checked here, as nothing else checks the stub before it
+    # runs; a truncated stub's differs too.
     portable_sha256 "$cosmic_stub_stage"
     [ "$portable_actual" = "$cosmic_stub_sha256" ] ||
       portable_die 'extracted decoder digest differs'
@@ -531,17 +571,20 @@ if [ "$cosmic_core_verified" != 1 ]; then
   else
     cosmic_blocks=$(( (cosmic_length + 16383) / 16384 ))
     # `head` trims the final aligned block. POSIX sh has no pipefail, so pipeline
-    # success cannot prove dd supplied the requested input: the exact size check
-    # detects truncation, while SHA-256 separately detects equal-length corruption.
+    # success cannot prove dd supplied the requested input: the SHA-256 below
+    # detects truncation and equal-length corruption alike.
     dd bs=16384 skip="$cosmic_block" count="$cosmic_blocks" \
       <&"$cosmic_artifact_fd" 2>/dev/null |
       head -c "$cosmic_length" > "$cosmic_stage"
   fi
-  portable_bytes=$(wc -c < "$cosmic_stage") || portable_die 'cannot size extracted core'
-  [ "$portable_bytes" -eq "$cosmic_length" ] || portable_die 'extracted core is truncated'
+  # Hashed here, before anything runs: a core damaged at its first bytes
+  # would be no program to the kernel, which dash then runs as a script. A
+  # short one, as a cut-off download leaves, hashes differently too. Startup
+  # is told (COSMIC_PORTABLE_CORE_HASHED), so it hashes the core no second time.
   portable_sha256 "$cosmic_stage"
   [ "$portable_actual" = "$cosmic_sha256" ] ||
     portable_die 'extracted core digest differs'
+  cosmic_core_hashed=1
   chmod 500 "$cosmic_stage" || portable_die 'cannot finish extracted core mode'
 @PUBLISH_HOOK@
   if portable_link "$cosmic_stage" "$cosmic_core" 2>/dev/null; then

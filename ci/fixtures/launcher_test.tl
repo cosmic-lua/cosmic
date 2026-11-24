@@ -175,13 +175,13 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
   assert(Fixture.hash(ctx.artifact) == artifact_hash, "launcher artifact changed")
 end
 
---- Whether `path` took `mode`, which has a special bit. A worker under a
+--- Whether `path` took `mode`, which has a setuid or setgid bit. A worker under a
 --- policy is held by a seccomp filter whose `fattr` never lets one be set
 --- (EPERM): the running test is skipped then, and the caller leaves out
 --- what needs the bit.
 -- TODO: check a setgid parent again under the policy path, and delete
--- this skip, once a promise lets a test that declares it set the special
--- bits (core/promises.c's `fattr` refuses them for good).
+-- this skip, once a promise lets a test that declares it set the setuid
+-- and setgid bits (core/promises.c's `fattr` refuses them for good).
 local function special_bits_set(path: string, mode: integer): boolean
   local set, why, errno = sys.chmod(path, mode)
   if set then return true end
@@ -317,7 +317,7 @@ local function test_launcher_cache_policy_and_integrity(tmp: string)
   assert(offset and length, "selected launcher header offset or length is not an integer")
   local truncated = ctx.work .. "/truncated"
   Fixture.write(truncated, artifact:sub(1, offset + length - 1), 0x1ed)
-  expect_failure(ctx, "truncated", "extracted core is truncated",
+  expect_failure(ctx, "truncated", "extracted core digest differs",
     ctx.work .. "/truncated-cache", truncated)
   local equal = ctx.work .. "/equal-corrupt"
   Fixture.write(equal, artifact:sub(1, offset) .. "Z" ..

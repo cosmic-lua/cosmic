@@ -160,7 +160,7 @@ for _, case in ipairs(cases) do
   print("ok")
 end
 ]]
-  local launched = Proc.relaunch()
+  local launched, _ = Proc.relaunch()
   if launched == nil or launched.argv[2] ~= "--artifact" then
     Test.skip("this program is no portable artifact")
     return
@@ -189,7 +189,7 @@ end
 --- o/bin anyway, and any other runs on a sealed database
 --- ([`build.test_key`]'s `sealed_for`) and is given no artifact at all.
 local function test_a_plan_for_a_nesting_worker_grants_the_artifact_only_with_store(tmp: string)
-  local launched = Proc.relaunch()
+  local launched, _ = Proc.relaunch()
   if launched == nil or launched.argv[2] ~= "--artifact" then
     Test.skip("this program is no portable artifact")
     return

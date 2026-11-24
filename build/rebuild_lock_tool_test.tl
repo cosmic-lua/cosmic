@@ -13,7 +13,6 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local importer = require("build.importer")
-local TypeWatch = require("build.type_watch")
 local work = require("build.work")
 local writer = require("build.writer")
 local sys = require("cosmic.sys")
@@ -267,7 +266,7 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
   -- TODO: check this on a checked run too. It waits on a way to read the
   -- tree's projection and the binary's own modules there, as the checked
   -- worker is given the checked ones (build/test.tl's TODO on the same).
-  if TypeWatch.checked() then
+  if Test.mode().types_checked then
     Test.skip("a checked run's modules carry checks, so their bytecode is not the binary's")
   end
   for _, succeeds in ipairs({ false, true }) do

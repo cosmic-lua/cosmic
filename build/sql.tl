@@ -513,13 +513,13 @@ local function stream(db: Sqlite.Handle, statement: string,
     rows = rows + 1
     local line, refused = write.row(row, width)
     if line == nil then
-      query:close()
+      local _, _ = query:close()
       prepared:close()
       return nil, "row " .. tostring(rows) .. ": " .. refused
     end
     local written, write_trouble = emit(line)
     if not written then
-      query:close()
+      local _, _ = query:close()
       prepared:close()
       return nil, write_trouble
     end
@@ -595,8 +595,8 @@ local standard: sql.Output = {
 }
 
 --- The usage of `--from`, in a complaint about the line.
-local from_usage = "cosmic sql --from <file|-> [--as json|ndjson|csv|tsv] [--at '<path>'] [--raw] [--to csv|ndjson] " ..
-  "[--from ...] ['<statement>']"
+--- The usage line a refusal ends with: the spec's ([`Flags.usage`]).
+local usage_line <const> = Flags.usage(Verb, "cosmic sql")
 
 --- A table name from a file name: its stem (without the last
 --- extension), each run of anything but a letter, digit or underscore
@@ -823,7 +823,7 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
                         summarize: function(detail: string),
                         complain: function(line: string),
                         stdin: function(): string?, string, writer: Writer?): integer
-  local usage = from_usage
+  local usage = usage_line
   local function refuse(why: string): integer
     complain(why .. "; " .. usage)
     return 2
@@ -933,8 +933,7 @@ function sql.run(argv: {string}, root?: string, output?: sql.Output,
   local function summarize(detail: string)
     to.summary(detail .. ", " .. clock.took(started))
   end
-  local usage = "cosmic sql [--db <path> | --build | --store] [--to csv|ndjson] '<statement>' | " ..
-    from_usage
+  local usage = usage_line
   local parsed, parse_trouble = Flags.parse(argv, 2, spec)
   if parsed == nil then
     complain(parse_trouble .. "; " .. usage)
@@ -968,7 +967,7 @@ function sql.run(argv: {string}, root?: string, output?: sql.Output,
   end
   local statement_text = parsed.words[1]
   if #parsed.words ~= 1 or statement_text == nil then
-    complain("give one statement, quoted as one argument: " .. usage)
+    complain("give one statement, quoted as one argument; " .. usage)
     return 2
   end
   if root == nil then

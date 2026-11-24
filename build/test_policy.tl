@@ -107,7 +107,7 @@ local function shape(effective: test_inputs.Effective): Sandbox.Policy
   local held, _ = sys.getrlimit(sys.RLIMIT_NOFILE)
   if held ~= nil then limits.open_files = math.min(held.hard, MOST_OPEN_FILES) end
   return {
-    profiles = if effective.system == true then { "system" } else nil end,
+    profiles = if effective.system == true then { "system", "programs" } else nil end,
     isolate = { "file" },
     promises = worker_promises(effective.nests),
     loopback = loopback,

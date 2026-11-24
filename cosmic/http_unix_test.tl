@@ -195,12 +195,12 @@ return function(argv: {string}): integer
   local ok, why = Http.download("http://files.test/moved", dest, { timeout_ns = Clock.seconds(60), via = via })
   local result = Http.download_result("http://files.test/moved", dest, { timeout_ns = Clock.seconds(60), via = via })
   local lines = {
-    tostring(ok) .. " " .. why,
+    tostring(ok) .. " " .. tostring(why),
     result.kind .. " " .. tostring(result.status),
     "exists " .. tostring(assert(Fs.status(dest)).exists),
   }
   local followed, followed_why = Http.download("http://files.test/moved", dest, { timeout_ns = Clock.seconds(60), via = via, follow = true })
-  assert(followed, followed_why)
+  assert(followed, tostring(followed_why))
   lines[#lines + 1] = (assert(Fs.read(dest)))
   local _, _ = Fs.put(Fs.stdout, table.concat(lines, "\n"))
   return 0
@@ -216,14 +216,14 @@ end
 local function test_a_connect_failure_names_the_socket_and_the_reason(tmp: string)
   local missing = tmp .. "/none.sock"
   local _, why = Http.get("http://authd.local/", { timeout_ns = Clock.seconds(60), via = Net.unix(missing) })
-  assert(why == "cannot connect to unix socket " .. missing .. ": No such file or directory", tostring(why))
-  assert(not why:find(":80", 1, true), why)
+  assert(tostring(why) == "cannot connect to unix socket " .. missing .. ": No such file or directory", tostring(why))
+  assert(not tostring(why):find(":80", 1, true), why)
 
   local plain = tmp .. "/plain"
   assert(Fs.write(plain, "not a socket"))
   local _, refused = Http.request("POST", "http://authd.local:8080/", { timeout_ns = Clock.seconds(60), via = Net.unix(plain), body = "x" })
   -- The errno for connecting to a file that is no socket differs by host.
-  assert(refused:find("cannot connect to unix socket " .. plain .. ": ", 1, true) == 1, tostring(refused))
-  assert(not refused:find(":8080", 1, true), refused)
+  assert(tostring(refused):find("cannot connect to unix socket " .. plain .. ": ", 1, true) == 1, tostring(refused))
+  assert(not tostring(refused):find(":8080", 1, true), refused)
   assert(Fs.remove(plain))
 end

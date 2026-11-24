@@ -353,7 +353,8 @@ end
 
 local spec = Verb.spec or {}
 
-local usage = "cosmic codec <hex|base64|base64url> [-d] [--wrap N] [--lenient] [<file>|-]"
+--- The usage line a refusal ends with: the spec's ([`Flags.usage`]).
+local usage <const> = Flags.usage(Verb, "cosmic codec")
 
 --- The encodings, by the name a command line gives.
 local names: {verb.Name} = { "hex", "base64", "base64url" }

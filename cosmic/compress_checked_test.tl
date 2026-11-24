@@ -52,3 +52,50 @@ local function test_a_raise_inside_update_leaves_the_stream_finished()
   end
   assert(raised > 0)
 end
+
+--- An xz or bzip2 decoder draws its codec's memory from the core's heap,
+--- as the encoders do: a live decoder holds its codec's window there (8 MiB
+--- for xz's default preset, over 2 MiB for bzip2's -9), a refusal there is
+--- the decode's own "out of memory", and none of it is left live once the
+--- stream is collected.
+local function test_xz_and_bzip2_decoders_refuse_and_free_on_the_core_heap()
+  local plain = string.rep("the quick brown fox ", 2000)
+  local formats: {Compress.Format} = { "xz", "bz2" }
+  for _, format in ipairs(formats) do
+    local packed = assert(Compress.encode(format, plain))
+    collectgarbage()
+    local bytes_before, _ = testing.c_heap()
+    do
+      local live <close> = assert(Compress.decoder(format))
+      assert(live:update(packed:sub(1, #packed // 2), 16))
+      local bytes_live, _ = testing.c_heap()
+      assert(bytes_live - bytes_before > 1 << 20, format .. ": the codec's window is not on the core heap")
+    end
+    local said = 0
+    local why = ""
+    -- Made before any refusal, so only the decode meets one.
+    local function attempt(): string?
+      local value, failure = Compress.decode(format, packed)
+      if value == nil then why = assert(failure).message end
+      return value
+    end
+    for after = 0, 100000 do
+      why = ""
+      -- Once: a walk refuses every allocation after the first too, so the
+      -- message that reports the codec's refusal could not be built.
+      testing.fail_allocations(after, true)
+      local ok, out = pcall(attempt)
+      local refused = testing.allow_allocations()
+      if refused == 0 then
+        assert(ok and out == plain, format)
+        break
+      end
+      if ok and out == nil and why:find("out of memory", 1, true) ~= nil then said = said + 1 end
+    end
+    assert(said > 0, format .. ": no refusal reached the codec")
+    collectgarbage()
+    collectgarbage()
+    local bytes_after, _ = testing.c_heap()
+    assert(bytes_after <= bytes_before, format .. ": the core heap grew")
+  end
+end

@@ -180,8 +180,29 @@ local function test_tools_are_values_to_pick_and_make()
   local listed = agent_fixture.sent(a, 1)["tools"]
   assert(listed ~= nil)
   local offered = assert(Json.encode(listed))
-  assert(offered == '[{"description":"The time.","input_schema":{"properties":{},"type":"object"},"name":"now"}]', offered)
+  assert(offered == '[{"cache_control":{"type":"ephemeral"},"description":"The time.","input_schema":{"properties":{},"type":"object"},"name":"now"}]', offered)
   local answers = agent_fixture.said(a, 2)
   assert(answers:find('"content":"noon in /"', 1, true) ~= nil, answers)
   assert(answers:find("Tool bash not found", 1, true) ~= nil, answers)
+end
+
+--- `--tools` names the tools a session offers: the API is shown those alone, and a call of another is refused.
+local function test_a_session_offers_the_tools_named()
+  local offered = assert(Tools.named("run, read"))
+  assert(names(offered) == "read run", names(offered))
+  assert(#assert(Tools.named("all")) == #Tools.all())
+  local _, unknown_why = Tools.named("run,nope")
+  local unknown = assert(unknown_why)
+  assert(unknown:find("no tool nope; the tools are read, bash", 1, true) == 1, unknown)
+  local _, empty_why = Tools.named(" , ")
+  assert(assert(empty_why) == "name at least one tool")
+  local _, jobs_why = Tools.named("run,jobs")
+  assert(assert(jobs_why):find("offer bash too", 1, true) ~= nil)
+  local shown = assert(Json.encode(Tools.definitions(offered)))
+  -- The last tool shown is the cache breakpoint, which every session's prefix shares; with no bash, run names no
+  -- Host.bash.
+  local _, marks = shown:gsub('"cache_control"', "")
+  assert(marks == 1 and shown:find('"cache_control":{"type":"ephemeral"},"description":"Run', 1, true) ~= nil, shown)
+  assert(shown:find("Host.bash", 1, true) == nil, shown)
+  assert(assert(Json.encode(Tools.definitions(Tools.all()))):find("Host.bash", 1, true) ~= nil)
 end

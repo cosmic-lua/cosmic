@@ -248,8 +248,9 @@ end
 
 --- Hits as [`build.test`]'s `take_hits` writes them -- a line per module,
 --- its path and the text its lines are numbered in, a tab, then the lines
---- it hit, ascending and comma-separated -- with each line after a module's
---- first as its distance from the one before: runs of adjacent lines, which
+--- it hit, ascending and comma-separated, a run of adjacent lines as its first, a `+` and how many follow -- packed
+--- one number a line, each after a module's first as its distance from the one before. A binary from before runs
+--- reads the shared rows too, and reads no `+`. Runs of adjacent lines, which
 --- most hits are, deflate to little that way. What comes before the tab is
 --- carried as it is.
 ---
@@ -266,8 +267,11 @@ local function packed(hits: string, known: mut {string:string}, rows: {string:Re
     elseif done == nil then
       done = whole:gsub("([^\t\n]*)\t([^\n]*)\n", function(path: string, lines: string): string
         local numbers: mut {integer} = {}
-        for line in lines:gmatch("%d+") do
-          numbers[#numbers + 1] = math.tointeger(tonumber(line)) or 0
+        -- A run of lines is its first, a `+` and how many follow it ([`build.test`]'s `runs_of`).
+        for first_digits, more_digits in lines:gmatch("(%d+)%+?(%d*)") do
+          local first = math.tointeger(tonumber(first_digits)) or 0
+          local final = if more_digits == "" then first else first + (math.tointeger(tonumber(more_digits)) or 0) end
+          for line = first, final do numbers[#numbers + 1] = line end
         end
         return distances(path, numbers)
       end)

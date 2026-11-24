@@ -117,7 +117,11 @@ function Auth.from(env: function(string): string?, base: string, send?: Auth.Sen
     return nil, "no credential: set ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, or federation's variables " ..
       "(cosmic docs cosmic.agent.auth)"
   end
-  local go: Auth.Send = send or Http.request
+  local go: Auth.Send = send or function(method: string, url: string, opts: Http.Options): Http.Body?, string
+    local body, why = Http.request(method, url, opts)
+    if body == nil then return nil, tostring(why) end
+    return body, ""
+  end
   local held: Held? = nil
   return function(): {string: string}?, string
     local now = held

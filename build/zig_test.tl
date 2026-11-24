@@ -7,9 +7,7 @@
 --- that start bin/zig are build/zig_tool_test.tl's.
 
 local Clock = require("cosmic.clock")
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Failure = require("cosmic.failure")
 local sys = require("cosmic.sys")
@@ -182,18 +180,19 @@ local function test_resolve_searches_path_for_a_bare_name(tmp: string)
   assert(Fs.write(tmp .. "/a/tool", "not executable", 0x1a4))
   assert(Fs.write(tmp .. "/b/tool", "#!/bin/sh\n", 0x1ed))
   local path = tmp .. "/missing:" .. tmp .. "/a:" .. tmp .. "/b"
-  local found = Zig.resolve("tool", path)
-  assert(found.kind == "resolved" and found.path == tmp .. "/b/tool" and found.reason == "")
+  local found, _ = Zig.resolve("tool", path)
+  assert(found == tmp .. "/b/tool", found)
   -- A name with a slash is used as it is, never searched for.
-  assert(Zig.resolve("./tool", path).path == "./tool")
+  local spelled, _ = Zig.resolve("./tool", path)
+  assert(spelled == "./tool")
 end
 
 local function test_resolve_tells_a_missing_name_from_an_unrunnable_one(tmp: string)
-  local missing = Zig.resolve("no-such-tool", tmp)
-  assert(missing.kind == "not_found" and missing.reason == "no-such-tool: not found", missing.reason)
+  local none, missing = Zig.resolve("no-such-tool", tmp)
+  assert(none == nil and missing == 127, tostring(missing))
   assert(Fs.write(tmp .. "/plain", "not executable", 0x1a4))
-  local denied = Zig.resolve("plain", tmp)
-  assert(denied.kind == "not_executable" and denied.reason == tmp .. "/plain: not executable", denied.reason)
+  local refused, denied = Zig.resolve("plain", tmp)
+  assert(refused == nil and denied == 126, tostring(denied))
 end
 
 local function test_exec_status_is_the_shells()
@@ -458,27 +457,6 @@ local function test_a_boot_refuses_a_lock_file_it_cannot_write(tmp: string)
     error("a boot ran without a writable lock")
   end)
   assert(status == 1)
-end
-
-local function test_lookup_exit_status_uses_kind_without_another_lookup(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/build"))
-  assert(Fs.write(tmp .. "/build/zig.tl", "-- stand-in"))
-  local real_find, real_get = Proc.find_result, Env.read
-  local calls = 0
-  local reply: Proc.FindResult = { kind = "not_executable", path = "tool", reason = "tool: not found" }
-  Proc.find_result = function(_name: string, _path?: string): Proc.FindResult -- checked: field_fixed
-    calls = calls + 1
-    return reply
-  end
-  Env.read = function(name: Env.Name): string? -- checked: field_fixed
-    if name == "COSMIC_ZIG" then return "tool" end
-    return nil
-  end
-  local denied = Zig.enter({ "version" }, tmp .. "/build/zig.tl")
-  reply = { kind = "not_found", reason = "tool: not executable" }
-  local missing = Zig.enter({ "version" }, tmp .. "/build/zig.tl")
-  Proc.find_result, Env.read = real_find, real_get -- checked: field_fixed*2
-  assert(denied == 126 and missing == 127 and calls == 2)
 end
 
 local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: string)

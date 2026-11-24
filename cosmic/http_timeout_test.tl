@@ -34,7 +34,7 @@ local function test_a_request_timeout_ends_at_about_the_time_given()
   local began = Clock.monotonic_ns()
   local response, why = Http.open(url, { timeout_ns = Clock.ms(300) })
   local took = Clock.monotonic_ns() - began
-  assert(response == nil and timed_out(why), tostring(why))
+  assert(response == nil and timed_out(tostring(why)), tostring(why))
   assert(took >= Clock.ms(250) and took < Clock.seconds(10), tostring(took // Clock.ms(1)) .. " ms")
   assert(server ~= nil) -- checked: compare_disjoint
 end
@@ -45,11 +45,11 @@ local function test_a_limit_under_a_millisecond_is_not_none()
   local server <close>, url = silent()
   local began = Clock.monotonic_ns()
   local response, why = Http.open(url, { timeout_ns = 1 })
-  assert(response == nil and timed_out(why), tostring(why))
+  assert(response == nil and timed_out(tostring(why)), tostring(why))
   assert(Clock.monotonic_ns() - began < Clock.seconds(5), "ended long after 1 ms")
   began = Clock.monotonic_ns()
   response, why = Http.open(url, { connect_timeout_ns = 1, timeout_ns = Clock.ms(200) })
-  assert(response == nil and timed_out(why), tostring(why))
+  assert(response == nil and timed_out(tostring(why)), tostring(why))
   assert(Clock.monotonic_ns() - began < Clock.seconds(10))
   assert(server ~= nil) -- checked: compare_disjoint
 end

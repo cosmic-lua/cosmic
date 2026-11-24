@@ -1,12 +1,12 @@
---- The launcher `cosmic release --launcher` writes into a project that is
+--- The launcher `cosmic release launcher` writes into a project that is
 --- built with a pinned cosmic release: a POSIX shell script the project
 --- keeps as its own bin/cosmic. It reads the pin beside it (`<name>.pin`,
---- the three lines `cosmic release --pin` writes), fetches that release
+--- the three lines `cosmic release pin` writes), fetches that release
 --- once, checks it against the pin's sha256 and caches it by that digest,
 --- then runs it with the arguments given. It is the part of
 --- [`bin/cosmic-bootstrap`] a project needs: nothing downloaded runs
 --- before its digest is the pin's, the cache is the one that script and
---- `cosmic release --cache` fill, and `COSMIC_TOOL` names another cosmic
+--- `cosmic release get --cache` fill, and `COSMIC_TOOL` names another cosmic
 --- to run in place of the pin's, as `COSMIC_BOOTSTRAP` does there.
 
 local record pinned_launcher
@@ -15,7 +15,7 @@ end
 --- The script, with `@NAME@` where the launcher's own file name goes.
 local template <const> = [[
 #!/bin/sh
-# Written by `cosmic release --launcher <this file>`, which also writes
+# Written by `cosmic release launcher <this file>`, which also writes
 # the pin: with `--commit <the pin's first line>` it writes this script
 # again and the same pin. Do not edit it by hand.
 #
@@ -24,11 +24,11 @@ local template <const> = [[
 # is beside the name this script is run by, so a link to the script from
 # another directory reads a pin there. It is three lines: a commit of
 # cosmic-lua/cosmic, that commit's release URL, and the binary's sha256.
-# `cosmic release --pin <the pin>` moves it.
+# `cosmic release pin <the pin>` moves it.
 #
 # The binary is cached by digest, as
 # $XDG_CACHE_HOME/cosmic/bootstrap/cosmic-<sha256> (default
-# ~/.cache/cosmic/bootstrap/...), where `cosmic release --cache` puts
+# ~/.cache/cosmic/bootstrap/...), where `cosmic release get --cache` puts
 # one too. It is downloaded to a .part file beside that name, checked
 # against the pin, made executable, and only then renamed into place:
 # nothing downloaded runs before its sha256 is the pin's, and a warm

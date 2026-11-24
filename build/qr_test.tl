@@ -66,9 +66,9 @@ end
 
 local function test_the_options_reach_the_drawing()
   local code = assert(Qr.encode("x", { level = "H" }))
-  local ran = run({ "--level", "h", "--quiet", "1", "--invert", "--ascii", "x" })
+  local ran = run({ "--level", "h", "--border", "1", "--invert", "--ascii", "x" })
   assert(ran.code == 0 and ran.out == Qr.text(code, { quiet = 1, invert = true, ascii = true }), ran.err)
-  local printed = run({ "--svg", "-", "--scale", "2", "--title", "an x", "--level", "H", "--quiet", "0", "x" })
+  local printed = run({ "--svg", "-", "--scale", "2", "--title", "an x", "--level", "H", "--border", "0", "x" })
   assert(printed.code == 0 and printed.out == Qr.svg(code, { quiet = 0, scale = 2, title = "an x" }) .. "\n",
     printed.out)
   local painted = run({ "--color", "--ascii", "x" })
@@ -93,7 +93,7 @@ end
 local function test_a_command_line_it_refuses_is_exit_2()
   local refused: {{string}} = {
     { "--level", "X", "x" }, { "--max-version", "41", "x" }, { "--max-version", "0", "x" },
-    { "--quiet", "17", "x" }, { "--quiet", "-1", "x" }, { "--scale", "2", "x" }, { "--title", "t", "x" },
+    { "--border", "17", "x" }, { "--border", "-1", "x" }, { "--scale", "2", "x" }, { "--title", "t", "x" },
     { "--svg", "-", "--invert", "x" }, { "--svg", "-", "--ascii", "x" }, { "--svg", "", "x" },
     { "--svg", "-", "--scale", "0", "x" }, { "--nosuch", "x" }, { "--svg", "-", "--color", "x" },
     { "--color", "--invert", "x" },
@@ -102,7 +102,7 @@ local function test_a_command_line_it_refuses_is_exit_2()
     local ran = run(words)
     local line = table.concat(words, " ")
     assert(ran.code == 2 and ran.out == "", line)
-    assert(ran.err:find("^cosmic: qr: ") ~= nil and ran.err:find("; cosmic qr ", 1, true) ~= nil, line .. ": " .. ran.err)
+    assert(ran.err:find("^cosmic: qr: ") ~= nil and ran.err:find("; usage: cosmic qr ", 1, true) ~= nil, line .. ": " .. ran.err)
   end
 end
 
@@ -113,36 +113,48 @@ end
 
 local function test_read_prints_the_text_of_each_drawing()
   local text = "https://example.com/ ✓"
-  local drawings: {{string}} = { { "--invert" }, { "--ascii", "--quiet", "0" }, {}, { "--color" } }
+  local drawings: {{string}} = { { "--invert" }, { "--ascii", "--border", "0" }, {}, { "--color" } }
   for _, words in ipairs(drawings) do
     local argv: mut {string} = {}
     for _, word in ipairs(words) do argv[#argv + 1] = word end
     argv[#argv + 1] = text
     local drawn = run(argv)
-    local read = run({ "--read" }, drawn.out)
+    local read = run({ "read" }, drawn.out)
     assert(read.code == 0 and read.out == text .. "\n" and read.err == "", read.err)
-    local dashed = run({ "--read", "-" }, drawn.out)
+    local dashed = run({ "read", "-" }, drawn.out)
     assert(dashed.code == 0 and dashed.out == text .. "\n", dashed.err)
   end
   local svg = run({ "--svg", "-", "--level", "H", text })
-  local from_svg = run({ "--read" }, svg.out)
+  local from_svg = run({ "read" }, svg.out)
   assert(from_svg.code == 0 and from_svg.out == text .. "\n", from_svg.err)
 end
 
+--- After `--`, `read` is the text's first word, not the command.
+local function test_a_text_that_starts_with_read_follows_two_dashes()
+  local drawn = run({ "--", "read", "me" })
+  assert(drawn.code == 0, drawn.err)
+  local back = run({ "read" }, drawn.out)
+  assert(back.code == 0 and back.out == "read me\n", back.out .. back.err)
+end
+
 local function test_read_refuses_options_and_what_is_no_code()
-  local refused: {{string}} = { { "--read", "--invert" }, { "--read", "--svg", "-" }, { "--read", "a", "b" },
-    { "--read", "" }, { "--read", "--level", "H" }, { "--read", "--color" } }
+  local refused: {{string}} = { { "read", "--invert" }, { "read", "--svg", "-" }, { "read", "a", "b" },
+    { "read", "" }, { "read", "--level", "H" }, { "read", "--color" } }
   for _, words in ipairs(refused) do
     local ran = run(words, "")
     assert(ran.code == 2 and ran.out == "" and ran.err:find("^cosmic: qr: ") ~= nil, table.concat(words, " "))
   end
-  local missing = run({ "--read", "nosuch.svg" })
+  local two = run({ "read", "a", "b" }, "")
+  assert(two.err:find("cosmic: qr: read: takes one file at most, not 2; usage: cosmic qr read [file|-]", 1, true), two.err)
+  -- The spelling before `read` points at it.
+  assert(run({ "--read" }, "").err:find("`cosmic qr read [file|-]` reads a code back", 1, true))
+  local missing = run({ "read", "nosuch.svg" })
   assert(missing.code == 5 and missing.err == "cosmic: qr: nosuch.svg: no such file\n", missing.err)
   for _, empty in ipairs({ "", " \n\n" }) do
-    local ran = run({ "--read" }, empty)
+    local ran = run({ "read" }, empty)
     assert(ran.code == 5 and ran.err == "cosmic: qr: there is nothing to read\n", ran.err)
   end
-  local none = run({ "--read" }, "not a code\n")
+  local none = run({ "read" }, "not a code\n")
   assert(none.code == 1 and none.out == "", none.out)
   assert(none.err == 'cosmic: qr: line 1 holds "no", where a module is ## or two spaces\n', none.err)
 end

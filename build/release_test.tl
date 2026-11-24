@@ -152,7 +152,7 @@ end
 --- Both forms are listed together, newest first, and a commit tagged in
 --- both is asked for under each. Tags of neither form are not releases.
 local function test_both_tag_forms_are_found_and_other_tags_are_not()
-  local ran = run({ "--list" }, {
+  local ran = run({ "list" }, {
     refs(dated(newest), "latest-" .. newest, "v1.0", "2026101-" .. older, "20261018-" .. older:upper(),
       "next-" .. older, oldest),
     history(newest, older, oldest),
@@ -164,7 +164,7 @@ local function test_both_tag_forms_are_found_and_other_tags_are_not()
   assert(ran.out == "2026-10-18T10:00:00Z  " .. newest .. "\n" ..
       "2026-10-17T10:00:00Z  " .. older .. "\n" ..
       "2026-10-16T10:00:00Z  " .. oldest .. "\n", ran.out)
-  local both = run({ "--list", "--json" }, {
+  local both = run({ "list", "--json" }, {
     refs(dated(newest), "next-" .. newest), history(newest),
     ok(entry(dated(newest), "2026-10-18T10:00:00Z")), ok(entry(newest, "2026-10-18T09:00:00Z")) })
   assert(both.code == 0, both.err)
@@ -197,7 +197,7 @@ local function test_a_prefix_passes_over_tags_without_a_release()
   local draft = "abcdef0" .. string.rep("4", 33)
   local earlier = "abcdef0" .. string.rep("2", 33)
   local later = "abcdef0" .. string.rep("3", 33)
-  local ran = run({ "--list", "--commit", "abcdef0" }, {
+  local ran = run({ "list", "--commit", "abcdef0" }, {
     refs(bare_tag, draft, earlier, later),
     reply("404 Not Found", "{}"),
     ok(entry(draft, "2026-10-19T10:00:00Z", true)),
@@ -287,7 +287,7 @@ local function test_history_is_read_past_a_page_without_a_tag()
   untagged[#untagged + 1] = older
   local blank: mut {string} = {}
   for i = 1, 100 do blank[i] = string.format("%040x", 1000 + i) end
-  local ran = run({ "--list" }, {
+  local ran = run({ "list" }, {
     refs(newest, older, oldest),
     history(table.unpack(blank)),
     history(table.unpack(untagged)),
@@ -305,7 +305,7 @@ end
 local function test_history_ends_once_every_tag_is_passed()
   local page: mut {string} = { older }
   for i = 2, 100 do page[#page + 1] = string.format("%040x", i) end
-  local ran = run({ "--list" }, { refs(older), history(table.unpack(page)), ok(entry(older, "2026-10-17T10:00:00Z")) })
+  local ran = run({ "list" }, { refs(older), history(table.unpack(page)), ok(entry(older, "2026-10-17T10:00:00Z")) })
   assert(ran.code == 0, ran.err)
   assert(ran.out == "2026-10-17T10:00:00Z  " .. older .. "\n", ran.out)
   local none = run({}, { refs() })
@@ -344,7 +344,7 @@ end
 
 local function test_o_writes_the_verified_binary_executable(tmp: string)
   local path = tmp .. "/cosmic"
-  local ran = run({ "-o", path }, newest_then(sums(), source(newest), ok(binary)))
+  local ran = run({ "get", "-o", path }, newest_then(sums(), source(newest), ok(binary)))
   assert(ran.code == 0, ran.err)
   assert(ran.out == "", ran.out)
   assert(assert(Fs.read(path)) == binary)
@@ -354,25 +354,25 @@ end
 
 local function test_a_binary_that_is_not_the_digest_leaves_nothing(tmp: string)
   local path = tmp .. "/cosmic"
-  failed(run({ "-o", path }, newest_then(sums(), source(newest), ok("other bytes"))), "sha256 mismatch")
+  failed(run({ "get", "-o", path }, newest_then(sums(), source(newest), ok("other bytes"))), "sha256 mismatch")
   assert(not assert(Fs.status(path)).exists)
   assert(#assert(Fs.list(tmp)) == 0, "a temporary file was left")
   local pin = tmp .. "/pin"
-  failed(run({ "--pin", pin }, newest_then(sums(), source(newest), ok("other bytes"))), "sha256 mismatch")
+  failed(run({ "pin", pin }, newest_then(sums(), source(newest), ok("other bytes"))), "sha256 mismatch")
   assert(not assert(Fs.status(pin)).exists)
 end
 
 local function test_cache_fills_bootstraps_cache_once(tmp: string)
   local env = { XDG_CACHE_HOME = tmp .. "/cache" }
   local want = tmp .. "/cache/cosmic/bootstrap/cosmic-" .. digest
-  local ran = run({ "--cache" }, newest_then(sums(), source(newest), ok(binary)), env)
+  local ran = run({ "get", "--cache" }, newest_then(sums(), source(newest), ok(binary)), env)
   assert(ran.code == 0, ran.err)
   assert(ran.out == want .. "\n", ran.out)
   assert(assert(Fs.read(want)) == binary)
   -- No reply for the binary: a second download would fail the run. A
   -- run cut off before its chmod leaves the file unexecutable.
   assert(Fs.chmod(want, 0x1a4))
-  local again = run({ "--cache" }, newest_then(sums(), source(newest)), env)
+  local again = run({ "get", "--cache" }, newest_then(sums(), source(newest)), env)
   assert(again.code == 0, again.err)
   assert(again.out == want .. "\n", again.out)
   assert(assert(Fs.stat(want)).mode & 0x1ff == 0x1ed, "a cached binary is made executable again")
@@ -380,24 +380,24 @@ end
 
 local function test_pin_writes_the_pin_once_the_bytes_check(tmp: string)
   local pin = tmp .. "/cosmic-driver.pin"
-  local ran = run({ "--pin", pin }, newest_then(sums(), source(newest), ok(binary)))
+  local ran = run({ "pin", pin }, newest_then(sums(), source(newest), ok(binary)))
   assert(ran.code == 0, ran.err)
   assert(ran.out == "", ran.out)
   assert(assert(Fs.read(pin)) == release.pin_text("next-" .. newest, newest, digest))
   assert(#assert(Fs.list(tmp)) == 1, "only the pin is kept")
   local path = tmp .. "/bin"
-  local both = run({ "--pin", pin, "-o", path }, newest_then(sums(), source(newest), ok(binary)))
+  local both = run({ "pin", "-o", path, pin }, newest_then(sums(), source(newest), ok(binary)))
   assert(both.code == 0, both.err)
   assert(assert(Fs.read(path)) == binary)
 end
 
---- `--launcher` sets a project up: the launcher [`build.pinned_launcher`]
---- writes for the file's name, executable, and beside it the pin `--pin`
+--- `launcher` sets a project up: the launcher [`build.pinned_launcher`]
+--- writes for the file's name, executable, and beside it the pin `pin`
 --- writes, each only once the binary's bytes check.
 local function test_launcher_writes_the_script_and_its_pin(tmp: string)
   local launcher = tmp .. "/bin/cosmic"
   assert(Fs.mkdirs(tmp .. "/bin"))
-  local ran = run({ "--launcher", launcher }, newest_then(sums(), source(newest), ok(binary)))
+  local ran = run({ "launcher", launcher }, newest_then(sums(), source(newest), ok(binary)))
   assert(ran.code == 0, ran.err)
   assert(ran.out == "", ran.out)
   assert(assert(Fs.read(launcher)) == assert(pinned_launcher.script("cosmic")))
@@ -405,22 +405,24 @@ local function test_launcher_writes_the_script_and_its_pin(tmp: string)
   assert(assert(Fs.read(launcher .. ".pin")) == release.pin_text("next-" .. newest, newest, digest))
   assert(#assert(Fs.list(tmp .. "/bin")) == 2, "only the launcher and its pin are kept")
   local other = tmp .. "/bin/next"
-  failed(run({ "--launcher", other }, newest_then(sums(), source(newest), ok("other bytes"))), "sha256 mismatch")
+  failed(run({ "launcher", other }, newest_then(sums(), source(newest), ok("other bytes"))), "sha256 mismatch")
   assert(not assert(Fs.status(other)).exists and not assert(Fs.status(other .. ".pin")).exists)
 end
 
---- A `--launcher` that could not be written whole is refused before any request, each for its own reason,
+--- A `launcher` file that could not be written whole is refused before any request, each for its own reason,
 --- and leaves no pin behind.
 local function test_a_launcher_it_cannot_write_is_refused(tmp: string)
   local cases: {{string}} = {
-    { "give it or --pin, not both", "--launcher", tmp .. "/a", "--pin", tmp .. "/a.pin" },
-    { "nothing for -o, --cache, --pin or --launcher", "--list", "--launcher", tmp .. "/a" },
-    { "no -o, --cache, --pin or --launcher", "--json", "--launcher", tmp .. "/a" },
-    { "after --launcher", "--launcher", "" },
-    { "a launcher is named with", "--launcher", tmp .. "/a b" },
-    { "is a directory", "--launcher", tmp .. "/.." },
-    { "is a directory", "--launcher", tmp },
-    { "is a directory", "--launcher", tmp .. "/a/" },
+    { "takes one file, but was given 0 words", "launcher" },
+    { "takes one file, but was given 2 words", "launcher", tmp .. "/a", tmp .. "/a.pin" },
+    { "no such option: --pin", "launcher", "--pin", tmp .. "/a.pin", tmp .. "/a" },
+    { "no such option: --json", "launcher", "--json", tmp .. "/a" },
+    { "give -o or --cache, not both", "launcher", "-o", tmp .. "/b", "--cache", tmp .. "/a" },
+    { "an empty file name", "launcher", "" },
+    { "a launcher is named with", "launcher", tmp .. "/a b" },
+    { "is a directory", "launcher", tmp .. "/.." },
+    { "is a directory", "launcher", tmp },
+    { "is a directory", "launcher", tmp .. "/a/" },
   }
   for _, case in ipairs(cases) do
     local words: mut {string} = {}
@@ -434,7 +436,7 @@ local function test_a_launcher_it_cannot_write_is_refused(tmp: string)
 end
 
 local function test_list_prints_the_matches_newest_first()
-  local ran = run({ "--list" }, {
+  local ran = run({ "list" }, {
     refs(newest, older, oldest), history(newest, older, oldest),
     ok(entry(newest, "2026-10-18T10:00:00Z")), ok(entry(older, "2026-10-17T10:00:00Z")),
     ok(entry(oldest, "2026-10-16T10:00:00Z")),
@@ -443,13 +445,13 @@ local function test_list_prints_the_matches_newest_first()
   assert(ran.out == "2026-10-18T10:00:00Z  " .. newest .. "\n" ..
       "2026-10-17T10:00:00Z  " .. older .. "\n" ..
       "2026-10-16T10:00:00Z  " .. oldest .. "\n", ran.out)
-  local none = run({ "--list", "--commit", "abcdeff" }, { refs() })
+  local none = run({ "list", "--commit", "abcdeff" }, { refs() })
   assert(none.code == 0, none.err)
   assert(none.out == "", none.out)
-  local empty = run({ "--list", "--json", "--commit", "abcdeff" }, { refs() })
+  local empty = run({ "list", "--json", "--commit", "abcdeff" }, { refs() })
   assert(empty.code == 0, empty.err)
   assert(empty.out == "[]\n", empty.out)
-  local json = run({ "--list", "--json", "-n", "1" }, newest_then())
+  local json = run({ "list", "--json", "-n", "1" }, newest_then())
   assert(json.code == 0, json.err)
   local decoded, why = Shape.decode_into(json.out, Shape.list(PRINTED.spec))
   assert(decoded ~= nil, why)
@@ -478,18 +480,42 @@ local function test_a_command_line_it_cannot_use_is_refused()
       { "--commit", "abc" },
       { "--commit", "xyzxyzx" },
       { "--until", "yesterday" },
-      { "-o", "a", "--cache" },
-      { "--list", "-o", "a" },
-      { "--list", "--pin", "a" },
+      { "get", "-o", "a", "--cache" },
+      { "get" },
+      { "get", "--json" },
+      { "list", "-o", "a" },
+      { "list", "word" },
       { "-n", "3" },
-      { "--list", "-n", "0" },
-      { "--json", "--cache" },
-      { "-o", "" },
+      { "list", "-n", "0" },
+      { "--cache" },
+      { "get", "-o", "" },
+      { "pin" },
       { "word" },
   }) do
     local ran = run(words, {})
     assert(ran.code == 2, table.concat(words, " ") .. ": " .. tostring(ran.code) .. " " .. ran.err)
     assert(ran.err:find("cosmic release", 1, true) ~= nil, ran.err)
+  end
+end
+
+--- Each refusal names what was wrong and ends in the usage of the command the line named, or of
+--- the verb when it named none.
+local function test_a_refusal_ends_in_its_own_usage()
+  for _, case in ipairs({
+      { "no such subcommand: lsit; usage: cosmic release [list | get | pin | launcher] [options]", "lsit" },
+      { "put the command first: cosmic release pin [options]; usage: cosmic release [list",
+          "--commit", "abc1234", "pin", "f" },
+      { "no such option: --pin; usage: cosmic release [list", "--pin", "f" },
+      { "pin: an empty file name; usage: cosmic release pin [options] <file>", "pin", "" },
+      { "get: give -o <file> or --cache", "get" },
+      { "takes no words, but was given 1 word; usage: cosmic release [list", "--json", "x" },
+      { "no such subcommand: show; usage: cosmic release [list", "show" },
+  }) do
+    local words: mut {string} = {}
+    for at = 2, #case do words[#words + 1] = assert(case[at]) end
+    local ran = run(words, {})
+    assert(ran.code == 2, table.concat(words, " ") .. ": " .. tostring(ran.code) .. " " .. ran.err)
+    assert(ran.err:find(assert(case[1]), 1, true) ~= nil, ran.err)
   end
 end
 

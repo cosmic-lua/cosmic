@@ -125,6 +125,30 @@ local function test_a_tests_lines_given_in_order_spell_its_row()
   assert(placed == "build.a 0123abcd\t1,5\n", placed)
 end
 
+--- A run of adjacent lines is spelled as its first, a `+` and how many follow, and read back as each of its lines; a
+--- row of one number a line, as a binary before runs wrote it, and a row of distances read as they did.
+local function test_a_run_of_adjacent_lines_is_spelled_as_one_and_read_as_each()
+  local named = string.rep("a", 16)
+  local texts = { ["build.a"] = named }
+  local tested: {integer:boolean} = { [2] = true, [3] = true, [4] = true, [5] = true, [9] = true, [11] = true,
+    [12] = true }
+  local row = test.take_hits({}, {}, {}, {}, {}, { ["build.a"] = tested }, texts)
+  assert(row == "build.a " .. named .. "\t2+3,9,11+1\n", row)
+  local function read(encoded: string): string
+    local hits: mut {string:mut {integer:boolean}} = {}
+    local _ = test.decode_hits(encoded, hits, texts, {})
+    local lines: mut {integer} = {}
+    for line in pairs(hits["build.a"] or {}) do lines[#lines + 1] = line end
+    table.sort(lines)
+    return table.concat(lines, ",")
+  end
+  assert(read(row) == "2,3,4,5,9,11,12", read(row))
+  assert(read("build.a " .. named .. "\t2,3,4,5,9\n") == "2,3,4,5,9", "a row of one number a line reads as it did")
+  -- Distances: a run's first is its distance from the last line of the run before.
+  assert(read("lines as distances\nbuild.a " .. named .. "\t2,1+2,4\n") == "2,3,4,5,9")
+  assert(read("lines as distances\nbuild.a " .. named .. "\t2,1,1,1,4\n") == "2,3,4,5,9")
+end
+
 --- A worker given a pure store reports the lines of an imported module's numbered chunk as instruction ordinals
 --- ([`lua_tail.numbered`]), placed at the source lines this run's text gives each instruction; a module's own lines
 --- and those of a module with no ordinal are left as they are, the same table for the same table, and an ordinal
@@ -898,6 +922,23 @@ local function test_coverage_is_kept_for_the_newest_ten_runs_only()
     "coverage kept: " .. table.concat(kept, " "))
   local runs = assert(assert(db:text_rows("SELECT count(*), min(ran_at_ns) FROM test_runs"))[1]):texts()
   assert(runs[1] == "10" and runs[2] == "4", "test_runs kept: " .. table.concat(runs, " "))
+  assert(db:close())
+end
+
+--- A run keeps each test's newest ten failures, whatever another test's
+--- count.
+local function test_failures_keep_each_tests_newest_ten()
+  local db = assert(Sqlite.open(":memory:", { writable = true }))
+  for _, statement in ipairs(work.schema) do assert(db:exec(statement)) end
+  assert(test.record_failure(db, "a_test", "test_x", "boom", 1, "k", 1))
+  for at = 2, 30 do assert(test.record_failure(db, "a_test", "test_y", "again", at, "k", at)) end
+  assert(test.prune_history(db, 100))
+  local kept = assert(db:text_rows(
+    "SELECT test, count(*), min(ran_at_ns), max(ran_at_ns) FROM failures GROUP BY test ORDER BY test"))
+  assert(#kept == 2, "failures kept of " .. tostring(#kept) .. " tests")
+  local x, y = assert(kept[1]):texts(), assert(kept[2]):texts()
+  assert(table.concat(x, " ") == "test_x 1 1 1", "test_x kept: " .. table.concat(x, " "))
+  assert(table.concat(y, " ") == "test_y 10 21 30", "test_y kept: " .. table.concat(y, " "))
   assert(db:close())
 end
 

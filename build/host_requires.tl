@@ -558,7 +558,7 @@ local table_of: {string:Entry} = {
       -- reopen to start again is a defect, never an absence.
       local found, trouble = relaunch()
       if found == nil then
-        error("host_requires: a portable artifact cannot start again: " .. trouble, 0)
+        error("host_requires: a portable artifact cannot start again: " .. tostring(trouble), 0)
       end
       return present("artifact")
     end },
@@ -605,7 +605,7 @@ local table_of: {string:Entry} = {
       -- The worker runs it only with the profile "system" and the variable
       -- PATH: `check` refuses a `program:` without both.
       local resolved, why = find_program(argument, host.context.path)
-      if resolved == nil then return absent(why) end
+      if resolved == nil then return absent(tostring(why)) end
       -- A worker with the profile "system" sees only the system's paths
       -- ([`confine.system_paths`]): a program found elsewhere on PATH is one
       -- it cannot run, so it is absent for the test, whatever the runner finds.

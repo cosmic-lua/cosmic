@@ -347,8 +347,7 @@ local version <const> = "35"
 --- it; its `ms` stops at that commit and leaves the publication out.
 ---
 --- `runs` is one row per test, keyed by the module and the test's own
---- name inside it, so a later run of the same test replaces its row
---- rather than piling up a history the runner has no use for yet.
+--- name inside it, so a later run of the same test replaces its row.
 --- `key` is what the verdict is a function of, the digest of the
 --- test's declared inputs ([`build.declared_key`]), and, after a space,
 --- the key it is shared under; `run_at_ns` the `cosmic test`
@@ -359,12 +358,18 @@ local version <const> = "35"
 --- that produced that verdict, so `runs` always tells "how long does
 --- this test take", even when most tests are cached.
 ---
+--- `failures` is the history `runs` does not keep: a row for each
+--- failure a run recorded, with its `runs` `key` and `message`, the
+--- newest `kept_failures` of each test ([`build.test`]'s
+--- `prune_history`). A failure whose nonempty `key` is that of a later
+--- pass is a flake: the same inputs gave both.
+---
 --- `verdicts` is one row per key ever seen, with its verdict and the
 --- invocation that produced it, and `seen` the last run that relied on
 --- it: while a key stands and its verdict passed, the test is not run
 --- again, and an edit undone finds its old key again. One no run has
 --- relied on in the last ten ([`build.test`]'s `kept_runs`) is dropped,
---- and with it the `coverage_by_test` rows no verdict credits any
+--- and with it the `hits_by_test` rows no verdict credits any
 --- more. `elapsed_ns` carries the duration of the run that reached this
 --- verdict, which `runs` reports for a test settled from it.
 ---
@@ -376,13 +381,13 @@ local version <const> = "35"
 --- writes what it looked at: a run of the whole tree in place of the
 --- rest, so a file no test declares any more goes.
 ---
---- `test_runs`/`coverage`/`coverage_by_test` are real history instead:
+--- `test_runs`/`coverage`/`hits_by_test` are real history instead:
 --- one snapshot per `cosmic test` invocation, each run identified by
 --- its own start time in nanoseconds (`ran_at_ns`), the convention
 --- `runs.ran_at_ns` uses. This database never ships, but its growth is
 --- still bounded: [`build.test`]'s `prune_history`
 --- runs in the same transaction as every write here and keeps
---- `coverage` to the newest `kept_snapshots` runs, `coverage_by_test`
+--- `coverage` to the newest `kept_snapshots` runs, `hits_by_test`
 --- to what a standing verdict still credits, and `test_runs` to what
 --- either of those still references.
 ---
@@ -398,7 +403,7 @@ local version <const> = "35"
 --- rather than replacing the last run's, so a file's coverage trend
 --- over the kept window of runs is a plain query away.
 ---
---- `coverage_by_test` settles a narrower question `coverage` cannot:
+--- `hits_by_test` records what `coverage` cannot:
 --- which lines a given test hit in a given run. It is one row per test
 --- per run, its `hits` every line the test hit, as [`build.test`]'s
 --- `take_hits` writes them, each module's lines beside the text they are
@@ -408,6 +413,12 @@ local version <const> = "35"
 --- says so ([`build.test`]'s `decode_kept`): one row per line hit would be millions a
 --- run, and writing them, then deleting the last run's, cost a full run
 --- most of its time.
+---
+--- `coverage_by_test` is the table of rows before `hits_by_test`: the same, but each line a number of its own, where
+--- `hits_by_test` writes a run of adjacent lines as one ([`build.test`]'s `runs_of`). A binary before that reads
+--- `coverage_by_test` alone, so it never reads a run as two lines. This one writes and reads none there, and prunes
+--- them as before. Every key holds the code of [`build.shared_verdicts`] ([`build.test_key`]), which changed with the
+--- runs, so no verdict a binary from before reached stands for this one, nor one of this for that.
 ---
 --- `type_violations` holds what the last `cosmic test --check-types` run
 --- reported ([`build.test`]'s `keep_violations`): a row for each distinct
@@ -596,6 +607,13 @@ for _, statement in ipairs({
                                      run_at_ns INTEGER NOT NULL,
                                      elapsed_ns INTEGER NOT NULL,
                                      PRIMARY KEY (path, test)) WITHOUT ROWID]],
+    [[CREATE TABLE IF NOT EXISTS failures (path TEXT NOT NULL,
+                                         test TEXT NOT NULL,
+                                         message TEXT NOT NULL,
+                                         ran_at_ns INTEGER NOT NULL,
+                                         key TEXT NOT NULL,
+                                         run_at_ns INTEGER NOT NULL,
+                                         PRIMARY KEY (path, test, ran_at_ns)) WITHOUT ROWID]],
     [[CREATE TABLE IF NOT EXISTS verdicts (key TEXT PRIMARY KEY,
                                          passed INTEGER NOT NULL,
                                          run_at_ns INTEGER NOT NULL,
@@ -612,6 +630,10 @@ for _, statement in ipairs({
                                          hit INTEGER NOT NULL,
                                          PRIMARY KEY (ran_at_ns, path, line))
                                         WITHOUT ROWID]],
+    [[CREATE TABLE IF NOT EXISTS hits_by_test (ran_at_ns INTEGER NOT NULL,
+                                             test TEXT NOT NULL,
+                                             hits TEXT NOT NULL,
+                                             PRIMARY KEY (ran_at_ns, test))]],
     [[CREATE TABLE IF NOT EXISTS coverage_by_test (ran_at_ns INTEGER NOT NULL,
                                                  test TEXT NOT NULL,
                                                  hits TEXT NOT NULL,

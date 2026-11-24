@@ -66,9 +66,12 @@ local record Flags
     --- gave; help shows it ("default: M"). One that the option's `choices` or `integer` refuse, or
     --- one on a `required` option, raises.
     default?: string
+    --- Where an option that is gone went, for a line that still gives it: [`Flags.parse`] refuses it with
+    --- this after its name ("no such option: --read; `prog read` reads one back"), and help leaves it out.
+    moved?: string
   end
 
-  -- TODO: move the other verbs' value checks onto `choices` and `integer` (qr, codec, release, sandbox,
+  -- TODO: move the other verbs' value checks onto `choices` and `integer` (qr, codec, sandbox,
   -- test, build, sql, lsp), their "(default ...)" text onto `default`, and json's -r and codec's -d onto
   -- `aliases`; each still words its own refusal of a bad value. Wait for the docs thread's move of each
   -- verb's spec to cosmic/cli/<verb>.tl, and the six verbs to `subcommands`.
@@ -472,7 +475,10 @@ local function read(argv: {string}, from: integer, spec: {string:boolean | Flags
     end
   end
   local known: mut {string} = {}
-  for name in pairs(named) do known[#known + 1] = name end
+  for name, spec_name in pairs(named) do
+    local entry = spec[spec_name]
+    if not (entry is Flags.Option and entry.moved ~= nil) then known[#known + 1] = name end
+  end
   for _, name in ipairs(also) do known[#known + 1] = name end
   -- Whether the spec names an option that begins with a digit ("-1"), which then is what such a word is.
   local digits = false
@@ -539,6 +545,8 @@ local function read(argv: {string}, from: integer, spec: {string:boolean | Flags
       local entry = spec[name]
       if entry == nil then
         return nil, "no such option: " .. name .. meant(name, known)
+      elseif entry is Flags.Option and entry.moved ~= nil then
+        return nil, "no such option: " .. typed .. "; " .. entry.moved
       elseif takes_value(entry) then
         local trouble = valued(name, value, if #typed > 2 then "=" else "" end, typed)
         if trouble ~= "" then
@@ -564,6 +572,8 @@ local function read(argv: {string}, from: integer, spec: {string:boolean | Flags
           return nil, "no such option: " .. word .. meant(word, known)
         elseif entry == nil then
           return nil, "no such option: " .. typed .. " in " .. word .. meant(word, known)
+        elseif entry is Flags.Option and entry.moved ~= nil then
+          return nil, "no such option: " .. typed .. "; " .. entry.moved
         elseif takes_value(entry) then
           local rest = word:sub(at + 1)
           local trouble = valued(name, if rest ~= "" then rest else nil end, "", typed)
@@ -796,7 +806,10 @@ end
 --- of its value -- with what it does: sorted by name without its dashes.
 local function option_rows(spec: {string:boolean | Flags.Option}): {Row}
   local names: mut {string} = {}
-  for name in pairs(spec) do names[#names + 1] = name end
+  for name, entry in pairs(spec) do
+    -- An option that moved is refused, not offered.
+    if not (entry is Flags.Option and entry.moved ~= nil) then names[#names + 1] = name end
+  end
   table.sort(names, function(a: string, b: string): boolean
     local bare_a, bare_b = a:gsub("^%-+", ""), b:gsub("^%-+", "")
     if bare_a ~= bare_b then return bare_a < bare_b end
@@ -886,6 +899,20 @@ local function usage_of(command: Flags.Command): string
   return if next(command.spec or {}) ~= nil then "[options]" else "" end
 end
 
+--- The usage line of `command`, as its help's first line and every refusal's end give it:
+--- "usage: prog count [options] <file>".
+--- @param command Command The command
+--- @param name string What the line calls it: the program, and the command's own word after it when it has one
+---   ("prog count"); not empty, or this raises
+--- @return string The line, with no newline
+function Flags.usage(command: Flags.Command, name: string): string
+  if name == "" then
+    error("flags: usage's name is empty", 2)
+  end
+  local usage = usage_of(command)
+  return "usage: " .. (if usage ~= "" then name .. " " .. usage else name end)
+end
+
 --- The line `command` is typed as, for its help: `program`, the word that runs it (`name`, or its `typed`), and
 --- its usage ([`usage_of`]).
 local function typed_line(program: string, name: string, command: Flags.Command): string
@@ -968,9 +995,15 @@ function Flags.help(command: Flags.Command, name: string, width?: integer): stri
   elseif width ~= nil and width < 1 then
     error("flags: help's width is not a positive number of columns", 2)
   end
-  local spec = command.spec or {}
-  local usage = usage_of(command)
-  local parts: mut {string} = { "usage: " .. (if usage ~= "" then name .. " " .. usage else name end) }
+  -- A subcommand typed by no word runs when the line names none, so its options are shown with the command's own.
+  local spec: mut {string: boolean | Flags.Option} = {}
+  for option_name, option in pairs(command.spec or {}) do spec[option_name] = option end
+  for _, sub in pairs(command.subcommands or {}) do
+    if sub.typed == "" then
+      for option_name, option in pairs(sub.spec or {}) do spec[option_name] = option end
+    end
+  end
+  local parts: mut {string} = { Flags.usage(command, name) }
   local about = command.about
   if about ~= nil and about ~= "" then
     if width ~= nil and columns(about) > width and about:find("\n", 1, true) == nil and
@@ -1378,7 +1411,7 @@ end
 --- typed as ([`Flags.Command`]'s `typed`), and then not by its name: an
 --- option's spelling ("--version"), or no word at all, which is the command
 --- a first word that names no other runs, that word being the first of its
---- own ("prog notes.txt"). With such a command no first word is refused as
+--- own ("prog notes.txt"), and a line of no words runs it too. With such a command no first word is refused as
 --- no command, a mistyped one among them, and a file named "help" is not
 --- run. Help calls a command as it is typed, and `help` takes that word or
 --- the name. A command's `rest` says from which slot the words are its
@@ -1558,13 +1591,18 @@ function Flags.dispatch(argv: {string}, from: integer,
   end
   if name == nil then
     local names: mut {string} = {}
+    local defaulted = false
     for known, other in pairs(commands) do
       local typed = other.typed or known
-      if typed ~= "" then names[#names + 1] = typed end
+      if typed ~= "" then names[#names + 1] = typed else defaulted = true end
     end
-    table.sort(names)
-    return nil, "needs a command: " .. table.concat(names, ", ")
+    if not defaulted then
+      table.sort(names)
+      return nil, "needs a command: " .. table.concat(names, ", ")
+    end
   end
+  -- A line that names no command runs the one typed by no word, as a first word that names none does.
+  name = name or ""
   local command = commands[name]
   -- The slot of the command's first word: after its name, or the word itself where no command is named.
   local first = from + 1
@@ -1630,8 +1668,10 @@ function Flags.dispatch(argv: {string}, from: integer,
   end
   local parsed, why = read(own, first, spec, { "--help" })
   if parsed == nil then
-    local usage_line = Flags.help(command, called(program, name, command)):match("^[^\n]*") or ""
-    return nil, name .. ": " .. why .. "; " .. usage_line
+    local usage_line = Flags.usage(command, called(program, name, command))
+    -- A command typed by no word is not named in its refusal: the line never said it.
+    local label = if command.typed == "" then "" else name .. ": " end
+    return nil, label .. why .. "; " .. usage_line
   end
   local run = command.run
   if run == nil then
@@ -1644,13 +1684,13 @@ end
 --- Runs the command line `argv`, the words after the program's name, as a
 --- program's main does, and returns its exit status. An empty line
 --- writes the program's help ([`Flags.program_help`]) to `to.out` and
---- returns [`Flags.REFUSED`], as [`Flags.dispatch`] runs no command
---- for one. Any other line is
+--- returns [`Flags.REFUSED`], even where a command is typed by no word
+--- (which [`Flags.dispatch`] runs for an empty line). Any other line is
 --- [`Flags.dispatch`]'s from slot 1: help it returns goes to `to.out`
---- with the status 0, a command returns its own status, and a line it
---- refuses is said on `to.err` with where the commands are listed, and
---- the status is [`Flags.REFUSED`]. `to` is [`Flags.std_io`]'s when nil. It
---- raises where [`Flags.dispatch`] does.
+--- with the status 0, a command's `run` returns its own status, and a
+--- line it refuses is said on `to.err` with where the commands are
+--- listed, and the status is [`Flags.REFUSED`]. `to` is
+--- [`Flags.std_io`]'s when nil. It raises where [`Flags.dispatch`] does.
 ---
 ---     return function(argv: {string}): integer
 ---       return Flags.main(argv, commands, "prog", documented, Flags.std_io(function(line: string): string

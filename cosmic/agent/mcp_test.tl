@@ -112,7 +112,7 @@ local function test_a_call_cut_off_ends_its_server(tmp: string)
       said = tostring(why)
     end)
     local _, _ = task:join(Clock.ms(300))
-    started = set.handles["s"] ~= nil and set.busy["s"] == true
+    started = set.handles["s"] ~= nil and set.busy["s"] == 1
     task:cancel()
     local _, _ = task:join()
   end)

@@ -51,28 +51,28 @@
 ---
 --- What it does with the release:
 ---
---- * nothing given: prints the release as the three lines of
+--- * no command: prints the release as the three lines of
 ---   ci/cosmic-driver.pin (commit, URL, sha256), or with `--json` an
 ---   object, without downloading the binary.
---- * `--list`: prints the matches, up to `-n` (20 by default), in main's
+--- * `list`: prints the matches, up to `-n` (20 by default), in main's
 ---   order, latest commit first (by `--commit`, newest published first):
 ---   the publication time and commit, a line each, or with `--json` an
 ---   array. Each costs a request, against an unauthenticated limit of 60
 ---   an hour. Nothing is downloaded or verified.
---- * `-o <file>`: writes the binary there, mode 0755.
---- * `--cache`: writes it where bin/cosmic-bootstrap caches the pin's,
+--- * `get -o <file>`: writes the binary there, mode 0755.
+--- * `get --cache`: writes it where bin/cosmic-bootstrap caches the pin's,
 ---   `$XDG_CACHE_HOME/cosmic/bootstrap/cosmic-<sha256>`, and prints that
 ---   path, as an absolute `XDG_CACHE_HOME` or `HOME` names it ([`Fs.cache_dir`]).
 ---   A file already there whose sha256 is the digest is kept, and
 ---   made executable, as a run cut off before its chmod would leave it.
---- * `--pin <file>`: writes the three pin lines there, once the binary's
+--- * `pin <file>`: writes the three pin lines there, once the binary's
 ---   bytes are verified: streamed and hashed when neither `-o` nor
 ---   `--cache` keeps them.
---- * `--launcher <file>`: sets a project up to run on the release. It
----   writes the pin as `--pin <file>.pin` does, then at `<file>`, mode
+--- * `launcher <file>`: sets a project up to run on the release. It
+---   writes the pin as `pin <file>.pin` does, then at `<file>`, mode
 ---   0755, the shell script that fetches, verifies, caches and runs the
 ---   release that pin names ([`build.pinned_launcher`]), which a project
----   keeps as its own bin/cosmic. `--pin <file>.pin` alone moves the pin
+---   keeps as its own bin/cosmic. `pin <file>.pin` moves the pin
 ---   from then on.
 ---
 --- `GH_TOKEN`, when set, goes with the API's requests, and with nothing
@@ -148,10 +148,8 @@ local record verb
   pin_text: function(tag: string, commit: string, digest: string): string
 end
 
-local spec <const> = assert(Verb.spec)
-
-local usage = "usage: cosmic release [--commit <hex>] [--until <time>] " ..
-  "[--list [-n <count>] | -o <file> | --cache] [--pin <file> | --launcher <file>] [--json]"
+--- `release`'s commands, by name: `show`, typed by no word, `list`, `get`, `pin` and `launcher`.
+local commands <const> = assert(Verb.subcommands, "release names its commands")
 
 local repository <const> = "cosmic-lua/cosmic"
 local api <const> = "https://api.github.com/repos/" .. repository
@@ -164,7 +162,6 @@ local max_tags <const> = 10
 --- The most pages of main's history one scan reads, against a runaway:
 --- 10000 commits, past the first release.
 local max_pages <const> = 100
-local default_count <const> = 20
 --- What SHA256SUMS or source.json may weigh; each is a line or two.
 local max_small <const> = 65536
 
@@ -263,14 +260,29 @@ end
 
 local standard: verb.Io = { out = bare.out, err = bare.err }
 
---- `cosmic release [options]`: returns the exit code.
+--- `cosmic release [list | get | pin | launcher] [options]`: returns the exit code.
 --- @param argv the command line, `release` at slot 1
 --- @param io where output, complaints and requests go; the process's own when nil
 function verb.run(argv: {string}, io?: verb.Io): integer
   local to = io or standard
   local complain = bare.complainer("release", to.err)
+  -- The command the line names: no word, or an option first, is `show`.
+  local first = argv[2]
+  local named = first ~= nil and first:sub(1, 1) ~= "-"
+  local command_name = if named and first ~= nil then first else "show" end
+  local usage = "usage: cosmic release " .. tostring(Verb.usage)
+  -- `show` is typed by no word: a line naming it is refused as any other unknown word is.
+  local described = if named and command_name == "show" then nil else commands[command_name] end
+  if described == nil then
+    complain("no such subcommand: " .. command_name .. "; " .. usage)
+    return bare.refused
+  end
+  local command: Flags.Command = described
+  if named then
+    usage = Flags.usage(command, "cosmic release " .. command_name)
+  end
   local function refuse(why: string): integer
-    complain(why .. "; " .. usage)
+    complain((if named then command_name .. ": " else "" end) .. why .. "; " .. usage)
     return bare.refused
   end
   local function fail(why: string): integer
@@ -283,11 +295,20 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     return Env.get(name) or ""
   end
 
-  local flags, trouble = Flags.parse(argv, 2, spec)
+  local spec = assert(command.spec, "each command has options")
+  local flags, trouble = Flags.parse(argv, if named then 3 else 2 end, spec)
   if flags == nil then return refuse(trouble) end
   local parsed: Flags.Parsed = flags
-  if #parsed.words ~= 0 then
-    return refuse("takes no words, but was given " .. plural.count(#parsed.words, "word"))
+  -- `pin` and `launcher` take the file to write; the others take no word.
+  local takes_file = command_name == "pin" or command_name == "launcher"
+  local word_count = if takes_file then 1 else 0 end
+  local stray = parsed.words[1]
+  if not named and stray ~= nil and commands[stray] ~= nil then
+    return refuse("put the command first: cosmic release " .. stray .. " [options]")
+  end
+  if #parsed.words ~= word_count then
+    return refuse((if takes_file then "takes one file" else "takes no words" end) .. ", but was given " ..
+        plural.count(#parsed.words, "word"))
   end
   local prefix = parsed.values["--commit"]
   if prefix ~= nil then
@@ -310,50 +331,33 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     end
     until_ns = ns
   end
-  local listing = parsed.set["--list"] == true
+  local listing = command_name == "list"
   local as_json = parsed.set["--json"] == true
   local target = parsed.values["-o"]
   local to_cache = parsed.set["--cache"] == true
-  local pin = parsed.values["--pin"]
-  local launcher = parsed.values["--launcher"]
+  local pin = if command_name == "pin" then parsed.words[1] else nil end
+  local launcher = if command_name == "launcher" then parsed.words[1] else nil end
   if target == "" then return refuse(bare.empty_file .. " after -o") end
-  if pin == "" then return refuse(bare.empty_file .. " after --pin") end
-  if launcher == "" then return refuse(bare.empty_file .. " after --launcher") end
+  if pin == "" or launcher == "" then return refuse(bare.empty_file) end
+  if target == nil and not to_cache and command_name == "get" then
+    return refuse("give -o <file> or --cache: where the verified binary goes")
+  end
   local launcher_text: string? = nil
   if launcher ~= nil then
-    if pin ~= nil then
-      return refuse("--launcher writes its own pin, " .. launcher .. ".pin: give it or --pin, not both")
-    end
     -- Before anything is asked of the network or written: a name that could not be a file's, or is a
     -- directory's, would leave a pin with no launcher beside it.
     local directory_status, _ = Fs.status(launcher)
     local directory = directory_status ~= nil and directory_status.is_dir
     if launcher:sub(-1) == "/" or directory == true then
-      return refuse("--launcher " .. launcher .. " is a directory: it takes the file to write the launcher to")
+      return refuse(launcher .. " is a directory: it takes the file to write the launcher to")
     end
     local text, name_trouble = pinned_launcher.script(Fs.basename(launcher))
-    if text == nil then return refuse("--launcher " .. launcher .. ": " .. name_trouble) end
+    if text == nil then return refuse(launcher .. ": " .. name_trouble) end
     launcher_text = text
     pin = launcher .. ".pin"
   end
-  local count = default_count
-  local count_text = parsed.values["-n"]
-  if count_text ~= nil then
-    if not listing then return refuse("-n counts what --list prints") end
-    local n = math.tointeger(tonumber(count_text))
-    if n == nil or n < 1 or count_text:match("^%d+$") == nil then
-      return refuse("-n wants a whole number from 1, not " .. count_text)
-    end
-    count = n
-  end
-  if listing and (target ~= nil or to_cache or pin ~= nil) then
-    return refuse("--list downloads nothing, so there is nothing for -o, --cache, --pin or --launcher")
-  end
   if target ~= nil and to_cache then
     return refuse("give -o or --cache, not both")
-  end
-  if as_json and (target ~= nil or to_cache or pin ~= nil) then
-    return refuse("--json shapes what is printed with no -o, --cache, --pin or --launcher")
   end
 
   local repo_url = to.api or api
@@ -394,7 +398,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     local requested = to.requested
     if requested ~= nil then requested(url) end
     local got, why = Http.get(url, options(headers))
-    if got == nil then return nil, url .. ": " .. why end
+    if got == nil then return nil, url .. ": " .. tostring(why) end
     local status = tostring(got.status)
     if got.status == 404 then return nil, "" end
     if got.status == 403 or got.status == 429 then
@@ -543,6 +547,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
 
   if listing then
+    local count = assert(parsed.integers["-n"], "list's -n has a default")
     local found, why = matches(count)
     if found == nil then return fail(why) end
     local shown: mut {verb.Release} = {}
@@ -580,7 +585,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local function small(name: string): string?, string
     local url = assets_url .. release.tag .. "/" .. name
     local response, open_trouble = Http.open(url, options())
-    if response == nil then return nil, url .. ": " .. open_trouble end
+    if response == nil then return nil, url .. ": " .. tostring(open_trouble) end
     local body, read_trouble: string?, string = nil, ""
     if response.status >= 200 and response.status < 300 then
       -- One byte past the cap tells a body at it from one over it.
@@ -672,7 +677,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   else
     -- Only the pin is kept, so the bytes are hashed as they arrive.
     local response, open_trouble = Http.open(binary, options())
-    if response == nil then return fail(binary .. ": " .. open_trouble) end
+    if response == nil then return fail(binary .. ": " .. tostring(open_trouble)) end
     local hashing = assert(Stream.hashing("sha256"))
     local copied, copy_trouble: integer?, string = nil, ""
     if response.status >= 200 and response.status < 300 then

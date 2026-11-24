@@ -90,11 +90,11 @@ local function test_each_option_sets_its_field()
   assert(letters(policy, "c") == "rwc" and letters(policy, "d") == "rwxc")
   same(ran.argv, { "prog" })
 
-  ran = run({ "--system", "--cosmic", "--isolate", "file", "--isolate", "proc", "--promise", "fork",
+  ran = run({ "--system", "--programs", "--cosmic", "--isolate", "file", "--isolate", "proc", "--promise", "fork",
     "--promise", "nest", "--connect", "github.com:443", "--loopback", "127.0.0.2", "--env", "HOME",
     "--env", "TERM", "--set-env", "LANG=C", "--set-env", "EMPTY=", "--tmp", "prog" })
   policy = assert(ran.opts.policy)
-  same(policy.profiles, { "system", "cosmic" })
+  same(policy.profiles, { "system", "programs", "cosmic" })
   same(policy.isolate, { "file", "proc" })
   same(policy.promises, { "fork", "nest" })
   same(policy.connect, { "github.com:443" })
@@ -306,7 +306,7 @@ local function test_a_program_that_is_not_there_exits_127(tmp: string)
     { why = "child: start: sandbox: " .. tmp .. "/absent: No such file or directory" })
   assert(ran.code == 127, tostring(ran.code) .. ran.err)
   assert(ran.err:find("No such file", 1, true))
-  ran = run({ "zzqqx-no-such-program" }, { why = "child: start: zzqqx-no-such-program: not found" })
+  ran = run({ "zzqqx-no-such-program" }, { why = "child: start: zzqqx-no-such-program: No such file or directory" })
   assert(ran.code == 127, tostring(ran.code) .. ran.err)
 end
 
@@ -416,6 +416,7 @@ local exempt <const>: {string:string} = {
 local others <const>: {string:boolean} = {
   ["--fd"] = true, ["--timeout"] = true, ["--cwd"] = true,
   ["--run"] = true, ["--write"] = true, ["--path"] = true, ["--cosmic"] = true,
+  ["--programs"] = true,
   ["--database"] = true, ["--modules"] = true, ["--closure"] = true,
 }
 

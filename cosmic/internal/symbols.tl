@@ -46,7 +46,7 @@ end
 --- The modules `db` records as public ([`public_modules`]), each set: what
 --- a public source covers. Nil and why when they cannot be read.
 function symbols.public_modules(db: Sqlite.Handle): {string: boolean}?, string
-  local rows, trouble = db:text_rows("SELECT path FROM public_modules")
+  local rows, trouble = db:rows("SELECT path FROM public_modules")
   if rows == nil then
     return nil, tostring(trouble)
   end
@@ -160,8 +160,8 @@ function symbols.shown_in(db: Sqlite.Handle, alias: string, public: boolean): st
     return "1"
   end
   -- A probe that fails takes the form that needs no index, which
-  -- finds the same rows.
-  local rows, _ = db:text_rows(
+  -- yields the same rows.
+  local rows, _ = db:rows(
     "SELECT 1 FROM sqlite_schema WHERE type = 'index' AND name = ?1",
     { { text = symbols.local_index } })
   return symbols.shown_docs(alias, public, rows ~= nil and #rows > 0)
@@ -254,7 +254,7 @@ end
 --- out: a hint asked of it would find no match and a test would pass on that. A binary from before the table
 --- finds no match, as a hint may.
 local function refuse_withheld(db: Sqlite.Handle, table_name: string)
-  local rows, _ = db:text_rows("SELECT 1 FROM meta WHERE key = 'pure_store'")
+  local rows, _ = db:rows("SELECT 1 FROM meta WHERE key = 'pure_store'")
   if rows ~= nil and #rows > 0 then
     error("the `" .. table_name .. "` of the store is withheld, so a hint cannot be read from it: a test whose compile " ..
         "words a hint (a refusal naming a symbol or a docs command) declares `Test.policy { store_text = true }`", 0)
@@ -275,7 +275,7 @@ function symbols.named(databases: {Sqlite.Handle}, public: {boolean},
   local out: mut {string} = {}
   for index, db in ipairs(databases) do
     -- A query that fails is no match: a hint never fails the compile.
-    local rows, _ = db:text_rows(
+    local rows, _ = db:rows(
       "SELECT DISTINCT module, symbol FROM docs d WHERE " ..
         symbols.named_where("d") .. " AND " ..
         public_docs("d.module", public[index] == true) ..
@@ -312,7 +312,7 @@ function symbols.has_example_query(databases: {Sqlite.Handle}, public: {boolean}
   local owners: mut {string: integer} = {}
   for index, db in ipairs(databases) do
     -- A query that fails is no owner, and so no example.
-    local modules, _ = db:text_rows("SELECT path FROM modules")
+    local modules, _ = db:rows("SELECT path FROM modules")
     if modules ~= nil then
       for _, row in ipairs(modules) do
         if owners[row:text(1)] == nil then owners[row:text(1)] = index end
@@ -338,7 +338,7 @@ function symbols.has_example_query(databases: {Sqlite.Handle}, public: {boolean}
       -- A query that fails is no match.
       local binds: mut {Sqlite.Value} = { { text = lookup.first } }
       if lookup.second ~= nil then binds[#binds + 1] = { text = lookup.second } end
-      local rows, _ = db:text_rows(lookup.sql, binds)
+      local rows, _ = db:rows(lookup.sql, binds)
       if rows == nil then refuse_withheld(db, "examples") end
       if rows ~= nil then
         for _, row in ipairs(rows) do
@@ -355,7 +355,7 @@ end
 --- before it existed binding none. A key `into` already holds is kept, so the first database read that binds a
 --- name wins.
 function symbols.add_bound(into: mut {string: string}, db: Sqlite.Handle, qualifier: string): boolean, string
-  local held, held_trouble = db:text_rows("SELECT 1 FROM " .. qualifier ..
+  local held, held_trouble = db:rows("SELECT 1 FROM " .. qualifier ..
       "sqlite_schema WHERE type = 'table' AND name = 'bound'")
   if held == nil then
     return false, tostring(held_trouble)
@@ -363,7 +363,7 @@ function symbols.add_bound(into: mut {string: string}, db: Sqlite.Handle, qualif
   if #held == 0 then
     return true, ""
   end
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT path, name, requires FROM " .. qualifier .. "bound ORDER BY path, name")
   if rows == nil then
     return false, tostring(trouble)

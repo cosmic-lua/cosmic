@@ -6,13 +6,13 @@
 --- and an HMAC key are read whole.
 ---
 --- Like `cosmic json` it prints no summary: its standard output is
---- data (or, with `--check`, the per-file lines), and its exit status is
+--- data (or, with `check`, the per-file lines), and its exit status is
 --- the verdict: 0 all well, 1 a check failed or a listed file could not
 --- be read, 2 a command line it refused, 5 a file to hash or a sums file it
 --- cannot use, or a failed write to standard output. Complaints go to standard
 --- error as `cosmic: hash: ...`. Its `spec` (build/verb_spec.tl) is `bare`.
 ---
---- `--check` differs from GNU's in three ways. A line it cannot read (a
+--- `check` differs from GNU's in three ways. A line it cannot read (a
 --- BSD `SHA256 (file) = hex` line, a one-space separator, a bad escape)
 --- makes it exit 5 even when every entry is OK, where GNU only warns
 --- without `--strict`. A CRLF sums file leaves the CR in each name, as
@@ -33,6 +33,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Stream = require("cosmic.stream")
 local bare = require("build.bare")
+local plural = require("build.plural")
 local verb_spec = require("build.verb_spec")
 
 --- The `cosmic hash` verb: `run` is what [`build/dispatch.tl`] calls.
@@ -90,11 +91,14 @@ local SIZE <const>: {string:integer} = {
   ["sha3-224"] = 28, ["sha3-256"] = 32, ["sha3-384"] = 48, ["sha3-512"] = 64,
 }
 
-local spec = Verb.spec or {}
+--- `hash`'s two commands: `digest`, typed by no word, and `check`.
+local commands = assert(Verb.subcommands, "hash names its commands")
+local digest_command = assert(commands["digest"], "hash has a digest")
+local check_command = assert(commands["check"], "hash has a check")
 
-local usage = "cosmic hash [--sha256 | --sha512 | --sha1 | --md5 | ...] [--json] " ..
-  "[--hmac <key> | --hmac-file <path>] [<file>|-]...; " ..
-  "cosmic hash --check <sums>|- [--quiet] [algorithm and HMAC options]"
+--- The usage line a refusal of each command ends with: the spec's ([`Flags.usage`]).
+local digest_usage <const> = Flags.usage(Verb, "cosmic hash")
+local check_usage <const> = Flags.usage(check_command, "cosmic hash check")
 
 --- `name` as a sums line writes it, and whether it needed escaping: a
 --- backslash, newline or carriage return becomes `\\`, `\n` or `\r`, as GNU
@@ -202,10 +206,10 @@ end
 --- What a command line asks for.
 local record Request
   algorithm: Algorithm
-  --- The files to hash, `-` for standard input; empty for `--check`.
+  --- The files to hash, `-` for standard input; empty for `check`.
   mut files: {string}
   --- The sums file to check, `-` for standard input; nil to hash.
-  check: string?
+  mut check: string?
   quiet: boolean
   json: boolean
   --- The HMAC key; nil for a plain digest.
@@ -217,37 +221,35 @@ local record Request
   mut warning: string
 end
 
---- What `argv` asks for, or nil and why it is refused.
+--- What `argv` asks for, or nil and why it is refused, with the usage line its refusal ends with.
 local function arguments(argv: {string}): Request?, string
-  local parsed, trouble = Flags.parse(argv, 2, spec)
-  if parsed == nil then return nil, trouble end
-  local chosen: mut {Algorithm} = {}
-  local spelled: mut {string} = {}
-  for _, name in ipairs(ALGORITHMS) do
-    if parsed.set["--" .. name] == true then
-      chosen[#chosen + 1] = name
-      spelled[#spelled + 1] = "--" .. name
-    end
+  local checking = argv[2] == "check"
+  local command = if checking then check_command else digest_command end
+  local spec = assert(command.spec, "each command has options")
+  local parsed, trouble = Flags.parse(argv, if checking then 3 else 2 end, spec)
+  if parsed == nil then
+    return nil, trouble
   end
-  if #chosen > 1 then
-    return nil, "name one algorithm, not " .. table.concat(spelled, " and ")
+  local named = parsed.values["--algorithm"]
+  local algorithm: Algorithm = "sha256"
+  for _, name in ipairs(ALGORITHMS) do
+    if name == named then algorithm = name end
   end
   local request: Request = {
-    algorithm = chosen[1] or "sha256",
-    files = parsed.words, check = parsed.values["--check"],
-    warning = "", quiet = parsed.set["--quiet"] == true, json = parsed.set["--json"] == true,
+    algorithm = algorithm, files = {}, check = nil, warning = "",
+    quiet = parsed.set["--quiet"] == true, json = parsed.set["--json"] == true,
   }
-  local request_check = request.check
-  if request_check == "" then return nil, "--check needs a sums file, or - for standard input" end
-  if request_check ~= nil then
-    if #parsed.words > 0 then
-      return nil, "--check reads the files its sums file lists, not " .. tostring(#parsed.words) .. " named on the command line"
+  if checking then
+    if #parsed.words ~= 1 then
+      return nil, "takes one sums file, or - for standard input, but was given " ..
+        (if #parsed.words == 0 then "none" else plural.count(#parsed.words, "word") end)
     end
-    if request.json then return nil, "--json prints digests, which --check does not" end
-  elseif request.quiet then
-    return nil, "--quiet is for --check"
-  elseif #request.files == 0 then
-    request.files = { "-" }
+    local sums = assert(parsed.words[1])
+    if sums == "" then return nil, bare.empty_file end
+    request.check = sums
+  else
+    request.files = parsed.words
+    if #request.files == 0 then request.files = { "-" } end
   end
   local literal, key_file = parsed.values["--hmac"], parsed.values["--hmac-file"]
   if literal ~= nil and key_file ~= nil then
@@ -273,7 +275,7 @@ local standard: verb.Io = {
   stdin = open_stdin,
 }
 
---- Whether `path` names a regular file, after links: what `--check` will
+--- Whether `path` names a regular file, after links: what `check` will
 --- open, so a sums file cannot make it read a FIFO or a device.
 local function is_regular(path: string): boolean
   local st, _ = Fs.stat(path)
@@ -300,7 +302,7 @@ local function digest_named(to: verb.Io, request: Request, name: string): string
   return digest, ""
 end
 
---- `cosmic hash [options] [<file>|-]...` and `cosmic hash --check <sums>`:
+--- `cosmic hash [options] [<file>|-]...` and `cosmic hash check [options] <sums>`:
 --- returns the exit code: 0 all well, 1 a check failed or a listed file
 --- could not be read, 2 a command line it refused, 5 a file to hash, a sums
 --- file, or a write it cannot use.
@@ -311,7 +313,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local complain = bare.complainer("hash", to.err)
   local request, trouble = arguments(argv)
   if request == nil then
-    complain(trouble .. "; " .. usage)
+    local checking = argv[2] == "check"
+    complain((if checking then "check: " else "" end) .. trouble .. "; " .. (if checking then check_usage else digest_usage end))
     return bare.refused
   end
   local key_file = request.key_file
@@ -446,7 +449,7 @@ verb.spec = {
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "the files to digest",
-  exits = "`hash` prints digests, and exits 1 when a `--check` fails, 2 for a command line it refused, 5 for a file or sums file it could not read, or a write that failed.",
+  exits = "`hash` prints digests, and exits 1 when a `check` fails, 2 for a command line it refused, 5 for a file or sums file it could not read, or a write that failed.",
   passthrough = "its output is data for a pipe, so its exit status is the verdict (build/hash_test.tl)",
 }
 

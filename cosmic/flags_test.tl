@@ -933,8 +933,66 @@ local function test_a_command_runs_by_its_spelling_or_by_no_word()
   local asked = assert(Flags.dispatch({ "--help", "f.tl" }, 1, commands, "prog"))
   assert(asked.help:find("usage: prog <command>", 1, true) == 1, asked.help)
   local refused, why = Flags.dispatch({ "--loud", "f.tl" }, 1, commands, "prog")
-  assert(refused == nil and why == "run: no such option: --loud; usage: prog <file> [args...]", why)
+  -- The line never named `run`, so its refusal does not either.
+  assert(refused == nil and why == "no such option: --loud; usage: prog <file> [args...]", why)
   assert(assert(Flags.dispatch({ "help", "version" }, 1, commands, "prog")).help:find("usage: prog --version", 1, true) == 1)
+end
+
+--- An option that moved is refused with where it went, offered to no mistyped name, and left out of help.
+local function test_a_moved_option_says_where_it_went()
+  local moved_spec: {string:boolean | Flags.Option} = {
+    ["--read"] = { moved = "`prog read` reads one back" }, ["-v"] = { about = "say more" },
+  }
+  local refused, why = Flags.parse({ "prog", "--read" }, 2, moved_spec)
+  assert(refused == nil and why == "no such option: --read; `prog read` reads one back", why)
+  local _, near = Flags.parse({ "prog", "--rea" }, 2, moved_spec)
+  assert(near:find("--read", 1, true) == nil, near)
+  local command: Flags.Command = { spec = moved_spec, run = function(_: Flags.Parsed): integer
+    return 0
+  end }
+  assert(Flags.help(command, "prog"):find("--read", 1, true) == nil)
+end
+
+--- Flags.usage is help's first line: the name, then the usage, or the name alone.
+local function test_usage_is_the_first_line_of_help()
+  local command: Flags.Command = { usage = "[options] <file>", spec = { ["-v"] = { about = "say more" } },
+    run = function(_: Flags.Parsed): integer return 0 end }
+  assert(Flags.usage(command, "prog count") == "usage: prog count [options] <file>")
+  assert(Flags.help(command, "prog count"):find(Flags.usage(command, "prog count") .. "\n", 1, true) == 1)
+  assert(Flags.usage({ run = function(_: Flags.Parsed): integer return 0 end }, "prog") == "usage: prog")
+end
+
+--- A command whose subcommand typed by no word runs for a line that names none shows that subcommand's options
+--- as its own: `prog fetch [options] <url>` takes them.
+local function test_help_shows_the_options_of_a_subcommand_typed_by_no_word()
+  local command: Flags.Command = {
+    about = "gets a URL",
+    usage = "[head] <url>",
+    subcommands = {
+      get = { typed = "", about = "the body", spec = { ["-o"] = { value = "file", about = "write it here" } } },
+      head = { about = "the headers", spec = { ["--json"] = { about = "as JSON" } } },
+    },
+  }
+  local help = Flags.help(command, "prog fetch")
+  assert(help:find("\noptions:\n  %-o <file> +write it here\n") ~= nil, help)
+  assert(help:find("--json", 1, true) == nil and help:find("\n  head ", 1, true) ~= nil, help)
+end
+
+--- A line of no words runs the command typed by no word, as a first word that names no command does.
+local function test_an_empty_line_runs_the_command_typed_by_no_word()
+  local ran_as = ""
+  local commands: {string:Flags.Command} = {
+    get = { typed = "", run = function(_: Flags.Parsed): integer
+      ran_as = "get"
+      return 0
+    end },
+    head = { run = function(_: Flags.Parsed): integer
+      ran_as = "head"
+      return 0
+    end },
+  }
+  local ran, why = Flags.dispatch({}, 1, commands, "prog")
+  assert(ran ~= nil and ran.code == 0 and ran_as == "get", why)
 end
 
 --- Without a command typed by no word, a first word that names none is refused, and a mistyped spelling is

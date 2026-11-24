@@ -2874,7 +2874,7 @@ function test_key.prepare(rec: Recording, job: Job, forks?: {string}): Prepared
     if rec.sandbox then
       local executable, executable_trouble = Proc.executable()
       if executable == nil then
-        return cannot("this program's name: " .. executable_trouble, false, nil)
+        return cannot("this program's name: " .. tostring(executable_trouble), false, nil)
       end
       started = { argv = { executable }, env = {}, fds = {} }
     else

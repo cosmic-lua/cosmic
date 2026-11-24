@@ -556,24 +556,44 @@ local function test_runtime_warm_core_stamp_and_repair(tmp: string)
   -- An entry damaged with its old modification time kept is not newer
   -- than its stamp, so the warm start runs it: startup hashes it, removes
   -- it and its stamp, and exits 2, and the next start extracts it again.
+  -- Only the default leaf under HOME starts warm (build/launcher.tl).
+  local home = work .. "/home"
+  local default: mut {string:string} = {}
+  for name, value in pairs(Fixture.environment({ HOME = home, XDG_CACHE_HOME = home .. "/.cache" })) do
+    if name ~= "COSMIC_PORTABLE_CACHE" then default[name] = value end
+  end
+  local home_leaf = home .. "/.cache/cosmic/cores"
+  local home_core = home_leaf .. "/" .. assert(key)
+  local home_stamp = home_leaf .. "/.verified-" .. assert(key)
+  local function run_default(label: string): Fixture.Outcome
+    return Fixture.call_with_environment(label, { program, "help" }, work, diagnostics, default)
+  end
+  Fixture.succeeded("stamp-default-cold", run_default("stamp-default-cold"))
   assert(Clock.sleep_ns(1100000000))
-  Fixture.run("stamp-rewarm", { program, "help" }, work, diagnostics, values)
-  assert(assert(Fs.status(stamp)).exists == true, "the start after the repair left no stamp")
-  local kept = assert(sys.lstat(core)).mtime
-  Fixture.write(core, bytes:sub(1, #bytes - 1) .. last, 0x140)
-  assert(Fs.set_mtime(core, kept))
-  local refused = Fixture.call("stamp-damaged-kept-time", { program, "help" },
-    work, diagnostics, values)
+  Fixture.succeeded("stamp-rewarm", run_default("stamp-rewarm"))
+  assert(assert(Fs.status(home_stamp)).exists == true, "the warm start in the default leaf left no stamp")
+  -- The warm start needs a sticky leaf, which the launcher could not give
+  -- where the worker's filter refuses the bit: the pinned driver's does
+  -- (core/launcher_cache_test.tl holds the warm case in the tree).
+  -- TODO: drop this skip once ci/cosmic-driver.pin names a release whose
+  -- `fattr` allows the sticky bit.
+  if assert(sys.stat(home_leaf)).mode & 0x200 == 0 then
+    Test.skip("the worker's filter refuses the sticky bit the warm start needs")
+  end
+  local kept = assert(sys.lstat(home_core)).mtime
+  Fixture.write(home_core, bytes:sub(1, #bytes - 1) .. last, 0x140)
+  assert(Fs.set_mtime(home_core, kept))
+  local refused = run_default("stamp-damaged-kept-time")
   assert(refused.result.code == 2,
     "damaged warm core: exit " .. tostring(refused.result.code))
   Fixture.contains(refused.err,
     "digest differs from the manifest; removed it: run again")
-  assert(assert(Fs.status(core)).exists == false,
+  assert(assert(Fs.status(home_core)).exists == false,
     "a refused warm core was not removed")
-  assert(assert(Fs.status(stamp)).exists == false,
+  assert(assert(Fs.status(home_stamp)).exists == false,
     "a refused warm core's stamp was not removed")
-  Fixture.run("stamp-extracted", { program, "help" }, work, diagnostics, values)
-  assert(Fixture.read(core) == bytes, "extraction did not restore the core")
+  Fixture.succeeded("stamp-extracted", run_default("stamp-extracted"))
+  assert(Fixture.read(home_core) == bytes, "extraction did not restore the core")
 end
 
 --------------------------------------------------------------------------

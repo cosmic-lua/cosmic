@@ -9,15 +9,15 @@ local function test_user_library_failure_is_not_a_missing_account()
   testing.fail_at("getpwnam_r")
   local user, reason = Proc.user("root")
   local armed = testing.fail_at()
-  assert(not armed and user == nil and reason == "I/O error")
+  assert(not armed and user == nil and reason.message == "I/O error" and reason.kind == "system", tostring(reason))
   assert(assert(Proc.user("root")).uid == 0)
 end
 
-local function test_user_missing_is_nil_with_an_empty_reason()
+local function test_user_missing_is_nil_and_no_such_account()
   testing.fail_at("getpwnam_r(missing)")
-  local result = table.pack(Proc.user("root"))
+  local user, reason = Proc.user("root")
   local armed = testing.fail_at()
-  assert(not armed and result.n == 2 and result[1] == nil and result[2] == "")
+  assert(not armed and user == nil and reason.message == Proc.NO_ACCOUNT and reason.path == "root", tostring(reason))
 end
 
 local function test_user_refuses_an_entry_larger_than_the_buffer_limit()
@@ -26,7 +26,7 @@ local function test_user_refuses_an_entry_larger_than_the_buffer_limit()
   testing.fail_at("getpwnam_r(oversize)")
   local user, reason = Proc.user("root")
   local armed = testing.fail_at()
-  assert(not armed and user == nil and reason == "Result not representable")
+  assert(not armed and user == nil and reason.message == "Result not representable")
   collectgarbage("collect")
   local after_bytes, after_blocks = testing.c_heap()
   assert(after_bytes == bytes and after_blocks == blocks)
@@ -38,7 +38,7 @@ local function test_user_grows_after_a_short_buffer_and_releases_it()
   testing.fail_at("getpwnam_r(ERANGE)")
   local user, reason = Proc.user("root")
   local armed = testing.fail_at()
-  assert(not armed and user ~= nil, reason)
+  assert(not armed and user ~= nil, tostring(reason))
   assert(user.uid == 0)
   collectgarbage("collect")
   local after_bytes, after_blocks = testing.c_heap()
@@ -60,9 +60,15 @@ local function test_user_releases_buffers_under_every_allocation_refusal()
     local bytes, blocks = testing.c_heap()
     local completed = false
     for after = 0, 10000 do
+      -- Made before allocations are refused: the closure's own allocation
+      -- would fail outside the pcall.
+      local function look(): Proc.User?
+        local found, _ = Proc.user(case.name)
+        return found
+      end
       if case.point ~= "" then testing.fail_at(case.point) end
       testing.fail_allocations(after)
-      local ok, user = pcall(Proc.user, case.name)
+      local ok, user = pcall(look)
       local refused = testing.allow_allocations()
       local _ = testing.fail_at()
       collectgarbage("collect")

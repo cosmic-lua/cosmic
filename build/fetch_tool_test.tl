@@ -74,7 +74,7 @@ return function(argv: {string}): integer
       return guard:cancelled() ~= 0
     end,
   })
-  assert(not ok and why == "interrupted", tostring(why))
+  assert(not ok and tostring(why) == "interrupted", tostring(why))
   assert(guard:close())
   return 0
 end

@@ -33,7 +33,7 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local _, trouble = Http.open("http://127.0.0.1:1/", { timeout_ns = Clock.seconds(60), connect_timeout_ns = Clock.seconds(2) })
-local _, _ = Fs.put(Fs.stdout, trouble)
+local _, _ = Fs.put(Fs.stdout, tostring(trouble))
 ]]))
   local started = this_program.program({ "--standalone", script },
     { env = { SSL_CERT_FILE = cert_file, XDG_CACHE_HOME = tmp .. "/cache" },
@@ -138,7 +138,7 @@ local function test_a_caught_signal_ends_a_download_that_waits(tmp: string)
       return guard:cancelled() ~= 0
     end,
   })
-  local _, _ = Fs.put(Fs.stdout, tostring(ok) .. " " .. why)
+  local _, _ = Fs.put(Fs.stdout, tostring(ok) .. " " .. tostring(why))
 ]], function(conn: Net.Conn, _head: string)
   assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\npart"))
 end)
@@ -163,7 +163,7 @@ local Http = require("cosmic.http")
 return function(argv: {string}): integer
   local body = argv[3]
   local got, trouble = Http.request((argv[1] or ""), (argv[2] or ""), if body ~= nil then { timeout_ns = 60000000000, body = body } else { timeout_ns = 60000000000 } end)
-  local _, _ = Fs.put(Fs.stdout, if got ~= nil then tostring(got.status) .. " " .. got.body else trouble end)
+  local _, _ = Fs.put(Fs.stdout, if got ~= nil then tostring(got.status) .. " " .. got.body else tostring(trouble) end)
   return 0
 end
 ]]))
@@ -262,7 +262,7 @@ local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 return function(argv: {string}): integer
   local _, trouble = Http.open((argv[1] or ""), { timeout_ns = Clock.seconds(10) })
-  local _, _ = Fs.put(Fs.stdout, trouble)
+  local _, _ = Fs.put(Fs.stdout, tostring(trouble))
   return 0
 end
 ]]))

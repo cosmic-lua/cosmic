@@ -609,7 +609,7 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): (Csv
   -- SQLite's CSV table, as patch/sqlite-ext/ has it, reads a blank line
   -- as a row of NULLs, a field a record lacks as NULL, and an empty
   -- field as ''. The header is the first record past any blank lines.
-  local first, why = handle:text_rows("SELECT rowid, * FROM " .. scratch ..
+  local first, why = handle:rows("SELECT rowid, * FROM " .. scratch ..
       " WHERE c0 IS NOT NULL LIMIT 1")
   if first == nil then
     return undone(tostring(why))
@@ -618,8 +618,8 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): (Csv
   if head == nil then
     return undone("the CSV holds no header")
   end
-  local columns = head:texts()
-  local header = table.move(columns, 2, #columns, 1, {})
+  local header: mut {string} = {}
+  for index = 2, head:count() do header[#header + 1] = head:as_text(index) or "" end
   local keys = Csv.column_names(header)
   local reserved = { "rowid", "oid", "_rowid_" }
   for _, each in ipairs(source.reserved or {}) do
@@ -648,19 +648,19 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): (Csv
   -- header's fields is refused, as `table` refuses one, so no row is
   -- padded past what the input holds; patch/sqlite-ext/ refuses a longer
   -- one.
-  local kept = "rowid > " .. head:text(1)
+  local kept = "rowid > " .. tostring(head:integer(1))
   if #names == 1 then
     -- Only the blank lines after the last record are the file's end.
     kept = kept .. " AND rowid <= (SELECT max(rowid) FROM " .. scratch .. " WHERE c0 IS NOT NULL)"
   else
     kept = kept .. " AND c0 IS NOT NULL"
-    local short, failed = handle:text_rows("SELECT rowid FROM " .. scratch .. " WHERE " .. kept ..
+    local short, failed = handle:rows("SELECT rowid FROM " .. scratch .. " WHERE " .. kept ..
         " AND " .. identifier("c" .. tostring((#names - 1))) .. " IS NULL LIMIT 1")
     if short == nil then
       return undone(tostring(failed))
     end
     if #short > 0 then
-      return undone("record " .. short[1]:text(1) .. " has fewer fields than the header's " .. tostring(#names))
+      return undone("record " .. tostring(short[1]:integer(1)) .. " has fewer fields than the header's " .. tostring(#names))
     end
   end
   ok, trouble = handle:exec("CREATE TABLE main." .. identifier(name) .. " (" .. table.concat(declared, ", ") .. ")")

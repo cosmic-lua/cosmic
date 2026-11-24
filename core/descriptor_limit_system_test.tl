@@ -59,7 +59,8 @@ print(shell_limit())
 --- of LOW; the test is skipped where this host's hard limit leaves no room
 --- to raise it, or where there is no artifact to relaunch.
 local function started_low(tmp: string, chunk: string): {string}
-  if Proc.relaunch() == nil then Test.skip("a native start has nothing to relaunch") end
+  local relaunched, _ = Proc.relaunch()
+  if relaunched == nil then Test.skip("a native start has nothing to relaunch") end
   local limits = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
   if limits.hard < 2 * LOW then
     Test.skip("this host's hard descriptor limit leaves no room above " .. tostring(LOW))
@@ -107,8 +108,7 @@ end
 local function test_a_program_exec_d_gets_the_limit_the_process_started_with(tmp: string)
   local lines = started_low(tmp, [[
 local Proc = require("cosmic.proc")
-local _, trouble = Proc.exec({ "/bin/sh", "-c", "ulimit -Sn" })
-error(trouble)
+error(tostring(Proc.exec({ "/bin/sh", "-c", "ulimit -Sn" })))
 ]])
   assert(lines[1] == tostring(LOW), tostring(lines[1]))
 end

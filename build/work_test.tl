@@ -92,7 +92,7 @@ local function test_recording_error_rolls_back_every_table(tmp: string)
   assert(work.abort(handle))
   local reopened = assert(Sqlite.open(support.build_dir(tmp) .. "/build.db"))
   for _, table_name in ipairs({
-      "runs", "verdicts", "test_runs", "coverage", "coverage_by_test",
+      "runs", "verdicts", "test_runs", "coverage", "hits_by_test",
   }) do
     assert(count(reopened, table_name) == 0, table_name .. " must roll back")
   end

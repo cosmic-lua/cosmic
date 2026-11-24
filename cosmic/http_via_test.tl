@@ -18,7 +18,7 @@ local function test_via_that_is_no_unix_address_raises_naming_it()
   local datagram: Net.Address = { kind = "udp", host = "127.0.0.1", port = 53, path = nil }
   for _, via in ipairs({ Net.tcp("127.0.0.1", 80), datagram }) do
     local ok, why = pcall(function(): Http.Body?
-      local got = Http.get(url, { timeout_ns = Clock.seconds(60), via = via })
+      local got, _ = Http.get(url, { timeout_ns = Clock.seconds(60), via = via })
       return got
     end)
     assert(not ok and tostring(why):find("http_via_test:%d+: http: opts.via must be a unix address") ~= nil,
@@ -30,9 +30,9 @@ end
 --- short, is data the request cannot be sent with: `nil, err`, not a raise.
 local function test_an_empty_or_nul_socket_path_is_an_error_not_a_raise()
   local empty, empty_why = Http.get(url, { timeout_ns = Clock.seconds(60), via = Net.unix("") })
-  assert(empty == nil and empty_why == "invalid unix_socket: empty", tostring(empty_why))
+  assert(empty == nil and tostring(empty_why) == "invalid unix_socket: empty", tostring(empty_why))
   local nul, nul_why = Http.get(url, { timeout_ns = Clock.seconds(60), via = Net.unix("/tmp/a\0b.sock") })
-  assert(nul == nil and nul_why == "invalid unix_socket: contains a NUL byte", tostring(nul_why))
+  assert(nul == nil and tostring(nul_why) == "invalid unix_socket: contains a NUL byte", tostring(nul_why))
 end
 
 --- A scripted transfer takes its connections from the script, so `via`

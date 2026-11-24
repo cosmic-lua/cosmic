@@ -167,7 +167,7 @@ function Store.withheld(name: string): (string | false) | (nil, Failure)
   local databases = borrowed()
   local binary = databases[#databases]
   if binary == nil then return false end -- a boot carries none, so holds nothing withheld
-  local rows, trouble = binary:text_rows(
+  local rows, trouble = binary:rows(
     "SELECT 1 FROM decls WHERE path = ?1 AND length(source) = 0 UNION ALL " ..
       "SELECT 1 FROM modules WHERE path = ?1 AND length(source) = 0",
     { { text = name } })
@@ -187,7 +187,7 @@ function Store.holds(name: string): (boolean) | (nil, Failure)
   local databases = borrowed()
   local binary = databases[#databases]
   if binary == nil then return false end
-  local rows, trouble = binary:text_rows(
+  local rows, trouble = binary:rows(
     "SELECT 1 FROM decls WHERE path = ?1 UNION ALL SELECT 1 FROM modules WHERE path = ?1", { { text = name } })
   if rows == nil then return nil, Failure.new("holds: " .. tostring(trouble)) end
   return #rows > 0
@@ -301,7 +301,7 @@ local function locate(name: string, required?: string): Handle?, string
   for step = 1, count do
     -- `step` runs 1 to `count`, so either index is one of the databases.
     local db = Array.at(databases, if binary_first then count + 1 - step else step end)
-    local rows, trouble = db:text_rows(
+    local rows, trouble = db:rows(
       "SELECT 1 FROM modules WHERE path = ?1", { text(name) })
     if rows == nil then
       return nil, tostring(trouble)
@@ -331,7 +331,7 @@ end
 --- its closures to, so a sealed program's modules are those the tests of
 --- it ran against. Keep the two in step.
 local function requires_of(db: Handle, name: string, types: boolean): {string}
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT i.requires FROM imports i WHERE i.path = ?1 AND (?2 = 1 OR " ..
       "NOT EXISTS (SELECT 1 FROM modules m WHERE m.path = i.path AND " ..
       "m.kind IN ('module', 'main') AND " ..
@@ -504,7 +504,7 @@ local function write_database(names: {string}, file: string, main: string?,
         -- holds them: a compile that resolves the module follows each. A
         -- database the core reads need not have the table (one attached
         -- by hand), and gives none.
-        local has_edges, has_trouble = source:text_rows(
+        local has_edges, has_trouble = source:rows(
           "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'decl_imports'")
         if has_edges == nil then
           return false, Failure.new("decl_imports: " .. tostring(has_trouble))
@@ -520,7 +520,7 @@ local function write_database(names: {string}, file: string, main: string?,
         end
         -- Only edges within the set: one left out (by type alone) would
         -- dangle, and a closure of the sealed program would raise on it.
-        local edges, edge_trouble = source:text_rows(
+        local edges, edge_trouble = source:rows(
           "SELECT requires FROM imports WHERE path = ?1 ORDER BY requires",
           { text(name) })
         if edges == nil then
@@ -573,7 +573,7 @@ local function write_database(names: {string}, file: string, main: string?,
       end
       if web then
         -- A binary from before the table has none to carry.
-        local has_web, has_trouble = binary_db:text_rows(
+        local has_web, has_trouble = binary_db:rows(
           "SELECT 1 FROM sqlite_master WHERE name = 'web_assets'")
         if has_web == nil then
           return false, has_trouble

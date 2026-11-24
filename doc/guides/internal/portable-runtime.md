@@ -154,9 +154,19 @@ older than the core's build (x86-64-v3, or Armv8.2-A with dot-product and
 half-precision floats) stops the core with SIGILL. It opens the artifact
 before changing the cache. The cache parent is the user's trust boundary.
 
-A warm start runs no child process. Where the cache leaf and the entry
-are this user's, neither is a symbolic link, and startup's verified stamp
-stands beside an entry no newer than it, the shell execs the core at once. Startup then
+A warm start runs no child process. Where the cache leaf is the default one
+under HOME (`$HOME/.cache/cosmic/cores`, or `$HOME/Library/Caches/cosmic/cores`
+on macOS; `XDG_CACHE_HOME=$HOME/.cache` names it too), it and the entry are
+this user's, the leaf has the sticky bit, neither is a symbolic link, and
+startup's verified stamp stands beside an entry no newer than it, the shell
+execs the core at once: on Linux the file it opened, through
+`/proc/self/fd`, and on macOS, whose kernel refuses that, the entry by name.
+In a sticky leaf no one else can rename or remove this user's entry. A leaf
+named any other way may be another user's to write, and another user who can
+write a leaf can add a hard link to a file this user owns there, which no
+builtin can see, so such a leaf always takes the full path. The launcher makes
+the leaf sticky (`mkdir -m 1700`), and gives the bit to a default leaf that
+lacks it. Startup then
 checks what the shell's builtins cannot see: the leaf is this user's (or
 root's) and no group or others can write it, and the entry is owned so
 and is mode 0500. A leaf that fails is refused; an entry that fails is
@@ -165,19 +175,22 @@ start takes the full path: it validates the cache leaf's kind, owner,
 mode, and contents, and repairs what it can.
 
 On a cold start, the launcher copies the selected manifest range to a private
-temporary file, verifies its length and SHA-256 digest, sets its mode, and
-publishes it atomically. A symlink, unexpected entry, wrong owner or mode, or
+temporary file, verifies its SHA-256 digest (which a short copy fails too),
+sets its mode, and publishes it atomically. It then tells startup, with
+`COSMIC_PORTABLE_CORE_HASHED=1`, that it hashed the entry it hands over, so
+startup does not hash it again; startup takes that word only with the
+launcher's descriptors, never on a start by path. A symlink, unexpected entry, wrong owner or mode, or
 short core is repaired, or stops the launch when the cache is read-only.
 
 A compressed core takes a second stage first. The launcher cuts the target's
 decoder stub out of the artifact descriptor it holds, before anything else reads
-it, into a private `.stub.*` file; checks its length and digest; sets mode 0500
+it, into a private `.stub.*` file; checks its digest; sets mode 0500
 and runs it as `stub <descriptor> <offset> <stored length> <length>`, its
 output going to the staging file of the core. The stub ([`core/unzstd.c`])
 reads the range with `pread`, accepts one zstd frame that names its size and
 checksum, and never writes more than the length it is given. The launcher
 reads its exit status (no pipeline hides it), removes the stub, and checks the
-staged core's length and digest as for a raw one. A stub that fails, writes
+staged core's digest as for a raw one. A stub that fails, writes
 the wrong bytes or cannot run (a `noexec` cache, which it names) stops the
 launch, and a signal removes the stub as it does any staged file (the shell
 holds its trap while the stub runs, so the signal takes effect when the stub
@@ -193,15 +206,16 @@ is newer than its stamp. The launcher's warm start runs only an entry no
 newer than its stamp, so the full path hashes a damaged one before it
 runs and repairs it. A write that sets the old modification time back, or lands in
 the second the stamp was written where the shell's `test` compares whole
-seconds (BusyBox), still reaches the warm start on Linux:
+seconds (BusyBox, and bash 3.2, macOS's `/bin/sh`), still reaches the warm start:
 startup hashes the entry, removes it and its stamp, and exits 2 with
 `cache entry <entry> digest differs from the manifest; removed it: run
 again to extract it`, and the next start extracts it again.
 
-A warm start with a verified stamp on Linux runs no utility: the OS and
-machine come from `/proc/sys/kernel`, and the checks are the shell's own
-`test`. Elsewhere it runs `uname` and one `stat` for both the cache leaf
-and the entry. Neither hashes anything, and the umask changes only in the
+A warm start with a verified stamp runs no utility: the OS and machine come
+from `/proc/sys/kernel` on Linux and from bash's `OSTYPE` and `HOSTTYPE` on
+an Apple silicon Mac, and the checks are the shell's own `test`. Elsewhere it
+runs `uname`, and a leaf that does not start warm runs one `stat` for both the
+cache leaf and the entry. Neither hashes anything, and the umask changes only in the
 child that creates the cache leaf.
 
 On supported hosts the launcher also checks whether the verified cache entry
@@ -241,8 +255,9 @@ duplicate target and configuration identities.
 
 Startup decodes the trailer and complete manifest from the retained artifact
 descriptor. It proves that the selected entry matches the core compiled for
-this process. It hashes the retained core descriptor and compares its device
-and inode with the executing image. The shell's choice is a request, not
+this process. It hashes the retained core descriptor, unless a stamp that
+holds or the launcher's word says it was hashed, and compares its device and
+inode with the executing image. The shell's choice is a request, not
 authority.
 
 Startup keeps the artifact descriptor for the process lifetime. Rename,
@@ -299,8 +314,10 @@ own. A bare core has no program arguments of its own but `--boot`, so nothing
 else claims it.
 
 There is no manifest, launcher or artifact descriptor. [`core/main.c`](../../../core/main.c)
-opens the path read-only with `immutable=1` through SQLite's default VFS, not
-[`core/vfs.c`](../../../core/vfs.c)'s range, and installs it in the store's last
+opens the path once, checks that it is a regular file, and has SQLite read that
+descriptor, whole and immutable, through [`core/vfs.c`](../../../core/vfs.c):
+SQLite never opens the path again, so a path swapped after the check reaches
+nothing. It installs the database in the store's last
 slot, so reserved names and the `main` meta row resolve from it exactly as
 they do from an embedded database. `require` finds that database's modules
 alone, [`Store.databases()`] holds it alone, [`Store.requires`] reads it, and
@@ -504,7 +521,7 @@ assert(Store.meta("host_image") ~= nil and Store.meta("host_image") ~= "", "host
 assert(Store.meta("runtime") ~= nil and Store.meta("runtime") ~= "", "runtime")
 assert(Store.meta("runtime_basis") ~= nil and Store.meta("runtime_basis") ~= "", "runtime_basis")
 assert(Store.meta("runtime_context") == "portable-v1")
-assert(Store.meta("artifact") == Proc.executable())
+assert(Store.meta("artifact") == assert(Proc.executable()))
 for _, name in ipairs({ "COSMIC_PORTABLE_ARTIFACT_FD", "COSMIC_PORTABLE_CORE_FD",
                         "COSMIC_PORTABLE_CORE_SHA256" }) do
   assert(Env.get(name) == nil, name .. " escaped startup")

@@ -522,12 +522,12 @@ local function test_without_fork_a_clone_must_be_a_thread()
   })
 end
 
-local function test_fattr_grants_modes_but_never_a_special_bit()
+local function test_fattr_grants_modes_but_never_setuid_or_setgid()
   holds_on_both({ "fattr" }, {
     call("chmod", "allow", 0, 0x1ed), call("fchmod", "allow", 3, 0x1a4),
     call("fchmodat", "allow", -100, 0, 0x1ed), call("fchmodat2", "allow", -100, 0, 0x1ed),
     call("chmod", "EPERM", 0, 0x9ed), call("fchmod", "EPERM", 3, 0x4ed),
-    call("fchmod", "EPERM", 3, 0x2ed), call("chmod", "EPERM", 0, 0x200),
+    call("fchmod", "allow", 3, 0x2ed), call("chmod", "allow", 0, 0x200),
     call("fchmodat", "EPERM", -100, 0, 0x9ed), call("fchmodat2", "EPERM", -100, 0, 0x4ed),
     call("chown", "allow"), call("fchown", "allow"), call("lchown", "allow"),
     call("fchownat", "allow"), call("utimensat", "allow"), call("utimes", "allow"),
@@ -537,16 +537,17 @@ local function test_fattr_grants_modes_but_never_a_special_bit()
   holds_on_both({ "fattr" }, never())
 end
 
-local function test_a_file_is_never_made_with_a_special_bit()
+local function test_a_file_is_never_made_setuid_or_setgid()
   holds_on_both({}, {
     call("openat", "allow", -100, 0, O_CREAT | 1, 0x1a4),
     call("openat", "allow", -100, 0, 0, 0xffff),
     call("openat", "EPERM", -100, 0, O_CREAT | 1, 0x9ed),
     call("openat", "EPERM", -100, 0, O_CREAT, 0x4ed),
-    call("openat", "EPERM", -100, 0, 0x410000 | 2, 0x2ed),
+    call("openat", "allow", -100, 0, 0x410000 | 2, 0x2ed),
     call("open", "allow", 0, O_CREAT, 0x1a4), call("open", "EPERM", 0, O_CREAT, 0x4ed),
     call("creat", "allow", 0, 0x1a4), call("creat", "EPERM", 0, 0x4ed),
-    call("mkdir", "allow", 0, 0x1ed), call("mkdir", "EPERM", 0, 0x9ed),
+    call("mkdir", "allow", 0, 0x1ed), call("mkdir", "allow", 0, 0x3c0),
+    call("mkdir", "EPERM", 0, 0x9ed),
     call("mkdirat", "allow", -100, 0, 0x1ed), call("mkdirat", "EPERM", -100, 0, 0x9ed),
     -- A fifo, a socket or a file, never a device.
     call("mknod", "allow", 0, 0x1000 | 0x1a4), call("mknod", "allow", 0, 0xc000 | 0x1a4),
@@ -950,6 +951,36 @@ local function test_the_truncation_filter_refuses_truncation_alone()
   Test.raises(function() process.promise_filter({ "fork" }, "x86_64", options) end)
   Test.raises(function()
     process.promise_filter({}, "x86_64", { truncation_only = true, truncate_held = true })
+  end)
+end
+
+--- The program `restrict_self` adds where no grant gives `x`, over whatever
+--- holds a process already: it refuses execve and execveat, and lets every
+--- other call through for the filters before it to answer.
+local function test_the_no_x_filter_refuses_exec_alone()
+  local options: raw_process.PromiseOptions = { no_x_only = true }
+  holds_on_both({}, {
+    call("execve", "EPERM", 0, 0, 0), call("execveat", "EPERM", -100, 0, 0, 0, 0x1000),
+    call("read", "allow"), call("ptrace", "allow"), call("mount", "allow"), call("fork", "allow"),
+    call("clone", "allow", SIGCHLD), call("socket", "allow", 2, 1, 0), call("openat", "allow", -100, 0, O_TRUNC),
+  }, options)
+  for _, arch in ipairs(ARCHES) do
+    local insns = decode(process.promise_filter({}, arch, options))
+    local other = if arch == "x86_64" then "aarch64" else "x86_64" end
+    assert(verdict(run(insns, audit_of(other), 0, {})) == "kill", arch .. ": another architecture")
+    local execs = if arch == "x86_64" then { 59, 322 } else { 221, 281 } end
+    for number = 0, process.PROMISE_CALLS_REVIEWED + 2 do
+      local got = verdict(run(insns, audit_of(arch), number, { 0, 0, 0, 0 }))
+      local want = if number == execs[1] or number == execs[2] then "EPERM" else "allow" end
+      assert(got == want, arch .. " " .. tostring(number) .. " is " .. got .. ", not " .. want)
+    end
+  end
+  -- x32's execve is 520 with bit 30 set: every x32 call answers ENOSYS.
+  local x86 = decode(process.promise_filter({}, "x86_64", options))
+  assert(verdict(run(x86, audit_of("x86_64"), 0x40000000 + 520, {})) == "ENOSYS")
+  Test.raises(function() process.promise_filter({ "fork" }, "x86_64", options) end)
+  Test.raises(function()
+    process.promise_filter({}, "x86_64", { no_x_only = true, truncation_only = true })
   end)
 end
 

@@ -1,4 +1,4 @@
---- The launcher `cosmic release --launcher` writes, run in a project of
+--- The launcher `cosmic release launcher` writes, run in a project of
 --- its own whose release, and whose `curl`, are shell stand-ins: what is
 --- held is the script's own part. Nothing downloaded runs or is cached
 --- unless its sha256 is the pin's, the release runs where the launcher

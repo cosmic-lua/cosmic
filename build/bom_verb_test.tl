@@ -19,9 +19,9 @@ local DOCUMENT <const> = Shape.record_of("Document")
 --- ([`Store.databases()`]), which reads every module's rows too.
 Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 
---- `cosmic bom` prints from the running binary's own rows: each
---- component a line, `--json` a document naming the same components,
---- and `--licenses` every notice.
+--- `cosmic bom` prints the running binary's own rows: each
+--- component a line, `cyclonedx` a document naming the same components,
+--- and `licenses` every notice.
 local function test_the_verb_prints_the_binary_s_own_rows(tmp: string)
   local listed = invoke.run({ "bom" }, { cwd = tmp })
   assert(listed.code == 0, listed.stderr)
@@ -31,7 +31,7 @@ local function test_the_verb_prints_the_binary_s_own_rows(tmp: string)
   assert(listed.stdout:find("\ntzdata %S+  %S+  %(data: `cosmic refresh` updates it%)\n"), listed.stdout)
   assert(listed.stdout:find("\ncacert %S+  %S+  %(data: `cosmic refresh` updates it%)\n"), listed.stdout)
   local path = tmp .. "/bom.json"
-  local written = invoke.run({ "bom", "--json", path }, { cwd = tmp })
+  local written = invoke.run({ "bom", "cyclonedx", "-o", path }, { cwd = tmp })
   assert(written.code == 0, written.stderr)
   local decoded, why = DOCUMENT:decode_into((assert(Fs.read(path))))
   assert(decoded ~= nil, tostring(why))
@@ -40,7 +40,11 @@ local function test_the_verb_prints_the_binary_s_own_rows(tmp: string)
     names[component.name] = true
   end
   assert(names["lua"] == true and names["curl"] == true and names["musl"] == true, "the document names the components")
-  local notices = invoke.run({ "bom", "--licenses" }, { cwd = tmp })
+  local printed = invoke.run({ "bom", "cyclonedx" }, { cwd = tmp })
+  assert(printed.code == 0 and printed.stdout == assert(Fs.read(path)), printed.stderr)
+  local named = invoke.run({ "bom", "list" }, { cwd = tmp })
+  assert(named.code == 0 and named.stdout == listed.stdout, named.stderr)
+  local notices = invoke.run({ "bom", "licenses" }, { cwd = tmp })
   assert(notices.code == 0, notices.stderr)
   assert(notices.stdout:find("Lua.org, PUC-Rio", 1, true), "lua's notice is printed")
   assert(notices.stdout:find("== sqlite", 1, true), "a component with no notice is named")
@@ -48,7 +52,7 @@ end
 
 --- A failure is complained about, and gets no summary that repeats it.
 local function test_a_failure_says_why_and_no_summary(tmp: string)
-  local failed = invoke.run({ "bom", "--json", tmp .. "/nowhere/bom.json" }, { cwd = tmp })
+  local failed = invoke.run({ "bom", "cyclonedx", "-o", tmp .. "/nowhere/bom.json" }, { cwd = tmp })
   assert(failed.code == 1 and failed.stdout == "", failed.stdout)
   assert(failed.stderr:find("^cosmic: bom: ") ~= nil and not failed.stderr:find("\nbom: "), failed.stderr)
 end

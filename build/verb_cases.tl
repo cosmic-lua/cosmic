@@ -75,7 +75,7 @@ function verb_cases.cases(bundle: string): {string:verb_cases.Case}
     todos = { pass = { "todos" }, fail = { "todos", "zzqqx_nothing_named" } },
     sql = { pass = { "sql", "SELECT 1" }, fail = { "sql", "SELECT * FROM zzqqx_no_table" } },
     help = { pass = { "help" }, fail = "help has nothing to fail on but its command line" },
-    bom = { pass = { "bom" }, fail = { "bom", "--json", "no/such/directory/bom.json" } },
+    bom = { pass = { "bom" }, fail = { "bom", "cyclonedx", "-o", "no/such/directory/bom.json" } },
     refresh = { pass = { "refresh", "-o", "out", "--cacert", bundle },
       fail = { "refresh", "-o", "out", "--cacert", "no/such/cacert.pem" } },
   }

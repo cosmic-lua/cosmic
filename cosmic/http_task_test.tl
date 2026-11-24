@@ -108,7 +108,7 @@ local function test_a_cancelled_task_ends_its_request()
       local asking = Poll.spawn(function()
         local got, why = Http.get("http://127.0.0.1:" .. tostring(port) .. "/", { timeout_ns = WAIT })
         assert(got == nil)
-        answer = why
+        answer = tostring(why)
       end)
       while not held do assert(Clock.sleep(Clock.ms(5))) end
       asking:cancel()
@@ -129,7 +129,7 @@ local function test_a_refused_connection_fails_as_outside_a_run()
   Poll.run(function()
     local inside, inside_why = Http.get(url, { timeout_ns = WAIT })
     assert(inside == nil)
-    assert(inside_why == outside_why, inside_why .. " / " .. outside_why)
+    assert(tostring(inside_why) == tostring(outside_why), tostring(inside_why) .. " / " .. tostring(outside_why))
   end)
 end
 
@@ -175,7 +175,7 @@ local function test_a_cancelled_task_ends_its_retry_pause()
           retry = { attempts = 3, statuses = { 503 }, max_wait_ns = Clock.seconds(30) },
         })
         assert(got == nil)
-        answer = why
+        answer = tostring(why)
       end)
       while not asked do assert(Clock.sleep(Clock.ms(5))) end
       assert(Clock.sleep(Clock.ms(100)))
