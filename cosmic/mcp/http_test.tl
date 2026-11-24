@@ -199,6 +199,14 @@ local function test_headers_go_over_plain_http_only_to_a_loopback_host()
     Client.http("http://exa mple.com/mcp", { timeout_ns = WAIT, headers = secret })
   end,
     "a URL that can be read")
+  for _, url in ipairs({ "http://127.0.0.1@example.com/mcp", "http://127.0.0.1:1@example.com/mcp",
+      "http://localhost/mcp", "http://127.0.0.1./mcp" }) do
+    Test.raises(function() Client.http(url, { timeout_ns = WAIT, headers = secret }) end, "in the clear")
+  end
+  Client.http("HTTP://127.0.0.1:1/mcp", { timeout_ns = WAIT, headers = secret })
+  Client.http("http://[::ffff:127.0.0.1]:1/mcp", { timeout_ns = WAIT, headers = secret })
+  Client.http("https://example.com/a b", { timeout_ns = WAIT, headers = secret })
+  Client.http("http://exa mple.com/mcp", { timeout_ns = WAIT })
   Client.http("http://127.0.0.1:1/mcp", { timeout_ns = WAIT, headers = secret })
   Client.http("http://[::1]:1/mcp", { timeout_ns = WAIT, headers = secret })
   Client.http("https://example.com/mcp", { timeout_ns = WAIT, headers = secret })

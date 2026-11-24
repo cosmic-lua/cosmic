@@ -28,6 +28,7 @@ local McpClient = require("cosmic.mcp.client")
 local McpJson = require("cosmic.mcp.json")
 local Net = require("cosmic.net")
 local Proc = require("cosmic.proc")
+local Url = require("cosmic.url")
 local String = require("cosmic.string")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
@@ -153,9 +154,10 @@ local function session_of(to: verb.Io, request: Request): (McpClient.Session) | 
     local headers: mut {string: string} = {}
     local name = request.token_env
     if name ~= nil then
-      local host = url:match("^[Hh][Tt][Tt][Pp]://%[([^%]]+)%]") or url:match("^[Hh][Tt][Tt][Pp]://([^/:?#]+)")
-      if host ~= nil and not Net.is_loopback(host) then
-        return nil, Failure.new("--token-env sends the token in the clear over http:// to " .. host ..
+      local parts, unread = Url.parse(url)
+      if parts == nil then return nil, Failure.new("--url " .. unread.message) end
+      if parts.scheme == "http" and not Net.is_loopback(parts.host) then
+        return nil, Failure.new("--token-env sends the token in the clear over http:// to " .. parts.host ..
             ": use https://, or a loopback host")
       end
       local token = to.env(name)

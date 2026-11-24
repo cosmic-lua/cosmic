@@ -1048,7 +1048,7 @@ end
 --- would go in the clear, and a token among them could be read on the way.
 function McpClient.http(url: string, opts: McpClient.HttpOptions): McpClient.Session
   local parts, unread = Url.parse(url)
-  if next(opts.headers or {}) ~= nil and parts == nil then
+  if next(opts.headers or {}) ~= nil and parts == nil and url:sub(1, 8):lower() ~= "https://" then
     error("mcp: http: opts.headers go only to a URL that can be read: " .. tostring(unread), 2)
   end
   if parts ~= nil and parts.scheme == "http" and next(opts.headers or {}) ~= nil and not Net.is_loopback(parts.host) then
