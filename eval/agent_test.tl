@@ -74,7 +74,8 @@ local function test_runs_are_graded_against_the_truth_of_an_untouched_copy()
       if tool == "bad" then return nil end
       assert(marker:find("^bench%-good%-") ~= nil, marker)
       return { requests = 3, input = 10, output = 20, cache_read = 30, cache_write = 40, cost = 0.5, seconds = 2,
-        tools = 4, runs = 1, refused = 1, codes = { semicolon = 1 }, first_read = 5, bashed = 1 }
+        tools = 4, runs = 1, refused = 1, codes = { semicolon = 1 }, first_read = 5,
+        helpers = { bash = 1, grep = 2 } }
     end,
     put = function(_: string, _: string) error("no task here has a server") end,
   }
@@ -91,7 +92,8 @@ local function test_runs_are_graded_against_the_truth_of_an_untouched_copy()
   local report = Agent.report(o, results)
   assert(report:find("## todos\n\n- good: 1 of 1 passed; 3.0 requests, $0.500, 3 s wall (2 s in requests)", 1, true) ~= nil, report)
   assert(report:find("30 cache read (5 by the first request)", 1, true) ~= nil and
-      report:find("1.0 of them run, 1.0 refused, 1.0 naming Host.bash\n  - refused for: semicolon 1\n", 1, true) ~= nil, report)
+      report:find("1.0 of them run, 1.0 refused\n  - refused for: semicolon 1\n" ..
+          "  - snippets naming each Host helper: grep 2.0, bash 1.0\n", 1, true) ~= nil, report)
   assert(report:find("- bad: 0 of 1 passed", 1, true) ~= nil, report)
   assert(report:find("- good: unfit on this fixture", 1, true) ~= nil, report)
 end
@@ -111,11 +113,14 @@ INSERT INTO requests VALUES (2, NULL, NULL, NULL, NULL, NULL, NULL, 0, 529),
 INSERT INTO outputs VALUES (2, 'run', '{}', 'The checker refused the snippet, so it did not run:
 -e:1: x (view_written): y
 -e:2: z (view_written): w
--e:3: q (semicolon): r'), (2, 'bash', '', ''), (2, 'run', '{"code":"Host.bash(\\"ls\\")"}', 'ok'), (1, 'read', '', '');
+-e:3: q (semicolon): r'), (2, 'bash', '', ''), (2, 'run', '{"code":"Host.bash(\\"ls\\")"}', 'ok'),
+  (2, 'run', '{"code":"Host.grep(\\"a\\", Host.find(\\".\\")) Host.grep(\\"b\\", {}) local c: {Host.Count} = MyHost.top()"}', 'ok'), (1, 'read', '', '');
 ]]))
   local s = assert(Agent.spent_in(db, "bench-a-todos-2"))
   assert(s.requests == 3 and s.input == 30 and s.output == 3 and s.cache_read == 300 and s.cache_write == 12)
-  assert(s.cost == 0.75 and s.seconds == 2 and s.tools == 3 and s.runs == 2 and s.bashed == 1)
+  assert(s.cost == 0.75 and s.seconds == 2 and s.tools == 4 and s.runs == 3)
+  assert(s.helpers["bash"] == 1 and s.helpers["grep"] == 1 and s.helpers["find"] == 1)
+  assert(s.helpers["Count"] == nil and s.helpers["top"] == nil)
   assert(s.refused == 1 and s.codes["view_written"] == 1 and s.codes["semicolon"] == 1 and s.first_read == 100)
   assert(Agent.spent_in(db, "bench-b-") == nil)
   assert(db:close())

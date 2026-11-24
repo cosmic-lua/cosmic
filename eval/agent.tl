@@ -97,8 +97,9 @@ local record Agent
     --- How many run calls the checker refused, and how often each of its codes was named in them.
     refused: integer
     codes: {string: integer}
-    --- How many snippets of run named Host.bash: a command no helper served.
-    bashed: integer
+    --- How many snippets of run named each Host helper, by its name (`bash` for Host.bash, a command no other
+    --- helper served): the use a helper is kept or pruned by.
+    helpers: {string: integer}
     --- What the session's first request read from the cache: the prefix it shared with another session.
     first_read: integer
   end
@@ -524,9 +525,21 @@ function Agent.spent_in(db: Sqlite.Handle, marker: string): Agent.Spent?
   local r, _ = Sqlite.rows(db, "SELECT count(*), coalesce(sum(input_tokens), 0), coalesce(sum(output_tokens), 0), " ..
       "coalesce(sum(cache_read), 0), coalesce(sum(coalesce(cache_write_5m, 0) + coalesce(cache_write_1h, 0)), 0), " ..
       "coalesce(sum(cost), 0.0), coalesce(sum(ms), 0) FROM requests WHERE session = ?1", { { integer = id } })
-  local o, _ = Sqlite.rows(db, "SELECT count(*), coalesce(sum(tool = 'run'), 0), " ..
-      "coalesce(sum(tool = 'run' AND instr(input, 'Host.bash') > 0), 0) FROM outputs WHERE session = ?1",
+  local o, _ = Sqlite.rows(db, "SELECT count(*), coalesce(sum(tool = 'run'), 0) FROM outputs WHERE session = ?1",
     { { integer = id } })
+  local snippets, _ = Sqlite.rows(db, "SELECT input FROM outputs WHERE session = ?1 AND tool = 'run'",
+    { { integer = id } })
+  -- A helper's name starts with a small letter (Host.Count is a record type), after no other word (MyHost.x).
+  local helpers: mut {string: integer} = {}
+  for _, snippet in ipairs(snippets or {}) do
+    local seen: mut {string: boolean} = {}
+    for name in snippet:text(1):gmatch("%f[%w_]Host%.([%l_][%w_]*)") do
+      if seen[name] == nil then
+        seen[name] = true
+        helpers[name] = (helpers[name] or 0) + 1
+      end
+    end
+  end
   local first, _ = Sqlite.rows(db, "SELECT coalesce(cache_read, 0) FROM requests WHERE session = ?1 AND status = 200 ORDER BY rowid " ..
       "LIMIT 1", { { integer = id } })
   local refusals, _ = Sqlite.rows(db, "SELECT text FROM outputs WHERE session = ?1 AND tool = 'run' AND " ..
@@ -546,7 +559,7 @@ function Agent.spent_in(db: Sqlite.Handle, marker: string): Agent.Spent?
   local opened = first and first[1]
   return { requests = req:integer(1), input = req:integer(2), output = req:integer(3), cache_read = req:integer(4),
     cache_write = req:integer(5), cost = req:number(6), seconds = req:integer(7) / 1000, tools = out:integer(1),
-    runs = out:integer(2), refused = #(refusals or {}), codes = codes, bashed = out:integer(3),
+    runs = out:integer(2), refused = #(refusals or {}), codes = codes, helpers = helpers,
     first_read = if opened ~= nil then opened:integer(1) else 0 end }
 end
 
@@ -562,8 +575,9 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}): string
     for _, tool in ipairs(options.tools) do
       local passed, unfit, n, counted = 0, 0, 0, 0
       local sum: mut {string: number} = { requests = 0, input = 0, output = 0, cache_read = 0, cache_write = 0,
-        cost = 0, seconds = 0, tools = 0, runs = 0, refused = 0, first_read = 0, bashed = 0, wall = 0 }
+        cost = 0, seconds = 0, tools = 0, runs = 0, refused = 0, first_read = 0, wall = 0 }
       local codes: mut {string: integer} = {}
+      local helpers: mut {string: integer} = {}
       for _, r in ipairs(results) do
         if r.tool == tool.name and r.task == task.name then
           n = n + 1
@@ -576,7 +590,6 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}): string
           local s = r.spent
           if s ~= nil then
             counted = counted + 1
-            sum["bashed"] = (sum["bashed"] or 0) + s.bashed
             sum["requests"] = (sum["requests"] or 0) + s.requests
             sum["input"] = (sum["input"] or 0) + s.input
             sum["output"] = (sum["output"] or 0) + s.output
@@ -589,6 +602,7 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}): string
             sum["refused"] = (sum["refused"] or 0) + s.refused
             sum["first_read"] = (sum["first_read"] or 0) + s.first_read
             for code, k in pairs(s.codes) do codes[code] = (codes[code] or 0) + k end
+            for name, k in pairs(s.helpers) do helpers[name] = (helpers[name] or 0) + k end
           end
         end
       end
@@ -599,9 +613,9 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}): string
       if unfit > 0 then grade = "unfit on this fixture" end
       lines[#lines + 1] = string.format("- %s: %s; %.1f requests, $%.3f, %.0f s wall (%.0f s in requests); " ..
           "tokens %.0f in, %.0f out, %.0f cache read (%.0f by the first request), %.0f cache write; %.1f tool calls, " ..
-          "%.1f of them run, %.1f refused, %.1f naming Host.bash", tool.name, grade, mean("requests"), mean("cost"),
+          "%.1f of them run, %.1f refused", tool.name, grade, mean("requests"), mean("cost"),
         wall, mean("seconds"), mean("input"), mean("output"), mean("cache_read"), mean("first_read"),
-        mean("cache_write"), mean("tools"), mean("runs"), mean("refused"), mean("bashed"))
+        mean("cache_write"), mean("tools"), mean("runs"), mean("refused"))
       local named: mut {string} = {}
       for code in pairs(codes) do named[#named + 1] = code end
       table.sort(named, function(a: string, b: string): boolean
@@ -615,6 +629,20 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}): string
           parts[#parts + 1] = code .. " " .. tostring(codes[code] or 0)
         end
         lines[#lines + 1] = "  - refused for: " .. table.concat(parts, ", ")
+      end
+      local used: mut {string} = {}
+      for name in pairs(helpers) do used[#used + 1] = name end
+      table.sort(used, function(a: string, b: string): boolean
+        local ka, kb = helpers[a] or 0, helpers[b] or 0
+        if ka ~= kb then return ka > kb end
+        return a < b
+      end)
+      if #used > 0 then
+        local parts: mut {string} = {}
+        for _, name in ipairs(used) do
+          parts[#parts + 1] = string.format("%s %.1f", name, (helpers[name] or 0) / d)
+        end
+        lines[#lines + 1] = "  - snippets naming each Host helper: " .. table.concat(parts, ", ")
       end
     end
     lines[#lines + 1] = ""
@@ -688,10 +716,13 @@ function Agent.main(argv: {string}): integer
       row["requests"], row["cost"], row["input"], row["output"] = s.requests, s.cost, s.input, s.output
       row["cache_read"], row["cache_write"] = s.cache_read, s.cache_write
       row["seconds"], row["tools"], row["runs"] = s.seconds, s.tools, s.runs
-      row["refused"], row["first_read"], row["bashed"] = s.refused, s.first_read, s.bashed
+      row["refused"], row["first_read"] = s.refused, s.first_read
       local codes: mut {string: Json.Value} = {}
       for code, k in pairs(s.codes) do codes[code] = k end
       row["codes"] = codes
+      local helpers: mut {string: Json.Value} = {}
+      for name, k in pairs(s.helpers) do helpers[name] = k end
+      row["helpers"] = helpers
     end
     rows[#rows + 1] = row
     failed = failed or r.grade == "fail"
