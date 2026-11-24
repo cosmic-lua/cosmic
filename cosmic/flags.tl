@@ -1578,13 +1578,18 @@ function Flags.dispatch(argv: {string}, from: integer,
   end
   if name == nil then
     local names: mut {string} = {}
+    local defaulted = false
     for known, other in pairs(commands) do
       local typed = other.typed or known
-      if typed ~= "" then names[#names + 1] = typed end
+      if typed ~= "" then names[#names + 1] = typed else defaulted = true end
     end
-    table.sort(names)
-    return nil, "needs a command: " .. table.concat(names, ", ")
+    if not defaulted then
+      table.sort(names)
+      return nil, "needs a command: " .. table.concat(names, ", ")
+    end
   end
+  -- A line that names no command runs the one typed by no word, as a first word that names none does.
+  name = name or ""
   local command = commands[name]
   -- The slot of the command's first word: after its name, or the word itself where no command is named.
   local first = from + 1

@@ -963,6 +963,23 @@ local function test_help_shows_the_options_of_a_subcommand_typed_by_no_word()
   assert(help:find("--json", 1, true) == nil and help:find("\n  head ", 1, true) ~= nil, help)
 end
 
+--- A line of no words runs the command typed by no word, as a first word that names no command does.
+local function test_an_empty_line_runs_the_command_typed_by_no_word()
+  local ran_as = ""
+  local commands: {string:Flags.Command} = {
+    get = { typed = "", run = function(_: Flags.Parsed): integer
+      ran_as = "get"
+      return 0
+    end },
+    head = { run = function(_: Flags.Parsed): integer
+      ran_as = "head"
+      return 0
+    end },
+  }
+  local ran, why = Flags.dispatch({}, 1, commands, "prog")
+  assert(ran ~= nil and ran.code == 0 and ran_as == "get", why)
+end
+
 --- Without a command typed by no word, a first word that names none is refused, and a mistyped spelling is
 --- named.
 local function test_a_spelling_is_among_the_names_a_mistyped_command_meant()
