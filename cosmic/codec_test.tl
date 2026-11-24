@@ -125,3 +125,13 @@ local function test_a_megabyte_round_trips()
   assert(Codec.unbase64(text) == big .. "x")
   assert(Codec.unbase64url(Codec.base64url(big .. "xy")) == big .. "xy")
 end
+
+--- Every byte's two hex digits decode in each of their four case spellings.
+local function test_unhex_reads_every_byte_in_each_case()
+  for byte = 0, 255 do
+    local l = ("%02x"):format(byte)
+    for _, spelled in ipairs({ l, l:upper(), l:sub(1, 1):upper() .. l:sub(2, 2), l:sub(1, 1) .. l:sub(2, 2):upper() }) do
+      assert(Codec.unhex(spelled) == string.char(byte), spelled)
+    end
+  end
+end
