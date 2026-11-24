@@ -191,10 +191,12 @@ local function answer_of(lines: Stream.Lines, writer: Stream.Writer, id: integer
   end
 end
 
+--- The mark of `kind` ("start" or "end") of the output of the request `id`.
 function Worker.mark(kind: string, id: integer): string
   return "\0\0cosmic agent worker: " .. kind .. " " .. tostring(id) .. "\0\0"
 end
 
+--- The last [`Worker.OUTPUT_BYTES`] of `text`, from a character's start, as UTF-8.
 function Worker.tail(text: string): string
   if #text <= Worker.OUTPUT_BYTES then return String.as_utf8(text) end
   local from = #text - Worker.OUTPUT_BYTES + 1
@@ -340,7 +342,7 @@ function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worke
     end
     -- TODO: tell the end of a snippet's output when it ran past its timeout or was stopped: it is in hand.
     local said = if output.before ~= "" and not output.started then "; it wrote: " ..
-      (String.as_utf8(output.before):gsub("[%z\1-\8\11-\31\127]", "")) else "" end
+        (String.as_utf8(output.before):gsub("[%z\1-\8\11-\31\127]", "")) else "" end
     return nil, Failure.new("worker: " .. trouble .. said .. "; the next run starts a new one")
   end
   if got["ok"] ~= nil then
