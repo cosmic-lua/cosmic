@@ -1414,6 +1414,8 @@ local function declared(schema: Schema): SchemaTables
   local opened = sqlite.open_result(":memory:", true, nil, nil, true)
   if opened.code ~= OK then error("sqlite: schema: " .. tostring(failed(opened)), 0) end
   local handle <close> = handle_of(opened.handle)
+  -- Nothing but this memory database is written: an `ATTACH` fails.
+  local _ = handle:limit("attached", 0)
   local ran, why = handle:exec(schema.ddl)
   if not ran then error("sqlite: schema: the DDL fails: " .. tostring(why), 0) end
   local rows = assert(handle:rows(TABLES_SQL .. " ORDER BY name"))
@@ -1743,8 +1745,14 @@ end
 ---
 --- `schema` runs the DDL once in a memory database, to read the
 --- tables, and raises when SQLite refuses it or it creates no table.
---- So the DDL creates and does nothing else: no `ATTACH`, `BEGIN` or
---- write to another file.
+--- So the DDL creates and does nothing else: an `ATTACH` in it fails
+--- there, and a `BEGIN` fails at the open that runs it on a file. The
+--- checker runs the DDL too, and reads the SQL a program sends to a
+--- handle opened with the schema against it: a table or column it does
+--- not create, or a values list of another length than the SQL binds,
+--- is refused where it is written. That holds for a handle held in a
+--- local the program never assigns, given the schema in a local of the
+--- same module, and SQL that is a literal or joins literals.
 function Sqlite.schema(ddl: string): Sqlite.Schema
   if ddl:find("\0", 1, true) ~= nil then error("sqlite: a schema's DDL cannot hold a NUL", 2) end
   local schema: Sqlite.Schema = { ddl = ddl }
