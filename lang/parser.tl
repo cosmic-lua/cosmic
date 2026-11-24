@@ -1947,6 +1947,8 @@ local function parse_supers(owner: string): {Ast.TypeName}, Ast.Type
       break
     end
   end
+  -- A `>>` the last of them used half of is reported here, not read as the first member.
+  settle()
   if S.text == "," then
     report("several_supers", S.pos, (if owner == "interface" then "an " else "a " end) .. owner .. " implements one interface",
       "write one interface after `is`; a new interface that extends both can be implemented instead")
@@ -2478,7 +2480,7 @@ local function parse_match(): Ast.Stat
         advance()
       else
         local pfirst = S.pos
-        local tested = parse_type()
+        local tested = parse_annotation()
         local name: Ast.Binding? = nil
         if S.kind == "identifier" then
           name = binding("the value of the type")

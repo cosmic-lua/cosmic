@@ -55,7 +55,9 @@
 ---   place, else from what the type wanted answers, and each meeting its bound
 ---   ([`lang.generics`]). A parameter nothing there says anything of is `never`, the
 ---   instance that asks least of what `b` passes (`function<T>(x: integer | T)` where
----   `function(x: integer)` is wanted). The function with those types in is then compared as
+---   `function(x: integer)` is wanted), unless a result names it: a result of type `never`
+---   would drop its alternative, and a cast or a declaration answers a real value there, so
+---   such a parameter refuses. The function with those types in is then compared as
 ---   any other: any instance below the type wanted shows the generic function is. A generic
 ---   function type wanted is met only by itself.
 --- - A type variable is below itself and what one of its bounds is below, or an interface whose fields its interface
@@ -1511,11 +1513,33 @@ local function from_generic(j: Relation.Judge, a: Fn, b: Fn, why: boolean): Rela
       Generics.match(solver, ours_tail, theirs_tail, "from", 0)
     end
   end
+  -- The type parameters a's results name. Unsolved, one of these refuses: as `never` it would
+  -- drop the alternative it is in from the store, and a body that casts (`v as T`) or a declared
+  -- generic answers a value of no type `never` stands for.
+  local answered: mut {integer: boolean} = {}
+  for _, alt in ipairs(a.rets) do
+    local parts: mut {Type} = {}
+    for _, item in ipairs(alt.items) do parts[#parts + 1] = item end
+    local tail = alt.tail
+    if tail ~= nil then parts[#parts + 1] = tail end
+    local narrows = alt.narrows
+    if narrows ~= nil then parts[#parts + 1] = narrows.to end
+    for _, part in ipairs(parts) do
+      for index in pairs(Generics.names(part)) do answered[index] = true end
+    end
+  end
   local args: mut {Type} = {}
   for i = 1, #a.tparams do
-    -- Unsolved, a parameter is `never`: the instance is still compared below, so the choice
-    -- only ever admits what an instance shows.
-    args[i] = Generics.value(solver, i) or j.store.never
+    -- Unsolved, a parameter no result names is `never`: the instance is still compared below,
+    -- so the choice only ever admits what an instance shows.
+    local solved = Generics.value(solver, i)
+    if solved == nil then
+      if answered[i] == true then
+        return leaf(j, why, "generic_function", a, b)
+      end
+      solved = j.store.never
+    end
+    args[i] = solved
   end
   if #solver.conflicts > 0 then
     return leaf(j, why, "generic_function", a, b)
