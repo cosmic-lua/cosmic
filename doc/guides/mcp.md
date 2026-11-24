@@ -4,7 +4,7 @@
 
 The Model Context Protocol (MCP) lets a program offer tools, resources and
 prompts to a model's host, and lets a host ask for them. [`cosmic.mcp.server`]
-answers the protocol and [`cosmic.mcp.client`] asks it, over stdio or
+serves the protocol and [`cosmic.mcp.client`] asks it, over stdio or
 Streamable HTTP. Both speak revision 2026-07-28 only. That revision is
 stateless: there is no `initialize` and no session, and each request names
 its version and the client's capabilities in its `_meta`.
@@ -47,7 +47,7 @@ function Notes.new(): McpServer.Instance
       {
         tool = {
           name = "add_note",
-          description = "Adds a note and answers its number.",
+          description = "Adds a note and returns its number.",
           inputSchema = Mcp.object_schema({ text = { type = "string", minLength = 1 } }, { "text" }),
           outputSchema = Mcp.object_schema({ id = { type = "integer" } }, { "id" }),
         },
@@ -109,7 +109,7 @@ end
 ## test it
 
 [`McpServer.Instance.answer`] takes one message as text and returns the
-answer, with no stdio and no HTTP. A test sends it requests as a client would, each with its
+reply, with no stdio and no HTTP. A test sends it requests as a client would, each with its
 `_meta`, and reads the JSON that comes back.
 
 ```teal file=notes_test.tl
@@ -128,7 +128,7 @@ local function request(method: string, params: {string: Json.Value}): string
   return assert(Json.encode({ jsonrpc = "2.0", id = 1, method = method, params = with }))
 end
 
---- The result the server answers `method`.
+--- The result the server returns for `method`.
 local function result(server: McpServer.Instance, method: string, params: {string: Json.Value}): {string: Json.Value}
   local said = assert(Json.decode_object(assert(server:answer(request(method, params)).body)))
   local got = assert(Json.object_of(said["result"]), tostring(said["error"]))
@@ -155,7 +155,7 @@ end
 ## ask it from the shell
 
 `cosmic test` runs the tests. `cosmic mcp` starts the program after `--`,
-asks it one thing over stdio, and prints the answer as one line of JSON:
+asks it one thing over stdio, and prints the reply as one line of JSON:
 
 ```text
 cosmic test
@@ -254,13 +254,13 @@ assert(server:serve_stdio())
 [`McpServer.Instance.handler`] serves the endpoint under
 [`cosmic.http.server`]. With `oauth`, the endpoint is an OAuth 2.1 resource
 server: a request needs an access token that `verify` takes, and one with
-none is answered 401 with a challenge that says where the authorization
+none gets HTTP 401 with a challenge that says where the authorization
 server is. [`McpServer.jwt`] takes a JWT access token only when the
 authorization server's keys signed it, its `iss` is that server, its `aud`
 holds this endpoint, its `typ` is `at+jwt`, and it is within its time: a
 token for another server is refused. The endpoint here listens on
 loopback behind a proxy that ends TLS for `https://notes.example.com`. A tool's `scopes` are the scopes a call of it
-needs; a token without them is answered 403, and the client signs in again
+needs; a token without them gets HTTP 403, and the client signs in again
 for them.
 
 ```teal
@@ -317,7 +317,7 @@ assert(count ~= nil, tostring(why))
 
 Revision 2026-07-28 deprecates sampling, roots and logging, so cosmic has
 none of them. Elicitation is there: a handler asks the person for input with
-`call.elicit`, and the client answers through its `elicit` option.
+`call.elicit`, and the client replies through its `elicit` option.
 
 [`cosmic.child`]: ../../cosmic/child.tl
 [`cosmic.http.server`]: ../../cosmic/http/server.tl
