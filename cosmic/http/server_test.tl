@@ -1508,8 +1508,8 @@ local function test_a_streamed_body_sees_the_client_go_at_once()
 end
 
 --- A request the client pipelines while a reply streams leaves `gone`
---- false and is read and answered once the stream ends.
-local function test_a_request_pipelined_during_a_stream_is_answered()
+--- false and is read and replied to once the stream ends.
+local function test_a_request_pipelined_during_a_stream_gets_its_reply()
   local watching: Watching? = nil
   local troubles = serving(function(req: Server.Request): Server.Reply
     if req.path == "/next" then return echo(req) end

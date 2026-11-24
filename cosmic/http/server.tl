@@ -86,7 +86,7 @@ local record Server
     --- write. A request the client sent after this one, not yet read,
     --- does not make it true; a client that then ends what it sends
     --- (a half-close) is gone, as one that closes is. Asked after its
-    --- reply, it answers for the connection, not the request.
+    --- reply, it speaks for the connection, not the request.
     gone: function(): boolean
     --- What the connection's TLS handshake settled -- its version, the
     --- protocol ALPN chose, the host the client asked for (SNI) --
