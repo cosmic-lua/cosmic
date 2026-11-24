@@ -172,7 +172,7 @@ end
 local function test_help_refuses_its_line_ending_in_its_usage(tmp: string)
   for _, words in ipairs({ { "help", "--zz" }, { "help", "fix", "test" }, { "help", "tset" } }) do
     local r = verbs_fixture.run(tmp, words)
-    local form = "^cosmic: help: [^\n]+; usage: cosmic help %[verb | exit | <verb> <subcommand>%]\n$"
+    local form = "^cosmic: help: [^\n]+; usage: cosmic help %[verb | exit | <verb> <subcommand>%.%.%.%]\n$"
     assert(r.code == 2 and r.stderr:find(form) ~= nil, table.concat(words, " ") .. ": " .. r.stderr)
   end
 end
