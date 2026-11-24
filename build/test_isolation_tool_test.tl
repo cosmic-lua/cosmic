@@ -110,7 +110,6 @@ local function test_limits_must_be_positive_whole_numbers(tmp: string)
   result = invoke(root, output, { "--jobs", "x", "suite/fine_test.tl" })
   assert(result.code == 2, assert(Fs.read(output)))
   local env = environment()
-  env["FUZZ_SECONDS"] = nil
   env["COSMIC_TEST_TIMEOUT"] = "soon"
   result = invoke(root, output, { "suite/fine_test.tl" }, env)
   assert(result.code == 2, assert(Fs.read(output)))

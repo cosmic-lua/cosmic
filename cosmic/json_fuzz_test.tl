@@ -238,11 +238,15 @@ end
 local function decode_holds(input: string): boolean, string
   local strict_text: string? = nil
   for _, json5 in ipairs({ false, true }) do
+    -- What decode without big_numbers_as_strings said of the text, which
+    -- format reads as it does ("" when it read).
+    local small_err = ""
     for _, big in ipairs({ false, true }) do
       local where = ("json5=%s big=%s"):format(tostring(json5), tostring(big))
       local ok, value, err = decode_once(input, { null_value = Json.null, json5 = json5,
         big_numbers_as_strings = big, duplicate_keys = true }, where)
       if not ok then return false, err end
+      if not big then small_err = err end
       -- Without duplicate_keys, a text reads as it did with it, or is
       -- refused for a key twice, naming where; and only such a text.
       local once_ok, once_value, once_err = decode_once(input, { null_value = Json.null, json5 = json5,
@@ -257,10 +261,16 @@ local function decode_holds(input: string): boolean, string
       local formatted, format_err = Json.format(input, { json5 = json5, duplicate_keys = true })
       if err == "" and formatted == nil then
         local said = tostring(format_err)
-        if not big and not said:match("^json: cannot format ") then
+        if big and small_err ~= "" then
+          if said ~= small_err then
+            return false, where .. ": format refused it as " .. said .. ", not as decode does: " .. small_err
+          end
+          Fuzz.label("format refused a number only big numbers read")
+        elseif said:match("^json: cannot format NaN") or said:match("^json: cannot format an infinite number") then
+          Fuzz.label("format refused NaN or an infinity")
+        else
           return false, where .. ": read, but format refused it: " .. said
         end
-        Fuzz.label("format refused what decode read")
       elseif err == "" then
         local twice = holds_key_twice(formatted)
         if twice ~= nil then

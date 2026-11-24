@@ -1466,7 +1466,8 @@ local module: Module = {
         ["--shard"] = { value = "i/n", about = "run only the i-th of n shares of the chosen " ..
             "tests, dealt in turn in sorted order, so n runs, i = 1 to n, run each test once" },
         ["--timeout"] = { value = "seconds",
-          about = "fail a test that runs longer (COSMIC_TEST_TIMEOUT, else 30); a module's " ..
+          about = "fail a test that runs longer (COSMIC_TEST_TIMEOUT, else 30, or ten times FUZZ_SECONDS " ..
+            "where that is set); a module's " ..
             "Test.policy { timeout = n } lengthens it for that module" },
       },
     },
