@@ -521,6 +521,7 @@ const core_sources = [_][]const u8{
     "vfs.c",
     "main.c",
     "portable.c",
+    "profile.c",
     "promises.c",
     "rand.c",
     "startup.c",

@@ -70,6 +70,7 @@ extern int clone (int (*)(void *), void *, int, void *, ...);
 
 #include "check.h"
 #include "coverage.h"
+#include "profile.h"
 #include "fail.h"
 #include "fault.h"
 #include "guard.h"
@@ -207,6 +208,7 @@ COSMIC_SYSCALL(environ, 0) {
 COSMIC_SYSCALL(exit, 1) {
   int status = cosmic_optint(L, 1, 0);
   cosmic_coverage_report(); /* _exit runs no atexit handler */
+  cosmic_profile_report();
   _exit(status); /* exits: the process boundary has no caller to return to */
 }
 
@@ -697,6 +699,7 @@ COSMIC_SYSCALL(execve, 3) {
   struct rlimit raised;
   bool lowered = getrlimit(RLIMIT_NOFILE, &raised) == 0 && restore_descriptor_limit(0);
   cosmic_coverage_report(); /* nothing of this image remains to report later */
+  cosmic_profile_report();
   if (sigpipe_ignored_here) signal(SIGPIPE, SIG_DFL);
   execve(path, argv, given);
   int number = errno;

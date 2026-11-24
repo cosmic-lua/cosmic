@@ -165,7 +165,9 @@ end
 ---   inherited from a `cosmic.internal` type is shown without a
 ---   location, so no internal file is named for one.
 --- @param exempt what to let stand; defaults to the tree's own
-function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {string}
+--- @param files where given, the files whose modules alone are judged, by their paths from the root (a narrowed
+---   `cosmic fix <paths>`): an exemption of another module's is not reported as stale
+function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt, files?: {string: boolean}): {string}
   local excused = exempt and exempt.undocumented or undocumented
   local kept = exempt and exempt.surfaces or surfaces
   local out: mut {string} = {}
@@ -189,6 +191,18 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
     return { "reading the docs: " .. tostring(trouble) }
   end
   local shown: Sqlite.Rows = rows
+  -- The modules judged: every one, or those `files` declare.
+  local judged: {string: boolean}? = nil
+  if files ~= nil then
+    local declared: mut {string: boolean} = {}
+    for _, row in ipairs(shown) do
+      if files[row:text(7)] == true then declared[row:text(1)] = true end
+    end
+    judged = declared
+  end
+  local function judges(module: string): boolean
+    return judged == nil or judged[module] == true
+  end
 
   -- Several modules declare `Entry.path`, so one lookup answers each.
   local looked: mut {string: Doc.Lookup} = {}
@@ -264,7 +278,7 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
 
   -- A module's page and the index's line for it.
   for _, summary in ipairs(modules) do
-    local found = lookup(summary.module)
+    local found = if judges(summary.module) then lookup(summary.module) else nil end
     if found ~= nil and (#found == 0 or not found.exact) then
       out[#out + 1] = "the index lists " .. summary.module .. ", but `cosmic docs " ..
         summary.module .. "` does not resolve it"
@@ -306,7 +320,7 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
       row:text(1), row:text(2), row:text(3), row:text(4), row:text(5), row:text(6)
     local key = module .. "." .. source_symbol
     local where = row:text(7) .. ":" .. row:text(8) .. ": " .. key
-    if symbol ~= "" then
+    if symbol ~= "" and judges(module) then
       if signature:gsub("^local ", ""):find("--", 1, true) ~= nil then
         table.insert(out, where .. ": the signature has a comment in it: " ..
             signature:gsub("%s+", " "))
@@ -371,13 +385,28 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
       end
     end
   end
+  -- An exemption names its module and then the symbol ([`cosmic.fs.Fs.read`]); where only some modules are judged, the
+  -- others' are neither used nor stale. The longest module the key starts with is its own: `cosmic.mcp.server.X` is
+  -- not cosmic.mcp's.
+  local all_modules: mut {string: boolean} = {}
+  if judged ~= nil then
+    for _, row in ipairs(shown) do all_modules[row:text(1)] = true end
+  end
+  local function judged_key(key: string): boolean
+    if judged == nil then return true end
+    local owner = ""
+    for module in pairs(all_modules) do
+      if #module > #owner and key:sub(1, #module + 1) == module .. "." then owner = module end
+    end
+    return judged[owner] == true
+  end
   for key, reason in pairs(excused) do
-    if used[key] ~= true then
+    if used[key] ~= true and judged_key(key) then
       out[#out + 1] = key .. ": excused (" .. reason .. "), but it is documented or gone"
     end
   end
   for key, reason in pairs(kept) do
-    if kept_used[key] ~= true then
+    if kept_used[key] ~= true and judged_key(key) then
       out[#out + 1] = key .. ": kept as a surface (" .. reason .. "), but it is gone"
     end
   end

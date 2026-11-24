@@ -4,6 +4,8 @@
 --- seeded and not. build/rand_tool_test.tl starts the program for what
 --- a process alone shows.
 
+local Cli = require("cosmic.cli")
+local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Rand = require("cosmic.rand")
 local rand = require("build.rand")
@@ -48,6 +50,24 @@ local function lines(text: string): {string}
   local out: mut {string} = {}
   for line in text:gmatch("[^\n]+") do out[#out + 1] = line end
   return out
+end
+
+--- The bounds `rand` holds `-n` and `--bytes` to are the ones its options in [`cosmic.cli`] say.
+local function test_the_bounds_are_the_specs()
+  local described = assert(Cli.verbs["rand"])
+  local none: {string:Flags.Command} = {}
+  local bounds: {string:integer} = { ["-n"] = rand.MAX_COUNT, ["--bytes"] = rand.MAX_BYTES }
+  for name, command in pairs(described.subcommands or none) do
+    local nothing: {string:boolean | Flags.Option} = {}
+    local spec = command.spec or nothing
+    for option, most in pairs(bounds) do
+      local entry = spec[option]
+      if entry is Flags.Option then
+        local range = assert(entry.integer, name .. " " .. option)
+        assert(range.min == 1 and range.max == most, name .. " " .. option)
+      end
+    end
+  end
 end
 
 local function test_uuid_v4_layout_and_bits()
@@ -397,7 +417,7 @@ end
 local function test_a_negative_count_is_refused_and_a_negative_bound_is_a_bound()
   local ran = run({ "uuid", "-n", "-5" })
   assert(ran.code == 2 and ran.out == "", ran.out)
-  assert(ran.err:find("-n needs a whole number", 1, true), ran.err)
+  assert(ran.err:find("-n takes a whole number", 1, true), ran.err)
   local bound = run({ "int", "-n", "2", "-4", "-4" })
   assert(bound.code == 0 and bound.out == "-4\n-4\n", bound.out .. bound.err)
   -- Only int reads a word that begins with `-` as a number, not an option.
@@ -583,7 +603,7 @@ local function test_normal_and_gamma_count_is_bounded_like_int()
     for _, bad in ipairs({ "0", "-1", "x", "1.5", tostring(rand.MAX_COUNT + 1) }) do
       local ran = run(with(bad))
       assert(ran.code == 2 and ran.out == "", command .. " -n " .. bad)
-      assert(ran.err:find("-n needs a whole number from 1 to", 1, true), ran.err)
+      assert(ran.err:find("-n takes a whole number from 1 to", 1, true), ran.err)
     end
   end
   -- The most is allowed to parse; a failed write ends the run early.

@@ -362,7 +362,8 @@ local function test_a_u_grant_beside_a_directory_of_sockets_is_refused_or_held(t
       assert(why:find("beside a directory", 1, true), why)
     else
       assert(ChildPolicy.unsandboxable(why), why)
-      assert(granted:close() and other:close())
+      assert(granted:close())
+      assert(other:close())
       Test.skip(why)
       return
     end
@@ -370,7 +371,8 @@ local function test_a_u_grant_beside_a_directory_of_sockets_is_refused_or_held(t
     -- Landlock ABI 9: the socket the grant does not name is refused.
     assert(result.stdout ~= "connected\n", result.stdout)
   end
-  assert(granted:close() and other:close())
+  assert(granted:close())
+  assert(other:close())
 end
 
 --- A grant of a file that is no socket stands beside a `u` one at any ABI.

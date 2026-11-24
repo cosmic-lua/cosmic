@@ -142,8 +142,8 @@ local function test_long_names_and_values_read_whole()
   assert(start.name == name and assert(start.attributes)["k"] == value)
 end
 
---- A finalizer runs where the program calls a Lua function or `collectgarbage`
---- (patch/lua/19-finalizers-at-calls-gc.txt), so none runs while a call
+--- A finalizer runs only at a call Lua code makes, never at a C function's own
+--- `lua_pcall` (patch/lua/31-finalizers-at-c-calls-run-call.txt), so none runs while a call
 --- appends an event, however much the call allocates: the ones it leaves
 --- pending run after it, with the parser free. Teal declares a finalizer as
 --- a class's `__gc`, but this one is Lua's, from a chunk, to reach the
