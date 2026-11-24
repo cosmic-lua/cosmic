@@ -60,7 +60,7 @@ function VerifyCodesign.verify(sysname: string, binary: string, path?: string): 
     local result, trouble = Child.run(argv, { timeout_ns = Child.FOREVER })
     -- 127 whatever the reason it did not start; the message says which.
     if result == nil then
-      log:complain(tool .. ": " .. trouble)
+      log:complain(tool .. ": " .. tostring(trouble))
       return 127
     end
     if not result.ok then

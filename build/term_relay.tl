@@ -273,7 +273,7 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   if opened == nil then return nil, "terminal: " .. tostring(guard_why) end
   local guard <close> = opened
   local started, start_why = Child.start_on_pty(argv, opts, pty)
-  if started == nil then return nil, start_why end
+  if started == nil then return nil, tostring(start_why) end
   local master = started.master
   local _slave <close>: Slave = { fd = started.slave }
   local filter = TermFilter.new()

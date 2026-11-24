@@ -1622,7 +1622,7 @@ local function launch(rec: Recording, job: Job): boolean
   end
   local handle, start_trouble = Child.start(command.argv, command.options)
   if handle == nil then
-    local _ = finish(rec, job, nil, start_trouble)
+    local _ = finish(rec, job, nil, tostring(start_trouble))
     return false
   end
   job.handle = handle
@@ -1792,7 +1792,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
     if relay ~= nil then local _, _ = sys.close(relay.writer) end
     if handle == nil then
       if relay ~= nil then local _, _ = sys.close(relay.reader) end
-      local _ = finish(rec, lead, nil, start_trouble)
+      local _ = finish(rec, lead, nil, tostring(start_trouble))
       requeue(others, false)
       return
     end

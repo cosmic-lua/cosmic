@@ -356,7 +356,7 @@ function Solve.main(argv: {string}): integer
     cwd = arena .. "/project", stdin = "null", stdout = "null", stderr = "null",
     sandbox = { unveil = unveil }, timeout_ns = Child.FOREVER })
   if probe == nil then
-    complain(probe_trouble .. " (where the sandbox is unavailable, eval/README.md has the manual launch)")
+    complain(tostring(probe_trouble) .. " (where the sandbox is unavailable, eval/README.md has the manual launch)")
     return 2
   elseif Solve.status(probe) ~= 0 then
     complain("the sandbox's /proc is the host's, not its own; not running the solver there " ..
@@ -399,7 +399,7 @@ function Solve.main(argv: {string}): integer
   elseif guard:cancelled() ~= 0 then
     status = 128 + guard:cancelled()
   else
-    complain(trouble .. " (where the sandbox is unavailable, eval/README.md has the manual launch)")
+    complain(tostring(trouble) .. " (where the sandbox is unavailable, eval/README.md has the manual launch)")
     status = 125
   end
   local _, _ = Fs.write(arena .. "/finished_at", now())

@@ -206,8 +206,8 @@ local function waiting(tmp: string, port: integer): Child.Handle?, string
   local options = { ...granting(sealed_client(tmp), port), stdout = "null", stderr = "null" }
   local handle, why = Child.start({ assert(Proc.executable()), "wait" }, options)
   if handle == nil then
-    assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
-    return nil, why
+    assert(ChildPolicy.unsandboxable(tostring(why)), "the start was refused: " .. tostring(why))
+    return nil, tostring(why)
   end
   return handle, ""
 end
@@ -246,8 +246,8 @@ local function flows(tmp: string): {string:string}, integer
     local result, why = Child.run({ assert(Proc.executable()), "flows", tostring(granted),
       tostring(ungranted) }, granting(database, granted))
     if result == nil then
-      assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
-      refusal = why
+      assert(ChildPolicy.unsandboxable(tostring(why)), "the start was refused: " .. tostring(why))
+      refusal = tostring(why)
       return
     end
     assert(result.ok, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
@@ -369,7 +369,7 @@ return function(argv: {string}): integer
   for _, name in ipairs((assert(Fs.list(sys.getenv("TMPDIR") or "/tmp")))) do
     if name:find("^cosmic%-relay%-") then left[#left + 1] = name end
   end
-  local _, _ = Fs.put(Fs.stdout, (if started == nil then "refused: " .. why else "started" end) .. "\nrunning: " ..
+  local _, _ = Fs.put(Fs.stdout, (if started == nil then "refused: " .. tostring(why) else "started" end) .. "\nrunning: " ..
     table.concat(running, ",") .. "\ndirectories: " .. table.concat(left, ","))
   return 0
 end
@@ -480,8 +480,8 @@ local function test_the_relays_log_goes_to_a_descriptor_the_caller_gives(tmp: st
     local result, why = Child.run({ assert(Proc.executable()), "flows", tostring(granted), tostring(ungranted) },
       options)
     if result == nil then
-      assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
-      refusal = why
+      assert(ChildPolicy.unsandboxable(tostring(why)), "the start was refused: " .. tostring(why))
+      refusal = tostring(why)
       return
     end
     assert(result.ok, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
@@ -521,8 +521,8 @@ local function test_a_terminal_or_a_kept_descriptor_is_no_place_for_the_relays_l
     assert(started:stop())
     assert(false, "a start with a terminal as the relay's log went on")
   end
-  if ChildPolicy.unsandboxable(why) then Test.skip(why) end
-  assert(why:find("relay_log " .. tostring(pty.slave) .. " is a terminal", 1, true), why)
+  if ChildPolicy.unsandboxable(tostring(why)) then Test.skip(tostring(why)) end
+  assert(why.message:find("relay_log " .. tostring(pty.slave) .. " is a terminal", 1, true), why)
   assert(#relay_directories() == 0, "the relay's database was left")
 end
 
@@ -536,7 +536,7 @@ local function test_a_descriptor_the_program_keeps_is_no_place_for_the_relays_lo
     if not looked then
       local kept = { ...granting(database, 9), relay_log = fd }
       local refused, refusal = Child.start({ assert(Proc.executable()), "wait" }, kept)
-      assert(refused == nil and refusal:find("relay_log " .. tostring(fd) .. " is a descriptor this program keeps", 1, true) ~= nil,
+      assert(refused == nil and refusal.message:find("relay_log " .. tostring(fd) .. " is a descriptor this program keeps", 1, true) ~= nil,
         tostring(refusal))
       tried = tried + 1
     end
@@ -565,8 +565,8 @@ local function test_no_connect_means_no_relay_and_no_extra_descriptors(tmp: stri
   local plain, why = Child.run({ assert(Proc.executable()), "env" }, { policy = { database = { path = database } },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   if plain == nil then
-    assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
-    Test.skip(why)
+    assert(ChildPolicy.unsandboxable(tostring(why)), "the start was refused: " .. tostring(why))
+    Test.skip(tostring(why))
   end
   assert(plain ~= nil and plain.ok, tostring(plain ~= nil and plain.stderr)) -- checked: or_mix
   for name, value in pairs(fixture.fields(assert(plain.stdout))) do

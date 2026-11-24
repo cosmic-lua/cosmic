@@ -251,8 +251,8 @@ function Runner.spawn(c: Runner.Context, phase: string,
     local options, descriptors = prepare(request)
     running.descriptors = descriptors
     local handle, trouble = Child.start(request.argv, options)
-    started.trouble = trouble
     if handle == nil then
+      started.trouble = tostring(trouble)
       release(descriptors)
       running.descriptors = {}
     else
