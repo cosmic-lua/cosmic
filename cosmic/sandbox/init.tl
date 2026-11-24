@@ -143,7 +143,8 @@ end
 --- under it can run the tools it names; "cosmic"
 --- grants `rx` on the path this program is started by ([`Proc.executable`]),
 --- which is its launcher where it has one: what [`Child.start`] runs as
---- this program's core, by a relaunch; "proc" is the kernel's process
+--- this program's core, by a relaunch, and which that core gives up at
+--- boot, so it is the start's grant, not the program's; "proc" is the kernel's process
 --- information: `r` on /proc, where the host has one (Linux), and nothing
 --- on macOS, where sysctl answers with no file to grant, so a policy that
 --- names it reads the same on both. That is every process's entries

@@ -130,6 +130,15 @@ bool cosmic_sandbox_init_asked (int argc, char **argv);
 
 /* Pid 1 of an unveiled child's pid namespace (core/sandbox_root.c). */
 _Noreturn void cosmic_sandbox_init (void);
+
+/* The variable a policy's start hands a cosmic child the layer its core
+ * applies at boot in ([`cosmic_boot_layer_apply`]). */
+#define COSMIC_SANDBOX_LAYER "COSMIC_SANDBOX_LAYER"
+
+/* Holds this process to the grants `text` names, each
+ * "<letters> <length>:<path>\n", and to the no-x filter where none has
+ * `x` (core/sandbox_rules.c). 0, or an errno with why in `message`. */
+int cosmic_boot_layer_apply (const char *text, char *message, size_t room);
 #endif
 
 #if defined(__APPLE__)

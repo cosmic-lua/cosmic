@@ -462,6 +462,13 @@ local record Options
   --- root's alone. The relaunch's descriptors are two more `fds` the child
   --- gets; one `fds` names is refused, as is the `nest` promise (a core on a
   --- `database` below has no descriptor, and takes it).
+  --- The core's `rx`, and the "cosmic" profile's, are the start's, not
+  --- the child's: on Linux the core holds itself at boot, before any module
+  --- loads, to the policy's grants without them (a second Landlock layer,
+  --- and the exec filter where no grant is left with `x`), so a child
+  --- whose policy has no `x` runs no program, its own core included, and
+  --- one that starts this program again grants its file by name. Under
+  --- `isolate` file and `nest` the core does not.
   ---
   --- With a `database` (see [`Sandbox.Policy`]) the program is this
   --- program's core run on that file (`core --database <path>`) whatever
@@ -2302,6 +2309,10 @@ local record Held
   --- Whether the policy asks for one: not under `isolate` file, whose
   --- /tmp is a tmpfs of the sandbox's own.
   wants_tmp: boolean
+  --- The grants the core of a cosmic child holds itself to at boot, the
+  --- policy's without the start's `rx` on that core ([`layer_text`]); nil
+  --- for a host program, and under `isolate` file or `nest`.
+  layer?: mut {raw_process.Grant}
   --- Whether it promises `nest`, which no descriptor to a directory or to a
   --- file open for less than both may be handed to ([`nest_descriptors`]).
   nests: boolean
@@ -3177,10 +3188,12 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- none, "too many unveiled paths" for the root they are bound into.
   -- The fix: count the grants after adding these two, and refuse with
   -- the count and the most.
+  local core_grant: Rules.Grant?
   if found ~= nil then
     relaunch = found
     local granted = assert(merged.grants)
     granted[#granted + 1] = { path = found.argv[1], letters = "rx" } -- checked: index_may_be_nil, view_written
+    core_grant = granted[#granted]
     -- A core on a database reads it, on its own start and on every
     -- relaunch of its own; the grant is what a start that stays on it
     -- needs, whether the database is the policy's or this process's.
@@ -3299,11 +3312,37 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   end
 
   local grants: mut {raw_process.Grant} = {}
+  -- A cosmic child's core holds itself at boot to the grants without its
+  -- own `rx`, so a policy with no `x` runs no program, the core included.
+  -- Under `isolate` file a grant's name in the root is not its host path,
+  -- and under `nest` no ruleset holds the child.
+  -- TODO: a layer at boot under `isolate` file too, by the names the root
+  -- binds each grant at.
+  -- The "cosmic" profile is the start's too: `rx` on the file this
+  -- program is started by, which a relaunch runs as its core. A policy
+  -- that runs this program again from the child grants it by name.
+  local layer: mut {raw_process.Grant} = {}
+  local starts: mut {string:boolean} = {}
+  for _, name in ipairs(merged.profiles or {}) do
+    if name == "cosmic" then
+      local own, _ = Proc.executable()
+      if own ~= nil then
+        local real, _ = sys.realpath(own)
+        if real ~= nil then starts[real] = true end
+      end
+    end
+  end
   local unix = false
   for _, grant in ipairs(merged.grants or {}) do
     local at = grant.from or grant.path
     if base ~= nil and at:sub(1, 1) ~= "/" then at = base .. "/" .. at end -- checked: compare_disjoint
     grants[#grants + 1] = { path = at, access = grant.letters }
+    local start_only = grant == core_grant
+    if not start_only and grant.letters == "rx" and next(starts) ~= nil then
+      local real, _ = sys.realpath(at)
+      start_only = real ~= nil and starts[real] == true
+    end
+    if not start_only then layer[#layer + 1] = { path = at, access = grant.letters } end
     if lettered(grant.letters, "u") then unix = true end
   end
   local env: mut {string:string} = {}
@@ -3385,6 +3424,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     if not holds then return nil, "sandbox: " .. held_why end
   end
   return { path = path, env = env, tmp = "", wants_tmp = merged.tmp == true and not file, -- checked: nil_not_allowed
+    layer = if relaunch ~= nil and not file and not nest then layer else nil end,
     sandbox = sandbox, cwd = if file then base else nil end, user = user, drop = drop, nests = nest,
     argv = run_argv, fds = if relaunch ~= nil then relaunch.fds else nil end,
     relay = if relayed then merged.connect else nil end }, ""
@@ -3572,6 +3612,17 @@ local function relay_held(held: Held, port: integer, token: string): string
   return ""
 end
 
+--- `grants` as the core reads them at boot (core/sandbox_rules.c's
+--- `cosmic_boot_layer_apply`): each "<letters> <length>:<path>" and a
+--- newline, so a path may hold any byte but NUL.
+local function layer_text(grants: {raw_process.Grant}): string
+  local parts: mut {string} = {}
+  for _, grant in ipairs(grants) do
+    parts[#parts + 1] = grant.access .. " " .. tostring(#grant.path) .. ":" .. grant.path .. "\n"
+  end
+  return table.concat(parts)
+end
+
 --- Makes the temporary directory a policy's `tmp` asks for, as an absolute
 --- path whatever TMPDIR is (the child may start in another directory),
 --- grants it `rwc` and names it in TMPDIR; it is the child's user's,
@@ -3599,6 +3650,8 @@ local function make_tmp(held: Held): string
   else
     local grants = assert(held.sandbox.grants)
     grants[#grants + 1] = { path = real, access = "rwc" } -- checked: view_written
+    local layer = held.layer
+    if layer ~= nil then layer[#layer + 1] = { path = real, access = "rwc" } end
   end
   held.env.TMPDIR = real -- checked: map_field
   return ""
@@ -4061,6 +4114,8 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
         return refuse("start: sandbox: " .. why)
       end
     end
+    local layer = held.layer
+    if layer ~= nil then held.env["COSMIC_SANDBOX_LAYER"] = layer_text(layer) end
   end
   -- Nothing but the spawn lies between the directory's making and its
   -- owner, the handle: a spawn that raises (an argument it refuses) must

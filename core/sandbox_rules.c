@@ -724,6 +724,130 @@ int grants_ruleset (const char *const *paths, const unsigned *letters, int count
   }
   return ruleset;
 }
+
+/* The layer a cosmic child's core applies to itself at boot: the grants
+ * `text` names (COSMIC_SANDBOX_LAYER, which [`cosmic.child`]'s start of a
+ * policy's cosmic program sets), each "<letters> <length>:<path>\n", as a
+ * Landlock ruleset, and the no-x filter (core/promises.c's `cosmic_no_x_apply`) where no
+ * grant has `x`. The start held the child to the policy and its start
+ * files, the core's own `rx` among them; this second layer is the policy
+ * alone, so the kernel, which holds the process to both, holds it to the
+ * policy: a policy with no `x` runs no program, this core included.
+ * It handles every filesystem right the ABI has and no network or scope:
+ * the start's layer holds those, and a scope here would cut the child off
+ * from what the start set up beside it. Run before any module loads, on
+ * one thread, with no_new_privs set by the start (set again here). 0, or
+ * an errno with why in `message`. */
+int cosmic_boot_layer_apply (const char *text, char *message, size_t room) {
+  message[0] = '\0';
+  size_t length = strlen(text);
+  char *copy = malloc(length + 1);
+  if (copy == NULL) {
+    snprintf(message, room, "no memory for the grants");
+    return ENOMEM;
+  }
+  memcpy(copy, text, length + 1);
+  const char *paths[GRANT_MAX];
+  unsigned letters[GRANT_MAX];
+  int count = 0;
+  bool runs = false;
+  char *at = copy;
+  static const char order[] = "rwxcu";
+  while (*at != '\0') {
+    if (count >= GRANT_MAX) {
+      free(copy);
+      snprintf(message, room, "more than %d grants", GRANT_MAX);
+      return E2BIG;
+    }
+    unsigned held = 0;
+    while (*at != '\0' && *at != ' ') {
+      const char *letter = strchr(order, *at);
+      if (letter == NULL) break;
+      held |= 1u << (letter - order);
+      at++;
+    }
+    char *end = NULL;
+    unsigned long long size = 0;
+    if (*at == ' ') {
+      errno = 0;
+      size = strtoull(at + 1, &end, 10);
+      if (errno != 0) end = NULL;
+    }
+    if (held == 0 || end == NULL || end == at + 1 || *end != ':' || size == 0 ||
+        size > (unsigned long long)(copy + length - (end + 1)) || end[1 + size] != '\n') {
+      free(copy);
+      snprintf(message, room, "grant %d is not \"<letters> <length>:<path>\" and a newline",
+               count + 1);
+      return EINVAL;
+    }
+    char *path = end + 1;
+    path[size] = '\0';
+    paths[count] = path;
+    letters[count] = held;
+    if (held & GRANT_EXECUTE) runs = true;
+    count++;
+    at = path + size + 1;
+  }
+  long abi = syscall(SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
+  if (abi < 1) {
+    int number = abi < 0 ? errno : ENOSYS;
+    free(copy);
+    snprintf(message, room, "Landlock is not available here (%s)",
+             cosmic_errno_describe(number, NULL));
+    return number;
+  }
+  struct grants_attr attr;
+  memset(&attr, 0, sizeof attr);
+  attr.handled_access_fs = grants_handled(abi);
+  long made = syscall(SYS_landlock_create_ruleset, &attr, sizeof attr.handled_access_fs, 0);
+  if (made < 0) {
+    int number = errno;
+    free(copy);
+    snprintf(message, room, "landlock_create_ruleset: %s", cosmic_errno_describe(number, NULL));
+    return number;
+  }
+  int ruleset = (int)made;
+  for (int i = 0; i < count; i++) {
+    int fd = open(paths[i], O_PATH | O_CLOEXEC);
+    struct stat st;
+    int number = 0;
+    if (fd < 0 || fstat(fd, &st) != 0) {
+      number = errno;
+    } else {
+      uint64_t rights = grant_rights(letters[i], abi);
+      if (!S_ISDIR(st.st_mode)) rights &= LANDLOCK_FILE_ACCESS | LANDLOCK_ACCESS_FS_RESOLVE_UNIX;
+      struct landlock_path_beneath_attr beneath = { .allowed_access = rights, .parent_fd = fd };
+      if (rights != 0 &&
+          syscall(SYS_landlock_add_rule, ruleset, LANDLOCK_RULE_PATH_BENEATH, &beneath, 0) != 0)
+        number = errno;
+    }
+    if (fd >= 0) close(fd);
+    if (number != 0) {
+      close(ruleset);
+      snprintf(message, room, "grant %s: %s", paths[i], cosmic_errno_describe(number, NULL));
+      free(copy);
+      return number;
+    }
+  }
+  free(copy);
+  int failure = 0;
+  if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) failure = errno;
+  if (!failure && syscall(SYS_landlock_restrict_self, ruleset, 0) != 0) failure = errno;
+  close(ruleset);
+  if (failure) {
+    snprintf(message, room, "landlock_restrict_self: %s", cosmic_errno_describe(failure, NULL));
+    return failure;
+  }
+  if (!runs) {
+    failure = cosmic_no_x_apply();
+    if (failure) {
+      snprintf(message, room, "exec filter: %s", cosmic_errno_describe(failure, NULL));
+      return failure;
+    }
+  }
+  return 0;
+}
+
 #endif
 
 /* The promises the list at stack index `list` names, as COSMIC_PROMISE_

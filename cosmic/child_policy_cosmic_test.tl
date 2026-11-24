@@ -130,3 +130,20 @@ local function test_a_policy_may_build_the_tree_around_the_file(tmp: string)
   assert(refused.code ~= 0 and tostring(refused.stderr):find("COSMIC_STANDALONE=0", 1, true) ~= nil,
     tostring(refused.code) .. ": " .. tostring(refused.stderr))
 end
+
+--- A policy's grants are what the child may do once it runs: the start's
+--- `rx` on the core, and the "cosmic" profile's on this program, are the
+--- start's, which the core gives up at boot. So a child whose policy has
+--- no `x` runs no program, its own core included.
+local function test_a_child_with_no_x_cannot_run_its_own_core_again(tmp: string)
+  local work = scripted(tmp, table.concat({
+    'local Child = require("cosmic.child")',
+    'local core = "/proc/self/exe"',
+    'local result, why = Child.run({ core, "--version" }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })',
+    'print(if result == nil then "refused: " .. tostring(why) else "ran" end)',
+  }, "\n") .. "\n")
+  local result = ran({ work .. "/run.tl" }, { profiles = { "cosmic" }, promises = { "fork" },
+    grants = { { path = work, letters = "rwc" } } }, work)
+  assert(result.code == 0 and (result.stdout or ""):find("^refused: ") ~= nil, tostring(result.code) .. ": " ..
+      tostring(result.stdout) .. tostring(result.stderr))
+end
