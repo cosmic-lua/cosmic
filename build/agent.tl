@@ -79,6 +79,7 @@ local Jobs = require("cosmic.agent.jobs")
 local Worker = require("cosmic.agent.worker")
 local Json = require("cosmic.json")
 local Number = require("cosmic.number")
+local String = require("cosmic.string")
 local Poll = require("cosmic.poll")
 local Policy = require("cosmic.agent.policy")
 local Proc = require("cosmic.proc")
@@ -339,7 +340,7 @@ local function policy_of(r: Run, got: Flags.Parsed, here: string): Sandbox.Polic
   end
   return Policy.of(here, { mode = got.values["--sandbox"] or "write", home = sandbox_home(r),
     path = r.io.env("PATH"), user_home = r.io.env("HOME"), kept_out = kept_out(r, got.values["--mcp"]),
-    network = got.set["--network"] == true, grants = grants })
+    network = got.set["--network"] == true, grants = grants, cert_file = r.io.env("SSL_CERT_FILE") })
 end
 
 -- What each unit of --budget's time is, in seconds.
@@ -388,8 +389,31 @@ local function budget_of(text: string): Agent.Budget?, string
 end
 
 --- A session from the options of `got`, kept in `db`, or nil and why.
+--- The tools `got` offers: those --tools names ([`Tools.named`]), else the default, with --with's added and
+--- --without's taken out ([`Tools.changed`]); under --sandbox read with no
+--- --grant that writes, none that changes a file, since the sandbox refuses each change.
+local function offered_tools(got: Flags.Parsed): ({Tools.Tool}) | (nil, string)
+  local given = got.values["--tools"]
+  local offered: {Tools.Tool} = Tools.default()
+  if given ~= nil then
+    local named, why = Tools.named(given)
+    if named == nil then return nil, why end
+    offered = named
+  end
+  local changed, changed_why = Tools.changed(offered, got.values["--with"], got.values["--without"])
+  if changed == nil then return nil, changed_why end
+  offered = changed
+  if got.values["--sandbox"] ~= "read" then return offered end
+  for _, given_grant in ipairs(got.all["--grant"] or {}) do
+    local letters = given_grant:match(":([rwxc]+)$")
+    if letters ~= nil and letters:find("w", 1, true) ~= nil then return offered end
+  end
+  return Tools.without(offered, { "edit", "write" })
+end
+
 --- Where `newest`, no session named is the newest in the directory.
-local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boolean): Agent.Session?, string
+local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boolean,
+                       by_default: boolean): Agent.Session?, string
   local effort = got.values["--effort"] or Agent.EFFORT
   local budget: Agent.Budget? = nil
   local limits = got.values["--budget"]
@@ -405,39 +429,57 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
   local sign, sign_why = Auth.from(r.io.env, base)
   if sign == nil then return nil, sign_why end
   local here = cwd(r)
+  local fresh, fork = got.set["--new"] == true, got.set["--fork"] == true
+  if fresh and (fork or got.set["--continue"] == true or got.values["--session"] ~= nil) then
+    return nil, "--new starts a session, so it takes no --continue, --session or --fork"
+  end
   local id: integer? = nil
   local given = got.values["--session"]
   if given ~= nil then
     local n, _ = Number.integer(given)
     if n == nil then return nil, "--session takes a session's id" end
     id = n
-  elseif got.set["--continue"] == true or newest then
+  elseif got.set["--continue"] == true or newest or fork or (by_default and not fresh) then
     local latest, why = Sessions.latest(db, here)
-    if latest == nil then
-      return nil, if why ~= "" then why else "no session in " .. here .. " to go on with" end
-    end
+    if latest == nil and why ~= "" then return nil, why end
+    -- Going on is the default, so a directory with no session yet starts one.
+    local asked = got.set["--continue"] == true or newest or fork
+    if latest == nil and asked then return nil, "no session in " .. here .. " to go on with" end
     id = latest
   end
   local held: {Json.Value} = {}
   local restarts, ended = 0, true
+  local forked: integer? = nil
   if id ~= nil then
     local loaded, why = Sessions.load(db, id)
     if loaded == nil then return nil, why end
     held, restarts, ended = loaded.messages, loaded.restarts, loaded.ended
     -- A session goes on with the model it used last, unless one is named.
     if got.values["--model"] == nil then model = loaded.model end
+    if fork then forked, id, restarts = id, nil, 0 end
   end
   -- The policy and the MCP servers before a new session's row, so a refused one leaves none.
   local policy, policy_why = policy_of(r, got, here)
   if policy == nil and policy_why ~= "" then return nil, policy_why end
   local servers, servers_why = mcp_servers(r, got)
   if servers == nil then return nil, servers_why end
-  local offered, picked_why = Tools.named(got.values["--tools"] or "default")
-  if offered == nil then return nil, "--tools: " .. picked_why end
+  local offered, picked_why = offered_tools(got)
+  if offered == nil then return nil, "tools: " .. picked_why end
   if id == nil then
     local started, why = Sessions.start(db, here, model, Clock.now_ns() // Clock.seconds(1))
     if started == nil then return nil, why end
     id = started
+    -- A fork is a new session that holds the other's conversation, which goes on there alone.
+    for _, m in ipairs(held) do
+      local added, add_why = Sessions.add(db, started, m, model)
+      if not added then return nil, add_why end
+    end
+    if forked ~= nil then
+      r.io.err("cosmic: agent: session " .. tostring(started) .. ", forked from session " .. tostring(forked))
+    end
+  elseif #held > 0 then
+    r.io.err("cosmic: agent: going on with session " .. tostring(id) .. " (" .. String.counted(#held, "message") ..
+      "); --new starts a fresh one")
   end
   local s = Agent.new({ model = model, effort = effort, sign = sign, base_url = base, cwd = here,
     send = r.io.send, system = Prompt.build(here, Prompt.contexts(here), { servers = servers, tools = offered }),
@@ -517,7 +559,8 @@ local function with_session(r: Run, name: string, got: Flags.Parsed, go: functio
     r.complain(name .. ": " .. why)
     return bare.failed
   end
-  local s, session_why = session(r, got, db, newest == true)
+  -- ask and chat go on with the newest session here unless told not to.
+  local s, session_why = session(r, got, db, newest == true, name == "ask" or name == "chat")
   local code = bare.refused
   if s == nil then
     r.complain(name .. ": " .. session_why)
@@ -802,9 +845,9 @@ local function prompt(r: Run, got: Flags.Parsed): integer
     return bare.refused
   end
   local here = cwd(r)
-  local offered, why = Tools.named(got.values["--tools"] or "default")
+  local offered, why = offered_tools(got)
   if offered == nil then
-    r.complain("prompt: --tools: " .. why)
+    r.complain("prompt: tools: " .. why)
     return bare.refused
   end
   -- The system prompt, then the working directory that follows it.
@@ -850,6 +893,21 @@ local function policy(r: Run, got: Flags.Parsed): integer
   if merged == nil then
     r.complain("policy: " .. merged_why)
     return bare.failed
+  end
+  local offered, offered_why = offered_tools(got)
+  if offered == nil then
+    r.complain("policy: tools: " .. offered_why)
+    return bare.refused
+  end
+  -- The grants below hold bash; without it the worker runs no program, however much x they give.
+  if Tools.find(offered, "bash") ~= nil then
+    r.io.out("programs: bash runs those the grants below let it run (x)")
+  elseif not Sandbox.on_macos() then
+    r.io.out("programs: none run, since no tool offered is bash: the sandbox lets no file but cosmic's own run, " ..
+      "whatever x the grants below give (--with bash runs them)")
+  else
+    r.io.out("programs: no tool offered is bash, but on macOS a snippet may still run those the grants below let it " ..
+      "run (x)")
   end
   for _, line in ipairs(Policy.describe(merged, sandbox_home(r))) do r.io.out(line) end
   return bare.ok

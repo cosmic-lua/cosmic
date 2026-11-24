@@ -73,12 +73,12 @@ local function cli(argv: {string}, env: {string: string}, replies: {Json.Value},
   for _, word in ipairs(argv) do
     full[#full + 1] = word
     if word == "--sandbox" then named = true end
-    if word == "--tools" then picked = true end
+    if word == "--tools" or word == "--with" then picked = true end
   end
   local runs = { ask = true, chat = true, resume = true, rpc = true }
   if not named and runs[argv[1] or ""] == true then full[#full + 1] = "--sandbox=off" end
   -- The scripted replies call every tool, bash among them, which the default leaves out.
-  if not picked and runs[argv[1] or ""] == true then full[#full + 1] = "--tools=all" end
+  if not picked and runs[argv[1] or ""] == true then full[#full + 1] = "--with=bash,jobs" end
   local code = agent.run(full, {
     out = function(line: string) out[#out + 1] = line end,
     err = function(line: string) err[#err + 1] = line end,
@@ -183,12 +183,12 @@ local function test_ask_and_chat()
     input = { path = "/no/such/file" } } }, stop_reason = "tool_use" }, text_reply("gone") })
   assert(r.code == 0 and r.err:find("read failed", 1, true) ~= nil, r.err)
   -- --tools shows the model those tools alone, and a name no tool has is refused before any request.
-  r, a = cli({ "ask", "--tools", "run,read", "x" }, KEYED, { text_reply("ok") })
+  r, a = cli({ "ask", "--new", "--tools", "run,read", "x" }, KEYED, { text_reply("ok") })
   local body = assert(a.bodies[1])
   assert(r.code == 0 and body:find('"name":"read"', 1, true) ~= nil and body:find('"name":"bash"', 1, true) == nil,
     body)
   r, a = cli({ "ask", "--tools", "nope", "x" }, KEYED, {})
-  assert(r.code ~= 0 and #a.sent == 0 and r.err:find("--tools: no tool nope", 1, true) ~= nil, r.err)
+  assert(r.code ~= 0 and #a.sent == 0 and r.err:find("tools: no tool nope", 1, true) ~= nil, r.err)
   r, a = cli({ "chat" }, KEYED, { text_reply("one"), "down", text_reply("three") },
     { "first", "", "second", "third", "/exit", "never" })
   assert(r.code == 0 and r.out == "one\nthree" and r.err:find("HTTP 500") ~= nil, r.out .. r.err)
@@ -259,8 +259,7 @@ local function test_sessions_are_kept_and_go_on()
   local list = cli({ "sessions" }, KEYED, {})
   assert(list.code == 0 and list.out:find("claude%-sonnet%-5%-5%s+4%s+0%s+%$0%.000%s+first") ~= nil, list.out)
   assert(list.out:find("^%s*id%s+started%s+model%s+msgs%s+context%s+cost%s+first prompt\n") ~= nil, list.out)
-  local id = list.out:match("\n%s*(%d+)")
-  assert(id ~= nil)
+  local id = assert(list.out:match("\n%s*(%d+)"))
   r, a = cli({ "ask", "--session", id, "third" }, KEYED, { text_reply("three") })
   local third, _ = Json.to_array(sent(a, 1)["messages"])
   assert(r.code == 0 and third ~= nil and #third == 5)
@@ -268,6 +267,22 @@ local function test_sessions_are_kept_and_go_on()
   assert(cli({ "ask", "--session", "x", "x" }, KEYED, {}).code == Flags.REFUSED)
   assert(cli({ "ask", "--model", "haiku", "x" }, KEYED, {}).err:find("opus or sonnet") ~= nil)
   assert(cli({ "sessions", "x" }, KEYED, {}).code == Flags.REFUSED)
+  -- ask goes on with the newest session by default and says so; --new starts one; --fork copies one.
+  r, a = cli({ "ask", "fourth" }, KEYED, { text_reply("four") })
+  local went_on, _ = Json.to_array(sent(a, 1)["messages"])
+  assert(r.code == 0 and went_on ~= nil and #went_on == 7, r.err)
+  assert(r.err:find("going on with session " .. id .. " (6 messages); --new starts a fresh one", 1, true) ~= nil, r.err)
+  r, a = cli({ "ask", "--new", "fifth" }, KEYED, { text_reply("five") })
+  local fresh, _ = Json.to_array(sent(a, 1)["messages"])
+  assert(r.code == 0 and fresh ~= nil and #fresh == 1 and r.err == "", r.err)
+  r, a = cli({ "ask", "--fork", "--session", id, "sixth" }, KEYED, { text_reply("six") })
+  local forked, _ = Json.to_array(sent(a, 1)["messages"])
+  assert(r.code == 0 and forked ~= nil and #forked == 9 and r.err:find("forked from session " .. id, 1, true) ~= nil,
+    r.err)
+  r, a = cli({ "ask", "--session", id, "seventh" }, KEYED, { text_reply("seven") })
+  local kept_apart, _ = Json.to_array(sent(a, 1)["messages"])
+  assert(kept_apart ~= nil and #kept_apart == 9, "the fork's turn stays out of the session it copied")
+  assert(cli({ "ask", "--new", "--continue", "x" }, KEYED, {}).code == Flags.REFUSED)
   -- Every tool's output is kept, and a later session finds it.
   r = cli({ "ask", "run it" }, KEYED, { { content = { { type = "tool_use", id = "t", name = "bash",
     input = { command = "echo kept-output-marker" } } }, stop_reason = "tool_use" }, text_reply("ran") })
@@ -306,6 +321,15 @@ local function test_the_sandbox_on_the_command_line()
     { content = { { type = "tool_use", id = "t", name = "write", input = { path = outside .. "/z", content = "z" } } },
       stop_reason = "tool_use" }, text_reply("done") })
   assert(ran.code == 0 and slurp(outside .. "/z") == "z" and #a.sent == 2, ran.err)
+  -- With no grant that writes, read offers no tool that changes a file, and policy says what runs.
+  local read_only, ra = cli({ "ask", "--new", "--sandbox", "read", "--without", "sql", "go" }, KEYED, { text_reply("done") })
+  local offered = ra.bodies[1] or ("no request: " .. read_only.err)
+  assert(read_only.code == 0 and offered:find('"name":"edit"', 1, true) == nil and
+    offered:find('"name":"write"', 1, true) == nil and offered:find('"name":"read"', 1, true) ~= nil, offered)
+  local shown = cli({ "policy" }, KEYED, {})
+  assert(shown.out:find("^programs: ") ~= nil, shown.out)
+  local with_bash = cli({ "policy", "--with", "bash" }, KEYED, {})
+  assert(with_bash.out:find("^programs: bash runs") ~= nil, with_bash.out)
 end
 
 local function test_a_job_never_read_is_kept_as_the_session_ends()
@@ -338,7 +362,7 @@ local function test_the_command_line_is_refused_where_it_should_be()
   -- By default the model is shown no tool that runs a program.
   assert(p.out:find("- run: ", 1, true) ~= nil and p.out:find("- bash: ", 1, true) == nil and
       p.out:find("- jobs: ", 1, true) == nil, p.out)
-  local every = cli({ "prompt", "--tools", "all" }, {}, {})
+  local every = cli({ "prompt", "--with", "bash,jobs" }, {}, {})
   assert(every.code == 0 and every.out:find("- bash: ", 1, true) ~= nil, every.out)
   local extra = cli({ "prompt", "x" }, {}, {})
   assert(extra.code == Flags.REFUSED and extra.err:find("prompt: takes no words; usage: cosmic agent prompt", 1, true) ~=

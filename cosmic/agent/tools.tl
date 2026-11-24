@@ -1239,27 +1239,58 @@ function Tools.run(name: string, input: Tools.Object, context: Tools.Context): T
   return Tools.dispatch(ALL, name, input, context)
 end
 
---- The tools of `names`, a list such as "run,read,edit,write", "all" for every tool ([`Tools.all`]) or "default"
---- for [`Tools.default`]'s, in the order of [`Tools.all`]: or nil and why, for an empty list or a name no tool has.
-function Tools.named(names: string): ({Tools.Tool}) | (nil, string)
-  if names == "all" then return Tools.all() end
-  if names == "default" then return Tools.default() end
-  local picked: mut {string} = {}
-  local wanted: mut {string: boolean} = {}
-  for name in names:gmatch("[^,%s]+") do
+--- The names of `list`, split at commas and spaces, each checked against [`Tools.all`]; or nil and why.
+local function names_of(list: string): ({string}) | (nil, string)
+  local out: mut {string} = {}
+  for name in list:gmatch("[^,%s]+") do
     if Tools.find(ALL, name) == nil then
       local known: mut {string} = {}
       for _, t in ipairs(ALL) do known[#known + 1] = t.name end
       return nil, "no tool " .. name .. "; the tools are " .. table.concat(known, ", ")
     end
-    picked[#picked + 1] = name
-    wanted[name] = true
+    out[#out + 1] = name
   end
-  if #picked == 0 then return nil, "name at least one tool" end
+  return out
+end
+
+--- Those of `wanted` set to true, in the order of [`Tools.all`], or nil and why: none, or jobs without bash.
+local function picked(wanted: {string: boolean}): ({Tools.Tool}) | (nil, string)
   if wanted["jobs"] == true and wanted["bash"] ~= true then
     return nil, "jobs reads bash's background jobs: offer bash too"
   end
-  return Tools.only(ALL, picked)
+  local names: mut {string} = {}
+  for _, t in ipairs(ALL) do
+    if wanted[t.name] == true then names[#names + 1] = t.name end
+  end
+  if #names == 0 then return nil, "no tool is left to offer" end
+  return Tools.only(ALL, names)
+end
+
+--- The tools of `names`, a list such as "run,read,edit,write", in the order of [`Tools.all`]: or nil and why, for an
+--- empty list or a name no tool has.
+function Tools.named(names: string): ({Tools.Tool}) | (nil, string)
+  local given, why = names_of(names)
+  if given == nil then return nil, why end
+  if #given == 0 then return nil, "name at least one tool" end
+  local wanted: mut {string: boolean} = {}
+  for _, n in ipairs(given) do wanted[n] = true end
+  return picked(wanted)
+end
+
+--- `tools` with those `with` names added and those `without` names taken out, each a list as [`Tools.named`] takes,
+--- in the order of [`Tools.all`]: or nil and why, for a name no tool has, jobs without bash, or no tool left.
+---
+---     for _, t in ipairs(assert(Tools.changed(Tools.default(), "bash", "sql"))) do print(t.name) end -- read bash run edit write
+function Tools.changed(tools: {Tools.Tool}, with?: string, without?: string): ({Tools.Tool}) | (nil, string)
+  local adds, add_why = names_of(with or "")
+  if adds == nil then return nil, add_why end
+  local takes, take_why = names_of(without or "")
+  if takes == nil then return nil, take_why end
+  local wanted: mut {string: boolean} = {}
+  for _, t in ipairs(tools) do wanted[t.name] = true end
+  for _, n in ipairs(adds) do wanted[n] = true end
+  for _, n in ipairs(takes) do wanted[n] = nil end
+  return picked(wanted)
 end
 
 --- `tools` as the Messages API takes them. The last is a cache breakpoint: the tools come first in a request, and

@@ -21,7 +21,8 @@
 ---                       run in alone
 ---     --sandbox off     no sandbox: the tools have your user's rights,
 ---                       and --network and --grant are refused
----     --network         bash may reach the network (none by default)
+---     --network         bash and snippets may reach the network (none by
+---                       default)
 ---     --grant path[:rwxc]   one more path, read alone unless the letters
 ---                       say more: w writes, x runs, c creates and removes;
 ---                       given again for each path
@@ -46,7 +47,8 @@
 --- most 512 processes; on macOS under Seatbelt. TMPDIR is a fresh
 --- temporary directory, and the environment holds PATH, LANG, LC_ALL
 --- and TERM alone (JAVA_HOME and the like are not passed), so no key
---- of yours reaches a command; on Linux USER
+--- of yours reaches a command; with --network, SSL_CERT_FILE too, and
+--- the file it names is read; on Linux USER
 --- and LOGNAME are agent. read, write and edit run in the agent itself,
 --- and check each path against the same grants, its links followed:
 --- read needs r, write w and c (it replaces the file whole), edit all
@@ -120,6 +122,10 @@ local record Policy
     --- directory may not hold: the agent's data and cache, and its MCP
     --- config's.
     kept_out?: {string}
+    --- The user's $SSL_CERT_FILE: with `network`, the tools read it and
+    --- are given it, so a request through a proxy that signs with its
+    --- own root (as a company's does) is trusted as the user's are.
+    cert_file?: string
   end
 
 end
@@ -199,9 +205,10 @@ end
 --- (getpass.getuser) work; and `path`, PATH as its directories' real
 --- names, which the sandbox shows where a link to one (/opt/maven) is
 --- not there.
-local function env_of(linux: boolean, home?: string, path?: string): {string: string}?
+local function env_of(linux: boolean, home?: string, path?: string, cert?: string): {string: string}?
   local out: mut {string: string} = {}
   if path ~= nil then out["PATH"] = path end
+  if cert ~= nil then out["SSL_CERT_FILE"] = cert end
   if linux then out["HOME"], out["USER"], out["LOGNAME"] = "/tmp", "agent", "agent" end
   if home ~= nil then out["HOME"], out["XDG_CACHE_HOME"] = home, home .. "/.cache" end
   if next(out) == nil then return nil end
@@ -335,6 +342,13 @@ function Policy.of(cwd: string, config: Policy.Config): Sandbox.Policy?, string
   for _, dir in ipairs(program_dirs(config.path or "", config.user_home, guarded, config.kept_out or {})) do
     grants[#grants + 1] = { path = dir, letters = "rx" }
   end
+  local cert: string? = nil
+  if config.network and config.cert_file ~= nil and config.cert_file ~= "" then
+    local real, real_why = Fs.absolute(config.cert_file)
+    if real == nil then return nil, "SSL_CERT_FILE " .. tostring(config.cert_file) .. ": " .. tostring(real_why) end
+    cert = real
+    grants[#grants + 1] = { path = real, letters = "r" }
+  end
   local home = config.home
   if home ~= nil then
     local made, made_why = Fs.mkdirs(home .. "/.cache", 0x1c0)
@@ -360,7 +374,7 @@ function Policy.of(cwd: string, config: Policy.Config): Sandbox.Policy?, string
     -- files are then held by that root alone.
     promises = if linux then { "fork", "fattr", "jit", "nest" } else { "fork", "fattr", "jit" } end,
     env = if config.path ~= nil then { "LANG", "LC_ALL", "TERM" } else { "PATH", "LANG", "LC_ALL", "TERM" } end,
-    set_env = env_of(linux, home, if config.path ~= nil then real_path(config.path) else nil end),
+    set_env = env_of(linux, home, if config.path ~= nil then real_path(config.path) else nil end, cert),
     connect = if config.network then { "*:*" } else nil end,
     -- On Linux a root of its own: what it was not granted is not there,
     -- and it owns what it was, whoever runs the agent. macOS has no
