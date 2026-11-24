@@ -1498,6 +1498,27 @@ end
 
 local EVENTS <const>: {string: string} = { ["Content-Type"] = "text/event-stream" }
 
+--- A streamed body that says "start", then waits on `req.wait_gone` for
+--- up to 3 s, noting when it saw the client gone, and ends.
+local class Waiting is Stream.Reader
+  req: Server.Request
+  mut started: boolean
+  mut seen_ns?: integer
+
+  function read(self, _max_bytes?: integer): string?, string
+    if not self.started then
+      self.started = true
+      return "data: start\n\n", ""
+    end
+    if self.req.wait_gone(Clock.seconds(3)) then self.seen_ns = Clock.monotonic_ns() end
+    return nil, ""
+  end
+
+  function close(self): boolean, string
+    return true, ""
+  end
+end
+
 --- A streamed body that asks `req.gone` sees the client close within a
 --- second, rather than at its next write.
 local function test_a_streamed_body_sees_the_client_go_at_once()
@@ -1526,6 +1547,36 @@ local function test_a_streamed_body_sees_the_client_go_at_once()
   assert(seen.asked > 1, "the body asked before the client went")
   local seen_ns = assert(seen.seen_ns, "the body never saw the client go")
   assert(seen_ns - closed_ns < Clock.seconds(1), tostring(seen_ns - closed_ns))
+end
+
+--- A streamed body waiting on `req.wait_gone` is not woken by a request
+--- the client pipelines, and wakes as the client closes.
+local function test_a_streamed_body_waiting_for_the_client_wakes_as_it_goes()
+  local waiting: Waiting? = nil
+  local closed_ns = 0
+  serving(function(req: Server.Request): Server.Reply
+    if req.path == "/next" then return echo(req) end
+    local made: Waiting = { req = req, started = false, seen_ns = nil, skip = nil }
+    waiting = made
+    return { status = 200, headers = EVENTS, body = made }
+  end, function(address: Net.Address)
+    local p = peer(address)
+    send(p, get("/events"))
+    assert(line(p) == "HTTP/1.1 200 OK")
+    while not p.buf:find("data: start", 1, true) do assert(more(p)) end
+    send(p, get("/next"))
+    assert(Poll.delay(Clock.ms(200)))
+    assert(assert(waiting).seen_ns == nil, "the pipelined request read as the client gone")
+    closed_ns = Clock.monotonic_ns()
+    local _, _ = p.conn:close()
+    local until_ns = closed_ns + Clock.seconds(2)
+    while assert(waiting).seen_ns == nil and Clock.monotonic_ns() < until_ns do
+      assert(Poll.delay(Clock.ms(5)))
+    end
+  end)
+  local seen_ns = assert(assert(waiting).seen_ns, "the body never saw the client go")
+  -- At once on Linux; macOS asks each 250 ms.
+  assert(seen_ns - closed_ns < Clock.ms(500), tostring(seen_ns - closed_ns))
 end
 
 --- A request the client pipelines while a reply streams leaves `gone`

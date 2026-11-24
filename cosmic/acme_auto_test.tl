@@ -170,6 +170,7 @@ local function request_of(path: string, host?: string, query?: string, tls?: boo
   local headers: mut {string: string} = {}
   if host ~= nil then headers["host"] = host end
   local req: Server.Request = { gone = function(): boolean return false end,
+    wait_gone = function(_?: integer): boolean return false end,
     method = "GET", target = path, path = path, query = query or "", version = "HTTP/1.1",
     headers = headers, body = Stream.from_string(""), length = 0,
     tls = if tls == true then { version = "TLSv1.3" } else nil end,

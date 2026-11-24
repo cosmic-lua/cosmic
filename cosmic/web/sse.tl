@@ -64,9 +64,11 @@ local record Sse
     --- The next event, waiting at most `timeout_ns` (no limit when nil):
     --- nil and [`Poll.TIMEOUT`] when none came in time, nil and "" at the
     --- end of the stream, and nil and why when it failed, which also ends
-    --- the stream. The stream asks with a timeout of at most 250 ms, so
-    --- it can see its client leave between asks; a source that does
-    --- work on each ask keeps its own pace.
+    --- the stream. The stream asks with a timeout no longer than its
+    --- next heartbeat or its end (`max_age_ns`), and none when it has
+    --- neither: a client that leaves closes the source, which wakes the
+    --- wait. A source whose `close` does not wake its `next` holds such
+    --- a stream open until the server kills its task.
     next: function(EventSource, timeout_ns?: integer): Event?, string
     --- Ends the source: a `next` that waits wakes and answers the end.
     --- Safe to call twice, and never waits (the stream calls it from the
@@ -78,8 +80,7 @@ local record Sse
   record EventStreamOptions
     --- A heartbeat comment every this many nanoseconds without an event
     --- (15 seconds when nil; 0 sends none), so a proxy between keeps the
-    --- connection open. A client that left is found without it, within
-    --- about 250 ms.
+    --- connection open. A client that left is found without it, at once.
     heartbeat_ns?: integer
     --- The `retry:` sent first, in milliseconds (3000 when nil; 0 sends
     --- none).
@@ -96,7 +97,7 @@ local record Sse
     max_age_ns?: integer
     --- Called once when the stream is over, with why: "end" (the source
     --- or `max_age_ns` ended it, also the app stopping), "client" (the
-    --- client left, seen within about 250 ms, a half-close of its
+    --- client left, seen at once (on macOS within about 250 ms), a half-close of its
     --- sending side counted as leaving, or the server closed it
     --- unfinished: the task was killed) or "failed: <why>" (the source
     --- failed). For a log line or a counter.
@@ -199,10 +200,6 @@ local DEFAULT_EVENT_BYTES <const> = 65536
 local LAST_EVENT_ID_BYTES <const> = 1024
 
 local HEARTBEAT <const> = ": ping\n\n"
-
---- How often a quiet stream asks whether its client has gone ([`cosmic.http.server.Request`]'s `gone`), so a stream whose
---- client left ends within about this long, not at its next write.
-local GONE_NS <const> = Clock.ms(250)
 
 --- The lines of `text`, any of LF, CR and CRLF ending one; a final line
 --- ending gives a last empty line.
@@ -332,8 +329,10 @@ local record Body is Stream.Reader
   mut waiting: boolean
   mut guard?: Defer
   mut prologue: string
-  --- Whether the client has gone: the request's `gone`.
-  gone: function(): boolean
+  --- Waits for the client to go: the request's `wait_gone`.
+  wait_gone: function(timeout_ns?: integer): boolean
+  --- The task that waits on `wait_gone` while the stream is open, and ends it once the client goes.
+  mut watcher?: Poll.Task
   read: function(Body, max_bytes?: integer): string?, string
   close: function(Body): boolean, string
 end
@@ -350,6 +349,11 @@ local function finish(self: Body, why: string)
     self.held = false
     app.streams[self] = nil
     app.stream_count = app.stream_count - 1
+  end
+  local watcher = self.watcher
+  if watcher ~= nil then
+    self.watcher = nil
+    watcher:cancel()
   end
   local source = self.source
   local on_close = self.on_close
@@ -382,16 +386,28 @@ function Body.read(self: Body, max_bytes?: integer): string?, string
     self.app.streams[self] = function() source:close() end
     self.pending = self.prologue
     self.prologue = ""
+    -- A client that leaves ends the stream at once: its source closed,
+    -- the wait in `source:next` below answers the end.
+    if Poll.in_task() then
+      local wait_gone = self.wait_gone
+      self.watcher = Poll.spawn(function()
+        if not wait_gone() then return end
+        -- Not cancelled by `finish`, which would fail a wait in `on_close`.
+        self.watcher = nil
+        local ran, raised = pcall(finish, self, "client")
+        if not ran then
+          local _, _ = pcall(function()
+            assert(self.app.spec.sink):line("sse: ending a stream: " .. tostring(raised))
+          end)
+        end
+      end)
+    end
   end
-  -- TODO: wait on the source and on the connection's hang-up together,
-  -- rather than waking each GONE_NS to ask `gone`, once cosmic.poll can
-  -- wait on a notifier and a descriptor at once (and Server.Request hands
-  -- out what to wait on).
   local beat_at = if self.heartbeat_ns > 0 then Clock.monotonic_ns() + self.heartbeat_ns else nil end
   while self.pending == "" do
-    local timeout = GONE_NS
+    local timeout: integer? = nil
     if beat_at ~= nil then
-      timeout = math.max(math.min(timeout, beat_at - Clock.monotonic_ns()), 0)
+      timeout = math.max(beat_at - Clock.monotonic_ns(), 0)
     end
     local self_deadline = self.deadline
     if self_deadline ~= nil then
@@ -400,7 +416,7 @@ function Body.read(self: Body, max_bytes?: integer): string?, string
         finish(self, "end")
         return nil, ""
       end
-      if left < timeout then timeout = left end
+      if timeout == nil or left < timeout then timeout = left end
     end
     local ev: Sse.Event? = nil
     local why = ""
@@ -423,10 +439,6 @@ function Body.read(self: Body, max_bytes?: integer): string?, string
       end
       self.pending = text
     elseif why == Poll.TIMEOUT then
-      if self.gone() then
-        finish(self, "client")
-        return nil, ""
-      end
       local deadline = self.deadline
       local now = Clock.monotonic_ns()
       if beat_at ~= nil and now >= beat_at and (deadline == nil or now < deadline) then
@@ -518,7 +530,7 @@ local function event_stream(req: Types.Request, source: Sse.EventSource,
   local body: Body = {
     app = app, source = source, heartbeat_ns = given.heartbeat_ns or DEFAULT_HEARTBEAT_NS,
     on_close = given.on_close, pending = "", started = false, held = false, done = false, waiting = false,
-    prologue = prologue, gone = req.raw.gone, read = Body.read, close = Body.close,
+    prologue = prologue, wait_gone = req.raw.wait_gone, read = Body.read, close = Body.close,
   }
   local max_age_ns = given.max_age_ns
   if max_age_ns ~= nil then body.deadline = Clock.monotonic_ns() + max_age_ns end
