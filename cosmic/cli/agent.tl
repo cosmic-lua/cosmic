@@ -86,6 +86,12 @@
 ---   your API key included.
 --- - `--network` lets the tools reach the network: Host.fetch, and bash
 ---   where it is offered.
+--- - `--connect host:port` lets them reach one more target. An address
+---   written out, loopback or private too (`--connect 127.0.0.1:8123`),
+---   is reached directly; a name reaches only public addresses, as
+---   `--network` does. A port of `*` opens every port of the host.
+---   Behind an `https_proxy`, an address `no_proxy` does not name is
+---   asked of the proxy, which reaches its own host's loopback.
 --- - `--grant path[:rwxc]` adds a path.
 ---
 --- Output and sessions:
@@ -122,6 +128,7 @@ local command: Flags.Command = {
     ["--keep-warm"] = { value = "minutes", about = "chat, rpc: keep the conversation in the API's cache this long while idle (default 60; 0 for never)" },
     ["--sandbox"] = { value = "mode", about = "write (the default), read or off: what the tools may change" },
     ["--network"] = { about = "let bash and snippets (Host.fetch, cosmic.http) reach the network" },
+    ["--connect"] = { value = "host:port", about = "let the tools reach this target too: an address written out may be loopback or private (127.0.0.1:8123); a port of * opens every port" },
     ["--grant"] = { value = "path[:rwxc]", about = "let the tools reach this path too, read alone unless letters say more" },
     ["--mcp"] = { value = "file", about = "ask, chat, resume, rpc: the MCP servers snippets may call (default ~/.config/cosmic/mcp.json; see cosmic.agent.mcp)" },
     ["--tools"] = { value = "names", about = "ask, chat, resume, rpc, prompt: the tools the model is shown, such as run,read,edit,write,bash, all, or default (every tool but bash and jobs, which run no program)" },

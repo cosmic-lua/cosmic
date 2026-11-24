@@ -1054,8 +1054,8 @@ local ALL <const>: {Tools.Tool} = {
       "n?) -> {{key, count}}, most first, ties by key.\n" ..
       "- Host.bash(command) -> {output, ok, code}; " ..
       "Host.sql(query) -> rows; Host.store(key, value) / Host.load(key).value.\n" ..
-      "- Host.fetch(url, {method?, headers?, body?}?) -> {status, headers, body}: no redirect followed, public " ..
-      "addresses only, in a session with --network.\n" ..
+      "- Host.fetch(url, {method?, headers?, body?}?) -> {status, headers, body}: no redirect followed; public " ..
+      "addresses with --network, and the targets of --connect.\n" ..
       "- Host.sqlite(path, statement, {values}?) -> {row}: one SQL statement on a SQLite file, made where missing " ..
       "(`?1` binds the first value; with no values, a script of several); a row's column is `row[\"name\"]`. " ..
       "Host.sha256(path) -> hex.\n" ..
