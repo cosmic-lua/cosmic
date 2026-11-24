@@ -63,8 +63,8 @@ local CASES <const>: {Case} = {
   { text = "a or 1", never_false = false },
 }
 
---- The operators that answer a number or a string, each a never-false expression whatever its operands, and those that
---- answer a boolean or one of their operands.
+--- The operators that give a number or a string, each a never-false expression whatever its operands, and those that
+--- give a boolean or one of their operands.
 local ARITHMETIC <const>: {string} = { "+", "-", "*", "/", "//", "%", "^", "..", "&", "|", "~", "<<", ">>" }
 local OTHERS <const>: {string} = { "<", "<=", ">", ">=", "==", "~=", "and", "or" }
 

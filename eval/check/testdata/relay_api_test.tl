@@ -31,7 +31,8 @@ local function read_n(conn: Net.Conn, n: integer): string, string
 end
 
 --- Runs `body` with a pipe between two pairs, `client` the far end of
---- `a` and `target` the far end of `b`, and answers what pipe answered.
+--- `a` and `target` the far end of `b`, and returns what pipe
+--- returned.
 local function piped(options: relay.Options,
                      body: function(client: Net.Conn, target: Net.Conn)): relay.Stats
   local stats = { value = nil as relay.Stats? }

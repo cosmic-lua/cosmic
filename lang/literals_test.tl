@@ -43,7 +43,7 @@ end
 
 --- The pack format with each `!` that names no alignment naming 16, the widest a build of cosmic has: the check reads a bare
 --- `!` as that build's (a program runs on every build), and this host's own may be narrower (8 on macOS on arm64, whose
---- `long double` is a `double`), so its Lua answers for the widest build only when told the alignment.
+--- `long double` is a `double`), so its Lua holds for the widest build only when told the alignment.
 local function at_widest(format: string): string
   local wide = ""
   for i = 1, #format do
@@ -329,7 +329,7 @@ local function test_a_pack_format_is_variable_for_s_and_z_only()
   assert(#Literals.pack("x").kinds == 0)
 end
 
---- The programs that give a literal a type, as Lua runs them: each raises, or answers the type the literal says.
+--- The programs that give a literal a type, as Lua runs them: each raises, or returns the type the literal says.
 local function test_each_program_the_fork_types_from_its_literal_is_one_lua_faults_on_or_answers_as_typed()
   local function formats(format: string, ...: any): boolean
     return (pcall(string.format, format, ...)) -- checked: alternatives_as_value

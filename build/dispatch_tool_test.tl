@@ -3,6 +3,7 @@
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
+local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local test_child = require("build.test_child")
 local this_program = require("build.this_program")
@@ -99,6 +100,33 @@ local function test_e_hands_the_words_to_the_chunk_and_exits_with_what_it_return
   assert(r.code == 3 and r.stdout == "2\ta\tb\n", tostring(r.code) .. tostring(r.stdout) .. tostring(r.stderr))
 end
 
+--- The child's result for `words`, run in `tmp`.
+local function ran(tmp: string, words: {string}): Child.Result
+  local started = this_program.program(words, { env = { COSMIC_STANDALONE = "1" }, cwd = tmp, stdout = "capture",
+    stderr = "capture", timeout_ns = Clock.seconds(30) })
+  return (assert(Child.run(started.argv, started.options)))
+end
+
+--- `eval`, `version` and `run` are verbs as `cosmic help` lists them, each the same as its short form.
+local function test_eval_version_and_run_are_typed_by_their_names(tmp: string)
+  local e = ran(tmp, { "eval", 'print(...) return 3', "a" })
+  assert(e.code == 3 and e.stdout == "a\n", tostring(e.code) .. tostring(e.stdout) .. tostring(e.stderr))
+  local named, short = ran(tmp, { "version" }), ran(tmp, { "--version" })
+  assert(named.code == 0 and named.stdout == short.stdout and (named.stdout or ""):find("^cosmic %x+\n$") ~= nil,
+    tostring(named.stdout) .. tostring(named.stderr))
+  assert(Fs.write(tmp .. "/hi.tl", 'print("hi " .. tostring(arg[1]))\n'))
+  local runs: {{string}} = { { "run", "hi.tl", "x" }, { "run", "./hi.tl", "x" }, { "run", "--standalone", "hi.tl", "x" } }
+  for _, words in ipairs(runs) do
+    local r = ran(tmp, words)
+    assert(r.code == 0 and r.stdout == "hi x\n", table.concat(words, " ") .. ": " .. tostring(r.stderr))
+  end
+  local refused: {{string}} = { { "run" }, { "run", "--bogus" } }
+  for _, words in ipairs(refused) do
+    local r = ran(tmp, words)
+    assert(r.code == 2 and says(r, "run takes a file to run"), table.concat(words, " ") .. ": " .. tostring(r.stderr))
+  end
+end
+
 --- A chunk the checker refuses does not run at all: nothing it prints, and the checker's own message, with
 --- its code and position, as for a file.
 local function test_e_refuses_a_chunk_the_checker_refuses_and_runs_none_of_it(tmp: string)
@@ -183,7 +211,6 @@ end
 --- against, so a kept compile would outlive an edit of them. It keeps none, and checks the chunk on every run. (A
 --- release keeps one: ci/fixtures/product_test.tl.)
 local function test_e_keeps_no_compile_where_the_program_records_no_boot_hash(tmp: string)
-  local Fs = require("cosmic.fs")
   local Store = require("cosmic.store")
   assert(Store.meta("boot_hash") == nil, "a test's closure store records a boot hash")
   local chunk = 'local exit_status = require("build.exit_status") print(exit_status.uncompiled) return 0'

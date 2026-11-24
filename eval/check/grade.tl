@@ -202,7 +202,7 @@ function Grader.evidence(path: string): Grader.Evidence?, string
     group by i.kind, i.origin
   ]], {})
   -- A read-only handle has nothing to lose in closing; the query's own
-  -- answer is the one that counts.
+  -- result is the one that counts.
   local _, _ = db:close()
   if rows == nil then
     return nil, tostring(rtrouble)
@@ -227,8 +227,9 @@ end
 
 --- Runs one step, its output kept in the arena as check-<n>.out and
 --- shown beneath the step when it fails. A step is a command, or a
---- function standing for one under `label`, answering whether it
---- passed and what it printed. Answers whether it passed.
+--- function standing for one under `label`, returning whether it
+--- passed, with what it printed written to `out`. Returns whether it
+--- passed.
 local function step(g: Grade, label: string, work: function(out: integer): boolean): boolean
   due(g)
   g.steps = g.steps + 1
@@ -293,7 +294,7 @@ end
 
 --- Checks the journal eval/journal.md's contract, appended to every
 --- task's TASK.md, asks for: a regular file at `path` with something
---- in it. Answers why not when it is not one. A link, a pipe or a
+--- in it. Returns why not when it is not one. A link, a pipe or a
 --- device is refused unread, so no journal can stall the grader or
 --- stand in for one kept elsewhere.
 ---
@@ -322,7 +323,7 @@ function Grader.journal(path: string): boolean, string
 end
 
 --- Puts back a journal an earlier grading, killed while it had the
---- journal set aside for `fix --check`, left in the arena. Answers
+--- journal set aside for `fix --check`, left in the arena. Returns
 --- whether [`fix_check`] may set the journal aside: not when the aside
 --- is kept beside a new journal.
 local function put_back_journal(g: Grade, project: string): boolean
@@ -367,8 +368,8 @@ end
 --- What `cosmic test` printed of a hidden API test that did not pass,
 --- a line for each failure: a test that failed, with the first line
 --- of why, or one of the first five lines the compiler refused, and
---- how many more it refused. Output with neither, of a run that
---- failed, answers its last line.
+--- how many more it refused. For output with neither, of a run that
+--- failed, it returns a failure naming its last line.
 function Grader.api_failures(output: string): {string}
   local failures: mut {string} = {}
   local refused = 0
@@ -495,7 +496,7 @@ local function argv_of(g: Grade, args: {string}): {string}
 end
 
 --- Runs the task's executable in the empty directory with `env` (an
---- empty environment by default), answering its result.
+--- empty environment by default), returning its result.
 local function run(g: Grade, args: {string}, env?: {string: string}): Child.Result
   local options: Child.Options = { cwd = g.empty, env = env or {}, stdout = "capture",
     stderr = "capture", process_group = g.own_group, timeout_ns = within(g, g.timeout_ns),
@@ -539,7 +540,7 @@ local function succeeds(g: Grade, args: {string})
 end
 
 --- Checks that the executable fails with a message of its own on
---- stderr, answering that message.
+--- stderr, returning that message.
 local function refuses(g: Grade, args: {string}): string
   local result = run(g, args)
   local err = result.stderr or ""
@@ -669,7 +670,7 @@ end
 
 --- Starts `./<name> <args>` in the empty directory, its output kept in
 --- the arena as `log` (check-serve.out by default), and waits up to
---- 5 s for the line naming the port it listens on. Answers the server
+--- 5 s for the line naming the port it listens on. Returns the server
 --- and its port, or nil once it has failed.
 local function serves(g: Grade, args: {string}, log?: string): Served?
   local what = g.name .. " " .. table.concat(args, " ")
@@ -1085,7 +1086,7 @@ local function answers(g: Grade, port: integer, request: string, codes: {string}
   end
 end
 
---- A GET that waits answers once a PUT sets its key, holding up no
+--- A GET that waits responds once a PUT sets its key, holding up no
 --- other client meanwhile, or 404 once its time has passed.
 local function kv_wait(g: Grade, port: integer)
   local waiting, trouble = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(8) })
@@ -1268,8 +1269,8 @@ local function number_of(value: Json.Value?): number?
 end
 
 --- Runs main.json and checks its report and what its jobs left;
---- answers when, on the monotonic clock, the timed-out job's grandchild
---- would have written w/late had it outlived its job.
+--- returns the time when, on the monotonic clock, the timed-out job's
+--- grandchild would have written w/late had it outlived its job.
 local function jobs_main(g: Grade, w: string): integer
   jobfile(g, "w/main.json", {
     first = { cmd = sh("echo first-out; echo first-err >&2; : > " .. w .. "/first.done") },
@@ -1338,9 +1339,9 @@ local function jobs_main(g: Grade, w: string): integer
   return started + Clock.ms(slow_at + 2600)
 end
 
---- Runs term.json and sends it SIGTERM; answers when the interrupted
---- job's grandchild would have written w/term.late had it outlived its
---- job, or 0 when it never started.
+--- Runs term.json and sends it SIGTERM; returns the time when the
+--- interrupted job's grandchild would have written w/term.late had it
+--- outlived its job, or 0 when it never started.
 local function jobs_interrupt(g: Grade, w: string): integer
   jobfile(g, "w/term.json", {
     long = { cmd = sh("(/bin/sleep 1.5; : > " .. w .. "/term.late) & /bin/sleep 30") },
@@ -1509,7 +1510,7 @@ end
 
 -- mirror
 
---- One request to the server with `Connection: close`, and its answer.
+--- One request to the server with `Connection: close`, and its reply.
 local function request(port: integer, method: string, target: string,
                        headers?: {string: string}): Answer?, string
   local lines = { method .. " " .. target .. " HTTP/1.1", "Host: 127.0.0.1",
@@ -1537,7 +1538,7 @@ local function content(site: Site, path: string): string
   return data
 end
 
---- Asks the server, checks the status is one of `codes`, and answers
+--- Asks the server, checks the status is one of `codes`, and returns
 --- what came back for more checks, or nil once it has failed.
 local function asks(g: Grade, site: Site, method: string, target: string,
                     headers: {string: string}, codes: {integer}): Answer?
@@ -1595,7 +1596,7 @@ local function mirror_files(): {string: string}
   }
 end
 
---- A directory listing the server should answer at `target`.
+--- A directory listing the server should serve at `target`.
 local record Listing
   target: string
   entries: {{string: Json.Value}}
@@ -1771,7 +1772,7 @@ local function mirror_pulls(g: Grade, site: Site)
 end
 
 --- The pull [`mirror_lie`] makes from its server: the arguments, and what
---- the run answered.
+--- the run returned.
 local record Pull
   mut args: {string}
   mut result: Child.Result?
@@ -1859,7 +1860,7 @@ local function packed(g: Grade, site: Site, name: string, dirs: boolean): boolea
   return true
 end
 
---- Serves the site from archives: each answers as the directory does,
+--- Serves the site from archives: each responds as the directory does,
 --- and pulls whole; an archive that would reach outside is refused.
 local function mirror_archives(g: Grade, site: Site)
   for _, case in ipairs({ { "site.tar.gz", "dirs" }, { "site.zip", "" }, { "site.tar", "dirs" } }) do
@@ -1927,8 +1928,8 @@ end
 --- The grader's own target, an echo server: each connection's bytes
 --- come back as they arrive, and once the client ends what it sends,
 --- `<eof>` follows and the connection closes. A connection opening
---- with `SPLIT` is answered `bye` and ended from this side at once, and
---- what the client sends after that is kept in `split`.
+--- with `SPLIT` gets `bye` in reply and is ended from this side at
+--- once, and what the client sends after that is kept in `split`.
 local record Target
   split: mut {string}
 end
@@ -1965,7 +1966,7 @@ local function dial(port: integer): Net.Conn?, string
   return got, ""
 end
 
---- Reads `conn` until `n` bytes have come or it ends; answers what
+--- Reads `conn` until `n` bytes have come or it ends; returns what
 --- came, and why it ended early: "" at the end of what the peer sent.
 local function read_n(conn: Net.Conn, n: integer): string, string
   local parts: mut {string} = {}
@@ -1979,7 +1980,7 @@ local function read_n(conn: Net.Conn, n: integer): string, string
   return table.concat(parts), "ok"
 end
 
---- Reads `conn` to the end of what the peer sends; answers what came,
+--- Reads `conn` to the end of what the peer sends; returns what came,
 --- and "" once it ended there, or why not.
 local function read_all(conn: Net.Conn): string, string
   return read_n(conn, math.maxinteger)
@@ -2236,7 +2237,7 @@ local record Task
   null_stdin: boolean
   own_group: boolean
   --- Files of the project's a solver's own runs may leave behind, which
-  --- would answer for the executable if left there.
+  --- would pass for the executable if left there.
   stale: {string}
   --- Whether the task names a library API, which a hidden test,
   --- testdata/<task>_api_test.tl, checks.
@@ -2264,8 +2265,8 @@ local TASKS <const>: {string: Task} = {
 
 --- Where the arena's cosmic at `cosmic` builds the project at `project`,
 --- asked of that cosmic, since the arena holds a bare binary and no
---- checkout whose bin/cosmic could answer: its own build/paths.tl's
---- answer, or, for one that carries none, or answers nothing (a
+--- checkout whose bin/cosmic could tell: what its own build/paths.tl
+--- returns, or, for one that carries none, or prints nothing (a
 --- stand-in), the project's o/, where a cosmic from before it built.
 function Grader.build_directory(cosmic: string, project: string, env?: {string:string}): string
   local asked, _ = Child.run({ cosmic, "-e", [[
@@ -2281,8 +2282,8 @@ end
 --- `env` for a grade in the arena at `dir`: HOME and the cache home
 --- inside the arena, and no override of where cosmic builds or what
 --- caches it shares, so a grade writes nothing under the evaluator's
---- own ~/.cache and a verdict or compile another run left cannot answer
---- for this one.
+--- own ~/.cache and a verdict or compile another run left cannot
+--- stand in for this one.
 function Grader.isolated(env: {string:string}, dir: string): {string:string}
   local pinned: mut {string:string} = {}
   for name, value in pairs(env) do
@@ -2297,7 +2298,7 @@ function Grader.isolated(env: {string:string}, dir: string): {string:string}
 end
 
 --- The next directory for a grade's evidence under the arena at `dir`:
---- grades/<n>, n one past the highest there, made. Answers its path.
+--- grades/<n>, n one past the highest there, made. Returns its path.
 function Grader.next_logs(dir: string): string?, string
   local names, _ = Fs.list(dir .. "/grades")
   local highest = 0

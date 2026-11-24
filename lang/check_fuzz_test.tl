@@ -71,7 +71,7 @@ local function variables(g: Gen, t: string): {string}
   return out
 end
 
---- The functions in scope that answer `t`.
+--- The functions in scope that return `t`.
 local function functions(g: Gen, t: string): {Var}
   local out: mut {Var} = {}
   for _, v in ipairs(g.vars) do

@@ -690,3 +690,22 @@ local function test_a_stream_that_ends_leaves_its_connection_to_the_next_request
     assert(#closed == 1 and closed[1] == "end", table.concat(closed, ","))
   end)
 end
+
+--- An on_close that waits runs to its end when the client leaves.
+local function test_an_on_close_that_waits_runs_to_its_end_as_the_client_leaves()
+  local closed: mut {string} = {}
+  local app = Web.app{ routes = { Web.get("/s", function(req: Web.Request): Web.Response
+    local source: Channel.Queue<Sse.Event> = Channel.new()
+    return Sse.EventStream(req, Sse.from_queue(source), { heartbeat_ns = 0, on_close = function(why: string)
+      assert(Poll.delay(Clock.ms(30)))
+      closed[#closed + 1] = why
+    end })
+  end) } }
+  Web.with_server(app, function(client: Web.LoopbackClient)
+    local feed = open(client.host, "/s")
+    assert(feed.status == 200 and chunk(feed) ~= nil)
+    assert(feed.conn:close())
+    assert(until_true(function(): boolean return #closed == 1 end), "on_close never ran to its end")
+    assert(closed[1] == "client", closed[1])
+  end)
+end

@@ -1,5 +1,5 @@
---- Tests of `match` and of the protected calls in [`lang.check`]: the arms cover the lists a call may answer exactly, each
---- name takes the type its lists have, and `pcall` and `xpcall` answer the tagged lists of a call that returned and one
+--- Tests of `match` and of the protected calls in [`lang.check`]: the arms cover the lists a call may return exactly, each
+--- name takes the type its lists have, and `pcall` and `xpcall` return the tagged lists of a call that returned and one
 --- that raised. Every program the checker takes is also run as the Lua [`lang.codegen`] writes ([`Programs.execute`]); a
 --- program that would fail at run time if a rule had a hole is held refused beside the one that stands.
 local Programs = require("lang.check_programs")
@@ -86,7 +86,7 @@ end
 local function test_an_arm_that_takes_no_list_or_only_lists_taken_before_it_is_refused()
   refused("match ok() do\n  | (true, n) then print(n)\n  | (true, m) then print(m)\n  | (false, why) then print(why)\nend\n", "match_redundant")
   refused("match ok() do\n  | (true, n) then print(n)\n  | (false, why) then print(why)\n  | (other, rest) then print(rest)\nend\n", "match_redundant")
-  -- A call that answers one list is taken by one arm.
+  -- A call that returns one list is taken by one arm.
   stands("local function one(): (string, integer)\n  return \"a\", 1\nend\nmatch one() do\n  | (s, n) then print(s, n)\nend\n", "a\t1")
 end
 
@@ -140,11 +140,11 @@ local function test_pcall_answers_the_values_of_the_call_or_the_error()
   assert(type_of("local function f(): string\n  return \"a\"\nend\nlocal okay, v = pcall(f)\n", "okay") == "boolean")
   assert(type_of("local function f(): string\n  return \"a\"\nend\nmatch pcall(f) do\n  | (true, v) then\n    local seen = v\n  | (false, why) then\n  end\n",
     "seen") == "string")
-  -- A function that answers nothing, and one that answers two values.
+  -- A function that returns nothing, and one that returns two values.
   stands("local function g() end\nmatch pcall(g) do\n  | (true) then print(\"done\")\n  | (false, why) then print(\"raised\")\nend\n", "done")
   stands("local function h(): integer, string\n  return 1, \"x\"\nend\nmatch pcall(h) do\n  | (true, n, s) then print(n, s)\n  | (false, why) then print(\"raised\")\nend\n",
     "1\tx")
-  -- A function literal says what it answers.
+  -- A function literal says what it returns.
   stands("match pcall(function(): integer return 3 end) do\n  | (true, n) then print(n)\n  | (false, why) then print(0)\nend\n", "3")
 end
 
@@ -166,7 +166,7 @@ local function test_a_refused_protected_call_names_the_limits_of_the_overloads()
 end
 
 --- A refused call of a builtin with many overloads names the few that take as many arguments as it gives, counts the
---- rest, and says how a function that answers alternatives goes to `pcall`.
+--- rest, and says how a function that returns alternatives goes to `pcall`.
 local function test_a_refused_protected_call_names_its_nearest_overloads_and_counts_the_rest()
   local r = Programs.run(HEAD .. "local function f(a: integer, b: integer): (integer) | (nil, string)\n" ..
       "  if a > b then return a end\n  return nil, \"no\"\nend\nlocal okay, v = pcall(f, 1, 2)\n")
@@ -191,7 +191,7 @@ local function test_xpcall_answers_what_the_message_handler_answers_on_failure()
   stands(head .. "match xpcall(f, handler, 1) do\n  | (true, n) then print(n)\n  | (false, why) then print(why)\nend\n", "handled")
   assert(type_of(head .. "match xpcall(f, handler, 1) do\n  | (true, n) then\n  | (false, why) then\n    local seen = why\n  end\n", "seen") == "string")
   refused(head .. "local okay, v = xpcall(f, handler, \"x\")\n", "overload_none")
-  -- A handler that raises is answered by Lua's own string, so the failure is not the handler's number.
+  -- A handler that raises leaves Lua's own string as the result, so the failure is not the handler's number.
   local raising = "local function risky(): integer\n  error(\"a\")\nend\nlocal function code(m: any): integer\n  error(\"handler dies\")\nend\n"
   local shown = type_of(raising .. "match xpcall(risky, code) do\n  | (true, v) then\n  | (false, n) then\n    local seen = n\n  end\n", "seen")
   assert(shown == "integer | string", shown)

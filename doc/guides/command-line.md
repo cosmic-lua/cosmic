@@ -59,8 +59,8 @@ file do.
 `cosmic help` prints a short index, a line per verb. `cosmic help <verb>`
 prints that verb's usage, its summary, options and examples, then its
 full text; `--help` or `-h` anywhere on a
-verb's line, before a `--`, does the same. Like every verb's, its summary
-goes to stderr, so stdout holds the text alone. `cosmic help exit` says
+verb's line, before a `--`, does the same. It prints no summary: stdout
+holds the text alone, and stderr nothing. `cosmic help exit` says
 what the exit codes and summaries mean.
 
 ```teal
@@ -89,7 +89,7 @@ for line in out:gmatch("[^\n]+") do
   if line:sub(1, 8) == "`cosmic " then verbs = verbs + 1 end
 end
 print(("%d verb"):format(verbs))
-print(out:find("help: ", 1, true) == nil, (result.stderr or ""):match("^help: 1 verb, ") ~= nil)
+print(out:find("help: ", 1, true) == nil, result.stderr == "")
 ```
 
 ```output

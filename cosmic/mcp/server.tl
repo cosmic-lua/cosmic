@@ -1841,8 +1841,6 @@ local class EventReader is Stream.Reader
   mut answer?: string
   mut task?: Poll.Task
   mut finished: boolean
-  --- The task that waits for the client to go (the request's `wait_gone`) and closes the stream when it does.
-  mut watcher?: Poll.Task
   --- When the stream ends, its grant's time past, in nanoseconds since the epoch; nil: never by time.
   ends_ns?: integer
 
@@ -1865,7 +1863,7 @@ local class EventReader is Stream.Reader
         return "event: message\ndata: " .. final .. "\n\n", ""
       end
       if self.finished then return nil, "" end
-      -- A client that leaves closes the stream (`watcher`), which wakes this wait.
+      -- A client that leaves has the server close the stream, which wakes this wait.
       local quiet_ns = Clock.monotonic_ns() + KEEPALIVE_NS
       while true do
         local wait_ns = quiet_ns - Clock.monotonic_ns()
@@ -1897,12 +1895,6 @@ local class EventReader is Stream.Reader
       -- A read waiting for a notice sees the end.
       self.notifier:notify_all()
     end
-    -- Ended by its answer, the stream still has its watcher to stop.
-    local watcher = self.watcher
-    if watcher ~= nil then
-      self.watcher = nil
-      watcher:cancel()
-    end
     self.queue, self.head, self.tail, self.latest, self.answer = {}, 1, 1, nil, nil
     return true, ""
   end
@@ -1916,7 +1908,6 @@ local function streamed(self: State, message: wire.Message, req: HttpServer.Requ
   local expires = if grant ~= nil then grant.expires else nil end
   local body: EventReader = { notifier = notifier, flight = flight, queue = {}, head = 1, tail = 1, finished = false,
     latest = nil, answer = nil, task = nil, skip = nil,
-    watcher = nil,
     ends_ns = if expires ~= nil then expires * 1000000000 else nil end }
   flight.emit = function(text: string, lossy: boolean)
     if body.finished then return end
@@ -1930,11 +1921,6 @@ local function streamed(self: State, message: wire.Message, req: HttpServer.Requ
     end
     notifier:notify_all()
   end
-  body.watcher = Poll.spawn(function()
-    if not req.wait_gone() then return end
-    body.watcher = nil
-    local _, _ = body:close()
-  end)
   body.task = Poll.spawn(function()
     local said = answer_message(self, message, req, flight)
     if flight.cancelled then return end
@@ -1943,7 +1929,7 @@ local function streamed(self: State, message: wire.Message, req: HttpServer.Requ
     notifier:notify_all()
   end)
   return { status = 200, headers = { ["Content-Type"] = "text/event-stream", ["Cache-Control"] = "no-cache, no-transform" },
-    body = body }
+    body = body, until_gone = true }
 end
 
 --- Whether `accept` names `want` itself, not by a wildcard: a client that asks for an event stream says so.

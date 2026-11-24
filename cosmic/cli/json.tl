@@ -70,7 +70,7 @@ local Flags = require("cosmic.flags")
 
 local command: Flags.Command = {
   about = "look up a path in a JSON file",
-  usage = "<path> [file]",
+  usage = "[options] [--] [path] [file|-]",
   examples = {
     { line = "'$.users[0].name' export.json", about = "print one value" },
     { line = "--flat export.json", about = "print every value with its path" },

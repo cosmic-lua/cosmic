@@ -92,9 +92,8 @@ local SIZE <const>: {string:integer} = {
 
 local spec = Verb.spec or {}
 
-local usage = "cosmic hash [--sha256 | --sha512 | --sha1 | --md5 | ...] [--json] " ..
-  "[--hmac <key> | --hmac-file <path>] [<file>|-]...; " ..
-  "cosmic hash --check <sums>|- [--quiet] [algorithm and HMAC options]"
+--- The usage line a refusal ends with: the spec's ([`Flags.usage`]).
+local usage <const> = Flags.usage(Verb, "cosmic hash")
 
 --- `name` as a sums line writes it, and whether it needed escaping: a
 --- backslash, newline or carriage return becomes `\\`, `\n` or `\r`, as GNU

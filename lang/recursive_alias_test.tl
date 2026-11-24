@@ -31,7 +31,7 @@ end
 
 local function below(w: World, a: Types.Type, b: Types.Type): boolean
   local answer = w.judge:subtype(a, b)
-  -- The reason and the answer agree.
+  -- The reason and the result agree.
   assert((w.judge:refuse(a, b) == nil) == answer, Types.display(a) .. " below " .. Types.display(b))
   return answer
 end
@@ -247,7 +247,7 @@ local record Found
   x: integer
 end
 
---- Checks that `source` is refused with exactly `codes` (space separated) and answers the errors: those of the lowering first.
+--- Checks that `source` is refused with exactly `codes` (space separated) and returns the errors: those of the lowering first.
 local function refuses(source: string, codes: string): Found
   local r = Programs.run(source)
   local found: mut {Found} = {}

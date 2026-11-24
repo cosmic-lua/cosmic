@@ -151,6 +151,54 @@ local function test_help_gives_the_exit_code_of_a_refused_chunk(tmp: string)
   end
 end
 
+--- `cosmic run` refuses a verb's name as its file, asks for help as every verb does, and hands any other
+--- word to the file run, whose messages name a Lua file or a missing one; `eval --help` is `help eval`.
+local function test_run_and_eval_are_read_as_their_pages_say(tmp: string)
+  for _, word in ipairs({ "test", "help" }) do
+    local r = verbs_fixture.run(tmp, { "run", word })
+    assert(r.code == 2 and r.stderr:find("run takes a file to run", 1, true) ~= nil, word .. ": " .. r.stderr)
+  end
+  local lua, plain = verbs_fixture.run(tmp, { "run", "x.lua" }), verbs_fixture.run(tmp, { "x.lua" })
+  assert(lua.code == plain.code and lua.stderr == plain.stderr, lua.stderr .. plain.stderr)
+  local asks: {{string}} = { { "run", "--help" }, { "eval", "-h" }, { "-e", "--help" } }
+  for _, words in ipairs(asks) do
+    local page = if words[1] == "run" then "run" else "eval" end
+    local r, shown = verbs_fixture.run(tmp, words), verbs_fixture.run(tmp, { "help", page })
+    assert(r.code == 0 and r.stdout == shown.stdout and r.stdout ~= "", table.concat(words, " ") .. ": " .. r.stderr)
+  end
+end
+
+--- `help` refuses its own line in the form every verb does, ending in its usage.
+local function test_help_refuses_its_line_ending_in_its_usage(tmp: string)
+  for _, words in ipairs({ { "help", "--zz" }, { "help", "fix", "test" }, { "help", "tset" } }) do
+    local r = verbs_fixture.run(tmp, words)
+    local form = "^cosmic: help: [^\n]+; usage: cosmic help %[verb | exit | <verb> <subcommand>%]\n$"
+    assert(r.code == 2 and r.stderr:find(form) ~= nil, table.concat(words, " ") .. ": " .. r.stderr)
+  end
+end
+
+--- `fetch` and `bom` take their modes as subcommands: help reaches each, a word no subcommand names is the
+--- default's, and a refusal ends in the subcommand's own usage.
+local function test_fetch_and_bom_take_their_modes_as_subcommands(tmp: string)
+  local whole = verbs_fixture.run(tmp, { "help", "fetch" })
+  local asked = verbs_fixture.run(tmp, { "fetch", "https://example.com/", "--help" })
+  assert(asked.code == 0 and asked.stdout == whole.stdout and whole.stdout:find("\n  -o <file> ", 1, true) ~= nil, asked.stderr)
+  local get = verbs_fixture.run(tmp, { "help", "fetch", "get" })
+  assert(get.code == 0 and get.stdout:find("^usage: cosmic fetch <url") ~= nil, get.stdout)
+  local refusals: {{string}} = {
+    { "fetch", "head", "--bogus", "https://example.com/" }, { "fetch", "--json", "https://example.com/" },
+    { "bom", "zz" }, { "bom", "--licenses" }, { "bom", "list", "x" }, { "bom", "cyclonedx", "-o" },
+  }
+  local endings: {string} = { "usage: cosmic fetch head [--json] [options] <url>\n", "usage: cosmic fetch <url",
+    "usage: cosmic bom [list", "usage: cosmic bom [list", "usage: cosmic bom list\n", "usage: cosmic bom cyclonedx [options]\n" }
+  for slot, words in ipairs(refusals) do
+    local r = verbs_fixture.run(tmp, words)
+    local ending = assert(endings[slot])
+    assert(r.code == 2 and r.stderr:find("^cosmic: " .. assert(words[1]) .. ": ") ~= nil and r.stderr:find(ending, 1, true) ~= nil,
+      table.concat(words, " ") .. ": " .. r.stderr)
+  end
+end
+
 --- Bare `cosmic help` is an index, not the text of every verb.
 local function test_help_is_a_short_index_of_every_verb(tmp: string)
   local all = verbs_fixture.expect(tmp, "help", { "help" }, 0).stdout
@@ -177,7 +225,7 @@ local function test_help_is_a_short_index_of_every_verb(tmp: string)
   -- where a verb has no word of its own.
   for _, line in ipairs({ "\n  cosmic test [selector...]  ", "\n  cosmic <file.tl> [args]  ",
       "\n  cosmic --standalone [--check] <file.tl> [args]\n", "\n  cosmic -e '<chunk>' [args]  ",
-      "\n  cosmic --version  ", "\n  cosmic bom  " }) do
+      "\n  cosmic --version  ", "\n  cosmic bom [list | licenses | cyclonedx] ...\n" }) do
     assert(all:find(line, 1, true), line .. ":\n" .. all)
   end
   for _, pointer in ipairs({ "cosmic help <verb>", "cosmic help exit", "cosmic docs <module>",
@@ -187,7 +235,7 @@ local function test_help_is_a_short_index_of_every_verb(tmp: string)
   assert(not all:find("--jobs", 1, true), all)
   local bare_run = verbs_fixture.expect(tmp, "help", {}, 0)
   local bare = bare_run.stdout
-  assert(bare_run.stderr:find("^help: %d+ verbs, %d+ ms\n$") ~= nil, bare_run.stderr)
+  assert(bare_run.stderr == "", bare_run.stderr)
   assert(all:find("(print stays)", 1, true), all)
   local asked = verbs_fixture.expect(tmp, "help", { "help", "--help" }, 0).stdout
   assert(asked:find("\nMore:\n", 1, true), asked)
@@ -478,14 +526,14 @@ local function test_a_verb_takes_a_negative_number_as_a_word(tmp: string)
   assert(drawn.code == 0 and drawn.stdout == "-5\n", drawn.stdout .. drawn.stderr)
 end
 
---- A verb whose line is its own to read is not refused by Flags.dispatch first: `todos`, which rebuilds a stale tool before it reads its line, refuses an option
---- in its own words, as a `fresh` verb does.
-local function test_a_verb_that_reads_its_own_line_is_not_refused_first(tmp: string)
+--- A verb whose line is its own to read (`todos`, which rebuilds a stale tool before it reads its line, and `bom`)
+--- refuses an option in the form Flags.dispatch gives every other verb: `cosmic: <verb>: <why>; usage: <line>`.
+local function test_a_verb_that_reads_its_own_line_refuses_it_as_the_others_do(tmp: string)
   verbs_fixture.write_tree(tmp)
   for _, verb in ipairs({ "todos", "bom" }) do
     local refused = verbs_fixture.run(tmp, { verb, "--zzqq" })
-    assert(refused.code == 2 and refused.stderr:find("no such option: --zzqq", 1, true) ~= nil and
-        not refused.stderr:find("; usage: cosmic " .. verb, 1, true), verb .. ": " .. refused.stderr)
+    local form = "^cosmic: " .. verb .. ": no such option: %-%-zzqq; usage: cosmic " .. verb .. " [^\n]+\n$"
+    assert(refused.code == 2 and refused.stderr:find(form) ~= nil, verb .. ": " .. refused.stderr)
   end
 end
 

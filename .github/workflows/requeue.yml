@@ -1,0 +1,84 @@
+# Flow-style YAML, held by build/workflows_test.tl to what YAML and
+# JSON5 read alike; a longer script lives under .github/scripts/.
+{
+  name: "requeue",
+
+  # The merge queue sometimes drops an entry just as that entry's own run
+  # passes, and does not put it back; its auto-merge goes with it, so the
+  # pull request waits for a person. After each merge queue run of ci
+  # that passed, this puts its pull request back in the queue where the
+  # queue itself took it out after that run began, its head is a branch
+  # of this repository tested before it was last added, and this job put
+  # it back fewer than twice
+  # (cosmic_ci/requeue.tl). It acts
+  # as the whilpbot App, with only the permissions an enqueue needs: a
+  # token of the workflow's own would start no queue run. A workflow_run
+  # always runs main's copy of this file, in main's context; it checks out
+  # main's tip, only what the driver needs, and runs no byte the
+  # triggering run made.
+  "on": {
+    workflow_run: {
+      workflows: ["ci"],
+      types: ["completed"],
+      branches: ["gh-readonly-queue/**"],
+    },
+  },
+
+  permissions: {contents: "read"},
+
+  jobs: {
+    requeue: {
+      # A first attempt only: a run made again keeps the time it was first
+      # made, so the removal for its first attempt's failure would look
+      # like its own.
+      if: "github.repository == 'cosmic-lua/cosmic' && github.event.workflow_run.event == 'merge_group' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.run_attempt == 1",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 10,
+      # One job per queue branch: a group shared by every pull request
+      # holds one pending job, so a third run ending at once would cancel
+      # the second's job. Two entries of one pull request have two
+      # branches; the second job to read finds it queued again.
+      concurrency: {group: "requeue-${{ github.event.workflow_run.head_branch }}", "cancel-in-progress": false},
+      steps: [
+        {
+          name: "mint the whilpbot token",
+          id: "app",
+          uses: "actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859", # v3
+          with: {
+            "app-id": "${{ secrets.APP_ID }}",
+            "private-key": "${{ secrets.APP_KEY }}",
+            repositories: "cosmic",
+            "permission-contents": "write",
+            "permission-pull-requests": "write",
+          },
+        },
+        {
+          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+          with: {
+            "sparse-checkout": "/ci/\n/bin/cosmic-bootstrap\n/.github/scripts/cosmic-driver.sh\n/.github/actions/cosmic-driver/\n",
+            "sparse-checkout-cone-mode": false,
+            "persist-credentials": false,
+          },
+        },
+        {
+          name: "bootstrap the pinned CI driver",
+          uses: "./.github/actions/cosmic-driver",
+        },
+        {
+          name: "put the pull request back in the queue where the queue dropped it",
+          "working-directory": "ci",
+          env: {
+            GH_TOKEN: "${{ steps.app.outputs.token }}",
+            REPOSITORY: "${{ github.repository }}",
+            EVENT: "${{ github.event.workflow_run.event }}",
+            CONCLUSION: "${{ github.event.workflow_run.conclusion }}",
+            BRANCH: "${{ github.event.workflow_run.head_branch }}",
+            STARTED: "${{ github.event.workflow_run.created_at }}",
+            BOT: "${{ steps.app.outputs.app-slug }}[bot]",
+          },
+          run: "cosmic-driver cosmic_ci/driver.tl requeue",
+        },
+      ],
+    },
+  },
+}

@@ -20,6 +20,9 @@ local record sqlite
     reason: string
     cancelled?: boolean -- declared: interface_disagrees
     timed_out?: boolean
+    --- True for a BUSY the busy handler did not wait for, since the
+    --- caller could yield: the wrapper waits it out and runs again.
+    parked?: boolean
   end
   record WalResult is Outcome
     code: integer
@@ -45,6 +48,8 @@ local record sqlite
     reason: string
     cancelled: boolean
     timed_out?: boolean
+    --- As [`ExecResult.parked`].
+    parked?: boolean
   end
   record Value
     --- Bound as a 64-bit SQLite integer.
@@ -89,7 +94,10 @@ local record sqlite
     --- "row" when a row is ready, "done" when the statement is finished.
     step: function(Statement): string?, string
     --- "row" or "done" without a result allocation; a captured failure otherwise.
-    step_result: function(Statement): string | ExecResult
+    --- Where the caller can yield and `blocks` is not true, a step before
+    --- the run's first row does not wait at a lock: it fails BUSY with
+    --- `parked` set, for the caller to wait and step again.
+    step_result: function(Statement, blocks?: boolean): string | ExecResult
     --- Binds a dense list of explicit Values. Invalid parameter shapes raise.
     bind_values_result: function(Statement, values: {Value}): ExecResult
     --- Binds `values[1]` to `values[n]` to the statement's n parameters in
@@ -124,13 +132,15 @@ local record sqlite
     --- [`Statement.step_result`] does. A statement stopped before its end
     --- in autocommit commits at its reset, so a failure there is its own.
     reset_result: function(Statement): ExecResult
+    --- Its handle's [`Handle.wait_ns`].
+    wait_ns: function(Statement): integer
     --- Rewinds the statement to run again and keeps every binding, as
     --- SQLite's own reset does: bind the columns that stay fixed once,
     --- then per row rebind the one that changes and rewind. It returns
     --- and fails as [`Statement.reset`] does.
     ---
     --- ```
-    --- local insert = assert(db:prepare("INSERT INTO t (owner, n) VALUES (?1, ?2)"))
+    --- local insert = assert(connection:prepare("INSERT INTO t (owner, n) VALUES (?1, ?2)"))
     --- assert(insert:bind_text(1, "me"))
     --- for n = 1, 3 do
     ---   assert(insert:bind_integer(2, n))
@@ -208,12 +218,17 @@ local record sqlite
     prepare: function(Handle, sql: string): Statement?, string
     --- Captures a preparation's outcome before cleanup or another operation.
     --- Empty, multiple, overlong or NUL-containing SQL raises.
-    prepare_result: function(Handle, sql: string): PrepareResult
+    --- Where the caller can yield and `blocks` is not true, it does not
+    --- wait at a lock, as [`Statement.step_result`] does not.
+    prepare_result: function(Handle, sql: string, blocks?: boolean): PrepareResult
     --- As [`prepare_result`], but the statement a [`Statement.release`] of
     --- one prepared from the same SQL kept, where the handle keeps one: a
     --- handle that owns its connection keeps up to 16, and closing it
     --- finalizes them first. A borrowed handle keeps none.
-    prepare_cached_result: function(Handle, sql: string): PrepareResult
+    prepare_cached_result: function(Handle, sql: string, blocks?: boolean): PrepareResult
+    --- How long a call on the handle waits at another connection's lock,
+    --- in nanoseconds: 0 for none, and for a borrowed handle.
+    wait_ns: function(Handle): integer
     --- Closes the connection; closing one already closed does nothing.
     --- A borrowed handle, such as the store's, only lets go of it.
     close: function(Handle): boolean, string
@@ -259,6 +274,9 @@ local record sqlite
   disown: function()
   --- The SQLite library's version, such as "3.54.1".
   version: string
+  --- `x` as SQLite writes a REAL as text: what `CAST(x AS TEXT)` and a
+  --- column's text answer for it.
+  number_text: function(x: number): string
   --- The one read-only empty Value, which binds NULL.
   NULL: Value
 end

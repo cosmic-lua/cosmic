@@ -92,10 +92,11 @@ local record Server
     --- `timeout_ns` nanoseconds (no limit when nil), as [`Net.Conn`]'s
     --- [`wait_gone`] does: true once it has, false once the time
     --- passes, the task is cancelled or the connection is closed here.
-    --- A reply that streams waits on it in a task of its own
-    --- ([`Poll.spawn`]) and ends once it answers true, so a client that
-    --- leaves a quiet stream is seen at once, with no wake between. A
-    --- request the client sends meanwhile does not end it.
+    --- A handler that works a long time before it replies can wait on
+    --- it in a task of its own ([`Poll.spawn`]) and give up once it
+    --- answers true; a stream of events needs none, as the server closes
+    --- it when the client goes ([`Reply.until_gone`]). A request the client
+    --- sends meanwhile does not end it.
     wait_gone: function(timeout_ns?: integer): boolean
     --- What the connection's TLS handshake settled -- its version, the
     --- protocol ALPN chose, the host the client asked for (SNI) --
@@ -140,6 +141,22 @@ local record Server
     mut length?: integer
     --- Close the connection after this reply.
     mut close?: boolean
+    --- The Reader body is a stream that lasts as long as its client (a
+    --- stream of events): the server closes it, from another task, as
+    --- soon as the client goes, as the request's `gone` sees it -- a
+    --- half-close of the client's sending side counted as going -- and
+    --- the reply is cut short with no report. Its read, waiting for an
+    --- event, must then answer the end, so a quiet stream ends with its
+    --- client and not at its next write. Its close may come twice: from
+    --- that task, then as the reply ends. A request the client sends
+    --- after this one is no going. Not for a body that must arrive
+    --- whole: a client that half-closes and still reads would lose the
+    --- rest. The task that closes it is the connection's no longer once
+    --- it has begun: a close that waits (an `on_close`) runs to its end
+    --- after the server stops. A [`cosmic.web`] response sets it on the
+    --- response a constructor answers (`res.until_gone = true`), as
+    --- [`Sse.EventStream`] does.
+    mut until_gone?: boolean
   end
 
   --- What [`Server.serve`] serves, and how. A field of the wrong shape, or
@@ -151,7 +168,9 @@ local record Server
     handle: function(Request): Reply
     --- What a server takes on at most; a field left nil has its default.
     record Limits
-      --- The most connections open at once (256).
+      --- The most connections open at once (256). At the limit, a
+      --- client that comes is served in the place of the connection
+      --- idle longest, which is closed (see [`Server.serve`]).
       connections?: integer
       --- The most bytes of a request's head (64 KiB), past which it is
       --- answered 431, and of the head with a chunked body's chunk
@@ -175,9 +194,9 @@ local record Server
     --- serves: see [`Net.ServeSpec.clear`]. A request that came this way
     --- has no `tls`.
     clear?: {Net.Address}
-    --- How long any one read or write of a connection waits once a
-    --- request's head is in -- the body's reads, the reply's writes
-    --- -- (30 seconds); see [`Net.ServeSpec.timeout_ns`].
+    --- How long any one wait of a body's read, or any one write of a
+    --- reply (64 KiB at most), takes once a request's head is in (30
+    --- seconds); see [`Net.ServeSpec.timeout_ns`].
     timeout_ns?: integer
     --- As [`Net.ServeSpec.grace_ns`]: how long requests in flight have
     --- to finish once the server stops; nil to wait for every one.
@@ -295,7 +314,7 @@ local LIMIT_FIELDS <const>: {string:boolean} = {
 }
 
 local REPLY_FIELDS <const>: {string:boolean} = {
-  status = true, headers = true, body = true, length = true, close = true,
+  status = true, headers = true, body = true, length = true, close = true, until_gone = true,
 }
 
 --- Raises for the spec's `field`, at the caller of [`Server.serve`].
@@ -387,9 +406,14 @@ local record Serving
   mut stopping: boolean
   --- The smallest body to compress; nil where replies are not compressed.
   compress_from?: integer
-  --- Each connection waiting for its next request's first byte, which
-  --- stopping closes at once.
-  idle: mut {Net.Conn: boolean}
+  --- Each connection waiting for its next request's first byte, and
+  --- since when: stopping closes them at once, and a full server the
+  --- one idle longest.
+  idle: mut {Net.Conn: integer}
+  --- Set where the server was full, a connection waiting, and none was
+  --- idle: the next reply sent says it closes, or the next connection
+  --- to go idle closes, unless a connection opens first.
+  mut wanted: boolean
 end
 
 --- The second [`now_date`] last formatted, and its Date.
@@ -753,7 +777,8 @@ local function revalidated(accepts: string?, reply: Server.Reply): Server.Reply
   if coding ~= "zstd" and coding ~= "gzip" then return reply end
   local out = varied(headers, false)
   weakened(out)
-  return { status = reply.status, headers = out, body = reply.body, length = reply.length, close = reply.close }
+  return { status = reply.status, headers = out, body = reply.body, length = reply.length, close = reply.close,
+    until_gone = reply.until_gone }
 end
 
 --- `reply` for a request of `accepts` (its Accept-Encoding) compressed
@@ -786,7 +811,7 @@ local function compressed(min_bytes: integer, accepts: string?, reply: Server.Re
       headers = varied({ ["Content-Type"] = "text/plain; charset=utf-8" }, false) }
   end
   local unchanged: Server.Reply = { status = status, headers = varied(headers, false), body = body,
-    length = reply.length, close = reply.close }
+    length = reply.length, close = reply.close, until_gone = reply.until_gone }
   if coding == "identity" then return unchanged end
   local encoder = encoder_for(coding)
   if encoder == nil then return unchanged end
@@ -801,7 +826,7 @@ local function compressed(min_bytes: integer, accepts: string?, reply: Server.Re
   local out_headers = varied(headers, true)
   out_headers["Content-Encoding"] = coding
   weakened(out_headers)
-  return { status = status, headers = out_headers, body = smaller, close = reply.close }
+  return { status = status, headers = out_headers, body = smaller, close = reply.close, until_gone = reply.until_gone }
 end
 
 --- Serves the request `head` read from `input`: calls the handler and
@@ -871,6 +896,10 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     return false
   end
   local given: Server.Reply = reply
+  -- The handler's own Reader, which the server closes once the client
+  -- goes (`until_gone`): not the encoder compression wraps it in, whose
+  -- read is the one waiting.
+  local handed = reply.body
   if s.compress_from ~= nil then
     local compressing, result = xpcall(compressed, traced, s.compress_from, head.headers["accept-encoding"], given)
     if not compressing then
@@ -897,6 +926,14 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
       close = true
     end
   end
+  -- Full, a client waiting, and none idle: this reply says it closes,
+  -- and the connection makes room once the client has read it. After
+  -- `100 Continue` is decided, so a Reader reply still gets its body.
+  local making_room = s.wanted and not close
+  if making_room then
+    s.wanted = false
+    close = true
+  end
   interim.replied = true
   conn:set_timeout(s.timeout_ns)
   -- The reply is built inside the protected call, as its date is read there.
@@ -908,7 +945,35 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
       date = now_date(),
     })
   end
+  -- While a stream that lasts as long as its client is sent, a task waits
+  -- for the client to go and closes the Reader then, which ends a read
+  -- that waits for events.
+  local watcher: Poll.Task? = nil
+  local left, ended = false, false
+  local sends_body = head.method ~= "HEAD" and given.status >= 200 and given.status ~= 204 and given.status ~= 304
+  if given.until_gone == true and handed ~= nil and not handed is string and sends_body and Poll.in_task() then
+    local reader: Stream.Reader = handed
+    watcher = Poll.spawn(function()
+      local gone, _ = conn:wait_gone()
+      -- A watcher first run after the reply ended (one sent without a
+      -- wait) leaves the Reader alone.
+      if not gone or ended then return end
+      left = true
+      local closing, raised = pcall(function() local _, _ = reader:close() end)
+      if not closing then
+        report(s, "http: " .. where .. ": closing the reply's body: " .. tostring(raised))
+      end
+    end)
+  end
   local sending, sent = xpcall(send_reply, traced, conn)
+  ended = true
+  -- A watcher that is closing the Reader runs on to its end: its close
+  -- (an SSE stream's on_close) may wait.
+  if watcher ~= nil and not left then watcher:cancel() end
+  if left then
+    drop_body(given)
+    return false
+  end
   if not sending then
     -- A Reader body that raised: the reply is cut short.
     drop_body(given)
@@ -923,7 +988,9 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     report(s, "http: " .. where .. ": the reply's body: " .. result.body_failure)
   end
   if result.close then
-    if result.write_failure == "" and body.state == "open" then linger(conn) end
+    -- A client making room may have sent its next request already:
+    -- closed unread, it would reset what was sent before it.
+    if result.write_failure == "" and (body.state == "open" or making_room) then linger(conn) end
     return false
   end
   -- A reply Reader that read the request's body may have ended cleanly
@@ -949,6 +1016,8 @@ end
 --- Serves `conn`, one request after another, until it closes, fails,
 --- or idles past `idle_ns`.
 local function serve_conn(s: Serving, conn: Net.Conn)
+  -- A client waiting for room has it now.
+  s.wanted = false
   local timed: Timed = { conn = conn, each = s.timeout_ns, deadline = nil, skip = nil }
   local input = wire.input(timed)
   -- Nil where the connection has none (a unix one); the request then has no peer.
@@ -956,8 +1025,16 @@ local function serve_conn(s: Serving, conn: Net.Conn)
   while true do
     if not wire.buffered(input) then
       if s.stopping then return end
-      s.idle[conn] = true
-      timed.deadline = Clock.monotonic_ns() + s.idle_ns
+      -- Room wanted after this connection's reply was framed: it has
+      -- nothing in flight now, and makes room.
+      if s.wanted then
+        s.wanted = false
+        linger(conn)
+        return
+      end
+      local since = Clock.monotonic_ns()
+      s.idle[conn] = since
+      timed.deadline = since + s.idle_ns
       local ok, _ = wire.fill(input)
       s.idle[conn] = nil
       if not ok then return end
@@ -1005,7 +1082,10 @@ end
 --- than `body_ns`), or the server answered for the handler: its own
 --- 4xx and 5xx close the connection. It closes once idle
 --- for `idle_ns` too, and at once when the server stops: a request in
---- flight then finishes, answered with `Connection: close`.
+--- flight then finishes, answered with `Connection: close`. At
+--- `limits.connections`, with a client waiting, the connection idle
+--- longest closes at once to make room for it; where none is idle, the
+--- next reply sent says `Connection: close`.
 ---
 --- The server refuses for the handler what HTTP/1.1 (RFC 9112) says to:
 --- a malformed request line or header, no Host or more than one in
@@ -1082,6 +1162,7 @@ function Server.serve(spec: Server.ServeSpec): boolean, string
     stopping = false,
     compress_from = compress_from,
     idle = {},
+    wanted = false,
   }
   local served, why = Net.serve{
     listeners = listeners,
@@ -1099,6 +1180,23 @@ function Server.serve(spec: Server.ServeSpec): boolean, string
       for _, conn in ipairs(idle) do local _, _ = conn:close() end
       local on_stop = spec.on_stop
       if on_stop ~= nil then on_stop(server) end
+    end,
+    -- Full, with a client waiting: a connection idle between requests
+    -- makes room for it. A client reopens one closed while idle, and
+    -- sends again a request it had just sent there (RFC 9112 9.3.1).
+    on_full = function()
+      -- The one idle longest is the least likely to be sending a request.
+      local oldest: Net.Conn? = nil
+      local oldest_since = math.maxinteger
+      for conn, since in pairs(s.idle) do
+        if since < oldest_since then oldest, oldest_since = conn, since end
+      end
+      if oldest == nil then
+        s.wanted = true
+        return
+      end
+      s.idle[oldest] = nil
+      local _, _ = oldest:close()
     end,
     on_error = spec.on_error,
   }

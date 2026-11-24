@@ -301,18 +301,17 @@ local function escape(text: string): string
   return bare.escape(text, { named = true })
 end
 
---- Column `index` of the row `statement` stands on, as the text a row
---- line carries.
-local function cell_text(statement: Sqlite.Statement, index: integer): string
-  local kind = statement:kind(index)
+--- Column `index` of `row`, from 1, as the text a row line carries.
+local function cell_text(row: Sqlite.Row, index: integer): string
+  local kind = row:kind(index)
   if kind == "integer" then
-    return string.format("%d", statement:integer(index))
+    return string.format("%d", row:integer(index))
   elseif kind == "number" then
-    return real(statement:number(index))
+    return real(row:number(index))
   elseif kind == "text" then
-    return escape(statement:bytes(index))
+    return escape(row:text(index))
   elseif kind == "blob" then
-    return "X'" .. (statement:bytes(index):gsub(".", function(byte: string): string
+    return "X'" .. (row:blob(index):gsub(".", function(byte: string): string
       return string.format("%02X", (assert(byte:byte(), "gsub hands over one byte")))
     end)) .. "'"
   end
@@ -323,7 +322,7 @@ end
 --- and a row's line, or nil and why when the row has no line in it.
 local record Writer
   header: function(names: {string}): string?
-  row: function(statement: Sqlite.Statement, width: integer): string?, string
+  row: function(row: Sqlite.Row, width: integer): string?, string
 end
 
 --- The default: a tab-separated line of names, then of each row's cells
@@ -336,10 +335,10 @@ local row_lines: Writer = {
     end
     return table.concat(cells, "\t")
   end,
-  row = function(statement: Sqlite.Statement, width: integer): string?, string
+  row = function(row: Sqlite.Row, width: integer): string?, string
     local cells: mut {string} = {}
-    for index = 0, width - 1 do
-      local text = cell_text(statement, index)
+    for index = 1, width do
+      local text = cell_text(row, index)
       cells[#cells + 1] = text
     end
     return table.concat(cells, "\t"), ""
@@ -361,17 +360,17 @@ local csv_writer: Writer = {
     end
     return table.concat(fields, ",")
   end,
-  row = function(statement: Sqlite.Statement, width: integer): string?, string
+  row = function(row: Sqlite.Row, width: integer): string?, string
     local fields: mut {string} = {}
-    for index = 0, width - 1 do
-      local kind = statement:kind(index)
+    for index = 1, width do
+      local kind = row:kind(index)
       if kind == "null" then
         fields[#fields + 1] = ""
       elseif kind == "integer" or kind == "number" then
-        local text = cell_text(statement, index)
+        local text = cell_text(row, index)
         fields[#fields + 1] = text
       else
-        local text = Csv.encode_field(statement:bytes(index), QUOTE_EMPTY)
+        local text = Csv.encode_field(row:bytes(index), QUOTE_EMPTY)
         fields[#fields + 1] = text
       end
     end
@@ -420,12 +419,12 @@ local function ndjson_writer(): Writer
       keys = made
       return nil
     end,
-    row = function(statement: Sqlite.Statement, width: integer): string?, string
+    row = function(row: Sqlite.Row, width: integer): string?, string
       if unnamable_key ~= "" then
         return nil, unnamable_key
       end
       if whole_json then
-        local text = if statement:kind(0) == "text" then statement:bytes(0) else nil end
+        local text = if row:kind(1) == "text" then row:text(1) else nil end
         local object, _ = Json.decode_object(text or "")
         if text == nil or text:find("[\r\n]") ~= nil or object == nil then
           return nil, "_json is not a JSON object's text on one line"
@@ -433,24 +432,24 @@ local function ndjson_writer(): Writer
         return text, ""
       end
       local members: mut {string} = {}
-      for index = 0, width - 1 do
-        local kind = statement:kind(index)
+      for index = 1, width do
+        local kind = row:kind(index)
         local value: Json.Value = Json.null
         if kind == "integer" then
-          value = statement:integer(index)
+          value = row:integer(index)
         elseif kind == "number" then
-          value = statement:number(index)
+          value = row:number(index)
         elseif kind == "text" then
-          value = statement:bytes(index)
+          value = row:text(index)
         elseif kind == "blob" then
-          return nil, "column " .. tostring((index + 1)) .. " is a blob, which JSON has no value for; " ..
+          return nil, "column " .. tostring(index) .. " is a blob, which JSON has no value for; " ..
             "select its hex() or base64()"
         end
         local encoded, trouble = Json.encode(value)
         if encoded == nil then
-          return nil, "column " .. tostring((index + 1)) .. ": " .. tostring(trouble)
+          return nil, "column " .. tostring(index) .. ": " .. tostring(trouble)
         end
-        members[#members + 1] = assert(keys[index + 1], "every column has a key") .. ":" .. encoded
+        members[#members + 1] = assert(keys[index], "every column has a key") .. ":" .. encoded
       end
       return "{" .. table.concat(members, ",") .. "}", ""
     end,
@@ -488,49 +487,48 @@ local function stream(db: Sqlite.Handle, statement: string,
   -- Nothing is bound: a parameter left unbound would read as NULL.
   local wanted = prepared:parameters()
   if wanted > 0 then
-    prepared:finalize()
+    prepared:close()
     return nil, "the statement takes " .. tostring(wanted) ..
       (if wanted == 1 then " parameter" else " parameters" end) .. "; cosmic sql binds none"
   end
-  local width = prepared:columns()
-  local names: mut {string} = {}
-  for index = 0, width - 1 do
-    local name = prepared:name(index)
-    names[#names + 1] = name
-  end
+  local names = prepared:names()
+  local width = #names
   if width > 0 then
     local header = write.header(names)
     if header ~= nil then
       local written, write_trouble = emit(header)
       if not written then
-        prepared:finalize()
+        prepared:close()
         return nil, write_trouble
       end
     end
   end
+  local query, query_trouble = prepared:query()
+  if query == nil then
+    prepared:close()
+    return nil, attach_hinted(tostring(query_trouble))
+  end
   local rows = 0
-  while true do
-    local state, trouble = prepared:step()
-    if state == nil then
-      prepared:finalize()
-      return nil, attach_hinted(trouble)
-    end
-    if state == "done" then
-      break
-    end
+  for row in query:each() do
     rows = rows + 1
-    local line, refused = write.row(prepared, width)
+    local line, refused = write.row(row, width)
     if line == nil then
-      prepared:finalize()
+      query:close()
+      prepared:close()
       return nil, "row " .. tostring(rows) .. ": " .. refused
     end
     local written, write_trouble = emit(line)
     if not written then
-      prepared:finalize()
+      query:close()
+      prepared:close()
       return nil, write_trouble
     end
   end
-  prepared:finalize()
+  prepared:close()
+  local failure = query:failure()
+  if failure ~= nil then
+    return nil, attach_hinted(tostring(failure))
+  end
   return rows, ""
 end
 
@@ -597,8 +595,8 @@ local standard: sql.Output = {
 }
 
 --- The usage of `--from`, in a complaint about the line.
-local from_usage = "cosmic sql --from <file|-> [--as json|ndjson|csv|tsv] [--at '<path>'] [--raw] [--to csv|ndjson] " ..
-  "[--from ...] ['<statement>']"
+--- The usage line a refusal ends with: the spec's ([`Flags.usage`]).
+local usage_line <const> = Flags.usage(Verb, "cosmic sql")
 
 --- A table name from a file name: its stem (without the last
 --- extension), each run of anything but a letter, digit or underscore
@@ -825,7 +823,7 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
                         summarize: function(detail: string),
                         complain: function(line: string),
                         stdin: function(): string?, string, writer: Writer?): integer
-  local usage = from_usage
+  local usage = usage_line
   local function refuse(why: string): integer
     complain(why .. "; " .. usage)
     return 2
@@ -935,8 +933,7 @@ function sql.run(argv: {string}, root?: string, output?: sql.Output,
   local function summarize(detail: string)
     to.summary(detail .. ", " .. clock.took(started))
   end
-  local usage = "cosmic sql [--db <path> | --build | --store] [--to csv|ndjson] '<statement>' | " ..
-    from_usage
+  local usage = usage_line
   local parsed, parse_trouble = Flags.parse(argv, 2, spec)
   if parsed == nil then
     complain(parse_trouble .. "; " .. usage)
@@ -970,7 +967,7 @@ function sql.run(argv: {string}, root?: string, output?: sql.Output,
   end
   local statement_text = parsed.words[1]
   if #parsed.words ~= 1 or statement_text == nil then
-    complain("give one statement, quoted as one argument: " .. usage)
+    complain("give one statement, quoted as one argument; " .. usage)
     return 2
   end
   if root == nil then

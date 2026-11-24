@@ -68,7 +68,7 @@ local record Flags
     default?: string
   end
 
-  -- TODO: move the other verbs' value checks onto `choices` and `integer` (qr, codec, release, sandbox,
+  -- TODO: move the other verbs' value checks onto `choices` and `integer` (qr, codec, sandbox,
   -- test, build, sql, lsp), their "(default ...)" text onto `default`, and json's -r and codec's -d onto
   -- `aliases`; each still words its own refusal of a bad value. Wait for the docs thread's move of each
   -- verb's spec to cosmic/cli/<verb>.tl, and the six verbs to `subcommands`.
@@ -886,6 +886,20 @@ local function usage_of(command: Flags.Command): string
   return if next(command.spec or {}) ~= nil then "[options]" else "" end
 end
 
+--- The usage line of `command`, as its help's first line and every refusal's end give it:
+--- "usage: prog count [options] <file>".
+--- @param command Command The command
+--- @param name string What the line calls it: the program, and the command's own word after it when it has one
+---   ("prog count"); not empty, or this raises
+--- @return string The line, with no newline
+function Flags.usage(command: Flags.Command, name: string): string
+  if name == "" then
+    error("flags: usage's name is empty", 2)
+  end
+  local usage = usage_of(command)
+  return "usage: " .. (if usage ~= "" then name .. " " .. usage else name end)
+end
+
 --- The line `command` is typed as, for its help: `program`, the word that runs it (`name`, or its `typed`), and
 --- its usage ([`usage_of`]).
 local function typed_line(program: string, name: string, command: Flags.Command): string
@@ -968,9 +982,15 @@ function Flags.help(command: Flags.Command, name: string, width?: integer): stri
   elseif width ~= nil and width < 1 then
     error("flags: help's width is not a positive number of columns", 2)
   end
-  local spec = command.spec or {}
-  local usage = usage_of(command)
-  local parts: mut {string} = { "usage: " .. (if usage ~= "" then name .. " " .. usage else name end) }
+  -- A subcommand typed by no word runs when the line names none, so its options are shown with the command's own.
+  local spec: mut {string: boolean | Flags.Option} = {}
+  for option_name, option in pairs(command.spec or {}) do spec[option_name] = option end
+  for _, sub in pairs(command.subcommands or {}) do
+    if sub.typed == "" then
+      for option_name, option in pairs(sub.spec or {}) do spec[option_name] = option end
+    end
+  end
+  local parts: mut {string} = { Flags.usage(command, name) }
   local about = command.about
   if about ~= nil and about ~= "" then
     if width ~= nil and columns(about) > width and about:find("\n", 1, true) == nil and
@@ -1558,13 +1578,18 @@ function Flags.dispatch(argv: {string}, from: integer,
   end
   if name == nil then
     local names: mut {string} = {}
+    local defaulted = false
     for known, other in pairs(commands) do
       local typed = other.typed or known
-      if typed ~= "" then names[#names + 1] = typed end
+      if typed ~= "" then names[#names + 1] = typed else defaulted = true end
     end
-    table.sort(names)
-    return nil, "needs a command: " .. table.concat(names, ", ")
+    if not defaulted then
+      table.sort(names)
+      return nil, "needs a command: " .. table.concat(names, ", ")
+    end
   end
+  -- A line that names no command runs the one typed by no word, as a first word that names none does.
+  name = name or ""
   local command = commands[name]
   -- The slot of the command's first word: after its name, or the word itself where no command is named.
   local first = from + 1
@@ -1630,8 +1655,10 @@ function Flags.dispatch(argv: {string}, from: integer,
   end
   local parsed, why = read(own, first, spec, { "--help" })
   if parsed == nil then
-    local usage_line = Flags.help(command, called(program, name, command)):match("^[^\n]*") or ""
-    return nil, name .. ": " .. why .. "; " .. usage_line
+    local usage_line = Flags.usage(command, called(program, name, command))
+    -- A command typed by no word is not named in its refusal: the line never said it.
+    local label = if command.typed == "" then "" else name .. ": " end
+    return nil, label .. why .. "; " .. usage_line
   end
   local run = command.run
   if run == nil then

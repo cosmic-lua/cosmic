@@ -23,7 +23,7 @@ local Flags = require("cosmic.flags")
 
 local command: Flags.Command = {
   about = "update a binary's certificates and time zones",
-  usage = "-o <path>",
+  usage = "-o <path> [dataset...]",
   examples = {
     { line = "-o cosmic.new", about = "a copy with newer CA roots, revocations and time zones" },
   },

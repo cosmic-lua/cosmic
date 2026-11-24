@@ -340,8 +340,11 @@ local function described_only(command: flags.Command): flags.Command
   if given ~= nil then
     for word, sub in pairs(given) do subcommands[word] = described_only(sub) end
   end
-  return { spec = command.spec, usage = command.usage, subcommands = if given ~= nil then subcommands else nil end,
-    run = function(_: flags.Parsed): integer return 0 end }
+  -- `typed` stays: a subcommand typed by no word (`fetch`'s `get`) is what a line naming none runs.
+  return { spec = command.spec, usage = command.usage, typed = command.typed,
+    subcommands = if given ~= nil then subcommands else nil end, run = function(_: flags.Parsed): integer
+      return 0
+    end }
 end
 
 --- Why Flags.dispatch refuses the line `own` of the verb `verb`, whose options `command` names, or "" where it
@@ -780,25 +783,23 @@ local function evaluate(argv: {string}): integer
   return exit_status.of("-e", (loaded(table.unpack(arguments))))
 end
 
+--- The ending of each refusal of `help`'s own line, as Flags.dispatch ends every other verb's.
+local help_usage <const> = "; usage: cosmic help [verb | exit | <verb> <subcommand>]"
+
 --- `cosmic help [verb | exit]`: the index, or one verb's full text, or the
---- exit codes, then its summary on stderr.
+--- exit codes, with no summary after it.
 --- @param asked the verb `cosmic <verb> --help` asked about, or nil to
 ---   read the words after `help` itself
 --- @param asked_sub the verb's subcommand `cosmic <verb> <sub> --help` asked about, or nil
 local function help(argv: {string}, asked: string?, asked_sub?: string): integer
   local Cli = require("cosmic.cli")
-  local Clock = require("cosmic.clock")
-  local clock = require("build.clock")
-  local plural = require("build.plural")
   local verb_list = require("build.verb_list")
-  local started = Clock.monotonic_ns()
   -- Cache maintenance must remain usable when this directory's candidate
   -- cannot build. Its help comes from this binary too, without opening a
   -- candidate database or passing through the stale-tool guard.
   if asked == "cache" or (asked == nil and argv[2] == "cache" and argv[3] == nil) then
     local spec = assert(verb_list.find("cache"))
     log:say(verb_text("cache", spec, verb_help({ "cache" }, true).cache) .. "\n") -- checked: map_field
-    local _, _ = logger.summary("help", "1 verb, " .. clock.took(started))
     return 0
   end
   -- The staleness guard `test` applies: a fingerprint compare when the
@@ -826,7 +827,7 @@ local function help(argv: {string}, asked: string?, asked_sub?: string): integer
     end
     local parsed, parse_trouble = require("cosmic.flags").parse(line, 2, { ["--help"] = { about = "the index" }, ["-h"] = { about = "the index" } })
     if parsed == nil then
-      log:complain("help: " .. parse_trouble)
+      log:complain("help: " .. parse_trouble .. help_usage)
       return 2
     end
     words = parsed.words
@@ -841,19 +842,21 @@ local function help(argv: {string}, asked: string?, asked_sub?: string): integer
     if sub == nil then
       local names: mut {string} = {}
       for name in pairs(subcommands) do names[#names + 1] = name end
-      log:complain("help: " .. requested .. " has no command " .. word .. meant(word, names))
+      log:complain("help: " .. requested .. " has no command " .. word .. meant(word, names) .. help_usage)
       return 2
     end
-    log:say(require("cosmic.flags").help(sub, typed_name(requested) .. " " .. word, page_width) .. "\n")
-    local _, _ = logger.summary("help", "1 verb, " .. clock.took(started))
+    -- A subcommand typed by no word is called as the verb alone.
+    local called = if sub.typed == "" then typed_name(requested) else typed_name(requested) .. " " .. word end
+    log:say(require("cosmic.flags").help(sub, called, page_width) .. "\n")
     return 0
   end
   if #words > 2 and subcommands ~= nil then
-    log:complain("help: one subcommand of " .. tostring(requested) .. " at a time, not " .. tostring(#words - 1))
+    log:complain("help: one subcommand of " .. tostring(requested) .. " at a time, not " .. tostring(#words - 1) ..
+        help_usage)
     return 2
   end
   if #words > 1 then
-    log:complain("help: one verb at a time, not " .. tostring(#words))
+    log:complain("help: one verb at a time, not " .. tostring(#words) .. help_usage)
     return 2
   end
   if #words == 1 and requested ~= nil then
@@ -867,7 +870,7 @@ local function help(argv: {string}, asked: string?, asked_sub?: string): integer
     if not known then
       local topics: mut {string} = { "exit" }
       for _, verb in ipairs(Cli.order) do topics[#topics + 1] = verb end
-      log:complain("help: no such verb: " .. requested .. meant(requested, topics))
+      log:complain("help: no such verb: " .. requested .. meant(requested, topics) .. help_usage)
       return 2
     end
     local own_help = assert(help_spec, "help's spec is set before a verb is dispatched")
@@ -878,11 +881,9 @@ local function help(argv: {string}, asked: string?, asked_sub?: string): integer
     else
       log:say(verb_text(requested, spec_for(requested)) .. "\n")
     end
-    local _, _ = logger.summary("help", "1 verb, " .. clock.took(started))
     return 0
   end
   log:say(index_help())
-  local _, _ = logger.summary("help", plural.count(#Cli.order, "verb") .. ", " .. clock.took(started))
   return 0
 end
 
@@ -893,7 +894,11 @@ help_spec = {
   run = function(argv: {string}): integer
     return help(argv, nil)
   end,
-  bare = false,
+  -- Its output is the text asked for, and nothing after it: a summary would be one more line to read past.
+  bare = true,
+  exits = "`help` prints the text asked for and nothing after; it exits 0 when it did, 2 when it refuses its " ..
+    "command line or does not know the verb or topic, and 3 when the tool is older than the tree and did not " ..
+    "rebuild itself.",
   reads = true,
   recheck_on_refusal = false,
   takes = "a verb, or `exit`",
@@ -978,6 +983,29 @@ local RETIRED_FLAGS <const>: {string: string} = {
 --- @param argv the command line, the verb at slot 1
 function Dispatch.main(argv: {string}): integer
   local word = argv[1]
+  -- `run`, `eval` and `version` name the pages `cosmic help run`, `help eval` and `help version`, so each word is
+  -- taken as its page's short form: `eval` as `-e`, `version` as `--version` and `run <file>` as `<file>`.
+  local second_word = argv[2]
+  if (word == "run" or word == "eval" or word == "-e") and (second_word == "--help" or second_word == "-h") then
+    return Dispatch.main({ "help", if word == "run" then "run" else "eval" end })
+  end
+  if word == "eval" or word == "version" then
+    local spelled: mut {string} = { if word == "eval" then "-e" else "--version" end }
+    for slot = 2, #argv do spelled[#spelled + 1] = argv[slot] end
+    argv, word = spelled, spelled[1]
+  elseif word == "run" then
+    -- Any other word goes on as a file run, whose own messages name a missing file, a Lua file or a directory.
+    local file = argv[2]
+    if file == nil or file == "help" or (file:sub(1, 1) == "-" and file ~= "--standalone") or
+        (file ~= "--standalone" and file:sub(-3) ~= ".tl" and spec_of(file) ~= nil) then
+      log:complain("run takes a file to run, `cosmic run <file.tl> [args]`, or `cosmic run --standalone " ..
+          "<file.tl>`, not " .. (if file ~= nil then file else "nothing" end) .. "; see `cosmic help run`")
+      return 2
+    end
+    local shifted: mut {string} = {}
+    for slot = 2, #argv do shifted[#shifted + 1] = argv[slot] end
+    argv, word = shifted, file
+  end
   if word == "-e" then
     -- The one-liner: a checked chunk of Teal, like --standalone with no tree and no staleness.
     return evaluate(argv)
@@ -1036,6 +1064,17 @@ function Dispatch.main(argv: {string}): integer
   local load_command = require("build.verb_list").commands[verb]
   local command = if chosen ~= nil and load_command ~= nil then load_command() else nil end
   local options = if chosen ~= nil and command ~= nil then command.spec or {} else {} end -- checked: literal_needs_type
+  -- A subcommand typed by no word (`fetch`'s `get`) runs for a line that names none, so its options are the verb's.
+  local default_sub: string? = nil
+  local listed_subs = if command ~= nil then command.subcommands else nil end
+  if listed_subs ~= nil then
+    for name, sub in pairs(listed_subs) do
+      if sub.typed == "" then
+        default_sub = name
+        if sub.spec ~= nil then options = sub.spec end
+      end
+    end
+  end
   -- The words of a program a verb runs are not the verb's to read.
   local own = argv
   if chosen ~= nil and chosen.program_slot ~= nil then
@@ -1049,7 +1088,7 @@ function Dispatch.main(argv: {string}): integer
   end
   -- Whether the verb is typed by its name, and so is a command Flags.dispatch reads the line of: `help`, a file
   -- run and the verbs spelled as options read their own.
-  local typed_by_name = chosen ~= nil and verb ~= "help" and verb ~= "run" and verb:sub(1, 1) ~= "-"
+  local typed_by_name = chosen ~= nil and verb ~= "help" and verb:sub(1, 1) ~= "-"
   local verb_subcommands = if command ~= nil then command.subcommands else nil end
   local asks_sub_help = verb_subcommands ~= nil and own[2] == "help"
   if chosen ~= nil and verb ~= "help" and (asks_sub_help or Flags.asks_help(own, 2, options)) then
@@ -1058,6 +1097,10 @@ function Dispatch.main(argv: {string}): integer
     local asked = verb
     local second = if asks_sub_help then own[3] else own[2] end
     local asked_sub = if verb_subcommands ~= nil and second ~= nil and second:sub(1, 1) ~= "-" then second else nil end
+    if asked_sub ~= nil and default_sub ~= nil and verb_subcommands ~= nil and verb_subcommands[asked_sub] == nil then
+      -- A word no subcommand is named by is the default subcommand's (`cosmic fetch <url> --help`).
+      asked_sub = nil
+    end
     typed_by_name = false
     local own_spec = assert(help_spec, "help's spec is set before a verb is dispatched")
     verb = "help"
@@ -1066,7 +1109,7 @@ function Dispatch.main(argv: {string}): integer
       run = function(line: {string}): integer
         return help(line, asked, asked_sub)
       end,
-      bare = false,
+      bare = own_spec.bare,
       reads = own_spec.reads,
       recheck_on_refusal = false,
       takes = own_spec.takes,
@@ -1159,10 +1202,9 @@ function Dispatch.main(argv: {string}): integer
     local exists_status, _ = Fs.status(verb)
     local exists = exists_status ~= nil and exists_status.exists
     if exists ~= true then
-      -- The verbs typed by their names: a file run and the verbs spelled
-      -- as options are typed by none.
-      local untyped: mut {string:boolean} = { run = true }
-      for _, name in pairs(as_option) do untyped[name] = true end
+      -- The verbs typed by their names: all but `standalone`, which is typed `--standalone` (or
+      -- `run --standalone`).
+      local untyped: {string:boolean} = { standalone = true }
       local typed: mut {string} = {}
       for _, known in ipairs(require("cosmic.cli").order) do
         if untyped[known] == nil then typed[#typed + 1] = known end

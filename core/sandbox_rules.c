@@ -846,20 +846,20 @@ static int restrict_refused (lua_State *L, int number, const char *format, ...) 
  * of /proc is refused it, and a restriction made again must still count
  * the threads, descriptors and children it holds to. They are opened
  * before anything is restricted and read through descriptors, which
- * Landlock checks at open only. `pid` is the process they were opened by:
- * a copy a fork gave another process names its parent's /proc, and is
- * closed, to open afresh where /proc can still be read. Close-on-exec
+ * Landlock checks at open only. `inspected_by` is the process they
+ * were opened by. Close-on-exec
  * and never listed as a descriptor the program holds
  * ([`unaccounted_descriptor`]). */
 static struct {
-  pid_t pid;
   int tasks;
   int descriptors;
   int children;
   /* What each descriptor named when it was opened, to tell it from a
    * file the program closed it for and opened in its number. */
   struct stat identity[3];
-} inspected = { 0, -1, -1, -1, { { 0 } } };
+} inspected = { -1, -1, -1, { { 0 } } };
+
+pid_t inspected_by = 0;
 
 static void inspected_close (void) {
   if (inspected.tasks >= 0) close(inspected.tasks);
@@ -897,12 +897,12 @@ static int inspected_open (const char **what) {
   inspected_forget(&inspected.tasks, &inspected.identity[0], true);
   inspected_forget(&inspected.descriptors, &inspected.identity[1], true);
   inspected_forget(&inspected.children, &inspected.identity[2], false);
-  if (inspected.pid == self && inspected.tasks >= 0 && inspected.descriptors >= 0 &&
+  if (inspected_by == self && inspected.tasks >= 0 && inspected.descriptors >= 0 &&
       inspected.children >= 0)
     return 0;
   /* What is left of the three still names what it did. */
   inspected_close();
-  inspected.pid = self;
+  inspected_by = self;
   *what = "/proc/self/task";
   inspected.tasks = open(*what, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
   if (inspected.tasks >= 0) {

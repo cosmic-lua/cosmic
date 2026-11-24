@@ -243,7 +243,7 @@ end
 --- a time, then -- the last solver done -- summarizes, grades and
 --- writes the result of each arena in turn, and writes <out>/index.txt.
 --- An arena that cannot be laid is not solved, graded or reported but
---- gets an index line saying so. Answers the number of lines that did
+--- gets an index line saying so. Returns the number of lines that did
 --- not end `verdict=PASS`: 0 when everything passed.
 function Round.execute(plan: Round.Plan, system: Round.System): integer
   if not system.mkdirs(plan.out) then

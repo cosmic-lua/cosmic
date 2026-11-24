@@ -12,7 +12,8 @@
 --- `string?`; it prints only what it prints. What it returns is the
 --- exit code, as a built program's is: nothing is 0, a whole number
 --- from 0 to 255, or text naming one, is itself, and anything else is
---- complained about and exits 2
+--- complained about and exits 2. `cosmic eval '<chunk>' [args...]` is the
+--- same.
 --- @public
 
 local Flags = require("cosmic.flags")

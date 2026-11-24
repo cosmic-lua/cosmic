@@ -1,6 +1,6 @@
 --- The members a declaration hands out by standing for another type:
---- `type Statement = raw_sqlite.Statement` hands out the fields and methods of
---- the record it names, as [`Sqlite.Statement.step`] reads, and `record
+--- `type Connection = raw_sqlite.Handle` hands out the fields and methods of
+--- the record it names, as [`Sqlite.Connection.exec`] reads, and `record
 --- Options is raw_http.Options` those of its base. One rule for
 --- `cosmic docs` ([`cosmic.doc`]), which reads it off a database, and
 --- for the links `cosmic fix` checks and the build indexes

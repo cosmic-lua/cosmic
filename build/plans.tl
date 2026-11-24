@@ -423,32 +423,24 @@ local function keep_graph(db: Sqlite.Handle, tool: string, modules: {Module}, ou
     "INSERT INTO key_memo (path, tool, file, key, graph) VALUES (?1, ?2, ?3, ?4, ?5)")
   local put_slot, _ = db:prepare("INSERT INTO key_frags (slot, tool, digest) VALUES (?1, ?2, ?3)")
   if put_module == nil or put_slot == nil then
-    if put_module ~= nil then put_module:finalize() end
-    if put_slot ~= nil then put_slot:finalize() end
+    if put_module ~= nil then put_module:close() end
+    if put_slot ~= nil then put_slot:close() end
     return
   end
   local module_put: Sqlite.Statement = put_module
   local slot_put: Sqlite.Statement = put_slot
-  --- Binds `values` in order and runs the statement once.
-  local function put(statement: Sqlite.Statement, values: {string}): boolean
-    for index, value in ipairs(values) do
-      local bound, _ = statement:bind_text(index, value)
-      if not bound then return false end
-    end
-    local done, _ = bind.once(statement)
-    return done
-  end
   for _, m in ipairs(modules) do
     local one = out[m.path]
-    if one == nil or not put(module_put, { m.path, tool, m.file, one.key, one.graph }) then
-      break
-    end
+    if one == nil then break end
+    local done, _ = module_put:run({ m.path, tool, m.file, one.key, one.graph })
+    if not done then break end
   end
   for slot, fragment in pairs(fragments) do
-    if not put(slot_put, { slot, tool, fragment.digest }) then break end
+    local done, _ = slot_put:run({ slot, tool, fragment.digest })
+    if not done then break end
   end
-  module_put:finalize()
-  slot_put:finalize()
+  module_put:close()
+  slot_put:close()
 end
 
 --- The keys [`compute_keys`] makes, from what changed since the last

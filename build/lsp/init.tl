@@ -56,7 +56,7 @@ end
 
 local spec = Verb.spec or {}
 
-local usage = "cosmic lsp [--stdio] [--listen [host:]port] [--socket path]"
+local usage = "usage: cosmic lsp [--stdio] [--listen [host:]port] [--socket path]"
 
 --- Whether `host` is a numeric IPv4 address, four decimal octets.
 local function ipv4(host: string): boolean

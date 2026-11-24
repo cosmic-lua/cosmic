@@ -30,7 +30,7 @@ local function emits(source: string, lua: string)
   assert(ours.text == lua, "the generator wrote\n" .. ours.text .. "\nnot\n" .. lua)
 end
 
---- Runs the generator's text of `source` and answers the four values it returns.
+--- Runs the generator's text of `source` and returns the four values the chunk returns.
 local function run(source: string, truthy?: function(e: Ast.Exp): boolean): any, any, any, any
   local result = generated(source, truthy)
   local first = result.errors[1]
@@ -1075,7 +1075,7 @@ local function classed(source: string): Codegen.Generated
   return Codegen.generate(checked.chunk, checked.scoped, nil, names)
 end
 
---- Runs the Lua of `classed(source)` and answers the five values it returns.
+--- Runs the Lua of `classed(source)` and returns the five values the chunk returns.
 local function run_classes(source: string): any, any, any, any, any
   local result = classed(source)
   local first = result.errors[1]
@@ -2059,7 +2059,7 @@ local function test_the_least_integer_is_written_so_that_it_reads_back_an_intege
 end
 
 local function test_the_table_of_an_integer_enum_answers_the_member_an_integer_is_and_a_members_name()
-  -- `1.0` reaches `of` only from untyped code; it answers the member's own integer.
+  -- `1.0` reaches `of` only from untyped code; it returns the member's own integer.
   local known, unknown, name, kind = run(program(
     "local enum State: integer",
     "  OFF = 0",

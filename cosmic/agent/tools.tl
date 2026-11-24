@@ -554,34 +554,35 @@ local function jobs(input: Tools.Object, context: Tools.Context): Tools.Result
   return r
 end
 
+--- The values `statement` runs with for a query of the sql tool: `?1` is
+--- `session`, where there is one, and any other parameter is NULL.
+local function session_values(statement: Sqlite.Statement, session?: integer): {Sqlite.Param}
+  local values: mut {Sqlite.Param} = {}
+  for index = 1, statement:parameters() do
+    values[index] = if index == 1 and session ~= nil then session else Sqlite.NULL end
+  end
+  return values
+end
+
 --- The rows of `query` on `db`, as text: the column names, then a line
 --- a row, cells split by tabs, within the limits. `?1` is `session`.
 local function rows_of(db: Sqlite.Handle, query: string, session?: integer): Tools.Result
   local statement, why = db:prepare(query)
   if statement == nil then return fail("sql: " .. tostring(why)) end
-  if statement:parameters() >= 1 and session ~= nil then
-    local bound, bind_why = statement:bind_integer(1, session)
-    if not bound then
-      statement:finalize()
-      return fail("sql: " .. bind_why)
-    end
+  local names = statement:names()
+  local columns = #names
+  local found, query_why = statement:query(session_values(statement, session))
+  if found == nil then
+    statement:close()
+    return fail("sql: " .. tostring(query_why))
   end
-  local columns = statement:columns()
-  local names: mut {string} = {}
-  for i = 0, columns - 1 do names[#names + 1] = statement:name(i) end
   local header = table.concat(names, "\t")
   local out: mut {string} = { header }
   local bytes, rows, cut, lines_used = #header, 0, false, 1
-  while true do
-    local step, step_why = statement:step()
-    if step == nil then
-      statement:finalize()
-      return fail("sql: " .. step_why)
-    end
-    if step == "done" then break end
+  for row in found:each() do
     local cells: mut {string} = {}
-    for i = 0, columns - 1 do
-      cells[#cells + 1] = if statement:kind(i) == "null" then "NULL" else statement:bytes(i) end
+    for i = 1, columns do
+      cells[#cells + 1] = row:as_text(i) or "NULL"
     end
     local line = table.concat(cells, "\t")
     local _, breaks = line:gsub("\n", "")
@@ -602,7 +603,10 @@ local function rows_of(db: Sqlite.Handle, query: string, session?: integer): Too
     out[#out + 1] = line
     bytes, rows, lines_used = bytes + 1 + #line, rows + 1, lines_used + 1 + breaks
   end
-  statement:finalize()
+  found:close()
+  statement:close()
+  local failure = found:failure()
+  if failure ~= nil then return fail("sql: " .. tostring(failure)) end
   if columns == 0 then return ok("Done.") end
   local text = table.concat(out, "\n")
   if cut then
@@ -659,20 +663,18 @@ local function objects_of(db: Sqlite.Handle, query: string, session: integer?, o
     (Json.Value) | (nil, Failure)
   local statement, why = db:prepare(query)
   if statement == nil then return nil, why end
-  if statement:parameters() >= 1 and session ~= nil then
-    local bound, bind_why = statement:bind_integer(1, session)
-    if not bound then
-      statement:finalize()
-      return nil, Failure.new(bind_why)
-    end
-  end
-  local columns = statement:columns()
   local names: mut {string} = {}
-  for i = 0, columns - 1 do names[#names + 1] = String.as_utf8(statement:name(i)) end
+  for _, name in ipairs(statement:names()) do names[#names + 1] = String.as_utf8(name) end
+  local found, query_why = statement:query(session_values(statement, session))
+  if found == nil then
+    statement:close()
+    return nil, query_why
+  end
   local rows: mut {Json.Value} = {}
   local bytes = 2
   local function refused(trouble: string): (nil, Failure)
-    statement:finalize()
+    found:close()
+    statement:close()
     return nil, Failure.new(trouble)
   end
   local function too_many(): (nil, Failure)
@@ -684,26 +686,27 @@ local function objects_of(db: Sqlite.Handle, query: string, session: integer?, o
     if over() then
       return refused("the snippet's time ran out, or the turn was stopped, as the query ran")
     end
-    local step, step_why = statement:step()
-    if step == nil then return refused(step_why) end
-    if step == "done" then break end
+    local cells, step_why = found:read()
+    if cells == nil then
+      if step_why ~= nil then return refused(tostring(step_why)) end
+      break
+    end
     local row: mut {string: Json.Value} = {}
-    for index, name in ipairs(names) do
-      local i = index - 1
-      local kind = statement:kind(i)
+    for i, name in ipairs(names) do
+      local kind = cells:kind(i)
       if kind == "null" then
         row[name] = Json.null
       elseif kind == "integer" then
-        row[name] = statement:integer(i)
+        row[name] = cells:integer(i)
       elseif kind == "number" then
-        local x = statement:number(i)
+        local x = cells:number(i)
         if x ~= x or x == math.huge or x == -math.huge then
           return refused("column " .. Json.quote(name) .. " is " .. tostring(x) .. ", which JSON holds no number " ..
               "for: CAST it AS TEXT, or test it in the query")
         end
         row[name] = x
       else
-        local cell = statement:bytes(i)
+        local cell = cells:bytes(i)
         if #cell > MAX_REPLY then return too_many() end
         row[name] = String.as_utf8(cell)
       end
@@ -714,7 +717,7 @@ local function objects_of(db: Sqlite.Handle, query: string, session: integer?, o
     if bytes > MAX_REPLY then return too_many() end
     rows[#rows + 1] = row
   end
-  statement:finalize()
+  statement:close()
   return Json.array(rows)
 end
 

@@ -74,7 +74,7 @@ local record Programs
   codes: function(run: Run): string
 
   --- A `__fact`: it is called with the value of a narrowed read, what the checker concluded of it ([`lang.fact_wraps`]) and
-  --- where the read is, answers the value and raises where the conclusion is false of it.
+  --- where the read is, returns the value and raises where the conclusion is false of it.
   type FactHook = function(v: any, taken: string, place: string, strings?: {string}, classes?: {any}, tag?: string,
                            tags?: {string} | string, at?: string): any
 
@@ -497,7 +497,7 @@ local record Co
 end
 
 --- The typed `coroutine` library the declarations of [`lang/stdlib.d.tl`] describe, over Lua's: a body is called
---- with the handle that yields and the value the first `resume` sent, `resume` answers `true` and what was yielded or
+--- with the handle that yields and the value the first `resume` sent, `resume` returns `true` and what was yielded or
 --- returned or `false` and the error, and a handle yields only for the coroutine it was made for.
 --
 -- TODO: drop this library, and run the Lua against the runtime's, once the runtime provides the typed `coroutine`

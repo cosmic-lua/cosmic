@@ -747,6 +747,35 @@ local function test_in_a_run_a_write_waits_while_another_task_drains()
   assert(got == size, "got " .. tostring(got) .. " of " .. tostring(size) .. " bytes")
 end
 
+--- A write's timeout bounds the whole write, not each wait of it: a peer
+--- that reads a little before each wait would end does not hold it.
+local function test_a_write_to_a_slow_reader_times_out_in_all()
+  local p <close> = pair()
+  p.client:set_timeout(Clock.ms(300))
+  local done = false
+  local took: integer = 0
+  local why: string = ""
+  Poll.run(function()
+    Poll.spawn(function()
+      local start = Clock.monotonic_ns()
+      local ok: boolean
+      ok, why = p.client:write(string.rep("x", 64 * 1024 * 1024))
+      took = Clock.monotonic_ns() - start
+      done = true
+      assert(not ok)
+    end)
+    Poll.spawn(function()
+      while not done do
+        local _, _ = p.accepted:read(64 * 1024)
+        local _, _ = Poll.delay(Clock.ms(5))
+      end
+    end)
+  end)
+  assert(why == Poll.TIMEOUT, why)
+  -- At 13 MB a second the 64 MiB would take 5 seconds.
+  assert(took < Clock.seconds(2), ("the write took %d ms"):format(took // 1000000))
+end
+
 --- In a task, a wait past its timeout fails with Poll.TIMEOUT, as it does out
 --- of one.
 local function test_in_a_run_waits_time_out_as_they_do_out_of_one()

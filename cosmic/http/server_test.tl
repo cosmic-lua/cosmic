@@ -361,16 +361,18 @@ local function test_each_limit_is_answered()
     local over = reply(chunked)
     assert(over.status == 413, tostring(over.status))
     assert(handled == 1, tostring(handled))
-    -- One connection at a time: a second waits, unanswered.
+    -- One connection at a time: a second waits, unanswered, while the
+    -- first is busy (see the test of a full server for one idle).
     local first <close> = peer(address)
-    send(first, get("/"))
-    assert(reply(first).status == 200)
+    send(first, "PUT / HTTP/1.1\r\nHost: test\r\nContent-Length: 2\r\n\r\n")
     local second <close> = peer(address)
     send(second, get("/"))
     second.conn:set_timeout(Clock.ms(100))
     local nothing, why = second.conn:read()
     assert(nothing == nil and why == Poll.TIMEOUT, why)
     second.conn:set_timeout(Clock.seconds(5))
+    send(first, "ok")
+    assert(reply(first).body == "ok")
     local _, _ = first.conn:close()
     assert(reply(second).status == 200)
   end, { limits = { head_bytes = 1024, body_bytes = 100, connections = 1 } })
@@ -552,6 +554,65 @@ local function test_stopping_closes_idle_connections_at_once()
   local in_flight_value = in_flight
   assert(in_flight_value ~= nil, "the reply in flight never came")
   assert(in_flight_value.status == 200 and in_flight_value.headers["connection"] == "close")
+  assert(Clock.monotonic_ns() - started < Clock.seconds(10))
+end
+
+--- A string body longer than a write's timeout lets go out at once is
+--- sent whole to a client that reads it slowly but steadily: the
+--- timeout bounds each 64 KiB of it, not all of it.
+local function test_a_large_string_body_reaches_a_slow_reader()
+  local size = 32 * 1024 * 1024
+  local troubles = serving(function(_: Server.Request): Server.Reply
+    return { status = 200, body = string.rep("x", size) }
+  end, function(address: Net.Address)
+    local slow <close> = peer(address)
+    send(slow, get("/", "Connection: close\r\n"))
+    local got = 0
+    while true do
+      local piece, _ = slow.conn:read(128 * 1024)
+      if piece == nil then break end
+      got = got + #piece
+      assert(Poll.delay(Clock.ms(5)))
+    end
+    -- At 26 MB a second the body takes about 1.3 s, past the 500 ms.
+    assert(got > size, ("read %d bytes of a %d byte body"):format(got, size))
+  end, { timeout_ns = Clock.ms(500) })
+  assert(#troubles == 0, troubles[1])
+end
+
+--- At the connection limit, a client that comes is served in the place
+--- of a connection idle between requests, which closes; where none is
+--- idle, the next reply says it closes. Neither waits out `idle_ns`.
+local function test_a_full_server_closes_an_idle_connection_for_a_client_waiting()
+  local started = Clock.monotonic_ns()
+  local release: boolean = false
+  local troubles = serving(function(req: Server.Request): Server.Reply
+    if req.path == "/slow" then
+      while not release do assert(Poll.delay(Clock.ms(5))) end
+    end
+    return { status = 200, body = req.path }
+  end, function(address: Net.Address)
+    local idle <close> = peer(address)
+    send(idle, get("/first"))
+    assert(reply(idle).body == "/first")
+    local waiting <close> = peer(address)
+    send(waiting, get("/second"))
+    assert(reply(waiting).body == "/second")
+    assert(ended(idle), "the idle connection stayed open")
+    -- Now `waiting` is the one open, and busy.
+    send(waiting, get("/slow"))
+    assert(Poll.delay(Clock.ms(20)))
+    local third <close> = peer(address)
+    send(third, get("/third"))
+    -- Time for the server to see `third` waiting while `waiting` is busy.
+    assert(Poll.delay(Clock.ms(100)))
+    release = true
+    local slow = reply(waiting)
+    assert(slow.body == "/slow" and slow.headers["connection"] == "close", slow.headers["connection"])
+    assert(ended(waiting), "the connection that made room stayed open")
+    assert(reply(third).body == "/third")
+  end, { limits = { connections = 1 }, idle_ns = Clock.seconds(60) })
+  assert(#troubles == 0, troubles[1])
   assert(Clock.monotonic_ns() - started < Clock.seconds(10))
 end
 
@@ -1547,6 +1608,101 @@ local function test_a_streamed_body_sees_the_client_go_at_once()
   assert(seen.asked > 1, "the body asked before the client went")
   local seen_ns = assert(seen.seen_ns, "the body never saw the client go")
   assert(seen_ns - closed_ns < Clock.seconds(1), tostring(seen_ns - closed_ns))
+end
+
+--- A streamed body that says "start", then waits for a notice that
+--- never comes but its close, which answers the end: a stream of events
+--- that knows nothing of its client.
+local class Quiet is Stream.Reader
+  notifier: Poll.Notifier
+  mut started: boolean
+  mut closed_ns?: integer
+
+  function read(self, _max_bytes?: integer): string?, string
+    if not self.started then
+      self.started = true
+      return "data: start\n\n", ""
+    end
+    while self.closed_ns == nil do
+      local ok, why = self.notifier:wait(Clock.seconds(5))
+      if not ok then return nil, why.message end
+    end
+    return nil, ""
+  end
+
+  function close(self): boolean, string
+    if self.closed_ns == nil then self.closed_ns = Clock.monotonic_ns() end
+    self.notifier:notify_all()
+    return true, ""
+  end
+end
+
+--- The server closes a quiet Reader reply that lasts as long as its
+--- client (`until_gone`) as the client leaves, under compression too,
+--- where the Reader is wrapped, and says no trouble.
+local function test_the_server_closes_a_quiet_reply_as_its_client_leaves()
+  for _, compress in ipairs({ false, true }) do
+    local quiet: Quiet? = nil
+    local left_ns = 0
+    local troubles = serving(function(_req: Server.Request): Server.Reply
+      local made: Quiet = { notifier = Poll.notifier(), started = false, closed_ns = nil, skip = nil }
+      quiet = made
+      return { status = 200, headers = TEXT_TYPE, body = made, until_gone = true }
+    end, function(address: Net.Address)
+      local p = peer(address)
+      send(p, get("/events", "Accept-Encoding: gzip\r\n"))
+      assert(line(p) == "HTTP/1.1 200 OK")
+      local until_ns = Clock.monotonic_ns() + Clock.seconds(2)
+      while (quiet == nil or not assert(quiet).started) and Clock.monotonic_ns() < until_ns do
+        assert(Poll.delay(Clock.ms(5)))
+      end
+      assert(Poll.delay(Clock.ms(100)))
+      assert(assert(quiet).closed_ns == nil, "closed while its client was there")
+      left_ns = Clock.monotonic_ns()
+      local _, _ = p.conn:close()
+      until_ns = left_ns + Clock.seconds(2)
+      while assert(quiet).closed_ns == nil and Clock.monotonic_ns() < until_ns do
+        assert(Poll.delay(Clock.ms(5)))
+      end
+    end, { compress = compress })
+    local closed_ns = assert(assert(quiet).closed_ns, "the server never closed the Reader")
+    -- At once on Linux; macOS asks each 250 ms.
+    assert(closed_ns - left_ns < Clock.ms(500), tostring(closed_ns - left_ns))
+    assert(#troubles == 0, troubles[1])
+  end
+end
+
+--- A Reader of "one two three" in three pieces, 30 ms apart.
+local class Slow is Stream.Reader
+  mut at: integer
+
+  function read(self, _max_bytes?: integer): string?, string
+    self.at = self.at + 1
+    if self.at > 3 then return nil, "" end
+    if self.at > 1 then assert(Poll.delay(Clock.ms(30))) end
+    return ({ "one ", "two ", "three" })[self.at], ""
+  end
+
+  function close(self): boolean, string
+    return true, ""
+  end
+end
+
+--- A Reader that waits between its pieces, sent to an HTTP/1.0 client
+--- that half-closes after its request and still reads, arrives whole:
+--- only a reply marked `until_gone` ends with its client.
+local function test_a_client_that_half_closes_still_gets_a_slow_reply_whole()
+  local troubles = serving(function(_req: Server.Request): Server.Reply
+    local slow: Slow = { at = 0, skip = nil }
+    return { status = 200, headers = TEXT_TYPE, body = slow }
+  end, function(address: Net.Address)
+    local p = peer(address)
+    send(p, "GET / HTTP/1.0\r\nHost: test\r\n\r\n")
+    assert(p.conn:shutdown("write"))
+    while more(p) do end
+    assert(p.buf:sub(-#"one two three") == "one two three", p.buf)
+  end)
+  assert(#troubles == 0, troubles[1])
 end
 
 --- A streamed body waiting on `req.wait_gone` is not woken by a request

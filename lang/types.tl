@@ -70,9 +70,9 @@
 ---                                         function(): (true, string) | (false, any)
 ---
 --- A declaration has text of its own ([`Types.encode_declaration`]). A decoder that meets a
---- path its store lacks asks the [`Loader`] the store was made with for it, and takes the answer
+--- path its store lacks asks the [`Loader`] the store was made with for it, and takes the result
 --- only if it is that path's. Text is UTF-8, and a decoder refuses what is not, text that nests
---- past 1000 types (across the declarations a loader answers) and a declaration that has no
+--- past 1000 types (across the declarations a loader returns) and a declaration that has no
 --- body. A refused decode leaves the store as it was, and says why in a message that begins
 --- `types:`.
 
@@ -140,7 +140,7 @@ local record Types
   --- `integer`, `number`, `string`, `boolean`, `true`, `false`, `nil`, `never`, `any`,
   --- `invalid` (what a type that failed to lower becomes), or one of the four built-in bounds of a type parameter:
   --- `Ordered`, which the types `<` takes two values of are below (a number type, a string type), `Numeric`, which
-  --- the types arithmetic answers its own type for are below (`integer`, `number`), `Key`, which the types a map
+  --- the types arithmetic gives its own type for are below (`integer`, `number`), `Key`, which the types a map
   --- is keyed by are below ([`Types.keys_a_map`]), and `Some`, which the types that are never nil are below
   --- ([`Types.present`]). The tag is the name. A bound is the type of no value.
   record Atom is Base
@@ -284,7 +284,7 @@ local record Types
     asserts: boolean
   end
 
-  --- One value list a function may answer: `items`, then any number of `tail`. A narrowing
+  --- One value list a function may return: `items`, then any number of `tail`. A narrowing
   --- declaration has `narrows` and no `tail`; it is the function's only alternative, and its `items`
   --- are the one `boolean` of an `is` and none for an `asserts`, which the store fills in.
   record Alt
@@ -299,7 +299,7 @@ local record Types
     params?: {Param}
     --- The type of the rest parameter `...: T`.
     rest?: Type
-    --- The alternatives. Absent, the function answers nothing: one empty alternative. Empty,
+    --- The alternatives. Absent, the function returns nothing: one empty alternative. Empty,
     --- it never returns: the type `function(): never`.
     rets?: {Alt}
   end
@@ -426,7 +426,7 @@ local record Types
     --- The declarations being decoded, by path, and in order.
     building: mut {string: boolean}
     building_order: mut {string}
-    --- How deeply decoding is nested, across the declarations a loader answers, and how many
+    --- How deeply decoding is nested, across the declarations a loader returns, and how many
     --- decodes are open.
     mut depth: integer
     mut transactions: integer
@@ -523,7 +523,7 @@ local record Types
   --- `nil` at a position ([`lang.declarations`], [`lang.check`]).
   present: function(t: Type): boolean
 
-  --- [`present`], where a type variable for which `bounded` answers true is never nil too: a type parameter with a
+  --- [`present`], where a type variable for which `bounded` returns true is never nil too: a type parameter with a
   --- bound takes only types that are never nil, since no bound holds `nil`.
   present_where: function(t: Type, bounded: function(v: Var): boolean): boolean
 
@@ -1191,7 +1191,7 @@ local record SortedAlt
   order: string
 end
 
---- The returns of a function type, with their `: `, or "" where it answers nothing.
+--- The returns of a function type, with their `: `, or "" where it returns nothing.
 local function show_rets(f: Fn, names: Names): string
   local alts: mut {SortedAlt} = {}
   for _, alt in ipairs(f.rets) do
@@ -2558,7 +2558,7 @@ local function roll_back(store: Store, mark: Mark)
   store.depth = mark.depth
 end
 
---- Runs `work`, which raises to refuse, and answers "" or the refusal, which begins `types:`; a
+--- Runs `work`, which raises to refuse, and returns "" or the refusal, which begins `types:`; a
 --- refusal leaves the store as it was.
 local function attempt(store: Store, work: function()): string
   local mark: Mark = {

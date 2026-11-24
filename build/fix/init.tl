@@ -1521,6 +1521,7 @@ local function lay_out_teal(ctx: Fix)
         chunk = done.chunk
         local text = done.text
         fix.read_off(file, chunk, text, facts, ready, plurals)
+        if plurals ~= nil then tree_checks.knows_requires(text, file, chunk) end
       end
     end
   end

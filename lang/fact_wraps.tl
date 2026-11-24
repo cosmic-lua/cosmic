@@ -1,6 +1,6 @@
 --- The calls of `__fact` that check what [`lang.check`] concluded of a read at run time: the arguments a caller of
 --- [`lang.codegen`] gives as its `wraps`. Each read of a place whose type a test narrowed ([`Check.Narrowed`]) is written
---- `__fact(v, taken, place, strings, classes, tag, tags, at)` (after a definition on the first line of the chunk that answers
+--- `__fact(v, taken, place, strings, classes, tag, tags, at)` (after a definition on the first line of the chunk that returns
 --- `v` where no hook is defined), where
 ---
 --- * `taken` is the kinds of value (`type`'s words) the checker took the read to have none of, joined by ",";
@@ -15,11 +15,11 @@
 --- that follow a checked one, in a region it dominates, with no call, write or loop between, carry no call of `__fact`. The
 --- read of a tag (`x.kind`) is a read of a narrowed place like another, but for one in a test against a string, which takes
 --- nothing of the narrowing. A read that runs a metamethod (`__index`) is not a
---- call to the walk: a second read through one that answers differently is not checked again.
+--- call to the walk: a second read through one that returns differently is not checked again.
 ---
---- The hook answers `v`, or raises where the conclusion is false of it ([`build.test_worker`]'s `install_checks` defines
+--- The hook returns `v`, or raises where the conclusion is false of it ([`build.test_worker`]'s `install_checks` defines
 --- one for a checked run; [`lang.check_programs`] defines another for the tests of the checker). A chunk with wraps begins,
---- on its first line, by defining one that answers `v` where there is none ([`lang.codegen`]), so the program that runs wrapped
+--- on its first line, by defining one that returns `v` where there is none ([`lang.codegen`]), so the program that runs wrapped
 --- code before the worker installs the hook (the worker's own libraries) or in a process that defines none (a relay, a
 --- process a test starts) gets the value all the same.
 --

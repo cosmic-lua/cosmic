@@ -1,7 +1,7 @@
 --- The Lua kinds a value of a checker type may have: what a run-time check of a declared
 --- boundary (a parameter, a return value or a field written) holds the value to.
 ---
---- [`Boundaries.kinds`] answers the kinds, and [`Boundaries.spec`] spells them as the
+--- [`Boundaries.kinds`] returns the kinds, and [`Boundaries.spec`] spells them as the
 --- worker's `__cosmic_tc` reads them ([`build.test_worker`]): `type`'s names joined by "|",
 --- and "integer" for a number that `math.type` says is one. The mapping:
 ---
@@ -120,7 +120,7 @@ local function add(seen: Seen, t: Types.Type)
       end
     elseif kind == "integer_enum" and not current.value then
       -- TODO: check that the integer is a member, as an enum of strings checks its strings, so untyped code cannot pass
-      -- 99 as a `State` and have [`State.name`] answer nil. Waits on the type store keeping each member's integer, which
+      -- 99 as a `State` and have [`State.name`] return nil. Waits on the type store keeping each member's integer, which
       -- today only the syntax tree and the generated Lua hold.
       seen.found["integer"] = true
     elseif kind == "userdata" and not current.value and #current.decl.names == 1 and

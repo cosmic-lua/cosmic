@@ -66,8 +66,9 @@ local record Sse
     --- end of the stream, and nil and why when it failed, which also ends
     --- the stream. The stream asks with a timeout no longer than its
     --- next heartbeat or its end (`max_age_ns`), and none when it has
-    --- neither: a client that leaves closes the source, which wakes the
-    --- wait. A source whose `close` does not wake its `next` holds such
+    --- neither: the server closes the stream of a client that leaves
+    --- ([`cosmic.http.server.Reply`]'s `until_gone`), which closes the
+    --- source and wakes the wait. A source whose `close` does not wake its `next` holds such
     --- a stream open until the server kills its task.
     next: function(EventSource, timeout_ns?: integer): Event?, string
     --- Ends the source: a `next` that waits wakes and answers the end.
@@ -329,17 +330,13 @@ local record Body is Stream.Reader
   mut waiting: boolean
   mut guard?: Defer
   mut prologue: string
-  --- Waits for the client to go: the request's `wait_gone`.
-  wait_gone: function(timeout_ns?: integer): boolean
-  --- The task that waits on `wait_gone` while the stream is open, and ends it once the client goes.
-  mut watcher?: Poll.Task
   read: function(Body, max_bytes?: integer): string?, string
   close: function(Body): boolean, string
 end
 
 --- Ends the stream once: frees its slot (if it took one), closes the
---- source, tells the caller. Never waits, and never raises (it may run in a `<close>`
---- handler of a killed task or inside the app's stop).
+--- source, tells the caller. Never raises (it may run in a `<close>` handler of a
+--- killed task or inside the app's stop), and waits only where `on_close` does.
 local function finish(self: Body, why: string)
   if self.done then return end
   self.done = true
@@ -349,11 +346,6 @@ local function finish(self: Body, why: string)
     self.held = false
     app.streams[self] = nil
     app.stream_count = app.stream_count - 1
-  end
-  local watcher = self.watcher
-  if watcher ~= nil then
-    self.watcher = nil
-    watcher:cancel()
   end
   local source = self.source
   local on_close = self.on_close
@@ -386,22 +378,6 @@ function Body.read(self: Body, max_bytes?: integer): string?, string
     self.app.streams[self] = function() source:close() end
     self.pending = self.prologue
     self.prologue = ""
-    -- A client that leaves ends the stream at once: its source closed,
-    -- the wait in `source:next` below answers the end.
-    if Poll.in_task() then
-      local wait_gone = self.wait_gone
-      self.watcher = Poll.spawn(function()
-        if not wait_gone() then return end
-        -- Not cancelled by `finish`, which would fail a wait in `on_close`.
-        self.watcher = nil
-        local ran, raised = pcall(finish, self, "client")
-        if not ran then
-          local _, _ = pcall(function()
-            assert(self.app.spec.sink):line("sse: ending a stream: " .. tostring(raised))
-          end)
-        end
-      end)
-    end
   end
   local beat_at = if self.heartbeat_ns > 0 then Clock.monotonic_ns() + self.heartbeat_ns else nil end
   while self.pending == "" do
@@ -530,7 +506,7 @@ local function event_stream(req: Types.Request, source: Sse.EventSource,
   local body: Body = {
     app = app, source = source, heartbeat_ns = given.heartbeat_ns or DEFAULT_HEARTBEAT_NS,
     on_close = given.on_close, pending = "", started = false, held = false, done = false, waiting = false,
-    prologue = prologue, wait_gone = req.raw.wait_gone, read = Body.read, close = Body.close,
+    prologue = prologue, read = Body.read, close = Body.close,
   }
   local max_age_ns = given.max_age_ns
   if max_age_ns ~= nil then body.deadline = Clock.monotonic_ns() + max_age_ns end
@@ -545,7 +521,10 @@ local function event_stream(req: Types.Request, source: Sse.EventSource,
     ["Cache-Control"] = "no-cache, no-transform", ["X-Accel-Buffering"] = "no",
   }
   for name, value in pairs(given.headers or {}) do headers[name] = value end
-  return Response.stream(body, "text/event-stream", { headers = headers })
+  local res = Response.stream(body, "text/event-stream", { headers = headers })
+  -- The server closes the stream as soon as its client goes.
+  res.until_gone = true
+  return res
 end
 
 -- The hub.

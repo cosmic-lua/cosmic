@@ -65,9 +65,9 @@ chmod +x cosmic
 
 Check the download against `SHA256SUMS` before you run it. Its line
 for the executable is `<sha256>  cosmic`. From a checkout,
-`bin/cosmic release` does these steps for you: it picks a release,
-downloads it, and checks it against `SHA256SUMS` and `source.json`
-(`bin/cosmic help release`).
+`bin/cosmic release get -o cosmic` does these steps for you: it picks a
+release, downloads it, and checks it against `SHA256SUMS` and
+`source.json` (`bin/cosmic help release`).
 
 ## run a file
 
