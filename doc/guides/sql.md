@@ -39,6 +39,11 @@ tables of an FTS5 or R*Tree table, and `PRAGMA schema_version = N` and
 writable = true, defensive = false })` turns defensive mode off, for code
 that writes the schema itself.
 
+A call waits up to a minute at another connection's lock, and a signal
+stops the wait. A file that readers share beside one writer opens in
+write-ahead mode: `Sqlite.open(path, { writable = true, wal = true,
+synchronous = "normal" })`. `wait` sets another wait, in nanoseconds.
+
 ```teal
 local Sqlite = require("cosmic.sqlite")
 

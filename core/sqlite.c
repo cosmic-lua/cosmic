@@ -26,6 +26,10 @@
  * compiles in (SQLITE_MAX_ATTACHED). */
 #define ATTACHED_DEFAULT 10
 
+/* How long a handle waits at another connection's lock until it is told
+ * otherwise ([`handle_busy_timeout`]), in milliseconds. */
+#define DEFAULT_WAIT_MS 60000
+
 /* How many times this process has disowned its connections
  * ([`sqlite_disown`]). A handle is born of the count at its open, and is
  * disowned once the count has moved on. */
@@ -719,8 +723,12 @@ static int open_database (lua_State *L, bool result) {
    * artifact ever begins with its database. */
   int rc = sqlite3_open_v2(name, &h->db, flags, NULL);
   /* Another process may hold the file's lock: two builds of one tree, or a
-   * reader meeting a writer's commit. Wait for it rather than failing. */
-  if (rc == SQLITE_OK) rc = sqlite3_busy_timeout(h->db, 60000);
+   * reader meeting a writer's commit. Wait for it rather than failing, as
+   * [`handle_busy_timeout`] waits, so a guard's signal stops the wait. */
+  if (rc == SQLITE_OK) {
+    h->busy_ms = DEFAULT_WAIT_MS;
+    rc = sqlite3_busy_handler(h->db, wait_busy, h);
+  }
   if (rc == SQLITE_OK) sqlite3_limit(h->db, SQLITE_LIMIT_ATTACHED, ATTACHED_DEFAULT);
   if (rc == SQLITE_OK) rc = cosmic_sqlite_functions(h->db);
   if (rc == SQLITE_OK && !defensive)
@@ -1154,6 +1162,56 @@ static int handle_in_transaction (lua_State *L) {
 static int handle_read_only (lua_State *L) {
   struct handle *h = checked_handle(L);
   lua_pushboolean(L, sqlite3_db_readonly(h->db, "main") == 1);
+  return 1;
+}
+
+/* Copies the mode `PRAGMA journal_mode` answers into `context`, a
+ * buffer of JOURNAL_MODE_SIZE. */
+#define JOURNAL_MODE_SIZE 16
+static int read_journal_mode (void *context, int columns, char **values, char **names) {
+  (void)names;
+  char *mode = context;
+  if (columns > 0 && values[0] != NULL) snprintf(mode, JOURNAL_MODE_SIZE, "%s", values[0]);
+  return 0;
+}
+
+/* Switches the main database to write-ahead mode, and answers the mode it
+ * is in after, as the outcome's `mode`, and whether the database is a
+ * temporary or memory one, as `temporary`. The switch needs the file to
+ * itself for a moment, and SQLite can refuse it as busy without calling
+ * the busy handler, so a busy refusal is tried again until the handle's
+ * wait ([`handle_busy_timeout`]) has passed, or a guard caught a signal. */
+static int handle_wal_result (lua_State *L) {
+  struct outcome out = {0};
+  out.message = cosmic_guard_push(L, release_message);
+  struct handle *h = checked_handle(L);
+  if (h->borrowed)
+    return luaL_error(L, "sqlite: cannot set the journal mode of a borrowed handle: its owner sets it");
+  char mode[JOURNAL_MODE_SIZE] = "";
+  int64_t deadline = h->busy_ms < 0 ? -1 : cosmic_deadline_ms(h->busy_ms);
+  int64_t pause = 1;
+  int rc;
+  /* One budget for the whole call: each try's busy handler waits only
+   * until the call's deadline, and the time limit runs from the first. */
+  begin_wait(h);
+  for (;;) {
+    h->deadline_ms = deadline;
+    rc = sqlite3_exec(h->db, "PRAGMA main.journal_mode = WAL", read_journal_mode, mode, NULL);
+    if ((rc & 0xff) != SQLITE_BUSY || h->cancelled || deadline < 0) break;
+    int status = cosmic_paused(deadline, &pause);
+    if (status == EINTR) h->cancelled = true;
+    if (status != 0) break;
+  }
+  capture(L, &out, h->db, rc, h);
+  /* A temporary or memory database has no file to keep a log beside: it
+   * keeps the journal it has, which is no failure. */
+  const char *file = sqlite3_db_filename(h->db, "main");
+  bool temporary = file == NULL || file[0] == '\0';
+  push_outcome(L, &out, true);
+  lua_pushstring(L, mode);
+  lua_setfield(L, -2, "mode");
+  lua_pushboolean(L, temporary);
+  lua_setfield(L, -2, "temporary");
   return 1;
 }
 
@@ -1667,6 +1725,7 @@ static const luaL_Reg handle_methods[] = {
   {"reads_only", handle_reads_only},
   {"in_transaction", handle_in_transaction},
   {"read_only", handle_read_only},
+  {"wal_result", handle_wal_result},
   {"prepare_result", handle_prepare_result},
   {"prepare_cached_result", handle_prepare_cached_result},
   {NULL, NULL},

@@ -318,6 +318,21 @@ local BEGINS <const>: {Begin: string} = {
   deferred = "BEGIN DEFERRED", immediate = "BEGIN IMMEDIATE", exclusive = "BEGIN EXCLUSIVE",
 }
 
+--- How hard SQLite works to keep a commit through a power loss: its
+--- `PRAGMA synchronous`. "full" syncs the journal at every commit; in
+--- write-ahead mode "normal" syncs only at a checkpoint, so a power loss
+--- can undo the last commits but never corrupts the file; "off" never
+--- syncs; "extra" also syncs the directory a deleted journal was in.
+local enum Synchronous
+  "off"
+  "normal"
+  "full"
+  "extra"
+end
+
+--- The value `PRAGMA synchronous` takes for each [`Synchronous`].
+local SYNCHRONOUS <const>: {Synchronous: string} = { off = "OFF", normal = "NORMAL", full = "FULL", extra = "EXTRA" }
+
 --- Finalizes `query`'s statement, once.
 local function finish(query: Query)
   if query.open then
@@ -790,6 +805,30 @@ local class Handle
     return prepared(self.connection, sql, values, values == nil)
   end
 
+  --- Switches the main database to write-ahead mode (`PRAGMA
+  --- journal_mode = WAL`), so readers of the file read beside a writer.
+  --- The switch needs the file to itself for a moment, and SQLite can
+  --- refuse it as busy without waiting, so a busy refusal is tried again
+  --- until the handle's wait ([`Handle.busy_timeout`]) has passed, or a
+  --- signal the innermost guard caught stops it (a failure of kind
+  --- "cancelled"). A memory or temporary database ([`Sqlite.memory()`], a
+  --- path of `""`) has no file to keep a log beside, keeps the journal it
+  --- has, and returns true too. Returns `false` and why when the switch
+  --- failed: a read-only handle's file that is not in WAL mode returns
+  --- SQLite's `SQLITE_READONLY` (8), and an immutable one says the mode stayed as it
+  --- was. A borrowed handle raises.
+  ---
+  ---     local db = assert(Sqlite.open(path, { writable = true }))
+  ---     assert(db:wal())
+  function wal(self): (true) | (false, Failure)
+    local outcome = self.connection:wal_result()
+    if outcome.code ~= OK then return false, failed(outcome) end
+    if outcome.mode ~= "wal" and not outcome.temporary then
+      return false, Failure.coded("sqlite: the journal mode stayed " .. outcome.mode .. ", not wal", ERROR)
+    end
+    return true
+  end
+
   --- Waits up to `timeout_ns` at locks, rounded up to milliseconds,
   --- checking the innermost guard's unread signal without taking it: a
   --- signal stops the wait, and the call returns a failure of kind
@@ -797,7 +836,8 @@ local class Handle
   --- rollback is implied). Each call shares one budget across its
   --- locking events, starting at the first contention. Zero never
   --- sleeps. A negative or noninteger duration raises, as does a
-  --- borrowed handle. Without a guard, only the time limits it.
+  --- borrowed handle. Without a guard, only the time limits it. A
+  --- handle waits so for a minute until this sets another wait.
   --- `PRAGMA busy_timeout` reads zero for this handler; writing that
   --- pragma replaces it, and calling this again reinstalls it. SQLite
   --- can refuse a lock without calling any busy handler.
@@ -954,6 +994,9 @@ local record Sqlite
   --- How [`Handle.transact`] begins a transaction.
   type Begin = Begin
 
+  --- How hard SQLite works to keep a commit through a power loss.
+  type Synchronous = Synchronous
+
   --- How [`Sqlite.open`] opens a database.
   record OpenOptions
     --- Opens for reading and writing. Without it the database is read-only.
@@ -971,6 +1014,15 @@ local record Sqlite
     --- Holds the handle to queries as it opens: see [`Handle.reads_only`].
     --- Giving it with `writable` raises.
     reads_only?: boolean
+    --- How long a call waits at another connection's lock, in
+    --- nanoseconds: see [`Handle.busy_timeout`]. A minute when nil.
+    wait?: integer
+    --- Switches the database to write-ahead mode as it opens: see
+    --- [`Handle.wal`]. Giving it without `writable` raises.
+    wal?: boolean
+    --- Sets `PRAGMA synchronous` as it opens: see [`Sqlite.Synchronous`].
+    --- "normal" is the usual choice with `wal`.
+    synchronous?: Synchronous
   end
 
   --- One result row: see [`Handle.rows`].
@@ -1004,6 +1056,15 @@ end
 --- waits on. A `-wal` is never read, so commits still in one do not
 --- show: open a database that is being written without `immutable`.
 --- Giving `immutable` with `writable` raises.
+---
+--- A call waits up to a minute at another connection's lock, and a signal
+--- the innermost guard catches stops the wait: `opts.wait` sets another
+--- wait, in nanoseconds ([`Handle.busy_timeout`]). `opts.wal` switches a
+--- writable database to write-ahead mode ([`Handle.wal`]), and
+--- `opts.synchronous` sets how hard a commit is kept through a power
+--- loss: a file that readers share beside one writer opens as
+---
+---     Sqlite.open(path, { writable = true, wal = true, synchronous = "normal" })
 ---
 --- Every handle is in SQLite's defensive mode, so no SQL it runs can
 --- corrupt the file on purpose: a write to `sqlite_schema` or to the shadow tables
@@ -1040,6 +1101,17 @@ function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): (Sqlite.Handle) |
   if held and writable == true then
     error("sqlite: a database cannot be both writable and reads_only", 2)
   end
+  local wait, wal, synchronous = opts and opts.wait, opts ~= nil and opts.wal == true, opts and opts.synchronous
+  if wal and writable ~= true then
+    error("sqlite: only a writable database is switched to wal", 2)
+  end
+  if wait ~= nil and (math.type(wait) ~= "integer" or wait < 0) then
+    error("sqlite: wait is a nonnegative number of nanoseconds", 2)
+  end
+  local syncs: string? = if synchronous ~= nil then SYNCHRONOUS[synchronous] else nil end
+  if synchronous ~= nil and syncs == nil then
+    error("sqlite: synchronous is \"off\", \"normal\", \"full\" or \"extra\"", 2)
+  end
   local defensive = not (opts ~= nil and opts.defensive == false)
   -- `open_result` raises for a path it refuses before SQLite reads it (a
   -- NUL), where `open` answers why; any other raise `open` raises again.
@@ -1054,12 +1126,22 @@ function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): (Sqlite.Handle) |
   end
   if opened.code ~= OK then return nil, failed(opened) end
   local handle = handle_of(opened.handle)
+  local function refused(why: Failure): nil, Failure
+    local _, _ = handle:close()
+    return nil, why
+  end
+  if wait ~= nil then handle:busy_timeout(wait) end
+  if wal then
+    local switched, why = handle:wal()
+    if not switched then return refused(why) end
+  end
+  if syncs ~= nil then
+    local set, why = handle:exec("PRAGMA main.synchronous = " .. syncs)
+    if not set then return refused(why) end
+  end
   if held then
     local holding, why = handle:reads_only()
-    if not holding then
-      local _, _ = handle:close()
-      return nil, why
-    end
+    if not holding then return refused(why) end
   end
   return handle
 end

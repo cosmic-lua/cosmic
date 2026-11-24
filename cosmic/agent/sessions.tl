@@ -257,10 +257,10 @@ function Sessions.open(path: string): Sqlite.Handle?, string
     if not held then return refused(tostring(held_why)) end
   end
   -- WAL lets a reader (the sql tool, sqlite3) in beside a writer, once the
-  -- file is known to be ours; a busy database may refuse the switch, which
-  -- is no reason to fail.
+  -- file is known to be ours; a database busy past the wait may refuse the
+  -- switch, which is no reason to fail.
   local function ours(): Sqlite.Handle, string
-    local _, _ = db:exec("PRAGMA journal_mode = WAL")
+    local _, _ = db:wal()
     return db, ""
   end
   local found, found_why = version_of(db)

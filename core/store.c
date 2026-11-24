@@ -58,6 +58,24 @@ static _Noreturn void die_unreadable (sqlite3 *db) {
               return, honest or otherwise */
 }
 
+/* How many times an attached database's busy handler sleeps before it
+ * gives up ([`store_wait`]): about a minute of them. */
+#define STORE_WAIT_TRIES 1200
+
+/* The busy handler of the databases [`store_attach`] opens, which have no
+ * handle to keep a deadline in: it sleeps 1, 2, 4 ... up to 50 ms a try,
+ * by the count of tries SQLite passes, so about a minute in all, and
+ * stops at once for a signal the innermost guard caught, as a handle's
+ * wait does. Any thread may call it: it keeps nothing. */
+static int store_wait (void *context, int tries) {
+  (void)context;
+  if (tries >= STORE_WAIT_TRIES || cosmic_signal_caught()) return 0;
+  long ms = tries < 6 ? 1L << tries : 50L;
+  struct timespec ts = { 0, ms * 1000000L };
+  nanosleep(&ts, NULL);
+  return !cosmic_signal_caught();
+}
+
 /* Whether a prepare or a step failed for memory rather than for the
  * database: SQLite's own allocation refused. That is the process out of
  * memory, which raises like any allocation, not a database to die of. */
@@ -487,6 +505,11 @@ static int store_attach (lua_State *L) {
    * URI's `vfs=` never picks another VFS. */
   int rc = sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, NULL);
   guard->resource = db;
+  /* A build of the tree may be writing the database as this process reads
+   * it: wait for its lock, as a handle does, rather than die of it. */
+  if (rc == SQLITE_OK) {
+    rc = sqlite3_busy_handler(db, store_wait, NULL);
+  }
   if (rc == SQLITE_OK) {
     rc = cosmic_sqlite_hold_to_queries(db, NULL);
   }

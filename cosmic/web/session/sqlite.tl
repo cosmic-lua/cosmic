@@ -549,9 +549,9 @@ function SessionSqlite.store(db: Sqlite.Handle, opts?: SessionSqlite.Options): S
     error("session: the table name must be an identifier (letters, digits, '_')", 2)
   end
   if o.configure ~= false then
-    -- The mode answers a row; a memory database stays as it is.
-    local rows, mode_why = db:rows("PRAGMA journal_mode=WAL")
-    if rows == nil then return nil, "sessions: " .. tostring(mode_why) end
+    -- A memory database stays as it is.
+    local switched, mode_why = db:wal()
+    if not switched then return nil, "sessions: " .. tostring(mode_why) end
     local ok, why = db:exec("PRAGMA synchronous=NORMAL")
     if not ok then return nil, "sessions: " .. tostring(why) end
     db:busy_timeout(Clock.ms(250))
