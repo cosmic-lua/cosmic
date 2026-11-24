@@ -412,7 +412,7 @@ local tzdata: refresh.Dataset = {
     end
     source.path = scratch .. "/tzdata-sdist"
     local ok, download_trouble = Http.download(source.url, source.path,
-      { timeout_ns = Http.FOREVER, sha256 = source.sha256, roots = refresh.fetching().roots })
+      { timeout_ns = Http.FOREVER, digests = { ["sha256"] = source.sha256 }, roots = refresh.fetching().roots })
     if not ok then
       return nil, source.url .. ": " .. download_trouble
     end
