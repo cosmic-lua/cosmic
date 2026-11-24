@@ -619,7 +619,10 @@ local function ask(r: Run, got: Flags.Parsed): integer
     local ok, trouble = turn(r, s, events, prompting(text))
     if json then emit_end(r, ok, trouble) end
     if not ok then
-      r.complain("ask: " .. trouble)
+      -- A spent turn is over: resume finds nothing to finish, and a new prompt goes on.
+      local next_step = if s.spent then
+        "; go on with `cosmic agent ask --continue 'go on'` and a larger --budget" else "" end
+      r.complain("ask: " .. trouble .. next_step)
       return bare.failed
     end
     return bare.ok
@@ -780,9 +783,15 @@ local function sessions(r: Run, got: Flags.Parsed): integer
     r.complain("sessions: " .. list_why)
     return bare.failed
   end
+  if #list == 0 then
+    r.io.err("sessions: none in " .. cwd(r))
+    return bare.ok
+  end
+  r.io.out(string.format("%4s  %-19s  %-17s  %4s  %7s  %7s  %s", "id", "started", "model", "msgs", "context", "cost",
+    "first prompt"))
   for _, e in ipairs(list) do
-    r.io.out(string.format("%4d  %s  %-17s %3d  %7s  $%.3f  %s", e.id, e.started, e.model, e.messages,
-      tokens(e.context), e.cost, Show.brief(e.first)))
+    r.io.out(string.format("%4d  %-19s  %-17s  %4d  %7s  %7s  %s", e.id, e.started, e.model, e.messages,
+      tokens(e.context), string.format("$%.3f", e.cost), Show.brief(e.first)))
   end
   return bare.ok
 end

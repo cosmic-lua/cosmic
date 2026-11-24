@@ -281,7 +281,7 @@ local function test_a_turn_ends_where_its_budget_is_spent()
   s.on = seen.on
   local ok, why = s:prompt("go")
   assert(not ok and why == Agent.BUDGET_SPENT .. ": 2 requests, of 2", why)
-  assert(#a.sent == 2 and #seen.tools == 1 and not s:unfinished())
+  assert(#a.sent == 2 and #seen.tools == 1 and not s:unfinished() and s.spent)
   local answered = s.messages[#s.messages]
   assert(answered ~= nil)
   local last = assert(Json.encode(answered))
@@ -313,7 +313,32 @@ local function test_a_turn_ends_where_its_budget_is_spent()
   -- A turn that ends inside its budget is a turn like any other; each prompt has its own.
   s, a = kept({ text_reply("one"), text_reply("two") })
   s.budget = { turns = 1 }
-  assert(s:prompt("go") and s:prompt("again") and #a.sent == 2)
+  assert(s:prompt("go") and s:prompt("again") and #a.sent == 2 and not s.spent)
+end
+
+--- The model reads its budget beside the prompt, and a note to finish
+--- once a limit is mostly spent; a prompt with no budget is its words alone.
+local function test_the_model_reads_its_budget()
+  local function calling(id: string): Json.Value
+    return { content = { bash_call(id, "true") }, stop_reason = "tool_use" }
+  end
+  local s, a = kept({ calling("t1"), calling("t2"), text_reply("done") }, nil, "claude-sonnet-5-5")
+  s.budget = { turns = 3, cost = 0.5 }
+  assert(s:prompt("go"))
+  local function text_of(n: integer): string
+    local messages = assert(a.sent[n])["messages"]
+    assert(messages ~= nil)
+    return assert(Json.encode(messages))
+  end
+  local first = text_of(1)
+  assert(first:find('"text":"go"', 1, true) ~= nil, first)
+  assert(first:find("This turn's budget: 3 requests, $0.50.", 1, true) ~= nil, first)
+  assert(text_of(2):find("Budget: spent", 1, true) == nil, text_of(2))
+  assert(text_of(3):find("Budget: spent 2 of 3 requests, $0.00 of $0.50. The next reply may be the last", 1, true) ~=
+      nil, text_of(3))
+  s, a = kept({ text_reply("one") })
+  assert(s:prompt("go"))
+  assert(text_of(1):find('"content":"go"', 1, true) ~= nil and text_of(1):find("budget", 1, true) == nil, text_of(1))
 end
 
 local function test_a_turn_left_unfinished_is_resumed()
