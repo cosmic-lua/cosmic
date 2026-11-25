@@ -21,13 +21,13 @@ The checker refuses, so write:
 - A table you fill is declared: `local out: mut {string} = {}`, `local n: mut {string: integer} = {}`; append with `out[#out + 1] = v`.
 - A local that starts nil, or may become nil (a page cursor), is optional: `local cursor: string? = nil`, `local page: integer? = 1`; test it with `if cursor ~= nil then`. A local of a plain type is never compared with nil.
 - A local function declares its parameters and results: `local function f(x: integer): string`.
-- A read that may be nil (`t[i]`, `m[k]`, `s:match(...)`, `tonumber(s)`) is tested, given a default (`m[k] or 0`, in a sum too: `counts[k] = (counts[k] or 0) + 1`) or taken with `!` (`t[i]!`), which raises where it is nil. Walk a list with ipairs, a map with pairs.
-- A field its record does not mark `?` is never nil: use it as it is, with no `or {}`.
+- A read that may be nil (`t[i]`, `m[k]`, `s:match(...)`, `tonumber(s)`) is tested, given a default (`m[k] or 0`, in a sum or a comparison too: `counts[k] = (counts[k] or 0) + 1`, `(counts[a] or 0) > (counts[b] or 0)`) or taken with `!` (`t[i]!`), which raises where it is nil. Walk a list with ipairs, a map with pairs.
+- A field its record does not mark `?` is never nil: `for _, item in ipairs(page.items) do`, not `page.items or {}`.
 - A condition is a boolean or an optional of no boolean: `if s ~= "" then`; for a {string: boolean} set, `if seen[k] == nil then`.
 - `if c then a else b end`, with its `end` even inside a call, in place of `c and a or b`.
 - `{key: string, count: integer}` is a record type, `{string: integer}` a map, and `mut {{"{{"}}key: string}}` a list one may add to. Host.top answers `{Host.Count}`.
 - The first n of a list: `for i, v in ipairs(list) do if i > n then break end ... end`.
-- Records, not tuples (`{A, B}`); `T?`, not `T | nil`; no goto.
+- Records, not tuples: a list holds one type, so `{ { path = "a.tl", n = 419 } }`, not `{ { "a.tl", 419 } }`; `T?`, not `T | nil`; no goto.
 
 For example:
 local exts: mut {string} = {}
