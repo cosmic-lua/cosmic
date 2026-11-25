@@ -139,6 +139,8 @@ local function test_a_run_past_its_deadline_keeps_the_verdicts_it_reached(tmp: s
   local text = assert(Fs.read(tmp .. "/late.out"))
   assert(not late.ok, text)
   assert(text:find("the run passed its deadline of 4 seconds", 1, true) ~= nil, text)
+  -- And names the slowest tests it ran, which say where the time went.
+  assert(text:find("; slowest it ran: suite.bail_test test_b_%d [%d.]+ s") ~= nil, text)
   assert(text:find("not run after the deadline", 1, true) ~= nil, text)
   local ran: mut {string: boolean} = {}
   local count = 0
