@@ -8,7 +8,7 @@
 --- pull request N onto it in the order given, as one commit titled
 --- `<title> (#N)` whose body is the member's own commit messages. A
 --- member is left out, and the reason said, when it is not
---- open, has no green `ci` check at its head, or does not apply on what
+--- open, has no green newest `ci` check at its head, or does not apply on what
 --- is stacked before it. It writes the batch pull request's body to
 --- standard output; the caller pushes BRANCH and opens the pull request.
 --- The repository's squash setting (COMMIT_MESSAGES) keeps each
@@ -59,6 +59,7 @@ local record CheckRun
   name: string
   status: string
   conclusion: string?
+  started_at: string
 end
 
 local record CheckRuns
@@ -130,17 +131,19 @@ local function refusal(pr: Pull): string?
   if text == nil then return "its checks could not be read: " .. why end
   local checks, wrong = CHECK_RUNS:decode_into(text)
   if checks == nil then return "its checks could not be read: " .. tostring(wrong) end
-  local green = false
+  -- The newest ci check decides: an older run, which a re-run or a
+  -- ready-for-review run of the same head replaced, says nothing.
+  local newest: CheckRun? = nil
   for _, check in ipairs(checks.check_runs) do
-    if check.name == "ci" then
-      if check.status ~= "completed" then return "its ci check is still running" end
-      if check.conclusion ~= "success" then
-        return "a ci check at its head is " .. tostring(check.conclusion)
-      end
-      green = true
+    if check.name == "ci" and (newest == nil or check.started_at > newest.started_at) then
+      newest = check
     end
   end
-  if not green then return "no green ci check at its head" end
+  if newest == nil then return "no ci check at its head" end
+  if newest.status ~= "completed" then return "its newest ci check is still running" end
+  if newest.conclusion ~= "success" then
+    return "its newest ci check is " .. tostring(newest.conclusion)
+  end
   return nil
 end
 
