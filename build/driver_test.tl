@@ -1,4 +1,4 @@
---- Tests of [`build.driver`]: the names a tree's files answer to, one program over a module graph through its
+--- Tests of [`build.driver`]: the names a tree's files go by, one program over a module graph through its
 --- providers, each module's errors and warnings and type report, a test module's functions, and a module held to its
 --- ceilings.
 local Ast = require("lang.ast")
@@ -11,6 +11,7 @@ local Types = require("lang.types")
 local Programs = require("lang.check_programs")
 local TreeProgram = require("build.tree_program")
 local Scopes = require("lang.scopes")
+local StandardMeant = require("build.standard_meant")
 local Test = require("cosmic.test")
 local Truthy = require("lang.truthy")
 local support = require("build.test_support_fixture")
@@ -111,7 +112,7 @@ local function test_a_module_a_provider_answers_with_text_is_lowered_for_its_typ
   assert(#result.errors == 0, codes_of(result.errors))
   local library = assert(build:result("cosmic.box", true))
   assert(library.checked == nil and #library.bodies == 0 and #library.warnings == 0 and not library.source.checked)
-  -- stubs are answered after the providers before them, and are no more checked
+  -- stubs are consulted after the providers before them, and are no more checked
   local stubbed = build_of({ { "use.tl", "local Box = require(\"stub.box\")\nlocal b: Box = { n = 2 }\nreturn b\n" } })
   stubbed:provide(Driver.stubs({ ["stub.box"] = RECORD }))
   assert(#assert(stubbed:result("use", true)).errors == 0)
@@ -228,9 +229,9 @@ local function test_the_function_each_call_took_is_kept_by_the_id_of_the_call()
     assert(t ~= nil and (t.tag == "fn"), "call " .. tostring(i) .. " took no function")
     return t
   end
-  -- the method takes its record as the first parameter and answers two results
+  -- the method takes its record as the first parameter and returns two results
   assert(#took(1).params == 2 and #support.nth(took(1).rets, 1).items == 2)
-  -- a chained call is judged by the function the inner call answered
+  -- a chained call is judged by the function the inner call returned
   assert(#took(2).params == 0 and #support.nth(took(2).rets, 1).items == 2 and #support.nth(took(3).rets, 1).items == 1)
   -- the overload taken, not the first the name has
   assert(support.nth(took(4).params, 1).type.tag == "string" and support.nth(took(5).params, 1).type.tag == "named")
@@ -400,8 +401,8 @@ local function test_a_declaration_answers_to_its_whole_module_name_whichever_fil
   end
 end
 
---- Two files that are one module, a source and its package's entry, are not a pair: the first given answers, and the other is
---- a source of the index all the same.
+--- Two files that are one module, a source and its package's entry, are not a pair: the first given is the module, and the
+--- other is a source of the index all the same.
 local function test_the_first_of_two_files_of_one_module_answers()
   local one = "local n: integer = 1\nreturn n\n"
   local two = "local n: integer = 2\nreturn n\n"
@@ -639,7 +640,7 @@ local function lua_of(text: string): string
   return Codegen.generate(read.chunk, read.scoped, read.never_false).text
 end
 
---- The value `if c then (v as T) else "z"` gives for `v` of `value`, a lie about the type `T`: the program's answer is `v`.
+--- The value `if c then (v as T) else "z"` gives for `v` of `value`, a lie about the type `T`: what the program gives is `v`.
 local function cast_if(value: string, cast: string): any
   local text = table.concat({
     "local v: any = " .. value,
@@ -653,7 +654,7 @@ local function cast_if(value: string, cast: string): any
 end
 
 local function test_a_cast_does_not_make_the_middle_of_an_if_expression_never_false()
-  -- the cast promises a type and holds no value: a nil or a false behind it is the answer, not the else branch
+  -- the cast promises a type and holds no value: a nil or a false behind it is the result, not the else branch
   assert(cast_if("nil", "string") == nil)
   assert(cast_if("nil", "{string}") == nil)
   assert(cast_if("nil", "integer") == nil)
@@ -823,7 +824,7 @@ local function test_a_retired_module_is_forgotten_and_a_module_that_requires_it_
   local box = assert(build:result("box", true))
   assert(box.lowered ~= nil and #box.errors == 0)
   build:retire("box")
-  -- the build answers nothing for it, and reads it again outside the program when asked to
+  -- the build returns nothing for it, and reads it again outside the program when asked to
   assert(build:result("box", true) == nil)
   local again = assert(build:parsed("box"))
   assert(again ~= box and again.lowered == nil and not again.broken)
@@ -1005,6 +1006,52 @@ local function test_a_module_is_required_by_its_whole_name_and_a_bare_last_segme
   local whole = { "use.tl", "local m = require(\"b.m\")\nlocal n: integer = m.n\nreturn n\n" }
   local result = assert(build_of({ m, whole }):result("use", true))
   assert(#result.errors == 0, codes_of(result.errors))
+end
+
+--- Docs that hold [`cosmic.csv`] and the tools' own [`cosmic.store`], as a binary's would.
+local CSV_DOCS <const>: StandardMeant.Docs = {
+  index = { { module = "cosmic.csv", text = "CSV reading and writing.", closed = "" },
+    { module = "cosmic.store", text = "The tools' own store.", closed = "" } },
+  exact = function(_: string): {{string}} return {} end,
+  takes = function(_: string): {{string}} return {} end,
+}
+
+--- The fix of each `unknown_variable` that `text` (a file `use.tl`) is refused for, by its message, where the binary's docs
+--- are [`CSV_DOCS`].
+local function undeclared_fixes(text: string): {string: string}
+  local index = Driver.index({ { "use.tl", text } }, nothing)
+  local build = Driver.new({
+    globals = { Driver.declarations("std", "std.d.tl", Programs.library, {}) },
+    adjust = nil, external = { "cosmic.sys" }, types = true,
+    meant = StandardMeant.wrap(TreeProgram.meant(index, true), CSV_DOCS),
+  })
+  build:provide(Driver.files(index))
+  local result = assert(build:result("use", true))
+  local fixes: mut {string: string} = {}
+  for _, e in ipairs(result.errors) do
+    if e.code == "unknown_variable" then
+      fixes[e.msg] = e.fix
+    end
+  end
+  return fixes
+end
+
+local function test_a_name_not_declared_that_names_a_cosmic_module_is_told_the_require_to_write()
+  local fixes = undeclared_fixes("local a = Csv.parse(\"x\")\nlocal b = csv.parse(\"x\")\nlocal c = Nosuch.parse(\"x\")\n" ..
+      "local d = Store.open()\nCsv = 1\nreturn a + b + c + d\n")
+  local said = fixes["`Csv` is not declared"]
+  assert(said == "require its module above this use: `local Csv = require(\"cosmic.csv\")`", said)
+  -- A name in lower case is a variable more often, a name no module answers to and one of the tools' own module keep
+  -- the general fix, as does a name assigned with no declaration.
+  for _, name in ipairs({ "csv", "Nosuch", "Store" }) do
+    said = fixes["`" .. name .. "` is not declared"]
+    assert(said ~= nil and said:find("declare it with `local " .. name .. " = ...`", 1, true) == 1, name .. ": " .. tostring(said))
+  end
+  said = fixes["`Csv` is assigned but declared nowhere"]
+  assert(said ~= nil and said:find("declare it with `local Csv = ...`", 1, true) == 1, said)
+  -- Where a near name is declared, that one is what the fix names.
+  said = undeclared_fixes("local csv = 1\nlocal a = Csv.parse(\"x\")\nreturn csv + a\n")["`Csv` is not declared"]
+  assert(said ~= nil and said:find("if you meant `csv`", 1, true) == 1, said)
 end
 
 local function test_two_modules_ending_in_a_name_are_both_named_and_neither_is_chosen_by_order()

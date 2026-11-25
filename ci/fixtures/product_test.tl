@@ -100,7 +100,7 @@ local function test_transported_product(tmp: string)
   assert(#stored == entry.stored_length and Hash.hex_sha256(stored) == entry.stored_digest,
     "selected core's stored range differs from its digest")
   assert(entry.codec == 1, "the release stores its core compressed")
-  assert(assert(Stream.run(assert(Compress.zstd_decoder(1 << 23)), stored, entry.length)) == core,
+  assert(assert(Stream.run(assert(Compress.decoder("zstd", { max_window = 1 << 23 })), stored, entry.length)) == core,
     "selected core's stored range decodes to something other than the build's core")
   -- The target's own stub decodes the stored range too, as the launcher
   -- runs it: on the artifact, at the range.

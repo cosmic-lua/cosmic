@@ -394,7 +394,7 @@ local function counted(source: Stream.Reader, limit: integer): Stream.Reader, fu
       if passed > limit then return nil, Failure.new(OVER_LIMIT) end
       return chunk
     end,
-    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
   return reader, function(): integer return passed end
 end
@@ -550,7 +550,7 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
           end
           local wrote, wwhy = writer:write(chunk)
           if not wrote then
-            verdict, detail = "disk", wwhy
+            verdict, detail = "disk", tostring(wwhy)
             break
           end
           local more, more_why = part.body:read(CHUNK)
@@ -563,7 +563,7 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
         if verdict == "ok" and rwhy ~= "" then verdict, detail = "source", rwhy end
         if verdict == "ok" then
           local closed, cwhy = writer:close()
-          if not closed then verdict, detail = "disk", cwhy end
+          if not closed then verdict, detail = "disk", tostring(cwhy) end
         else
           local _, _ = writer:abort()
         end
@@ -622,14 +622,14 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
     -- The app closes a request's bodies when the handler has returned: the
     -- files go with them.
     -- TODO: once the app can run a hook after the reply is written, remove
-    -- the files there, so a handler may answer with a stream over an upload.
+    -- the files there, so a handler may return a stream over an upload.
     local cleanup: Stream.Reader = { -- checked: literal_shape
       read = function(_self: Stream.Reader, _max?: integer): (string | false) | (nil, Failure)
         return false
       end,
-      close = function(_self: Stream.Reader): boolean, string
+      close = function(_self: Stream.Reader): (true) | (false, Failure)
         m:discard()
-        return true, ""
+        return true
       end,
     }
     req.bodies[#req.bodies + 1] = cleanup
@@ -661,7 +661,9 @@ end
 --- `opts.max_bytes` (64 KiB). The body is read once: the decode is kept
 --- under [`Input.FORM`], the bytes in `req:bytes()` and `req.raw.body`, so
 --- a middleware and a handler both read it. A request with no body is an
---- empty form.
+--- empty form. A `multipart/form-data` body is read as [`Input.multipart`]
+--- reads it, at most `opts.max_bytes` (64 KiB) here too, and its text parts
+--- are the form.
 --- @param req Types.Request The request
 --- @param opts Types.InputOptions | nil The limit
 --- @return Types.Parsed<Url.Query> The form, or status 400, 408, 413 or 415
@@ -704,7 +706,7 @@ end
 --- converted; another charset is 415. The body is spent by the read:
 --- `req:bytes()` afterward fails, unless it was read first.
 ---
---- The server's own `limits.body_bytes` (1 MiB) comes first: it answers 413
+--- The server's own `limits.body_bytes` (1 MiB) comes first: it responds 413
 --- to a body above it before any handler runs, so `max_bytes` above it
 --- changes nothing until [`Web.serve`] is given a higher `limits.body_bytes`,
 --- which it applies to every route.
@@ -1010,7 +1012,7 @@ local function check_node(spec: Shape.Node, field: string, source: string, depth
 end
 
 --- The node `spec` describes: the fields a record's text is bound from. Only [`Shape.record_of`] builds a spec that
---- describes one; the binders run [`Shape.into`] over what they bind last, so the type of an answer never rests on it.
+--- describes one; the binders run [`Shape.into`] over what they bind last, so the type of a result never rests on it.
 --- @param spec Shape.Spec<T> A record's spec
 --- @return Shape.Node Its node
 function Input.described<T>(spec: Shape.Spec<T>, what?: string): Shape.Node
@@ -1107,7 +1109,7 @@ local function failure_code(reason: string): string
   return "type"
 end
 
---- Binds the decoded `value` to `spec` with [`Shape.into`], as the answer
+--- Binds the decoded `value` to `spec` with [`Shape.into`], as the result
 --- or the one error it reports.
 local function bind_json<T>(value: any, spec: Shape.Spec<T>): Types.Parsed<T>
   -- TODO: once cosmic.shape reports a failing path as steps, read them in
@@ -1128,7 +1130,7 @@ local function with_source(opts: Types.InputOptions?, source: string): Types.Inp
 end
 
 --- Binds the text of `q` to `spec`, a record, coercing by the rules in the
---- module's description and collecting every field's error. The answer's
+--- module's description and collecting every field's error. The result's
 --- type is the spec's, as [`Shape.into`]'s is; the tree is
 --- checked by [`Shape.into`] last, so what comes back is what it makes.
 --- `opts.source` ("form" by default) is what each error's `source` says.

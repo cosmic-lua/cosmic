@@ -13,8 +13,7 @@ local _ = require("build.must_confine_children_test")
 --- own (`nests`).
 Test.policy{
   profiles = { "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" } },
-  promises = { "nest" },
+  grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } },
   requires = { "nest" },
 }
 -- What these tests start is this very program.

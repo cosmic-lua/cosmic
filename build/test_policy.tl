@@ -51,7 +51,7 @@ end
 --- The promises every worker is started with: all that a test may make
 --- but `nest` ([`worker_promises`]).
 -- TODO: hold a worker by the promises its module declares
--- ([`Test.policy`]'s `promises`) rather than all but `nest`, once the
+-- ([`Test.policy`]'s `{ calls = ... }` grants) rather than all but `nest`, once the
 -- tests declare them (see the TODO on [`Test.needs_of`]): until then no
 -- test says what it makes, and the filter refuses only what no test is
 -- meant to.
@@ -86,6 +86,13 @@ local function worker_promises(nests?: boolean): {Sandbox.Promise}
   return out
 end
 
+--- `promises` as the grants that give them.
+local function calls_of(promises: {Sandbox.Promise}): {Sandbox.Grant}
+  local out: mut {Sandbox.Grant} = {}
+  for _, promise in ipairs(promises) do out[#out + 1] = { calls = promise } end
+  return out
+end
+
 --- The most descriptors a worker's policy lets it hold open, where the
 --- runner's own hard limit is higher.
 local MOST_OPEN_FILES <const> = 1048576
@@ -109,7 +116,7 @@ local function shape(effective: test_inputs.Effective): Sandbox.Policy
   return {
     profiles = if effective.system == true then { "system", "programs" } else nil end,
     isolate = { "file" },
-    promises = worker_promises(effective.nests),
+    grants = calls_of(worker_promises(effective.nests)),
     loopback = loopback,
     limits = limits,
   }
@@ -146,6 +153,8 @@ function test_policy.worker(plan: test_sandbox.Plan, effective: test_inputs.Effe
   local unveil = assert(plan.sandbox.unveil)
   local at = unveil.at or {}
   local grants: mut {Sandbox.Grant} = {}
+  -- The calls `shape` gives, then the paths.
+  for _, grant in ipairs(policy.grants or {}) do grants[#grants + 1] = grant end
   for _, path in ipairs(unveil.reads) do
     local inside = at[path] or path
     grants[#grants + 1] = { path = inside, from = if at[path] ~= nil then path else nil end,
@@ -180,10 +189,10 @@ end
 --- @return the paths, in the policy's order, nil and why where it does not merge
 --- @return why, where it does not
 function test_policy.runs(policy: Sandbox.Policy): {string}?, string
-  local merged, why = Sandbox.merge(policy)
+  local merged, why = Sandbox.union(policy)
   if merged == nil then return nil, why end
   local out: mut {string} = {}
-  for _, grant in ipairs(merged.grants or {}) do
+  for _, grant in ipairs(Sandbox.paths(merged)) do
     if grant.letters:find("x", 1, true) then out[#out + 1] = grant.path end
   end
   return out, ""

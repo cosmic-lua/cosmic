@@ -113,11 +113,11 @@ local record closure_store
     --- The names each module's stub requires, by path ([`required_by`]): the checker types a stub
     --- from the stubs of those, so a module a kept stub requires is kept too.
     text_edges: mut {string:{string}}
-    --- The digest of each module's source (inflated, so the compressor moves none), by path: what the pure store
-    --- holds of a module whose source it keeps ([`source_kept`]). Empty unless the run holds the pure store.
+    --- Each module with a source, by path, with its digest (inflated, so the compressor moves none) where the run
+    --- holds the pure store, and "" otherwise: what a store holds of a module whose source it keeps ([`source_kept`]).
     sources: mut {string:string}
     --- The modules each module requires, by path (the `imports` rows), which [`source_kept`] walks from a
-    --- walk's roots. Empty unless the run holds the pure store.
+    --- walk's roots.
     edges: mut {string:{string}}
   end
 end
@@ -136,7 +136,7 @@ end
 --- `written_by` name the projection's writer ([`build.work`]'s
 --- `writer_modules`), which holds much of the standard library
 --- (cosmic.json among it); `compiler` and `compiled_by` name the
---- importer's. Each left out is answered by the tool's own `meta`, the
+--- importer's. Each left out is found in the tool's own `meta`, the
 --- next database [`Store.meta`] searches; what writes a closure store is
 --- named in its address instead ([`closure_store.address`]'s `salt`), and
 --- a test whose closure reads the compiler's identity is keyed by the
@@ -596,22 +596,25 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
       for _, row in ipairs(sourced) do
         basis.type_requires[row:text(1)] = type_requires(row:text(2))
       end
-      -- What a walk of the code that reads module text ([`build.code_walk`]) is hashed from.
-      local hashed, hashed_trouble = db:text_rows(
-        "SELECT path, lower(hex(sha256(inflate(source)))) FROM modules WHERE kind NOT IN ('test', 'example') " ..
-          "AND length(source) > 0 ORDER BY path")
-      if hashed == nil then return nil, tostring(hashed_trouble) end
-      for _, row in ipairs(hashed) do basis.sources[row:text(1)] = row:text(2) end
-      local imported, imported_trouble = db:text_rows("SELECT path, requires FROM imports ORDER BY path, requires")
-      if imported == nil then return nil, tostring(imported_trouble) end
-      local lists: mut {string:mut {string}} = {}
-      for _, row in ipairs(imported) do
-        local list: mut {string} = lists[row:text(1)] or {}
-        lists[row:text(1)] = list
-        table.insert(list, row:text(2))
-      end
-      for path, list in pairs(lists) do basis.edges[path] = list end
     end
+    -- The modules a walk of the code that reads module text ([`build.code_walk`]) can keep the source of
+    -- ([`source_kept`]), pure store or full. The pure address holds each source's digest; the full one holds the
+    -- module's line, which holds its source, so it takes none.
+    local digest = if pure == true then "lower(hex(sha256(inflate(source))))" else "''" end
+    local hashed, hashed_trouble = db:text_rows(
+      "SELECT path, " .. digest .. " FROM modules WHERE kind NOT IN ('test', 'example') " ..
+        "AND length(source) > 0 ORDER BY path")
+    if hashed == nil then return nil, tostring(hashed_trouble) end
+    for _, row in ipairs(hashed) do basis.sources[row:text(1)] = row:text(2) end
+    local imported, imported_trouble = db:text_rows("SELECT path, requires FROM imports ORDER BY path, requires")
+    if imported == nil then return nil, tostring(imported_trouble) end
+    local lists: mut {string:mut {string}} = {}
+    for _, row in ipairs(imported) do
+      local list: mut {string} = lists[row:text(1)] or {}
+      lists[row:text(1)] = list
+      table.insert(list, row:text(2))
+    end
+    for path, list in pairs(lists) do basis.edges[path] = list end
     for _, row in ipairs(pure_rows) do
       local path = row:text(1)
       local line: mut {string} = { path, row:text(2), row:text(3), row:text(4) }
@@ -671,8 +674,8 @@ local declared_beside: {string:{string}} = {
 
 --- The modules of `basis` a closure store for `names` -- an import
 --- closure's module names ([`test_inputs.modules`]) -- holds, sorted: each
---- that the projection holds. A name only a declaration answers for is none:
---- `declared` answers those.
+--- that the projection holds. A name only a declaration provides is none:
+--- `declared` returns those.
 local function stored(basis: closure_store.Basis, names: {string}): {string}
   local seen: mut {string:boolean} = {}
   local out: mut {string} = {}
@@ -765,7 +768,7 @@ local function declares(names: {string}, word: string): boolean
   return false
 end
 
---- The modules whose source the pure store of the closure `names` keeps, sorted: those of each walk
+--- The modules whose source a store of the closure `names` keeps, pure or full, sorted: those of each walk
 --- ([`build.code_walk`]) that a module of `names` declares it reads, the walk taken over the whole projection's
 --- imports as the identity takes it of the binary's, so a module a walk reaches by a type alone is kept though the
 --- closure leaves it out. A module the walk reaches that the projection holds no source of is left out, as an absent
@@ -869,10 +872,18 @@ function closure_store.address(basis: closure_store.Basis, names: {string},
   end
   local lines: mut {string} = { basis.shared, salt }
   if carries_image(names) then lines[#lines + 1] = "meta " .. gated_meta .. " " .. basis.image end
+  local held: mut {string:boolean} = {}
   for _, name in ipairs(stored(basis, names)) do
+    held[name] = true
     lines[#lines + 1] = digest_of_line((assert(basis.modules[name], "a stored name has its line")))
     if basis.kinds[name] == "example" then
       lines[#lines + 1] = "pairs " .. name .. " " .. table.concat(candidates(basis, name), " ")
+    end
+  end
+  for _, name in ipairs(source_kept(basis, names)) do
+    if held[name] == nil then
+      local line = basis.modules[name] or assert(basis.decls[name], "a kept source has its line")
+      lines[#lines + 1] = digest_of_line("source " .. line)
     end
   end
   for _, name in ipairs(declared(basis, names)) do
@@ -907,15 +918,23 @@ local function closed(uses_from: string, image: boolean): {string}
     "INSERT INTO main.modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
       "SELECT path, file, kind, source_hash, X'', bytecode, tests, source FROM whole.modules " ..
       "WHERE path IN temp.wanted ORDER BY path",
+    -- The modules whose source it keeps ([`source_kept`]) beside the closure's, as the pure store keeps them: with
+    -- no bytecode, so that requiring one finds a chunk that does not load and not a module that runs, and a
+    -- worker works out the identity of a walk ([`build.code_identity`]) over the modules the program's does.
+    "INSERT INTO main.modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
+      "SELECT path, file, kind, source_hash, X'', X'', tests, source FROM whole.modules " ..
+      "WHERE path IN temp.sourced AND path NOT IN temp.wanted ORDER BY path",
     "INSERT INTO main.imports SELECT * FROM whole.imports " ..
-      "WHERE path IN temp.wanted AND requires IN temp.wanted ORDER BY path, requires",
+      "WHERE (path IN temp.wanted OR path IN temp.sourced) AND (requires IN temp.wanted OR requires IN temp.sourced) " ..
+      "ORDER BY path, requires",
     "INSERT INTO main.decl_imports SELECT * FROM whole.decl_imports " ..
       "WHERE path IN temp.wanted OR path IN temp.declared ORDER BY path, requires",
     "INSERT INTO main.bound SELECT * FROM whole.bound " ..
       "WHERE path IN temp.wanted OR path IN temp.declared ORDER BY path, name",
     "INSERT INTO main.decls SELECT * FROM whole.decls WHERE path IN temp.declared " ..
       "ORDER BY path",
-    -- Which of them a public source answers for ([`cosmic.internal.symbols`]'s `public_only`): a worker that reads its
+    "INSERT OR IGNORE INTO main.decls SELECT * FROM whole.decls WHERE path IN temp.sourced ORDER BY path",
+    -- Which of them a public source covers ([`cosmic.internal.symbols`]'s `public_only`): a worker that reads its
     -- store's docs as a project reads the binary's finds them.
     "INSERT INTO main.public_modules SELECT path FROM whole.public_modules " ..
       "WHERE path IN temp.wanted OR path IN temp.declared ORDER BY path",
@@ -992,7 +1011,7 @@ end
 --- and `catalog` the lines of the error sites its modules document (its `code` rows, the checker's static data, are
 --- of no test that reads module text). `stubs` stays: it holds the rows of the modules a test names
 --- ([`text_kept`]) and the sources withheld otherwise fail ([`Store.withheld`]). The `pure_store` row says so to a
---- reader that would otherwise answer a missing table as a missing hint ([`cosmic.internal.symbols`]).
+--- reader that would otherwise take a missing table for a missing hint ([`cosmic.internal.symbols`]).
 local withheld_tables: {string} = {
   "DROP TABLE main.docs_words",
   "DROP TABLE main.docs_fts", "DROP TABLE main.catalog_fts", "DROP TABLE main.examples_fts",
@@ -1088,10 +1107,8 @@ function closure_store.write(whole: string, out: string, names: {string},
                              basis: closure_store.Basis, extraction?: string,
                              own?: string): boolean, string
   local image = carries_image(names)
-  local function fill(db: Sqlite.Handle): boolean, string
+  local function fill(db: schema.Build): boolean, string
     local statements: mut {string} = {}
-    for _, statement in ipairs(schema.settings("")) do statements[#statements + 1] = statement end
-    for _, statement in ipairs(schema.create("")) do statements[#statements + 1] = statement end
     statements[#statements + 1] = "CREATE TEMP TABLE wanted (path TEXT PRIMARY KEY)"
     statements[#statements + 1] = "CREATE TEMP TABLE declared (path TEXT PRIMARY KEY)"
     statements[#statements + 1] = "CREATE TEMP TABLE kept (path TEXT PRIMARY KEY)"
@@ -1115,10 +1132,10 @@ function closure_store.write(whole: string, out: string, names: {string},
         local ok, failure = db:run("INSERT INTO temp.kept (path) VALUES (?1)", { text(name) })
         if not ok then return false, tostring(failure) end
       end
-      for _, name in ipairs(source_kept(basis, names)) do
-        local ok, failure = db:run("INSERT INTO temp.sourced (path) VALUES (?1)", { text(name) })
-        if not ok then return false, tostring(failure) end
-      end
+    end
+    for _, name in ipairs(source_kept(basis, names)) do
+      local ok, failure = db:run("INSERT INTO temp.sourced (path) VALUES (?1)", { text(name) })
+      if not ok then return false, tostring(failure) end
     end
     local attached, attach_trouble = db:run("ATTACH DATABASE ?1 AS whole",
       { text(whole) })
@@ -1144,7 +1161,7 @@ function closure_store.write(whole: string, out: string, names: {string},
       end
       if own ~= nil then
         -- The tables of text-derived rows are left out, not left empty: a query of one fails ("no such table")
-        -- rather than answers nothing, so a test that reads text it was not given cannot pass on an empty answer.
+        -- rather than finds nothing, so a test that reads text it was not given cannot pass on an empty result.
         for _, statement in ipairs(withheld_tables) do
           local ok, failure = db:exec(statement)
           if not ok then return false, Failure.new(tostring(failure)) end
@@ -1186,8 +1203,13 @@ function closure_store.write(whole: string, out: string, names: {string},
     if not moved then return false, tostring(move_why) end
     return true, ""
   end
-  local db, open_trouble = Sqlite.memory()
-  if db == nil then return false, tostring(open_trouble) end
+  local opened, open_trouble = Sqlite.memory()
+  if opened == nil then return false, tostring(open_trouble) end
+  local db, hold_trouble = schema.hold(opened)
+  if db == nil then
+    local _, _ = opened:close()
+    return false, tostring(hold_trouble)
+  end
   local ok, trouble = fill(db)
   local _, _ = db:close()
   if not ok then return false, trouble end

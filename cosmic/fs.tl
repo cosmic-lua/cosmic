@@ -1,20 +1,21 @@
 --- Files and directories.
 ---
 --- Every call goes through the syscall table, so one call behaves the
---- same on Linux and on macOS. [`Fs.read`], [`Fs.stat`], [`Fs.list`],
---- [`Fs.mkdtemp`], [`Fs.absolute`], [`Fs.readlink`], [`Fs.open_read`],
---- [`Fs.open_write`], [`Fs.take`], [`Fs.create`], [`Fs.walk`],
---- [`Fs.walk_following`], [`Fs.scratch`] and [`Fs.relative`] return
---- `(T) | (nil, Failure)`: the value alone, or nil and a [`Failure`]
---- that names the path (none for `take`, which reads a descriptor) and
---- the errno (0 for `relative`, which reads nothing). Other fallible calls
---- that produce a value still return `T | nil, string`: a value and `""`
---- on success, or nil and an error. A predicate uses the same contract, with false
---- as a valid result. [`Fs.write`], [`Fs.mkdirs`], [`Fs.remove`],
+--- same on Linux and on macOS. Every fallible call that produces a value
+--- ([`Fs.read`], [`Fs.stat`], [`Fs.status`], [`Fs.list`], [`Fs.walk`],
+--- [`Fs.create`], [`Fs.dir`], [`Fs.cache_dir`] and the rest) returns
+--- `(T) | (nil, Failure)`: the value alone, or nil and a [`Failure`] that
+--- names the path and the errno (0 where no system call failed, as for
+--- `relative`, which reads nothing). A refusal of [`Fs.cache_dir`],
+--- [`Fs.program_cache_dir`] or [`Fs.data_dir`] before any directory is
+--- known (no absolute base, or a bad name) names no path. A predicate ([`Fs.in_place`]) has
+--- the same shape, with false a valid result. [`Fs.write`],
+--- [`Fs.write_output`], [`Fs.mkdirs`], [`Fs.remove`],
 --- [`Fs.remove_tree`], [`Fs.rename`], [`Fs.chmod`], [`Fs.symlink`],
 --- [`Fs.set_mtime`], [`Fs.append`], [`Fs.copy_tree`], [`Fs.put`],
 --- [`Fs.fsync`] and [`Fs.close`] only have an effect, and return
---- `(true) | (false, Failure)`; one on a descriptor names no path.
+--- `(true) | (false, Failure)`. A call on a descriptor ([`Fs.take`],
+--- [`Fs.put`], [`Fs.fsync`], [`Fs.close`]) names no path.
 ---
 --- A descriptor from [`Fs.open_read`] or [`Fs.open_write`] is a plain
 --- integer, closed with [`Fs.close`], so a `<close>` variable cannot hold
@@ -55,6 +56,154 @@ local class Scratch
   end
 end
 
+--- What [`Fs.status`] finds at a path: whether anything is there,
+--- whether it is a directory, and its [`Fs.Stat`] when it is there. A
+--- missing path is a Status, not a failure.
+local record Status
+  --- Whether anything is at the path.
+  exists: boolean
+  --- Whether a directory is at the path.
+  is_dir: boolean
+  --- What [`Fs.stat`] returns for the path, there only where it exists.
+  stat?: sys.Stat
+end
+
+--- The failure of a call on `path` that returned `why` and `errno`.
+local function dir_failure(errno: integer, why: string, path: string): Failure
+  if errno ~= 0 then return Failure.system(errno, path) end
+  return Failure.new(why, path)
+end
+
+--- How many temporary files [`Fs.Dir`]'s `write` made, to name the next one.
+local dir_writes = 0
+
+--- What [`Fs.dir`] returns.
+--- A directory held by a descriptor, as [`Fs.dir`] opens it: reached
+--- with no link on its path, and acted on by one name in it at a time,
+--- never through a link. A name with "/", or "." or "..", fails. Use it
+--- where a check of a path and the act on it must meet the same file:
+--- a link a process swaps in on the path after [`Fs.dir`] is met, not
+--- followed. Close it with `close`, or hold it in a `<close>` variable.
+local class Dir
+  --- The path it was opened by.
+  path: string
+  --- Its descriptor; -1 once closed. Leave it to the methods.
+  mut fd: integer
+
+  --- The bytes of the file `name`, as [`Fs.read`] returns them; a name that is no file (a directory, a pipe, a
+  --- device) fails.
+  function read(self, name: string): (string) | (nil, Failure)
+    local named = self.path .. "/" .. name
+    if self.fd < 0 then return nil, Failure.new("the directory is closed", named) end
+    -- Opened not to wait, so a pipe swapped in at the name is refused, not waited on: only a file is read.
+    local fd, why, errno = sys.openat(self.fd, name, sys.O_RDONLY | sys.O_NONBLOCK)
+    if fd == nil then return nil, dir_failure(errno, why, named) end
+    local st, st_why, st_errno = sys.fstat(fd)
+    if st == nil or st.kind ~= "file" then
+      local _, _ = sys.close(fd)
+      if st == nil then return nil, dir_failure(st_errno, st_why, named) end
+      return nil, Failure.new("no file (" .. st.kind .. "): a Dir reads files", named)
+    end
+    local parts: mut {string} = {}
+    while true do
+      local chunk, _, read_errno = sys.read(fd, 1 << 16)
+      if chunk == nil then
+        local _, _ = sys.close(fd)
+        return nil, Failure.system(read_errno, named)
+      end
+      if #chunk == 0 then break end
+      parts[#parts + 1] = chunk
+    end
+    local _, _ = sys.close(fd)
+    return table.concat(parts)
+  end
+
+  --- Writes `data` to `name` through a temporary neighbor in this
+  --- directory and a rename, as [`Fs.write`] does; `mode` defaults
+  --- to 0644, less the umask.
+  function write(self, name: string, data: string, mode?: integer): (true) | (false, Failure)
+    local named = self.path .. "/" .. name
+    if self.fd < 0 then return false, Failure.new("the directory is closed", named) end
+    local temporary: string = ""
+    local fd: integer? = nil
+    local why, errno = "", 0
+    for _ = 1, 100 do
+      dir_writes = dir_writes + 1
+      -- A name of its own length, so the longest name has one too.
+      temporary = ".writing." .. tostring(sys.getpid()) .. "." .. tostring(dir_writes)
+      fd, why, errno = sys.openat(self.fd, temporary, sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, mode or 0x1a4)
+      if fd ~= nil or errno ~= sys.EEXIST then break end
+    end
+    if fd == nil then return false, dir_failure(errno, why, named) end
+    local wrote, write_why, write_errno = true, "", 0
+    local at = 1
+    while wrote and at <= #data do
+      local put, put_why, put_errno = sys.write(fd, if at == 1 then data else data:sub(at) end)
+      if put == nil then
+        wrote, write_why, write_errno = false, put_why, put_errno
+      elseif put == 0 then
+        wrote, write_why = false, "write made no progress"
+      else
+        at = at + put
+      end
+    end
+    local closed, close_why, close_errno = sys.close(fd)
+    local failed_why, failed_errno = "", 0
+    if not wrote then
+      failed_why, failed_errno = write_why, write_errno
+    elseif not closed then
+      failed_why, failed_errno = close_why, close_errno
+    else
+      local moved, move_why, move_errno = sys.renameat(self.fd, temporary, name)
+      if moved then return true end
+      failed_why, failed_errno = move_why, move_errno
+    end
+    local _, _ = sys.unlinkat(self.fd, temporary)
+    return false, dir_failure(failed_errno, failed_why, named)
+  end
+
+  --- What is at `name`, a link as itself, as [`Fs.status`] returns it.
+  function status(self, name: string): (Status) | (nil, Failure)
+    local named = self.path .. "/" .. name
+    if self.fd < 0 then return nil, Failure.new("the directory is closed", named) end
+    local st, why, errno = sys.fstatat(self.fd, name)
+    if st ~= nil then return { exists = true, is_dir = st.kind == "dir", stat = st } end
+    if errno == sys.ENOENT then return { exists = false, is_dir = false } end
+    return nil, dir_failure(errno, why, named)
+  end
+
+  --- Makes the directory `name`; `mode` defaults to 0755, less the umask.
+  function mkdir(self, name: string, mode?: integer): (true) | (false, Failure)
+    local named = self.path .. "/" .. name
+    if self.fd < 0 then return false, Failure.new("the directory is closed", named) end
+    local made, why, errno = sys.mkdirat(self.fd, name, mode or 0x1ed)
+    if not made then return false, dir_failure(errno, why, named) end
+    return true
+  end
+
+  --- The directory `name` in this one, opened from this one's descriptor: a link at the name fails, ELOOP.
+  function dir(self, name: string): (Dir) | (nil, Failure)
+    local named = self.path .. "/" .. name
+    if self.fd < 0 then return nil, Failure.new("the directory is closed", named) end
+    local fd, why, errno = sys.open_dir_at(self.fd, name)
+    if fd == nil then return nil, dir_failure(errno, why, named) end
+    local held: Dir = { path = named, fd = fd }
+    return held
+  end
+
+  --- Closes its descriptor; safe to call more than once.
+  function close(self)
+    if self.fd < 0 then return end
+    local fd = self.fd
+    self.fd = -1
+    local _, _ = sys.close(fd)
+  end
+
+  function __close(self)
+    self:close()
+  end
+end
+
 local record Fs
   --- What a path is and what it holds.
   Stat: sys.Stat
@@ -91,18 +240,11 @@ local record Fs
   --- What [`Fs.status`] finds at a path: whether anything is there,
   --- whether it is a directory, and its [`Stat`] when it is there. A
   --- missing path is a Status, not a failure.
-  record Status
-    --- Whether anything is at the path.
-    exists: boolean
-    --- Whether a directory is at the path.
-    is_dir: boolean
-    --- What [`Fs.stat`] answers for the path, there only where it exists.
-    stat?: sys.Stat
-  end
+  type Status = Status
 
   --- A file at a path being written through a temporary neighbor and a
   --- rename, as [`Fs.create`] returns it: the calls of a
-  --- [`cosmic.stream`] Writer (`write`, `close` and `abort`), answering
+  --- [`cosmic.stream`] Writer (`write`, `close` and `abort`), returning
   --- a [`Failure`], and `sync`; [`Stream.create`] offers it as a Writer.
   --- Every failure names the path, never the temporary file, and is
   --- sticky.
@@ -116,12 +258,15 @@ local record Fs
     --- Renames the file onto its path: false and a [`Failure`] when a
     --- write failed, or the rename or the closing of the file does.
     --- Safe to call more than once; after `abort` it renames nothing
-    --- and answers true.
+    --- and returns true.
     close: function(Staged): (true) | (false, Failure)
     --- Removes the temporary file and leaves the path as it was. It
     --- cannot fail, and is safe to call more than once.
     abort: function(Staged)
   end
+
+  --- A directory held by a descriptor, as [`Fs.dir`] opens it.
+  type Dir = Dir
 
   --- What [`Fs.cache_dir`], [`Fs.program_cache_dir`] and
   --- [`Fs.data_dir`] read.
@@ -129,8 +274,8 @@ local record Fs
     --- The variables to read (`XDG_CACHE_HOME` or `XDG_DATA_HOME`, and
     --- `HOME`), by name; the process's own when nil.
     environment?: {string:string}
-    --- Whether to make and check the directory; true when nil. False
-    --- answers the name alone.
+    --- Whether to make and check the directory; true when nil. With
+    --- false, only the name is returned.
     make?: boolean
   end
 
@@ -157,7 +302,7 @@ local chunk_size = 1 << 16
 -- reads and writes through sys would end.
 --- Reads the whole of a file as bytes, loading it in one call. Use this for
 --- the common io.open/io.read or io.lines case when streaming and Lua file
---- handles are unnecessary. It answers the bytes alone, or nil and a
+--- handles are unnecessary. It returns the bytes alone, or nil and a
 --- [`Failure`] that names `path` and the errno that says why
 --- (`why.errno == sys.ENOENT` for a file that is not there).
 function Fs.read(path: string): (string) | (nil, Failure)
@@ -190,7 +335,7 @@ function Fs.read(path: string): (string) | (nil, Failure)
   return table.concat(parts)
 end
 
---- The failure of a call that answered `why` and `errno`: the errno's
+--- The failure of a call that returned `why` and `errno`: the errno's
 --- own words where one is set, `why` where none is (0).
 local function failure_of(errno: integer, why: string, path?: string): Failure
   if errno ~= 0 then return Failure.system(errno, path) end
@@ -292,9 +437,54 @@ local class StagedFile is Fs.Staged
   end
 end
 
+--- Whether a file of `kind` takes bytes where it is, so that a rename
+--- onto it would put a regular file in its place: a device or a FIFO.
+local function in_place_kind(kind: sys.Kind): boolean
+  return kind == "char" or kind == "block" or kind == "fifo"
+end
+
+--- Whether `path` names one of the process's own descriptors through a
+--- link the system keeps (`/dev/stdout`, `/dev/stderr`, `/dev/fd/1`,
+--- `/proc/self/fd/1`): a name no one plants, which [`Fs.output`] follows.
+local function descriptor_name(path: string): boolean
+  return path == "/dev/stdout" or path == "/dev/stderr" or path:match("^/dev/fd/%d+$") ~= nil or
+    path:match("^/proc/self/fd/%d+$") ~= nil
+end
+
+--- What a refusal calls a file of `kind`, as [`sys.lstat`] names it.
+local KIND_WORDS <const>: {string:string} = {
+  char = "character device", block = "block device", fifo = "FIFO", socket = "socket",
+}
+
+--- Why [`Fs.create`] refuses `path`: it names a device, a FIFO or a
+--- socket, or a link to one, which the rename onto it would replace with
+--- a regular file (the root's `/dev/null`, say). Nil for a regular file,
+--- a directory, a link to either, or nothing, which take the rename (a
+--- directory fails it).
+local function replaces_special(path: string): Failure?
+  local st, _ = sys.lstat(path)
+  if st == nil or st.kind == "file" or st.kind == "dir" then return nil end
+  if st.kind == "link" and descriptor_name(path) then
+    return Failure.new("one of the process's own descriptors, which writing a file here would " ..
+        "replace with a regular file", path)
+  end
+  if st.kind == "link" then
+    local target, _ = sys.stat(path)
+    if target == nil or target.kind == "file" or target.kind == "dir" then return nil end
+    local words = KIND_WORDS[target.kind] or target.kind
+    return Failure.new("a link to a " .. words .. ", which writing a file here would replace " ..
+        "with a regular file; name the " .. words .. " itself", path)
+  end
+  local words = KIND_WORDS[st.kind]
+  if words == nil then return nil end
+  return Failure.new("a " .. words .. ", which writing a file here would replace with a regular file", path)
+end
+
 --- The file [`Fs.create`] starts, as its own class, so [`Fs.write`] reads
 --- its failure as a value.
 local function staged_file(path: string, mode?: integer): (StagedFile) | (nil, Failure)
+  local refused = replaces_special(path)
+  if refused ~= nil then return nil, refused end
   local temporary, why, errno = sys.open_temporary(path, mode or 0x1a4)
   if temporary == nil then return nil, failure_of(errno, why, path) end
   local staged: StagedFile = {
@@ -311,9 +501,13 @@ end
 --- temporary file. The file is always a new one, so it gets `mode`
 --- (default 0644, less the umask) and never keeps an existing file's
 --- mode. Nothing is synced unless `sync` is called, so a crash can
---- still lose the write. It answers nil and a Failure naming `path`
---- when the temporary file cannot be made. [`Stream.create`] is this,
---- as a [`cosmic.stream`] Writer.
+--- still lose the write. It returns nil and a Failure naming `path`
+--- when the temporary file cannot be made, or when `path` names a
+--- device, a FIFO or a socket, a link to one, or one of the process's own
+--- descriptors (`/dev/stdout`), which the rename would replace with a
+--- regular file: [`Fs.output`] writes those in place, for an output a
+--- person names. [`Stream.create`] is this, as a [`cosmic.stream`]
+--- Writer.
 function Fs.create(path: string, mode?: integer): (Fs.Staged) | (nil, Failure)
   local staged, why = staged_file(path, mode)
   if staged == nil then return nil, why end
@@ -326,10 +520,138 @@ end
 --- failure before the rename leaves the old file. The file is always a
 --- new one, so it gets `mode` (default 0644, less the umask) and never
 --- keeps an existing file's mode. Nothing is synced, so a crash can
---- still lose the write. Answers true, or false and a [`Failure`] that
+--- still lose the write. A device, FIFO or socket at `path` is refused,
+--- as [`Fs.create`] says. Returns true, or false and a [`Failure`] that
 --- names `path` and the errno.
 function Fs.write(path: string, data: string, mode?: integer): (true) | (false, Failure)
   local file, trouble = staged_file(path, mode)
+  if file == nil then return false, trouble end
+  local wrote, write_failure = file:write(data)
+  if not wrote then
+    file:abort()
+    return false, write_failure
+  end
+  return file:close()
+end
+
+--- What [`Fs.output`] returns for a path written in place (a device, a
+--- FIFO, `/dev/stdout`): the calls of [`Fs.Staged`] over a descriptor,
+--- with no temporary file, so `abort` only closes it.
+local class InPlaceFile is Fs.Staged
+  path: string
+  fd: integer
+  -- nil until a call fails.
+  mut failure?: Failure
+  mut closed: boolean
+
+  function write(self, data: string): (true) | (false, Failure)
+    if self.closed then return false, Failure.new("the file is closed", self.path) end
+    local failed = self.failure
+    if failed ~= nil then return false, failed end
+    local ok, why, errno = write_all(self.fd, data, "")
+    if not ok then
+      local failure = failure_of(errno, why, self.path)
+      self.failure = failure
+      return false, failure
+    end
+    return true
+  end
+
+  -- A character device or a FIFO has no storage to flush, and fsync on
+  -- one fails EINVAL (Linux) or ENOTSUP: no failure of the write.
+  function sync(self): (true) | (false, Failure)
+    if self.closed then return false, Failure.new("the file is closed", self.path) end
+    local failed = self.failure
+    if failed ~= nil then return false, failed end
+    local ok, why, errno = sys.fsync(self.fd)
+    if ok or errno == sys.EINVAL or errno == sys.EOPNOTSUPP then return true end
+    local failure = failure_of(errno, why, self.path)
+    self.failure = failure
+    return false, failure
+  end
+
+  function abort(self)
+    if self.closed then return end
+    self.closed = true
+    local _, _ = sys.close(self.fd)
+  end
+
+  function close(self): (true) | (false, Failure)
+    local failed = self.failure
+    if self.closed then
+      if failed ~= nil then return false, failed end
+      return true
+    end
+    self.closed = true
+    local closed, why, errno = sys.close(self.fd)
+    if failed ~= nil then return false, failed end
+    if not closed then
+      local failure = failure_of(errno, why, self.path)
+      self.failure = failure
+      return false, failure
+    end
+    return true
+  end
+end
+
+--- Whether [`Fs.output`] writes `path` in place: a device or a FIFO
+--- itself (never a link to one, which may be planted), or one of the
+--- process's own descriptors by its system name (`/dev/stdout`,
+--- `/dev/stderr`, `/dev/fd/<n>`, `/proc/self/fd/<n>`). False where
+--- nothing is there or anything else is; nil and a [`Failure`] where
+--- `path` cannot be looked at.
+function Fs.in_place(path: string): (boolean) | (nil, Failure)
+  local st, why, errno = sys.lstat(path)
+  if st == nil then
+    if errno == sys.ENOENT then return false end
+    return nil, failure_of(errno, why, path)
+  end
+  return in_place_kind(st.kind) or (st.kind == "link" and descriptor_name(path))
+end
+
+--- Starts writing an output a person named, such as a verb's `-o`: as
+--- [`Fs.create`] does, but a device, a FIFO or one of the process's own
+--- descriptors ([`Fs.in_place`]) is written in place, as a shell's `>`
+--- writes it, so `-o /dev/null` discards and `-o /dev/stdout` prints.
+--- There is then no temporary file: `mode` is not used, nothing written
+--- can be taken back, and `abort` only closes the descriptor. A FIFO's
+--- open waits for a reader. A descriptor that is a regular file is
+--- appended to, so a shell's `>>` holds. Nil and a [`Failure`] naming
+--- `path` when it cannot be opened.
+function Fs.output(path: string, mode?: integer): (Fs.Staged) | (nil, Failure)
+  local in_place, trouble = Fs.in_place(path)
+  if in_place == nil then return nil, trouble end
+  if not in_place then return Fs.create(path, mode) end
+  local named = descriptor_name(path)
+  -- A device itself is opened without following a link swapped in
+  -- since the look; a descriptor's name is the system's link, followed.
+  local flags = sys.O_WRONLY | sys.O_NOCTTY
+  if not named then flags = flags | sys.O_NOFOLLOW end
+  local fd, why, errno = sys.open(path, flags)
+  if fd == nil then return nil, failure_of(errno, why, path) end
+  local st, stat_why, stat_errno = sys.fstat(fd)
+  local fits = st ~= nil and (in_place_kind(st.kind) or (named and st.kind == "file"))
+  if st == nil or not fits then
+    local _, _ = sys.close(fd)
+    if st == nil then return nil, failure_of(stat_errno, stat_why, path) end
+    return nil, Failure.new("a " .. (KIND_WORDS[st.kind] or st.kind) .. ", not a device or a FIFO", path)
+  end
+  if st.kind == "file" then
+    -- Reopened through its name, the descriptor's offset and append mode
+    -- are lost: appending keeps what a `>>` redirection kept.
+    local _, _ = sys.close(fd)
+    fd, why, errno = sys.open(path, sys.O_WRONLY | sys.O_NOCTTY | sys.O_APPEND)
+    if fd == nil then return nil, failure_of(errno, why, path) end
+  end
+  local file: InPlaceFile = { path = path, fd = fd, failure = nil, closed = false }
+  return file
+end
+
+--- Writes `data` to an output a person named ([`Fs.output`]): in place
+--- for a device, a FIFO or one of the process's own descriptors, through
+--- a temporary file and a rename, as [`Fs.write`], for anything else.
+function Fs.write_output(path: string, data: string, mode?: integer): (true) | (false, Failure)
+  local file, trouble = Fs.output(path, mode)
   if file == nil then return false, trouble end
   local wrote, write_failure = file:write(data)
   if not wrote then
@@ -356,7 +678,7 @@ end
 --- file. Each write starts at the file's current end, but short writes
 --- can interleave with another appender, and a failure can leave a
 --- prefix appended. Nothing is synced; use [`Fs.write`] to replace a
---- file atomically instead. Answers true, or false and a [`Failure`]
+--- file atomically instead. Returns true, or false and a [`Failure`]
 --- naming `path`; a write failure wins over a close failure.
 function Fs.append(path: string, data: string, mode?: integer): (true) | (false, Failure)
   local file <close>: AppendFile = { fd = -1 }
@@ -403,6 +725,22 @@ local function unslashed(path: string): string
   local to = #path
   while to > 0 and path:byte(to) == 47 do to = to - 1 end
   return path:sub(1, to)
+end
+
+--- Opens the directory `path` names as an [`Fs.Dir`], reached with no
+--- link anywhere on its path, its last part included: a link met fails
+--- with ELOOP, a part that is no directory with ENOTDIR. Each part is
+--- opened from the one before it, so a link swapped in on the path
+--- meanwhile is met, not followed.
+---
+---     local d <close> = assert(Fs.dir("/srv/data"))
+---     assert(d:write("note.txt", "kept"))
+---     print(assert(d:read("note.txt"))) -- kept
+function Fs.dir(path: string): (Fs.Dir) | (nil, Failure)
+  local fd, why, errno = sys.open_dir(path)
+  if fd == nil then return nil, failure_of(errno, why, path) end
+  local held: Dir = { path = unslashed(path), fd = fd }
+  return held
 end
 
 --- Creates a directory and every missing directory above it, as
@@ -454,11 +792,19 @@ function Fs.mkdirs(path: string, mode?: integer): (true) | (false, Failure)
   return false, Failure.system(number, path)
 end
 
---- A fresh, empty temporary directory under the system temp directory,
---- named with `prefix` and a random suffix: `mktemp -d`. `TMPDIR` picks the
---- temp directory when it is set, and `/tmp` otherwise.
+--- The system temp directory: `TMPDIR` when it is an absolute path, and
+--- `/tmp` when it is unset, empty or not absolute, as the sandbox's own
+--- start takes it.
+function Fs.temp_dir(): string
+  local given = Env.read("TMPDIR")
+  if given == nil or given:sub(1, 1) ~= "/" then return "/tmp" end
+  return given
+end
+
+--- A fresh, empty temporary directory under the system temp directory
+--- ([`Fs.temp_dir`]), named with `prefix` and a random suffix: `mktemp -d`.
 function Fs.mkdtemp(prefix: string): (string) | (nil, Failure)
-  local base = Env.read("TMPDIR") or "/tmp"
+  local base = Fs.temp_dir()
   local template = base .. "/" .. prefix .. "XXXXXX"
   local path, _, errno = sys.mkdtemp(template)
   if path == nil then return nil, Failure.system(errno, template) end
@@ -563,7 +909,7 @@ end
 --- under it is owned by another user or writable by its group or by
 --- others. The two are made 0700 when missing. `opts.environment` is
 --- the variables to read, by default the process's own. With
---- `opts.make` false only the name is answered, from the environment
+--- `opts.make` false only the name is returned, from the environment
 --- alone: nothing is made, looked at or checked, so the directory may
 --- not be there. A program's own cache, outside `cosmic/`, is
 --- [`Fs.program_cache_dir`].
@@ -732,25 +1078,10 @@ end
 --- entry's relative path, its bare name second, and what the listing
 --- says it is third, a [`Fs.Kind`] as [`Fs.stat`]'s `kind` names it
 --- (`"file"`, `"dir"`, `"link"`, `"socket"` and so on), and may refuse
---- a whole directory. `opts` may also be the `skip` function alone,
---- which ci/ and the files in ci/bootstrap-files.txt pass on the pinned
---- release.
-function Fs.walk(root: string, opts?: Fs.WalkOptions | function(string, string, Fs.Kind): boolean): ({string}) | (nil, Failure)
+--- a whole directory.
+function Fs.walk(root: string, opts?: Fs.WalkOptions): ({string}) | (nil, Failure)
   if opts == nil then return walk(root, false, nil) end
-  if opts is Fs.WalkOptions then return walk(root, opts.follow == true, opts.skip) end
-  return walk(root, false, opts)
-end
-
--- TODO: once ci/cosmic-driver.pin names a release with Fs.WalkOptions,
--- move ci/ and the files in ci/bootstrap-files.txt to Fs.walk's options,
--- then delete Fs.walk_following, the bare function in Fs.walk's `opts`
--- and fs_test's test_walk_takes_a_bare_skip.
-
---- [`Fs.walk`] with `follow`, for the files in ci/bootstrap-files.txt
---- on the pinned release.
-function Fs.walk_following(root: string,
-                           skip?: function(string, string, Fs.Kind): boolean): ({string}) | (nil, Failure)
-  return walk(root, true, skip)
+  return walk(root, opts.follow == true, opts.skip)
 end
 
 local class Descriptor
@@ -761,8 +1092,8 @@ local class Descriptor
   end
 end
 
---- A fresh, empty, private directory under `parent`, which must exist,
---- and a `.scratch-gate` file there. The directory is removed, with its
+--- A fresh, private directory under `parent`, which must exist; the call
+--- also makes a `.scratch-gate` file in `parent`. The directory is removed, with its
 --- contents, when the result's `<close>` variable ends its scope. A
 --- process that dies first leaves it, and the next call under the same
 --- `parent` removes it: a directory is swept only when its owner file
@@ -1074,7 +1405,7 @@ function Fs.basename(path: string): string
 end
 
 --- The directory a path names its last component in, as dirname(1)
---- answers: trailing slashes are ignored, a bare name is in ".", and
+--- prints it: trailing slashes are ignored, a bare name is in ".", and
 --- "/" and a component directly under it are in "/". Lexical: nothing
 --- is read from disk, and "a/.." is in "a".
 function Fs.dirname(path: string): string

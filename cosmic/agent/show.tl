@@ -3,8 +3,10 @@
 --- function to set as an agent's `on`, so a program of its own shows them
 --- as the verb does, or wraps one to show more.
 ---
---- [`Show.text`] is the verb's at a terminal: the model's words to one
---- writer, and each tool call, and each that failed, to another.
+--- [`Show.text`] is the verb's at a terminal: the turn's answer to one
+--- writer, and each tool call, the first lines of what run and bash
+--- printed, each call that failed, and what the model says on the way,
+--- to another.
 --- [`Show.json`] is its `--json` and its rpc: a line of JSON an event.
 ---
 ---     local agent = Agent.new({ sign = sign, cwd = cwd })
@@ -17,9 +19,12 @@
 local type Agent = require("cosmic.agent")
 local Json = require("cosmic.json")
 local String = require("cosmic.string")
-local type Tools = require("cosmic.agent.tools")
+local Tools = require("cosmic.agent.tools")
 
 local record Show
+  --- Lays out a run call's code for showing, or returns nil to show it as the model wrote it. `cosmic agent` gives
+  --- the layout `cosmic fix` writes.
+  type Arrange = function(code: string): string?
 end
 
 --- `text` cut to one line of at most 80 bytes.
@@ -44,18 +49,153 @@ function Show.input(input: Tools.Object): string
   return Show.brief(text or "")
 end
 
+-- At most this many lines show of one call's code, diff or failure.
+local MOST_LINES <const> = 12
+
+--- The lines of `text`, a final newline making no empty line.
+local function lines_of(text: string): {string}
+  local out: mut {string} = {}
+  if text == "" then return out end
+  for line in (text .. "\n"):gmatch("(.-)\n") do out[#out + 1] = line end
+  if #out > 1 and out[#out] == "" then out[#out] = nil end
+  return out
+end
+
+--- `text` with its control bytes taken out, but tab and newline: what a file, a program or the model says must not
+--- move the terminal's cursor or send it escape sequences.
+local function plain(text: string): string
+  return (text:gsub("[%z\1-\8\11-\31\127]", ""))
+end
+
+--- `line` cut to 120 bytes.
+local function cut(line: string): string
+  if #line > 120 then return String.cut(line, 117) .. "..." end
+  return line
+end
+
+-- At most this many lines show of a call's result.
+local MOST_ANSWER_LINES <const> = 6
+
+--- `lines` in a Markdown code fence of `info`, the first behind `lead`, cut to `most` lines and each line to 120 bytes,
+--- to `err`. The fence is a backtick longer than the longest run of backticks in the lines it shows, so no line
+--- closes it.
+local function fenced(err: function(line: string), info: string, lines: {string}, lead: string, most: integer)
+  local shown: mut {string} = {}
+  local ticks = 3
+  for i, line in ipairs(lines) do
+    if i > most then break end
+    local one = (if i == 1 then lead else "" end) .. cut(line)
+    shown[#shown + 1] = one
+    for run in one:gmatch("`+") do
+      if #run >= ticks then ticks = #run + 1 end
+    end
+  end
+  local fence = string.rep("`", ticks)
+  err(fence .. info)
+  for _, line in ipairs(shown) do err(line) end
+  if #lines > most then err("... " .. String.counted(#lines - most, "more line")) end
+  err(fence)
+end
+
+--- What an edit changes, as diff lines: the lines of `old` and `new`
+--- that differ, after the lines both begin and end with, `-` for those
+--- it takes out and `+` for those it puts in, with one line of context on
+--- each side.
+---
+---     for _, l in ipairs(Show.diff("a\nb\nc", "a\nB\nc")) do print(l) end -- " a", "-b", "+B", " c"
+function Show.diff(old: string, new: string): {string}
+  local a, b = lines_of(old), lines_of(new)
+  local head = 0
+  while head < #a and head < #b and a[head + 1] == b[head + 1] do head = head + 1 end
+  local tail = 0
+  while tail < #a - head and tail < #b - head and a[#a - tail] == b[#b - tail] do
+    tail = tail + 1
+  end
+  local out: mut {string} = {}
+  for i, line in ipairs(a) do
+    if i == head then
+      out[#out + 1] = " " .. line
+    elseif i > head and i <= #a - tail then
+      out[#out + 1] = "-" .. line
+    end
+  end
+  for i, line in ipairs(b) do
+    if i > head and i <= #b - tail then out[#out + 1] = "+" .. line end
+  end
+  for i, line in ipairs(a) do
+    if tail > 0 and i == #a - tail + 1 then out[#out + 1] = " " .. line end
+  end
+  return out
+end
+
+--- The lines a tool call shows at a terminal, as Markdown: run's code in a
+--- code fence of the language teal, so a Markdown viewer colors it, laid
+--- out by `layout` where one is given and lays it out; bash's command in
+--- one of console, behind "$ ";
+--- edit's path, then its changes in one named diff, as [`Show.diff`] lines
+--- (each replacement after a line "@@"); a path for read and write, else
+--- the name and [`Show.input`].
+---
+---     for _, l in ipairs(Show.call("read", { path = "a.tl", offset = 3 })) do print(l) end -- read a.tl, from line 3
+function Show.call(name: string, input: Tools.Object, layout?: Show.Arrange): {string}
+  local out: mut {string} = {}
+  local function put(line: string) out[#out + 1] = line end
+  local path = input["path"]
+  local code = input["code"]
+  local command = input["command"]
+  if name == "run" and code is string then
+    local laid = if layout ~= nil then layout(code) else nil end
+    fenced(put, "teal", lines_of(laid or code), "", MOST_LINES)
+  elseif name == "bash" and command is string then
+    fenced(put, "console", lines_of(command), "$ ", MOST_LINES)
+  elseif name == "edit" and path is string then
+    put("edit " .. path)
+    local diff: mut {string} = {}
+    local replacements, _ = Tools.replacements(input)
+    for _, r in ipairs(replacements or {}) do
+      diff[#diff + 1] = "@@"
+      for _, line in ipairs(Show.diff(r.old, r.new)) do diff[#diff + 1] = line end
+    end
+    fenced(put, "diff", diff, "", MOST_LINES)
+  elseif name == "write" and path is string then
+    local content = input["content"]
+    local n = if content is string then #lines_of(content) else 0 end
+    put("write " .. path .. " (" .. String.counted(n, "line") .. ")")
+  elseif name == "read" and path is string then
+    local offset = input["offset"]
+    local at = if offset is number then math.tointeger(offset) else nil end
+    local from = if at ~= nil then ", from line " .. tostring(at) else "" end
+    put("read " .. path .. from)
+  else
+    put(name .. " " .. Show.input(input))
+  end
+  return out
+end
+
 --- What shows the events as `cosmic agent` shows them at a terminal: the
---- model's text to `out`, and to `err` each tool call (its name and
---- [`Show.input`]) and each that failed (its name and the start of what it
---- said). The other events show nothing.
-function Show.text(out: function(line: string), err: function(line: string)): function(event: Agent.Event)
+--- turn's answer to `out`, and to `err` the words the model says on the
+--- way (in a message that also calls a tool), each tool call as
+--- [`Show.call`] shows it (run's code laid out by `layout`), and below
+--- it the call's result: the first lines of what run or bash said,
+--- in a code fence named output, and of what any call that failed said,
+--- in one named error. An output of no lines shows no fence. No control
+--- byte but tab and newline is shown. The other events show nothing.
+function Show.text(out: function(line: string), err: function(line: string), layout?: Show.Arrange):
+    function(event: Agent.Event)
+  local raw_out, raw_err = out, err
+  out = function(line: string) raw_out(plain(line)) end
+  err = function(line: string) raw_err(plain(line)) end
   return function(e: Agent.Event)
     if e.kind == "text" then
-      out(e.text)
+      if e.calls == true then err(e.text) else out(e.text) end
     elseif e.kind == "tool" then
-      err(e.name .. " " .. Show.input(e.input))
+      for _, line in ipairs(Show.call(e.name, e.input, layout)) do err(line) end
     elseif e.kind == "result" then
-      if e.result.is_error then err(e.name .. " failed: " .. Show.brief(e.result.text)) end
+      if e.result.is_error then
+        fenced(err, "error", lines_of(e.result.text), "", MOST_LINES)
+      elseif (e.name == "run" or e.name == "bash") and e.result.text ~= "" then
+        fenced(err, "output", lines_of(e.result.text), "", MOST_ANSWER_LINES)
+      end
     end
   end
 end

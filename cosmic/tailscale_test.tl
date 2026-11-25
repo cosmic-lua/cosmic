@@ -1,8 +1,8 @@
 --- [`cosmic.tailscale`] against a stand-in tailscaled: a [`Server.serve`]
---- that answers the LocalAPI paths with the JSON the daemon writes. Most
---- clients run in a child of this program, as cosmic/http_unix_test.tl's
---- do, since `watch` holds its thread while it waits; the last test asks
---- from the stand-in's own run.
+--- that responds at the LocalAPI paths with the JSON the daemon writes.
+--- Most clients run in a child of this program, as
+--- cosmic/http_unix_test.tl's do, since `watch` holds its thread while it
+--- waits; the last test asks from the stand-in's own run.
 
 local Array = require("cosmic.array")
 local Child = require("cosmic.child")
@@ -71,7 +71,7 @@ local record Seen
   mut lines: mut {string}
 end
 
---- The stand-in's answer to one LocalAPI request.
+--- The stand-in's response to one LocalAPI request.
 local function answer(req: Server.Request): Server.Reply
   local target = req.target
   if target == "/localapi/v0/whois?addr=100.64.0.2%3A443" then
@@ -173,7 +173,13 @@ end
 --- addressed to the host the daemon requires and the capability version.
 local function test_whois_answers_the_node_its_user_and_its_capabilities(tmp: string)
   local said, seen = across(tmp, Net.unix(tmp .. "/ts.sock"), over_socket([[
-  local who = assert(ts:whois("100.64.0.2:443"))
+  local function peer(address: string): Tailscale.WhoIs
+    local found, why = ts:whois(address)
+    assert(found ~= nil, why)
+    assert(found ~= false, address .. " is no peer's")
+    return found
+  end
+  local who = peer("100.64.0.2:443")
   say(who.node.name .. " " .. who.node.host_name .. " " .. who.node.os .. " " .. tostring(who.node.id))
   say(table.concat(who.node.addresses, ",") .. " tags=" .. tostring(#who.node.tags) .. " tagged=" .. tostring(who.tagged))
   say(who.user.login_name .. " " .. who.user.display_name .. " " .. tostring(who.user.picture_url) ..
@@ -183,12 +189,12 @@ local function test_whois_answers_the_node_its_user_and_its_capabilities(tmp: st
   say("admin=" .. assert(Json.encode_any(admin)) .. " read=" .. tostring(#assert(who.caps["example.com/cap/read"])) ..
     " ping=" .. tostring(#assert(who.caps["example.com/cap/ping"])) ..
     " write=" .. tostring(who.caps["example.com/cap/write"]))
-  local tagged = assert(ts:whois("100.64.0.3"))
+  local tagged = peer("100.64.0.3")
   say(tagged.node.name .. " " .. table.concat(tagged.node.tags, ",") .. " tagged=" .. tostring(tagged.tagged) ..
     " " .. tagged.user.login_name .. " host=" .. tagged.node.host_name)
-  local six = assert(ts:whois("[fd7a:115c:a1e0::3]:443"))
+  local six = peer("[fd7a:115c:a1e0::3]:443")
   say(six.node.name)
-  say("here own=" .. tostring(assert(ts:whois("100.64.0.1:80")).own))
+  say("here own=" .. tostring(peer("100.64.0.1:80").own))
 ]]))
   assert(said == table.concat({
     "laptop.tail1234.ts.net laptop macOS 7",
@@ -204,25 +210,22 @@ local function test_whois_answers_the_node_its_user_and_its_capabilities(tmp: st
     seen[1])
 end
 
---- An address the daemon knows no node at is "not_a_peer", told apart
---- from a daemon that cannot be reached, which is "failed".
-local function test_whois_result_tells_a_stranger_from_a_daemon_that_is_not_there(tmp: string)
+--- An address the daemon knows no node at is false, told apart from a
+--- daemon that refuses or cannot be reached, which is nil and a Failure.
+local function test_whois_tells_a_stranger_from_a_daemon_that_is_not_there(tmp: string)
   local said, _ = across(tmp, Net.unix(tmp .. "/ts.sock"), over_socket([[
-  local stranger = ts:whois_result("192.0.2.7")
-  say(stranger.kind .. " " .. tostring(stranger.status) .. " " .. stranger.reason .. " " .. tostring(stranger.whois))
-  local refused = ts:whois_result("100.64.0.4")
-  say(refused.kind .. " " .. tostring(refused.status) .. " " .. refused.reason)
-  local who, why = ts:whois("192.0.2.7")
-  say(tostring(who) .. " " .. why)
+  local stranger, none = ts:whois("192.0.2.7")
+  say(tostring(stranger) .. " " .. tostring(none))
+  local refused, denied = ts:whois("100.64.0.4")
+  say(tostring(refused) .. " " .. tostring(denied))
   local gone = assert(Tailscale.connect({ socket = (argv[1] or "") .. ".none" }))
-  local failed = gone:whois_result("100.64.0.2")
-  say(failed.kind .. " " .. tostring(failed.status) .. " " .. tostring(failed.reason:find("tailscale: ", 1, true) == 1))
+  local failed, why = gone:whois("100.64.0.2")
+  say(tostring(failed) .. " " .. tostring(tostring(why):find("tailscale: ", 1, true) == 1))
 ]]))
   assert(said == table.concat({
-    "not_a_peer 404 tailscale: no node has the address 192.0.2.7 nil",
-    "failed 403 tailscale: /localapi/v0/whois: whois access denied",
-    "nil tailscale: no node has the address 192.0.2.7",
-    "failed 0 true",
+    "false nil",
+    "nil tailscale: /localapi/v0/whois: whois access denied",
+    "nil true",
     "",
   }, "\n"), said)
 end
@@ -273,9 +276,9 @@ local function test_cert_splits_the_key_from_the_chain_and_passes_on_a_refusal(t
   local pair = assert(ts:cert("box.tail1234.ts.net"))
   say(pair.key .. "|" .. pair.cert)
   local _, why = ts:cert("other.tail1234.ts.net")
-  say(why)
+  say(tostring(why))
   local _, odd = ts:cert("box/../status")
-  say(odd)
+  say(tostring(odd))
 ]]))
   assert(said == "-----BEGIN EC PRIVATE KEY-----\nKEY\n-----END EC PRIVATE KEY-----\n|" ..
       "-----BEGIN CERTIFICATE-----\nLEAF\n-----END CERTIFICATE-----\n" ..
@@ -285,16 +288,16 @@ local function test_cert_splits_the_key_from_the_chain_and_passes_on_a_refusal(t
   assert(#seen == 2, table.concat(seen, "\n"))
 end
 
---- A ping that came back answers its time in nanoseconds; one the
+--- A ping that came back returns its time in nanoseconds; one the
 --- daemon gave up on fails with the daemon's reason.
 local function test_ping_answers_the_round_trip_or_why_none_came(tmp: string)
   local said, seen = across(tmp, Net.unix(tmp .. "/ts.sock"), over_socket([[
   local ping = assert(ts:ping("100.64.0.2"))
   say(tostring(ping.latency_ns) .. " " .. tostring(ping.endpoint) .. " " .. tostring(ping.derp_region))
   local _, why = ts:ping("100.64.0.9", "TSMP")
-  say(why)
+  say(tostring(why))
   local _, refused = ts:ping("100.64.0.8")
-  say(refused)
+  say(tostring(refused))
 ]]))
   assert(said == "12500000 192.0.2.1:41641 nil\ntailscale: ping 100.64.0.9: timeout\n" ..
       "tailscale: /localapi/v0/ping: no matching peer\n", said)
@@ -310,17 +313,26 @@ local function test_watch_reads_an_event_a_line(tmp: string)
   while true do
     local event, why = events:read()
     if event == nil then
-      say("end " .. why)
+      say("end " .. tostring(why))
+      break
+    end
+    if event == false then
+      say("end ")
       break
     end
     say(tostring(event.state) .. " " .. tostring(event.browse_url) .. " " .. tostring(event.login_finished) ..
       " " .. tostring(event.version))
   end
   local engine <close> = assert(ts:watch({ engine = true, initial_status = true }))
-  local nulls = assert(engine:read())
+  local nulls, nulls_why = engine:read()
+  assert(nulls ~= nil, nulls_why)
+  assert(nulls ~= false, "the stream ended")
   say(tostring(nulls.state) .. " " .. tostring(nulls.login_finished))
   local bare <close> = assert(ts:watch({ initial_state = false }))
-  say(tostring(assert(bare:read()).state))
+  local first, first_why = bare:read()
+  assert(first ~= nil, first_why)
+  assert(first ~= false, "the stream ended")
+  say(tostring(first.state))
 ]]))
   assert(said == table.concat({
     "Starting nil false 1.90.0",
@@ -337,12 +349,12 @@ end
 --- the field, and any path is reachable as bytes.
 local function test_a_reply_of_the_wrong_shape_fails_naming_the_field(tmp: string)
   local said, _ = across(tmp, Net.unix(tmp .. "/ts.sock"), over_socket([[
-  local bad = ts:whois_result("100.64.0.66")
-  say(bad.kind .. " " .. bad.reason)
+  local bad, why = ts:whois("100.64.0.66")
+  say(tostring(bad) .. " " .. tostring(why))
   local missing = assert(ts:get("/localapi/v0/nothing"))
   say(tostring(missing.status) .. " " .. missing.body)
 ]]))
-  assert(said == "failed tailscale: whois: WireWhoIs: $.Node.ID: want integer, got string\n" ..
+  assert(said == "nil tailscale: whois: WireWhoIs: $.Node.ID: want integer, got string\n" ..
       "404 404 page not found\n\n", said)
 end
 
@@ -369,20 +381,21 @@ end
 
 --- Options that cannot be met together are a caller's bug and raise.
 local function test_connect_refuses_options_that_conflict()
-  local ok, why = pcall(Tailscale.connect, { socket = "/s", port = 1 })
+  local function connect(opts: Tailscale.Daemon) local _, _ = Tailscale.connect(opts) end
+  local ok, why = pcall(connect, { socket = "/s", port = 1 })
   assert(not ok and tostring(why):find("socket or port", 1, true) ~= nil, tostring(why))
-  ok, why = pcall(Tailscale.connect, { token = "t" })
+  ok, why = pcall(connect, { token = "t" })
   assert(not ok and tostring(why):find("token needs port", 1, true) ~= nil, tostring(why))
-  ok, why = pcall(Tailscale.connect, { port = 70000 })
+  ok, why = pcall(connect, { port = 70000 })
   assert(not ok and tostring(why):find("1 to 65535", 1, true) ~= nil, tostring(why))
   local client, empty = Tailscale.connect({ socket = "" })
-  assert(client == nil and empty == "tailscale: the socket path is empty", empty)
+  assert(client == nil and tostring(empty) == "tailscale: the socket path is empty", tostring(empty))
 end
 
 --- A call waits as a task of the run it is made in, so a server's own
 --- handler can ask the daemon while the run goes on: here the stand-in is
 --- served by the very run that asks it, which a call that held the thread
---- would never let answer.
+--- would never let respond.
 local function test_a_call_in_a_task_lets_the_run_answer_it(tmp: string)
   local said: mut {string} = {}
   assert(Server.serve{
@@ -392,7 +405,8 @@ local function test_a_call_in_a_task_lets_the_run_answer_it(tmp: string)
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local ts = assert(Tailscale.connect({ socket = assert(Array.at(addresses, 1).path), timeout_ns = Clock.seconds(5) }))
       local who, why = ts:whois("100.64.0.2:443")
-      said[1] = if who ~= nil then who.user.login_name else why end
+      local line = if who == nil then tostring(why) elseif who == false then "not a peer" else who.user.login_name end
+      said[#said + 1] = line
       server:stop()
     end,
   })

@@ -1,10 +1,11 @@
 --- [`build/zig_fetch.tl`]'s parts: the sources a download tries, the
 --- rounds over them held to their limits, a failed install's cleanup and
 --- the sweep of a dead install's scratch directory. No test reaches the
---- network: every download is a stand-in or answered by a scripted
+--- network: every download is a stand-in or comes from a scripted
 --- server.
 
 local Clock = require("cosmic.clock")
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local ZigFetch = require("build.zig_fetch")
@@ -25,12 +26,12 @@ local function test_a_raise_during_install_leaves_no_scratch_directory(tmp: stri
   assert(Fs.mkdirs(cache))
   local _, _ = ZigFetch.install(cache, cache .. "/warm", "0.1.0", "x86_64-linux", nil)
   local before = support.descriptors()
-  local real = Http.download_result
-  Http.download_result = function(_url: string, _path: string, _options?: Http.Options): Http.DownloadResult -- checked: field_fixed
+  local real = Http.download
+  Http.download = function(_url: string, _path: string, _options: Http.Options): (true) | (false, Failure) -- checked: field_fixed
     error("the download raised")
   end
   local ok, trouble = pcall(ZigFetch.install, cache, cache .. "/0.1.0-x86_64-linux", "0.1.0", "x86_64-linux", "abc")
-  Http.download_result = real -- checked: field_fixed
+  Http.download = real -- checked: field_fixed
   assert(not ok and tostring(trouble):find("the download raised", 1, true) ~= nil, tostring(trouble))
   assert(table.concat(assert(Fs.list(cache)), " ") == ".scratch-gate", "a scratch wrapper was left behind")
   assert(support.descriptors() == before, "a descriptor of the scratch stayed open")
@@ -60,26 +61,33 @@ local function test_sources_try_a_few_shuffled_mirrors_then_ziglang_org()
   assert(#few == 2 and few[1] == "https://m/zig.tar.xz?source=cosmic")
 end
 
-local function failed(reason: string): Http.DownloadResult
-  return { kind = "failed", reason = reason }
+--- What one scripted download returns: why it failed, nothing once it
+--- downloaded.
+local record Reply
+  why?: Failure
 end
 
-local function mismatch(reason: string): Http.DownloadResult
-  return { kind = "digest_mismatch", reason = reason, algorithm = "sha256", expected = "abc", actual = "def" }
+local function failed(reason: string): Reply
+  return { why = Failure.new(reason) }
 end
 
-local downloaded: Http.DownloadResult = { kind = "downloaded", reason = "" }
+local function mismatch(reason: string): Reply
+  return { why = Failure.mismatch(reason) }
+end
 
---- Answers each explicit outcome in turn, writing the successful file,
---- and records calls, options and pauses. Only pauses and `per_call_ns`
+local downloaded: Reply = {}
+
+--- A fetcher whose `download` returns each explicit outcome in turn,
+--- writing the successful file, and which records calls, options and
+--- pauses. Only pauses and `per_call_ns`
 --- advance the clock.
-local function scripted(replies: {string:{Http.DownloadResult}}, calls: mut {string},
+local function scripted(replies: {string:{Reply}}, calls: mut {string},
                         sleeps: mut {integer}, per_call_ns?: integer, seen?: mut {Http.Options}): ZigFetch.Fetcher
   local served: mut {string:integer} = {}
   local clock = { value = 0 }
   return {
-    download = function(url: string, path: string, opts: Http.Options): Http.DownloadResult
-      assert(opts.sha256 == "abc")
+    download = function(url: string, path: string, opts: Http.Options): (true) | (false, Failure)
+      assert(assert(opts.digests)["sha256"] == "abc")
       local connect_timeout_ns = opts.connect_timeout_ns
       local low_speed_bytes = opts.low_speed_bytes
       local low_speed_ns = opts.low_speed_ns
@@ -96,10 +104,10 @@ local function scripted(replies: {string:{Http.DownloadResult}}, calls: mut {str
       local script = assert(replies[url], "no replies are scripted for " .. url)
       local attempt = assert(served[url], "the attempt was counted")
       local reply = script[attempt] or support.nth(script, #script)
-      if reply.kind == "downloaded" then
-        assert(Fs.write(path, "tarball"))
-      end
-      return reply
+      local why = reply.why
+      if why ~= nil then return false, why end
+      assert(Fs.write(path, "tarball"))
+      return true
     end,
     sleep = function(ns: integer)
       sleeps[#sleeps + 1] = ns
@@ -138,6 +146,20 @@ local function test_fetch_moves_past_a_sha_mismatch_and_never_asks_that_source_a
   assert(#sleeps == 1 and sleeps[1] > 0, "no pause before the second round")
 end
 
+--- The pinned release's mismatch is of kind "other" and names the path:
+--- it bars the mirror too.
+local function test_fetch_bars_a_mirror_on_the_pinned_releases_mismatch(tmp: string)
+  local calls: mut {string} = {}
+  local sleeps: mut {integer} = {}
+  local path = tmp .. "/z"
+  local ok, trouble = ZigFetch.fetch({ "http://bad", "http://slow" }, path, "abc", scripted({
+    ["http://bad"] = { { why = Failure.new("sha256 mismatch: want abc, got def", path) } },
+    ["http://slow"] = { failed("timed out"), downloaded },
+  }, calls, sleeps))
+  assert(ok, trouble)
+  assert(table.concat(calls, " ") == "http://bad http://slow http://slow", table.concat(calls, " "))
+end
+
 local function test_fetch_names_every_source_when_all_fail(tmp: string)
   local calls: mut {string} = {}
   local sleeps: mut {integer} = {}
@@ -145,7 +167,7 @@ local function test_fetch_names_every_source_when_all_fail(tmp: string)
     scripted({
       ["http://one"] = { failed("couldn't connect") },
       ["http://two"] = { mismatch("z: sha256 mismatch: want abc, got def") },
-      ["http://three"] = { { kind = "http_status", reason = "HTTP 404", status = 404 } },
+      ["http://three"] = { { why = Failure.coded("HTTP 404", 404) } },
     }, calls, sleeps))
   assert(not ok)
   assert(trouble:find("http://one: couldn't connect", 1, true) ~= nil, trouble)
@@ -207,9 +229,9 @@ end
 local function test_fetch_sees_a_real_mismatch(tmp: string)
   local calls: mut {string} = {}
   local fetcher: ZigFetch.Fetcher = {
-    download = function(url: string, path: string, opts: Http.Options): Http.DownloadResult
+    download = function(url: string, path: string, opts: Http.Options): (true) | (false, Failure)
       calls[#calls + 1] = url
-      return Http.download_result(url, path,
+      return Http.download(url, path,
         { ...opts, script = { "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nwrong" } })
     end,
     sleep = function(_: integer) end,
@@ -257,7 +279,7 @@ local function test_fetch_classifies_mismatches_independently_of_reason_text(tmp
   local ok, why = ZigFetch.fetch({ "wrong", "transport", "status", "fallback" }, tmp .. "/z", "abc", scripted({
     wrong = { mismatch("unexpected bytes") },
     transport = { failed("sha256 mismatch in transport's own diagnostic") },
-    status = { { kind = "http_status", reason = "sha256 mismatch", status = 503 } },
+    status = { { why = Failure.coded("sha256 mismatch", 503) } },
     fallback = { failed("retry"), downloaded },
   }, calls, sleeps))
   assert(ok, why)

@@ -1,7 +1,7 @@
 --- [`Child.start`]'s `policy` and the user its child runs as for a root
 --- caller (cosmic/child.tl): a user of a range of its own, never root, the
 --- files it cannot use mounted idmapped or refused. The kernel's own verdict
---- on live children: the child is a stand-in (build/stand_in.tl), a static
+--- on live children: the child is a fake ([`cosmic.fake`]), a static
 --- program that does what its script says.
 ---
 --- A root caller's paths need a root that holds CAP_SETUID, CAP_SETGID,
@@ -15,7 +15,7 @@
 -- once a leg runs the suite as root (doc/roadmap.md's root leg): until then
 -- only a developer's or an agent's run as root checks them.
 -- TODO: require `root`, and that the worker is, once a CI leg promises
--- `root` (ci/cosmic_ci/capabilities.json; build/tree_checks.tl refuses a
+-- `root` (ci/cosmic_ci/capabilities.json; build/tree_checks/ refuses a
 -- name no leg promises) and a requirement names the worker's user: `root`
 -- is the runner's, and a root run that sandboxes its workers starts each as
 -- a user of its own, so it would pass `root` and still skip every test here.
@@ -35,7 +35,7 @@ local ChildPolicy = require("build.child_policy_fixture")
 --- The temporary directory. `nests`: a policy's isolation makes a root of
 --- its own, which a worker held by a Landlock ruleset cannot.
 Test.policy{
-  promises = { "nest" },
+  grants = { { calls = "nest" } },
   env = { "TMPDIR" },
   requires = { "nest" },
 }
@@ -45,8 +45,9 @@ local function octal(text: string): integer
   return assert(math.tointeger(tonumber(text, 8)))
 end
 
---- The user ids a `Uid:` line of /proc/self/status lists, a stand-in's
---- answer to `status-field Uid`: real, effective, saved and filesystem.
+--- The user ids a `Uid:` line of /proc/self/status lists, as a fake
+--- prints them for `status-field Uid`: real, effective, saved and
+--- filesystem.
 local function uids(said: string): {integer}
   local found: mut {integer} = {}
   for number in said:gmatch("%d+") do

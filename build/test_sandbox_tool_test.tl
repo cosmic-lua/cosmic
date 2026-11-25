@@ -22,13 +22,12 @@ local support = require("build.test_support_fixture")
 --- run (`nests`), which a host that refuses them runs unsandboxed.
 Test.policy{
   profiles = { "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" } },
-  promises = { "nest" },
+  grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } },
 }
 
 --- Makes `tmp`/scratch, a scratch directory laid out as build.test_key's
 --- `scratch` lays one out -- `real`, and `tmp` a link to it -- and
---- answers it. A plan takes that layout as given: where it runs its
+--- returns it. A plan takes that layout as given: where it runs its
 --- worker as a user of its own, it hands it and `real` to that user.
 local function scratch_in(tmp: string): string
   local scratch = tmp .. "/scratch"
@@ -226,7 +225,7 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   inputs.host = { host }
   assert(test_sandbox.plan(root, scratch, inputs, {}).trouble == "")
   -- Offline, whatever it declares: the loopback addresses it may
-  -- declare, its own loopback answers.
+  -- declare, its own loopback carries.
   for _, hosts in ipairs({ "", "127.0.0.1 127.0.0.2" }) do
     local network: mut {string:boolean} = {}
     for name in hosts:gmatch("%S+") do network[name] = true end
@@ -238,7 +237,7 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   assert(not support.holds(assert(tooled.sandbox.unveil).reads, support.build_dir(root) .. "/bin"))
 end
 
---- Runs `cosmic test --all` on `root` with `env`, answering what it
+--- Runs `cosmic test --all` on `root` with `env`, returning what it
 --- printed and whether it passed.
 local function run(root: string, output: string, env: {string:string}): string, boolean
   local ran = fixture.run(root, output, env)

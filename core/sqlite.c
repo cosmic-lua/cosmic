@@ -105,11 +105,11 @@ struct statement {
    * it until `release` hands it to the cache. */
   char *sql;
   size_t len;
-  /* Whether a step of this run has answered a row: a BUSY after one is
+  /* Whether a step of this run has yielded a row: a BUSY after one is
    * not parked, since the step run again would start the rows over. */
   bool rowed;
   /* Whether its BUSY may park: no PRAGMA, since a checkpoint (`PRAGMA
-   * wal_checkpoint`) calls the busy handler and answers its row as busy
+   * wal_checkpoint`) calls the busy handler and yields its row as busy
    * when the handler declines, with no BUSY to try again on. */
   bool parkable;
 };
@@ -156,7 +156,7 @@ static int wait_busy (void *context, int previous) {
 }
 
 /* Whether a call on `h` that starts a run must wait for the statement
- * parked on it (`parked_on` in struct handle); when it must, the call answers BUSY with
+ * parked on it (`parked_on` in struct handle); when it must, the call returns BUSY with
  * this reason ([`stopped_reason`]) and parks as `parks` says. */
 static bool turn_taken (struct handle *h, const struct statement *s) {
   if (h->parked_on == NULL || h->parked_on == s) return false;
@@ -571,8 +571,8 @@ static void deflate_function (sqlite3_context *ctx, int argc,
   cosmic_free(out);
 }
 
-/* Answers what the raw deflate stream in the `len` bytes at `data`
- * decodes to, or why it does not. */
+/* Sets as the result what the raw deflate stream in the `len` bytes at
+ * `data` decodes to, or why it does not. */
 static void result_inflated (sqlite3_context *ctx, const void *data,
                              size_t len) {
   /* No more than SQLite would hold as one value anyway, so a stream
@@ -1297,7 +1297,7 @@ static int handle_read_only (lua_State *L) {
   return 1;
 }
 
-/* Copies the mode `PRAGMA journal_mode` answers into `context`, a
+/* Copies the mode `PRAGMA journal_mode` yields into `context`, a
  * buffer of JOURNAL_MODE_SIZE. */
 #define JOURNAL_MODE_SIZE 16
 static int read_journal_mode (void *context, int columns, char **values, char **names) {
@@ -1307,7 +1307,7 @@ static int read_journal_mode (void *context, int columns, char **values, char **
   return 0;
 }
 
-/* Switches the main database to write-ahead mode, and answers the mode it
+/* Switches the main database to write-ahead mode, and returns the mode it
  * is in after, as the outcome's `mode`, and whether the database is a
  * temporary or memory one, as `temporary`. The switch needs the file to
  * itself for a moment, and SQLite can refuse it as busy without calling
@@ -1426,7 +1426,7 @@ static int array_kind (const char *name, size_t size) {
 
 /* Raises unless the list at `index` holds elements 1 to its length, each
  * of the array kind's type: an integer, a number, a string without a NUL
- * (carray reads a text to its first NUL), or a string. Answers its
+ * (carray reads a text to its first NUL), or a string. Returns its
  * length, which carray takes as an int. */
 static int array_checked (lua_State *L, int index, int kind) {
   lua_Unsigned n = lua_rawlen(L, index);
@@ -1456,7 +1456,7 @@ static int array_checked (lua_State *L, int index, int kind) {
 /* Binds the list at `index`, which array_checked has passed, for carray()
  * at parameter `param`. SQLite copies the elements, strings and all,
  * before this returns. An empty list binds a static empty array: the copy
- * would allocate 0 bytes, which SQLite answers as out of memory. */
+ * would allocate 0 bytes, which SQLite treats as out of memory. */
 static int bind_array (lua_State *L, sqlite3_stmt *stmt, int param, int index, int kind) {
   static sqlite3_int64 none;
   int n = array_checked(L, index, kind);
@@ -1566,7 +1566,7 @@ static int statement_bind_values_result (lua_State *L) {
 }
 
 /* kind_of(value, kind): value_kind run under lua_pcall by bind_all, its
- * answer stored in the int `kind` points to, so that a
+ * result stored in the int `kind` points to, so that a
  * malformed Value is returned to bind_all's caller, which releases the
  * statement before it raises. */
 static int kind_of (lua_State *L) {
@@ -1777,6 +1777,30 @@ static int statement_name (lua_State *L) {
   return 1;
 }
 
+/* Where the column argument 2 counts from zero comes from: the table
+ * and the column of that table, and the column's declared type. Each is
+ * nil for a column that is an expression (`count(*)`, `x + 1`), and the
+ * type is nil for a column declared with none. Known once the
+ * statement is prepared, row or none. */
+static int statement_origin (lua_State *L) {
+  struct statement *s = checked_statement(L);
+  int index = cosmic_checkint(L, 2);
+  luaL_argcheck(L, index >= 0 && index < sqlite3_column_count(s->stmt), 2,
+                "no such column in the statement");
+  const char *table = sqlite3_column_table_name(s->stmt, index);
+  const char *column = sqlite3_column_origin_name(s->stmt, index);
+  const char *declared = sqlite3_column_decltype(s->stmt, index);
+  if (table != NULL && column != NULL) {
+    lua_pushstring(L, table);
+    lua_pushstring(L, column);
+  } else {
+    lua_pushnil(L);
+    lua_pushnil(L);
+  }
+  if (declared != NULL) lua_pushstring(L, declared); else lua_pushnil(L);
+  return 3;
+}
+
 /* The column argument 2 names, refused unless the statement is on a
  * row that has it. SQLite leaves a column read out of range, or read
  * when the last step did not return a row, undefined; sqlite3_data_count
@@ -1857,7 +1881,7 @@ static int statement_reset (lua_State *L) {
   return rewound(L, 1);
 }
 
-/* reset_result(): as reset, but answers an ExecResult with SQLite's
+/* reset_result(): as reset, but returns an ExecResult with SQLite's
  * codes, as step_result does: a statement stopped before its end, in
  * autocommit, commits at this reset, and a failure there (a deferred
  * foreign key, BUSY) is the statement's. */
@@ -1908,7 +1932,7 @@ static int statement_release (lua_State *L) {
     return statement_finalize(L);
   }
   begin_wait(h);
-  /* The reset answers the last step's failure, which was answered then. */
+  /* The reset returns the last step's failure, which was reported then. */
   s->rowed = false;
   unpark(s);
   sqlite3_reset(s->stmt);
@@ -2023,6 +2047,7 @@ static const luaL_Reg statement_methods[] = {
   {"bind_all", statement_bind_all},
   {"columns", statement_columns},
   {"name", statement_name},
+  {"origin", statement_origin},
   {"kind", statement_kind},
   {"integer", statement_integer},
   {"number", statement_number},

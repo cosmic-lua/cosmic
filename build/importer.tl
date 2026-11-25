@@ -95,7 +95,7 @@ local record importer
     mut compiled: integer
     mut cached: integer
     --- How many reads of a narrowed place and how many typed parameters the Lua of the modules checks, summed over
-    --- the modules compiled and those a cache answered (the counts are kept with a compile): what a checked compile
+    --- the modules compiled and those a cache supplied (the counts are kept with a compile): what a checked compile
     --- wrote, 0 for an unchecked one.
     mut fact_wraps: integer
     mut parameter_checks: integer
@@ -122,7 +122,7 @@ local record importer
   --- as the public standard library's (importer.said).
   type Hints = function(): {Sqlite.Handle}, {boolean}
 
-  --- Whether a compile that answered nothing stopped on a refusal of the source -- a file the run needs that does not parse
+  --- Whether a compile that returned nothing stopped on a refusal of the source -- a file the run needs that does not parse
   --- or that the checker refuses -- and not on a trouble of the host (a database, a missing tool). A caller that takes one
   --- hands it to [`importer.compile_for`], which sets `refused`.
   ---
@@ -214,7 +214,7 @@ local record importer
       close: function()
     end
     --- Parses `count` sources in copies of this process, or nil where no
-    --- copy is made, as [`fan`] makes none. `make` answers the parses of
+    --- copy is made, as [`fan`] makes none. `make` returns the parses of
     --- the sources that are its copy's, each `copies`-th from `copy`.
     fan_parses?: function(count: integer, make: function(copy: integer, copies: integer): {ParseMade}): ParsesFanned?
     --- Writes what was offered; `compile` calls it once, as it ends,
@@ -266,7 +266,7 @@ local record Walk
   withheld: boolean
 end
 
---- [`Store.source`] in the shape an [`importer.Code`] answers.
+--- [`Store.source`] in the shape of an [`importer.Code`]'s `source`.
 local function store_source(name: string): string?, string
   local source, why = Store.source(name)
   if source == nil then return nil, tostring(why) end
@@ -283,7 +283,7 @@ local function walk_analyzer(code?: importer.Code): Walk
   local names: mut {string} = {}
   for _, name in ipairs(reached) do
     -- What the binary holds a module or a declaration of: what
-    -- [`Store.source`] answers, of a name no hold holds.
+    -- [`Store.source`] returns, of a name no hold holds.
     local source, _ = source_of(name)
     if source ~= nil then
       names[#names + 1] = name
@@ -349,7 +349,7 @@ function importer.tree_code(handle: work.Handle): importer.Code?, string
     for _, row in ipairs(rows) do names[#names + 1] = row:text(1) end
     return names, ""
   end
-  -- What [`Store.source`] answers: a declaration's source ahead of a
+  -- What [`Store.source`] returns: a declaration's source ahead of a
   -- module's.
   local function source(name: string): string?, string
     local rows, rows_trouble = db:text_rows(
@@ -376,7 +376,7 @@ end
 --- they import, can only be named whole. What a parse runs is these
 --- modules and the Lua and declarations of the basis, and nothing else of
 --- the compiler's identity or of the code that checks ([`build.code_identity`]'s
---- `coded`): an edit to build.plans, build.tree or the checker (lang/check.tl,
+--- `coded`): an edit to build.plans, build.tree or the checker (lang/check/,
 --- build.driver, build.pipeline) compiles again and parses nothing again. An
 --- edit to the lexer, the parser or a reader of the syntax tree parses
 --- everything again.
@@ -479,7 +479,7 @@ local function forget_analysis(db: Sqlite.Handle): boolean, string
 end
 
 --- Forgets every derived row when the code that derives them has
---- changed since they were made, and answers whether it did. A row
+--- changed since they were made, and returns whether it did. A row
 --- keyed by its source's hash is found again for as long as that
 --- source stands, which is right only while the analyzer stands too: an
 --- extractor that learns to see something new, or a generator that
@@ -724,7 +724,7 @@ end
 --- Takes the parse another checkout made of each of `sources` from
 --- `shared`, where its analyzer is this tree's ([`shared_analyzer`]), and
 --- writes it as the parse would have, counting it in `tally`; the rest
---- are left to [`parse_new`]. Answers that analyzer, "" for none.
+--- are left to [`parse_new`]. Returns that analyzer, "" for none.
 local function take_parses(handle: work.Handle, shared: importer.Shared, sources: {Source},
                            tally: importer.Parses): string?, string
   local identity, trouble = shared_analyzer(handle, shared, sources)
@@ -760,7 +760,7 @@ local function offer_parses(db: Sqlite.Handle, shared: importer.Shared?, identit
 end
 
 --- Parses every source no parse has seen, with the new checker's syntax tree ([`build.parse_derive`]), in this
---- process. Nothing here decides a row: which sources are fresh is [`build.derivation`]'s answer and what each parses to
+--- process. Nothing here decides a row: which sources are fresh is [`build.derivation`]'s to say and what each parses to
 --- is [`build.parse_derive`]'s, both roots of the analyzer's identity. The rows land in hash order. `broken`, when given, lists what does not parse rather than stopping there.
 local function parse_new(handle: work.Handle, tally: importer.Parses, made: mut {Source},
                          broken: mut {derivation.Broken}?, outcome: importer.Outcome?): boolean, string
@@ -838,7 +838,7 @@ end
 --- A source another checkout parsed is taken from `shared` rather than
 --- parsed ([`take_parses`]). Counts what it parsed and took in `tally`,
 --- lists what it parsed in `made`, and what does not parse in `broken`
---- when given ([`parse_new`]), and answers the analyzer whose parses it
+--- when given ([`parse_new`]), and returns the analyzer whose parses it
 --- took, "" for none.
 local function derive_new(handle: work.Handle, tally: importer.Parses,
                           made: mut {Source}, shared: importer.Shared?,
@@ -1117,7 +1117,7 @@ local function remember(cache: Cache, path: string, key: string, ordinal: intege
 end
 
 --- What a compile with the new checker reads ([`build.pipeline`]): the options, and the program, made when the first module
---- that no cache answers needs it.
+--- that no cache holds needs it.
 local record Reading
   root: string
   own: boolean
@@ -1125,9 +1125,9 @@ local record Reading
   mut built: Pipeline.Built?
 end
 
---- The options `reading` is made over, made when the first module that no cache answers needs them. Nil and why where
+--- The options `reading` is made over, made when the first module that no cache holds needs them. Nil and why where
 --- they cannot be. The checker ([`build.pipeline`]) is required where it is called, never at this module's top level: a
---- compile whose every module a cache answers loads none of its hundred modules.
+--- compile whose every module a cache holds loads none of its hundred modules.
 local function options_of(reading: Reading): Pipeline.Options?, string
   local options = reading.options
   if options ~= nil then return options, "" end
@@ -2093,8 +2093,8 @@ end
 --- `__cosmic_tc` at the typed parameters of a function ([`lang.boundary_checks`]), and not
 --- the fork's `__cosmic_tc`: the Lua of the two differs, so their keys do. The key holds
 --- what the compile adds, so a list of checks that grows (the returns and the fields written,
---- later) moves it and no entry compiled with fewer is the answer. A
---- compile cached with the one is never the answer to a request for the other,
+--- later) moves it and no entry compiled with fewer is used. A
+--- compile cached with the one never serves a request for the other,
 --- nor for none.
 function importer.checked_tool(tool: string, wraps?: boolean): string
   return Hash.hex_sha256(tool .. (if wraps == true then "\0fact-wraps\0parameter-checks\0counted" else "\0run-time-checks" end))
@@ -2162,7 +2162,7 @@ end
 ---   offered them, as its derive takes and offers parses
 ---   ([`importer.derive`]). Finished before this returns, whatever it
 ---   returns, with whatever an earlier derive given them offered.
---- @param outcome set to `refused` where the compile answers nothing for a refusal of the source: an import cycle, a
+--- @param outcome set to `refused` where the compile returns nothing for a refusal of the source: an import cycle, a
 ---   global, a misplaced [`Test.policy`]; not for a trouble of the host
 --- @param checks whether the compiled Lua checks a value against its declared
 ---   kind: each read of a place a test narrowed is wrapped in a call of `__fact` ([`lang.fact_wraps`]), and each function
@@ -2219,7 +2219,7 @@ end
 -- refuses too -- a misplaced [`Test.policy`], a cycle of imports, a global, a
 -- position breach (a private module required from outside its directory), an
 -- unknown `cosmic.*` require -- once those checks name the modules they
--- refuse rather than answering one message for the tree: today any of them
+-- refuse rather than giving one message for the tree: today any of them
 -- stops a file run whatever the file reaches.
 function importer.compile_for(handle: work.Handle, tool: string, target: string,
                               shared?: importer.Shared, outcome?: importer.Outcome): importer.Result?, string
@@ -2232,7 +2232,7 @@ end
 --- Like [`importer.compile`], consumes `shared`, finishing
 --- it exactly once on success or failure. The working database and its
 --- transaction remain the caller's, as does publishing the completed
---- projection. `choose` answers the tool string [`build.grammar_mode`] makes of the compiler's identity.
+--- projection. `choose` returns the tool string [`build.grammar_mode`] makes of the compiler's identity.
 function importer.compile_tree(handle: work.Handle, choose: function(identities.Identities): string?, string,
                                unjudged: boolean, shared?: importer.Shared,
                                outcome?: importer.Outcome): importer.Result?, string

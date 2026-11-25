@@ -85,8 +85,8 @@ local quoted = Sqlite.identifier
 local Failure = require("cosmic.failure")
 local plural = require("build.plural")
 
---- What a failure of this module answers, nil and `why` under the
---- module's name.
+--- What this module's functions return on a failure: nil and `why`
+--- under the module's name.
 local function refuse(why: string): nil, string
   return nil, "dataset: " .. why
 end
@@ -429,7 +429,7 @@ local max_columns <const> = 2000
 
 --- Makes the table `name` on `handle` from `rows` and inserts them, in
 --- one transaction, so a failure leaves no table. The columns and how a
---- value is stored are the module comment's. Answers the table it made;
+--- value is stored are the module comment's. Returns the table it made;
 --- nil and why when `name` is empty, there are more keys than SQLite holds
 --- columns (2000, `_json` among them), SQLite refuses the table (it
 --- exists, or `name` is reserved) or a row, a row holds a value with

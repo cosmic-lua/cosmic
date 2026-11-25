@@ -6,8 +6,10 @@ local Agent = require("cosmic.agent")
 local agent_fixture = require("build.agent_fixture")
 local Auth = require("cosmic.agent.auth")
 local Clock = require("cosmic.clock")
+local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
+local Sandbox = require("cosmic.sandbox")
 local Sessions = require("cosmic.agent.sessions")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
@@ -62,9 +64,9 @@ local function test_the_loop_runs_tools_until_the_turn_ends()
   assert(whole:find('"system":[{"cache_control":{"type":"ephemeral"},"text":"sys","type":"text"},{"text":"<cwd>\\n' ..
       dir .. '\\n</cwd>","type":"text"}]', 1, true) ~= nil, whole)
   assert(whole:find('"content":"make out.txt"', 1, true) ~= nil, whole)
-  -- The tools offered by default run no program: no bash, no jobs.
+  -- The tools offered by default run no program: no bash and no jobs.
   local tools, _ = Json.to_array(first["tools"])
-  assert(tools ~= nil and #tools == 5 and not assert(Json.encode(tools)):find('"name":"bash"', 1, true))
+  assert(tools ~= nil and #tools == 4 and not assert(Json.encode(tools)):find('"name":"bash"', 1, true))
   local h = header(a, 1)
   assert(h["x-api-key"] == "k" and h["anthropic-version"] == "2026-10-21", h["x-api-key"])
   assert(h["anthropic-beta"] == "server-side-fallback-2026-07-01,cache-diagnosis-2026-04-07,compact-2026-01-12", h["anthropic-beta"])
@@ -83,6 +85,51 @@ local function test_the_loop_runs_tools_until_the_turn_ends()
   assert(s:prompt("more"))
   local again, _ = Json.to_array(sent(b, 1)["messages"])
   assert(again ~= nil and #again == 5)
+end
+
+--- The sandbox is a list of layers, held stacked: a write one layer lets and another does not is refused, and
+--- layers that do not join block the call, naming why.
+local function test_the_sandbox_layers_are_held_stacked()
+  local dir = scratch()
+  local write = function(id: string): Json.Value
+    return { content = { { type = "tool_use", id = id, name = "write", input = { path = "out.txt", content = "made" } } },
+      stop_reason = "tool_use" }
+  end
+  local _, send = api({ write("t1"), text_reply("done") })
+  local writes: Sandbox.Policy = { grants = { { path = dir, letters = "rwc" } } }
+  local reads: Sandbox.Policy = { grants = { { path = dir, letters = "r" } } }
+  local s = Agent.new({ sign = keyed("k"), base_url = "https://api.test", system = "sys", cwd = dir, send = send,
+    sandbox = { writes, reads } })
+  local seen = agent_fixture.events()
+  s.on = seen.on
+  assert(s:prompt("make out.txt"))
+  local none, _ = Fs.read(dir .. "/out.txt")
+  assert(none == nil)
+  local refused = assert(Json.encode(Json.array(s.messages)))
+  assert(refused:find("does not let the agent write", 1, true) ~= nil, refused)
+  -- One layer alone lets it.
+  local _, send2 = api({ write("t2"), text_reply("done") })
+  s.send, s.sandbox = send2, { writes }
+  assert(s:prompt("again"))
+  assert(slurp(dir .. "/out.txt") == "made")
+  -- Layers that do not join hold nothing: the call is blocked.
+  assert(Fs.remove(dir .. "/out.txt"))
+  local _, send3 = api({ write("t3"), text_reply("done") })
+  local mapped: Sandbox.Policy = { grants = { { path = dir, from = "/elsewhere", letters = "r" } } }
+  s.send, s.sandbox = send3, { writes, mapped }
+  assert(s:prompt("once more"))
+  local blocked = assert(Json.encode(Json.array(s.messages)))
+  assert(blocked:find("Blocked: the sandbox's layers do not join", 1, true) ~= nil, blocked)
+  local still, _ = Fs.read(dir .. "/out.txt")
+  assert(still == nil)
+  -- No layer is no sandbox only as nil: an empty list blocks the call.
+  local _, send4 = api({ write("t4"), text_reply("done") })
+  s.send, s.sandbox = send4, {}
+  assert(s:prompt("and again"))
+  local empty = assert(Json.encode(Json.array(s.messages)))
+  assert(empty:find("Blocked: the sandbox has no layer", 1, true) ~= nil, empty)
+  local left, _ = Fs.read(dir .. "/out.txt")
+  assert(left == nil)
 end
 
 local function test_the_loop_says_why_it_stops()
@@ -183,6 +230,7 @@ local function test_each_request_is_kept_with_its_usage_and_cost()
   assert(body["model"] == "claude-opus-5-5" and body["tools"] ~= nil and body["messages"] == nil and
       body["system"] == nil, shaped:text(4))
   assert(Agent.cost("claude-sonnet-5-5", { output_tokens = 1000000 }) == 10)
+  assert(Agent.cost("claude-haiku-5-5", { input_tokens = 1000000, output_tokens = 1000000 }) == 0.6)
   -- A fallback's reply is priced by the model that served it.
   assert(Agent.cost("claude-opus-5", { input_tokens = 1000000, cache_read_input_tokens = 1000000 }) == 5.5)
   assert(Agent.cost("another", { output_tokens = 1 }) == nil)
@@ -267,21 +315,21 @@ local function test_a_compacting_reply_is_not_kept_warm()
 end
 
 --- A turn's budget: the first limit reached ends it for good, the tool
---- calls of its last reply answered as stopped, and the next prompt gets
+--- calls of its last reply given results of stopped, and the next prompt gets
 --- a budget of its own.
 local function test_a_turn_ends_where_its_budget_is_spent()
   local function calling(id: string, n: integer): Json.Value
     return { content = { bash_call(id, "true") }, stop_reason = "tool_use",
       usage = { input_tokens = n, output_tokens = n, cache_read_input_tokens = n, cache_creation_input_tokens = n } }
   end
-  -- turns: the reply of the last request asks for a tool, which is answered, not run.
+  -- turns: the reply of the last request asks for a tool, which gets a result, not run.
   local s, a = kept({ calling("t1", 10), calling("t2", 10), text_reply("never") }, nil, "claude-sonnet-5-5")
   s.budget = { turns = 2 }
   local seen = agent_fixture.events()
   s.on = seen.on
   local ok, why = s:prompt("go")
   assert(not ok and why == Agent.BUDGET_SPENT .. ": 2 requests, of 2", why)
-  assert(#a.sent == 2 and #seen.tools == 1 and not s:unfinished())
+  assert(#a.sent == 2 and #seen.tools == 1 and not s:unfinished() and s.spent)
   local answered = s.messages[#s.messages]
   assert(answered ~= nil)
   local last = assert(Json.encode(answered))
@@ -313,7 +361,47 @@ local function test_a_turn_ends_where_its_budget_is_spent()
   -- A turn that ends inside its budget is a turn like any other; each prompt has its own.
   s, a = kept({ text_reply("one"), text_reply("two") })
   s.budget = { turns = 1 }
-  assert(s:prompt("go") and s:prompt("again") and #a.sent == 2)
+  assert(s:prompt("go") and s:prompt("again") and #a.sent == 2 and not s.spent)
+end
+
+--- Words in a reply that also calls a tool are told as on the way (`calls`); the turn's last words are not.
+local function test_words_on_the_way_are_told_apart()
+  local s, _ = kept({ { content = { { type = "text", text = "looking" }, bash_call("t1", "true") },
+    stop_reason = "tool_use" }, text_reply("done") })
+  local told: mut {string} = {}
+  s.on = function(e: Agent.Event)
+    if e.kind == "text" then
+      local line = e.text .. "=" .. tostring(e.calls == true)
+      told[#told + 1] = line
+    end
+  end
+  assert(s:prompt("go"))
+  assert(table.concat(told, " ") == "looking=true done=false", table.concat(told, " "))
+end
+
+--- The model reads its budget beside the prompt, and a note to finish
+--- once a limit is mostly spent; a prompt with no budget is its words alone.
+local function test_the_model_reads_its_budget()
+  local function calling(id: string): Json.Value
+    return { content = { bash_call(id, "true") }, stop_reason = "tool_use" }
+  end
+  local s, a = kept({ calling("t1"), calling("t2"), text_reply("done") }, nil, "claude-sonnet-5-5")
+  s.budget = { turns = 3, cost = 0.5 }
+  assert(s:prompt("go"))
+  local function text_of(n: integer): string
+    local messages = assert(a.sent[n])["messages"]
+    assert(messages ~= nil)
+    return assert(Json.encode(messages))
+  end
+  local first = text_of(1)
+  assert(first:find('"text":"go"', 1, true) ~= nil, first)
+  assert(first:find("This turn's budget: 3 requests, $0.50.", 1, true) ~= nil, first)
+  assert(text_of(2):find("Budget: spent", 1, true) == nil, text_of(2))
+  assert(text_of(3):find("Budget: spent 2 of 3 requests, $0.00 of $0.50. The next reply may be the last", 1, true) ~=
+      nil, text_of(3))
+  s, a = kept({ text_reply("one") })
+  assert(s:prompt("go"))
+  assert(text_of(1):find('"content":"go"', 1, true) ~= nil and text_of(1):find("budget", 1, true) == nil, text_of(1))
 end
 
 local function test_a_turn_left_unfinished_is_resumed()

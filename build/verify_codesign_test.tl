@@ -1,27 +1,27 @@
 --- [`build/verify_codesign.tl`] on any host: the skip everywhere but
---- macOS, and on macOS, over a stand-in for codesign, both of its calls
+--- macOS, and on macOS, over a fake for codesign, both of its calls
 --- and a failing one's status.
 local Fs = require("cosmic.fs")
 local VerifyCodesign = require("build.verify_codesign")
-local stand_in = require("build.stand_in")
+local Fake = require("cosmic.fake")
 local sys = require("cosmic.sys")
 
---- A stand-in program built under `dir`, outside the PATH it searches.
-local function stand_in_under(dir: string): string
-  return (assert(stand_in.build(dir .. "/stand-in")))
+--- A fake program built under `dir`, outside the PATH it searches.
+local function fake_under(dir: string): string
+  return (assert(Fake.build(dir .. "/fake")))
 end
 
 --- A codesign in `dir`, the PATH each test searches, that appends its
---- arguments to the log it answers and exits `status`.
+--- arguments to the log whose path this returns, and exits `status`.
 local function fake_codesign(probe: string, dir: string, status: integer): string
   local log = dir .. "/calls"
-  assert(stand_in.place(probe, dir .. "/codesign",
+  assert(Fake.place(probe, dir .. "/codesign",
     "append " .. log .. " $@\nexit " .. tostring(status)))
   return log
 end
 
---- A codesign that cannot start, which no stand-in need be built for:
---- running it would answer 127.
+--- A codesign that cannot start, which no fake need be built for:
+--- running it would exit 127.
 local function unstartable_codesign(dir: string, mode: integer)
   assert(Fs.write(dir .. "/codesign", "#!/nonexistent/interpreter\n", mode))
 end
@@ -32,19 +32,19 @@ local function test_every_other_host_skips(dir: string)
 end
 
 local function test_macos_verifies_then_displays(dir: string)
-  local log = fake_codesign(stand_in_under(dir), dir, 0)
+  local log = fake_codesign(fake_under(dir), dir, 0)
   assert(VerifyCodesign.verify("Darwin", "core", dir) == 0)
   assert(assert(Fs.read(log)) == "--verify --strict --verbose=2 core\n--display --verbose=4 core\n")
 end
 
 local function test_a_failed_verification_is_its_status(dir: string)
-  local log = fake_codesign(stand_in_under(dir), dir, 3)
+  local log = fake_codesign(fake_under(dir), dir, 3)
   assert(VerifyCodesign.verify("Darwin", "core", dir) == 3)
   assert(assert(Fs.read(log)) == "--verify --strict --verbose=2 core\n")
 end
 
 local function test_a_codesign_ended_by_a_signal_is_128_past_it(dir: string)
-  assert(stand_in.place(stand_in_under(dir), dir .. "/codesign", "signal TERM"))
+  assert(Fake.place(fake_under(dir), dir .. "/codesign", "signal TERM"))
   assert(VerifyCodesign.verify("Darwin", "core", dir) == 143)
 end
 
@@ -67,7 +67,7 @@ end
 local function test_the_first_codesign_on_path_runs(dir: string)
   assert(Fs.mkdirs(dir .. "/a"))
   assert(Fs.mkdirs(dir .. "/b"))
-  local probe = stand_in_under(dir)
+  local probe = fake_under(dir)
   local log = fake_codesign(probe, dir .. "/a", 0)
   fake_codesign(probe, dir .. "/b", 5)
   assert(VerifyCodesign.verify("Darwin", "core", dir .. "/a:" .. dir .. "/b") == 0)
@@ -77,7 +77,7 @@ local function test_the_first_codesign_on_path_runs(dir: string)
 end
 
 local function test_main_answers_help_and_refuses_an_option()
-  -- Help is answered wherever it is asked, and nothing is verified: a
+  -- Help is printed wherever it is asked, and nothing is verified: a
   -- second word is no usage error and "-x" is not the binary's path.
   assert(VerifyCodesign.main({ "a", "--help" }) == 0)
   assert(VerifyCodesign.main({ "-h" }) == 0)

@@ -105,7 +105,7 @@ local record Vector
     --- Faster, and approximate: it can miss a true neighbor. The corpus
     --- builds its bit vectors on the first search that asks.
     candidates?: integer
-    --- Only these ids, such as the answer of `SELECT id FROM chunks WHERE
+    --- Only these ids, such as the result of `SELECT id FROM chunks WHERE
     --- ...`.
     allow?: {integer}
   end
@@ -130,14 +130,24 @@ local record Vector
     storage: Storage
     --- The core's buffer behind the corpus; not for callers.
     handle: raw_vector.Corpus
-    --- `corpus:add(id, v)`: see [`Vector.corpus`].
+    --- `corpus:add(id, v)`: adds the f32 vector `v` under `id`, converted
+    --- to the corpus's storage. Raises on a vector of another length than
+    --- `dims`, a number that is not finite, or, in an `"f16"` corpus, one
+    --- of 65520 or more in magnitude. Ids are not unique: a second add of
+    --- one makes a second row.
     add: function(Corpus, id: integer, v: string)
     --- `corpus:count()`: how many vectors the corpus holds.
     count: function(Corpus): integer
-    --- `corpus:add_block(block)`: see [`Vector.load_blocks`].
+    --- `corpus:add_block(block)`: adds every vector of a packed block, as
+    --- the SQL aggregate `vector_block` makes it, converted to the corpus's
+    --- storage. Raises on a string that is not a block, one of other
+    --- dimensions, a block holding a number that is not finite, an int8
+    --- block for an int8 corpus whose sums are not its codes', and, in an
+    --- `"f16"` corpus, a number of 65520 or more in magnitude; the corpus
+    --- is then as it was.
     add_block: function(Corpus, block: string)
     --- `corpus:search(query, k, opts)`: the `k` nearest, as [`Vector.Hits`].
-    --- Answers `nil, "interrupted"` on a caught signal, and raises "not
+    --- Returns `nil, "interrupted"` on a caught signal, and raises "not
     --- enough memory" when the heap refuses, as the module's description
     --- says.
     search: function(Corpus, query: string, k: integer, opts?: SearchOptions): Hits?, string
@@ -145,7 +155,7 @@ local record Vector
 
   record KmeansOptions
     --- Seeds the choice of the first centroids; the same seed on the same
-    --- corpus answers the same centroids. 1 by default.
+    --- corpus picks the same centroids. 1 by default.
     seed?: integer
     --- The most Lloyd iterations; it stops sooner when no vector changes
     --- cluster. 20 by default.
@@ -215,9 +225,9 @@ local function corpus_count(self: Vector.Corpus): integer
 end
 
 --- The `k` nearest vectors to `query`, best first. Rows of equal score
---- are ordered by the lower id, so an answer is stable. Raises on a query
---- of the wrong length, or `k` under 1; a corpus with fewer than `k`
---- rows answers them all. Answers `nil, "interrupted"` when a signal
+--- are ordered by the lower id, so a result is stable. Raises on a query
+--- of the wrong length, or `k` under 1; for a corpus with fewer than `k`
+--- rows it returns them all. Returns `nil, "interrupted"` when a signal
 --- guard caught a signal meanwhile (the corpus unchanged, the signal
 --- untaken).
 local function corpus_search(self: Vector.Corpus, query: string, k: integer,
@@ -233,13 +243,13 @@ end
 
 --- `k` centroids for IVF search: spherical k-means (k-means++ seeding,
 --- then Lloyd iterations on vectors scaled to length 1, centroids
---- renormalized each step, so similarity is the inner product). Answers
+--- renormalized each step, so similarity is the inner product). Returns
 --- k packed centroids. Raises on `k` under 1 or over the corpus's count,
 --- on `iterations` under 1, and on a corpus of zero vectors alone. A
 --- zero vector (or one too short to scale to length 1) has no direction:
 --- it is never a seed and counts toward no cluster, and [`Vector.nearest`]
 --- gives it the first centroid.
---- Cost is count x k x dims per iteration, in C. Answers `nil,
+--- Cost is count x k x dims per iteration, in C. Returns `nil,
 --- "interrupted"` at the next row or centroid once a [`Signal.guard`] has
 --- caught a signal (see the module's description), and raises "not enough
 --- memory" when the heap refuses its scratch; the corpus is unchanged
@@ -296,11 +306,12 @@ local function add_row(held: Vector.Corpus?, id: integer, blob: string,
   return target, ""
 end
 
---- A corpus from the rows a query answers, each an integer id and a
+--- A corpus from the rows a query yields, each an integer id and a
 --- vector blob, in that order: `Vector.load(db, "SELECT id, embedding
---- FROM chunks")`. `opts` is as [`Vector.corpus`]'s. Answers `nil` and
---- why when the query fails or a row holds something else than a vector
---- of the first row's length (or, for `"f16"`, one it cannot hold).
+--- FROM chunks")`. `opts` is as [`Vector.corpus`]'s. Returns `nil` and
+--- why when the query fails, yields no rows, or a row holds something
+--- else than an integer id and a vector of the first row's length (or,
+--- for `"f16"`, one it cannot hold).
 function Vector.load(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value},
                      opts?: Vector.CorpusOptions): Vector.Corpus?, string
   -- A storage the core refuses raises here, before a query is open to leak.
@@ -339,18 +350,18 @@ function Vector.load(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value},
   return corpus, ""
 end
 
---- A corpus from the rows a query answers, each holding in its first
+--- A corpus from the rows a query yields, each holding in its first
 --- column a packed block, as `vector_block` makes one: `Vector.load_blocks(db,
 --- "SELECT vectors FROM blocks")`. It reads a block per row, not a vector,
 --- and copies the block's buffers into the corpus, so it is much faster
 --- than [`Vector.load`] over the same vectors one to a row. The corpus
 --- takes its dimensions, and unless `opts.storage` says otherwise its
 --- storage, from the first block; every block must have those
---- dimensions. Answers `nil` and why when the query fails, a row holds
+--- dimensions. Returns `nil` and why when the query fails, a row holds
 --- something else than a block (a NULL too: a group of rows without a
 --- vector packs to NULL, so select `WHERE vectors IS NOT NULL`), or a
 --- block cannot be added (see [`Vector.Corpus.add_block`]), and when the
---- query answers no rows.
+--- query yields no rows.
 function Vector.load_blocks(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value},
                             opts?: Vector.CorpusOptions): Vector.Corpus?, string
   if opts ~= nil and opts.storage ~= nil then

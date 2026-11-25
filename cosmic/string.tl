@@ -33,7 +33,7 @@ function String.split(text: string, separator: string): {string}
 end
 
 --- An iterator over the lines of `text`: exactly the pieces
---- `split(text, "\n")` answers, so text ending in "\n" has an empty last
+--- `split(text, "\n")` returns, so text ending in "\n" has an empty last
 --- line, as "a\n" gives "a" and then "", and "" has one empty line. A "\r"
 --- before the "\n" stays on its line.
 --- @param text string The text to read
@@ -75,7 +75,7 @@ end
 
 --- Whether `part` occurs in `text`; every text contains "". `part` is
 --- plain text, as `text:find(part, 1, true) ~= nil` reads it, and this
---- answers a boolean that a condition and `assert` take as it is.
+--- returns a boolean that a condition and `assert` take as it is.
 --- @param text string The text to search
 --- @param part string The plain text it may contain
 --- @return boolean True when it does
@@ -85,7 +85,7 @@ end
 
 --- The byte of `text` at `index`, counted from 1, for code that has
 --- already checked the index against `#text` (a wire parser that read a
---- length first, a loop over `1, #text`). `text:byte(index)` answers nil
+--- length first, a loop over `1, #text`). `text:byte(index)` returns nil
 --- past either end, which a caller then adds or shifts; this raises,
 --- blaming its caller, so a length check that was missed fails where the
 --- read is. A negative index is refused rather than counted from the end,

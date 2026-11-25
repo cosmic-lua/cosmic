@@ -26,7 +26,7 @@
 ---   again each time it is taken from there, against a stale or poisoned
 ---   cache (not a writer racing the hash and the run).
 ---
---- Whether the tree's C is a release's is git's answer: the files the
+--- Git settles whether the tree's C is a release's: the files the
 --- release's commit holds under `c_inputs` are the files the index holds
 --- there, by mode and contents; the working tree is the index there; and
 --- no file there is untracked. A commit the checkout lacks is fetched,
@@ -46,7 +46,7 @@
 --- commits the checkout has: it asks the network nothing. Any other value
 --- is refused, and zig builds the core ([`SeededBoot.plan`]).
 ---
---- It answers 0 where the tree is booted, 4 where no release's core is
+--- It exits 0 where the tree is booted, 4 where no release's core is
 --- the tree's (the build directory as it was), and 1 where a boot it began
 --- failed.
 
@@ -256,9 +256,9 @@ end
 --- the tag and the commit, or nil and why none can be named.
 local function newest_release(work: string): string?, string
   local listing = work .. "/releases.json"
-  local got = Http.download_result("https://api.github.com/repos/" .. repository .. "/releases?per_page=20",
+  local got, got_why = Http.download("https://api.github.com/repos/" .. repository .. "/releases?per_page=20",
     listing, { roots = "mozilla", timeout_ns = 30 * 1000000000 })
-  if got.kind ~= "downloaded" then return nil, "the releases cannot be listed: " .. got.reason end
+  if not got then return nil, "the releases cannot be listed: " .. tostring(got_why) end
   local text, trouble = Fs.read(listing)
   if text == nil then return nil, tostring(trouble) end
   local newest: string? = nil
@@ -276,8 +276,8 @@ end
 local function release_cosmic(tag: string, work: string): string?, string
   local base = "https://github.com/" .. repository .. "/releases/download/" .. tag .. "/"
   local sums = work .. "/SHA256SUMS"
-  local listed = Http.download_result(base .. "SHA256SUMS", sums, { roots = "mozilla", timeout_ns = 30 * 1000000000 })
-  if listed.kind ~= "downloaded" then return nil, "its SHA256SUMS: " .. listed.reason end
+  local listed, listed_why = Http.download(base .. "SHA256SUMS", sums, { roots = "mozilla", timeout_ns = 30 * 1000000000 })
+  if not listed then return nil, "its SHA256SUMS: " .. tostring(listed_why) end
   local text, _ = Fs.read(sums)
   local digest = (text or ""):match("^(%x+)%s+cosmic\n")
   if digest == nil or #digest ~= 64 then return nil, "its SHA256SUMS names no cosmic" end
@@ -287,11 +287,11 @@ local function release_cosmic(tag: string, work: string): string?, string
   if kept ~= nil then return kept, "" end
   local path = cache .. "/cosmic-" .. digest
   local part = path .. ".part." .. tostring(Proc.pid())
-  local fetched = Http.download_result(base .. "cosmic", part,
-    { roots = "mozilla", timeout_ns = 300 * 1000000000, sha256 = digest })
-  if fetched.kind ~= "downloaded" then
+  local fetched, fetched_why = Http.download(base .. "cosmic", part,
+    { roots = "mozilla", timeout_ns = 300 * 1000000000, digests = { ["sha256"] = digest } })
+  if not fetched then
     local _, _ = Fs.remove(part)
-    return nil, "its cosmic: " .. fetched.reason
+    return nil, "its cosmic: " .. tostring(fetched_why)
   end
   local made, mode_trouble = Fs.chmod(part, 0x1ed)
   local placed, place_trouble = false, if made then "" else tostring(mode_trouble) end

@@ -463,6 +463,28 @@ local function test_standard_input_needs_as()
   assert(Fs.remove_tree(dir))
 end
 
+--- `--db -` reads a database from standard input, kept in a file while the statement runs, since SQLite
+--- opens a database by its path; bytes that are no database are refused, pointing at `--from -`.
+local function test_db_dash_reads_a_database_from_standard_input()
+  local root = assert(Fs.mkdtemp("cosmic-sql-stdin-test-"))
+  local path = root .. "/s.db"
+  local db = assert(Sqlite.open(path, { writable = true }))
+  assert(db:exec("CREATE TABLE t (n INTEGER); INSERT INTO t VALUES (3), (4)"))
+  assert(db:close())
+  local bytes = assert(Fs.read(path))
+  local code, written = run(root, { "--db", "-", "SELECT sum(n) AS s FROM t" }, bytes)
+  assert(code == 0 and written.out[2] == "7", table.concat(written.err, "|"))
+  code, written = run(root, { "--db", "-" }, bytes)
+  assert(code == 0 and table.concat(written.out, "\n"):find("t", 1, true) ~= nil, table.concat(written.err, "|"))
+  code, written = run(root, { "--db", "-", "SELECT 1" }, "a,b\n1,2\n")
+  assert(code == 1 and support.nth(written.err, 1):find("standard input is no SQLite database", 1, true) ~= nil and
+      support.nth(written.err, 1):find("--from -", 1, true) ~= nil, table.concat(written.err, "|"))
+  code, written = run(root, { "--db", "-", "SELECT 1" })
+  assert(code == 1 and support.nth(written.err, 1):find("no standard input given", 1, true) ~= nil,
+    table.concat(written.err, "|"))
+  assert(Fs.remove_tree(root))
+end
+
 local function test_no_statement_prints_the_schema()
   local dir = data()
   local code, written = run(dir, { "--from", dir .. "/accounts.json" })
@@ -595,7 +617,7 @@ local function test_a_missing_file_names_its_path_once_and_usage_shows_as_and_at
   assert(code == 1 and count == 1, written.err[1])
   code, written = run(dir, { "--from" })
   assert(code == 2 and support.nth(written.err, 1):find("--from needs a value", 1, true) ~= nil, written.err[1])
-  assert(support.nth(written.err, 1):find("; usage: cosmic sql [--from <file|-> [--as <fmt>] [--at <path>]]...", 1, true), written.err[1])
+  assert(support.nth(written.err, 1):find("; usage: cosmic sql [--db <path|-> | --build | --store | --from <file|-> [--as <fmt>] [--at <path>] [--raw]...]", 1, true), written.err[1])
   assert(Fs.remove_tree(dir))
 end
 
@@ -784,4 +806,58 @@ local function test_to_ndjson_renames_only_an_exact_repeat()
   local code, written = run(dir, { "--from", "-", "--as", "csv", "--to", "ndjson",
     "SELECT a, a AS A, a, a AS a_2 FROM stdin" }, "a\n1\n")
   assert(code == 0 and written.out[1] == '{"a":1,"A":1,"a_2":1,"a_2_2":1}', tostring(written.out[1]))
+end
+
+--- A `--from` that opens with SQLite's header is read as a database, as
+--- `--db` reads it, whatever its name: `--from sessions.db` once failed
+--- on its extension with no word of `--db`. With no statement it lists
+--- the tables, as a data file's `--from` does.
+local function test_from_reads_a_sqlite_database_as_itself()
+  local dir = data()
+  local path = dir .. "/sessions.db"
+  local db = assert(Sqlite.open(path, { writable = true }))
+  assert(db:exec("CREATE TABLE sessions (id INTEGER PRIMARY KEY, name TEXT, n); " ..
+      "INSERT INTO sessions (name, n) VALUES ('a', 1), ('b', 2); CREATE VIEW names AS SELECT name FROM sessions"))
+  assert(db:close())
+  local code, written = run(dir, { "--from", path, "SELECT name FROM sessions ORDER BY id" })
+  assert(code == 0 and table.concat(written.out, "|") == "name|a|b", table.concat(written.err, "|"))
+  assert(String.starts_with(written.summary, "sql: 2 rows from " .. path .. ", "), written.summary)
+  local described = "names: 2 rows|  name  TEXT|sessions: 2 rows|  id    INTEGER|  name  TEXT|  n     -"
+  for _, words in ipairs({ { "--from", path }, { "--db", path } }) do
+    code, written = run(dir, words)
+    assert(code == 0 and table.concat(written.out, "|") == described, table.concat(written.out, "|"))
+    assert(String.starts_with(written.summary, "sql: 1 table and 1 view from " .. path .. ", "), written.summary)
+  end
+  -- One that cannot be read says why, and the rest still list.
+  local broken = dir .. "/broken.db"
+  local writer = assert(Sqlite.open(broken, { writable = true }))
+  assert(writer:exec("CREATE TABLE a (x); CREATE TABLE gone (y); CREATE VIEW b AS SELECT y FROM gone; DROP TABLE gone"))
+  assert(writer:close())
+  code, written = run(dir, { "--from", broken })
+  assert(code == 0 and written.out[1] == "a: 0 rows" and support.nth(written.out, 3):find("^b: unreadable: ") ~= nil,
+    table.concat(written.out, "|"))
+  -- Any name: the header decides, not the extension.
+  assert(Fs.write(dir .. "/plain", assert(Fs.read(path))))
+  code, written = run(dir, { "--from", dir .. "/plain", "SELECT count(*) FROM names" })
+  assert(code == 0 and written.out[2] == "2", table.concat(written.err, "|"))
+  -- A database joins no data file and takes nothing a data file takes.
+  for _, words in ipairs({
+      { "--from", path, "--from", dir .. "/accounts.json", "SELECT 1" },
+      { "--from", "s=" .. path, "SELECT 1" },
+      { "--from", path, "--as", "json", "SELECT 1" },
+  }) do
+    code, written = run(dir, words)
+    assert(code == 2 and support.nth(written.err, 1):find(path .. " is a SQLite database, which ", 1, true) ~= nil and
+        support.nth(written.err, 1):find("give it alone: --from " .. path, 1, true) ~= nil, written.err[1])
+  end
+  code, written = run(dir, { "--from", path, "--db", path, "SELECT 1" })
+  assert(code == 2 and support.nth(written.err, 1):find("not to be given with --db", 1, true) ~= nil, written.err[1])
+  -- A `.db` that is not one says so; a missing one fails as a missing file.
+  assert(Fs.write(dir .. "/fake.db", "hello"))
+  code, written = run(dir, { "--from", dir .. "/fake.db", "SELECT 1" })
+  assert(code == 2 and support.nth(written.err, 1):find("unknown extension .db", 1, true) ~= nil and
+      support.nth(written.err, 1):find("does not open with its header", 1, true) ~= nil, written.err[1])
+  code, written = run(dir, { "--from", dir .. "/none.db", "SELECT 1" })
+  assert(code == 1 and support.nth(written.err, 1):find("none.db: No such file", 1, true) ~= nil, written.err[1])
+  assert(Fs.remove_tree(dir))
 end

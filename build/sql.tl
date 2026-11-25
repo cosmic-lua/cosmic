@@ -33,7 +33,7 @@
 --- `--at '<path>'` and `--raw` belong to the `--from` they follow. With
 --- no statement the verb prints each table's name, row count, columns
 --- with the SQLite types seen, and a sample row. `no such column` and
---- `no such table` are answered with the names that exist. The database
+--- `no such table` list the names that exist. The database
 --- is built from the data alone, so no build directory is read.
 
 local build_paths = require("build.paths")
@@ -73,7 +73,7 @@ local record sql
   end
 
   --- Where `run` writes: a row line, a complaint, and the summary.
-  --- `out` and `err` take a line without its newline. `out` answers
+  --- `out` and `err` take a line without its newline. `out` returns
   --- false and why when it could not write the line (a closed pipe),
   --- and the statement is stepped no further.
   record Output
@@ -134,6 +134,10 @@ function sql.source(root: string, parsed: Flags.Parsed): sql.Source?, string
   if chosen ~= nil then
     if chosen == "" then
       return nil, "--db needs a path, not an empty one"
+    end
+    if chosen == "-" then
+      -- Kept in a file by [`sql.run`] before it opens it, since SQLite opens a database by its path.
+      return { name = "standard input", path = "-" }, ""
     end
     return { name = chosen, path = chosen }, ""
   end
@@ -465,14 +469,14 @@ local writers: {string: function(): Writer} = {
 --- Runs one statement on `db`, giving `emit` its column names as one
 --- line (none for a statement without columns), then each row it yields
 --- as one line, the moment it is stepped, each as `writer` writes it
---- (row lines by default). Answers how many rows it
+--- (row lines by default). Returns how many rows it
 --- yielded, or nil and why when the statement takes a parameter, or
 --- SQLite's own reason when it will not prepare or run (a write among
 --- them), or `writer`'s reason, after the row's number, when it could not
 --- write a row. `refusal_hint` follows SQLite's reason where the
 --- authorizer refused the statement. The lines before a failure have been
---- given by then. `emit` answers false and why when it could not write the line; the
---- statement is stepped no further, and that is the failure answered.
+--- given by then. `emit` returns false and why when it could not write the line; the
+--- statement is stepped no further, and that is the failure returned.
 local function stream(db: Sqlite.Handle, statement: string,
                       emit: function(string): boolean, string, writer?: Writer,
                       refusal_hint?: string): integer?, string
@@ -554,7 +558,7 @@ local store_hint = "; the binary's own database answers a query and a PRAGMA tha
 
 --- Said after a statement that opens with `.`, which SQLite refuses as a
 --- syntax error: it is the sqlite3 shell's command (`.tables`, `.schema`), which
---- no SQL answers, whatever space or SQL comments come before it (a statement
+--- is no SQL, whatever space or SQL comments come before it (a statement
 --- that opens with `--` is read as an option unless `--` ends the options before it); a query of
 --- `sqlite_schema` lists what it would, and, where `build_directory` says the
 --- database is one of the build directory's, `cosmic db` what each table holds.
@@ -614,6 +618,9 @@ local function stem_of(path: string): string
   end
   return stem
 end
+
+--- The extensions a SQLite database is commonly given, lower-cased.
+local DATABASE_EXTENSIONS <const>: {string:boolean} = { db = true, db3 = true, sqlite = true, sqlite3 = true }
 
 --- The `--from`s a command line names, each with the `--as`, `--at` and
 --- `--raw` that follow it and before the next `--from`: `--from a.json --at
@@ -716,10 +723,22 @@ local function read_inputs(parsed: Flags.Parsed): {sql.Input}?, string
           "give --as (" .. table.concat(dataset.names(), ", ") .. ") after its --from -"
       end
       local format, why = dataset.format_of(input_path)
-      if format == nil then
-        return nil, input.label .. ": " .. why .. "; or give --as after its --from"
+      if format ~= nil then
+        input.format = format
+      else
+        -- A file that cannot be read (missing, or not readable) keeps no
+        -- format: its read fails first and names why, as a missing
+        -- `.json`'s does, rather than its extension.
+        local fd, _ = Fs.open_read(input_path)
+        if fd ~= nil then
+          local _, _ = Fs.close(fd)
+          -- A name that says database, on a file that is not one.
+          local extension = (input_path:match("%.([^./]+)$") or ""):lower()
+          local not_one = if DATABASE_EXTENSIONS[extension] == true then
+            "; a SQLite database is read as itself, but this file does not open with its header" else "" end
+          return nil, input.label .. ": " .. why .. "; or give --as after its --from" .. not_one
+        end
       end
-      input.format = format
     end
   end
   return inputs, ""
@@ -814,9 +833,121 @@ local function read_stdin(): string?, string
   return bare.stdin_text("standard input is a terminal; pipe the data in")
 end
 
+--- The bytes every SQLite database file opens with.
+local SQLITE_HEADER <const> = "SQLite format 3\0"
+
+--- Whether `path` is a regular file that opens with the SQLite header:
+--- a database, whatever its extension (`.db`, `.sqlite`, none). A FIFO is
+--- never read, so the look cannot wait.
+local function is_database(path: string): boolean
+  local st, _ = Fs.stat(path)
+  if st == nil or st.kind ~= "file" or st.size < #SQLITE_HEADER then return false end
+  local fd, _ = Fs.open_read(path)
+  if fd == nil then return false end
+  local head, _ = Fs.take(fd, #SQLITE_HEADER)
+  local _, _ = Fs.close(fd)
+  return head == SQLITE_HEADER
+end
+
+--- The database `--db -` reads from standard input, kept in a file of its own, since SQLite opens a
+--- database by its path. Nil and "" when `source` is no "-"; nil and why when the bytes are not a SQLite
+--- database or cannot be kept.
+local function spool_of(source: sql.Source, stdin: function(): string?, string): Flags.Spool?, string
+  if source.path ~= "-" then return nil, "" end
+  local bytes, why = stdin()
+  if bytes == nil then return nil, why end
+  if bytes:sub(1, #SQLITE_HEADER) ~= SQLITE_HEADER then
+    return nil, "standard input is no SQLite database (it does not begin with \"SQLite format 3\"); " ..
+      "--from - loads data from it"
+  end
+  local spool, trouble = Flags.spool(bytes, "stdin.db")
+  if spool == nil then return nil, trouble end
+  return spool, ""
+end
+
+--- The database a line's `--from` names, when it names one: a SQLite file
+--- is read as itself, as `--db` reads it, rather than loaded as data. Nil
+--- and "" when no `--from` names a database, or the line names another
+--- database too, which [`run_from`] refuses; nil and why when the
+--- database is given with what only a data file takes.
+local function from_database(parsed: Flags.Parsed): string?, string
+  local froms = parsed.all["--from"]
+  if froms == nil then return nil, "" end
+  for _, other in ipairs({ "--db", "--build", "--store" }) do
+    if parsed.set[other] == true or parsed.all[other] ~= nil then return nil, "" end
+  end
+  local found: string? = nil
+  local named = false
+  for _, value in ipairs(froms) do
+    local given_name, rest = value:match("^([%w_]+)=(.*)$")
+    local path = rest or value
+    if path ~= "-" and path ~= "" and is_database(path) then
+      found, named = path, given_name ~= nil
+      break
+    end
+  end
+  if found == nil then return nil, "" end
+  local extra: string? = nil
+  if #froms > 1 then
+    extra = "joins no data file: data files load into a database of their own"
+  elseif named then
+    extra = "keeps its own table names, so takes no name="
+  elseif parsed.all["--as"] ~= nil or parsed.all["--at"] ~= nil or parsed.set["--raw"] == true then
+    extra = "takes no --as, --at or --raw, which read a data file"
+  end
+  if extra ~= nil then
+    return nil, found .. " is a SQLite database, which " .. extra .. "; give it alone: --from " .. found
+  end
+  return found, ""
+end
+
+--- What [`describe_database`] found.
+local record Described
+  --- The lines to print.
+  lines: {string}
+  tables: integer
+  views: integer
+end
+
+--- The lines that describe a database's tables and views, for a
+--- statement-less `--from`, `--db` or `--build`, as [`describe`] does
+--- for data files: per table its name and row count, then each column
+--- with its declared type (`-` for none); one that cannot be read says
+--- why in its line. Nil and why when the schema cannot be read.
+local function describe_database(db: Sqlite.Handle): Described?, string
+  local names, trouble = db:text_rows("SELECT name, type FROM sqlite_schema " ..
+      "WHERE type IN ('table', 'view') AND substr(name, 1, 7) <> 'sqlite_' ORDER BY name")
+  if names == nil then return nil, tostring(trouble) end
+  local lines: mut {string} = {}
+  local tables, views = 0, 0
+  for _, row in ipairs(names) do
+    local name = row:text(1)
+    if row:text(2) == "view" then views = views + 1 else tables = tables + 1 end
+    -- One that cannot be read (a view over a dropped table, a virtual
+    -- table of a module not built in) says why, and the rest still list.
+    local counted, count_trouble = db:text_rows("SELECT CAST(count(*) AS TEXT) FROM " .. Sqlite.identifier(name))
+    local first = if counted ~= nil then counted[1] else nil end
+    if first == nil then
+      lines[#lines + 1] = plain(name) .. ": unreadable: " .. plain(tostring(count_trouble))
+    else
+      local count = assert(tonumber(first:text(1)), "count(*) is a number")
+      lines[#lines + 1] = plain(name) .. ": " .. tostring(count) .. (if count == 1 then " row" else " rows" end)
+      local columns, _ = db:text_rows("SELECT name, type FROM pragma_table_info(" .. Sqlite.literal(name) .. ")")
+      local width = 0
+      for _, column in ipairs(columns or {}) do width = math.max(width, #plain(column:text(1))) end
+      for _, column in ipairs(columns or {}) do
+        local column_name, declared = plain(column:text(1)), column:text(2)
+        lines[#lines + 1] = "  " .. column_name .. string.rep(" ", width - #column_name) .. "  " ..
+          (if declared ~= "" then plain(declared) else "-" end)
+      end
+    end
+  end
+  return { lines = lines, tables = tables, views = views }, ""
+end
+
 --- `cosmic sql --from ...`, after `run` has parsed the line: loads each
---- file into an in-memory database, then answers the statement, or the
---- schema when there is none. 2 for a line it cannot read -- and any
+--- file into an in-memory database, then runs the statement, or prints
+--- the schema when there is none. 2 for a line it cannot read -- and any
 --- other option beside `--from`, which names the database instead --
 --- and 1 for a file it cannot read, load or a statement that fails.
 local function run_from(parsed: Flags.Parsed, to: sql.Output,
@@ -921,7 +1052,7 @@ end
 ---   directory when nil
 --- @param output where rows, complaints and the summary go; stdout and
 ---   stderr when nil
---- @param stdin the whole of standard input for `--from -`, or nil and
+--- @param stdin the whole of standard input for `--from -` or `--db -`, or nil and
 ---   why; the process's own when nil
 function sql.run(argv: {string}, root?: string, output?: sql.Output,
                  stdin?: function(): string?, string): integer
@@ -961,12 +1092,21 @@ function sql.run(argv: {string}, root?: string, output?: sql.Output,
     end
     writer = make()
   end
-  if parsed.all["--from"] ~= nil or parsed.all["--as"] ~= nil or parsed.all["--at"] ~= nil or
-      parsed.set["--raw"] == true then
+  local database, database_trouble = from_database(parsed)
+  if database_trouble ~= "" then
+    complain(database_trouble .. "; " .. usage)
+    return 2
+  end
+  if database == nil and (parsed.all["--from"] ~= nil or parsed.all["--as"] ~= nil or
+      parsed.all["--at"] ~= nil or parsed.set["--raw"] == true) then
     return run_from(parsed, to, summarize, complain, stdin or read_stdin, writer)
   end
+  -- A database named by --from, --db or --build is described when no
+  -- statement is given, as a data file is.
+  local describes = #parsed.words == 0 and writer == nil and
+    (database ~= nil or parsed.values["--db"] ~= nil or parsed.set["--build"] == true)
   local statement_text = parsed.words[1]
-  if #parsed.words ~= 1 or statement_text == nil then
+  if not describes and (#parsed.words ~= 1 or statement_text == nil) then
     complain("give one statement, quoted as one argument; " .. usage)
     return 2
   end
@@ -978,11 +1118,23 @@ function sql.run(argv: {string}, root?: string, output?: sql.Output,
     end
     root = here
   end
-  local source, source_trouble = sql.source(root, parsed)
-  if source == nil then
-    complain(source_trouble .. "; " .. usage)
-    return 2
+  local source: sql.Source
+  if database ~= nil then
+    source = { name = database, path = database }
+  else
+    local chosen, source_trouble = sql.source(root, parsed)
+    if chosen == nil then
+      complain(source_trouble .. "; " .. usage)
+      return 2
+    end
+    source = chosen
   end
+  local spool <close>, spool_trouble = spool_of(source, stdin or read_stdin)
+  if spool_trouble ~= "" then
+    complain(spool_trouble)
+    return 1
+  end
+  if spool ~= nil then source = { name = source.name, path = spool.path } end
   local opened, open_trouble = sql.open(source)
   if opened == nil then
     complain(source.name .. ": " .. open_trouble)
@@ -997,6 +1149,30 @@ function sql.run(argv: {string}, root?: string, output?: sql.Output,
           ", not this tool's; reading it as it is, as another tool wrote it")
     end
   end
+  if describes then
+    local described, describe_trouble = describe_database(opened.db)
+    if opened.owned then
+      local _, _ = opened.db:close()
+    end
+    if described == nil then
+      complain(source.name .. ": " .. describe_trouble)
+      return 1
+    end
+    for _, line in ipairs(described.lines) do
+      local written, write_trouble = to.out(line)
+      if not written then
+        complain(source.name .. ": " .. write_trouble)
+        return 1
+      end
+    end
+    local counted = tostring(described.tables) .. (if described.tables == 1 then " table" else " tables" end)
+    if described.views > 0 then
+      counted = counted .. " and " .. tostring(described.views) .. (if described.views == 1 then " view" else " views" end)
+    end
+    summarize(counted .. " from " .. source.name)
+    return 0
+  end
+  statement_text = assert(statement_text, "a line that describes nothing has its statement")
   local hint: string? = nil
   if source.path == nil then hint = store_hint end
   local rows, trouble = stream(opened.db, statement_text, to.out, writer, hint)

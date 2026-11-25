@@ -102,7 +102,7 @@ local function test_a_fresh_cache_entry_is_stamped_once_it_settles(tmp: string)
   assert(stamps(cache) == 1, "a settled entry is stamped")
 end
 
---- Launches with a cache leaf of `mode` made first, answering the launch's
+--- Launches with a cache leaf of `mode` made first, returning the launch's
 --- result and what it said. A launch that is refused exits 126.
 local function launch_with_mode(program: string, tmp: string, name: string, mode: integer): Child.Result, string
   local cache = tmp .. "/" .. name

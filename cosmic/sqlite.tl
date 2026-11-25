@@ -6,7 +6,8 @@
 --- caller wants: a query that yields rows, all at once (`db:rows`) or
 --- one at a time (`db:query`), a statement run once (`db:run`), and a
 --- transaction that rolls back when the work inside it fails
---- (`db:transact`); each answers a [`Failure`] when SQLite refuses.
+--- (`db:transact`); each returns nil or false and a [`Failure`] when
+--- SQLite refuses.
 ---
 --- Parameters are a list of values, one per `?N`, in order; a result
 --- row is read a column at a time by the type the caller expects, from
@@ -75,7 +76,7 @@ end
 --- A row is read a column at a time. A column is its position
 --- from 1; the accessor names the type the caller expects, and a
 --- column of any other type raises, as does a position the row has no
---- column at, so a query that does not answer what the reader assumed
+--- column at, so a query that does not yield what the reader assumed
 --- fails where it is read, not later. A row is no list: it has no
 --- numeric keys, and `#row` is not its length (use `count`). Code the
 --- checker does not see (a cast, an `any`, a Lua chunk) that indexes a row
@@ -87,9 +88,9 @@ end
 ---     local row = rows[1]
 ---     print(row:count(), row:integer(1), row:text(2), row:is_null(3), #row:blob(4))
 ---
---- `rows` and [`Handle.query`] answer rows that keep each column's
---- SQLite type; [`Handle.text_rows`] answers rows whose every column is
---- text.
+--- `rows` returns, and [`Handle.query`] reads, rows that keep each
+--- column's SQLite type; [`Handle.text_rows`] returns rows whose every
+--- column is text.
 local interface Row
   --- The number of columns.
   count: function(Row): integer
@@ -102,7 +103,7 @@ local interface Row
   --- The column of an INTEGER cell. A number, text or NULL cell raises.
   integer: function(Row, integer): integer
   --- The column of an INTEGER or REAL cell, an integer as the nearest
-  --- float (one beyond 2^53 rounds). A REAL cell is answered as stored,
+  --- float (one beyond 2^53 rounds). A REAL cell is returned as stored,
   --- `-0.0` included. Text, a blob or NULL raises.
   number: function(Row, integer): number
   --- The column of a TEXT cell, or of any column of a row from
@@ -119,7 +120,7 @@ local interface Row
   --- or a number as SQLite writes it, the bytes of a text or a blob, and
   --- nil for NULL. It is how a cell of any type is shown.
   as_text: function(Row, integer): string?
-  --- Every column as `text` answers it, in order, as a new list: for a
+  --- Every column as `text` returns it, in order, as a new list: for a
   --- row from [`Handle.text_rows`], its columns. A column of another type
   --- raises.
   texts: function(Row): {string}
@@ -283,12 +284,12 @@ local function cells_of(statement: raw_sqlite.Statement, as_text?: boolean): Row
 end
 
 --- The row `statement` was just stepped to, every column a "text" cell of
---- its bytes, as [`Handle.text_rows`] answers it.
+--- its bytes, as [`Handle.text_rows`] returns it.
 local function texts_of(statement: raw_sqlite.Statement): Row
   return cells_of(statement, true)
 end
 
---- The failure SQLite answered `outcome` with, its codes kept.
+--- The failure SQLite returned as `outcome`, its codes kept.
 local function failed(outcome: raw_sqlite.Outcome): Failure
   local reason = if outcome.reason ~= "" then outcome.reason else "sqlite: the call failed" end
   local kind: Failure.Kind = if outcome.timed_out == true then "timeout" elseif outcome.cancelled == true then
@@ -304,7 +305,7 @@ local BUSY <const> = 5
 local FIRST_PAUSE <const> = 1000000
 local LONGEST_PAUSE <const> = 50000000
 
---- How a call the core answered BUSY without waiting goes on: "again"
+--- How a call the core returned BUSY for without waiting goes on: "again"
 --- once this task has paused, "blocks" where the caller cannot park
 --- (no task of [`Poll.run`], or one being killed), "spent" once the
 --- handle's wait has passed, and "cancelled" where the task was
@@ -385,9 +386,9 @@ end
 -- How an object of this module is made: see the note on objects in
 -- cosmic/stream.tl.
 
---- SQLite's result codes this module answers of its own: a library
---- routine used against its contract, and a parameter at no position the
---- statement has.
+--- SQLite's result codes this module's functions return of their own: a
+--- library routine used against its contract, and a parameter at no
+--- position the statement has.
 local MISUSE <const> = 21
 local RANGE <const> = 25
 local OK <const> = 0
@@ -473,7 +474,7 @@ local class Query
   --- writes it.
   mut ended: boolean
   --- Internal: why stepping failed, nil until it does. No caller reads or
-  --- writes it; [`Query.failure`] answers it.
+  --- writes it; [`Query.failure`] returns it.
   mut failed?: Failure
 
   --- The next row; nil and nil after the last; nil and why when
@@ -516,18 +517,18 @@ local class Query
   --- `each` loop that ran out, nil means every row was read. A `break`,
   --- or a `close` inside the loop, ends it early with no failure of its
   --- own; a statement that writes, closed so, can fail as it commits,
-  --- which this then answers.
+  --- which this then returns.
   function failure(self): Failure?
     return self.failed
   end
 
   --- Finalizes the statement, so the handle can close; the last
   --- row, a failure and a `<close>` variable each do it too. A read
-  --- afterward fails. Answers `true`, or `false` and why the rows
+  --- afterward fails. Returns `true`, or `false` and why the rows
   --- failed ([`Query.failure`]): a write that returns rows
   --- (`INSERT ... RETURNING`) closed before its last row commits here
-  --- in autocommit, and can fail. Closing again answers the same. A
-  --- `<close>` variable drops that answer: close such a write by hand.
+  --- in autocommit, and can fail. Closing again returns the same. A
+  --- `<close>` variable drops that result: close such a write by hand.
   function close(self): (true) | (false, Failure)
     finish(self)
     local failure = self.failed
@@ -561,7 +562,8 @@ local function prepared(handle: raw_sqlite.Handle, sql: string,
                         cached?: boolean): (raw_sqlite.Statement) | (nil, Failure)
   -- The core's `prepare_result` raises for SQL it refuses before SQLite
   -- reads it (a NUL, no statement, more than one), where `prepare`
-  -- answers why; any other raise (a closed handle) `prepare` raises again.
+  -- returns nil and why; any other raise (a closed handle) `prepare`
+  -- raises again.
   -- `cached`, the statement is one the handle kept from a `release` of
   -- the same SQL where it kept one, which skips SQLite's prepare.
   local prepare = handle.prepare_result
@@ -600,7 +602,7 @@ local function prepared(handle: raw_sqlite.Handle, sql: string,
   error(said, 3)
 end
 
---- `sql`, one statement that binds nothing and answers no row, run once
+--- `sql`, one statement that binds nothing and yields no row, run once
 --- on `handle` through its kept statements: nil, or why it failed.
 local function executed(handle: raw_sqlite.Handle, sql: string): Failure?
   local statement, trouble = prepared(handle, sql, nil, true, true)
@@ -665,7 +667,7 @@ local function rewound(statement: raw_sqlite.Statement, row: boolean): Failure?
 end
 
 --- One statement compiled once and run many times with new values, as
---- [`Handle.prepare`] answers it: for a loop that runs the same SQL so
+--- [`Handle.prepare`] returns it: for a loop that runs the same SQL so
 --- often that preparing it each time shows. Each call binds every
 --- parameter from its `values`, as [`Handle.run`]'s contract says, and
 --- leaves the statement rewound with no value bound. Close it when done,
@@ -735,8 +737,9 @@ local class Statement
 
   --- The statement's rows read one at a time, as [`Handle.query`] reads
   --- them. Until the query ends or is closed the statement is running,
-  --- and another call on it answers why ([`Sqlite.MISUSE`]); closing the
-  --- statement first ends the query, whose next read answers why.
+  --- and another call on it fails, saying why ([`Sqlite.MISUSE`]);
+  --- closing the statement first ends the query, whose next read fails,
+  --- saying why.
   function query(self, values?: {raw_sqlite.Param}): (Query) | (nil, Failure)
     local held = held_by_query(self.kept)
     if held ~= nil then return nil, held end
@@ -775,8 +778,8 @@ local class Statement
   end
 end
 
---- An open database, as [`Sqlite.open`] and [`Sqlite.memory`] answer it.
---- Every method that can fail answers `nil` or `false` and a [`Failure`]
+--- An open database, as [`Sqlite.open`] and [`Sqlite.memory`] return it.
+--- Every method that can fail returns `nil` or `false` and a [`Failure`]
 --- with SQLite's codes (`code` and `extended_code`, and the kind
 --- "cancelled" for a wait or call the handle's guard stopped, and
 --- "timeout" for one past [`Handle.time_limit`]). A call on a
@@ -792,8 +795,8 @@ local class Handle
   --- statements in one call, which [`Handle.run`], [`Handle.rows`] and
   --- the others cannot do, since each prepares exactly one statement.
   --- No statement is retried: an earlier statement may already have
-  --- changed the database when a later one fails. SQL holding a NUL
-  --- answers false and why ([`Sqlite.MISUSE`]).
+  --- changed the database when a later one fails. For SQL holding a NUL
+  --- it returns false and why ([`Sqlite.MISUSE`]).
   function exec(self, sql: string): (true) | (false, Failure)
     if sql:find("\0", 1, true) ~= nil then
       return false, Failure.coded("sqlite: the SQL holds a NUL", MISUSE)
@@ -803,24 +806,24 @@ local class Handle
     return true
   end
 
-  --- Runs a statement that yields no rows: it answers `true`, or
+  --- Runs a statement that yields no rows: it returns `true`, or
   --- `false` and why.
   ---
   --- `values` is a dense list of [`Sqlite.Param`] indexed by SQLite's
   --- parameter index, through its highest index: `{ 1, "a" }` for `?1`
   --- and `?2`. Repeated named parameters share an index, and a gap in
   --- `?NNN` numbers still needs an entry (use [`Sqlite.NULL`]). A missing
-  --- entry or a position past the last parameter answers `false` and why
-  --- ([`Sqlite.RANGE`]). A value of no type a parameter takes (a function,
-  --- a malformed [`Sqlite.Value`]) raises, as does a key that is no
-  --- position from 1; the statement is released first.
+  --- entry or a position past the last parameter makes it return `false`
+  --- and why ([`Sqlite.RANGE`]). A value of no type a parameter takes (a
+  --- function, a malformed [`Sqlite.Value`]) raises, as does a key that
+  --- is no position from 1; the statement is released first.
   function run(self, sql: string, values?: {raw_sqlite.Param}): (true) | (false, Failure)
     local statement, trouble = prepared(self.connection, sql, values, false, true)
     if statement == nil then return false, trouble end
     local state = stepped(statement)
     if state == "row" then
       -- A write with RETURNING stopped at its first row commits at this
-      -- reset in autocommit, which answers a failure of the commit.
+      -- reset in autocommit, which returns a failure of the commit.
       local reset = statement:reset_result()
       statement:release()
       if reset.code ~= OK then return false, failed(reset) end
@@ -834,8 +837,8 @@ local class Handle
   --- The first row a query yields, as [`Handle.rows`] reads it: the row,
   --- `nil` alone where the query yields none, or `nil` and why; an
   --- `assert` of a query that yields none fails with no message. A query
-  --- stops at the first row, so rows past it are never read; a write
-  --- with `RETURNING` makes all its changes, and answers its first row.
+  --- stops at the first row, so rows past it are never read; a write with
+  --- `RETURNING` makes all its changes, and its first row is returned.
   --- A failure where the statement commits (a deferred foreign key) is
   --- why. `values` follows [`Handle.run`]'s contract.
   ---
@@ -849,7 +852,7 @@ local class Handle
     local row, failure = step_row(statement, cells_of)
     if row ~= nil then
       -- Stopped before its end, so in autocommit the statement commits at
-      -- this reset, which answers a failure of the commit.
+      -- this reset, which returns a failure of the commit.
       local reset = statement:reset_result()
       statement:release()
       if reset.code ~= OK then return nil, failed(reset) end
@@ -860,7 +863,7 @@ local class Handle
   end
 
   --- Every row a query yields, each a [`Sqlite.Row`] that keeps its
-  --- columns' SQLite types. Answers the rows, or `nil` and why. `values`
+  --- columns' SQLite types. Returns the rows, or `nil` and why. `values`
   --- follows [`Handle.run`]'s contract.
   function rows(self, sql: string, values?: {raw_sqlite.Param}): ({Row}) | (nil, Failure)
     local statement, trouble = prepared(self.connection, sql, values, false, true)
@@ -869,9 +872,9 @@ local class Handle
   end
 
   --- Every row a query yields as `project` makes it: the list of what
-  --- `project` answered for each row in turn, or `nil` and why.
-  --- `project` reads the row's columns (`r:text(1)`) and answers one
-  --- value, never nil, which is how a caller builds a record per row. A
+  --- `project` returned for each row in turn, or `nil` and why.
+  --- `project` reads the row's columns (`r:text(1)`) and returns one
+  --- value, which is how a caller builds a record per row; a nil raises. A
   --- raise inside `project`, such as a column of another type than it
   --- read, leaves nothing open and reaches the caller. `values` follows
   --- [`Handle.run`]'s contract, and is nil where the query takes none.
@@ -946,9 +949,9 @@ local class Handle
   --- `row:text(i)`: SQLite's byte representation is returned for every
   --- value: NULL, empty text and empty blob all become `""`; integers
   --- and floats use SQLite's text formatting; text and blobs remain byte
-  --- strings, including NUL. Such a row answers `kind` as `"text"` for
-  --- every column and [`Row.is_null`] as false, and raises from `integer`,
-  --- `number` and `blob`: read those from [`Handle.rows`].
+  --- strings, including NUL. On such a row `kind` returns `"text"` for
+  --- every column and [`Row.is_null`] returns false, and `integer`,
+  --- `number` and `blob` raise: read those from [`Handle.rows`].
   function text_rows(self, sql: string, values?: {raw_sqlite.Param}): ({Row}) | (nil, Failure)
     local statement, trouble = prepared(self.connection, sql, values, false, true)
     if statement == nil then return nil, trouble end
@@ -1055,9 +1058,9 @@ local class Handle
     return self.connection:in_transaction()
   end
 
-  --- Runs `work` inside a transaction and commits when it answers
-  --- `true`. When `work` answers `false` and a [`Failure`], or the
-  --- commit fails, the transaction rolls back and this answers `false`
+  --- Runs `work` inside a transaction and commits when it returns
+  --- `true`. When `work` returns `false` and a [`Failure`], or the
+  --- commit fails, the transaction rolls back and this returns `false`
   --- and that failure (one that says the work gave no why, where it gave
   --- none). When `work` raises, the transaction rolls back and the same
   --- error is raised again.
@@ -1215,7 +1218,7 @@ local class Handle
   --- task waits so, another task's run or query on the same handle waits
   --- its turn behind it, and its `db:exec` fails [`Sqlite.BUSY`] at once.
   --- These hold the thread while they wait, as outside a task: a step
-  --- after a query's first row, a PRAGMA (a checkpoint answers its busy
+  --- after a query's first row, a PRAGMA (a checkpoint yields its busy
   --- row where the wait is declined), `db:exec`, a commit at the reset
   --- of a statement stopped on a row, [`Handle.wal`] and a borrowed
   --- handle. A write in rollback mode that parks gives up its claim on
@@ -1266,7 +1269,7 @@ local class Handle
   end
 
   --- Closes the connection: true, or false and why, [`Sqlite.BUSY`] as
-  --- SQLite answers it, while a statement or query is still open.
+  --- SQLite returns it, while a statement or query is still open.
   --- Closing one already closed does nothing. A borrowed handle, such as
   --- the store's, only lets go of it.
   function close(self): (true) | (false, Failure)
@@ -1294,23 +1297,12 @@ local class Handle
   --- `"sql_length"`, `"length"`, `"column"`, `"expr_depth"`,
   --- `"compound_select"`, `"vdbe_op"`, `"function_arg"`,
   --- `"like_pattern_length"`, `"variable_number"`, `"trigger_depth"`,
-  --- `"worker_threads"`), and answers the value it had. A negative
+  --- `"worker_threads"`), and returns the value it had. A negative
   --- `value` changes nothing, so it reads the limit. A value above the
   --- library's own ceiling raises, naming the ceiling, as does an
   --- unknown name. `"attached"` starts at 10 and may be raised to 125.
   function limit(self, name: string, value: integer): integer
     return self.connection:limit(name, value)
-  end
-
-  -- TODO: once ci/cosmic-driver.pin names a release with the handle's
-  -- methods, move build/zig.tl's lock to `exec` and delete this and
-  -- [`Sqlite.ExecResult`].
-
-  --- Runs `sql` as [`Handle.exec`] does and answers SQLite's outcome as
-  --- a record: for a script that also runs on a release older than
-  --- [`Handle.exec`]'s failure. Write new code with [`Handle.exec`].
-  function exec_result(self, sql: string): raw_sqlite.ExecResult
-    return self.connection:exec_result(sql)
   end
 
   function __close(self)
@@ -1343,27 +1335,58 @@ local record Column
   hidden: integer
 end
 
---- The user tables of `handle`'s main database, by name.
-local TABLES_SQL <const> = "SELECT name FROM main.sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'"
+--- Each declared type a column was read with, as [`type_spelled`] spells it.
+local spelled_types: mut {string: string} = {}
 
---- The columns of table `name` in `handle`'s main database, in order;
---- an empty list for a table it lacks.
-local function columns_of(handle: Handle, name: string): ({Column}) | (nil, Failure)
-  -- A view's columns are described too: only a table's count.
-  local rows, why = handle:rows('SELECT name, type, "notnull", pk, hidden FROM pragma_table_xinfo(?1, \'main\') ' ..
-      "WHERE EXISTS (SELECT 1 FROM main.sqlite_schema WHERE type = 'table' AND name = ?1 COLLATE NOCASE)", { name })
-  if rows == nil then return nil, why end
-  local columns: mut {Column} = {}
-  for _, row in ipairs(rows) do
-    -- A type reads the same in capitals or not, and with other spaces.
-    local spaced = (row:text(2):upper():gsub("%s+", " "))
-    local typed = (spaced:gsub(" ?([(),]) ?", "%1"):match("^ ?(.-) ?$"))
-    columns[#columns + 1] = {
-      name = row:text(1), declared = typed or "", notnull = row:integer(3) ~= 0, key = row:integer(4),
-      hidden = row:integer(5),
-    }
+--- The declared type `declared` as two that read the same spell it: in capitals, with one space between words and
+--- none at a parenthesis or comma.
+local function type_spelled(declared: string): string
+  local known = spelled_types[declared]
+  if known ~= nil then return known end
+  local spaced = (declared:upper():gsub("%s+", " "))
+  local spelled = (spaced:gsub(" ?([(),]) ?", "%1"):match("^ ?(.-) ?$")) or ""
+  spelled_types[declared] = spelled
+  return spelled
+end
+
+--- The user tables of `handle`'s main database and their columns, read in one statement: the tables' names in order
+--- of name, and each one's columns, in order, by its name in lower case (SQLite's names are without case). With
+--- `only`, the tables of those names alone: a table this process cannot read (a virtual table of a module it lacks) is
+--- then no failure unless it is one of them.
+local function tables_of(handle: Handle, only?: {string}): ({string}, {string: {Column}}) | (nil, Failure)
+  local sql = 'SELECT m.name, p.name, p.type, p."notnull", p.pk, p.hidden ' ..
+    "FROM main.sqlite_schema AS m, pragma_table_xinfo(m.name, 'main') AS p " ..
+    "WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite\\_%' ESCAPE '\\' "
+  local values: {raw_sqlite.Param} = {}
+  if only ~= nil then
+    -- As a JSON array of strings: a name of SQL holds no control character, so `"` and `\` are all to escape.
+    local listed: mut {string} = {}
+    for _, name in ipairs(only) do
+      listed[#listed + 1] = '"' .. (name:gsub('[\\"]', "\\%0")) .. '"'
+    end
+    sql = sql .. "AND lower(m.name) IN (SELECT lower(value) FROM json_each(?1)) "
+    values = { "[" .. table.concat(listed, ",") .. "]" }
   end
-  return columns
+  local rows, why = handle:rows(sql .. "ORDER BY m.name, p.cid", values)
+  if rows == nil then return nil, why end
+  local names: mut {string} = {}
+  local columns: mut {string: mut {Column}} = {}
+  for _, row in ipairs(rows) do
+    local name = row:text(1)
+    local key = name:lower()
+    local found = columns[key]
+    local held: mut {Column} = if found ~= nil then found else {} end
+    if found == nil then
+      columns[key] = held
+      names[#names + 1] = name
+    end
+    local column: Column = {
+      name = row:text(2), declared = type_spelled(row:text(3)), notnull = row:integer(4) ~= 0, key = row:integer(5),
+      hidden = row:integer(6),
+    }
+    held[#held + 1] = column
+  end
+  return names, columns
 end
 
 --- `columns` as the open failure names them: `(id INTEGER PRIMARY KEY 1, body TEXT NOT NULL)`.
@@ -1418,12 +1441,11 @@ local function declared(schema: Schema): SchemaTables
   local _ = handle:limit("attached", 0)
   local ran, why = handle:exec(schema.ddl)
   if not ran then error("sqlite: schema: the DDL fails: " .. tostring(why), 0) end
-  local rows = assert(handle:rows(TABLES_SQL .. " ORDER BY name"))
+  local names, columns = assert(tables_of(handle))
   local found: SchemaTables = { names = {}, columns = {} }
-  for _, row in ipairs(rows) do
-    local name = row:text(1)
+  for _, name in ipairs(names) do
     found.names[#found.names + 1] = name
-    found.columns[name] = assert(columns_of(handle, name))
+    found.columns[name] = assert(columns[name:lower()])
   end
   if #found.names == 0 then error("sqlite: schema: the DDL creates no table", 0) end
   declared_tables[schema] = found
@@ -1462,10 +1484,11 @@ local function hold_schema(handle: Handle, path: string, schema: Schema, writabl
       if not made then return false, made_why end
     end
   end
+  local listed, held = tables_of(handle, wanted.names)
+  if listed == nil then return false, held end
   local differences: mut {string} = {}
   for _, name in ipairs(wanted.names) do
-    local has, why = columns_of(handle, name)
-    if has == nil then return false, why end
+    local has = held[name:lower()] or {}
     local want = assert(wanted.columns[name])
     if #has == 0 then
       differences[#differences + 1] = ("no table %s %s"):format(name, column_list(want))
@@ -1476,21 +1499,18 @@ local function hold_schema(handle: Handle, path: string, schema: Schema, writabl
   end
   if #differences == 0 then return true end
   return false, Failure.new(("sqlite: %s does not hold the schema: %s. A file another program made, or an older " ..
-    "one: open it without the schema to migrate it"):format(path, table.concat(differences, "; ")))
+    "one: migrate it on a handle given no schema ([`Handle.migrate`]), then give it the schema"):format(path, table.concat(differences, "; ")))
 end
 
 local record Sqlite
   --- An open database, as `open` and `memory` return it, with the
   --- methods that query it: `cosmic docs Sqlite.Handle` lists them.
   type Handle = Handle
-  --- One prepared statement, as [`Handle.prepare`] answers it.
+  --- One prepared statement, as [`Handle.prepare`] returns it.
   type Statement = Statement
   --- Internal: whether a statement is closed, which a query on it reads.
   --- No caller outside this module holds one.
   type Kept = Kept
-  --- What [`Handle.exec_result`] answers.
-  type ExecResult = raw_sqlite.ExecResult
-
   --- Successful execution.
   OK: integer
   --- Another connection prevents the operation; extended_code can
@@ -1522,8 +1542,8 @@ local record Sqlite
   --- boolean binds as 1 or 0. A [`Sqlite.Value`] says what SQLite is told
   --- the value is: [`Sqlite.blob`] for bytes, [`Sqlite.NULL`] for SQL
   --- NULL, and the lists that `carray(?N)` reads. A `nil` in the list
-  --- leaves its position with no value, which answers why
-  --- ([`Sqlite.RANGE`]): use [`Sqlite.NULL`].
+  --- leaves its position with no value, which makes the call fail,
+  --- saying why ([`Sqlite.RANGE`]): use [`Sqlite.NULL`].
   type Param = raw_sqlite.Param
 
   --- One tagged parameter value. Its field says what SQLite is told it
@@ -1615,7 +1635,7 @@ end
 
 --- Opens the database file at `path`: read-only unless `opts.writable`
 --- is true, in which case a missing file is created unless `opts.create`
---- is false. Answers the handle, or `nil` and why, with SQLite's codes
+--- is false. Returns the handle, or `nil` and why, with SQLite's codes
 --- ([`Failure`]'s `code` and `extended_code`): [`Sqlite.NOTADB`] for a
 --- file that is no database. `opts` that is not a table raises.
 --- SQLite's special empty and `:memory:` paths still open temporary
@@ -1649,7 +1669,7 @@ end
 --- `opts.defensive = false` turns defensive mode off, for code that
 --- writes the schema itself.
 ---
---- Every handle adds these SQL functions, each answering NULL for a NULL
+--- Every handle adds these SQL functions, each returning NULL for a NULL
 --- argument:
 ---
 --- - `sha256(X)`: the 32-byte digest of a text or blob.
@@ -1663,9 +1683,9 @@ end
 ---   raw-deflated by an older build.
 ---
 --- `handle:limit(name, value)` sets one of the connection's limits and
---- answers the old one. A handle may attach 10 databases
---- (`ATTACH DATABASE`) until `handle:limit("attached", n)` raises that,
---- to at most 125; the refusal of one too many says so.
+--- returns the old one. A handle may attach 10 databases
+--- (`ATTACH DATABASE`) until `handle:limit("attached", n)` sets more,
+--- at most 125; the refusal of one too many says so.
 function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): (Sqlite.Handle) | (nil, Failure)
   local writable, immutable, create = opts and opts.writable, opts and opts.immutable, opts and opts.create
   local held = opts ~= nil and opts.reads_only == true
@@ -1685,7 +1705,8 @@ function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): (Sqlite.Handle) |
   end
   local defensive = not (opts ~= nil and opts.defensive == false)
   -- `open_result` raises for a path it refuses before SQLite reads it (a
-  -- NUL), where `open` answers why; any other raise `open` raises again.
+  -- NUL), where `open` returns nil and why; any other raise `open`
+  -- raises again.
   local called, opened = pcall(sqlite.open_result, path, writable, immutable, create, defensive)
   if not called then
     local handle, why = sqlite.open(path, writable, immutable, create, defensive)
@@ -1723,13 +1744,31 @@ function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): (Sqlite.Handle) |
 end
 
 --- A schema: the tables a database holds, as the DDL that creates
---- them. Give it to [`Sqlite.open`] or [`Sqlite.memory`] as `schema`:
+--- them. A program declares one with `local schema`, which names a
+--- type and a value, and gives the value to [`Sqlite.open`] or
+--- [`Sqlite.memory`] as `schema`:
 ---
----     local Notes <const> = Sqlite.schema([[
+---     local schema Notes [[
 ---       CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL);
 ---       CREATE INDEX notes_body ON notes (body);
----     ]])
+---     ]]
 ---     local db = assert(Sqlite.open("notes.db", { writable = true, schema = Notes }))
+---
+--- The DDL may be written `local schema Notes = A .. B`, which joins
+--- string literals, `<const>` locals of the same block, and the `ddl`
+--- of another schema (`Other.ddl`, `module.Other.ddl`).
+--- The value is a [`Schema`] of the DDL, which the checker has read:
+--- a load of the module runs no database, and the first open or
+--- [`Sqlite.hold`] of it reads its tables. The type, `Notes`, is a
+--- class of the handles that hold its tables: `open` and `memory`
+--- give a `Notes` for `{ schema = Notes }`, as [`Sqlite.hold`] does for
+--- a handle opened without it, and a `Notes` is a
+--- [`Handle`] wherever one is wanted, but a handle is no `Notes`. A
+--- module exports the schema with `type Notes = Notes` in its record,
+--- whose table then holds the value too: another module opens a
+--- handle of it with `{ schema = Store.Notes }`. A field typed
+--- [`Schema`] holds a schema of no known tables, which opens a plain
+--- handle.
 ---
 --- A writable open of a new file (one with no table, index, view or
 --- trigger) runs the DDL on it, in one transaction. Every open then
@@ -1743,22 +1782,57 @@ end
 --- state: to bring an old file to it, open the file without the schema
 --- and [`Handle.migrate`] it.
 ---
---- `schema` runs the DDL once in a memory database, to read the
---- tables, and raises when SQLite refuses it or it creates no table.
+--- The first open or [`Sqlite.hold`] of a schema runs its DDL once in
+--- a memory database, to read the tables, and raises when SQLite
+--- refuses it or it creates no table, as [`Sqlite.schema`] does at once.
 --- So the DDL creates and does nothing else: an `ATTACH` in it fails
 --- there, and a `BEGIN` fails at the open that runs it on a file. The
 --- checker runs the DDL too, and reads the SQL a program sends to a
---- handle opened with the schema against it: a table or column it does
---- not create, or a values list of another length than the SQL binds,
---- is refused where it is written. That holds for a handle held in a
---- local the program never assigns, given the schema in a local of the
---- same module, and SQL that is a literal or joins literals.
+--- handle of the schema's type against it, wherever the handle goes (a
+--- local, a parameter, a field): a table or column it does not create,
+--- or a values list of another length than the SQL binds, is refused
+--- where it is written. So is a read of a row from that SQL past its
+--- last column, or one that raises on every cell its column may hold:
+--- in a `STRICT` table, any read but that of the declared type
+--- (`row:text(1)` of an `INTEGER` column); in another, which keeps a
+--- text it cannot convert in any column, `integer` and `number` of a
+--- text column and `integer` of a `REAL` one. A compound select
+--- (`UNION`) and an expression are not read. SQL is read where it is
+--- a literal or joins literals, until a handle of the schema is sent
+--- SQL that may make a table or attach a database, or is migrated: the
+--- rest of the module reads that schema's SQL no more. SQL sent in
+--- another module is not seen. A row is read where it is a
+--- local given `db:one`, an element of a local given `db:rows`, the
+--- variable of `for _, row in ipairs(rows)`, or the parameter of the
+--- function `db:map` takes.
 function Sqlite.schema(ddl: string): Sqlite.Schema
   if ddl:find("\0", 1, true) ~= nil then error("sqlite: a schema's DDL cannot hold a NUL", 2) end
   local schema: Sqlite.Schema = { ddl = ddl }
   local read, why = pcall(declared, schema)
   if not read then error(why, 2) end
   return schema
+end
+
+--- `db` as a handle of `schema`, once its database holds the tables.
+--- This is what [`Sqlite.open`] does for `{ schema = S }`, for a handle
+--- opened first. On a writable handle of a database with no schema
+--- object, it runs the DDL in one transaction. So a program can set a
+--- pragma that must come before the first table, then hold the schema:
+--- SQLite fixes `page_size`, `auto_vacuum` and `encoding` of a new file
+--- once a transaction writes it. Then each table the DDL creates must
+--- be in the database as `open` checks it, or this fails naming what
+--- differs. A read-only handle, and one held to queries
+--- ([`Handle.reads_only`]), only check. The checker reads the answer as
+--- a handle of `schema`'s type where `schema` is a `local schema`. It
+--- is `db` itself, so closing either closes both.
+---
+---     local db = assert(Sqlite.open(path, { writable = true }))
+---     assert(db:exec("PRAGMA page_size = 4096"))
+---     local notes = assert(Sqlite.hold(db, Notes))
+function Sqlite.hold(db: Sqlite.Handle, schema: Sqlite.Schema): (Sqlite.Handle) | (nil, Failure)
+  local holds, why = hold_schema(db, "the database", schema, not db.connection:read_only())
+  if not holds then return nil, why end
+  return db
 end
 
 --- `bytes` as a parameter value that binds as a blob: a plain string
@@ -1798,10 +1872,11 @@ end
 --- SQLite has a connection used by the process that opened it alone: a
 --- copy holds none of its locks, and shares its descriptors. So a copy that
 --- reads a database opens it again. Every handle and statement opened
---- before raises on any use after, saying so, and its close answers as one
---- that closed while closing nothing; one opened after is the process's
---- own. The connections of the program's store are not disowned: the
---- runtime reads its modules through them, in a copy as in the process.
+--- before raises on any use after, saying so, and its close acts as if it
+--- closed, and closes nothing (a handle's returns true); one opened after
+--- is the process's own. The connections of the program's store are not
+--- disowned: the runtime reads its modules through them, in a copy as in
+--- the process.
 function Sqlite.disown()
   sqlite.disown()
 end
@@ -1817,44 +1892,6 @@ end
 --- caller uses it.
 function Sqlite.borrowed(connection: Sqlite.Connection): Handle
   return handle_of(connection)
-end
-
--- TODO: once ci/cosmic-driver.pin names a release with the handle's
--- methods, move the callers in ci/, build/perf.tl and
--- eval/check/grade.tl to them and delete these six, which those files
--- call on the pinned release.
-
---- [`Handle.run`] of `handle`, for ci/.
-function Sqlite.run(handle: Handle, sql: string, values?: {raw_sqlite.Param}): (true) | (false, Failure)
-  return handle:run(sql, values)
-end
-
---- [`Handle.rows`] of `handle`, for ci/.
-function Sqlite.rows(handle: Handle, sql: string, values?: {raw_sqlite.Param}): ({Row}) | (nil, Failure)
-  return handle:rows(sql, values)
-end
-
---- [`Handle.map`] of `handle`, for ci/.
-function Sqlite.map<T>(handle: Handle, sql: string, values: {raw_sqlite.Param}?,
-                       project: function(Row): T): ({T}) | (nil, Failure)
-  return handle:map(sql, values, project)
-end
-
---- [`Handle.query`] of `handle`, for ci/.
-function Sqlite.query(handle: Handle, sql: string, values?: {raw_sqlite.Param}): (Query) | (nil, Failure)
-  return handle:query(sql, values)
-end
-
---- [`Handle.text_rows`] of `handle`, for ci/ and the files the pinned
---- release runs.
-function Sqlite.text_rows(handle: Handle, sql: string, values?: {raw_sqlite.Param}): ({Row}) | (nil, Failure)
-  return handle:text_rows(sql, values)
-end
-
---- [`Handle.transact`] of `handle`, for ci/.
-function Sqlite.transact(handle: Handle,
-                         work: function(): (true) | (false, Failure), begin?: Begin): (true) | (false, Failure)
-  return handle:transact(work, begin)
 end
 
 Sqlite.OK = OK

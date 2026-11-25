@@ -1,3 +1,4 @@
+local type Failure = require("cosmic.failure")
 local unix_socket = require("build.unix_socket")
 local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
@@ -81,7 +82,10 @@ local function test_a_connection_held_by_a_close_local_is_closed_with_its_scope(
   local chunk, why = kept:read()
   assert(chunk == nil and tostring(why) == "net: the connection is closed", why)
   assert(assert(Stream.read_all(client)) == "sent")
-  assert(kept:close(), "a second close is as safe as the first")
+  do
+    local again, again_why = kept:close()
+    assert(again, "a second close is as safe as the first: " .. tostring(again_why))
+  end
 end
 
 --- A write larger than the socket holds goes out whole, waiting as the
@@ -91,9 +95,9 @@ local function test_a_write_waits_while_the_peer_does_not_read()
   local client, accepted = p.client, p.accepted
   client:set_timeout(Clock.ms(50))
   local ok, why = client:write(string.rep("x", 16 * 1024 * 1024))
-  assert(not ok and why == Poll.TIMEOUT, why)
+  assert(not ok and tostring(why) == Poll.TIMEOUT, why)
   local again, sticky = client:write("more")
-  assert(not again and sticky == Poll.TIMEOUT, sticky)
+  assert(not again and tostring(sticky) == Poll.TIMEOUT, sticky)
   local got = chunk_of(accepted, 10)
   assert(got == string.rep("x", #got) and #got <= 10)
 end
@@ -201,8 +205,8 @@ local function full(path: string): Full
 end
 
 --- What connecting to a full listener at `path` fails with: on Linux,
---- saying the listener is busy, told from "Connection refused", which
---- a listener gone answers; macOS cannot tell the two apart.
+--- saying the listener is busy, told from "Connection refused", the
+--- failure for a listener gone; macOS cannot tell the two apart.
 local function busy(path: string): string
   if assert(sys.uname()).sysname == "Darwin" then return path .. ": Connection refused" end
   return path .. ": Resource temporarily unavailable (the listener is busy: its backlog is full)"
@@ -254,9 +258,9 @@ local function test_a_write_to_a_closed_peer_fails()
   local client, accepted = p.client, p.accepted
   assert(accepted:close())
   local ok, why = client:write(string.rep("x", 1024 * 1024))
-  assert(not ok and why ~= "", why)
+  assert(not ok and tostring(why) ~= "", why)
   local again, sticky = client:write("x")
-  assert(not again and sticky == why, sticky)
+  assert(not again and tostring(sticky) == tostring(why), sticky)
 end
 
 local function test_a_closed_connection_says_so_and_closes_again()
@@ -269,7 +273,7 @@ local function test_a_closed_connection_says_so_and_closes_again()
   local data, why = client:read()
   assert(data == nil and tostring(why) == "net: the connection is closed", why)
   local ok, trouble = client:write("x")
-  assert(not ok and trouble == "net: the connection is closed", trouble)
+  assert(not ok and tostring(trouble) == "net: the connection is closed", trouble)
   local shut, shut_trouble = client:shutdown("write")
   assert(not shut and shut_trouble == "net: the connection is closed", shut_trouble)
 end
@@ -315,7 +319,7 @@ local function test_a_wait_for_the_peer_to_go_ends_at_its_end_and_not_at_its_byt
       answered, ended_ns = gone, Clock.monotonic_ns()
     end)
     assert(client:write("pipelined"))
-    assert(Poll.delay(Clock.ms(100)))
+    assert(Clock.sleep(Clock.ms(100)))
     assert(answered == nil, "the peer's bytes ended the wait")
     local shut_ns = Clock.monotonic_ns()
     assert(client:shutdown("write"))
@@ -338,7 +342,7 @@ local function test_a_wait_for_the_peer_to_go_fails_once_closed_here()
       local gone, why = accepted:wait_gone()
       if not gone then failure = why.message end
     end)
-    assert(Poll.delay(Clock.ms(20)))
+    assert(Clock.sleep(Clock.ms(20)))
     assert(accepted:close())
     assert(waiter:join(Clock.seconds(5)))
     assert(failure == "net: the connection is closed", failure)
@@ -368,7 +372,7 @@ local function test_a_closed_connection_has_no_peer()
   assert(address == nil and why == "net: the connection is closed", why)
 end
 
---- A unix connection has no TCP address to give: it answers nil and
+--- A unix connection has no TCP address to give: it returns nil and
 --- why, rather than a made-up address.
 local function test_a_unix_connection_has_no_peer_address(tmp: string)
   unix_socket.skip_if_refused(tmp)
@@ -404,7 +408,7 @@ local function test_a_closed_connection_has_no_own_address()
 end
 
 --- A unix connection has no TCP address to give, at either end: it
---- answers nil and why, rather than a made-up address.
+--- returns nil and why, rather than a made-up address.
 local function test_a_unix_connection_has_no_own_address(tmp: string)
   unix_socket.skip_if_refused(tmp)
   local server <close> = assert(Net.listen(Net.unix(tmp .. "/b.sock")))
@@ -654,8 +658,8 @@ end
 
 --- In a task of Poll.run, a server serves each connection in a task of
 --- its own: three clients hold their connections open at once, and the
---- server answers the last to connect first, which a server whose reads
---- held the thread could never do.
+--- server replies to the last to connect first, which a server whose
+--- reads held the thread could never do.
 local function test_in_a_run_a_server_serves_connections_at_once()
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
   local answered: mut {string} = {}
@@ -770,7 +774,7 @@ local function test_a_write_to_a_slow_reader_times_out_in_all()
   p.client:set_timeout(Clock.ms(300))
   local done = false
   local took: integer = 0
-  local why: string = ""
+  local why: Failure? = nil
   Poll.run(function()
     Poll.spawn(function()
       local start = Clock.monotonic_ns()
@@ -783,11 +787,12 @@ local function test_a_write_to_a_slow_reader_times_out_in_all()
     Poll.spawn(function()
       while not done do
         local _, _ = p.accepted:read(64 * 1024)
-        local _, _ = Poll.delay(Clock.ms(5))
+        local _, _ = Clock.sleep(Clock.ms(5))
       end
     end)
   end)
-  assert(why == Poll.TIMEOUT, why)
+  local failure = assert(why)
+  assert(failure.kind == "timeout", tostring(failure))
   -- At 13 MB a second the 64 MiB would take 5 seconds.
   assert(took < Clock.seconds(2), ("the write took %d ms"):format(took // 1000000))
 end

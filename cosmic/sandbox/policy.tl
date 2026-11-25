@@ -1,6 +1,6 @@
 --- The policy layer cosmic.sandbox and cosmic.sandbox.seatbelt share: the types
 --- of a policy, the check of its values, the profiles it names and the
---- merge of policies into one. Use [`cosmic.sandbox`], which answers all of
+--- merge of policies into one. Use [`cosmic.sandbox`], which offers all of
 --- it under its own name and documents it there. Apart from cosmic.sandbox
 --- only so that cosmic.sandbox.seatbelt, which cosmic.sandbox requires, can require
 --- this.
@@ -9,7 +9,6 @@ local FieldPath = require("cosmic.internal.field_path")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Loopback = require("cosmic.internal.loopback")
-local Proc = require("cosmic.proc")
 local Grant = require("cosmic.relay.grant")
 local RelayConfig = require("cosmic.internal.relay_config")
 local sys = require("cosmic.sys")
@@ -40,8 +39,8 @@ local record rules
     "nest"
   end
 
-  --- One path a program may reach, and how.
-  record Grant
+  --- One path a program may reach, and how: a [`rules.Grant`] that names a `path`.
+  record Path
     --- The path as the program sees it, relative to the directory it
     --- runs in. It must exist when the program starts.
     path: string
@@ -60,6 +59,28 @@ local record rules
     --- file or directory under another name. Needs `isolate` file.
     from?: string
   end
+
+  --- System calls a program may make beyond its basics, as a [`rules.Grant`]: `{ calls = "fork" }`.
+  record Calls
+    --- Which ones ([`rules.Promise`]).
+    calls: rules.Promise
+  end
+
+  --- A host a program may reach through the sandbox's relay, as a [`rules.Grant`]: `{ connect = "github.com:443" }`.
+  record Connect
+    --- The target, "host:port", where the host or the port is "*" for any. A host is a DNS name, an IPv4 address or
+    --- an IPv6 address in brackets, and a name is read lower-case without a final dot; a pattern, an underscore and
+    --- anything else the relay's readers refuse is refused here too ([`cosmic.relay.grant`]). A target may name nodes
+    --- of the machine's tailnet instead: `tag:db:5432` grants every address of each peer tagged `tag:db`, and
+    --- `user:will@example.com:*` of each untagged peer that user owns, as tailscaled lists them when the sandbox
+    --- starts ([`cosmic.sandbox.tailnet`]).
+    connect: string
+  end
+
+  --- One thing a program may do: reach a path (`{ path = "data", letters = "r" }`, [`rules.Path`]), make system
+  --- calls beyond its basics (`{ calls = "fork" }`, [`rules.Calls`]), or reach a host (`{ connect = "github.com:443" }`,
+  --- [`rules.Connect`]). Each is told by the field it alone has.
+  type Grant = Path | Calls | Connect
 
   --- Resource limits on every process the program starts. Nil is the
   --- start's default: 1024 open files, no core dump, and under `isolate`
@@ -83,26 +104,15 @@ local record rules
   --- What a program is held to; every field is optional, and what a policy
   --- leaves out it does not have.
   record Policy
-    --- Named policies to join in, by [`Sandbox.merge`]: "system", "programs", "cosmic", "proc".
+    --- Named policies to join in, by [`Sandbox.union`]: "system", "programs", "proc".
     profiles?: {string}
-    --- The paths the program reaches.
+    --- What the program may do: the paths it reaches, the system calls it may make beyond its basics, and the hosts it
+    --- reaches.
     grants?: {Grant}
     --- How far it is isolated from the host. With "file", a writable grant on a tree that user does not own (`/etc`
     --- as `rwc`, say) is mounted so that it is the tree's owner there: it
     --- writes the owner's files, root's included, through that mount.
     isolate?: {Isolate}
-    --- The system calls it may make beyond its basics.
-    promises?: {Promise}
-    --- The hosts it may reach, "host:port", where the host or the port is
-    --- "*" for any. A host is a DNS name, an IPv4 address or an IPv6 address
-    --- in brackets, and a name is read lower-case without a final dot; a
-    --- pattern, an underscore and anything else the relay's readers refuse
-    --- is refused here too ([`cosmic.relay.grant`]). A target may name
-    --- nodes of the machine's tailnet instead: `tag:db:5432` grants every
-    --- address of each peer tagged `tag:db`, and `user:will@example.com:*`
-    --- of each untagged peer that user owns, as tailscaled lists them when
-    --- the sandbox starts ([`cosmic.sandbox.tailnet`]).
-    connect?: {string}
     --- The addresses of 127/8 it uses inside its own network.
     loopback?: {string}
     --- The variables passed through from the caller's environment.
@@ -164,8 +174,7 @@ local record rules
     --- file read-only and the core, and refuses a grant that reaches this
     --- program's own file, which holds modules the database leaves out.
     --- [`Sandbox.restrict`] refuses it: a running process cannot change
-    --- its program. The "cosmic" profile adds nothing beside it, since its
-    --- grant is of that program's file; two different databases do not
+    --- its program. Two different databases do not
     --- merge. The "system" profile cannot be joined with it where this
     --- program is installed under a directory the profile grants (/usr):
     --- the grant reaches the program's own file, and the start fails, naming
@@ -178,7 +187,7 @@ local record rules
   --- A database a policy names: its absolute `path`, and the SHA-256 of
   --- its bytes (`sha256`, 64 lowercase hex digits) where the policy is to
   --- run only on a file of that digest. The two travel together through
-  --- copies, [`Sandbox.merge`] and [`PolicyJson.encode`], so a digest is never
+  --- copies, [`Sandbox.union`] and [`PolicyJson.encode`], so a digest is never
   --- apart from the path it was taken at. With no `sha256` the policy
   --- names a file and not its content: [`Sandbox.database`] takes the
   --- digest of one now.
@@ -190,8 +199,8 @@ local record rules
   end
 end
 
---- What a failure of this module answers: nil and `why` under the name
---- "sandbox", as [`cosmic.sandbox`]'s own failures are.
+--- What a function returns for a failure of this module: nil and `why`
+--- under the name "sandbox", as [`cosmic.sandbox`]'s own failures are.
 local function refuse(why: string): nil, string
   return nil, "sandbox: " .. why
 end
@@ -221,7 +230,13 @@ local function env_name_ok(name: string): boolean
   return name ~= "" and not name:find("=", 1, true) and not name:find("\0", 1, true)
 end
 
-local PROFILES <const>: {string} = { "cosmic", "proc", "programs", "system" }
+local PROFILES <const>: {string} = { "proc", "programs", "system" }
+
+--- Why "cosmic", a profile no more, is none: what to write in its place.
+local NO_COSMIC <const> = "there is no profile \"cosmic\": a start of this program runs its core with no grant, " ..
+  "as it runs any program with what it needs to start; a program that runs this program again grants its file by name"
+
+local PROMISES <const>: {string} = { "fattr", "fork", "jit", "nest" }
 
 local function listed(name: string, names: {string}): boolean
   for _, known in ipairs(names) do
@@ -274,14 +289,43 @@ local function invalid(p: rules.Policy, exact: boolean): string
     return path_of(steps) .. ": " .. why
   end
   for i, name in ipairs(p.profiles or {}) do
+    if name == "cosmic" then return at({ "profiles", i }, NO_COSMIC) end
     if not listed(name, PROFILES) then
       return at({ "profiles", i }, "unknown profile \"" .. name .. "\" (known: " ..
           table.concat(PROFILES, ", ") .. ")")
     end
   end
+  local connects: mut {string} = {}
   for i, grant in ipairs(p.grants or {}) do
+    if grant is rules.Connect then
+      local target = grant.connect
+      local tailnet, wrong = Grant.tailnet(target)
+      if tailnet == nil and wrong ~= "" then
+        return at({ "grants", i, "connect" }, "\"" .. target .. "\" is not a tailnet target: " .. wrong ..
+            " (tag:<tag>:<port> or user:<login>:<port>, the port from 1 to 65535 or \"*\" for any)")
+      end
+      local why = ""
+      if tailnet == nil then
+        local _, wrong_target = Grant.parse(target)
+        why = wrong_target
+      end
+      if why ~= "" then
+        return at({ "grants", i, "connect" }, "\"" .. target .. "\" is not a target the relay can use: " ..
+            why .. " (host:port, the host a name, an IPv4 address, an IPv6 address in " ..
+            "brackets or \"*\" for any name, the port from 1 to 65535 or \"*\" for any)")
+      end
+      connects[#connects + 1] = target
+      continue
+    end
+    if grant is rules.Calls then
+      if not listed(grant.calls, PROMISES) then
+        return at({ "grants", i, "calls" }, "unknown calls \"" .. tostring(grant.calls) .. "\" (known: " ..
+            table.concat(PROMISES, ", ") .. ")")
+      end
+      continue
+    end
     if grant.path == nil or grant.path == "" or grant.path:find("\0", 1, true) ~= nil then -- checked: compare_disjoint
-      return at({ "grants", i, "path" }, "a path is not empty and holds no NUL")
+      return at({ "grants", i, "path" }, "a grant names a path that is not empty and holds no NUL, or calls")
     end
     for segment in grant.path:gmatch("[^/]+") do
       if segment == ".." then
@@ -301,29 +345,12 @@ local function invalid(p: rules.Policy, exact: boolean): string
       return at({ "grants", i, "from" }, "a host path is not empty and holds no NUL")
     end
   end
-  for i, target in ipairs(p.connect or {}) do
-    local tailnet, wrong = Grant.tailnet(target)
-    if tailnet == nil and wrong ~= "" then
-      return at({ "connect", i }, "\"" .. target .. "\" is not a tailnet target: " .. wrong ..
-          " (tag:<tag>:<port> or user:<login>:<port>, the port from 1 to 65535 or \"*\" for any)")
-    end
-    local why = ""
-    if tailnet == nil then
-      local _, wrong_target = Grant.parse(target)
-      why = wrong_target
-    end
-    if why ~= "" then
-      return at({ "connect", i }, "\"" .. target .. "\" is not a target the relay can use: " ..
-          why .. " (host:port, the host a name, an IPv4 address, an IPv6 address in " ..
-          "brackets or \"*\" for any name, the port from 1 to 65535 or \"*\" for any)")
-    end
-  end
   for i, address in ipairs(p.loopback or {}) do
     if not Loopback.ipv4(address) then
       return at({ "loopback", i }, "\"" .. address .. "\" is not an address of 127/8")
     end
   end
-  local conflict = loopback_conflict(p.loopback or {}, p.connect or {}, false)
+  local conflict = loopback_conflict(p.loopback or {}, connects, false)
   if conflict ~= "" then return conflict end
   for i, name in ipairs(p.env or {}) do
     if not env_name_ok(name) then
@@ -558,25 +585,9 @@ local function present(path: string): boolean
   return found ~= nil
 end
 
---- The "cosmic" profile: `rx` on what [`Proc.executable`] names, which is
---- the path this program is started by: under a development build or a
---- portable artifact that is the launcher (a `#!/bin/sh` script) or the
---- artifact, not the native core the launcher runs. [`Child.start`] runs
---- that path, where a policy grants it, as its core, by a relaunch, which
---- needs neither the launcher's shell nor a cache to unpack a core into;
---- a process that runs the path itself (a shell under the policy) runs
---- the launcher, which needs both.
-local function cosmic_profile(): rules.Policy?, string
-  local path, why = Proc.executable()
-  if path == nil then
-    return refuse("profile \"cosmic\": this process has no executable: " .. tostring(why))
-  end
-  return { grants = { { path = path, letters = "rx" } } }, ""
-end
-
 --- The "proc" profile: `r` on the host's /proc where there is one (Linux),
 --- the kernel's process information, and nothing on macOS, where sysctl
---- answers with no file to grant. As the "system" profile does, it grants
+--- reports it with no file to grant. As the "system" profile does, it grants
 --- only a path the host has, so a Linux host with no /proc mounted gets none.
 local function proc_profile(): rules.Policy
   if rules.on_macos() or not present("/proc") then return {} end
@@ -590,7 +601,7 @@ function rules.profile(name: string): rules.Policy?, string
   if name == "system" or name == "programs" then
     return rules.system_profile(if rules.on_macos() then "darwin" else "linux" end, present, name), ""
   end
-  if name == "cosmic" then return cosmic_profile() end
+  if name == "cosmic" then return refuse(NO_COSMIC) end
   return refuse("unknown profile \"" .. tostring(name) .. "\" (known: " ..
       table.concat(PROFILES, ", ") .. ")")
 end
@@ -603,27 +614,45 @@ function rules.database(path: string): rules.Database?, string
   return { path = path, sha256 = Hash.hex_sha256(bytes) }, ""
 end
 
---- What the policies given hold together: [`Sandbox.merge`], which says
+--- The grants of `p` that name a path, in its order.
+function rules.paths(p: rules.Policy): {rules.Path}
+  local out: mut {rules.Path} = {}
+  for _, grant in ipairs(p.grants or {}) do
+    if grant is rules.Path then out[#out + 1] = grant end
+  end
+  return out
+end
+
+--- The hosts the grants of `p` reach, "host:port", in its order.
+function rules.connects(p: rules.Policy): {string}
+  local out: mut {string} = {}
+  for _, grant in ipairs(p.grants or {}) do
+    if grant is rules.Connect then out[#out + 1] = grant.connect end
+  end
+  return out
+end
+
+--- The system calls the grants of `p` give beyond a program's basics, in its order.
+function rules.calls(p: rules.Policy): {rules.Promise}
+  local out: mut {rules.Promise} = {}
+  for _, grant in ipairs(p.grants or {}) do
+    if grant is rules.Calls then out[#out + 1] = grant.calls end
+  end
+  return out
+end
+
+--- What the policies given hold together: [`Sandbox.union`], which says
 --- how.
 function rules.merge(...: rules.Policy): rules.Policy?, string
   local flat: mut {rules.Policy} = {}
   local given: {rules.Policy} = { ... }
-  local on_database = false
-  for _, p in ipairs(given) do
-    if p.database ~= nil then on_database = true end
-  end
   for _, p in ipairs(given) do
     local bad = invalid(p, false)
     if bad ~= "" then return refuse(bad) end
     for _, name in ipairs(p.profiles or {}) do
-      -- The program on a database is a core and that file, which a start
-      -- grants: the profile's grant of this program's own file is
-      -- none of it, and one a start refuses.
-      if not (on_database and name == "cosmic") then
-        local profile, why = rules.profile(name)
-        if profile == nil then return nil, why end
-        flat[#flat + 1] = profile
-      end
+      local profile, why = rules.profile(name)
+      if profile == nil then return nil, why end
+      flat[#flat + 1] = profile
     end
     flat[#flat + 1] = p
   end
@@ -656,6 +685,14 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
       database = { path = at, sha256 = digest or (database and database.sha256) }
     end
     for _, grant in ipairs(p.grants or {}) do
+      if grant is rules.Connect then
+        connect = sorted_set(connect, { grant.connect })
+        continue
+      end
+      if grant is rules.Calls then
+        promises = sorted_set(promises, { grant.calls })
+        continue
+      end
       local at = clean_path(grant.path)
       local key = at .. "\0" .. (grant.from or "")
       local held = joined[key]
@@ -667,8 +704,6 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
       for i = 1, #grant.letters do held.letters[grant.letters:sub(i, i)] = true end
     end
     isolate = sorted_set(isolate, p.isolate or {})
-    promises = sorted_set(promises, p.promises or {})
-    connect = sorted_set(connect, p.connect or {})
     loopback = sorted_set(loopback, p.loopback or {})
     env = sorted_set(env, p.env or {})
     for name, value in pairs(p.set_env or {}) do
@@ -704,7 +739,7 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
     limits.processes = own.processes or limits.processes
     if why ~= "" then return refuse(why) end
   end
-  local grants: mut {rules.Grant} = {}
+  local paths: mut {rules.Path} = {}
   for _, held in ipairs(order) do
     local letters: mut {string} = {}
     for letter in pairs(held.letters) do letters[#letters + 1] = letter end
@@ -713,12 +748,17 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
     if canonical == nil then
       return refuse(path_of({ "grants" }) .. ": the grant of " .. held.path .. " holds no letter of \"" .. LETTERS .. "\"")
     end
-    grants[#grants + 1] = { path = held.path, from = held.from, letters = canonical }
+    paths[#paths + 1] = { path = held.path, from = held.from, letters = canonical }
   end
-  table.sort(grants, function(a: rules.Grant, b: rules.Grant): boolean
+  table.sort(paths, function(a: rules.Path, b: rules.Path): boolean
     if a.path ~= b.path then return a.path < b.path end
     return (a.from or "") < (b.from or "")
   end)
+  -- The paths in order, then the calls in theirs.
+  local grants: mut {rules.Grant} = {}
+  for _, grant in ipairs(paths) do grants[#grants + 1] = grant end
+  for _, promise in ipairs(promises) do grants[#grants + 1] = { calls = promise } end
+  for _, target in ipairs(connect) do grants[#grants + 1] = { connect = target } end
   -- `file` implies `proc`: written out, so the two spellings are one policy.
   local implied: rules.Isolate = "proc"
   local has_file, has_proc = false, false
@@ -736,8 +776,8 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
   local conflict = loopback_conflict(loopback, connect, true)
   if conflict ~= "" then return refuse(conflict) end
   local result: rules.Policy = {
-    grants = grants, isolate = isolate, promises = promises,
-    connect = connect, loopback = loopback, env = env, set_env = set_env,
+    grants = grants, isolate = isolate,
+    loopback = loopback, env = env, set_env = set_env,
     set_env_digests = digests, tmp = tmp, limits = limits,
     user = user, group = group, database = database,
   }
@@ -847,8 +887,8 @@ end
 --- What two merged policies hold stacked: what both allow.
 local function intersect_two(a: rules.Policy, b: rules.Policy): rules.Policy?, string
   local grants: mut {rules.Grant} = {}
-  for _, ga in ipairs(a.grants or {}) do
-    for _, gb in ipairs(b.grants or {}) do
+  for _, ga in ipairs(rules.paths(a)) do
+    for _, gb in ipairs(rules.paths(b)) do
       if ga.from ~= nil or gb.from ~= nil then
         if ga.path == gb.path and ga.from ~= gb.from then
           return refuse(path_of({ "grants" }) .. ": " .. ga.path .. " is mapped from two host paths, " ..
@@ -872,11 +912,13 @@ local function intersect_two(a: rules.Policy, b: rules.Policy): rules.Policy?, s
       end
     end
   end
-  local connect: mut {string} = {}
-  for _, ta in ipairs(a.connect or {}) do
-    for _, tb in ipairs(b.connect or {}) do
+  for _, promise in ipairs(common(rules.calls(a), rules.calls(b))) do
+    grants[#grants + 1] = { calls = promise }
+  end
+  for _, ta in ipairs(rules.connects(a)) do
+    for _, tb in ipairs(rules.connects(b)) do
       local met = meet_targets(ta, tb)
-      if met ~= nil then connect[#connect + 1] = met end
+      if met ~= nil then grants[#grants + 1] = { connect = met } end
     end
   end
   local function shown(value: integer?): string?
@@ -905,7 +947,6 @@ local function intersect_two(a: rules.Policy, b: rules.Policy): rules.Policy?, s
   -- one user, group and database, refused where the two disagree.
   local result: rules.Policy = {
     grants = grants, isolate = sorted_set(a.isolate or {}, b.isolate or {}),
-    promises = common(a.promises or {}, b.promises or {}), connect = connect,
     loopback = common(a.loopback or {}, b.loopback or {}), env = common(a.env or {}, b.env or {}),
     set_env = a.set_env, set_env_digests = a.set_env_digests, limits = limits,
     tmp = a.tmp == true and b.tmp == true, user = a.user or b.user, group = a.group or b.group,
@@ -941,7 +982,7 @@ function rules.allows(p: rules.Policy, path: string, letters: string): boolean, 
   end
   local at = clean_path(path)
   local missing = letters
-  for _, grant in ipairs(p.grants or {}) do
+  for _, grant in ipairs(rules.paths(p)) do
     if within(at, clean_path(grant.path)) then
       missing = missing:gsub("[" .. grant.letters .. "]", "")
     end
@@ -954,9 +995,14 @@ end
 --- merged policy as once its tailnet targets are resolved
 --- ([`cosmic.sandbox.tailnet`]).
 function rules.with_connect(p: rules.Policy, connect: {string}): rules.Policy
+  local grants: mut {rules.Grant} = {}
+  for _, grant in ipairs(p.grants or {}) do
+    if not grant is rules.Connect then grants[#grants + 1] = grant end
+  end
+  for _, target in ipairs(connect) do grants[#grants + 1] = { connect = target } end
   local result: rules.Policy = {
-    grants = p.grants, isolate = p.isolate, promises = p.promises,
-    connect = connect, loopback = p.loopback, env = p.env, set_env = p.set_env,
+    grants = grants, isolate = p.isolate,
+    loopback = p.loopback, env = p.env, set_env = p.set_env,
     set_env_digests = p.set_env_digests, tmp = p.tmp, limits = p.limits,
     user = p.user, group = p.group, database = p.database, profiles = p.profiles,
   }

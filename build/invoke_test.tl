@@ -26,7 +26,7 @@ end
 local function test_what_only_a_process_can_do_raises(tmp: string)
   local exit, execve, attach = sys.exit, sys.execve, Store.attach
   local here = assert(sys.getcwd())
-  --- Whether [`invoke.run`] raised, and what it raised or, where it did not, what it answered: a result's `tostring` is a
+  --- Whether [`invoke.run`] raised, and what it raised or, where it did not, what it returned: a result's `tostring` is a
   --- table's address, which says nothing of why the call did not raise.
   local function attempt(args: {string}): boolean, string
     local answered: mut {invoke.Result} = {}

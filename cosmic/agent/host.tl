@@ -1,12 +1,17 @@
 --- @public
 --- What a snippet that cosmic agent's `run` tool runs asks of the agent itself: the calls the worker cannot make in
---- its sandbox, which the agent answers in its own process. Each call goes out to the agent as a line beside the
---- snippet's answer, and the snippet waits for the reply; the agent checks each call as it checks a tool's input, and
---- answers only what it serves. Each call of Host raises where it fails, with a message that begins "host:", so a
---- snippet reads its value with no assert:
+--- its sandbox, which the agent serves in its own process. Each call goes out to the agent as a line beside the
+--- worker's response line, and the snippet waits for the reply; the agent checks each call as it checks a tool's input, and
+--- serves only what it offers.
+---
+--- [`Host.call`] returns a failure. [`Host.describe`], [`Host.declaration`], [`Host.modules`] and [`Host.docs`]
+--- return a plain string to print, which says why where they fail. [`Host.sort`] and [`Host.sort_by`] raise what
+--- `by` raised, as it is, and [`Host.uniq`] and [`Host.top`] do not fail. Every other call raises where it fails:
+--- its message begins "host:", or "mcp: <server>.<tool>:" for an MCP tool that failed or gave no
+--- `structuredContent`. So a snippet reads its value with no assert:
 ---
 ---     local Host = require("cosmic.agent.host")
----     local rows = Host.sql("SELECT tool, count(*) AS n FROM outputs WHERE session = ?1 GROUP BY tool")
+---     local rows = Host.history("SELECT tool, count(*) AS n FROM outputs WHERE session = ?1 GROUP BY tool")
 ---     for _, row in ipairs(rows) do print(row["tool"], row["n"]) end
 ---
 --- The MCP servers the agent was given ([`cosmic.agent.mcp`]) are reached the same way. A snippet requires a
@@ -23,7 +28,7 @@
 ---     print(Host.describe("github", "list_issues"))
 ---
 --- [`Host.declaration`] shows a whole module's Teal. Beneath it, [`Host.servers`] names the servers, [`Host.tools`]
---- lists a server's tools, and [`Host.mcp`] calls one with any arguments, answering what the server sent.
+--- lists a server's tools, and [`Host.mcp`] calls one with any arguments, returning what the server sent.
 ---
 --- [`Host.modules`] lists the modules a snippet may require, and [`Host.docs`] prints the docs of one, or of a
 --- function, as `cosmic docs` does: both read this binary's docs, with no call to the agent.
@@ -32,7 +37,7 @@
 --- with the session: a resumed session reads it again.
 ---
 --- The agent's own bash tool is there too, run in the snippet's sandbox, with a result a snippet reads as a value:
---- [`Host.bash`] runs a command and answers its output and how it ended:
+--- [`Host.bash`] runs a command and returns its output and how it ended:
 ---
 ---     local ran = Host.bash("git status --short")
 ---     for line in ran.output:gmatch("[^\n]+") do print(line) end
@@ -49,7 +54,7 @@
 --- [`Host.sqlite`], ...) are [`cosmic.shell`]'s calls, run in the snippet's own process, raising where they fail.
 --- A file is edited with [`Host.lines`] and [`Host.write`], or with [`Host.sed`].
 ---
---- Outside a worker no agent answers, and each call raises so.
+--- Outside a worker no agent replies, and each call raises so.
 
 local AgentFetch = require("cosmic.agent.fetch")
 local Child = require("cosmic.child")
@@ -66,12 +71,12 @@ local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 
 local record Host
-  --- A row of [`Host.sql`]: each column's name and its cell. An integer or a real is a number, NULL is
+  --- A row of [`Host.history`]: each column's name and its cell. An integer or a real is a number, NULL is
   --- [`Json.null`], and a text or a blob is a string, as UTF-8 ([`String.as_utf8`]). Two columns of one name are one:
   --- name each with `AS`.
   type Row = {string: Json.Value}
 
-  --- What a tool of an MCP server answered, as [`Host.tool`] reads it.
+  --- What an MCP server replied for a call of one of its tools, as [`Host.tool`] reads it.
   record Result
     --- The text of its text blocks, one after another, each on lines of its own.
     text: string
@@ -91,7 +96,7 @@ local record Host
     tool: string
     --- The start of its description, on one line.
     about: string
-    --- The Teal of its function, with the records it takes and answers ([`Host.describe`]).
+    --- The Teal of its function, with the records it takes and returns ([`Host.describe`]).
     teal: string
   end
 
@@ -117,6 +122,8 @@ local record Host
     body?: string
     --- The most seconds it may take: 30 by default, at most 120.
     timeout?: integer
+    --- Whether a status of 400 or more is returned as a value, in place of raising.
+    any_status?: boolean
   end
 
   --- What [`Host.fetch`] got back.
@@ -161,11 +168,11 @@ local record Host
     skipped: {string}
   end
 
-  --- What [`Host.search`] looks in, and how much it answers.
+  --- What [`Host.search`] looks in, and how much it returns.
   record SearchOptions
     --- The one server to search; nil for every server.
     server?: string
-    --- The most tools it answers, 1 or more: 8 by default.
+    --- The most tools it returns, 1 or more: 8 by default.
     limit?: integer
   end
 
@@ -191,28 +198,28 @@ function Host.call(name: string, args: Json.Value): (Json.Value) | (nil, Failure
   return through(name, args)
 end
 
---- The rows of one read-only SQLite statement on the agent's sessions.db, as the sql tool runs it (its tables are
---- named there; `?1` is the session's id), or why there are none. The agent answers at most 512KB of JSON, and a
+--- The rows of one read-only SQLite statement on the agent's sessions.db (its tables are in
+--- [`cosmic.agent.sessions`]; `?1` is the session's id), or why there are none. The agent replies with at most 512KB of JSON, and a
 --- query of more fails: narrow it with LIMIT and OFFSET, or substr() for a long text.
-local function sql_of(query: string): ({Host.Row}) | (nil, Failure)
-  local answer, why = Host.call("sql", { query = query })
+local function history_of(query: string): ({Host.Row}) | (nil, Failure)
+  local answer, why = Host.call("history", { query = query })
   if answer == nil then return nil, why end
   local list, list_why = Json.to_array(answer)
   if list == nil then
-    return nil, Failure.new("host: sql: the agent's reply is no list of rows: " .. tostring(list_why))
+    return nil, Failure.new("host: history: the agent's reply is no list of rows: " .. tostring(list_why))
   end
   local rows: mut {Host.Row} = {}
   for _, item in ipairs(list) do
     local row, row_why = Json.to_object(item)
     if row == nil then
-      return nil, Failure.new("host: sql: a row of the agent's reply is no object: " .. tostring(row_why))
+      return nil, Failure.new("host: history: a row of the agent's reply is no object: " .. tostring(row_why))
     end
     rows[#rows + 1] = row
   end
   return rows
 end
 
---- The agent's answer to `name` with `args` as a list of objects, or why there is none.
+--- The agent's reply to `name` with `args` as a list of objects, or why there is none.
 local function objects(name: string, args: Json.Value): ({{string: Json.Value}}) | (nil, Failure)
   local answer, why = Host.call(name, args)
   if answer == nil then return nil, why end
@@ -243,9 +250,9 @@ local function tools_of(server: string): ({{string: Json.Value}}) | (nil, Failur
   return objects("mcp.tools", { server = server })
 end
 
---- What the tool `tool` of the MCP server `server` answered `arguments`: its `content` (a list of blocks, a text one
+--- What the MCP server `server` replied for the tool `tool` called with `arguments`: its `content` (a list of blocks, a text one
 --- `{type = "text", text = ...}`), its `structuredContent` where it gives one, and `isError` true where the tool ran
---- and failed. A call the server refused, or one that got no answer, is a failure. The agent answers at most 512KB.
+--- and failed. A call the server refused, or one that got no reply, is a failure. The agent replies with at most 512KB.
 local function mcp_of(server: string, tool: string, arguments?: {string: Json.Value}): ({string: Json.Value}) | (nil, Failure)
   local answer, why = Host.call("mcp.call", { server = server, tool = tool, arguments = arguments or {} })
   if answer == nil then return nil, why end
@@ -275,9 +282,9 @@ local function without_nulls(value: Json.Value): Json.Value
   return value
 end
 
---- What the tool `tool` of the MCP server `server` answered `arguments`, read: the text of its blocks, the blocks, and
+--- What the MCP server `server` replied for the tool `tool` called with `arguments`, read: the text of its blocks, the blocks, and
 --- its `structuredContent`. A tool that ran and failed (`isError`) is a failure, its text the message, as is a call the
---- server refused or one that got no answer. The functions of `require("mcp.<server>")` call it ([`cosmic.agent.mcp_module`]).
+--- server refused or one that got no reply. The functions of `require("mcp.<server>")` call it ([`cosmic.agent.mcp_module`]).
 local function tool_of(server: string, tool: string, arguments?: {string: Json.Value}): (Host.Result) | (nil, Failure)
   local answer, why = mcp_of(server, tool, arguments)
   if answer == nil then return nil, why end
@@ -300,8 +307,8 @@ local function tool_of(server: string, tool: string, arguments?: {string: Json.V
   return { text = text, content = content, structured = without_nulls(structured) }
 end
 
---- The `structuredContent` the tool `tool` of the MCP server `server` answered `arguments`, its null members taken out,
---- as [`Host.tool`] calls it: for a tool that lists an `outputSchema`, which the client holds its answer to. An answer
+--- The `structuredContent` the MCP server `server` replied for the tool `tool` called with `arguments`, its null members taken out,
+--- as [`Host.tool`] calls it: for a tool that lists an `outputSchema`, which the client holds its result to. A result
 --- with none is a failure.
 local function structured_of(server: string, tool: string, arguments?: {string: Json.Value}): (Json.Value) | (nil, Failure)
   local result, why = tool_of(server, tool, arguments)
@@ -388,7 +395,7 @@ local function search_of(query: string, options?: Host.SearchOptions): (Host.Sea
 end
 
 --- The Teal of the one function of `require("mcp." .. server)` that calls the tool `tool`, named as the server lists
---- it or as the module does, with the records it takes and answers, as [`Host.declaration`] shows the whole module.
+--- it or as the module does, with the records it takes and returns, as [`Host.declaration`] shows the whole module.
 --- A plain string, to print: where there is none, it says why.
 function Host.describe(server: string, tool: string): string
   local tools, why = tools_of(server)
@@ -400,7 +407,7 @@ function Host.describe(server: string, tool: string): string
 end
 
 --- Keeps `value` under `key` for a later snippet of this session, in sessions.db, in place of what was kept there;
---- no value, or [`Json.null`], lets the key go. A resumed session (`--continue`) reads it again. Small values alone:
+--- no value, or [`Json.null`], lets the key go. A session gone on with reads it again. Small values alone:
 --- a key holds 256KB of JSON and a session 1MB; what is larger goes to a file.
 local function store_of(key: string, value?: Json.Value): (true) | (false, Failure)
   local _, why = Host.call("store.put", { key = key, value = if value == nil then Json.null else value end })
@@ -421,7 +428,7 @@ local MOST_SECONDS <const> = 24 * 24 * 60 * 60
 
 --- Runs `command` with bash, or sh where there is none, in the snippet's own sandbox and directory, as the bash tool
 --- does: what it wrote to standard output and standard error, together, and how it ended. A command that exits other
---- than 0 is answered all the same, `ok` false; a call fails for a command that could not start, or for a timeout
+--- than 0 still gives a result, `ok` false; a call fails for a command that could not start, or for a timeout
 --- outside 1 to 24 days. A command still running when the snippet ends ends with its worker.
 local function bash_of(command: string, options?: Host.BashOptions): (Host.Ran) | (nil, Failure)
   local seconds = if options ~= nil then options.timeout else nil end
@@ -451,7 +458,11 @@ function Host.modules(index?: {Doc.Summary}): string
   if index == nil then
     local Docs = require("cosmic.doc")
     local Store = require("cosmic.store")
-    local view, why = Docs.view(Store.databases())
+    -- The binary's own database alone, the last searched: a project's own would make the list differ by the project.
+    local databases = Store.databases()
+    local own = databases[#databases]
+    if own == nil then return "host: modules: this binary holds no database" end
+    local view, why = Docs.view({ own })
     if view == nil then return "host: modules: " .. tostring(why) end
     local read, index_why = Docs.index(view)
     if read == nil then return "host: modules: " .. tostring(index_why) end
@@ -489,7 +500,7 @@ function Host.docs(query: string): string
 end
 
 -- The helpers below raise where they fail, so a snippet needs no assert: what raises ends the snippet, and the
--- error is what it answers.
+-- error is what it gives back.
 
 --- Raises `why` as the failure of the call `name`, at the snippet's line.
 local function raise(name: string, why: Failure): never
@@ -497,7 +508,7 @@ local function raise(name: string, why: Failure): never
 end
 
 --- Every file under `dir` ([`Shell.find`]); raises where `dir` cannot be walked.
-function Host.find(dir: string, suffix?: string): {string}
+function Host.find(dir: string, suffix?: string): mut {string}
   local found, why = Shell.find(dir, suffix)
   if found == nil then raise("find", why) end
   return found
@@ -511,7 +522,7 @@ function Host.cat(path: string): string
 end
 
 --- The lines of the file `path` ([`Shell.lines`]); raises where it cannot be read.
-function Host.lines(path: string): {string}
+function Host.lines(path: string): mut {string}
   local lines, why = Shell.lines(path)
   if lines == nil then raise("lines", why) end
   return lines
@@ -535,13 +546,13 @@ end
 
 --- The lines of `paths` that hold `pattern` ([`Shell.grep`]); raises where a file cannot
 --- be read or the pattern is malformed.
-function Host.grep(pattern: string, paths: {string}, plain?: boolean): {Host.Hit}
+function Host.grep(pattern: string, paths: {string}, plain?: boolean): mut {Host.Hit}
   local hits, why = Shell.grep(pattern, paths, plain)
   if hits == nil then raise("grep", why) end
   return hits
 end
 
---- Replaces `pattern` in the file `path`, and answers how many ([`Shell.sed`]); raises where it
+--- Replaces `pattern` in the file `path`, and returns how many ([`Shell.sed`]); raises where it
 --- cannot be read or written, or the pattern is malformed.
 function Host.sed(path: string, pattern: string, replacement: string, plain?: boolean): integer
   local count, why = Shell.sed(path, pattern, replacement, plain)
@@ -560,18 +571,38 @@ end
 function Host.uniq(keys: {string}): {string: integer} return Shell.uniq(keys) end
 
 --- The most counted of `counts` first ([`Shell.top`]).
-function Host.top(counts: {string: integer}, most?: integer): {Host.Count}
+function Host.top(counts: {string: integer}, most?: integer): mut {Host.Count}
   return Shell.top(counts, most)
 end
 
 --- A sorted copy of `list`, by `by`'s key where given ([`Shell.sort`]).
-function Host.sort(list: {string}, by?: function(string): string): {string}
+function Host.sort(list: {string}, by?: function(string): string): mut {string}
   return Shell.sort(list, by)
+end
+
+--- A sorted copy of `list`, any kind of item, by the key `by` gives each (`Host.sort_by(items, function(i: Item):
+--- string return i.id end)`), as `LC_ALL=C sort` orders bytes; items of one key keep their order.
+function Host.sort_by<T>(list: {T}, by: function(T): string): mut {T}
+  local keys: mut {string} = {}
+  local order: mut {integer} = {}
+  for i, v in ipairs(list) do
+    local key = by(v)
+    keys[#keys + 1] = key
+    order[#order + 1] = i
+  end
+  table.sort(order, function(a: integer, b: integer): boolean
+    local ka, kb = keys[a]!, keys[b]!
+    if ka ~= kb then return ka < kb end
+    return a < b
+  end)
+  local out: mut {T} = {}
+  for _, i in ipairs(order) do out[#out + 1] = list[i]! end
+  return out
 end
 
 --- The rows of `statement` on the SQLite file `path` ([`Shell.sqlite`]); raises where it
 --- fails.
-function Host.sqlite(path: string, statement: string, values?: {Json.Value}): {Host.Row}
+function Host.sqlite(path: string, statement: string, values?: {Json.Value}): mut {Host.Row}
   local rows, why = Shell.sqlite(path, statement, values)
   if rows == nil then raise("sqlite", why) end
   return rows
@@ -592,16 +623,59 @@ function Host.declaration(server: string): string
   return McpModule.made(server, tools).teal
 end
 
---- The rows of one read-only SQLite statement on the agent's sessions.db, as the sql tool runs it (`?1` is the
---- session's id); at most 512KB of JSON, so narrow a large one with LIMIT and OFFSET. Raises where it fails, as "host: ...".
-function Host.sql(query: string): {Host.Row}
-  local value, why = sql_of(query)
+--- The rows of one read-only SQLite statement on the agent's sessions.db, whose tables [`cosmic.agent.sessions`]
+--- names (`?1` is the session's id); at most 512KB of JSON, so narrow a large one with LIMIT and OFFSET. Raises where it fails, as "host: ...".
+function Host.history(query: string): {Host.Row}
+  local value, why = history_of(query)
   if value == nil then error(tostring(why), 2) end
   return value
 end
 
---- The MCP servers the agent was given: each one's `name`, `reached` and `description`; none where it was
---- given none. Raises where it fails, as "host: ...".
+--- The characters of a kept output one history call reads: JSON takes a control character as six bytes, so a part
+--- stays within the 512KB a reply holds.
+local OUTPUT_PART <const> = 64 * 1024
+
+--- The text kept of output `id` of sessions.db, which the note atop a cut output names ("kept as output 17"): what
+--- the tool's call gave, but for a run output past 64KB, of which its first 16KB and last 48KB are kept; bytes that
+--- are not UTF-8 come back replaced. It reads any session's outputs, as Host.history does: a forked session's notes
+--- name the outputs of the session it was copied from. Raises where it fails, as "host: output: ...".
+function Host.output(id: integer): string
+  local function rows_of(query: string): {Host.Row}
+    local rows, why = history_of(query)
+    if rows == nil then error("host: output: " .. tostring(why):gsub("^host: history: ", ""), 3) end
+    return rows
+  end
+  local sized = rows_of("SELECT length(text) AS n FROM outputs WHERE id = " .. tostring(id))[1]
+  local n = if sized ~= nil then sized["n"] else nil end
+  if not (n is integer) then
+    error("host: output: no output " .. tostring(id) .. " in sessions.db", 2)
+  end
+  local parts: mut {string} = {}
+  for start = 1, n, OUTPUT_PART do
+    local row = rows_of("SELECT substr(text, " .. tostring(start) .. ", " .. tostring(OUTPUT_PART) ..
+        ") AS part FROM outputs WHERE id = " .. tostring(id))[1]
+    local part = if row ~= nil then row["part"] else nil end
+    if not (part is string) then
+      error("host: output: output " .. tostring(id) .. " changed as it was read", 2)
+    end
+    parts[#parts + 1] = part
+  end
+  return table.concat(parts)
+end
+
+--- What the agent's tool `name` returns for `input`, as the model would call it: its text. Only a tool code may call
+--- is called (`callers` "code" or "both", cosmic.agent.tools), under the agent's `before` and `after` as a call by
+--- code. Raises where the call is refused or the tool's result is an error, as "host: use: ...".
+function Host.use(name: string, input?: {string: Json.Value}): string
+  local none: {string: Json.Value} = {}
+  local answer, why = Host.call("use", { name = name, input = input or none })
+  if answer == nil then error(tostring(why), 2) end
+  if not (answer is string) then error("host: use: the agent's reply is no text", 2) end
+  return answer
+end
+
+--- The MCP servers the agent was given: each one's `name`, `reached`, and `description` where the config gives
+--- one; none where it was given none. Raises where it fails, as "host: ...".
 function Host.servers(): {{string: Json.Value}}
   local value, why = servers_of()
   if value == nil then error(tostring(why), 2) end
@@ -615,7 +689,7 @@ function Host.tools(server: string): {{string: Json.Value}}
   return value
 end
 
---- What the tool `tool` of the MCP server `server` answered `arguments`, as the server sent it:
+--- What the MCP server `server` replied for the tool `tool` called with `arguments`, as the server sent it:
 --- `content`, `structuredContent` and `isError`. Raises where it fails, as "host: ...".
 function Host.mcp(server: string, tool: string, arguments?: {string: Json.Value}): {string: Json.Value}
   local value, why = mcp_of(server, tool, arguments)
@@ -623,7 +697,7 @@ function Host.mcp(server: string, tool: string, arguments?: {string: Json.Value}
   return value
 end
 
---- What the tool `tool` of the MCP server `server` answered `arguments`, read: its text, blocks and
+--- What the MCP server `server` replied for the tool `tool` called with `arguments`, read: its text, blocks and
 --- `structuredContent`; a tool that ran and failed (`isError`) raises with its text. Raises where it fails, as "host: ...".
 function Host.tool(server: string, tool: string, arguments?: {string: Json.Value}): Host.Result
   local value, why = tool_of(server, tool, arguments)
@@ -631,8 +705,8 @@ function Host.tool(server: string, tool: string, arguments?: {string: Json.Value
   return value
 end
 
---- The `structuredContent` the tool `tool` of the MCP server `server` answered `arguments`, its nulls
---- taken out; an answer with none raises. Raises where it fails, as "host: ...".
+--- The `structuredContent` the MCP server `server` replied for the tool `tool` called with `arguments`, its nulls
+--- taken out; a result with none raises. Raises where it fails, as "host: ...".
 function Host.structured(server: string, tool: string, arguments?: {string: Json.Value}): Json.Value
   local value, why = structured_of(server, tool, arguments)
   if value == nil then error(tostring(why), 2) end
@@ -655,7 +729,7 @@ function Host.load(key: string): Host.Loaded
 end
 
 --- Runs `command` with bash in the snippet's sandbox and directory, as the bash tool does: its output and how it
---- ended. A command that exits other than 0 is answered, `ok` false; one that cannot start raises. Raises where it fails, as "host: ...".
+--- ended. A command that exits other than 0 still gives a result, `ok` false; one that cannot start raises. Raises where it fails, as "host: ...".
 function Host.bash(command: string, options?: Host.BashOptions): Host.Ran
   local value, why = bash_of(command, options)
   if value == nil then error(tostring(why), 2) end
@@ -664,18 +738,20 @@ end
 
 --- The response to a request of `url`, which follows no redirect
 --- ([`cosmic.agent.fetch`]): made from the snippet's sandbox, which reaches no network in a session started without
---- --network, and no loopback, private or link-local address in one with it. A response of any status is answered;
---- a request that gets none raises.
+--- --network or --connect, and no loopback, private, link-local or host's own address but those --connect names. A
+--- status under 400 is returned; one of 400 or more raises, as `curl -f` fails, with the status and the start of the
+--- body in the message, unless `any_status` is given; a request that gets no response raises.
 function Host.fetch(url: string, options?: Host.FetchOptions): Host.Fetched
   local o: Host.FetchOptions = options or {}
   local got, why = AgentFetch.fetch({ url = url, method = o.method, headers = o.headers, body = o.body,
-    timeout = o.timeout })
+    timeout = o.timeout, any_status = o.any_status })
   if got == nil then error(tostring(why), 2) end
   return { status = got.status, headers = got.headers, body = got.body, cut = got.cut }
 end
 
 --- Keeps `value` under `key` for a later snippet of this session, in place of what was kept there; no value,
---- or [`Json.null`], lets the key go. A key holds 256KB of JSON and a session 1MB. Raises where it fails.
+--- or [`Json.null`], lets the key go. A key is 1 to 256 bytes, its value at most 256KB of JSON, and a session keeps
+--- 1MB, its keys and values together. Raises where it fails.
 function Host.store(key: string, value?: Json.Value)
   local _, why = store_of(key, value)
   if why ~= nil then error(tostring(why), 2) end

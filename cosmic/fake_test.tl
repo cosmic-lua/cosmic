@@ -1,4 +1,4 @@
---- `build/stand_in.tl`: the stand-in program a test starts where it
+--- [`cosmic.fake`]: the fake program a test starts where it
 --- would otherwise write a shell script, each of its verbs, and what it
 --- reads its script and words from.
 
@@ -9,16 +9,16 @@ local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local unix_socket = require("build.unix_socket")
 local sys = require("cosmic.sys")
-local stand_in = require("build.stand_in")
+local Fake = require("cosmic.fake")
 local artifact = require("build.artifact")
 
---- The loopback is for the stand-in's `connect-tcp`, whose connection to a
+--- The loopback is for the fake's `connect-tcp`, whose connection to a
 --- port nothing listens on is refused.
 Test.policy{ loopback = { "127.0.0.1" } }
 
---- A stand-in built under `tmp`.
+--- A fake built under `tmp`.
 local function built(tmp: string): string
-  return (assert(stand_in.build(tmp .. "/stand-in")))
+  return (assert(Fake.build(tmp .. "/fake")))
 end
 
 --- Runs `argv` to its end with only `env`, its output captured.
@@ -44,7 +44,7 @@ local function test_a_placed_copy_runs_its_script_with_its_words(tmp: string)
   local probe = built(tmp)
   local tool = tmp .. "/bin/tool"
   assert(Fs.mkdirs(tmp .. "/bin"))
-  assert(stand_in.place(probe, tool,
+  assert(Fake.place(probe, tool,
     "print args $@ in $DIR; eprint to  stderr $NAME$UNSET.\n" ..
       "[build] print building; [build] exit 3\n" ..
       "[other] print never\nprint done"))
@@ -60,7 +60,7 @@ local function test_a_placed_copy_runs_its_script_with_its_words(tmp: string)
   assert(building.stdout == "args build boot in " .. dir .. "\nbuilding\n", building.stdout)
   -- One placed without a script runs its first argument, as the probe
   -- itself does.
-  assert(stand_in.place(probe, tmp .. "/bin/bare"))
+  assert(Fake.place(probe, tmp .. "/bin/bare"))
   assert(not assert(Fs.status(tmp .. "/bin/bare.do")).exists)
   local bare = run({ tmp .. "/bin/bare", "print $@; exit 4", "x", "y" })
   assert(bare.code == 4 and bare.stdout == "x y\n", tostring(bare.stdout))
@@ -204,7 +204,7 @@ end
 --- `run` starts a program and goes on past one that succeeds, ending
 --- with the status of one that fails, 128 past a signal, or 127 for one
 --- that cannot start; and `fd-closed` holds for a closed descriptor alone.
---- (`status-field` is in build/stand_in_proc_test.tl.)
+--- (`status-field` is in cosmic/fake_proc_test.tl.)
 local function test_the_process_verbs(tmp: string)
   local probe = built(tmp)
   local ran = run({ probe, "run " .. probe .. " print from the child; print back" })
@@ -244,11 +244,11 @@ end
 
 --- A build that cannot be written says why.
 local function test_a_failed_build_says_why(tmp: string)
-  local dir = tmp .. "/stand-in"
+  local dir = tmp .. "/fake"
   assert(Fs.write(dir, "a file where its directory would be\n"))
-  local probe, trouble = stand_in.build(dir)
+  local probe, trouble = Fake.build(dir)
   assert(probe == nil, probe)
-  assert(trouble:find(dir, 1, true), trouble)
+  assert(tostring(trouble):find(dir, 1, true), tostring(trouble))
 end
 
 --- Commands chain as a shell's do: `&&` goes on to the next only past a
@@ -314,7 +314,7 @@ local function test_what_start_and_run_leave_running_runs_on(tmp: string)
   local probe = built(tmp)
   assert(Fs.mkdirs(tmp .. "/bin"))
   local late = tmp .. "/bin/late"
-  assert(stand_in.place(probe, late, "wait-for $DIR/go-$@\nwrite $DIR/done-$@ done"))
+  assert(Fake.place(probe, late, "wait-for $DIR/go-$@\nwrite $DIR/done-$@ done"))
   for _, how in ipairs({ "start " .. late .. " started", "run " .. probe .. " start " .. late ..
         " ran" }) do
     local word = how:match("(%S+)$")
@@ -386,9 +386,9 @@ local function test_connect_says_why_a_unix_socket_file_cannot_be_connected_to(t
     missing.stdout)
 end
 
---- A file whose first line is `#!<stand-in>`, and nothing more, runs its
+--- A file whose first line is `#!<fake>`, and nothing more, runs its
 --- body, as a shell script does, with its arguments -- started by its
---- path, or with the stand-in handed its path -- whatever a system does
+--- path, or with the fake handed its path -- whatever a system does
 --- with words after `#!`, which this line has none of; an empty body is
 --- status 0.
 local function test_a_file_naming_it_on_its_first_line_runs_its_body(tmp: string)
@@ -408,13 +408,12 @@ local function test_a_file_naming_it_on_its_first_line_runs_its_body(tmp: string
   assert(ran.ok and ran.stdout == "", tostring(ran.stdout))
 end
 
---- The stand-in is a host program whose main module is named under
---- neither `build.*` nor `cosmic.*`, so it loads untrusted, as one
---- `cosmic build --host` makes: it carries no `build.*` row at all, and
---- does carry what the core itself requires of a program
+--- The fake is a host program, sealed as [`Store.seal`] seals one,
+--- whose main is the probe: it carries no `build.*` row at all, nor
+--- the time zones or CA roots its closure would call for, and does carry what the core itself requires of a program
 --- ([`cosmic.errors`]), but not [`cosmic.removed`], which only words a
 --- refusal of a removed global its probe never reaches for.
-local function test_the_stand_in_s_main_loads_as_a_built_program_s(tmp: string)
+local function test_the_fake_carries_its_probe_and_little_else(tmp: string)
   local parts = assert(artifact.split((assert(Fs.read(built(tmp))))))
   assert(parts.host)
   local path = tmp .. "/carried.db"
@@ -424,20 +423,21 @@ local function test_the_stand_in_s_main_loads_as_a_built_program_s(tmp: string)
     local rows = assert(db:text_rows(sql))
     return rows[1] and rows[1]:text(1) or ""
   end
-  assert(one("SELECT value FROM meta WHERE key = 'main'") == "stand_in.main")
-  assert(one("SELECT kind FROM modules WHERE path = 'stand_in.main'") == "main")
+  assert(one("SELECT value FROM meta WHERE key = 'main'") == "cosmic.internal.fake_probe")
   assert(one("SELECT count(*) FROM modules WHERE path LIKE 'build.%'") == "0")
   assert(one("SELECT count(*) FROM modules WHERE path IN " ..
       "('cosmic.errors', 'cosmic.child')") == "2")
   assert(one("SELECT count(*) FROM modules WHERE path = 'cosmic.removed'") == "0")
+  assert(one("SELECT count(*) FROM zoneinfo") == "0")
+  assert(one("SELECT count(*) FROM ca_roots") == "0")
   assert(one("SELECT value FROM meta WHERE key = 'runtime_basis'") ~= "")
   assert(db:close())
 end
 
 --- The dependency traversal's order is deterministic even though it
 --- is not path order: rowids must not move a repeated build's bytes.
-local function test_the_stand_in_is_reproducible(tmp: string)
-  local one = assert(Fs.read((assert(stand_in.build(tmp .. "/one")))))
-  local two = assert(Fs.read((assert(stand_in.build(tmp .. "/two")))))
-  assert(one == two, "repeating the stand-in build changed its bytes")
+local function test_the_fake_is_reproducible(tmp: string)
+  local one = assert(Fs.read((assert(Fake.build(tmp .. "/one")))))
+  local two = assert(Fs.read((assert(Fake.build(tmp .. "/two")))))
+  assert(one == two, "repeating the fake build changed its bytes")
 end

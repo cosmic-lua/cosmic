@@ -18,7 +18,7 @@ local fixture = require("test.portable")
 local sys = require("cosmic.sys")
 
 local record probe
-  --- Each subcommand by its name: what it is given after the name, and the exit status it answers.
+  --- Each subcommand by its name: what it is given after the name, and the exit status it returns.
   mut commands: {string:function({string}):integer}
 end
 

@@ -1,6 +1,6 @@
 --- The weekly review's agent, for review.yml (`driver.tl review`):
 --- `cosmic agent ask` from the pinned driver, on Opus at high effort,
---- told to follow ci/agents/weekly-review.md. Its text answer is the log;
+--- told to follow ci/agents/weekly-review.md. Its text reply is the log;
 --- the transcript is not, as the repository and its logs are public: the
 --- agent's standard error, which names each tool call, goes to a file
 --- beside the token, and only its complaints (`cosmic: ...`) reach the
@@ -48,8 +48,8 @@ end
 
 local record Review
   type Started = Started
-  --- The calls into the host the review makes, so a test can answer
-  --- them instead.
+  --- The calls into the host the review makes, so a test can replace
+  --- them.
   record Host
     --- One GET of `url` with `headers`: the status and the body, or nil
     --- and why.
@@ -279,7 +279,7 @@ local function live(guard: Signal.Guard): Review.Host
       if handle == nil then return nil, tostring(trouble) end
       return {
         wait = function(ns: integer): Child.Result?, string
-          -- In words, as the pinned release's handle answers them too.
+          -- In words, as the pinned release's handle returns them too.
           local done, waited = Child.wait_any({ handle }, ns)
           if done == nil then return nil, tostring(waited) end
           local result, why = done:wait()
@@ -297,7 +297,7 @@ local function live(guard: Signal.Guard): Review.Host
     end,
     now = Clock.monotonic_ns,
     sleep = function(ns: integer)
-      local _, _ = Clock.sleep_ns(ns)
+      local _, _ = Clock.sleep(ns)
     end,
     cancelled = function(): integer
       return guard:cancelled()

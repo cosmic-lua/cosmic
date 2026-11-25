@@ -15,96 +15,127 @@ local SHA <const> = "2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d"
 --- What `--name` printed, as recorded from the original shell
 --- implementation's own `sh` run, for each
 --- commit, leg, event and declared-keys setting, a line each:
---- `sha leg event declared name`.
+--- `sha leg event declared name`. A pull request's rows, which stand on
+--- verdicts as the queue's do, are the queue's names.
 local GOLDEN <const> = [[
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d linux-x86_64 push 0 4d4cb15
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d linux-x86_64 push 1 fe2
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d linux-x86_64 merge_group 0 4d4cb15
+2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d linux-x86_64 pull_request 0 4d4cb15
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d linux-x86_64 merge_group 1 fe2
+2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d linux-x86_64 pull_request 1 fe2
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d linux-x86_64 schedule 0 4d4cb15
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d linux-x86_64 schedule 1 4d4cb15
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d macos-aarch64 push 0 d6fcdf8905febf878725
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d macos-aarch64 push 1 74209ba790f5a50d
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d macos-aarch64 merge_group 0 d6fcdf8905febf878725
+2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d macos-aarch64 pull_request 0 d6fcdf8905febf878725
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d macos-aarch64 merge_group 1 74209ba790f5a50d
+2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d macos-aarch64 pull_request 1 74209ba790f5a50d
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d macos-aarch64 schedule 0 d6fcdf8905febf878725
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d macos-aarch64 schedule 1 d6fcdf8905febf878725
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d alpine-x86_64 push 0 a72867a26a
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d alpine-x86_64 push 1 3198b9c843a0ff7f7
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d alpine-x86_64 merge_group 0 a72867a26a
+2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d alpine-x86_64 pull_request 0 a72867a26a
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d alpine-x86_64 merge_group 1 3198b9c843a0ff7f7
+2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d alpine-x86_64 pull_request 1 3198b9c843a0ff7f7
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d alpine-x86_64 schedule 0 a72867a26a
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d alpine-x86_64 schedule 1 a72867a26a
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d fuzz push 0 8641
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d fuzz push 1 fd0f3c713ecfee
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d fuzz merge_group 0 8641
+2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d fuzz pull_request 0 8641
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d fuzz merge_group 1 fd0f3c713ecfee
+2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d fuzz pull_request 1 fd0f3c713ecfee
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d fuzz schedule 0 8641
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d fuzz schedule 1 8641
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d checked push 0 67fd
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d checked push 1 9f4e350de302ae5cfdd
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d checked merge_group 0 67fd
+2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d checked pull_request 0 67fd
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d checked merge_group 1 9f4e350de302ae5cfdd
+2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d checked pull_request 1 9f4e350de302ae5cfdd
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d checked schedule 0 67fd
 2896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d checked schedule 1 67fd
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d linux-x86_64 push 0 8960401a4176
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d linux-x86_64 push 1 fe2
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d linux-x86_64 merge_group 0 8960401a4176
+0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d linux-x86_64 pull_request 0 8960401a4176
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d linux-x86_64 merge_group 1 fe2
+0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d linux-x86_64 pull_request 1 fe2
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d linux-x86_64 schedule 0 8960401a4176
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d linux-x86_64 schedule 1 8960401a4176
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d macos-aarch64 push 0 fcf6317db6b5400c48a047
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d macos-aarch64 push 1 74209ba790f5a50d
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d macos-aarch64 merge_group 0 fcf6317db6b5400c48a047
+0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d macos-aarch64 pull_request 0 fcf6317db6b5400c48a047
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d macos-aarch64 merge_group 1 74209ba790f5a50d
+0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d macos-aarch64 pull_request 1 74209ba790f5a50d
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d macos-aarch64 schedule 0 fcf6317db6b5400c48a047
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d macos-aarch64 schedule 1 fcf6317db6b5400c48a047
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d alpine-x86_64 push 0 716c81fc
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d alpine-x86_64 push 1 3198b9c843a0ff7f7
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d alpine-x86_64 merge_group 0 716c81fc
+0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d alpine-x86_64 pull_request 0 716c81fc
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d alpine-x86_64 merge_group 1 3198b9c843a0ff7f7
+0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d alpine-x86_64 pull_request 1 3198b9c843a0ff7f7
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d alpine-x86_64 schedule 0 716c81fc
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d alpine-x86_64 schedule 1 716c81fc
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d fuzz push 0 3ac219dfaa24f2fa
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d fuzz push 1 fd0f3c713ecfee
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d fuzz merge_group 0 3ac219dfaa24f2fa
+0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d fuzz pull_request 0 3ac219dfaa24f2fa
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d fuzz merge_group 1 fd0f3c713ecfee
+0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d fuzz pull_request 1 fd0f3c713ecfee
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d fuzz schedule 0 3ac219dfaa24f2fa
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d fuzz schedule 1 3ac219dfaa24f2fa
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d checked push 0 651fca60e3128cf
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d checked push 1 9f4e350de302ae5cfdd
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d checked merge_group 0 651fca60e3128cf
+0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d checked pull_request 0 651fca60e3128cf
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d checked merge_group 1 9f4e350de302ae5cfdd
+0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d checked pull_request 1 9f4e350de302ae5cfdd
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d checked schedule 0 651fca60e3128cf
 0896be7f0c3b1a2e9d8f7a6b5c4d3e2f1a0b9c8d checked schedule 1 651fca60e3128cf
 ffffffffffffffffffffffffffffffffffffffff linux-x86_64 push 0 ab27b9b7d2
 ffffffffffffffffffffffffffffffffffffffff linux-x86_64 push 1 fe2
 ffffffffffffffffffffffffffffffffffffffff linux-x86_64 merge_group 0 ab27b9b7d2
+ffffffffffffffffffffffffffffffffffffffff linux-x86_64 pull_request 0 ab27b9b7d2
 ffffffffffffffffffffffffffffffffffffffff linux-x86_64 merge_group 1 fe2
+ffffffffffffffffffffffffffffffffffffffff linux-x86_64 pull_request 1 fe2
 ffffffffffffffffffffffffffffffffffffffff linux-x86_64 schedule 0 ab27b9b7d2
 ffffffffffffffffffffffffffffffffffffffff linux-x86_64 schedule 1 ab27b9b7d2
 ffffffffffffffffffffffffffffffffffffffff macos-aarch64 push 0 5512e9a3b07789580
 ffffffffffffffffffffffffffffffffffffffff macos-aarch64 push 1 74209ba790f5a50d
 ffffffffffffffffffffffffffffffffffffffff macos-aarch64 merge_group 0 5512e9a3b07789580
+ffffffffffffffffffffffffffffffffffffffff macos-aarch64 pull_request 0 5512e9a3b07789580
 ffffffffffffffffffffffffffffffffffffffff macos-aarch64 merge_group 1 74209ba790f5a50d
+ffffffffffffffffffffffffffffffffffffffff macos-aarch64 pull_request 1 74209ba790f5a50d
 ffffffffffffffffffffffffffffffffffffffff macos-aarch64 schedule 0 5512e9a3b07789580
 ffffffffffffffffffffffffffffffffffffffff macos-aarch64 schedule 1 5512e9a3b07789580
 ffffffffffffffffffffffffffffffffffffffff alpine-x86_64 push 0 80a1ec65c2d2a470c8
 ffffffffffffffffffffffffffffffffffffffff alpine-x86_64 push 1 3198b9c843a0ff7f7
 ffffffffffffffffffffffffffffffffffffffff alpine-x86_64 merge_group 0 80a1ec65c2d2a470c8
+ffffffffffffffffffffffffffffffffffffffff alpine-x86_64 pull_request 0 80a1ec65c2d2a470c8
 ffffffffffffffffffffffffffffffffffffffff alpine-x86_64 merge_group 1 3198b9c843a0ff7f7
+ffffffffffffffffffffffffffffffffffffffff alpine-x86_64 pull_request 1 3198b9c843a0ff7f7
 ffffffffffffffffffffffffffffffffffffffff alpine-x86_64 schedule 0 80a1ec65c2d2a470c8
 ffffffffffffffffffffffffffffffffffffffff alpine-x86_64 schedule 1 80a1ec65c2d2a470c8
 ffffffffffffffffffffffffffffffffffffffff fuzz push 0 1dbf6c22f3d1a4d8e17cb8
 ffffffffffffffffffffffffffffffffffffffff fuzz push 1 fd0f3c713ecfee
 ffffffffffffffffffffffffffffffffffffffff fuzz merge_group 0 1dbf6c22f3d1a4d8e17cb8
+ffffffffffffffffffffffffffffffffffffffff fuzz pull_request 0 1dbf6c22f3d1a4d8e17cb8
 ffffffffffffffffffffffffffffffffffffffff fuzz merge_group 1 fd0f3c713ecfee
+ffffffffffffffffffffffffffffffffffffffff fuzz pull_request 1 fd0f3c713ecfee
 ffffffffffffffffffffffffffffffffffffffff fuzz schedule 0 1dbf6c22f3d1a4d8e17cb8
 ffffffffffffffffffffffffffffffffffffffff fuzz schedule 1 1dbf6c22f3d1a4d8e17cb8
 ffffffffffffffffffffffffffffffffffffffff checked push 0 322e3b17c5eaead
 ffffffffffffffffffffffffffffffffffffffff checked push 1 9f4e350de302ae5cfdd
 ffffffffffffffffffffffffffffffffffffffff checked merge_group 0 322e3b17c5eaead
+ffffffffffffffffffffffffffffffffffffffff checked pull_request 0 322e3b17c5eaead
 ffffffffffffffffffffffffffffffffffffffff checked merge_group 1 9f4e350de302ae5cfdd
+ffffffffffffffffffffffffffffffffffffffff checked pull_request 1 9f4e350de302ae5cfdd
 ffffffffffffffffffffffffffffffffffffffff checked schedule 0 322e3b17c5eaead
 ffffffffffffffffffffffffffffffffffffffff checked schedule 1 322e3b17c5eaead
 ]]
@@ -145,7 +176,22 @@ local function test_names_match_the_recorded_vectors()
       sha .. " " .. leg .. " " .. event .. " " .. declared .. ": " .. name(sha, leg, event, declared))
     count = count + 1
   end
-  assert(count == 90, tostring(count))
+  assert(count == 120, tostring(count))
+end
+
+--- A leg keyed by declarations takes the leg's own path in exactly the runs whose suites stand on verdicts
+--- ([`cosmic_ci.orchestration`]'s `stands`): its keys hold the path, so a run that stands on verdicts at a path
+--- the commit chooses would find none of them.
+local function test_the_leg_alone_chooses_the_path_where_a_suite_stands_on_verdicts()
+  local Orchestration = require("cosmic_ci.orchestration")
+  for _, event in ipairs({ "push", "pull_request", "merge_group", "schedule", "workflow_dispatch", "" }) do
+    local env: {string:string} = { GITHUB_SHA = SHA, COSMIC_WORKER = "macos-aarch64", COSMIC_CI_DECLARED_KEYS = "1",
+      COSMIC_CI_EVENT = event }
+    local placed, why = PlaceTree.name(env)
+    assert(placed ~= nil, why)
+    local by_leg = placed.chosen:sub(1, 4) == "leg "
+    assert(by_leg == Orchestration.stands(env), event .. ": " .. placed.chosen)
+  end
 end
 
 local function test_the_same_commit_and_leg_name_the_same_path()
@@ -219,7 +265,7 @@ local function test_a_missing_input_is_refused()
 end
 
 --- Runs `mode` for a checkout at `workspace`, asserting it succeeds, and
---- answers the lines it printed.
+--- returns the lines it printed.
 local function place(workspace: string, mode: string, leg?: string, declared?: string): {string}
   local given, out, err = host(environment(SHA, leg or "linux-x86_64", "push", declared, workspace))
   assert(PlaceTree.run(given, mode) == 0, table.concat(err, "\n"))

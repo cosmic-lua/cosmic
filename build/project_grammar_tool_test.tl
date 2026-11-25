@@ -24,7 +24,7 @@ local function copy_of(tmp: string, name: string): string
 end
 
 --- Runs `cosmic test` in `root`, unsandboxed (a sandbox nested in this test's own may be
---- refused where the host nests only two deep), and answers what it said.
+--- refused where the host nests only two deep), and returns what it said.
 local function tested(root: string, tmp: string): Child.Result, string
   local output = tmp .. "/out." .. tostring(Clock.monotonic_ns())
   local fd = assert(Fs.open_write(output))
@@ -76,7 +76,7 @@ local function project_of(tmp: string, name: string, files: {string: string}): s
   return root
 end
 
---- A project is judged by the standard library the tool carries ([`lang/stdlib.d.tl`]): `tonumber` answers nil for text that
+--- A project is judged by the standard library the tool carries ([`lang/stdlib.d.tl`]): `tonumber` returns nil for text that
 --- is no number, which a sum does not take.
 local function test_a_project_is_judged_by_the_new_checkers_standard_library(tmp: string)
   local files: {string: string} = {

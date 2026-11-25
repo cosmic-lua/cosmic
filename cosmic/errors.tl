@@ -1,8 +1,10 @@
---- Saying where a failure happened.
+--- Saying where a failure happened: stack traces, and guidance beneath an uncaught error.
 ---
---- A failure travels as a value: `T | nil, string` for a value and
---- `boolean, string` for an effect. This is for the place that reports
---- one to a person, where the message alone is not enough.
+--- A failure travels as a value. Most calls return `(T) | (nil, Failure)`
+--- for a value and `(true) | (false, Failure)` for an effect
+--- ([`cosmic.failure`]); some still return `T?, string`. This
+--- is for the place that reports one to a person, where the message
+--- alone is not enough.
 
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
@@ -123,8 +125,8 @@ end
 --- `attempt to ...`, `module '...' not found` or `bad argument #n to ...`
 --- (whose `X expected, got Y` is theirs too), which cosmic's own bindings
 --- raise as well. They share ordinary words with doc comments the catalog
---- holds, and no row answers them (none matched the `bad argument`
---- messages cosmic's bindings raise); [`Errors.hint`] answers what it can. The location is `file:N: `, or `[string "..."]:N: ` for a
+--- holds, and no row matches them (none matched the `bad argument`
+--- messages cosmic's bindings raise); [`Errors.hint`] handles what it can. The location is `file:N: `, or `[string "..."]:N: ` for a
 --- chunk `load` made; a file name with a space in it is not seen.
 local function lua_wrote(message: string): boolean
   local newline = message:find("\n", 1, true)
@@ -147,7 +149,7 @@ end
 --- (`attempt to ...`, `module '...' not found`, `bad argument #n to ...`)
 --- has none: the catalog is for the messages cosmic's own code raises.
 --- [`Errors.guidance`] asks each database the store holds in turn. A program run from its source
---- (`cosmic cmd/spam/main.tl`) is answered by the rows of the modules it would carry built alone, as the built program
+--- (`cosmic cmd/spam/main.tl`) is guided by the rows of the modules it would carry built alone, as the built program
 --- is, and by none of another program's.
 function Errors.guidance_in(handle: Sqlite.Handle, message: string): string?
   if lua_wrote(message) then
@@ -160,7 +162,7 @@ function Errors.guidance_in(handle: Sqlite.Handle, message: string): string?
   -- The program's modules, where the run is a program's main run from source (cosmic.internal.source_run) and
   -- `handle` holds that main: those its main requires, directly or not, those under its own `cmd/<name>/`, and the
   -- module it names as its pages, as build.embed carries them; build.embed and cosmic.doc's scope_to_program hold
-  -- the same rule, which a change to one changes in all. A build that does not hold the main is answered whole.
+  -- the same rule, which a change to one changes in all. A build that does not hold the main is read whole.
   local carried = ""
   local main = source_run.main
   local name = if main ~= nil then main:match("^cmd%.([^%.]+)%.main$") else nil end
@@ -187,7 +189,7 @@ function Errors.guidance_in(handle: Sqlite.Handle, message: string): string?
     values)
   if rows == nil then
     -- A test's pure store leaves the catalog out ([`build.closure_store`]): that is no database without guidance, which
-    -- answers none, but a store a test was not given the text of, and the lookup says so.
+    -- yields none, but a store a test was not given the text of, and the lookup says so.
     local pure, _ = handle:rows("SELECT 1 FROM meta WHERE key = 'pure_store'")
     if pure ~= nil and #pure > 0 then
       error("the catalog of the store is withheld, so guidance on an error cannot be read from it: a test that reads " ..
@@ -278,7 +280,7 @@ end
 --- The call stack of coroutine `co` as text, from its top, with
 --- `message` at the top when one is given. For a coroutine that raised,
 --- it is where it raised, which `coroutine.resume` does not say (it
---- answers only the error) and which stays until the coroutine is
+--- returns only the error) and which stays until the coroutine is
 --- closed. One that returned, or was closed, has no frames: the text is
 --- just `stack traceback:`. For the running coroutine the first frame is
 --- the caller's, as [`trace`]'s is.

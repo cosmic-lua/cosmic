@@ -51,7 +51,7 @@ local record Testing
     --- The cleanup the lifespan returned, nil once run or when it returned none.
     mut shutdown?: Types.Shutdown
 
-    --- One request, answered by the app's handler. `path` may hold a query.
+    --- One request, through the app's handler. `path` may hold a query.
     --- A reply the server would refuse raises, with the server's reason.
     request: function(self: Client, method: string, path: string,
         opts?: Types.TestOptions): Types.TestResponse
@@ -511,7 +511,7 @@ end
 --- ones. It keeps a cookie jar across calls, runs the app's lifespan at
 --- its first request (and its cleanup when closed), runs each call in a
 --- [`Poll.run`] unless the caller is in one, and fails a call whose reply
---- the server would answer 500 for.
+--- the server would refuse with a 500.
 --- @param app Types.App The app
 --- @return Testing.Client The client
 function Testing.test_client(app: Types.App): Testing.Client
@@ -649,9 +649,9 @@ end
 --- How much of a request goes out between looks for the server's reply.
 local SEND_SLICE <const> = 64 * 1024
 
---- Writes `bytes`, stopping where the server has answered already, and
+--- Writes `bytes`, stopping where the server has responded already, and
 --- says why a write failed ("" where none did). A server refusing a body
---- (413) answers at once, reads a bounded amount more and closes, and a
+--- (413) responds at once, reads a bounded amount more and closes, and a
 --- close with bytes unread resets the connection, which on BSD discards
 --- the reply from the client's buffer. So the reply is looked for between
 --- slices: a refusal sent while the server still drains is read before
@@ -665,7 +665,7 @@ local function send_until_answered(lb: Testing.Loopback, bytes: string): string
   local from = 1
   while from <= #bytes do
     local sent, why = lb.conn:write(bytes:sub(from, from + SEND_SLICE - 1))
-    if not sent then return why end
+    if not sent then return tostring(why) end
     from = from + SEND_SLICE
     if from <= #bytes then
       -- A wait of none still yields the run, so the server's task reads.
@@ -720,9 +720,9 @@ end
 --- chooses, calls `fn` with a client of it over one kept-alive connection,
 --- and stops the server when `fn` returns. What `fn` raises is raised
 --- again once the server has stopped. It is for what the in-process client
---- cannot see: real framing, `Connection: close`, what the server answers
---- itself, and graceful stop. It runs a [`Poll.run`] of its own, so it
---- cannot be called in a task, and a test using it declares
+--- cannot see: real framing, `Connection: close`, the responses the server
+--- makes itself, and graceful stop. It runs a [`Poll.run`] of its own, so
+--- it cannot be called in a task, and a test using it declares
 --- `Test.policy{ loopback = { "127.0.0.1" } }`. `opts` is what else
 --- [`Web.serve`] is given.
 --- @param app Types.App The app

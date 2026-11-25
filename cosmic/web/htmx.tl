@@ -1,5 +1,5 @@
 --- htmx for a [`cosmic.web`] app: what a request says in its `HX-*`
---- headers, the response headers a handler answers with, a fragment or a
+--- headers, the response headers a handler sets, a fragment or a
 --- whole page by header, and the head of a page that loads the htmx the
 --- binary carries.
 ---
@@ -18,7 +18,7 @@
 ---   they pick a presentation and authorize nothing, and they are no
 ---   defense against cross-site requests.
 --- - [`Htmx.apply`] writes a [`Htmx.Reply`]'s headers to a response,
----   refusing a redirect to another origin; [`Htmx.redirect_to`] answers
+---   refusing a redirect to another origin; [`Htmx.redirect_to`] returns
 ---   a redirect an htmx request can follow; [`Htmx.stop_polling`] ends an
 ---   `every 2s` poll.
 --- - [`Htmx.head`] writes the `htmx-config` meta tag and the script tags,
@@ -26,8 +26,10 @@
 ---   under `/_web/` ([`Web.app`]).
 --- @public
 
+local HtmxHead = require("cosmic.web.htmx_head")
 local Html = require("cosmic.html")
 local Json = require("cosmic.json")
+local type MarkupData = require("cosmic.web.markup_data")
 local Response = require("cosmic.web.response")
 local Store = require("cosmic.store")
 local Types = require("cosmic.web.types")
@@ -52,7 +54,7 @@ local record Htmx
     --- `HX-Current-URL`: the URL of the page, untrusted text: take it
     --- through [`Html.local_href`] before redirecting to it.
     current_url: string?
-    --- `HX-Prompt`: the answer to an `hx-prompt`.
+    --- `HX-Prompt`: what the user typed at an `hx-prompt`.
     prompt: string?
   end
 
@@ -210,7 +212,7 @@ end
 --- on no input.
 ---
 --- Every field is chosen by the client: they say which presentation to
---- answer with and never who may do what.
+--- respond with and never who may do what.
 --- @param req Types.Request The request
 --- @return Htmx.Request What it says
 function Htmx.request(req: Types.Request): Htmx.Request
@@ -227,7 +229,7 @@ end
 --- Whether `req` wants a fragment: an htmx request that is neither
 --- boosted nor a history restore, both of which swap a whole page.
 --- @param req Types.Request The request
---- @return boolean Whether to answer with a fragment
+--- @return boolean Whether to respond with a fragment
 function Htmx.partial(req: Types.Request): boolean
   local seen = Htmx.request(req)
   return seen.active and not seen.boosted and not seen.history_restore
@@ -416,7 +418,7 @@ end
 --- a 302 and swap the other page into the target); otherwise the
 --- ordinary 303 redirect, which a boosted request's XHR follows and
 --- swaps whole. A string is checked as [`Htmx.apply`] checks one.
---- @param req Types.Request The request being answered
+--- @param req Types.Request The request to respond to
 --- @param url string | Html.SafeUrl Where to
 --- @return Types.Response | nil The response, or nil
 --- @return string Why `url` was refused
@@ -435,8 +437,8 @@ end
 
 local VARY <const>: {string} = { "HX-Request", "HX-History-Restore-Request", "HX-Boosted" }
 
---- Answers `req` with `content` alone when it is a fragment request
---- ([`Htmx.partial`]), else with `wrap(content)`, the whole page. Both carry
+--- The response to `req`: `content` alone when it is a fragment request
+--- ([`Htmx.partial`]), else `wrap(content)`, the whole page. Both carry
 --- `Vary` for the headers the choice reads, so a cache keeps the two
 --- apart, and `Cache-Control: no-cache` unless the response has one, so
 --- that Back never shows a stale fragment.
@@ -455,7 +457,7 @@ function Htmx.page(req: Types.Request, content: Html.SafeHtml,
 end
 
 --- A 286 response: htmx swaps it in and stops the `every` poll that asked.
---- A poll that goes on answers 200.
+--- A poll that goes on gets 200.
 --- @param body Html.SafeHtml | nil The last content to swap, if any
 --- @return Types.Response The response
 function Htmx.stop_polling(body?: Html.SafeHtml): Types.Response
@@ -482,17 +484,14 @@ local function config_of(opts: Htmx.HeadOptions): {string: Json.Value}
   local history_cache_size = config.history_cache_size
   if history_cache_size ~= nil then out["historyCacheSize"] = history_cache_size end
   local nonce = opts.nonce
-  if nonce ~= nil then out["inlineScriptNonce"] = nonce end
+  -- An empty nonce is none, as the tags' template takes it.
+  if nonce ~= nil and nonce ~= "" then out["inlineScriptNonce"] = nonce end
   return out
 end
 
---- One script tag: the parts are the binary's own or escaped.
-local function script_tag(which: Htmx.Asset, opts: Htmx.HeadOptions): string
-  local opts_nonce = opts.nonce
-  local nonce = if opts_nonce ~= nil then (' nonce="' .. Html.raw_attr(Html.escape_attr(opts_nonce)) .. '"') else "" end
-  local prefix = opts.prefix or ""
-  return '<script src="' .. prefix .. Htmx.path(which) .. '" integrity="' .. Htmx.integrity(which) ..
-    '" crossorigin="anonymous"' .. nonce .. " defer></script>"
+--- One script: its path is the binary's own, under a prefix `head` checked.
+local function script_of(which: Htmx.Asset, opts: Htmx.HeadOptions): MarkupData.Script
+  return { src = Html.trust_resource_url((opts.prefix or "") .. Htmx.path(which)), integrity = Htmx.integrity(which) }
 end
 
 --- The `<meta name="htmx-config">` tag and the script tags of htmx (and of
@@ -517,12 +516,10 @@ function Htmx.head(opts?: Htmx.HeadOptions): Html.SafeHtml
     error("htmx: head: the nonce is text without a control byte", 2)
   end
   local json = assert(Html.json(config_of(opts)))
-  -- Everything written here is the binary's own constants or has been
-  -- through Html.escape_attr.
-  local tags = { '<meta name="htmx-config" content="' ..
-      Html.raw_attr(Html.escape_attr(Html.raw_json(json))) .. '">', script_tag("htmx", opts) }
-  if opts.sse == true then tags[#tags + 1] = script_tag("sse", opts) end
-  return Html.trust(table.concat(tags, "\n"))
+  local scripts: mut {MarkupData.Script} = { script_of("htmx", opts) }
+  if opts.sse == true then scripts[#scripts + 1] = script_of("sse", opts) end
+  -- The markup is the template htmx_head.tmpl (cosmic.template).
+  return HtmxHead.render({ config = Html.raw_json(json), scripts = scripts, nonce = nonce })
 end
 
 --- The CSS for the `htmx-indicator` class, which htmx would otherwise inject

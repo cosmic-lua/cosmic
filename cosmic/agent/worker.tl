@@ -10,24 +10,25 @@
 ---     print(answer["output"]) -- 1
 ---     Worker.close(w)
 ---
---- The worker reads requests, `{"id":1,"code":"..."}`, one JSON object a line, and answers each with a line holding
+--- The worker reads requests, `{"id":1,"code":"..."}`, one JSON object a line, and responds to each with a response line holding
 --- the request's `id` and one of: `refused`, the checker's lines, for a snippet that did not run; `ok` true and `value`
 --- (the JSON of what it returned, where it returned one, at most 64KB); `ok` false and `error`, for one that raised; or
 --- `error` alone, for a request it could not read. What a snippet writes to standard output and standard error goes to
 --- the worker's standard error, a pipe this module reads while the snippet runs, between the request's marks
---- ([`Worker.mark`]): an answer of `ok` gains `output`, all of it as UTF-8 where it is 64KB or less, else its first
+--- ([`Worker.mark`]): a response line of `ok` gains `output`, all of it as UTF-8 where it is 64KB or less, else its first
 --- 16KB and its last 48KB with a line between them of how many bytes were cut, `cut` true then, and `head_bytes` and
 --- `tail_bytes`, the length of each part; and `bytes`, how much was written. Only its start and its end are held, so a
---- snippet that prints without end fills no file. Before its answer, a snippet may call the
---- agent ([`cosmic.agent.host`]): a line `{"id":1,"call":"sql","args":{...}}`, which [`Worker.Options.serve`] answers
---- in the agent and the reply goes back on the worker's input, `{"reply":...}` or `{"failed":"..."}`. A snippet sets no global, which the checker
+--- snippet that prints without end fills no file. Before its response line, a snippet may call the
+--- agent ([`cosmic.agent.host`]): a line `{"id":1,"call":"history","call_id":1,"args":{...}}`, which
+--- [`Worker.Options.serve`] serves in the agent and the reply goes back on the worker's input, with the call's
+--- `call_id`: `{"call_id":1,"reply":...}` or `{"call_id":1,"failed":"..."}`. A snippet sets no global, which the checker
 --- refuses; what it keeps for the next it keeps with [`Host.store`], or writes to a file. Its standard input is /dev/null.
 ---
 --- Under a policy the worker is held as bash is, with these changes. Where it runs no commands
---- ([`Worker.Options.commands`] false), on Linux it keeps no right to run a file but this program's own, and has no
---- fork promise, so no program runs; on macOS it keeps them (Seatbelt's `x` maps libraries too). Beside that: it is granted this program's own file (read and
---- run), which it runs as, and it is not given the nest promise, beside which this program cannot be started again, so
---- Landlock holds its files too. Its environment is the policy's alone, so no key of the user's reaches it. With no
+--- ([`Worker.Options.commands`] false), on Linux no grant keeps `x`, and it has no fork promise, so no program runs; on
+--- macOS the grants keep `x` (Seatbelt's `x` maps libraries too). Beside that: it runs as this program, whose core its
+--- start runs with no grant of its file, and it is not given the nest promise, beside which this program cannot be
+--- started again, so Landlock holds its files too. Its environment is the policy's alone, so no key of the user's reaches it. With no
 --- policy (`--sandbox off`) it has the agent's whole environment, the API key included, as bash does then.
 
 local Child = require("cosmic.child")
@@ -41,7 +42,7 @@ local Sandbox = require("cosmic.sandbox")
 local Stream = require("cosmic.stream")
 
 local record Worker
-  --- The most bytes of a snippet's output an answer holds: 64KB.
+  --- The most bytes of a snippet's output a result holds: 64KB.
   OUTPUT_BYTES: integer
 
   --- What the worker writes on its output before (`kind` "start") and after ("end") the output of the request `id`.
@@ -72,7 +73,6 @@ local record Worker
     commands?: boolean
   end
 
-  --- What answers a snippet's call `name` with `args`.
   --- How long a call a snippet makes may take: a long call tests it, and stops.
   record Budget
     --- Whether the snippet's time ran out, or the user stopped the turn.
@@ -81,6 +81,7 @@ local record Worker
     left: function(): integer?
   end
 
+  --- What serves a snippet's call `name` with `args`.
   type Serve = function(name: string, args: Json.Value, budget: Budget): (Json.Value) | (nil, Failure)
 
   --- The worker of a session: none until the first snippet.
@@ -91,26 +92,30 @@ local record Worker
     base?: Child.Options
     --- The worker running, nil where none runs.
     mut handle?: Child.Handle
-    --- Its answers, a line each.
+    --- Its response lines.
     mut lines?: Stream.Lines
     --- Its requests.
     mut writer?: Stream.Writer
     --- The output of its snippets.
     mut output?: Stream.Reader
+    --- The policy the running worker was started under: a run under another starts a new one.
+    mut held?: Sandbox.Policy
+    --- Whether the running worker was started with commands: a run that differs starts a new one.
+    mut held_commands?: boolean
     --- The id the next request is sent with.
     mut next: integer
     --- How many workers it started.
     mut started: integer
   end
 
-  --- What the worker answered for a snippet, as it sent it: see above.
+  --- What the worker gave for a snippet: its response line, with the output the agent read (see above).
   type Answer = {string: Json.Value}
 end
 
---- How often a wait for an answer looks whether the user stopped the turn.
+--- How often a wait for a response line looks whether the user stopped the turn.
 local STOP_CHECK <const> = Clock.ms(100)
 
---- How long the output of a snippet that answered may take to end.
+--- How long the output of a snippet that ended may take to end.
 local OUTPUT_WAIT <const> = Clock.seconds(5)
 
 --- A set with no worker yet, started by `argv` where given, with the `env` and `fds` of `base`.
@@ -134,37 +139,48 @@ end
 --- The worker of `set`, started under `opts` where none runs.
 local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | (nil, Failure)
   local lines = set.lines
-  if lines ~= nil then return lines end
+  local commands = opts.commands ~= false
+  if lines ~= nil and set.held == opts.policy and set.held_commands == commands then
+    return lines
+  end
+  -- A worker held to another policy is ended: a sandbox narrowed between runs holds the next one.
+  if lines ~= nil then Worker.close(set) end
   local policy: Sandbox.Policy? = nil
   local given = opts.policy
   if given ~= nil then
-    -- TODO: copy `merged` whole, changing its promises alone, once a record can be copied with a field changed: a field
+    -- TODO: copy `merged` whole, changing its calls alone, once a record can be copied with a field changed: a field
     -- Sandbox.Policy gains is left out of this copy, and so given to the worker as nothing.
-    local merged, why = Sandbox.merge(given, { profiles = { "cosmic" } })
+    local merged, why = Sandbox.union(given)
     if merged == nil then return nil, Failure.new("worker: " .. why) end
     local promises: mut {Sandbox.Promise} = {}
     local runs = opts.commands ~= false
-    for _, promise in ipairs(merged.promises or {}) do
+    for _, promise in ipairs(Sandbox.calls(merged)) do
       if promise ~= "nest" and (runs or promise ~= "fork") then
         promises[#promises + 1] = promise
       end
     end
     local grants: mut {Sandbox.Grant} = {}
-    -- The worker is this program, which its start runs as its core where the policy grants it `x` ("cosmic").
-    local self, _ = Proc.executable()
     -- On macOS `x` lets dyld map a library as well as run a file, so it stays: with no `fork` the worker starts no
     -- process there either, though it could still become another program.
     -- TODO: hold an x grant on macOS as map-only (Seatbelt's file-map-executable alone) once a grant can say so.
     local strip = not runs and not Sandbox.on_macos()
-    for _, grant in ipairs(merged.grants or {}) do
-      -- With no commands, no other grant runs a file, so the worker cannot become another program either; as this
-      -- one, it is held as it was, with no process to start. A grant of `x` alone is then no grant.
-      local letters = if strip and grant.path ~= self then (grant.letters:gsub("x", "")) else grant.letters end
+    for _, grant in ipairs(Sandbox.paths(merged)) do
+      -- With no commands, no grant runs a file. The worker is this program, which its start runs as its core
+      -- whatever the policy grants. Outside `isolate` file the core holds its policy again at boot without that `rx`:
+      -- with no grant left with `x` the exec filter holds too, so the worker cannot become another program, nor run
+      -- itself again. A grant of `x` alone is then no grant.
+      -- TODO: under `isolate` file (the agent's Linux policy) the core's `rx` stays the worker's, so it may execve its
+      -- own core again (held as it is, with no fork); Child.start's boot layer under `isolate` file would close it.
+      local letters = if not strip then grant.letters else (grant.letters:gsub("x", "")) end
       if letters ~= "" then
         grants[#grants + 1] = { path = grant.path, letters = letters, from = grant.from }
       end
     end
-    policy = { grants = grants, isolate = merged.isolate, promises = promises, connect = merged.connect,
+    for _, promise in ipairs(promises) do grants[#grants + 1] = { calls = promise } end
+    for _, target in ipairs(Sandbox.connects(merged)) do
+      grants[#grants + 1] = { connect = target }
+    end
+    policy = { grants = grants, isolate = merged.isolate,
       loopback = merged.loopback, env = merged.env, set_env = merged.set_env, set_env_digests = merged.set_env_digests,
       tmp = merged.tmp, limits = merged.limits, user = merged.user, group = merged.group, database = merged.database }
   end
@@ -180,11 +196,12 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
   end
   lines = Stream.lines(reader)
   set.handle, set.writer, set.lines, set.output = handle, writer, lines, output
+  set.held, set.held_commands = opts.policy, commands
   set.started = set.started + 1
   return lines
 end
 
---- The reply to the call `message` a snippet made, as `serve` answers it: `{"reply":...}` or `{"failed":"..."}`, with
+--- The reply to the call `message`: what `serve` returns, sent as `{"reply":...}` or `{"failed":"..."}`, with
 --- the call's `call_id`.
 local function reply_to(message: {string: Json.Value}, serve: Worker.Serve?, budget: Worker.Budget): string
   local call = message["call"]
@@ -209,7 +226,7 @@ local function reply_to(message: {string: Json.Value}, serve: Worker.Serve?, bud
   return text
 end
 
---- The worker's answer to the request `id`, read from `lines`, each call it makes before it answered by `serve` and
+--- The worker's response line to the request `id`, read from `lines`, each call it makes before its response line served by `serve` and
 --- replied to on `writer`: or why there is none, which ends the worker. Each call is served in a task of its own, so
 --- calls a snippet makes from tasks of its own are served at once; each reply goes out whole, one at a time.
 local function answer_of(lines: Stream.Lines, writer: Stream.Writer, id: integer, serve: Worker.Serve?,
@@ -232,7 +249,7 @@ local function answer_of(lines: Stream.Lines, writer: Stream.Writer, id: integer
         trouble = "its answer is no JSON object: " .. tostring(decode_why)
         break
       end
-      -- A line for another request (one the snippet wrote where the answers go) puts every later one out of step.
+      -- A line for another request (one the snippet wrote where the response lines go) puts every later one out of step.
       if message["id"] ~= id then
         trouble = "it answered another request than this one"
         break
@@ -244,10 +261,10 @@ local function answer_of(lines: Stream.Lines, writer: Stream.Writer, id: integer
       local task = Poll.spawn(function()
         local text = reply_to(message, serve, budget)
         while writing and not done do local _, _ = written:wait() end
-        -- Once the snippet answered, no reply goes out: one cut short would be read as the next request.
+        -- Once the snippet ended, no reply goes out: one cut short would be read as the next request.
         if done then return end
         writing = true
-        -- A worker that ended is read as ended next. Shielded: a reply cut short when the snippet answers would be read
+        -- A worker that ended is read as ended next. Shielded: a reply cut short when the snippet ends would be read
         -- as the start of the next request.
         Poll.shielded(function() local _, _ = writer:write(text .. "\n") end)
         writing = false
@@ -290,7 +307,7 @@ local record Output
   mut started: boolean
   --- Whether its end mark was read.
   mut ended: boolean
-  --- What came after its start mark: before the end mark, its last bytes alone, past what an answer holds by a mark's
+  --- What came after its start mark: before the end mark, its last bytes alone, past what a result holds by a mark's
   --- length, which may be the start of a mark cut in two; before the start mark, those bytes alone.
   mut kept: string
   --- Whether bytes after the start mark were let go.
@@ -303,10 +320,10 @@ local record Output
   mut dropped: integer
 end
 
---- How many bytes an output holds past what an answer does: one more tells it was cut, and a mark cut in two is held.
+--- How many bytes an output holds past what a result does: one more tells it was cut, and a mark cut in two is held.
 local HOLD_MORE <const> = 64
 
---- The most bytes of the start of a snippet's output an answer holds, where the whole is more than it holds: the
+--- The most bytes of the start of a snippet's output a result holds, where the whole is more than it holds: the
 --- rest, TAIL_BYTES, is the end, and between them a line says how much was cut.
 local HEAD_BYTES <const> = 16 * 1024
 local TAIL_BYTES <const> = 48 * 1024
@@ -354,8 +371,8 @@ local function took(output: Output, chunk: string)
   output.kept = text
 end
 
---- Checks and runs `code` in the worker of `set`, starting one under `opts` where none runs: the worker's answer, or
---- why there is none. A snippet that runs past `opts.seconds` ends the worker, and is answered so.
+--- Checks and runs `code` in the worker of `set`, starting one under `opts` where none runs: the worker's result, or
+--- why there is none. A snippet that runs past `opts.seconds` ends the worker, and the failure says so.
 function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worker.Answer) | (nil, Failure)
   local lines, why = started(set, opts)
   if lines == nil then return nil, why end
@@ -370,7 +387,7 @@ function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worke
   local wrote, write_why = writer:write(request .. "\n")
   if not wrote then
     Worker.close(set)
-    return nil, Failure.new("worker: it ended: " .. write_why)
+    return nil, Failure.new("worker: it ended: " .. tostring(write_why))
   end
   local seconds = opts.seconds
   local answer: Worker.Answer? = nil
@@ -416,7 +433,7 @@ function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worke
         break
       end
     end
-    -- The worker marks the end of the output before it answers, so it is near once the answer is in; an answer to a
+    -- The worker marks the end of the output before it responds, so it is near once the response line is in; a result for a
     -- request the worker could not read has no output.
     local given = answer
     if given ~= nil and given["ok"] ~= nil and not timed_out and not halted then

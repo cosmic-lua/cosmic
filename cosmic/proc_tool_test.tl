@@ -8,7 +8,7 @@ local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
-local stand_in = require("build.stand_in")
+local Fake = require("cosmic.fake")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 
@@ -16,8 +16,8 @@ local Clock = require("cosmic.clock")
 Test.policy{ profiles = { "cosmic" } }
 
 --- The public wrapper and annotated syscall name the same directly executable
---- logical program. Native mode preserves the physical executable answer;
---- portable coverage supplies the artifact answer in ci/fixtures/identity_test.tl.
+--- logical program. Native mode preserves the physical executable result;
+--- portable coverage supplies the artifact result in ci/fixtures/identity_test.tl.
 local function test_executable_wraps_the_public_syscall()
   local direct = assert(sys.executable())
   local wrapped = assert(Proc.executable())
@@ -68,10 +68,10 @@ local function test_exec_hands_on_sigpipe_at_its_default(tmp: string)
   if own_mask & (1 << (sys.SIGPIPE - 1)) ~= 0 then
     Test.skip("this runner ignores SIGPIPE, which everything it starts inherits")
   end
-  -- The program it becomes, and the child it feeds: a stand-in, which
+  -- The program it becomes, and the child it feeds: a fake, which
   -- starts with no descriptors and no environment handed it, and says
   -- which signals it arrived ignoring.
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local chunk = [[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -97,7 +97,7 @@ require("cosmic.sys").exit(1)
   assert(mask & (1 << (sys.SIGPIPE - 1)) == 0, "SIGPIPE arrived ignored: " .. ignored)
 end
 
---- What the program a chunk becomes answers to `env-of FOO`: `exec` is
+--- What the program a chunk becomes prints for `env-of FOO`: `exec` is
 --- the [`Proc.exec`] call it makes, `outer` the variable the chunk's own
 --- process has.
 local function becomes(tmp: string, probe: string, exec: string): string
@@ -121,7 +121,7 @@ local function test_exec_takes_argv_and_the_whole_environment(tmp: string)
     Test.skip("a native start has nothing to relaunch")
     return
   end
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local given = becomes(tmp, probe, 'Proc.exec({ probe, "env-of FOO" }, { env = { FOO = "given" } })')
   assert(given == "FOO=given\n", given)
   local replaced = becomes(tmp, probe, 'Proc.exec({ probe, "env-of FOO" }, { env = { OTHER = "x" } })')

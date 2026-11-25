@@ -1,6 +1,6 @@
 --- Fuzz properties for [`cosmic.compress`]'s zstd codec: decoding any
 --- bytes is total, gives no update more than it was asked for, and
---- answers the same however the input is split; and what the encoder
+--- comes out the same however the input is split; and what the encoder
 --- writes, at any level and in any chunks, decodes to what went in.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
@@ -26,11 +26,11 @@ local function decode(input: string, step: integer, max_bytes: integer): string,
     pos = pos + step
     -- An empty update between pieces gives zstd nothing to do.
     local empty, empty_trouble = dec:update("", max_bytes)
-    if empty == nil then return table.concat(parts), empty_trouble end
+    if empty == nil then return table.concat(parts), tostring(empty_trouble) end
     parts[#parts + 1] = empty
     while true do
       local out, trouble = dec:update(piece, max_bytes)
-      if out == nil then return table.concat(parts), trouble end
+      if out == nil then return table.concat(parts), tostring(trouble) end
       assert(#out <= max_bytes, ("%d bytes from an update limited to %d"):format(#out, max_bytes))
       parts[#parts + 1] = out
       if not dec:pending() then break end
@@ -38,7 +38,7 @@ local function decode(input: string, step: integer, max_bytes: integer): string,
     end
   until pos > #input
   local last, trouble = dec:finish()
-  if last == nil then return table.concat(parts), trouble end
+  if last == nil then return table.concat(parts), tostring(trouble) end
   parts[#parts + 1] = last
   return table.concat(parts), ""
 end

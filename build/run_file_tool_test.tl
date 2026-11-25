@@ -447,7 +447,7 @@ local function test_a_run_whose_projection_is_gone_builds_again(tmp: string)
   assert(builds_of(root) == built + 1, "a run whose projection was gone did not build the tree")
 end
 
---- A link of a file the stage does not hold, answered by the disk, is read again on every run: a directory it names
+--- A link of a file the stage does not hold, resolved by the disk, is read again on every run: a directory it names
 --- made since the last good run builds the tree again.
 local function test_a_link_answered_by_the_disk_builds_again_when_the_disk_moves(tmp: string)
   local root = tree_of(tmp, "linked", { ["lib.tl"] = LIB_ONE, ["main.tl"] = 'local lib = require("lib")\nprint(lib.word)\n',

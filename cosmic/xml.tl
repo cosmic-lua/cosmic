@@ -72,24 +72,24 @@ local record Xml
   --- One event. A field the kind does not name is nil.
   type Event = raw_xml.Event
 
-  --- `feed(chunk)` answers events `chunk` completes, possibly none, and
+  --- `feed(chunk)` returns events `chunk` completes, possibly none, and
   --- possibly ones an earlier chunk completed; `finish()` says the input
-  --- has ended, and answers every event not yet answered. Each answers `events, ""`, or nil and why, and finishes
+  --- has ended, and returns every event not yet returned. Each returns `events, ""`, or nil and why, and finishes
   --- the parser on a failure; `finish` finishes it either way. A parser
   --- is closeable: `local p <close> = assert(Xml.parser())` frees it at
   --- the end of the scope.
   type Parser = raw_xml.Parser
 
   record Options
-    --- Answer names in a namespace as `{uri}local`.
+    --- Return names in a namespace as `{uri}local`.
     namespaces?: boolean
-    --- Read a token a chunk left open again at every chunk, so a chunk
-    --- answers every event it completes.
+    --- Read a token a chunk left open again at every chunk, so that `feed`
+    --- returns every event a chunk completes.
     eager?: boolean
     --- The longest run of text a parser holds, in bytes: 64 MiB when
     --- absent. A longer one is refused. Under 1 raises.
     max_text?: integer
-    --- Answer a name in a namespace by its local part alone: `x:id` and
+    --- Return a name in a namespace as its local part alone: `x:id` and
     --- `{urn:x}id` are both `id`. Namespaces are read as with
     --- `namespaces`, so an undeclared prefix is still refused. Where two
     --- attributes of an element share a local name, the later stands.
@@ -97,7 +97,7 @@ local record Xml
   end
 
   --- An element read whole: its name and attributes as a `start` event
-  --- answers them, and what it holds, in document order: each run of
+  --- holds them, and what it holds, in document order: each run of
   --- text as a string, each child element as an Element. Comments and
   --- instructions are left out.
   record Element
@@ -116,18 +116,18 @@ local record Xml
   --- may wait for the next batch.
   interface DocumentWriter
     --- Writes `events`, the next of the document's in order, and hands
-    --- what they complete to the target. false and why, naming the event,
+    --- what they complete to the target. false and a Failure, naming the event,
     --- when they cannot belong to a document, or the target refuses; the
-    --- writer is finished then, and answers the same afterward.
-    write: function(DocumentWriter, events: {Event}): boolean, string
+    --- writer is finished then, and returns the same afterward.
+    write: function(DocumentWriter, events: {Event}): (true) | (false, Failure)
     --- The document is done: writes what is held and closes the target.
-    --- false and why when it is not a whole document (an element left
+    --- false and a Failure when it is not a whole document (an element left
     --- open, or no root), or a write failed: the target is aborted then.
     --- Safe to call more than once: once the document is closed, `close`
-    --- answers true and `abort` leaves it as it is.
-    close: function(DocumentWriter): boolean, string
+    --- returns true and `abort` leaves it as it is.
+    close: function(DocumentWriter): (true) | (false, Failure)
     --- Abandons the document and aborts the target.
-    abort: function(DocumentWriter): boolean, string
+    abort: function(DocumentWriter): (true) | (false, Failure)
   end
 
   --- The elements at one path of a document, each read whole as its
@@ -217,7 +217,7 @@ end
 --- What reads the elements at `path`, a `/`-separated list of names
 --- from the root's (`feed/entry`), `*` standing for any one; each root
 --- element when `path` is nil or "". An element is read whole once its
---- `end` comes, and the ones inside it with it, never answered apart.
+--- `end` comes, and the ones inside it with it, never returned apart.
 function Xml.subtrees(path?: string): Xml.Subtrees
   local segments: mut {string} = {}
   for segment in (path or ""):gmatch("[^/]+") do segments[#segments + 1] = segment end
@@ -292,7 +292,7 @@ function Xml.text(element: Xml.Element): string
 end
 
 --- Every event in `text`, read whole, as one parser's `feed` and `finish`
---- answer them together; nil and a [`Failure`], at the line and column
+--- return them together; nil and a [`Failure`], at the line and column
 --- the parser stopped at, when it does not read.
 function Xml.events(text: string, opts?: Xml.Options): ({Xml.Event}) | (nil, Failure)
   local p <close>, trouble = Xml.parser(opts)
@@ -407,24 +407,26 @@ local class EventWriter is Xml.DocumentWriter
   --- events give it: `>` or `/>` waits on the event after it.
   mut pending?: string
   mut pending_name?: string
-  --- Why the writer is finished; "" while it is not.
-  mut failed: string
+  --- Why the writer is finished; nil while it is not.
+  mut failed?: Failure
   --- The document was written whole and the target closed.
   mut closed: boolean
 
-  function write(self, events: {Xml.Event}): boolean, string
-    if self.failed ~= "" then return false, self.failed end
+  function write(self, events: {Xml.Event}): (true) | (false, Failure)
+    local failed = self.failed
+    if failed ~= nil then return false, failed end
     local why = self:take(events)
     if why == "" then
       local text = table.concat(self.out)
       self.out = {}
-      if text == "" then return true, "" end
+      if text == "" then return true end
       local ok, trouble = self.target:write(text)
-      if ok then return true, "" end
-      why = "xml: " .. trouble
+      if ok then return true end
+      why = "xml: " .. tostring(trouble)
     end
-    self.failed = why
-    return false, why
+    local failure = Failure.new(why)
+    self.failed = failure
+    return false, failure
   end
 
   --- Writes `events` into `out`: "" when they all belong, else why.
@@ -569,29 +571,31 @@ local class EventWriter is Xml.DocumentWriter
     return false
   end
 
-  function close(self): boolean, string
-    if self.closed then return true, "" end
-    if self.failed == "" then
+  function close(self): (true) | (false, Failure)
+    if self.closed then return true end
+    local failed = self.failed
+    if failed == nil then
       local unclosed = self.open[#self.open]
       if unclosed ~= nil then
-        self.failed = "xml: <" .. unclosed .. "> is not closed"
+        failed = Failure.new("xml: <" .. unclosed .. "> is not closed")
       elseif self.roots == 0 then
-        self.failed = "xml: no root element"
+        failed = Failure.new("xml: no root element")
       else
-        self.failed = "xml: the writer is closed"
+        self.failed = Failure.new("xml: the writer is closed")
         self.closed = true
         return self.target:close()
       end
+      self.failed = failed
     end
     -- The document is refused already: an abort that fails adds nothing to say.
     local _, _ = self.target:abort()
-    return false, self.failed
+    return false, failed
   end
 
-  function abort(self): boolean, string
+  function abort(self): (true) | (false, Failure)
     -- What was closed is written: there is nothing left to abandon.
-    if self.closed then return true, "" end
-    if self.failed == "" then self.failed = "xml: the writer is abandoned" end
+    if self.closed then return true end
+    if self.failed == nil then self.failed = Failure.new("xml: the writer is abandoned") end
     return self.target:abort()
   end
 end
@@ -602,22 +606,21 @@ function Xml.writer(target: Stream.Writer): Xml.DocumentWriter
   local made: EventWriter = {
     target = target, out = {}, open = {}, written = {},
     scopes = { bound = {}, declared = {}, next = 0 }, generated = {}, roots = 0, count = 0,
-    pending = nil, pending_name = nil, failed = "", closed = false,
+    pending = nil, pending_name = nil, failed = nil, closed = false,
   }
   return made
 end
 
---- `events`, such as a parser answers, written as an XML document in
---- UTF-8, which a parser reads back to the same events: an element with
+--- `events`, such as a parser's `feed` returns, written as an XML document
+--- in UTF-8, which a parser reads back to the same events: an element with
 --- nothing in it as `<name/>`, its attributes sorted by name. A name in
---- Clark's notation, `{uri}local`, as a parser asked for namespaces
---- answers it, is written under a prefix bound to its namespace: the
---- `xml` prefix for XML's own, and otherwise `ns1`, `ns2` and on, each
---- declared with an `xmlns:` attribute on the first element that needs it
---- and used by the elements inside it. A prefix the events declare or
---- name for themselves is never chosen; written a batch at a time
---- ([`Xml.writer`]), one the writer has bound in an element still open may
---- not be named inside it.
+--- Clark's notation, `{uri}local`, the form a parser asked for namespaces
+--- uses, is written under a prefix bound to its namespace: the `xml` prefix
+--- for XML's own, and otherwise `ns1`, `ns2` and on, each declared with an
+--- `xmlns:` attribute on the first element that needs it and used by the
+--- elements inside it. A prefix the events declare or name for themselves
+--- is never chosen; written a batch at a time ([`Xml.writer`]), one the
+--- writer has bound in an element still open may not be named inside it.
 --- nil and a [`Failure`], naming the event, when they are no document: an element
 --- that is not closed, or closed by another name; no root element, or a
 --- second; text outside the root; a name that is no XML name, or one in a
@@ -630,8 +633,9 @@ function Xml.write(events: {Xml.Event}): (string) | (nil, Failure)
   local collected = Stream.collect()
   local w = Xml.writer(collected)
   local ok, why = w:write(events)
-  if ok then ok, why = w:close() end
-  if not ok then return nil, Failure.new(why) end
+  if not ok then return nil, why end
+  local closed, close_why = w:close()
+  if not closed then return nil, close_why end
   return collected:result()
 end
 

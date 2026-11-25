@@ -141,8 +141,8 @@ local record Json
     --- indented by two spaces (default false).
     pretty?: boolean
     --- How many arrays and objects may nest, 1 to [`Json.depth_limit`]
-    --- (1000; default [`Json.default_depth`], 64). A table that contains
-    --- itself fails here.
+    --- (1000; default [`Json.default_depth`], 64); a value outside that
+    --- raises. A table that contains itself fails here.
     mut max_depth?: integer
     --- Write every character past U+007F as a `\uXXXX` escape, a pair
     --- of them above U+FFFF, so that the text is ASCII throughout and
@@ -190,7 +190,8 @@ local record Json
     --- it. Only [`Json.null`], the stand-in that encodes back as `null`.
     mut null_value?: Json.Null
     --- How many arrays and objects may nest, 1 to [`Json.depth_limit`]
-    --- (1000; default [`Json.default_depth`], 64).
+    --- (1000; default [`Json.default_depth`], 64); a value outside that
+    --- raises.
     max_depth?: integer
     --- Read JSON5 rather than RFC 8259 JSON (default false). NaN and
     --- Infinity decode to the float they name.
@@ -272,7 +273,8 @@ local record Json
   --- means what it means to `decode`.
   record ReaderOptions
     --- How many arrays and objects may be open at once, 1 to
-    --- [`Json.depth_limit`] (default [`Json.default_depth`]).
+    --- [`Json.depth_limit`] (default [`Json.default_depth`]); a value
+    --- outside that raises.
     max_depth?: integer
     --- Read an object that holds a key twice rather than refusing it.
     duplicate_keys?: boolean
@@ -292,7 +294,7 @@ local record Json
   end
 
   --- A reader of JSON text a token at a time, from [`Json.reader`]. A
-  --- failure, the stream's or the text's, answers again on every later
+  --- failure, the stream's or the text's, is returned again on every later
   --- call.
   interface Reader
     --- The next token, and ""; nil and "" when the stream has ended
@@ -327,7 +329,7 @@ local record Json
   --- What JSON can say, as a Lua value: a string, a number, a boolean, [`Json.null`], an array of these
   --- or an object of these, nested as deep as [`Json.depth_limit`] allows. [`Json.encode`] and `Web.json`
   --- take it, so `Json.encode({ name = "x", n = 1, tags = { "a", "b" } })` is checked as it is written.
-  --- A record, a class or a nil is none of its arms: see [`Json.encode_any`]. What [`Json.decode`] answers is a [`Json.Value`].
+  --- A record, a class or a nil is none of its arms: see [`Json.encode_any`]. What [`Json.decode`] returns is a [`Json.Value`].
   ---
   --- The fork reads this declaration, and every parameter that takes it, as `any`; the new checker reads `string | number | boolean |
   --- Json.Null | {Json.Value} | {string: Json.Value}`.
@@ -397,8 +399,8 @@ local record Json
   --- What [`Json.select`] may be told. Every field is optional.
   record SelectOptions
     --- How deep a descendant segment (`..`) may walk, 1 to
-    --- [`Json.depth_limit`] (the default): a table that contains itself
-    --- fails here.
+    --- [`Json.depth_limit`] (the default); a value outside that raises. A
+    --- table that contains itself fails here.
     max_depth?: integer
   end
 
@@ -420,8 +422,8 @@ Json.null = raw.null
 Json.default_depth = raw.default_depth
 Json.depth_limit = raw.depth_limit
 
---- What a failure of this module answers, nil and `why` under the
---- module's name.
+--- What a function returns for a failure of this module: nil and `why`
+--- under the module's name.
 local function refuse(why: string): nil, string
   return nil, "json: " .. why
 end
@@ -478,7 +480,7 @@ end
 --- `max_depth`. The value is a [`Json.Value`]: a `null` inside it is
 --- nil unless `null_value` is given, and a text that is `null` alone is
 --- [`Json.null`], so a value read is never nil. To read it as a record of your own, check it with
---- [`cosmic.shape`], whose `Shape.record_of("Job"):into(value)` answers
+--- [`cosmic.shape`], whose `Shape.record_of("Job"):into(value)` returns
 --- a `Job`, or nil and the path of the first field that does not fit,
 --- where `value.cmd as {string}` checks nothing and a wrong field fails
 --- later, far from the text. To check only the outermost value, narrow
@@ -696,7 +698,7 @@ end
 -- (`build.new_declarations`), so the arrays of `any` and of records given to it are held by markers.
 
 --- Marks `t` as a JSON array, so it encodes as `[]` even when empty,
---- and answers it; with no argument, a new empty one. Raises when `t`
+--- and returns it; with no argument, a new empty one. Raises when `t`
 --- already has a metatable of its own.
 function Json.array(t?: {Json.Value}): {Json.Value}
   if t == nil then
@@ -711,7 +713,7 @@ function Json.is_array(v: any): boolean
   return raw.is_array(v)
 end
 
---- Marks `items` itself, not a copy, as an array, and answers it. When
+--- Marks `items` itself, not a copy, as an array, and returns it. When
 --- `items` has a hole, a position below its highest key that it holds
 --- nothing at, the array may have holes: [`Json.encode`] and
 --- [`Json.encode_any`] write it as long as its highest key, and each
@@ -720,10 +722,10 @@ end
 --- marked encodes as `["a",null,"c"]`, and with its last item removed as
 --- `["a"]`. When `items` has no hole it is marked as [`Json.array`]
 --- marks it, so a hole made later is still an error to encode, as it is
---- for any other table. [`Json.decode`] never answers an array that may
+--- for any other table. [`Json.decode`] never returns an array that may
 --- have holes.
 ---
---- Answers nil and a message when `items` has a key below 1, naming it,
+--- Returns nil and a message when `items` has a key below 1, naming it,
 --- or has a metatable already. Encoding refuses an array with more than
 --- 1048576 holes, since its highest key is no cost to make; use an
 --- object for data that sparse. [`Json.to_value`] and [`Json.to_array`]
@@ -826,7 +828,7 @@ end
 --- index set. The extent is an array's highest index, where `rawlen` is
 --- only a border of a decoded array that dropped a `null`; 0 for any
 --- other layout. Unlike [`Json.layout`], it scans a marked array, to
---- find that extent and to answer "mixed" for one that holds a key
+--- find that extent and to report "mixed" for one that holds a key
 --- other than a positive integer.
 function Json.members(t: {any:any}, gaps?: boolean): Json.Members -- declared: key_type
   local layout, keys, extent = classify(t, true, gaps == true)
@@ -855,7 +857,7 @@ end
 --- `s` as a JSON string literal, for a message: `"` and `\\` escaped and
 --- every control character a `\u` escape, so a key or a value reads in
 --- a message as it did in the text. It is for messages and is not a
---- JSON encoder: it answers for any bytes, UTF-8 or not, where `encode`
+--- JSON encoder: it handles any bytes, UTF-8 or not, where `encode`
 --- refuses what is not UTF-8. Use [`Json.encode`] to write JSON.
 function Json.quote(s: string): string
   return '"' .. s:gsub('[%c"\\]', escape) .. '"'
@@ -1050,12 +1052,12 @@ local function to_value_text(value: any): Json.Value?, string
 end
 
 --- `value`, a decoded value or any other, as a [`Json.Value`]: the
---- way to read what [`Json.decode`] answered as typed data without a cast.
+--- way to read what [`Json.decode`] returned as typed data without a cast.
 --- Every part is checked as it is copied -- a string is UTF-8, a number is
 --- finite, a table is an array or an object by [`Json.layout`] -- so what comes
 --- back is what [`Json.encode`] writes: an array, a Teal array literal among them, is marked as one, so
---- [`Json.is_array`] answers true for it, and a table with no keys is an object unless [`is_array`] marks it. nil and
---- a message naming the first part that is none, by its JSON Pointer, when
+--- [`Json.is_array`] returns true for it, and a table with no keys is an object unless [`is_array`] marks it. nil and
+--- a [`Failure`] naming the first part that is none, by its JSON Pointer, when
 --- `value` is a nil (a decoded `null`, unless `null_value` kept it), a
 --- function, userdata other than [`Json.null`], a table with mixed keys or
 --- a hole, a string that is not UTF-8, or nesting past [`Json.depth_limit`].
@@ -1573,12 +1575,12 @@ end
 --- checked, which [`Json.to_value`] does as it copies a whole value. An
 --- array's copy is marked as [`Json.array`] marks it and keeps its holes, so
 --- one [`Json.with_holes`] marked is marked again by the caller. `v` is put
---- there as it is, not copied. With no steps the answer is `v`.
+--- there as it is, not copied. With no steps it returns `v`.
 ---
 --- The last step names the place: a member of an object, there or not, or an
 --- array's position, a negative one counted from the end as [`Json.get`]
 --- counts. The position one past the last element appends. nil and a
---- message naming the place by its JSON Pointer for a position further
+--- [`Failure`] naming the place by its JSON Pointer for a position further
 --- past the end, which would leave a hole; for a step before the last that
 --- reaches nothing, since nothing says whether an object or an array belongs
 --- there (set one first); and for a step [`Json.get`] refuses: into a value
@@ -2077,7 +2079,7 @@ local function here(self: TokenReader): string
   return at_pointer(pointer_of(self:steps()))
 end
 
---- Ends the reading with `why`, which every later call answers too; the
+--- Ends the reading with `why`, which every later call returns too; the
 --- offset stays where it stopped.
 local function stop(self: TokenReader, why: string): nil, string
   self.failed = why
@@ -2732,7 +2734,7 @@ local class TokenReader is Json.Reader
     end
     local start = self.before + self.at - 1
     if token == "key" then
-      -- [`kind_of`] answers "key" only inside an object, so a frame is open.
+      -- [`kind_of`] returns "key" only inside an object, so a frame is open.
       local frame = Array.at(self.frames, #self.frames)
       local bare = self.buf:byte(self.at) ~= 34 and self.buf:byte(self.at) ~= 39
       local text: string?
@@ -2844,7 +2846,7 @@ end
 --- refuse one twice. The text may hold any number of values one after
 --- another, as a log of them does; a number or a literal must be ended
 --- by whitespace, a `,` or a close, so `1true` is refused rather than
---- read as two. `next` answers nil and "" once it has read past the last whole
+--- read as two. `next` returns nil and "" once it has read past the last whole
 --- one. A failure of `source` fails the reader; a `source` that raises
 --- raises through it. It reads RFC 8259 JSON, or JSON5 under `json5`,
 --- with `#` line comments under `hash_comments`, and refuses what

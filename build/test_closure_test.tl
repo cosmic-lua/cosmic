@@ -43,7 +43,7 @@ local function test_a_module_the_worker_loaded_is_refused_too()
 end
 
 --- A module of the closure loads by any name, as the one table its
---- literal `require` answered.
+--- literal `require` returned.
 local function test_a_module_of_the_closure_loads()
   assert(dynamic_require("build", "test_inputs") == test_inputs)
 end

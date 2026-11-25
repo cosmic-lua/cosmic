@@ -4,8 +4,8 @@
 --- confine a child in a root of its own (unveiling), which only a worker
 --- that declares the promise "nest" can (see [`Test.policy`] below). They
 --- need a sandbox, which no platform but Linux has: where the platform lacks
---- one they are not applicable (`requires`), and what the platform answers
---- then, with the cases that need none, is
+--- one they are not applicable (`requires`), and how the platform then
+--- refuses a start, with the cases that need none, is
 --- core/syscalls_tool_unsandboxed_test.tl's. The executable's own path,
 --- which only a `tool` test can read, is core/artifact_fd_tool_test.tl's.
 
@@ -16,7 +16,7 @@ local Test = require("cosmic.test")
 local type raw_process = require("cosmic.internal.process")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
-local stand_in = require("build.stand_in")
+local Fake = require("cosmic.fake")
 local test_child = require("build.test_child")
 local Clock = require("cosmic.clock")
 
@@ -24,11 +24,11 @@ local Clock = require("cosmic.clock")
 --- they start only to run a chunk (`lua`); and `nests`, since the
 --- unveiling cases give a child a root of its own, which a worker held
 --- by a Landlock ruleset cannot (build.confine's `forbid_running`); and
---- loopback, which the offline child's own `lo` answers, as a worker under a
+--- loopback, which the offline child's own `lo` carries, as a worker under a
 --- policy makes no inet socket without it.
 Test.policy{
   profiles = { "cosmic", "proc" },
-  promises = { "nest" },
+  grants = { { calls = "nest" } },
   loopback = { "127.0.0.1" },
   requires = { "nest" },
 }
@@ -36,16 +36,16 @@ Test.policy{
 local process = require("cosmic.internal.process")
 
 --- Skips the test ([`Test.skip`]) as the kernel refuses the sandbox it is
---- about, which only the start can tell: `errno` is one a refusal answers.
+--- about, which only the start can tell: `errno` is one a refusal fails with.
 local function refused(what: string, trouble: string, errno: integer)
   assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
       errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
   Test.skip("the kernel gives no " .. what .. ": " .. tostring(trouble))
 end
 
---- A stand-in program built under `tmp` (build/stand_in.tl).
+--- A fake program built under `tmp` ([`cosmic.fake`]).
 local function probe_in(tmp: string): string
-  return (assert(stand_in.build(tmp .. "/stand-in")))
+  return (assert(Fake.build(tmp .. "/fake")))
 end
 
 --- What a confined `probe` is given to read: itself, and /proc and
@@ -322,7 +322,7 @@ local function test_an_unveiled_child_runs_as_the_user_given(tmp: string)
   local root = may_run_as(user)
   -- A setuid-root copy of the probe, where this process may make one.
   local setuid = tmp .. "/setuid-probe"
-  assert(stand_in.place(probe, setuid))
+  assert(Fake.place(probe, setuid))
   if root then
     assert(sys.chown(setuid, 0, 0))
     assert(sys.chmod(setuid, 0x9ed)) -- 04755
@@ -466,7 +466,7 @@ end
 --- A path given with a name in `at` is bound there, and not at its own
 --- name: a tree given at /tree is read, and written where given to
 --- write, at /tree alone, so what a child sees of it names nothing of
---- where the host keeps it -- its working directory there answers
+--- where the host keeps it -- its working directory there is
 --- /tree -- and a directory bound at /tmp is its /tmp, which it has none
 --- of its own beside. A name that is not absolute and plain, is /, or
 --- is given for a path not unveiled, is refused.
@@ -523,7 +523,7 @@ local function test_an_unveiled_path_is_bound_at_the_name_given(tmp: string)
   -- The host's /proc bound through `at` -- here at /proc itself, so the
   -- child has no procfs of its own there, only the host's -- is the
   -- host's state, and mounted read-only, given to write as it may be:
-  -- the stand-in, a native program, finds itself in it, and its own pid
+  -- the fake, a native program, finds itself in it, and its own pid
   -- there is the host's, not the 2 its own namespace gives it.
   local without_proc: mut {string} = {}
   for _, path in ipairs(reads) do
@@ -550,7 +550,7 @@ end
 
 --- An unveiled child is pid 2 of a pid namespace of its own, beneath the
 --- sandbox's init, pid 1: it cannot signal a process outside it, of its
---- own user as it may be -- here a stand-in of this process's, which it
+--- own user as it may be -- here a fake of this process's, which it
 --- tries to kill -- and its /proc, a procfs of that namespace, lists
 --- its init, itself and what it starts, and nothing else; where the
 --- kernel refuses a procfs of its own (a container masking parts of its
@@ -616,7 +616,7 @@ local function test_an_unveiled_child_s_status_is_its_program_s(tmp: string)
   local probe = probe_in(tmp)
   local exited = run_confined(tmp, probe, "exit 7")
   assert(exited.code == 7 and exited.signal == -1)
-  -- Its init is gone with it once the wait answers: no child of this
+  -- Its init is gone with it once the wait returns: no child of this
   -- process is one any more, and none is left a zombie.
   assert(#process.sandbox_inits() == 0, "an init outlived the wait for its program")
   local children = sys.open("/proc/thread-self/children", sys.O_RDONLY)

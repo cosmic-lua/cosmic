@@ -5,7 +5,7 @@ local Ceilings = require("build.ceilings")
 local Fs = require("cosmic.fs")
 local Markers = require("build.markers")
 local Test = require("cosmic.test")
-local tree_checks = require("build.tree_checks")
+local tree_checked = require("build.tree_checks.checked")
 
 Test.policy{
   grants = {
@@ -36,44 +36,44 @@ end
 
 local function test_a_finding_with_no_marker_on_its_line_fails_and_a_marker_holds_it(dir: string)
   local bare = tree(dir, "bare", source("local t: integer = 3.5"))
-  local found = joined(tree_checks.checked(bare))
+  local found = joined(tree_checked.checked(bare))
   assert(found:find("build/bad.tl:1:20:", 1, true) and found:find("(not_assignable)", 1, true) and
       found:find("build/bad.tl: 1 error of not_assignable in its bodies on line 1, marked 0; " ..
           "follow the fix above rather than add a marker", 1, true), found)
   local held = tree(dir, "held", source("local t: integer = 3.5 " .. KEY .. " not_assignable"))
-  assert(#tree_checks.checked(held) == 0, joined(tree_checks.checked(held)))
+  assert(#tree_checked.checked(held) == 0, joined(tree_checked.checked(held)))
   -- a marker on another line does not hold it
   local other = tree(dir, "other", source(KEY .. " not_assignable", "", "local t: integer = 3.5"))
-  assert(joined(tree_checks.checked(other)):find("build/bad.tl:3:", 1, true) ~= nil)
+  assert(joined(tree_checked.checked(other)):find("build/bad.tl:3:", 1, true) ~= nil)
 end
 
 local function test_code_that_moves_keeps_its_marker_because_the_marker_is_on_its_line(dir: string)
   local before = source("local t: integer = 3.5 " .. KEY .. " not_assignable")
   local after = source("-- a comment", "", "local u = 1", "local t: integer = 3.5 " .. KEY .. " not_assignable",
     "print(u)")
-  assert(#tree_checks.checked(tree(dir, "before", before)) == 0)
-  local moved = tree_checks.checked(tree(dir, "after", after))
+  assert(#tree_checked.checked(tree(dir, "before", before)) == 0)
+  local moved = tree_checked.checked(tree(dir, "after", after))
   assert(#moved == 0, joined(moved))
 end
 
 local function test_a_finding_that_moved_off_its_marker_fails_and_leaves_the_marker_stale(dir: string)
   local root = tree(dir, "left", source("local t: integer = 3.5 " .. KEY .. " not_assignable"))
-  assert(#tree_checks.checked(root) == 0)
+  assert(#tree_checked.checked(root) == 0)
   -- the code gains a line above the marker's line and the finding follows the code, not the marker
   assert(Fs.write(root .. "/build/bad.tl", source("local t: integer = 3.5", "local u = 1 " .. KEY .. " not_assignable")))
-  local found = joined(tree_checks.checked(root))
+  local found = joined(tree_checked.checked(root))
   assert(found:find("build/bad.tl: 1 error of not_assignable in its bodies on line 1", 1, true) and
       found:find("build/bad.tl:2: its marker holds 1 finding of not_assignable that the line no longer has", 1, true), found)
 end
 
 local function test_a_stale_marker_is_told_and_the_fix_removes_it(dir: string)
   local root = tree(dir, "stale", source("local t: integer = 3 " .. KEY .. " not_assignable"))
-  local found = joined(tree_checks.checked(root))
+  local found = joined(tree_checked.checked(root))
   assert(found == "build/bad.tl:1: its marker holds 1 finding of not_assignable that the line no longer has; " ..
       "`cosmic fix` removes the marker", found)
   -- a run that mends them collects the places and tells nothing
   local sink: Ceilings.Sink = { unmarked = {}, stale = {}, mend = true }
-  assert(#tree_checks.checked(root, nil, nil, { sink = sink }) == 0)
+  assert(#tree_checked.checked(root, nil, nil, { sink = sink }) == 0)
   assert(#sink.stale == 1 and #sink.unmarked == 0)
   local spot = assert(sink.stale[1])
   assert(spot.file == "build/bad.tl" and spot.line == 1 and spot.stage == "checked" and spot.code == "not_assignable" and
@@ -81,31 +81,31 @@ local function test_a_stale_marker_is_told_and_the_fix_removes_it(dir: string)
   local text = assert(Fs.read(root .. "/build/bad.tl"))
   assert(Fs.write(root .. "/build/bad.tl", Markers.without(text, "build/bad.tl", sink.stale)))
   assert(assert(Fs.read(root .. "/build/bad.tl")) == source("local t: integer = 3"))
-  assert(#tree_checks.checked(root) == 0)
+  assert(#tree_checked.checked(root) == 0)
 end
 
 local function test_several_findings_on_one_line_are_held_by_a_count_and_by_several_codes(dir: string)
   local line = "local a: {integer} = { 3.5, 4.5 }"
   local two = tree(dir, "two", source(line))
-  assert(joined(tree_checks.checked(two)):find("2 errors of not_assignable in its bodies on line 1", 1, true) ~= nil)
+  assert(joined(tree_checked.checked(two)):find("2 errors of not_assignable in its bodies on line 1", 1, true) ~= nil)
   assert(Fs.write(two .. "/build/bad.tl", source(line .. " " .. KEY .. " not_assignable")))
-  local short = joined(tree_checks.checked(two))
+  local short = joined(tree_checked.checked(two))
   assert(short:find("2 errors of not_assignable in its bodies on line 1", 1, true) and short:find("on line 1, marked 1", 1, true), short)
   assert(Fs.write(two .. "/build/bad.tl", source(line .. " " .. KEY .. " not_assignable*2")))
-  assert(#tree_checks.checked(two) == 0, joined(tree_checks.checked(two)))
+  assert(#tree_checked.checked(two) == 0, joined(tree_checked.checked(two)))
   -- one more than the line has is stale by the difference
   assert(Fs.write(two .. "/build/bad.tl", source(line .. " " .. KEY .. " not_assignable*3")))
-  assert(joined(tree_checks.checked(two)):find("its marker holds 1 finding of not_assignable", 1, true) ~= nil)
+  assert(joined(tree_checked.checked(two)):find("its marker holds 1 finding of not_assignable", 1, true) ~= nil)
   -- two codes on one line, held by one marker; each code is held apart
   local codes = tree(dir, "codes", source("local d: integer? = nil", "local f: {integer} = { 3.5, d + 1 }"))
-  local both = joined(tree_checks.checked(codes))
+  local both = joined(tree_checked.checked(codes))
   assert(both:find("(not_assignable)", 1, true) and both:find("(nil_not_allowed)", 1, true), both)
   assert(Fs.write(codes .. "/build/bad.tl", source("local d: integer? = nil",
     "local f: {integer} = { 3.5, d + 1 } " .. KEY .. " nil_not_allowed, not_assignable")))
-  assert(#tree_checks.checked(codes) == 0, joined(tree_checks.checked(codes)))
+  assert(#tree_checked.checked(codes) == 0, joined(tree_checked.checked(codes)))
   assert(Fs.write(codes .. "/build/bad.tl", source("local d: integer? = nil",
     "local f: {integer} = { 3.5, d + 1 } " .. KEY .. " not_assignable")))
-  local rest = joined(tree_checks.checked(codes))
+  local rest = joined(tree_checked.checked(codes))
   assert(rest:find("(nil_not_allowed)", 1, true) ~= nil and not rest:find("(not_assignable)", 1, true), rest)
 end
 
@@ -113,27 +113,27 @@ local function test_the_findings_no_marker_holds_are_told_and_collected_for_the_
   local body = source("local t: integer = 3.5", "local u: integer = 3.5")
   local root = tree(dir, "unmarked", body)
   local sink: Ceilings.Sink = { unmarked = {}, stale = {} }
-  local told = joined(tree_checks.checked(root, nil, nil, { sink = sink }))
+  local told = joined(tree_checked.checked(root, nil, nil, { sink = sink }))
   assert(told:find("2 errors of not_assignable", 1, false) == nil and told:find("1 error of not_assignable in its bodies on line 1, marked 0", 1, true) ~= nil, told)
   assert(#sink.unmarked == 2 and #sink.stale == 0, tostring(#sink.unmarked))
   -- a marker on each line holds them, and the markers are the tree's count for the ratchet
   assert(Fs.write(root .. "/build/bad.tl", source("local t: integer = 3.5 " .. KEY .. " not_assignable",
     "local u: integer = 3.5 " .. KEY .. " not_assignable")))
-  assert(#tree_checks.checked(root) == 0, joined(tree_checks.checked(root)))
-  local counted = tree_checks.markers(root)
+  assert(#tree_checked.checked(root) == 0, joined(tree_checked.checked(root)))
+  local counted = tree_checked.markers(root)
   local file = assert(counted.counts["build/bad.tl"])
   assert(file["checked not_assignable"] == 2 and #counted.lines == 0, joined(counted.lines))
 end
 
 local function test_a_comment_that_is_no_marker_is_left_alone_and_a_marker_of_a_code_nothing_else_holds_is_counted_for_the_ratchet(dir: string)
   local root = tree(dir, "prose", source("local t = 1 " .. KEY .. " done"))
-  local told = tree_checks.markers(root)
+  local told = tree_checked.markers(root)
   assert(#told.lines == 0 and next(told.counts) == nil, "a word that is no code is prose")
   -- no list closes `shadows`: the marker holds its finding here, and is counted, which is how the ratchet sees it against a merge
   -- base that held none ([`build.ceilings_base`])
   local marked = tree(dir, "unclosed", source("local x = 1", "local x = 2 -- scoped: shadows", "return x"))
-  assert(#tree_checks.scoped(marked) == 0, joined(tree_checks.scoped(marked)))
-  assert(assert(tree_checks.markers(marked).counts["build/bad.tl"])["scoped shadows"] == 1)
+  assert(#tree_checked.scoped(marked) == 0, joined(tree_checked.scoped(marked)))
+  assert(assert(tree_checked.markers(marked).counts["build/bad.tl"])["scoped shadows"] == 1)
 end
 
 local function test_the_calls_the_checker_gave_no_function_are_held_by_untyped_markers_at_their_lines(dir: string)
@@ -150,28 +150,28 @@ local function test_the_calls_the_checker_gave_no_function_are_held_by_untyped_m
     "  return { n = 1 }",
     "end",
     "return M")))
-  local bare = joined(tree_checks.untyped(root))
+  local bare = joined(tree_checked.untyped(root))
   assert(bare:find("build/bad.tl:1:", 1, true) and bare:find("in its calls on line 1", 1, true), bare)
   assert(Fs.write(root .. "/build/bad.tl", source("local x = missing(2) -- untyped: call",
     "local y = x.field(1) -- untyped: call", "return y")))
-  assert(#tree_checks.untyped(root) == 0, joined(tree_checks.untyped(root)))
+  assert(#tree_checked.untyped(root) == 0, joined(tree_checked.untyped(root)))
   assert(Fs.write(root .. "/build/bad.tl", source("local x = missing(2) -- untyped: call*2",
     "local y = x.field(1) -- untyped: call", "return y")))
-  assert(joined(tree_checks.untyped(root)):find("its marker holds 1 finding of call", 1, true) ~= nil)
+  assert(joined(tree_checked.untyped(root)):find("its marker holds 1 finding of call", 1, true) ~= nil)
 end
 
 local function test_a_file_that_does_not_parse_keeps_its_markers_through_the_check_and_the_fix(dir: string)
   local body = source("local t: integer = 3.5 " .. KEY .. " not_assignable", "local = = 1")
   local root = tree(dir, "broken", body)
   local sink: Ceilings.Sink = { unmarked = {}, stale = {}, mend = true }
-  for _, found in ipairs({ tree_checks.checked(root, nil, nil, { sink = sink }),
-      tree_checks.declared(root, nil, { sink = sink }) }) do
+  for _, found in ipairs({ tree_checked.checked(root, nil, nil, { sink = sink }),
+      tree_checked.declared(root, nil, { sink = sink }) }) do
     assert(not joined(found):find("no longer has", 1, true), joined(found))
   end
   assert(#sink.stale == 0, "a file no stage could judge has no stale marker")
   -- the same markers over a file that parses and has no finding are stale
   assert(Fs.write(root .. "/build/bad.tl", source("local t: integer = 3 " .. KEY .. " not_assignable")))
-  tree_checks.checked(root, nil, nil, { sink = sink })
+  tree_checked.checked(root, nil, nil, { sink = sink })
   assert(#sink.stale == 1)
 end
 
@@ -181,10 +181,10 @@ local function test_a_file_of_counts_left_in_the_tree_configures_nothing(dir: st
   local root = tree(dir, "stray", source("local t: integer = 3.5"))
   local name = "ceil" .. "ings.txt"
   assert(Fs.write(root .. "/build/" .. name, "[marked]\nscoped declared untyped\n\n[checked]\nbuild/bad.tl not_assignable 1\n"))
-  assert(joined(tree_checks.checked(root)):find("1 error of not_assignable in its bodies on line 1, marked 0", 1, true) ~= nil)
-  assert(next(tree_checks.markers(root).counts) == nil and #tree_checks.markers(root).lines == 0)
+  assert(joined(tree_checked.checked(root)):find("1 error of not_assignable in its bodies on line 1, marked 0", 1, true) ~= nil)
+  assert(next(tree_checked.markers(root).counts) == nil and #tree_checked.markers(root).lines == 0)
   -- the finding is held by a marker on its line, as it is without the file
   assert(Fs.write(root .. "/build/bad.tl", source("local t: integer = 3.5 " .. KEY .. " not_assignable")))
-  assert(#tree_checks.checked(root) == 0, joined(tree_checks.checked(root)))
-  assert(assert(tree_checks.markers(root).counts["build/bad.tl"])["checked not_assignable"] == 1)
+  assert(#tree_checked.checked(root) == 0, joined(tree_checked.checked(root)))
+  assert(assert(tree_checked.markers(root).counts["build/bad.tl"])["checked not_assignable"] == 1)
 end

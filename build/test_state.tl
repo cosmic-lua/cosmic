@@ -29,7 +29,7 @@ local record test_state
     passed: boolean
     run_at_ns: integer
     --- How long the run that reached this verdict took, so a test
-    --- answered from it still has a duration to give `runs`.
+    --- settled from it still has a duration to give `runs`.
     elapsed_ns: integer
   end
 
@@ -41,7 +41,7 @@ local record test_state
     left?: string
   end
 
-  --- How many tests this run ran, and how many it answered from a
+  --- How many tests this run ran, and how many it settled from a
   --- verdict that still stood.
   record Tally
     mut ran: integer
@@ -74,6 +74,11 @@ local record test_state
     mut timeout_ns: integer
     --- How many workers run at once.
     mut jobs: integer
+    --- How long the run may start tests for, in seconds from its start
+    --- (`--deadline`, COSMIC_TEST_DEADLINE); nil for no end.
+    mut deadline_s?: integer
+    --- That end on the monotonic clock, once the run has started.
+    mut deadline_ns?: integer
   end
 
   --- One test the run has to run: no verdict stands for it.
@@ -153,7 +158,7 @@ local record test_state
     whole: boolean
   end
 
-  --- The hits of one load as a worker reported them, `from`, the one table [`worker.decode`] answers for every
+  --- The hits of one load as a worker reported them, `from`, the one table [`worker.decode`] returns for every
   --- report that spells them alike, once [`build.test`] has placed them and folded them into the run's: whether
   --- every line was placed (`whole`, [`Placing`]'s), and the part of a test's row they spell.
   record LoadTaken
@@ -187,11 +192,11 @@ local record test_state
     --- Each not applicable test's id and why, in the same shape.
     nas: mut {string}
     --- The modules whose requirements ([`host_requires`]) are not all
-    --- present on this host, by path, and what each answered: their tests
+    --- present on this host, by path, and what each reported: their tests
     --- are not started and have no key.
     unmet: mut {string:Unmet}
-    --- What the host answered to each module's requirements, by path, as
-    --- its key holds them: each present answer's name and key text. Empty
+    --- What the host reported for each module's requirements, by path, as
+    --- its key holds them: each present result's name and key text. Empty
     --- for a module that requires nothing.
     answered: mut {string:mut {string:string}}
     --- What each failing test printed, by its id.
@@ -265,10 +270,16 @@ local record test_state
     --- kept no record of included, and the seconds it ran.
     violators: mut {string:integer}
     violator_ns: mut {string:integer}
-    --- How many jobs `--bail` left unstarted after the first failure
-    --- (`run_jobs`). Such a test made no verdict, pass or fail, and is
-    --- in no figure of the tally.
+    --- The time each test this run ran took, by its id: what a run cut
+    --- short by its deadline names its slowest of.
+    ran_ns: mut {string:integer}
+    --- How many jobs `--bail` left unstarted after the first failure, or
+    --- the deadline after it passed (`run_jobs`). Such a test made no
+    --- verdict, pass or fail, and is in no figure of the tally.
     mut not_run: integer
+    --- What stopped the run starting tests, as the summary says it:
+    --- "the first failure" or "the deadline"; nil where nothing did.
+    mut stopped_by?: string
     --- The verdicts every checkout shares, or nil, and what the run owes
     --- them when it ends.
     mut shared?: shared_verdicts.Cache

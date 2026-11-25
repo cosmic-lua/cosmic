@@ -1,8 +1,8 @@
 --- @public
 --- What `cosmic agent`'s tools are held to: a [`cosmic.sandbox`] policy, made
 --- from the working directory and the user's flags. bash runs under it
---- ([`Child.run`]'s `policy`), and so does run's worker, which is also
---- granted this program's own file and refused the nest promise
+--- ([`Child.run`]'s `policy`), and so does run's worker, which runs as this
+--- program, needing no grant of it, and is refused the nest promise
 --- (`cosmic docs cosmic.agent.worker`); read, write and edit, which run in
 --- the agent itself, ask [`Sandbox.permits`] of each path.
 ---
@@ -20,8 +20,14 @@
 ---     --sandbox read    the working directory and the home are read and
 ---                       run in alone
 ---     --sandbox off     no sandbox: the tools have your user's rights,
----                       and --network and --grant are refused
----     --network         bash may reach the network (none by default)
+---                       and --network, --connect and --grant are refused
+---     --network         bash and snippets may reach the network (none by
+---                       default): public addresses alone
+---     --connect host:port   one more target, given again for each: an
+---                       address written out may be loopback or private
+---                       (`127.0.0.1:8123`), a name reaches public
+---                       addresses alone, and a port of `*` opens every
+---                       port
 ---     --grant path[:rwxc]   one more path, read alone unless the letters
 ---                       say more: w writes, x runs, c creates and removes;
 ---                       given again for each path
@@ -46,7 +52,8 @@
 --- most 512 processes; on macOS under Seatbelt. TMPDIR is a fresh
 --- temporary directory, and the environment holds PATH, LANG, LC_ALL
 --- and TERM alone (JAVA_HOME and the like are not passed), so no key
---- of yours reaches a command; on Linux USER
+--- of yours reaches a command; with --network, SSL_CERT_FILE too, and
+--- the file it names is read; on Linux USER
 --- and LOGNAME are agent. read, write and edit run in the agent itself,
 --- and check each path against the same grants, its links followed:
 --- read needs r, write w and c (it replaces the file whole), edit all
@@ -98,10 +105,15 @@ local record Policy
     --- "write" (the default): the working directory read and written;
     --- "read": read alone; "off": no sandbox.
     mode: string
-    --- Whether bash may reach the network.
+    --- Whether bash may reach the network: every name, by the grant `*:*`.
     network: boolean
+    --- More `connect` targets, `host:port` ([`cosmic.relay.grant`]): an
+    --- address written out here, loopback or private too, may be reached,
+    --- as `--connect 127.0.0.1:8123` lets a local server be; a name
+    --- reaches public addresses alone.
+    connect?: {string}
     --- More paths, each with its letters of "rwxc".
-    grants: {Sandbox.Grant}
+    grants: {Sandbox.Path}
     --- A home of the sandbox's own, kept from one session to the next:
     --- the commands' HOME, its .cache their XDG_CACHE_HOME, so a tool's
     --- downloads and builds (cosmic's, pip's, go's, npm's) outlive a
@@ -120,6 +132,11 @@ local record Policy
     --- directory may not hold: the agent's data and cache, and its MCP
     --- config's.
     kept_out?: {string}
+    --- The user's $SSL_CERT_FILE: with `network`, the tools read it and
+    --- are given it, so a request through a proxy that signs with its
+    --- own root (as a company's does) is trusted as the user's are. It
+    --- must be a file, outside `kept_out`; one not there is not given.
+    cert_file?: string
   end
 
 end
@@ -199,9 +216,10 @@ end
 --- (getpass.getuser) work; and `path`, PATH as its directories' real
 --- names, which the sandbox shows where a link to one (/opt/maven) is
 --- not there.
-local function env_of(linux: boolean, home?: string, path?: string): {string: string}?
+local function env_of(linux: boolean, home?: string, path?: string, cert?: string): {string: string}?
   local out: mut {string: string} = {}
   if path ~= nil then out["PATH"] = path end
+  if cert ~= nil then out["SSL_CERT_FILE"] = cert end
   if linux then out["HOME"], out["USER"], out["LOGNAME"] = "/tmp", "agent", "agent" end
   if home ~= nil then out["HOME"], out["XDG_CACHE_HOME"] = home, home .. "/.cache" end
   if next(out) == nil then return nil end
@@ -292,6 +310,15 @@ local function program_dirs(path: string, user_home: string?, guarded: {string},
   return kept
 end
 
+--- The `connect` targets `config` grants: `*:*` for network, then its
+--- own.
+local function connect_of(config: Policy.Config): {string}
+  local out: mut {string} = {}
+  if config.network then out[#out + 1] = "*:*" end
+  for _, target in ipairs(config.connect or {}) do out[#out + 1] = target end
+  return out
+end
+
 --- The policy `config` asks for in `cwd`: nil and "" for mode off, or
 --- nil and why where it cannot be made.
 function Policy.of(cwd: string, config: Policy.Config): Sandbox.Policy?, string
@@ -335,6 +362,30 @@ function Policy.of(cwd: string, config: Policy.Config): Sandbox.Policy?, string
   for _, dir in ipairs(program_dirs(config.path or "", config.user_home, guarded, config.kept_out or {})) do
     grants[#grants + 1] = { path = dir, letters = "rx" }
   end
+  local cert: string? = nil
+  local cert_file = config.cert_file
+  -- One that is not there, or is not a file, is given as none: a stale variable does not refuse each run.
+  local real_cert: string? = nil
+  if (config.network or #(config.connect or {}) > 0) and cert_file ~= nil and cert_file ~= "" then
+    local found, _ = Fs.absolute(cert_file)
+    real_cert = found
+  end
+  if cert_file ~= nil and real_cert ~= nil then
+    local status, _ = Fs.status(real_cert)
+    local st = status and status.stat
+    if st == nil or st.kind ~= "file" then real_cert = nil end
+  end
+  if cert_file ~= nil and real_cert ~= nil then
+    for _, kept in ipairs(config.kept_out or {}) do
+      local real_kept, _ = Fs.absolute(kept)
+      if Fs.within(real_cert, real_kept or kept) then
+        return nil, "SSL_CERT_FILE " .. cert_file .. " is where the agent keeps its sessions or its MCP config, " ..
+          "which no tool may read"
+      end
+    end
+    cert = real_cert
+    grants[#grants + 1] = { path = real_cert, letters = "r" }
+  end
   local home = config.home
   if home ~= nil then
     local made, made_why = Fs.mkdirs(home .. "/.cache", 0x1c0)
@@ -351,24 +402,25 @@ function Policy.of(cwd: string, config: Policy.Config): Sandbox.Policy?, string
   -- The kernel counts a sandbox's processes from Linux 5.17 on.
   local release, _ = Fs.read("/proc/sys/kernel/osrelease")
   local counts = linux and release ~= nil and Sandbox.counts_per_namespace((release:gsub("%s+$", "")))
+  -- calls nest: a command may hold what it runs to less (cosmic test does).
+  -- It needs a root of its own, so Linux alone, and gives up Landlock:
+  -- files are then held by that root alone.
+  local calls: {Sandbox.Promise} = if linux then { "fork", "fattr", "jit", "nest" } else { "fork", "fattr", "jit" } end
+  for _, promise in ipairs(calls) do grants[#grants + 1] = { calls = promise } end
+  for _, target in ipairs(connect_of(config)) do grants[#grants + 1] = { connect = target } end
   local own: Sandbox.Policy = {
     profiles = { "system", "programs", "proc" },
     grants = grants,
     tmp = true,
-    -- nest: a command may hold what it runs to less (cosmic test does).
-    -- It needs a root of its own, so Linux alone, and gives up Landlock:
-    -- files are then held by that root alone.
-    promises = if linux then { "fork", "fattr", "jit", "nest" } else { "fork", "fattr", "jit" } end,
     env = if config.path ~= nil then { "LANG", "LC_ALL", "TERM" } else { "PATH", "LANG", "LC_ALL", "TERM" } end,
-    set_env = env_of(linux, home, if config.path ~= nil then real_path(config.path) else nil end),
-    connect = if config.network then { "*:*" } else nil end,
+    set_env = env_of(linux, home, if config.path ~= nil then real_path(config.path) else nil end, cert),
     -- On Linux a root of its own: what it was not granted is not there,
     -- and it owns what it was, whoever runs the agent. macOS has no
     -- namespaces to give it one.
     isolate = if linux then { "file" } else nil end,
     limits = if counts then { processes = PROCESSES } else nil end,
   }
-  local merged, why = Sandbox.merge(own)
+  local merged, why = Sandbox.union(own)
   if merged == nil then return nil, why end
   return merged, ""
 end
@@ -405,12 +457,12 @@ function Policy.describe(p: Sandbox.Policy, home?: string): {string}
         bytes(size_of(kept)))
     end
   end
-  local connect = p.connect or {}
+  local connect = Sandbox.connects(p)
   out[#out + 1] = "network: " .. (if #connect > 0 then table.concat(connect, " ") else "none" end)
   out[#out + 1] = "grants (r reads, w writes, x runs, c creates and removes):"
-  local grants: mut {Sandbox.Grant} = {}
-  for _, g in ipairs(p.grants or {}) do grants[#grants + 1] = g end
-  table.sort(grants, function(a: Sandbox.Grant, b: Sandbox.Grant): boolean
+  local grants: mut {Sandbox.Path} = {}
+  for _, g in ipairs(Sandbox.paths(p)) do grants[#grants + 1] = g end
+  table.sort(grants, function(a: Sandbox.Path, b: Sandbox.Path): boolean
     return a.path < b.path
   end)
   for _, g in ipairs(grants) do out[#out + 1] = string.format("  %-5s %s", g.letters, g.path) end
@@ -418,7 +470,7 @@ function Policy.describe(p: Sandbox.Policy, home?: string): {string}
     out[#out + 1] = "profiles: " .. table.concat(p.profiles, " ")
   end
   if p.tmp == true then out[#out + 1] = "tmp: a fresh /tmp for each command, removed after it" end
-  out[#out + 1] = "promises: " .. table.concat(p.promises or {}, " ")
+  out[#out + 1] = "calls: " .. table.concat(Sandbox.calls(p), " ")
   out[#out + 1] = "isolate: " .. (if p.isolate ~= nil then table.concat(p.isolate, " ") else "none" end)
   local limits = p.limits
   if limits ~= nil and limits.processes ~= nil then

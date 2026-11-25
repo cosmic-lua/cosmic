@@ -11,6 +11,8 @@
 local Cli = require("cosmic.cli")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local build_schema = require("build.schema")
+local type Build = build_schema.Build
 local String = require("cosmic.string")
 local docs = require("build.docs")
 local Doc = require("cosmic.doc")
@@ -35,12 +37,12 @@ end
 --- read without a query of the rest. Made at `scratch`, opened, and
 --- unlinked, so nothing is left behind; with `kept`, left at `scratch` for
 --- another process to open too, for the caller to remove once it is done.
-function docs_checks.carried(whole: string, scratch: string, kept?: boolean): Sqlite.Handle?, string
+function docs_checks.carried(whole: string, scratch: string, kept?: boolean): Build?, string
   local made, made_trouble = writer.carried(whole, scratch)
   if not made then
     return nil, made_trouble
   end
-  local db, open_trouble = Sqlite.open(scratch)
+  local db, open_trouble = Sqlite.open(scratch, { schema = build_schema.Build })
   if kept == true then
     if db == nil then
       local _, _ = Fs.remove(scratch)
@@ -167,7 +169,7 @@ end
 --- @param exempt what to let stand; defaults to the tree's own
 --- @param files where given, the files whose modules alone are judged, by their paths from the root (a narrowed
 ---   `cosmic fix <paths>`): an exemption of another module's is not reported as stale
-function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt, files?: {string: boolean}): {string}
+function docs_checks.rendered(db: Build, exempt?: docs_checks.Exempt, files?: {string: boolean}): {string}
   local excused = exempt and exempt.undocumented or undocumented
   local kept = exempt and exempt.surfaces or surfaces
   local out: mut {string} = {}
@@ -183,7 +185,7 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt, fi
     return { "reading the index: " .. tostring(index_trouble) }
   end
   local modules: {Doc.Summary} = index
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT d.module, d.symbol, d.source_symbol, d.kind, d.signature, d.text, d.file, d.line " ..
       "FROM docs d WHERE d.module GLOB 'cosmic.*' AND d.module NOT LIKE '%\\_example' ESCAPE '\\' " ..
       "AND " .. symbols.shown_docs("d", true) .. " ORDER BY d.module, d.id")
@@ -204,7 +206,7 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt, fi
     return judged == nil or judged[module] == true
   end
 
-  -- Several modules declare `Entry.path`, so one lookup answers each.
+  -- Several modules declare `Entry.path`, so one lookup serves each.
   local looked: mut {string: Doc.Lookup} = {}
   local function lookup(name: string): Doc.Lookup?
     local found = looked[name]
@@ -244,7 +246,7 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt, fi
       end
     end
     -- What a type stands for lists its target's members, each of which
-    -- has to answer as `Type.member`.
+    -- has to resolve as `Type.member`.
     local alias = entry.signature:match("^type ") ~= nil
     local inherited = false
     for _, line in ipairs(lines) do
@@ -319,7 +321,7 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt, fi
     local module, symbol, source_symbol, kind, signature, text =
       row:text(1), row:text(2), row:text(3), row:text(4), row:text(5), row:text(6)
     local key = module .. "." .. source_symbol
-    local where = row:text(7) .. ":" .. row:text(8) .. ": " .. key
+    local where = row:text(7) .. ":" .. tostring(row:integer(8)) .. ": " .. key
     if symbol ~= "" and judges(module) then
       if signature:gsub("^local ", ""):find("--", 1, true) ~= nil then
         table.insert(out, where .. ": the signature has a comment in it: " ..
@@ -445,7 +447,7 @@ end
 --- @param allowed the references left dangling on purpose, by the text
 ---   between the backticks, with the reason; defaults to the tree's own,
 ---   and one that now resolves is reported as stale
-function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
+function docs_checks.references(db: Build, help?: {string: string},
                                 verbs?: {string}, allowed?: {string: string}): {string}
   help = help or {}
   local dangling = allowed or unresolved
@@ -464,9 +466,9 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   -- The record a module of the library returns is its last name,
   -- capitalized: `Fs` for [`cosmic.fs`]. One a closed directory keeps to
   -- itself counts too, so that a public page naming its symbol
-  -- ([`Router.match`]) is held to an answer a reader can get.
+  -- ([`Router.match`]) is held to a lookup a reader can make.
   local records: mut {string: boolean} = {}
-  local library, library_trouble = db:text_rows("SELECT path FROM modules WHERE kind = 'module' AND " ..
+  local library, library_trouble = db:rows("SELECT path FROM modules WHERE kind = 'module' AND " ..
       symbols.library_modules("path"))
   if library == nil then
     return { "reading the modules: " .. tostring(library_trouble) }
@@ -489,7 +491,7 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
       kept[path:gsub("%.", "/") .. "/init.tl"] = true
     end
   end
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT d.module, d.symbol, d.text, d.file, d.line FROM docs d WHERE " ..
       "d.module NOT LIKE '%\\_example' ESCAPE '\\' AND d.text <> '' AND " ..
       symbols.shown_docs("d", true) .. " ORDER BY d.module, d.id")
@@ -501,7 +503,7 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   local out: mut {string} = {}
   local answered: mut {string: boolean} = {}
   -- What cosmic.removed says to write instead, for a query it lists as
-  -- gone: `cosmic docs` answers such a name, but a page that names it is
+  -- gone: `cosmic docs` finds such a name, but a page that names it is
   -- stale.
   local gone: mut {string: string} = {}
   -- TODO: take a query that names a worked example by its own name
@@ -579,7 +581,7 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
     end
   end
   for _, row in ipairs(texts) do
-    check(row:text(4) .. ":" .. row:text(5) .. ": " .. row:text(1) ..
+    check(row:text(4) .. ":" .. tostring(row:integer(5)) .. ": " .. row:text(1) ..
         (if row:text(2) ~= "" then " " .. row:text(2) else "" end), row:text(3), row:text(1))
   end
   for name, text in pairs(help) do

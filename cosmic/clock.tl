@@ -129,26 +129,11 @@ function Clock.cpu_ns(): integer
   return reading
 end
 
--- TODO: once ci/cosmic-driver.pin names a release with Clock.sleep, move ci/, build/perf.tl and eval/check/grade.tl
--- to it and delete this, which they call on the pinned release.
-
---- Sleeps for `nanoseconds`, as `sleep` or `nanosleep` does, resuming
---- the wait when a signal interrupts it, so the whole time passes.
---- Answers `true` and "" once it has, or `false` and why when the
---- system refuses the sleep. Raises when `nanoseconds` is negative.
-function Clock.sleep_ns(nanoseconds: integer): boolean, string
-  local ok, trouble = sys.nanosleep(nanoseconds)
-  if not ok then
-    return false, trouble
-  end
-  return true, ""
-end
-
 --- Waits `ns` nanoseconds. In a task of [`Poll.run`] only that task waits, and the others run; anywhere else the
 --- process sleeps, resuming the sleep when a signal interrupts it, so the whole time passes. A task the run is
 --- killing, or one under a C call it cannot yield across (a `table.sort` comparator), sleeps the process too.
 --- Returns true once the time has passed, or false and a Failure: of kind "cancelled" where the task was cancelled
---- first, or the system's reason where it refused the sleep. Raises when `ns` is negative.
+--- first, or the system's reason where it refused the sleep. Raises when `ns` is negative or not an integer.
 ---
 ---     assert(Clock.sleep(Clock.ms(250)))
 --- @param ns integer The nanoseconds to wait
@@ -209,8 +194,8 @@ function Clock.seconds(n: number): integer
   return span(n, NS, "Clock.seconds")
 end
 
---- Ninety seconds as a count of minutes: `Clock.minutes(1.5)` is
---- 90000000000 nanoseconds. A count is held to what [`ms`] holds one to.
+--- Minutes as nanoseconds: `Clock.minutes(1.5)` is 90000000000. A
+--- count is held to what [`ms`] holds one to.
 function Clock.minutes(n: number): integer
   return span(n, 60 * NS, "Clock.minutes")
 end
@@ -224,7 +209,7 @@ end
 --- The count of `unit` nanoseconds that covers `ns`, rounded up, for a
 --- raw call that takes its span as a count of one unit: `Clock.ceil(ns,
 --- Clock.ms(1))` is the milliseconds a poll waits, and 1 for a single
---- nanosecond, where rounding down would answer 0, no wait at all.
+--- nanosecond, where rounding down would make 0, no wait at all.
 --- Raises for a `unit` below 1.
 function Clock.ceil(ns: integer, unit: integer): integer
   if unit < 1 then
@@ -234,7 +219,7 @@ function Clock.ceil(ns: integer, unit: integer): integer
 end
 
 --- Times the code from here to the end of the block, by name: hold the
---- answer in a `<close>` variable (`local _t <close> = Clock.span(spans,
+--- result in a `<close>` variable (`local _t <close> = Clock.span(spans,
 --- "parse")`). When the block ends (at its `end`, a `return`, a `break`
 --- or an error), the wall time ([`monotonic_ns`]) and the CPU time of this
 --- thread ([`cpu_ns`]) since this call are added to `spans[name]`, and its

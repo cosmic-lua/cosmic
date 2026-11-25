@@ -1,5 +1,5 @@
 --- The `__fact` hook of the test worker ([`worker.install_checks`]): the calls the new checker's code generator writes at
---- the reads a test narrowed ([`lang.fact_wraps`]) answer their value where the conclusion holds, and where it is false
+--- the reads a test narrowed ([`lang.fact_wraps`]) return their value where the conclusion holds, and where it is false
 --- of the value they fail the read and keep a violation of kind "fact", the row `cosmic test --check-types` lists
 --- (`type_violations`). The programs are compiled with the wraps and run in this process, beside the fork's checks
 --- (build.checked_narrowing_test).
@@ -212,7 +212,7 @@ local function test_the_worker_defines_the_hook_the_wraps_call()
 end
 
 --- A chunk with wraps brings the definition of the hook it calls, for a process with none (one a test starts, a library
---- the worker loads before it installs its own): the call answers its value, as the fork's `(__cosmic_tc or select)` does.
+--- the worker loads before it installs its own): the call returns its value, as the fork's `(__cosmic_tc or select)` does.
 local function test_a_wrapped_chunk_defines_the_hook_it_calls_where_none_is_defined()
   local code = programs.compiled("sound.tl", programs.sound, true)
   local definition = code:match("^(if not __fact then __fact = function%(v%) return v end end )")

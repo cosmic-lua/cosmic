@@ -45,6 +45,7 @@
 
 local Verb = require("cosmic.cli.codec")
 local Codec = require("cosmic.codec")
+local Failure = require("cosmic.failure")
 local Flags = require("cosmic.flags")
 local Stream = require("cosmic.stream")
 local bare = require("build.bare")
@@ -61,10 +62,10 @@ local record verb
   end
 
   --- One incremental transform, a chunk at a time: a
-  --- [`Stream.Transform`] that holds nothing back (it has no
-  --- `pending`). `update(chunk)` feeds bytes (or text) and returns the
+  --- [`Stream.Transform`] that holds nothing back (its `pending` is
+  --- always false). `update(chunk)` feeds bytes (or text) and returns the
   --- output that is ready, possibly ""; [`finish()`] says no more input
-  --- follows and returns what is left, with `nil` and a reason when a
+  --- follows and returns what is left, with nil and a Failure when a
   --- decoder's text was refused. An encoder never fails. A decoder
   --- fails only at `finish`: it cannot tell a bad length from a bad
   --- character until the text ends, and the whole-string decoders
@@ -121,46 +122,54 @@ local URL <const>: Alphabet = {
 }
 
 --- The hex encoder: each chunk's digits, as it comes.
-local class HexEncoder is verb.Coder -- declared: interface_disagrees
+local class HexEncoder is verb.Coder
   mut done: boolean
 
-  function update(self, chunk: string): string?, string
-    if self.done then error("codec: coder is finished", 2) end
-    return Codec.hex(chunk), ""
+  function pending(self): boolean
+    return false
   end
 
-  function finish(self): string, string -- declared: interface_disagrees
+  function update(self, chunk: string, _max_bytes?: integer): (string) | (nil, Failure)
+    if self.done then error("codec: coder is finished", 2) end
+    return Codec.hex(chunk)
+  end
+
+  function finish(self): (string) | (nil, Failure)
     if self.done then error("codec: coder is finished", 2) end
     self.done = true
-    return "", ""
+    return ""
   end
 end
 
 --- A base64 encoder: whole groups of three bytes go out as they come,
 --- and the last one or two are padded, if the alphabet pads, at `finish`.
-local class Base64Encoder is verb.Coder -- declared: interface_disagrees
+local class Base64Encoder is verb.Coder
   alphabet: Alphabet
   mut carry: string
   mut done: boolean
 
-  function update(self, chunk: string): string?, string
+  function pending(self): boolean
+    return false
+  end
+
+  function update(self, chunk: string, _max_bytes?: integer): (string) | (nil, Failure)
     if self.done then error("codec: coder is finished", 2) end
     local data = self.carry .. chunk
     local whole = #data - #data % 3
     self.carry = data:sub(whole + 1)
-    if whole == 0 then return "", "" end
-    return self.alphabet.encode(if whole == #data then data else data:sub(1, whole) end), ""
+    if whole == 0 then return "" end
+    return self.alphabet.encode(if whole == #data then data else data:sub(1, whole) end)
   end
 
-  function finish(self): string?, string
+  function finish(self): (string) | (nil, Failure)
     if self.done then error("codec: coder is finished", 2) end
     self.done = true
-    return self.alphabet.encode(self.carry), ""
+    return self.alphabet.encode(self.carry)
   end
 end
 
 --- The hex decoder.
-local class HexDecoder is verb.Coder -- declared: interface_disagrees
+local class HexDecoder is verb.Coder
   mut total: integer
   mut carry: string
   --- The first character that is no hex digit: where it lies and what
@@ -169,11 +178,15 @@ local class HexDecoder is verb.Coder -- declared: interface_disagrees
   mut bad_byte: integer
   mut done: boolean
 
-  function update(self, chunk: string): string, string -- declared: interface_disagrees
+  function pending(self): boolean
+    return false
+  end
+
+  function update(self, chunk: string, _max_bytes?: integer): (string) | (nil, Failure)
     if self.done then error("codec: coder is finished", 2) end
     local before = self.total - #self.carry
     self.total = self.total + #chunk
-    if self.bad_at ~= nil then return "", "" end
+    if self.bad_at ~= nil then return "" end
     local data = self.carry .. chunk
     -- Text that is sound decodes in one pass through the library;
     -- only a refusal, or a character in the held-back byte, looks for
@@ -184,33 +197,33 @@ local class HexDecoder is verb.Coder -- declared: interface_disagrees
       local out, _why = Codec.unhex(if even == #data then data else data:sub(1, even) end)
       if out ~= nil then
         self.carry = tail
-        return out, ""
+        return out
       end
     end
     local at = data:find("[^0-9a-fA-F]")
     assert(at ~= nil, "codec: hex text refused though every character is a digit")
     self.bad_at, self.bad_byte, self.carry = before + at, assert(data:byte(at), "the offset found is a byte of the data"), ""
-    return "", ""
+    return ""
   end
 
-  function finish(self): string?, string
+  function finish(self): (string) | (nil, Failure)
     if self.done then error("codec: coder is finished", 2) end
     self.done = true
     if self.total % 2 ~= 0 then
-      return nil, ("codec: hex text of odd length %d"):format(self.total)
+      return nil, Failure.new(("codec: hex text of odd length %d"):format(self.total))
     end
     local bad_at = self.bad_at
     if bad_at ~= nil then
-      return nil, ("codec: byte 0x%02x at %d is not a hex digit"):format(self.bad_byte, bad_at)
+      return nil, Failure.new(("codec: byte 0x%02x at %d is not a hex digit"):format(self.bad_byte, bad_at))
     end
-    return "", ""
+    return ""
   end
 end
 
 --- A decoder for an alphabet, as the whole-string one is: the same
 --- refusals in the same order, the same words, and offsets counted from
 --- the first character fed.
-local class Base64Decoder is verb.Coder -- declared: interface_disagrees
+local class Base64Decoder is verb.Coder
   alphabet: Alphabet
   mut total: integer
   -- Characters of the group in progress, all in the alphabet.
@@ -224,7 +237,11 @@ local class Base64Decoder is verb.Coder -- declared: interface_disagrees
   mut run_pad: boolean
   mut done: boolean
 
-  function update(self, chunk: string): string?, string
+  function pending(self): boolean
+    return false
+  end
+
+  function update(self, chunk: string, _max_bytes?: integer): (string) | (nil, Failure)
     if self.done then error("codec: coder is finished", 2) end
     local a = self.alphabet
     local before = self.total - #self.carry
@@ -232,7 +249,7 @@ local class Base64Decoder is verb.Coder -- declared: interface_disagrees
     if self.bad_at ~= nil then
       self.run = self.run + #chunk
       if self.run_pad and chunk:find("[^=]") ~= nil then self.run_pad = false end
-      return "", ""
+      return ""
     end
     local data = self.carry .. chunk
     -- As in [`HexDecoder`]: a chunk whose whole groups the library
@@ -246,7 +263,7 @@ local class Base64Decoder is verb.Coder -- declared: interface_disagrees
         local out, _why = a.decode(if whole == #data then data else data:sub(1, whole) end)
         if out ~= nil then
           self.carry = tail
-          return out, ""
+          return out
         end
       end
     end
@@ -259,11 +276,11 @@ local class Base64Decoder is verb.Coder -- declared: interface_disagrees
       self.run = #data - at + 1
       self.run_pad = self.bad_byte == 61 and data:find("[^=]", at) == nil
     end
-    if whole == 0 then return "", "" end
-    return (assert(a.decode(data:sub(1, whole)))), ""
+    if whole == 0 then return "" end
+    return (assert(a.decode(data:sub(1, whole))))
   end
 
-  function finish(self): string?, string
+  function finish(self): (string) | (nil, Failure)
     if self.done then error("codec: coder is finished", 2) end
     self.done = true
     local a = self.alphabet
@@ -271,27 +288,27 @@ local class Base64Decoder is verb.Coder -- declared: interface_disagrees
     local total = self.total
     if a.padded then
       if total % 4 ~= 0 then
-        return nil, ("codec: %s text of length %d, not a multiple of 4"):format(name, total)
+        return nil, Failure.new(("codec: %s text of length %d, not a multiple of 4"):format(name, total))
       end
     elseif total % 4 == 1 then
-      return nil, ("codec: %s text of length %d leaves one character over"):format(name, total)
+      return nil, Failure.new(("codec: %s text of length %d leaves one character over"):format(name, total))
     end
     local bad_at = self.bad_at
     if bad_at ~= nil and not (a.padded and self.run_pad and self.run <= 2) then
       if self.bad_byte == 61 then
-        return nil, ("codec: %s text has misplaced '=' padding at %d"):format(name, bad_at)
+        return nil, Failure.new(("codec: %s text has misplaced '=' padding at %d"):format(name, bad_at))
       end
-      return nil, ("codec: byte 0x%02x at %d is outside the %s alphabet"):format(
-        self.bad_byte, bad_at, name)
+      return nil, Failure.new(("codec: byte 0x%02x at %d is outside the %s alphabet"):format(
+        self.bad_byte, bad_at, name))
     end
     local carry = self.carry
-    if #carry < 2 then return "", "" end
+    if #carry < 2 then return "" end
     -- The last, partial group decodes as the whole-string decoder
     -- would see it, padded out if the alphabet is.
     local last = if a.padded then carry .. ("="):rep(4 - #carry) else carry end
     local out, why = a.decode(last)
-    if out == nil then return nil, why end
-    return out, ""
+    if out == nil then return nil, Failure.new(why) end
+    return out
   end
 end
 
@@ -425,18 +442,22 @@ end
 --- An encoder that writes its text in lines of `wrap` columns when that
 --- is positive, and ends in a newline at `finish` (so empty input
 --- writes just the newline).
-local class Encoding is verb.Coder -- declared: interface_disagrees
+local class Encoding is verb.Coder
   inner: verb.Coder
   wrap: integer
   --- How many columns of the line in progress are written.
   mut column: integer
 
-  function update(self, chunk: string): string?, string
-    return shaped(self, (assert(self.inner:update(chunk)))), ""
+  function pending(self): boolean
+    return false
   end
 
-  function finish(self): string, string -- declared: interface_disagrees
-    return shaped(self, (assert(self.inner:finish()))) .. "\n", ""
+  function update(self, chunk: string, _max_bytes?: integer): (string) | (nil, Failure)
+    return shaped(self, (assert(self.inner:update(chunk))))
+  end
+
+  function finish(self): (string) | (nil, Failure)
+    return shaped(self, (assert(self.inner:finish()))) .. "\n"
   end
 end
 
@@ -450,19 +471,20 @@ local function encoding(name: verb.Name, wrap: integer): verb.Coder
   return c
 end
 
-local function fail(self: Decoding, why: string): nil, string
-  self.failed = why
-  return nil, why
+local function fail(self: Decoding, why: string): nil, Failure
+  local failure = Failure.new(why)
+  self.failed = failure
+  return nil, failure
 end
 
---- `why`, a [`cosmic.codec`] reason, with the offset of the text's end.
-local function at_end(self: Decoding, why: string): nil, string
-  return fail(self, ("%s (at offset %d)"):format(why:gsub("^codec: ", ""),
+--- `why`, a [`cosmic.codec`] refusal, with the offset of the text's end.
+local function at_end(self: Decoding, why: Failure): nil, Failure
+  return fail(self, ("%s (at offset %d)"):format(tostring(why):gsub("^codec: ", ""),
     self.last or math.max(self.fed - 1, 0)))
 end
 
 --- A decoder of text with ASCII whitespace anywhere in it.
-local class Decoding is verb.Coder -- declared: interface_disagrees
+local class Decoding is verb.Coder
   inner: verb.Coder
   name: verb.Name
   --- A pattern class of what `name`'s text may not hold.
@@ -478,9 +500,13 @@ local class Decoding is verb.Coder -- declared: interface_disagrees
   mut pad_at: integer?
   mut pad_run: integer
   mut pad_other: boolean
-  mut failed: string?
+  mut failed: Failure?
 
-  function update(self, chunk: string): string?, string
+  function pending(self): boolean
+    return false
+  end
+
+  function update(self, chunk: string, _max_bytes?: integer): (string) | (nil, Failure)
     local failed = self.failed
     if failed ~= nil then return nil, failed end
     local name = self.name
@@ -513,10 +539,10 @@ local class Decoding is verb.Coder -- declared: interface_disagrees
     end
     self.fed = self.fed + #chunk
     -- The strict decoder refuses only at `finish`.
-    return assert(self.inner:update(body)), ""
+    return assert(self.inner:update(body))
   end
 
-  function finish(self): string?, string
+  function finish(self): (string) | (nil, Failure)
     local failed = self.failed
     if failed ~= nil then return nil, failed end
     local name, seen, pad_at = self.name, self.seen, self.pad_at
@@ -542,15 +568,15 @@ local class Decoding is verb.Coder -- declared: interface_disagrees
     end
     local out, why = self.inner:finish()
     if out == nil then return at_end(self, why) end
-    return head .. out, ""
+    return head .. out
   end
 end
 
 --- A decoder for `name` of text with ASCII whitespace anywhere in it.
 --- `update` refuses a character outside the alphabet at once; the other
 --- faults wait for `finish`, since only the end of the text tells a
---- length or a padding from a fault: both answer `nil` and a reason
---- naming a byte offset, from 0, counted in the input as given.
+--- length or a padding from a fault: both calls return `nil` and a
+--- reason naming a byte offset, from 0, counted in the input as given.
 --- @param name hex, base64 or base64url
 --- @param lenient whether the other padding spelling is accepted
 function verb.decoding(name: verb.Name, lenient: boolean): verb.Coder
@@ -652,19 +678,19 @@ local class OutputWriter is Stream.Writer
   out: function(text: string): boolean, string
   mut lost: string?
 
-  function write(self, text: string): boolean, string
+  function write(self, text: string): (true) | (false, Failure)
     local ok, why = self.out(text)
-    if ok then return true, "" end
+    if ok then return true end
     self.lost = why
-    return false, why
+    return false, Failure.new(why)
   end
 
-  function close(self): boolean, string
-    return true, ""
+  function close(self): (true) | (false, Failure)
+    return true
   end
 
-  function abort(self): boolean, string
-    return true, ""
+  function abort(self): (true) | (false, Failure)
+    return true
   end
 end
 
@@ -730,14 +756,14 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     local chunk, why = Stream.read_up_to(reader, chunk_size)
     if chunk == nil then return stop(tostring(why)) end
     local wrote, refusal = sink:write(chunk)
-    if not wrote then return stop(blame(refusal)) end
+    if not wrote then return stop(blame(tostring(refusal))) end
     if #chunk < chunk_size then break end
   end
   local committed, last_refusal = sink:close()
-  if not committed then return stop(blame(last_refusal)) end
+  if not committed then return stop(blame(tostring(last_refusal))) end
   local closed, close_why = reader:close()
   if not closed then
-    complain(close_why)
+    complain(tostring(close_why))
     return bare.undone
   end
   return bare.ok

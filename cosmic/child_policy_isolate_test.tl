@@ -2,7 +2,7 @@
 --- "file", a root of the child's own holding only what is granted, and
 --- "proc", a pid namespace and a /proc of its own; `loopback` and `u`
 --- grants, which give it a network namespace of its own. The kernel's own
---- verdict on live children: the child is a stand-in (build/stand_in.tl),
+--- verdict on live children: the child is a fake ([`cosmic.fake`]),
 --- a static program that does what its script says, so a refusal shows as a
 --- command that fails. They need a sandbox that nests (`requires`): where the
 --- platform has none they are not applicable, and where this host gives no
@@ -19,7 +19,7 @@ local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local searchable = require("build.searchable")
 local confine = require("build.confine")
-local stand_in = require("build.stand_in")
+local Fake = require("cosmic.fake")
 local unix_socket = require("build.unix_socket")
 local ChildPolicy = require("build.child_policy_fixture")
 
@@ -27,7 +27,7 @@ local ChildPolicy = require("build.child_policy_fixture")
 --- listener the child must not reach. `nests`: a policy's isolation makes
 --- a root of its own, which a worker held by a Landlock ruleset cannot.
 Test.policy{
-  promises = { "nest" },
+  grants = { { calls = "nest" } },
   loopback = { "127.0.0.1" },
   env = { "TMPDIR" },
   requires = { "nest" },
@@ -45,10 +45,10 @@ local record Place
   home: string
 end
 
---- Builds the stand-in and a working directory holding `ro/a` and, beside
+--- Builds the fake and a working directory holding `ro/a` and, beside
 --- it, `other/b`, which nothing grants.
 local function placed(tmp: string): Place
-  local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
+  local probe = assert(Fake.build(searchable.open(tmp) .. "/fake"))
   local work = tmp .. "/work"
   assert(Fs.mkdirs(work))
   assert(Fs.mkdirs(work .. "/ro"))
@@ -237,17 +237,34 @@ local function test_tmp_under_isolate_file_is_a_tmpfs_of_the_sandboxs_own(tmp: s
   assert(gone.code == 1, gone.said)
 end
 
+--- A program beneath /tmp is the host's file, bound in over the sandbox's own /tmp: its start grants it `rx`,
+--- with a grant of `r` alone of its directory.
+local function test_a_program_beneath_tmp_starts_over_the_sandboxs_own_tmp(tmp: string)
+  if tmp:sub(1, 5) ~= "/tmp/" then
+    Test.skip("the test's directory is not beneath /tmp: " .. tmp)
+  end
+  local at = placed(tmp)
+  local dir = tmp .. "/beneath-tmp"
+  assert(Fs.mkdirs(dir))
+  local program = dir .. "/fake"
+  assert(Fs.write(program, assert(Fs.read(at.probe))))
+  assert(Fs.chmod(program, 0x1ed)) -- rwxr-xr-x
+  local policy: Sandbox.Policy = { isolate = { "file" }, tmp = true, grants = { { path = dir, letters = "r" } } }
+  local ran = ChildPolicy.under(program, policy, dir, "env-of TMPDIR")
+  assert(ran.code == 0 and ran.said == "TMPDIR=/tmp\n", ran.said)
+end
+
 local function test_a_grant_of_tmp_with_x_makes_the_sandboxs_own_tmp_executable(tmp: string)
   local at = placed(tmp)
   local script = "mkdirs /tmp/mine && copy " .. at.probe .. " /tmp/mine/p && chmod /tmp/mine/p 755 " ..
     "&& env-of TMPDIR && run /tmp/mine/p print"
   local plain: Sandbox.Policy = { isolate = { "file" }, tmp = true, set_env = { TMPDIR = "/tmp/mine" },
-    promises = { "fattr", "fork" }, grants = at.grants }
+    grants = ChildPolicy.with(at.grants, { calls = "fattr" }, { calls = "fork" }) }
   local refused = ChildPolicy.under(at.probe, plain, at.work, script)
   -- No letters of its own: noexec, and a TMPDIR beneath /tmp that set_env names stays.
   assert(refused.code ~= 0 and refused.said:find("TMPDIR=/tmp/mine\n", 1, true) ~= nil, refused.said)
   local run_here: Sandbox.Policy = { isolate = { "file" }, tmp = true, set_env = { TMPDIR = "/tmp/mine" },
-    promises = { "fattr", "fork" }, grants = ChildPolicy.with(at.grants, { path = "/tmp", letters = "rwxc" }) }
+    grants = ChildPolicy.with(at.grants, { path = "/tmp", letters = "rwxc" }, { calls = "fattr" }, { calls = "fork" }) }
   local mounts = ChildPolicy.under(at.probe, run_here, at.work, "cat /proc/self/mountinfo")
   local held = mount_at(mounts.said, "/tmp")
   assert(held ~= nil and held.fstype == "tmpfs" and not held.options:find("noexec", 1, true), mounts.said)
@@ -483,8 +500,8 @@ local function test_a_refused_namespace_fails_naming_the_remedy(tmp: string)
   local scratch = tmp .. "/scratch"
   assert(Fs.mkdirs(scratch))
   searchable.share(scratch)
-  local policy: Sandbox.Policy = { promises = { "fork" }, set_env = { TMPDIR = scratch },
-    grants = ChildPolicy.with(at.grants, { path = scratch, letters = "rwc" }) }
+  local policy: Sandbox.Policy = { set_env = { TMPDIR = scratch },
+    grants = ChildPolicy.with(at.grants, { path = scratch, letters = "rwc" }, { calls = "fork" }) }
   local ran = ChildPolicy.under(at.probe, policy, at.work, "start-isolated " .. at.probe)
   assert(ran.code == 0, ran.said)
   assert(ran.said:find("namespace was refused", 1, true) and

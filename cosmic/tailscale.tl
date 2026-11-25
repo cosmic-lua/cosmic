@@ -7,8 +7,9 @@
 ---
 ---     local Tailscale = require("cosmic.tailscale")
 ---     local ts = assert(Tailscale.connect())
----     local who = assert(ts:whois("100.101.102.103"))
----     print(who.user.login_name, who.node.name, who.tagged)
+---     local who, why = ts:whois("100.101.102.103")
+---     if who == nil then error(tostring(why)) end
+---     if who ~= false then print(who.user.login_name, who.node.name, who.tagged) end
 ---     local status = assert(ts:status())
 ---     print(status.self.dns_name, #status.peers)
 ---
@@ -122,7 +123,7 @@ local record WirePeer
   KeyExpiry?: string
 end
 
---- The part of the status [`Client.whois_result`] reads: which node
+--- The part of the status [`Client.whois`] reads: which node
 --- this one is.
 local record WireSelf
   ID: string
@@ -256,7 +257,7 @@ local record Node
   tags: {string}
 end
 
---- What [`Client.whois`] answers: the node an address belongs to, the
+--- What [`Client.whois`] returns: the node an address belongs to, the
 --- user it acts for, and the capabilities the tailnet policy grants it
 --- on this node.
 local record WhoIs
@@ -277,30 +278,6 @@ local record WhoIs
   --- connects from the node's own address, so `user`, its owner, is
   --- not who asked.
   own: boolean
-end
-
---- Which way [`Client.whois_result`] came out.
-local enum WhoIsKind
-  --- The address is a peer's, or this node's own.
-  "found"
-  --- The daemon knows no node at the address: it is not on the tailnet.
-  "not_a_peer"
-  --- The daemon could not be asked, or its answer could not be read.
-  "failed"
-end
-
---- What [`Client.whois_result`] answers.
-local record WhoIsResult
-  --- Which way it came out.
-  kind: WhoIsKind
-  --- Present only for "found".
-  whois?: WhoIs
-  --- Empty for "found"; otherwise why.
-  reason: string
-  --- The daemon's HTTP status: 200 for "found", 404 for "not_a_peer",
-  --- and for "failed" the status that refused the call (403 for a
-  --- caller the daemon will not answer), or 0 where none came back.
-  status: integer
 end
 
 --- A peer of this node, or the node itself, as [`Client.status`] lists it.
@@ -337,7 +314,7 @@ local record Peer
   key_expiry?: string
 end
 
---- What [`Client.status`] answers.
+--- What [`Client.status`] returns.
 local record Status
   --- The daemon's version.
   version: string
@@ -356,7 +333,7 @@ local record Status
   tailnet: string
   --- The suffix of every MagicDNS name: `tail1234.ts.net`.
   magic_dns_suffix: string
-  --- Whether MagicDNS answers on this node.
+  --- Whether MagicDNS resolves names on this node.
   magic_dns: boolean
   --- The names [`Client.cert`] can get a certificate for.
   cert_domains: {string}
@@ -392,7 +369,7 @@ local record Prefs
   operator: string
 end
 
---- A certificate and its key, PEM, as [`Client.cert`] answers them.
+--- A certificate and its key, PEM, as [`Client.cert`] returns them.
 local record CertPair
   --- The leaf and the chain to the CA, PEM, leaf first.
   cert: string
@@ -404,15 +381,15 @@ end
 local enum PingKind
   --- Through the WireGuard tunnel, as a peer's traffic goes (the default).
   "disco"
-  --- An ICMP echo inside the tunnel, which the peer's own stack answers.
+  --- An ICMP echo inside the tunnel, which the peer's stack replies to.
   "ICMP"
-  --- A TSMP ping, which the peer's Tailscale answers without its stack.
+  --- A TSMP ping, which the peer's Tailscale replies to, not its stack.
   "TSMP"
   --- Through the peer's PeerAPI, which proves its daemon serves.
   "peerapi"
 end
 
---- What [`Client.ping`] answers when the peer replied.
+--- What [`Client.ping`] returns when the peer replied.
 local record Ping
   --- The round trip, in nanoseconds.
   latency_ns: integer
@@ -513,7 +490,7 @@ local record WatchOptions
   engine?: boolean
 end
 
---- What one path of a [`ServeSite`] answers with: exactly one field.
+--- What one path of a [`ServeSite`] responds with: exactly one field.
 ---
 --- A handler is open to every peer the tailnet's policy lets reach the
 --- site's port, and with [`ServeSite.funnel`] to anyone on the internet.
@@ -529,7 +506,7 @@ local record ServeHandler
   --- checking its certificate, or `unix:/path` for a server at a unix
   --- socket, which only the users who can reach the path can send to.
   proxy?: string
-  --- A body the daemon answers with itself.
+  --- A body the daemon responds with itself.
   text?: string
   --- A file or directory of the daemon's machine it serves.
   path?: string
@@ -549,7 +526,7 @@ local record ServeSite
   --- and 10000 only, and only where the tailnet's policy lets the
   --- node.
   funnel?: boolean
-  --- What each path answers, by the path it is mounted at (`/`,
+  --- What each path responds with, by the path it is mounted at (`/`,
   --- `/api`); the longest that a request's path starts with wins.
   handlers: {string: ServeHandler}
 end
@@ -573,8 +550,8 @@ local record ServeSpec
   sites?: {ServeSite}
   --- The TCP ports passed on, one a port.
   forwards?: {ServeForward}
-  --- The name the sites answer to: the node's first certificate name
-  --- by default, else its MagicDNS name.
+  --- The name the sites take requests at: the node's first certificate
+  --- name by default, else its MagicDNS name.
   domain?: string
 end
 
@@ -832,7 +809,7 @@ local function sent(endpoint: Endpoint, default_ns: integer, method: string, pat
   if conn == nil then return nil, "tailscale: " .. tostring(why) end
   conn:set_timeout(left())
   local wrote, refused = conn:write(request)
-  if not wrote then return nil, "tailscale: " .. refused end
+  if not wrote then return nil, "tailscale: " .. tostring(refused) end
   local reader = Message.response_reader({ body_bytes = REPLY_BYTES })
   while true do
     conn:set_timeout(left())
@@ -842,7 +819,7 @@ local function sent(endpoint: Endpoint, default_ns: integer, method: string, pat
     if read.status == "done" then
       local response = read.response
       if response == nil then return nil, "tailscale: the reply holds no response" end
-      -- The daemon sends no interim reply; one would be no answer.
+      -- The daemon sends no interim reply; one would not be its response.
       if response.status < 200 then return nil, "tailscale: the daemon's reply is interim" end
       return { status = response.status, body = response.body, headers = response.headers }, ""
     end
@@ -1016,6 +993,14 @@ local function forwarding(config: {string: Json.Value}): integer
   return count
 end
 
+--- `why`, a read's failure, as this module says it: its text after
+--- "tailscale: ", and a timeout still a timeout.
+local function read_failure(why: Failure): Failure
+  local message = "tailscale: " .. tostring(why)
+  if why.kind == "timeout" then return Failure.timeout(message) end
+  return Failure.new(message)
+end
+
 --- The body of a file the daemon sends, read as it arrives over the
 --- connection [`Client.open_file`] holds. A class, so a `<close>` local
 --- holds one.
@@ -1031,7 +1016,7 @@ local class FileReader is Stream.Reader
   --- Internal: set by `close`.
   mut closed: boolean
   --- Not offered: a file is read in order.
-  skip?: function(FileReader, integer): boolean, string
+  skip?: function(FileReader, integer): (true) | (false, Failure)
 
   --- The next bytes of the file, at most `max_bytes` (64 KiB by
   --- default); `false` at its end, or nil and a [`Failure`]. A connection that
@@ -1050,9 +1035,7 @@ local class FileReader is Stream.Reader
       if got == false then
         return nil, Failure.new("tailscale: the daemon ended the file " .. String.counted(self.left, "byte") .. " short")
       end
-      if got == nil then
-        return nil, Failure.new("tailscale: " .. tostring(why))
-      end
+      if got == nil then return nil, read_failure(why) end
       chunk = got
     end
     self.left = self.left - #chunk
@@ -1060,8 +1043,8 @@ local class FileReader is Stream.Reader
   end
 
   --- Ends the transfer, and the connection. Safe to call more than once.
-  function close(self): boolean, string
-    if self.closed then return true, "" end
+  function close(self): (true) | (false, Failure)
+    if self.closed then return true end
     self.closed = true
     return self.conn:close()
   end
@@ -1084,7 +1067,7 @@ local function base_headers(endpoint: Endpoint): mut {string: string}
   return headers
 end
 
---- What [`exchanged`] answers: the reply's head, and the connection with
+--- What [`exchanged`] returns: the reply's head, and the connection with
 --- the bytes after the head that came with it.
 local record Exchange
   response: Message.Response
@@ -1095,8 +1078,8 @@ end
 --- `method` sent to `path` at `endpoint`, with `size` bytes of `body`
 --- after the head where given, and the reply's head, read as it comes:
 --- every wait, to connect, write or read, is held to `wait_ns`. A reply
---- that is no 2xx is read whole (4 KiB of it) and answered as a reason,
---- as `ok` answers one, with the connection closed.
+--- that is no 2xx is read whole (4 KiB of it) and returned as a reason,
+--- as `ok` returns one, with the connection closed.
 local function exchanged(endpoint: Endpoint, wait_ns: integer, method: string, path: string,
                          body?: Stream.Reader, size?: integer): Exchange?, string
   local headers = base_headers(endpoint)
@@ -1116,8 +1099,8 @@ local function exchanged(endpoint: Endpoint, wait_ns: integer, method: string, p
     return nil, "tailscale: " .. reason
   end
   conn:set_timeout(limit)
-  -- Set once a reply's head is read: a write the daemon cut short by
-  -- refusing the request is answered by that refusal, not by the write's.
+  -- Set once a reply's head is read: when the daemon cut a write short by
+  -- refusing the request, the refusal is returned, not the write's failure.
   local replied = false
   local answered: function(): Exchange?, string
   answered = function(): Exchange?, string
@@ -1156,7 +1139,7 @@ local function exchanged(endpoint: Endpoint, wait_ns: integer, method: string, p
     end
   end
   local wrote, refused = conn:write(head)
-  if not wrote then return failed(refused) end
+  if not wrote then return failed(tostring(refused)) end
   if body ~= nil then
     local sent_bytes = 0
     while true do
@@ -1174,10 +1157,10 @@ local function exchanged(endpoint: Endpoint, wait_ns: integer, method: string, p
         local early, said = answered()
         if early ~= nil then
           local _, _ = early.conn:close()
-          return failed(lost)
+          return failed(tostring(lost))
         end
         if replied then return nil, said end
-        return failed(lost)
+        return failed(tostring(lost))
       end
     end
     if sent_bytes ~= (size or 0) then
@@ -1197,22 +1180,24 @@ local class Events
   --- Internal: set by `close`.
   mut closed: boolean
 
-  --- The next event; nil and "" at the stream's end, which is the
-  --- daemon's, or nil and why. Holds the thread until one comes.
-  function read(self): Notify?, string
-    if self.closed then return nil, "tailscale: the events are closed" end
+  --- The next event; `false` at the stream's end, which is the
+  --- daemon's, or nil and a Failure. Holds the thread until one comes.
+  function read(self): (Notify | false) | (nil, Failure)
+    if self.closed then return nil, Failure.new("tailscale: the events are closed") end
     while true do
       local line, why = self.lines:read()
-      if line == nil then return nil, "tailscale: " .. tostring(why) end
-      if line == false then
-        return nil, ""
+      if line == nil then return nil, read_failure(why) end
+      if line == false then return false end
+      if line:find("%S") ~= nil then
+        local notify, bad = notify_of(line)
+        if notify == nil then return nil, Failure.new(bad) end
+        return notify
       end
-      if line:find("%S") ~= nil then return notify_of(line) end
     end
   end
 
   --- Ends the stream. Safe to call more than once.
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.closed = true
     return self.response:close()
   end
@@ -1223,7 +1208,7 @@ local class Events
 end
 
 --- The events at `endpoint` that `mask` asks for, as [`Client.watch`]
---- answers them.
+--- returns them.
 local function bus(endpoint: Endpoint, default_ns: integer, mask: integer): Events?, string
   local path = "/localapi/v0/watch-ipn-bus?mask=" .. tostring(mask)
   local response, why = Http.open(endpoint.url .. path, options(endpoint, default_ns, "GET", nil, 0))
@@ -1248,7 +1233,7 @@ local SERVE_MASK <const> = 2 | 16
 local class Serving
   --- The stream's name, under which the configuration is filed.
   session: string
-  --- The name the sites answer to.
+  --- The name the sites take requests at.
   domain: string
   --- The URLs of the sites, in the order of [`ServeSpec.sites`].
   urls: {string}
@@ -1257,7 +1242,7 @@ local class Serving
 
   --- Takes the configuration down: the daemon drops it once the
   --- stream ends. Safe to call more than once.
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     return self.events:close()
   end
 
@@ -1266,7 +1251,7 @@ local class Serving
   end
 end
 
---- The client of one daemon, as [`Tailscale.connect`] answers it.
+--- The client of one daemon, as [`Tailscale.connect`] returns it.
 local class Client
   --- Internal: where the daemon is. No caller reads it.
   endpoint: Endpoint
@@ -1277,110 +1262,97 @@ local class Client
   --- with `body` when given, and the whole reply, whatever its status.
   ---
   ---     local got = assert(ts:request("GET", "/localapi/v0/derpmap"))
-  function request(self, method: string, path: string, body?: string): Http.Body?, string
+  function request(self, method: string, path: string, body?: string): (Http.Body) | (nil, Failure)
     if path:sub(1, 1) ~= "/" then error("tailscale: path must start with /", 2) end
-    return sent(self.endpoint, self.timeout_ns, method, path, body)
+    local got, why = sent(self.endpoint, self.timeout_ns, method, path, body)
+    if got == nil then return nil, Failure.new(why) end
+    return got
   end
 
   --- A GET of `path`, as [`Client.request`] sends it.
-  function get(self, path: string): Http.Body?, string
+  function get(self, path: string): (Http.Body) | (nil, Failure)
     return self:request("GET", path)
   end
 
   --- Who `address` is: an IP address of the tailnet, alone or with a
   --- port (`100.101.102.103:443`, `[fd7a:115c:a1e0::1]:443`), as a
-  --- server sees a connection's far end. The answer's `caps` are the
+  --- server sees a connection's far end. The result's `caps` are the
   --- grants that apply to the peer on this node, so a server reads its
   --- own permissions there:
   ---
-  ---     local who = assert(ts:whois(peer))
-  ---     if who.caps["example.com/cap/admin"] == nil then return forbidden() end
+  ---     local who, why = ts:whois(peer)
+  ---     if who == nil then error(tostring(why)) end
+  ---     if who == false or who.caps["example.com/cap/admin"] == nil then return forbidden() end
   ---
-  --- [`Client.whois_result`] tells an address that is no peer's from a
-  --- daemon that cannot be asked. An answer whose `own` is true names
-  --- this node itself: some process on this machine connected, and the
-  --- owner in `user` is not who asked.
-  function whois(self, address: string): WhoIs?, string
-    local result = self:whois_result(address)
-    local whois = result.whois
-    if whois == nil then return nil, result.reason end
-    return whois, ""
-  end
-
-  --- [`Client.whois`], classified: "not_a_peer" where the daemon knows
-  --- no node at the address, as for one off the tailnet.
-  -- TODO: take the daemon's `svc_name` and `proto` once a server answers
-  -- for a Tailscale Service, whose grants scope the CapMap to it.
-  function whois_result(self, address: string): WhoIsResult
+  --- It is false where the daemon knows no node at the address, as for
+  --- one off the tailnet, and nil and a Failure where the daemon cannot
+  --- be asked or its response cannot be read. A result whose `own` is
+  --- true names this node itself: some process on this machine
+  --- connected, and the owner in `user` is not who asked.
+  -- TODO: take the daemon's `svc_name` and `proto` once a server can host
+  -- a Tailscale Service, whose grants scope the CapMap to it.
+  function whois(self, address: string): (WhoIs | false) | (nil, Failure)
     local answer = ok(self.endpoint, self.timeout_ns, "GET", "/localapi/v0/whois?addr=" .. Url.escape(address))
     local text = answer.body
     if text == nil then
-      if answer.status == 404 then
-        return { kind = "not_a_peer", reason = "tailscale: no node has the address " .. address, status = 404 }
-      end
-      return { kind = "failed", reason = answer.reason, status = answer.status }
+      if answer.status == 404 then return false end
+      return nil, Failure.new(answer.reason)
     end
     -- Null kept as itself, so that a capability granted with no value
     -- stays a key of CapMap.
     local wire, bad = WHOIS:decode_into(text, { null_value = Json.null })
-    if wire == nil then
-      return { kind = "failed", reason = "tailscale: whois: " .. bad, status = 200 }
-    end
-    -- The daemon answers its own address with its own node; only its
+    if wire == nil then return nil, Failure.new("tailscale: whois: " .. bad) end
+    -- The daemon reports its own node for its own address; only its
     -- status tells that node from a peer's.
     local mine = ok(self.endpoint, self.timeout_ns, "GET", "/localapi/v0/status?peers=false")
     local status_text = mine.body
-    if status_text == nil then
-      return { kind = "failed", reason = mine.reason, status = mine.status }
-    end
+    if status_text == nil then return nil, Failure.new(mine.reason) end
     local status, unread = ME:decode_into(status_text)
-    if status == nil then
-      return { kind = "failed", reason = "tailscale: status: " .. unread, status = 200 }
-    end
+    if status == nil then return nil, Failure.new("tailscale: status: " .. unread) end
     -- A node that cannot be told from this one is taken for it.
     local me = status.Self
     if me == nil or me.ID == "" or wire.Node.StableID == "" then
-      return { kind = "failed", reason = "tailscale: status: the daemon names no node of its own", status = 200 }
+      return nil, Failure.new("tailscale: status: the daemon names no node of its own")
     end
     local host = address:match("^%[(.*)%]") or address:match("^([^:]*):%d+$") or address
     local own = me.ID == wire.Node.StableID
     for _, mine_ip in ipairs(me.TailscaleIPs or {}) do
       if mine_ip == host then own = true end
     end
-    return { kind = "found", whois = whois_of(wire, own), reason = "", status = 200 }
+    return whois_of(wire, own)
   end
 
   --- The node's status and its peers' (`tailscale status`).
-  function status(self): Status?, string
+  function status(self): (Status) | (nil, Failure)
     local answer = ok(self.endpoint, self.timeout_ns, "GET", "/localapi/v0/status")
     local text = answer.body
-    if text == nil then return nil, answer.reason end
+    if text == nil then return nil, Failure.new(answer.reason) end
     local wire, bad = STATUS:decode_into(text)
-    if wire == nil then return nil, "tailscale: status: " .. bad end
-    return status_of(wire), ""
+    if wire == nil then return nil, Failure.new("tailscale: status: " .. bad) end
+    return status_of(wire)
   end
 
   --- The node's preferences (`tailscale debug prefs`).
-  function prefs(self): Prefs?, string
+  function prefs(self): (Prefs) | (nil, Failure)
     local answer = ok(self.endpoint, self.timeout_ns, "GET", "/localapi/v0/prefs")
     local text = answer.body
-    if text == nil then return nil, answer.reason end
+    if text == nil then return nil, Failure.new(answer.reason) end
     local wire, bad = PREFS:decode_into(text)
-    if wire == nil then return nil, "tailscale: prefs: " .. bad end
-    return prefs_of(wire), ""
+    if wire == nil then return nil, Failure.new("tailscale: prefs: " .. bad) end
+    return prefs_of(wire)
   end
 
   --- A certificate for `domain`, one of [`Status.cert_domains`], and its
   --- key, from Let's Encrypt through the daemon, which keeps them and
   --- renews them a third of their life before they expire: a second call
-  --- answers the one it holds. The first call for a name may take a
+  --- returns the one it holds. The first call for a name may take a
   --- minute while the CA checks it. It needs HTTPS enabled for the
   --- tailnet, and a caller the daemon lets have certificates.
   ---
   ---     local pair = assert(ts:cert(assert(status.cert_domains[1])))
-  function cert(self, domain: string, opts?: CertOptions): CertPair?, string
+  function cert(self, domain: string, opts?: CertOptions): (CertPair) | (nil, Failure)
     if domain == "" or domain:find("[/?#%%%s]") ~= nil then
-      return nil, "tailscale: cert: no such domain " .. string.format("%q", domain)
+      return nil, Failure.new("tailscale: cert: no such domain " .. string.format("%q", domain))
     end
     local o: CertOptions = opts or {}
     local query = "?type=pair"
@@ -1394,8 +1366,10 @@ local class Client
     end
     local answer = ok(self.endpoint, self.timeout_ns, "GET", "/localapi/v0/cert/" .. domain .. query, nil, o.timeout_ns or CERT_TIMEOUT_NS)
     local text = answer.body
-    if text == nil then return nil, answer.reason end
-    return pair_of(text)
+    if text == nil then return nil, Failure.new(answer.reason) end
+    local pair, why = pair_of(text)
+    if pair == nil then return nil, Failure.new(why) end
+    return pair
   end
 
   --- The certificate of `domain`, one of [`Status.cert_domains`], kept
@@ -1412,51 +1386,53 @@ local class Client
       local name = domain
       if name == nil then
         local status, why = self:status()
-        if status == nil then return nil, why end
+        if status == nil then return nil, tostring(why) end
         name = status.cert_domains[1]
         if name == nil then
           return nil, "tailscale: the node has no name to get a certificate for: is HTTPS enabled for the tailnet?"
         end
       end
       local pair, why = self:cert(name, { min_validity_ns = min_validity_ns })
-      if pair == nil then return nil, why end
+      if pair == nil then return nil, tostring(why) end
       return { { cert = pair.cert, key = pair.key } }, ""
     end, opts)
   end
 
   --- How long a ping to the node at `address` takes over the tailnet,
   --- by the path `kind` names ("disco" by default). A peer that does not
-  --- answer fails it, with the daemon's reason.
-  function ping(self, address: string, kind?: PingKind): Ping?, string
+  --- reply fails it, with the daemon's reason.
+  function ping(self, address: string, kind?: PingKind): (Ping) | (nil, Failure)
     local query = Url.encode_query({
       { name = "ip", value = address },
       { name = "type", value = kind or "disco" },
     })
     local answer = ok(self.endpoint, self.timeout_ns, "POST", "/localapi/v0/ping?" .. query)
     local text = answer.body
-    if text == nil then return nil, answer.reason end
+    if text == nil then return nil, Failure.new(answer.reason) end
     local wire, bad = PING:decode_into(text)
-    if wire == nil then return nil, "tailscale: ping: " .. bad end
+    if wire == nil then return nil, Failure.new("tailscale: ping: " .. bad) end
     local err = wire.Err
-    if err ~= nil and err ~= "" then return nil, "tailscale: ping " .. address .. ": " .. err end
+    if err ~= nil and err ~= "" then
+      return nil, Failure.new("tailscale: ping " .. address .. ": " .. err)
+    end
     return {
       latency_ns = math.floor((wire.LatencySeconds or 0) * 1e9 + 0.5),
       endpoint = nonempty(wire.Endpoint),
       derp_region = nonempty(wire.DERPRegionCode),
       peer_relay = nonempty(wire.PeerRelay),
-    }, ""
+    }
   end
 
   --- The peers Taildrop can send a file to ([`Client.send_file`]), by
   --- node name. A node the daemon may not send files from lists none.
-  function file_targets(self): {FileTarget}?, string
+  function file_targets(self): ({FileTarget}) | (nil, Failure)
     local answer = ok(self.endpoint, self.timeout_ns, "GET", "/localapi/v0/file-targets")
     local text = answer.body
-    if text == nil then return nil, answer.reason end
+    if text == nil then return nil, Failure.new(answer.reason) end
     -- Go writes a list of none as null.
-    if text:match("^%s*null%s*$") ~= nil then return {}, "" end
+    if text:match("^%s*null%s*$") ~= nil then return {} end
     local wire, bad = Shape.decode_into(text, Shape.list(FILE_TARGET.spec))
-    if wire == nil then return nil, "tailscale: file-targets: " .. bad end
+    if wire == nil then return nil, Failure.new("tailscale: file-targets: " .. bad) end
     local targets: mut {FileTarget} = {}
     for _, target in ipairs(wire) do
       targets[#targets + 1] = { node = node_of(target.Node), peerapi_url = target.PeerAPIURL or "" }
@@ -1465,7 +1441,7 @@ local class Client
       if a.node.name ~= b.node.name then return a.node.name < b.node.name end
       return a.node.stable_id < b.node.stable_id
     end)
-    return targets, ""
+    return targets
   end
 
   --- Sends `size` bytes of `body` to the node whose stable id is `to`
@@ -1478,12 +1454,12 @@ local class Client
   ---     local size = assert(Fs.stat("report.pdf")).size
   ---     assert(ts:send_file(target.node.stable_id, "report.pdf", file, size))
   function send_file(self, to: string, name: string, body: Stream.Reader, size: integer,
-                     opts?: FileOptions): boolean, string
+                     opts?: FileOptions): (true) | (false, Failure)
     if to == "" or to:find("[^%w]") ~= nil then
-      return false, "tailscale: no such target " .. string.format("%q", to)
+      return false, Failure.new("tailscale: no such target " .. string.format("%q", to))
     end
     if not file_name_ok(name) then
-      return false, "tailscale: no file may be named " .. string.format("%q", name)
+      return false, Failure.new("tailscale: no file may be named " .. string.format("%q", name))
     end
     if math.type(size) ~= "integer" or size < 0 then
       error("tailscale: size must be an integer of at least 0", 2)
@@ -1491,15 +1467,15 @@ local class Client
     local o: FileOptions = opts or {}
     local got, why = exchanged(self.endpoint, o.timeout_ns or self.timeout_ns, "PUT",
       "/localapi/v0/file-put/" .. to .. "/" .. Url.escape(name), body, size)
-    if got == nil then return false, why end
+    if got == nil then return false, Failure.new(why) end
     local _, _ = got.conn:close()
-    return true, ""
+    return true
   end
 
   --- The files sent to this node that wait to be taken, received whole,
   --- by name. With `opts.wait_ns`, a call that finds none waits that
   --- long for one to arrive.
-  function waiting_files(self, opts?: WaitingOptions): {WaitingFile}?, string
+  function waiting_files(self, opts?: WaitingOptions): ({WaitingFile}) | (nil, Failure)
     local o: WaitingOptions = opts or {}
     local wait = o.wait_ns or 0
     if math.type(wait) ~= "integer" or wait < 0 then
@@ -1509,19 +1485,19 @@ local class Client
     local path = "/localapi/v0/files/" .. (if seconds > 0 then "?waitsec=" .. tostring(seconds) else "" end)
     local answer = ok(self.endpoint, self.timeout_ns, "GET", path, nil, self.timeout_ns + seconds * 1000000000)
     local text = answer.body
-    if text == nil then return nil, answer.reason end
-    if text:match("^%s*null%s*$") ~= nil then return {}, "" end
+    if text == nil then return nil, Failure.new(answer.reason) end
+    if text:match("^%s*null%s*$") ~= nil then return {} end
     local wire, bad = Shape.decode_into(text, Shape.list(WAITING_FILE.spec))
-    if wire == nil then return nil, "tailscale: files: " .. bad end
+    if wire == nil then return nil, Failure.new("tailscale: files: " .. bad) end
     local files: mut {WaitingFile} = {}
     for _, file in ipairs(wire) do
       if not file_name_ok(file.Name) then
-        return nil, "tailscale: files: the daemon names a file " .. string.format("%q", file.Name)
+        return nil, Failure.new("tailscale: files: the daemon names a file " .. string.format("%q", file.Name))
       end
       files[#files + 1] = { name = file.Name, size = file.Size }
     end
     table.sort(files, function(a: WaitingFile, b: WaitingFile): boolean return a.name < b.name end)
-    return files, ""
+    return files
   end
 
   --- The bytes of the waiting file `name`, read as they arrive: the
@@ -1532,38 +1508,38 @@ local class Client
   ---     local out = assert(Stream.create("report.pdf"))
   ---     assert(Stream.copy(file, out))
   ---     assert(out:close())
-  function open_file(self, name: string, opts?: FileOptions): FileReader?, string
+  function open_file(self, name: string, opts?: FileOptions): (FileReader) | (nil, Failure)
     if not file_name_ok(name) then
-      return nil, "tailscale: no file may be named " .. string.format("%q", name)
+      return nil, Failure.new("tailscale: no file may be named " .. string.format("%q", name))
     end
     local o: FileOptions = opts or {}
     local got, why = exchanged(self.endpoint, o.timeout_ns or self.timeout_ns, "GET",
       "/localapi/v0/files/" .. Url.escape(name))
-    if got == nil then return nil, why end
+    if got == nil then return nil, Failure.new(why) end
     local headers = got.response.headers
     local length = headers["content-length"]
     if headers["transfer-encoding"] ~= nil or length == nil then
       local _, _ = got.conn:close()
-      return nil, "tailscale: files: the daemon names no length for " .. name
+      return nil, Failure.new("tailscale: files: the daemon names no length for " .. name)
     end
     local size = if length:match("^%d+$") ~= nil then math.tointeger(tonumber(length)) else nil end
     if size == nil then
       local _, _ = got.conn:close()
-      return nil, "tailscale: files: the daemon names a length that is no size for " .. name .. ": " .. length
+      return nil, Failure.new("tailscale: files: the daemon names a length that is no size for " .. name .. ": " .. length)
     end
     local reader: FileReader = { size = size, conn = got.conn, rest = got.rest, left = size, closed = false, skip = nil }
-    return reader, ""
+    return reader
   end
 
   --- Removes the waiting file `name`, once it is taken.
-  function delete_file(self, name: string): boolean, string
+  function delete_file(self, name: string): (true) | (false, Failure)
     if not file_name_ok(name) then
-      return false, "tailscale: no file may be named " .. string.format("%q", name)
+      return false, Failure.new("tailscale: no file may be named " .. string.format("%q", name))
     end
     local got, why = exchanged(self.endpoint, self.timeout_ns, "DELETE", "/localapi/v0/files/" .. Url.escape(name))
-    if got == nil then return false, why end
+    if got == nil then return false, Failure.new(why) end
     local _, _ = got.conn:close()
-    return true, ""
+    return true
   end
 
   --- The daemon's events as they happen (the IPN bus), first those
@@ -1572,16 +1548,19 @@ local class Client
   ---
   ---     local events <close> = assert(ts:watch())
   ---     while true do
-  ---       local event = assert(events:read())
-  ---       if event.state == "Running" then break end
+  ---       local event, why = events:read()
+  ---       assert(event ~= nil, why)
+  ---       if event == false or event.state == "Running" then break end
   ---     end
-  function watch(self, opts?: WatchOptions): Events?, string
+  function watch(self, opts?: WatchOptions): (Events) | (nil, Failure)
     local o: WatchOptions = opts or {}
     local mask = 0
     if o.engine == true then mask = mask | 1 end
     if o.initial_state ~= false then mask = mask | 2 end
     if o.initial_status == true then mask = mask | (1 << 14) end
-    return bus(self.endpoint, self.timeout_ns, mask)
+    local events, why = bus(self.endpoint, self.timeout_ns, mask)
+    if events == nil then return nil, Failure.new(why) end
+    return events
   end
 
   --- Puts up `spec` through the daemon's Serve, and Funnel where a site
@@ -1589,7 +1568,7 @@ local class Client
   --- certificate and passes each request on. The configuration is the
   --- program's own, filed in the daemon as a foreground one (as
   --- `tailscale serve` without `--bg` files its own) under a stream of
-  --- [`Client.watch`] that the answer holds. The daemon drops it when
+  --- [`Client.watch`] that the result holds. The daemon drops it when
   --- that stream ends, which [`Serving.close`] does, and so does the
   --- program's exit, however it ends; it never changes what the node
   --- serves for others, and fails where they already serve a port it
@@ -1601,7 +1580,7 @@ local class Client
   ---       sites = { { funnel = true, handlers = { ["/"] = { proxy = "http://127.0.0.1:8080" } } } },
   ---     }))
   ---     print(served.urls[1]) -- https://box.tail1234.ts.net/
-  function serve(self, spec: ServeSpec): Serving?, string
+  function serve(self, spec: ServeSpec): (Serving) | (nil, Failure)
     -- The spec is checked before the daemon is asked.
     local _, _ = foreground_of(spec, spec.domain or "")
     local domain = spec.domain
@@ -1611,20 +1590,20 @@ local class Client
       local own = status.self
       domain = status.cert_domains[1] or (if own ~= nil then undotted(own.dns_name) else nil end)
       if domain == nil or domain == "" then
-        return nil, "tailscale: serve: the node has no name yet: is it logged in?"
+        return nil, Failure.new("tailscale: serve: the node has no name yet: is it logged in?")
       end
     end
     local config, urls = foreground_of(spec, domain)
     local events, why = bus(self.endpoint, self.timeout_ns, SERVE_MASK)
-    if events == nil then return nil, why end
-    local function failed(reason: string): Serving?, string
+    if events == nil then return nil, Failure.new(why) end
+    local function failed(reason: string | Failure): (Serving) | (nil, Failure)
       local _, _ = events:close()
+      if reason is string then return nil, Failure.new(reason) end
       return nil, reason
     end
     local first, bad = events:read()
-    if first == nil then
-      return failed(if bad ~= "" then bad else "tailscale: serve: the daemon ended the stream" end)
-    end
+    if first == nil then return failed(bad) end
+    if first == false then return failed("tailscale: serve: the daemon ended the stream") end
     local session = first.session
     if session == nil then
       return failed("tailscale: serve: the daemon names no session: it predates foreground serving")
@@ -1689,7 +1668,7 @@ local class Client
           end
         end
         local serving: Serving = { session = session, domain = domain, urls = urls, events = events }
-        return serving, ""
+        return serving
       end
       if put.status ~= 412 then
         return failed("tailscale: serve-config: " .. put.body:gsub("%s+$", "") .. " (status " .. tostring(put.status) .. ")")
@@ -1700,15 +1679,13 @@ local class Client
 end
 
 local record Tailscale
-  --- A client of one daemon, as [`Tailscale.connect`] answers it.
+  --- A client of one daemon, as [`Tailscale.connect`] returns it.
   type Client = Client
   --- Where a [`Client`] reaches its daemon.
   type Endpoint = Endpoint
   type User = User
   type Node = Node
   type WhoIs = WhoIs
-  type WhoIsKind = WhoIsKind
-  type WhoIsResult = WhoIsResult
   type Peer = Peer
   type Status = Status
   type Prefs = Prefs
@@ -1760,7 +1737,7 @@ local function listening(port: integer, token: string): Endpoint?
   -- TODO: refuse a listener that is not the app, once cosmic.net reports
   -- the process or user behind a TCP connection (LOCAL_PEERPID on macOS).
   -- Until then another local user who binds the port of a proof the app
-  -- left behind is handed the token, and answers every call as the daemon.
+  -- left behind is handed the token, and handles every call as the daemon.
   if port < 1 or port > 65535 then return nil end
   local address = Net.tcp("127.0.0.1", port)
   local conn, _ = Net.connect(address, { timeout_ns = 1000000000 })
@@ -1843,7 +1820,7 @@ end
 --- `token` without `port`, or a port or timeout out of range.
 ---
 ---     local ts = assert(Tailscale.connect({ socket = "/tmp/ts/tailscaled.sock" }))
-function Tailscale.connect(opts?: Tailscale.Daemon): Client?, string
+function Tailscale.connect(opts?: Tailscale.Daemon): (Client) | (nil, Failure)
   local o: Tailscale.Daemon = opts or {}
   if o.socket ~= nil and o.port ~= nil then error("tailscale: give socket or port, not both", 2) end
   if o.token ~= nil and o.port == nil then error("tailscale: token needs port", 2) end
@@ -1856,7 +1833,7 @@ function Tailscale.connect(opts?: Tailscale.Daemon): Client?, string
   local endpoint: Endpoint
   local socket = o.socket
   if socket ~= nil then
-    if socket == "" then return nil, "tailscale: the socket path is empty" end
+    if socket == "" then return nil, Failure.new("tailscale: the socket path is empty") end
     endpoint = unix_endpoint(socket)
   elseif port ~= nil then
     endpoint = { via = Net.tcp("127.0.0.1", port), url = "http://127.0.0.1:" .. tostring(port), token = o.token }
@@ -1867,7 +1844,7 @@ function Tailscale.connect(opts?: Tailscale.Daemon): Client?, string
     endpoint = proof or unix_endpoint(default_socket(darwin))
   end
   local client: Client = { endpoint = endpoint, timeout_ns = timeout_ns }
-  return client, ""
+  return client
 end
 
 return Tailscale

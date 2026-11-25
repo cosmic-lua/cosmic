@@ -1,5 +1,5 @@
 --- What the driver's lookups of GitHub (ceilings_base.tl, prerelease.tl)
---- ask of the world, as one record a test replaces: the API's answers,
+--- ask of the world, as one record a test replaces: the API's responses,
 --- the clock, a wait, and the places a step's words go. The live one asks
 --- the API through [`GithubApi`], whose token comes from GH_TOKEN or
 --- GITHUB_TOKEN in the environment and goes to the API's origin alone.
@@ -9,8 +9,8 @@ local Json = require("cosmic.json")
 local Clock = require("cosmic.clock")
 
 local record Github
-  --- What a lookup asks of the world. A call that fails answers nil and
-  --- why (a lookup never fails its step); none of these raises.
+  --- What a lookup asks of the world. A call that fails returns nil or
+  --- false, and why (a lookup never fails its step); none of these raises.
   record Host
     --- The pages of GET `path`, each as the API's JSON text: one
     --- where `paginate` is false, every page where it is true. A call
@@ -105,7 +105,7 @@ function Github.live(env: {string:string}, test?: GithubApi.Live): Github.Host
     delete = over.delete,
     now = function(): integer return Clock.now_ns() // 1000000000 end,
     sleep = function(seconds: integer)
-      local _, _ = Clock.sleep_ns(Clock.seconds(seconds))
+      local _, _ = Clock.sleep(Clock.seconds(seconds))
     end,
     -- $GITHUB_OUTPUT, standard output for a run by hand.
     output = function(text: string)

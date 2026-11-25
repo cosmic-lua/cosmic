@@ -7,7 +7,6 @@ local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
-local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 
@@ -38,7 +37,7 @@ end
 --- A descriptor opened elsewhere, read as a stream. Closing the Reader
 --- leaves the descriptor open: whoever opened it closes it. A
 --- non-blocking one can be waited on, for as long as `timeout_ns`: here a
---- named pipe with a writer that says nothing, which fails the read with [`Poll.TIMEOUT`].
+--- named pipe with a writer that says nothing, which fails the read with a Failure of kind "timeout".
 function Example.from_fd()
   local dir = assert(Fs.mkdtemp("cosmic-stream-example-"))
   assert(Fs.write(dir .. "/notes.txt", "one\ntwo\n"))
@@ -100,7 +99,7 @@ end
 --- A stream written to an open descriptor: here standard output. A
 --- non-blocking one can be waited on for room, for as long as
 --- `timeout_ns`: here a named pipe nobody reads, which takes what it
---- holds, and then fails the write with [`Poll.TIMEOUT`]; `written` says
+--- holds, and then fails the write with a Failure of kind "timeout"; `written` says
 --- how much of the body went before it did.
 function Example.to_fd()
   local w = Stream.to_fd(Fs.stdout)
@@ -114,7 +113,7 @@ function Example.to_fd()
   local body = string.rep("x", 1 << 20)
   local ok, why = slow:write(body)
   print(why, slow:written())
-  assert(not ok and why == Poll.TIMEOUT, why)
+  assert(not ok and why.kind == "timeout", tostring(why))
   assert(slow:written() > 0 and slow:written() < #body)
   assert(Fs.close(pipe))
   assert(Fs.close(reader))
@@ -165,7 +164,7 @@ function Example.limit()
 end
 
 --- A header read whole, or found short: [`read_up_to`] gathers what a
---- Reader gives in pieces, and answers "" at a clean end of the stream.
+--- Reader gives in pieces, and returns "" at a clean end of the stream.
 function Example.read_up_to()
   local block, why = Stream.read_up_to(Stream.from_string("0123456789"), 4)
   print(block)
@@ -196,6 +195,7 @@ end
 --- memory. Any record that lists [`Stream.Transform`] and gives its
 --- functions is one, such as this one that shouts.
 function Example.run()
+  local type Failure = require("cosmic.failure")
   local packed = assert(Stream.run(assert(Compress.encoder("gzip")), string.rep("a", 10000)))
   local back = assert(Stream.run(assert(Compress.decoder("gzip")), packed, 10000))
   assert(back == string.rep("a", 10000))
@@ -203,15 +203,15 @@ function Example.run()
   print(why)
   assert(out == nil and tostring(why) == "stream: output is larger than 100 bytes", why)
   local record Shouter is Stream.Transform
-    update: function(Shouter, chunk: string): string?, string
-    finish: function(Shouter): string?, string
+    update: function(Shouter, chunk: string, max_bytes?: integer): (string) | (nil, Failure)
+    finish: function(Shouter): (string) | (nil, Failure)
     pending: function(Shouter): boolean
   end
   local shouting: Shouter = {
-    update = function(_self: Shouter, chunk: string): string?, string
-      return chunk:upper(), ""
+    update = function(_self: Shouter, chunk: string, _max_bytes?: integer): (string) | (nil, Failure)
+      return chunk:upper()
     end,
-    finish = function(_self: Shouter): string?, string return "!", "" end,
+    finish = function(_self: Shouter): (string) | (nil, Failure) return "!" end,
     pending = function(_self: Shouter): boolean return false end,
   }
   local shouted = assert(Stream.run(shouting, "hello"))

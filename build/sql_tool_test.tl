@@ -26,6 +26,7 @@ end
 --- A refused line and a bad file are complained about, and get no
 --- summary: stdout stays empty for both.
 local function test_a_refused_line_and_a_bad_file_say_why_on_stderr(tmp: string)
+  assert(Fs.write(tmp .. "/data.xml", "<data/>"))
   local unknown = tool_fixture.cosmic(tmp, { "sql", "--from", "data.xml", "SELECT 1" })
   assert(unknown.code == 2 and unknown.out == "", unknown.out)
   assert(unknown.err:find("^cosmic: sql: ") ~= nil and not unknown.err:find("\nsql: "), unknown.err)

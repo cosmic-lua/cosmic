@@ -1,6 +1,6 @@
 --- [`Child.start`]'s `policy` with the `nest` promise (cosmic/child.tl), where
 --- what the kernel is asked to hold is held by Landlock: a start without
---- `nest` handed a directory, and a stand-in (build/stand_in.tl) that starts
+--- `nest` handed a directory, and a fake ([`cosmic.fake`]) that starts
 --- a sandbox of its own, which Landlock holds inside the root of the first.
 --- They need a host that lets a sandbox nest and gives Landlock
 --- (`requires`): where the platform has neither they are not applicable,
@@ -18,7 +18,7 @@ local ChildPolicy = require("build.child_policy_fixture")
 --- Landlock ruleset cannot build.
 Test.policy{
   env = { "TMPDIR" },
-  promises = { "nest" },
+  grants = { { calls = "nest" } },
   requires = { "landlock", "nest" },
 }
 
@@ -28,7 +28,7 @@ Test.policy{
 local function test_a_handed_directory_is_held_by_landlock_without_nest(tmp: string)
   local at = ChildPolicy.nest_placed(tmp)
   local dir = assert(sys.open(at.extra, sys.O_RDONLY))
-  local policy: Sandbox.Policy = { isolate = { "file" }, promises = { "fork" }, grants = at.grants }
+  local policy: Sandbox.Policy = { isolate = { "file" }, grants = ChildPolicy.with(at.grants, { calls = "fork" }) }
   -- Started with no promise at all, the directory is taken.
   local plain, plain_why = Child.start({ at.probe, "print hi" },
     { timeout_ns = Child.FOREVER, policy = { isolate = { "file" }, grants = at.grants }, cwd = at.work, fds = { [3] = dir } })
@@ -42,16 +42,16 @@ end
 --- Where a start of the program's own meets its host: the directory a root
 --- is built in is in TMPDIR, which the sandbox grants.
 local function nested(at: ChildPolicy.NestPlace): Sandbox.Policy
-  return { isolate = { "file" }, promises = { "fork", "nest" }, set_env = { TMPDIR = at.scratch },
+  return { isolate = { "file" }, set_env = { TMPDIR = at.scratch },
     grants = ChildPolicy.with(at.grants, { path = at.scratch, letters = "rwc" },
-      { path = at.extra, letters = "r" }) }
+      { path = at.extra, letters = "r" }, { calls = "fork" }, { calls = "nest" }) }
 end
 
 local function test_a_nested_sandbox_is_confined_to_its_own_grants(tmp: string)
   local at = ChildPolicy.nest_placed(tmp)
   local policy = nested(at)
-  -- The first sandbox reads the extra directory, the stand-in's own sandbox,
-  -- granted the stand-in and the working directory, does not.
+  -- The first sandbox reads the extra directory, the fake's own sandbox,
+  -- granted the fake and the working directory, does not.
   local own = ChildPolicy.under(at.probe, policy, at.work, "cat " .. at.extra .. "/e")
   assert(own.code == 0 and own.said == "epsilon\n", tostring(own.code) .. ": " .. own.said)
   local ran = ChildPolicy.under(at.probe, policy, at.work, "run-isolated " .. at.probe .. " cat ro/a")
@@ -81,7 +81,10 @@ end
 
 local function test_a_nested_sandbox_needs_nest(tmp: string)
   local at = ChildPolicy.nest_placed(tmp)
-  local ran = ChildPolicy.under(at.probe, { ...nested(at), promises = { "fork" } }, at.work,
+  -- What `nested` grants but `nest`.
+  local grants = ChildPolicy.with(at.grants, { path = at.scratch, letters = "rwc" }, { path = at.extra, letters = "r" },
+    { calls = "fork" })
+  local ran = ChildPolicy.under(at.probe, { ...nested(at), grants = grants }, at.work,
     "run-isolated " .. at.probe .. " print hi")
   assert(ran.code == 0, ran.said)
   assert(ran.said:find("namespace was refused", 1, true), ran.said)

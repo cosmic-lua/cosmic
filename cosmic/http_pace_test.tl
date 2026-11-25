@@ -46,11 +46,10 @@ local function test_a_pacer_spaces_every_entry_point(tmp: string)
   local pacer = Http.pacer(Clock.ms(100))
   local began = Clock.monotonic_ns()
   local response = assert(Http.open(url, { timeout_ns = Clock.seconds(60), pace = pacer, script = ok_script() }))
-  response:close()
+  local _, _ = response:close()
   assert(Http.request("PUT", url, { timeout_ns = Clock.seconds(60), pace = pacer, script = ok_script() }))
   assert(Http.download(url, tmp .. "/one", { timeout_ns = Clock.seconds(60), pace = pacer, script = ok_script() }))
-  local result = Http.download_result(url, tmp .. "/two", { timeout_ns = Clock.seconds(60), pace = pacer, script = ok_script() })
-  assert(result.kind == "downloaded", result.reason)
+  assert(Http.download(url, tmp .. "/two", { timeout_ns = Clock.seconds(60), pace = pacer, script = ok_script() }))
   assert(assert(Fs.status(tmp .. "/two")).exists)
   local took = Clock.monotonic_ns() - began
   assert(took >= Clock.ms(300), "four requests took " .. tostring(took))
@@ -199,7 +198,6 @@ local function test_a_pace_that_is_no_pacer_raises_naming_the_option(tmp: string
     get = function() local _, _ = Http.get(url, opts()) end,
     request = function() local _, _ = Http.request("PUT", url, opts()) end,
     download = function() local _, _ = Http.download(url, tmp .. "/never", opts()) end,
-    download_result = function() local _ = Http.download_result(url, tmp .. "/never", opts()) end,
   }
   for name, entry in pairs(entries) do
     local err = Test.raises(entry)
@@ -250,9 +248,6 @@ local function test_a_pace_of_the_wrong_lua_type_raises_naming_the_option(tmp: s
       end,
       download = function(pace: Http.Pacer)
         local _, _ = Http.download(url, tmp .. "/never", { timeout_ns = Clock.seconds(60), pace = pace, script = ok_script() })
-      end,
-      download_result = function(pace: Http.Pacer)
-        local _ = Http.download_result(url, tmp .. "/never", { timeout_ns = Clock.seconds(60), pace = pace, script = ok_script() })
       end,
     }
     for name, entry in pairs(entries) do

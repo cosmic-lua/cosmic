@@ -1,8 +1,8 @@
---- Reads of an array that must be there. `xs[i]` is `T?` because Lua answers
---- nil past either end, and `xs[i] or 0` turns that nil into a wrong value
---- that nothing reports. Where `for i = 1, #xs do` cannot say the index is
---- a key (an index that is computed, a loop that calls a function or
---- changes the array), [`Array.at`] reads the element or raises with the
+--- Reads of an array that must be there. `xs[i]` is `T?` because indexing
+--- past either end gives nil, and `xs[i] or 0` turns that nil into a wrong
+--- value that nothing reports. Where `for i = 1, #xs do` cannot say the
+--- index is a key (an index that is computed, a loop that calls a function
+--- or changes the array), [`Array.at`] reads the element or raises with the
 --- index and the length in the message.
 ---
 ---     local third = Array.at({ 10, 20, 30 }, 3) -- 30
@@ -15,7 +15,7 @@ end
 --- is an element, not an optional, and a miss fails where it is made.
 --- It raises, blaming its caller, when `i` is 0, negative or past
 --- `#xs`, which is a bug in the caller (its bound was wrong), not a
---- condition for it to handle: a function that must answer a missing index
+--- condition for it to handle: a function that must handle a missing index
 --- returns `xs[i]` itself, a `T?`, or its own `nil, why`.
 --- @param xs {T} The array to read
 --- @param i integer The position, 1 to `#xs`

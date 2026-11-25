@@ -125,10 +125,10 @@ local function compiles_in(path: string, since_ns: integer): integer, integer
   local total: Tally = { value = 0 }
   local used: Tally = { value = 0 }
   local ok, failure = pcall(function(): boolean
-    local tables = assert(Sqlite.text_rows(db,
+    local tables = assert(db:text_rows(
       "SELECT name FROM sqlite_schema WHERE type = 'table' AND name GLOB 'compiled_v*'"))
     for _, row in ipairs(tables) do
-      local counts = assert(Sqlite.text_rows(db, "SELECT count(*), " ..
+      local counts = assert(db:text_rows("SELECT count(*), " ..
           "count(*) FILTER (WHERE used_ns >= ?1) FROM \"" .. row:text(1) .. "\"",
         { { integer = since_ns } }))
       total.value = total.value + assert(math.tointeger(tonumber(assert(counts[1]):text(1))))
@@ -432,7 +432,7 @@ local function run_refusal_case(fixture_dir: string,
     local pin = tree .. "/vendor/lua/PIN"
     Fixture.write(pin, Fixture.read(pin) .. "\n# refusal fixture\n")
   elseif name == "tl-checker" then
-    local checker = tree .. "/lang/check.tl"
+    local checker = tree .. "/lang/check/init.tl"
     Fixture.write(checker, Fixture.read(checker) .. "\n-- refusal fixture\n")
   elseif name == "launcher" then
     local launcher = tree .. "/build/launcher.tl"
@@ -586,7 +586,7 @@ end
 -- `fix`, which writes the working database and so waits for a run that
 -- holds it. `docs` and `todos` only read, and wait for no run
 -- (build/reboot.tl's `stale_exit`): one started while another holds the
--- working database says so and answers at once, from what that run last
+-- working database says so and prints at once, from what that run last
 -- committed.
 local function test_self_rebuild_by_concurrent_runs(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")

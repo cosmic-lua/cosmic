@@ -169,8 +169,7 @@ local function test_a_hint_names_what_the_tree_s_own_projection_documents()
     ["thing.tl"] = "return function(): integer\n  return greeter.count()\nend\n",
   }))
   assert(support.build_dir(root))
-  local projection = assert(Sqlite.open(support.build_dir(root) .. "/cosmic.db", { writable = true }))
-  for _, statement in ipairs(schema.create("")) do assert(projection:exec(statement)) end
+  local projection = assert(schema.hold(assert(Sqlite.open(support.build_dir(root) .. "/cosmic.db", { writable = true }))))
   assert(projection:exec("INSERT INTO docs (module, symbol, source_symbol, exported, " ..
       "kind, signature, text, file, line) VALUES ('greeter', '', 'greeter', 1, " ..
       "'module', '', 'Greets.', 'greeter.tl', 1)"))
@@ -199,7 +198,7 @@ end
 
 --- Concrete checker families point at checked language examples. These are
 --- real project compiles, so the original position and diagnostic remain in
---- the output beside the hint. That every query advertised is answered by
+--- the output beside the hint. That every query advertised is found in
 --- the tree's docs is held by `cosmic fix --check .` ([`build.tree_checks`]).
 local function test_language_errors_name_relevant_checked_docs()
   local record Case

@@ -8,7 +8,7 @@ local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
 
-Test.policy{ promises = { "nest" } }
+Test.policy{ grants = { { calls = "nest" } } }
 
 local function test_a_worker_that_only_nests_runs_on_a_sealed_database()
   local relaunch, _ = Proc.relaunch()

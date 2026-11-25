@@ -1,9 +1,8 @@
 --- A zip reader over a whole file or an in-memory string, walked
 --- through the central directory with positional reads rather than a
---- sequential scan, plus a streaming writer. Store (method 0) and
---- deflate (method 8, through [`cosmic.compress`]'s `inflater`/
---- `deflater`) and Zstandard (method 93, through its `zstd_decoder`/
---- `zstd_encoder`) are the methods understood. Zip64 is read and
+--- sequential scan, plus a streaming writer. Store (method 0), deflate
+--- (method 8, [`cosmic.compress`]'s "raw" format) and Zstandard (method
+--- 93, its "zstd" format) are the methods understood. Zip64 is read and
 --- written wherever an archive needs it: on the end-of-central-
 --- directory record (more than 65535 entries, or a central directory
 --- at or past the 4 GiB mark) and in each entry's extra field (a size
@@ -47,7 +46,7 @@ local record Zip
     compressed_size: integer
     -- TODO: EntryOptions.method is a Zip.Method name and this is zip's
     -- number, so a reader cannot hand an entry's method back to
-    -- add_file. Answer a Zip.Method here too once the enum can say
+    -- add_file. Return a Zip.Method here too once the enum can say
     -- "a method this reader cannot open" (listing such an entry works
     -- today; only opening it fails), keeping the number beside it.
 
@@ -62,7 +61,7 @@ local record Zip
     --- the last byte, failing there on a mismatch, and fails as soon
     --- as the body runs past its recorded size. Fails once the
     --- Reader it came from is closed.
-    open: function(Entry): Stream.Reader?, string
+    open: function(Entry): (Stream.Reader) | (nil, Failure)
   end
 
   --- How [`Reader`]'s `entry` matches a path.
@@ -74,25 +73,25 @@ local record Zip
   interface Reader is Stream.ArchiveReader
     --- Every entry, in central directory order: built on the first
     --- call, which must come before `close`, and kept for later ones.
-    --- Nil and why, as `next` answers, when the reader is closed first.
-    entries: function(Reader): {Entry}?, string
+    --- Nil and a Failure, as `next` returns, when the reader is closed first.
+    entries: function(Reader): ({Entry}) | (nil, Failure)
     --- The next entry in central directory order, read straight off
     --- the directory, so walking an archive of any size holds one
-    --- entry at a time; nil and `""` after the last. Independent of
+    --- entry at a time; `false` after the last. Independent of
     --- `entries`.
-    next: function(Reader): Entry?, string -- declared: interface_disagrees
+    next: function(Reader): (Entry | false) | (nil, Failure) -- declared: interface_disagrees
     --- The entry whose path is `path`, from the list `entries` builds, so
     --- the same rules hold: the first call must come before `close`.
     --- The first in directory order where an archive holds the path twice.
     --- With `ignore_case`, the path matches whatever the case of its ASCII
     --- letters, as a package format's part names do (Open Packaging
     --- Conventions: a spreadsheet's, a document's), and the first of the
-    --- entries that match stands. Nil and why when the archive holds no
-    --- such entry, or as `entries` answers.
-    entry: function(Reader, path: string, opts?: LookupOptions): Entry?, string
+    --- entries that match stands. Nil and a Failure when the archive holds no
+    --- such entry, or as `entries` returns.
+    entry: function(Reader, path: string, opts?: LookupOptions): (Entry) | (nil, Failure)
     --- Releases the file the archive is read from, if it has one; no
     --- entry can be opened afterward.
-    close: function(Reader): boolean, string
+    close: function(Reader): (true) | (false, Failure)
   end
 
   --- How [`add_file`] stores an entry's bytes: "deflate" compresses them
@@ -119,8 +118,8 @@ local record Zip
   --- later call, `close` included, returns that failure. A call after
   --- `close` fails too.
   interface Writer is Stream.ArchiveWriter
-    --- Adds a file at `path` with `data` as its body; returns `true, ""`,
-    --- or `false` and why. Refuses a path ending in `/`, which zip reads as a directory.
+    --- Adds a file at `path` with `data` as its body; returns `true`,
+    --- or `false` and a Failure. Refuses a path ending in `/`, which zip reads as a directory.
     --- A [`Stream.Reader`] body is read in chunks through the deflater
     --- and a running CRC32, so memory stays bounded however long it
     --- is: its sizes and CRC32 follow the data in a data descriptor
@@ -129,49 +128,49 @@ local record Zip
     --- fails once it, or its compressed form, reaches 4 GiB; with
     --- `opts.size` of 2 GiB or more, it is written as zip64. The
     --- reader is read to its end but not closed.
-    add_file: function(self: Writer, path: string, data: string | Stream.Reader, opts?: EntryOptions): boolean, string
+    add_file: function(self: Writer, path: string, data: string | Stream.Reader, opts?: EntryOptions): (true) | (false, Failure)
     --- Adds a directory entry at `path`, to which a trailing `/` is
-    --- added if missing. Returns `true, ""`, or `false` and why.
-    add_dir: function(self: Writer, path: string, opts?: EntryOptions): boolean, string
+    --- added if missing. Returns `true`, or `false` and a Failure.
+    add_dir: function(self: Writer, path: string, opts?: EntryOptions): (true) | (false, Failure)
     --- Adds a symbolic link at `path` pointing at `target`, as Info-ZIP
     --- does: an entry whose external attributes say S_IFLNK and whose
-    --- stored body is the target, which [`Reader`] answers as a
-    --- "symlink" with `linkpath`. Returns `true, ""`, or `false` and
-    --- why. Refuses what a reader would refuse to open the archive for:
+    --- stored body is the target, which [`Reader`] returns as a
+    --- "symlink" with `linkpath`. Returns `true`, or `false` and a
+    --- Failure. Refuses what a reader would refuse to open the archive for:
     --- a target longer than 4096 bytes or holding a NUL byte, and a
     --- path ending in `/`.
-    add_symlink: function(self: Writer, path: string, target: string, opts?: EntryOptions): boolean, string
+    add_symlink: function(self: Writer, path: string, target: string, opts?: EntryOptions): (true) | (false, Failure)
     --- A file at `path` whose body is what is written to the
-    --- [`Stream.Writer`] it answers, compressed as it comes, as
+    --- [`Stream.Writer`] it returns, compressed as it comes, as
     --- [`add_file`] writes a [`Stream.Reader`] body: for a body made a
     --- piece at a time, such as a document [`cosmic.xml`] writes, which
     --- is then never held whole. Closing it ends the entry; until then
     --- the archive takes no other entry and does not close, and aborting
     --- it abandons the archive, whose bytes are written already, so the
-    --- archive's `close` then fails. Closing it while the archive is open
-    --- is refused without failing the archive. A body that fails, by its
+    --- archive's `close` then fails. Closing the archive while the entry's
+    --- body is open is refused without failing the archive. A body that fails, by its
     --- encoder or the underlying Writer, fails the archive. `opts.size`,
     --- when given, is what the body must come to, as for [`add_file`]: a
     --- size of 2 GiB or more is written zip64, and a body without one
-    --- fails at 4 GiB. Nil and why where [`add_file`] refuses the path or
+    --- fails at 4 GiB. Nil and a Failure where [`add_file`] refuses the path or
     --- the method, or where the archive has failed or closed or another
     --- body is still open.
-    file_writer: function(self: Writer, path: string, opts?: EntryOptions): Stream.Writer?, string
+    file_writer: function(self: Writer, path: string, opts?: EntryOptions): (Stream.Writer) | (nil, Failure)
     --- Writes the central directory and closes the underlying
-    --- Stream.Writer, committing it. Returns `true, ""`, or `false` and why.
-    close: function(self: Writer): boolean, string
+    --- Stream.Writer, committing it. Returns `true`, or `false` and a Failure.
+    close: function(self: Writer): (true) | (false, Failure)
     --- Abandons the archive: aborts the underlying Stream.Writer.
-    abort: function(self: Writer): boolean, string
+    abort: function(self: Writer): (true) | (false, Failure)
   end
 end
 
 -- A Reader or Writer here is made as cosmic/stream.tl's "How an object of
--- this module is made" says: a record of its own per kind, implementing the
--- public interface it answers, with its methods on that record and its
--- state in fields. The one exception is an entry's `open`, which needs the
--- file the reader reads: it is a closure of that reader, shared by all its
--- entries through their metatable, so that an entry stays the one table of
--- the fields its public record declares.
+-- this module is made" says: a record of its own per kind, implementing
+-- the public interface it is returned as, with its methods on that record
+-- and its state in fields. The one exception is an entry's `open`, which
+-- needs the file the reader reads: it is a closure of that reader, shared
+-- by all its entries through their metatable, so that an entry stays the
+-- one table of the fields its public record declares.
 
 local chunk_size <const> = 1 << 16
 local LFH_SIG <const> = "PK\3\4"
@@ -198,10 +197,15 @@ local VERSION_DEFAULT <const> = 20
 --- The longest symlink target read out of an entry body.
 local LINK_LIMIT <const> = 4096
 
---- What a failure of this module answers, nil and `why` under the
---- module's name.
+--- What a function of this module returns when it fails: nil and `why`
+--- under the module's name.
 local function refuse(why: string): nil, string
   return nil, "zip: " .. why
+end
+
+--- `refuse`, as a [`Failure`].
+local function refused(why: string): nil, Failure
+  return nil, Failure.new("zip: " .. why)
 end
 
 ------------------------------------------------------------------
@@ -374,10 +378,10 @@ local class SpanReader is Stream.Reader
     return chunk
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.left = 0
     self.held = nil
-    return true, ""
+    return true
   end
 end
 
@@ -391,7 +395,7 @@ local class CheckedReader is Stream.Reader
   size: integer
   mut seen: integer
   mut state?: integer
-  --- The failure every read answers after the first, its kind kept.
+  --- The failure every read returns after the first, its kind kept.
   mut failed?: Failure
 
   function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
@@ -427,7 +431,7 @@ local class CheckedReader is Stream.Reader
     return chunk
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     return self.inner:close()
   end
 end
@@ -502,8 +506,10 @@ local class ReadEntry is Zip.Entry
   --- How the reader that listed it reads the file.
   pread: Pread
 
-  function open(self): Stream.Reader?, string
-    return open_entry(self.pread, self)
+  function open(self): (Stream.Reader) | (nil, Failure)
+    local body, why = open_entry(self.pread, self)
+    if body == nil then return nil, Failure.new(why) end
+    return body
   end
 end
 
@@ -552,8 +558,8 @@ local CDFH_FIELDS <const> = "<I2I2I2I2I2I2I4I4I4I2I2I2I2I2I4I4"
 
 --- An entry that was only checked, and has no body to open.
 local class CheckedEntry is Zip.Entry
-  function open(self): Stream.Reader?, string
-    return refuse("the entry was only checked, and has no body to open")
+  function open(self): (Stream.Reader) | (nil, Failure)
+    return refused("the entry was only checked, and has no body to open")
   end
 end
 
@@ -647,7 +653,7 @@ local function read_link(entry: Zip.Entry): string?, string
         "-byte target")
   end
   local body, trouble = entry:open()
-  if body == nil then return nil, trouble end
+  if body == nil then return nil, tostring(trouble) end
   local target, rtrouble = Stream.read_all(body)
   if target == nil then return nil, entry.path .. ": " .. tostring(rtrouble) end
   local refusal = nul_refusal(target, "in the target of symlink " .. entry.path)
@@ -655,11 +661,11 @@ local function read_link(entry: Zip.Entry): string?, string
   return target, ""
 end
 
---- What [`Zip.open`] and [`Zip.open_string`] answer.
+--- What [`Zip.open`] and [`Zip.open_string`] return.
 local class EntryReader is Zip.Reader
   pread: Pread
   --- What `close` calls, once: it releases the file `pread` reads.
-  closer: function(): boolean, string
+  closer: function(): (true) | (false, Failure)
   cd_offset: integer
   cd_size: integer
   --- The targets of the symlinks, by their place in the directory.
@@ -677,19 +683,22 @@ local class EntryReader is Zip.Reader
   mut by_folded?: {string: Zip.Entry}
   mut closed: boolean
 
-  function next(self): Zip.Entry?, string -- declared: interface_disagrees
-    if self.closed then return refuse("the reader is closed") end
+  function next(self): (Zip.Entry | false) | (nil, Failure) -- declared: interface_disagrees
+    if self.closed then return refused("the reader is closed") end
     local entry, etrouble = next_record(self.walk)
-    if entry == nil then return nil, etrouble end
+    if entry == nil then
+      if etrouble == "" then return false end
+      return nil, Failure.new(etrouble)
+    end
     self.walked = self.walked + 1
     local target = self.links[self.walked]
     if target ~= nil then entry.linkpath = target end -- checked: field_fixed
-    return entry, ""
+    return entry
   end
 
-  function entries(self): {Zip.Entry}?, string
+  function entries(self): ({Zip.Entry}) | (nil, Failure)
     local listed = self.listed
-    if listed ~= nil then return listed, "" end
+    if listed ~= nil then return listed end
     local all: mut {Zip.Entry} = {}
     local c = cursor(self.pread, self.cd_offset, self.cd_size)
     while true do
@@ -697,7 +706,7 @@ local class EntryReader is Zip.Reader
       if entry == nil then
         -- Only a complete list is kept: one cut short by a closed
         -- reader is refused, here and on every later call.
-        if etrouble ~= "" then return nil, etrouble end
+        if etrouble ~= "" then return nil, Failure.new(etrouble) end
         break
       end
       all[#all + 1] = entry
@@ -705,10 +714,10 @@ local class EntryReader is Zip.Reader
       if target ~= nil then entry.linkpath = target end -- checked: field_fixed
     end
     self.listed = all
-    return all, ""
+    return all
   end
 
-  function entry(self, path: string, opts?: Zip.LookupOptions): Zip.Entry?, string
+  function entry(self, path: string, opts?: Zip.LookupOptions): (Zip.Entry) | (nil, Failure)
     local fold = opts ~= nil and opts.ignore_case == true
     local index = if fold then self.by_folded else self.by_path end
     if index == nil then
@@ -724,19 +733,19 @@ local class EntryReader is Zip.Reader
     end
     local found = index[if fold then path:lower() else path end]
     if found == nil then
-      return refuse("no entry " .. string.format("%q", path) .. (if fold then " in any case" else "" end))
+      return refused("no entry " .. string.format("%q", path) .. (if fold then " in any case" else "" end))
     end
-    return found, ""
+    return found
   end
 
-  function close(self): boolean, string
-    if self.closed then return true, "" end
+  function close(self): (true) | (false, Failure)
+    if self.closed then return true end
     self.closed = true
     return self.closer()
   end
 end
 
-local function open_reader(size: integer, pread: Pread, closer: function(): boolean, string):
+local function open_reader(size: integer, pread: Pread, closer: function(): (true) | (false, Failure)):
     Zip.Reader?, string
   local eocd_off, trouble = find_eocd(size, pread)
   if eocd_off == nil then return nil, trouble end
@@ -809,15 +818,15 @@ end
 
 --- A reader over the zip file at `path`, walked with positional reads
 --- rather than loaded whole into memory.
-function Zip.open(path: string): Zip.Reader?, string
+function Zip.open(path: string): (Zip.Reader) | (nil, Failure)
   local fd, trouble = Fs.open_read(path)
-  if fd == nil then return nil, tostring(trouble) end
+  if fd == nil then return nil, trouble end
   -- The length of the file `fd` opened, so it is the same file every
   -- read goes to.
   local st, strouble = sys.fstat(fd)
   if st == nil then
     local _, _ = Fs.close(fd)
-    return refuse(path .. ": " .. strouble)
+    return refused(path .. ": " .. strouble)
   end
   local reading_closed: boolean = false
   local pread: Pread = function(offset: integer, count: integer): string?, string
@@ -827,32 +836,32 @@ function Zip.open(path: string): Zip.Reader?, string
     if data == nil then return nil, ptrouble end
     return data, ""
   end
-  local reader, otrouble = open_reader(st.size, pread, function(): boolean, string
+  local reader, otrouble = open_reader(st.size, pread, function(): (true) | (false, Failure)
     reading_closed = true
-    local closed, close_why = Fs.close(fd)
-    if not closed then return false, tostring(close_why) end
-    return true, ""
+    return Fs.close(fd)
   end)
   if reader == nil then
     reading_closed = true
     local _, _ = Fs.close(fd)
-    return nil, otrouble
+    return nil, Failure.new(otrouble)
   end
-  return reader, ""
+  return reader
 end
 
 --- A reader over a zip already in memory as `data`.
-function Zip.open_string(data: string): Zip.Reader?, string
+function Zip.open_string(data: string): (Zip.Reader) | (nil, Failure)
   local reading_closed: boolean = false
   local pread: Pread = function(offset: integer, count: integer): string?, string
     if reading_closed == true then return refuse("the reader is closed") end
     if offset >= #data then return "", "" end
     return data:sub(offset + 1, offset + count), ""
   end
-  return open_reader(#data, pread, function(): boolean, string
+  local reader, trouble = open_reader(#data, pread, function(): (true) | (false, Failure)
     reading_closed = true
-    return true, ""
+    return true
   end)
+  if reader == nil then return nil, Failure.new(trouble) end
+  return reader
 end
 
 ------------------------------------------------------------------
@@ -935,12 +944,25 @@ local function attributes(type_bits: integer, mode: integer): integer
 end
 
 --- Writes the body's compressed bytes `data`, counting them.
-local function emit(self: FeedWriter, data: string): boolean, string
-  if data == "" then return true, "" end
+local function emit(self: FeedWriter, data: string): (true) | (false, Failure)
+  if data == "" then return true end
   local done = self.done
   done.csize = done.csize + #data
   if not self.wide and done.csize >= U32_MAX then return self.fail(self.too_big) end
   return self.put(data)
+end
+
+--- Counts and sums `chunk`, compresses it if the body is, and emits it.
+local function feed_chunk(self: FeedWriter, chunk: string): (true) | (false, Failure)
+  local done = self.done
+  done.usize = done.usize + #chunk
+  if not self.wide and done.usize >= U32_MAX then return self.fail(self.too_big) end
+  done.crc = sums.crc32(chunk, done.crc)
+  local encoder = self.encoder
+  if encoder == nil then return emit(self, chunk) end
+  local out, etrouble = encoder:update(chunk)
+  if out == nil then return self.fail(tostring(etrouble)) end
+  return emit(self, out)
 end
 
 --- What a streamed body is copied to: compressed, if it is, as it goes,
@@ -948,8 +970,8 @@ end
 local class FeedWriter is Stream.Writer
   --- Puts bytes through the entry writer's sink, counting them into its offset, and fails that sink with a reason: the
   --- writer is no type of this record, whose class stands above the writer's.
-  put: function(string): boolean, string
-  fail: function(string): boolean, string
+  put: function(string): (true) | (false, Failure)
+  fail: function(string): (true) | (false, Failure)
   done: Written
   --- The body's deflater or zstd encoder, or nil for a stored one.
   encoder?: Compress.Stream
@@ -957,50 +979,42 @@ local class FeedWriter is Stream.Writer
   wide: boolean
   too_big: string
 
-  function write(self, chunk: string): boolean, string
-    local done = self.done
-    done.usize = done.usize + #chunk
-    if not self.wide and done.usize >= U32_MAX then return self.fail(self.too_big) end
-    done.crc = sums.crc32(chunk, done.crc)
-    local encoder = self.encoder
-    if encoder == nil then return emit(self, chunk) end
-    local out, etrouble = encoder:update(chunk)
-    if out == nil then return self.fail(etrouble) end
-    return emit(self, out)
+  function write(self, chunk: string): (true) | (false, Failure)
+    return feed_chunk(self, chunk)
   end
 
-  function close(self): boolean, string
-    return true, ""
+  function close(self): (true) | (false, Failure)
+    return true
   end
 
-  function abort(self): boolean, string
-    return true, ""
+  function abort(self): (true) | (false, Failure)
+    return true
   end
 end
 
 --- Writes `data` through the sink, counting it into the offset.
-local function put(self: EntryWriter, data: string): boolean, string
+local function put(self: EntryWriter, data: string): (true) | (false, Failure)
   local ok, trouble = self.sink:put(data)
   if not ok then return false, trouble end
   self.offset = self.offset + #data
-  return true, ""
+  return true
 end
 
 --- A string body, compressed up front so its CRC32 and sizes go in
 --- the local header. Fills `done` with what it came to.
 local function write_whole(self: EntryWriter, path: string, data: string, method: integer,
-                           dos_time: integer, dos_date: integer, done: Written): boolean, string
+                           dos_time: integer, dos_date: integer, done: Written): (true) | (false, Failure)
   local payload = data
   done.crc, done.usize = sums.crc32(data), #data
   if method == 8 then
     local packed, dtrouble = Compress.encode("raw", data)
-    if packed == nil then return false, tostring(dtrouble) end
+    if packed == nil then return false, dtrouble end
     payload = packed
   elseif method == ZSTD then
     local encoder, etrouble = Compress.encoder("zstd")
-    if encoder == nil then return false, tostring(etrouble) end
+    if encoder == nil then return false, etrouble end
     local packed, ptrouble = Stream.run(encoder, data)
-    if packed == nil then return false, tostring(ptrouble) end
+    if packed == nil then return false, ptrouble end
     payload = packed
   end
   done.csize = #payload
@@ -1030,15 +1044,15 @@ end
 --- it. `hint` is the size `opts.size` promised, if any.
 local function begin_streamed(self: EntryWriter, path: string, method: integer, dos_time: integer,
                               dos_date: integer, type_bits: integer, mode: integer, hint: integer?):
-    Streamed?, string
+    (Streamed) | (nil, Failure)
   local encoder: Compress.Stream?
   if method == 8 then
     local made, dtrouble = Compress.encoder("raw")
-    if made == nil then return nil, tostring(dtrouble) end
+    if made == nil then return nil, dtrouble end
     encoder = made
   elseif method == ZSTD then
     local made, etrouble = Compress.encoder("zstd")
-    if made == nil then return nil, tostring(etrouble) end
+    if made == nil then return nil, etrouble end
     encoder = made
   end
   local wide = hint ~= nil and hint >= STREAM_ZIP64_AT
@@ -1048,8 +1062,8 @@ local function begin_streamed(self: EntryWriter, path: string, method: integer, 
   if not ok then return nil, trouble end
   local done: Written = { crc = 0, usize = 0, csize = 0 }
   local feed: FeedWriter = {
-    put = function(data: string): boolean, string return put(self, data) end,
-    fail = function(why: string): boolean, string return self.sink:fail(why) end,
+    put = function(data: string): (true) | (false, Failure) return put(self, data) end,
+    fail = function(why: string): (true) | (false, Failure) return self.sink:fail(why) end,
     done = done, encoder = encoder, wide = wide,
     too_big = "zip: " .. path .. ": a streamed entry of 4 GiB or more needs opts.size",
   }
@@ -1058,12 +1072,12 @@ local function begin_streamed(self: EntryWriter, path: string, method: integer, 
     local_offset = local_offset, type_bits = type_bits, mode = mode, hint = hint, done = done,
     feed = feed,
   }
-  return made, ""
+  return made
 end
 
 --- Ends a streamed body: what its encoder holds back, its data
 --- descriptor, and the central directory record that lists it.
-local function finish_streamed(self: EntryWriter, st: Streamed): boolean, string
+local function finish_streamed(self: EntryWriter, st: Streamed): (true) | (false, Failure)
   local sink = self.sink
   local done = st.done
   local encoder = st.feed.encoder
@@ -1088,65 +1102,75 @@ local function finish_streamed(self: EntryWriter, st: Streamed): boolean, string
   table.insert(self.cd_parts, central_header(st.path, st.method, st.dos_time, st.dos_date, done.crc,
     done.csize, done.usize, attributes(st.type_bits, st.mode), st.local_offset, FLAG_DESCRIPTOR))
   self.count = self.count + 1
-  return true, ""
+  return true
 end
 
---- What [`Zip.Writer`]'s [`file_writer`] answers: an entry's body, written
+--- What [`Zip.Writer`]'s [`file_writer`] returns: an entry's body, written
 --- a piece at a time.
 local class BodyWriter is Stream.Writer
   owner: EntryWriter
   streamed: Streamed
   mut ended: boolean
-  --- What the first `close` or `abort` answered: "" for success.
-  mut outcome: string
+  --- What the first `close` or `abort` failed with: nil for success.
+  mut outcome?: Failure
 
-  function write(self, chunk: string): boolean, string
-    if self.ended then return false, "zip: " .. self.streamed.path .. ": the entry is closed" end
+  function write(self, chunk: string): (true) | (false, Failure)
+    if self.ended then
+      return false, Failure.new("zip: " .. self.streamed.path .. ": the entry is closed")
+    end
     local usable, why = self.owner.sink:usable()
     if not usable then return false, why end
     return self.streamed.feed:write(chunk)
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     if self.ended then
-      if self.outcome ~= "" then return false, self.outcome end
-      return true, ""
+      local outcome = self.outcome
+      if outcome ~= nil then return false, outcome end
+      return true
     end
     self.ended = true
     self.owner.open = nil
-    local ok, why = self.owner.sink:usable()
-    if ok then ok, why = finish_streamed(self.owner, self.streamed) end
-    if not ok then
+    local usable, why = self.owner.sink:usable()
+    if not usable then
       self.outcome = why
       return false, why
     end
-    return true, ""
+    local finished, finish_why = finish_streamed(self.owner, self.streamed)
+    if not finished then
+      self.outcome = finish_why
+      return false, finish_why
+    end
+    return true
   end
 
-  function abort(self): boolean, string
-    if self.ended then return true, "" end
+  function abort(self): (true) | (false, Failure)
+    if self.ended then return true end
     self.ended = true
     self.owner.open = nil
     -- The entry's header is written already: the archive cannot be whole,
-    -- so its own close answers this rather than committing.
-    self.outcome = "zip: " .. self.streamed.path .. ": the entry was abandoned"
-    local _, _ = self.owner.sink:fail(self.outcome)
-    return true, ""
+    -- so its own close returns this rather than committing.
+    local abandoned = Failure.new("zip: " .. self.streamed.path .. ": the entry was abandoned")
+    self.outcome = abandoned
+    local _, _ = self.owner.sink:fail(abandoned)
+    return true
   end
 end
 
---- Why `self` takes no entry at `path` now, or "": it failed or closed, an
---- entry written a piece at a time is still open, or the path is one no
---- archive holds.
-local function refusal_of(self: EntryWriter, path: string): string
+--- Why `self` takes no entry at `path` now, or nil: it failed or closed
+--- (the failure it keeps, as it is), an entry written a piece at a time
+--- is still open, or the path is one no archive holds.
+local function refusal_of(self: EntryWriter, path: string): Failure?
   local usable, why = self.sink:usable()
   if not usable then return why end
   local open = self.open
-  if open ~= nil then return "zip: " .. path .. ": " .. open.streamed.path .. " is still open" end
+  if open ~= nil then
+    return Failure.new("zip: " .. path .. ": " .. open.streamed.path .. " is still open")
+  end
   local refusal = nul_refusal(path, "in a path")
-  if refusal ~= "" then return refusal end
-  if #path > PATH_LIMIT then return "zip: path longer than 65535 bytes" end
-  return ""
+  if refusal ~= "" then return Failure.new(refusal) end
+  if #path > PATH_LIMIT then return Failure.new("zip: path longer than 65535 bytes") end
+  return nil
 end
 
 --- One entry of Unix type `type_bits`: its local header, `body`, and
@@ -1154,9 +1178,9 @@ end
 --- body's promised size.
 local function put_entry(self: EntryWriter, path: string, body: string | Stream.Reader,
                          method_name: Zip.Method, type_bits: integer, mode: integer, mtime: integer,
-                         hint?: integer): boolean, string
+                         hint?: integer): (true) | (false, Failure)
   local refusal = refusal_of(self, path)
-  if refusal ~= "" then return false, refusal end
+  if refusal ~= nil then return false, refusal end
   local method = assert(METHOD_NUMBERS[method_name])
   local dos_date, dos_time = 0x21, 0
   if not self.deterministic then dos_date, dos_time = unix_to_dos(mtime) end
@@ -1168,7 +1192,7 @@ local function put_entry(self: EntryWriter, path: string, body: string | Stream.
     table.insert(self.cd_parts, central_header(path, method, dos_time, dos_date, done.crc,
       done.csize, done.usize, attributes(type_bits, mode), local_offset, 0))
     self.count = self.count + 1
-    return true, ""
+    return true
   end
   local st, strouble = begin_streamed(self, path, method, dos_time, dos_date, type_bits, mode, hint)
   if st == nil then return false, strouble end
@@ -1182,7 +1206,7 @@ local function put_entry(self: EntryWriter, path: string, body: string | Stream.
   return finish_streamed(self, st)
 end
 
---- What [`Zip.writer`] answers.
+--- What [`Zip.writer`] returns.
 local class EntryWriter is Zip.Writer
   sink: Stream.Sticky
   deterministic: boolean
@@ -1194,11 +1218,11 @@ local class EntryWriter is Zip.Writer
   --- there are.
   mut cd_parts: mut {string}
   mut count: integer
-  --- The entry [`file_writer`] answered, while it is open.
+  --- The entry [`file_writer`] returned, while it is open.
   mut open?: BodyWriter
 
   function add_file(self, path: string, data: string | Stream.Reader,
-                    fopts?: Zip.EntryOptions): boolean, string
+                    fopts?: Zip.EntryOptions): (true) | (false, Failure)
     fopts = fopts or {}
     local size = fopts.size
     if size ~= nil and size < 0 then
@@ -1206,56 +1230,64 @@ local class EntryWriter is Zip.Writer
     end
     -- A trailing `/` is what marks a directory: a file of that name
     -- would read back as one.
-    if path:sub(-1) == "/" then return false, "zip: a file's path ends in /: " .. path end
+    if path:sub(-1) == "/" then
+      return false, Failure.new("zip: a file's path ends in /: " .. path)
+    end
     return put_entry(self, path, data, fopts.method or "deflate", S_IFREG, fopts.mode or 0x1a4,
       fopts.mtime or 0, fopts.size)
   end
 
-  function file_writer(self, path: string, fopts?: Zip.EntryOptions): Stream.Writer?, string
+  function file_writer(self, path: string, fopts?: Zip.EntryOptions): (Stream.Writer) | (nil, Failure)
     fopts = fopts or {}
     local size = fopts.size
     if size ~= nil and size < 0 then
       error("zip: opts.size must be at least 0", 2)
     end
-    if path:sub(-1) == "/" then return nil, "zip: a file's path ends in /: " .. path end
+    if path:sub(-1) == "/" then
+      return nil, Failure.new("zip: a file's path ends in /: " .. path)
+    end
     local method_name: Zip.Method = fopts.method or "deflate"
     local refusal = refusal_of(self, path)
-    if refusal ~= "" then return nil, refusal end
+    if refusal ~= nil then return nil, refusal end
     local dos_date, dos_time = 0x21, 0
     if not self.deterministic then dos_date, dos_time = unix_to_dos(fopts.mtime or 0) end
     local st, why = begin_streamed(self, path, assert(METHOD_NUMBERS[method_name]), dos_time, dos_date, S_IFREG,
       fopts.mode or 0x1a4, size)
     if st == nil then return nil, why end
-    local body: BodyWriter = { owner = self, streamed = st, ended = false, outcome = "" }
+    local body: BodyWriter = { owner = self, streamed = st, ended = false, outcome = nil }
     self.open = body
-    return body, ""
+    return body
   end
 
-  function add_dir(self, path: string, fopts?: Zip.EntryOptions): boolean, string
+  function add_dir(self, path: string, fopts?: Zip.EntryOptions): (true) | (false, Failure)
     fopts = fopts or {}
     local dirpath = if path:sub(-1) == "/" then path else path .. "/" end
     return put_entry(self, dirpath, "", "store", S_IFDIR, fopts.mode or 0x1ed, fopts.mtime or 0)
   end
 
-  function add_symlink(self, path: string, target: string, fopts?: Zip.EntryOptions): boolean, string
+  function add_symlink(self, path: string, target: string, fopts?: Zip.EntryOptions): (true) | (false, Failure)
     -- What a reader refuses an archive for, refused before it is written.
-    if path:sub(-1) == "/" then return false, "zip: a symlink's path ends in /: " .. path end
+    if path:sub(-1) == "/" then
+      return false, Failure.new("zip: a symlink's path ends in /: " .. path)
+    end
     if #target > LINK_LIMIT then
-      return false, "zip: symlink " .. path .. " has a " .. tostring(#target) .. "-byte target"
+      return false, Failure.new("zip: symlink " .. path .. " has a " .. tostring(#target) .. "-byte target")
     end
     local refusal = nul_refusal(target, "in the target of symlink " .. path)
-    if refusal ~= "" then return false, refusal end
+    if refusal ~= "" then return false, Failure.new(refusal) end
     fopts = fopts or {}
     return put_entry(self, path, target, "store", S_IFLNK, fopts.mode or 0x1ff, fopts.mtime or 0)
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     local sink = self.sink
-    -- Closed or failed already: close answers that without writing.
+    -- Closed or failed already: close returns that without writing.
     local usable, _ = sink:usable()
     if not usable then return sink:close("") end
     local open = self.open
-    if open ~= nil then return false, "zip: " .. open.streamed.path .. " is still open" end
+    if open ~= nil then
+      return false, Failure.new("zip: " .. open.streamed.path .. " is still open")
+    end
     local count = self.count
     local cd = table.concat(self.cd_parts)
     local cd_offset = self.offset
@@ -1277,7 +1309,7 @@ local class EntryWriter is Zip.Writer
     return sink:close(table.concat(trailer))
   end
 
-  function abort(self): boolean, string
+  function abort(self): (true) | (false, Failure)
     return self.sink:abort()
   end
 end

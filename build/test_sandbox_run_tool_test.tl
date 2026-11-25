@@ -24,13 +24,12 @@ local Test = require("cosmic.test")
 --- the variables the runs set, which choose how their workers are held.
 Test.policy{
   profiles = { "cosmic", "proc" },
-  grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" } },
-  promises = { "nest" },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" }, { calls = "nest" } },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
   requires = { "nest" },
 }
 
---- Runs `cosmic test --all` on `root` with `env`, answering what it
+--- Runs `cosmic test --all` on `root` with `env`, returning what it
 --- printed and whether it passed.
 local function run(root: string, output: string, env: {string:string}): string, boolean
   local ran = fixture.run(root, output, env)
@@ -59,7 +58,7 @@ local function skip_if_unsandboxed(text: string)
   if none_sandboxed(text) then skip_unsandboxed(text) end
 end
 
---- Runs `cosmic test` on `root`, with no `--all`, answering what it
+--- Runs `cosmic test` on `root`, with no `--all`, returning what it
 --- printed and whether it passed.
 local function run_again(root: string, output: string, env: {string:string}): string, boolean
   local fd = assert(Fs.open_write(output))
@@ -186,7 +185,7 @@ end
 
 --- The suite the tests below run `cosmic test` on, two modules whose
 --- tests start the stand-in, and the first of those runs, which runs both.
---- Answers its root and `said`, which runs again and checks the summary says
+--- Returns its root and `said`, which runs again and checks the summary says
 --- `wanted` and passes unless `passes` is false. Where the first run was not
 --- sandboxed the running test is skipped. Each test makes its own, since a
 --- run takes a second and a half and a test is held to its timeout.

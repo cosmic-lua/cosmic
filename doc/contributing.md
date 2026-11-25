@@ -17,7 +17,7 @@ conflict with the parent's squash.
 
 1. look for the API first. `bin/cosmic docs <words>` searches every doc
    comment and example by what it does (`cosmic docs find program path`
-   answers [`Proc.find`]). open PRs may carry it too.
+   prints [`Proc.find`]). open PRs may carry it too.
 2. cut one branch per PR, named for the change, fresh from
    `origin/main`. never reuse a branch whose PR has merged or closed, even one a
    session was started on or told to push to.
@@ -208,7 +208,9 @@ removed lines in `git diff origin/main...HEAD | grep '^-.*TODO:'`.
   re-run the checks and the TODO listing, and review again if the
   merge conflicted. CI on a
   branch cut from an old main can fail on what main has since fixed.
-- `git push -u origin <branch>`.
+- `git push -u origin <branch>`, and open the PR as a draft (`gh pr create
+  --draft`): a draft's check runs linux-x86_64's leg alone, and leaves the
+  few macOS runners to the queue.
 - title it `area: summary`.
 - the description says what changed and why, how it was verified, what
   review found and what was done about it, and lists each TODO added
@@ -220,26 +222,31 @@ main takes changes only through the merge queue, which runs CI on the
 queued merge commit ([`.github/workflows/ci.yml`] runs on
 `merge_group`). a push to a branch runs no CI: the checks above, run
 locally, are the branch's. a pull request runs one light check, the `ci`
-check the queue requires of it: the tree booted and `fix --check` of
-what it changed, with the checks spanning files over the whole tree.
-enable auto-merge, and watch the queue's run.
+check the queue requires of it: the tree booted, `fix --check` of what it
+changed, with the checks spanning files over the whole tree, and
+linux-x86_64's native suite and, once the pull request is not a draft,
+macOS's, which stand on main's verdicts and so run only the tests the
+change reaches. once it is ready, mark it so (`gh pr ready`), which runs
+the check again with macOS's suite, then enable auto-merge, and watch the
+queue's run.
 start a next PR that depends on this one only once it has merged.
 
 on a failure, find the cause, fix it in the worktree, re-run the checks
 and push. never skip or disable a test to get green.
 
-the queue's run is a light, fast gate: linux-x86_64's native suite and
-the format check of what the change touched. everything else (the other legs, assemble, the
-regressions and product suite, the checked suite and the checked
-narrowing run) runs on main's push after the merge, and macOS in main's
-daily scheduled run, so a failure only those show turns main red after
-the change lands; fix it, or revert the change, at once. a change to what they prove more than the native suite
-does (ci/, bin/, the core's C, `build.zig`, vendor/ and patch/, the
-harness's epoch, the artifact, launcher and boot modules, a darwin
-branch or anything macOS-specific, code the checked core or a checked run would catch) runs CI on
-its branch first: a manual run (`workflow_dispatch` on the branch, from
-the Actions tab or `gh workflow run ci.yml --ref <branch>`) runs what
-main's run does.
+the queue's run tests what main's push does: every Linux leg (its native
+suite, and beside it assemble, the regressions and the product suite), the
+checked suite, the checked narrowing run, and the format check of what the
+change touched. it also runs macOS's native suite. macOS's product, its
+fixtures and its checked regressions run in main's daily scheduled run
+alone, so a failure only they show turns main's next prerelease red after
+the change lands; fix it, or revert the change, at once. a change macOS may
+handle otherwise there (the core's C, the launcher, the product or its
+fixtures) runs CI on its branch first, with macOS: a manual run
+(`workflow_dispatch` on the branch, from the Actions tab or
+`gh workflow run ci.yml --ref <branch> -f macos=true`) runs what main's
+daily run does. without `macos` a branch's manual run leaves macOS to the
+queue, whose macOS jobs would otherwise wait for its few runners.
 
 a queue run tests the change merged with every entry ahead of it, so it
 can fail where the branch's checks passed. when it fails building, on a
@@ -281,7 +288,7 @@ the merge's own.
 Teal ([`build/zig.tl`], ...) through [`bin/cosmic-bootstrap`], which
 fetches that release once and caches it by digest. [`bin/cosmic`] asks
 [`build/paths.tl`] for the build directory the same way.
-`COSMIC_BOOTSTRAP=<path>` makes [`bin/cosmic-bootstrap`] answer another
+`COSMIC_BOOTSTRAP=<path>` makes [`bin/cosmic-bootstrap`] use another
 cosmic instead, such as the tree's own tool (by its path in the build
 directory, which `bin/cosmic build` prints; [`bin/cosmic`] itself is
 refused), for all of them and for CI's driver step alike.
@@ -312,7 +319,7 @@ the second stage compiles everything up to [`build.boot`]. The seed's source
 may use only what that release parses; a boot whose seed refuses it fails
 naming the file and line, and the pin must move to a release that parses it.
 a change to what the generator in [`lang/codegen.tl`] writes also differs from
-the seed, which the bridge refuses unless the change adds `lang/SEED_DIFFERS`
+the seed, which the bridge refuses unless the change adds [`lang/SEED_DIFFERS`]
 naming, one a line, each seed source whose Lua differs ([`lang/codegen.tl`], ...):
 source paths, no comments. a difference in a file not listed still fails the
 boot, as does a listed file that does not differ; the pin move that takes a
@@ -352,4 +359,5 @@ the tool named can be older than the tree's generator.
 [`doc/testing.md`]: testing.md
 [`doc/writing.md`]: writing.md
 [`lang/codegen.tl`]: ../lang/codegen.tl
+[`lang/SEED_DIFFERS`]: ../lang/SEED_DIFFERS
 [`Proc.find`]: ../cosmic/proc.tl

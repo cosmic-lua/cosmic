@@ -53,7 +53,7 @@ local record wire
   --- The key of `_meta` that names the subscription a notice belongs to: the id of its `subscriptions/listen`.
   META_SUBSCRIPTION: string
 
-  --- What `server/discover` answers, as it arrives.
+  --- The result of `server/discover`, as it arrives.
   record Discover
     supportedVersions: {string}
     capabilities: Mcp.ServerCapabilities
@@ -132,13 +132,13 @@ local record wire
   end
 
   --- One request a server sends a client inside a result that needs input (`input_required`), for the client to
-  --- answer before it asks again: `elicitation/create` here.
+  --- respond to before it asks again: `elicitation/create` here.
   record InputRequest
     method: string
     params: {string: Json.Value}
   end
 
-  --- What a result that needs input asks: each request by its key, and the state to send back with the answers.
+  --- What a result that needs input asks: each request by its key, and the state to send back with the responses.
   record Needs
     requests: {string: InputRequest}
     state?: string
@@ -152,7 +152,7 @@ local record wire
     url?: string
   end
 
-  --- An answer to `elicitation/create`, as it arrives.
+  --- A response to `elicitation/create`, as it arrives.
   record ElicitResult
     action: string
     content?: any
@@ -188,7 +188,7 @@ local record wire
     hasMore?: boolean
   end
 
-  --- What `completion/complete` answers, as it arrives.
+  --- The result of `completion/complete`, as it arrives.
   record CompleteResult
     completion: CompletionValues
   end
@@ -528,7 +528,7 @@ function wire.challenge(header: string): wire.Challenge?
   return { resource_metadata = params["resource_metadata"], scope = scope, error = params["error"] }
 end
 
---- The text of the response to the request `id` (encoded) answering
+--- The text of the response to the request `id` (encoded) carrying
 --- `result`, nil where `result` holds a string that is not UTF-8.
 function wire.response(id: string, result: Json.Value): string?
   local text, _ = Json.encode(result)
@@ -770,7 +770,7 @@ end
 
 -- Values read back as records.
 
---- `what` is wrong with a server's answer: a failure of code -32603.
+--- `what` is wrong with a server's response: a failure of code -32603.
 local function bad(what: string): Failure
   return Failure.coded("mcp: the server answered " .. what, Mcp.INTERNAL_ERROR)
 end
@@ -781,7 +781,7 @@ function wire.needs_input(result: any): boolean
   return kind ~= nil and kind.resultType == "input_required"
 end
 
---- Whether `result` is a final result; nil and why for one that asks
+--- Whether `result` is a final result: true, or false and why for one that is no object, asks
 --- for more ("input_required", which this client never declared a
 --- capability for) or names a kind no revision defines.
 function wire.complete(result: any): (true) | (false, Failure)
@@ -868,7 +868,7 @@ end
 
 local ACTIONS <const>: {string: Mcp.ElicitAction} = { accept = "accept", decline = "decline", cancel = "cancel" }
 
---- The answer to an elicitation `value` holds, from a client, or nil and why it does not fit.
+--- The response to an elicitation `value` holds, from a client, or nil and why it does not fit.
 function wire.elicited_of(value: any): (Mcp.Elicited) | (nil, Failure)
   local r, why = ELICIT_RESULT:into(value)
   if r == nil then return nil, Failure.new("an elicitation answer that does not fit: " .. why) end
@@ -936,7 +936,7 @@ function wire.implementation_of(value: any): Mcp.Implementation?
     icons = i.icons }
 end
 
---- What `server/discover` answers, from a server.
+--- The result of `server/discover`, from a server.
 function wire.discovery(result: any): (Mcp.Discovery) | (nil, Failure)
   local d, why = DISCOVER:into(result)
   if d == nil then return nil, bad("a discovery that does not fit: " .. why) end
@@ -951,30 +951,37 @@ function wire.discovery(result: any): (Mcp.Discovery) | (nil, Failure)
     serverInfo = info }
 end
 
+--- A page of `resources/list`: its resources and the cursor of the
+--- next.
 function wire.resources(result: any): (wire.Resources) | (nil, Failure)
   local page, why = RESOURCES:into(result)
   if page == nil then return nil, bad("a resource list that does not fit: " .. why) end
   return page
 end
 
+--- A page of `resources/templates/list`: its resource templates and
+--- the cursor of the next.
 function wire.templates(result: any): (wire.Templates) | (nil, Failure)
   local page, why = TEMPLATES:into(result)
   if page == nil then return nil, bad("a template list that does not fit: " .. why) end
   return page
 end
 
+--- A page of `prompts/list`: its prompts and the cursor of the next.
 function wire.prompts(result: any): (wire.Prompts) | (nil, Failure)
   local page, why = PROMPTS:into(result)
   if page == nil then return nil, bad("a prompt list that does not fit: " .. why) end
   return page
 end
 
+--- The contents of a `resources/read` result, from a server.
 function wire.read(result: any): ({Mcp.ResourceContents}) | (nil, Failure)
   local r, why = READ:into(result)
   if r == nil then return nil, bad("resource contents that do not fit: " .. why) end
   return r.contents
 end
 
+--- The result of `prompts/get`, from a server.
 function wire.prompt_result_of(result: any): (Mcp.PromptResult) | (nil, Failure)
   local r, why = PROMPT_RESULT:into(result)
   if r == nil then return nil, bad("a prompt that does not fit: " .. why) end
@@ -1042,7 +1049,7 @@ function wire.completing_of(params: any): (Mcp.Completing) | (nil, string)
   return { prompt = prompt, template = template, argument = p.argument.name, value = p.argument.value, context = context }
 end
 
---- The fields of the result answering `c`: at most
+--- The fields of the result carrying `c`: at most
 --- [`Mcp.MAX_COMPLETIONS`] values, and `hasMore` where it held more.
 function wire.completion(c: Mcp.Completion): {string: Json.Value}
   local values: mut {string} = {}
@@ -1060,7 +1067,7 @@ function wire.completion(c: Mcp.Completion): {string: Json.Value}
   return { completion = fields }
 end
 
---- The completion a server answered, or why it does not fit.
+--- The completion a server sent, or why it does not fit.
 function wire.completion_of(result: any): (Mcp.Completion) | (nil, Failure)
   local r, why = COMPLETE_RESULT:into(result)
   if r == nil then return nil, bad("a completion that does not fit: " .. why) end

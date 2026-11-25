@@ -17,7 +17,7 @@
 --- exiting 1 with "the relay refused the sandbox's token", and asks the relay to
 --- connect to HOST and PORT with HOST as a name for the relay to resolve
 --- and judge, never resolved here (the sandbox has no DNS), or as an
---- address where HOST is a literal. An answer other than success exits 1
+--- address where HOST is a literal. A reply other than success exits 1
 --- with one line naming what the reply code means; the relay's own line,
 --- on the standard error of the `cosmic sandbox` that started it, says
 --- which grant would allow the connection.
@@ -26,7 +26,7 @@
 --- connection to standard output, until both have ended: an end of one
 --- side's bytes is passed on to the other as a half-close (a `shutdown` of
 --- the connection's write side, and a close of standard output), and the
---- bytes the relay sent after its answer, in the same read, are the
+--- bytes the relay sent after its reply, in the same read, are the
 --- connection's first. It exits 0 when both sides ended in order, 1 when
 --- the connection failed.
 ---
@@ -59,8 +59,8 @@ local record sandbox_connect
     write: function(data: string): boolean, string
     --- Closes that standard output, which its reader hears as the end.
     finish: function(): boolean, string
-    --- How long the relay has to answer the greeting and the request, each,
-    --- in nanoseconds: 30 seconds when nil.
+    --- How long the relay has to reply to the greeting and the request,
+    --- each, in nanoseconds: 30 seconds when nil.
     answer_ns?: integer
   end
 end
@@ -69,8 +69,9 @@ end
 local CHUNK <const> = 4096
 --- How long connecting to the relay may take: it listens in this network.
 local CONNECT_NS <const> = Clock.seconds(10)
---- How long the relay has to answer the greeting and the request, each: its
---- own connect timeout is 10 seconds, and a resolve comes before it.
+--- How long the relay has to reply to the greeting and the request,
+--- each: its own connect timeout is 10 seconds, and a resolve comes
+--- before it.
 local ANSWER_NS <const> = Clock.seconds(30)
 
 --- The relay's listener as the sandbox sets `ALL_PROXY` to it.
@@ -84,11 +85,11 @@ local function port_of(text: string): integer?
   return port
 end
 
---- Reads exactly what `reader` decides from `conn`, as the relay's answer to
+--- Reads exactly what `reader` decides from `conn`, as the relay's reply to
 --- one step: the bytes fed until it is no longer `more`.
 --- @param conn the connection to the relay
 --- @param relay its name, for what is said of it
---- @param feed feeds the next bytes to a reader, and answers its status, how
+--- @param feed feeds the next bytes to a reader, and returns its status, how
 --- many bytes it took and why it refused
 --- @return the bytes read beyond what the reader took, or nil
 --- @return why it refused or the connection failed, when nil
@@ -117,7 +118,7 @@ local function write_all(fd: integer, data: string): boolean, string
     -- ours, and a write is no more than a pipe takes at once.
     -- TODO: make standard output non-blocking for the run and put its mode
     -- back, once cosmic.sys can read a descriptor's O_NONBLOCK (fd_flags
-    -- answers FD_CLOEXEC alone): until then a full socket (not a pipe) can
+    -- returns FD_CLOEXEC alone): until then a full socket (not a pipe) can
     -- hold the whole run for one write.
     local ready, ready_why = Poll.writable(fd)
     if not ready then return false, ready_why.message end
@@ -196,7 +197,7 @@ local function proxy_of(io: sandbox_connect.Io): Proxy?, string
 end
 
 --- Passes standard input to `conn` and `conn` to standard output, `first`
---- the bytes that came after the relay's answer, until both sides have
+--- the bytes that came after the relay's reply, until both sides have
 --- ended. False and why when either side failed.
 local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io, trace: function(step: string)): boolean, string
   -- Whether the far side has ended what it sends (`far_ended`), after which
@@ -227,7 +228,7 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io, trac
       if not sent then
         -- Whether this is a fault or the far side's closing is known once
         -- the other task has read to the end of what it sends.
-        write_failed = "writing to the relay: " .. send_why
+        write_failed = "writing to the relay: " .. tostring(send_why)
         return
       end
     end
@@ -329,7 +330,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
     return bare.failed
   end
   local sent, sent_why = conn:write(RelayWire.socks_client_greeting(login ~= nil))
-  if not sent then return fail("writing to the relay: " .. sent_why) end
+  if not sent then return fail("writing to the relay: " .. tostring(sent_why)) end
   trace("greeting sent")
   local method = RelayWire.socks_method_reader(login ~= nil)
   local after_method, method_why = answered(conn, relay, function(chunk: string): string, integer, string?
@@ -341,7 +342,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
   if after_method ~= "" then return fail("the relay answered before it was asked") end
   if login ~= nil then
     local logged, logged_why = conn:write(login)
-    if not logged then return fail("writing to the relay: " .. logged_why) end
+    if not logged then return fail("writing to the relay: " .. tostring(logged_why)) end
     trace("token sent")
     local verdict = RelayWire.socks_auth_status_reader()
     local token_accepted: boolean? = false
@@ -356,7 +357,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
     trace("token accepted")
   end
   local asked, asked_why = conn:write(request)
-  if not asked then return fail("writing to the relay: " .. asked_why) end
+  if not asked then return fail("writing to the relay: " .. tostring(asked_why)) end
   trace("request sent")
   local reader = RelayWire.socks_answer_reader()
   local reply_code: integer? = 0
@@ -380,7 +381,7 @@ local function run_in(args: {string}, io: sandbox_connect.Io): integer
 end
 
 --- Runs the client for `args`, the words after `connect` on the command
---- line, and answers its exit status.
+--- line, and returns its exit status.
 --- @param args the host and the port
 --- @param io the environment, descriptors and complaints; the process's own when nil
 --- @return the exit status

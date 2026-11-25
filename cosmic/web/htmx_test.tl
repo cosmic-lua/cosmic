@@ -14,7 +14,7 @@ Test.policy{ grants = {
 } }
 
 --- Runs `fn` as the handler of a GET or POST to `/` with `headers`, and
---- answers what the client saw.
+--- returns what the client saw.
 local function through(fn: function(Web.Request): Web.Response, headers?: {string:string},
                        method?: string): Web.TestResponse
   local app = Web.app{ routes = { Web.route({ "GET", "POST" }, "/", fn) } }
@@ -310,6 +310,9 @@ local function test_head_takes_a_nonce_a_prefix_and_the_overrides_it_names()
   assert(not markup:find('n"1', 1, true), "the nonce is escaped")
   assert(select(2, markup:gsub(" nonce=", "")) == 2, markup)
   assert(markup:find('src="/app/_web/htmx-', 1, true) and markup:find('src="/app/_web/htmx-ext-sse-', 1, true), markup)
+  -- An empty nonce is none: no `nonce=""` on the tags and none in the config.
+  local unnonced = Html.raw(Htmx.head({ nonce = "" }))
+  assert(not unnonced:find(" nonce=", 1, true) and config_of(unnonced)["inlineScriptNonce"] == nil, unnonced)
   for _, nonce in ipairs({ "a\nb", "a\0b", "a\rb", "a\127b" }) do
     local ok, err = pcall(Htmx.head, { nonce = nonce })
     assert(not ok and tostring(err):find("nonce", 1, true) ~= nil, nonce)

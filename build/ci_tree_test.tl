@@ -72,7 +72,7 @@ local sets_what_it_reads: {string:{string:boolean}} = {
   -- RUNNER_TEMP, GITHUB_OUTPUT and GITHUB_ENV as a step's `run` names
   -- them.
   ["build/workflows_test.tl"] = { COSMIC_CI_DECLARED_KEYS = true, COSMIC_CI_SAVES = true,
-    COSMIC_CI_CHECKED_SUITE = true, COSMIC_CI_FORMAT = true, COSMIC_CI_EVENT = true,
+    COSMIC_CI_CHECKED_SUITE = true, COSMIC_CI_CHECKED_SHARD = true, COSMIC_CI_NARROWING_SHARD = true, COSMIC_CI_SELF_REBUILD = true, COSMIC_CI_SELF_BOOT = true, COSMIC_CI_FORMAT = true, COSMIC_CI_EVENT = true,
     COSMIC_CI_PORTABLE_SUITE = true, COSMIC_CI_PRODUCTS = true, COSMIC_CI_FORMAT_CHANGED = true,
     GITHUB_OUTPUT = true, GITHUB_ENV = true,
     RUNNER_TEMP = true },

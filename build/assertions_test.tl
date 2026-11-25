@@ -96,9 +96,10 @@ local function same(a: Packed, b: Packed, case: string)
   end
 end
 
---- The counting `assert` answers every case as Lua's own does: the same
---- results, the same raised value, the same message and position. A Lua
---- upgrade that changes `luaB_assert` fails here rather than drifting.
+--- The counting `assert` behaves in every case as Lua's own does: the
+--- same results, the same raised value, the same message and position. A
+--- Lua upgrade that changes `luaB_assert` fails here rather than
+--- drifting.
 local function test_it_answers_as_luas_own_assert_does()
   local value = {} -- checked: literal_needs_type
   local function hole(): any return nil end -- checked: any_use

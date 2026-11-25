@@ -32,7 +32,7 @@ local function test_untrusted_load_cannot_reach_raw_debug()
 end
 
 --- The collector's other wrapper, [`build.coverage_hits`], is gated the
---- same way: an untrusted load of it fails rather than answering hits.
+--- same way: an untrusted load of it fails rather than returning hits.
 local function test_untrusted_load_of_the_hits_reader_cannot_reach_raw_debug()
   local bytes, trouble = Store.bytecode("build.coverage_hits")
   assert(bytes ~= nil, tostring(trouble))

@@ -2,26 +2,26 @@
 --- an untrusted program sends the relay: none raises on any bytes, none
 --- reports more bytes consumed than it was given, a read in pieces
 --- (every prefix of an input) agrees with the read of the whole, and a
---- request built from what a read answered reads back as the same
---- answer. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
+--- request built from what a read found reads back as the same
+--- result. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
 --- (build/fuzz/init.tl).
 
 local Fixture = require("build.relay_wire_fixture")
 local Fuzz = require("build.fuzz")
 local Wire = require("cosmic.internal.relay_wire")
 
---- What a reader answered, reduced to what the properties compare.
+--- A reader's result, reduced to what the properties compare.
 local record Answer
   --- `more`, `done` or `refused` (a hello's `name` and `no_sni` are done,
   --- and its `not_tls` and `malformed` refused).
   status: string
   consumed: integer
-  --- Every field the answer carries, so that two answers compare whole.
+  --- Every field the result carries, so that two results compare whole.
   key: string
 end
 
 --- A format of bytes: a reader of it, made afresh, as a function that
---- feeds the next bytes and answers; and a generator of them.
+--- feeds the next bytes and returns its result; and a generator of them.
 local record Format
   name: string
   fresh: function(): function(string): Answer
@@ -41,7 +41,8 @@ local function connect_fresh(): function(string): Answer
   return function(chunk: string): Answer
     local r = reader:feed(chunk)
     return { status = r.status, consumed = r.consumed,
-      key = shown({ r.status, r.consumed, r.reason, r.http_status, r.host, r.kind, r.port, r.authorization }) } -- checked: any_use*8
+      key = shown({ r.status, r.consumed, r.reason, r.http_status, r.host, r.kind, r.port, r.authorization }) .. -- checked: any_use*8
+        "|" .. (r.forward or "") }
   end
 end
 
@@ -83,7 +84,7 @@ local function hello_fresh(): function(string): Answer
   end
 end
 
---- What `format` answers to `input` fed whole.
+--- The result of `format` for `input` fed whole.
 local function whole(format: Format, input: string): Answer
   return format.fresh()(input)
 end
@@ -197,7 +198,8 @@ local function gen_target(src: Fuzz.Source): string
   return Fuzz.bytes(src, 12)
 end
 
-local HEADER_NAMES <const> = { "Host", "Proxy-Authorization", "proxy-authorization", "User-Agent", "X-A", "A B", "", "Bad:" }
+local HEADER_NAMES <const> = { "Host", "Proxy-Authorization", "proxy-authorization", "User-Agent", "X-A", "A B", "", "Bad:",
+  "Connection", "Proxy-Connection", "Upgrade" }
 local HEADER_VALUES <const> = { "x", "", "Basic YTpi", "  spaced \t", "\xff\xfe", "v", "v", ("v"):rep(100), "a\0b", "\1" }
 
 --- A CONNECT request: its parts drawn (mostly sound ones), then damaged,
@@ -205,7 +207,14 @@ local HEADER_VALUES <const> = { "x", "", "Basic YTpi", "  spaced \t", "\xff\xfe"
 local function gen_connect(src: Fuzz.Source): string
   local method = if src:int(0, 9) == 0 then Fuzz.pick(src, { "GET", "connect", "POST", "" }) else "CONNECT" end
   local version = if src:int(0, 9) == 0 then Fuzz.pick(src, { "HTTP/2", "HTTP/1.0", "http/1.1", "" }) else "HTTP/1.1" end
-  local lines: mut {string} = { method .. " " .. gen_target(src) .. " " .. version }
+  local request_target = gen_target(src)
+  -- A plain request to an absolute URL, as a proxy client sends one for http.
+  if src:int(0, 4) == 0 then
+    method = Fuzz.pick(src, { "GET", "POST", "HEAD" })
+    request_target = Fuzz.pick(src, { "http://", "HTTP://", "https://" }) .. request_target:gsub(":%d+$", "", src:int(0, 1)) ..
+      Fuzz.pick(src, { "/", "/a?b=c", "", "?q", "#f" })
+  end
+  local lines: mut {string} = { method .. " " .. request_target .. " " .. version }
   while Fuzz.more(src, #lines - 1, 6) do
     local name = if src:int(0, 5) == 0 then Fuzz.pick(src, HEADER_NAMES) else Fuzz.pick(src, { "Host", "Proxy-Authorization", "User-Agent" }) end
     local value = if src:int(0, 6) == 0 then Fuzz.pick(src, HEADER_VALUES) else Fuzz.pick(src, { "x", "Basic YTpi", "v" }) end

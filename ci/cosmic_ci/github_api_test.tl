@@ -1,3 +1,4 @@
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local GithubApi = require("cosmic_ci.github_api")
 local Http = require("cosmic.http")
@@ -15,13 +16,6 @@ local record Tally
 end
 local record Flag
   mut value: boolean
-end
-
---- What a download answers, with the fields it leaves out said so.
-local function download_result(kind: Http.DownloadKind, reason: string,
-                               status: integer?): Http.DownloadResult
-  return { kind = kind, reason = reason, status = status, algorithm = nil,
-    expected = nil, actual = nil }
 end
 
 --- A release the API is asked to make.
@@ -44,10 +38,10 @@ local token <const> = "tok-123"
 local reply <const> = TestSupport.reply
 
 --- The live client over a plain-HTTP API (a script cannot finish a TLS
---- handshake), its calls answered by `script` in order; `sent` collects
+--- handshake), `script` replying to its calls in order; `sent` collects
 --- what each `send` wrote.
 local function live(script: {{string}}, env?: {string:string},
-                    download?: function(url: string, path: string, opts?: Http.Options): Http.DownloadResult): GithubApi.Client, {string}
+                    download?: function(url: string, path: string, opts?: Http.Options): (true) | (false, Failure)): GithubApi.Client, {string}
   local sent: mut {string} = {}
   local given: mut {string:string} = {}
   for name, value in pairs(env or {}) do given[name] = value end
@@ -141,17 +135,17 @@ local function test_a_body_is_sent_whole_with_its_content_type()
 end
 
 --- A download asks the API with the token, takes its redirect by hand and
---- fetches the redirect's URL, which [`Http.download_result`] is handed without
+--- fetches the redirect's URL, which [`Http.download`] is handed without
 --- one.
 local function test_a_download_fetches_the_redirect_without_the_token(tmp: string)
   local urls: mut {string} = {}
   local captured: Captured = {}
   local client, sent = live({ { reply("302 Found", "Location: https://blob.test/signed?sig=abc\r\n") }, {} }, nil,
-    function(url: string, path: string, opts?: Http.Options): Http.DownloadResult
+    function(url: string, path: string, opts?: Http.Options): (true) | (false, Failure)
       urls[#urls + 1] = url
       captured.options = opts
       assert(Fs.write(path, "zip bytes"))
-      return download_result("downloaded", "", nil)
+      return true
     end)
   local ok, why = GithubApi.download(client, "repos/o/r/actions/artifacts/7/zip", tmp .. "/a.zip")
   assert(ok, why)
@@ -175,9 +169,9 @@ local function test_a_download_refuses_a_location_that_is_not_https(tmp: string)
     { reply("302 Found", "Location: /relative\r\n") },
     { reply("302 Found", "") },
     { reply("200 OK", "", "inline") },
-  }, nil, function(_url: string, _path: string, _opts?: Http.Options): Http.DownloadResult
+  }, nil, function(_url: string, _path: string, _opts?: Http.Options): (true) | (false, Failure)
     fetched.value = true
-    return download_result("failed", "no network in this test", nil)
+    return false, Failure.new("no network in this test")
   end)
   for i = 1, 4 do
     local ok, why = GithubApi.download(client, "repos/o/r/z" .. tostring(i), tmp .. "/z")
@@ -197,8 +191,8 @@ local function test_a_download_reports_the_apis_refusal_and_the_fetchs_failure(t
   local failing = assert(GithubApi.live({ GH_TOKEN = token, GITHUB_API_URL = "http://api.test" },
     { script = { { reply("302 Found", "Location: https://blob.test/signed?sig=abc\r\n") },
       { reply("403 Forbidden", "", "expired") } },
-      download = function(_url: string, _path: string, _opts?: Http.Options): Http.DownloadResult
-        return download_result("http_status", "", 403)
+      download = function(_url: string, _path: string, _opts?: Http.Options): (true) | (false, Failure)
+        return false, Failure.coded("https://blob.test/signed?sig=abc: HTTP 403", 403)
       end }))
   ok, why = GithubApi.download(failing, "repos/o/r/artifacts/3/zip", tmp .. "/z")
   -- The signed URL stays out of the message.
@@ -276,9 +270,9 @@ end
 
 local function test_a_download_asks_for_the_bytes_where_told_to(tmp: string)
   local client, sent = live({ { reply("302 Found", "Location: https://blob.test/signed\r\n") }, {} }, nil,
-    function(_url: string, path: string, _opts?: Http.Options): Http.DownloadResult
+    function(_url: string, path: string, _opts?: Http.Options): (true) | (false, Failure)
       assert(Fs.write(path, "asset bytes"))
-      return download_result("downloaded", "", nil)
+      return true
     end)
   local ok, why = GithubApi.download(client, "repos/o/r/releases/assets/5", tmp .. "/a", "application/octet-stream")
   assert(ok, why)
@@ -324,11 +318,11 @@ local release_assets <const> = "http://uploads.test/repos/o/r/releases/5/assets"
 local function test_an_upload_sends_the_bytes_to_the_upload_origin_with_the_token()
   local client, sent = live({ { reply("201 Created", "", '{"id":1,"name":"a b","state":"uploaded"}') } })
   -- Small enough to fit one write to the script's socket on every leg:
-  -- the script answers at once, and curl ends the request once the
-  -- answer is whole, so macOS's small socket buffer would leave the
+  -- the script replies at once, and curl ends the request once the
+  -- response is whole, so macOS's small socket buffer would leave the
   -- rest of a larger body unsent and unrecorded.
   -- TODO: send a body the size of a real asset once core/http.c's
-  -- script holds its reply until the request it answers is whole.
+  -- script holds its reply until the request it replies to is whole.
   local bytes = "\0\1binary\255" .. string.rep("x", 2000)
   local ok, why = GithubApi.upload(client, release_assets .. "{?name,label}", "a b", bytes)
   assert(ok, why)
@@ -426,7 +420,7 @@ local function test_an_upload_sets_the_type_it_is_given()
   assert(not assert(sent[1]):find("octet-stream", 1, true), sent[1])
 end
 
---- Asked for as bytes, the API may answer with them, not a redirect.
+--- Asked for as bytes, the API may respond with them, not a redirect.
 local function test_a_download_takes_the_bytes_when_the_api_answers_with_them(tmp: string)
   local client, sent = live({ { reply("200 OK", "Content-Type: application/octet-stream\r\n", "\0asset\255") } })
   local ok, why = GithubApi.download(client, "repos/o/r/releases/assets/5", tmp .. "/a",
@@ -441,7 +435,7 @@ local function test_a_download_takes_the_bytes_when_the_api_answers_with_them(tm
   assert(assert(Fs.status(tmp .. "/b")).exists ~= true)
 end
 
---- A client whose `send` answers each page after `cost_ns` of a clock
+--- A client whose `send` returns each page after `cost_ns` of a clock
 --- the test steps, recording the timeout each request was given.
 local function stepped(pages: integer, cost_ns: integer): GithubApi.Client, {integer}
   local clock: Tally = { value = 0 }

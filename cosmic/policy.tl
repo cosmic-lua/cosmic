@@ -37,7 +37,7 @@ local DATABASE <const> = FieldPath.field(FieldPath.root, "database")
 --- in both cases, a shape that is wrong (`$.limits.open_files: want integer,
 --- got string`) or a content that is (`$.grants[0].letters: ...`), arrays
 --- counted from 0.
---- A hand-built [`Sandbox.Policy`] is judged by [`Sandbox.merge`]
+--- A hand-built [`Sandbox.Policy`] is judged by [`Sandbox.union`]
 --- instead, which takes any order of letters and writes them in this one.
 --- A `database` is `{"path": ..., "sha256": ...}`: the file must be there
 --- and hash to that, or the policy is refused. The digest is kept with the
@@ -88,17 +88,17 @@ end
 --- hashes to the digest, so encoding never rebases a checked database, or
 --- if it is unreadable. What a profile names is a path of this host, so an
 --- encoding that resolved one is one host's. Raises for a policy that
---- is not merged -- one with `profiles`, or [`Sandbox.merge`] would refuse
+--- is not merged -- one with `profiles`, or [`Sandbox.union`] would refuse
 --- -- since text cannot say what was dropped.
 ---
----     local text = PolicyJson.encode(assert(Sandbox.merge({ tmp = true, set_env = { MODE = "fast" } })))
+---     local text = PolicyJson.encode(assert(Sandbox.union({ tmp = true, set_env = { MODE = "fast" } })))
 ---     print(text) -- {"set_env_digests":{"MODE":"..."},"tmp":true}
 function PolicyJson.encode(p: Sandbox.Policy): string
   local profiles = p.profiles
   if profiles ~= nil and #profiles > 0 then
-    error("sandbox: encode takes a merged policy: resolve profiles with Sandbox.merge first", 2)
+    error("sandbox: encode takes a merged policy: resolve profiles with Sandbox.union first", 2)
   end
-  local made, why = Sandbox.merge(p)
+  local made, why = Sandbox.union(p)
   if made == nil then error(why, 2) end
   local merged: Sandbox.Policy = made
   local digests: mut {string:string} = {}
@@ -109,16 +109,20 @@ function PolicyJson.encode(p: Sandbox.Policy): string
     if #list > 0 then fields[name] = Json.array(list) end
   end
   put("isolate", merged.isolate or {})
-  put("promises", merged.promises or {})
-  put("connect", merged.connect or {})
   put("loopback", merged.loopback or {})
   put("env", merged.env or {})
   local grants: mut {Json.Value} = {}
   for _, grant in ipairs(merged.grants or {}) do
-    local written: mut {string: Json.Value} = { path = grant.path, letters = grant.letters }
-    local from = grant.from
-    if from ~= nil then written["from"] = from end
-    grants[#grants + 1] = written
+    if grant is Sandbox.Calls then
+      grants[#grants + 1] = { calls = grant.calls }
+    elseif grant is Sandbox.Connect then
+      grants[#grants + 1] = { connect = grant.connect }
+    else
+      local written: mut {string: Json.Value} = { path = grant.path, letters = grant.letters }
+      local from = grant.from
+      if from ~= nil then written["from"] = from end
+      grants[#grants + 1] = written
+    end
   end
   if #grants > 0 then fields["grants"] = Json.array(grants) end
   if next(digests) ~= nil then fields["set_env_digests"] = digests end

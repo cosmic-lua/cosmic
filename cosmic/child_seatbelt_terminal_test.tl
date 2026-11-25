@@ -121,15 +121,15 @@ local function running(binary: string): Sandbox.Policy
   return { profiles = { "system" }, grants = { { path = binary, letters = "rx" } } }
 end
 
---- Asserts that `said` holds the Lua pattern `pattern`, answering all of it
+--- Asserts that `said` holds the Lua pattern `pattern`, showing all of it
 --- otherwise.
 local function holds(said: string, pattern: string)
   assert(said:find(pattern), "missing " .. pattern .. " in " .. string.format("%q", said))
 end
 
 --- A policy's child started on a pty has it as its controlling terminal:
---- /dev/tty opens, ttyname names the slave, and the terminal answers
---- tcgetpgrp and tcgetsid, as the profile grants them.
+--- /dev/tty opens, ttyname names the slave, and tcgetpgrp and
+--- tcgetsid succeed on the terminal, as the profile grants them.
 local function test_a_policy_child_on_a_pty_has_it_as_its_controlling_terminal(tmp: string)
   SeatbeltFixture.macos_only()
   local binary = report_program(tmp)

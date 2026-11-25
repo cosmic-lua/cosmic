@@ -55,32 +55,35 @@ local function write(fields: {string}): string?
     local kind, path, body = fields[i], Array.at(fields, i + 1), Array.at(fields, i + 2)
     local ok: boolean
     if kind == "file" then
-      ok = tw:add_file(path, body)
+      local made, _ = tw:add_file(path, body)
+      ok = made
     elseif kind == "dir" then
-      ok = tw:add_dir(path)
+      local made, _ = tw:add_dir(path)
+      ok = made
     else
-      ok = tw:add_symlink(path, body)
+      local made, _ = tw:add_symlink(path, body)
+      ok = made
     end
     if not ok then return nil end
   end
-  if not tw:close() then return nil end
+  local wrote, _ = tw:close()
+  if not wrote then return nil end
   return out:result()
 end
 
 --- The entries a reader finds in `input`, each as its path, kind and
 --- size, and how the walk ended: `""` at the archive's end, else the
 --- failure. Each body is read when `read` is true and left for `next`
---- to skip otherwise. Nil and why when the reader answers something no
---- archive could mean.
+--- to skip otherwise. Nil and why when `next` or a body's read returns
+--- something no archive could mean.
 local function entries_of(input: string, read: boolean): {string}?, string
   local tr = Tar.reader(Stream.from_string(input))
   local seen: mut {string} = {}
   for _ = 1, 10000 do
-    local e, trouble = tr:next()
-    if e == nil then
-      if trouble == nil then return nil, "next: nil without a reason" end -- checked: compare_disjoint
-      if read then Fuzz.label(if trouble == "" then "ended" else "refused" end) end
-      seen[#seen + 1] = if trouble == "" then "ended" else "refused" end
+    local e, _ = tr:next()
+    if e == nil or e == false then
+      if read then Fuzz.label(if e == false then "ended" else "refused" end) end
+      seen[#seen + 1] = if e == false then "ended" else "refused" end
       return seen, ""
     end
     if e.size < 0 then return nil, "an entry of negative size: " .. tostring(e.size) end
@@ -88,7 +91,7 @@ local function entries_of(input: string, read: boolean): {string}?, string
     if read then
       Fuzz.label("entry")
       if #e.path > 100 then Fuzz.label("long path") end
-      local body = e:open()
+      local body, _ = e:open()
       if body ~= nil then
         -- Every other body is asked for whole, its size in one read, as
         -- a caller that trusts the header would; the rest in chunks.
@@ -116,8 +119,8 @@ local function entries_of(input: string, read: boolean): {string}?, string
 end
 
 --- Walks every entry of `input`, reading each body, then again leaving
---- every body for `next` to skip: fails when the reader answers
---- something no archive could mean, or when skipping a body leaves it
+--- every body for `next` to skip: fails when `next` or a body's read
+--- returns something no archive could mean, or when skipping a body leaves it
 --- somewhere reading the body does not.
 local function walk(input: string): boolean, string
   local read, trouble = entries_of(input, true)
@@ -364,7 +367,12 @@ local function test_what_the_writer_writes_the_reader_reads_back(tmp: string)
         -- [`gen_entries`] makes fields in threes.
         local kind, path, body = fields[i], Array.at(fields, i + 1), Array.at(fields, i + 2)
         local e, trouble = tr:next()
-        if e == nil then return false, ("entry %d (%q): %s"):format(i // 3 + 1, path, trouble) end
+        if e == nil then
+          return false, ("entry %d (%q): %s"):format(i // 3 + 1, path, tostring(trouble))
+        end
+        if e == false then
+          return false, ("entry %d (%q): the archive ended"):format(i // 3 + 1, path)
+        end
         if strip_slash(e.path) ~= strip_slash(path) then
           return false, ("wrote path %q, read %q"):format(path, e.path)
         end
@@ -372,7 +380,7 @@ local function test_what_the_writer_writes_the_reader_reads_back(tmp: string)
           return false, ("%q: wrote a %s, read a %s"):format(path, kind, e.kind)
         end
         if kind == "file" then
-          local r = e:open()
+          local r, _ = e:open()
           local data: string? = nil
           local why = ""
           if r ~= nil then
@@ -385,8 +393,8 @@ local function test_what_the_writer_writes_the_reader_reads_back(tmp: string)
         end
       end
       local e, trouble = tr:next()
-      if e ~= nil then return false, "read an entry past the last written: " .. e.path end
-      if trouble ~= "" then return false, "the end read as a failure: " .. trouble end
+      if e == nil then return false, "the end read as a failure: " .. tostring(trouble) end
+      if e ~= false then return false, "read an entry past the last written: " .. e.path end
       return true, ""
     end,
   })

@@ -6,7 +6,7 @@ local base <const> = "https://api.test/repos/owner/repo"
 --- 2026-11-24T12:00:00Z, in seconds since the epoch.
 local noon <const> = 1795521600
 
---- A client that answers `runs` for the list of ci.yml's runs,
+--- A client whose `send` returns `runs` for the list of ci.yml's runs,
 --- `releases` for the list of releases, `status` (201 where nil) for a
 --- POST, and records each request as "METHOD path".
 local function fake(runs: string, releases: string, status?: integer): GithubApi.Client, {string}
@@ -97,7 +97,7 @@ local function test_only_a_failed_first_attempt_runs_again(tmp: string)
   end
 end
 
---- A refused re-run fails the command, naming the answer.
+--- A refused re-run fails the command, naming the status.
 local function test_a_refused_request_fails_the_command(tmp: string)
   local client = fake(runs_of(run(7, bot, "2026-11-24T06:00:00Z", "completed", "failure", 1)), "[]", 403)
   local ok, why = pcall(PrereleaseSweep.sweep, context(client, tmp .. "/output"))

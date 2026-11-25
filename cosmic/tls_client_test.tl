@@ -21,7 +21,7 @@ local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
   return chunk
 end
 
-Test.policy{ loopback = { "127.0.0.1" }, promises = { "fork" }, grants = { { path = "testdata/tls", letters = "r" } } }
+Test.policy{ loopback = { "127.0.0.1" }, grants = { { path = "testdata/tls", letters = "r" }, { calls = "fork" } } }
 
 --- The fixture `name` of testdata/tls.
 local function fixture(name: string): string
@@ -41,10 +41,10 @@ local function trusting(opts?: Tls.ClientOptions): Tls.Client
 end
 
 --- Serves `pair` over TLS at a port of 127.0.0.1, with ALPN offering
---- "h2" and "http/1.1", each connection answered with the version and
---- ALPN protocol its handshake settled and then what it sent, until it
---- ends; runs `body` with the port in a task of the server's run, and
---- stops the server once it returns.
+--- "h2" and "http/1.1", replying on each connection with the version
+--- and ALPN protocol its handshake settled and then what it sent,
+--- until it ends; runs `body` with the port in a task of the server's
+--- run, and stops the server once it returns.
 local function served(pair: Tls.Pair, body: function(port: integer))
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
@@ -201,7 +201,7 @@ local function test_a_failed_start_tls_leaves_the_connection_of_no_use()
     local data, again = conn:read()
     assert(data == nil and tostring(again) == why, again)
     local wrote, still = conn:write("x")
-    assert(not wrote and still == why, still)
+    assert(not wrote and tostring(still) == why, still)
   end)
 end
 

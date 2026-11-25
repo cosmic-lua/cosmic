@@ -333,7 +333,7 @@ local function test_the_database_is_read_by_its_range_and_no_core_with_it()
   assert(asked < #prefix, "the artifact's cores are not most of it: " .. tostring(#prefix))
 end
 
---- A read that answers fewer bytes than it was asked, or none, is a
+--- A read that returns fewer bytes than it was asked, or none, is a
 --- refusal: never a database cut short.
 local function test_a_range_read_short_is_refused()
   local prefix = assert(artifact.prefix(records, cores))

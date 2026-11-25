@@ -4,12 +4,12 @@
 --- standard library is not lowered again for the next, and runs the snippet only where the checker passes it: a snippet
 --- is checked as `cosmic -e` checks a chunk, and reaches only `cosmic.*`.
 ---
---- It reads requests, one JSON object a line, on standard input, and answers each with one line on standard output:
+--- It reads requests, one JSON object a line, on standard input, and responds to each with one response line on standard output:
 ---
 ---     {"id":1,"code":"print(1)"}
 ---     {"id":1,"ok":true,"output":"1\n"}
 ---
---- An answer holds the request's `id` and one of:
+--- A response line holds the request's `id` and one of:
 ---
 ---     "refused": ["run.tl:1:7: ..."]   the checker's lines; the snippet did not run
 ---     "ok": true, "output": "..."      it ran: what it wrote to standard output and
@@ -24,7 +24,8 @@
 --- input.
 ---
 --- While a snippet runs, each call it makes of the agent ([`cosmic.agent.host`]) goes out as a line too, the request's
---- `id` beside `call` and `args`, and the snippet waits for the next line in: `{"reply":...}`, or `{"failed":"..."}`.
+--- `id` beside `call`, `call_id` and `args`, and the snippet waits for the line in with that `call_id`:
+--- `{"call_id":1,"reply":...}`, or `{"call_id":1,"failed":"..."}`.
 ---
 --- A snippet that requires `mcp.<server>` gets the module of that MCP server's tools ([`cosmic.agent.mcp_module`]): at
 --- the first snippet that requires it, the worker asks the agent for the server's tools, and the checker reads the
@@ -44,22 +45,22 @@ local standalone = require("build.standalone")
 local sys = require("cosmic.sys")
 
 local record worker
-  --- `cosmic agent worker`: answers requests on standard input until it ends. 0 at its end, 1 where it could not start.
+  --- `cosmic agent worker`: responds to requests on standard input until it ends. 0 at its end, 1 where it could not start.
   main: function(): integer
 end
 
---- An answer, as it is sent.
+--- A response line, as it is sent.
 local type Answer = {string: Json.Value}
 
 --- Where a snippet's output goes while it runs.
 local record Capture
   --- Runs `f` with descriptors 1 and 2 pointed at the agent's output pipe, between the marks of the request `id`
-  --- ([`Worker.mark`]): what `f` answered.
+  --- ([`Worker.mark`]): what `f` returns.
   run: function(Capture, id: integer, f: function(): Answer): Answer
 end
 
---- The most bytes of the JSON of what a snippet returned an answer holds: well within the line of 1MB the agent reads an
---- answer in, escaped.
+--- The most bytes of the JSON of what a snippet returned a response line holds: well within the line of 1MB the agent reads a
+--- response line in, escaped.
 local MAX_OUTPUT <const> = Worker.OUTPUT_BYTES
 
 --- The name each snippet is checked and run as.
@@ -69,7 +70,7 @@ local function failed(id: Json.Value, why: string): Answer
   return { id = id, error = why }
 end
 
---- What a snippet returned, as an answer holds it: its JSON where that is within MAX_OUTPUT, else its text, cut.
+--- What a snippet returned, as a response line holds it: its JSON where that is within MAX_OUTPUT, else its text, cut.
 local function value_of(value: any): Json.Value
   local text, _ = Json.encode_any(value)
   if text ~= nil and #text <= MAX_OUTPUT then
@@ -84,7 +85,7 @@ local function value_of(value: any): Json.Value
 end
 
 --- The lines between the worker and the agent: the requests and the replies to calls come in on `input`, a line each,
---- and the answers and calls go out on `out`.
+--- and the response lines and calls go out on `out`.
 local record Channel
   input: integer
   out: integer
@@ -178,9 +179,9 @@ local function reply_of(channel: Channel, call: integer): ({string: Json.Value})
   end
 end
 
---- How a snippet's calls ([`cosmic.agent.host`]) reach the agent on `channel`: a line `{"id":1,"call":"sql",
+--- How a snippet's calls ([`cosmic.agent.host`]) reach the agent on `channel`: a line `{"id":1,"call":"history",
 --- "call_id":1,"args":{...}}` out, and the reply, `{"call_id":1,"reply":...}` or `{"call_id":1,"failed":"..."}`, in.
---- Calls made from tasks of one run ([`Poll.run`]) are out at once, and the agent answers each as it can.
+--- Calls made from tasks of one run ([`Poll.run`]) are out at once, and the agent replies to each as it can.
 local function transport_of(channel: Channel): Host.Transport
   return function(name: string, args: Json.Value): (Json.Value) | (nil, Failure)
     local call = channel.next_call
@@ -212,7 +213,7 @@ local function transport_of(channel: Channel): Host.Transport
 end
 
 --- The module of each MCP server a snippet required, by its name ("mcp.notes"): the Teal the checker reads of it, and
---- the table `require` answers.
+--- the table `require` returns.
 local record Modules
   teal: mut {string: string}
   values: mut {string: {string: Call}}
@@ -262,7 +263,7 @@ local function value_of_module(server: string, made: McpModule.Made): {string: C
 end
 
 --- Makes the module of each MCP server `code` requires that `modules` lacks ([`cosmic.agent.mcp_module`]), of the tools
---- the server lists now, and lets the snippet's `require` answer it: nil, or the line of why a server's could not be made, which
+--- the server lists now, so the snippet's `require` returns it. Returns nil, or the line of why a server's could not be made, which
 --- refuses the snippet.
 local function provide(modules: Modules, code: string): string?
   for server in code:gmatch("require%s*%(?%s*[\"']mcp%.([%w_]+)[\"']") do
@@ -281,55 +282,26 @@ local function provide(modules: Modules, code: string): string?
   return nil
 end
 
---- `code` with each `;` the checker's `lines` tell of (semicolon) made a space, and the lines that held one, when
---- each is a `;` and none comes before a `(`, where a space would make two statements one call; nil where there is
---- none. A `;` only ends a statement, so the snippet means the same without it, and the model's habit costs no
---- refusal.
-local function without_semicolons(code: string, lines: {string}): (string, {string: boolean}) | (nil)
-  local at: mut {string: boolean} = {}
-  local rows: mut {string: boolean} = {}
-  local told = false
-  for _, line in ipairs(lines) do
-    local row, column = line:match("^run%.tl:(%d+):(%d+): ")
-    if row ~= nil and column ~= nil and line:find("(semicolon)", 1, true) ~= nil then
-      at[row .. ":" .. column] = true
-      rows[row] = true
-      told = true
-    end
-  end
-  if not told then return nil end
-  local out: mut {string} = {}
-  local row, start = 0, 0
-  for line in (code .. "\n"):gmatch("([^\n]*)\n") do
-    row = row + 1
-    local chars: mut {string} = {}
-    for column = 1, #line do
-      local char = line:sub(column, column)
-      if at[tostring(row) .. ":" .. tostring(column)] ~= nil then
-        -- What follows the `;`, past spaces and newlines, would join the expression before it where it is a call's
-        -- argument (`(`, a string, a table) or an index (`[`): there the `;` stays, and is told of.
-        if char ~= ";" or code:find("^%s*[%(\"'{%[]", start + column + 1) ~= nil then return nil end
-        char = " "
-      end
-      chars[#chars + 1] = char
-    end
-    out[#out + 1] = table.concat(chars)
-    start = start + #line + 1
-  end
-  return table.concat(out, "\n"):sub(1, #code), rows
-end
-
 --- The modules a snippet may use with no require, each by the name it is given: where a snippet reads a field of one
 --- ([`Host.cat`], `Fs:...`), the require goes before its first line, on that line, so the lines the checker tells of
 --- stay the snippet's own.
 local PRELUDE <const>: {{string}} = { { "Host", "cosmic.agent.host" }, { "Fs", "cosmic.fs" }, { "Json", "cosmic.json" } }
 
---- The requires of each [`PRELUDE`] module `code` reads a field of, on one line: "" where it reads none.
-local function prelude_of(code: string): string
+--- Whether `code` binds `name` itself, as a local (`local Json = ...`, `local A, Json = ...`) or a local function.
+local function binds(code: string, name: string): boolean
+  for names in code:gmatch("%f[%w_]local%s+([%w_,%s]-)%s*[=<:\n]") do
+    if (", " .. names .. ","):find("[,%s]" .. name .. "%s*,") ~= nil then return true end
+  end
+  return code:find("%f[%w_]local%s+function%s+" .. name .. "%f[^%w_]") ~= nil
+end
+
+--- The requires of each [`PRELUDE`] module `code` reads a field of and does not bind itself (each it reads, where
+--- `whole`), on one line: "" where it reads none.
+local function prelude_of(code: string, whole?: boolean): string
   local bound: mut {string} = {}
   for _, entry in ipairs(PRELUDE) do
     local name, module = entry[1] or "", entry[2] or ""
-    if code:find("%f[%w_]" .. name .. "%s*[%.:]") ~= nil then
+    if code:find("%f[%w_]" .. name .. "%s*[%.:]") ~= nil and (whole == true or not binds(code, name)) then
       bound[#bound + 1] = "local " .. name .. " = require(\"" .. module .. "\") "
     end
   end
@@ -337,30 +309,6 @@ local function prelude_of(code: string): string
   -- the prelude first.
   if #bound > 0 then bound[#bound + 1] = "do end " end
   return table.concat(bound)
-end
-
---- What `kept` made of `code`, with a statement's `;` mended ([`without_semicolons`]). Where the mended code is
---- refused too, its refusal, which tells of what else is wrong; where that tells of a line that held a `;` (one in a
---- table, say), the first's lines of the `;` before it.
-local function mended_check(kept: Pipeline.Kept, code: string): Pipeline.Alone
-  local made = kept:check(code)
-  if made.code ~= nil then return made end
-  local mended, rows = without_semicolons(code, made.lines)
-  if mended == nil then return made end
-  local again = kept:check(mended)
-  if again.code ~= nil then return again end
-  for _, line in ipairs(again.lines) do
-    local row = line:match("^run%.tl:(%d+):")
-    if row ~= nil and rows[row] == true then
-      local both: mut {string} = {}
-      for _, first in ipairs(made.lines) do
-        if first:find("(semicolon)", 1, true) ~= nil then both[#both + 1] = first end
-      end
-      for _, second in ipairs(again.lines) do both[#both + 1] = second end
-      return { code = nil, lines = both, stages = again.stages }
-    end
-  end
-  return again
 end
 
 --- `lines` with a column of line 1 told as the snippet's own, `width` bytes of prelude before it taken off.
@@ -380,15 +328,26 @@ local function unshifted(lines: {string}, width: integer): {string}
   return out
 end
 
---- What `kept` made of `code` and its prelude ([`prelude_of`]). Where that is refused and the snippet alone is not
---- (it binds a name of the prelude itself), the snippet alone; where both are, the refusal of the
---- one with the prelude, unless it tells of a name the prelude declares (`declared at 1:C`, C within the prelude).
+--- What `kept` made of `code` and its prelude ([`prelude_of`]). Where the snippet binds a name of the prelude itself,
+--- the prelude without it, else the whole one, else the refusal of the first. Otherwise, where that is refused and the
+--- snippet alone is not, the snippet alone; where both are, the refusal of the one with the prelude, unless it tells
+--- of a name the prelude declares (`declared at 1:C`, C within the prelude).
 local function snippet_check(kept: Pipeline.Kept, code: string): Pipeline.Alone
   local prelude = prelude_of(code)
-  if prelude == "" then return mended_check(kept, code) end
-  local made = mended_check(kept, prelude .. code)
+  local whole = prelude_of(code, true)
+  -- [`binds`] reads no comment or string apart: where it takes one for a binding and the snippet is refused for it,
+  -- the whole prelude is tried.
+  if whole ~= prelude then
+    local fewer = kept:check(prelude .. code)
+    if fewer.code ~= nil then return fewer end
+    local all = kept:check(whole .. code)
+    if all.code ~= nil then return all end
+    return { code = nil, lines = unshifted(fewer.lines, #prelude), stages = fewer.stages }
+  end
+  if prelude == "" then return kept:check(code) end
+  local made = kept:check(prelude .. code)
   if made.code ~= nil then return made end
-  local alone = mended_check(kept, code)
+  local alone = kept:check(code)
   if alone.code ~= nil then return alone end
   for _, line in ipairs(made.lines) do
     for column in line:gmatch("declared at 1:(%d+)") do
@@ -407,7 +366,7 @@ local function stale(line: string): boolean
   return message ~= nil and message["call_id"] ~= nil and message["code"] == nil
 end
 
---- The answer to the request `line` holds, checked by `kept` and run within `capture`, its calls sent on `channel`;
+--- The response line to the request `line` holds, checked by `kept` and run within `capture`, its calls sent on `channel`;
 --- the MCP modules a snippet requires are made into `modules`, which `kept` reads.
 local function answer_to(kept: Pipeline.Kept, modules: Modules, capture: Capture, channel: Channel, line: string): Answer
   local request, why = Json.decode_object(line)
@@ -473,7 +432,7 @@ function worker.main(): integer
     local _, _ = Fs.put(Fs.stderr, "cosmic: agent worker: " .. why .. "\n")
     return 1
   end
-  -- The requests come in on a copy of standard input, the answers go out on a copy of standard output, and a
+  -- The requests come in on a copy of standard input, the response lines go out on a copy of standard output, and a
   -- snippet's output on a copy of standard error ([`Worker.mark`]); descriptors 0, 1 and 2 are /dev/null, but 1
   -- and 2 while a snippet runs.
   local input, input_why = sys.dup(0)
@@ -504,7 +463,7 @@ function worker.main(): integer
   while true do
     local line = line_of(channel)
     if line == nil then break end
-    -- A reply to a call whose snippet answered already (one a task of it left) is no request, and is let go.
+    -- A reply to a call whose snippet ended already (one a task of it left) is no request, and is let go.
     if not stale(line) then
       local answer = answer_to(kept, modules, capture, channel, line)
       local text, encode_why = Json.encode(answer)
@@ -512,7 +471,7 @@ function worker.main(): integer
         local id = answer["id"]
         text = assert(Json.encode(failed(if id == nil then Json.null else id end, tostring(encode_why))))
       end
-      -- An answer that cannot go out ends the worker, so the agent reads the end, not a wait.
+      -- A response line that cannot go out ends the worker, so the agent reads the end, not a wait.
       local sent, _ = Fs.put(out, text .. "\n")
       if not sent then break end
     end

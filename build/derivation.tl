@@ -43,7 +43,7 @@ local record derivation
     rows: string
   end
   --- A source [`build.parse_derive`]'s `derive` could not parse, and why: the
-  --- message a parse that stops on it answers.
+  --- message a parse that stops on it gives.
   record Broken
     source_hash: string
     file: string
@@ -185,7 +185,7 @@ local function derive_syscalls(db: Sqlite.Handle, refusal: derivation.Refusal): 
   return true, ""
 end
 
---- Two files that would answer to one import path. The build refuses
+--- Two files that one import path would mean. The build refuses
 --- rather than letting one shadow the other. Two declaration files of
 --- one path (`x.d.tl` and `x/init.d.tl`) are refused as two sources are;
 --- a declaration beside a source is a pair, which the build refuses in

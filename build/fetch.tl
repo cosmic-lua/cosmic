@@ -5,7 +5,9 @@
 --- `-o` it goes to a file that is renamed into place only once the
 --- whole body is in and matches every digest asked for. The digests are
 --- computed while the file is written, and a mismatch leaves no target
---- and no `.part`.
+--- and no `.part`. A device, a FIFO or one of the process's own
+--- descriptors (`-o /dev/null`, `-o /dev/stdout`) is written in place, as
+--- standard output is, never replaced by a regular file ([`Fs.output`]).
 ---
 --- A digest comes from `--sha256` or `--sha512`, or from the URL's
 --- fragment: `<url>#sha256=<hex>` (`#sha256sum=`, `#sha512=` and
@@ -83,6 +85,7 @@ local bare = require("build.bare")
 local Signal = require("cosmic.signal")
 local Verb = require("cosmic.cli.fetch")
 local Codec = require("cosmic.codec")
+local Defer = require("cosmic.defer")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local plural = require("build.plural")
@@ -287,6 +290,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   if target ~= nil and target == "" then
     return refuse("an empty file name after -o")
   end
+  -- `-o -` is standard output, where the body goes with no -o.
+  if target == "-" then target = nil end
   -- What the body must hash to, by algorithm, and where each came from.
   local wants: mut {string:string} = {}
   local from: mut {string:string} = {}
@@ -342,9 +347,9 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local ca: string? = nil
   local cacert = parsed.values["--cacert"]
   if cacert ~= nil then
-    local text, why = Fs.read(cacert)
+    local text, why = Flags.read(cacert)
     if text == nil then
-      complain("--cacert: " .. tostring(why))
+      complain("--cacert: " .. why)
       return bare.undone
     end
     ca = text
@@ -368,6 +373,39 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     return bare.written(complain, ok, why)
   end
 
+  -- A device, a FIFO or one of the process's own descriptors (`-o
+  -- /dev/null`, a named pipe, `-o /dev/stdout`) takes the body as standard
+  -- output does, in place ([`Fs.output`]): the rename an `-o` file takes
+  -- would put a regular file where it was. A digest still holds the body
+  -- back until it matches.
+  local out = to.out
+  local device: Fs.Staged? = nil
+  local _ <close> = Defer.new(function()
+    local held = device
+    if held ~= nil then local _, _ = held:close() end
+  end)
+  if target ~= nil then
+    local in_place, look_trouble = Fs.in_place(target)
+    if in_place == nil then
+      complain(tostring(look_trouble))
+      return bare.undone
+    end
+    if in_place then
+      local file, open_trouble = Fs.output(target)
+      if file == nil then
+        complain(tostring(open_trouble))
+        return bare.undone
+      end
+      device = file
+      out = function(text: string): boolean, string
+        local wrote, why = file:write(text)
+        if not wrote then return false, tostring(why) end
+        return true, ""
+      end
+      target = nil
+    end
+  end
+
   if target ~= nil then
     local digests: mut {Hash.Algorithm:string} = {}
     local s256, s512 = wants["sha256"], wants["sha512"]
@@ -376,11 +414,12 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     options.digests = digests -- checked: field_fixed
     local function download(interrupted: function(): boolean): integer
       options.cancelled = to.cancelled or interrupted -- checked: field_fixed
-      local result = Http.download_result(url, target, options)
-      if result.kind == "downloaded" then return bare.ok end
-      if result.kind == "http_status" then return failed_status(assert(result.status)) end
-      complain(verb.refusal(result.reason, options.redirect_protocols))
-      return if result.kind == "digest_mismatch" then bare.failed else bare.undone end
+      local downloaded, why = Http.download(url, target, options)
+      if downloaded then return bare.ok end
+      local status = why.code
+      if why.kind == "library" and status ~= nil then return failed_status(status) end
+      complain(verb.refusal(tostring(why), options.redirect_protocols))
+      return if why.kind == "mismatch" then bare.failed else bare.undone end
     end
     -- Held for the download and closed however it leaves, a raise of
     -- `complain` included: closing delivers a caught signal again, so the
@@ -429,7 +468,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       text = table.concat(lines, "\n") .. "\n"
     end
     done(response)
-    local code = written(to.out(text))
+    local code = written(out(text))
     if code == bare.ok and not ok2 then return failed_status(response.status) end
     return code
   end
@@ -456,7 +495,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
         end
       end
     end
-    return written(to.out(body))
+    return written(out(body))
   end
 
   while true do
@@ -469,7 +508,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       end
       return bare.ok
     end
-    local sent, why = to.out(chunk)
+    local sent, why = out(chunk)
     if not sent then
       done(response)
       return written(false, why)

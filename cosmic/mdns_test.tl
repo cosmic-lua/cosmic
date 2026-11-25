@@ -1,7 +1,7 @@
---- [`cosmic.mdns`] on the loopback. A search against a stand-in responder, for the answers no
---- real one gives: instances assembled from whole and partial answers, what a hostile answer
---- cannot do, the limits of a search, and both ways to listen. And [`Mdns.responder`], asked by a
---- search and by queries written by hand.
+--- [`cosmic.mdns`] on the loopback. A search against a stand-in responder, for the responses
+--- no real one gives: instances assembled from whole and partial responses, what a hostile
+--- response cannot do, the limits of a search, and both ways to listen. And [`Mdns.responder`],
+--- asked by a search and by queries written by hand.
 
 local Clock = require("cosmic.clock")
 local Dns = require("cosmic.dns")
@@ -79,10 +79,10 @@ local function described(service: string, instance: string, host: string, port: 
   return { pointer(service, instance), srv(name, host, port), txt(name, { "path=/" }), a(host, address) }
 end
 
---- Runs `body` beside a responder on the loopback that answers each query with what `reply` gives
---- for it and the datagram it came in, to the address the query came from. `body` is given the
---- options that make a search ask that responder alone: a time limit no passing test reaches, so
---- that a test ends by its `limit` or fails by its own.
+--- Runs `body` beside a responder on the loopback that responds to each query with what `reply`
+--- returns for it and the datagram it came in, to the address the query came from. `body` is
+--- given the options that make a search ask that responder alone: a time limit no passing test
+--- reaches, so that a test ends by its `limit` or fails by its own.
 local function serving_packets(reply: ReplyTo, body: function(opts: Mdns.Options))
   Poll.run(function()
     local device <close> = assert(Net.datagram(Net.udp(LOOPBACK, 0)))
@@ -115,7 +115,7 @@ local PUBLISHED_AT <const> = "239.255.53.20"
 --- Runs `body` beside a responder that publishes `instances` on the loopback, at a port the system
 --- chose. `body` is given the options that make a search ask it from a port of the search's own,
 --- those that make one ask it as a member of its group, and where it is bound. The responder
---- serves until it is closed, which `serve` answers as true.
+--- serves until it is closed, and `serve` then returns true.
 local function publishing(instances: {Mdns.Published},
                           body: function(unicast: Mdns.Options, grouped: Mdns.Options, port: integer))
   Poll.run(function()
@@ -162,8 +162,8 @@ local function test_an_instance_is_assembled_from_one_packet()
     assert(instance.attributes["txtvers"] == "1" and instance.attributes["path"] == "/print")
     assert(instance.from == LOOPBACK, instance.from)
   end)
-  -- A multicast DNS question, with nothing that asks a responder to answer as it would a member of
-  -- the group.
+  -- A multicast DNS question, with nothing that asks a responder to respond as it would to a
+  -- member of the group.
   local query = assert(questions[1])
   local question = assert(query.questions[1])
   assert(not query.response and not query.recursion_desired and #query.questions == 1)
@@ -174,7 +174,7 @@ end
 local function test_a_service_is_named_with_or_without_its_domain_in_any_case()
   local function reply(query: Dns.Message): {string}
     if not asks(query, HTTP, Dns.PTR) then return {} end
-    -- A responder may answer in another case than it was asked in.
+    -- A responder may respond in another case than it was asked in.
     return { response(query, described("_HTTP._TCP.LOCAL", "Printer", "PRINTER.local", 80, "192.0.2.7")) }
   end
   serving(reply, function(opts: Mdns.Options)
@@ -365,7 +365,7 @@ local function test_an_instance_name_keeps_its_dots_spaces_and_letters()
 end
 
 local function test_several_instances_are_listed_in_the_order_they_were_named()
-  -- Two of them at one host, and each in a packet of its own, as a responder answers.
+  -- Two of them at one host, and each in a packet of its own, as a responder sends them.
   publishing({
     { service = "_http._tcp", name = "First", host = "one.local", port = 80, ipv4 = { "192.0.2.1" } },
     { service = "_http._tcp", name = "Second", host = "one.local", port = 8080, ipv4 = { "192.0.2.1" } },
@@ -410,7 +410,7 @@ local function test_a_time_limit_of_nothing_asks_nothing()
   assert(packet == nil and why.kind == "timeout", why)
 end
 
---- Datagrams that must add nothing to a browse for `_http._tcp`, as answers to `query`.
+--- Datagrams that must add nothing to a browse for `_http._tcp`, as responses to `query`.
 local function hostile(query: Dns.Message): {string}
   local name = fullname("Evil", HTTP)
   local whole = described(HTTP, "Evil", "evil.local", 666, "192.0.2.66")
@@ -636,7 +636,7 @@ local function test_a_cancelled_tasks_search_ends_at_once_with_cancelled()
       found, why = Mdns.browse(HTTP, { address = LOOPBACK, port = assert(silent.address.port),
         timeout_ns = Clock.seconds(20) })
     end)
-    -- Long enough for the search to be waiting for an answer.
+    -- Long enough for the search to be waiting for a response.
     assert(Clock.sleep(Clock.ms(50)))
     search:cancel()
     assert(search:join(Clock.seconds(10)))
@@ -680,7 +680,7 @@ local function serving_group(group: string, reply: Reply, body: function(opts: M
         local packet, _ = device:receive()
         if packet == nil then return end
         local query, _ = Dns.decode(packet.data)
-        -- The group carries the responder's own answers back to it.
+        -- The group carries the responder's own responses back to it.
         if query ~= nil and not query.response then
           for _, bytes in ipairs(reply(query)) do assert(out:send(bytes, Net.udp(group, port))) end
         end
@@ -713,7 +713,7 @@ local function test_listening_by_group_hears_the_answers_sent_to_the_group()
     assert(instance.name == "Printer" and instance.port == 631 and instance.ipv4[1] == "192.0.2.7")
     assert(instance.from == LOOPBACK, instance.from)
   end)
-  -- A member asks with the id of multicast DNS and wants its answer at the group.
+  -- A member asks with the id of multicast DNS and wants its response at the group.
   local query = assert(questions[1])
   assert(query.id == 0 and not assert(query.questions[1]).unicast_response)
 end
@@ -751,8 +751,9 @@ local function is_free(port: integer): boolean
   return true
 end
 
---- Answers each question that reaches `device` twice: first from `elsewhere`, another port, with records
---- that lie, then from `from` with the true ones, both sent to `to`, or to whoever asked.
+--- Responds to each question that reaches `device` twice: first from `elsewhere`, another
+--- port, with records that lie, then from `from` with the true ones, both sent to `to`, or to
+--- whoever asked.
 local function answering_twice(device: Net.Datagram, elsewhere: Net.Datagram, from: Net.Datagram, to?: Net.Address)
   while true do
     local packet, _ = device:receive()
@@ -954,7 +955,7 @@ local function strings_of(count: integer, bytes: integer): {string}
 end
 
 --- Each name's first TXT record is past what a search keeps, by one string or by one byte, and is
---- not kept in part: the record that answers the question for it is the one the instance has.
+--- not kept in part: the record sent for the question about it is the one the instance has.
 local function test_a_txt_record_past_the_cap_is_ignored_whole()
   local many, long, fits = fullname("Many", HTTP), fullname("Long", HTTP), fullname("Fits", HTTP)
   local function reply(query: Dns.Message): {string}
@@ -1066,8 +1067,8 @@ local record Asked
   mut distinct: integer
 end
 
---- Answers every question for the service with 320 pointers to nothing, counting in `asked` the
---- questions for anything else.
+--- Responds to every question for the service with 320 pointers to nothing, counting in `asked`
+--- the questions for anything else.
 local function flood_counting(asked: Asked): Reply
   local names: mut {string: boolean} = {}
   return function(query: Dns.Message): {string}
@@ -1121,8 +1122,8 @@ local function test_a_flood_of_pointers_to_nothing_draws_a_bounded_number_of_que
   assert(asked.distinct <= asked.questions, tostring(asked.distinct))
 end
 
---- A hundred and twenty datagrams wait in the search's socket, then the real answer. A search that
---- read them all in one turn would give the other task no turn between the last sent and the
+--- A hundred and twenty datagrams wait in the search's socket, then the real response. A search
+--- that read them all in one turn would give the other task no turn between the last sent and the
 --- instance found.
 local function test_another_task_has_its_turns_while_a_search_reads_a_flood()
   local ticks, ticks_when_sent, ticks_when_found = 0, -1, -1
@@ -1216,7 +1217,7 @@ local function test_names_that_wait_in_vain_are_forgotten_and_make_room()
 end
 
 --- The largest limit there is: the count of questions a search may ask is worked out from it, and the
---- records an answer left out are still asked for.
+--- records a response left out are still asked for.
 local function test_a_search_at_the_largest_limit_still_asks_for_what_is_missing()
   local name = fullname("Printer", HTTP)
   local function reply(query: Dns.Message): {string}
@@ -1245,7 +1246,7 @@ local function test_a_search_at_the_largest_limit_still_asks_for_what_is_missing
   end)
 end
 
---- The one instance the search may answer has its place, with no TXT record and no address, so the search
+--- The one instance the search may return has its place, with no TXT record and no address, so the search
 --- goes on. The names that come after can never be given a host: none is held, and none is asked about.
 local function test_a_search_that_holds_its_limit_takes_and_asks_for_no_new_name()
   local name = fullname("Real", HTTP)
@@ -1416,8 +1417,8 @@ local function test_an_instance_two_service_types_name_is_listed_once()
   end)
 end
 
---- Nothing answers for the second type. Without `settle_ns` the search would wait its ten seconds
---- for it.
+--- No responder publishes the second type. Without `settle_ns` the search would wait its ten
+--- seconds for it.
 local function test_settle_ns_ends_the_search_after_the_first_whole_instance()
   local function reply(query: Dns.Message): {string}
     if not asks(query, HTTP, Dns.PTR) then return {} end
@@ -1462,7 +1463,7 @@ local function test_settle_ns_counts_from_an_instance_that_is_whole()
 end
 
 --- The second instance comes only to a repeat of the question, after the first is whole: a search
---- that ended at the first whole instance, not `settle_ns` after it, would answer one.
+--- that ended at the first whole instance, not `settle_ns` after it, would return one.
 local function test_a_search_goes_on_through_settle_ns()
   local pointers = 0
   local function reply(query: Dns.Message): {string}
@@ -1479,7 +1480,7 @@ local function test_a_search_goes_on_through_settle_ns()
   end)
 end
 
---- A cancelled search answers no list, so what it held reaches the caller through `found`: the
+--- A cancelled search returns no list, so what it held reaches the caller through `found`: the
 --- whole instance when it was whole, and as the search ends the one whose SRV record alone came.
 local function test_a_cancelled_search_gives_found_what_it_held()
   local late = fullname("Late", HTTP)
@@ -1682,7 +1683,7 @@ local function send_query(socket: Net.Datagram, to: Net.Address, id: integer, qu
 end
 
 --- The next response that reaches `socket`: a member of a group hears its own queries too. A
---- responder that never answers fails the test here, by a wait no passing test comes near.
+--- responder that never responds fails the test here, by a wait no passing test comes near.
 local function next_response(socket: Net.Datagram): Dns.Message
   while true do
     local packet = assert(socket:receive(Clock.seconds(20)))
@@ -1739,7 +1740,7 @@ local function test_a_responder_answers_another_port_with_the_id_the_question_an
     local reply = next_response(asker)
     assert(reply.id == 0x1234 and reply.authoritative and reply.rcode == 0)
     assert(#reply.questions == 1 and assert(reply.questions[1]).name == "_HTTP._tcp.local")
-    -- The web server gave its host one address, and is answered for with the two the host has.
+    -- The web server gave its host one address, and is published with the two the host has.
     assert(#reply.answers == 1 and #reply.additionals == 4, ("%d %d"):format(#reply.answers, #reply.additionals))
     assert(of_type(reply.additionals, Dns.AAAA).address == "2001:db8::7")
     local pointed = assert(reply.answers[1])
@@ -1763,7 +1764,7 @@ local function test_a_responder_answers_a_member_with_no_question_and_whole_live
     local member <close> = assert(Net.datagram(Net.udp("0.0.0.0", port), { shared = true }))
     assert(member:join(PUBLISHED_AT, LOOPBACK))
     assert(member:set_multicast({ via = LOOPBACK, hops = 1, loop = true }))
-    -- No member asks with an id, and one that does is answered with none all the same.
+    -- No member asks with an id, and one that does gets a response with none all the same.
     send_query(member, Net.udp(PUBLISHED_AT, port), 0x4242, { asking("_http._tcp.local", Dns.PTR) })
     local reply = next_response(member)
     assert(reply.id == 0 and reply.authoritative and #reply.questions == 0, tostring(reply.id))
@@ -1778,8 +1779,8 @@ local function test_a_responder_answers_a_member_with_no_question_and_whole_live
 end
 
 --- What each question draws, asked one at a time from a port of the asker's own, where the
---- answers come back in the order of the questions. A question the responder has no answer to
---- draws nothing, so the answer after it is the next question's.
+--- responses come back in the order of the questions. A question the responder has no records
+--- for draws nothing, so the response after it is the next question's.
 local function test_a_responder_answers_each_question_with_the_records_it_asks_for()
   publishing(three_published(), function(_: Mdns.Options, _: Mdns.Options, port: integer)
     local asker <close> = assert(Net.datagram(Net.udp(LOOPBACK, 0)))
@@ -1802,16 +1803,16 @@ local function test_a_responder_answers_each_question_with_the_records_it_asks_f
     assert(#four.answers == 1 and #four.additionals == 0 and assert(four.answers[1]).address == "192.0.2.7")
     local every = ask(5, "desk.local", Dns.ANY)
     assert(#every.answers == 2 and #every.additionals == 0, tostring(#every.answers))
-    -- No answer: an address of a family the host has none of, a name and a service it does not
-    -- publish, a type it does not answer, and a question of another class.
+    -- No response: an address of a family the host has none of, a name and a service it does
+    -- not publish, a type it does not respond to, and a question of another class.
     send_query(asker, to, 6, { asking("second.local", Dns.AAAA) })
     send_query(asker, to, 7, { asking("other.local", Dns.A), asking("_other._tcp.local", Dns.PTR),
       asking("Nobody._ipp._tcp.local", Dns.SRV), asking(desk, Dns.A), asking("desk.local", Dns.TXT) })
     send_query(asker, to, 8, { { ...asking("_ipp._tcp.local", Dns.PTR), class = 3 } })
     local six = ask(9, "second.local", Dns.A)
     assert(#six.answers == 1 and assert(six.answers[1]).address == "192.0.2.9")
-    -- A question for the records of any class is one for the internet's. The query after it is
-    -- answered whatever comes of it, so that it is the id that says which was.
+    -- A question for the records of any class is one for the internet's. The query after it
+    -- gets a response whatever comes of it, so that it is the id that says which was.
     send_query(asker, to, 10, { { ...asking("second.local", Dns.A), class = 255 } })
     send_query(asker, to, 11, { asking("second.local", Dns.A) })
     local any_class = next_response(asker)
@@ -1820,7 +1821,7 @@ local function test_a_responder_answers_each_question_with_the_records_it_asks_f
 end
 
 --- Two instances are at the host, each published with its address, and a question for the host's
---- addresses is answered with the address once. A pointer question for a type of two instances
+--- addresses gets a response with the address once. A pointer question for a type of two instances
 --- draws a message for each.
 local function test_a_responder_answers_once_for_an_address_two_instances_share()
   publishing(three_published(), function(_: Mdns.Options, _: Mdns.Options, port: integer)
@@ -1836,8 +1837,8 @@ local function test_a_responder_answers_once_for_an_address_two_instances_share(
   end)
 end
 
---- Datagrams a responder must not answer, each of which would draw the printer's records were it
---- read as a query for them: the answer that comes is the one to the real query after them.
+--- Datagrams a responder must not respond to, each of which would draw the printer's records were
+--- it read as a query for them: the response that comes is the one to the real query after them.
 local function test_a_responder_ignores_what_is_no_query()
   publishing(three_published(), function(_: Mdns.Options, _: Mdns.Options, port: integer)
     local asker <close> = assert(Net.datagram(Net.udp(LOOPBACK, 0)))
@@ -1858,7 +1859,7 @@ local function test_a_responder_ignores_what_is_no_query()
         "\0",
         ("\xff"):rep(600),
         (assert(Dns.encode(query))):sub(1, 20),
-        -- A response that carries the question, as the responder's own answers come back to it.
+        -- A response that carries the question, as the responder's own responses come back to it.
         (assert(Dns.encode({ ...query, response = true }))),
         (assert(Dns.encode({ ...query, opcode = 4 }))),
         oversize,
@@ -1979,7 +1980,8 @@ local function test_a_cancelled_tasks_responder_ends_with_cancelled_and_a_closed
     end)
     send_query(asker, Net.udp(LOOPBACK, assert(responder.address.port)), 7, { asking("_http._tcp.local", Dns.PTR) })
     assert(next_response(asker).id == 7)
-    assert(responder:close() and responder:close())
+    assert(responder:close())
+    assert(responder:close())
     assert(again:join(Clock.seconds(10)))
     assert(served, why)
     local after, after_why = responder:serve()
@@ -1988,7 +1990,7 @@ local function test_a_cancelled_tasks_responder_ends_with_cancelled_and_a_closed
 end
 
 --- Two instances at one host, written in two cases, each give it addresses: the host has them
---- all, in the order they were given, and either instance is answered for with them all.
+--- all, in the order they were given, and either instance is published with them all.
 local function test_a_responder_answers_for_every_address_of_a_host_two_instances_are_at()
   publishing({
     { service = "_http._tcp", name = "One", host = "both.local", port = 80, ipv4 = { "192.0.2.1" } },
@@ -1996,7 +1998,7 @@ local function test_a_responder_answers_for_every_address_of_a_host_two_instance
       ipv6 = { "2001:db8::2" } },
   }, function(unicast: Mdns.Options, _: Mdns.Options, port: integer)
     -- Each address record says it is the only one of its name and type but for those sent with
-    -- it, so the first instance's answer holds the address the second gave the host too.
+    -- it, so the first instance's response holds the address the second gave the host too.
     local asker <close> = assert(Net.datagram(Net.udp(LOOPBACK, 0)))
     send_query(asker, Net.udp(LOOPBACK, port), 1, { asking("One._http._tcp.local", Dns.SRV) })
     local reply = next_response(asker)
@@ -2009,8 +2011,8 @@ local function test_a_responder_answers_for_every_address_of_a_host_two_instance
 end
 
 --- A query over the 9000 bytes of a multicast DNS message is not read, though it is a member's and
---- its answer, which repeats no question, would be short: the answer that comes is the one to the
---- query after it.
+--- its response, which repeats no question, would be short: the response that comes is the one to
+--- the query after it.
 local function test_a_responder_reads_no_query_over_the_size_of_a_message()
   publishing(three_published(), function(_: Mdns.Options, _: Mdns.Options, port: integer)
     local member <close> = assert(Net.datagram(Net.udp("0.0.0.0", port), { shared = true }))
@@ -2032,9 +2034,9 @@ local function test_a_responder_reads_no_query_over_the_size_of_a_message()
   end)
 end
 
---- A query just under the 9000 bytes is read, and from a port of the asker's own its answer
---- repeats its questions, which puts the answer over them: it is not sent, and the answer that
---- comes is the one to the query after.
+--- A query just under the 9000 bytes is read, and from a port of the asker's own its response
+--- repeats its questions, which puts the response over them: it is not sent, and the response
+--- that comes is the one to the query after.
 local function test_a_responder_sends_no_answer_over_the_size_of_a_message()
   publishing(three_published(), function(_: Mdns.Options, _: Mdns.Options, port: integer)
     local asker <close> = assert(Net.datagram(Net.udp(LOOPBACK, 0)))
@@ -2056,7 +2058,7 @@ end
 
 --- A hundred and twenty datagrams wait in the responder's socket, then a query. A responder that
 --- read them all in one turn would give the other task no turn between the last sent and the
---- answer.
+--- response.
 local function test_another_task_has_its_turns_while_a_responder_reads_a_flood()
   publishing(three_published(), function(_: Mdns.Options, _: Mdns.Options, port: integer)
     local asker <close> = assert(Net.datagram(Net.udp(LOOPBACK, 0)))

@@ -10,7 +10,7 @@
 
 #define HASHER_TYPE "cosmic.hash.hasher"
 
-/* One userdata type for a digest and for an HMAC (`keyed`): they answer the same
+/* One userdata type for a digest and for an HMAC (`keyed`): they have the same
  * `update` and `digest` and finish the same way. */
 struct hasher {
   bool keyed;
@@ -58,7 +58,7 @@ static void abort_hasher (struct hasher *h) {
   h->finished = true;
 }
 
-/* Answers for the hasher on top of the stack, set up with `status`: the
+/* Returns, for the hasher on top of the stack set up with `status`, the
  * hasher and "" on success, otherwise nil and a message. */
 static int started (lua_State *L, struct hasher *h, psa_status_t status) {
   if (status != PSA_SUCCESS) {
@@ -159,8 +159,9 @@ static int hash_byte_sum (lua_State *L) {
 /* equal(a, b): whether two strings hold the same bytes, in a time that depends on their
  * length alone: every byte is compared and the differences accumulate, with
  * no branch on a byte. The accumulator is volatile so the compiler cannot
- * stop the loop at the first difference. Different lengths answer false at
- * once; a length is not a secret (a MAC's is fixed by its algorithm). */
+ * stop the loop at the first difference. For different lengths it returns
+ * false at once; a length is not a secret (a MAC's is fixed by its
+ * algorithm). */
 static int hash_equal (lua_State *L) {
   size_t a_len;
   size_t b_len;

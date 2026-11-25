@@ -22,8 +22,10 @@ local record Types
   --- `<select>`, which takes no markup either), `attr`, `url` (a whole URL),
   --- `url_local` (a whole URL that must be a same-origin reference, in an
   --- attribute a dialect says so of), `urlpart` (a piece of one, after
-  --- literal text), `json` (the whole value, a `SafeJson`) and `selector`
-  --- (an identifier after `#` or `.` in a CSS selector) are the places a
+  --- literal text), `json` (the whole value, a `SafeJson`), `selector`
+  --- (an identifier after `#` or `.` in a CSS selector) and `url_trusted`
+  --- (the whole `src` of a `<script>` or `href` of a `<link>`, a `SafeResourceUrl`
+  --- alone) are the places a
   --- slot can stand in an `html` template (see `markup`).
   enum Slot
     "plain"
@@ -36,6 +38,7 @@ local record Types
     "urlpart"
     "json"
     "selector"
+    "url_trusted"
   end
 
   --- What a slot is in an attribute that a dialect classifies. `url` and
@@ -142,7 +145,7 @@ local record Types
     end_line: integer
   end
 
-  --- The lexer's answer: its items, and how many lines the template
+  --- The lexer's result: its items, and how many lines the template
   --- has (one more than its newlines).
   record Lexed
     --- The items, in the order they stand in the template.
@@ -151,15 +154,41 @@ local record Types
     lines: integer
   end
 
-  --- A pipeline stage: the function `func` of the module `module_path`.
+  --- What an argument of a stage is: a string literal, a number literal,
+  --- or a field path (from dot, `$` or a variable).
+  enum ArgKind
+    "string"
+    "number"
+    "path"
+  end
+
+  --- An argument a stage is given after the value piped to it.
+  record Arg
+    --- Which of the three it is.
+    kind: ArgKind
+    --- The string's bytes, or the number as written; "" for a path.
+    text: string
+    --- The path, with no stages, when `kind` is `path`.
+    path?: Pipeline
+  end
+
+  --- A pipeline stage: the function `func` of the module `module_path`, or
+  --- with `module_path` "", the `{{define}}` `func` of the same template.
+  --- It is called with the value before it, then `args`.
   record Stage
     --- The module's import path, as `require` is given it.
     module_path: string
     --- The function's name in that module.
     func: string
+    --- The line its word stands on.
+    line: integer
+    --- The column its word starts at.
+    col: integer
+    --- The arguments after the piped value, in order.
+    args: {Arg}
   end
 
-  --- What a pipeline's path starts from: dot, `$` (the value `render` is
+  --- What a pipeline's path starts from: dot, `$` (the value `render`, or the define it stands in, is
   --- given), or a variable a range binds.
   enum Head
     "dot"
@@ -232,8 +261,28 @@ local record Types
   --- than `d.end`, and a record cannot be named one.
   keywords: {string: boolean}
 
+  --- A `{{define name Type}} .. {{end}}`: a template of its own in the
+  --- same file, exported as `name` beside `render`, which a stage `| name`
+  --- calls.
+  record Define
+    --- The name it is exported and called by.
+    name: string
+    --- The record it is given, exported by the template's module.
+    type_name: string
+    --- What it writes.
+    body: {Node}
+    --- The line of its `{{define}}`.
+    line: integer
+    --- The column of its `{{define}}`.
+    col: integer
+    --- The line of its `{{end}}`: its body ends just before.
+    end_line: integer
+    --- The column of its `{{end}}`.
+    end_col: integer
+  end
+
   --- A parsed template: the record it takes, where from, its mode, its
-  --- body, and its line count.
+  --- body, its defines, and its line count.
   record Template
     --- The record's name in its module.
     type_name: string
@@ -245,8 +294,16 @@ local record Types
     mode: Mode
     --- The dialects it uses (`{{use name}}`), in order.
     dialects: {string}
-    --- The nodes after the declaration.
+    --- The nodes after the declaration, up to the first `{{define}}`.
     body: {Node}
+    --- The line the body ends on: the first `{{define}}`'s, or the
+    --- template's last.
+    body_end_line: integer
+    --- The column the body ends at: the first `{{define}}`'s `{{`, or just
+    --- past the template's last byte.
+    body_end_col: integer
+    --- The `{{define}}`s, in order.
+    defines: {Define}
     --- The template's line count.
     lines: integer
   end

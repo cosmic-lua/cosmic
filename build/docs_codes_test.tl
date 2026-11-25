@@ -1,4 +1,4 @@
---- `cosmic docs <code>` answers a code of the new checker with its rule, why it holds and the fix, from the `catalog` rows
+--- `cosmic docs <code>` shows a code of the new checker with its rule, why it holds and the fix, from the `catalog` rows
 --- [`build.error_catalog`] writes, and finds one by the words of its rule. The database also holds the symbols the tree
 --- documents, among them the enum member of each code ([`Codes.Code.not_assignable`]) that a query for the code names too.
 local ErrorCatalog = require("build.error_catalog")
@@ -20,10 +20,7 @@ end
 --- A shipped database whose catalog holds the rows of the codes when `with_codes`, and whose docs hold, when
 --- `with_symbols`, the enum member of every code and a few other symbols that share a code's name.
 local function database(with_codes: boolean, with_symbols?: boolean): Sqlite.Handle
-  local db = assert(Sqlite.memory())
-  for _, statement in ipairs(schema.create("")) do
-    assert(db:exec(statement))
-  end
+  local db = assert(schema.hold(assert(Sqlite.memory())))
   if with_codes then
     local count, trouble = ErrorCatalog.insert(db, "")
     assert(count ~= nil, trouble)

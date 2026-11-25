@@ -170,10 +170,11 @@ local record Codes
     "format_malformed"
     "pack_malformed"
     "gsub_key"
-    -- SQL sent to a handle opened with a schema, read against it
+    -- SQL sent to a handle of a `local schema`, read against it
     "sql_schema"
     "sql_refused"
     "sql_parameters"
+    "sql_column"
     -- `is` on a parenthesized place, which narrows nothing
     "paren_is"
     -- not yet checked: a form a later piece of the checker types
@@ -248,7 +249,7 @@ Codes.codes = {
   "literal_needs_type", "literal_ambiguous", "literal_shape", "literal_spread", "arms_differ", "array_of_optional", "require_unknown",
   "export_not_declared", "entry_signature", "missing_return", "not_assigned", "unreachable", "narrowing_dropped", "narrows_unproved",
   "assign_repeated", "iterator_extra", "iterator_variables", "pattern_malformed", "format_malformed", "pack_malformed",
-  "gsub_key", "sql_schema", "sql_refused", "sql_parameters", "paren_is",
+  "gsub_key", "sql_schema", "sql_refused", "sql_parameters", "sql_column", "paren_is",
   "unchecked_binding",
 }
 
@@ -269,7 +270,7 @@ Codes.catalog = {
     code = "nil_not_allowed", rule = "nil is its own type",
     why = "a type admits nil only as `T?` or a `name?: T` field, so a value that may be nil is no operand, argument, " ..
       "index base or callee of a type that is not",
-    fix = "test it (`if <value> == nil then return nil, why end`), take it with `assert(<value>)`, or declare " ..
+    fix = "test it (`if <value> == nil then return nil, why end`), take it with `<value>!`, or declare " ..
       "what receives it `T?`",
   },
   {
@@ -284,7 +285,7 @@ Codes.catalog = {
     fix = "iterate with `for _, row in ipairs(<xs>)`, count the keys (`for <i> = 1, #<xs> do`, whose body reads " ..
       "`<xs>[<i>]` as a value while it calls nothing, shortens nothing and assigns neither `<xs>` nor `<i>`), test the " ..
       "index (`if <i> >= 1 and <i> <= #<xs> then`, a block held to the same), read it " ..
-      "with `Array.at(<xs>, <i>)` (`cosmic.array`, which raises when it is missing) or `assert(<xs>[<i>])`, read it " ..
+      "with `Array.at(<xs>, <i>)` (`cosmic.array`, which raises when it is missing) or `<xs>[<i>]!`, read it " ..
       "into a local and test it (`local row = <xs>[<i>] if row ~= nil then ... end`), or test the length " ..
       "(`if #<xs> ~= 0 then ... <xs>[1] ... end`). `<xs>[<i>] or <default>` turns an out-of-range read into a wrong value",
   },
@@ -533,7 +534,8 @@ Codes.catalog = {
   },
   {
     code = "compare_disjoint", rule = "the relation",
-    why = "`==` of two types that share no value is never true, which finds the dead test",
+    why = "`==` of two types that share no value, or of a literal `s:sub(i, j)` range shorter than the string it is " ..
+      "tested against, is never true, which finds the dead test",
     fix = "compare values of one type, or remove the test",
   },
   {
@@ -730,22 +732,30 @@ Codes.catalog = {
     fix = "declare the table with the key type the pattern captures: `{string: ...}` for text, `{integer: ...}` for `()`",
   },
   {
-    code = "sql_schema", rule = "SQL on a handle with a schema is read",
-    why = "`Sqlite.schema` runs its DDL as the program makes the schema and raises where SQLite refuses it, so DDL that " ..
-      "SQLite refuses is found where it is written",
+    code = "sql_schema", rule = "SQL on a handle of a schema is read",
+    why = "a `local schema` and `Sqlite.schema` run their DDL as the program makes the schema, and raise where SQLite " ..
+      "refuses it, so DDL that SQLite refuses is found where it is written",
     fix = "write DDL that SQLite runs, and that creates the tables alone",
   },
   {
-    code = "sql_refused", rule = "SQL on a handle with a schema is read",
-    why = "a handle opened with a schema holds its tables, so SQL that SQLite cannot prepare against them (a table or " ..
+    code = "sql_refused", rule = "SQL on a handle of a schema is read",
+    why = "a handle of a `local schema` (what `Sqlite.open` and `Sqlite.memory` give for `{ schema = S }`) holds its " ..
+      "tables, so SQL that SQLite cannot prepare against them (a table or " ..
       "column the schema does not create, a typo) fails when it runs, and is found where it is written",
     fix = "name only the tables and columns the schema creates, in SQL that SQLite reads",
   },
   {
-    code = "sql_parameters", rule = "SQL on a handle with a schema is read",
+    code = "sql_parameters", rule = "SQL on a handle of a schema is read",
     why = "a statement binds one value for each `?N` through the highest, and a values list of another length fails " ..
       "when it runs",
     fix = "give <wanted>, one for each parameter, in order",
+  },
+  {
+    code = "sql_column", rule = "SQL on a handle of a schema is read",
+    why = "a row read from SQL on a handle of a schema has the columns the SQL gives, each of the type its table " ..
+      "declares, so a read past the last column, or a read that raises on every cell of the declared type (`text` of an " ..
+      "`INTEGER` column), fails when it runs, and is found where it is written",
+    fix = "read a column the SQL gives with the read of its declared type: <what>",
   },
   {
     code = "paren_is", rule = "narrowing declarations",

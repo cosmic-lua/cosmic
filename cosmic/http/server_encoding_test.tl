@@ -70,7 +70,7 @@ local function test_a_malformed_element_is_ignored()
   assert(chosen("gzip;q=1.") == "gzip")
   -- "0." and "1." are qvalues (RFC 9110: a point may follow with no
   -- digit). Read as 0, "0." refuses gzip and `*` still stands for the
-  -- rest, so identity is the answer; ignored, gzip would be left to `*`.
+  -- rest, so identity is the result; ignored, gzip would be left to `*`.
   assert(chosen("gzip;q=0., *", { "gzip" }) == "identity")
   assert(chosen("gzip;q=0.9, zstd;q=0.") == "gzip")
 end

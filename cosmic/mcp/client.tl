@@ -15,13 +15,13 @@
 --- The protocol is stateless, so there is no handshake: each request
 --- carries the protocol version and the client's capabilities, and a
 --- session is only where requests go. A server that speaks another
---- revision answers the first request with the versions it speaks,
+--- revision responds to the first request with the versions it speaks,
 --- which the failure names.
 ---
---- Every fallible call answers its value, or nil and a [`Failure`]:
+--- Every fallible call returns its value, or nil and a [`Failure`]:
 --- `code` holds the JSON-RPC code where the server refused the request
 --- ([`Mcp.METHOD_NOT_FOUND`], [`Mcp.UNSUPPORTED_VERSION`]), and nil where
---- the request never got an answer (a pipe closed, a connection
+--- the request never got a response (a pipe closed, a connection
 --- refused, a timeout).
 ---
 --- A tool's result, a resource's text and a prompt are what the server
@@ -59,16 +59,16 @@ local record McpClient
     info?: Mcp.Implementation
     --- Asks the person, as [`Options.elicit`] says.
     elicit?: Elicit
-    --- Where given, a request the server answers 401 or 403 signs in,
-    --- refreshes or steps up as [`cosmic.mcp.oauth`] says, and is sent
-    --- again: once after a 401 and once after a 403. `headers` may not
-    --- then name `Authorization`, and the URL must be https, or http on
-    --- a loopback address.
+    --- Where given, a request the server refuses with 401 or 403 signs
+    --- in, refreshes or steps up as [`cosmic.mcp.oauth`] says, and is
+    --- sent again: once after a 401 and once after a 403. `headers` may
+    --- not then name `Authorization`, and the URL must be https, or http
+    --- on a loopback address.
     oauth?: McpOAuth.Options
   end
 
   --- Asks the person what a server's `elicitation/create` asks, and
-  --- answers what they did: show `message` and a form of
+  --- returns what they did: show `message` and a form of
   --- `requestedSchema`'s fields, or `message` and the `url` (a link the
   --- person chooses to open, never opened for them). What the server asks
   --- is untrusted: show which server asks, and let the person decline.
@@ -80,8 +80,8 @@ local record McpClient
     info?: Mcp.Implementation
     --- Where given, the client declares that a server may ask for input
     --- in a form or at a URL, and a tool call, a prompt's get or a
-    --- resource's read that the server answers with a need for input is
-    --- asked again with each answer this gives. A failure it answers
+    --- resource's read that the server responds to with a need for input
+    --- is asked again with each reply this returns. A failure it returns
     --- fails the call. Where nil, a server that needs input fails the
     --- call.
     elicit?: Elicit
@@ -91,8 +91,8 @@ local record McpClient
   record CallOptions
     --- Given each notice of the call's progress as it comes, in order:
     --- the call asks the server for them (a `progressToken`). A server
-    --- may send none. Over HTTP the answer then comes as an event stream,
-    --- read as it arrives.
+    --- may send none. Over HTTP the response then comes as an event
+    --- stream, read as it arrives.
     on_progress?: function(progress: Mcp.Progress)
   end
 
@@ -129,9 +129,9 @@ local record McpClient
   end
 
   --- Where a client's requests go. Each call is one request (a list,
-  --- one per page), answered before it returns. Tasks of one run may
-  --- call a session at once: over stdio each request waits for its own
-  --- answer, and over HTTP each is a POST of its own.
+  --- one per page), its response read before it returns. Tasks of one run
+  --- may call a session at once: over stdio each request waits for its
+  --- own response, and over HTTP each is a POST of its own.
   -- TODO: once Failure has a kind (the API audit's finding 2), give a
   -- request that timed out or whose pipe closed its kind, so a caller
   -- tells it from a refusal without reading the words.
@@ -170,20 +170,21 @@ local record McpClient
     --- Subscribes to the changes `wanted` names, giving `on_notice` each
     --- notice as it comes, and `on_ack` what the server agreed to, once,
     --- first: a server leaves out what it cannot tell of. It runs until
-    --- the server ends the subscription, which answers true, or until
-    --- its task is cancelled, which answers false and a Failure of kind
-    --- "cancelled"; the request has no time limit. Over stdio, other
-    --- tasks may call the session meanwhile. A notice says only what
-    --- changed: list or read again to see how.
+    --- the server ends the subscription, when it returns true, or until
+    --- its task is cancelled, when it returns false and a Failure of
+    --- kind "cancelled"; the request has no time limit. Over stdio,
+    --- other tasks may call the session meanwhile. A notice says only
+    --- what changed: list or read again to see how.
     listen: function(Session, wanted: Subscription, on_notice: function(Notice),
                      on_ack?: function(agreed: Subscription)): (true) | (false, Failure)
-    --- Ends the session: closes the server's stdin and waits for a
-    --- spawned server to exit. Safe to call more than once.
+    --- Ends the session: over stdio closes the server's stdin and waits
+    --- for a spawned server to exit; over HTTP does nothing more. Safe to
+    --- call more than once.
     close: function(Session): (true) | (false, Failure)
   end
 end
 
---- The most pages of one list a client reads, so a server that answers
+--- The most pages of one list a client reads, so a server that responds with
 --- a cursor for ever ends the list with a failure.
 local MAX_PAGES <const> = 1000
 
@@ -223,11 +224,11 @@ local record Asking
   on_progress?: function(Mcp.Progress)
   on_notice?: function(wire.Message)
   forever?: boolean
-  --- Whether the server may answer that it needs input: a tool call, a prompt's get, a resource's read.
+  --- Whether the server may respond that it needs input: a tool call, a prompt's get, a resource's read.
   may_ask?: boolean
 end
 
---- Sends one request and answers its response, which holds a result,
+--- Sends one request and returns its response, which holds a result,
 --- or nil and why.
 local type Send = function(Request): (wire.Message) | (nil, Failure)
 
@@ -281,9 +282,9 @@ local function params_of(self: State, fields: {string: Json.Value}, token?: inte
   return out
 end
 
---- Sends `method` with `fields`, and answers the result once it is a
+--- Sends `method` with `fields`, and returns the result once it is a
 --- final one.
---- The answers to what `needs` asks, by key, from the session's `elicit`; or why there are none.
+--- What the session's `elicit` returns for each request of `needs`, by key; or why there are none.
 local function answers(self: State, method: string, needs: wire.Needs): ({string: Json.Value}) | (nil, Failure)
   local out: mut {string: Json.Value} = {}
   for key, request in pairs(needs.requests) do
@@ -301,9 +302,9 @@ local function answers(self: State, method: string, needs: wire.Needs): ({string
   return out
 end
 
---- Sends `method` with `fields`, and answers the result once it is a
+--- Sends `method` with `fields`, and returns the result once it is a
 --- final one: where the server needs input first, the session's `elicit`
---- gives it, and the request is sent again with the answers and the
+--- gives it, and the request is sent again with the replies and the
 --- server's state, as a new request.
 local function ask(self: State, method: string, fields: {string: Json.Value}, opts?: Asking): (wire.Message) | (nil, Failure)
   if self.closed then return nil, Failure.new("mcp: the session is closed") end
@@ -327,7 +328,7 @@ local function ask(self: State, method: string, fields: {string: Json.Value}, op
     if needs == nil then return nil, bad end
     local given, failed = answers(self, method, needs)
     if given == nil then return nil, failed end
-    -- The retry is the first request and the answers: the state exactly as sent, and none where none was.
+    -- The retry is the first request and the replies: the state exactly as sent, and none where none was.
     local again: mut {string: Json.Value} = {}
     for k, v in pairs(fields) do again[k] = v end
     if next(given) ~= nil then again["inputResponses"] = given end
@@ -339,8 +340,8 @@ local function ask(self: State, method: string, fields: {string: Json.Value}, op
       String.counted(MAX_ROUNDS, "time"))
 end
 
---- Reads each page of the list `method` answers, `each` taking its
---- items and answering the next cursor, false at the last.
+--- What `each` returns for a page of the list the server sends for
+--- `method`: the next page's cursor, nil at the last, or why it failed.
 local record Step
   --- The next page's cursor, nil at the last.
   next?: string
@@ -374,7 +375,7 @@ local function next_of(cursor?: string): Step
   return { next = cursor }
 end
 
---- The failure of a list `method` answers more than [`MAX_ITEMS`] of.
+--- The failure of a list the server sends for `method` with more than [`MAX_ITEMS`] items.
 local function too_many(method: string): Failure
   return Failure.new("mcp: " .. method .. " answered more than " .. String.counted(MAX_ITEMS, "item"))
 end
@@ -661,11 +662,11 @@ end
 --- than the caller takes them.
 local MAX_NOTICES <const> = 256
 
---- A request waiting for its answer over stdio.
+--- A request waiting for its response over stdio.
 local record Waiter
   req: Request
-  --- Woken when its answer, a notice or its failure is in, or when it is its turn to read; nil outside a task,
-  --- where the caller reads for itself.
+  --- Woken when its response, a notice or its failure is in, or when it is its turn to read; nil outside a
+  --- task, where the caller reads for itself.
   wake?: Poll.Notifier
   mut message?: wire.Message
   mut failure?: Failure
@@ -678,8 +679,8 @@ local record Waiter
 end
 
 --- One stdio connection to a server, which every task of the session shares. Each request waits for its own
---- answer. One waiting task at a time reads, and hands each message to the request it belongs to; when it is done,
---- it hands the reading to another. No task reads while none waits, so a run with no request in flight ends.
+--- response. One waiting task at a time reads, and hands each message to the request it belongs to; when it is
+--- done, it hands the reading to another. No task reads while none waits, so a run with no request in flight ends.
 local record Link
   lines: Stream.Lines
   writer: Stream.Writer
@@ -722,14 +723,17 @@ local function write_line(link: Link, text: string): (true) | (false, Failure)
     if why ~= nil then return false, why end
   end
   link.writing = true
-  local ok, trouble = true, ""
+  local trouble: Failure? = nil
   whole(function()
-    ok, trouble = link.writer:write(text .. "\n")
+    local wrote, why = link.writer:write(text .. "\n")
+    if not wrote then trouble = why end
   end)
   link.writing = false
   -- Each waiting writer looks again, so the turn is never lost to one whose task was cancelled meanwhile.
   for _, turn in ipairs(link.writers) do turn:notify_one() end
-  if not ok then return false, Failure.new("mcp: writing to the server: " .. trouble) end
+  if trouble ~= nil then
+    return false, Failure.new("mcp: writing to the server: " .. tostring(trouble))
+  end
   return true
 end
 
@@ -739,7 +743,7 @@ local function woken(w: Waiter)
   if wake ~= nil then wake:notify_one() end
 end
 
---- Gives `message` to the request it belongs to: an answer, a notice of progress, a subscription's notice.
+--- Gives `message` to the request it belongs to: a response, a notice of progress, a subscription's notice.
 local function route(link: Link, message: wire.Message)
   local key: string? = nil
   if message.method == nil then
@@ -820,13 +824,13 @@ local function give(w: Waiter)
   end
 end
 
---- Whether `w` is done: its answer or its failure is in.
+--- Whether `w` is done: its response or its failure is in.
 local function done(w: Waiter): boolean
   return w.message ~= nil or w.failure ~= nil
 end
 
---- Waits in a task for `w`'s answer, reading for every request while no other task does: false where the task is
---- cancelled.
+--- Waits in a task for `w`'s response, reading for every request while no other task does: false where the task
+--- is cancelled.
 local function wait_in_task(link: Link, w: Waiter): boolean
   local wake = assert(w.wake)
   while true do
@@ -856,7 +860,7 @@ local function cancelled(link: Link, req: Request)
   end)
 end
 
---- The answer to `req` over `link`: its response, or why there is none.
+--- Sends `req` over `link` and returns its response, or why there is none.
 local function link_send(link: Link, req: Request): (wire.Message) | (nil, Failure)
   local broken = link.broken
   if broken ~= nil then return nil, broken end
@@ -879,7 +883,7 @@ local function link_send(link: Link, req: Request): (wire.Message) | (nil, Failu
       return nil, Failure.cancelled("mcp: " .. req.method .. " was cancelled")
     end
   else
-    -- Outside a task nothing else runs: the caller reads until its answer is in.
+    -- Outside a task nothing else runs: the caller reads until its response is in.
     while not done(w) do
       give(w)
       if not read_one(link) and not done(w) then
@@ -922,7 +926,7 @@ function McpClient.stdio(reader: Stream.Reader, writer: Stream.Writer, opts?: Mc
   return session(stdio_send(lines, writer), opts, false,
     function(): (true) | (false, Failure)
       local ok, why = writer:close()
-      if not ok then return false, Failure.new("mcp: " .. why) end
+      if not ok then return false, Failure.new("mcp: " .. tostring(why)) end
       return true
     end)
 end
@@ -1041,8 +1045,8 @@ local function http_response(got: Http.Body, id: string, method: string): (wire.
 end
 
 --- A session with the server whose MCP endpoint is `url`, one POST a
---- request. Redirects are not followed: a server that moves answers
---- with a failure naming the status. `opts.headers` go with every
+--- request. Redirects are not followed: a request to a server that
+--- moves fails, naming the status. `opts.headers` go with every
 --- request; one that names a header the protocol sets raises. So do
 --- headers with a plain `http://` URL whose host is not loopback: they
 --- would go in the clear, and a token among them could be read on the way.
@@ -1066,8 +1070,8 @@ function McpClient.http(url: string, opts: McpClient.HttpOptions): McpClient.Ses
   end
   local oauth = opts.oauth
   local auth = if oauth ~= nil then McpOAuth.new(url, oauth) else nil end
-  -- `refusal` takes the status and challenge of an answer that refused the token, for `send` to sign in by: one
-  -- table for each request, so requests in flight at once do not take each other's.
+  -- `refusal` takes the status and challenge of a response that refused the token, for `send` to sign in by:
+  -- one table for each request, so requests in flight at once do not take each other's.
   local once = function(req: Request, refusal: mut {integer: string}): (wire.Message) | (nil, Failure)
     local headers: mut {string: string} = {}
     for k, v in pairs(opts.headers or {}) do headers[k] = v end

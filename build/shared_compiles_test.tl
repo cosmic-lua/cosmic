@@ -162,7 +162,7 @@ local function test_many_compiles_made_at_once_come_back_each_its_own(tmp: strin
 end
 
 --- Many parses are made in copies of the process, and each comes back as its copy made it, by its source and whether
---- its lines are mapped. A source no copy answered a parse of is nil, for the build to parse.
+--- its lines are mapped. A source no copy made a parse of is nil, for the build to parse.
 local function test_many_parses_made_at_once_come_back_each_its_own(tmp: string)
   local build = assert(shared_compiles.for_build({ COSMIC_BUILD_CACHE = tmp .. "/cache/cache.db" }))
   local fan_parses = assert(build.fan_parses)

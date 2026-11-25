@@ -1,5 +1,5 @@
 --- [`cosmic.http`] in a task of [`Poll.run`]: a request waits through
---- the run, so a server in the same run answers it and the other tasks
+--- the run, so a server in the same run responds to it and the other tasks
 --- go on meanwhile.
 
 local Clock = require("cosmic.clock")
@@ -33,7 +33,7 @@ local function head_of(conn: Net.Conn): string?
   return seen
 end
 
---- A handler that answers each request with `body`, after `delay_ns`.
+--- A handler that sends `body` for each request, after `delay_ns`.
 local function answering(body: string, delay_ns?: integer): function(conn: Net.Conn)
   return function(conn: Net.Conn)
     if head_of(conn) == nil then return end
@@ -53,7 +53,7 @@ local function test_a_request_to_a_server_of_the_same_run_is_answered()
   end)
 end
 
---- The server answers only once another task has run three times after both
+--- The server responds only once another task has run three times after both
 --- requests were sent, so the requests end only if the run went on while they
 --- waited: no count of ticks in a span of time, which a loaded host shortens.
 local function test_other_tasks_run_while_a_request_waits()
@@ -137,7 +137,11 @@ local function test_a_refused_connection_fails_as_outside_a_run()
   Poll.run(function()
     local inside, inside_why = Http.get(url, { timeout_ns = WAIT })
     assert(inside == nil)
-    assert(tostring(inside_why) == tostring(outside_why), tostring(inside_why) .. " / " .. tostring(outside_why))
+    -- curl's text names the milliseconds the attempt took, which differ
+    -- between two attempts ("after 0 ms", "after 1 ms").
+    local inside_text = tostring(inside_why):gsub("after %d+ ms", "after N ms")
+    local outside_text = tostring(outside_why):gsub("after %d+ ms", "after N ms")
+    assert(inside_text == outside_text, inside_text .. " / " .. outside_text)
   end)
 end
 

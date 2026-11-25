@@ -9,11 +9,17 @@
 ---     print(found.system) -- true
 
 local record test_policy
-  --- One path a test may reach, and how: [`cosmic.sandbox`]'s [`Grant`].
+  --- One thing a test may do, as [`cosmic.sandbox`]'s [`Grant`] says it: reach a path (`path` and `letters`), or
+  --- make system calls beyond its basics (`calls`), each told by the field it alone has.
   record Grant
     --- A path of the tree, relative to its root (the worker's directory),
     --- or an absolute path of the host's.
     mut path?: string
+    --- System calls beyond the basics: "nest" is `nests`; "fork", "jit" and "fattr" are accepted and change nothing
+    --- yet. A grant with `calls` has no other field.
+    mut calls?: string
+    --- A host to reach. Refused: no test reaches a host but loopback.
+    mut connect?: string
     --- What the test may do there: letters of "rwxcu". Only "r" takes
     --- effect so far.
     mut letters?: string
@@ -50,12 +56,6 @@ local record test_policy
     mut grants?: {Grant}
     --- How far the worker is isolated. Not yet taken.
     mut isolate?: {string}
-    --- What the tests may do beyond their basics: "nest" is `nests`;
-    --- "fork", "jit" and "fattr" are accepted and change nothing yet.
-    mut promises?: {string}
-    --- The hosts the tests reach. Refused: no test reaches a host but
-    --- loopback.
-    mut connect?: {string}
     --- The loopback addresses the tests reach: `network` of [`Test.Needs`].
     mut loopback?: {string}
     --- The variables passed through: `env` of [`Test.Needs`].
@@ -81,8 +81,9 @@ local record test_policy
     --- from a closed table: `portable`, `root`, `unix_socket` (Unix stream
     --- socket creation), `loopback` (a TCP listener and a UDP socket bound
     --- to 127.0.0.1), `path:<absolute path>` and
-    --- `program:<name>`, and the Linux-class `sandbox`, `landlock:N`, `userns`,
-    --- `nest`, `own_proc` and `proc`. The runner asks the host
+    --- `program:<name>`, the Linux-class `sandbox`, `landlock:N`, `userns`,
+    --- `nest`, `own_proc` and `proc`, and `os:linux` or `os:darwin` for
+    --- tests that mean nothing on another system. The runner asks the host
     --- once, before any worker starts, and a module whose requirement is
     --- absent is not run: its tests are counted n/a where the platform never
     --- has it and skipped where this host lacks it. Nothing is inferred from
@@ -136,8 +137,8 @@ end
 --- list of grants ("grants"), the limits ("limits"), an integer ("id"), whole
 --- seconds ("seconds") or a path ("string").
 local KINDS <const>: {string:string} = {
-  profiles = "list", grants = "grants", isolate = "list", promises = "list",
-  connect = "list", loopback = "list", env = "list", set_env = "map",
+  profiles = "list", grants = "grants", isolate = "list",
+  loopback = "list", env = "list", set_env = "map",
   set_env_digests = "map", tmp = "flag", limits = "limits", user = "id", group = "id",
   database = "string", requires = "list", timeout = "seconds", cpu_features = "flag",
   store_text = "flag",
@@ -154,6 +155,20 @@ local NAMES <const> = table.concat(names, ", ")
 --- @return string|nil What it takes
 function test_policy.kind_of(name: string): string?
   return KINDS[name]
+end
+
+--- Why `name` is no field of a [`Policy`]: the fields it has, and for `promises`, gone, what to write instead.
+--- @param name string The field's name
+--- @return string Why, beginning "has no field"
+function test_policy.no_field(name: string): string
+  if name == "promises" then
+    return "has no field promises: a promise is a grant now, `grants = { { calls = \"nest\" } }`"
+  end
+  if name == "connect" then
+    return "has no field connect: a host is a grant now, `{ connect = \"host:port\" }`, which a test is refused " ..
+      "(no test reaches a host but loopback)"
+  end
+  return "has no field " .. name .. "; it has " .. NAMES
 end
 
 --- The names of the fields of a [`Policy`], sorted and joined by ", ".
@@ -218,7 +233,7 @@ local function parent_fault(relative: string): string
   return ""
 end
 
---- The promises a policy makes: "nest" is `nests`; the others are
+--- The calls a policy's grants make: "nest" is `nests`; the others are
 --- accepted and change nothing, since no worker holds them yet.
 local PROMISES <const>: {string:boolean} = { nest = true, fork = true, jit = true, fattr = true }
 
@@ -226,10 +241,10 @@ local PROMISES <const>: {string:boolean} = { nest = true, fork = true, jit = tru
 --- the tree and host files (grants of "r"), the variables, loopback
 --- addresses, the program (profile "cosmic": `lua`; with the grant of
 --- o/bin, `tool`), the system (profile "system"), /proc (profile
---- "proc", in `host`) and nesting (promise "nest"). What it cannot say is
+--- "proc", in `host`) and nesting (the grant `{ calls = "nest" }`). What it cannot say is
 --- refused rather than accepted as a declaration that moves no key:
 --- `isolate`, `set_env`, `limits`, a grant of more than "r" or from
---- another path, `tmp = false`. `connect`, `set_env_digests`, `database`,
+--- another path, `tmp = false`. A `connect` grant, `set_env_digests`, `database`,
 --- `user` and `group` are refused outright. `cache_fault`, where given,
 --- says why a cache's name is none (the build knows the names; a worker
 --- does not), or "".
@@ -257,6 +272,21 @@ function test_policy.declared(policy: test_policy.Policy,
   end
   for i, grant in ipairs(policy.grants or {}) do
     local at = "grants[" .. tostring(i) .. "]"
+    if grant.connect ~= nil then
+      return nil, at .. ".connect is refused: no test reaches a host but loopback, whose answer no " ..
+        "key holds; declare the addresses in loopback and start the service in the test"
+    end
+    local calls = grant.calls
+    if calls ~= nil then
+      if grant.path ~= nil or grant.letters ~= nil or grant.from ~= nil then
+        return nil, at .. " names calls and a path: a grant is one or the other"
+      end
+      if PROMISES[calls] == nil then
+        return nil, at .. ".calls: no calls " .. calls .. "; the calls are fattr, fork, jit, nest"
+      end
+      if calls == "nest" then nests = true end
+      continue
+    end
     local path, letters = grant.path or "", grant.letters or ""
     if path == "" then return nil, at .. ".path takes a path" end
     if letters == "" or letters:find("^r?w?x?c?u?$") == nil then
@@ -294,12 +324,6 @@ function test_policy.declared(policy: test_policy.Policy,
       list[#list + 1] = path
     end
   end
-  for _, promise in ipairs(policy.promises or {}) do
-    if PROMISES[promise] == nil then
-      return nil, "promises: no promise " .. promise .. "; the promises are fattr, fork, jit, nest"
-    end
-    if promise == "nest" then nests = true end
-  end
   if #(policy.isolate or {}) > 0 then return nil, "isolate " .. NOT_YET end
   local limits = policy.limits
   if limits ~= nil and (limits.open_files ~= nil or limits.file_bytes ~= nil or
@@ -310,10 +334,6 @@ function test_policy.declared(policy: test_policy.Policy,
   if next(policy.set_env_digests or {}) ~= nil then
     return nil, "set_env_digests is refused: a digest holds no value to set; " ..
       "a test names the value in set_env"
-  end
-  if #(policy.connect or {}) > 0 then
-    return nil, "connect is refused: no test reaches a host but loopback, whose answer no " ..
-      "key holds; declare the addresses in loopback and start the service in the test"
   end
   -- A module's own `database` is a limit decided for good: no test needs
   -- one, and the only coherent meaning is an overlay on the sealed database

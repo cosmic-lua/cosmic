@@ -1,15 +1,15 @@
 --- [`Child.start`]'s `policy` with the `nest` promise (cosmic/child.tl): a
 --- program that builds a sandbox of its own, in a root of its own, held
 --- by that root instead of Landlock, which the kernel would have refuse
---- every mount. The kernel's own verdict on live children: a stand-in
---- (build/stand_in.tl) started under the policy. They need
+--- every mount. The kernel's own verdict on live children: a fake
+--- ([`cosmic.fake`]) started under the policy. They need
 --- a host that lets a sandbox nest (`requires`): where the platform has none
 --- they are not applicable, and where this host gives no seccomp each skips
 --- itself (Test.skip). The refusals that come before a child, which hold on
 --- every platform, are in cosmic/child_policy_anywhere_test.tl; what a
 --- program inside makes of the namespace and mount calls themselves, in
 --- cosmic/child_policy_nest_calls_test.tl; and what Landlock holds beside a
---- root (a sandbox the stand-in starts of its own, a directory handed
+--- root (a sandbox the fake starts of its own, a directory handed
 --- without `nest`), in cosmic/child_policy_nest_landlock_test.tl, which
 --- requires it.
 
@@ -25,7 +25,7 @@ local ChildPolicy = require("build.child_policy_fixture")
 --- Landlock ruleset cannot build.
 Test.policy{
   env = { "TMPDIR" },
-  promises = { "nest" },
+  grants = { { calls = "nest" } },
   requires = { "nest" },
 }
 
@@ -44,7 +44,7 @@ end
 
 local function test_nest_holds_files_by_the_root_alone(tmp: string)
   local at = ChildPolicy.nest_placed(tmp)
-  local policy: Sandbox.Policy = { isolate = { "file" }, promises = { "nest" }, grants = at.grants }
+  local policy: Sandbox.Policy = { isolate = { "file" }, grants = ChildPolicy.with(at.grants, { calls = "nest" }) }
   local read = ChildPolicy.under(at.probe, policy, at.work, "cat ro/a")
   assert(read.code == 0 and read.said == "alpha\n", tostring(read.code) .. ": " .. read.said)
   -- Not granted, so not there; read-only where not granted `w`.
@@ -72,7 +72,7 @@ end
 
 local function test_nest_hands_no_directory_nor_half_open_file(tmp: string)
   local at = ChildPolicy.nest_placed(tmp)
-  local policy: Sandbox.Policy = { isolate = { "file" }, promises = { "nest" }, grants = at.grants }
+  local policy: Sandbox.Policy = { isolate = { "file" }, grants = ChildPolicy.with(at.grants, { calls = "nest" }) }
   local dir = assert(sys.open(at.extra, sys.O_RDONLY))
   local reading = assert(sys.open(at.extra .. "/e", sys.O_RDONLY))
   local writing = assert(sys.open(at.extra .. "/e", sys.O_WRONLY))
@@ -110,7 +110,7 @@ local function test_nest_refuses_the_runtimes_own_descriptors_rather_than_raisin
     return
   end
   local at = ChildPolicy.nest_placed(tmp)
-  local policy: Sandbox.Policy = { isolate = { "file" }, promises = { "nest" }, grants = at.grants }
+  local policy: Sandbox.Policy = { isolate = { "file" }, grants = ChildPolicy.with(at.grants, { calls = "nest" }) }
   local handle, why = Child.start({ at.probe, "print hi" },
     { timeout_ns = Child.FOREVER, policy = policy, cwd = at.work, fds = launched.fds })
   if handle ~= nil then

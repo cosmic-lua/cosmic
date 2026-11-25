@@ -15,18 +15,17 @@ local ChildPolicy = require("build.child_policy_fixture")
 
 Test.policy{
   profiles = { "cosmic", "system" },
-  promises = { "nest" },
   loopback = { "127.0.0.1" },
   env = { "TMPDIR", "PATH" },
   grants = {
     { path = "o/bin", letters = "rx" },
-    { path = "o/cosmic.db", letters = "r" },
+    { path = "o/cosmic.db", letters = "r" }, { calls = "nest" },
   },
   requires = { "nest", "program:curl" },
 }
 
 --- Runs `body` in a run with an HTTP server at a port of 127.0.0.1 that
---- answers every request "hello from the host".
+--- responds to every request with "hello from the host".
 local function serving(body: function(port: integer))
   Net.with_loopback(function(conn: Net.Conn)
     local seen = ""
@@ -44,7 +43,7 @@ end
 local function curl(target: string, url: string, loopback?: {string}): string, integer
   local out, code = "", -1
   local result, why = Child.run({ "curl", "-sS", "-p", "--max-time", "20", url }, {
-    policy = { profiles = { "system" }, connect = { target }, loopback = loopback },
+    policy = { profiles = { "system" }, grants = { { connect = target } }, loopback = loopback },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   if result == nil then
     if ChildPolicy.unsandboxable(tostring(why)) then Test.skip(tostring(why)) end

@@ -18,6 +18,7 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local RelayStart = require("cosmic.internal.relay_start")
+local Sandbox = require("cosmic.sandbox")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
@@ -214,7 +215,7 @@ local record Tally
   mut connections: integer
 end
 
---- An echo server for `listener`, answering "echo:" and the four bytes each
+--- An echo server for `listener`, replying "echo:" and the four bytes each
 --- connection sends, as a task of the run, and counting the connections.
 local function echoing(listener: Net.Listener, count: Tally): Poll.Task
   return Poll.spawn(function()
@@ -275,7 +276,7 @@ local function flows(tmp: string): Flows
     local granted, ungranted = assert(first.address.port), assert(second.address.port)
     local result, why = Child.run({ assert(Proc.executable()), "flows", tostring(granted), tostring(ungranted) },
       { policy = { database = { path = database }, profiles = { "system" },
-        connect = { "127.0.0.1:" .. tostring(granted), "localhost:" .. tostring(granted) } },
+        grants = { { connect = "127.0.0.1:" .. tostring(granted) }, { connect = "localhost:" .. tostring(granted) } } },
         stdout = "capture", stderr = "capture", relay_log = log, timeout_ns = Clock.seconds(90) })
     for _, task in ipairs(tasks) do task:cancel() end
     assert(first:close())
@@ -358,7 +359,7 @@ end
 --- A handle to a program that waits under a policy with `connect`.
 local function waiting(tmp: string): Child.Handle
   local handle, why = Child.start({ assert(Proc.executable()), "wait" }, { timeout_ns = Child.FOREVER, policy = {
-    database = { path = sealed_client(tmp) }, profiles = { "system" }, connect = { "127.0.0.1:9" } },
+    database = { path = sealed_client(tmp) }, profiles = { "system" }, grants = { { connect = "127.0.0.1:9" } } },
     stdout = "null", stderr = "null" })
   assert(handle, explained(handle == nil, tostring(why)))
   return handle
@@ -466,7 +467,7 @@ end
 local function test_the_program_holds_no_listener_of_the_relays(tmp: string)
   SeatbeltFixture.macos_only()
   local result, why = Child.run({ assert(Proc.executable()), "listeners" }, { policy = {
-    database = { path = sealed_client(tmp) }, profiles = { "system" }, connect = { "127.0.0.1:9" } },
+    database = { path = sealed_client(tmp) }, profiles = { "system" }, grants = { { connect = "127.0.0.1:9" } } },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(90) })
   assert(result, explained(result == nil, tostring(why)))
   local report = redacted(tostring(result.stdout) .. "\nstderr: " .. tostring(result.stderr))
@@ -536,7 +537,7 @@ local function test_a_public_name_is_resolved_and_reached_through_the_relay(tmp:
     Test.skip("this host resolves no public name: " .. tostring(resolve_why))
     return
   end
-  -- [`Net.resolve`] answers at least one address, or nil and why.
+  -- [`Net.resolve`] returns at least one address, or nil and why.
   local reached, reach_why = Net.connect(Net.tcp(Array.at(found, 1).address, 443), { timeout_ns = Clock.seconds(5) })
   if reached == nil then
     Test.skip("this host reaches no public address: " .. tostring(reach_why))
@@ -546,7 +547,7 @@ local function test_a_public_name_is_resolved_and_reached_through_the_relay(tmp:
   local log_path = tmp .. "/relay.log"
   local log = assert(sys.open(log_path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 384))
   local result, why = Child.run({ assert(Proc.executable()), "public", name .. ":443" }, { policy = {
-    database = { path = sealed_client(tmp) }, profiles = { "system" }, connect = { name .. ":443" } },
+    database = { path = sealed_client(tmp) }, profiles = { "system" }, grants = { { connect = name .. ":443" } } },
     stdout = "capture", stderr = "capture", relay_log = log, timeout_ns = Clock.seconds(90) })
   assert(sys.close(log))
   local got, _ = Fs.read(log_path)
@@ -557,13 +558,13 @@ local function test_a_public_name_is_resolved_and_reached_through_the_relay(tmp:
       "\nrelay: " .. relay_log)
 end
 
---- What the relay answered a CONNECT to `target` that a policy granting
+--- What the relay replied to a CONNECT to `target` that a policy granting
 --- `target` alone asked of it: the status line, and the relay's log.
 local function connect_through(tmp: string, target: string): string, string
   local log_path = tmp .. "/relay.log"
   local log = assert(sys.open(log_path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 384))
   local result, why = Child.run({ assert(Proc.executable()), "public", target }, { policy = {
-    database = { path = sealed_client(tmp) }, profiles = { "system" }, connect = { target } },
+    database = { path = sealed_client(tmp) }, profiles = { "system" }, grants = { { connect = target } } },
     stdout = "capture", stderr = "capture", relay_log = log, timeout_ns = Clock.seconds(90) })
   assert(sys.close(log))
   local got, _ = Fs.read(log_path)
@@ -589,7 +590,7 @@ end
 --- A granted name that resolves to an address of one of this host's other
 --- interfaces is refused as one of its own, whatever other class the
 --- address is in. The name is a wildcard DNS service's for the address
---- (sslip.io answers `10-1-2-3.sslip.io` with 10.1.2.3); skipped where this
+--- (sslip.io resolves `10-1-2-3.sslip.io` to 10.1.2.3); skipped where this
 --- host has no such routable (not link-local) address or the name does not resolve to it alone.
 local function test_a_granted_name_of_another_host_address_is_refused_as_its_own(tmp: string)
   SeatbeltFixture.macos_only()
@@ -630,7 +631,7 @@ end
 local function test_a_policy_with_connect_may_not_set_a_proxy_variable(tmp: string)
   SeatbeltFixture.macos_only()
   local handle, why = Child.start({ assert(Proc.executable()), "wait" }, { timeout_ns = Child.FOREVER, policy = {
-    database = { path = sealed_client(tmp) }, profiles = { "system" }, connect = { "127.0.0.1:9" },
+    database = { path = sealed_client(tmp) }, profiles = { "system" }, grants = { { connect = "127.0.0.1:9" } },
     set_env = { HTTPS_PROXY = "http://elsewhere:1" } } })
   assert(handle == nil and why.message:find("HTTPS_PROXY is set by the relay", 1, true) ~= nil, tostring(why))
 end
@@ -642,8 +643,8 @@ local function test_the_relays_policy_grants_reads_alone(_tmp: string)
   SeatbeltFixture.macos_only()
   local policy = RelayStart.policy("/tmp/relay.db", string.rep("0", 64), true)
   assert(assert(policy.database).path == "/tmp/relay.db" and assert(policy.profiles)[1] == "system")
-  for _, grant in ipairs(policy.grants or {}) do
+  for _, grant in ipairs(Sandbox.paths(policy)) do
     assert(grant.letters == "r", grant.path .. " is granted " .. grant.letters)
   end
-  assert(#(policy.connect or {}) == 0 and #(policy.promises or {}) == 0)
+  assert(#Sandbox.connects(policy) == 0 and #Sandbox.calls(policy) == 0)
 end

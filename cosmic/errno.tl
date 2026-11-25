@@ -1,9 +1,10 @@
 --- The message text of the few errno failures a program using cosmic's
 --- filesystem calls is likely to meet, each with what to check when it
---- happens. A failing call returns `nil, message, errno`, and a wrapper
---- such as `Fs` joins the path and that message into one string
---- (`path: No such file or directory`). The message is the same on every
---- OS ([`sys.errno_message`] answers it). `cosmic docs ENOENT`, or any
+--- happens. A failing [`cosmic.sys`] call returns `nil, message, errno`,
+--- and a wrapper such as [`cosmic.fs`] returns a [`cosmic.failure`] that holds
+--- the path and that message, written `path: No such file or directory`
+--- by `tostring`. The message is the same on every
+--- OS ([`sys.errno_message`] returns it). `cosmic docs ENOENT`, or any
 --- field below, finds this page.
 local record Errno
   --- the path does not exist -- check it is spelled right, and that

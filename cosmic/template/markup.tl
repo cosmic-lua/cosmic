@@ -31,11 +31,16 @@
 --- - `<xmp>`, `<iframe>`, `<noembed>`, `<noframes>`, `<noscript>` and
 ---   `<plaintext>` text, which browsers read as raw text (`noscript`
 ---   when scripting is on);
---- - every attribute of `<script>`, and the `charset` of a `<meta>`;
+--- - every attribute of `<script>` but its `src`, `nonce` and
+---   `integrity`, and the `charset` of a `<meta>`;
 --- - a URL attribute (`href`, `src`, ...) of a tag that makes the page
----   run or load what the URL names (`script`, `link`, `object`,
----   `embed`, `base`, `use`), or one after text that does not fix where
----   the URL goes (see below).
+---   run or load what the URL names (`object`, `embed`, `base`, `use`),
+---   or one after text that does not fix where the URL goes (see below).
+---   The `src` of a `<script>` and the `href` of a `<link>` take a slot
+---   only as the whole value, and only a `SafeResourceUrl`
+---   (`url_trusted`), which [`Html.trust_resource_url`] alone makes: the
+---   program vouches for what the page loads, and a `SafeUrl` made from
+---   data by an allowlist does not stand in for it.
 ---
 --- The state is the tokenizer's in full, carried over every action: text
 --- fed in runs is read as it would be whole, whether an action that emits
@@ -347,6 +352,10 @@ local record Markup
   --- text or RCDATA element, or "" when they differ otherwise.
   differ: function(a: Place, b: Place): string
 
+  --- Why text may not follow a slot that is the whole value of `attr` on
+  --- `tag` (a JSON slot, or the SafeResourceUrl of a `<script src>` or `<link href>`).
+  sole_trouble: function(tag: string, attr: string): string
+
   --- Folds the place `b`, which `same` found the same as `a`, into `a`: a
   --- value is fresh only if it is in both, a URL slot or a pending
   --- `<meta>` slot in either is kept, and `a` may be any place either may.
@@ -370,6 +379,16 @@ local URL_ATTRS <const>: {string: boolean} = {
 -- custom attribute whose name merely contains `src`, `uri` or `url`.
 -- Browsers do not navigate or load on them; script that reads a `data-*`
 -- attribute owns what it does with the value, as it does for `hx-*`.
+
+--- What is wrong with text after a slot that must be the whole value of
+--- `attr` on `tag`: a JSON slot, or the SafeResourceUrl of a `<script src>` or a
+--- `<link href>`.
+local function sole_trouble(tag: string, attr: string): string
+  if (tag == "script" and attr == "src") or (tag == "link" and attr == "href") then
+    return "text after the slot in the '" .. attr .. "' of <" .. tag .. ">: the slot is the whole value, a SafeResourceUrl"
+  end
+  return "text after a JSON slot in the '" .. attr .. "' attribute: a JSON slot is the whole value"
+end
 
 --- The tags whose URL attributes make the page run or load what they
 --- name, which no URL allowlist makes safe to take from data.
@@ -960,7 +979,7 @@ end
 
 --- Ends the tag just read, at the `>` before `from` (after a value with no
 --- quotes, which a `/` ends nothing in): into the text of a raw text
---- element if it opens one, else into text. Answers where reading goes on.
+--- element if it opens one, else into text. Returns where reading goes on.
 --- `<textarea>` and `<title>` are RCDATA wherever they stand: inside
 --- `<svg>` the browser may read them as ordinary elements instead, and
 --- `scan` marks the place murky if what they hold could tell the two apart.
@@ -1204,7 +1223,7 @@ local function scan(p: Place, text: string) -- checked: not_assigned
         -- before the node's end could see it, so the refusal is recorded
         -- now, and `feed` places it (`late_line` of -1 until then).
         if p.late == "" then
-          p.late = "text after a JSON slot in the '" .. p.attr .. "' attribute: a JSON slot is the whole value"
+          p.late = sole_trouble(p.tag, p.attr)
           p.late_line = -1
           p.late_col = close
         end
@@ -1387,7 +1406,7 @@ local function locate(text: string, i: integer, line: integer, col: integer): in
 end
 
 --- Reads `text` a byte at a time in each place `p` may be, until they are
---- one place, and answers where the rest of it begins. Each must read the
+--- one place, and returns where the rest of it begins. Each must read the
 --- same thing: a byte that continues a name or value in one (`ked` after
 --- `{{if .a}}chec{{end}}`) or brings a value (`=`), or that leaves them apart
 --- in more than phase and attribute (`http-equiv` named in one), makes
@@ -1493,8 +1512,18 @@ local function slot(p: Place): types.Slot?, string
     if code ~= nil then
       return nil, "a slot in the '" .. attr .. "' attribute would be " .. code
     end
+    if p.tag == "script" and (attr == "nonce" or attr == "integrity") then
+      return "attr", ""
+    end
+    if (p.tag == "script" and attr == "src") or (p.tag == "link" and attr == "href") then
+      if not p.fresh then
+        return nil, "a slot in the '" .. attr .. "' of <" .. p.tag .. "> must be the whole value, a SafeResourceUrl: the " ..
+          "page loads what it names and runs it or styles itself by it"
+      end
+      return "url_trusted", ""
+    end
     if p.tag == "script" then
-      return nil, "a slot in an attribute of <script> could name the code it runs"
+      return nil, "a slot in an attribute of <script> other than src, nonce and integrity could name the code it runs"
     end
     if attr == "charset" and p.tag == "meta" then
       return nil, "a slot in the charset of a <meta> could change how the page is read"
@@ -1557,7 +1586,7 @@ local function wrote(p: Place, ctx: types.Slot, line: integer, col: integer)
   p.fresh = false
   p.raw_tail = ""
   p.ident = ctx == "selector"
-  p.sole = ctx == "json"
+  p.sole = ctx == "json" or ctx == "url_trusted"
   local whole = ctx == "url" or ctx == "url_local"
   if ctx ~= "urlpart" then
     -- A part may be empty, so after a whole-URL slot it leaves the text
@@ -1607,5 +1636,5 @@ local function ending(p: Place): string
 end
 
 local M: Markup = { start = start, ending = ending, copy = copy, same = same, differ = differ, join = join, feed = feed,
-  slot = slot, wrote = wrote, key = key }
+  slot = slot, wrote = wrote, key = key, sole_trouble = sole_trouble }
 return M

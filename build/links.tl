@@ -40,7 +40,7 @@
 ---    `io`, `os` or `debug`, which cosmic leaves out);
 --- 2. for a name with a `.` or a `:` ([`Fs.read`], [`cosmic.fs`]), a symbol
 ---    the project's databases know, by the rule `cosmic docs <word>`
----    answers an exact query with ([`Doc.exact`], a type's member
+---    applies to an exact query ([`Doc.exact`], a type's member
 ---    through an alias included), or a module's member written in full
 ---    ([`cosmic.fs.read`]). A name alone names no symbol of another
 ---    module: it links to a declaration of its own file, the standard
@@ -85,7 +85,7 @@
 --- The parse is [`cosmic.internal.link_text`]'s, C's, Zig's and Markdown's text
 --- [`build.link_files`]', and the resolution [`build.link_resolve`]'s,
 --- which the build shares to index each link ([`build.link_index`]);
---- this module answers symbols from the project's databases.
+--- this module looks symbols up in the project's databases.
 
 local Fs = require("cosmic.fs")
 local Doc = require("cosmic.doc")
@@ -428,7 +428,7 @@ function links.rewrite(reader: links.Reader, resolver: link_resolve.Resolver, fi
   end
 
   -- The definitions the shortcuts of the linked text need. One of the
-  -- block's own whose label names nothing `meant` answers is another's
+  -- block's own whose label names nothing `meant` finds is another's
   -- to set right, and is kept while a link uses it.
   local root = resolver.context.root
   local here = Fs.dirname(absolute):sub(#root + 2)
@@ -497,7 +497,7 @@ local function index_of(view: Doc.View): symbol_index.Index?, string
     if #tables > 0 then
       -- Every row, as [`cosmic.doc`] reads a type an alias stands for
       -- in any; only those shown, of the database that owns the
-      -- module, answer a name.
+      -- module, resolve a name.
       local rows, trouble = db:text_rows(
         "SELECT d.module, d.symbol, d.source_symbol, d.file, d.kind, d.signature, d.exported, " ..
           "d.id, " .. symbols.shown_docs("d", view.public[index] == true) .. " FROM docs d " ..
@@ -520,7 +520,7 @@ end
 --- from the view `open` gives, opened the first time a link asks for
 --- one: a file with no link to a symbol reads no database. `unbuilt`
 --- says why the view lacks the project's own code, or nil. A name is
---- answered from the view's rows held in memory ([`build.symbol_index`]).
+--- looked up in the view's rows held in memory ([`build.symbol_index`]).
 function links.context(root: string, open: function(): Doc.View?, string,
                        unbuilt: function(): string?): link_resolve.Context
   -- The index once built, or why it could not be; neither until asked.

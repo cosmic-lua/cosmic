@@ -27,7 +27,8 @@
 --- is refused.
 local Fs = require("cosmic.fs")
 local Markers = require("build.markers")
-local Sqlite = require("cosmic.sqlite")
+local build_schema = require("build.schema")
+local type Build = build_schema.Build
 local String = require("cosmic.string")
 local doctest = require("build.doctest")
 local symbols = require("cosmic.internal.symbols")
@@ -165,7 +166,7 @@ local function found_at(line: string): Place?
 end
 
 --- Whether `line` is the checker's own count of a code's errors in an example.
--- TODO: drop this reader of the checker's prose, and the one of [`found_at`], once [`Pipeline.checked_alone`] answers the spots of
+-- TODO: drop this reader of the checker's prose, and the one of [`found_at`], once [`Pipeline.checked_alone`] returns the spots of
 -- [`build.ceilings.marked`] beside its lines: they match the words of a finding and of a count line, and a changed wording makes them
 -- tell a finding twice, which fails closed.
 local function is_count(line: string): boolean
@@ -268,8 +269,8 @@ end
 --- A name the text lacks that its file declares as a helper is said to
 --- be one too long to carry.
 --- @param root the tree, whose example files are read for that
-local function examples(db: Sqlite.Handle, options: Pipeline.Options, root: string): mut {string}
-  local rows, trouble = db:text_rows(
+local function examples(db: Build, options: Pipeline.Options, root: string): mut {string}
+  local rows, trouble = db:rows(
     "SELECT file, line, name, source FROM examples WHERE " ..
       symbols.public_only("module", true) .. " ORDER BY file, line")
   if rows == nil then
@@ -278,7 +279,7 @@ local function examples(db: Sqlite.Handle, options: Pipeline.Options, root: stri
   local out: mut {string} = {}
   local items: mut {{string}} = {}
   for _, row in ipairs(rows) do
-    items[#items + 1] = { row:text(1) .. ":" .. row:text(2) .. ": example " .. row:text(3), chunk(row:text(3), row:text(4)) }
+    items[#items + 1] = { row:text(1) .. ":" .. tostring(row:integer(2)) .. ": example " .. row:text(3), chunk(row:text(3), row:text(4)) }
   end
   local said = problems(options, items)
   for i, row in ipairs(rows) do
@@ -341,7 +342,7 @@ end
 --- one with the binary alone, does not have. The tree compiles and runs
 --- them as its tests. The findings are those the markers of an example do not hold, and the markers that hold
 --- none.
-function example_checks.run(db: Sqlite.Handle, root: string, guides?: {string}): {string}
+function example_checks.run(db: Build, root: string, guides?: {string}): {string}
   local options, options_trouble = require("build.pipeline").alone()
   if options == nil then
     return { options_trouble }

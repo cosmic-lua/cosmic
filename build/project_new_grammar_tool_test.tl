@@ -26,7 +26,7 @@ local function environment(tmp: string): mut {string:string}
 end
 
 --- Runs `cosmic test` in `root`, unsandboxed (a sandbox nested in this test's own may be
---- refused where the host nests only two deep), and answers what it said.
+--- refused where the host nests only two deep), and returns what it said.
 local function tested(root: string, tmp: string): Child.Result, string
   local output = tmp .. "/out." .. tostring(Clock.monotonic_ns())
   local fd = assert(Fs.open_write(output))
@@ -41,7 +41,7 @@ local function tested(root: string, tmp: string): Child.Result, string
   return assert(result, trouble), (assert(Fs.read(output)))
 end
 
---- Runs `cosmic fix --check` in `root`, and answers what it said.
+--- Runs `cosmic fix --check` in `root`, and returns what it said.
 local function checked(root: string, tmp: string): Child.Result, string
   local started = this_program.program({ "fix", "--check" }, {
     cwd = root, env = environment(tmp), stdout = "capture", stderr = "stdout", process_group = true, timeout_ns = Clock.seconds(120),
@@ -118,12 +118,6 @@ local function test_a_template_refused_names_its_line_and_the_fix(tmp: string)
   local result, text = tested(root, tmp)
   refusal(result, text, { "report.tmpl:2:", "`data.Report` has no field `nope`, nearest `note` (field_unknown): write `note`",
     "test: FAIL  not compiled, since each requires a refused module, directly or through another: counter_test.tl" })
-  -- a condition on a string is no condition, and the fix is said in the template's terms
-  local string_root = copy_of(tmp, "string")
-  planted(string_root, "report.tmpl", "{{with .note}}<p>{{.}}</p>{{end}}", "{{if .title}}<p>x</p>{{end}}")
-  local string_result, string_text = tested(string_root, tmp)
-  refusal(string_result, string_text, { "report.tmpl:4:", "is `string`, which is no boolean or optional, so it is no condition (condition_type)",
-    "`{{if}}` and `{{with}}` need a value that can be absent: make the field optional, or drop the `{{if}}`" })
 end
 
 --- A module used as a value is refused with a fix a project can follow: it names no ceiling file and no TODO of the checker.

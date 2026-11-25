@@ -5,9 +5,10 @@ local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local type Failure = require("cosmic.failure")
 local Poll = require("cosmic.poll")
+local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 
---- A server that never answers, and one that ends saying why: the system's programs.
+--- A server that never replies, and one that ends saying why: the system's programs.
 Test.policy{ profiles = { "system" } }
 
 --- The servers of the config `text`, or why there are none, as a test reads it.
@@ -32,13 +33,13 @@ local function test_a_config_names_servers_over_stdio_and_http_sandboxed_by_defa
   local policy = assert(notes.policy)
   assert(policy.tmp == true and assert(policy.env)[1] == "NOTES_KEY", "the config's policy is merged with the default")
   local granted = false
-  for _, grant in ipairs(policy.grants or {}) do
+  for _, grant in ipairs(Sandbox.paths(policy)) do
     if grant.path == "/tmp" then granted = true end
   end
   assert(granted and #(policy.grants or {}) > 1, "the system profile's grants are merged in")
   local bare = assert(loaded(tmp, '{"servers": {"plain": {"command": ["/p"]}}}'))
   local held = assert(assert(bare[1]).policy)
-  assert(held.tmp == true and (held.connect == nil or #held.connect == 0) and (held.env == nil or #held.env == 0),
+  assert(held.tmp == true and #Sandbox.connects(held) == 0 and (held.env == nil or #held.env == 0),
     "a server with no policy is held to the default: no host, no key")
   local set = AgentMcp.new(servers, tmp)
   local listed, _ = Json.encode(AgentMcp.listed(set))
@@ -97,8 +98,8 @@ local function test_a_program_the_tools_could_write_is_not_run(tmp: string)
   assert(set.handles["a"] == nil)
 end
 
---- A call cut off before its answer (the snippet's time ran out) ends its server, which may be out of step, and the
---- next call starts another, rather than read the answer the first was owed.
+--- A call cut off before its reply (the snippet's time ran out) ends its server, which may be out of step, and the
+--- next call starts another, rather than read the reply the first was owed.
 local function test_a_call_cut_off_ends_its_server(tmp: string)
   local usr, _ = Fs.status("/usr/bin/sleep")
   local sleep = if usr ~= nil and usr.exists then "/usr/bin/sleep" else "/bin/sleep" end

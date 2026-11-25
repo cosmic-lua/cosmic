@@ -13,6 +13,7 @@
 --- stage no longer lists, or a document that stood for a file the stage does not list and is left.
 local Driver = require("build.driver")
 local Pipeline = require("build.pipeline")
+local StandardMeant = require("build.standard_meant")
 local TreeProgram = require("build.tree_program")
 
 local record held
@@ -31,7 +32,7 @@ local record held
   record Program
     options: Pipeline.Options
     build: Driver.Build
-    --- What answers a `require`: the document being checked, then what serves the module.
+    --- What resolves a `require`: the document being checked, then what serves the module.
     standard: Driver.Provider
     slot: Slot
     --- What serves the module `module` to the program as the stub it serves its dependents (nil where none does).
@@ -60,7 +61,7 @@ function held.new(options: Pipeline.Options, serve: function(module: string): Dr
     if focus ~= nil and focus.module == module then return focus.source end
     return serve(module)
   end
-  local build = TreeProgram.build(index, options.globals, true, nil, provider, meant)
+  local build = TreeProgram.build(index, options.globals, true, nil, provider, StandardMeant.wrap(meant))
   return {
     options = options,
     build = build,
@@ -90,7 +91,7 @@ function held.put(self: Program, served: Driver.Source)
 end
 
 --- Makes the module `source` is the document being checked, and the module that was before it the stub it serves again.
---- Answers the program's reading of the document, or nil where the program lost a module on the way (`dead`): it holds the
+--- Returns the program's reading of the document, or nil where the program lost a module on the way (`dead`): it holds the
 --- document it left as full source still, so nothing is checked in it, and the caller makes the program again.
 function held.document(self: Program, source: Driver.Source): Driver.Outcome?
   local before = self.slot.focus

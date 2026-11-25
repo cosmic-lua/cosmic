@@ -6,7 +6,7 @@
 --- `require` of a removed library included, fails at run time; both
 --- errors say what to use instead, naming the replacement for the very
 --- field used (`os.getenv` is [`Env.get`]). `cosmic docs os` (or any
---- field below) answers the same thing directly.
+--- field below) prints the same thing directly.
 --- Help on the language's other libraries is in the checked examples
 --- that ordinary documentation search returns.
 local record Removed

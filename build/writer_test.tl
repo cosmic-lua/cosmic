@@ -109,7 +109,7 @@ local function test_a_file_another_binary_wrote_is_rewritten(tmp: string)
 end
 
 --- A project's own declaration ships its documentation alongside its
---- modules', so `cosmic docs` answers for a module the project only
+--- modules', so `cosmic docs` covers a module the project only
 --- declares.
 local function test_a_declaration_ships_its_docs(tmp: string)
   assert(Fs.mkdirs(tmp .. "/a"))
@@ -354,9 +354,7 @@ end
 --- rows go even so.
 local function test_the_carried_docs_are_the_public_standard_library_s(tmp: string)
   local whole = tmp .. "/whole.db"
-  local db = assert(Sqlite.open(whole, { writable = true }))
-  for _, statement in ipairs(schema.settings("")) do assert(db:exec(statement)) end
-  for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
+  local db = assert(schema.hold(assert(Sqlite.open(whole, { writable = true }))))
   for _, statement in ipairs({
       "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
         "VALUES ('cosmic.fs', 'cosmic/fs.tl', 'module', '', '', '', '', ''), " ..
@@ -446,9 +444,7 @@ end
 --- are to ask about.
 local function test_the_carried_internal_types_are_the_ones_a_public_signature_names(tmp: string)
   local whole = tmp .. "/whole.db"
-  local db = assert(Sqlite.open(whole, { writable = true }))
-  for _, statement in ipairs(schema.settings("")) do assert(db:exec(statement)) end
-  for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
+  local db = assert(schema.hold(assert(Sqlite.open(whole, { writable = true }))))
   local function internal(module: string, type_name: string): string
     return "('" .. module .. "', '" .. type_name .. "', 'raw." .. type_name ..
       "', 1, 'record', '', 'A type.', 'f', 1)"
@@ -510,14 +506,12 @@ local function test_the_carried_internal_types_are_the_ones_a_public_signature_n
 end
 
 --- A user guide is a generated test module, which the tool does not
---- carry, but its prose is what `cosmic docs quickstart` answers with:
+--- carry, but its prose is what `cosmic docs quickstart` shows:
 --- its own doc row is carried, not the helpers its module declares, and
 --- a guide under `doc/guides/internal/` is left to the tree.
 local function test_the_carried_docs_hold_the_user_guides_prose(tmp: string)
   local whole = tmp .. "/whole.db"
-  local db = assert(Sqlite.open(whole, { writable = true }))
-  for _, statement in ipairs(schema.settings("")) do assert(db:exec(statement)) end
-  for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
+  local db = assert(schema.hold(assert(Sqlite.open(whole, { writable = true }))))
   for _, statement in ipairs({
       "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
         "VALUES ('doc.guides.quickstart', 'doc/guides/quickstart.md', 'test', '', '', '', '', ''), " ..
@@ -819,7 +813,7 @@ local function write_again(handle: work.Handle, out: string)
   assert(writer.write_result(handle, out, result))
 end
 
---- The text of the first column of the one row `sql` answers from `db`.
+--- The text of the first column of the one row `sql` finds in `db`.
 local function scalar(db: Sqlite.Handle, sql: string): string
   return support.nth(assert(db:text_rows(sql)), 1):text(1)
 end

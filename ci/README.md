@@ -146,8 +146,15 @@ copy of this checkout's `ci/`, fixtures included, taken each time run-local
 starts, so after one full run `ci/run-local fixtures` re-runs edited
 fixtures against the same products. Each phase's log is under
 `$COSMIC_CI_LOCAL/logs/` (default `${TMPDIR:-/tmp}/cosmic-ci-local-<uid>/<key>`,
-keyed by the checkout's path, so worktrees can run at once; a removed
-worktree's state stays until deleted).
+keyed by the checkout's path, so worktrees can run at once). Each run on
+that default records its checkout in `<key>.source` beside its state, and
+removes the state of every recorded checkout that is gone. A state with no
+record, as each made before records were, stays until deleted.
+
+Like gating CI, run-local sets `COSMIC_CI_FIXED_POINT=skip` unless the
+caller sets it, so `fixtures` skips the fixed-point regression. Gating CI
+skips it as its slowest fixture; on a host of four CPUs its compiles also
+outlast the 340 s per-test bound. Any other value, such as `run`, runs it.
 
 The `sandbox` phase writes what spawn's sandbox can hold on this machine
 (`build/sandbox_probe.tl`) to its log and the summary, and fails only when
@@ -449,7 +456,7 @@ Before the agent starts, it lets unprivileged user namespaces be made
 and runs `gh auth setup-git`. While the agent runs, it writes a fresh
 GitHub OIDC token every 4 minutes, for the agent to trade for a Claude
 token. It ends the agent at 130 minutes or on a signal. The job's log
-gets the agent's answer and its `cosmic:` complaints, not the agent's
+gets the agent's reply and its `cosmic:` complaints, not the agent's
 tool calls. The header of review.yml says when it runs and what the
 agent may do; [`cosmic_ci/review.tl`] says why the token is refreshed
 and the tool calls are kept out of the log. [`cosmic_ci/review_test.tl`]
@@ -461,17 +468,22 @@ drives it against a fake host.
 
 ### what runs where
 
-The merge queue gates a merge, and is kept light and fast; main's runs
-are where CI answers for everything. A branch's push runs nothing.
+The merge queue gates a merge and runs what main's push runs, so a
+commit that would turn main red fails its queue entry instead. The
+queue also runs macOS's native suite; the daily run, a manual run of
+main and one that asks for it (`macos`) add macOS's whole leg. A
+branch's push runs nothing.
 
 - **a push to a branch** runs no CI. The merge queue tests every change
   before it lands, and the author's local checks (`bin/cosmic fix`,
   `bin/cosmic test`, `ci/run-local`) are the branch's (the tree's
   `doc/contributing.md`). A **manual run** (`workflow_dispatch`) of a
-  branch runs what main's run does.
+  branch runs what main's daily run does but macOS, unless it asks for
+  it (`-f macos=true`), and runs the checked and narrowing suites in the
+  queue's shares.
 - **a pull request** runs the lightest check, the `ci` check the merge
   queue requires of a pull request before it takes it: linux-x86_64's leg
-  boots the tree, checks the bootstrap's scripts, and checks the tree's
+  boots the tree, runs its native suite, checks the bootstrap's scripts, and checks the tree's
   format over the paths the pull request changed since its merge base with
   main (driver.tl changed-paths, `fix --check --changed`, which lays out
   only those and makes every check spanning files, the markers held to
@@ -480,32 +492,61 @@ are where CI answers for everything. A branch's push runs nothing.
   `cosmic_ci/changed_paths.tl`: `build/launcher.tl`, `core/startup.c`,
   `ci/fixtures/` and the like), or the paths changed are not known, it
   also builds the artifacts and runs those fixtures, which nothing else
-  before main's push runs. No suite, and it saves nothing.
-- **the merge queue** (`merge_group`) runs linux-x86_64's leg alone, as
-  two jobs at once, each booting the tree: `linux-x86_64` (part `suite`)
-  runs the native suite and its boundary and probes the sandbox;
-  `linux-x86_64-format` (part `format`) checks the bootstrap's scripts and
-  the tree's format over the paths the commit changed since main, as a
-  pull request does. Beside them `linux-x86_64-driver` (the `driver` job)
-  boots nothing and checks the pinned CI driver where those paths reach
-  what its tests read (`ci/`, `.github/`). An entry takes as long as the
-  longest of the three jobs. Main moves only through the queue, so its
-  check of what changed holds main's whole tree. Nothing else: no
-  assemble, regressions, portable suite or product, and no checked or
-  narrowing job, which read as passed in the gate, as on a pull request.
+  before main's push runs. Beside it, once the pull request is not a
+  draft, `macos-aarch64` (part `suite`) runs macOS's native suite and
+  darwin suite, as the queue's does; marking it ready runs the check
+  again. GitHub gives no job a priority, so a draft's pushes leave the
+  few macOS runners to the queue. Both native
+  suites stand on main's verdicts ([`cosmic_ci/orchestration.tl`]'s
+  `standing_events`), so they run only the tests the change reaches. A
+  failure the queue would meet on those legs shows on the pull request
+  first, before the change takes a queue slot: a macOS-only test, for one,
+  or a test of the built binary's verbs. It saves nothing.
+- **the merge queue** (`merge_group`) runs what a push to main runs:
+  every Linux leg and the checked and narrowing jobs. Each leg is two jobs
+  at once, each booting the tree: `<leg>` (part `suite`) runs the native
+  suite and its boundary, the darwin suite, the sandbox probe and the
+  credential proofs; `<leg>-product` (part `product`) runs assemble, the
+  regressions, the portable suite, the attestation and the product.
+  alpine-x86_64's product, the longest, is two jobs, each assembling:
+  `alpine-x86_64-portable` (the portable suite, the attestation and the
+  product) and `alpine-x86_64-regressions`.
+  `macos-aarch64` (part `suite`) runs macOS's native suite and darwin
+  suite, which a push does not: macOS's failures were met only by the
+  daily run, and each held up the prerelease. Beside
+  them `linux-x86_64-format` (part `format`) checks the bootstrap's
+  scripts and the tree's format over the paths the commit changed since
+  main, as a pull request does, and `linux-x86_64-driver` (the `driver`
+  job) boots nothing and checks the pinned CI driver where those paths
+  reach what its tests read (`ci/`, `.github/`). `macos-aarch64` checks
+  it there too, before its suites: its tests start the host's programs,
+  which macOS keeps elsewhere (`/sbin/sha256sum`), and a break only
+  macOS meets showed before only in the next daily or manual run. The checked suite runs
+  in three shares at once (`linux-x86_64-checked-1` to `-3`,
+  `cosmic test --shard`), so it is not the entry's longest job; a share
+  does not check the C functions, which main's push does. The checked
+  narrowing suite runs in three shares too
+  (`linux-x86_64-checked-narrowing-1` to `-3`): whole, standing on no
+  verdict, it reached its deadline. The gate
+  compares the three products. An entry takes as long as its longest job. Main moves
+  only through the queue, so its check of what changed holds main's whole
+  tree.
 - **a push to main** runs three legs whole, every leg but macOS (the
   native suite, the credential proofs, assemble, the regressions, the
   portable suite, the attestation and the product), the checked core's
   whole suite (`checked`) and the whole suite on a checked run
   (`narrowing`), and the gate compares the three products
-  (`COSMIC_CI_PRODUCTS=3`). It publishes nothing. It repeats neither
+  (`COSMIC_CI_PRODUCTS=3`). It also runs macOS's suite (part `suite`, no
+  product), which stands on the queue's macOS verdicts and saves macOS's
+  caches (zig, its build outputs, compiles, verdicts) for the queue's next
+  runs: only the daily run saved them before, and the queue's macOS job
+  booted cold. It publishes nothing. It repeats neither
   the format check nor the pinned driver's, which the queue made of the
   very commit; the daily run checks the driver on every leg, and the
-  weekly and a manual run check the whole tree's format too. A failure only these
-  show turns main red after the change has landed, to be fixed or
-  reverted at once.
-- **the daily scheduled run** and **a manual run** run all that and the
-  macOS leg, and the gate compares the four products, which
+  weekly and a manual run check the whole tree's format too. Each leg
+  stands on the verdicts its queue job reached for the commit.
+- **the daily scheduled run** and **a manual run** of main (or one with
+  `macos`) run all that and the macOS leg, and the gate compares the four products, which
   prerelease.yml publishes: a prerelease is tested on all four legs, and
   some hours behind main (`prerelease-follow`, below). The daily run and a manual run stand on the
   verdicts main's pushes left, as a push does (`COSMIC_CI_EVENT`); Sunday's,
@@ -517,14 +558,15 @@ are where CI answers for everything. A branch's push runs nothing.
   (`driver.tl place-tree`), so its daily run saves verdicts and its
   weekly run, which saves none, catches a test that turns on the path.
 
-Each job is a plain sequence of steps on one runner: none is split into
-shares, and none waits on another but the gate. Three things are relayed
+Each job is a plain sequence of steps on one runner, and none waits on
+another but the gate; only the queue splits a leg, into its suite and its
+product. Three things are relayed
 between runs, by the relay (relay.yml), a workflow of its own that runs on
 each push to main a minute after the merge, apart from ci.yml's pushes,
 which wait on each other and save only as they end, 15 to 30 minutes
-later. The merge queue's linux-x86_64 leg, where its native suite passed,
+later. Each of the merge queue's legs, where its native suite passed,
 trims its verdicts to what it used and uploads them with the name of the
-cache its host keeps them in (`queue-verdicts-linux-x86_64`, kept a day;
+cache its host keeps them in (`queue-verdicts-<leg>`, kept a day;
 `driver.tl verdicts-name`). The relay finds that run (`driver.tl
 queue-run`, the job's `actions: read`), restores main's newest verdicts of
 that cache (`driver.tl verdicts-key`), merges the queue's into them
@@ -535,52 +577,80 @@ relay the next queue entry stood on main's last save, a commit or more
 behind, and ran its whole native suite where that commit moved a key. A
 row stands only for a test whose key is the same, so the relay decides how
 many tests stand, never whether one is right, and no step of it fails a
-job. The queue's format job, where its check passed, seals the memo of the
+job. No queue run saves a cache, but a queue ref's name comes again
+where a pull request is queued again on the same commit of main, and a
+run restores its own ref's caches before main's; a cache there was saved
+by code the queue ran, perhaps an earlier head that never merged, whose
+archive a restore extracts over the checkout. So every job that restores
+a cache waits on the `queue-ref` job, which restores none and fails a
+queue run whose ref holds one (`driver.tl queue-ref-caches`), and the
+`ci` gate lists them again once every job has run, for a cache written
+while the run ran. A cache GitHub evicted before the second listing goes
+unseen.
+
+A queue leg that failed uploads the rows it used too
+(`queue-tried-verdicts-<job>`, kept a day). A checked shard and the
+narrowing suite upload theirs whether they pass or fail, and a release
+leg's suite that passed left its rows as `queue-verdicts-<leg>`. The
+next try of the same pull request finds the newest failed run that has
+ended and holds that job's artifact, or else that leg's
+(`driver.tl queue-tried-run`), and merges it in before its suites, so a
+suite the deadline stopped (COSMIC_TEST_DEADLINE) keeps its passes for
+that try. The code a run ran can write any row, so it takes a
+run only where GitHub's record shows that run ran merged code and this
+try's change: the commit its entry was put on is on main (a queue commit
+holds the entries ahead of it too, and one dropped from the queue never
+merges), and its commit changes the same files, by name, name before,
+content and mode, as this try's does (an earlier head of the pull request never
+merges either). The run's `queue-ref` job and the gate's second listing
+must both have passed, and its ref must hold no cache now. Only a run's
+first attempt counts (an attempt again keeps the earlier one's artifacts
+and jobs), and the download takes the one artifact the lookup checked,
+by its id.
+The queue's format job, where its check passed, seals the memo of the
 tree checks (the shared rows of `build/check_memo.tl`, in the cache
 directory: `driver.tl checks-seal` keeps the rows the run used, in one
 file with no write-ahead log) and uploads it (`queue-checks-linux-x86_64`);
 the relay downloads it, holds it to a memo with rows, and saves it
 (`checks-linux-x86_64-<sha>`, [`cosmic_ci/checks_seal.tl`]). The format
 check of a pull request or a queue entry restores the newest, so the tree
-checks check again only the files its rows do not answer: from cold they
-take some 3.5 minutes. The queue's suite job also uploads the compiles and
-parses it trimmed (`queue-compiles-linux-x86_64`); the relay saves them
-(`compiles-linux-x86_64-queue-<sha>`), and main's push boots on them in
+checks check again only the files its rows do not cover: from cold they
+take some 3.5 minutes. Each queue leg also uploads the compiles and
+parses it trimmed (`queue-compiles-<leg>`); the relay, a job a leg, saves
+them (`compiles-<leg>-queue-<sha>`), and main's push boots on them in
 place of the entry it restored, so a pull request or a queue entry that
 boots soon after a merge takes them rather than compiling the tree from
 cold (about a minute).
-No other markers, products or verdicts pass between
-runs. That costs main's run its wall clock, which no one waits on, rather
-than runner minutes. The queue, which every change waits on, is the one
-exception: its leg is two jobs (above), each the time of a boot and its
-part, beside the pinned driver's check, which boots nothing.
+No other markers, products or verdicts reach main's push: the queue's
+product jobs and its checked and narrowing jobs relay nothing to it, so
+it runs those rows again.
 
 `COSMIC_CI_SAVES` is `true` only for a push to main and the scheduled runs,
 the only runs that save a cache, and is decided in the top-level `env`. The
 driver does not read it (it is `COSMIC_CI_*`, which a suite's workers are
 never given).
 
-The platform job's `include` is an expression that chooses one of four
-lists by the kind of run (linux-x86_64 alone for a pull request, its two
-parts for the queue, every leg but macOS for a push to main, all four
-otherwise), each listing every leg whole: an `include` entry naming a leg
+The platform job's `include` is an expression that chooses a list by the
+kind of run (linux-x86_64 for a draft pull request, and macOS's suite beside it for one that is not; for the
+queue every leg but macOS as its suite and its product, linux-x86_64's
+format check and macOS's suite; every leg but macOS, and macOS's suite, for a push to main; all four otherwise),
+each listing every job: an `include` entry naming a leg
 no dimension holds would start that leg anyway (GitHub adds an entry that
 fits no combination as one of its own). Each entry names the job
 (`name`), the host it is (`leg`: its caches, its verdicts,
 `COSMIC_WORKER`) and what of the leg it runs (`part`: `all`, or the
-queue's `suite` or `format`). build/workflows_test.tl reads all four as
+queue's `suite`, `product` or `format`). build/workflows_test.tl reads each list as
 GitHub would.
 
 A newer manual run supersedes a branch's, but every main run finishes and
 main's pushes run
 one at a time, in one concurrency group, so the caches they save land in
 commit order. The relay (relay.yml) saves apart, a minute after each
-merge, so linux-x86_64's push of a commit main has moved past saves no
+merge, so a leg's push of a commit main has moved past saves no
 verdicts or compiles (`driver.tl main-newest`): its save, made later, would
-be the newest and lack the newer commit's. So the rows only main's push
-reaches (its portable suite, its regressions) reach linux-x86_64's cache
-from a push still at main's head when its leg ends, and run again until
-one is. GitHub keeps one pending run per group and cancels it when a
+be the newest and lack the newer commit's. So the rows the relay does not
+carry (the portable suite's, the regressions') reach a leg's cache from a
+push still at main's head when its leg ends, and run again until one is. GitHub keeps one pending run per group and cancels it when a
 third arrives, so a commit that lands while main is busy and another run
 waits gets no run. The scheduled runs have a group of their own: pending
 behind a push, the next push would cancel one. A manual run has a group per ref: it saves nothing, so in

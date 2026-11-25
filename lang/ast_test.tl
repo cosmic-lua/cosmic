@@ -74,6 +74,8 @@ end
 local interface Conn<T> is Stream.Reader
   name: string
 end
+local DDL <const> = "CREATE TABLE t (x)"
+local schema Kept = DDL .. ";"
 local class Counter<T> is Resettable
   function bump(self, by: integer): integer return by end
   function pick<U>(self, u: U): U return u end

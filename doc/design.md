@@ -49,17 +49,16 @@ these argues with the principle, not with the reviewer.
    (false, Failure)` for an effect, two slots and nothing in a third.
    a [`cosmic.failure`] keeps the words, the path where there is one,
    the errno where a system call failed, and a `kind` (`other`,
-   `system`, `parse`, `library`, `timeout`, `cancelled`), so a caller
+   `system`, `parse`, `library`, `timeout`, `cancelled`, `mismatch`), so a caller
    acts on the cause and never matches the words. a call that asks
-   whether something is there answers that as a value ([`Fs.status`]'s
+   whether something is there returns that as a value ([`Fs.status`]'s
    `exists`, [`Store.holds`]), not as a failure. the stdlib moves to this
-   shape a module at a time; a module not yet moved answers `T?,
+   shape a module at a time; a module not yet moved returns `T?,
    string` and `boolean, string`, which the checks on callers hold as
    well. intended: one operation is one function, with no twin beside
-   it that raises or that answers a classified record
-   ([`Http.download_result`] and `handle:exec_result` go once their
-   modules move; [`Proc.find`]'s failure carries the errno a shell's 126
-   and 127 tell apart). the raw binding table [`cosmic.sys`] is
+   it that raises or that returns a classified record
+   ([`Proc.find`]'s failure carries the errno a shell's 126 and 127
+   tell apart). the raw binding table [`cosmic.sys`] is
    the one exception to the two slots: its C calls add the errno in a
    third slot. a stand-in that a module stores into that table in a
    binding's place returns as the binding does. every other Teal
@@ -672,7 +671,8 @@ private, mode 0500, in the validated leaf. a `noexec` cache fails
 there, with a diagnostic that names it. a program `cosmic build`
 writes shares the prefix, and so the compressed cores. the runtime's
 own readers never decode. `trusted_prefix` hashes each stored range
-against its stored digest. `trusted_core` (for `cosmic build --host`)
+against its stored digest. `trusted_core` (for `cosmic build --host` and
+[`Store.host_program`])
 reads the running cached core and hashes it again.
 
 the database is read-only, and the runtime never writes it. it is
@@ -854,7 +854,7 @@ semantic identities keep different kinds of reuse separate:
   syntax tree and the statements that write their rows. it is not the
   whole compiler identity. it holds nothing of the checker, which no
   module of that walk requires. so an edit that only a compile runs
-  (build.plans, lang/check.tl, [`build.driver`]) parses nothing again.
+  (build.plans, lang/check/, [`build.driver`]) parses nothing again.
   an edit to the lexer or the parser parses every source again.
 - the writer identity holds the code and core image that determine a
   projection's bytes, including its standard-library dependencies. the
@@ -1259,7 +1259,7 @@ it:
   `.d.tl`, or their own record, class, interface and enum
   declarations. [`lang/relation.tl`] says when one type stands for
   another, and [`lang/generics.tl`] binds a generic's parameters.
-- [`lang/check.tl`] types each expression and statement.
+- [`lang/check/init.tl`] types each expression and statement.
   [`lang/flow.tl`] decides reachability: which statements end their
   block, and so which narrowings survive an `if`.
   [`lang/check_codes.tl`] lists every code an error can carry.
@@ -1299,7 +1299,7 @@ tree.
 
 the boot checks that the first stage equals the second wherever the
 generator writes what the release's does. it fails, naming the files,
-unless `lang/SEED_DIFFERS` lists them (one path a line) as declared to
+unless [`lang/SEED_DIFFERS`] lists them (one path a line) as declared to
 differ: a generator change ahead of the pin. a file listed that does
 not differ fails too, unless `COSMIC_BOOTSTRAP` names the seed instead
 of the pin. the sources are in the compiler's identity, and so in
@@ -1314,11 +1314,15 @@ the grammar is Teal's, made smaller and explicit.
   an integer enum is also the table of them, with `E.of(n): E?` and
   `E.name(v): string`. a module returns one of them, or a local
   declared with its type.
+- `e!`, written on a name, a call or an index, is `assert(e)`: the
+  value of a call that answers `T` or `nil, Failure`, or a raise with
+  the reason; on a value that may be nil, the value.
 - an optional type is `T?`, and an optional field `name?: T`.
   `T | nil` is refused.
 - a field is fixed unless declared `mut`. a collection parameter is a
   view unless declared `mut {T}`.
-- there are no casts (`as`), no `;`, and no `goto` but a continue.
+- there are no casts (`as`) and no `goto` but a continue. a `;` may
+  end a statement, as in Lua, and `cosmic fix` deletes it.
 - there is no `setmetatable`: a class's methods are written as
   methods, and the compiler writes its metatable. the one exception is
   the weak table `setmetatable({}, { __mode = "k" })`, the `mut` map
@@ -1414,7 +1418,8 @@ the rules the checker holds, each with its own codes, are these.
   over every string ends a function.
 - a record that is not a class is tested by `is` only where the
   run-time Lua can tell it apart. that is as the one table a value may
-  be, or by the tag of a tagged union, which `is` then reads.
+  be, by the tag of a tagged union, which `is` then reads, or by a
+  required field only that record of the union declares.
 - there is no implicit conversion. `integer` is not concatenated
   without `tostring`, and a number does not compare with a string.
 - the error-slot discipline of the third principle
@@ -1623,9 +1628,9 @@ mechanism produced it.
 per-host network rules are not in the kernel's part of the core.
 Landlock's port rule has no address. so "only the proxy's port"
 reaches any host on that port, and no Landlock ABI or seccomp filter
-can close it. a policy's `connect` list holds per-host rules instead,
-on both OSes. a child's start runs a network relay that connects only
-to the hosts the list grants ([`Child.start`]). a caller who needs
+can close it. a policy's `{ connect = "host:port" }` grants hold
+per-host rules instead, on both OSes. a child's start runs a network
+relay that connects only to the hosts they grant ([`Child.start`]). a caller who needs
 more takes the Linux extension below, or a container.
 
 Linux extensions may only deny what the core allows, never allow what
@@ -1805,7 +1810,7 @@ target. a name marked intended is no module yet.
   [`cosmic.string`], [`cosmic.errno`], [`cosmic.errors`],
   [`cosmic.log`], [`cosmic.test`], [`cosmic.coverage`], [`cosmic.doc`]
   and [`cosmic.shape`]. the checker and the syntax tree are
-  [`lang/check.tl`] and [`lang/ast.tl`], and the Teal compiler is the
+  [`lang/check/init.tl`] and [`lang/ast.tl`], and the Teal compiler is the
   rest of `lang/`. the formatter is [`build.fix.format`], and embedding
   is [`build/embed.tl`].
 - **second**: [`cosmic.http`], [`cosmic.net`], [`cosmic.dns`],
@@ -1919,7 +1924,7 @@ in [roadmap.md](roadmap.md).
 [`cosmic/fs_example.tl`]: ../cosmic/fs_example.tl
 [`doc/testing.md`]: testing.md
 [`lang/ast.tl`]: ../lang/ast.tl
-[`lang/check.tl`]: ../lang/check.tl
+[`lang/check/init.tl`]: ../lang/check/init.tl
 [`lang/check_codes.tl`]: ../lang/check_codes.tl
 [`lang/codegen.tl`]: ../lang/codegen.tl
 [`lang/declarations.tl`]: ../lang/declarations.tl
@@ -1987,7 +1992,8 @@ in [roadmap.md](roadmap.md).
 [`cosmic.zip`]: ../cosmic/zip.tl
 [`doc/guides/project.md`]: guides/project.md
 [`Fs.status`]: ../cosmic/fs.tl
-[`Http.download_result`]: ../cosmic/http/init.tl
+[`lang/SEED_DIFFERS`]: ../lang/SEED_DIFFERS
 [`Proc.find`]: ../cosmic/proc.tl
 [`Rand.uuid`]: ../cosmic/rand.tl
 [`Store.holds`]: ../cosmic/store.tl
+[`Store.host_program`]: ../cosmic/store.tl

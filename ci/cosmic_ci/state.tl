@@ -103,7 +103,7 @@ local SUITE_COLUMNS <const>: {string} = { "worker", "run", "attempt", "phase", "
 --- column was lacks it.
 local function suite_columns_of(db: Sqlite.Handle): {string:boolean}
   local out: mut {string:boolean} = {}
-  for _, row in ipairs((assert(Sqlite.text_rows(db,
+  for _, row in ipairs((assert(db:text_rows(
       "SELECT name FROM pragma_table_info('suite_runs')")))) do
     out[row:text(1)] = true
   end
@@ -128,7 +128,7 @@ end
 function State.start(path: string, worker: string, run: string, attempt: string,
                      phase: string, at: integer): integer
   local db = State.open(path)
-  assert(Sqlite.run(db, [[INSERT INTO operation_events
+  assert(db:run([[INSERT INTO operation_events
     (event,worker,run,attempt,phase,monotonic_ns)
     VALUES('start',?1,?2,?3,?4,?5)]],
     { text(worker), text(run), text(attempt), text(phase), integer(at) }))
@@ -142,7 +142,7 @@ function State.complete(path: string, id: integer, worker: string, run: string,
                         status: string, code: integer?, signal: integer?,
                         timed_out: integer, detail: string?)
   local db = State.open(path)
-  assert(Sqlite.run(db, [[INSERT INTO operation_events
+  assert(db:run([[INSERT INTO operation_events
     (start_id,event,worker,run,attempt,phase,monotonic_ns,elapsed_ns,status,
      exit_code,signal,timed_out,detail)
     VALUES(?1,'complete',?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)]],
@@ -160,7 +160,7 @@ local integer_columns: {string:boolean} = { exit_code = true, tests = true,
 --- The rows of `suite_runs` in `db`, in the order written; none where
 --- `db`, an operations database written before the table was, lacks it.
 function State.suite_rows(db: Sqlite.Handle): {State.SuiteRun}
-  local present = assert(Sqlite.text_rows(db,
+  local present = assert(db:text_rows(
     "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'suite_runs'"))
   if #present == 0 then return {} end
   local selected: mut {string} = {}
@@ -181,7 +181,7 @@ function State.suite_rows(db: Sqlite.Handle): {State.SuiteRun}
   else
     selected[#selected + 1] = "1, ''"
   end
-  local rows = assert(Sqlite.text_rows(db, "SELECT " .. table.concat(selected, ", ") ..
+  local rows = assert(db:text_rows("SELECT " .. table.concat(selected, ", ") ..
       " FROM suite_runs ORDER BY id"))
   local out: mut {State.SuiteRun} = {}
   for _, cells in ipairs(rows) do
@@ -242,7 +242,7 @@ function State.suite(path: string, row: State.SuiteRun)
   local marks: mut {string} = {}
   for i = 1, #columns do marks[#marks + 1] = "?" .. tostring(i) end
   local db = State.open(path)
-  assert(Sqlite.run(db, "INSERT INTO suite_runs (" .. table.concat(columns, ",") ..
+  assert(db:run("INSERT INTO suite_runs (" .. table.concat(columns, ",") ..
       ") VALUES (" .. table.concat(marks, ",") .. ")", values))
   assert(db:close())
 end

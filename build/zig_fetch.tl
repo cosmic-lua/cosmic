@@ -13,7 +13,7 @@
 --- cache miss.
 ---
 --- The tarball `zig-<host>-<version>.tar.xz` is downloaded, checked by
---- [`Http.download_result`]'s `sha256` option, from a few of zig's community
+--- [`Http.download`]'s `digests` option, from a few of zig's community
 --- mirrors and then `https://ziglang.org/download/<version>/`, retried in
 --- rounds ([`ZigFetch.sources`], [`ZigFetch.fetch`]). It goes into a
 --- uniquely named scratch wrapper under `cache`, is extracted with
@@ -28,19 +28,28 @@
 
 local Archive = require("cosmic.archive")
 local Clock = require("cosmic.clock")
+local type Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local sys = require("cosmic.sys")
 
 local SECOND <const> = Clock.seconds(1)
 
+-- TODO: test `why.kind == "mismatch"` itself, and drop BARRED and the
+-- test of `why.path` in ZigFetch.fetch, once ci/cosmic-driver.pin names a
+-- release whose Failure has that kind: this file runs on the pinned
+-- release, whose checker refuses a kind its Failure lacks.
+
+--- The failure kinds that bar a mirror from the rounds after: wrong bytes.
+local BARRED <const>: {string:boolean} = { mismatch = true }
+
 local record ZigFetch
   --- What [`ZigFetch.fetch`] downloads with, pauses with (for
   --- nanoseconds) and reads the time from (in nanoseconds):
-  --- [`Http.download_result`], [`sys.nanosleep`] and [`Clock.monotonic_ns`]
+  --- [`Http.download`], [`sys.nanosleep`] and [`Clock.monotonic_ns`]
   --- unless a test says otherwise.
   record Fetcher
-    download: function(url: string, path: string, opts: Http.Options): Http.DownloadResult
+    download: function(url: string, path: string, opts: Http.Options): (true) | (false, Failure)
     sleep: function(ns: integer)
     now: function(): integer
   end
@@ -152,8 +161,8 @@ local record Tally
   mut attempts: integer
 end
 
-local function real_download(url: string, path: string, opts: Http.Options): Http.DownloadResult
-  return Http.download_result(url, path, opts)
+local function real_download(url: string, path: string, opts: Http.Options): (true) | (false, Failure)
+  return Http.download(url, path, opts)
 end
 
 local function real_sleep(ns: integer)
@@ -168,7 +177,8 @@ function ZigFetch.limits(connect_ns: integer, low_speed_bytes: integer, low_spee
   -- trusts every root rather than the minimal set a request trusts by
   -- default.
   return { connect_timeout_ns = connect_ns, low_speed_bytes = low_speed_bytes,
-    low_speed_ns = low_speed_ns, timeout_ns = timeout_ns, roots = "mozilla", sha256 = sha256 }
+    low_speed_ns = low_speed_ns, timeout_ns = timeout_ns, roots = "mozilla",
+    digests = if sha256 ~= nil then { ["sha256"] = sha256 } else nil end }
 end
 
 --- Downloads the file whose sha256 is `sha256` to `path` from the first
@@ -179,7 +189,7 @@ end
 --- `CONNECT_TIMEOUT_NS`). Once the budget is spent the mirrors are
 --- skipped and the fallback is tried one last time.
 ---
---- Each attempt starts from no file at `path` ([`Http.download_result`] writes a
+--- Each attempt starts from no file at `path` ([`Http.download`] writes a
 --- fresh temporary file and renames it into place only once the digest
 --- matches). A mirror that served the wrong bytes is not asked again;
 --- one that failed any other way is, in the next round. The fallback is
@@ -198,15 +208,15 @@ function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
   local tally: Tally = { attempts = 0 }
   local out_of_time = false
 
-  local function attempt(url: string, opts: Http.Options): Http.DownloadResult
+  --- nil once `url` is downloaded, else why not.
+  local function attempt(url: string, opts: Http.Options): Failure?
     tally.attempts = tally.attempts + 1
     local _, _ = Fs.remove(path)
     local started = now()
-    local result = download(url, path, opts)
-    if result.kind ~= "downloaded" then
-      last[url] = result.reason .. " (after " .. tostring((now() - started) // SECOND) .. " s)"
-    end
-    return result
+    local done, why = download(url, path, opts)
+    if done then return nil end
+    last[url] = tostring(why) .. " (after " .. tostring((now() - started) // SECOND) .. " s)"
+    return why
   end
 
   local fallback = urls[#urls]
@@ -221,21 +231,23 @@ function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
         if left <= 0 then
           out_of_time = true
         else
-          local result = attempt(url, ZigFetch.limits(math.min(CONNECT_TIMEOUT_NS, left),
+          local why = attempt(url, ZigFetch.limits(math.min(CONNECT_TIMEOUT_NS, left),
             MIRROR_LOW_SPEED_BYTES, MIRROR_LOW_SPEED_NS, math.min(MIRROR_TIMEOUT_NS, left), sha256))
-          if result.kind == "downloaded" then
+          if why == nil then
             return true, ""
           end
-          if result.kind == "digest_mismatch" then
+          -- On the pinned release a mismatch is of kind "other", and the
+          -- only failure that names the path.
+          if BARRED[why.kind] == true or why.path == path then
             wrong[url] = true
           end
         end
       end
     end
     if fallback ~= nil then
-      local result = attempt(fallback, ZigFetch.limits(CONNECT_TIMEOUT_NS, FALLBACK_LOW_SPEED_BYTES,
+      local why = attempt(fallback, ZigFetch.limits(CONNECT_TIMEOUT_NS, FALLBACK_LOW_SPEED_BYTES,
         FALLBACK_LOW_SPEED_NS, Http.FOREVER, sha256))
-      if result.kind == "downloaded" then
+      if why == nil then
         return true, ""
       end
     end
@@ -286,7 +298,7 @@ local function unpack(work: string, version: string, host: string,
 end
 
 --- Fetches zig `version`'s release for `host` into `install`, a
---- directory under `cache`, answering `install/zig`. `sha256` is the
+--- directory under `cache`, returning `install/zig`. `sha256` is the
 --- host's tarball's, from [`bin/zig.pin`]; nil when the pin names none,
 --- which fails with no download.
 function ZigFetch.install(cache: string, install: string, version: string, host: string,

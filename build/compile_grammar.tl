@@ -1,13 +1,13 @@
 --- The new checker's grammar for `cosmic compile` ([`build/compile.tl`]): files written
 --- in it, lexed ([`lang.lexer`]), parsed ([`lang.parser`]), scoped ([`lang.scopes`]), lowered
 --- ([`lang.declarations`]), checked ([`lang.check`]) and written as Lua ([`lang.codegen`]), the way
---- [`build/tree_checks.tl`] and [`lang.check_programs`] drive them, but for the files a command line
+--- [`build.tree_checks`] and [`lang.check_programs`] drive them, but for the files a command line
 --- names and nothing else. The program is a [`build.driver`] build over those files, and the generator's inputs
 --- are put together by [`emit`], which the build's own pipeline ([`build.pipeline`]) calls too.
 ---
 --- THE PROGRAM IS THE FILES GIVEN. A `.tl` file is checked as the module its path below the root
 --- names ([`lang.declarations`]'s [`module_of`]: [`lang/ast.tl`] is [`lang.ast`], `a/init.tl` is `a`), and
---- a `require` of another file given is answered from it. A `.d.tl` file given is a declaration file:
+--- a `require` of another file given is resolved from it. A `.d.tl` file given is a declaration file:
 --- its `global` declarations are the globals of every file, which is how the standard library reaches
 --- the checker, and it has no Lua. A `cosmic.*` module no file given is the module of is a binding the
 --- new checker cannot declare: it is typed `invalid` and reported (`unchecked_binding`), as the tree
@@ -125,7 +125,7 @@ local record compile_grammar
   --- it; without it, that of a file compiled alone, as `cosmic compile` does.
   emit: function(build: Driver.Build, result: Driver.Outcome, facts?: boolean, counted?: boolean, served?: boolean): Emitted
 
-  --- Compiles `sources` together. The answer holds one entry for each, in order. After a syntax error in
+  --- Compiles `sources` together. The result holds one entry for each, in order. After a syntax error in
   --- any file no file has Lua and the other stages did not run. With `facts` the Lua checks the conclusions of the
   --- checker about the places a test narrowed. With `standalone` and no declaration file among `sources`, they are checked
   --- against its globals and `cosmic.*` modules, and a warning is reported with the errors, as a standalone run refuses it.
@@ -288,7 +288,7 @@ function compile_grammar.compile(sources: {compile_grammar.Source}, facts?: bool
   local by_module: mut {string: Driver.Source} = {}
   local provided: mut {string: boolean} = {}
   -- A declaration beside a source of its module is refused by the caller that reads the command line ([`build.compile`]); one
-  -- given here is a mistake of the caller, which would otherwise have the later file silently answer for both.
+  -- given here is a mistake of the caller, which would otherwise have the later file silently stand for both.
   local entries: mut {{string}} = {}
   for _, source in ipairs(sources) do
     entries[#entries + 1] = { source.relative, source.text }

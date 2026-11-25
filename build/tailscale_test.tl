@@ -1,11 +1,12 @@
 --- `cosmic tailscale` (build/tailscale.tl), run in this process against a
 --- stand-in tailscaled: a [`Server.serve`] on a socket of the test's own
---- that answers the LocalAPI paths with the JSON the daemon writes. The
---- verb runs in a task of the stand-in's own run, as a call of
+--- that responds to the LocalAPI paths with the JSON the daemon writes.
+--- The verb runs in a task of the stand-in's own run, as a call of
 --- [`cosmic.tailscale`] waits as one, with its output and files stood in
 --- for.
 
 local Array = require("cosmic.array")
+local type Failure = require("cosmic.failure")
 local Net = require("cosmic.net")
 local Server = require("cosmic.http.server")
 local Stream = require("cosmic.stream")
@@ -113,22 +114,22 @@ local class Sink is Stream.Writer
   path: string
   parts: mut {string}
 
-  function write(self, chunk: string): boolean, string
+  function write(self, chunk: string): (true) | (false, Failure)
     self.parts[#self.parts + 1] = chunk
-    return true, ""
+    return true
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.ran.files[self.path] = table.concat(self.parts)
-    return true, ""
+    return true
   end
 
-  function abort(self): boolean, string
-    return true, ""
+  function abort(self): (true) | (false, Failure)
+    return true
   end
 end
 
---- The stand-in's answer to a Taildrop path, or nil for another.
+--- The stand-in's response to a Taildrop path, or nil for another.
 local function file_answer(ran: Ran, req: Server.Request): Server.Reply?
   local target = req.target
   if target == "/localapi/v0/file-targets" then return { status = 200, body = TARGETS } end
@@ -161,7 +162,7 @@ local function file_answer(ran: Ran, req: Server.Request): Server.Reply?
   return { status = 200, body = data }
 end
 
---- The stand-in's answer to `target`; `status` is the status reply.
+--- The stand-in's response to `target`; `status` is the status reply.
 local function answer(target: string, status: string): Server.Reply
   if target == "/localapi/v0/status" or target == "/localapi/v0/status?peers=false" then
     return { status = 200, body = status }
@@ -193,9 +194,9 @@ end
 local runs = 0
 
 --- `cosmic tailscale <words>` against the stand-in at a socket under
---- `tmp`, which answers `status` for the status (STATUS by default).
---- With `no_socket` the command line names none, and the run's connect
---- is handed the stand-in's anyway.
+--- `tmp`, which responds with `status` for the status (STATUS by
+--- default). With `no_socket` the command line names none, and the
+--- run's connect is handed the stand-in's anyway.
 local function run(tmp: string, words: {string}, status?: string, no_socket?: boolean, setup?: function(Ran)): Ran
   local ran: Ran = { code = -1, out = "", err = "", files = {}, modes = {}, seen = {}, renamed = {},
     waiting = {}, put = {} }
@@ -259,7 +260,9 @@ local function run(tmp: string, words: {string}, status?: string, no_socket?: bo
           return file == "/in" or file == "/" or file:match("^/ro") ~= nil
         end,
         connect = function(opts: Tailscale.Daemon): Tailscale.Client?, string
-          return Tailscale.connect({ socket = opts.socket or path })
+          local client, why = Tailscale.connect({ socket = opts.socket or path })
+          if client == nil then return nil, tostring(why) end
+          return client, ""
         end,
       })
       server:stop()

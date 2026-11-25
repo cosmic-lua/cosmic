@@ -1,4 +1,4 @@
---- The running process itself.
+--- The running process itself: its pid, user, exit and exec, a program found on PATH, and whether a stream is a terminal.
 
 local Env = require("cosmic.env")
 local Failure = require("cosmic.failure")
@@ -87,7 +87,7 @@ function Proc.executable(): (string) | (nil, Failure)
   return path
 end
 
---- Looks up an explicitly named account, answering its uid and primary
+--- Looks up an explicitly named account, returning its uid and primary
 --- gid, or nil and a [`Failure`]: of kind "other" and the message
 --- [`Proc.NO_ACCOUNT`] for a name no account has, or of kind "system"
 --- with the lookup's errno where it failed. Empty names and NUL bytes
@@ -104,13 +104,13 @@ function Proc.user(name: string): (Proc.User) | (nil, Failure)
 end
 
 --- How many processors are online, at least one: what `getconf
---- _NPROCESSORS_ONLN` answers, which is `nproc` less any CPU affinity. The
+--- _NPROCESSORS_ONLN` prints, which is `nproc` less any CPU affinity. The
 --- natural bound on how many children to run at once for CPU-bound work.
 function Proc.cpu_count(): integer
   return sys.cpu_count()
 end
 
---- The start [`Proc.relaunch`] answers, before a source run's script is
+--- The start [`Proc.relaunch`] returns, before a source run's script is
 --- added to it.
 local function started(): Proc.Relaunch?, string
   local found, trouble = raw.relaunch(ARTIFACT_FD, CORE_FD)
@@ -179,10 +179,10 @@ local DEFAULT_PATH <const> = "/bin:/usr/bin"
 --- itself when it holds a slash, otherwise the first executable regular
 --- file in `path`, a colon-separated list that defaults to PATH (or
 --- /bin:/usr/bin when PATH is unset). Empty entries search the working
---- directory; relative entries give relative answers. A slash-containing
+--- directory; relative entries give relative results. A slash-containing
 --- name is resolved without checking that it exists or can execute.
 ---
---- With no executable match it answers nil and a system [`Failure`], as
+--- With no executable match it returns nil and a system [`Failure`], as
 --- a shell's 127 and 126 tell apart: `EACCES` about the first regular
 --- file this process cannot execute, else `ENOENT` about `name`. A
 --- directory or a path that cannot be inspected is not a candidate. An

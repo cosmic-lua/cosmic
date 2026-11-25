@@ -157,6 +157,15 @@ verdict, pass or fail, and the summary says how many did not run. The
 merge queue's suites use it ([`ci/README.md`]). A run without it runs
 every test.
 
+`--deadline SECONDS` (`COSMIC_TEST_DEADLINE`) starts no test once that
+many seconds have passed since the run began. As with `--bail`, the
+tests already running finish and keep their verdicts, a test never
+started keeps none, and the run fails, saying how many did not run. CI's
+suites set it under the bound each suite is held to
+(ci/cosmic_ci/orchestration.tl), so a suite of main's push or a
+scheduled run that runs out of time still keeps the verdicts it reached,
+and the next run stands on them.
+
 A test must not depend on where the tree is. CI moves the checkout to
 a path chosen by the commit and the leg to catch one that does.
 
@@ -200,9 +209,10 @@ moved path.
 
 A module declares what its tests read with one top-level
 `Test.policy { ... }` ([`Test.policy`]). Its fields are those of
-[`cosmic.sandbox`]'s `Policy`: `profiles`, `grants`, `env`, `promises`,
-`loopback` and `requires`, and `cpu_features` and `store_text`, which only a
-test declares (below, and "the pure store"). The harness takes only some of the rest.
+[`cosmic.sandbox`]'s `Policy`: `profiles`, `grants` (paths, and the system
+calls a test makes, `{ calls = "nest" }`), `env` and `loopback`, and
+`requires`, `cpu_features` and `store_text`, which only a test declares
+(below, and "the pure store"). The harness takes only some of the rest.
 
 ```text
 local Test = require("cosmic.test")
@@ -253,9 +263,8 @@ The rules:
 - The harness refuses a field it has no key for, and the build fails
   naming it. These fields are refused:
 
-  - a grant to write, run or connect to,
-  - `isolate`, `limits`, `set_env`, `set_env_digests`, `connect` and
-    `database`,
+  - a grant to write, run, or connect to (`{ connect = "host:port" }`),
+  - `isolate`, `limits`, `set_env`, `set_env_digests` and `database`,
   - `tmp = false`,
   - `user` and `group`.
 
@@ -380,8 +389,8 @@ refuses a module of the tree outside the closure.
   names, never by `o/...`.
 - To confine a process in a root of its own, or to start a
   `cosmic test` whose workers are sandboxed, declare
-  `promises = { "nest" }` (`nests`). Without it the kernel refuses the
-  mounts a root is made of, the start fails and names the promise.
+  the grant `{ calls = "nest" }` (`nests`). Without it the kernel refuses
+  the mounts a root is made of, the start fails and names the call.
 
 ### the pure store
 
@@ -535,6 +544,39 @@ times out.
 Set `COSMIC_TEST_SANDBOX=0` for it, so it means the same on every host.
 Nest its workers in a sandbox only where the assertion is about their
 sandbox.
+
+### a fake program
+
+A test that needs an outside program to start -- a fake `git`, a
+process to leave running, a child to sandbox -- starts a fake
+([`cosmic.fake`]), not a shell script. A fake is a static
+executable of the running core. It needs no /bin/sh and no
+environment, so the test declares nothing for it.
+
+A fake runs a module of the tree as its program: one that returns a
+`function(argv: {string}): integer`. The test requires
+that module, so the module is in the test's import closure, and the
+fake carries it. [`Fake.place`] copies the fake and writes the text
+that the copy reads with [`Fake.given`].
+
+```text
+-- build/git_fake.tl
+local Fake = require("cosmic.fake")
+local function main(argv: {string}): integer
+  print(Fake.given() or "")
+  return 0
+end
+return main
+
+-- the test
+local Fake = require("cosmic.fake")
+local _ = require("build.git_fake")
+local program = assert(Fake.build(tmp .. "/fake", "build.git_fake"))
+assert(Fake.place(program, tmp .. "/bin/git", "abc1234"))
+```
+
+A fake built with no module runs a small script of commands
+instead. That command language is going away.
 
 ## host requirements
 
@@ -874,11 +916,13 @@ read the checker narrowed wrongly is a failing test and a row of
 `type_violations` of a real run ([`build/fact_hook_tool_test.tl`] plants
 one).
 
-CI runs the whole suite so in the `checked-narrowing` jobs of a full run.
-Those jobs are two shares of it (`cosmic-driver cosmic_ci/driver.tl
-platform checked-narrowing`, `--check-types --shard I/2`). They stand on
-the checked verdicts of earlier runs, as the legs' suites stand on theirs
-(ci/README.md's `checked-narrowing`). `bin/cosmic test --check-types` runs
+CI runs the whole suite so in the `checked-narrowing` job
+(`cosmic-driver cosmic_ci/driver.tl platform checked-narrowing`): whole
+on main's push and the scheduled run, and in three shares at once
+(`--check-types --shard I/3`, jobs `linux-x86_64-checked-narrowing-1` to
+`-3`) in the merge queue and a manual run of a branch. It stands on the
+checked verdicts of earlier runs, as the legs' suites stand on theirs
+(ci/README.md's "what runs where"). `bin/cosmic test --check-types` runs
 it anywhere.
 
 The wraps slow some code more than other code, so a speed test that
@@ -1291,7 +1335,9 @@ Other rules:
   are functions of the tool's own rows ([`build.stamps`]).
   `COSMIC_STAMPS=0` has a run work them out instead, and reach the same
   keys ([`build.sandboxed_verdicts_test`] holds it to that). It is never
-  needed to run a suite.
+  needed to run a suite. A sealed worker reads the runner's stamps of the
+  code it carries whatever it says ([`test_key.sealed_stamps`]), as a
+  worker does not see the runner's environment.
 - Harness modules reach the host through raw bindings and the
   standard-library modules `library` in [`build.harness_epoch`] names,
   each with its reason. [`build.harness_epoch_test`] holds them to it.
@@ -1338,7 +1384,7 @@ Other rules:
 [`build.test_sandbox`]: ../build/test_sandbox.tl
 [`build.test_worker`]: ../build/test_worker.tl
 [`build.this_program`]: ../build/this_program.tl
-[`build.tree_checks`]: ../build/tree_checks.tl
+[`build.tree_checks`]: ../build/tree_checks/init.tl
 [`build/declared_key.tl`]: ../build/declared_key.tl
 [`build/dispatch_sites.tl`]: ../build/dispatch_sites.tl
 [`build/dispatched_features_test.tl`]: ../build/dispatched_features_test.tl
@@ -1352,9 +1398,10 @@ Other rules:
 [`build/test_state.tl`]: ../build/test_state.tl
 [`build/type_watch.tl`]: ../build/type_watch.tl
 [`build/zig.tl`]: ../build/zig.tl
-[`Check.Checked.narrowed`]: ../lang/check.tl
+[`Check.Checked.narrowed`]: ../lang/check/init.tl
 [`ci/cosmic_ci/capabilities.json`]: ../ci/cosmic_ci/capabilities.json
 [`ci/README.md`]: ../ci/README.md
+[`cosmic.fake`]: ../cosmic/fake.tl
 [`cosmic.internal.symbols`]: ../cosmic/internal/symbols.tl
 [`cosmic.layout`]: ../cosmic/layout.tl
 [`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
@@ -1371,6 +1418,8 @@ Other rules:
 [`declared_key.host_split`]: ../build/declared_key.tl
 [`doc/performance.md`]: performance.md
 [`FactWraps.once`]: ../lang/fact_wraps.tl
+[`Fake.given`]: ../cosmic/fake.tl
+[`Fake.place`]: ../cosmic/fake.tl
 [`Fs.mkdtemp`]: ../cosmic/fs.tl
 [`Fuzz.label`]: ../build/fuzz/init.tl
 [`Fuzz.more`]: ../build/fuzz/init.tl
@@ -1390,3 +1439,4 @@ Other rules:
 [`Test.passed_unchecked`]: ../cosmic/test.tl
 [`Test.policy`]: ../cosmic/test.tl
 [`Test.skip`]: ../cosmic/test.tl
+[`test_key.sealed_stamps`]: ../build/test_key.tl

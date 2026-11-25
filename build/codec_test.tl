@@ -2,7 +2,7 @@
 --- output stood in for: RFC 4648's test vectors in both directions for
 --- each encoding, binary bytes, whitespace, wrapping, refusals with their
 --- offsets, `--lenient`, standard input and a failed write, and the
---- streaming coders under it: each answers as [`cosmic.codec`]'s
+--- streaming coders under it: each behaves as [`cosmic.codec`]'s
 --- whole-string functions do, however its input is cut.
 --- build/codec_tool_test.tl starts the program for what a process alone
 --- shows.
@@ -188,7 +188,7 @@ end
 
 --- Runs `words` with standard input a Reader that gives `chunk` `rounds`
 --- times over and no more, and standard output a sink that keeps only
---- what it needs to answer: the bytes written, whether they are
+--- what it needs to tell: the bytes written, whether they are
 --- `expect` over and over (less a last newline when `newline`), and how
 --- far live memory grew, in KiB, over the first few writes and over the
 --- rest.
@@ -201,8 +201,8 @@ local function stream(words: {string}, chunk: string, rounds: integer, expect: s
       sent = sent + 1
       return chunk
     end,
-    close = function(_self: Stream.Reader): boolean, string
-      return true, ""
+    close = function(_self: Stream.Reader): (true) | (false, Failure)
+      return true
     end,
   }
   collectgarbage()
@@ -286,8 +286,8 @@ local function trickle(text: string): Stream.Reader
       at = at + #piece
       return piece
     end,
-    close = function(_self: Stream.Reader): boolean, string
-      return true, ""
+    close = function(_self: Stream.Reader): (true) | (false, Failure)
+      return true
     end,
   }
   return reader
@@ -329,8 +329,8 @@ local function test_an_encoder_writes_as_it_reads_but_a_decoder_holds_a_chunk()
       sent = sent + 1
       return ("a"):rep(max_bytes or 1)
     end,
-    close = function(_self: Stream.Reader): boolean, string
-      return true, ""
+    close = function(_self: Stream.Reader): (true) | (false, Failure)
+      return true
     end,
   }
   local seen: mut {integer} = {}
@@ -372,17 +372,17 @@ local function whole_encode(name: codec.Name, bytes: string): string
   return Codec.base64url(bytes)
 end
 
---- What `coder` answers to `pieces` in turn and then `finish`: the
+--- What `coder` gives for `pieces` in turn and then `finish`: the
 --- output joined, or nil and the reason.
 local function through(coder: codec.Coder, pieces: {string}): string?, string
   local out: mut {string} = {}
   for _, piece in ipairs(pieces) do
     local part, why = coder:update(piece)
-    assert(part ~= nil, "update refused: " .. why)
+    assert(part ~= nil, "update refused: " .. tostring(why))
     out[#out + 1] = part
   end
   local last, why = coder:finish()
-  if last == nil then return nil, why end
+  if last == nil then return nil, tostring(why) end
   out[#out + 1] = last
   return table.concat(out), ""
 end
@@ -483,14 +483,15 @@ end
 local function test_a_finished_coder_raises_and_an_unknown_name_is_refused()
   for _, make in ipairs({ codec.encoder, codec.decoder }) do
     local c = make("base64")
-    assert(c:update("") == "" and c:finish() == "")
-    Test.raises(function() c:update("x") end)
-    Test.raises(function() c:finish() end)
+    assert(assert(c:update("")) == "" and assert(c:finish()) == "")
+    Test.raises(function() local _, _ = c:update("x") end)
+    Test.raises(function() local _, _ = c:finish() end)
   end
   local bad = codec.decoder("hex")
-  assert(bad:update("z") == "")
-  assert(bad:finish() == nil)
-  Test.raises(function() bad:finish() end)
+  assert(assert(bad:update("z")) == "")
+  local refused, _ = bad:finish()
+  assert(refused == nil)
+  Test.raises(function() local _, _ = bad:finish() end)
 end
 
 local function test_a_long_stream_takes_bounded_memory()
@@ -538,7 +539,11 @@ local function test_a_long_stream_takes_bounded_memory()
     held = held .. assert(dec:update(text)) .. assert(dec:finish())
     drain()
     assert(held == "" and matched == rounds, name)
-    assert(early < 128 and late < early + 64,
+    -- A coder that kept what it saw would grow by a chunk's worth over the last rounds; one that holds a round's
+    -- worth at most stays near where the first rounds took it. No fixed size: an allocator's overhead (the
+    -- checked core's most) sets where that is.
+    local chunk_kib = #chunk // 1024
+    assert(late < early + chunk_kib,
       ("%s grew %.0f KiB, then %.0f KiB, over %d KiB of input"):format(
         name, early, late, #chunk * rounds // 1024))
   end

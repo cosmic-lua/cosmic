@@ -38,9 +38,9 @@
 --- through the run, as [`cosmic.net`] waits: the other tasks go on
 --- while it waits for the server, so a handler that calls another
 --- service stalls no other connection, and a request to this program's
---- own server is answered. A cancelled task's request ends with
+--- own server gets its response. A cancelled task's request ends with
 --- [`Poll.CANCELLED`], and, as in [`cosmic.net`], a signal does not end
---- one. Anywhere else a request holds the thread until it is answered,
+--- one. Anywhere else a request holds the thread until the response comes,
 --- or a signal the innermost [`Signal.guard`] caught ends it.
 ---
 --- The server is [`cosmic.http.server`], apart from this client so that a
@@ -127,14 +127,14 @@ local class HandleReader is Stream.Reader
     return chunk
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.closed = true
     self.handle:close()
-    return true, ""
+    return true
   end
 end
 
---- The class behind [`Http.Response`], the type [`Http.open`] answers.
+--- The class behind [`Http.Response`], the type [`Http.open`] returns.
 local class Response is Stream.Reader
   --- The final response's HTTP status code, after any redirect taken.
   status: integer
@@ -151,7 +151,7 @@ local class Response is Stream.Reader
   handle: raw_http.Handle
   --- Internal: present only on a response whose body is decoded (see `opts.decompress`).
   --- No caller reads or writes it.
-  mut skip?: function(Response, n: integer): boolean, string -- declared: interface_disagrees
+  mut skip?: function(Response, n: integer): (true) | (false, Failure) -- declared: interface_disagrees
 
   --- The next chunk of the body, as [`Stream.Reader`] reads it; decoded
   --- when `opts.decompress` asked for it.
@@ -161,7 +161,7 @@ local class Response is Stream.Reader
 
   --- Releases the body, each decoder freeing its codec and closing the
   --- reader beneath it, down to the handle.
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     return self.body:close()
   end
 
@@ -233,7 +233,7 @@ local record Http
   --- is how to take no redirect).
   ---
   --- A redirect to another origin (another scheme, host or port than
-  --- the URL it answers) drops every header of `headers` from that hop
+  --- the URL it redirects from) drops every header of `headers` from that hop
   --- and every later one, a hop back to the first origin included, but
   --- Accept, Accept-Encoding, Accept-Language, Cache-Control,
   --- Content-Length, Content-Type, Range, User-Agent and each If-*, in
@@ -268,9 +268,9 @@ local record Http
   --- it ([`Http.FOREVER`] for no bound): one without it raises. The
   --- transfer counts them in milliseconds, and `low_speed_ns` in whole
   --- seconds, each rounded up, so no span but 0 is read as none.
-  --- `digests`, `sha256`, `sha512` and `sha3_256` are read only by
-  --- [`Http.download_result`] and [`Http.download`], and so is `cancelled`
-  --- but for the waits of `retry`, which it ends too.
+  --- `digests` is read only by [`Http.download`], and so is
+  --- `cancelled` but for the waits of `retry` and `pace`, which it ends
+  --- too.
   ---
   --- `via`, a unix address ([`Net.unix`]), sends the request over the
   --- socket file at its path instead of the network. The URL still gives
@@ -318,7 +318,7 @@ local record Http
   --- the response is closed unread and the whole request goes again,
   --- body and all, whatever its method, since those statuses say the
   --- server did not act on it. [`Http.open`], [`Http.get`],
-  --- [`Http.request`], [`Http.download`] and [`Http.download_result`]
+  --- [`Http.request`] and [`Http.download`]
   --- all do it. The wait before a retry is the response's `Retry-After`
   --- when it has one this module reads (a number of seconds, or an HTTP
   --- date, a date in the past being no wait), else `retry.backoff_ns`,
@@ -329,7 +329,7 @@ local record Http
   --- request that fails (`nil` and why) is not retried. While the
   --- innermost open [`Signal.guard`] catches SIGINT or SIGTERM during a
   --- wait, the wait ends and the call fails with "interrupted"; so does
-  --- `cancelled` answering true before or during one.
+  --- `cancelled` returning true before or during one.
   ---
   --- `pace`, a [`Http.pacer`], spaces requests out: each request sent
   --- with it, every `retry` attempt included, first waits until the
@@ -347,7 +347,7 @@ local record Http
   --- shows. The same entry points as `retry` pace. The wait ends as a
   --- retry's does: the call fails with "interrupted" when the innermost open
   --- [`Signal.guard`] catches SIGINT or SIGTERM during it, or `cancelled`
-  --- answers true before or during it.
+  --- returns true before or during it.
   ---
   --- An option of the wrong shape is a bug, and [`Http.open`] raises
   --- for it, naming the option: a value of the wrong Lua type (the
@@ -442,20 +442,11 @@ local record Http
     --- algorithm, the digest wanted and the one got, leaving no file. An
     --- empty digest raises.
     digests?: {Hash.Algorithm:string}
-    -- TODO: once ci/cosmic-driver.pin names a release with `digests`, move
-    -- build/vendor.tl, build/zig_fetch.tl and build/seeded_boot.tl to it and
-    -- delete `sha256`, `sha512` and `sha3_256`, which they set on the pinned
-    -- release.
-    --- Download only: `digests["sha256"]`, but an empty one is no check.
-    --- Giving it and a different `digests["sha256"]` raises.
-    sha256?: string
-    --- Download only: `digests["sha512"]`, as `sha256` is.
-    sha512?: string
-    --- Download only: `digests["sha3-256"]`, as `sha256` is.
-    sha3_256?: string
-    --- Download only: asked before each chunk is read and once
+    --- Asked whether to stop: read by downloads, and by the waits of
+    --- `retry` and `pace`, which it ends with "interrupted" too. In a
+    --- download: asked before each chunk is read and once
     --- more when the body is complete, before it is renamed into place;
-    --- when it answers true the download stops, removes its temporary
+    --- when it returns true the download stops, removes its temporary
     --- file, never creates `path`, and fails with "interrupted", the
     --- word a caught signal's failure says. It is how a caller holding
     --- a [`Signal.guard`] ends a download on SIGINT while data keeps
@@ -481,35 +472,11 @@ local record Http
   --- fails. `sent` after close raises.
   type Response = Response
 
-  --- The outcome of a download, classified where it succeeds or fails.
-  enum DownloadKind
-    "downloaded"
-    "http_status"
-    "digest_mismatch"
-    "failed"
-  end
-
-  --- One completed [`Http.download_result`] operation. `reason` is empty
-  --- on success. This operation adds no caller URL to a failure's reason;
-  --- underlying transport diagnostics are passed through, not redacted.
-  record DownloadResult
-    --- Success, HTTP rejection, checksum mismatch, or another failure.
-    kind: DownloadKind
-    --- Empty on success; otherwise the human reason, without an added URL.
-    reason: string
-    --- Present only for `http_status`: the rejected response's status.
-    status?: integer
-    --- Present only for `digest_mismatch`: the checked algorithm.
-    algorithm?: Hash.Algorithm
-    --- The supplied checksum, lowercased; an empty option requests no check.
-    expected?: string
-    --- The computed digest as lower-case hex.
-    actual?: string
-  end
-
   --- What [`Http.request`] and [`Http.get`] return: a status, a whole
-  --- body, and headers, bundled into one value since a public fallible
-  --- function here returns exactly `(value, string)`.
+  --- body, and headers, bundled into one value since most fallible
+  --- functions here return one value, or nil and a [`Failure`].
+  --- [`Http.download`] and [`Http.check_certificate`] return true, or
+  --- false and a Failure.
   record Body
     --- The final response's HTTP status code, after any redirect taken.
     status: integer
@@ -554,19 +521,19 @@ local function zlib_header(head: string): boolean
   return cmf & 0x0f == 8 and (cmf * 256 + flg) % 31 == 0
 end
 
---- Moves `reader` forward `n` bytes by reading and discarding them: nil
---- and why when it fails or ends first.
-local function discard(reader: Stream.Reader, n: integer): boolean, string
+--- Moves `reader` forward `n` bytes by reading and discarding them:
+--- false and a Failure when it fails or ends first.
+local function discard(reader: Stream.Reader, n: integer): (true) | (false, Failure)
   local left = n
   while left > 0 do
     local chunk, trouble = reader:read(math.min(left, 65536))
-    if chunk == nil then return false, tostring(trouble) end
+    if chunk == nil then return false, trouble end
     if chunk == false then
-      return false, "http: truncated body while skipping"
+      return false, Failure.new("http: truncated body while skipping")
     end
     left = left - #chunk
   end
-  return true, ""
+  return true
 end
 
 --- A Reader of `source` decoded from `coding` ("zstd", "gzip",
@@ -580,9 +547,9 @@ local class DecodingReader is Stream.Reader
   --- Bytes held until there are two, to tell zlib from raw deflate.
   mut head: string
   mut ended: boolean
-  --- The failure every read answers after the first, its kind kept.
+  --- The failure every read returns after the first, its kind kept.
   mut failed?: Failure
-  skip?: function(DecodingReader, n: integer): boolean, string
+  skip?: function(DecodingReader, n: integer): (true) | (false, Failure)
 
   --- Fails the reader for good, as every Reader here does after an error.
   function fail(self, why: string): Failure
@@ -615,7 +582,7 @@ local class DecodingReader is Stream.Reader
       chunk, self.head = self.head, ""
     end
     local out, trouble = codec:update(chunk, max_bytes)
-    if out == nil then return nil, self:fail(trouble) end
+    if out == nil then return nil, self:fail(tostring(trouble)) end
     return out
   end
 
@@ -648,7 +615,7 @@ local class DecodingReader is Stream.Reader
           end
           if codec == nil then return nil, self:fail("no codec") end
           local last, trouble = codec:finish()
-          if last == nil then return nil, self:fail(trouble) end
+          if last == nil then return nil, self:fail(tostring(trouble)) end
           if codec:rest() ~= "" then
             return nil, self:fail("bytes follow the compressed data")
           end
@@ -662,7 +629,7 @@ local class DecodingReader is Stream.Reader
     end
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     local codec = self.codec
     if codec ~= nil then
       -- Frees the decoder now, not at collection.
@@ -673,11 +640,11 @@ local class DecodingReader is Stream.Reader
   end
 end
 
-local function skip_decoding(self: DecodingReader, n: integer): boolean, string
+local function skip_decoding(self: DecodingReader, n: integer): (true) | (false, Failure)
   return discard(self, n)
 end
 
-local function skip_decoded(self: Response, n: integer): boolean, string
+local function skip_decoded(self: Response, n: integer): (true) | (false, Failure)
   return discard(self.body, n)
 end
 
@@ -1066,10 +1033,10 @@ local PAUSE_SLICE <const> = 100 * MS
 
 --- Waits `ns`, in slices: true and "" once it has, or false and
 --- "interrupted" as soon as the innermost open [`Signal.guard`] catches a
---- signal or closes during it, or `cancelled` answers true, asked before
+--- signal or closes during it, or `cancelled` returns true, asked before
 --- the wait and after each slice. A signal caught before the wait began
 --- is not one: the stamp is taken when it starts. In a task the other
---- tasks go on meanwhile, and a cancelled task's pause answers false and
+--- tasks go on meanwhile, and a cancelled task's pause returns false and
 --- [`Poll.CANCELLED`].
 local function pause(ns: integer, cancelled: (function(): boolean)?): boolean, string
   if cancelled ~= nil and cancelled() then return false, "interrupted" end
@@ -1358,7 +1325,7 @@ function Http.request(method: string, url: string, opts: Http.Options): (Http.Bo
 end
 
 --- A Reader over a Response that fails with "interrupted" once
---- `cancelled` answers true.
+--- `cancelled` returns true.
 local class CancellableReader is Stream.Reader
   response: Response
   cancelled: function(): boolean
@@ -1371,13 +1338,13 @@ local class CancellableReader is Stream.Reader
     return chunk
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     return self.response:close()
   end
 end
 
 --- `response` as a Reader that fails with "interrupted" once `cancelled`
---- answers true: asked before each read and once more at the end of the
+--- returns true: asked before each read and once more at the end of the
 --- body, so a body that came whole is still refused after a cancel.
 local function cancellable(response: Response, cancelled: function(): boolean): Stream.Reader
   local reader: CancellableReader = {
@@ -1412,24 +1379,15 @@ local DIGESTS_CALLER <const> = 4
 
 --- Every [`Hash.Algorithm`], ranked in the order a download checks
 --- them, so the first mismatch reported is the same each time: sha256,
---- sha512 and sha3-256 first, as when they were the only three.
+--- sha512 and sha3-256 first.
 local DIGEST_RANKS <const>: {string:integer} = {
   ["sha256"] = 1, ["sha512"] = 2, ["sha3-256"] = 3, ["md5"] = 4, ["sha1"] = 5,
   ["sha224"] = 6, ["sha384"] = 7, ["sha3-224"] = 8, ["sha3-384"] = 9, ["sha3-512"] = 10,
 }
 
---- One of the single digest fields that `digests` replaces.
-local record Single
-  field: string
-  algorithm: Hash.Algorithm
-  value: string?
-end
-
---- The digests a download is held to, from `opts.digests` and the
---- three single fields, in [`DIGEST_RANKS`]' order. Raises, blaming the
---- public entry point's caller, on an empty digest, an algorithm
---- [`Hash`] does not know, or a single field and a `digests` entry that
---- differ.
+--- The digests a download is held to, from `opts.digests`, in
+--- [`DIGEST_RANKS`]' order. Raises, blaming the public entry point's
+--- caller, on an empty digest or an algorithm [`Hash`] does not know.
 local function wanted_digests(opts: Http.Options): {Given}
   local by: mut {Hash.Algorithm:string} = {}
   for algorithm, hex in pairs(opts.digests or {}) do
@@ -1441,23 +1399,6 @@ local function wanted_digests(opts: Http.Options): {Given}
     end
     by[algorithm] = hex:lower()
   end
-  local singles: {Single} = {
-    { field = "sha256", algorithm = "sha256", value = opts.sha256 },
-    { field = "sha512", algorithm = "sha512", value = opts.sha512 },
-    { field = "sha3_256", algorithm = "sha3-256", value = opts.sha3_256 },
-  }
-  for _, single in ipairs(singles) do
-    local value = single.value
-    if value ~= nil and value ~= "" then
-      local hex = value:lower()
-      local already = by[single.algorithm]
-      if already ~= nil and already ~= hex then
-        error(("http: opts.%s and opts.digests[%q] differ; give one"):format(single.field, single.algorithm),
-          DIGESTS_CALLER)
-      end
-      by[single.algorithm] = hex
-    end
-  end
   local out: mut {Given} = {}
   for algorithm, hex in pairs(by) do out[#out + 1] = { algorithm = algorithm, wanted = hex } end
   table.sort(out, function(a: Given, b: Given): boolean
@@ -1466,10 +1407,34 @@ local function wanted_digests(opts: Http.Options): {Given}
   return out
 end
 
---- [`Http.download_result`]'s work, which each public entry point that
---- downloads calls itself (`CALLER`).
+--- The outcome of a download, classified where it succeeds or fails.
+local enum DownloadKind
+  "downloaded"
+  "http_status"
+  "digest_mismatch"
+  "failed"
+end
+
+--- One completed download, as `downloading` returns it. `reason` is
+--- empty on success; it adds no caller URL to a failure's reason.
+local record DownloadResult
+  --- Success, HTTP rejection, checksum mismatch, or another failure.
+  kind: DownloadKind
+  --- Empty on success; otherwise the human reason, without an added URL.
+  reason: string
+  --- Present only for `http_status`: the rejected response's status.
+  status?: integer
+  --- Present only for `digest_mismatch`: the checked algorithm.
+  algorithm?: Hash.Algorithm
+  --- The supplied checksum, lowercased.
+  expected?: string
+  --- The computed digest as lower-case hex.
+  actual?: string
+end
+
+--- [`Http.download`]'s work.
 local function downloading(url: string, path: string,
-                           opts: Http.Options): Http.DownloadResult
+                           opts: Http.Options): DownloadResult
   local record Check
     algorithm: Hash.Algorithm
     hex: string
@@ -1522,41 +1487,30 @@ local function downloading(url: string, path: string,
   local committed, commit_trouble = file:sync()
   if committed then committed, commit_trouble = file:close() end
   if not committed then
-    return { kind = "failed", reason = commit_trouble }
+    return { kind = "failed", reason = tostring(commit_trouble) }
   end
   pending.file = nil
   return { kind = "downloaded", reason = "" }
 end
 
---- Downloads `url` to `path`, streaming
---- to a fresh temporary file beside it ([`Stream.create`]'s, so two
---- downloads never share one and a planted symlink is never followed)
---- and renaming into place only once the transfer is complete, synced to
---- disk and, when `opts.digests` is
---- given, verified: a reader never sees a partial file at the final name. Fails on a
---- non-2xx status (a redirect `opts.follow` already took does not count)
---- or a checksum mismatch, and removes the temporary file on every
---- failure, `opts.cancelled` answering true ("interrupted", as a
---- caught signal says it) included.
---- Returns a classified outcome; [`Http.download`] gives the same operation
---- as a boolean and reason, including the caller URL on an HTTP rejection.
-function Http.download_result(url: string, path: string, opts: Http.Options): Http.DownloadResult
-  stated(opts)
-  local result = downloading(url, path, opts)
-  return result
-end
-
---- Downloads as `curl -fLo` or `wget` would: [`Http.download_result`]'s
---- streaming, verified and atomic download as `true`, or `false` and a
---- [`Failure`]. An HTTP rejection is of kind "library", its `code` the
---- status and its message `url: HTTP 404`; a checksum mismatch's path is
---- `path` and its message names the algorithm and both digests. Other
---- failures keep their words, of kind "cancelled" where a signal or
---- `opts.cancelled` stopped it, as [`Http.open`] gives them.
+--- Downloads `url` to `path` as `curl -fLo` or `wget` would.
 ---
---- TODO: drop [`Http.download_result`] once ci/cosmic-driver.pin names a
---- release with this shape: ci/ and the bootstrap's files read its record
---- on the pinned release too.
+--- It streams to a fresh temporary file beside `path`
+--- ([`Stream.create`]'s, so two downloads never share one and a planted
+--- symlink is never followed) and renames it into place only once the
+--- transfer is complete, synced to disk and, when `opts.digests` is
+--- given, verified: a reader never sees a partial file at the final name. Fails on a non-2xx status (a
+--- redirect `opts.follow` already took does not count) or a checksum
+--- mismatch, and removes the temporary file on every failure,
+--- `opts.cancelled` returning true ("interrupted", as a caught signal
+--- says it) included.
+---
+--- It returns `true`, or `false` and a [`Failure`]. An HTTP rejection,
+--- a status `curl -f` fails on too, is of kind "library", its `code` the status and its message
+--- `url: HTTP 404`. A checksum mismatch is of kind "mismatch", its path
+--- `path` and its message naming the algorithm and both digests. Other failures keep their words, of kind
+--- "cancelled" where a signal or `opts.cancelled` stopped it, as
+--- [`Http.open`] gives them.
 function Http.download(url: string, path: string, opts: Http.Options): (true) | (false, Failure)
   stated(opts)
   local result = downloading(url, path, opts)
@@ -1566,7 +1520,7 @@ function Http.download(url: string, path: string, opts: Http.Options): (true) | 
     return false, Failure.coded(url .. ": HTTP " .. tostring(status), status)
   end
   if result.kind == "digest_mismatch" then
-    return false, Failure.new(assert(result.algorithm) .. " mismatch: want " .. assert(result.expected) ..
+    return false, Failure.mismatch(assert(result.algorithm) .. " mismatch: want " .. assert(result.expected) ..
         ", got " .. assert(result.actual), path)
   end
   return false, failure_of(result.reason)

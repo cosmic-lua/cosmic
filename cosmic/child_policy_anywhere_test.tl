@@ -11,14 +11,14 @@ local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
 local searchable = require("build.searchable")
-local stand_in = require("build.stand_in")
+local Fake = require("cosmic.fake")
 local ChildPolicy = require("build.child_policy_fixture")
 
 --- The temporary directory and the environment the tests read; the system's
 --- own paths, whose profile one test reads; and `nests`, since a start of
 --- these policies is a root of its own where it gets as far as a child, which
 --- a worker held by a Landlock ruleset cannot make.
-Test.policy{ env = { "TMPDIR" }, promises = { "nest" }, profiles = { "system" } }
+Test.policy{ env = { "TMPDIR" }, grants = { { calls = "nest" } }, profiles = { "system" } }
 
 --- Ends the test where this host holds a child by Seatbelt, which refuses
 --- what it cannot hold in words of its own, in cosmic/child_seatbelt_test.tl:
@@ -45,9 +45,9 @@ local function refused(argv: {string}, policy: Sandbox.Policy): string
   return tostring(why)
 end
 
---- The stand-in, built in the test's directory, which is searchable.
-local function stand_in_of(tmp: string): string
-  return (assert(stand_in.build(searchable.open(tmp) .. "/stand-in")))
+--- The fake, built in the test's directory, which is searchable.
+local function fake_of(tmp: string): string
+  return (assert(Fake.build(searchable.open(tmp) .. "/fake")))
 end
 
 --- The directories a policy's `tmp` made that are still in the temporary directory.
@@ -68,12 +68,12 @@ local function test_a_start_under_a_policy_is_refused_where_the_platform_has_no_
   if sysname == "Linux" or sysname == "Darwin" then
     Test.skip("a platform with a sandbox answers this where a test requires one")
   end
-  local probe = stand_in_of(tmp)
+  local probe = fake_of(tmp)
   local policies: {Sandbox.Policy} = {
     { grants = itself(probe) },
     { isolate = { "proc" }, grants = itself(probe) },
     { isolate = { "file" }, grants = itself(probe) },
-    { isolate = { "file" }, promises = { "nest" }, grants = itself(probe) },
+    { isolate = { "file" }, grants = itself(probe, { { calls = "nest" } }) },
     { user = sys.getuid(), grants = itself(probe) },
     { isolate = { "proc" }, limits = { processes = 4 }, grants = itself(probe) },
     { tmp = true, grants = itself(probe) },
@@ -91,7 +91,7 @@ end
 --- What a program needs to start is the starter's need: the start grants
 --- the program `rx`, so a policy that grants nothing still starts it.
 local function test_the_start_grants_the_program_a_policy_does_not_name(tmp: string)
-  local probe = stand_in_of(tmp)
+  local probe = fake_of(tmp)
   local ran = assert(Child.run({ probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = {}, stdout = "capture" }))
   assert(ran.ok and ran.stdout == "hi\n", tostring(ran.stdout))
 end
@@ -99,7 +99,7 @@ end
 --- The start grants a script's `#!` interpreter `rx` too, beside the
 --- script, which the policy grants only to read.
 local function test_the_start_grants_an_interpreter_too(tmp: string)
-  local probe = stand_in_of(tmp)
+  local probe = fake_of(tmp)
   assert(Fs.mkdirs(tmp .. "/scripts"))
   assert(Fs.write(tmp .. "/scripts/run", "#!" .. probe .. "\nprint scripted\n", 493))
   local policy: Sandbox.Policy = { grants = { { path = tmp .. "/scripts", letters = "r" } } }
@@ -108,13 +108,13 @@ local function test_the_start_grants_an_interpreter_too(tmp: string)
 end
 
 local function test_a_program_named_without_a_path_must_be_found(tmp: string)
-  local probe = stand_in_of(tmp)
+  local probe = fake_of(tmp)
   local none, why = Child.start({ "no-such-program-here" }, { timeout_ns = Child.FOREVER, policy = { grants = itself(probe) } })
   assert(none == nil and why.message:find("no-such-program-here", 1, true) ~= nil, why)
 end
 
 local function test_env_beside_a_policy_raises(tmp: string)
-  local probe = stand_in_of(tmp)
+  local probe = fake_of(tmp)
   Test.raises(function()
     local _, _ = Child.start({ probe }, { timeout_ns = Child.FOREVER, policy = { grants = itself(probe) }, env = {} })
   end, "policy and env exclude each other")
@@ -126,7 +126,7 @@ end
 
 local function test_a_policy_that_is_not_met_fails_naming_the_field(tmp: string)
   skip_where_seatbelt_holds("a policy that is not met")
-  local probe = stand_in_of(tmp)
+  local probe = fake_of(tmp)
   local base = itself(probe)
   local function grants(): mut {Sandbox.Grant}
     local copy: mut {Sandbox.Grant} = {}
@@ -158,11 +158,11 @@ end
 --- without `connect` they are as free as any other variable.
 local function test_a_policy_with_connect_may_not_name_a_proxy_variable(tmp: string)
   skip_where_seatbelt_holds("the proxy variables")
-  local probe = stand_in_of(tmp)
+  local probe = fake_of(tmp)
   for _, name in ipairs({ "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY",
       "all_proxy", "NO_PROXY", "no_proxy", "NODE_USE_ENV_PROXY" }) do
     for _, how in ipairs({ "set_env", "env" }) do
-      local base: Sandbox.Policy = { grants = itself(probe), connect = { "example.com:443" } }
+      local base: Sandbox.Policy = { grants = itself(probe, { { connect = "example.com:443" } }) }
       local policy = if how == "env" then { ...base, env = { name } } else
         { ...base, set_env = { [name] = "http://elsewhere:1" } } end
       local why = refused({ probe, "print hi" }, policy)
@@ -180,7 +180,7 @@ local function test_a_policy_with_connect_may_not_name_a_proxy_variable(tmp: str
 end
 
 local function test_a_relay_log_is_null_inherit_or_a_descriptor(tmp: string)
-  local probe = stand_in_of(tmp)
+  local probe = fake_of(tmp)
   for _, value in ipairs({ -1, 4294967296 }) do
     local wrong: Child.Options = { timeout_ns = Child.FOREVER, relay_log = value }
     local refused_ok, refused_why = pcall(function() local _, _ = Child.start({ probe }, wrong) end)
@@ -193,8 +193,8 @@ end
 --- words that name the module, with nothing started.
 local function test_a_program_without_the_relays_module_cannot_start_a_policy_with_connect(tmp: string)
   skip_where_seatbelt_holds("the relay's program")
-  local probe = stand_in_of(tmp)
-  local why = refused({ probe, "print hi" }, { grants = itself(probe), connect = { "example.com:443" } })
+  local probe = fake_of(tmp)
+  local why = refused({ probe, "print hi" }, { grants = itself(probe, { { connect = "example.com:443" } }) })
   assert(why:find("^child: start: sandbox: relay: this program does not carry cosmic.internal.relay_main"), why)
   assert(why:find("needs a program that has it", 1, true), why)
   assert(#sandbox_directories() == 0, "a start that failed left a directory behind")
@@ -204,7 +204,7 @@ local function test_a_program_without_the_relays_module_cannot_start_a_policy_wi
 end
 
 local function test_a_policy_that_does_not_merge_fails_naming_the_field(tmp: string)
-  local probe = stand_in_of(tmp)
+  local probe = fake_of(tmp)
   local none, why = Child.start({ probe }, { timeout_ns = Child.FOREVER, policy = { grants = { { path = probe, letters = "q" } } } })
   assert(none == nil and why.message:find("$.grants[0].letters", 1, true) ~= nil, why)
   local profile, trouble = Child.start({ probe }, { timeout_ns = Child.FOREVER, policy = { profiles = { "bogus" } } })
@@ -213,7 +213,7 @@ end
 
 local function test_a_policy_of_too_many_grants_fails_before_it_makes_anything(tmp: string)
   skip_where_seatbelt_holds("the most grants")
-  local probe = stand_in_of(tmp)
+  local probe = fake_of(tmp)
   local before = #sandbox_directories()
   local most = confine.unveil_max
   for _, count in ipairs({ most, most + 44 }) do
@@ -232,14 +232,14 @@ end
 
 local function test_from_needs_isolate_file_and_what_is_not_met_stays_refused(tmp: string)
   skip_where_seatbelt_holds("what is not met")
-  local probe = stand_in_of(tmp)
+  local probe = fake_of(tmp)
   local function says(policy: Sandbox.Policy): string
     return refused({ probe, "print hi" }, policy)
   end
   local from = says({ grants = { { path = probe, letters = "rx" },
     { path = "/data", letters = "r", from = tmp } } })
   assert(from:find("from", 1, true) and from:find("isolate", 1, true) and from:find("file", 1, true), from)
-  assert(says({ promises = { "nest" } }):find("nest", 1, true))
+  assert(says({ grants = { { calls = "nest" } } }):find("nest", 1, true))
   local counted = says({ limits = { processes = 4 } })
   assert(counted:find("limits.processes", 1, true) and counted:find("isolate", 1, true), counted)
   -- /tmp is the sandbox's own where tmp asks for it.
@@ -255,7 +255,7 @@ end
 --- program, a working directory, one that can be written and one, `extra`,
 --- that only the first sandbox is given.
 local function nest_grants(tmp: string): {Sandbox.Grant}, string, string
-  local probe = stand_in_of(tmp)
+  local probe = fake_of(tmp)
   local work = tmp .. "/work"
   assert(Fs.mkdirs(work .. "/rw"))
   assert(Fs.mkdirs(tmp .. "/extra"))
@@ -267,7 +267,7 @@ local function test_nest_needs_isolate_file_and_says_so(tmp: string)
   skip_where_seatbelt_holds("nest")
   local grants, probe = nest_grants(tmp)
   for _, isolate in ipairs({ {}, { "proc" } }) do -- checked: literal_needs_type
-    local why = refused({ probe }, { isolate = isolate, promises = { "nest" }, grants = grants })
+    local why = refused({ probe }, { isolate = isolate, grants = ChildPolicy.with(grants, { calls = "nest" }) })
     assert(why:find("nest", 1, true) and why:find("isolate \"file\"", 1, true), why)
   end
 end
@@ -276,8 +276,8 @@ local function test_nest_refuses_what_a_root_cannot_hold(tmp: string)
   skip_where_seatbelt_holds("nest")
   local grants, probe, extra = nest_grants(tmp)
   local function without(letters: string, path: string): string
-    return refused({ probe }, { isolate = { "file" }, promises = { "nest" },
-      grants = ChildPolicy.with(grants, { path = path, letters = letters }) })
+    return refused({ probe }, { isolate = { "file" },
+      grants = ChildPolicy.with(grants, { path = path, letters = letters }, { calls = "nest" }) })
   end
   -- Landlock told writing a file from making one in a directory, and running
   -- from reading; a bind does not.
@@ -312,7 +312,7 @@ end
 
 --- A program and a directory to start it in.
 local function place(tmp: string): string, string
-  local probe = stand_in_of(tmp)
+  local probe = fake_of(tmp)
   local work = tmp .. "/work"
   assert(Fs.mkdirs(work))
   return probe, work
@@ -346,7 +346,7 @@ end
 local function test_every_path_of_the_profile_exists_and_is_read_only_or_run()
   local system = assert(Sandbox.profile("system"))
   assert(#(system.grants or {}) > 0 or sys.stat("/usr") == nil)
-  for _, grant in ipairs(system.grants or {}) do
+  for _, grant in ipairs(Sandbox.paths(system)) do
     assert(sys.stat(grant.path) ~= nil, grant.path)
     -- /dev/dtracehelper is macOS's: libSystem opens it for writing as a program starts.
     local written = grant.path == "/dev/null" or grant.path == "/dev/dtracehelper"

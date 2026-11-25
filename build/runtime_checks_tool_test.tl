@@ -81,7 +81,7 @@ end
 
 --- Runs the program with `words` in `root`, unsandboxed (a sandbox nested
 --- in this test's own may be refused where the host nests only two deep),
---- with `extra` added to its environment, and answers what it said.
+--- with `extra` added to its environment, and returns what it said.
 local function invoke(root: string, tmp: string, words: {string}, extra?: {string:string}):
     Child.Result, string
   local output = tmp .. "/out." .. tostring(Clock.monotonic_ns())

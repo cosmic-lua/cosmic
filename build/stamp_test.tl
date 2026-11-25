@@ -1,4 +1,4 @@
---- [`build.stamp`]: a stamp is answered only of the rows it was made for.
+--- [`build.stamp`]: a stamp is returned only for the rows it was made for.
 
 local Sqlite = require("cosmic.sqlite")
 local Stamp = require("build.stamp")
@@ -8,8 +8,7 @@ local schema = require("build.schema")
 --- what they require, the `meta` rows a stamp's binding reads, and one
 --- stamp bound to those rows.
 local function stamped(): Sqlite.Handle
-  local db = assert(Sqlite.memory())
-  for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
+  local db = assert(schema.hold(assert(Sqlite.memory())))
   assert(db:exec("INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) VALUES " ..
       "('a', 'a.tl', 'module', x'01', x'', x'', '', x''), ('b', 'b.tl', 'module', x'02', x'', x'', '', x'')"))
   assert(db:exec("INSERT INTO imports (path, requires) VALUES ('a', 'b')"))
@@ -30,7 +29,7 @@ end
 
 --- Each row a stamp is a function of is in the binding: a database whose
 --- rows moved after its stamps were made, or that was handed the stamps
---- of another, answers none, and the caller works the value out.
+--- of another, gives none, and the caller works the value out.
 local function test_a_stamp_is_not_answered_once_a_row_it_was_made_of_moves()
   local moves: {string} = {
     "UPDATE modules SET source_hash = x'03' WHERE path = 'b'",

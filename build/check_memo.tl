@@ -7,9 +7,9 @@
 --- the text the check made of the file. The key is the SHA-256 of a salt, the
 --- dialect and the SHA-256 of the file's bytes, so a changed file, a changed
 --- check and another dialect each miss. The salt is the SHA-256 of the
---- sources of the code that made the answer ([`salt`]).
+--- sources of the code that made the result ([`salt`]).
 ---
---- A memo is an optimization and never an answer: a read or write that fails
+--- A memo is an optimization and never required: a read or write that fails
 --- is a miss, and the check runs. A run is one transaction, from [`prepare`]
 --- to [`finish`], which keeps the rows it used and drops the rest of its kind,
 --- so the table does not grow with each edit.
@@ -30,7 +30,7 @@
 --- A key the checkout's own memo lacks is looked up in the shared file and
 --- kept here. What a run writes to the shared file, as its kind finishes and
 --- in one short transaction, is the rows it made itself and the rows it took
---- from there: never a row its own memo answered, which an earlier tool of
+--- from there: never a row its own memo supplied, which an earlier tool of
 --- other code may have made. The file is in write-ahead mode and a run reads
 --- it a row at a time, so runs of several checkouts never wait on each
 --- other's checks. A row no run has made or taken for `kept_ns` goes, and
@@ -49,7 +49,7 @@ local sys = require("cosmic.sys")
 
 local record check_memo
   --- Creates the table in `db` if it is not there, marks the rows of `kind`
-  --- unused and begins the run's transaction. Answers whether it could.
+  --- unused and begins the run's transaction. Returns whether it could.
   prepare: function(db: Sqlite.Handle, kind: string): boolean, string
   --- The text kept under `key` for `kind`, marked used; nil on a miss.
   get: function(db: Sqlite.Handle, kind: string, key: string): string?
@@ -62,13 +62,13 @@ local record check_memo
   --- the cache directory's `build`; nil where `COSMIC_BUILD_CACHE` is `0` or there is no cache directory.
   shared_path: function(environment?: {string:string}): string?
   --- The code that checks, as a shared row is held under it: a digest of the bytecode of every module in the import
-  --- closure of [`build.fix`], by the `imports` rows of the tool `reads` answers for, and of its core. The bytecode
+  --- closure of [`build.fix`], by the `imports` rows of the tool read through `reads`, and of its core. The bytecode
   --- and not the source: a tool another compiler wrote from the same source is other code. Nil and why where the tool
   --- cannot say: a module it holds with no bytecode to read, or a query that failed.
   code_of: function(reads: Reads): string?, string
 
   --- How [`check_memo.code_of`] reads a tool: `requires`, `bytecode` and `holds` as [`cosmic.store`]'s functions of
-  --- those names answer, and `core`, what names every byte of the tool that is no module.
+  --- those names return, and `core`, what names every byte of the tool that is no module.
   record Reads
     requires: function(name: string): {string}?, string
     bytecode: function(name: string): string?, string
@@ -77,7 +77,7 @@ local record check_memo
   end
   --- Shares rows through the file at `path` from here on, made when missing, in place of the default; with nil, shares
   --- none. `sharing` names the code the rows are held under ([`check_memo.code_of`]) and the bytes kept,
-  --- `kept_bytes` by default. Answers whether the file is open, and why not: a file that is a link, another user's
+  --- `kept_bytes` by default. Returns whether the file is open, and why not: a file that is a link, another user's
   --- or writable by others is refused, as a shared compile's is.
   share: function(path: string?, sharing?: Sharing): boolean, string
 
@@ -321,11 +321,30 @@ end
 -- rows standing, though never a sibling's, which takes only rows made under its own code. A stale `shape` digest
 -- among them goes into the key a row of `declared` or `checked` is shared under, whose value is still made from the
 -- sources: a sibling takes it only where its own digest of other sources is the same.
+
+--- An entry that ends in `/` names a directory: every `.tl` file under it goes in, by its path and its text, so a
+--- module split into the files of a directory (lang/check/) is salted whole however its files are named.
 function check_memo.salt(root: string, files: {string}, version: string): string
   local parts: mut {string} = {}
   for _, file in ipairs(files) do
-    local text, _ = Fs.read(root .. "/" .. file)
-    parts[#parts + 1] = Hash.hex_sha256(text or "")
+    if file:sub(-1) == "/" then
+      local named: mut {string} = {}
+      local listed, _ = Fs.walk(root .. "/" .. file)
+      if listed ~= nil then
+        for _, inner in ipairs(listed) do
+          if inner:match("%.tl$") ~= nil then named[#named + 1] = inner end
+        end
+      end
+      table.sort(named)
+      for _, inner in ipairs(named) do
+        local text, _ = Fs.read(root .. "/" .. file .. inner)
+        parts[#parts + 1] = Hash.hex_sha256(file .. inner .. "\0" .. (text or ""))
+      end
+      parts[#parts + 1] = "/" .. tostring(#named)
+    else
+      local text, _ = Fs.read(root .. "/" .. file)
+      parts[#parts + 1] = Hash.hex_sha256(text or "")
+    end
   end
   parts[#parts + 1] = version
   return Hash.hex_sha256(table.concat(parts, "\0"))

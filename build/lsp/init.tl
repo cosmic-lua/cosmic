@@ -162,7 +162,7 @@ end
 local GRACE_NS <const> = Clock.seconds(5)
 
 --- Serves each editor that connects at `listeners`, a session of its own
---- below `root` each, until SIGINT or SIGTERM. Answers the exit code.
+--- below `root` each, until SIGINT or SIGTERM. Returns the exit code.
 local function listen(root: string, listeners: {Net.Address}): integer
   local open: Open = { conns = {}, stopping = false }
   local ok, trouble = Net.serve({
@@ -178,7 +178,9 @@ local function listen(root: string, listeners: {Net.Address}): integer
         store = nil,
       })
       local _ = session.serve(s, conn, function(text: string): boolean, string
-        return conn:write(text)
+        local wrote, why = conn:write(text)
+        if not wrote then return false, tostring(why) end
+        return true, ""
       end, polled_conn(conn))
       open.conns[conn] = nil
     end,
@@ -267,7 +269,7 @@ end
 -- TODO: hold a session in a project to the checkout its tool was built
 -- from at each stage too, not only at its start ([`reboot.stale_exit`]):
 -- [`reboot.recheck`] of the project's root already checks that checkout,
--- so this would answer true for such a tool, once a test of the hand-over
+-- so this would return true for such a tool, once a test of the hand-over
 -- from a project's session (build/lsp/tool_test.tl) shows the successor
 -- serves that session.
 
@@ -278,7 +280,7 @@ local function owns(root: string): boolean
   return standing ~= nil and standing.own
 end
 
---- Runs the command line `argv`, `lsp` at slot 1, and answers the exit
+--- Runs the command line `argv`, `lsp` at slot 1, and returns the exit
 --- code.
 local function run(argv: {string}): integer
   local complain = bare.complainer("lsp", bare.err)

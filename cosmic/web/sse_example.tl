@@ -30,7 +30,7 @@ function Example.hub()
       Web.get("/events", function(req: Web.Request): Web.Response
         local sub, why = hub:subscribe({ "orders" }, { after = Sse.last_event_id(req) })
         if sub == nil then
-          return Web.text(why, { status = 503, headers = { ["Retry-After"] = "5" } })
+          return Web.text(tostring(why), { status = 503, headers = { ["Retry-After"] = "5" } })
         end
         return Sse.EventStream(req, sub, { retry_ms = 1000 })
       end),

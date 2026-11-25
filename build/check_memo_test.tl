@@ -99,7 +99,7 @@ local function test_a_row_one_checkout_wrote_stands_in_another_of_the_same_code(
   for _, db in ipairs({ first, second, third, other, back }) do assert(db:close()) end
 end
 
---- A row a checkout answers from its own memo is not written to the shared file: the tool that made it may have been
+--- A row a checkout takes from its own memo is not written to the shared file: the tool that made it may have been
 --- of other code than the one the file would hold it under. A row it took from the file is, and stays there.
 local function test_a_row_answered_by_the_checkouts_own_memo_is_not_shared(tmp: string)
   local own = assert(Sqlite.memory())
@@ -177,7 +177,7 @@ local function test_rows_are_shared_in_the_cache_directory(tmp: string)
 end
 
 --- A shared file that cannot be opened, or is not this user's alone to write, or is a link, is done without: the
---- checkout's own memo answers as it did.
+--- checkout's own memo works as it did.
 local function test_a_shared_file_that_cannot_be_trusted_is_done_without(tmp: string)
   local opened, why = check_memo.share(tmp .. "/none/checks.db", { code = "a" })
   assert(not opened and why ~= "", "a file in no directory was opened")
@@ -228,4 +228,25 @@ local function test_the_code_a_shared_row_is_held_under_is_the_closure_of_fix_an
   assert(base ~= coded(nil, "another core"), "another core left the code as it was")
   local none, why = coded(nil, "core", "lang.check")
   assert(none == nil and why == "lang.check: its bytecode does not inflate", why)
+end
+
+--- A salt entry that ends in `/` takes in every `.tl` file under the directory: an edit to one, a file added and a
+--- file renamed (to a name that sorts in the same place, so only its path moves) each move it, and a file of another kind does not.
+local function test_a_directory_in_the_salt_moves_with_each_file_under_it(tmp: string)
+  local root = tmp .. "/salted"
+  assert(Fs.mkdirs(root .. "/lang/check"))
+  assert(Fs.write(root .. "/lang/check/init.tl", "-- one\n"))
+  local function salt(): string return check_memo.salt(root, { "lang/check/" }, "v") end
+  local base = salt()
+  assert(base == salt())
+  assert(Fs.write(root .. "/lang/check/notes.txt", "not a module\n"))
+  assert(base == salt(), "a file that is no module moved the salt")
+  assert(Fs.write(root .. "/lang/check/init.tl", "-- two\n"))
+  local edited = salt()
+  assert(edited ~= base, "an edit to a file under the directory left the salt as it was")
+  assert(Fs.write(root .. "/lang/check/context.tl", "-- one\n"))
+  local added = salt()
+  assert(added ~= edited, "a file added under the directory left the salt as it was")
+  assert(Fs.rename(root .. "/lang/check/context.tl", root .. "/lang/check/core.tl"))
+  assert(salt() ~= added, "a file renamed under the directory left the salt as it was")
 end

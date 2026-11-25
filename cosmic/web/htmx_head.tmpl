@@ -1,0 +1,5 @@
+{{type HtmxHead from cosmic.web.markup_data -}}
+<meta name="htmx-config" content="{{.config}}">
+{{- range .scripts}}
+<script src="{{.src}}" integrity="{{.integrity}}" crossorigin="anonymous"{{with $.nonce}} nonce="{{.}}"{{end}} defer></script>
+{{- end -}}

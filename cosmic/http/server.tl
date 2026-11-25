@@ -1,6 +1,6 @@
 --- An HTTP/1.1 server, over [`Net.serve`]: [`Server.serve`] calls a handler
 --- with each [`Request`], its body a Reader, and writes the [`Reply`] it
---- answers. [`Server.range`] and [`Server.none_match`] read a request's
+--- returns. [`Server.range`] and [`Server.none_match`] read a request's
 --- Range and If-None-Match for it, [`Server.encoding`] its Accept-Encoding,
 --- and [`ServeSpec.compress`] has the server compress replies. It is apart from [`cosmic.http`], the
 --- client, so a program that only fetches does not carry the networking
@@ -44,7 +44,7 @@ local record Server
   --- whole; its body is not read yet.
   record Request
     --- The method, case-sensitive: "GET", "PUT". A HEAD is passed on as
-    --- itself: answer it as GET, and the server sends the head the GET's
+    --- itself: handle it as GET, and the server sends the head the GET's
     --- reply has, its Content-Length (or `Transfer-Encoding: chunked`)
     --- included, and no body; or, without the bytes, give the size alone,
     --- with no body: `{ status = 200, headers = { ["Content-Length"] =
@@ -69,9 +69,9 @@ local record Server
     --- chunked body decoded, and nothing for a request with neither.
     --- [`Stream.read_all`] reads it whole, for the common case; it
     --- holds at most `limits.body_bytes`. A read past that fails, and
-    --- the server answers 413 in place of the handler's reply (so a
+    --- the server sends 413 in place of the handler's reply (so a
     --- handler may simply `assert` the read); a chunked body
-    --- malformed fails the same way, answered 400. A body the handler
+    --- malformed fails the same way, and gets 400. A body the handler
     --- leaves unread is read and dropped after its reply, the
     --- connection closed instead where it fails. Closing it does
     --- nothing more than end the handler's reads.
@@ -104,7 +104,7 @@ local record Server
     --- passes, the task is cancelled or the connection is closed here.
     --- A handler that works a long time before it replies can wait on
     --- it in a task of its own ([`Poll.spawn`]) and give up once it
-    --- answers true; a stream of events needs none, as the server closes
+    --- returns true; a stream of events needs none, as the server closes
     --- it when the client goes ([`Reply.until_gone`]). A request the client
     --- sends meanwhile does not end it.
     wait_gone: function(timeout_ns?: integer): boolean
@@ -114,7 +114,7 @@ local record Server
     tls?: Tls.Info
   end
 
-  --- What a handler answers. The server writes `Date`,
+  --- What a handler returns. The server writes `Date`,
   --- `Content-Length` (or `Transfer-Encoding: chunked`) and
   --- `Connection` itself. A handler may give `Content-Length` too, as
   --- `length` or a header: it must be the body's size, and the server
@@ -123,7 +123,7 @@ local record Server
   --- Content-Length that is no digits, past 18 of them, named twice in
   --- different cases, other than `length`, given a 204, or not the
   --- body's size, a body for a 204 or 304, or anything but such a
-  --- record, is answered 500 instead and reported to
+  --- record, is replaced by a 500 and reported to
   --- [`Server.ServeSpec.on_error`].
   record Reply
     --- The status, from 200 to 999: the server sends `100 Continue`
@@ -156,7 +156,7 @@ local record Server
     --- soon as the client goes, as the request's `gone` sees it -- a
     --- half-close of the client's sending side counted as going -- and
     --- the reply is cut short with no report. Its read, waiting for an
-    --- event, must then answer the end, so a quiet stream ends with its
+    --- event, must then return the end, so a quiet stream ends with its
     --- client and not at its next write. Its close may come twice: from
     --- that task, then as the reply ends. A request the client sends
     --- after this one is no going. Not for a body that must arrive
@@ -164,7 +164,7 @@ local record Server
     --- rest. The task that closes it is the connection's no longer once
     --- it has begun: a close that waits (an `on_close`) runs to its end
     --- after the server stops. A [`cosmic.web`] response sets it on the
-    --- response a constructor answers (`res.until_gone = true`), as
+    --- response a constructor returns (`res.until_gone = true`), as
     --- [`Sse.EventStream`] does.
     mut until_gone?: boolean
   end
@@ -174,7 +174,7 @@ local record Server
   record ServeSpec
     --- Where to listen, as [`Net.ServeSpec.listeners`].
     listeners?: {Net.Address}
-    --- Answers one request, in the connection's task: see [`Server.serve`].
+    --- Handles one request, in the connection's task: see [`Server.serve`].
     handle: function(Request): Reply
     --- What a server takes on at most; a field left nil has its default.
     record Limits
@@ -182,15 +182,15 @@ local record Server
       --- client that comes is served in the place of the connection
       --- idle longest, which is closed (see [`Server.serve`]).
       connections?: integer
-      --- The most bytes of a request's head (64 KiB), past which it is
-      --- answered 431, and of the head with a chunked body's chunk
+      --- The most bytes of a request's head (64 KiB), past which it
+      --- gets 431, and of the head with a chunked body's chunk
       --- extensions and trailers, past which 413.
       head_bytes?: integer
       --- The most bytes of a request's body (1 MiB); past it, 413.
       -- TODO: let a request's route choose its own limit
       -- (`ServeSpec.body_limit(method, path)`). A lower one needs only exchange to consult it before
       -- wire.body; a higher one (an upload route) waits on
-      -- wire.read_head, which answers 413 for a Content-Length past the
+      -- wire.read_head, which returns 413 for a Content-Length past the
       -- server-wide `body_bytes` before the route is known: it would
       -- take the Content-Length check out of read_head into the caller.
       body_bytes?: integer
@@ -224,7 +224,7 @@ local record Server
     --- the body, so a handler working before it reads costs the client
     --- none; the server's own drop of a body the handler left unread
     --- has a window of its own. Past it the read fails as a
-    --- [`Poll.TIMEOUT`] does and the server answers 408 in place of the
+    --- [`Poll.TIMEOUT`] does and the server sends 408 in place of the
     --- handler's reply and closes, so a client sending a body a byte
     --- at a time holds a connection no longer; a body that was unread
     --- and is not dropped in time closes the connection after the
@@ -400,8 +400,8 @@ local class Timed is Stream.Reader
   end
 
   --- The connection is the server's to close.
-  function close(self): boolean, string
-    return true, ""
+  function close(self): (true) | (false, Failure)
+    return true
   end
 end
 
@@ -489,7 +489,7 @@ local function linger(conn: Net.Conn)
   end
 end
 
---- Why `reply`, what a handler answered, is no reply the server can
+--- Why `reply`, what a handler returned, is no reply the server can
 --- send, or "".
 local function reply_trouble(reply: any): string
   if not reply is {any: any} then -- declared: key_type
@@ -543,9 +543,9 @@ local function reply_trouble(reply: any): string
   return ""
 end
 
---- Closes the Reader body of `reply`, what a handler answered, where it
+--- Closes the Reader body of `reply`, what a handler returned, where it
 --- has one the server will not send: checked as it runs, since the
---- handler's answer is a [`Reply`] only by its declaration.
+--- handler's result is a [`Reply`] only by its declaration.
 local function drop_body(reply: Server.Reply?)
   if type(reply) ~= "table" then return end
   local body = reply.body
@@ -556,16 +556,16 @@ local function drop_body(reply: Server.Reply?)
   end
 end
 
---- Why the server cannot send `reply`, what a handler answered to a request
+--- Why the server cannot send `reply`, what a handler returned for a request
 --- of `method` (GET when nil), or "": the checks it makes before it
---- writes one, and for which it answers 500 instead -- a field the
+--- writes one, and for which it sends 500 instead -- a field the
 --- [`Server.Reply`] lacks, a header that cannot be written, a body or a
 --- Content-Length that disagree. A test that calls a handler without a
 --- server asks it what the server would.
 ---
 ---     assert(Server.check({ status = 200, body = "hi" }) == "")
 ---     assert(Server.check({ status = 200, body = "hi", length = 5 }) ~= "")
---- @param reply Server.Reply The handler's answer
+--- @param reply Server.Reply The handler's result
 --- @param method string | nil The request's method
 --- @return string Why it cannot be sent, or ""
 function Server.check(reply: Server.Reply, method?: string): string
@@ -622,7 +622,7 @@ end
 --- Accept-Encoding `header` (nil where it sent none), as RFC 9110
 --- section 12.5.3 says: the one of `offered` (best first; "zstd" then
 --- "gzip" when nil) with the greatest qvalue, the first of them on a
---- tie, and "identity" where none has a qvalue above 0. Answers nil
+--- tie, and "identity" where none has a qvalue above 0. Returns nil
 --- where the client accepts neither: it refused identity, by
 --- `identity;q=0` or by `*;q=0` with no `identity` of its own.
 ---
@@ -635,7 +635,7 @@ end
 --- weight. An element that is no coding, or whose weight is no
 --- qvalue, is ignored, as are parameters other than the weight. A
 --- client naming `identity` with a weight above every coding's is
---- answered "identity"; one that leaves it unnamed is answered a
+--- given "identity"; one that leaves it unnamed is given a
 --- coding it accepts before it. An empty header accepts identity alone.
 --- @param header string | nil The request's Accept-Encoding
 --- @param offered {string} | nil The codings the caller can write
@@ -870,7 +870,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     end,
   }
   local ok, reply = xpcall(s.spec.handle, traced, request)
-  -- A body that failed is answered for, whatever the handler made of
+  -- A body that failed sets the reply, whatever the handler made of
   -- it: its raise, or its reply, followed from the failed read.
   local state = body.state
   if state == "over" or state == "bad" or state == "failed" then
@@ -891,7 +891,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     if body.state == "open" then linger(conn) end
     return false
   end
-  -- A handler is a Reply only by its declaration: it may answer nothing.
+  -- A handler is a Reply only by its declaration: it may return nothing.
   local trouble: string
   if reply == nil then -- checked: compare_disjoint
     trouble = reply_trouble(reply)
@@ -990,7 +990,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
     report(s, "http: " .. where .. ": the reply's body: " .. tostring(sent))
     return false
   end
-  -- The send answered once it did not raise.
+  -- Once it did not raise, `sent` is what the send returned.
   local result = sent
   if result == nil then return false end -- checked: compare_disjoint
   local failed = body.state ~= "open" and body.state ~= "done"
@@ -1071,8 +1071,11 @@ end
 --- Serves HTTP/1.1 at each of `spec.listeners`, calling `spec.handle`
 --- for each request, until the server stops: [`Net.serve`], whose
 --- connections, signals and stopping it shares, speaking HTTP. It
---- answers as [`Net.serve`] does, and raises for a spec of the wrong
---- shape, naming the field.
+--- returns when [`Net.serve`] does: true and "", or false and the
+--- failure's message. It raises for a spec of the wrong shape, naming
+--- the field, and when called in a task of a [`Poll.run`]. What
+--- `spec.on_ready` or `spec.on_error` raises, it raises, as [`Net.serve`]
+--- does.
 ---
 ---     assert(Server.serve{
 ---       listeners = { Net.tcp("127.0.0.1", 8080) },
@@ -1084,15 +1087,15 @@ end
 ---     })
 ---
 --- A connection serves one request after another (keep-alive), and
---- answers requests pipelined on it in order; it closes after a reply
+--- handles requests pipelined on it in order; it closes after a reply
 --- to HTTP/1.0, to `Connection: close`, with `Reply.close`, and once the server is
 --- stopping; a 4xx or 5xx reply keeps it open (a handler wanting it
 --- closed says `close`), unless the request's body was left unread and
 --- could not be dropped (past `limits.body_bytes`, malformed, or slower
---- than `body_ns`), or the server answered for the handler: its own
+--- than `body_ns`), or the server replied for the handler: its own
 --- 4xx and 5xx close the connection. It closes once idle
 --- for `idle_ns` too, and at once when the server stops: a request in
---- flight then finishes, answered with `Connection: close`. At
+--- flight then finishes, its reply carrying `Connection: close`. At
 --- `limits.connections`, with a client waiting, the connection idle
 --- longest closes at once to make room for it; where none is idle, the
 --- next reply sent says `Connection: close`.
@@ -1110,11 +1113,11 @@ end
 --- it); any other expectation (417). A client sending that expectation
 --- is sent `100 Continue` when the handler first reads the body.
 ---
---- A handler that raises, or answers what [`Reply`] refuses, is
---- answered 500, and what it raised, with its stack, or why its reply
+--- A 500 goes out for a handler that raises, or returns what [`Reply`]
+--- refuses, and what it raised, with its stack, or why its reply
 --- was refused, goes to [`Server.ServeSpec.on_error`]. A HEAD's reply is the
 --- GET's head, its framing headers with it, and no body: a handler
---- answers HEAD as it would GET, and a Reader body is closed unread; or
+--- handles HEAD as it would GET, and a Reader body is closed unread; or
 --- it gives the size alone, as a `Content-Length` header and no body (see
 --- [`Server.Request.method`]).
 ---
@@ -1134,7 +1137,7 @@ end
 --- events must not wait on a compressor). A HEAD whose reply has a
 --- body gets the head its GET gets; one that gives the size alone is
 --- sent as given. A client that refuses identity and everything the
---- server writes is answered 406, where the reply would have been
+--- server writes gets 406, where the reply would have been
 --- compressed. A reply that mixes a secret with input the client
 --- chose can leak the secret through its compressed length (BREACH):
 --- see [`Server.ServeSpec.compress`], and mark such a reply
@@ -1242,7 +1245,7 @@ end
 
 --- Reads the Range `header` of a GET (nil where it sent none) against
 --- a representation of `size` bytes, as RFC 9110 section 14 says. A
---- handler of [`Server.serve`] answers what it says:
+--- handler of [`Server.serve`] returns the reply it calls for:
 ---
 --- - "span": 206 with `Content-Range: bytes <first>-<last>/<size>` and
 ---   the `last - first + 1` bytes from `first`;
@@ -1261,14 +1264,14 @@ end
 --- unit is "bytes" in any case; a comma-separated list may hold empty
 --- elements and spaces or tabs beside its commas, but none between
 --- `=` and the range, nor within it. A server may ignore Range, and
---- this one does, answering "whole", for any other unit, a range the
+--- this one does, returning "whole", for any other unit, a range the
 --- RFC holds invalid (`b` before `a`) or that is none (a sign, a
 --- space), and more than one range: it writes no
 --- `multipart/byteranges`. A valid range holding none of the bytes --
 --- `a` at or past `size`, or `-0` -- is "unsatisfiable". `bytes=-n`
 --- of an empty representation is "whole": the RFC holds it
 --- satisfiable, so no 416, yet a 206 would have no bytes to carry. A count past the largest integer is read as that integer,
---- which no size passes, so it is answered as the count it is.
+--- which no size passes, so the result is what the count itself would get.
 ---
 --- Range concerns only GET, and a server ignores it for every other
 --- method; a handler that honors If-Range passes nil where its
@@ -1337,8 +1340,9 @@ end
 --- (`"v1"`, or `W/"v1"` for a weak one), as RFC 9110 section 13.1.2
 --- says: `*` names any, and a list names each tag in it, compared
 --- weakly -- `W/"v1"` and `"v1"` name the same. Where it does, the
---- request's condition fails, and a handler answers a GET or HEAD 304
---- Not Modified, with the ETag and no body, and any other method 412.
+--- request's condition fails, and a handler returns 304 Not Modified
+--- for a GET or HEAD, with the ETag and no body, and 412 for any other
+--- method.
 ---
 ---     local etag = '"' .. version .. '"'
 ---     if Server.none_match(req.headers["if-none-match"], etag) then

@@ -156,7 +156,7 @@ local function test_a_pure_store_holds_no_text(tmp: string)
   assert(bytecode(pure, "greet_test") == bytecode(full, "greet_test"), "the test's own bytecode was stripped")
   assert(count(pure, "SELECT count(*) FROM modules WHERE bytecode <> chunk(bytecode)") == "0",
     "a pure store holds a chunk some other way than as it is loaded")
-  -- A hint asked of the pure store raises, and of the full one answers: no match is not an answer of a store without the table.
+  -- A hint asked of the pure store raises, and of the full one returns: no match is not a result of a store without the table.
   local ok, why = pcall(symbols.named, { pure }, { false }, "wave")
   assert(not ok and tostring(why):find("withheld", 1, true) ~= nil, "a hint of a pure store was answered with no match")
   local no_example, no_example_why = pcall(symbols.has_example_query, { pure }, { false }, "hello")
@@ -165,7 +165,7 @@ local function test_a_pure_store_holds_no_text(tmp: string)
   local no_guidance, no_guidance_why = pcall(errors.guidance_in, pure, "the file could not be opened for reading here")
   assert(not no_guidance and tostring(no_guidance_why):find("withheld", 1, true) ~= nil,
     "a lookup of guidance in a pure store was answered with none")
-  -- The full store answers (with no guidance, or some) and does not raise.
+  -- A lookup of the full store returns (with no guidance, or some) and does not raise.
   local _ = errors.guidance_in(full, "the file could not be opened for reading here")
   local found = symbols.named({ full }, { false }, "wave")
   assert(#found == 1 and found[1] == "greet.wave", "the full store answered " .. table.concat(found, " "))
@@ -424,6 +424,30 @@ local function test_a_pure_store_keeps_the_sources_of_the_walks_its_closure_decl
   local root, root_store = walk_store(tmp .. "/d", tmp, "root", { ["build/pipeline"] = "-- a comment" })
   assert(root ~= plain and root ~= inside, "a comment in the walk's root left the address as it was")
   assert(root_store:close())
+end
+
+--- The full store of the same closure keeps, beside the closure's modules, the source of a module its walk reaches by
+--- a type alone, as the pure store does: a worker given it works out the identity of the walk
+--- ([`build.code_identity`]) over the modules the program's does, so it can read the program's stamp of it. Its address
+--- holds that source.
+local function test_a_full_store_keeps_the_source_of_a_module_its_walk_reaches_by_a_type_alone(tmp: string)
+  local function full(root: string, name: string, edits: {string:string}): string, Sqlite.Handle
+    walked(root, tmp .. "/" .. name .. "-whole.db", edits)
+    local basis = assert(closure_store.basis(tmp .. "/" .. name .. "-whole.db"))
+    assert(closure_store.write(tmp .. "/" .. name .. "-whole.db", tmp .. "/" .. name .. ".db", walk_names, basis))
+    return closure_store.address(basis, walk_names, "salt"), assert(Sqlite.open(tmp .. "/" .. name .. ".db"))
+  end
+  local plain, store = full(tmp .. "/a", "plain", {})
+  local rows = assert(store:text_rows("SELECT length(source), length(bytecode) FROM modules WHERE path = 'build.typed'"))
+  local row = support.nth(rows, 1)
+  assert(row:text(1) ~= "0", "a module the walk reaches by a type alone keeps no source")
+  assert(row:text(2) == "0", "a module outside the closure keeps its code")
+  local edge = assert(store:text_rows("SELECT 1 FROM imports WHERE path = 'build.pipeline' AND requires = 'build.typed'"))
+  assert(#edge == 1, "the walk's edge to a module it reaches by a type alone is left out")
+  assert(store:close())
+  local typed, typed_store = full(tmp .. "/b", "typed", { ["build/typed"] = "-- a comment" })
+  assert(typed ~= plain, "a comment in a module the walk reaches by a type alone left the address as it was")
+  assert(typed_store:close())
 end
 
 --- A closure that declares no read keeps no source: the same project with the declaration left out holds no source

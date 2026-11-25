@@ -100,33 +100,35 @@ local function build(fields: {string}, outside: string): string?
       -- [`gen_extraction`] makes three fields per entry after the first three.
       local path = place(Array.at(fields, i + 1))
       if fields[i] == "dir" then
-        zw:add_dir(path)
+        local _, _ = zw:add_dir(path)
       else
-        zw:add_file(path, Array.at(fields, i + 2))
+        local _, _ = zw:add_file(path, Array.at(fields, i + 2))
       end
     end
-    if not zw:close() then return nil end
+    local wrote, _ = zw:close()
+    if not wrote then return nil end
     return out:result()
   end
   local tw = Tar.writer(out, { deterministic = true })
   for i = 4, #fields, 3 do
     local kind, path = fields[i], place(Array.at(fields, i + 1))
     if kind == "file" then
-      tw:add_file(path, Array.at(fields, i + 2))
+      local _, _ = tw:add_file(path, Array.at(fields, i + 2))
     elseif kind == "dir" then
-      tw:add_dir(path)
+      local _, _ = tw:add_dir(path)
     else
-      tw:add_symlink(path, place(Array.at(fields, i + 2)))
+      local _, _ = tw:add_symlink(path, place(Array.at(fields, i + 2)))
     end
   end
-  if not tw:close() then return nil end
+  local wrote, _ = tw:close()
+  if not wrote then return nil end
   local archive = out:result()
   if format == "tar.gz" then
     local enc, _ = Compress.encoder("gzip")
     if enc == nil then return nil end
-    local head = enc:update(archive) as string -- checked: cast_refused
-    local tail = enc:finish()
-    if tail == nil then return nil end
+    local head, _ = enc:update(archive)
+    local tail, _ = enc:finish()
+    if head == nil or tail == nil then return nil end
     archive = head .. tail
   end
   return archive
@@ -258,7 +260,7 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
 end
 
 --- Lists `input` as a file, where the format is detected: fails only
---- when an answer is one no archive could mean.
+--- when an outcome is one no archive could mean.
 local function test_opening_any_bytes_is_total(tmp: string)
   local file = tmp .. "/input"
   Fuzz.run({
@@ -272,8 +274,8 @@ local function test_opening_any_bytes_is_total(tmp: string)
         -- A real tar's header, so the tar path is reached too.
         local out = Stream.collect()
         local tw = Tar.writer(out, { deterministic = true })
-        tw:add_file("a", Fuzz.bytes(src, 40))
-        tw:close()
+        local _, _ = tw:add_file("a", Fuzz.bytes(src, 40))
+        local _, _ = tw:close()
         body = Fuzz.mutate(src, out:result(), 4)
         magic = ""
       end
@@ -289,16 +291,16 @@ local function test_opening_any_bytes_is_total(tmp: string)
       local reader, _ = Archive.open(file)
       if reader ~= nil then
         for _ = 1, 10000 do
-          local e = reader:next()
-          if e == nil then break end
+          local e, _ = reader:next()
+          if e == nil or e == false then break end
           local entry: Archive.Entry = e
-          local body = entry:open()
+          local body, _ = entry:open()
           if body ~= nil then
             local read, _ = Stream.read_all(body)
             if read ~= nil then Fuzz.label("body read") end
           end
         end
-        reader:close()
+        local _, _ = reader:close()
       end
       return true, ""
     end,
@@ -314,23 +316,22 @@ local function walk_summary(reader: Archive.Reader): string
   local lines: mut {string} = {}
   local ended = "ok"
   for _ = 1, 10000 do
-    local e, why = reader:next()
+    local e, _ = reader:next()
     if e == nil then
-      if why ~= "" then
-        ended = "trouble"
-        lines = {}
-      end
+      ended = "trouble"
+      lines = {}
       break
     end
+    if e == false then break end
     local entry: Archive.Entry = e
     table.insert(lines, entry.kind .. " " .. entry.path .. " " .. tostring(entry.size))
   end
-  reader:close()
+  local _, _ = reader:close()
   lines[#lines + 1] = ended
   return table.concat(lines, "\n")
 end
 
---- A Reader over `bytes` that answers in chunks of the sizes `bytes`
+--- A Reader over `bytes` that gives chunks of the sizes `bytes`
 --- itself spells (1 to 300, cycling), so the sniff and the tar's header
 --- reads land across reads wherever the input puts them.
 local function chunked(bytes: string): Stream.Reader
@@ -346,12 +347,12 @@ local function chunked(bytes: string): Stream.Reader
       at = at + #chunk
       return chunk
     end,
-    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
   return r
 end
 
---- `open` of a stream answers as `open` of a path does for the same bytes, however the
+--- `open` of a stream returns what `open` of a path does for the same bytes, however the
 --- stream splits them: the same entries and the same end, a tar or a
 --- compressed tar alike, and a zip refused rather than misread.
 local function test_open_of_a_stream_answers_as_open_does_for_the_same_bytes(tmp: string)
@@ -366,16 +367,16 @@ local function test_open_of_a_stream_answers_as_open_does_for_the_same_bytes(tmp
       if src:int(0, 2) > 0 then
         local out = Stream.collect()
         local tw = Tar.writer(out, { deterministic = true })
-        tw:add_file("a", Fuzz.bytes(src, 40))
-        tw:add_file("b/c", Fuzz.bytes(src, 700))
-        tw:close()
+        local _, _ = tw:add_file("a", Fuzz.bytes(src, 40))
+        local _, _ = tw:add_file("b/c", Fuzz.bytes(src, 700))
+        local _, _ = tw:close()
         local sample = out:result()
         if src:int(0, 1) == 1 then
           local enc, _ = Compress.encoder("gzip")
           if enc ~= nil then
-            local head = enc:update(sample) as string -- checked: cast_refused
-            local tail = enc:finish()
-            if tail ~= nil then sample = head .. tail end
+            local head, _ = enc:update(sample)
+            local tail, _ = enc:finish()
+            if head ~= nil and tail ~= nil then sample = head .. tail end
           end
         end
         body = Fuzz.mutate(src, sample, 3)
@@ -539,16 +540,18 @@ local function build_capped(fields: {string}): string?, {integer}
     local unit = if fields[i + 1] == "z" then "\0" else "pq1" end
     local body = unit:rep(size // #unit + 1):sub(1, size)
     sizes[#sizes + 1] = size
-    if not w:add_file("f" .. tostring(#sizes), body) then return nil, sizes end
+    local wrote, _ = w:add_file("f" .. tostring(#sizes), body)
+    if not wrote then return nil, sizes end
   end
-  if not w:close() then return nil, sizes end
+  local wrote, _ = w:close()
+  if not wrote then return nil, sizes end
   local archive = out:result()
   if fields[1] == "tar.gz" then
     local enc, _ = Compress.encoder("gzip")
     if enc == nil then return nil, sizes end
-    local head = enc:update(archive) as string -- checked: cast_refused
-    local tail = enc:finish()
-    if tail == nil then return nil, sizes end
+    local head, _ = enc:update(archive)
+    local tail, _ = enc:finish()
+    if head == nil or tail == nil then return nil, sizes end
     archive = head .. tail
   end
   return archive, sizes
@@ -559,18 +562,21 @@ end
 --- alone would pass any body.
 local function understating(reader: Archive.Reader): Archive.Reader
   local r: Archive.Reader = { -- checked: literal_shape
-    next = function(_self: Archive.Reader): Archive.Entry?, string
+    next = function(_self: Archive.Reader): (Archive.Entry | false) | (nil, Failure)
       local entry, why = reader:next()
       if entry == nil then return nil, why end
+      if entry == false then return false end
       local real: Archive.Entry = entry
       local lie: Archive.Entry = { -- checked: literal_shape
         path = real.path, kind = real.kind, mode = real.mode, size = 0, mtime = real.mtime,
         linkpath = real.linkpath,
-        open = function(_self: Archive.Entry): Stream.Reader?, string return real:open() end,
+        open = function(_self: Archive.Entry): (Stream.Reader) | (nil, Failure)
+          return real:open()
+        end,
       }
-      return lie, ""
+      return lie
     end,
-    close = function(_self: Archive.Reader): boolean, string return reader:close() end,
+    close = function(_self: Archive.Reader): (true) | (false, Failure) return reader:close() end,
   }
   return r
 end

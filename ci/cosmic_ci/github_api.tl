@@ -2,9 +2,10 @@
 --- driver in place of the `gh` CLI.
 ---
 --- A [`GithubApi.Client`] holds two functions the live one fills over
---- [`cosmic.http`], so a test can answer from a table instead. `send` makes
---- one request to the API and never follows a redirect. `fetch` downloads
---- one URL the API redirected to, and is never given the token.
+--- [`cosmic.http`], so a test can take the responses from a table
+--- instead. `send` makes one request to the API and never follows a
+--- redirect. `fetch` downloads one URL the API redirected to, and is
+--- never given the token.
 ---
 --- The token goes only to the API's own origin, `GITHUB_API_URL`'s, and
 --- to the one origin GitHub takes release assets on ([`GithubApi.upload`]):
@@ -12,12 +13,13 @@
 --- without it, since that URL is a signed link to another host.
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local type Failure = require("cosmic.failure")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
 local Stream = require("cosmic.stream")
 local Url = require("cosmic.url")
 
---- Closes `reader`: a response answers `close` as a reader does.
+--- Closes `reader`: a response closes as a reader does.
 local function close_reader(reader: Stream.Reader)
   local _, _ = reader:close()
 end
@@ -35,13 +37,13 @@ local record GithubApi
     --- Whether `url` is on the client's upload origin, not the API's.
     upload?: boolean
   end
-  --- An answer, whatever its status; `headers` are keyed by lowercased name.
+  --- A response, whatever its status; `headers` are keyed by lowercased name.
   record Reply
     status: integer
     headers: {string:string}
     body: string
   end
-  --- Sends `request`; the answer, or nil and why none came.
+  --- Sends `request`; the response, or nil and why none came.
   type Send = function(Request): Reply?, string
   --- Downloads `url`, a link the API gave, to `path`: true, or false and why.
   type Fetch = function(url: string, path: string): boolean, string
@@ -70,9 +72,9 @@ local record GithubApi
   record Live
     script?: {{string}}
     sent?: function(text: string)
-    --- Downloads in place of [`Http.download_result`], to see what a
+    --- Downloads in place of [`Http.download`], to see what a
     --- download is given.
-    download?: function(url: string, path: string, opts?: Http.Options): Http.DownloadResult
+    download?: function(url: string, path: string, opts?: Http.Options): (true) | (false, Failure)
   end
 end
 
@@ -144,7 +146,7 @@ local function is_assets_path(path: string, prefix: string): boolean
   return true
 end
 
---- GitHub's explanation in an error answer's body: its `message`, or "".
+--- GitHub's explanation in an error response's body: its `message`, or "".
 local function message_of(body: string): string
   local decoded, _ = Json.decode_object(body)
   local message = decoded and decoded["message"]
@@ -218,15 +220,16 @@ function GithubApi.live(env: {string:string}, test?: GithubApi.Live): GithubApi.
   end
 
   local function fetch(url: string, path: string): boolean, string
-    local download = Http.download_result
+    local download = Http.download
     if test ~= nil and test.download ~= nil then download = test.download end
-    local result = download(url, path, { headers = { ["User-Agent"] = user_agent },
+    local downloaded, failed = download(url, path, { headers = { ["User-Agent"] = user_agent },
       redirect_protocols = { "https" }, max_redirects = download_redirects,
       timeout_ns = download_ns, script = script() })
-    if result.kind == "downloaded" then return true, "" end
+    if downloaded then return true, "" end
     -- The URL is a signed link, so it stays out of the message.
-    if result.kind == "http_status" then return false, "HTTP " .. tostring(result.status) end
-    return false, result.reason
+    local status = failed.code
+    if failed.kind == "library" and status ~= nil then return false, "HTTP " .. tostring(status) end
+    return false, tostring(failed)
   end
 
   return { send = send, fetch = fetch, base = base, upload_origin = upload_origin,
@@ -250,7 +253,7 @@ local function succeeded(reply: GithubApi.Reply): boolean
   return reply.status >= 200 and reply.status <= 299
 end
 
---- The body of GitHub's answer to a GET of `path` (relative to the API,
+--- The body of GitHub's response to a GET of `path` (relative to the API,
 --- as "repos/o/r/actions/runs"), JSON text. Nil and why where there is
 --- none or its status is not 2xx, the why naming the request, the
 --- status and GitHub's message. A request that takes longer than
@@ -277,7 +280,7 @@ local max_pages <const> = 1000
 
 --- Every page of the list at `path`, as `get` asks the first and the
 --- `Link` header's `rel="next"` URLs name the rest, each page decoded
---- (an object or an array; the pages answered are their JSON text). Nil and why where a request fails, a page is
+--- (an object or an array; the pages received are their JSON text). Nil and why where a request fails, a page is
 --- not JSON, or the list runs past 1000 pages. A next URL on another
 --- origin than the API's is refused by `send`, so it fails the listing
 --- and never receives the token. `seconds` (a minute where nil) bounds
@@ -326,7 +329,7 @@ function GithubApi.delete(client: GithubApi.Client, path: string, seconds?: inte
 end
 
 --- One request of `method` to `path`, its body `value` as JSON where it
---- is not nil: the answer whatever its status, so a caller can read a
+--- is not nil: the response whatever its status, so a caller can read a
 --- refusal, or nil and why none came. A request that takes longer than
 --- `seconds` (a minute where nil) fails.
 function GithubApi.request(client: GithubApi.Client, method: string, path: string, value?: any,
@@ -343,10 +346,10 @@ function GithubApi.request(client: GithubApi.Client, method: string, path: strin
   return reply, ""
 end
 
---- The JSON object GitHub answers a `method` request to `path` with
---- ([`GithubApi.request`]'s `value`), as its text: nil and why where there
---- is none, its status is not 2xx or its body is no object, the why naming
---- the request, the status and GitHub's message.
+--- The JSON object of GitHub's response to a `method` request to `path`
+--- with `value` as its body ([`GithubApi.request`]), as its text: nil
+--- and why where there is none, its status is not 2xx or its body is no
+--- object, the why naming the request, the status and GitHub's message.
 function GithubApi.object(client: GithubApi.Client, method: string, path: string, value?: any,
                           seconds?: integer): string?, string
   local reply, why = GithubApi.request(client, method, path, value, seconds)
@@ -397,8 +400,8 @@ end
 --- Downloads what the API serves at `path` (a redirect to a file, as an
 --- artifact's `.../zip`, or a release asset's, asked for with `accept`
 --- "application/octet-stream") to the file `to`: true, or false and why.
---- The API must answer with a redirect to an https URL, which is fetched
---- without the token; where `accept` is given the answer may instead be
+--- The API must respond with a redirect to an https URL, which is fetched
+--- without the token; where `accept` is given the response may instead be
 --- the bytes, written whole.
 function GithubApi.download(client: GithubApi.Client, path: string, to: string,
                             accept?: string): boolean, string
@@ -408,7 +411,7 @@ function GithubApi.download(client: GithubApi.Client, path: string, to: string,
   if reply == nil then return false, "GET " .. path .. ": " .. why end
   if redirect_statuses[reply.status] ~= true then
     if reply.status >= 200 and reply.status <= 299 then
-      -- Asked for as bytes, a file may come in the answer itself, as it
+      -- Asked for as bytes, a file may come in the response itself, as it
       -- may as a redirect: GitHub's documentation allows both.
       if accept then
         local written, trouble = Fs.write(to, reply.body)

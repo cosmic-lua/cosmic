@@ -31,7 +31,7 @@
 --- project by the structure of the root ([`build.tree`]'s `standing`: a root with `core/`, `build/` and build/importer.tl is
 --- the tree, the same trust root as the reservation of `cosmic.*` to it), which is how [`build.pipeline`] chooses the options of a
 --- build (`project` is set for any other root, for `-e` and for a standalone file), so the check runs when the build says
---- `project` and a tree check ([`build.tree_checks`]'s `package_readers` and `text_loaders`) holds the tree itself.
+--- `project` and a tree check ([`build.tree_checks.readers`]'s `package_readers` and `text_loaders`) holds the tree itself.
 ---
 --- This is a check of the program the checker read, not a wall: it holds a program that is checked, and a program
 --- no checker read (a binary chunk) is held by the runtime alone.
@@ -46,7 +46,7 @@ local Scopes = require("lang.scopes")
 local record ProjectRefusals
   --- Each place in `chunk` (the parse of the file `file`, `scoped` its names resolved) that says what a project may not, as
   --- `<file>:<line>:<column>: <what>`, in source order. A name that is declared by the program itself (`local package`) is
-  --- no use of the global and is not told. `kept`, where given, answers what is told of a `require` of a module the
+  --- no use of the global and is not told. `kept`, where given, returns what is told of a `require` of a module the
   --- standard library keeps to its directory, and nil of any other: a file checked alone is given it, since no check of
   --- positions runs over one ([`build.positions`]'s `kept`).
   check: function(file: string, chunk: Ast.Chunk, scoped: Scopes.Scoped, kept?: function(name: string): string?): {string}

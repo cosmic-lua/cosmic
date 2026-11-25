@@ -24,8 +24,7 @@ local this_program = require("build.this_program")
 --- runs read, which hold them to sandboxing and to a path.
 Test.policy{
   profiles = { "cosmic", "proc" },
-  grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" } },
-  promises = { "nest" },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" }, { calls = "nest" } },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
   requires = { "nest" },
 }
@@ -52,7 +51,7 @@ local function skip_if_unsandboxed(text: string)
   end
 end
 
---- Runs `cosmic test` with `words` on `root` with `env`, answering what it
+--- Runs `cosmic test` with `words` on `root` with `env`, returning what it
 --- printed and whether it passed.
 local function run(root: string, output: string, env: {string:string},
                    words: {string}): string, boolean
@@ -260,7 +259,7 @@ local function test_a_nesting_module_starts_under_a_policy(tmp: string)
   assert(Fs.write(root .. "/suite/nest_test.tl", [[
 local Test = require("cosmic.test")
 
-Test.policy { grants = { { path = "o/cosmic.db", letters = "r" } }, promises = { "nest" } }
+Test.policy { grants = { { path = "o/cosmic.db", letters = "r" }, { calls = "nest" } }, }
 
 local function test_a_worker_that_nests_runs()
   assert(1 + 1 == 2)

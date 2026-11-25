@@ -39,11 +39,11 @@ local record TreeProgram
   index: function(entries: {{string}}, kinds: {string: string}): Driver.Index
 
   --- The names of the language's own modules, which no project file may be named for: the lowercase records of the standard
-  --- library's declarations (`math`, `string`, ...) and `_G`, which the checker answers itself. The binary answers a `require`
-  --- of most of them with its own module (what `package.loaded` holds); `io`, `os` and `debug` are removed stand-ins there
-  --- (core/surface.c), refused all the same because the checker declares them. The prelude's records (`metatable`) and the
-  --- capitalised ones (`FILE`) are types, no module. The build gives the set to its program, so that a refused `require` of
-  --- one says it is a global ([`Declarations.Program.library`]).
+  --- library's declarations (`math`, `string`, ...) and `_G`, which the checker resolves itself. The binary resolves a
+  --- `require` of most of them to its own module (what `package.loaded` holds); `io`, `os` and `debug` are removed stand-ins
+  --- there (core/surface.c), refused all the same because the checker declares them. The prelude's records (`metatable`) and
+  --- the capitalised ones (`FILE`) are types, no module. The build gives the set to its program, so that a refused `require`
+  --- of one says it is a global ([`Declarations.Program.library`]).
   library_modules: function(globals: Globals): {string: boolean}
 
   --- Whether the programs of a tree leave out the file `file`: those of a `testdata/` directory, which are fixtures of a test.
@@ -61,7 +61,7 @@ local record TreeProgram
   joined: function(files: {{string}}, written: {{string}}): Joined
 
   --- The global sources and what is done to the globals they declare, from the texts themselves: the prelude and `stdlib`
-  --- (nil for none). The withheld names are taken away, and `_G` is answered by the checker itself. A project outside
+  --- (nil for none). The withheld names are taken away, and `_G` is resolved by the checker itself. A project outside
   --- cosmic's tree has the texts of the tool that builds it ([`build.checker_declarations`]).
   globals: function(prelude: string?, stdlib: string?): Globals
 
@@ -79,8 +79,8 @@ local record TreeProgram
   --- name of the text, the module it is, and nothing else. nil and why where one is refused.
   derived_of: function(root: string): {{string}}?, string
 
-  --- A build over `index` with the global sources and adjustment [`TreeProgram.tree_globals`] answered: the modules of `stubs`,
-  --- whose stub is read in place of their source, are answered ahead of the index, and `standard` after it. The bindings of C
+  --- A build over `index` with the global sources and adjustment [`TreeProgram.tree_globals`] returned: the modules of `stubs`,
+  --- whose stub is read in place of their source, are resolved ahead of the index, and `standard` after it. The bindings of C
   --- that neither declares are left untyped (`external`). With `types` the checker keeps the type of each node. A `require`
   --- that names no module is told what it may have meant by `meant`, which is [`TreeProgram.meant`] of `index` where none is given.
   build: function(index: Driver.Index, globals: Globals, types?: boolean, stubs?: {string: Driver.Source},
@@ -94,7 +94,7 @@ local record TreeProgram
   --- Hands each of `modules` to `each`, in the order they require one another, once it is lowered after
   --- the modules it requires, and retires it when `each` is done with it ([`Driver.Build.retire`]): a build then holds the
   --- syntax of one module at a time, and not of the tree. With `spliced` the calls the build completes in each module are
-  --- resolved before it is lowered ([`TreeProgram.splice`]); the lines that say why one could not are answered, and are among
+  --- resolved before it is lowered ([`TreeProgram.splice`]); the lines that say why one could not are returned, and are among
   --- the build's problems too. The collector is generational while it runs.
   stream: function(build: Driver.Build, index: Driver.Index, modules: {string}, spliced: boolean,
     each: function(module: string)): {string}
@@ -102,7 +102,7 @@ local record TreeProgram
   ordered: function(index: Driver.Index, modules: {string}): {string}
 end
 
--- Which files are sources, and under what names, decides what a parse stores: a parse and a compile read one answer.
+-- Which files are sources, and under what names, decides what a parse stores: a parse and a compile share one result.
 TreeProgram.skipped = ParseDerive.skipped
 TreeProgram.index = ParseDerive.index
 
@@ -408,7 +408,7 @@ function TreeProgram.build(index: Driver.Index, globals: TreeProgram.Globals, ty
     meant = meant or TreeProgram.meant(index, true),
   })
   if stubs ~= nil then
-    -- The modules whose stub is read in place of their source are answered ahead of the tree's files.
+    -- The modules whose stub is read in place of their source are resolved ahead of the tree's files.
     build:provide(function(module: string): Driver.Source?
       return stubs[module]
     end)
