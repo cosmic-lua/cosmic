@@ -15,8 +15,13 @@ local Parser = require("lang.parser")
 local Scopes = require("lang.scopes")
 local Speed = require("lang.speed")
 local Test = require("cosmic.test")
+local testing = require("cosmic.internal.testing")
 
 Test.policy{}
+
+--- Whether this is the checked core, the sanitized build, whose allocations cost more as the heap grows: a larger
+--- input there costs more than its length alone says.
+local sanitized <const> = testing.configuration == "sanitized"
 
 --- `source` lowered into a program, to check again and again.
 local record Prepared
@@ -264,7 +269,10 @@ end
 local function test_four_times_the_calls_costs_about_four_times_the_time_where_the_state_changes_between_them()
   -- Each call forgets the facts of lengths that the test before it gave, so the state is another one at each, and the
   -- narrowed places are held beside. The facts of lengths are kept apart from the others: a walk of all the facts at each
-  -- call costs about eight times for four times the calls, the limit lies between that and the four of a linear check.
+  -- call costs about eight times for four times the calls, the limit lies between that and the four of a linear check
+  -- (4.3 times on the release core). The checked core's linear check costs 6.1 to 7.4 times (CI's checked shards,
+  -- 2026-11-22 to 25: 371739 us against 56612, 613789 against 82588), about 1.6 times the release core's ratio, so its
+  -- limit is 10: the walk's eight, scaled so, would be about 13.
   local form = assert(FORMS["a run of calls where the state changes between them and many places are narrowed"])
   local small = prepare(form(5))
   local large = prepare(form(20))
@@ -272,6 +280,6 @@ local function test_four_times_the_calls_costs_about_four_times_the_time_where_t
     check(small)
   end, function()
     check(large)
-  end, 6)
+  end, if sanitized then 10 else 6 end)
   assert(ok, "four times the input " .. why)
 end

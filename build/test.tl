@@ -1754,41 +1754,38 @@ local record Batch
   mut idle_deadline_ns: integer
 end
 
---- Runs every job, `limits.jobs` at a time, each to its verdict or its
---- deadline. A SIGINT or SIGTERM `guard` catches ends every worker
---- still running; the signal comes back as the return, for the caller
---- to be ended by it when the guard closes. Without a guard, a signal
---- acts as it would, and the return is 0.
----
---- The tests of one module that follow one another start as one worker, which runs each in a copy of itself where
---- it can ([`Batch`]): one worker, and so one test of the module, at a time, counted as one of `limits.jobs`. A
---- worker that retires (its test did not pass, or left something behind) is followed by another for the rest; one
---- that cannot fork for its module, or ends without saying why, by a worker for each test that is left. A test
---- whose copy was running when its worker ended fails as one whose worker ended before it reported.
----
---- With `bail`, a failure (any entry in `rec.failures`, one recorded
---- before the run included) stops the starting of jobs, and so does
---- `limits.deadline_ns` once the clock passes it. Those already running finish with their
---- own verdicts, and the jobs never started are counted in
---- `rec.not_run` and recorded as nothing. A forking worker is ended once the test it is running has its result.
-local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
-                        guard: Signal.Guard?, bail?: boolean, spent?: test_report.Spent): integer
-  if #jobs == 0 then return 0 end
-  -- What this process spends on each worker between the tests: no other worker starts or is collected meanwhile.
-  local own: test_report.Spent = spent or test_report.unspent()
-  local function collect(job: Job, result: Child.Result?, trouble: string)
-    local recording = Clock.monotonic_ns()
-    own.tests_ns = own.tests_ns + finish(rec, job, result, trouble)
-    own.ran = own.ran + 1
-    own.recording_ns = own.recording_ns + (Clock.monotonic_ns() - recording)
-  end
-  local program, program_trouble = worker.program()
-  if program == nil then
-    rec.errors[#rec.errors + 1] = "the test runner cannot find itself: " .. program_trouble
-    return 0
-  end
-  local ran_before = rec.tally.ran
-  -- The units still to start, in order, from `next_unit`: a module's tests together where there are several.
+--- One run of [`run_jobs`]: what is still to start and what runs, and what the run says of its forking workers.
+local record JobRun
+  rec: Recording
+  guard?: Signal.Guard
+  bail: boolean
+  --- When the run stops starting jobs (`limits.deadline_ns`), or nil for never.
+  stop_at?: integer
+  --- What this process spends on each worker between the tests: no other worker starts or is collected meanwhile.
+  own: test_report.Spent
+  --- The units still to start, in order, from `next_unit`: a module's tests together where there are several.
+  pending: mut {Unit}
+  mut next_unit: integer
+  --- The workers of one test each, and the forking workers ([`Batch`]).
+  mut running: mut {Job}
+  mut batches: mut {Batch}
+  --- The modules a worker said it cannot fork for, whose tests each get a worker for the rest of the run.
+  unforkable_modules: mut {string:boolean}
+  --- What the run says of its forking workers: how many tests ran in copies, of how many workers, how many of those
+  --- retired, and why the first module that could not be forked for could not.
+  mut copies: integer
+  mut workers: integer
+  mut retirements: integer
+  mut refusals: integer
+  mut first_refusal: string
+  mut first_retirement: string
+end
+
+--- The units `jobs` start as, in order: a module's tests are dealt to as many workers as may run at once, so that they
+--- run beside each other as they did when each had a worker, and a module of no more tests than that has a worker for
+--- each. In a run of more modules than that, other modules' tests run beside them, and a worker is given `shared_least`
+--- tests where its module has them: a worker's start costs the runner more than its tests' turn does.
+local function units_of(jobs: {Job}, limits: State.Limits): mut {Unit}
   local pending: mut {Unit} = {}
   local together: mut {Job} = {}
   local shared_least <const> = 8
@@ -1802,10 +1799,6 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
     together[#together + 1] = job
     local following = jobs[at + 1]
     if following == nil or following.m.path ~= job.m.path then
-      -- A module's tests are dealt to as many workers as may run at once, so that they run beside each other as
-      -- they did when each had a worker: a module of no more tests than that has a worker for each. In a run of
-      -- more modules than that, other modules' tests run beside them, and a worker is given `shared_least` tests
-      -- where its module has them: a worker's start costs the runner more than its tests' turn does.
       local each = (#together + limits.jobs - 1) // limits.jobs
       if crowded then each = math.max(each, math.min(#together, shared_least)) end
       local hand: mut {Job} = {}
@@ -1820,385 +1813,371 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
       together = {}
     end
   end
-  local next_unit = 1
-  -- Puts `left` back at the head of what is still to start: together again with `fork`, else a worker each.
-  local function requeue(left: {Job}, fork: boolean)
-    if #left == 0 then return end
-    if fork and #left > 1 then
-      table.insert(pending, next_unit, { jobs = left, fork = true })
-      return
-    end
-    for at = #left, 1, -1 do
-      table.insert(pending, next_unit, { jobs = { assert(left[at]) }, fork = false })
+  return pending
+end
+
+--- Records `job`'s verdict, counting what recording it cost.
+local function collect(run: JobRun, job: Job, result: Child.Result?, trouble: string)
+  local own = run.own
+  local recording = Clock.monotonic_ns()
+  own.tests_ns = own.tests_ns + finish(run.rec, job, result, trouble)
+  own.ran = own.ran + 1
+  own.recording_ns = own.recording_ns + (Clock.monotonic_ns() - recording)
+end
+
+--- Puts `left` back at the head of what is still to start: together again with `fork`, else a worker each.
+local function requeue(run: JobRun, left: {Job}, fork: boolean)
+  if #left == 0 then return end
+  if fork and #left > 1 then
+    table.insert(run.pending, run.next_unit, { jobs = left, fork = true })
+    return
+  end
+  for at = #left, 1, -1 do
+    table.insert(run.pending, run.next_unit, { jobs = { assert(left[at]) }, fork = false })
+  end
+end
+
+--- The tests of `batch` that have no result yet.
+local function unfinished(batch: Batch): {Job}
+  local left: mut {Job} = {}
+  for at = batch.settled + 1, #batch.jobs do left[#left + 1] = assert(batch.jobs[at]) end
+  return left
+end
+
+--- Whether the run stops the starting of jobs: a bailing run has seen a failure, or the clock passed the run's
+--- deadline. What stopped it first is kept in `rec.stopped_by`.
+local function bailing(run: JobRun): boolean
+  local rec = run.rec
+  -- Once stopped, the run stays stopped for what stopped it first.
+  if rec.stopped_by ~= nil then return true end
+  -- A failure recorded before any job starts (an unmet requirement, say) stops a bailing run as one a job makes does.
+  if run.bail and #rec.failures > 0 then
+    rec.stopped_by = "the first failure"
+    return true
+  end
+  local stop_at = run.stop_at
+  if stop_at ~= nil and Clock.monotonic_ns() >= stop_at then
+    rec.stopped_by = "the deadline"
+    return true
+  end
+  return false
+end
+
+--- Starts `unit`: its worker joins `running` or `batches`, or its failure to start is recorded.
+local function start_unit(run: JobRun, unit: Unit)
+  local rec = run.rec
+  local lead = assert(unit.jobs[1], "a unit holds a job")
+  if not unit.fork or #unit.jobs < 2 or run.unforkable_modules[lead.m.path] == true then
+    requeue(run, unit.jobs, false)
+    local job = assert(run.pending[run.next_unit]).jobs[1]
+    run.next_unit = run.next_unit + 1
+    if job ~= nil and launch(rec, job) then run.running[#run.running + 1] = job end
+    return
+  end
+  local names: mut {string} = {}
+  for _, job in ipairs(unit.jobs) do names[#names + 1] = job.name end
+  lead.started_ns = Clock.monotonic_ns()
+  local prepared = test_key.prepare(rec, lead, names)
+  local command, relay = prepared.command, prepared.relay
+  local others: mut {Job} = {}
+  for at = 2, #unit.jobs do others[#others + 1] = assert(unit.jobs[at]) end
+  if command == nil then
+    local _ = finish(rec, lead, nil, prepared.trouble, prepared.refused, prepared.unavailable)
+    requeue(run, others, false)
+    return
+  end
+  local handle, start_trouble = Child.start(command.argv, command.options)
+  if relay ~= nil then local _, _ = sys.close(relay.writer) end
+  if handle == nil then
+    if relay ~= nil then local _, _ = sys.close(relay.reader) end
+    local _ = finish(rec, lead, nil, tostring(start_trouble))
+    requeue(run, others, false)
+    return
+  end
+  lead.handle = handle
+  if relay == nil then
+    -- Its module's tests cannot share a worker: this one is the lead's own.
+    run.running[#run.running + 1] = lead
+    requeue(run, others, false)
+    return
+  end
+  local started, deadline = assert(lead.started_ns), assert(lead.deadline_ns)
+  for _, job in ipairs(others) do
+    job.own_scratch, job.plan = lead.own_scratch, lead.plan
+  end
+  -- Its scratch directory is each test's in its turn, not the lead's.
+  local scratch = lead.scratch
+  lead.scratch = nil
+  run.workers = run.workers + 1
+  run.batches[#run.batches + 1] = { lead = lead, jobs = unit.jobs, settled = 0, reader = relay.reader, buffer = "",
+    printed = {}, printed_size = 0, scratch = scratch, keep_scratch = false,
+    forked = false, retired = false, unforkable = false, timeout_ns = deadline - started,
+    idle_deadline_ns = deadline }
+end
+
+--- All the test whose copy is running has printed, the newest bytes of it where there are more than a captured
+--- stream keeps, and none of it kept for the next.
+local function printed_by(batch: Batch): string
+  local whole = table.concat(batch.printed)
+  batch.printed, batch.printed_size = {}, 0
+  if #whole > output_limit then return whole:sub(-output_limit) end
+  return whole
+end
+
+--- Ends `batch`, whose worker is gone or is ended here: the test whose copy ran fails by `ended` and `trouble`,
+--- and the tests it did not reach start again, together with `fork`.
+local function over(run: JobRun, batch: Batch, ended: Child.Result?, trouble: string, fork: boolean)
+  local _, _ = sys.close(batch.reader)
+  local flying = batch.flying
+  if flying ~= nil then
+    batch.flying = nil
+    batch.settled = batch.settled + 1
+    collect(run, flying, worker.unreported_result(ended, printed_by(batch)), trouble)
+    batch.keep_scratch = flying.passed ~= true
+  end
+  local scratch = batch.scratch
+  if scratch ~= nil and not batch.keep_scratch then
+    local gone, gone_trouble = Fs.remove_tree(scratch)
+    if not gone then
+      local said = tostring(gone_trouble)
+      run.rec.errors[#run.rec.errors + 1] = batch.lead.id .. ": could not remove its worker's directory: " .. said
     end
   end
-  local function rest(batch: Batch): {Job}
-    local left: mut {Job} = {}
-    for at = batch.settled + 1, #batch.jobs do left[#left + 1] = assert(batch.jobs[at]) end
-    return left
+  if bailing(run) then return end
+  -- A worker that ended having settled no test is followed by a worker for each, not by another like it, which
+  -- could end the same way without end.
+  requeue(run, unfinished(batch), fork and batch.settled > 0)
+end
+
+--- When `batch` is ended: its flying test's deadline, or while none flies, its idle deadline.
+local function deadline_of(batch: Batch): integer
+  local flying = batch.flying
+  return if flying ~= nil then assert(flying.deadline_ns) else batch.idle_deadline_ns end
+end
+
+--- Reads what `batch`'s worker has written and acts on each whole record. False once the batch is over.
+local function follow(run: JobRun, batch: Batch): boolean
+  local handle = assert(batch.lead.handle)
+  local chunks: mut {string} = { batch.buffer }
+  local ended = false
+  while true do
+    local data, _ = sys.read(batch.reader, 1 << 20)
+    if data == nil then break end
+    if data == "" then
+      ended = true
+      break
+    end
+    chunks[#chunks + 1] = data
   end
-  -- The modules a worker said it cannot fork for, whose tests each get a worker for the rest of the run.
-  local unforkable: mut {string:boolean} = {}
-  -- What the run says of its forking workers: how many tests ran in copies, of how many workers, how many of those
-  -- retired, and why the first module that could not be forked for could not.
-  local copies, workers, retirements, refusals, first_refusal = 0, 0, 0, 0, ""
-  local first_retirement = ""
-  local running: mut {Job} = {}
-  local batches: mut {Batch} = {}
-  local cancelled = 0
-  -- A failure recorded before any job starts (an unmet requirement, say)
-  -- stops a bailing run as one a job makes does: baseline 0.
-  local failures_before = 0
-  local stop_at = limits.deadline_ns
-  local function bailing(): boolean
-    -- Once stopped, the run stays stopped for what stopped it first.
-    if rec.stopped_by ~= nil then return true end
-    if bail == true and #rec.failures > failures_before then
-      rec.stopped_by = "the first failure"
-      return true
-    end
-    if stop_at ~= nil and Clock.monotonic_ns() >= stop_at then
-      rec.stopped_by = "the deadline"
-      return true
-    end
-    return false
-  end
-  -- Starts `unit`: its worker joins `running` or `batches`, or its failure to start is recorded.
-  local function start(unit: Unit)
-    local lead = assert(unit.jobs[1], "a unit holds a job")
-    if not unit.fork or #unit.jobs < 2 or unforkable[lead.m.path] == true then
-      requeue(unit.jobs, false)
-      local job = assert(pending[next_unit]).jobs[1]
-      next_unit = next_unit + 1
-      if job ~= nil and launch(rec, job) then running[#running + 1] = job end
-      return
-    end
-    local names: mut {string} = {}
-    for _, job in ipairs(unit.jobs) do names[#names + 1] = job.name end
-    lead.started_ns = Clock.monotonic_ns()
-    local prepared = test_key.prepare(rec, lead, names)
-    local command, relay = prepared.command, prepared.relay
-    local others: mut {Job} = {}
-    for at = 2, #unit.jobs do others[#others + 1] = assert(unit.jobs[at]) end
-    if command == nil then
-      local _ = finish(rec, lead, nil, prepared.trouble, prepared.refused, prepared.unavailable)
-      requeue(others, false)
-      return
-    end
-    local handle, start_trouble = Child.start(command.argv, command.options)
-    if relay ~= nil then local _, _ = sys.close(relay.writer) end
-    if handle == nil then
-      if relay ~= nil then local _, _ = sys.close(relay.reader) end
-      local _ = finish(rec, lead, nil, tostring(start_trouble))
-      requeue(others, false)
-      return
-    end
-    lead.handle = handle
-    if relay == nil then
-      -- Its module's tests cannot share a worker: this one is the lead's own.
-      running[#running + 1] = lead
-      requeue(others, false)
-      return
-    end
-    local started, deadline = assert(lead.started_ns), assert(lead.deadline_ns)
-    for _, job in ipairs(others) do
-      job.own_scratch, job.plan = lead.own_scratch, lead.plan
-    end
-    -- Its scratch directory is each test's in its turn, not the lead's.
-    local scratch = lead.scratch
-    lead.scratch = nil
-    workers = workers + 1
-    batches[#batches + 1] = { lead = lead, jobs = unit.jobs, settled = 0, reader = relay.reader, buffer = "",
-      printed = {}, printed_size = 0, scratch = scratch, keep_scratch = false,
-      forked = false, retired = false, unforkable = false, timeout_ns = deadline - started,
-      idle_deadline_ns = deadline }
-  end
-  -- All the test whose copy is running has printed, the newest bytes of it where there are more than a captured
-  -- stream keeps, and none of it kept for the next.
-  local function printed_by(batch: Batch): string
-    local whole = table.concat(batch.printed)
-    batch.printed, batch.printed_size = {}, 0
-    if #whole > output_limit then return whole:sub(-output_limit) end
-    return whole
-  end
-  -- Ends `batch`, whose worker is gone or is ended here: the test whose copy ran fails by `ended` and `trouble`,
-  -- and the tests it did not reach start again, together with `fork`.
-  local function over(batch: Batch, ended: Child.Result?, trouble: string, fork: boolean)
-    local _, _ = sys.close(batch.reader)
+  local buffer = table.concat(chunks)
+  local at = 1
+  local broken = ""
+  while broken == "" do
+    local found = worker.record_at(buffer, at)
+    if found == nil then break end
+    at = found.after
     local flying = batch.flying
-    if flying ~= nil then
+    if found.kind == "forks" then
+      batch.forked = true
+    elseif found.kind == "unforkable" then
+      batch.retired, batch.unforkable = true, true
+      run.unforkable_modules[batch.lead.m.path] = true
+      run.workers, run.refusals = run.workers - 1, run.refusals + 1
+      if run.first_refusal == "" then
+        run.first_refusal = batch.lead.m.path .. ": " .. (found.why or "")
+      end
+    elseif found.kind == "retire" then
+      batch.retired = true
+      run.retirements = run.retirements + 1
+      if run.first_retirement == "" then
+        run.first_retirement = batch.lead.m.path .. ": " .. (found.why or "")
+      end
+    elseif found.kind == "test" and flying == nil then
+      local job = batch.jobs[batch.settled + 1]
+      local started = found.started_ns
+      if job == nil or job.name ~= found.name or started == nil then
+        broken = "its worker started a test out of turn"
+      else
+        job.started_ns, job.deadline_ns = started, started + batch.timeout_ns
+        job.scratch = batch.scratch
+        batch.flying = job
+      end
+    elseif found.kind == "output" and flying ~= nil then
+      local data = found.output or ""
+      batch.printed[#batch.printed + 1] = data
+      batch.printed_size = batch.printed_size + #data
+      if batch.printed_size > 2 * output_limit then
+        local newest = table.concat(batch.printed):sub(-output_limit)
+        batch.printed, batch.printed_size = { newest }, #newest
+      end
+    elseif found.kind == "result" and flying ~= nil then
       batch.flying = nil
       batch.settled = batch.settled + 1
-      collect(flying, worker.unreported_result(ended, printed_by(batch)), trouble)
+      batch.idle_deadline_ns = Clock.monotonic_ns() + batch.timeout_ns
+      run.copies = run.copies + 1
+      collect(run, flying, worker.forked_result(found, printed_by(batch)), "")
+      -- A test that failed is the last its worker runs, and its directory is kept; one that passed leaves it
+      -- to the next. A worker whose directory is the host's waits for that word before it empties it, since
+      -- a test it saw pass may have failed here (one that made no call to `assert`, in a held run).
       batch.keep_scratch = flying.passed ~= true
-    end
-    local scratch = batch.scratch
-    if scratch ~= nil and not batch.keep_scratch then
-      local gone, gone_trouble = Fs.remove_tree(scratch)
-      if not gone then
-        local said = tostring(gone_trouble)
-        rec.errors[#rec.errors + 1] = batch.lead.id .. ": could not remove its worker's directory: " .. said
+      if flying.passed == true then flying.scratch = nil end
+      if batch.scratch ~= nil then
+        local _, _ = sys.write(batch.reader, if flying.passed == true then worker.go_on else worker.stop end)
       end
+      if bailing(run) then
+        local _, _ = handle:close()
+        over(run, batch, nil, "", false)
+        return false
+      end
+    else
+      broken = "its worker wrote what no worker writes: " .. (found.why or found.kind)
     end
-    if bailing() then return end
-    -- A worker that ended having settled no test is followed by a worker for each, not by another like it, which
-    -- could end the same way without end.
-    requeue(rest(batch), fork and batch.settled > 0)
   end
-  -- Reads what `batch`'s worker has written and acts on each whole record. False once the batch is over.
-  local function follow(batch: Batch): boolean
-    local handle = assert(batch.lead.handle)
-    local chunks: mut {string} = { batch.buffer }
-    local ended = false
-    while true do
-      local data, _ = sys.read(batch.reader, 1 << 20)
-      if data == nil then break end
-      if data == "" then
-        ended = true
-        break
-      end
-      chunks[#chunks + 1] = data
+  batch.buffer = buffer:sub(at)
+  if broken ~= "" then
+    local _, _ = handle:close()
+    over(run, batch, nil, broken, false)
+    return false
+  end
+  if ended then
+    local result, trouble = handle:wait()
+    -- One that said it retires is followed by another; one that ended saying nothing, by a worker for each test.
+    over(run, batch, result, words(trouble), batch.retired and not batch.unforkable)
+    return false
+  end
+  local flying = batch.flying
+  local deadline = deadline_of(batch)
+  if Clock.monotonic_ns() >= deadline then
+    -- Past its deadline: `wait(0)` ends it, and its namespace with it.
+    local result, stop_trouble = handle:wait(0)
+    if result == nil then local _, _ = handle:close() end
+    local guard = run.guard
+    if result == nil and guard ~= nil and guard:cancelled() ~= 0 then
+      -- The signal ended it first: it is one of the workers the cancelled run ended, reported on by none.
+      return true
     end
-    local buffer = table.concat(chunks)
-    local at = 1
-    local broken = ""
-    while broken == "" do
-      local found = worker.record_at(buffer, at)
-      if found == nil then break end
-      at = found.after
-      local flying = batch.flying
-      if found.kind == "forks" then
-        batch.forked = true
-      elseif found.kind == "unforkable" then
-        batch.retired, batch.unforkable = true, true
-        unforkable[batch.lead.m.path] = true
-        workers, refusals = workers - 1, refusals + 1
-        if first_refusal == "" then
-          first_refusal = batch.lead.m.path .. ": " .. (found.why or "")
-        end
-      elseif found.kind == "retire" then
-        batch.retired = true
-        retirements = retirements + 1
-        if first_retirement == "" then
-          first_retirement = batch.lead.m.path .. ": " .. (found.why or "")
-        end
-      elseif found.kind == "test" and flying == nil then
-        local job = batch.jobs[batch.settled + 1]
-        local started = found.started_ns
-        if job == nil or job.name ~= found.name or started == nil then
-          broken = "its worker started a test out of turn"
-        else
-          job.started_ns, job.deadline_ns = started, started + batch.timeout_ns
-          job.scratch = batch.scratch
-          batch.flying = job
-        end
-      elseif found.kind == "output" and flying ~= nil then
-        local data = found.output or ""
-        batch.printed[#batch.printed + 1] = data
-        batch.printed_size = batch.printed_size + #data
-        if batch.printed_size > 2 * output_limit then
-          local newest = table.concat(batch.printed):sub(-output_limit)
-          batch.printed, batch.printed_size = { newest }, #newest
-        end
-      elseif found.kind == "result" and flying ~= nil then
-        batch.flying = nil
-        batch.settled = batch.settled + 1
-        batch.idle_deadline_ns = Clock.monotonic_ns() + batch.timeout_ns
-        copies = copies + 1
-        collect(flying, worker.forked_result(found, printed_by(batch)), "")
-        -- A test that failed is the last its worker runs, and its directory is kept; one that passed leaves it
-        -- to the next. A worker whose directory is the host's waits for that word before it empties it, since
-        -- a test it saw pass may have failed here (one that made no call to `assert`, in a held run).
-        batch.keep_scratch = flying.passed ~= true
-        if flying.passed == true then flying.scratch = nil end
-        if batch.scratch ~= nil then
-          local _, _ = sys.write(batch.reader, if flying.passed == true then worker.go_on else worker.stop end)
-        end
-        if bailing() then
-          local _, _ = handle:close()
-          over(batch, nil, "", false)
-          return false
-        end
-      else
-        broken = "its worker wrote what no worker writes: " .. (found.why or found.kind)
-      end
+    -- A worker that hung with no copy running is followed by a worker for each test, and the run says so.
+    if flying == nil then
+      run.rec.errors[#run.rec.errors + 1] = batch.lead.m.path .. ": its worker ran past the module's time with no " ..
+        "test running, " .. (if batch.forked then "between two tests" else "loading the module" end) ..
+        ", and was ended; each test left has a worker of its own"
     end
-    batch.buffer = buffer:sub(at)
-    if broken ~= "" then
+    over(run, batch, result, words(stop_trouble), flying ~= nil and batch.forked)
+    return false
+  end
+  return true
+end
+
+--- Waits for the first of the running workers to end, a forking worker to write, or the earliest deadline (100 ms at
+--- most, and 1 ms while a worker of one test runs, whose end a forking worker's write does not wake), then
+--- collects each worker that ended or is past its deadline and follows each forking worker.
+local function serve(run: JobRun)
+  local rec, guard = run.rec, run.guard
+  local earliest = math.maxinteger
+  local handles: mut {Child.Handle} = {}
+  for i, job in ipairs(run.running) do
+    handles[i] = assert(job.handle)
+    local deadline = assert(job.deadline_ns)
+    if deadline < earliest then earliest = deadline end
+  end
+  local readers: mut {integer} = {}
+  local wanted: mut {integer} = {}
+  for i, batch in ipairs(run.batches) do
+    readers[i], wanted[i] = batch.reader, sys.POLLIN
+    local deadline = deadline_of(batch)
+    if deadline < earliest then earliest = deadline end
+  end
+  local left_ns = math.max(0, math.min(Clock.ms(100), earliest - Clock.monotonic_ns()))
+  local done: Child.Handle? = nil
+  -- Why the wait failed, other than its time running out; "" for none.
+  local trouble = ""
+  if #handles > 0 then
+    -- A worker of one test is served by `wait_any` alone, its end and its captured streams, which a wait of no
+    -- length does not serve: so beside forking workers, whose records wake no such wait, it waits a millisecond
+    -- at most, and they are read after each.
+    local first, why = Child.wait_any(handles, if #readers > 0 then math.min(left_ns, Clock.ms(1)) else left_ns end)
+    done = first
+    if why ~= nil and why.kind ~= "timeout" then trouble = why.message end
+  else
+    -- A forking worker's record wakes the wait.
+    local _, _ = sys.poll(readers, wanted, (left_ns + 999999) // 1000000)
+  end
+  local still: mut {Job} = {}
+  for _, job in ipairs(run.running) do
+    local job_handle = job.handle
+    local handle = assert(job_handle)
+    if job_handle == done then
+        -- Settled already, so this returns at once, with the Result or why
+      -- its settle failed; what the settle left is the Result's `remains`.
+      local result, why = handle:wait()
+      collect(run, job, result, words(why))
+    elseif trouble ~= "" then
+      -- Supervision itself failed; end this worker and say why.
       local _, _ = handle:close()
-      over(batch, nil, broken, false)
-      return false
-    end
-    if ended then
-      local result, trouble = handle:wait()
-      -- One that said it retires is followed by another; one that ended saying nothing, by a worker for each test.
-      over(batch, result, words(trouble), batch.retired and not batch.unforkable)
-      return false
-    end
-    local flying = batch.flying
-    local deadline = if flying ~= nil then assert(flying.deadline_ns) else batch.idle_deadline_ns end
-    if Clock.monotonic_ns() >= deadline then
-      -- Past its deadline: `wait(0)` ends it, and its namespace with it.
+      collect(run, job, nil, trouble)
+    elseif Clock.monotonic_ns() >= assert(job.deadline_ns) then
+      -- Past its deadline: `wait(0)` ends it, and says why when the
+      -- guard's signal came first. `close` makes sure it is gone.
       local result, stop_trouble = handle:wait(0)
       if result == nil then local _, _ = handle:close() end
       if result == nil and guard ~= nil and guard:cancelled() ~= 0 then
-        -- The signal ended it first: it is one of the workers the cancelled run ended, reported on by none.
-        return true
-      end
-      -- A worker that hung with no copy running is followed by a worker for each test, and the run says so.
-      if flying == nil then
-        rec.errors[#rec.errors + 1] = batch.lead.m.path .. ": its worker ran past the module's time with no test " ..
-          "running, " .. (if batch.forked then "between two tests" else "loading the module" end) ..
-          ", and was ended; each test left has a worker of its own"
-      end
-      over(batch, result, words(stop_trouble), flying ~= nil and batch.forked)
-      return false
-    end
-    return true
-  end
-  local phase = progress.phase("test", "running", "test")
-  while next_unit <= #pending or #running + #batches > 0 do
-    while #running + #batches < limits.jobs and next_unit <= #pending and not bailing() do
-      -- The loop's own test holds `next_unit <= #pending`.
-      local unit = assert(pending[next_unit], "next_unit is within pending")
-      next_unit = next_unit + 1
-      local starting = Clock.monotonic_ns()
-      start(unit)
-      own.starting_ns = own.starting_ns + (Clock.monotonic_ns() - starting)
-    end
-    if #running + #batches == 0 then
-      if bailing() then break end
-      continue
-    end
-    if guard ~= nil then
-      cancelled = guard:cancelled()
-      if cancelled ~= 0 then break end
-    end
-    local earliest = math.maxinteger
-    local handles: mut {Child.Handle} = {}
-    for i, job in ipairs(running) do
-      handles[i] = assert(job.handle)
-      local deadline = assert(job.deadline_ns)
-      if deadline < earliest then earliest = deadline end
-    end
-    local readers: mut {integer} = {}
-    local wanted: mut {integer} = {}
-    for i, batch in ipairs(batches) do
-      readers[i], wanted[i] = batch.reader, sys.POLLIN
-      local flying = batch.flying
-      local deadline = if flying ~= nil then assert(flying.deadline_ns) else batch.idle_deadline_ns end
-      if deadline < earliest then earliest = deadline end
-    end
-    local left_ns = math.max(0, math.min(Clock.ms(100), earliest - Clock.monotonic_ns()))
-    local done: Child.Handle? = nil
-    -- Why the wait failed, other than its time running out; "" for none.
-    local trouble = ""
-    if #handles > 0 then
-      -- A worker of one test is served by `wait_any` alone, its end and its captured streams, which a wait of no
-      -- length does not serve: so beside forking workers, whose records wake no such wait, it waits a millisecond
-      -- at most, and they are read after each.
-      local first, why = Child.wait_any(handles, if #readers > 0 then math.min(left_ns, Clock.ms(1)) else left_ns end)
-      done = first
-      if why ~= nil and why.kind ~= "timeout" then trouble = why.message end
-    else
-      -- A forking worker's record wakes the wait.
-      local _, _ = sys.poll(readers, wanted, (left_ns + 999999) // 1000000)
-    end
-    local still: mut {Job} = {}
-    for _, job in ipairs(running) do
-      local job_handle = job.handle
-      local handle = assert(job_handle)
-      if job_handle == done then
-        -- Settled already, so this returns at once, with the Result or why
-        -- its settle failed; what the settle left is the Result's `remains`.
-        local result, why = handle:wait()
-        collect(job, result, words(why))
-      elseif trouble ~= "" then
-        -- Supervision itself failed; end this worker and say why.
-        local _, _ = handle:close()
-        collect(job, nil, trouble)
-      elseif Clock.monotonic_ns() >= assert(job.deadline_ns) then
-        -- Past its deadline: `wait(0)` ends it, and says why when the
-        -- guard's signal came first. `close` makes sure it is gone.
-        local result, stop_trouble = handle:wait(0)
-        if result == nil then local _, _ = handle:close() end
-        if result == nil and guard ~= nil and guard:cancelled() ~= 0 then
-          -- The signal ended it before its timeout could: it is one of
-          -- the workers the cancelled run ended, reported on by none.
-          still[#still + 1] = job
-        else
-          collect(job, result, words(stop_trouble))
-        end
-      else
+        -- The signal ended it before its timeout could: it is one of
+        -- the workers the cancelled run ended, reported on by none.
         still[#still + 1] = job
+      else
+        collect(run, job, result, words(stop_trouble))
       end
+    else
+      still[#still + 1] = job
     end
-    if #still < #running then
-      -- An unsandboxed worker that is gone may have left processes of
-      -- its own behind, outside the group its end reached. This process
-      -- adopted them, and ends them before the next test starts and, on
-      -- Linux, before what they could still write into is removed.
-      -- A worker still running may have left some here too, orphaned
-      -- when the process that started them ended, which its test may
-      -- still be waiting on: those in the group it leads are spared,
-      -- until its end ends them with its group. An orphan in a group
-      -- the worker itself started is its own to adopt: starting one made
-      -- it a subreaper ([`Child.start`]).
-      -- A sandboxed worker leaves none: it is pid 2 of a pid namespace
-      -- of its own, whose init ends when it does, ending everything
+  end
+  if #still < #run.running then
+    -- An unsandboxed worker that is gone may have left processes of
+    -- its own behind, outside the group its end reached. This process
+    -- adopted them, and ends them before the next test starts and, on
+    -- Linux, before what they could still write into is removed.
+    -- A worker still running may have left some here too, orphaned
+    -- when the process that started them ended, which its test may
+    -- still be waiting on: those in the group it leads are spared,
+    -- until its end ends them with its group. An orphan in a group
+    -- the worker itself started is its own to adopt: starting one made
+    -- it a subreaper ([`Child.start`]).
+    -- A sandboxed worker leaves none: it is pid 2 of a pid namespace
+    -- of its own, whose init ends when it does, ending everything
       -- left there, before `wait` returns for it. Nothing adopts them
-      -- here, since no worker was started with a group.
-      -- TODO: a stray still writing into a passing test's directory
-      -- (or, on a cancelled run, an ended worker's, below) can race
-      -- its removal: end_strays is a no-op on macOS and on
-      -- Linux gives up on a stray that outlives it by a second. Remove
-      -- the directory only once no stray is left, once end_strays can
-      -- end or wait for strays on macOS and report the ones it gave up on.
-      -- TODO: spare an orphan of a running worker that is outside its
-      -- group too -- in a group a descendant started, a [`Child.start`]
-      -- in a process that ended first, or a session it began (setsid)
-      -- -- by the worker's session, once a worker can be started in a
-      -- session of its own ([`Child.Options`] taking one); setsid's
-      -- orphan would still escape.
-      if not rec.sandbox then
-        local groups: mut {integer} = {}
-        for _, job in ipairs(still) do groups[#groups + 1] = assert(job.handle).pid end
-        Child.end_strays(groups)
-      end
-      sweep(rec, running)
+    -- here, since no worker was started with a group.
+    -- TODO: a stray still writing into a passing test's directory
+    -- (or, on a cancelled run, an ended worker's, below) can race
+    -- its removal: end_strays is a no-op on macOS and on
+    -- Linux gives up on a stray that outlives it by a second. Remove
+    -- the directory only once no stray is left, once end_strays can
+    -- end or wait for strays on macOS and report the ones it gave up on.
+    -- TODO: spare an orphan of a running worker that is outside its
+    -- group too -- in a group a descendant started, a [`Child.start`]
+    -- in a process that ended first, or a session it began (setsid)
+    -- -- by the worker's session, once a worker can be started in a
+    -- session of its own ([`Child.Options`] taking one); setsid's
+    -- orphan would still escape.
+    if not rec.sandbox then
+      local groups: mut {integer} = {}
+      for _, job in ipairs(still) do groups[#groups + 1] = assert(job.handle).pid end
+      Child.end_strays(groups)
     end
-    running = still
-    local following: mut {Batch} = {}
-    for _, batch in ipairs(batches) do
-      if follow(batch) then following[#following + 1] = batch end
-    end
-    batches = following
-    phase.tick(rec.tally.ran - ran_before, #jobs, function(): string
-      local busy: mut {Job} = {}
-      for _, job in ipairs(running) do busy[#busy + 1] = job end
-      for _, batch in ipairs(batches) do
-        local flying = batch.flying
-        if flying ~= nil then busy[#busy + 1] = flying end
-      end
-      return running_detail(rec, busy)
-    end)
+    sweep(rec, run.running)
   end
-  -- No test is left to collect: the workers still running are ended below, reported on by none.
-  test_key.keep_waiting(rec)
-  if cancelled == 0 and rec.tally.ran - ran_before < #jobs then
-    rec.not_run = #jobs - (rec.tally.ran - ran_before)
+  run.running = still
+  local following: mut {Batch} = {}
+  for _, batch in ipairs(run.batches) do
+    if follow(run, batch) then following[#following + 1] = batch end
   end
-  if workers + refusals > 0 then
-    local said = "forks: " .. plural.count(copies, "test") .. " ran in copies of " .. plural.count(workers, "worker") ..
-      ", " .. tostring(retirements) .. " of which retired early" ..
-      (if first_retirement ~= "" then " (the first, " .. first_retirement .. ")" else "" end)
-    if refusals > 0 then
-      said = said .. "; " .. plural.count(refusals, "module") .. " ran a worker for each test, since none could fork (" ..
-        first_refusal .. ")"
-    end
-    local _, _ = logger.summary("test", said)
-  end
-  for _, batch in ipairs(batches) do
+  run.batches = following
+end
+
+--- Ends the workers still running when the run stops (only a cancelled run has any), reported on by none, and removes
+--- what they leave.
+local function end_left(run: JobRun)
+  local rec, running = run.rec, run.running
+  for _, batch in ipairs(run.batches) do
     local _, _ = sys.close(batch.reader)
     -- Ended with the run, its directory goes as a worker's does: the lead's again, for the sweep below. Not the
     -- one a failing test's message says is kept.
@@ -2229,6 +2208,85 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
   -- stray can race this removal as it can the one above (see the TODO
   -- there).
   sweep(rec, running, true)
+end
+
+--- Runs every job, `limits.jobs` at a time, each to its verdict or its
+--- deadline. A SIGINT or SIGTERM `guard` catches ends every worker
+--- still running; the signal comes back as the return, for the caller
+--- to be ended by it when the guard closes. Without a guard, a signal
+--- acts as it would, and the return is 0.
+---
+--- The tests of one module that follow one another start as one worker, which runs each in a copy of itself where
+--- it can ([`Batch`]): one worker, and so one test of the module, at a time, counted as one of `limits.jobs`. A
+--- worker that retires (its test did not pass, or left something behind) is followed by another for the rest; one
+--- that cannot fork for its module, or ends without saying why, by a worker for each test that is left. A test
+--- whose copy was running when its worker ended fails as one whose worker ended before it reported.
+---
+--- With `bail`, a failure (any entry in `rec.failures`, one recorded
+--- before the run included) stops the starting of jobs, and so does
+--- `limits.deadline_ns` once the clock passes it. Those already running finish with their
+--- own verdicts, and the jobs never started are counted in
+--- `rec.not_run` and recorded as nothing. A forking worker is ended once the test it is running has its result.
+local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
+                        guard: Signal.Guard?, bail?: boolean, spent?: test_report.Spent): integer
+  if #jobs == 0 then return 0 end
+  local program, program_trouble = worker.program()
+  if program == nil then
+    rec.errors[#rec.errors + 1] = "the test runner cannot find itself: " .. program_trouble
+    return 0
+  end
+  local ran_before = rec.tally.ran
+  local run: JobRun = {
+    rec = rec, guard = guard, bail = bail == true, own = spent or test_report.unspent(),
+    pending = units_of(jobs, limits), next_unit = 1, running = {}, batches = {}, unforkable_modules = {}, copies = 0,
+    workers = 0, retirements = 0, refusals = 0, first_refusal = "", first_retirement = "", stop_at = limits.deadline_ns,
+  }
+  local cancelled = 0
+  local phase = progress.phase("test", "running", "test")
+  while run.next_unit <= #run.pending or #run.running + #run.batches > 0 do
+    while #run.running + #run.batches < limits.jobs and run.next_unit <= #run.pending and not bailing(run) do
+      -- The loop's own test holds `next_unit <= #pending`.
+      local unit = assert(run.pending[run.next_unit], "next_unit is within pending")
+      run.next_unit = run.next_unit + 1
+      local starting = Clock.monotonic_ns()
+      start_unit(run, unit)
+      run.own.starting_ns = run.own.starting_ns + (Clock.monotonic_ns() - starting)
+    end
+    if #run.running + #run.batches == 0 then
+      if bailing(run) then break end
+      continue
+    end
+    if guard ~= nil then
+      cancelled = guard:cancelled()
+      if cancelled ~= 0 then break end
+    end
+    serve(run)
+    phase.tick(rec.tally.ran - ran_before, #jobs, function(): string
+      local busy: mut {Job} = {}
+      for _, job in ipairs(run.running) do busy[#busy + 1] = job end
+      for _, batch in ipairs(run.batches) do
+        local flying = batch.flying
+        if flying ~= nil then busy[#busy + 1] = flying end
+      end
+      return running_detail(rec, busy)
+    end)
+  end
+  -- No test is left to collect: the workers still running are ended below, reported on by none.
+  test_key.keep_waiting(rec)
+  if cancelled == 0 and rec.tally.ran - ran_before < #jobs then
+    rec.not_run = #jobs - (rec.tally.ran - ran_before)
+  end
+  if run.workers + run.refusals > 0 then
+    local said = "forks: " .. plural.count(run.copies, "test") .. " ran in copies of " ..
+      plural.count(run.workers, "worker") .. ", " .. tostring(run.retirements) .. " of which retired early" ..
+      (if run.first_retirement ~= "" then " (the first, " .. run.first_retirement .. ")" else "" end)
+    if run.refusals > 0 then
+      said = said .. "; " .. plural.count(run.refusals, "module") .. " ran a worker for each test, since none could " ..
+        "fork (" .. run.first_refusal .. ")"
+    end
+    local _, _ = logger.summary("test", said)
+  end
+  end_left(run)
   if guard == nil then return 0 end
   return guard:cancelled()
 end

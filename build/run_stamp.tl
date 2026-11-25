@@ -19,6 +19,8 @@
 --- The key is taken again once a build has written its projection, over the rows the build made, which are the rows
 --- the next run's stage finds, and with the links' digest the write signed.
 
+local type work_schema = require("build.work_schema")
+local type Database = work_schema.Database
 local Fs = require("cosmic.fs")
 local GrammarMode = require("build.grammar_mode")
 local Hash = require("cosmic.hash")
@@ -36,7 +38,7 @@ local record run_stamp
   --- (the tool string [`importer.compile_for`] is given), over the working database `db` as the stage left it. `links`
   --- is the digest of the links a write signed ([`writer.signed`]), in place of resolving them again. Returns nil where
   --- `db` or the links cannot say.
-  key: function(db: Sqlite.Handle, root: string, own: boolean, tool: string, target: string, links?: string): string?
+  key: function(db: Database, root: string, own: boolean, tool: string, target: string, links?: string): string?
 
   --- Whether the run whose key is `key` is the last good one of `target` in the tree directory `dir`, and the
   --- projection at `projection` is the one that run left.
@@ -68,23 +70,19 @@ end
 local function signature_of(path: string): string?
   local db, _ = Sqlite.open(path)
   if db == nil then return nil end
-  local rows, _ = db:text_rows("SELECT value FROM meta WHERE key = 'projected'")
+  local row, _ = db:one("SELECT value FROM meta WHERE key = 'projected'")
   local _, _ = db:close()
-  if rows == nil then return nil end
-  local row = rows[1]
   if row == nil then return nil end
-  return row:text(1)
+  return row:as_text(1)
 end
 
 function run_stamp.own_tool(): string
   return GrammarMode.tool(Store.meta("compiler") or "")
 end
 
-function run_stamp.key(db: Sqlite.Handle, root: string, own: boolean, tool: string, target: string,
+function run_stamp.key(db: Database, root: string, own: boolean, tool: string, target: string,
                        links?: string): string?
-  local rows, _ = db:text_rows(inputs_sql)
-  if rows == nil then return nil end
-  local row = rows[1]
+  local row, _ = db:one(inputs_sql)
   if row == nil then return nil end
   -- What the links found, the disk's results among them, with the library they may name as the writer gives it.
   local digest = links

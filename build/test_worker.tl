@@ -2098,7 +2098,7 @@ local function fork_tests(names: {string}, tested: function(string): (worker.Rep
     if ended.code ~= 0 or said:find("\npassed 1\n", 1, true) == nil or said:sub(-5) ~= "\nend\n" then
       retire = "its test did not pass"
     elseif strays then
-      retire = "its test left a process running"
+      retire = "its test " .. name .. " left a process running"
     elseif index < #names and asks and not allowed() then
       retire = "the runner failed its test"
     elseif index < #names then

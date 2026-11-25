@@ -376,9 +376,9 @@ function Seatbelt.credentials_unmet(merged: rules.Policy, user: integer, group: 
 end
 
 --- The grants `policy` gives on macOS before the host is read: its own
---- and, for the "system" profile, [`Seatbelt.compile`]'s list of macOS's
---- paths (not Linux's, which [`Sandbox.union`] gives), each whether or not
---- this host has it. For a check of which paths a policy reaches.
+--- and, for the "system" and "programs" profiles, [`Seatbelt.compile`]'s
+--- list of macOS's paths (not Linux's, which [`Sandbox.union`] gives),
+--- each whether or not this host has it. For a check of which paths a policy reaches.
 function Seatbelt.grants(policy: rules.Policy): {rules.Path}
   local out: mut {rules.Path} = {}
   for _, name in ipairs(policy.profiles or {}) do
@@ -396,8 +396,8 @@ end
 
 --- What [`Seatbelt.compile`] needs of the host for `policy`: each grant's
 --- real path and kind, keyed as the policy gives the path, and, for the
---- "system" profile, each path of it this host has. A relative grant is
---- from `base`, where given. `core` and `database` are the file a start of
+--- "system" and "programs" profiles, each path of them this host has. A
+--- relative grant is from `base`, where given. `core` and `database` are the file a start of
 --- this program runs and the one it runs on, resolved like a grant.
 --- `terminal` is the pty slave's path, resolved through links for
 --- [`Seatbelt.Options.terminal`]. Nil and why where a grant's path is not there.

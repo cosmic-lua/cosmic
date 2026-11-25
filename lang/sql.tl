@@ -37,8 +37,8 @@ local record Sql
     origin?: string
     --- The column's declared type, as the DDL writes it; nil for an expression or none.
     declared?: string
-    --- Nil for an expression, and for every column of a compound select (`UNION`), whose later
-    --- arms may give cells of any type.
+    --- Nil for an expression, and for every column of a compound select (`UNION`) or of SQL that
+    --- reads a view that is one, whose later arms may give cells of any type.
     kind?: Kind
     --- Whether its table is `STRICT`, so that every cell is of the declared type or NULL; a
     --- table that is not may hold any cell in any column, as a text it cannot convert.
@@ -143,6 +143,35 @@ local function is_strict(handle: sqlite.Handle, name: string): boolean
   return strict
 end
 
+local COMPOUND <const> = { "UNION", "INTERSECT", "EXCEPT" }
+
+--- Whether `upper`, SQL in capitals, holds a compound select's word.
+local function holds_compound(upper: string): boolean
+  for _, word in ipairs(COMPOUND) do
+    if upper:find("%f[%w_]" .. word .. "%f[^%w_]") ~= nil then return true end
+  end
+  return false
+end
+
+--- Whether `upper`, SQL in capitals, names a view of `handle` that is a compound select: SQLite gives a column of
+--- such a view the origin of its first arm, whose type the later arms need not keep.
+local function reads_compound_view(handle: sqlite.Handle, upper: string): boolean
+  local statement, _ = handle:prepare("SELECT name, sql FROM sqlite_schema WHERE type = 'view'")
+  if statement == nil then return false end
+  local found = false
+  while not found do
+    local step, _ = statement:step()
+    if step ~= "row" then break end
+    local name = statement:bytes(0):upper()
+    if holds_compound(statement:bytes(1):upper()) and
+        upper:find("%f[%w_]" .. (name:gsub("%p", "%%%0")) .. "%f[^%w_]") ~= nil then
+      found = true
+    end
+  end
+  statement:finalize()
+  return found
+end
+
 --- What `handle:prepare(sql)` gave: the statement, or SQLite's refusal; or the text of what the
 --- core raised, for SQL that holds no statement or more than one, and for a handle a copy of the
 --- process holds.
@@ -161,7 +190,7 @@ local function try_prepare(handle: sqlite.Handle, sql: string): Prepared
 end
 
 --- What SQLite says of `sql` against the schema `ddl`: nil where the DDL itself is refused
---- ([`Sql.schema`]), or where `sql` names an attached database or a table of one, which the
+--- ([`Sql.schema`]), or where `sql` names an attached database or a table of one, or a `temp.` table, which the
 --- schema does not cover.
 function Sql.read(ddl: string, sql: string): Sql.Read?
   local first = hold(ddl).handle
@@ -183,19 +212,16 @@ function Sql.read(ddl: string, sql: string): Sql.Read?
   end
   local statement, why = prepared.statement, prepared.refusal
   if statement == nil then
-    -- An attached database's tables are not the schema's.
+    -- An attached database's tables are not the schema's, nor are the temporary tables a program makes as it runs.
     local prefix = why:match("^no such table: ([%w_]+)%.")
-    if (prefix ~= nil and prefix ~= "main" and prefix ~= "temp") or why:find("^unknown database ") ~= nil then
+    if (prefix ~= nil and prefix ~= "main") or why:find("^unknown database ") ~= nil then
       return nil
     end
     return { refused = why, parameters = 0, columns = {} }
   end
   local count = statement:parameters()
-  local compound = false
   local upper = sql:upper()
-  for _, word in ipairs({ "UNION", "INTERSECT", "EXCEPT" }) do
-    if upper:find("%f[%w_]" .. word .. "%f[^%w_]") ~= nil then compound = true end
-  end
+  local compound = holds_compound(upper) or reads_compound_view(handle, upper)
   local columns: mut {Sql.Column} = {}
   for index = 0, statement:columns() - 1 do
     local table_name, column_name, declared = statement:origin(index)
@@ -225,28 +251,23 @@ end
 
 Sql.row_reads = { integer = true, number = true, text = true, blob = true, bytes = true }
 
---- The reads that raise on every cell of a column of each kind, in a table that is not `STRICT`:
---- affinity turns a number into text in a text column and an integer into a float in a REAL one,
---- but keeps a text it cannot convert, and a blob, as given, in any column.
-local LOOSE_REFUSALS <const>: {Sql.Kind: {string: boolean}} = {
-  text = { integer = true, number = true },
-  number = { integer = true },
-}
-
---- The reads that raise on every cell of a column of each kind in a `STRICT` table, which holds
---- only cells of the declared type (or NULL, on which every read raises).
-local STRICT_REFUSALS <const>: {Sql.Kind: {string: boolean}} = {
+--- The reads that raise on every cell of a column's declared type, by its kind. A `STRICT` table
+--- holds only such cells (or NULL, on which every read raises). A table that is not may keep a
+--- text it cannot convert, or a blob, in any column, but the declared type says what the column
+--- is for: a column that holds cells of other types is read with `as_text`, `kind` or `value`.
+--- A `BLOB` column of such a table has no affinity, and no kind.
+local REFUSALS <const>: {Sql.Kind: {string: boolean}} = {
   integer = { text = true, blob = true, bytes = true },
   number = { integer = true, text = true, blob = true, bytes = true },
   text = { integer = true, number = true, blob = true },
   blob = { integer = true, number = true, text = true },
 }
 
---- Whether the read `method` raises on every cell of `column`.
+--- Whether the read `method` raises on every cell of `column`'s declared type.
 function Sql.refuses(column: Sql.Column, method: string): boolean
   local kind = column.kind
   if kind == nil then return false end
-  local refusals = if column.strict then STRICT_REFUSALS[kind] else LOOSE_REFUSALS[kind] end
+  local refusals = REFUSALS[kind]
   return refusals ~= nil and refusals[method] == true
 end
 

@@ -14,6 +14,8 @@ local symbols = require("cosmic.internal.symbols")
 local String = require("cosmic.string")
 local _ = require("build.reads.all")
 local tree_common = require("build.tree_checks.common")
+local type build_schema = require("build.schema")
+local type Build = build_schema.Build
 
 local nth = tree_common.nth
 
@@ -90,8 +92,8 @@ end
 --- A member is found by text, not by resolving the name: `type Any = Name`
 --- in the returned record's body, a nested declaration there, or
 --- `Record.Name = ...`.
-function tree_docs.unnamed_types(db: Sqlite.Handle): {string}
-  local rows, trouble = db:text_rows(
+function tree_docs.unnamed_types(db: Build): {string}
+  local rows, trouble = db:rows(
     "SELECT d.module, d.symbol, d.kind, d.signature, d.file, d.line, d.exported " ..
       "FROM docs d WHERE d.file GLOB 'cosmic/*.tl' " ..
       "AND d.file NOT GLOB 'cosmic/internal/*' AND d.file NOT GLOB '*_test.tl' " ..
@@ -99,7 +101,7 @@ function tree_docs.unnamed_types(db: Sqlite.Handle): {string}
   if rows == nil then
     return { "reading the docs: " .. tostring(trouble) }
   end
-  local sources, why = db:text_rows(
+  local sources, why = db:rows(
     "SELECT path, CAST(inflate(source) AS TEXT) FROM modules")
   if sources == nil then
     return { "reading the modules: " .. tostring(why) }
@@ -140,7 +142,7 @@ function tree_docs.unnamed_types(db: Sqlite.Handle): {string}
       end
     end
     for _, row in ipairs(members) do
-      if row:text(7) == "1" and row:text(2) ~= "" and not row:text(2):find("[.:]") and
+      if row:integer(7) == 1 and row:text(2) ~= "" and not row:text(2):find("[.:]") and
           (row:text(3) == "function" or row:text(3) == "method" or row:text(3) == "field" or
               row:text(3) == "value") then
         names_in(row:text(4))
@@ -166,7 +168,7 @@ function tree_docs.unnamed_types(db: Sqlite.Handle): {string}
     for _, name in ipairs(unnamed) do
       local row = assert(tops[name], "a reached name is one of the tops")
       local owner = record or module:match("[^.]+$") or module
-      out[#out + 1] = row:text(5) .. ":" .. row:text(6) .. ": " .. module .. ": " .. name ..
+      out[#out + 1] = row:text(5) .. ":" .. tostring(row:integer(6)) .. ": " .. module .. ": " .. name ..
         " is named by the API but is no member of the module: add `type " .. name .. " = " ..
         name .. "` to " .. owner .. ", so a caller can write " .. owner .. "." .. name
     end
@@ -215,8 +217,8 @@ local anchors_expected: {string} = { "cosmic.layout Layout", "cosmic.entrypoint 
 --- or method in the public catalog takes or returns it. [`cosmic.shape`]'s
 --- `Failure` has only strings too, but `failures` hands it out, so its
 --- fields are an API's, not anchors.
-function tree_docs.anchors(db: Sqlite.Handle, expected?: {string}): {string}
-  local rows, trouble = db:text_rows(
+function tree_docs.anchors(db: Build, expected?: {string}): {string}
+  local rows, trouble = db:rows(
     "SELECT module, symbol, kind, signature, text, file, line FROM docs WHERE " ..
       symbols.public_only("module", true) .. " ORDER BY module, id")
   if rows == nil then
@@ -225,7 +227,7 @@ function tree_docs.anchors(db: Sqlite.Handle, expected?: {string}): {string}
   local all: mut {Row} = {}
   for _, r in ipairs(rows) do
     all[#all + 1] = { module = r:text(1), symbol = r:text(2), kind = r:text(3), signature = r:text(4),
-      text = r:text(5), file = r:text(6), line = r:text(7) }
+      text = r:text(5), file = r:text(6), line = tostring(r:integer(7)) }
   end
   -- What takes or returns a value: a function, a method, or a field
   -- whose type is a function.
@@ -300,7 +302,7 @@ end
 
 --- Each of `wanted` (by default what a compile's failure points to) that
 --- `cosmic docs` does not resolve from `db`.
-function tree_docs.queries(db: Sqlite.Handle, wanted?: {string}): {string}
+function tree_docs.queries(db: Build, wanted?: {string}): {string}
   local looked, trouble = docs.view({ db }, { true })
   if looked == nil then
     return { "reading the docs: " .. trouble }
@@ -472,16 +474,16 @@ end
 ---
 --- With no `quickstart` (its file unread, which `fix` has reported), the
 --- guides are not held to it.
-function tree_docs.verbs(db: Sqlite.Handle, quickstart: string?): {string}
+function tree_docs.verbs(db: Build, quickstart: string?): {string}
   local out: mut {string} = {}
-  local required, trouble = db:text_rows(
+  local required, trouble = db:rows(
     "SELECT requires FROM imports WHERE path = 'build.verb_list'")
   if required == nil then
     return { "reading the imports: " .. tostring(trouble) }
   end
   local listed: mut {string:boolean} = {}
   for _, row in ipairs(required) do listed[row:text(1)] = true end
-  local modules, module_trouble = db:text_rows(
+  local modules, module_trouble = db:rows(
     "SELECT path, kind, CAST(inflate(source) AS TEXT) FROM modules ORDER BY path")
   if modules == nil then
     return { "reading the modules: " .. tostring(module_trouble) }
@@ -680,7 +682,7 @@ local doc_rules: {DocRule} = {
 --- header in angle brackets). `build.zig` is a file name, not a module.
 --- @param files where given, the files (paths from the tree's root) whose docs are checked, as a run of `cosmic fix` over
 ---   some paths checks them: no word is said of an exemption, since the files not named may match it
-function tree_docs.public_docs(db: Sqlite.Handle, excused?: {string: string}, files?: {string: boolean}): {string}
+function tree_docs.public_docs(db: Build, excused?: {string: string}, files?: {string: boolean}): {string}
   excused = excused or doc_exempt
   local named = ""
   local values: mut {Sqlite.Value} = {}
@@ -692,13 +694,13 @@ function tree_docs.public_docs(db: Sqlite.Handle, excused?: {string: string}, fi
     end
     named = " AND d.file IN (" .. table.concat(marks, ", ") .. ")"
   end
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT d.module, d.symbol, d.text, d.file, d.line FROM docs d WHERE " ..
       symbols.shown_docs("d", true) .. " AND d.text <> ''" .. named .. " ORDER BY d.file, d.line, d.id", values)
   if rows == nil then
     return { "reading the public docs: " .. tostring(trouble) }
   end
-  local names, names_trouble = db:text_rows("SELECT path FROM modules")
+  local names, names_trouble = db:rows("SELECT path FROM modules")
   if names == nil then
     return { "reading the modules: " .. tostring(names_trouble) }
   end
@@ -727,7 +729,7 @@ function tree_docs.public_docs(db: Sqlite.Handle, excused?: {string: string}, fi
           found[key] = true
           if excused[key] == nil and seen[word] ~= true then
             seen[word] = true
-            out[#out + 1] = row:text(4) .. ":" .. row:text(5) .. ": " .. row:text(1) .. " " ..
+            out[#out + 1] = row:text(4) .. ":" .. tostring(row:integer(5)) .. ": " .. row:text(1) .. " " ..
               (if row:text(2) ~= "" then row:text(2) else "(module)" end) .. ": its doc text has `" .. word ..
               "` (" .. rule.name .. " rule) -- " .. rule.fix
           end
@@ -852,10 +854,10 @@ end
 --- goes in `plural_exempt` with the reason.
 --- @param read what [`plurals_in`] found before the checks, by file: a
 ---   file whose text is the one read there is not parsed again
-function tree_docs.plurals(db: Sqlite.Handle, extra?: {{string}}, excused?: {string: string},
+function tree_docs.plurals(db: Build, extra?: {{string}}, excused?: {string: string},
                            read?: {string: tree_docs.Plurals}): {string}
   excused = excused or plural_exempt
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT file, CAST(inflate(source) AS TEXT) FROM modules WHERE kind <> 'test' " ..
       "AND file GLOB '*.tl' AND file NOT GLOB '*.d.tl' AND (file GLOB 'build/*' " ..
       "OR file GLOB 'cmd/*' OR file GLOB 'cosmic/*') ORDER BY file")

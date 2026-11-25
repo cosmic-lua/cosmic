@@ -1303,3 +1303,38 @@ local function test_a_builtin_bound_is_encoded_and_decoded()
     assert(Types.display(made) == "function<T is " .. name .. ">(T)", Types.display(made))
   end
 end
+
+--- The names a function field's and a method's parameters were declared with are written and read back with the
+--- declaration, and display shows them; the function's type is the same type whatever they are.
+local function test_the_parameter_names_of_a_field_are_kept_and_shown_but_are_no_part_of_its_type()
+  local s = Types.new()
+  local decl = s:declare("record", "m", { "Fs" }, 0)
+  local read = s:fn({ params = { { type = s.string }, { type = s.integer, omittable = true } }, rets = { { items = { s.string } } } })
+  s:define(decl, { tparams = {}, supers = {}, fields = { { name = "read", type = read, params = { "path", "n" } },
+    { name = "write", type = read } }, methods = {}, values = {} })
+  local text = Types.encode_declaration(decl)
+  assert(text:find('(field "read" ', 1, true) ~= nil and text:find('(params "path" "n")', 1, true) ~= nil, text)
+  local second = Types.new(loading_from(s))
+  local there, why = second:decode_declaration(text)
+  local body = assert(assert(there, why).body)
+  same(Types.encode_declaration(assert(there)), text)
+  local params = assert(assert(body.fields[1]).params)
+  assert(params[1] == "path" and params[2] == "n" and assert(body.fields[2]).params == nil)
+  same(Types.display(read, nil, nil, params), "function(path: string, n?: integer): string")
+  same(Types.display(read), "function(string, p2?: integer): string")
+  -- A method's are kept as well, through the store's copy of the body and its text.
+  local box = s:declare("class", "m", { "Box" }, 0)
+  local grow = s:fn({ params = { { type = s:named(box) }, { type = s.integer } }, rets = { { items = { s.integer } } } })
+  s:define(box, { tparams = {}, supers = {}, fields = {}, methods = { { name = "grow", type = grow, params = { "self", "by" } } },
+    values = {} })
+  local held = assert(assert(assert(box.body).methods[1]).params)
+  assert(held[2] == "by", tostring(held[2]))
+  local box_text = Types.encode_declaration(box)
+  assert(box_text:find('(params "self" "by")', 1, true) ~= nil, box_text)
+  local box_there, box_why = second:decode_declaration(box_text)
+  local read_back = assert(assert(assert(assert(box_there, box_why).body).methods[1]).params)
+  assert(read_back[1] == "self" and read_back[2] == "by")
+  -- A narrowing return names the parameter as its declaration does.
+  local is_text = s:fn({ params = { { type = s.any } }, rets = { { items = {}, narrows = { param = 1, to = s.string, asserts = false } } } })
+  same(Types.display(is_text, nil, nil, { "v" }), "function(v: any): v is string")
+end

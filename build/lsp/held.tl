@@ -13,6 +13,7 @@
 --- stage no longer lists, or a document that stood for a file the stage does not list and is left.
 local Driver = require("build.driver")
 local Pipeline = require("build.pipeline")
+local StandardMeant = require("build.standard_meant")
 local TreeProgram = require("build.tree_program")
 
 local record held
@@ -60,7 +61,7 @@ function held.new(options: Pipeline.Options, serve: function(module: string): Dr
     if focus ~= nil and focus.module == module then return focus.source end
     return serve(module)
   end
-  local build = TreeProgram.build(index, options.globals, true, nil, provider, meant)
+  local build = TreeProgram.build(index, options.globals, true, nil, provider, StandardMeant.wrap(meant))
   return {
     options = options,
     build = build,

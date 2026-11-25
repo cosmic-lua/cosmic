@@ -1300,7 +1300,7 @@ tree.
 
 the boot checks that the first stage equals the second wherever the
 generator writes what the release's does. it fails, naming the files,
-unless `lang/SEED_DIFFERS` lists them (one path a line) as declared to
+unless [`lang/SEED_DIFFERS`] lists them (one path a line) as declared to
 differ: a generator change ahead of the pin. a file listed that does
 not differ fails too, unless `COSMIC_BOOTSTRAP` names the seed instead
 of the pin. the sources are in the compiler's identity, and so in
@@ -1994,6 +1994,7 @@ in [roadmap.md](roadmap.md).
 [`doc/guides/project.md`]: guides/project.md
 [`Fs.status`]: ../cosmic/fs.tl
 [`Http.download_result`]: ../cosmic/http/init.tl
+[`lang/SEED_DIFFERS`]: ../lang/SEED_DIFFERS
 [`Proc.find`]: ../cosmic/proc.tl
 [`Rand.uuid`]: ../cosmic/rand.tl
 [`Store.holds`]: ../cosmic/store.tl

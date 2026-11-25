@@ -1034,6 +1034,34 @@ function Poll.closing(fd: integer)
   answer_waits(fd, sys.POLLNVAL)
 end
 
+--- Wakes each wait on `fd` that asks for any of `events` ([`sys.POLLIN`], [`sys.POLLOUT`]) as though it had them, each
+--- given only what it asked: for a module that read what
+--- they wait for into a buffer of its own: a task that read a descriptor another waits on has taken what would have
+--- woken it, and the other, looking again, finds it in the buffer rather than waiting on a descriptor now empty.
+--- Outside a run, and for a descriptor nothing waits on, it does nothing.
+function Poll.answer(fd: integer, events: integer)
+  checked_fd(fd, "fd", 2)
+  checked_events(events, "events", 2)
+  local loop = ongoing.loop
+  if loop == nil then return end
+  local entry = loop.watched[fd]
+  if entry == nil then return end
+  local hits: mut {Wait} = {}
+  for index = 1, entry.count do
+    local watch = assert(entry.watches[index])
+    local answer = events & watch.mask
+    if answer ~= 0 then
+      local w = watch.wait
+      if watch.place > 0 then assert(w.answers)[watch.place] = answer end
+      if w.hit ~= true then
+        w.hit = true
+        hits[#hits + 1] = w
+      end
+    end
+  end
+  wake_hits(hits)
+end
+
 --- The task of a running loop the caller runs in, or nil.
 local function own_task(): State?
   local loop = ongoing.loop

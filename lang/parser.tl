@@ -2265,7 +2265,7 @@ local function constant_text(e: Ast.Exp, marks: boolean): string?
 end
 
 --- `local schema Name [[DDL]]`: a class of the handles that hold the tables of the DDL, and the
---- value of `require("cosmic.sqlite").schema` of it. The module is required as any is.
+--- value `{ ddl = DDL }`, a [`Sqlite.Schema`] of [`cosmic.sqlite`] that the first open of it reads.
 local function parse_schema(first: integer): Ast.Class
   advance()
   local name = binding("a schema")

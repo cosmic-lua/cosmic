@@ -9,6 +9,7 @@ local Server = require("cosmic.http.server")
 local Stream = require("cosmic.stream")
 local Tailscale = require("cosmic.tailscale")
 local Test = require("cosmic.test")
+local type Failure = require("cosmic.failure")
 
 Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" }, requires = { "unix_socket" } }
 
@@ -97,9 +98,10 @@ local function against(tmp: string, daemon: Daemon, body: function(ts: Tailscale
   })
 end
 
---- Appends `line` to `lines`.
-local function say(lines: mut {string}, line: string)
-  lines[#lines + 1] = line
+--- Adds `line` to `lines`: a Failure as its text, and nil as "".
+local function say(lines: mut {string}, line: (string | Failure)?)
+  local text = if line == nil then "" else tostring(line) end
+  lines[#lines + 1] = text
 end
 
 local function new_daemon(): Daemon
@@ -134,7 +136,7 @@ local function test_send_file_puts_the_bytes_under_the_escaped_name(tmp: string)
   against(tmp, daemon, function(ts: Tailscale.Client)
     local data = string.rep("taildrop ", 20000)
     local ok, why = ts:send_file("nZED", "a report.txt", Stream.from_string(data), #data)
-    say(said, tostring(ok) .. " " .. why)
+    say(said, tostring(ok) .. " " .. (if why ~= nil then tostring(why) else "" end))
     local _, short = ts:send_file("nZED", "x", Stream.from_string("abc"), 4)
     say(said, short)
     local _, long = ts:send_file("nZED", "x", Stream.from_string("abcde"), 4)
@@ -207,7 +209,7 @@ local function test_a_listed_name_that_leaves_the_directory_fails_the_list(tmp: 
   local why = ""
   against(tmp, daemon, function(ts: Tailscale.Client)
     local _, trouble = ts:waiting_files()
-    why = trouble
+    why = tostring(trouble)
   end)
   assert(why == 'tailscale: files: the daemon names a file "../../etc/passwd"', why)
 end

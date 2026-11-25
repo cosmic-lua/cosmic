@@ -104,6 +104,7 @@ local function test_the_tool_records_the_public_library()
   -- say `--- @public` in it, or name it here on purpose.
   local kept = "cosmic.agent.prompt_data cosmic.agent.prompt_text cosmic.agent.run_text cosmic.agent.run_text_data cosmic.agent.where_text cosmic.http.wire cosmic.mcp.wire cosmic.sandbox.policy cosmic.template.codegen cosmic.template.context " ..
     "cosmic.template.dialect.html cosmic.template.lex cosmic.template.markup cosmic.template.parse " ..
-    "cosmic.web.builtin cosmic.web.errors cosmic.web.negotiate cosmic.web.request cosmic.web.router"
+    "cosmic.web.builtin cosmic.web.csrf_field cosmic.web.csrf_meta cosmic.web.dev_tag cosmic.web.error_page cosmic.web.errors " ..
+    "cosmic.web.htmx_head cosmic.web.markup_data cosmic.web.negotiate cosmic.web.request cosmic.web.router"
   assert(row:text(5) == kept, "the modules the library keeps to itself: " .. row:text(5))
 end
