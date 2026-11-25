@@ -52,6 +52,12 @@ local record Store
     --- Required, and `true`, with `extra`: the bytecode of `extra` is
     --- loaded as given, which nothing checks. See [`Store.attach`].
     unchecked_bytecode?: boolean
+    --- Whether to carry the data the sealed names call for: the time zones
+    --- for [`cosmic.time`], the CA roots for [`cosmic.http`] and the files
+    --- of [`cosmic.web.htmx`]. True by default; `false` leaves them out,
+    --- for a program that requires those modules but never reads the data
+    --- (a time zone by name, a TLS peer's roots, a served file).
+    data?: boolean
   end
 
   --- What [`Store.attach`] is told beyond the path.
@@ -266,8 +272,12 @@ end
 --- runs (its `main`). It runs only where this core runs. Write it with
 --- [`Fs.write`] and mode 0755 to start it. `database` is a SQLite
 --- database's bytes, as [`Store.seal`] writes one; nil and a Failure
---- when it is not one, or when this process has no core of its own to
---- take (one run from source).
+--- when it is not one, or when this process has no artifact of its own
+--- to take its core from (a bare core started on a database).
+---
+--- The program's modules run as the binary's own, trusted, raw bindings
+--- included, whatever their names: make a program only of a database the
+--- user chose to run, as [`Store.seal`] says of what it seals.
 ---
 ---     local names = Store.closure({ "hello" })
 ---     assert(Store.seal(names, "hello.db", { main = "hello" }))
@@ -485,7 +495,8 @@ end
 --- `identity`, the meta rows to record, and `main`. False and why on a
 --- failure.
 local function write_database(names: {string}, file: string, main: string?,
-                              identity: {MetaRow}, script: Store.Extra?): boolean, string
+                              identity: {MetaRow}, script: Store.Extra?,
+                              data: boolean): boolean, string
   local binary = Store.databases()
   -- The binary's own database is always the last of them.
   local binary_db = Array.at(binary, #binary)
@@ -558,9 +569,9 @@ local function write_database(names: {string}, file: string, main: string?,
             end
           end
         end
-        zones = zones or name == "cosmic.time"
-        roots = roots or name == "cosmic.http"
-        web = web or name == "cosmic.web.htmx"
+        zones = data and (zones or name == "cosmic.time")
+        roots = data and (roots or name == "cosmic.http")
+        web = data and (web or name == "cosmic.web.htmx")
       end
       if script ~= nil then
         -- Last, so the rows' order is the same whatever the script is.
@@ -675,6 +686,9 @@ end
 --- With no `path` it goes to `<cache>/sandbox/<digest>.db` under
 --- [`Fs.cache_dir`], where a file of that digest is its own content.
 ---
+--- `opts.data = false` leaves out the time zones, CA roots and web files
+--- that `names` would otherwise carry.
+---
 --- `opts.extra` adds one module the store does not hold, a script compiled
 --- this run, as the main (kind `main`, after the others): `names` may then
 --- be empty, and nothing else of the row is the store's. Its name is none
@@ -768,7 +782,7 @@ function Store.seal(names: {string}, path?: string,
   local scratch: string = made_scratch
   local function build(): string?, string
     local written, write_trouble = write_database(sorted, scratch .. "/building.db",
-      main, identity, script)
+      main, identity, script, opts == nil or opts.data ~= false)
     if not written then
       return nil, write_trouble
     end

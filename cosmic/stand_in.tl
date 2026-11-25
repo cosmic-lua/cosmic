@@ -21,7 +21,13 @@
 --- test that builds one declares nothing for it in its [`Test.policy`]:
 --- the build starts nothing and reads only the running core and the
 --- modules the stand-in carries, which are of every test's import
---- closure that requires this module.
+--- closure that requires this module. It writes `dir`, and a scratch
+--- directory of [`Store.seal`]'s under `TMPDIR`, which `cosmic test`
+--- points at the test's own directory.
+---
+--- Its main, the probe, is a module of the binary's own, so it loads
+--- trusted as the core loads any `cosmic.*` module: it reaches no raw
+--- binding its wrappers do not, since it is none of them.
 ---
 --- The script is `<its path>.do` when that exists. Failing that, it is
 --- the body of the file its first argument names, past its first line,
@@ -202,13 +208,15 @@ function StandIn.build(dir: string): (string) | (nil, Failure)
   local roots: mut {string} = { probe_module }
   for _, name in ipairs(core_requires) do roots[#roots + 1] = name end
   local database = dir .. "/probe.db"
-  local sealed, seal_trouble = Store.seal(Store.closure(roots), database, { main = probe_module })
+  local sealed, seal_trouble = Store.seal(Store.closure(roots), database, { main = probe_module, data = false })
   if sealed == nil then
     return nil, Failure.new("building the stand-in: " .. tostring(seal_trouble))
   end
   local bytes, read_trouble = Fs.read(database)
   local _, _ = Fs.remove(database)
-  if bytes == nil then return nil, read_trouble end
+  if bytes == nil then
+    return nil, Failure.new("building the stand-in: " .. tostring(read_trouble))
+  end
   local program, program_trouble = Store.host_program(bytes)
   if program == nil then
     return nil, Failure.new("building the stand-in: " .. tostring(program_trouble))

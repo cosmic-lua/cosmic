@@ -5,7 +5,7 @@
 --- running core at offset 0, zero-filled to the core alignment, a manifest
 --- naming it as the one entry (a raw core), a database and a trailer whose
 --- magic says host: the kernel runs it directly, with no launcher, where
---- that core runs. It requires nothing, so a verdict key that turns on it
+--- that core runs. It requires nothing at run time (only a type), so a verdict key that turns on it
 --- turns on the layout alone.
 ---
 ---     local layout = require("cosmic.internal.artifact_layout")

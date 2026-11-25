@@ -409,8 +409,8 @@ local function test_a_file_naming_it_on_its_first_line_runs_its_body(tmp: string
 end
 
 --- The stand-in is a host program, sealed as [`Store.seal`] seals one,
---- whose main is the probe: it carries no `build.*` row at all, and does
---- carry what the core itself requires of a program
+--- whose main is the probe: it carries no `build.*` row at all, nor
+--- the time zones or CA roots its closure would call for, and does carry what the core itself requires of a program
 --- ([`cosmic.errors`]), but not [`cosmic.removed`], which only words a
 --- refusal of a removed global its probe never reaches for.
 local function test_the_stand_in_carries_its_probe_and_little_else(tmp: string)
@@ -428,6 +428,8 @@ local function test_the_stand_in_carries_its_probe_and_little_else(tmp: string)
   assert(one("SELECT count(*) FROM modules WHERE path IN " ..
       "('cosmic.errors', 'cosmic.child')") == "2")
   assert(one("SELECT count(*) FROM modules WHERE path = 'cosmic.removed'") == "0")
+  assert(one("SELECT count(*) FROM zoneinfo") == "0")
+  assert(one("SELECT count(*) FROM ca_roots") == "0")
   assert(one("SELECT value FROM meta WHERE key = 'runtime_basis'") ~= "")
   assert(db:close())
 end
