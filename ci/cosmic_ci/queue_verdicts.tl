@@ -38,6 +38,9 @@ local record QueueVerdicts
     pr: string
     on: string
   end
+  REF_JOB: string
+  GATE_JOB: string
+  RECHECK_STEP: string
 end
 
 --- How long one lookup may take, in seconds.
@@ -179,7 +182,10 @@ end
 --- GitHub's own record shows it ran merged code and this try's change:
 --- the commit its entry was put on is on main, and its commit changes the
 --- same files, by name, name before and content, as this try's does over
---- its own base ([`change_of`]).
+--- its own base ([`change_of`]). Its ref must hold no cache now, and
+--- its jobs must have found none there before and after they ran
+--- ([`refused_caches`]): a cache there may have been written by code
+--- that never merges ([`QueueVerdicts.ref_caches`]).
 
 --- How many of the newest failed merge-queue runs are read for the pull
 --- request's: some 14 hours of the queue's failures on 2026-11-24.
@@ -277,6 +283,62 @@ local function caches_of(host: Github.Host, repository: string, ref: string): in
   return nil
 end
 
+--- What a run's job, and its step, is read for.
+local record StepRow
+  name?: any
+  conclusion?: any
+end
+local STEP_ROW <const> = Shape.record_of("StepRow")
+local record JobRow
+  name?: any
+  conclusion?: any
+  steps?: {any}
+end
+local JOB_ROW <const> = Shape.record_of("JobRow")
+local record JobList
+  jobs?: {any}
+end
+local JOB_LIST <const> = Shape.record_of("JobList")
+
+--- The job of ci.yml that refuses a merge-queue run whose ref holds a
+--- cache before any job restores one, and the gate's step that refuses
+--- it again after every job.
+QueueVerdicts.REF_JOB = "merge-queue ref"
+QueueVerdicts.GATE_JOB = "ci"
+QueueVerdicts.RECHECK_STEP = "refuse a cache the merge-queue ref saved, after every job"
+
+--- Whether run `id` in `repository` refused its ref's caches and found
+--- none, both before its jobs and after them, as GitHub says: its
+--- [`QueueVerdicts.REF_JOB`] job and its gate's
+--- [`QueueVerdicts.RECHECK_STEP`] step succeeded, each named once. A
+--- cache may be deleted or evicted after the run, so a ref that holds
+--- none now does not show the run restored none.
+local function refused_caches(host: Github.Host, repository: string, id: integer): boolean
+  local pages = Github.ask(host, "repos/" .. repository .. "/actions/runs/" .. tostring(id) .. "/jobs?per_page=100",
+    false, LOOKUP_SECONDS)
+  local listed, _ = JOB_LIST:decode_into((pages or {})[1] or "")
+  if listed == nil then return false end
+  local before, after = 0, 0
+  for _, item in ipairs(listed.jobs or {}) do
+    local job, _ = JOB_ROW:into(item)
+    if job == nil then return false end
+    if job.name == QueueVerdicts.REF_JOB then
+      if job.conclusion ~= "success" then return false end
+      before = before + 1
+    elseif job.name == QueueVerdicts.GATE_JOB then
+      for _, entry in ipairs(job.steps or {}) do
+        local step, _ = STEP_ROW:into(entry)
+        if step == nil then return false end
+        if step.name == QueueVerdicts.RECHECK_STEP then
+          if step.conclusion ~= "success" then return false end
+          after = after + 1
+        end
+      end
+    end
+  end
+  return before == 1 and after == 1
+end
+
 --- A failed run of the pull request: its id, the commit its entry was
 --- put on, its own commit and its ref.
 local record Tried
@@ -327,7 +389,8 @@ end
 --- `driver.tl queue-tried-run`: writes `run=<id>` to $GITHUB_OUTPUT, the
 --- newest merge-queue run of ci.yml in GITHUB_REPOSITORY that failed for
 --- the pull request HEAD_REF is of, was built on a commit of main with
---- the change SHA makes over BASE_SHA, this run's, and uploaded ARTIFACT,
+--- the change SHA makes over BASE_SHA, this run's, refused its ref's
+--- caches before and after its jobs, and uploaded ARTIFACT,
 --- other than RUN_ID, this run. Where it finds none it says why and writes nothing:
 --- the run's suites run their tests. 2 where the step names no queue
 --- ref, artifact or repository, else 0.
@@ -364,7 +427,10 @@ function QueueVerdicts.find_tried(env: {string:string}, host: Github.Host): inte
         -- which never merges wrote ([`QueueVerdicts.ref_caches`]).
         absent = "run " .. tostring(id) .. "'s ref holds a cache, or GitHub does not say"
         if caches_of(host, repository, tried.ref) == 0 then
-          held, absent = holds_artifact(host, repository, id, name)
+          absent = "run " .. tostring(id) .. " did not refuse its ref's caches before and after its jobs"
+          if refused_caches(host, repository, id) then
+            held, absent = holds_artifact(host, repository, id, name)
+          end
         end
       end
     end

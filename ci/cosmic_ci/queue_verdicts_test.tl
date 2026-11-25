@@ -259,28 +259,43 @@ local function test_a_queue_ref_names_its_pull_request()
   end
 end
 
+--- A run's jobs: its merge-queue ref job, and its gate with the step
+--- that refuses the ref's caches again, of the conclusions given.
+local function jobs(before: string, after: string): string
+  return '{"jobs":[{"name":"linux-x86_64","conclusion":"failure","steps":[{"name":"test","conclusion":"failure"}]},' ..
+    '{"name":"' .. QueueVerdicts.REF_JOB .. '","conclusion":"' .. before .. '"},' ..
+    '{"name":"' .. QueueVerdicts.GATE_JOB .. '","conclusion":"failure","steps":[{"name":"' ..
+    QueueVerdicts.RECHECK_STEP .. '","conclusion":"' .. after .. '"},' ..
+    '{"name":"every job passed","conclusion":"failure"}]}]}'
+end
+
 --- The newest failed run of the same pull request that was built on main
---- with this run's change and holds the verdicts is named: this run,
---- another pull request's (pr-410 among them), a fork's, one with none,
---- one built on an entry that never merged, one of another change and one
---- whose comparison GitHub does not answer are passed over.
+--- with this run's change, refused its ref's caches and holds the
+--- verdicts is named: this run, another pull request's (pr-410 among
+--- them), a fork's, one with none, one built on an entry that never
+--- merged, one of another change and one whose comparison GitHub does
+--- not answer are passed over.
 local function test_the_newest_failed_try_of_the_pull_request_is_named()
   local mine = "gh-readonly-queue/main/pr-41-" .. OTHER
+  local ahead = "gh-readonly-queue/main/pr-41-" .. AHEAD
   local fake = GithubFake.new(function(path: string, _nth: integer): string?
     if path == FAILED then
       return '{"workflow_runs":[' .. table.concat({ run(5, tried_sha(5), mine), run(8, tried_sha(8), mine),
         run(9, tried_sha(9), mine), run(10, tried_sha(10), mine), run(11, tried_sha(11), mine),
         run(12, tried_sha(12), "gh-readonly-queue/main/pr-410-" .. OTHER),
-        run(13, tried_sha(13), mine, "fork/r"), run(15, tried_sha(15), "gh-readonly-queue/main/pr-41-" .. AHEAD),
+        run(13, tried_sha(13), mine, "fork/r"), run(15, tried_sha(15), ahead),
         run(20, NOW, "gh-readonly-queue/main/pr-41-" .. SHA) }, ",") .. ']}'
     end
     if path == "repos/o/r/compare/" .. OTHER .. "...main" then return '{"status":"ahead"}' end
     if path == "repos/o/r/compare/" .. AHEAD .. "...main" then return '{"status":"diverged"}' end
-    if path == "repos/o/r/actions/caches?ref=refs/heads/" .. mine .. "&per_page=1" then
-      return '{"total_count":0}'
+    for _, ref in ipairs({ mine, ahead }) do
+      if path == "repos/o/r/actions/caches?ref=refs/heads/" .. ref .. "&per_page=1" then
+        return '{"total_count":0}'
+      end
     end
     if path == "repos/o/r/compare/" .. SHA .. "..." .. NOW then return change("aa") end
-    for _, id in ipairs({ 5, 8, 11, 15 }) do
+    if path == "repos/o/r/compare/" .. AHEAD .. "..." .. tried_sha(15) then return change("aa") end
+    for _, id in ipairs({ 5, 8, 11 }) do
       if path == "repos/o/r/compare/" .. OTHER .. "..." .. tried_sha(id) then
         return change("aa")
       end
@@ -288,7 +303,10 @@ local function test_the_newest_failed_try_of_the_pull_request_is_named()
     if path == "repos/o/r/compare/" .. OTHER .. "..." .. tried_sha(10) then return change("a0") end
     local artifacts = "/artifacts?name=" .. TRIED_ARTIFACT
     if path == "repos/o/r/actions/runs/11" .. artifacts then return '{"artifacts":[]}' end
-    for _, id in ipairs({ 5, 8, 9, 10, 15 }) do
+    for _, id in ipairs({ 5, 8, 9, 10, 11, 15 }) do
+      if path == "repos/o/r/actions/runs/" .. tostring(id) .. "/jobs?per_page=100" then
+        return jobs("success", "success")
+      end
       if path == "repos/o/r/actions/runs/" .. tostring(id) .. artifacts then
         return '{"artifacts":[{"name":"' .. TRIED_ARTIFACT .. '","expired":false}]}'
       end
@@ -302,49 +320,76 @@ local function test_the_newest_failed_try_of_the_pull_request_is_named()
   end
 end
 
---- A change GitHub lists in part, or with a file of no content named,
---- or that renames another file into the same one, is not this run's;
---- nor is a run whose ref holds a cache.
+--- A change GitHub lists in part, or with a file of no content named, or
+--- that renames another file into the same one, or that is not ahead of
+--- its base, is not this run's, even where this run's comparison reads
+--- the same; nor is a run whose ref holds a cache or whose caches GitHub
+--- does not count, nor one whose jobs did not refuse its ref's caches
+--- both before and after they ran.
 local function test_a_change_that_cannot_be_matched_is_not_taken()
   local mine = "gh-readonly-queue/main/pr-41-" .. OTHER
   local many: mut {string} = {}
   for i = 1, 300 do
     many[i] = '{"filename":"f' .. tostring(i) .. '","status":"added","sha":"aa"}'
   end
-  local answers: mut {string:string} = {
-    ["no files"] = '{"status":"ahead"}',
-    ["no blob"] = '{"status":"ahead","files":[{"filename":"b.tl","status":"added"},' ..
-      '{"filename":"a.tl","status":"modified","sha":"aa"}]}',
-    ["another rename"] = '{"status":"ahead","files":[{"filename":"b.tl","status":"added","sha":"bb"},' ..
-      '{"filename":"a.tl","previous_filename":"z.tl","status":"renamed","sha":"aa"}]}',
-    ["cut"] = '{"status":"ahead","files":[' .. table.concat(many, ",") .. ']}',
-    ["behind"] = '{"status":"behind","files":[]}',
+  local no_blob = '{"status":"ahead","files":[{"filename":"b.tl","status":"added"},' ..
+    '{"filename":"a.tl","status":"modified","sha":"aa"}]}'
+  local cut = '{"status":"ahead","files":[' .. table.concat(many, ",") .. ']}'
+  --- Each case: the tried run's comparison, this run's where it differs
+  --- from change("aa"), the count of the ref's caches, and the run's jobs.
+  local record Case
+    tried: string
+    mine?: string
+    caches?: string
+    jobs?: string
+  end
+  local cases: {string:Case} = {
+    ["no files"] = { tried = '{"status":"ahead"}' },
+    ["no blob"] = { tried = no_blob, mine = no_blob },
+    ["another rename"] = { tried = '{"status":"ahead","files":[{"filename":"b.tl","status":"added","sha":"bb"},' ..
+        '{"filename":"a.tl","previous_filename":"z.tl","status":"renamed","sha":"aa"}]}',
+      mine = '{"status":"ahead","files":[{"filename":"b.tl","status":"added","sha":"bb"},' ..
+        '{"filename":"a.tl","previous_filename":"x.tl","status":"renamed","sha":"aa"}]}' },
+    ["cut"] = { tried = cut, mine = cut },
+    ["behind"] = { tried = (change("aa"):gsub('"ahead"', '"behind"')) },
+    ["cached"] = { tried = change("aa"), caches = '{"total_count":1}' },
+    ["uncounted"] = { tried = change("aa"), caches = '{"actions_caches":[]}' },
+    ["ref job failed"] = { tried = change("aa"), jobs = jobs("failure", "success") },
+    ["ref job skipped"] = { tried = change("aa"), jobs = jobs("skipped", "success") },
+    ["recheck skipped"] = { tried = change("aa"), jobs = jobs("success", "skipped") },
+    ["no ref job"] = { tried = change("aa"), jobs = '{"jobs":[{"name":"' .. QueueVerdicts.GATE_JOB ..
+        '","steps":[{"name":"' .. QueueVerdicts.RECHECK_STEP .. '","conclusion":"success"}]}]}' },
+    ["no recheck"] = { tried = change("aa"), jobs = '{"jobs":[{"name":"' .. QueueVerdicts.REF_JOB ..
+        '","conclusion":"success"},{"name":"' .. QueueVerdicts.GATE_JOB .. '","steps":[]}]}' },
+    ["no jobs"] = { tried = change("aa"), jobs = "" },
   }
-  answers["cached"] = change("aa")
-  for _, case in ipairs({ "no files", "no blob", "another rename", "cut", "behind", "cached" }) do
-    local fake = GithubFake.new(function(path: string, _nth: integer): string?
-      if path == FAILED then return '{"workflow_runs":[' .. run(5, tried_sha(5), mine) .. ']}' end
-      if path == "repos/o/r/actions/caches?ref=refs/heads/" .. mine .. "&per_page=1" then
-        return if case == "cached" then '{"total_count":1}' else '{"total_count":0}' end
-      end
-      if path == "repos/o/r/compare/" .. OTHER .. "...main" then return '{"status":"ahead"}' end
-      if path == "repos/o/r/compare/" .. SHA .. "..." .. NOW then
-        if case == "another rename" then
-          return '{"status":"ahead","files":[{"filename":"b.tl","status":"added","sha":"bb"},' ..
-            '{"filename":"a.tl","previous_filename":"x.tl","status":"renamed","sha":"aa"}]}'
+  for name, case in pairs(cases) do
+    for _, control in ipairs({ false, true }) do
+      local fake = GithubFake.new(function(path: string, _nth: integer): string?
+        if path == FAILED then return '{"workflow_runs":[' .. run(5, tried_sha(5), mine) .. ']}' end
+        if path == "repos/o/r/actions/caches?ref=refs/heads/" .. mine .. "&per_page=1" then
+          return if control then '{"total_count":0}' else case.caches or '{"total_count":0}' end
         end
-        return change("aa")
-      end
-      if path == "repos/o/r/compare/" .. OTHER .. "..." .. tried_sha(5) then
-        return answers[case]
-      end
-      if path == "repos/o/r/actions/runs/5/artifacts?name=" .. TRIED_ARTIFACT then
-        return '{"artifacts":[{"name":"' .. TRIED_ARTIFACT .. '","expired":false}]}'
-      end
-      return nil
-    end)
-    assert(QueueVerdicts.find_tried(tried_env(), fake.host) == 0, case)
-    assert(#fake.outputs == 0, case .. ": " .. GithubFake.text(fake.outputs))
+        if path == "repos/o/r/compare/" .. OTHER .. "...main" then return '{"status":"ahead"}' end
+        if path == "repos/o/r/compare/" .. SHA .. "..." .. NOW then
+          return if control then change("aa") else case.mine or change("aa") end
+        end
+        if path == "repos/o/r/compare/" .. OTHER .. "..." .. tried_sha(5) then
+          return if control then change("aa") else case.tried end
+        end
+        if path == "repos/o/r/actions/runs/5/jobs?per_page=100" then
+          local answer = if control then jobs("success", "success") else case.jobs or jobs("success", "success") end
+          return if answer == "" then nil else answer end
+        end
+        if path == "repos/o/r/actions/runs/5/artifacts?name=" .. TRIED_ARTIFACT then
+          return '{"artifacts":[{"name":"' .. TRIED_ARTIFACT .. '","expired":false}]}'
+        end
+        return nil
+      end)
+      assert(QueueVerdicts.find_tried(tried_env(), fake.host) == 0, name)
+      local want = if control then "run=5\n" else "" end
+      assert(GithubFake.text(fake.outputs) == want, name .. ": " .. GithubFake.text(fake.outputs))
+    end
   end
 end
 
