@@ -25,17 +25,15 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "/bin/sh", letters = "
   -- (portable suite, run 45557741219). A test that hangs still ends at this bound.
   timeout = 30 }
 
---- A set whose worker is `cosmic agent worker` of this program, as the agent starts it. Its first snippet answers in
---- about 60 ms; a child of this module ([`build.test_child`]) took 1.3 s, checking its `-e` chunk and loading the
---- Each step of a worker on standard error, with the ms since the module loaded: a test that times out shows its last
---- lines (build/test_worker.tl's `last_printed`), which say where it stopped. On macOS a worker test now and then runs
+--- Each step of a worker on standard error, with the ms since the module loaded: a failed test's report shows the end
+--- of what it printed, so a test that timed out says where it stopped. On macOS a worker test now and then runs
 --- past its bound (ci/flaky-tests.md, 2026-11-25), and only these lines can say in which step.
 local STEP_START = Clock.monotonic_ns()
 local function step(what: string)
   local _, _ = Fs.put(Fs.stderr, "step " .. tostring((Clock.monotonic_ns() - STEP_START) // 1000000) .. " ms: " ..
       what .. "\n")
 end
---- module first.
+
 local function worker_run(set: Worker.Set, code: string, opts: Worker.Options): (Worker.Answer) | (nil, Failure)
   step("run " .. tostring(set.next) .. " (workers started " .. tostring(set.started) .. "): " ..
       (code:match("^[^\n]*") or ""))
@@ -59,6 +57,9 @@ local function tools_run(name: string, input: {string: Json.Value}, context: Too
   return result
 end
 
+--- A set whose worker is `cosmic agent worker` of this program, as the agent starts it. Its first snippet answers in
+--- about 60 ms; a child of this module ([`build.test_child`]) took 1.3 s, checking its `-e` chunk and loading the
+--- module first.
 local function set_of_worker(): Worker.Set
   local started = this_program.program({ "agent", "worker" }, { env = this_program.environment(), timeout_ns = -1 })
   return Worker.new(started.argv, started.options)
