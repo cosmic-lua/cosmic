@@ -173,7 +173,7 @@ local function test_value_reads_one_whole_value()
       assert(got2 ~= nil, tostring(why2))
       assert(Json.is_array(got2), "an array decodes marked, as decode marks one")
     end
-    assert(peek_text(r) == "null" and value_text(r) == Json.null, "null_value stands in")
+    assert(peek_text(r) == "null" and value_text(r) == Json.null, "a null alone is Json.null")
     assert(#ids == 2 and ids[1] == 1 and ids[2] == 2)
     assert(assert(next_text(r)).kind == "end_array" and assert(Json.pointer(r:steps())) == "/rows")
     assert(assert(next_text(r)).value == "after" and value_text(r) == 3)
@@ -243,6 +243,33 @@ local function test_a_failing_stream_fails_the_reader_with_its_own_failure()
   assert(rawequal(again, failed), "and answers it again")
   local _, value_again = r:value()
   assert(rawequal(value_again, failed), "from every call")
+end
+
+local function test_null_value_says_what_a_null_inside_a_value_is()
+  local text = '[null, 1]'
+  local plain = Json.reader(Stream.from_string(text))
+  local kept, why = plain:value()
+  assert(kept ~= nil, tostring(why))
+  local items = Json.array_of(kept)
+  assert(items ~= nil and items[1] == nil and items[2] == 1, "a null inside is nil by default")
+  local marked = Json.reader(Stream.from_string(text), { null_value = Json.null })
+  local held, trouble = marked:value()
+  assert(held ~= nil, tostring(trouble))
+  local marked_items = Json.array_of(held)
+  assert(marked_items ~= nil and rawequal(marked_items[1], Json.null), "and null_value stands in for it")
+end
+
+local function test_a_refusal_in_the_text_is_one_failure_on_every_call()
+  local r = Json.reader(Stream.from_string("[1 2]"))
+  local open, _ = r:next()
+  assert(open ~= nil and open ~= false and open.kind == "array")
+  local one, _ = r:value()
+  assert(one == 1)
+  local none, why = r:next()
+  assert(none == nil and tostring(why):find("^json: expected `,` or `%]`") ~= nil, tostring(why))
+  local _, peeked = r:peek()
+  local _, valued = r:value()
+  assert(rawequal(peeked, why) and rawequal(valued, why), "the same Failure from every call")
 end
 
 local function test_the_end_is_false_and_a_refusal_is_one_failure()

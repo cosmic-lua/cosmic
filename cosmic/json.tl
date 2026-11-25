@@ -289,7 +289,9 @@ local record Json
     json5?: boolean
     --- Read `#` line comments, as `decode` does, with or without `json5`.
     hash_comments?: boolean
-    --- What `value` puts where the text says `null`.
+    --- What `value` puts where a `null` stands inside an array or object
+    --- it reads whole: nil (the default) or [`Json.null`]. A `null` that
+    --- `value` reads alone is [`Json.null`] whatever this says.
     null_value?: Json.Null
   end
 
