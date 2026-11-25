@@ -164,20 +164,22 @@ local function test_database_runs_a_sealed_file(tmp: string)
 end
 
 --- `--modules` seals exactly the modules it names, the first the main:
---- without the modules the main requires it cannot load, and with them it runs.
+--- without the modules the main requires it cannot load, and with them it
+--- runs -- the reply fake's main, which, with no replies beside the
+--- program, says so and ends with 127.
 local function test_modules_seals_exactly_the_named_modules(tmp: string)
   local program = (assert(Proc.executable()))
-  local main = "cosmic.internal.fake_probe"
-  local alone = cosmic(tmp, { "sandbox", "--modules", main, "--", program, "exit 3" })
-  assert(alone.code ~= 0 and alone.code < 125 and alone.err:find("cosmic.child", 1, true) ~= nil,
+  local main = "cosmic.internal.fake_reply"
+  local alone = cosmic(tmp, { "sandbox", "--modules", main, "--", program })
+  assert(alone.code ~= 0 and alone.code < 125 and alone.err:find("cosmic.fs", 1, true) ~= nil,
     tostring(alone.code) .. alone.err)
   local names: mut {string} = { main }
   for _, name in ipairs(Store.closure({ main })) do
     if name ~= main then names[#names + 1] = name end
   end
-  local whole = cosmic(tmp, { "sandbox", "--modules", table.concat(names, ","), "--", program,
-    "exit 3" })
-  assert(whole.code == 3, tostring(whole.code) .. ": " .. whole.out .. whole.err)
+  local whole = cosmic(tmp, { "sandbox", "--modules", table.concat(names, ","), "--", program })
+  assert(whole.code == 127 and whole.err:find("no replies beside", 1, true) ~= nil,
+    tostring(whole.code) .. ": " .. whole.out .. whole.err)
   assert(#left_over() == 0, "the sealed database goes with the run")
   -- The core's own module needs no database; as the main it has none to run.
   local core = cosmic(tmp, { "sandbox", "--modules", "cosmic.fs,cosmic.failure,cosmic.env,cosmic.sys", "--", program })
