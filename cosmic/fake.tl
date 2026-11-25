@@ -193,13 +193,33 @@ local Store = require("cosmic.store")
 -- then holds the rows `build` seals; loading it defines its verbs and
 -- nothing more.
 local _ = require("cosmic.internal.fake_probe")
+-- The same for the reply fake's main ([`Fake.reply`]).
+local _ = require("cosmic.internal.fake_reply")
+local Json = require("cosmic.json")
 -- What the core itself requires of the program it runs, beside its main
 -- module: [`cosmic.errors`], for an uncaught error's guidance (core/main.c's
 -- `ask_guidance`). Required so it is of the closure too.
 local type _ = require("cosmic.errors")
 
 local record Fake
+  --- One answer of a reply fake ([`Fake.reply`]): what it writes to
+  --- stdout and to stderr, as they are, and the status it ends with (0
+  --- when nil).
+  record Reply
+    --- Written to stdout as it is.
+    stdout?: string
+    --- Written to stderr as it is.
+    stderr?: string
+    --- The exit status; 0 when nil.
+    code?: integer
+  end
+
+  --- The `main` of [`Fake.build`] for a reply fake: build one fake of
+  --- it, then give each copy its replies with [`Fake.reply`].
+  REPLY: string
 end
+
+Fake.REPLY = "cosmic.internal.fake_reply"
 
 --- The fake's program, its main module, which it carries with the
 --- modules it requires: the whole of what it runs.
@@ -282,6 +302,24 @@ function Fake.place(program: string, path: string, script?: string): (true) | (f
     local _, _ = Fs.remove(path .. ".do")
   end
   return true
+end
+
+--- Places a copy of the reply fake `program` (built with
+--- [`Fake.REPLY`] as its main) at `path`, answering its first argument
+--- with `replies[that argument]`: the key "" stands for no argument, and
+--- "*" for any key `replies` lacks. One with no reply for its argument
+--- says so on stderr and ends with status 127. False and a Failure where
+--- the copy cannot be written.
+---
+---     local program = assert(Fake.build(tmp .. "/fake", Fake.REPLY))
+---     assert(Fake.reply(program, tmp .. "/bin/git", {
+---       ["rev-parse"] = { stdout = "abc1234\n" },
+---       ["*"] = { stderr = "git: not faked\n", code = 1 },
+---     }))
+function Fake.reply(program: string, path: string, replies: {string: Fake.Reply}): (true) | (false, Failure)
+  local text, trouble = Json.encode_any(replies)
+  if text == nil then return false, trouble end
+  return Fake.place(program, path, text)
 end
 
 --- What [`Fake.place`] wrote beside the copy now running, for a fake
