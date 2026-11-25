@@ -426,6 +426,30 @@ local function test_a_pure_store_keeps_the_sources_of_the_walks_its_closure_decl
   assert(root_store:close())
 end
 
+--- The full store of the same closure keeps, beside the closure's modules, the source of a module its walk reaches by
+--- a type alone, as the pure store does: a worker given it works out the identity of the walk
+--- ([`build.code_identity`]) over the modules the program's does, so it can read the program's stamp of it. Its address
+--- holds that source.
+local function test_a_full_store_keeps_the_source_of_a_module_its_walk_reaches_by_a_type_alone(tmp: string)
+  local function full(root: string, name: string, edits: {string:string}): string, Sqlite.Handle
+    walked(root, tmp .. "/" .. name .. "-whole.db", edits)
+    local basis = assert(closure_store.basis(tmp .. "/" .. name .. "-whole.db"))
+    assert(closure_store.write(tmp .. "/" .. name .. "-whole.db", tmp .. "/" .. name .. ".db", walk_names, basis))
+    return closure_store.address(basis, walk_names, "salt"), assert(Sqlite.open(tmp .. "/" .. name .. ".db"))
+  end
+  local plain, store = full(tmp .. "/a", "plain", {})
+  local rows = assert(store:text_rows("SELECT length(source), length(bytecode) FROM modules WHERE path = 'build.typed'"))
+  local row = support.nth(rows, 1)
+  assert(row:text(1) ~= "0", "a module the walk reaches by a type alone keeps no source")
+  assert(row:text(2) == "0", "a module outside the closure keeps its code")
+  local edge = assert(store:text_rows("SELECT 1 FROM imports WHERE path = 'build.pipeline' AND requires = 'build.typed'"))
+  assert(#edge == 1, "the walk's edge to a module it reaches by a type alone is left out")
+  assert(store:close())
+  local typed, typed_store = full(tmp .. "/b", "typed", { ["build/typed"] = "-- a comment" })
+  assert(typed ~= plain, "a comment in a module the walk reaches by a type alone left the address as it was")
+  assert(typed_store:close())
+end
+
 --- A closure that declares no read keeps no source: the same project with the declaration left out holds no source
 --- and its address ignores a comment in [`build.pipeline`].
 local function test_a_closure_that_declares_no_read_keeps_no_source(tmp: string)
