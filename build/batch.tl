@@ -2,6 +2,7 @@
 --- merge queue as one pull request, one commit for each.
 ---
 ---     bin/cosmic build/batch.tl stack BRANCH N...
+---     bin/cosmic build/batch.tl land BATCH
 ---     bin/cosmic build/batch.tl close BATCH
 ---
 --- `stack` checks out BRANCH fresh from origin's main and squashes each
@@ -14,9 +15,20 @@
 --- The repository's squash setting (COMMIT_MESSAGES) keeps each
 --- member's message in main's commit.
 ---
+--- Before it writes the body, `stack` tests the stacked batch here, as
+--- the queue would: `fix --check` at the root and in ci/, the whole
+--- suite, ci/'s own suite, and `test --check-types` on the test files
+--- the batch changes. A batch that fails one says which, with the
+--- end of its output, and exits 1, so it is not pushed.
+---
+--- `land` merges batch pull request BATCH without the merge queue, by
+--- rebase, so each member stays one commit on main: only while main is
+--- still the commit the batch was stacked on, or one before it, and its
+--- newest `ci` check is green. Then it closes the members, as `close`.
+---
 --- `close` reads a merged batch pull request's commits, and closes each
 --- member whose head is still the one batched, with a comment that names
---- the batch's commit on main. A member pushed since it was batched
+--- the member's commit on main. A member pushed since it was batched
 --- stays open, and is named. It reads each commit's message from git,
 --- not the REST API, which cuts a long message short.
 ---
@@ -29,6 +41,10 @@ local Shape = require("cosmic.shape")
 
 local REPO <const> = "cosmic-lua/cosmic"
 local TIMEOUT_NS <const> = 120 * 1000000000
+--- A check of the stacked batch: the whole suite takes minutes.
+local CHECK_TIMEOUT_NS <const> = 60 * 60 * 1000000000
+--- How much of a failed check's output is said.
+local TAIL_LINES <const> = 40
 
 local record Ran
   ok: boolean
@@ -85,15 +101,15 @@ local function say(text: string)
   local _, _ = Fs.put(Fs.stderr, "batch: " .. text .. "\n")
 end
 
-local function run(argv: {string}, input?: string): Ran
+local function run(argv: {string}, input?: string, cwd?: string, timeout_ns?: integer): Ran
   local name = argv[1]
   if name == nil then return { ok = false, out = "", err = "no program" } end
   local path, missing = Proc.find(name, Env.get("PATH"))
   if path == nil then return { ok = false, out = "", err = tostring(missing) } end
   local full: mut {string} = { path }
   for i = 2, #argv do full[#full + 1] = argv[i] end
-  local result, failure = Child.run(full, { timeout_ns = TIMEOUT_NS, stdout = "capture",
-    stderr = "capture", input = input })
+  local result, failure = Child.run(full, { timeout_ns = timeout_ns or TIMEOUT_NS, stdout = "capture",
+    stderr = "capture", input = input, cwd = cwd })
   if result == nil then return { ok = false, out = "", err = tostring(failure) } end
   return { ok = result.ok, out = result.stdout or "", err = result.stderr or "" }
 end
@@ -197,6 +213,55 @@ local function stack_one(main: string, n: string): string?, string
   return "- #" .. n .. " " .. pr.title .. " (head " .. head:sub(1, 9) .. ")", ""
 end
 
+--- The last `TAIL_LINES` lines of `text`.
+local function tail(text: string): string
+  local lines: mut {string} = {}
+  for line in (text .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
+  while #lines > 0 and lines[#lines] == "" do lines[#lines] = nil end
+  local first = math.max(1, #lines - TAIL_LINES + 1)
+  return table.concat(lines, "\n", first, #lines)
+end
+
+--- Tests the checked-out batch, which changes the tree from `main`:
+--- true if every check passes; else it says the first that failed.
+local function checked(main: string): boolean
+  local cosmic, unfound = Fs.absolute("bin/cosmic")
+  if cosmic == nil then
+    say("cannot find bin/cosmic: " .. tostring(unfound))
+    return false
+  end
+  local typed: mut {string} = { cosmic, "test", "--check-types" }
+  for path in git({ "diff", "--name-only", "--diff-filter=d", main, "HEAD" }).out:gmatch("[^\n]+") do
+    if path:match("_test%.tl$") ~= nil and path:match("^ci/") == nil then
+      typed[#typed + 1] = path
+    end
+  end
+  local record Check
+    name: string
+    argv: {string}
+    cwd?: string
+  end
+  local checks: mut {Check} = {
+    { name = "fix --check at the root", argv = { cosmic, "fix", "--check", "." } },
+    { name = "fix --check in ci/", argv = { cosmic, "fix", "--check", "." }, cwd = "ci" },
+    { name = "the whole suite", argv = { cosmic, "test" } },
+    { name = "ci/'s suite", argv = { cosmic, "test" }, cwd = "ci" },
+  }
+  if #typed > 3 then
+    checks[#checks + 1] = { name = "test --check-types on " .. tostring(#typed - 3) .. " changed test files",
+      argv = typed }
+  end
+  for _, check in ipairs(checks) do
+    say("checking: " .. check.name)
+    local ran = run(check.argv, nil, check.cwd, CHECK_TIMEOUT_NS)
+    if not ran.ok then
+      say("the batch fails " .. check.name .. ":\n" .. tail(ran.out .. "\n" .. ran.err))
+      return false
+    end
+  end
+  return true
+end
+
 local function stack(branch: string, numbers: {string}): integer
   if not git({ "fetch", "-q", "origin", "main" }).ok then
     say("cannot fetch main")
@@ -229,11 +294,22 @@ local function stack(branch: string, numbers: {string}): integer
     say("nothing stacked")
     return 1
   end
+  if not checked(main) then return 1 end
   local _, _ = Fs.put(Fs.stdout, "An integration batch on main " .. main:sub(1, 9) ..
-      ": each member below is one commit, run through the merge queue once. When it lands, each member " ..
+      ": each member below is one commit, run through the merge queue once. It passed fix --check, the whole " ..
+      "suite, ci/'s suite and --check-types on its changed tests here before it was pushed. When it lands, each member " ..
       "is closed with a link; if its run fails, the culprit is dropped and the rest goes again.\n\n" ..
       table.concat(taken, "\n") .. "\n")
   return 0
+end
+
+--- The commit on origin/main that carries member `n` batched at `head`:
+--- its own commit after a rebase, the batch's after a squash.
+local function landed_as(n: string, head: string, fallback: string): string
+  local found = trimmed(git({ "log", "-1", "--format=%H", "--fixed-strings",
+    "--grep=Batched from #" .. n .. " at " .. head .. ".", "origin/main" }).out)
+  if found:match("^%x+$") ~= nil then return found end
+  return fallback
 end
 
 local function close_one(batch: string, landed: string, n: string, head: string): boolean
@@ -294,15 +370,53 @@ local function close(batch: string): integer
     say("#" .. batch .. "'s head cannot be fetched")
     return 1
   end
+  if not git({ "fetch", "-q", "origin", "main" }).ok then
+    say("cannot fetch main")
+    return 1
+  end
   local status = 0
   for _, commit in ipairs(commits.commits) do
     local message = git({ "log", "-1", "--format=%B", commit.sha }).out
     -- The trailer is the message's last line, which stack writes; a
     -- member's own text above it cannot name another pull request.
     local n, head = message:match("\nBatched from #(%d+) at (%x%x%x%x%x%x%x%x%x)%.%s*$")
-    if n ~= nil and head ~= nil and not close_one(batch, landed, n, head) then status = 1 end
+    if n ~= nil and head ~= nil and not close_one(batch, landed_as(n, head, landed), n, head) then
+      status = 1
+    end
   end
   return status
+end
+
+local function land(batch: string): integer
+  local pr, why = pull(batch)
+  if pr == nil then
+    say("#" .. batch .. " cannot be read: " .. why)
+    return 1
+  end
+  local refused = refusal(pr)
+  if refused ~= nil then
+    say("#" .. batch .. " is not landed: " .. refused)
+    return 1
+  end
+  local head = pr.head.sha
+  if not git({ "fetch", "-q", "origin", "main", head }).ok then
+    say("cannot fetch main and #" .. batch .. "'s head")
+    return 1
+  end
+  -- What lands is what was tested: main may not have moved past the
+  -- commit the batch was stacked on.
+  if not git({ "merge-base", "--is-ancestor", "origin/main", head }).ok then
+    say("#" .. batch .. " is not landed: main moved since it was stacked; stack it again")
+    return 1
+  end
+  local merged = run({ "gh", "api", "-X", "PUT", "repos/" .. REPO .. "/pulls/" .. batch .. "/merge",
+    "-f", "merge_method=rebase", "-f", "sha=" .. head })
+  if not merged.ok then
+    say("#" .. batch .. " could not be merged: " .. trimmed(merged.err .. " " .. merged.out))
+    return 1
+  end
+  say("#" .. batch .. " landed")
+  return close(batch)
 end
 
 return function(argv: {string}): integer
@@ -324,9 +438,11 @@ return function(argv: {string}): integer
       end
     end
     return stack(first, numbers)
+  elseif verb == "land" and first ~= nil and #argv == 2 and first:match("^%d+$") ~= nil then
+    return land(first)
   elseif verb == "close" and first ~= nil and #argv == 2 and first:match("^%d+$") ~= nil then
     return close(first)
   end
-  say("usage: batch.tl stack BRANCH N... | close BATCH")
+  say("usage: batch.tl stack BRANCH N... | land BATCH | close BATCH")
   return 2
 end
