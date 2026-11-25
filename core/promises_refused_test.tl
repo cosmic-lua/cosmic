@@ -19,7 +19,7 @@ Test.policy{}
 local process = require("cosmic.internal.process")
 
 local function test_a_promise_no_one_keeps_is_refused_before_a_start(tmp: string)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", Fake.REPLY))
   for _, bad in ipairs({ "inet", "" }) do
     local started = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil, -- checked: overload_none
       { promises = { bad } })
@@ -34,7 +34,7 @@ local function test_a_promise_no_one_keeps_is_refused_before_a_start(tmp: string
 end
 
 local function test_nest_is_a_promise_of_a_root_and_pid_namespace_of_its_own(tmp: string)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", Fake.REPLY))
   -- It lets signals reach any pid and files rest on mounts, which only a
   -- policy's root and pid namespace hold: no start without them keeps it.
   for _, sandbox in ipairs({ {}, { strict = true }, { unveil = { reads = { probe } } } }) do -- checked: literal_needs_type

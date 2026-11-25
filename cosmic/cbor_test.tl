@@ -12,7 +12,7 @@ end
 
 local function decoded(h: string): Cbor.Item
   local item, why = Cbor.decode(hex(h))
-  assert(item ~= nil, h .. ": " .. why)
+  assert(item ~= nil, h .. ": " .. tostring(why))
   return item
 end
 
@@ -174,20 +174,23 @@ local function test_what_is_no_item_is_refused()
   for _, case in ipairs(cases) do
     local h, says = assert(case[1]), assert(case[2])
     local item, why = Cbor.decode(hex(h))
-    assert(item == nil and why:find(says, 1, true) ~= nil, h .. ": " .. why)
+    assert(item == nil and tostring(why):find(says, 1, true) ~= nil, h .. ": " .. tostring(why))
   end
   local deep, why = Cbor.decode(("\x81"):rep(65) .. "\0")
-  assert(deep == nil and why:find("max_depth", 1, true) ~= nil, why)
-  assert(Cbor.decode(("\x81"):rep(64) .. "\0") ~= nil)
-  assert(Cbor.decode(("\x81"):rep(3) .. "\0", { max_depth = 2 }) == nil)
+  assert(deep == nil and tostring(why):find("max_depth", 1, true) ~= nil, tostring(why))
+  local deepest, deepest_why = Cbor.decode(("\x81"):rep(64) .. "\0")
+  assert(deepest ~= nil, tostring(deepest_why))
+  local capped, _ = Cbor.decode(("\x81"):rep(3) .. "\0", { max_depth = 2 })
+  assert(capped == nil)
   for _, opener in ipairs({ "\xa1\0", "\xc1" }) do
     local nested, said = Cbor.decode(opener:rep(65) .. "\0")
-    assert(nested == nil and said:find("max_depth", 1, true) ~= nil, said)
-    assert(Cbor.decode(opener:rep(64) .. "\0") ~= nil)
+    assert(nested == nil and tostring(said):find("max_depth", 1, true) ~= nil, tostring(said))
+    local held, held_why = Cbor.decode(opener:rep(64) .. "\0")
+    assert(held ~= nil, tostring(held_why))
   end
   local at_zero, wrong = Cbor.decode_first("\1", 0)
-  assert(at_zero == nil and wrong:find("from 1", 1, true) ~= nil)
-  Test.raises(function() Cbor.decode("\0", { max_depth = 1000000 }) end, "max_depth")
+  assert(at_zero == nil and tostring(wrong):find("from 1", 1, true) ~= nil)
+  Test.raises(function() local _, _ = Cbor.decode("\0", { max_depth = 1000000 }) end, "max_depth")
 end
 
 local function test_subnormal_floats()

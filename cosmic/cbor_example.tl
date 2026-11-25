@@ -36,7 +36,7 @@ function Example.decode()
   local item = assert(Cbor.decode((assert(Codec.unhex("83f563616263f93e00")))))
   for _, each in ipairs(assert(item.items)) do print(each.kind) end
   local refused, why = Cbor.decode("\x61\xff")
-  print(refused == nil, why)
+  print(refused == nil, tostring(why))
   assert(refused == nil and Cbor.encode(Cbor.array({ Cbor.boolean(true), Cbor.text("abc"), Cbor.float(1.5) })) ==
       assert(Codec.unhex("83f563616263f93e00")))
 end
