@@ -2190,11 +2190,38 @@ local function lower_method(ctx: Ctx, build: Build, m: Ast.Method)
   name_parameters(ctx, m.typeparams, made)
   check_metamethod(ctx, build, m, made)
   if claim(ctx, build, m, m.name, false) then
-    build.methods[#build.methods + 1] = { name = m.name.name, type = made }
+    build.methods[#build.methods + 1] = { name = m.name.name, type = made, params = names }
   end
 end
 
 --- The field `m` of a record, interface or class.
+--- The names of the parameters `t` writes, where it is a function type that names one ("" for one it does not name), for
+--- [`Types.Field.params`]; nil otherwise.
+local function type_param_names(t: Ast.Type): {string}?
+  if not (t.kind == "TypeFunction") then return nil end
+  local names: mut {string} = {}
+  local any = false
+  for _, p in ipairs(t.params) do
+    if not p.variadic then
+      names[#names + 1] = p.name or ""
+      any = any or p.name ~= nil
+    end
+  end
+  return if any then names else nil end
+end
+
+--- The names of the parameters of the function `fn`, for [`Types.Field.params`].
+local function fn_param_names(fn: Ast.Fn): {string}
+  local names: mut {string} = {}
+  for _, p in ipairs(fn.params) do
+    if not p.variadic then
+      local binding = p.name
+      names[#names + 1] = if binding ~= nil then binding.name else "" end
+    end
+  end
+  return names
+end
+
 local function lower_field(ctx: Ctx, build: Build, m: Ast.FieldDecl)
   local ft = lower_type(ctx, m.type)
   -- A field that may be nil (`name?: T`, or a type that has `nil` in it) is never a metamethod.
@@ -2230,10 +2257,12 @@ local function lower_field(ctx: Ctx, build: Build, m: Ast.FieldDecl)
   end
   if build.decl.kind == "userdata" and (ft.tag == "fn") and not m.mut and not m.omittable and
       receiver ~= nil and receiver.type == build.self_type then
-    build.methods[#build.methods + 1] = { name = m.name.name, type = ft }
+    local params = type_param_names(m.type)
+    build.methods[#build.methods + 1] = { name = m.name.name, type = ft, params = params }
     return
   end
-  build.fields[#build.fields + 1] = { name = m.name.name, type = ft, mut = m.mut, omittable = m.omittable }
+  local params = type_param_names(m.type)
+  build.fields[#build.fields + 1] = { name = m.name.name, type = ft, mut = m.mut, omittable = m.omittable, params = params }
 end
 
 -- Static functions ---------------------------------------------------------------------
@@ -2558,7 +2587,8 @@ local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
       build.overloads[name] = false
       build.first_of[name] = f
       local named = ctx.program.statics[decl] or {}
-      named[name] = { name = name, type = lower_static(ctx, f), mut = false, omittable = false } -- checked: view_written
+      named[name] = { name = name, type = lower_static(ctx, f), mut = false, omittable = false, -- checked: view_written
+        params = fn_param_names(f.fn) }
       ctx.program.statics[decl] = named
     end
   end
