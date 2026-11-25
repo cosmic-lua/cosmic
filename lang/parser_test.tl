@@ -293,6 +293,8 @@ local DECLARATIONS <const>: {Case} = {
     want = "(Alias \"local\" (Binding \"Key\") [(TypeParam (Binding \"T\"))] (TypeName [\"Types\" \"Key\"] [(TypeName [\"T\"])]))" },
   { source = "local type Reply = function(): (true, string) | (false, string)",
     want = "(Alias \"local\" (Binding \"Reply\") _ (TypeFunction _ _ (Rets [[(TypeBool true) (TypeName [\"string\"])] [(TypeBool false) (TypeName [\"string\"])]])))" },
+  { source = "local schema Notes [[CREATE TABLE notes (id)]]\nlocal schema = 1",
+    want = "(Class \"local\" (Binding \"Notes\") _ _ _ \"CREATE TABLE notes (id)\") (Local \"local\" [(Binding \"schema\")] _ [(Integer 1)])" },
   { source = "local type sqlite = require(\"cosmic.internal.sqlite\")",
     want = "(Import \"local\" (Binding \"sqlite\") \"cosmic.internal.sqlite\")" },
   { source = "local class = 1\nlocal type, x = 2, 3\nlocal record, interface = 4, 5",
@@ -336,6 +338,15 @@ local function test_a_call_opens_on_its_line()
     "(Local \"local\" [(Binding \"x\")] _ [(Call (Name \"f\"))]) (CallStat (Call (Paren (Name \"g\"))))", "newline")
   same(tree("local x = f()(g)"),
     "(Local \"local\" [(Binding \"x\")] _ [(Call (Call (Name \"f\")) [(Name \"g\")])])", "same line")
+end
+
+--- `e!` is a call of `assert` on `e`, whose name holds no token, and the suffixes after it read on.
+local function test_a_must_is_a_call_of_assert()
+  same(tree("local x = f()!"), "(Local \"local\" [(Binding \"x\")] _ [(Call (Name \"assert\") [(Call (Name \"f\"))])])",
+    "a call")
+  same(tree("local x = t.a!:upper()"),
+    "(Local \"local\" [(Binding \"x\")] _ [(MethodCall (Call (Name \"assert\") [(Field (Name \"t\") \"a\")]) \"upper\")])",
+    "a method after it")
 end
 
 local function test_a_token_that_spans_lines_ends_on_the_line_the_next_token_may_continue_from()

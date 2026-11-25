@@ -72,7 +72,7 @@ local record Report
     workflow: string
     client: GithubApi.Client
   end
-  --- What `driver.tl report` answers: the exit status, and what it says on standard output and on standard error.
+  --- The outcome of `driver.tl report`: the exit status, and what it says on standard output and on standard error.
   record Answer
     code: integer
     out: string
@@ -165,7 +165,7 @@ function Report.duration(seconds: integer?): string
   return string.format("%dm %02ds", seconds // 60, seconds % 60)
 end
 
---- What [`Report.runs`] reads of a `.../runs` answer; GitHub's
+--- What [`Report.runs`] reads of a `.../runs` response; GitHub's
 --- null is nil.
 local record RunItem
   id: integer
@@ -180,7 +180,7 @@ local record RunsAnswer
 end
 local RUNS <const> = Shape.record_of("RunsAnswer")
 
---- What [`Report.jobs`] reads of a `.../runs/<id>/jobs` answer. A
+--- What [`Report.jobs`] reads of a `.../runs/<id>/jobs` response. A
 --- skipped job has no `steps`, and a skipped step no times.
 local record StepItem
   name: string
@@ -199,7 +199,7 @@ end
 local JOBS <const> = Shape.record_of("JobsAnswer")
 
 --- What [`Report.driver_artifacts`] reads of a
---- `.../runs/<id>/artifacts` answer.
+--- `.../runs/<id>/artifacts` response.
 local record ArtifactItem
   name: string
   id: integer
@@ -211,7 +211,7 @@ local record ArtifactsAnswer
 end
 local ARTIFACTS <const> = Shape.record_of("ArtifactsAnswer")
 
---- The runs a `.../runs` answer lists, in its order (newest
+--- The runs a `.../runs` response lists, in its order (newest
 --- first), without their jobs or suites.
 function Report.runs(text: string): {Report.Run}
   local answer, why = RUNS:decode_into(text)
@@ -226,7 +226,7 @@ function Report.runs(text: string): {Report.Run}
   return out
 end
 
---- The jobs a `.../runs/<id>/jobs` answer lists, each with its
+--- The jobs a `.../runs/<id>/jobs` response lists, each with its
 --- steps, slowest first.
 function Report.jobs(text: string): {Report.Job}
   local answer, why = JOBS:decode_into(text)
@@ -248,7 +248,7 @@ function Report.jobs(text: string): {Report.Job}
 end
 
 --- The `ci-driver-<leg>` artifacts a `.../runs/<id>/artifacts`
---- answer lists that have not expired, sorted by name: of each name,
+--- response lists that have not expired, sorted by name: of each name,
 --- the newest (by `created_at`), which a run's latest attempt uploaded.
 function Report.driver_artifacts(text: string): {Report.Artifact}
   local answer, why = ARTIFACTS:decode_into(text)
@@ -712,7 +712,7 @@ local function branch_name(value: string): boolean
     value:sub(1, 1) ~= "/" and value:sub(-1) ~= "/"
 end
 
---- What `driver.tl report` answers for `got`, its line, in `env`, its
+--- The outcome of `driver.tl report` for `got`, its line, in `env`, its
 --- environment: the status, 0 with the report, 2 for a line it cannot
 --- read, 1 where there is no token or GitHub failed; and what it says on
 --- stdout and on stderr. `client` stands in for the live one `env` makes.

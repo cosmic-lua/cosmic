@@ -50,7 +50,7 @@ local record acme_fixture
     mut refuse_nonces: integer
     --- Requests to refuse with 429 rateLimited before taking one.
     mut rate_limited: integer
-    --- The Retry-After a rateLimited answer sends; none when "".
+    --- The Retry-After a rateLimited response sends; none when "".
     mut rate_retry_after: string
     --- Polls of a processing resource before it settles.
     mut polls_left: integer
@@ -62,7 +62,7 @@ local record acme_fixture
     log: mut {string}
     --- The newAccount payloads, in order.
     accounts: mut {{string: Json.Value}}
-    --- Whether finalize answers "processing", the order valid a poll later.
+    --- Whether finalize responds with "processing", the order valid a poll later.
     mut finalize_slowly: boolean
     --- The Retry-After a processing authorization sends.
     mut retry_after: string
@@ -80,7 +80,7 @@ local record acme_fixture
     --- What each http-01 token starts with.
     mut token_prefix: string
     --- Checks a challenge as a CA would, once the client responds to it,
-    --- and answers what it settles as at once ("valid" or "invalid");
+    --- and returns what it settles as at once ("valid" or "invalid");
     --- nil to settle it as `settle` after `polls_left` polls.
     mut check?: function(domain: string, token: string): string
   end

@@ -16,7 +16,7 @@ local record Example end
 local GROUP <const> = "239.255.53.99"
 
 --- A stand-in for a printer: a responder that publishes one, named with a dot and a space, on the
---- loopback at a port the system chooses, which its `address` says. It answers once `serve` runs.
+--- loopback at a port the system chooses, which its `address` says. It responds once `serve` runs.
 local function stand_in(): Mdns.Responder
   return (assert(Mdns.responder({
     { service = "_ipp._tcp", name = "Front Desk. Printer", host = "printer.local", port = 631,
@@ -24,7 +24,7 @@ local function stand_in(): Mdns.Responder
   }, { address = GROUP, port = 0, via = { "127.0.0.1" } })))
 end
 
---- The printers of the network: [`Mdns.browse`] answers each instance of the service type with
+--- The printers of the network: [`Mdns.browse`] returns each instance of the service type with
 --- where it is. On a real network the call is `Mdns.browse("_ipp._tcp")`, which searches for three
 --- seconds. Here `address` and `port` send the question to the stand-in instead, and `limit` ends
 --- the search at the first printer.
@@ -48,7 +48,7 @@ end
 
 --- Several service types in one search: a device is often known by more than one, and each
 --- instance says in `service` which it is one of. The stand-in is a printer and no web server, so
---- nothing answers for `_http._tcp`. `settle_ns` ends the search a tenth of a second after the
+--- nothing publishes `_http._tcp`. `settle_ns` ends the search a tenth of a second after the
 --- printer has described itself, where it would wait five seconds for the other type.
 function Example.several()
   Poll.run(function()
@@ -83,7 +83,7 @@ function Example.found()
 end
 
 --- The addresses of a host of the `local` domain, IPv4 first: [`Mdns.resolve`] ends soon after the
---- first answer, not at its time limit.
+--- first response, not at its time limit.
 function Example.resolve()
   Poll.run(function()
     local device <close> = stand_in()
@@ -99,7 +99,7 @@ end
 --- Listening as a member of the group, [`Mdns.Listen`]'s "group": the search binds the port,
 --- shared, joins the group on the interfaces `via` names and hears what is sent to the group. Here
 --- the group is one of a site's own on the loopback interface, where the stand-in is a member too
---- and answers a member at the group. On a real network `{ listen = "group" }` is enough: the
+--- and responds to a member at the group. On a real network `{ listen = "group" }` is enough: the
 --- group of multicast DNS, port 5353 and the machine's interfaces are the defaults.
 function Example.group()
   Poll.run(function()
@@ -114,10 +114,10 @@ function Example.group()
 end
 
 --- Publishing a service: [`Mdns.responder`] binds the port and joins the group, and `serve`
---- answers the questions about the instances until the responder is closed, here by `<close>` as
---- the function ends. On a real network the options are left out, for the group of multicast DNS
---- and port 5353; here the group is one of a site's own on the loopback interface and the port is
---- the system's choice, which a search is told.
+--- responds to the questions about the instances until the responder is closed, here by
+--- `<close>` as the function ends. On a real network the options are left out, for the group of
+--- multicast DNS and port 5353; here the group is one of a site's own on the loopback interface
+--- and the port is the system's choice, which a search is told.
 function Example.responder()
   Poll.run(function()
     local responder <close> = assert(Mdns.responder({

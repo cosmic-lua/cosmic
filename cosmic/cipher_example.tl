@@ -24,7 +24,7 @@ function Example.seal()
 end
 
 --- A sealed message that was changed on the way, or is opened with
---- another header, answers nil and why, and none of its plaintext.
+--- another header, is refused: nil and why, and none of its plaintext.
 function Example.open()
   local key = assert(Rand.entropy(Cipher.key_length))
   local nonce = assert(Rand.entropy(Cipher.nonce_length))

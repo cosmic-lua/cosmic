@@ -88,7 +88,7 @@ local record PlaceTree
   --- reason it was chosen, for the log; nil and why where an input is
   --- unset.
   name: function(env: {string:string}): Placed?, string
-  --- Runs the command: `mode` is "", "--name" or "--restore". Answers the
+  --- Runs the command: `mode` is "", "--name" or "--restore". Returns the
   --- exit status: 2 for a missing input, 1 for a workspace linked
   --- elsewhere or a move that failed.
   run: function(host: Host, mode: string): integer

@@ -88,7 +88,8 @@ local function write(fields: {string}): string?
 end
 
 --- Opens `input` and reads every entry's body, both ways the reader
---- walks: fails only when it answers something no archive could mean.
+--- walks: fails only when `next` or a body's read returns something no
+--- archive could mean.
 local function walk(input: string): boolean, string
   local zr, trouble = Zip.open_string(input)
   if zr == nil then

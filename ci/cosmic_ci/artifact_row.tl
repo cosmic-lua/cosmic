@@ -41,7 +41,7 @@ end
 function ArtifactRow.meta(bytes: string, scratch: string): {string:string}
   assert(Fs.write(scratch, ArtifactRow.apart(bytes).database))
   local db = assert(Sqlite.open(scratch))
-  local rows = assert(Sqlite.text_rows(db, "SELECT key, value FROM meta"))
+  local rows = assert(db:text_rows("SELECT key, value FROM meta"))
   local out: mut {string:string} = {}
   for _, row in ipairs(rows) do out[row:text(1)] = row:text(2) end
   assert(db:close())
@@ -59,12 +59,12 @@ function ArtifactRow.with(bytes: string, scratch: string, built_from: string?): 
   assert(Fs.write(scratch, parts.database))
   local db = assert(Sqlite.open(scratch, { writable = true }))
   if built_from == nil then
-    assert(Sqlite.run(db, "DELETE FROM meta WHERE key = 'built_from'"))
+    assert(db:run("DELETE FROM meta WHERE key = 'built_from'"))
   else
-    assert(Sqlite.run(db, "INSERT OR REPLACE INTO meta (key, value) VALUES ('built_from', ?1)",
+    assert(db:run("INSERT OR REPLACE INTO meta (key, value) VALUES ('built_from', ?1)",
       { { text = built_from } }))
   end
-  assert(Sqlite.run(db, "VACUUM"))
+  assert(db:run("VACUUM"))
   assert(db:close())
   local database = assert(Fs.read(scratch))
   assert(Fs.remove(scratch))

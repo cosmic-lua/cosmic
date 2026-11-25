@@ -14,7 +14,7 @@
 #include <math.h>
 #include <poll.h>
 /* Only Linux says a peer's end of what it sends apart from a hang-up;
- * elsewhere the constant is 0, an event no poll answers. */
+ * elsewhere the constant is 0, an event no poll reports. */
 #if !defined(POLLRDHUP)
 #define POLLRDHUP 0
 #endif
@@ -715,7 +715,7 @@ COSMIC_SYSCALL(execve, 3) {
 }
 
 COSMIC_SYSCALL(pipe, 0) {
-  /* The answer and its keys are made before the pipe, and filling a
+  /* The result and its keys are made before the pipe, and filling a
    * table sized for them allocates nothing: a raise after the pipe
    * would leak both ends. */
   lua_createtable(L, 0, 2);
@@ -786,7 +786,7 @@ COSMIC_SYSCALL(fd_status, 1) {
 }
 
 /* One entry of `poll`'s argument: its descriptor, and where it is in
- * the argument, so the entries sorted by descriptor can be answered in
+ * the argument, so the entries sorted by descriptor can be filled in
  * place. */
 struct poll_entry {
   int fd;
@@ -801,11 +801,11 @@ static int poll_entry_order (const void *a, const void *b) {
 }
 
 /* The kernel is given each descriptor once, asked for every event any
- * of its entries wants, and each entry answers what happened masked to
- * its own events, as Linux answers a descriptor given twice: macOS
- * answers only one entry of such a descriptor and leaves the other 0,
+ * of its entries wants, and each entry gets what happened masked to
+ * its own events, as Linux reports a descriptor given twice: macOS
+ * reports only one entry of such a descriptor and leaves the other 0,
  * so no caller could give one twice there. -1 is left out, and
- * answers 0. */
+ * gets 0. */
 COSMIC_SYSCALL(poll, 3) {
   luaL_checktype(L, 1, LUA_TTABLE);
   luaL_checktype(L, 2, LUA_TTABLE);
@@ -857,7 +857,7 @@ COSMIC_SYSCALL(poll, 3) {
     fds[given - 1].events = (short)(fds[given - 1].events | wanted[entries[k].at]);
     slot[entries[k].at] = (int)(given - 1);
   }
-  /* An interrupted wait answers as a wait that found nothing, so the
+  /* An interrupted wait is treated as a wait that found nothing, so the
    * caller's loop gets to look at whatever the signal meant. */
   if (poll(fds, given, (int)timeout) < 0) {
     if (errno != EINTR) return cosmic_fail(L, errno);
@@ -925,7 +925,7 @@ COSMIC_SYSCALL(memory_available, 0) {
   if (counted != KERN_SUCCESS || sized != KERN_SUCCESS) return cosmic_fail(L, EIO);
   /* The speculative pages are read ahead from files and counted free:
    * taken off once, in case the files' count holds them too. Where it
-   * does not, the answer is low by them. */
+   * does not, the result is low by them. */
   uint64_t available = (uint64_t)pages.free_count + (uint64_t)pages.external_page_count +
                        (uint64_t)pages.purgeable_count;
   uint64_t speculative = (uint64_t)pages.speculative_count;
@@ -937,10 +937,10 @@ COSMIC_SYSCALL(memory_available, 0) {
 #endif
 }
 
-/* The features `cpu_features` answers, by /proc/cpuinfo's names, in
+/* The features `cpu_features` returns, by /proc/cpuinfo's names, in
  * byte order, each with where this processor says it has it: a bit of
  * a register of a cpuid leaf on x86_64, and of the auxiliary vector's
- * AT_HWCAP on Linux's aarch64; a name sysctlbyname answers 1 for on
+ * AT_HWCAP on Linux's aarch64; a name whose sysctlbyname value is 1 on
  * Darwin's. */
 #if defined(__aarch64__) && defined(__APPLE__)
 struct cpu_feature {
@@ -965,7 +965,7 @@ struct cpu_feature {
 /* core/vector.c chooses its int8 kernel by the last four of leaf 7 (and
  * by the operating system's saved vector state, which cpuid does not say:
  * a kernel that saves none lists fewer in /proc/cpuinfo than cpuid does,
- * and the kernels answer alike, so a key that holds the cpuid bits is
+ * and the kernels return the same, so a key that holds the cpuid bits is
  * enough). patch/mbedtls's SHA-256 takes `sha_ni` with `sse4_1` and
  * `ssse3`. */
 static const struct cpu_feature cpu_features[] = {
@@ -1000,7 +1000,7 @@ COSMIC_SYSCALL(cpu_features, 0) {
   lua_Integer count = 0;
   for (size_t f = 0; f < sizeof cpu_features / sizeof *cpu_features; f++) {
     unsigned int registers[4];
-    /* A leaf the processor lacks answers none of its features. */
+    /* A leaf the processor lacks has none of its features set. */
     if (!__get_cpuid_count(cpu_features[f].leaf, cpu_features[f].subleaf, &registers[0],
                            &registers[1], &registers[2], &registers[3])) {
       continue;

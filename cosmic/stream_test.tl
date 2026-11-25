@@ -720,7 +720,7 @@ local function test_transform_writer_hold_writes_nothing_when_a_write_is_refused
   local ok, trouble = w:write("c!")
   assert(not ok and tostring(trouble) == "bang", trouble)
   assert(out.got == "", "a refused write released the one before it")
-  -- The refusal is kept: later writes and `close` answer it, and `close`
+  -- The refusal is kept: later writes and `close` return it, and `close`
   -- aborts the writer without finishing the codec.
   ok, trouble = w:write("de")
   assert(not ok and tostring(trouble) == "bang", trouble)
@@ -792,7 +792,7 @@ local function test_transform_writer_hold_closes_once()
   assert(out.got == "AB.")
   local ok, _ = w:write("cd")
   assert(not ok)
-  -- A close that failed answers its failure again.
+  -- A close that failed returns its failure again.
   w = Stream.transform_writer(recording(), strict(true), { hold = 1 })
   assert(w:write("ab"))
   local _, first = w:close()
@@ -866,7 +866,7 @@ end
 local function test_run_drains_a_decoder_that_holds_output_back()
   local plain = string.rep("\0", 3 << 20)
   local packed = assert(Compress.encode("zlib", plain))
-  -- A decoder's one call returns at most 1 MiB, so the whole answer
+  -- A decoder's one call returns at most 1 MiB, so the whole result
   -- takes `update("")` calls past the first.
   assert(assert(Stream.run(assert(Compress.decoder("zlib")), packed)) == plain)
   assert(Stream.run(assert(Compress.encoder("gzip")), ""))
@@ -1027,7 +1027,8 @@ local function test_lines_stop_at_a_reader_failure()
   assert(lines:failure() == "boom", lines:failure())
 end
 
---- A Reader that answers its chunks in turn, an empty one as a read that ends with `why`.
+--- A Reader whose read returns its chunks in turn, an empty one as a
+--- read that ends with `why`.
 local class Paused is Stream.Reader
   chunks: {string}
   why: string
@@ -1156,7 +1157,7 @@ local function test_rest_after_the_last_line_reads_nothing_more()
   assert(chunk == false, trouble)
 end
 
---- A failure stays: `rest` of failed lines answers it on every read,
+--- A failure stays: every read of `rest` of failed lines returns it,
 --- and gives none of the bytes past it.
 local function test_rest_after_a_failure_answers_the_failure()
   local lines = Stream.lines(trickle("ok\n123456\nafter"), 5)

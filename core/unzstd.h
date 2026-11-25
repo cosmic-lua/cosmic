@@ -10,7 +10,7 @@
 ** which holds a core written at level 19. The decoder refuses a larger
 ** one before it allocates, so its memory is this window and the fixed
 ** state and buffers of core/unzstd.c. core/compress.c sets the
-** encoder's window to it for a frame of declared size (Compress.zstd). */
+** encoder's window to it for a frame of declared size (Compress.encode). */
 #define COSMIC_UNZSTD_WINDOW_LOG 23
 
 /* The largest decoded length the program takes: far over any release

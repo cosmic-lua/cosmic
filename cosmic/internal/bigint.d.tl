@@ -1,6 +1,6 @@
 -- Arithmetic on non-negative integers at the Lua boundary, as the core
 -- provides it. A number is a big-endian byte string, of any number of
--- leading zero bytes, "" being zero. An answer has no leading zero byte,
+-- leading zero bytes, "" being zero. A result has no leading zero byte,
 -- and zero is one zero byte, except where a width is said. Every
 -- function raises on an argument that is not a string or is longer than
 -- its limit: `modulus_max` bytes for a modulus or an exponent,
@@ -27,7 +27,7 @@ local record bigint
   compare: function(a: string, b: string): integer
 
   -- The seven below take a time fixed by their arguments' lengths and by
-  -- the modulus, and answer at a fixed width. A modulus of zero raises.
+  -- the modulus, and return at a fixed width. A modulus of zero raises.
 
   -- a mod modulus, in as many bytes as the modulus was given in.
   secret_mod: function(a: string, modulus: string): string

@@ -2,7 +2,7 @@ local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local ZigPrune = require("cosmic_ci.zig_prune")
 
---- [`ZigPrune.command`], its answer as three values.
+--- [`ZigPrune.command`], what it returns as three values.
 local function prune_command(env: {string:string}): integer, string, string
   local command = ZigPrune.command(env)
   return command.code, command.out, command.err

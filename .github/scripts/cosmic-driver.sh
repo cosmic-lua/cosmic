@@ -1,7 +1,8 @@
 #!/bin/sh
 # Bootstraps the pinned CI driver for the workflows' jobs, through the
 # cosmic-driver action (.github/actions/cosmic-driver), which restores
-# its cache and runs this from ci/:
+# its cache and runs this from ci/, or, in ci.yml's merge-queue checks
+# of the queue ref's caches, alone, with no cache restored:
 #
 #     sh ../.github/scripts/cosmic-driver.sh [zig-cache]
 #

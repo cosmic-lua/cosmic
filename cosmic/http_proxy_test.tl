@@ -1,8 +1,6 @@
 --- A request to this machine skips a proxy that the environment names
 --- elsewhere, so it and a token in its headers never leave the machine;
---- a proxy on this machine, such as a sandbox's relay, is kept, and
---- takes an http request as a CONNECT tunnel, since a relay may take
---- nothing else.
+--- a proxy on this machine, such as a sandbox's relay, is kept.
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -49,11 +47,12 @@ local function got_with(proxy: string, url: string, variable?: string): string
   return ((ran.stdout or ""):gsub("\n$", ""))
 end
 
-local function test_a_loopback_request_skips_a_proxy_elsewhere_and_tunnels_through_one_here()
+local function test_a_loopback_request_skips_a_proxy_elsewhere_and_keeps_one_here()
   assert(HttpServer.serve{
     listeners = { Net.tcp("127.0.0.1", 0), Net.tcp("127.0.0.1", 0) },
-    handle = function(_req: HttpServer.Request): HttpServer.Reply
-      return { status = 200, body = "direct" }
+    handle = function(req: HttpServer.Request): HttpServer.Reply
+      local proxied = req.target:sub(1, 7) == "http://"
+      return { status = 200, body = if proxied then "proxied" else "direct" end }
     end,
     on_ready = function(addresses: {Net.Address}, running: Net.Server)
       local port = tostring(assert(addresses[1]).port)
@@ -70,9 +69,7 @@ local function test_a_loopback_request_skips_a_proxy_elsewhere_and_tunnels_throu
       for _, case in ipairs({ "away", "all", "named", "under", "bare" }) do
         assert(said[case] == "200 direct", case .. ": " .. tostring(said[case]))
       end
-      -- The proxy here is the server, which refuses a CONNECT.
-      local kept = assert(said["kept"])
-      assert(kept:find("^failed: ") and kept:find("CONNECT", 1, true) and kept:find("400", 1, true), kept)
+      assert(said["kept"] == "200 proxied", said["kept"])
     end,
   })
 end

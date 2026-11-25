@@ -39,7 +39,7 @@ local Json = require("cosmic.json")
 local String = require("cosmic.string")
 
 local record JsonSchema
-  --- A compiled schema: [`JsonSchema.compile`]'s answer.
+  --- A compiled schema: [`JsonSchema.compile`]'s result.
   interface Schema
     --- True where `value` is one the schema allows; false and the first place it is not, the JSON Pointer of the
     --- value in the failure's `path`.

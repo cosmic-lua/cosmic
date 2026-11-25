@@ -33,7 +33,7 @@ local function project(root: string)
 end
 
 --- Compiles the project at `root` with or without checks, through the
---- compiles shared by the cache at `cache`, and answers the result.
+--- compiles shared by the cache at `cache`, and returns the result.
 local function compile(root: string, cache: string, checks: boolean): importer.Result
   project(root)
   local handle = assert(work.open(root))
@@ -88,7 +88,7 @@ local function test_no_cache_entry_is_shared_between_the_two(tmp: string)
   local first = lib(plain)
   assert(not checks_in(first), "an unchecked compile carries a check")
 
-  -- Nothing the unchecked compile kept answers the checked one.
+  -- Nothing the unchecked compile kept is shared with the checked one.
   local checked = compile(tmp .. "/checked", cache, true)
   assert(checked.shared == 0 and checked.compiled > 0,
     "a checked compile took an unchecked entry: " .. tostring(checked.shared) .. " shared")

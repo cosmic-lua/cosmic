@@ -313,7 +313,7 @@ local function test_a_declaration_one_has_and_the_other_lacks_is_told()
   assert(found ~= nil and found:find("^M: ") ~= nil, tostring(found))
   local reverse = difference_of(extra, MODULE)
   assert(reverse ~= nil and reverse:find("^M: ") ~= nil, tostring(reverse))
-  -- a declaration only one reaches, with the same answer otherwise
+  -- a declaration only one reaches, with the same result otherwise
   local nested = MODULE:gsub("  enum Mode", "  record Extra\n    n: integer\n  end\n  enum Mode")
   assert(difference_of(MODULE, nested) == nil)
 end

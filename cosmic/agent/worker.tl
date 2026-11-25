@@ -19,7 +19,7 @@
 --- 16KB and its last 48KB with a line between them of how many bytes were cut, `cut` true then, and `head_bytes` and
 --- `tail_bytes`, the length of each part; and `bytes`, how much was written. Only its start and its end are held, so a
 --- snippet that prints without end fills no file. Before its answer, a snippet may call the
---- agent ([`cosmic.agent.host`]): a line `{"id":1,"call":"sql","args":{...}}`, which [`Worker.Options.serve`] answers
+--- agent ([`cosmic.agent.host`]): a line `{"id":1,"call":"history","args":{...}}`, which [`Worker.Options.serve`] answers
 --- in the agent and the reply goes back on the worker's input, `{"reply":...}` or `{"failed":"..."}`. A snippet sets no global, which the checker
 --- refuses; what it keeps for the next it keeps with [`Host.store`], or writes to a file. Its standard input is /dev/null.
 ---
@@ -97,6 +97,10 @@ local record Worker
     mut writer?: Stream.Writer
     --- The output of its snippets.
     mut output?: Stream.Reader
+    --- The policy the running worker was started under: a run under another starts a new one.
+    mut held?: Sandbox.Policy
+    --- Whether the running worker was started with commands: a run that differs starts a new one.
+    mut held_commands?: boolean
     --- The id the next request is sent with.
     mut next: integer
     --- How many workers it started.
@@ -134,7 +138,12 @@ end
 --- The worker of `set`, started under `opts` where none runs.
 local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | (nil, Failure)
   local lines = set.lines
-  if lines ~= nil then return lines end
+  local commands = opts.commands ~= false
+  if lines ~= nil and set.held == opts.policy and set.held_commands == commands then
+    return lines
+  end
+  -- A worker held to another policy is ended: a sandbox narrowed between runs holds the next one.
+  if lines ~= nil then Worker.close(set) end
   local policy: Sandbox.Policy? = nil
   local given = opts.policy
   if given ~= nil then
@@ -151,20 +160,33 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
     end
     local grants: mut {Sandbox.Grant} = {}
     -- The worker is this program, which its start runs as its core where the policy grants it `x` ("cosmic").
-    local self, _ = Proc.executable()
+    local own, _ = Proc.executable()
+    local self: string? = nil
+    if own ~= nil then
+      local real_own, _ = Sandbox.real(own)
+      self = real_own
+    end
     -- On macOS `x` lets dyld map a library as well as run a file, so it stays: with no `fork` the worker starts no
     -- process there either, though it could still become another program.
     -- TODO: hold an x grant on macOS as map-only (Seatbelt's file-map-executable alone) once a grant can say so.
     local strip = not runs and not Sandbox.on_macos()
     for _, grant in ipairs(merged.grants or {}) do
-      -- With no commands, no other grant runs a file, so the worker cannot become another program either; as this
-      -- one, it is held as it was, with no process to start. A grant of `x` alone is then no grant.
-      local letters = if strip and grant.path ~= self then (grant.letters:gsub("x", "")) else grant.letters end
+      -- With no commands, no grant runs a file. The grant of this program is left to the "cosmic" profile, named
+      -- below, so it is the start's alone: the core holds its policy again at boot without it, and with no grant
+      -- left with `x` the exec filter holds too, so the worker cannot become another program, nor run itself again.
+      -- A grant of `x` alone is then no grant.
+      -- A grant of it by another name is its grant too, as Child.start reads it, by the real name.
+      local at = grant.from or grant.path
+      if at:sub(1, 1) ~= "/" then at = opts.cwd .. "/" .. at end
+      local real, _ = Sandbox.real(at)
+      local named = self ~= nil and real == self
+      local letters = if not strip then grant.letters elseif named then "" else (grant.letters:gsub("x", "")) end
       if letters ~= "" then
         grants[#grants + 1] = { path = grant.path, letters = letters, from = grant.from }
       end
     end
-    policy = { grants = grants, isolate = merged.isolate, promises = promises, connect = merged.connect,
+    policy = { grants = grants, profiles = if strip then { "cosmic" } else nil end, isolate = merged.isolate,
+      promises = promises, connect = merged.connect,
       loopback = merged.loopback, env = merged.env, set_env = merged.set_env, set_env_digests = merged.set_env_digests,
       tmp = merged.tmp, limits = merged.limits, user = merged.user, group = merged.group, database = merged.database }
   end
@@ -180,6 +202,7 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
   end
   lines = Stream.lines(reader)
   set.handle, set.writer, set.lines, set.output = handle, writer, lines, output
+  set.held, set.held_commands = opts.policy, commands
   set.started = set.started + 1
   return lines
 end

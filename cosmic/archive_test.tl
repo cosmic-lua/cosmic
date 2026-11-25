@@ -114,7 +114,7 @@ local function test_open_of_a_stream_reads_a_plain_tar_from_a_stream_one_byte_at
   local path = tmp .. "/a.tar"
   make_tar(path)
   local bytes = assert(Fs.read(path))
-  -- A source that answers a byte per read splits the peek across reads.
+  -- A source that gives a byte per read splits the peek across reads.
   local at: integer = 1
   local source: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, _max_bytes?: integer): (string | false) | (nil, Failure)
@@ -171,7 +171,7 @@ end
 
 --- A gzip whose deflate body is a block with no codes at all, which
 --- the decompressor once read as literal zeros without end: `next`
---- spun at the tar's end, draining them. It answers an error at once.
+--- spun at the tar's end, draining them. It returns an error at once.
 local function test_a_gzip_block_with_no_codes_fails_next_rather_than_spinning(tmp: string)
   local bytes = "\31\139\8\0\0\0\0\0\0\255\237\211" .. string.rep("\0", 12)
   local path = tmp .. "/nocodes.tar.gz"
@@ -477,7 +477,7 @@ end
 
 local function test_extract_refuses_a_link_target_through_a_missing_directory(tmp: string)
   -- x -> b/.. with no `b`: on a case-insensitive filesystem the link
-  -- B -> . answers for `b`, and x becomes dest's parent
+  -- B -> . stands for `b`, and x becomes dest's parent
   local archive = tmp .. "/case.tar"
   tar_of(archive, function(tw: Tar.Writer)
     assert(tw:add_symlink("x", "b/.."))
@@ -773,7 +773,7 @@ local function test_extract_refuses_a_tgz_bomb_and_leaves_no_file(tmp: string)
 end
 
 --- A reader of one regular file `path` of size `size` as its header says,
---- whose body answers each `read` with `answer(asked)`.
+--- whose body returns `answer(asked)` for each `read`.
 local function reader_of_one_file(path: string, size: integer,
                                   answer: function(integer): string?, string): Archive.Reader
   local entry: Archive.Entry = { -- checked: literal_shape
@@ -813,7 +813,7 @@ local function test_extract_counts_the_bytes_it_writes_not_the_size_a_header_rec
   local written, why = Archive.extract(reader, tmp .. "/out", { max_entry_bytes = 1000 })
   assert(written == nil, "extracted a body that outgrew its header")
   assert(tostring(why):find("grows is larger than max_entry_bytes (1000 bytes)", 1, true), why)
-  -- A body that answers whatever it is asked is never asked for more than
+  -- A body that gives whatever it is asked is never asked for more than
   -- one byte past the limit.
   assert(sent <= 1001, "asked for " .. tostring(sent) .. " bytes")
   holds_only(tmp .. "/out", {})
@@ -1219,7 +1219,7 @@ local function test_list_of_a_reader_lists_a_reader_to_its_end_and_closes_it()
   assert(closes.count == 1, "closed " .. tostring(closes.count) .. " times")
   local body, why = entries[1]:open()
   assert(body == nil and tostring(why):find("cannot be opened", 1, true) ~= nil, tostring(why))
-  -- A failure partway closes it too, and is the answer.
+  -- A failure partway closes it too, and is the result.
   closes = { count = 0 }
   local cut = sink:result():sub(1, 700)
   local listed, trouble = Archive.list(counting(

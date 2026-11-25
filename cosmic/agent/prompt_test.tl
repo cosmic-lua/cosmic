@@ -41,10 +41,10 @@ local function test_the_prompt_lists_tools_rules_and_context_by_relative_path()
   assert(Prompt.build("/", {}):find("project_context", 1, true) == nil)
 end
 
---- Code mode adds nothing to the system prompt: what a snippet may do is in the run tool's description.
+--- Code mode adds no section to the system prompt: what a snippet may do is in the run tool's description.
 local function test_code_mode_adds_no_section_to_the_prompt()
   local p = Prompt.build("/", {})
-  assert(p:find("<stdlib>", 1, true) == nil and p:find("Host.", 1, true) == nil, p)
+  assert(p:find("<stdlib>", 1, true) == nil and p:find("Host.find", 1, true) == nil, p)
 end
 
 --- A session that offers some tools alone names those, and their rules; with no bash, files are run's.
@@ -96,4 +96,23 @@ local function test_the_prompt_is_exactly_its_sections()
       "say so rather than working around it." ..
       "\n- No program runs here, so the project's own tests cannot: say a change is unchecked by them." ..
       "\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>", bare)
+end
+
+--- A tool for code alone is listed apart, with its input's schema, where run is offered to the model; its rules are
+--- not the model's tools'.
+local function test_the_prompt_lists_the_tools_code_may_call()
+  local dir = scratch()
+  local none: Tools.Object = {}
+  local stamp: Tools.Tool = { name = "stamp", snippet = "Stamp a word", guidelines = {}, description = "Stamps\na word.",
+    schema = { type = "object", properties = none }, callers = "code",
+    run = function(_: Tools.Object, _: Tools.Context): Tools.Result
+      return { text = "", is_error = false }
+    end }
+  local run = assert(Tools.find(Tools.all(), "run"))
+  local both = Prompt.build(dir, {}, { tools = { run, stamp } })
+  assert(both:find("<code_tools>", 1, true) ~= nil, both)
+  assert(both:find('- stamp: Stamps a word. Input: {"properties":{},"type":"object"}', 1, true) ~= nil, both)
+  assert(both:find("- stamp: Stamp a word", 1, true) == nil, both)
+  local alone = Prompt.build(dir, {}, { tools = { stamp } })
+  assert(alone:find("<code_tools>", 1, true) == nil, alone)
 end

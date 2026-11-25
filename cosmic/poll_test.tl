@@ -9,7 +9,7 @@ local Test = require("cosmic.test")
 
 local process = require("cosmic.internal.process")
 
---- A wait's failure in the words it once answered: "" for none.
+--- A wait's failure in the words it once returned: "" for none.
 local function words(why?: Failure): string
   if why == nil then return "" end
   return why.message
@@ -107,8 +107,8 @@ local function test_a_writable_wait_ends_at_once_where_there_is_room(tmp: string
   sys.close(writer)
 end
 
---- A cancelled task's wait, and every one after it, answers CANCELLED,
---- so the task unwinds on its own terms.
+--- A cancelled task's wait, and every one after it, fails with
+--- CANCELLED, so the task unwinds on its own terms.
 local function test_cancel_ends_a_wait_and_every_later_one(tmp: string)
   local reader, writer = fifo(tmp, "p")
   local answers: mut {string} = {}
@@ -179,7 +179,7 @@ end
 
 --- A wait on one descriptor goes on where there is no task to wait in --
 --- outside a run, in a coroutine of its own -- holding the thread for
---- as long as it would have waited, and answers as a task's does.
+--- as long as it would have waited, and returns as a task's does.
 local function test_a_wait_outside_a_task_holds_the_thread(tmp: string)
   local reader, writer = fifo(tmp, "p")
   local function outside()
@@ -248,8 +248,8 @@ local function test_many_tasks_wait_on_descriptors_at_once(tmp: string)
   end
 end
 
---- A wait answered one way is answered once: a readable wait with a
---- timeout, answered by data, leaves no timer to wake the task early
+--- A wait woken one way is woken once: a readable wait with a
+--- timeout, woken by data, leaves no timer to wake the task early
 --- from its next wait.
 local function test_a_wait_is_answered_once(tmp: string)
   local reader, writer = fifo(tmp, "p")
@@ -289,7 +289,7 @@ local function test_a_hang_up_or_a_closed_descriptor_ends_a_wait(tmp: string)
   sys.close(closed_writer)
 end
 
---- Two tasks waiting on one descriptor are both answered by it.
+--- Two tasks waiting on one descriptor are both woken by it.
 local function test_waits_sharing_a_descriptor_are_each_answered(tmp: string)
   local reader, writer = fifo(tmp, "p")
   local woke: integer = 0
@@ -383,7 +383,7 @@ local function test_a_raising_task_closes_its_own_close_variables()
 end
 
 --- A run that raised, for any reason, leaves the next free to run, and
---- a handle kept from it answers as a task that has ended.
+--- a handle kept from it behaves as a task that has ended.
 local function test_a_failed_run_leaves_the_next_free()
   local kept: Poll.Task? = nil
   Test.raises(function()
@@ -422,7 +422,7 @@ local function test_timeouts_are_bounded_and_timed_joins_are_no_deadlock()
   end)
 end
 
---- `in_task` answers whether the caller is a task of a running run.
+--- `in_task` returns whether the caller is a task of a running run.
 local function test_in_task_answers_only_in_a_task()
   assert(not Poll.in_task(), "outside a run")
   local inside: boolean = false
@@ -434,7 +434,7 @@ local function test_in_task_answers_only_in_a_task()
   assert(inside and not nested, tostring(inside) .. " " .. tostring(nested))
 end
 
---- `closing` answers the waits on a descriptor about to be closed.
+--- `closing` wakes the waits on a descriptor about to be closed.
 local function test_closing_answers_the_waits_on_a_descriptor(tmp: string)
   local reader, writer = fifo(tmp, "p")
   local answered: boolean = false
@@ -454,9 +454,9 @@ local function test_closing_answers_the_waits_on_a_descriptor(tmp: string)
 end
 
 --- A killed task is ended where it waits and never resumed: its
---- `<close>` variables are closed, its joiners answer CANCELLED, and
---- neither its descriptor turning ready nor its timeout passing wakes
---- it after.
+--- `<close>` variables are closed, its joiners' joins fail with
+--- CANCELLED, and neither its descriptor turning ready nor its timeout
+--- passing wakes it after.
 local function test_kill_ends_a_parked_task_and_its_waits(tmp: string)
   local reader, writer = fifo(tmp, "p")
   local closed: boolean = false
@@ -490,7 +490,7 @@ local function test_kill_ends_a_parked_task_and_its_waits(tmp: string)
 end
 
 --- A task killed while it waits to be resumed -- not yet started, or
---- answered but not yet run, whether in the ready queue or in the batch
+--- woken but not yet run, whether in the ready queue or in the batch
 --- the run is resuming -- never runs again.
 local function test_kill_takes_a_ready_task_from_the_queue()
   local ran: mut {string} = {}
@@ -575,7 +575,7 @@ local function test_kill_raises_what_a_close_handler_raises()
   end, "broken close")
 end
 
---- A wait on several descriptors answers what each had, by place, once
+--- A wait on several descriptors returns what each had, by place, once
 --- one is ready: here the second, while the first has nothing to read.
 local function test_a_ready_wait_answers_each_descriptor_s_events(tmp: string)
   local quiet, quiet_writer = fifo(tmp, "q")
@@ -596,9 +596,9 @@ local function test_a_ready_wait_answers_each_descriptor_s_events(tmp: string)
   for _, fd in ipairs({ quiet, quiet_writer, reader, writer }) do sys.close(fd) end
 end
 
---- Past its timeout a ready wait answers nil and TIMEOUT, as a readable
---- wait fails; cancelled, it answers nil and CANCELLED; and a descriptor
---- about to close answers POLLNVAL.
+--- Past its timeout a ready wait returns nil and TIMEOUT, as a readable
+--- wait fails; cancelled, it returns nil and CANCELLED; and a descriptor
+--- about to close has POLLNVAL.
 local function test_a_ready_wait_times_out_is_cancelled_and_is_closed(tmp: string)
   local reader, writer = fifo(tmp, "p")
   local timed: string? = nil
@@ -649,8 +649,8 @@ local function grown_since(base: number): number
   return collectgarbage("count") - base
 end
 
---- Long time waits answered early are not kept until their times come:
---- a server's tasks, each waiting with a long timeout and answered
+--- Long time waits woken early are not kept until their times come:
+--- a server's tasks, each waiting with a long timeout and woken
 --- first, would otherwise hold every wait it ever made, and its task,
 --- behind a wait due sooner that is still waiting.
 local function test_time_waits_answered_early_are_not_kept()
@@ -687,7 +687,7 @@ local function test_time_waits_answered_early_are_not_kept()
 end
 
 --- A task joined over and over with a timeout keeps none of the joins
---- its timeout answered, and still answers the joins left waiting, in
+--- its timeout ended, and still wakes the joins left waiting, in
 --- the order they began.
 local function test_joins_a_timeout_answers_are_not_kept()
   local early: number = 0.0
@@ -730,7 +730,7 @@ local function test_joins_a_timeout_answers_are_not_kept()
   assert(table.concat(order, " ") == "first second", table.concat(order, " "))
 end
 
---- A join answered by a cancel, its task killed before it resumes,
+--- A join woken by a cancel, its task killed before it resumes,
 --- is no joiner's either, as one killed while it waits is not.
 local function test_joins_killed_after_their_answer_are_not_kept()
   local early: number = 0.0
@@ -800,10 +800,10 @@ local function test_ended_descriptor_waits_leave_nothing_polled(tmp: string)
 end
 
 --- Waits begin and end on descriptors many of them share, round after
---- round: each wait on a descriptor made ready is answered in the turn
+--- round: each wait on a descriptor made ready is woken in the turn
 --- it is, those of one turn in the order they began; a wait asking for
 --- none of what came stays waiting; and one cancelled, or on a
---- descriptor about to close, is answered so.
+--- descriptor about to close, is woken so.
 local function test_waits_sharing_descriptors_come_and_go(tmp: string)
   local count = 6
   local readers: mut {integer} = {}
@@ -843,7 +843,7 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
       for i = 1, count do table.insert(expected, tostring(i) .. "w") end
       assert(table.concat(seen, ",") == table.concat(expected, ","), table.concat(seen, ","))
       seen, expected = {}, {}
-      -- A cancel or a closing answers its waits at once, a write at the
+      -- A cancel or a closing wakes its waits at once, a write at the
       -- next poll.
       local at_once, written: mut {string}, mut {string} = {}, {}
       for i = 1, count do
@@ -917,9 +917,9 @@ local function test_a_task_error_carries_the_task_s_stack()
   assert(not again and rawequal(value, raised), tostring(value))
 end
 
---- A cancel answers none of a shielded task's waits, which each wait
---- for what they wait for while the other tasks run; the first wait
---- after the shield answers CANCELLED. Shields nest, and one left by a
+--- A cancel wakes none of a shielded task's waits, which each wait for
+--- what they wait for while the other tasks run; the first wait after
+--- the shield fails with CANCELLED. Shields nest, and one left by a
 --- raise is let go.
 local function test_a_shielded_wait_outlasts_a_cancel()
   local seen: mut {string} = {}
@@ -1047,7 +1047,7 @@ local function test_a_wait_lasts_the_nanoseconds_it_is_given(tmp: string)
   sys.close(writer)
 end
 
---- What a wait on one descriptor answers, in a task and out of one: true
+--- What a wait on one descriptor returns, in a task and out of one: true
 --- and "" at once for what is ready, false and TIMEOUT at about its
 --- timeout for what is not.
 local function test_one_wait_answers_alike_in_a_task_and_out_of_one(tmp: string)
@@ -1553,7 +1553,7 @@ local function test_within_in_a_task_raises_what_f_raised_to_its_caller()
   assert(left_ended, "the task f spawned did not go on")
 end
 
---- In a task, a cancel of the caller answers the wait `f` is in.
+--- In a task, a cancel of the caller wakes the wait `f` is in.
 local function test_within_in_a_task_is_cancelled_as_its_caller_is()
   local why: string = ""
   Poll.run(function()

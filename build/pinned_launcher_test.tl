@@ -159,7 +159,7 @@ local function test_a_relative_cache_home_is_passed_over_for_home(tmp: string)
 end
 
 --- A cold run downloads the release, caches it by its digest and runs it
---- in the caller's directory with the arguments as given, answering its
+--- in the caller's directory with the arguments as given, passing on its
 --- exit status; a warm run downloads nothing.
 local function test_it_fetches_once_then_runs_the_release_where_it_was_called(tmp: string)
   local p = project(tmp)

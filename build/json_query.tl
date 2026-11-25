@@ -85,7 +85,7 @@ function json_query.flatten(value: any, opts?: json_query.FlattenOptions): {Json
   local function leaf(v: any)
     table.insert(leaves, { steps = table.move(steps, 1, #steps, 1, {}), value = v })
   end
-  -- Walks `v`, answering why it cannot be read, if it cannot.
+  -- Walks `v`, returning why it cannot be read, if it cannot.
   local function walk(v: any, depth: integer): string?
     if not (v is {any:any}) then -- declared: key_type
       leaf(v)

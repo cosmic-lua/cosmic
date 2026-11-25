@@ -840,7 +840,7 @@ local function test_entries_of_a_reader_closed_first_fail_as_next_does()
   assert(again == nil and tostring(again_trouble) == tostring(trouble), "a failed listing is not kept")
 end
 
---- A failing Writer's own words are what the writer answers, as they
+--- A failing Writer's own words are returned by the writer as they
 --- are; a failing body Reader's are told what the writer was doing.
 local function test_a_failing_underlying_writer_is_answered_as_it_said_it()
   local function closed(_self: Stream.Writer): (true) | (false, Failure) return true end
@@ -853,7 +853,7 @@ local function test_a_failing_underlying_writer_is_answered_as_it_said_it()
   local w = Zip.writer(full)
   local ok, trouble = w:add_file("f", Stream.from_string(string.rep("x", 100000)), { size = 100000 })
   assert(not ok and tostring(trouble) == "disk full", tostring(trouble))
-  -- The failure is kept as it is: every later call answers that one.
+  -- The failure is kept as it is: every later call returns that one.
   local dir, dir_trouble = w:add_dir("d")
   assert(not dir and dir_trouble == trouble, tostring(dir_trouble))
   local body, body_trouble = w:file_writer("g")
@@ -913,7 +913,7 @@ end
 --- recording `crc`, `usize` and the length of `payload`, which is the
 --- body as stored. The bytes are built by hand from the APPNOTE layout,
 --- so no external tool is needed; the frame comes from
---- [`cosmic.compress.zstd_encoder`].
+--- [`cosmic.compress.encoder`].
 local function zstd_zip_by_hand(payload: string, crc: integer, usize: integer): string
   local name = "f"
   local lfh = "PK\3\4" .. le16(63) .. le16(0) .. le16(93) .. le16(0) .. le16(0x21) ..
@@ -926,7 +926,7 @@ local function zstd_zip_by_hand(payload: string, crc: integer, usize: integer): 
     le32(#body) .. le16(0)
 end
 
---- What reading entry "f" of `raw` to its end answers.
+--- What reading entry "f" of `raw` to its end returns.
 local function read_f(raw: string): string?, string
   local r = assert(Zip.open_string(raw))
   local body = assert(by_path(entries_of(r), "f"):open())

@@ -108,7 +108,7 @@ local function test_decoding_is_total_and_exact(tmp: string)
   end
 end
 
---- What decoding `text` answers in chunks whose sizes are the bytes of
+--- What decoding `text` gives in chunks whose sizes are the bytes of
 --- `cuts`, then a byte at a time: the bytes, or nil and the reason.
 local function decode_cut(name: codec.Name, text: string, lenient: boolean, cuts: string): string?, string
   local coder = codec.decoding(name, lenient)

@@ -141,16 +141,16 @@
 #define MBEDTLS_SSL_EXTENDED_MASTER_SECRET
 /* TLS 1.3's middlebox compatibility mode (RFC 8446 D.4): looks like a
  * TLS 1.2 session resumption on the wire, which some middleboxes and
- * proxies need to let the handshake through; a server answers a client
- * that uses it in kind. */
+ * proxies need to let the handshake through; a server responds in kind
+ * to a client that uses it. */
 #define MBEDTLS_SSL_TLS1_3_COMPATIBILITY_MODE
 /* TLS 1.3 forbids rsa_pkcs1_* in CertificateVerify; an RSA leaf needs
  * rsa_pss_rsae_* offered, which mbedtls gates on this rather than on
  * PSA_WANT_ALG_RSA_PSS. Without it a TLS 1.3 handshake with any
  * RSA-keyed server fails with handshake_failure. */
 #define MBEDTLS_X509_RSASSA_PSS_SUPPORT
-/* Left out on purpose: renegotiation (a server's HelloRequest is
- * answered with a no_renegotiation alert, and a server refuses a
+/* Left out on purpose: renegotiation (the client responds to a server's
+ * HelloRequest with a no_renegotiation alert, and a server refuses a
  * client's), session tickets and caches (no resumption, either side; a
  * TLS 1.3 NewSessionTicket is read and ignored, and a server sends
  * none), file-system loading of CA/CRL/key files (the trust store

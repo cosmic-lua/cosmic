@@ -86,14 +86,14 @@ local function test_a_header_changed_since_the_memo_is_checked_afresh(tmp: strin
   assert(Fs.write(tmp .. "/h.h", broken))
   local first = rules_found(tmp, store)
   assert(#first == 1, "the violation was not found: " .. table.concat(first, ","))
-  -- The same inputs are answered from the memo, the same.
+  -- The same inputs get the same result from the memo.
   local again = rules_found(tmp, store)
   assert(table.concat(again, ",") == table.concat(first, ","), table.concat(again, ","))
-  -- A header that no longer breaks the rule must not be answered with what it did.
+  -- A header that no longer breaks the rule must not get the result it had.
   assert(Fs.write(tmp .. "/h.h", fixed))
   local after = rules_found(tmp, store)
   assert(#after == 0, "a stale answer was served: " .. table.concat(after, ","))
-  -- And the first text again is the first answer again.
+  -- And the first text again gives the first result again.
   assert(Fs.write(tmp .. "/h.h", broken))
   assert(table.concat(rules_found(tmp, store), ",") == table.concat(first, ","))
   -- A run over every file keeps what it used and drops the rest, so the memo does not grow with each edit.

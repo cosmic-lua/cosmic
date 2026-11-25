@@ -12,7 +12,7 @@
 --- was written, `abort` discards it where that means anything (a
 --- [`Stream.create`] file is never renamed into place), and a `write`
 --- after either fails. `write`, `close`, `abort`, `skip` and `sync`
---- answer `true`, or `false` and a [`Failure`]. Every constructor here
+--- return `true`, or `false` and a [`Failure`]. Every constructor here
 --- gives `close` (and each Writer `abort`), even where it does nothing,
 --- and each is safe to call more than once, so a caller never has to
 --- ask which kind it holds. [`Stream.lines`] reads a Reader a line at
@@ -39,7 +39,7 @@ local record Stream
   interface Reader
     --- The next chunk of at most `max_bytes` bytes, `false` at the end,
     --- or nil and a [`Failure`]; see the module's description.
-    -- TODO: a `max_bytes` below 1 answers `false`, a spurious end of
+    -- TODO: a `max_bytes` below 1 returns `false`, a spurious end of
     -- the stream, from Stream.from_string's and Stream.prepend's Readers
     -- (so from a Lines' `rest` holding bytes read ahead); raise on it in
     -- every Reader here instead, as Stream.lines does on its own.
@@ -94,7 +94,7 @@ local record Stream
     --- than this descriptor (a supervisor servicing other pipes
     --- meanwhile). It is called with the descriptor, the events wanted
     --- ([`sys.POLLIN`] or [`sys.POLLOUT`]) and the time left in
-    --- nanoseconds, nil for no limit, and answers true once the
+    --- nanoseconds, nil for no limit, and returns true once the
     --- descriptor may be ready (the read or write tries again, and
     --- waits again if it was not), or false and why: [`Poll.TIMEOUT`]
     --- or [`Poll.CANCELLED`] end the call and leave the stream usable,
@@ -102,7 +102,7 @@ local record Stream
     wait?: function(integer, integer, integer?): boolean, string
   end
 
-  --- What [`Stream.to_fd`] answers: a Writer that counts what the
+  --- What [`Stream.to_fd`] returns: a Writer that counts what the
   --- descriptor took.
   interface FdWriter is Writer
     --- How many bytes the descriptor has taken from this Writer in all,
@@ -123,7 +123,7 @@ local record Stream
   interface Hashing is Writer
     --- The raw digest of everything written so far, or nil and why
     --- the hasher could not finish; the Writer takes no more writes
-    --- afterward, and asking again answers the same.
+    --- afterward, and asking again returns the same.
     digest: function(Hashing): string?, string
   end
 
@@ -156,7 +156,7 @@ local record Stream
     --- The next line, without its "\n"; `false` after the last; nil and
     --- a [`Failure`] when the Reader failed or a line ran past the
     --- limit, the same again on every later read. A read the Reader
-    --- ends with a Failure of kind "timeout" or "cancelled" answers nil
+    --- ends with a Failure of kind "timeout" or "cancelled" returns nil
     --- and that, and leaves the lines usable: the part of a line read so far
     --- is kept for the next read.
     read: function(Lines): (string | false) | (nil, Failure)
@@ -175,7 +175,7 @@ local record Stream
     --- has after them. Closing it closes the Reader, as
     --- [`Stream.prepend`]'s does. It ends the lines: a later `read`,
     --- `each` or `rest` raises, since a line read past it would take
-    --- bytes the Reader had already given. After a failure it answers
+    --- bytes the Reader had already given. After a failure it returns
     --- that failure on every read, and after the end, the end.
     rest: function(Lines): Reader
   end
@@ -205,14 +205,14 @@ local record Stream
   --- [`Stream.transform`], [`Stream.transform_writer`] and
   --- [`Stream.run`] drive. [`cosmic.compress`]'s inflaters, deflaters
   --- and decoders are Transforms, and so are `cosmic codec`'s coders.
-  --- Every call answers `value, ""` on success and `nil, error` on
+  --- Every call returns `value, ""` on success and `nil, error` on
   --- failure.
   ---
-  --- `update(chunk)` feeds `chunk` and answers the output that is
-  --- ready, possibly "". On bad input it answers `nil` and why, and
+  --- `update(chunk)` feeds `chunk` and returns the output that is
+  --- ready, possibly "". On bad input it returns `nil` and why, and
   --- the Transform is finished.
   ---
-  --- `finish()` says no more input follows and answers what is left,
+  --- `finish()` says no more input follows and returns what is left,
   --- or `nil` and why when the input ended where it could not (a
   --- compressed stream cut short). A driver calls it once, after the
   --- last `update`.
@@ -221,7 +221,7 @@ local record Stream
   --- back, as a decoder does to bound what one call returns however
   --- far its input expands: it says whether some is held, which
   --- `update("")` then gives out. A driver drains it, calling
-  --- `update("")` while `pending()` answers true, before it feeds
+  --- `update("")` while `pending()` returns true, before it feeds
   --- more input or calls `finish`; where there is no `pending`,
   --- nothing is ever held.
   type Transform = raw_compress.Transform
@@ -275,7 +275,7 @@ local record Stream
 
   --- The entries of a tar or a zip, one at a time: what
   --- [`cosmic.tar`]'s and [`cosmic.zip`]'s readers are, and what
-  --- [`Archive.open`] answers.
+  --- [`Archive.open`] returns.
   interface ArchiveReader
     --- The next entry, `false` at the end, or nil and a Failure. For
     --- a compressed tar, the end also runs the decompressor to the end
@@ -353,8 +353,8 @@ end
 
 local chunk_size = 1 << 16
 
---- What a failure of this module answers, nil and `why` under the
---- module's name.
+--- What a function of this module returns when it fails: nil and `why`
+--- under the module's name.
 local function refuse(why: string): nil, string
   return nil, "stream: " .. why
 end
@@ -371,13 +371,14 @@ local function failure_of(why: string): Failure
 end
 local closed_writer <const> = "stream: the writer is closed"
 
--- How an object of this module is made. A Reader or Writer is a record of
--- its own, named for what it makes (`<Kind>Reader`, `<Kind>Writer`) and
--- implementing the public interface it answers, with its metatable the
--- snake-case name and `_mt` (`from_string_reader_mt`). Its methods are
--- defined once, on the record's own table, which an instance reaches
--- through `__index`; its state is in fields, so an object costs one table,
--- not a closure for each method. Teal limits how that is written, for good:
+-- How an object of this module is made. A Reader or Writer is a record
+-- of its own, named for what it makes (`<Kind>Reader`, `<Kind>Writer`)
+-- and implementing the public interface it is returned as, with its
+-- metatable the snake-case name and `_mt` (`from_string_reader_mt`). Its
+-- methods are defined once, on the record's own table, which an instance
+-- reaches through `__index`; its state is in fields, so an object costs
+-- one table, not a closure for each method. Teal limits how that is
+-- written, for good:
 --
 -- * A record's `is` clause (not the `is` operator) takes only interfaces,
 --   so a public type that a record here implements is an interface
@@ -493,7 +494,7 @@ local class FdReader is Stream.Reader
   owned: boolean
   mut released: boolean
   opts: Stream.FdOptions
-  -- `ended` is a clean end of file (reads keep answering it); `closed`
+  -- `ended` is a clean end of file (reads keep returning it); `closed`
   -- is an explicit close (reads fail); `failed` is a sticky error.
   mut ended: boolean
   mut closed: boolean
@@ -802,7 +803,7 @@ local function read_up_to_text(reader: Stream.Reader, n: integer): string?, stri
 end
 
 --- Reads up to `n` bytes: all of them, or what is left when the stream
---- ends first, answered with "". So "" is a clean end of the stream and
+--- ends first, returned with "". So "" is a clean end of the stream and
 --- fewer than `n` bytes are a truncated one; nil and a Failure when
 --- `reader` fails, with the bytes already read dropped.
 ---
@@ -834,7 +835,7 @@ function Stream.read_exact(reader: Stream.Reader, n: integer): (string) | (nil, 
 end
 
 --- Moves `reader` forward `n` bytes: with its `skip` when it has one,
---- by reading and discarding otherwise. Answers `true`, or `false` and
+--- by reading and discarding otherwise. Returns `true`, or `false` and
 --- a Failure when the stream ends first or fails.
 function Stream.skip(reader: Stream.Reader, n: integer): (true) | (false, Failure)
   if n <= 0 then return true end
@@ -934,7 +935,7 @@ end
 
 --- The sticky failure [`cosmic.tar`] and [`cosmic.zip`] keep over the
 --- Writer an archive goes to: the first write that fails aborts `w`,
---- and every later write, `close` included, answers that failure;
+--- and every later write, `close` included, returns that failure;
 --- `name` prefixes the messages it makes itself.
 function Stream.sticky(w: Stream.Writer, name: string): Stream.Sticky
   local s: StickyWriter = { writer = w, name = name, closed = false, failed = nil }
@@ -969,7 +970,7 @@ local function too_long(self: LineReader): string
   return "stream: a line is longer than " .. String.counted(self.limit, "byte")
 end
 
--- Ends the lines with `why`, which every later read answers too.
+-- Ends the lines with `why`, which every later read returns too.
 local function fail(self: LineReader, why: string, given?: Failure): Failure
   local failure = given or failure_of(why)
   self.failed, self.held_failure = why, failure
@@ -990,7 +991,7 @@ local class LineReader is Stream.Lines
   mut held: integer
   mut ended: boolean
   mut failed: string
-  --- The failure every read answers once `failed` is set: the
+  --- The failure every read returns once `failed` is set: the
   --- Reader's own, its kind kept.
   mut held_failure?: Failure
   -- Why the last read stopped short and may be made again: a timeout or a cancel; "" after one that did not.
@@ -1033,7 +1034,7 @@ local class LineReader is Stream.Lines
         self.parts, self.held = {}, 0
         return line
       end
-      -- A Reader answers a non-empty chunk, `false` or nil, so each round moves.
+      -- A Reader's read returns a non-empty chunk, `false` or nil, so each round moves.
       local read, trouble = self.source:read(chunk_size)
       if read == nil then
         -- A deadline or a cancelled task took nothing: what is held stays, for the next read.
@@ -1146,7 +1147,7 @@ end
 
 --- Copies exactly `n` bytes of `reader` to `writer`, and no more of
 --- `reader` than that: for a body whose size a header states and a
---- reader that holds more after it. Answers `true`, or `false` and a
+--- reader that holds more after it. Returns `true`, or `false` and a
 --- Failure: a `reader` that ends before `n` bytes (its size was not the
 --- stated one), or fails, or a `writer` that does. Closes neither side.
 ---
@@ -1245,7 +1246,7 @@ end
 --- closed by this Writer's `close`; `abort` cannot take back what
 --- already reached it. A `write` goes out whole: it writes until every
 --- byte has gone, or fails. A failure is sticky, every later write
---- answering it, but for a deadline or a cancelled task, which leave
+--- returning it, but for a deadline or a cancelled task, which leave
 --- the Writer as it was, and for no room on a descriptor not declared
 --- `nonblocking`, which a later write may find. A write a signal
 --- interrupts is tried again.
@@ -1392,7 +1393,7 @@ local function hasher_for(algorithm: Hash.Algorithm, key?: string): (Hash.Hasher
   return Hash.hmac_hasher(algorithm, key)
 end
 
--- TODO: once Hash.Hasher's `update` answers `"", ""` (or a thin adapter
+-- TODO: once Hash.Hasher's `update` returns `"", ""` (or a thin adapter
 -- stands over it), make a Hasher a Stream.Transform with `finish` as its
 -- `digest`, so [`Stream.run`] and [`transform_writer`] drive it and this
 -- Writer shrinks to that adapter.
@@ -1400,7 +1401,7 @@ end
 --- for checking a body against a published digest as it streams past
 --- -- `tee` it beside the Writer the body is really going to. Given a
 --- `key`, it is the HMAC under that key ([`Hash.hmac_hasher`]) that
---- `digest` answers, not the plain digest.
+--- `digest` returns, not the plain digest.
 function Stream.hashing(algorithm: Hash.Algorithm, key?: string): (Stream.Hashing) | (nil, Failure)
   local hasher, why = hasher_for(algorithm, key)
   if hasher == nil then return nil, why end
@@ -1571,7 +1572,7 @@ end
 local function run_text(t: Stream.Transform, data: string, max_bytes?: integer): string?, string
   local parts: mut {string} = {}
   local kept: integer = 0
-  --- Keeps `out`, or answers why not when it takes the total past the bound.
+  --- Keeps `out`, or returns why not when it takes the total past the bound.
   local function keep(out: string): string?
     kept = kept + #out
     parts[#parts + 1] = out
@@ -1595,7 +1596,7 @@ local function run_text(t: Stream.Transform, data: string, max_bytes?: integer):
   return table.concat(parts), ""
 end
 
---- Drives `t` over the whole of `data` and answers everything it
+--- Drives `t` over the whole of `data` and returns everything it
 --- produces: `t:update(data)`, `update("")` while `t` holds output
 --- back, then `t:finish()`. Output that would pass `max_bytes`, when
 --- given, fails naming the bound, so a small input a decoder expands

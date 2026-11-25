@@ -14,6 +14,7 @@ local AgentMcp = require("cosmic.agent.mcp")
 local Fs = require("cosmic.fs")
 local Data = require("cosmic.agent.prompt_data")
 local Text = require("cosmic.agent.prompt_text")
+local Json = require("cosmic.json")
 local Tools = require("cosmic.agent.tools")
 
 local record Prompt
@@ -95,10 +96,21 @@ function Prompt.build(cwd: string, contexts: {Prompt.Context}, options?: Prompt.
     local about = server.description
     servers[#servers + 1] = { name = server.name, about = if about ~= nil then (about:gsub("%s+", " ")) else nil end }
   end
+  local for_model: mut {Tools.Tool} = {}
+  local for_code: mut {Data.CodeTool} = {}
+  for _, t in ipairs(offered) do
+    if Tools.for_model(t) then for_model[#for_model + 1] = t end
+    if Tools.for_code(t) then
+      local input, _ = Json.encode(t.schema)
+      for_code[#for_code + 1] = { name = t.name, about = (t.description:gsub("%s+", " ")), input = input or "{}" }
+    end
+  end
+  local run = Tools.find(for_model, "run") ~= nil
   return Text.render({
-    tools = if #offered > 0 then offered else nil end,
-    bash = Tools.find(offered, "bash") ~= nil,
-    run = Tools.find(offered, "run") ~= nil,
+    tools = if #for_model > 0 then for_model else nil end,
+    code_tools = if #for_code > 0 and run then for_code else nil end,
+    bash = Tools.find(for_model, "bash") ~= nil,
+    run = run,
     instructions = if #instructions > 0 then instructions else nil end,
     servers = if #servers > 0 then servers else nil end,
   })

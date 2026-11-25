@@ -28,7 +28,7 @@ local function test_a_handle_opened_before_is_refused_and_one_opened_after_is_no
     local held = refused(function() local _, _ = before:exec("SELECT 1") end) and
       refused(function() local _, _ = before:prepare("SELECT 1") end) and
       refused(function() local _, _ = statement:step() end)
-    -- Its close answers and closes nothing, once and again.
+    -- Its close returns true and closes nothing, once and again.
     local closed_once, _ = before:close()
     local closed_again, _ = before:close()
     local closed = closed_once and closed_again

@@ -5,7 +5,7 @@ local Poll = require("cosmic.poll")
 local Test = require("cosmic.test")
 local type Failure = require("cosmic.failure")
 
---- A receive's or a send's answer in words: the item or true, "closed"
+--- A receive's or a send's result in words: the item or true, "closed"
 --- for false, or the Failure's message.
 local function said(value?: integer | boolean, why?: Failure): string
   if why ~= nil then return why.message end
@@ -13,19 +13,19 @@ local function said(value?: integer | boolean, why?: Failure): string
   return tostring(value)
 end
 
---- What a receive from `queue` answered, in words.
+--- What a receive from `queue` returned, in words.
 local function took(queue: Channel.Queue<integer>, timeout_ns?: integer): string
   local item, why = queue:receive(timeout_ns)
   return said(item, why)
 end
 
---- What a send of `item` to `queue` answered, in words.
+--- What a send of `item` to `queue` returned, in words.
 local function gave(queue: Channel.Queue<integer>, item: integer, timeout_ns?: integer): string
   local ok, why = queue:send(item, timeout_ns)
   return said(ok, why)
 end
 
---- What a try_send of `item` to `queue` answered, in words.
+--- What a try_send of `item` to `queue` returned, in words.
 local function tried(queue: Channel.Queue<integer>, item: integer): string
   local ok, why = queue:try_send(item)
   return said(ok, why)
@@ -75,7 +75,7 @@ local function test_options_are_checked_and_default_to_a_large_blocking_queue()
     assert(tried(queue, 257) == Channel.FULL)
     Test.raises(function() local _, _ = queue:send(nil as integer) end, "nil") -- checked: cast_refused
     Test.raises(function() local _, _ = queue:receive(-1) end, "timeout_ns")
-    -- A false item would read as a closed queue's answer.
+    -- A false item would read as what a receive from a closed queue returns.
     local flags: Channel.Queue<boolean> = Channel.new()
     Test.raises(function() local _, _ = flags:send(false) end, "send of false")
     Test.raises(function() local _, _ = flags:try_send(false) end, "send of false")

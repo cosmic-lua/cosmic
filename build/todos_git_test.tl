@@ -1,8 +1,8 @@
 --- `cosmic todos` over a repository's history: blame recorded at one
 --- `HEAD` carries on to the next for every file the commits between them
---- leave alone. git's answers are recorded in testdata/todos_git
---- (testdata/todos_git/record.sh makes them again from the system's git),
---- and the test hands [`todos.list`] a stand-in that replays them, so none
+--- leave alone. What git prints is recorded in testdata/todos_git
+--- (testdata/todos_git/record.sh makes it again from the system's git),
+--- and the test hands [`todos.list`] a stand-in that replays it, so none
 --- starts a process. build/todos_live_git_test.tl runs the system's git
 --- itself, once, for what a recording cannot say: that git takes the
 --- arguments the verb gives it.
@@ -39,8 +39,8 @@ local function recorded(replay: Replay, name: string): string?
   return data
 end
 
---- git's answer to one call in `root`, from what was recorded at the
---- replay's step: a call the recording holds no answer to, or one in
+--- git's output for one call in `root`, from what was recorded at the
+--- replay's step: a call the recording holds no output for, or one in
 --- another shape than the verb's, fails the test, where git would
 --- have said something the test cannot know.
 local function answer(replay: Replay, root: string, args: {string}): string?

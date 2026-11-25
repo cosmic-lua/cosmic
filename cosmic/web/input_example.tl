@@ -72,7 +72,7 @@ local record Note
 end
 local NOTE <const> = Shape.record_of("Note")
 
---- A JSON route answers a refusal as `application/problem+json`, each
+--- A JSON route sends a refusal as `application/problem+json`, each
 --- error with the JSON Pointer of the value that failed.
 function Example.json_body()
   local app = Web.app{ routes = {

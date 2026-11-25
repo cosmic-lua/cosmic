@@ -56,7 +56,7 @@ end
 local _, _, _, _, _, _ = Child, Net, Store.alone, reads, writes, limit
 ]]
 
---- Runs `chunk`, after `PRELUDE`, in a child of this program, and answers
+--- Runs `chunk`, after `PRELUDE`, in a child of this program, and returns
 --- what it printed. Skips the test where the child reports `skip=` and
 --- why, which it does where this host's kernel gives no Landlock.
 --- @param chunk the Teal source the child runs

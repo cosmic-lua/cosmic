@@ -73,6 +73,10 @@ struct spawn_plan {
   const char *seatbelt_profile;
   const char *const *seatbelt_parameters;
   int seatbelt_parameter_count;
+  /* Whether the program is a cosmic core that applies the profile itself
+   * at boot (core/main.c), handed it in its environment: the trampoline
+   * then applies none, as macOS applies no second one. */
+  bool seatbelt_boot;
   /* The path of the terminal slave the child is given as its controlling
    * terminal, which its trampoline opens (core/sandbox_rules.c's `cosmic_trampoline`), or NULL. */
   const char *terminal_path;

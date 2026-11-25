@@ -160,7 +160,7 @@ local function test_the_handler_refuses_what_the_transport_refuses()
   end)
 end
 
---- An answer as an event stream, as a server may send one: the client
+--- A response as an event stream, as a server may send one: the client
 --- reads the response to its request among the events.
 local function test_the_client_reads_a_response_sent_as_events()
   serving(function(req: HttpServer.Request): HttpServer.Reply
@@ -305,7 +305,7 @@ local function test_a_subscription_comes_as_events_and_ends_with_the_server()
   end)
 end
 
---- A tool that asks for a link to be opened, then answers what the person did.
+--- A tool that asks for a link to be opened, then returns what the person did.
 local function linking(): Server.Instance
   return Server.new{ info = { name = "links", version = "1" }, tools = { {
     tool = { name = "connect", inputSchema = Mcp.object_schema({}) },
@@ -366,7 +366,7 @@ local class Trickle is Stream.Reader
 end
 
 --- An event stream sent a byte at a time, its lines ended CRLF, is read whole: each notice once, a notice that
---- does not grow its progress passed over, then the answer.
+--- does not grow its progress passed over, then the response.
 local function test_the_client_reads_events_sent_a_byte_at_a_time()
   local progress = '{"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":1,"progress":%d}}'
   local answer = '{"jsonrpc":"2.0","id":1,"result":{"resultType":"complete","content":[{"type":"text","text":"ok"}]}}'

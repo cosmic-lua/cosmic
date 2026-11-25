@@ -36,7 +36,7 @@ local UNSHARED <const> =
 
 local checkout, environment, says = fixture.checkout, fixture.environment, fixture.says
 
---- Runs `cosmic test` on `root`, answering its exit status and what it
+--- Runs `cosmic test` on `root`, returning its exit status and what it
 --- printed, which must say it started.
 --- Moves the checkout at `from` to `to` with its build directory, as a
 --- checkout that kept its build in it moved: what is left at `from` is

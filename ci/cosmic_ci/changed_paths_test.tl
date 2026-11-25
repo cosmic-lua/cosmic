@@ -2,15 +2,15 @@
 --- main for a light run's format check: every path added, changed or
 --- removed, one a line, or none at all -- and the check covers the whole
 --- tree -- where it cannot name them all. It runs against a git that
---- answers what the system's git said (testdata/changed_paths, made again
---- by its record.sh) and fails on any other call; no test runs the
---- host's.
+--- returns what the system's git printed (testdata/changed_paths, made
+--- again by its record.sh) and fails on any other call; no test runs
+--- the host's.
 local ChangedPaths = require("cosmic_ci.changed_paths")
 local Fs = require("cosmic.fs")
 local GithubFake = require("cosmic_ci.github_fake")
 local Test = require("cosmic.test")
 
---- The recorded answers.
+--- The recorded git output.
 Test.policy{
   grants = { { path = "testdata/changed_paths", letters = "r" } },
 }
@@ -22,7 +22,7 @@ local RECORDED_BASE <const> = (assert(Fs.read(DATA .. "/base")):gsub("%s+$", "")
 
 --- A git that fetches only the recorded base, as an origin that holds it
 --- does (any other commit: git's refusal), and diffs the recorded base
---- against HEAD into the recorded answer of `scenario` (none where it has
+--- against HEAD into the recorded output of `scenario` (none where it has
 --- no file: a diff that fails); any other call fails the test, its
 --- arguments said.
 local record Seen
@@ -54,7 +54,7 @@ end
 --- to $GITHUB_OUTPUT, what it printed, and its status.
 local function named(tmp: string, scenario: string, base: string, limit?: string): string?, string, string, integer
   local out = tmp .. "/changed"
-  -- A list an earlier run left is no answer of this one's.
+  -- A list an earlier run left is not this run's output.
   assert(Fs.write(out, "stale\n"))
   local fake = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
   local code = ChangedPaths.changed_paths({ BASE = base, OUT = out, LIMIT = limit or "400" }, fake.host,

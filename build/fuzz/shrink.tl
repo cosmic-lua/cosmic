@@ -26,7 +26,7 @@ local record Shrink
     draws: {Draw}
     --- Calls to the property's failure predicate.
     tries: integer
-    --- Proposals answered without another predicate call.
+    --- Proposals settled without another predicate call.
     cached: integer
     improvements: integer
     --- `budget` stops at the proposal cap; `exhausted` completes the

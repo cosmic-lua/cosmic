@@ -13,7 +13,7 @@ local record text
   newlines: function(text: string, i: integer, j: integer): integer, integer
   -- A new list of the strings of `list`, sorted by their bytes as
   -- `LC_ALL=C sort` orders them.
-  sort: function(list: {string}): {string}
+  sort: function(list: {string}): mut {string}
 end
 
 return text

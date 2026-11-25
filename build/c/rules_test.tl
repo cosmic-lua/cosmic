@@ -504,7 +504,7 @@ local function declared_in_header(tmp: string, declarations: string, source: str
   return findings(tmp, header .. '#include "case.h"\n' .. source)
 end
 
---- A header's function answering only 0 or 1 -- itself, through a
+--- A header's function returning only 0 or 1 -- itself, through a
 --- helper of its file, or through a local given only truths -- is a
 --- pass or a fail.
 local function test_an_int_that_is_a_pass_or_a_fail_is_found(tmp: string)
@@ -721,7 +721,7 @@ local function test_a_compiler_reads_no_path_it_was_not_given(tmp: string)
     trouble:find("AGENTS.md' file not found", 1, true) ~= nil
   if not sandboxed and not not_found then
     -- The kernel could confine none: the compiler read what it found,
-    -- which, not being C, it answers with errors rather than findings.
+    -- which, not being C, it reports errors for rather than findings.
     Test.skip("a compiler ran unconfined, and read " .. root .. "/AGENTS.md")
     return
   end

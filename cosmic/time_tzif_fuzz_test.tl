@@ -1,7 +1,7 @@
 --- Fuzz properties for [`cosmic.time`]'s TZif reader (RFC 8536), which
 --- reads files from the host and from wherever a caller's bytes came
 --- from: `zone_from_tzif` is total -- whatever bytes it is handed, it
---- answers a zone or a failure and never raises, and a zone it answers
+--- returns a zone or a failure and never raises, and a zone it returns
 --- names every moment without raising -- and a file written from drawn
 --- transitions and types reads back as what was drawn. Inputs are
 --- mutations of the zones the binary carries, of files written here,

@@ -44,8 +44,8 @@ local record relay_config
     no_proxy: mut {string}
     --- The numeric addresses `host` was resolved to, once, by the caller
     --- (the sandbox's relay is told them by its starter): connected to in
-    --- their order, as a name's answers are, and `host` is resolved never.
-    --- Nil only in what [`relay_config.upstream`] reads from an
+    --- their order, as a name's addresses are, and `host` is resolved
+    --- never. Nil only in what [`relay_config.upstream`] reads from an
     --- environment, before its starter resolves it: a relay refuses an
     --- upstream without them ([`relay_config.upstream_problem`]).
     addresses?: {string}
@@ -79,7 +79,7 @@ local record relay_config
   end
 
   --- What the relay's starter, [`Child.start`], makes for it before the
-  --- relay starts, from what [`cosmic.internal.relay_start`] answers.
+  --- relay starts, from what [`cosmic.internal.relay_start`] gives.
   record Handover
     --- What the relay is told: `grants`, `own_addresses` and `upstream`
     --- are set; the starter sets the rest.

@@ -4,7 +4,7 @@
 --- public key.
 ---
 --- - [`Cipher.seal`] encrypts a message and appends a tag;
----   [`Cipher.open`] answers the message only when the tag proves that
+---   [`Cipher.open`] returns the message only when the tag proves that
 ---   the holder of the key sealed exactly these bytes.
 --- - [`Cipher.channel`] seals and opens the messages of a session, one
 ---   key for each direction, and counts the nonces itself.
@@ -14,13 +14,14 @@
 ---     local sealed = Cipher.seal("chacha20-poly1305", key, nonce, "attack at dawn")
 ---     assert(Cipher.open("chacha20-poly1305", key, nonce, sealed) == "attack at dawn")
 ---
---- Keys, nonces and what these functions answer are raw bytes. A key is
+--- Keys, nonces and what these functions return are raw bytes. A key is
 --- [`Cipher.key_length`] bytes that nobody can guess: `Rand.entropy(32)`
 --- of [`cosmic.rand`], or a key derivation's output, never a password.
 ---
---- What a correct program can meet answers nil and why: a sealed message
---- that does not authenticate. An argument of the wrong length raises,
---- and so does every other failure: memory running out.
+--- A function returns nil and why for what a correct program can come
+--- across: a sealed message that does not authenticate. An argument of
+--- the wrong length raises, and so does every other failure: memory
+--- running out.
 
 -- The raw module behind every function here lives under the reserved
 -- `cosmic.internal.` namespace -- see cosmic/store.tl for why it is off
@@ -65,7 +66,7 @@ local record Cipher
     byte_order?: ByteOrder
     --- How many messages this end has already sent under `output_key`,
     --- 0 by default: for resuming a session whose keys and counts were
-    --- kept. A channel does not answer its counts: the caller counts the
+    --- kept. A channel does not report its counts: the caller counts the
     --- messages it seals. A count lower than the true one reuses a
     --- nonce, with the cost [`Cipher.seal`] describes.
     sent?: integer
@@ -88,7 +89,7 @@ local record Cipher
 
     --- The plaintext of `sealed`, the peer's next message, and "". nil
     --- and why when it does not authenticate, as [`Cipher.open`]
-    --- answers: a message that was changed, sealed with another `aad`,
+    --- returns: a message that was changed, sealed with another `aad`,
     --- replayed, or that arrives before one sealed earlier. A message
     --- that fails does not count, so the genuine next one still opens.
     --- nil and why also once `math.maxinteger` messages have been
@@ -105,7 +106,7 @@ Cipher.tag_length = 16
 --- long as the plaintext, followed by the tag, [`Cipher.tag_length`]
 --- bytes that authenticate the ciphertext and `aad` together. `aad` is
 --- data sent in the clear that the message is bound to (a header, a
---- sequence number): it is not in what `seal` answers, and
+--- sequence number): it is not in what `seal` returns, and
 --- [`Cipher.open`] needs the same bytes. Absent, it is empty.
 ---
 --- A nonce is used once per key. Sealing two messages under the same
@@ -122,7 +123,7 @@ function Cipher.seal(algorithm: Cipher.Algorithm, key: string, nonce: string, pl
   return raw.seal(algorithm, key, nonce, plaintext, aad)
 end
 
---- The plaintext of `sealed`, which [`Cipher.seal`] answered for the
+--- The plaintext of `sealed`, which [`Cipher.seal`] returned for the
 --- same algorithm, key, nonce and `aad`, and "". nil and why when
 --- `sealed` is shorter than a tag or its tag does not authenticate it:
 --- a bit of the ciphertext, the tag, the `aad`, the nonce or the key

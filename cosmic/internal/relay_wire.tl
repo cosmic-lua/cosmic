@@ -1,23 +1,23 @@
---- What the sandbox relay reads from the program it confines, and what it
---- answers: an HTTP CONNECT request head, a SOCKS5 greeting, sub-negotiation
+--- What the sandbox relay reads from the program it confines, and how it
+--- replies: an HTTP CONNECT request head, a SOCKS5 greeting, sub-negotiation
 --- and request, and the server name in a TLS ClientHello. The program is
 --- untrusted, so each reader is a pure function of the bytes it is given: it
 --- never raises, reads nothing past a length field it has checked, and refuses
 --- by naming why. It opens no socket and resolves nothing.
 ---
 --- A reader is an object fed the bytes as they arrive (`reader:feed(chunk)`).
---- It answers `more` until the bytes decide it, then `done` with `consumed`,
+--- Its `feed` returns `more` until the bytes decide it, then `done` with `consumed`,
 --- the count of bytes of everything fed so far that the request took (what
---- follows is the tunnel's, not the request's), or a refusal. The answer is
---- final: a later feed answers it again. A prefix is refused only when every
---- longer input is refused for the same reason, and an input answers the same
---- wherever its feeds split (cosmic/internal/relay_wire_fuzz_test.tl). Total work is
---- linear in the bytes fed: the HTTP and TLS readers keep an offset and
---- the unfinished line or record, never reading a byte twice; a SOCKS message
---- is at most 513 bytes, so its reader re-reads what it holds, which is
---- bounded by that and not by what the program sends.
+--- follows is the tunnel's, not the request's), or a refusal. The result is
+--- final: a later feed returns it again. A prefix is refused only when every
+--- longer input is refused for the same reason, and `feed` returns the same
+--- for an input wherever its feeds split (cosmic/internal/relay_wire_fuzz_test.tl).
+--- Total work is linear in the bytes fed: the HTTP and TLS readers keep an offset
+--- and the unfinished line or record, never reading a byte twice; a SOCKS message is
+--- at most 513 bytes, so its reader re-reads what it holds, which is bounded by that
+--- and not by what the program sends.
 ---
---- A host the readers answer is one of three kinds: a DNS name (labels of
+--- A host the readers return is one of three kinds: a DNS name (labels of
 --- letters, digits and inner hyphens, 63 bytes at most, 253 in all,
 --- lower-cased, a trailing dot removed, and no final label that inet_aton
 --- would read as a number), a dotted IPv4 address (decimal octets, no leading
@@ -37,10 +37,10 @@
 --- one, after a HelloRetryRequest or a renegotiation, is outside what it
 --- sees; the relay's tunnel carries it unread. A hello that carries an
 --- Encrypted Client Hello or an encrypted-SNI extension names only a public
---- name in its server_name, so it answers `encrypted_sni` and no name. Clients
---- that send ECH as GREASE (Chrome and other BoringSSL-based clients do, to a
---- server that offers none) are indistinguishable from real ones, so the
---- relay's policy for that status decides whether they connect.
+--- name in its server_name, so its reader returns `encrypted_sni` and no name.
+--- Clients that send ECH as GREASE (Chrome and other BoringSSL-based clients
+--- do, to a server that offers none) are indistinguishable from real ones, so
+--- the relay's policy for that status decides whether they connect.
 
 local String = require("cosmic.string")
 local Grant = require("cosmic.relay.grant")
@@ -69,7 +69,7 @@ local record relay_wire
     consumed: integer
     --- When `refused`, why, worded to be shown to the program.
     reason?: string
-    --- When `refused`, the status line's code to answer with.
+    --- When `refused`, the status line's code to reply with.
     http_status?: integer
     --- When `done`, the host, in the form the module's header describes.
     host?: string
@@ -78,17 +78,33 @@ local record relay_wire
     --- When `done`, the port.
     port?: integer
     --- When `done`, the value of the `Proxy-Authorization` header, or nil
-    --- when there is none. No other header is kept.
+    --- when there is none.
     authorization?: string
+    --- When `done` for a plain HTTP request to an absolute http:// URL (as a
+    --- proxy client sends one, `GET http://host:port/path HTTP/1.1`), the head
+    --- to send the origin in its place: the path alone on the request line, a
+    --- Host header naming the URL's host, the client's other headers but the
+    --- proxy's and hop-by-hop ones, and `Connection: close`, so the one
+    --- connection carries one exchange. nil for a CONNECT.
+    forward?: string
   end
 
   --- Reads a CONNECT head from the bytes fed to it.
   interface ConnectReader
-    --- Feeds the next bytes and answers what all fed so far say.
+    --- Feeds the next bytes and returns what all fed so far say.
     feed: function(ConnectReader, chunk: string): Connect
   end
 
-  --- The SOCKS5 method selection, answered with [`socks_method_reply`].
+  --- Passes on what an origin sends back for a plain request, its final response
+  --- head told to close the connection ([`relay_wire.response_closer`]).
+  record ResponseCloser
+    --- The bytes to send the program for the next bytes the origin sent:
+    --- held back until a head is whole, then the head rewritten and what
+    --- follows as it came. nil and why for a reply that is no HTTP response.
+    feed: function(ResponseCloser, chunk: string): string?, string
+  end
+
+  --- The SOCKS5 method selection, replied to with [`socks_method_reply`].
   record SocksGreeting
     --- How far the bytes have decided it.
     status: Status
@@ -105,11 +121,11 @@ local record relay_wire
 
   --- Reads a SOCKS5 greeting from the bytes fed to it.
   interface SocksGreetingReader
-    --- Feeds the next bytes and answers what all fed so far say.
+    --- Feeds the next bytes and returns what all fed so far say.
     feed: function(SocksGreetingReader, chunk: string): SocksGreeting
   end
 
-  --- A SOCKS5 username and password (RFC 1929), answered with
+  --- A SOCKS5 username and password (RFC 1929), replied to with
   --- [`socks_auth_reply`].
   record SocksAuth
     --- How far the bytes have decided it.
@@ -126,11 +142,11 @@ local record relay_wire
 
   --- Reads a username and password from the bytes fed to it.
   interface SocksAuthReader
-    --- Feeds the next bytes and answers what all fed so far say.
+    --- Feeds the next bytes and returns what all fed so far say.
     feed: function(SocksAuthReader, chunk: string): SocksAuth
   end
 
-  --- The replies a SOCKS5 server answers a request with.
+  --- The replies a SOCKS5 server may send to a request.
   enum SocksReply
     "succeeded"
     "failure"
@@ -149,9 +165,9 @@ local record relay_wire
     status: Status
     --- Bytes of everything fed that the message took, when `done`.
     consumed: integer
-    --- When `refused`, why, and the reply to answer with.
+    --- When `refused`, why, and the reply to send.
     reason?: string
-    --- The reply to answer with.
+    --- The reply to send.
     reply?: SocksReply
     --- When `done`, the host.
     host?: string
@@ -163,16 +179,16 @@ local record relay_wire
 
   --- Reads a SOCKS5 request from the bytes fed to it.
   interface SocksRequestReader
-    --- Feeds the next bytes and answers what all fed so far say.
+    --- Feeds the next bytes and returns what all fed so far say.
     feed: function(SocksRequestReader, chunk: string): SocksRequest
   end
 
-  --- The SOCKS5 server's choice of a method, the answer to a client's
+  --- The SOCKS5 server's choice of a method, the reply to a client's
   --- greeting.
   record SocksMethodAnswer
     --- How far the bytes have decided it.
     status: Status
-    --- Bytes of the answer, when `done`.
+    --- Bytes of the reply, when `done`.
     consumed: integer
     --- When `refused`, why.
     reason?: string
@@ -185,16 +201,16 @@ local record relay_wire
 
   --- Reads a SOCKS5 server's method choice from the bytes fed to it.
   interface SocksMethodReader
-    --- Feeds the next bytes and answers what all fed so far say.
+    --- Feeds the next bytes and returns what all fed so far say.
     feed: function(SocksMethodReader, chunk: string): SocksMethodAnswer
   end
 
   --- The SOCKS5 server's verdict on a username and password (RFC 1929),
-  --- the answer to [`socks_client_auth`].
+  --- the reply to [`socks_client_auth`].
   record SocksAuthAnswer
     --- How far the bytes have decided it.
     status: Status
-    --- Bytes of the answer, when `done`.
+    --- Bytes of the reply, when `done`.
     consumed: integer
     --- When `refused`, why.
     reason?: string
@@ -206,15 +222,15 @@ local record relay_wire
   --- Reads a SOCKS5 server's verdict on a username and password from the
   --- bytes fed to it.
   interface SocksAuthStatusReader
-    --- Feeds the next bytes and answers what all fed so far say.
+    --- Feeds the next bytes and returns what all fed so far say.
     feed: function(SocksAuthStatusReader, chunk: string): SocksAuthAnswer
   end
 
-  --- A SOCKS5 server's answer to a CONNECT request.
+  --- A SOCKS5 server's reply to a CONNECT request.
   record SocksAnswer
     --- How far the bytes have decided it.
     status: Status
-    --- Bytes of the answer, when `done`: what follows is the tunnel's.
+    --- Bytes of the reply, when `done`: what follows is the tunnel's.
     consumed: integer
     --- When `refused`, why.
     reason?: string
@@ -226,9 +242,9 @@ local record relay_wire
     reply?: SocksReply
   end
 
-  --- Reads a SOCKS5 server's answer to a request from the bytes fed to it.
+  --- Reads a SOCKS5 server's reply to a request from the bytes fed to it.
   interface SocksAnswerReader
-    --- Feeds the next bytes and answers what all fed so far say.
+    --- Feeds the next bytes and returns what all fed so far say.
     feed: function(SocksAnswerReader, chunk: string): SocksAnswer
   end
 
@@ -265,7 +281,7 @@ local record relay_wire
 
   --- Reads a ClientHello from the bytes fed to it.
   interface HelloReader
-    --- Feeds the next bytes and answers what all fed so far say.
+    --- Feeds the next bytes and returns what all fed so far say.
     feed: function(HelloReader, chunk: string): Hello
   end
 end
@@ -402,6 +418,14 @@ end
 --- A header name's bytes (RFC 9110's token).
 local TOKEN <const> = "^[%w!#$%%&'*+%-%.%^_`|~]+$"
 
+--- The headers of a plain request that are the client's to the proxy, not
+--- to the origin, by lower-case name: the relay writes its own Host and
+--- Connection.
+local HOP_BY_HOP <const>: {string: boolean} = {
+  ["host"] = true, ["connection"] = true, ["proxy-connection"] = true, ["keep-alive"] = true,
+  ["proxy-authorization"] = true, ["te"] = true, ["trailer"] = true, ["upgrade"] = true,
+}
+
 --- `value` without the blanks at its ends, in two passes that each cost its
 --- length (a pattern that anchors both ends backtracks quadratically).
 local function trimmed(value: string): string
@@ -417,11 +441,14 @@ end
 --- Reads the CONNECT request head from the bytes fed to it.
 ---
 --- It is exactly `CONNECT host:port HTTP/1.1` (or `HTTP/1.0`) with CRLF
---- line endings, then header lines up to an empty line. A request line of
---- another method is refused as plain HTTP, which is not relayed. At most
---- 8192 bytes to a line, 16384 to the head and 100 headers; a bare LF or CR,
---- NUL or other control byte, and an obsolete line fold are refused.
---- `Proxy-Authorization` is kept, and no other header is read.
+--- line endings, then header lines up to an empty line. Or it is a plain
+--- HTTP request to an absolute http:// URL, which a proxy client sends for
+--- http (`GET http://host:port/path HTTP/1.1`, port 80 where none is
+--- written), read to the head to send the origin in its place
+--- ([`relay_wire.Connect.forward`]); any other request line is refused. At
+--- most 8192 bytes to a line, 16384 to the head and 100 headers; a bare LF or
+--- CR, NUL or other control byte, and an obsolete line fold are refused.
+--- `Proxy-Authorization` is kept; of a CONNECT, no other header is read.
 function relay_wire.connect_reader(): relay_wire.ConnectReader
   --- Bytes fed before the chunk in hand (`seen`), the position of the
   --- first byte of the line being read, and what the head has said so
@@ -438,8 +465,12 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
     mut host?: string
     mut kind?: relay_wire.Kind
     mut port?: integer
+    --- Of a plain request: its request line as the origin is sent it, and
+    --- the header lines passed on.
+    mut forward_line?: string
+    mut passed: mut {string}
   end
-  local st: Reading = { seen = 0, line_start = 1, pieces = {}, after_cr = false, first = true, count = 0 }
+  local st: Reading = { passed = {}, seen = 0, line_start = 1, pieces = {}, after_cr = false, first = true, count = 0 }
 
   local function finish(answer: relay_wire.Connect): relay_wire.Connect
     st.final = answer
@@ -456,14 +487,46 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
       String.counted(MAX_LINE, "byte")), if st.first then 414 else 431 end))
   end
 
-  --- What a whole line, ending at position `at`, decides: an answer, or
+  --- What the request line `content` of a request that is not a CONNECT
+  --- decides: a refusal, or nil once it has read an absolute http:// URL.
+  local function plain_line(content: string): relay_wire.Connect?
+    local method, uri, version = content:match("^([^ ]+) ([^ ]+) ([^ ]+)$")
+    if method == nil or uri == nil or version == nil or not method:find(TOKEN) or
+        lower(uri:sub(1, 7)) ~= "http://" then
+      return finish(refused("plain HTTP is relayed only as a request to an absolute http:// URL " ..
+          "(GET http://host:port/path HTTP/1.1, as a proxy client sends one); for anything else, CONNECT host:port", 405))
+    end
+    if version ~= "HTTP/1.1" and version ~= "HTTP/1.0" then
+      return finish(refused("unsupported HTTP version " .. version .. " (HTTP/1.1 or HTTP/1.0)", 505))
+    end
+    local after = uri:sub(8)
+    local cut = after:find("[/?#]")
+    local written = if cut ~= nil then after:sub(1, cut - 1) else after end
+    local path = if cut ~= nil then after:sub(cut) else "/" end
+    if path:find("#", 1, true) then
+      return finish(refused("a fragment (#) in the request's URL", 400))
+    end
+    if path:sub(1, 1) == "?" then path = "/" .. path end
+    -- A URL may leave its port out: http's is 80.
+    local has_port = if written:sub(1, 1) == "[" then written:find("]:", 1, true) ~= nil else
+      written:find(":", 1, true) ~= nil end
+    local found, trouble = authority(if has_port then written else written .. ":80" end)
+    if found == nil then
+      return finish(refused(trouble, 400))
+    end
+    st.host, st.kind, st.port = found.host, found.kind, found.port
+    st.forward_line = method .. " " .. path .. " " .. version
+    return nil
+  end
+
+  --- What a whole line, ending at position `at`, decides: a result, or
   --- nil to go on.
   local function line(content: string, at: integer): relay_wire.Connect?
     if st.first then
       st.first = false
       local method = content:match("^[^ \t]*")
       if method ~= "CONNECT" then
-        return finish(refused("plain HTTP is not relayed: only CONNECT host:port is accepted", 405))
+        return plain_line(content)
       end
       local target, version = content:match("^CONNECT ([^ ]*) ([^ ]*)$")
       if target == nil or version == nil then
@@ -480,8 +543,18 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
       return nil
     end
     if content == "" then
+      local forward: string? = nil
+      local forward_line = st.forward_line
+      if forward_line ~= nil then
+        local host, port = assert(st.host), assert(st.port)
+        local named = if st.kind == "ipv6" then "[" .. host .. "]" else host end
+        local lines: mut {string} = { forward_line, "Host: " .. named .. (if port ~= 80 then ":" .. tostring(port) else "" end) }
+        for _, kept in ipairs(st.passed) do lines[#lines + 1] = kept end
+        lines[#lines + 1] = "Connection: close"
+        forward = table.concat(lines, "\r\n") .. "\r\n\r\n"
+      end
       return finish({ status = "done", consumed = at, host = st.host, kind = st.kind, port = st.port,
-        authorization = st.authorization })
+        authorization = st.authorization, forward = forward })
     end
     if content:find("^[ \t]") then
       return finish(refused("an obsolete header line fold (a line starting with whitespace)", 400))
@@ -497,11 +570,14 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
     if not name:find(TOKEN) then
       return finish(refused("a header name that is not a token", 400))
     end
-    if lower(name) == "proxy-authorization" then
+    local named = lower(name)
+    if named == "proxy-authorization" then
       if st.authorization ~= nil then
         return finish(refused("a repeated Proxy-Authorization header", 400))
       end
       st.authorization = trimmed(value)
+    elseif st.forward_line ~= nil and HOP_BY_HOP[named] == nil then
+      st.passed[#st.passed + 1] = content
     end
     return nil
   end
@@ -583,6 +659,67 @@ function relay_wire.number_of(text: string): integer?
   local port = math.tointeger(tonumber(text))
   if port == nil or port < 1 or port > 65535 then return nil end
   return port
+end
+
+--- What a plain request's origin sends back, passed on with its final response
+--- head saying `Connection: close`: the origin's own Connection, Keep-Alive
+--- and Proxy-Connection lines are dropped. So a client that pools proxy
+--- connections never sends a later request, for another target, down the
+--- connection the relay opened to this one. Interim (1xx) heads, but 101, go
+--- as they came. A head longer than 16384 bytes, or one that is not
+--- `HTTP/1.x NNN`, is refused; past the final head, bytes pass untouched.
+function relay_wire.response_closer(): relay_wire.ResponseCloser
+  local held = ""
+  local done = false
+  local failed: string? = nil
+  return {
+    feed = function(_: relay_wire.ResponseCloser, chunk: string): string?, string
+      local why = failed
+      if why ~= nil then return nil, why end
+      if done then return chunk, "" end
+      -- The search starts 3 bytes back, where an end split across feeds may begin.
+      local from = math.max(1, #held - 2)
+      held = held .. chunk
+      local out: mut {string} = {}
+      while true do
+        local ends = held:find("\r\n\r\n", from, true)
+        if ends == nil then
+          if #held > MAX_HEAD then
+            failed = ("the origin's response head is longer than %s"):format(String.counted(MAX_HEAD, "byte"))
+            return nil, assert(failed)
+          end
+          return table.concat(out), ""
+        end
+        local head, rest = held:sub(1, ends + 3), held:sub(ends + 4)
+        if ends + 3 > MAX_HEAD then
+          failed = ("the origin's response head is longer than %s"):format(String.counted(MAX_HEAD, "byte"))
+          return nil, assert(failed)
+        end
+        local status = head:match("^HTTP/1%.[01] (%d%d%d)")
+        if status == nil then
+          failed = "the origin's answer is not an HTTP/1 response"
+          return nil, assert(failed)
+        end
+        if status:sub(1, 1) == "1" and status ~= "101" then
+          out[#out + 1] = head
+          held, from = rest, 1
+        else
+          local lines: mut {string} = {}
+          for line in head:sub(1, -5):gmatch("[^\r\n]+") do
+            local name = line:match("^([^:]*):")
+            local named = if name ~= nil then lower(name) else "" end
+            if named ~= "connection" and named ~= "keep-alive" and named ~= "proxy-connection" then
+              lines[#lines + 1] = line
+            end
+          end
+          lines[#lines + 1] = "Connection: close"
+          out[#out + 1] = table.concat(lines, "\r\n") .. "\r\n\r\n" .. rest
+          held, done = "", true
+          return table.concat(out), ""
+        end
+      end
+    end,
+  }
 end
 
 --- The reply to a CONNECT that was granted and connected.
@@ -791,7 +928,7 @@ end
 
 --- A reader of a message of at most a few hundred bytes: it holds what it
 --- is fed and reads it again, which costs at most that many bytes a feed
---- and nothing once it has answered.
+--- and nothing once it has decided.
 local record Held<T>
   mut held: string
   mut final?: T
@@ -956,7 +1093,7 @@ for name, code in pairs(SOCKS_CODES) do
   SOCKS_REPLIES[code] = name
 end
 
---- The server's answer to a request at the start of `buf`, whole: the reply
+--- The server's reply to a request at the start of `buf`, whole: the reply
 --- code and the bound address it carries, which is read to find where the
 --- tunnel begins and kept for nothing.
 local function read_answer(buf: string): relay_wire.SocksAnswer
@@ -1028,10 +1165,10 @@ function relay_wire.socks_auth_status_reader(): relay_wire.SocksAuthStatusReader
   end }
 end
 
---- Reads the SOCKS5 server's answer to a request from the bytes fed to it,
+--- Reads the SOCKS5 server's reply to a request from the bytes fed to it,
 --- through its bound address (an IPv4 or IPv6 address or a domain name,
 --- then a port), so that what is left of what was fed is the tunnel's. A
---- reply code that is no success is a `done` answer with its `code`: the
+--- reply code that is no success is a `done` result with its `code`: the
 --- reader judges the message's shape, not the server's verdict. Refused for
 --- another version, a nonzero reserved byte or an address type the
 --- protocol does not define. The message is at most 262 bytes, so the
@@ -1233,7 +1370,7 @@ end
 
 --- Reads the TLS ClientHello from the bytes fed to it, which may arrive in
 --- pieces and span handshake records (up to 64 of them, 16384 bytes of hello),
---- and answers the server name it carries, lower-cased and by the rules of
+--- and finds the server name it carries, lower-cased and by the rules of
 --- the module's header. The hello is judged only whole, and only the first;
 --- `consumed` ends with the record its last byte is in, which must end with
 --- it.
@@ -1263,7 +1400,7 @@ function relay_wire.hello_reader(): relay_wire.HelloReader
   end
 
   --- Takes the whole record at `data`'s `pos`, of `length` payload bytes:
-  --- an answer once the hello is complete or refused, else nil.
+  --- a result once the hello is complete or refused, else nil.
   local function take(data: string, pos: integer, length: integer): relay_wire.Hello?
     st.records = st.records + 1
     if st.records > MAX_RECORDS then

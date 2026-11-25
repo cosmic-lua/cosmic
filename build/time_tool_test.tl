@@ -1,5 +1,5 @@
 --- `cosmic time` run as this program: the real clock, the real
---- environment's zone, and the rule that it prints its answer and no
+--- environment's zone, and the rule that it prints its result and no
 --- summary, exiting 0, 1 or 2. These start this program, so they
 --- need `tool`; the arithmetic itself is in `time_test.tl`, against a
 --- clock it can fix.

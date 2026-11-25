@@ -52,7 +52,7 @@ local record tls
   end
 
   -- A session over a socket it does not own. A call that does
-  -- not finish answers nil (or false), why, and what stopped it: READ
+  -- not finish returns nil (or false), why, and what stopped it: READ
   -- or WRITE, why "", where it waits for the socket to be ready so,
   -- before the same call is made again; ENDED, why "", where the peer
   -- ended the session; FAILED and why otherwise. Every method but

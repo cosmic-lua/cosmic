@@ -16,7 +16,7 @@ local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
 local String = require("cosmic.string")
 
---- What a failure of this module's `*_text` forms answers, nil and
+--- What a `*_text` form of this module returns for a failure: nil and
 --- `why` under the module's name, which the public functions make a
 --- Failure.
 local function refuse(why: string): nil, string
@@ -37,7 +37,7 @@ local record Archive
   type Reader = Stream.ArchiveReader
 
   --- What writes an archive: the [`Stream.ArchiveWriter`] that tar's
-  --- and zip's writers are, and what [`Archive.create`] answers,
+  --- and zip's writers are, and what [`Archive.create`] returns,
   --- declared in [`cosmic.stream`] for the reason [`Entry`] is.
   type Writer = Stream.ArchiveWriter
 
@@ -140,7 +140,7 @@ end
 -- is made" says: a record of its own, with its methods on that record and
 -- its state in fields.
 
---- What [`draining`] answers.
+--- What [`draining`] returns.
 local class DrainingReader is Stream.ArchiveReader
   tr: Tar.Reader
   source: Stream.Reader
@@ -178,7 +178,7 @@ local function draining(tr: Tar.Reader, source: Stream.Reader): Archive.Reader
 end
 
 --- The tar `source` holds, of format `kind` ("tar", "gzip", "xz",
---- "bzip2" or "zstd"): the reader [`Archive.open`] answers for a path or a stream.
+--- "bzip2" or "zstd"): the reader [`Archive.open`] returns for a path or a stream.
 --- `label` names the input in a complaint.
 local function open_tar(kind: string, source: Stream.Reader, label: string):
     Archive.Reader?, string
@@ -376,8 +376,8 @@ end
 --- reads any of them back. The bytes go to a temporary neighbor, as
 --- [`Stream.create`] writes, so `path` holds nothing until `close`
 --- succeeds, and then the whole archive; a failed call or `abort`
---- leaves `path` as it was. Any other name answers nil and a Failure, naming
---- the suffixes it knows, and creates nothing.
+--- leaves `path` as it was. For any other name it returns nil and a
+--- Failure, naming the suffixes it knows, and creates nothing.
 ---
 ---     local w = assert(Archive.create("release.tar.gz"))
 ---     assert(w:add_file("README", "read me first"))

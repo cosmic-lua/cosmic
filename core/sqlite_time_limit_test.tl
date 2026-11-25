@@ -25,7 +25,7 @@ local function test_a_call_past_its_time_limit_is_stopped_and_the_handle_goes_on
   local done, done_why = db:exec(ENDLESS)
   assert(not done and done_why.kind == "timeout" and done_why.message:find("ran past its time limit", 1, true) ~= nil,
     tostring(done_why))
-  local result = db:exec_result(ENDLESS)
+  local result = db.connection:exec_result(ENDLESS)
   assert(result.timed_out == true and result.code == Sqlite.INTERRUPT and result.cancelled == false, result.reason)
   db:time_limit(nil)
   assert(db:rows("SELECT count(*) FROM generate_series(1, 100000)"))

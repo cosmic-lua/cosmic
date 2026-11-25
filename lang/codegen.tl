@@ -5,7 +5,7 @@
 --- same indent, the same `; ` between statements on a line, a trailing `,` in a table that spans lines,
 --- `type(x) == "string"` for `x is string`. A node is placed at the line of its operator token for a binary operator, a
 --- field, an index, a call and a test, and of its first token for the rest. No comment and no type is written.
---- A `;` that ends a statement is not in the grammar and is not written, except where the next
+--- A `;` that ends a statement is no node of the tree and is not written, except where the next
 --- statement begins a line with `(`, which would otherwise continue it.
 ---
 --- Where a plain respelling would not be Lua, or not what the program means, this writes what it means:
@@ -844,7 +844,8 @@ local function type_test(declared: Ast.Type, value: Output, y: integer, operand?
   local out = new(y)
   local tag = G.tags[declared.id]
   if tag ~= nil then
-    -- A record the value may be is a table, and the one its tag names where the value may be another.
+    -- A record the value may be is a table, and the one its tag names, or the one with a field only it has, where
+    -- the value may be another.
     local field = tag[1] or ""
     put(out, "(type(")
     add_child(out, value, "", G.indent)
@@ -857,7 +858,12 @@ local function type_test(declared: Ast.Type, value: Output, y: integer, operand?
       local read = if RESERVED_FIELDS[field] == true then "[\"" .. field .. "\"]" else "." .. field end
       -- The value is read again, as a name or as the parameter that holds it.
       local again = if operand ~= nil then exp(operand) else text(y, held or "__v") end
-      if #members == 1 then
+      if #members == 0 then
+        -- A field the record alone has, which a value of another never holds.
+        put(out, " and ")
+        add_child(out, again, "", G.indent)
+        put(out, read .. " ~= nil")
+      elseif #members == 1 then
         put(out, " and ")
         add_child(out, again, "", G.indent)
         put(out, read .. " == " .. (members[1] or ""))
@@ -1832,6 +1838,14 @@ local function class_statement(s: Ast.Class): Output
   put(out, "local")
   add_child(out, text(line_of(s.name.first), name), " ")
   put(out, " =")
+  if s.schema ~= nil then
+    -- `local schema Name [[DDL]]` is the value of [`Sqlite.schema`] of its DDL.
+    local at = s.name.last + 1
+    put(out, " require(\"cosmic.sqlite\").schema(")
+    add_child(out, text(line_of(at), Lexer.text(G.tokens, at)))
+    put(out, ")")
+    return out
+  end
   add_child(out, text(y, if #s.typeparams > 0 then "{}" else record_table(s.members) end), " ")
   put(out, "; " .. name .. ".__index = " .. name)
   refuse_nested_classes(s.members)

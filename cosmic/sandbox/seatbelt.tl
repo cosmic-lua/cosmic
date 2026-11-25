@@ -65,6 +65,12 @@ local record Seatbelt
     --- `x` it may map as a library and not run. Only the start of the relay
     --- sets it.
     mut serves_relay?: integer
+    --- Whether the core applies the profile itself at boot (a cosmic
+    --- child, past the start): `core` and the "cosmic" profile's
+    --- `executable` are then granted `r`, not `rx`, since the core runs
+    --- already, and so the program cannot run its core, or this program,
+    --- again unless a grant of the policy gives it `x`.
+    mut booted?: boolean
   end
 
   --- Text to pass to sandbox_init_with_parameters, values kept outside
@@ -168,7 +174,7 @@ end
 --- none is interpolated into SBPL. The "system" profile is macOS's even
 --- when compiling on another host; "cosmic" names `options.executable`,
 --- unless the policy has a `database`: the program is then that core and
---- file alone, `options.core` (`rx`) and `options.database` (`r`), which the
+--- file alone, `options.core` (`rx`, or `r` where `options.booted`) and `options.database` (`r`), which the
 --- policy's own `database` must be. A policy's `tmp` is granted `rwc` through
 --- the parameter [`Seatbelt.Profile`]'s `tmp` names, which the caller sets.
 --- A policy's `connect` is reached through the network relay alone, at
@@ -178,7 +184,8 @@ end
 ---
 --- The returned rlimits must be applied separately. This is preparation
 --- only: on macOS [`Child.start`] applies the profile and the limits in a
---- process of this program that executes the child's program last, and
+--- process of this program that executes the child's program last (a
+--- cosmic child's core applies its profile itself at boot), and
 --- [`Sandbox.restrict`] in the process that calls it.
 function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Seatbelt.Profile?, string
   local valid, why = rules.check(policy)
@@ -227,7 +234,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
       if executable == nil then
         return refuse("profile cosmic needs this program's executable")
       end
-      trouble = add(executable, "rx")
+      trouble = add(executable, if options ~= nil and options.booted == true then "r" else "rx" end)
       if trouble ~= "" then return refuse(trouble) end
     end
   end
@@ -247,7 +254,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     end
   end
   if options_core ~= nil then
-    trouble = add(options_core, "rx")
+    trouble = add(options_core, if options ~= nil and options.booted == true then "r" else "rx" end)
     if trouble ~= "" then return refuse(trouble) end
   end
   if options_database ~= nil then
@@ -264,7 +271,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
   if merged == nil then return nil, failure end
   local fattr = false
   -- What every program needs to start, whatever it is granted. Contents
-  -- and writes stay denied; only these answers are given:
+  -- and writes stay denied; only these are allowed:
   --   file-read-metadata: stat of any path. dyld and libc stat each
   --     component of every path they open, from the root down, so a
   --     grant's own path is not enough to reach it. It shows that a path
@@ -317,7 +324,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     if not absolute(terminal) then return refuse("terminal needs an absolute canonical path") end
     -- Data and ioctl alone: file-write* would let a child without `fattr`
     -- chmod its slave for other users to read, or unlink /dev/tty as root.
-    -- The slave answers tcgetsid and tcgetpgrp only where granted by its
+    -- tcgetsid and tcgetpgrp succeed on the slave only where granted by its
     -- path, /dev/tty opens only where granted as that literal, and ttyname
     -- and tty list /dev.
     parameters.TTY = terminal -- checked: map_field

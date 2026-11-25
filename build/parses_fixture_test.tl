@@ -6,7 +6,7 @@ local Sqlite = require("cosmic.sqlite")
 local analysis_schema = require("build.analysis_schema")
 local parses_fixture = require("build.parses_fixture")
 
---- What [`parses_fixture.dump`] answers for a table `t` of one column per
+--- What [`parses_fixture.dump`] returns for a table `t` of one column per
 --- entry of `columns`, holding `rows`, of a database made in `tmp`.
 local function dumped(tmp: string, name: string, columns: {string}, rows: {{string}}): string
   local path = tmp .. "/" .. name .. ".db"
@@ -55,7 +55,7 @@ local function test_an_empty_field_is_not_no_row(tmp: string)
   assert(none == "" and empty ~= none, "a row of one empty text is not no rows")
 end
 
---- What [`parses_fixture.dump`] answers for `sql` of an empty database.
+--- What [`parses_fixture.dump`] returns for `sql` of an empty database.
 local function answer(tmp: string, name: string, sql: string): string
   local path = tmp .. "/" .. name .. ".db"
   local db = assert(Sqlite.open(path, { writable = true, create = true }))
@@ -118,7 +118,7 @@ local function test_a_null_and_a_null_like_text_in_one_row(tmp: string)
   assert(answer(tmp, "both", "SELECT '\\N', NULL, '', 'a'") == '"\\N"\t\\N\t\ta')
 end
 
---- Guards the one-pass read: a query answering NULL on random rows dumps every
+--- Guards the one-pass read: a query giving NULL on random rows dumps every
 --- row as `\N` or `x`. Read twice and paired by position, as it once was, some
 --- row pairs a NULL's text with a value's kind, or the reverse, and dumps `""`;
 --- with 200 rows the chance that every row agrees is negligible.
