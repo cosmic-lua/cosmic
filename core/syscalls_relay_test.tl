@@ -1,7 +1,7 @@
 --- `spawn`'s `relay` on a live child (core/process.h's `Sandbox`): the
 --- listeners a child binds in the network namespace it makes for itself and
 --- hands out over a channel, and the loopback of that namespace, which is
---- its own. The child is a fake ([`cosmic.fake`]). Where the platform
+--- its own. The child is a fake built from build/syscalls_relay_fake.tl. Where the platform
 --- has no sandbox they are not applicable, and where this host gives no user
 --- namespace or seccomp a test skips itself. The arguments' own checks, which
 --- raise before a child, are core/syscalls_test.tl's.
@@ -18,6 +18,8 @@ local type raw_socket = require("cosmic.internal.socket")
 -- Required, so the modules whose loaders are handed the raw tables are of
 -- this test's import closure, and the store has them to hand them from.
 local type _ = require("cosmic.child")
+-- Required, so the fake's main is of this test's closure.
+local _fake = require("build.syscalls_relay_fake")
 
 --- `nests`, since the children these tests start make namespaces of their
 --- own, which a worker held by a Landlock ruleset cannot start; and a
@@ -45,12 +47,12 @@ local function unsandboxable(why: string): boolean
   return false
 end
 
---- Starts `probe` running `script` under `sandbox`, its output in a file of
+--- Starts `probe` running the case `args` under `sandbox`, its output in a file of
 --- `tmp`'s: the pid, or nil and why and the errno (empty text and 0 beside a
 --- pid). Closes the file.
-local function start(tmp: string, probe: string, script: string, sandbox: raw_process.Sandbox): integer?, string, integer
+local function start(tmp: string, probe: string, args: {string}, sandbox: raw_process.Sandbox): integer?, string, integer
   local output = assert(sys.open(tmp .. "/said", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
-  local pid, why, errno = process.spawn(probe, { probe, script }, nil, "/", nil, output, output,
+  local pid, why, errno = process.spawn(probe, { probe, table.unpack(args) }, nil, "/", nil, output, output,
     false, nil, sandbox)
   sys.close(output)
   if pid ~= nil then return pid, "", 0 end
@@ -94,9 +96,8 @@ local function relays(tmp: string, probe: string, sandbox: raw_process.Sandbox, 
   -- The program holds no socket of the relay's (the listeners and the channel
   -- are close-on-exec or closed), so it binds a listener's port: in use, in the
   -- network the parent's listeners are in.
-  local script = "sockets-open; bind-tcp 127.0.0.1 " .. tostring(first_port) .. "; connect-tcp 127.0.0.1 " ..
-    tostring(first_port) .. "; connect-tcp 127.0.0.1 " .. tostring(second_port)
-  local pid, why = start(tmp, probe, script, { ...sandbox, relay = { fd = given, ports = ports } })
+  local args = { "relayed", tostring(first_port), tostring(second_port) }
+  local pid, why = start(tmp, probe, args, { ...sandbox, relay = { fd = given, ports = ports } })
   if pid == nil then
     sys.close(given)
     sys.close(receiving)
@@ -134,14 +135,14 @@ local function relays(tmp: string, probe: string, sandbox: raw_process.Sandbox, 
 end
 
 local function test_a_child_in_its_own_network_hands_out_listeners_at_the_ports_given(tmp: string)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.syscalls_relay_fake"))
   relays(tmp, probe, { offline = true, promises = {}, sockets = { "inet" } }, { 3128, 1080 })
 end
 
 local function test_the_relay_ports_default_to_http_connect_and_socks(tmp: string)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.syscalls_relay_fake"))
   local given, receiving = channel()
-  local pid, why = start(tmp, probe, "sleep 1", { offline = true, promises = {},
+  local pid, why = start(tmp, probe, { "sleep", "1" }, { offline = true, promises = {},
     relay = { fd = given } })
   if pid == nil then
     assert(unsandboxable(why), "the start was refused: " .. why)
@@ -158,7 +159,7 @@ local function test_the_relay_ports_default_to_http_connect_and_socks(tmp: strin
 end
 
 local function test_an_unveiled_child_hands_out_listeners_too(tmp: string)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.syscalls_relay_fake"))
   relays(tmp, probe, { strict = true, offline = true, promises = {}, sockets = { "inet" },
     unveil = { reads = { probe, "/proc", "/dev/null" } } }, { 3129, 1081 })
 end
@@ -167,7 +168,7 @@ end
 --- program never ran, whether or not the start is strict.
 local function relay_refused(tmp: string, probe: string, sandbox: raw_process.Sandbox, cause: string)
   local marker = tmp .. "/ran"
-  local pid, why, number = start(tmp, probe, "append " .. marker .. " ran", sandbox)
+  local pid, why, number = start(tmp, probe, { "append", marker, "ran" }, sandbox)
   if pid ~= nil then
     finished(tmp, pid)
     error("a relay that cannot be made started the program")
@@ -182,7 +183,7 @@ local function relay_refused(tmp: string, probe: string, sandbox: raw_process.Sa
 end
 
 local function test_a_channel_that_is_no_socket_fails_the_start_naming_the_relay(tmp: string)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.syscalls_relay_fake"))
   local file = assert(sys.open(tmp .. "/not-a-socket", sys.O_CREAT | sys.O_RDWR, 420))
   relay_refused(tmp, probe, { offline = true, promises = {}, relay = { fd = file } }, "Not a socket")
   relay_refused(tmp, probe, { strict = true, offline = true, promises = {},
@@ -191,9 +192,9 @@ local function test_a_channel_that_is_no_socket_fails_the_start_naming_the_relay
 end
 
 local function test_a_channel_not_open_is_refused_before_a_child(tmp: string)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.syscalls_relay_fake"))
   -- A number no descriptor of this worker is: it holds a few dozen.
-  local pid, _, errno = start(tmp, probe, "sleep 1", { offline = true, promises = {},
+  local pid, _, errno = start(tmp, probe, { "sleep", "1" }, { offline = true, promises = {},
     relay = { fd = 999 } })
   assert(pid == nil and errno == sys.EBADF, "a descriptor not open is EBADF")
 end
@@ -202,9 +203,9 @@ end
 --- port this worker listens on is nothing; and one with no family named
 --- makes no socket at all.
 local function test_an_offline_childs_loopback_is_its_own(tmp: string)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.syscalls_relay_fake"))
   local alone = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-  local target = "connect-tcp 127.0.0.1 " .. tostring(assert(alone.address.port))
+  local target = { "connect-tcp", "127.0.0.1", tostring(assert(alone.address.port)) }
   local private, why = start(tmp, probe, target,
     { offline = true, promises = {}, sockets = { "inet" } })
   if private == nil then

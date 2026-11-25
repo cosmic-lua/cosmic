@@ -1,8 +1,8 @@
 --- `spawn`'s `promises` beside the namespaces a child makes for itself
 --- (core/promises.h's COSMIC_HELD_ bits), on a live child: the kernel's own
 --- verdict on the calls the filter lets through only where a namespace or
---- a ruleset holds what they reach. The child is a fake
---- ([`cosmic.fake`]). Where the platform has no sandbox they are not
+--- a ruleset holds what they reach. The child is a fake built from
+--- build/promises_held_child_fake.tl, which runs the case its args name. Where the platform has no sandbox they are not
 --- applicable, and where this host gives no user namespace, seccomp or
 --- Landlock they are skipped (`requires`). The filter's own rules, on both
 --- architectures, are core/promises_test.tl's.
@@ -17,6 +17,8 @@ local type raw_process = require("cosmic.internal.process")
 -- Required, so the module whose loader is handed the raw table is of this
 -- test's import closure, and the store has it to hand it from.
 local type _ = require("cosmic.child")
+-- Required, so the fake's main is of this test's closure.
+local _ = require("build.promises_held_child_fake")
 
 --- `nests`, since the children these tests start make namespaces of their
 --- own, which a worker held by a Landlock ruleset cannot start; and a
@@ -36,19 +38,26 @@ Test.policy{
 
 local process = require("cosmic.internal.process")
 
---- What a script left on stdout and stderr, and how its program ended.
+--- `program` and the case `args` it runs, as its argv.
+local function argv_of(program: string, args: {string}): {string}
+  local argv: mut {string} = { program }
+  for _, word in ipairs(args) do argv[#argv + 1] = word end
+  return argv
+end
+
+--- What a case left on stdout and stderr, and how its program ended.
 local record Outcome
   code: integer
   signal: integer
   said: string
 end
 
---- Runs `script` in a fake held to no promise, in a directory of `tmp`'s: its
+--- Runs the case `args` in a fake held to no promise, in a directory of `tmp`'s: its
 --- output and how it ended, with the host's own pid namespace.
-local function under(tmp: string, probe: string, script: string): Outcome
+local function under(tmp: string, probe: string, args: {string}): Outcome
   local path = tmp .. "/said"
   local output = assert(sys.open(path, sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
-  local pid = assert(process.spawn(probe, { probe, script }, nil, nil, nil, output, output, false, nil,
+  local pid = assert(process.spawn(probe, argv_of(probe, args), nil, nil, nil, output, output, false, nil,
     { promises = {} }))
   local status = assert(process.waitpid(pid, false))
   sys.close(output)
@@ -56,15 +65,15 @@ local function under(tmp: string, probe: string, script: string): Outcome
   return { code = status.code, signal = status.signal, said = got or "" }
 end
 
---- Runs `script` in a fake started with `sandbox` (its `promises`
+--- Runs the case `args` in a fake started with `sandbox` (its `promises`
 --- among them): its output and how it ended. Skips the test where the
 --- start is refused, as the kernel gives no sandbox of that kind, which
 --- only the start can tell.
-local function in_sandbox(tmp: string, probe: string, sandbox: raw_process.Sandbox, script: string,
+local function in_sandbox(tmp: string, probe: string, sandbox: raw_process.Sandbox, args: {string},
                           fds?: {integer:integer}): Outcome
   local path = tmp .. "/said"
   local output = assert(sys.open(path, sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
-  local pid, trouble = process.spawn(probe, { probe, script }, nil, "/", nil, output, output, false,
+  local pid, trouble = process.spawn(probe, argv_of(probe, args), nil, "/", nil, output, output, false,
     fds, sandbox)
   if pid == nil then
     sys.close(output)
@@ -77,27 +86,27 @@ local function in_sandbox(tmp: string, probe: string, sandbox: raw_process.Sandb
 end
 
 local function test_a_child_in_a_user_namespace_of_its_own_sets_its_own_limits(tmp: string)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.promises_held_child_fake"))
   local lowers = in_sandbox(tmp, probe, { promises = {}, offline = true },
-    "setrlimit nofile 64; rlimit nofile")
+    { "set-and-show", "nofile", "64" })
   -- Whoever started it, whatever capability that has: the namespace's are the
   -- initial one's no more.
   assert(lowers.code == 0 and lowers.said == "set\nnofile 64 64\n", "it lowers them: " .. lowers.said)
   local raises = in_sandbox(tmp, probe, { promises = {}, offline = true },
-    "setrlimit nofile 64; setrlimit nofile 128")
+    { "set-twice", "nofile", "64", "128" })
   assert(raises.code == 1 and raises.said:find("not permitted", 1, true) ~= nil, "it raises none: " .. raises.said)
 end
 
 local function test_a_child_asks_after_any_pid_only_in_a_pid_namespace_of_its_own(tmp: string)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.promises_held_child_fake"))
   -- The first process of the namespace is pid 1, which this one is not.
   local own = in_sandbox(tmp, probe, { promises = {}, unveil = { reads = { probe, "/proc", "/dev/null" } } },
-    "getpgid 1")
+    { "getpgid", "1" })
   assert(own.code == 0 and own.said:find("pgid ", 1, true) == 1, "pid 1 is its own: " .. own.said)
-  local host = under(tmp, probe, "getpgid 1")
+  local host = under(tmp, probe, { "getpgid", "1" })
   assert(host.code == 1 and host.said:find("not permitted", 1, true) ~= nil,
     "in the host's, no pid but its own: " .. host.said)
-  local itself = under(tmp, probe, "getpgid 0")
+  local itself = under(tmp, probe, { "getpgid", "0" })
   assert(itself.code == 0, itself.said)
 end
 
@@ -116,9 +125,9 @@ local function test_a_unix_socket_is_made_only_where_the_root_the_network_and_la
     Test.skip("no Landlock here: " .. tostring(trouble))
     return
   end
-  local probe = assert(Fake.build(tmp .. "/fake"))
-  local script = "connect /none.sock"
-  local held = in_sandbox(tmp, probe, rooted(probe, true), script)
+  local probe = assert(Fake.build(tmp .. "/fake", "build.promises_held_child_fake"))
+  local args = { "connect", "/none.sock" }
+  local held = in_sandbox(tmp, probe, rooted(probe, true), args)
   -- A root that shows no directory and no socket file holds it on every ABI,
   -- and Landlock does from ABI 9 whatever the root shows.
   -- A worker whose own filter refuses unix sockets passes that on to every
@@ -128,12 +137,12 @@ local function test_a_unix_socket_is_made_only_where_the_root_the_network_and_la
     assert(held.said:find("not permitted", 1, true) == nil, "made where held: " .. held.said)
   end
   -- Never without the network namespace, where a name it binds is the host's to find.
-  local shared = in_sandbox(tmp, probe, rooted(probe, false), script)
+  local shared = in_sandbox(tmp, probe, rooted(probe, false), args)
   assert(shared.said:find("not permitted", 1, true), "refused without its own network: " .. shared.said)
   -- Nor without a root of its own, whose files are the host's.
   local open: raw_process.Sandbox = { offline = true, promises = {},
     grants = { { path = probe, access = "rx" } } }
-  local unrooted = in_sandbox(tmp, probe, open, script)
+  local unrooted = in_sandbox(tmp, probe, open, args)
   assert(unrooted.said:find("not permitted", 1, true), "refused without a root of its own: " .. unrooted.said)
   if unmade ~= nil then Test.skip(unmade) end
 end
@@ -168,16 +177,16 @@ local function test_a_root_of_its_own_tmpfs_alone_makes_a_unix_socket_there(tmp:
     return
   end
   unix_socket.skip_if_refused(tmp)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.promises_held_child_fake"))
   -- What it makes in its own /tmp it also reaches there, whatever Landlock's ABI.
-  local made = in_sandbox(tmp, probe, rooted_with(probe, {}), "loopback-unix /tmp/pair.sock")
+  local made = in_sandbox(tmp, probe, rooted_with(probe, {}), { "loopback-unix", "/tmp/pair.sock" })
   assert(made.code == 0 and made.said == "connected\n", "made in its own tmpfs: " .. made.said)
   -- A file that is no socket beside it changes nothing.
-  local beside = in_sandbox(tmp, probe, rooted_with(probe, { "/dev/zero" }), "loopback-unix /tmp/pair.sock")
+  local beside = in_sandbox(tmp, probe, rooted_with(probe, { "/dev/zero" }), { "loopback-unix", "/tmp/pair.sock" })
   assert(beside.code == 0 and beside.said == "connected\n", "beside a file: " .. beside.said)
   -- Never beyond its own network: an abstract name is the namespace's.
   local shared = { ...rooted_with(probe, {}), offline = false }
-  local open = in_sandbox(tmp, probe, shared, "loopback-unix /tmp/pair.sock")
+  local open = in_sandbox(tmp, probe, shared, { "loopback-unix", "/tmp/pair.sock" })
   assert(refused(open.said), "refused without its own network: " .. open.said)
 end
 
@@ -189,29 +198,29 @@ end
 
 local function test_a_nest_start_with_a_root_of_files_alone_makes_a_unix_socket(tmp: string)
   unix_socket.skip_if_refused(tmp)
-  local probe = assert(Fake.build(tmp .. "/fake"))
-  local made = in_sandbox(tmp, probe, nesting(probe, {}), "loopback-unix /tmp/pair.sock")
+  local probe = assert(Fake.build(tmp .. "/fake", "build.promises_held_child_fake"))
+  local made = in_sandbox(tmp, probe, nesting(probe, {}), { "loopback-unix", "/tmp/pair.sock" })
   assert(made.code == 0 and made.said == "connected\n", "made in its own tmpfs: " .. made.said)
   -- A file that is no socket beside it changes nothing.
-  local beside = in_sandbox(tmp, probe, nesting(probe, { "/dev/zero" }), "loopback-unix /tmp/pair.sock")
+  local beside = in_sandbox(tmp, probe, nesting(probe, { "/dev/zero" }), { "loopback-unix", "/tmp/pair.sock" })
   assert(beside.code == 0 and beside.said == "connected\n", "beside a file: " .. beside.said)
   -- Never without a network namespace of its own, where an abstract name is the host's.
   local shared = { ...nesting(probe, {}), offline = false }
-  local open = in_sandbox(tmp, probe, shared, "loopback-unix /tmp/pair.sock")
+  local open = in_sandbox(tmp, probe, shared, { "loopback-unix", "/tmp/pair.sock" })
   assert(refused(open.said), "refused without its own network: " .. open.said)
 end
 
 local function test_a_nest_start_whose_root_shows_a_host_directory_or_socket_is_refused_a_unix_socket(tmp: string)
   unix_socket.skip_if_refused(tmp)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.promises_held_child_fake"))
   local socket, listener = host_socket(tmp)
-  local control = in_sandbox(tmp, probe, nesting(probe, {}), "connect /none.sock")
+  local control = in_sandbox(tmp, probe, nesting(probe, {}), { "connect", "/none.sock" })
   assert(not refused(control.said), "held, with nothing shown: " .. control.said)
   -- No Landlock ABI tells the host's socket from the program's own, whatever
   -- the kernel gives: the root is all that holds a nest start.
-  local directory = in_sandbox(tmp, probe, nesting(probe, { tmp .. "/socks" }), "connect " .. socket)
+  local directory = in_sandbox(tmp, probe, nesting(probe, { tmp .. "/socks" }), { "connect", socket })
   assert(refused(directory.said), "a directory of the host: " .. directory.said)
-  local file = in_sandbox(tmp, probe, nesting(probe, { socket }), "connect " .. socket)
+  local file = in_sandbox(tmp, probe, nesting(probe, { socket }), { "connect", socket })
   assert(refused(file.said), "a socket file of the host: " .. file.said)
   assert(listener:close())
 end
@@ -223,14 +232,14 @@ local function test_a_root_that_shows_a_directory_of_the_host_is_held_by_landloc
     return
   end
   unix_socket.skip_if_refused(tmp)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.promises_held_child_fake"))
   local socket, listener = host_socket(tmp)
-  local control = in_sandbox(tmp, probe, rooted_with(probe, {}), "connect /none.sock")
+  local control = in_sandbox(tmp, probe, rooted_with(probe, {}), { "connect", "/none.sock" })
   assert(not refused(control.said), "held, with nothing shown: " .. control.said)
   -- The directory holds a socket a host service made: below ABI 9 nothing
   -- else tells it from the program's own, so socket() is refused; from
   -- ABI 9 it is made and the connect is refused by Landlock.
-  local shown = in_sandbox(tmp, probe, rooted_with(probe, { tmp .. "/socks" }), "connect " .. socket)
+  local shown = in_sandbox(tmp, probe, rooted_with(probe, { tmp .. "/socks" }), { "connect", socket })
   assert(shown.said ~= "connected\n", "not reached: " .. shown.said)
   if abi < 9 then assert(refused(shown.said), "socket() refused below ABI 9: " .. shown.said) end
   assert(listener:close())
@@ -243,11 +252,11 @@ local function test_a_socket_file_in_the_root_is_not_held_below_abi_9(tmp: strin
     return
   end
   unix_socket.skip_if_refused(tmp)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.promises_held_child_fake"))
   local socket, listener = host_socket(tmp)
-  local control = in_sandbox(tmp, probe, rooted_with(probe, {}), "connect /none.sock")
+  local control = in_sandbox(tmp, probe, rooted_with(probe, {}), { "connect", "/none.sock" })
   assert(not refused(control.said), "held, with nothing shown: " .. control.said)
-  local shown = in_sandbox(tmp, probe, rooted_with(probe, { socket }), "connect " .. socket)
+  local shown = in_sandbox(tmp, probe, rooted_with(probe, { socket }), { "connect", socket })
   assert(shown.said ~= "connected\n", "not reached: " .. shown.said)
   if abi < 9 then assert(refused(shown.said), "socket() refused below ABI 9: " .. shown.said) end
   assert(listener:close())
@@ -263,12 +272,12 @@ local function test_a_descriptor_that_opens_a_directory_or_a_socket_is_not_held_
     return
   end
   unix_socket.skip_if_refused(tmp)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.promises_held_child_fake"))
   local socket, listener = host_socket(tmp)
   local sandbox = rooted_with(probe, {})
   -- A file descriptor leads nowhere beyond its file.
   local file = assert(sys.open(tmp .. "/file", sys.O_CREAT | sys.O_RDWR, 420))
-  local plain = in_sandbox(tmp, probe, sandbox, "connect /none.sock", { [3] = file })
+  local plain = in_sandbox(tmp, probe, sandbox, { "connect", "/none.sock" }, { [3] = file })
   sys.close(file)
   assert(not refused(plain.said), "held with a file handed: " .. plain.said)
   -- A directory is a way to its sockets (/proc/self/fd/N/host.sock), and
@@ -282,7 +291,7 @@ local function test_a_descriptor_that_opens_a_directory_or_a_socket_is_not_held_
   local ways: {Way} = { { fd = directory, path = "/proc/self/fd/3/host.sock" },
     { fd = named, path = "/proc/self/fd/3" } }
   for _, way in ipairs(ways) do
-    local result = in_sandbox(tmp, probe, rooted_with(probe, {}), "connect " .. way.path, { [3] = way.fd })
+    local result = in_sandbox(tmp, probe, rooted_with(probe, {}), { "connect", way.path }, { [3] = way.fd })
     assert(result.said ~= "connected\n", "not reached: " .. result.said)
     if abi < 9 then
       assert(refused(result.said), "socket() refused below ABI 9: " .. result.said)
@@ -293,11 +302,11 @@ local function test_a_descriptor_that_opens_a_directory_or_a_socket_is_not_held_
   assert(listener:close())
 end
 
---- Starts `sandbox` with the fake, with no script of weight: the pid,
+--- Starts `sandbox` with the fake, with no case of weight: the pid,
 --- or nil and why the start failed (empty text beside a pid).
 local function start(probe: string, sandbox: raw_process.Sandbox): integer?, string
   local null = assert(sys.open("/dev/null", sys.O_RDWR))
-  local pid, trouble = process.spawn(probe, { probe, "print started" }, nil, "/", nil, null, null, false,
+  local pid, trouble = process.spawn(probe, { probe, "print", "started" }, nil, "/", nil, null, null, false,
     nil, sandbox)
   sys.close(null)
   if pid == nil then return nil, trouble end
@@ -313,7 +322,7 @@ local function test_a_unix_socket_below_abi_9_fails_a_start_that_binds_a_directo
   end
   -- Read before the local function below, after which the checker no longer knows `abi` is set.
   local below_abi_9 = abi < 9
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.promises_held_child_fake"))
   assert(Fs.mkdirs(tmp .. "/socks"))
   assert(Fs.write(tmp .. "/u.file", "x"))
   -- A `u` grant allows unix sockets (the start's `sockets`), so the root alone must
@@ -345,11 +354,11 @@ local function test_a_path_swapped_for_a_directory_after_the_check_fails_the_sta
   if abi >= 9 then
     Test.skip("this test is about a kernel below Landlock ABI 9, and this one gives " .. tostring(abi))
   end
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.promises_held_child_fake"))
   assert(Fs.write(tmp .. "/swap-a", "x"))
   assert(Fs.mkdirs(tmp .. "/swap-b"))
   local null = assert(sys.open("/dev/null", sys.O_RDWR))
-  local racer, started = process.spawn(probe, { probe, "flip " .. tmp .. "/swap-a " .. tmp .. "/swap-b" },
+  local racer, started = process.spawn(probe, { probe, "flip", tmp .. "/swap-a", tmp .. "/swap-b" },
     nil, "/", nil, null, null, false, nil, nil)
   sys.close(null)
   assert(racer ~= nil, tostring(started))
