@@ -20,7 +20,10 @@ local type _ = require("build.verb_list")
 local type _ = require("cosmic.mcp.server")
 local this_program = require("build.this_program")
 
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "/bin/sh", letters = "r" }, { path = "/bin/sleep", letters = "r" }, { path = "/usr/bin/sleep", letters = "r" }, { path = "/usr/bin/setsid", letters = "r" } } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "/bin/sh", letters = "r" }, { path = "/bin/sleep", letters = "r" }, { path = "/usr/bin/sleep", letters = "r" }, { path = "/usr/bin/setsid", letters = "r" } },
+  -- CI's suites give a test 10 s. On a loaded macOS runner a worker test started with the suite ran past that
+  -- (portable suite, run 45557741219). A test that hangs still ends at this bound.
+  timeout = 30 }
 
 --- A set whose worker is `cosmic agent worker` of this program, as the agent starts it. Its first snippet answers in
 --- about 60 ms; a child of this module ([`build.test_child`]) took 1.3 s, checking its `-e` chunk and loading the
