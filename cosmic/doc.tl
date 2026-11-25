@@ -2742,7 +2742,6 @@ function Doc.uses(view: Doc.View, query: string): ({Doc.Use}) | (nil, Failure)
   return value
 end
 
---- The exported functions of `db` whose signature names a parameter `word` (`path` of `Fs.basename(path: string)`).
 --- Whether the function `signature` writes has a parameter named `word` in its own list, not in a function type one of
 --- its parameters has.
 local function takes_name(signature: string, word: string): boolean
@@ -2766,6 +2765,7 @@ local function takes_name(signature: string, word: string): boolean
   return false
 end
 
+--- The exported functions of `db` whose signature names a parameter `word` (`path` of `Fs.basename(path: string)`).
 local function taking_of(db: Sqlite.Handle, public: boolean, word: string): {Doc.Taking}?, string
   local rows, trouble = db:rows(
     "SELECT module, symbol, signature FROM docs WHERE kind = 'function' AND exported = 1 AND " ..

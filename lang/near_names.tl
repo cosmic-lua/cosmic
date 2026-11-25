@@ -60,6 +60,7 @@ end
 ---     print(NearNames.cut("abcdef", 5)) -- ab...
 function NearNames.cut(text: string, most: integer): string
   if #text <= most then return text end
+  if most < 3 then return "" end
   local at = most - 3
   -- A byte 10xxxxxx continues a character: back up to the start of one.
   while at > 0 and (text:byte(at + 1) or 0) & 0xC0 == 0x80 do at = at - 1 end
@@ -72,12 +73,12 @@ end
 ---     print(NearNames.cut_signature("function(path: string, mode: integer): string", 35)) -- function(path: string, ...): string
 function NearNames.cut_signature(text: string, most: integer): string
   if #text <= most then return text end
-  if text:sub(1, 1) == "(" and text:sub(-2) == ")?" then
+  if text:sub(1, 1) == "(" and text:sub(-2) == ")?" and most > 3 then
     return "(" .. NearNames.cut_signature(text:sub(2, -3), most - 3) .. ")?"
   end
   local open = text:find("(", 1, true)
   if text:sub(1, 8) ~= "function" or open == nil then return NearNames.cut(text, most) end
-  -- The parameters at depth 0 of the list `open` begins, each ending at its `,` or at the list's `)`.
+  -- The ends of the parameters at depth 0 of the list `open` begins, before each `,`; `close` is the list's `)`.
   local ends: mut {integer} = {}
   local close: integer? = nil
   local depth = 0
