@@ -306,6 +306,10 @@ local record Ctx
   --- The locals the assignment being checked assigns, whose function literals name them while they are unset.
   mut assigning: {integer: boolean}
   mut quiet: integer
+  --- How many quiet walks that test a proof of keys ([`Writes.keeps_length`] with calls pending) the walk is inside: a
+  --- loop or a range test within one takes its proof on trust, and the walk after tests it, so the cost of nested proofs
+  --- stays linear in their depth.
+  mut proving: integer
   --- How many `<close>` locals the walk is inside the scope of: a handler runs when the scope ends, so no test of the
   --- length of an array is believed there ([`Tests.length_edges`]).
   mut closers: integer

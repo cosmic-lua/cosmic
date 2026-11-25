@@ -27,7 +27,7 @@ local record Given
   fix_refuses_journal?: boolean
 end
 
-local GIVEN <const> = Shape.record_of("Given")
+local GIVEN <const> = Shape.record_of("Given"):strict()
 
 local function main(argv: {string}): integer
   local given, trouble = Shape.decode_into(Fake.given() or "{}", GIVEN.spec)

@@ -20,7 +20,7 @@ local function test_federation_exchanges_the_identity_token()
   local function get(name: string): string? return env[name] end
   local bodies: mut {{string: Json.Value}} = {}
   local status = 200
-  local send = function(method: string, url: string, opts: Http.Options): Http.Body?, string
+  local send = function(method: string, url: string, opts: Http.RequestOptions): Http.Body?, string
     assert(method == "POST" and url == "https://api.test/v1/oauth/token", url)
     local decoded = assert(Json.decode_object(opts.body or ""))
     bodies[#bodies + 1] = decoded

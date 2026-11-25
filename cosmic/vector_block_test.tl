@@ -5,6 +5,7 @@
 --- per-row scan and of a corpus in the same storage, under every metric;
 --- a malformed block is refused, never read past.
 
+local type Failure = require("cosmic.failure")
 local Signal = require("cosmic.signal")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
@@ -37,7 +38,7 @@ end
 
 local function refused(db: Sqlite.Handle, sql: string, words: string, values?: {Sqlite.Value})
   local why = VectorFixture.refusal(db, sql, values)
-  assert(why:find(words, 1, true) ~= nil, sql .. " refused with " .. why)
+  assert(tostring(why):find(words, 1, true) ~= nil, sql .. " refused with " .. tostring(why))
 end
 
 local function count_of(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): integer
@@ -47,7 +48,7 @@ end
 
 --- The corpus a lone block loads into, or nil and why it is not a block:
 --- what its header says is the corpus's dimensions, storage and count.
-local function read_block(db: Sqlite.Handle, block: string): Vector.Corpus?, string
+local function read_block(db: Sqlite.Handle, block: string): (Vector.Corpus) | (nil, Failure)
   return Vector.load_blocks(db, "SELECT ?1", { { blob = block } })
 end
 
@@ -365,11 +366,12 @@ local function test_malformed_blocks_are_refused()
     end
     for blob, words in pairs(cases) do
       local why = search(blob)
-      assert(why:find(words, 1, true) ~= nil, storage .. ": " .. words .. " vs " .. why)
+      assert(tostring(why):find(words, 1, true) ~= nil, storage .. ": " .. words .. " vs " .. tostring(why))
       local held = Vector.corpus(2, { storage = storage })
       local ok, err = pcall(held.add_block, held, blob)
       assert(not ok and tostring(err):find(words, 1, true) ~= nil, storage .. ": " .. tostring(err))
-      assert(read_block(db, blob) == nil)
+      local unread, _ = read_block(db, blob)
+      assert(unread == nil)
     end
     assert(search("", 2):find("not a vector block", 1, true) ~= nil)
     refused(db, "SELECT id FROM vector_block_search('a block', ?1, 1, 'l2')", "is a blob", { { blob = query } })
@@ -569,15 +571,15 @@ end
 local function test_load_blocks_refuses_what_is_not_a_block()
   local db = assert(Sqlite.memory())
   local _, why = Vector.load_blocks(db, "SELECT x'00' WHERE 0")
-  assert(why:find("no rows", 1, true) ~= nil, why)
+  assert(tostring(why):find("no rows", 1, true) ~= nil, tostring(why))
   _, why = Vector.load_blocks(db, "SELEC")
-  assert(why:find("syntax error", 1, true) ~= nil, why)
+  assert(tostring(why):find("syntax error", 1, true) ~= nil, tostring(why))
   _, why = Vector.load_blocks(db, "SELECT 1")
-  assert(why:find("row 1", 1, true) ~= nil and why:find("vector block", 1, true) ~= nil, why)
+  assert(tostring(why):find("row 1", 1, true) ~= nil and tostring(why):find("vector block", 1, true) ~= nil, tostring(why))
   _, why = Vector.load_blocks(db, "SELECT x'00'")
-  assert(why:find("row 1: not a vector block", 1, true) ~= nil, why)
+  assert(tostring(why):find("row 1: not a vector block", 1, true) ~= nil, tostring(why))
   _, why = Vector.load_blocks(db, "SELECT 1", nil, { storage = "f16" })
-  assert(why:find("row 1", 1, true) ~= nil, why)
+  assert(tostring(why):find("row 1", 1, true) ~= nil, tostring(why))
   assert(db:exec([[
     CREATE TABLE r (id INTEGER, v BLOB);
     INSERT INTO r VALUES (1, vector('[1,2]')), (2, vector('[1,2,3]')), (3, vector('[70000, 1]'));
@@ -585,9 +587,9 @@ local function test_load_blocks_refuses_what_is_not_a_block()
     INSERT INTO blocks SELECT id, vector_block(id, v) FROM r GROUP BY id;
   ]]))
   _, why = Vector.load_blocks(db, "SELECT b FROM blocks WHERE n < 3 ORDER BY n")
-  assert(why:find("row 2: ", 1, true) ~= nil and why:find("dimensions are not the corpus's", 1, true) ~= nil, why)
+  assert(tostring(why):find("row 2: ", 1, true) ~= nil and tostring(why):find("dimensions are not the corpus's", 1, true) ~= nil, tostring(why))
   _, why = Vector.load_blocks(db, "SELECT b FROM blocks WHERE n IN (1, 3) ORDER BY n", nil, { storage = "f16" })
-  assert(why:find("row 2: ", 1, true) ~= nil and why:find("under 65520", 1, true) ~= nil, why)
+  assert(tostring(why):find("row 2: ", 1, true) ~= nil and tostring(why):find("under 65520", 1, true) ~= nil, tostring(why))
   local f32 = assert(Vector.load_blocks(db, "SELECT b FROM blocks WHERE n IN (1, 3) ORDER BY n"))
   assert(f32:count() == 2)
   -- A refused block adds nothing to a corpus that already holds rows.
@@ -696,9 +698,9 @@ local function test_a_block_a_corpus_would_refuse_loads_nowhere()
     end
     for blob, why in pairs(cases) do
       local _, trouble = read_block(db, blob)
-      assert(trouble:find(why, 1, true) ~= nil, storage .. ": " .. why .. " vs " .. trouble)
+      assert(tostring(trouble):find(why, 1, true) ~= nil, storage .. ": " .. tostring(why) .. " vs " .. tostring(trouble))
       local fresh = Vector.corpus(2, { storage = storage })
-      Test.raises(function() fresh:add_block(blob) end, why)
+      Test.raises(function() fresh:add_block(blob) end, tostring(why))
       assert(fresh:count() == 0)
       -- The search takes it: its numbers are not read again.
       local found = hits_of(db, "SELECT id, distance FROM vector_block_search(?1, ?2, 3, 'l2')",

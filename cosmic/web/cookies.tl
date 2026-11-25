@@ -8,13 +8,14 @@
 --- [`Cookies.format`] refuses, rather than lets a browser drop silently, a
 --- name or value that is not a cookie's, a `__Host-` or `__Secure-` name
 --- without the attributes its prefix needs, `SameSite=None` without
---- `Secure`, and a line over 4096 bytes. It returns `nil` and why, as any
+--- `Secure`, and a line over 4096 bytes. It returns `nil` and a [`Failure`], as any
 --- failure of data does. Defaults are the safe ones: path `/`, `HttpOnly`,
 --- `SameSite=Lax`, no `Domain` (a host-only cookie), and `Secure` only when
 --- asked for: the function cannot know the scheme, so
 --- [`cosmic.web.session`] decides it from the request.
 --- @public
 
+local Failure = require("cosmic.failure")
 local String = require("cosmic.string")
 local Response = require("cosmic.web.response")
 local Time = require("cosmic.time")
@@ -151,7 +152,7 @@ local function is_attribute_value(text: string): boolean
   return text ~= "" and text:find("[%c; ]") == nil
 end
 
---- The `Set-Cookie` line for a cookie, or nil and why: the name is no
+--- The `Set-Cookie` line for a cookie, or nil and a [`Failure`] saying why: the name is no
 --- token, the value holds a byte a cookie cannot, a `Path` or `Domain` is
 --- unusable, `__Host-` lacks `Secure`, `Path=/` or is given a `Domain`,
 --- `__Secure-` lacks `Secure`, `SameSite=None` or `Partitioned` lack
@@ -162,24 +163,24 @@ end
 --- @param value string The value: cookie-octets only; escape other text
 --- @param attrs Cookies.Attributes | nil The attributes
 --- @return string | nil The line
---- @return string Why none, or ""
-function Cookies.format(name: string, value: string, attrs?: Cookies.Attributes): string?, string
+--- @return Failure Why none
+function Cookies.format(name: string, value: string, attrs?: Cookies.Attributes): (string) | (nil, Failure)
   local a: Cookies.Attributes = attrs or {}
   if not is_token(name) then
-    return nil, "cookies: the name is not a token"
+    return nil, Failure.new("cookies: the name is not a token")
   end
   if not is_cookie_value(value) then
-    return nil, "cookies: the value of " .. name .. " holds a byte a cookie cannot (control, space, a quote, a comma, a semicolon or a backslash)"
+    return nil, Failure.new("cookies: the value of " .. name .. " holds a byte a cookie cannot (control, space, a quote, a comma, a semicolon or a backslash)")
   end
   local path = a.path or "/"
   if not is_attribute_value(path) then
-    return nil, "cookies: the path of " .. name .. " holds a control byte, space or ';'"
+    return nil, Failure.new("cookies: the path of " .. name .. " holds a control byte, space or ';'")
   end
   local domain = a.domain
   if domain ~= nil then
     domain = domain:gsub("^%.", "")
     if not is_attribute_value(domain) then
-      return nil, "cookies: the domain of " .. name .. " is not usable"
+      return nil, Failure.new("cookies: the domain of " .. name .. " is not usable")
     end
   end
   local same_site = a.same_site or "Lax"
@@ -190,18 +191,18 @@ function Cookies.format(name: string, value: string, attrs?: Cookies.Attributes)
   end
   local secure = a.secure == true
   if same_site == "None" and not secure then
-    return nil, "cookies: SameSite=None needs Secure; browsers drop the cookie otherwise"
+    return nil, Failure.new("cookies: SameSite=None needs Secure; browsers drop the cookie otherwise")
   end
   if a.partitioned == true and not secure then
-    return nil, "cookies: Partitioned needs Secure"
+    return nil, Failure.new("cookies: Partitioned needs Secure")
   end
   local prefix = name:lower()
   if prefix:sub(1, 7) == "__host-" then
     if not secure or path ~= "/" or domain ~= nil then
-      return nil, "cookies: " .. name .. " needs Secure, Path=/ and no Domain (a __Host- cookie)"
+      return nil, Failure.new("cookies: " .. name .. " needs Secure, Path=/ and no Domain (a __Host- cookie)")
     end
   elseif prefix:sub(1, 9) == "__secure-" and not secure then
-    return nil, "cookies: " .. name .. " needs Secure (a __Secure- cookie)"
+    return nil, Failure.new("cookies: " .. name .. " needs Secure (a __Secure- cookie)")
   end
   local parts: mut {string} = { name .. "=" .. value, "Path=" .. path }
   local max_age = a.max_age
@@ -220,22 +221,22 @@ function Cookies.format(name: string, value: string, attrs?: Cookies.Attributes)
   if a.partitioned == true then parts[#parts + 1] = "Partitioned" end
   local line = table.concat(parts, "; ")
   if #line > MAX_LINE then
-    return nil, ("cookies: %s would be %s; browsers keep at most %s"):format(name, String.counted(#line, "byte"),
-      String.counted(MAX_LINE, "byte"))
+    return nil, Failure.new(("cookies: %s would be %s; browsers keep at most %s"):format(name, String.counted(#line, "byte"),
+      String.counted(MAX_LINE, "byte")))
   end
-  return line, ""
+  return line
 end
 
 --- A `Set-Cookie` line that deletes `name`: an empty value with
 --- `Max-Age=0` and an `Expires` in 1970, for a client that ignores the
 --- first. Its `path`, `domain`, `secure` and `partitioned` must be those
---- the cookie was set with, or the browser keeps it. Nil and why as
+--- the cookie was set with, or the browser keeps it. Nil and a Failure as
 --- [`Cookies.format`].
 --- @param name string The cookie's name
 --- @param attrs Cookies.Attributes | nil The attributes it was set with
 --- @return string | nil The line
---- @return string Why none, or ""
-function Cookies.expire(name: string, attrs?: Cookies.Attributes): string?, string
+--- @return Failure Why none
+function Cookies.expire(name: string, attrs?: Cookies.Attributes): (string) | (nil, Failure)
   local given: Cookies.Attributes = attrs or {}
   local a: Cookies.Attributes = { path = given.path, domain = given.domain, http_only = given.http_only,
     secure = given.secure, same_site = given.same_site, partitioned = given.partitioned,
@@ -245,36 +246,40 @@ end
 
 --- Appends the line [`Cookies.format`] makes to `res` as a `Set-Cookie`
 --- header, after any already there (a second cookie keeps the first).
---- Nil-and-why as `format`, with `res` unchanged.
+--- False and a Failure as `format` fails, with `res` unchanged.
 --- @param res Types.Response The response
 --- @param name string The cookie's name
 --- @param value string The value
 --- @param attrs Cookies.Attributes | nil The attributes
 --- @return boolean Whether the cookie was added
---- @return string Why not, or ""
+--- @return Failure Why not
 function Cookies.set(res: Types.Response, name: string, value: string,
-                     attrs?: Cookies.Attributes): boolean, string
+                     attrs?: Cookies.Attributes): (true) | (false, Failure)
   local line, why = Cookies.format(name, value, attrs)
   if line == nil then return false, why end
   Response.add_header(res, "Set-Cookie", line)
-  return true, ""
+  return true
 end
 
 --- A `Set-Cookie` line read back as its parts, for the test client's
 --- cookie jar and nothing else: it is lenient (an attribute it does not
 --- know is skipped, a date it cannot read is nil) where a browser's
---- parsing is stricter in places. Nil and why for a line with no
+--- parsing is stricter in places. Nil and a Failure for a line with no
 --- `name=value`.
 --- @param line string The header's value
 --- @return Cookies.Parsed | nil The parts
---- @return string Why none, or ""
-function Cookies.parse_set_cookie(line: string): Cookies.Parsed?, string
+--- @return Failure Why none
+function Cookies.parse_set_cookie(line: string): (Cookies.Parsed) | (nil, Failure)
   local first, rest = line:match("^([^;]*)(.*)$")
-  if first == nil or rest == nil then return nil, "cookies: a Set-Cookie line needs name=value" end
+  if first == nil or rest == nil then
+    return nil, Failure.new("cookies: a Set-Cookie line needs name=value")
+  end
   local name, value = first:match("^([^=]*)=(.*)$")
-  if name == nil or value == nil then return nil, "cookies: a Set-Cookie line needs name=value" end
+  if name == nil or value == nil then
+    return nil, Failure.new("cookies: a Set-Cookie line needs name=value")
+  end
   name = String.trim(name)
-  if name == "" then return nil, "cookies: a Set-Cookie line needs a name" end
+  if name == "" then return nil, Failure.new("cookies: a Set-Cookie line needs a name") end
   local parsed: Cookies.Parsed = { name = name, value = String.trim(value), secure = false,
     http_only = false, partitioned = false }
   for piece in rest:gmatch(";([^;]*)") do
@@ -311,7 +316,7 @@ function Cookies.parse_set_cookie(line: string): Cookies.Parsed?, string
       end
     end
   end
-  return parsed, ""
+  return parsed
 end
 
 return Cookies

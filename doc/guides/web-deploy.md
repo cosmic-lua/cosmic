@@ -101,7 +101,7 @@ end
 --- The settings `env` holds, or nil and why.
 function Config.read(env: {string:string}): Config.Settings?, string
   local keys, why = Secret.parse_keys(env["HELLO_KEYS"] or "", "HELLO_KEYS")
-  if keys == nil then return nil, why end
+  if keys == nil then return nil, tostring(why) end
   local listen = env["HELLO_LISTEN"] or "127.0.0.1:8080"
   local host, text = listen:match("^(.+):(%d+)$")
   local port: integer? = nil

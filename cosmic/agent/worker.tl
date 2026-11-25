@@ -13,7 +13,8 @@
 --- The worker reads requests, `{"id":1,"code":"..."}`, one JSON object a line, and responds to each with a response line holding
 --- the request's `id` and one of: `refused`, the checker's lines, for a snippet that did not run; `ok` true and `value`
 --- (the JSON of what it returned, where it returned one, at most 64KB); `ok` false and `error`, for one that raised; or
---- `error` alone, for a request it could not read. What a snippet writes to standard output and standard error goes to
+--- `error` alone, for a request it could not read. One of a snippet that ran may hold `changes`, the files it changed
+--- through Host.edit and Host.write, for a person to see. What a snippet writes to standard output and standard error goes to
 --- the worker's standard error, a pipe this module reads while the snippet runs, between the request's marks
 --- ([`Worker.mark`]): a response line of `ok` gains `output`, all of it as UTF-8 where it is 64KB or less, else its first
 --- 16KB and its last 48KB with a line between them of how many bytes were cut, `cut` true then, and `head_bytes` and
@@ -166,11 +167,9 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
     local strip = not runs and not Sandbox.on_macos()
     for _, grant in ipairs(Sandbox.paths(merged)) do
       -- With no commands, no grant runs a file. The worker is this program, which its start runs as its core
-      -- whatever the policy grants. Outside `isolate` file the core holds its policy again at boot without that `rx`:
-      -- with no grant left with `x` the exec filter holds too, so the worker cannot become another program, nor run
-      -- itself again. A grant of `x` alone is then no grant.
-      -- TODO: under `isolate` file (the agent's Linux policy) the core's `rx` stays the worker's, so it may execve its
-      -- own core again (held as it is, with no fork); Child.start's boot layer under `isolate` file would close it.
+      -- whatever the policy grants. The core holds its policy again at boot without that `rx` (under `isolate` file
+      -- by the names the root binds): with no grant left with `x` the exec filter holds too, so the worker cannot
+      -- become another program, nor run itself again. A grant of `x` alone is then no grant.
       local letters = if not strip then grant.letters else (grant.letters:gsub("x", "")) end
       if letters ~= "" then
         grants[#grants + 1] = { path = grant.path, letters = letters, from = grant.from }

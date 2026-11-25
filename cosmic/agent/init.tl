@@ -107,7 +107,7 @@ local record Agent
   end
 
   --- Opens one request: Http.open's work, so a test can stand in.
-  type Send = function(url: string, opts: Http.Options): Reply?, string
+  type Send = function(url: string, opts: Http.OpenOptions): Reply?, string
 
   --- The most one turn ([`Agent.Session.prompt`], or `resume`) may
   --- spend: each field nil for no limit. The first limit reached ends the
@@ -579,8 +579,10 @@ local function afterward(s: Agent.Session, call: Agent.Call, result: Tools.Resul
   if after == nil then return result end
   local ran, made = pcall(after, call, result)
   if not ran then
-    return { text = "The agent's after hook failed: " .. told(made), is_error = true }
+    return { text = "The agent's after hook failed: " .. told(made), is_error = true, changes = result.changes }
   end
+  -- What the snippet changed is shown whatever the hook made of what the model reads.
+  if made ~= nil and made.changes == nil then made.changes = result.changes end
   return made or result
 end
 
@@ -777,7 +779,7 @@ local function count_of(v?: Json.Value): integer?
 end
 
 --- Opens a request with Http.open.
-local function open(url: string, opts: Http.Options): Agent.Reply?, string
+local function open(url: string, opts: Http.OpenOptions): Agent.Reply?, string
   local res, why = Http.open(url, opts)
   if res == nil then return nil, tostring(why) end
   return {

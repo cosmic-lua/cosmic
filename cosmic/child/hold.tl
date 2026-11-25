@@ -33,8 +33,9 @@ local record Held
   --- /tmp is a tmpfs of the sandbox's own.
   wants_tmp: boolean
   --- The grants the core of a cosmic child holds itself to at boot, the
-  --- policy's without the start's `rx` on that core ([`layer_text`]); nil
-  --- for a host program, and under `isolate` file or `nest`.
+  --- policy's without the start's `rx` on that core ([`layer_text`]), by
+  --- the names the root binds them at under `isolate` file; nil for a host
+  --- program, and under `nest`.
   layer?: mut {raw_process.Grant}
   --- Whether it promises `nest`, which no descriptor to a directory or to a
   --- file open for less than both may be handed to ([`nest_descriptors`]).
@@ -198,6 +199,30 @@ function Hold.lettered(letters: string, letter: string): boolean
   return letters:find(letter, 1, true) ~= nil
 end
 local lettered = Hold.lettered
+
+--- Whether `copy`, the core a child starts by, is a copy of this
+--- process's own core ([`shared_core`]) that one of `grants` other than
+--- `core_grant` gives `x` on by the file it copies; their names are from
+--- `base` where it is given.
+function Hold.copies_granted_core(copy: string, grants: {Rules.Path}, core_grant: Rules.Path?, base?: string): boolean
+  local started, _ = Proc.relaunch()
+  if started == nil then return false end
+  local own = started.argv[1]
+  if own == nil or own == copy then return false end
+  local own_real, _ = sys.realpath(own)
+  if own_real == nil then return false end
+  for _, grant in ipairs(grants) do
+    if grant ~= core_grant and lettered(grant.letters, "x") then
+      local at = grant.from or grant.path
+      if base ~= nil and at:sub(1, 1) ~= "/" then at = base .. "/" .. at end
+      local real, _ = sys.realpath(at)
+      if real ~= nil and (real == own_real or own_real:sub(1, #real + 1) == real .. "/") then
+        return true
+      end
+    end
+  end
+  return false
+end
 
 --- What `isolate` file builds from a policy's grants, resolved against the
 --- directory `base`: each grant's host path (its `from`, else itself) bound

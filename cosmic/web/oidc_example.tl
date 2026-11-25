@@ -23,7 +23,7 @@ function Example.oidc()
   local issuer = "https://id.example.com"
   local nonce: mut {string: string} = {}
   local signer = Key.generate("p256")
-  local function provider(method: string, url: string, _: Http.Options): Http.Body?, string
+  local function provider(method: string, url: string, _: Http.RequestOptions): Http.Body?, string
     local body: Json.Value
     if url == issuer .. "/.well-known/openid-configuration" then
       body = {

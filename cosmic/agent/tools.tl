@@ -26,6 +26,7 @@
 local AgentMcp = require("cosmic.agent.mcp")
 local Clock = require("cosmic.clock")
 local Failure = require("cosmic.failure")
+local type AgentEdit = require("cosmic.agent.edit")
 local Json = require("cosmic.json")
 local RunText = require("cosmic.agent.run_text")
 local Sandbox = require("cosmic.sandbox")
@@ -55,6 +56,22 @@ local record Tools
     --- The whole output, where `text` holds less of it: it is what the
     --- sessions database keeps, and the model is told its id.
     mut raw?: string
+    --- The files a snippet of run changed through Host.edit and Host.write, in order, for a person to see: the model
+    --- reads none of it. A snippet stopped, or past its time, answers none.
+    mut changes?: {Change}
+  end
+
+  --- A file a snippet changed: an edit's replacements (the lines they change, with one of context, each cut to 4KB), or
+  --- the lines a write wrote. It is for a person to see, not a record of every write.
+  record Change
+    --- The file, as the snippet named it.
+    path: string
+    --- An edit's replacements; nil for a write.
+    edits?: {AgentEdit.Replacement}
+    --- How many lines a write wrote; nil for an edit.
+    lines?: integer
+    --- How many changes more the answer had no room for, in a last Change of no path.
+    more?: integer
   end
 
   --- Where a tool runs: the working directory, the database of the
@@ -562,6 +579,36 @@ local function served(context: Tools.Context): Worker.Serve
   end
 end
 
+--- The changes an answer of the worker names (`{path, edits = {{old, new}}}` or `{path, lines}`); nil for none.
+local function changes_in(given?: Json.Value): {Tools.Change}?
+  local list, _ = Json.to_array(given)
+  if list == nil or #list == 0 then return nil end
+  local out: mut {Tools.Change} = {}
+  for _, item in ipairs(list) do
+    local c, _ = Json.to_object(item)
+    local path = c and c["path"]
+    local more = c and c["more"]
+    if more is integer then
+      out[#out + 1] = { path = "", more = more }
+    elseif c ~= nil and path is string then
+      local edits, _ = Json.to_array(c["edits"])
+      if edits ~= nil then
+        local made: mut {AgentEdit.Replacement} = {}
+        for _, e in ipairs(edits) do
+          local r, _ = Json.to_object(e)
+          local old, new = r and r["old"], r and r["new"]
+          if old is string and new is string then made[#made + 1] = { old = old, new = new } end
+        end
+        out[#out + 1] = { path = path, edits = made }
+      else
+        local lines = c["lines"]
+        out[#out + 1] = { path = path, lines = if lines is integer then lines else 0 end }
+      end
+    end
+  end
+  return out
+end
+
 local function run(input: Tools.Object, context: Tools.Context): Tools.Result
   local code, why = text_of(input, "code")
   if code == nil then return fail(why) end
@@ -615,6 +662,7 @@ local function run(input: Tools.Object, context: Tools.Context): Tools.Result
   local r = if answer["ok"] == true then ok(text) else
     fail(text .. (if text:sub(-1) == "\n" then "" else "\n" end) .. "Error: " .. tostring(trouble)) end
   if cut then r.raw = said end
+  r.changes = changes_in(answer["changes"])
   return r
 end
 
@@ -634,10 +682,9 @@ end
 
 --- What sessions.db holds, as Host.history tells the model.
 local KEPT_TABLES <const> = "Tables: sessions (id, cwd, started (Unix time), model); messages (session, seq, " ..
-  "message: the JSON the API takes); outputs (id, session, tool, input (JSON), text (the whole output), is_error); " ..
-  "outputs_fts, FTS5 over outputs.text with the trigram tokenizer (rowid = outputs.id): " ..
-  "outputs_fts MATCH '\"some text\"' for text of 3 characters or more, with snippet(outputs_fts, 0, " ..
-  "'>>', '<<', '...', 64) and ORDER BY rank. ?1 is the current session's id."
+  "message: the API's JSON); outputs (id, session, tool, input (JSON), text, is_error); outputs_fts, trigram " ..
+  "FTS5 over outputs.text (rowid = outputs.id): outputs_fts MATCH '\"some text\"' (3 characters or more), " ..
+  "snippet(outputs_fts, 0, '>>', '<<', '...', 64), ORDER BY rank. ?1 is this session's id."
 
 --- Every tool, in the order the system prompt lists them.
 local ALL <const>: {Tools.Tool} = {

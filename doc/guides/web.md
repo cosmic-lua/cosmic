@@ -610,7 +610,7 @@ local log = Log.new("tasks")
 return function(): integer
   local keys, why = Secret.keys_from_env("TASKS_KEYS")
   if keys == nil then
-    log:complain(why)
+    log:complain(tostring(why))
     return 2
   end
   local app = Tasks.app{

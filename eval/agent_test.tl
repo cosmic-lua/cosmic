@@ -27,12 +27,15 @@ local function test_the_command_line_names_tools_a_fixture_and_tasks()
   assert(assert(efforts.tools[1]).effort == "high" and assert(efforts.tools[2]).effort == "low" and
       assert(efforts.tools[3]).effort == "high")
   assert(assert(options({ "--tool", "a=/c", "--fixture", "/f", "--out", "/o" }).tools[1]).effort == nil)
+  assert(assert(options({ "--tool", "a=cosmic", "--fixture", "/f", "--out", "/o" }).tools[1]).path == "cosmic")
   assert(Agent.parse({ "--tool", "a=/c", "--effort", "a=hard", "--fixture", "/f", "--out", "/o" }) == nil)
   assert(Agent.parse({ "--effort", "a=low", "--tool", "a=/c", "--fixture", "/f", "--out", "/o" }) == nil)
   for _, bad in ipairs({ { "--fixture", "/f", "--out", "/o" }, { "--tool", "t=/c", "--out", "/o" },
       { "--tool", "t", "--fixture", "/f", "--out", "/o" }, { "--tool", "t=/c", "--tool", "t=/d", "--fixture", "/f",
           "--out", "/o" }, { "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--tasks", "nope" },
-      { "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--reps", "0" }, { "--tool" } }) do
+      { "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--reps", "0" }, { "--tool" },
+      { "--tool", "t=bin/cosmic", "--fixture", "/f", "--out", "/o" }, { "--tool", "t=/c", "--fixture", "f", "--out", "/o" },
+      { "--tool", "t=/c", "--fixture", "/f", "--out", "evals/x" } }) do
     assert(Agent.parse(bad) == nil, table.concat(bad, " "))
   end
 end
@@ -49,10 +52,17 @@ local function test_runs_are_graded_against_the_truth_of_an_untouched_copy()
     "--tasks", "todos,rename", "--reps", "1", "--effort", "bad=low" })
   local asked: mut {string} = {}
   local made = 0
+  local left: mut {string: boolean} = {}
   local system: Agent.System = {
     fresh = function(prefix: string): string
       made = made + 1
-      return "/tmp/" .. prefix .. tostring(made)
+      local dir = "/tmp/" .. prefix .. tostring(made)
+      left[dir] = true
+      return dir
+    end,
+    discard = function(dir: string)
+      assert(left[dir] == true, dir)
+      left[dir] = nil
     end,
     run = function(argv: {string}, cwd: string, env: {string: string}?, _: integer): Agent.Output
       local first, script = argv[1] or "", argv[3] or ""
@@ -98,6 +108,7 @@ local function test_runs_are_graded_against_the_truth_of_an_untouched_copy()
   local written: mut {string: string} = {}
   local results = Agent.execute(o, system, "k", { HARNESS_ANTHROPIC_API_KEY = "k", PATH = "/bin" },
     function(path: string, text: string) written[path] = text end)
+  assert(next(left) == nil, "a directory the evals made is left: " .. tostring((next(left))))
   assert(#results == 4 and #asked == 4)
   assert(results[1].tool == "good" and results[1].task == "todos" and results[1].grade == "pass")
   assert(results[2].task == "rename" and results[2].grade == "unfit")
@@ -106,6 +117,34 @@ local function test_runs_are_graded_against_the_truth_of_an_untouched_copy()
   assert(answer:find("grade: fail\n", 1, true) == 1 and answer:find("--- left\ny.tl:2\n--- truth\nx.tl:1\n", 1, true) ~= nil,
     answer)
   local report = Agent.report(o, results)
+  local want = table.concat({
+    "# cosmic agent evals",
+    "",
+    "Model sonnet; runs of each task with each tool: 1; fixture /f. Each number is the mean of a run.",
+    "",
+    "Effort: bad low; the agent's default for the rest.",
+    "",
+    "## all tasks",
+    "",
+    "- good: 1 of 1 passed (1 unfit on this fixture, left out); $0.5000, 30 cache read, 40 cache write, 20 out a run; $0.500 in all",
+    "- bad: 0 of 1 passed (1 unfit on this fixture, left out); $0.0000, 0 cache read, 0 cache write, 0 out a run; $0.000 in all",
+    "",
+    "## todos",
+    "",
+    "- good: 1 of 1 passed; 3.0 requests, $0.500, 3 s wall (2 s in requests); tokens 10 in, 20 out, 30 cache read (5 by the first request), 40 cache write; 4.0 tool calls, 1.0 of them run, 1.0 refused",
+    "  - refused for: semicolon 1",
+    "  - snippets naming each Host helper: grep 2.0, bash 1.0",
+    "- bad: 0 of 1 passed; 0.0 requests, $0.000, 3 s wall (0 s in requests); tokens 0 in, 0 out, 0 cache read (0 by the first request), 0 cache write; 0.0 tool calls, 0.0 of them run, 0.0 refused",
+    "",
+    "## rename",
+    "",
+    "- good: unfit on this fixture; 3.0 requests, $0.500, 3 s wall (2 s in requests); tokens 10 in, 20 out, 30 cache read (5 by the first request), 40 cache write; 4.0 tool calls, 1.0 of them run, 1.0 refused",
+    "  - refused for: semicolon 1",
+    "  - snippets naming each Host helper: grep 2.0, bash 1.0",
+    "- bad: unfit on this fixture; 0.0 requests, $0.000, 3 s wall (0 s in requests); tokens 0 in, 0 out, 0 cache read (0 by the first request), 0 cache write; 0.0 tool calls, 0.0 of them run, 0.0 refused",
+    "",
+  }, "\n")
+  assert(report == want, report)
   assert(report:find("## todos\n\n- good: 1 of 1 passed; 3.0 requests, $0.500, 3 s wall (2 s in requests)", 1, true) ~= nil, report)
   assert(report:find("30 cache read (5 by the first request)", 1, true) ~= nil and
       report:find("1.0 of them run, 1.0 refused\n  - refused for: semicolon 1\n" ..
@@ -118,6 +157,18 @@ local function test_runs_are_graded_against_the_truth_of_an_untouched_copy()
 end
 
 --- What a run spent is its session's, the newest whose directory's name holds the run's marker.
+--- A report with no effort set, no unfit run and no task is the totals alone.
+local function test_a_report_of_no_task_is_its_totals()
+  local o: Agent.Options = { tools = { { name = "a", path = "/a" } }, fixture = "/f", out = "/o", tasks = {}, reps = 1,
+    model = "m", timeout = 1 }
+  local spent: Agent.Spent = { requests = 1, input = 1, output = 2, cache_read = 3, cache_write = 4, cost = 0.25,
+    seconds = 1, tools = 0, runs = 0, refused = 0, codes = {}, first_read = 0, helpers = {} }
+  local report = Agent.report(o, { { tool = "a", task = "todos", rep = 1, grade = "pass", spent = spent, wall = 1 } })
+  assert(report == "# cosmic agent evals\n\nModel m; runs of each task with each tool: 1; fixture /f. Each number is " ..
+      "the mean of a run.\n\n## all tasks\n\n- a: 1 of 1 passed; $0.2500, 3 cache read, 4 cache write, 2 out a run; " ..
+      "$0.250 in all\n", report)
+end
+
 local function test_what_a_run_spent_is_read_from_its_session()
   local db = assert(Sqlite.memory())
   assert(db:exec([[
@@ -161,12 +212,19 @@ local function test_a_task_of_a_server_gives_each_run_the_server()
   end
   assert(items == 240 and server.data == assert(assert(assert(listed).servers)[1]).data)
   local made = 0
+  local left: mut {string: boolean} = {}
   local put: mut {string: string} = {}
   local truths, configs, opened = 0, 0, 0
   local system: Agent.System = {
     fresh = function(prefix: string): string
       made = made + 1
-      return "/tmp/" .. prefix .. tostring(made)
+      local dir = "/tmp/" .. prefix .. tostring(made)
+      left[dir] = true
+      return dir
+    end,
+    discard = function(dir: string)
+      assert(left[dir] == true, dir)
+      left[dir] = nil
     end,
     run = function(argv: {string}, _: string, _: {string: string}?, _: integer): Agent.Output
       if argv[1] == "bash" and (argv[3] or ""):find("^data='/tmp/data%-mcp%-low%-%d+/data%.tsv'; awk") ~= nil then
@@ -196,6 +254,7 @@ local function test_a_task_of_a_server_gives_each_run_the_server()
     end,
   }
   local results = Agent.execute(o, system, "k", {}, function(_: string, _: string) end)
+  assert(next(left) == nil, "a directory the evals made is left: " .. tostring((next(left))))
   assert(#results == 2 and truths == 1 and configs == 2 and opened == 2)
   local laid = 0
   for path, text in pairs(put) do
@@ -218,10 +277,17 @@ local function test_a_task_of_many_servers_gives_each_run_them_all()
   local truth_data: string? = nil
   local config: string? = nil
   local made = 0
+  local left: mut {string: boolean} = {}
   local system: Agent.System = {
     fresh = function(prefix: string): string
       made = made + 1
-      return "/tmp/" .. prefix .. tostring(made)
+      local dir = "/tmp/" .. prefix .. tostring(made)
+      left[dir] = true
+      return dir
+    end,
+    discard = function(dir: string)
+      assert(left[dir] == true, dir)
+      left[dir] = nil
     end,
     run = function(argv: {string}, _: string, _: {string: string}?, _: integer): Agent.Output
       if argv[1] == "bash" and truth_data == nil then
@@ -238,6 +304,7 @@ local function test_a_task_of_many_servers_gives_each_run_them_all()
     end,
   }
   local _ = Agent.execute(o, system, "k", {}, function(_: string, _: string) end)
+  assert(next(left) == nil, "a directory the evals made is left: " .. tostring((next(left))))
   assert(truth_data == assert(servers[1]).data)
   local decoded = assert(Json.decode_object(assert(config)))
   local listed = assert(Json.object_of(decoded["servers"]))
@@ -275,12 +342,19 @@ local function test_a_task_of_a_site_gives_each_run_the_site()
   local site = assert(task.site)
   assert(site.source:find("Server.serve", 1, true) ~= nil and task.prompt:find("{url}", 1, true) ~= nil)
   local made = 0
+  local left: mut {string: boolean} = {}
   local put: mut {string: string} = {}
   local truths, asked, started, stopped = 0, 0, 0, 0
   local system: Agent.System = {
     fresh = function(prefix: string): string
       made = made + 1
-      return "/tmp/" .. prefix .. tostring(made)
+      local dir = "/tmp/" .. prefix .. tostring(made)
+      left[dir] = true
+      return dir
+    end,
+    discard = function(dir: string)
+      assert(left[dir] == true, dir)
+      left[dir] = nil
     end,
     run = function(argv: {string}, _: string, _: {string: string}?, _: integer): Agent.Output
       if argv[1] == "bash" and (argv[3] or ""):find("^data='/tmp/data%-web%-low%-%d+/data%.tsv'; awk") ~= nil then
@@ -308,6 +382,7 @@ local function test_a_task_of_a_site_gives_each_run_the_site()
     end,
   }
   local results = Agent.execute(o, system, "k", {}, function(_: string, _: string) end)
+  assert(next(left) == nil, "a directory the evals made is left: " .. tostring((next(left))))
   assert(#results == 2 and truths == 1 and asked == 2 and started == 2 and stopped == 2)
 end
 
@@ -318,12 +393,19 @@ local function test_a_task_with_a_follow_up_asks_twice_in_one_run()
   local task = assert(o.tasks[1])
   local follow_up = assert(task.follow_up)
   local made = 0
+  local left: mut {string: boolean} = {}
   local asks: mut {{string}} = {}
   local written: mut {string: string} = {}
   local system: Agent.System = {
     fresh = function(prefix: string): string
       made = made + 1
-      return "/tmp/" .. prefix .. tostring(made)
+      local dir = "/tmp/" .. prefix .. tostring(made)
+      left[dir] = true
+      return dir
+    end,
+    discard = function(dir: string)
+      assert(left[dir] == true, dir)
+      left[dir] = nil
     end,
     run = function(argv: {string}, _: string, _: {string: string}?, _: integer): Agent.Output
       if argv[1] == "/c" then
@@ -344,6 +426,7 @@ local function test_a_task_with_a_follow_up_asks_twice_in_one_run()
   local results = Agent.execute(o, system, "k", {}, function(path: string, text: string)
     written[path] = text
   end)
+  assert(next(left) == nil, "a directory the evals made is left: " .. tostring((next(left))))
   assert(#results == 2 and #asks == 3, tostring(#asks))
   local first, second = assert(asks[1]), assert(asks[2])
   assert(#second == #first, table.concat(second, " "))
@@ -361,11 +444,18 @@ end
 local function test_a_site_that_does_not_start_fails_its_run()
   local o = options({ "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--tasks", "web-low", "--reps", "2" })
   local made, asked, served = 0, 0, 0
+  local left: mut {string: boolean} = {}
   local written: mut {string: string} = {}
   local system: Agent.System = {
     fresh = function(prefix: string): string
       made = made + 1
-      return "/tmp/" .. prefix .. tostring(made)
+      local dir = "/tmp/" .. prefix .. tostring(made)
+      left[dir] = true
+      return dir
+    end,
+    discard = function(dir: string)
+      assert(left[dir] == true, dir)
+      left[dir] = nil
     end,
     run = function(argv: {string}, _: string, _: {string: string}?, _: integer): Agent.Output
       if argv[1] == "/c" then asked = asked + 1 end
@@ -385,9 +475,43 @@ local function test_a_site_that_does_not_start_fails_its_run()
   local results = Agent.execute(o, system, "k", {}, function(path: string, text: string)
     written[path] = text
   end)
+  assert(next(left) == nil, "a directory the evals made is left: " .. tostring((next(left))))
   assert(#results == 2 and served == 2 and asked == 0)
   assert(results[1].grade == "fail" and results[2].grade == "fail")
   local answer = assert(written["/o/t/web-low-1.txt"])
   assert(answer:find("exit: 127\n", 1, true) ~= nil and
       answer:find("--- stderr\nthe web API did not start: it ended before it served\n", 1, true) ~= nil, answer)
+end
+
+--- A step that raises ends the evals, and still no directory they made is left: the copies of a run whose
+--- server could not be laid out, and the truths before it.
+local function test_a_step_that_raises_leaves_no_directory()
+  local o = options({ "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--tasks", "todos,mcp-low", "--reps", "1" })
+  local made = 0
+  local left: mut {string: boolean} = {}
+  local system: Agent.System = {
+    fresh = function(prefix: string): string
+      made = made + 1
+      local dir = "/tmp/" .. prefix .. tostring(made)
+      left[dir] = true
+      return dir
+    end,
+    discard = function(dir: string)
+      assert(left[dir] == true, dir)
+      left[dir] = nil
+    end,
+    run = function(_: {string}, _: string, _: {string: string}?, _: integer): Agent.Output
+      return { code = 0, stdout = "x\n", stderr = "" }
+    end,
+    spent = function(_: string, _: string): Agent.Spent? return nil end,
+    put = function(path: string, _: string)
+      if path:find("server.tl", 1, true) ~= nil then error("disk full", 0) end
+    end,
+    serve = function(_: {string}, _: string, _: string, _: integer): (string, function()) | (nil, string)
+      error("no task here has a site")
+    end,
+  }
+  local ok, why = pcall(Agent.execute, o, system, "k", {}, function(_: string, _: string) end)
+  assert(not ok and tostring(why) == "disk full", tostring(why))
+  assert(made > 3 and next(left) == nil, "a directory the evals made is left: " .. tostring((next(left))))
 end

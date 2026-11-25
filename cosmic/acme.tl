@@ -191,7 +191,7 @@ local record Acme
 
   --- The transport [`Acme.ClientOptions.request`] names: what
   --- [`Http.request`] is.
-  type Request = function(method: string, url: string, opts: Http.Options): Http.Body?, string
+  type Request = function(method: string, url: string, opts: Http.RequestOptions): Http.Body?, string
 
   --- What [`Acme.client`] takes.
   record ClientOptions
@@ -670,7 +670,7 @@ end
 --- How long one request to the server may take.
 local REQUEST_TIMEOUT <const> = Clock.minutes(1)
 
-local function default_request(method: string, url: string, opts: Http.Options): Http.Body?, string
+local function default_request(method: string, url: string, opts: Http.RequestOptions): Http.Body?, string
   local body, why = Http.request(method, url, opts)
   if body == nil then return nil, tostring(why) end
   return body, ""

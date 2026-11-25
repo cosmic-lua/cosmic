@@ -174,7 +174,7 @@ end
 local function test_a_transport_failure_names_the_step()
   local client = Acme.client({
     directory = BASE .. "/directory", key = Key.generate("p256"),
-    request = function(_m: string, _u: string, _o: Http.Options): Http.Body?, string
+    request = function(_m: string, _u: string, _o: Http.RequestOptions): Http.Body?, string
       return nil, "connection refused"
     end,
   })
@@ -499,7 +499,7 @@ local function test_every_url_is_https_and_no_redirect_is_followed()
     local followed = false
     local client = Acme.client({
       directory = BASE .. "/directory", key = Key.generate("p256"), pause = no_pause,
-      request = function(method: string, url: string, o: Http.Options): Http.Body?, string
+      request = function(method: string, url: string, o: Http.RequestOptions): Http.Body?, string
         assert(url:sub(1, 8) == "https://", "sent to " .. url)
         if o.follow ~= false then followed = true end
         local body = assert(server.request(method, url, o))

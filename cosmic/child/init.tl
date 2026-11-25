@@ -112,6 +112,7 @@ local beneath = Hold.beneath
 local database_holds = Hold.database_holds
 local effective_group = Hold.effective_group
 local holds_by_seatbelt = Hold.holds_by_seatbelt
+local copies_granted_core = Hold.copies_granted_core
 local isolated_unix = Hold.isolated_unix
 local isolates = Hold.isolates
 local layer_text = Hold.layer_text
@@ -498,7 +499,7 @@ local record Options
   --- and the exec filter where no grant is left with `x`), so a child
   --- whose policy has no `x` runs no program, its own core included, and
   --- one that starts this program again grants its file by name. Under
-  --- `isolate` file and `nest` the core does not.
+  --- `nest` the core does not.
   ---
   --- With a `database` (see [`Sandbox.Policy`]) the program is this
   --- program's core run on that file (`core --database <path>`) whatever
@@ -2650,10 +2651,13 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   local grants: mut {raw_process.Grant} = {}
   -- A cosmic child's core holds itself at boot to the grants without its
   -- own `rx`, so a policy with no `x` runs no program, the core included.
-  -- Under `isolate` file a grant's name in the root is not its host path,
-  -- and under `nest` no ruleset holds the child.
-  -- TODO: a layer at boot under `isolate` file too, by the names the root
-  -- binds each grant at.
+  -- Under `isolate` file the layer names each grant where the root binds
+  -- it: a grant with `from` at its `path`, from the directory the program
+  -- starts in, and one without at the real path of that name, where the
+  -- root places it (a link at the name may be missing). It holds
+  -- what the root makes of its own beside them: its /proc to read and the
+  -- /tmp of `tmp`, as the first ruleset does (core/sandbox_root.c's
+  -- `own_rules`). Under `nest` no ruleset holds the child.
   -- A policy that runs this program again from the child grants its file by name: that grant is the child's.
   local layer: mut {raw_process.Grant} = {}
   local unix = false
@@ -2661,13 +2665,40 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     local at = grant.from or grant.path
     if base ~= nil and at:sub(1, 1) ~= "/" then at = base .. "/" .. at end -- checked: compare_disjoint
     grants[#grants + 1] = { path = at, access = grant.letters }
-    -- The child reads each path from where it starts, so it is handed
-    -- the real one, not one relative to this process's directory.
-    local real, _ = sys.realpath(at)
     if grant ~= core_grant then
-      layer[#layer + 1] = { path = real or at, access = grant.letters }
+      if file then
+        local name = named(grant.path, base)
+        local placed: string = name
+        if grant.from == nil then
+          local real, _ = sys.realpath(name)
+          placed = real or name
+        end
+        layer[#layer + 1] = { path = placed, access = grant.letters }
+      else
+        -- The child reads each path from where it starts, so it is handed
+        -- the real one, not one relative to this process's directory.
+        local real, _ = sys.realpath(at)
+        layer[#layer + 1] = { path = real or at, access = grant.letters }
+      end
     end
     if lettered(grant.letters, "u") then unix = true end
+  end
+  -- A root caller's child runs a copy of the core ([`shared_core`]), and
+  -- runs that copy again where it runs this program: a grant of `x` on
+  -- this process's own core is a grant of the copy the child runs.
+  if relaunch ~= nil then
+    local copy = assert(relaunch.argv[1], "a relaunch leads with its core")
+    if copies_granted_core(copy, Rules.paths(merged), core_grant, base) then
+      layer[#layer + 1] = { path = copy, access = "rx" }
+    end
+  end
+  if root ~= nil then
+    for _, read in ipairs(root.reads) do
+      if read == "/proc" then layer[#layer + 1] = { path = "/proc", access = "r" } end
+    end
+    if root.tmp ~= nil then
+      layer[#layer + 1] = { path = "/tmp", access = if root.tmp_exec == true then "rwxc" else "rwc" end }
+    end
   end
   local env: mut {string:string} = {}
   for _, name in ipairs(merged.env or {}) do
@@ -2748,7 +2779,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     if not holds then return nil, "sandbox: " .. held_why end
   end
   return { path = path, env = env, tmp = "", wants_tmp = merged.tmp == true and not file, -- checked: nil_not_allowed
-    layer = if relaunch ~= nil and not file and not nest then layer else nil end,
+    layer = if relaunch ~= nil and not nest then layer else nil end,
     sandbox = sandbox, cwd = if file then base else nil end, user = user, drop = drop, nests = nest,
     argv = run_argv, fds = if relaunch ~= nil then relaunch.fds else nil end,
     relay = if relayed then Rules.connects(merged) else nil end }, ""
