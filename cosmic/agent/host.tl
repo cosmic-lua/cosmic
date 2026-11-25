@@ -499,7 +499,7 @@ local function raise(name: string, why: Failure): never
 end
 
 --- Every file under `dir` ([`Shell.find`]); raises where `dir` cannot be walked.
-function Host.find(dir: string, suffix?: string): {string}
+function Host.find(dir: string, suffix?: string): mut {string}
   local found, why = Shell.find(dir, suffix)
   if found == nil then raise("find", why) end
   return found
@@ -513,7 +513,7 @@ function Host.cat(path: string): string
 end
 
 --- The lines of the file `path` ([`Shell.lines`]); raises where it cannot be read.
-function Host.lines(path: string): {string}
+function Host.lines(path: string): mut {string}
   local lines, why = Shell.lines(path)
   if lines == nil then raise("lines", why) end
   return lines
@@ -537,7 +537,7 @@ end
 
 --- The lines of `paths` that hold `pattern` ([`Shell.grep`]); raises where a file cannot
 --- be read or the pattern is malformed.
-function Host.grep(pattern: string, paths: {string}, plain?: boolean): {Host.Hit}
+function Host.grep(pattern: string, paths: {string}, plain?: boolean): mut {Host.Hit}
   local hits, why = Shell.grep(pattern, paths, plain)
   if hits == nil then raise("grep", why) end
   return hits
@@ -562,7 +562,7 @@ end
 function Host.uniq(keys: {string}): {string: integer} return Shell.uniq(keys) end
 
 --- The most counted of `counts` first ([`Shell.top`]).
-function Host.top(counts: {string: integer}, most?: integer): {Host.Count}
+function Host.top(counts: {string: integer}, most?: integer): mut {Host.Count}
   return Shell.top(counts, most)
 end
 
@@ -573,7 +573,7 @@ end
 
 --- The rows of `statement` on the SQLite file `path` ([`Shell.sqlite`]); raises where it
 --- fails.
-function Host.sqlite(path: string, statement: string, values?: {Json.Value}): {Host.Row}
+function Host.sqlite(path: string, statement: string, values?: {Json.Value}): mut {Host.Row}
   local rows, why = Shell.sqlite(path, statement, values)
   if rows == nil then raise("sqlite", why) end
   return rows
