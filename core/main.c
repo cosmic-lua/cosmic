@@ -453,6 +453,25 @@ int cosmic_runtime_entry (const struct cosmic_startup *startup, int argc,
       return 125;
     }
   }
+#elif defined(__APPLE__)
+  /* macOS applies one profile to a process, so a policy's start leaves a
+   * cosmic child's to its core: the trampoline executes the core with no
+   * profile, and here, before any module loads, the core holds itself to
+   * the policy's, which gives the core `r` and not `rx`. A refusal ends
+   * the core: the program never runs unconfined. */
+  const char *profile = getenv(COSMIC_SEATBELT_PROFILE);
+  if (profile != NULL) {
+    char message[PATH_MAX + 256];
+    int failure =
+        cosmic_boot_seatbelt_apply(profile, getenv(COSMIC_SEATBELT_PARAMETERS), message, sizeof message);
+    unsetenv(COSMIC_SEATBELT_PROFILE);
+    unsetenv(COSMIC_SEATBELT_PARAMETERS);
+    if (failure != 0) {
+      cosmic_artifact_close(&artifact);
+      fprintf(stderr, "cosmic: sandbox: the profile its start handed this core: %s\n", message);
+      return 125;
+    }
+  }
 #endif
 
   /* A database start runs the bare core, whose own path is its name. */

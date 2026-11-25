@@ -985,18 +985,6 @@ local function test_walk_with_follow_ends_a_loop_of_links(tmp: string)
   assert(table.concat(found, " ") == "a/b/f", table.concat(found, " "))
 end
 
---- A bare `skip` function, the shape the pinned release takes, walks as
---- `{ skip = f }` does.
-local function test_walk_takes_a_bare_skip(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/a/skipped"))
-  assert(Fs.write(tmp .. "/a/kept.txt", "k"))
-  assert(Fs.write(tmp .. "/a/skipped/gone.txt", "g"))
-  local skip = function(_: string, name: string, _: Fs.Kind): boolean return name == "skipped" end
-  local bare = assert(Fs.walk(tmp .. "/a", skip))
-  local named = assert(Fs.walk(tmp .. "/a", { skip = skip }))
-  assert(#bare == 1 and bare[1] == "kept.txt" and #named == 1 and named[1] == "kept.txt")
-end
-
 --- A FIFO, a device, or a link to one is never replaced by the rename
 --- that `write` and `create` take: as root, `-o /dev/null` once turned
 --- /dev/null into a regular file. Each is refused, naming the path, and

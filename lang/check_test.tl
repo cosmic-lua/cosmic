@@ -500,26 +500,26 @@ local CASES <const>: {Case} = {
     fix = "declare the table `{string: string}`, or capture a position with `()` for integer keys",
   },
   {
-    code = "sql_schema", at = { line = 2, column = 33 },
-    source = "local Sqlite = require(\"cosmic.sqlite\")\nlocal S <const> = Sqlite.schema(\"CREATE TABLE t (x\")\nprint(S)\n",
+    code = "sql_schema", at = { line = 2, column = 14 },
+    source = "local Sqlite = require(\"cosmic.sqlite\")\nlocal schema S \"CREATE TABLE t (x\"\nprint(Sqlite, S)\n",
     modules = { ["cosmic.sqlite"] = "local record Handle\n  run: function(Handle, string, ?{integer}): boolean\n  rows: function(Handle, string): boolean\nend\n" ..
         "local record Schema\n  ddl: string\nend\nlocal record Options\n  schema?: Schema\nend\nlocal record Sqlite\n" ..
         "  schema: function(string): Schema\n  memory: function(?Options): Handle\nend\nreturn Sqlite\n" },
-    msg = "SQLite refuses the schema's DDL: ", fix = "write DDL that SQLite runs, and that creates the tables alone",
+    msg = "SQLite refuses the DDL of the schema `S`: incomplete input", fix = "write DDL that SQLite runs, and that creates the tables alone",
   },
   {
     code = "sql_refused", at = { line = 4, column = 15 },
-    source = "local Sqlite = require(\"cosmic.sqlite\")\nlocal S <const> = Sqlite.schema(\"CREATE TABLE t (x)\")\n" ..
+    source = "local Sqlite = require(\"cosmic.sqlite\")\nlocal schema S \"CREATE TABLE t (x)\"\n" ..
       "local db = Sqlite.memory({ schema = S })\nprint(db:rows(\"SELECT y FROM t\"))\n",
     modules = { ["cosmic.sqlite"] = "local record Handle\n  run: function(Handle, string, ?{integer}): boolean\n  rows: function(Handle, string): boolean\nend\n" ..
         "local record Schema\n  ddl: string\nend\nlocal record Options\n  schema?: Schema\nend\nlocal record Sqlite\n" ..
         "  schema: function(string): Schema\n  memory: function(?Options): Handle\nend\nreturn Sqlite\n" },
-    msg = "`db` was opened with a schema, and SQLite refuses this SQL against it: no such column: y",
+    msg = "`db` is a handle of the schema `S`, and SQLite refuses this SQL against it: no such column: y",
     fix = "name only the tables and columns the schema creates, in SQL that SQLite reads",
   },
   {
     code = "sql_parameters", at = { line = 4, column = 43 },
-    source = "local Sqlite = require(\"cosmic.sqlite\")\nlocal S <const> = Sqlite.schema(\"CREATE TABLE t (x)\")\n" ..
+    source = "local Sqlite = require(\"cosmic.sqlite\")\nlocal schema S \"CREATE TABLE t (x)\"\n" ..
       "local db = Sqlite.memory({ schema = S })\nprint(db:run(\"INSERT INTO t VALUES (?1)\", { 1, 2 }))\n",
     modules = { ["cosmic.sqlite"] = "local record Handle\n  run: function(Handle, string, ?{integer}): boolean\n  rows: function(Handle, string): boolean\nend\n" ..
         "local record Schema\n  ddl: string\nend\nlocal record Options\n  schema?: Schema\nend\nlocal record Sqlite\n" ..
@@ -528,7 +528,7 @@ local CASES <const>: {Case} = {
   },
   {
     code = "sql_column", at = { line = 5, column = 16 },
-    source = "local Sqlite = require(\"cosmic.sqlite\")\nlocal S <const> = Sqlite.schema(\"CREATE TABLE t (x INTEGER) STRICT\")\n" ..
+    source = "local Sqlite = require(\"cosmic.sqlite\")\nlocal schema S \"CREATE TABLE t (x INTEGER) STRICT\"\n" ..
       "local db = Sqlite.memory({ schema = S })\nlocal row = db:one(\"SELECT x FROM t\")\nprint(row:text(1))\n",
     modules = { ["cosmic.sqlite"] = "local record Row\n  text: function(Row, integer): string\nend\nlocal record Handle\n" ..
         "  one: function(Handle, string): Row\nend\nlocal record Schema\n  ddl: string\nend\nlocal record Options\n" ..

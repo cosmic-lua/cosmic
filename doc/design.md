@@ -53,13 +53,13 @@ these argues with the principle, not with the reviewer.
    acts on the cause and never matches the words. a call that asks
    whether something is there returns that as a value ([`Fs.status`]'s
    `exists`, [`Store.holds`]), not as a failure. the stdlib moves to this
-   shape a module at a time; the functions of a module not yet moved
-   return `T?, string` and `boolean, string`, which the checks on
-   callers hold as well. intended: one operation is one function, with
-   no twin beside it that raises or that returns a classified record
-   ([`Http.download_result`] and `handle:exec_result` go once their
-   modules move; [`Proc.find`]'s failure carries the errno a shell's 126
-   and 127 tell apart). the raw binding table [`cosmic.sys`] is
+   shape a module at a time; a module not yet moved returns `T?,
+   string` and `boolean, string`, which the checks on callers hold as
+   well. intended: one operation is one function, with no twin beside
+   it that raises or that returns a classified record
+   ([`Http.download_result`] goes once its module moves;
+   [`Proc.find`]'s failure carries the errno a shell's 126 and 127
+   tell apart). the raw binding table [`cosmic.sys`] is
    the one exception to the two slots: its C calls add the errno in a
    third slot. a stand-in that a module stores into that table in a
    binding's place returns as the binding does. every other Teal

@@ -854,7 +854,7 @@ local function test_tool_discovery_does_not_bless_an_addition_after_listing(tmp:
   assert(Fs.mkdirs(tmp .. "/core"))
   local handle = assert(work.open(tmp))
   local walk = Fs.walk
-  Fs.walk = function(root: string, opts?: Fs.WalkOptions | function(string, string, Fs.Kind): boolean): ({string}) | (nil, Failure) -- checked: field_fixed
+  Fs.walk = function(root: string, opts?: Fs.WalkOptions): ({string}) | (nil, Failure) -- checked: field_fixed
     local files = assert(walk(root, opts))
     assert(Fs.write(root .. "/core/late.h", "new\n"))
     return files

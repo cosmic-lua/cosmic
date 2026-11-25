@@ -125,10 +125,10 @@ local function compiles_in(path: string, since_ns: integer): integer, integer
   local total: Tally = { value = 0 }
   local used: Tally = { value = 0 }
   local ok, failure = pcall(function(): boolean
-    local tables = assert(Sqlite.text_rows(db,
+    local tables = assert(db:text_rows(
       "SELECT name FROM sqlite_schema WHERE type = 'table' AND name GLOB 'compiled_v*'"))
     for _, row in ipairs(tables) do
-      local counts = assert(Sqlite.text_rows(db, "SELECT count(*), " ..
+      local counts = assert(db:text_rows("SELECT count(*), " ..
           "count(*) FILTER (WHERE used_ns >= ?1) FROM \"" .. row:text(1) .. "\"",
         { { integer = since_ns } }))
       total.value = total.value + assert(math.tointeger(tonumber(assert(counts[1]):text(1))))

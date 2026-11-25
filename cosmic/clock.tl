@@ -129,21 +129,6 @@ function Clock.cpu_ns(): integer
   return reading
 end
 
--- TODO: once ci/cosmic-driver.pin names a release with Clock.sleep, move ci/, build/perf.tl and eval/check/grade.tl
--- to it and delete this, which they call on the pinned release.
-
---- Sleeps for `nanoseconds`, as `sleep` or `nanosleep` does, resuming
---- the wait when a signal interrupts it, so the whole time passes.
---- Returns `true` and "" once it has, or `false` and why when the
---- system refuses the sleep. Raises when `nanoseconds` is negative.
-function Clock.sleep_ns(nanoseconds: integer): boolean, string
-  local ok, trouble = sys.nanosleep(nanoseconds)
-  if not ok then
-    return false, trouble
-  end
-  return true, ""
-end
-
 --- Waits `ns` nanoseconds. In a task of [`Poll.run`] only that task waits, and the others run; anywhere else the
 --- process sleeps, resuming the sleep when a signal interrupts it, so the whole time passes. A task the run is
 --- killing, or one under a C call it cannot yield across (a `table.sort` comparator), sleeps the process too.

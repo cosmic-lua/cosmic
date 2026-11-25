@@ -649,7 +649,7 @@ end
 --- walk and a stat per file.
 function Zig.snapshot(root: string): {string:string}?, string
   -- A link is taken for what it leads to, as work.stage takes it.
-  local walked, trouble = Fs.walk_following(root, unwatched)
+  local walked, trouble = Fs.walk(root, { follow = true, skip = unwatched })
   if walked == nil then
     return nil, tostring(trouble)
   end
@@ -993,17 +993,17 @@ end
 --- other failure.
 local function begin(db: Sqlite.Handle, path: string, wait_ns: integer): string?, string
   db:busy_timeout(wait_ns)
-  local begun = db:exec_result("BEGIN IMMEDIATE")
-  if begun.cancelled == true then
-    return nil, path .. ": interrupted while waiting for the write lock"
-  end
-  if begun.code == Sqlite.OK then
+  local begun, why = db:exec("BEGIN IMMEDIATE")
+  if begun then
     return "held", ""
   end
-  if begun.code == Sqlite.BUSY then
+  if why.kind == "cancelled" then
+    return nil, path .. ": interrupted while waiting for the write lock"
+  end
+  if why.code == Sqlite.BUSY then
     return "busy", ""
   end
-  return nil, path .. ": " .. begun.reason
+  return nil, path .. ": " .. why.message
 end
 
 --- Both halves of the lock, the flock descriptor and the SQL handle

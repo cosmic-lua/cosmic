@@ -529,7 +529,12 @@ local record Options
   --- On macOS the child is held by Seatbelt instead ([`Seatbelt.compile`]),
   --- by a process of this program that applies the profile to itself and
   --- then executes the child's program, so a profile the system refuses
-  --- fails the start, with its text, and nothing runs unconfined. It holds
+  --- fails the start, with its text, and nothing runs unconfined. A cosmic
+  --- child (this program, or a program on a `database`) applies the
+  --- profile itself instead, as its core boots and before any module
+  --- loads, since macOS applies one profile to a process and the start's
+  --- would grant the core `rx`: a refusal then ends the child, exit 125,
+  --- with its text. It holds
   --- `grants` (a relative one from `cwd`, which must exist, and the child's
   --- program needs `rx` -- the "system" profile gives the host's own),
   --- `promises` `fork`, `jit` and `fattr`, `env`, `set_env` and `limits`
@@ -560,8 +565,15 @@ local record Options
   --- own addresses as on Linux: the start lists them once, as it runs
   --- ([`sys.getifaddrs`]), so an address the host gains later is not refused.
   --- This program, and any program on a `database`,
-  --- runs as its core, as under Landlock: the core is granted `rx` and the
-  --- database `r` (it is opened read-only and immutable); `tmp` is a
+  --- runs as its core, as under Landlock: the core is granted `r`, as it
+  --- runs already, and the database `r` (it is opened read-only and
+  --- immutable). So a cosmic child runs neither its core again nor a start
+  --- through this program's trampoline (a `limits` or pty start), unless a
+  --- grant gives `x` on the core. Where a `w` or `c` grant reaches the
+  --- core, or the child is given a DYLD_ variable, the start's process
+  --- applies the profile, with `rx` on the core, as for any program: a
+  --- core the child could replace, or a library loaded before the profile,
+  --- would run unconfined. `tmp` is a
   --- directory made for the start and granted `rwc`. The child leads
   --- a session of its own, with no controlling terminal unless it is started
   --- by [`Child.start_on_pty`] with stdin on the pty, so `process_group`
@@ -2348,6 +2360,11 @@ local record Held
   --- Under Seatbelt, the profile's parameter that names `tmp`'s directory,
   --- which [`make_tmp`] sets; nil without `tmp`.
   tmp_parameter?: string
+  --- Under Seatbelt, whether the child is a cosmic core that applies its
+  --- profile itself at boot ([`seatbelt_boot_env`]), with no `rx` on
+  --- itself, in place of the trampoline: macOS applies one profile to a
+  --- process, so the start's and the policy's cannot stack as Landlock's do.
+  seatbelt_boot?: boolean
   --- The policy's `connect` targets, which the network relay serves; nil
   --- for a policy with none, which starts no relay.
   relay?: {string}
@@ -2475,12 +2492,13 @@ end
 --- gives no way to change or replace. A file a grant giving `w` or `c`
 --- covers could be rewritten after the start and then run, as a policy
 --- with no `x` grant never lets, so it needs a grant of `x` of its own;
---- so does a file at a name a grant with `from` shows another file at,
---- and, where `tmp` makes the sandbox's own /tmp, one beneath /tmp.
-local function startable(file: string, grants: {Rules.Grant}, cwd?: string, own_tmp?: boolean): boolean
+--- so does a file at a name a grant with `from` shows another file at.
+--- A file beneath /tmp where `tmp` makes the sandbox's own /tmp needs no
+--- rule of its own: it is bound in at its name over that tmpfs, and the
+--- rule holds its inode alone, so a file made at the name gets no `x`.
+local function startable(file: string, grants: {Rules.Grant}, cwd?: string): boolean
   local st, _ = sys.stat(file)
   if st == nil or st.kind ~= "file" then return false end
-  if own_tmp == true and beneath(file, "/tmp") then return false end
   for _, grant in ipairs(grants) do
     local at = grant.path
     if cwd ~= nil and at:sub(1, 1) ~= "/" then at = cwd .. "/" .. at end
@@ -3258,7 +3276,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     local start_grants: mut {Rules.Grant} = {}
     for _, start_file in ipairs(files) do
       if ungranted({ start_file }, giving, base) ~= "" and
-          startable(start_file, merged.grants or {}, base, file and merged.tmp == true) then
+          startable(start_file, merged.grants or {}, base) then
         start_grants[#start_grants + 1] = { path = start_file, letters = "rx" }
       end
     end
@@ -3481,7 +3499,7 @@ end
 
 --- A policy's start on macOS: the profile [`Seatbelt.compile`] makes of
 --- it, with the paths it names resolved on this host, for spawn to apply
---- before it runs the program, and the environment and limits the policy
+--- before it runs the program (or a cosmic child's core at boot), and the environment and limits the policy
 --- gives. Nil and why for a policy Seatbelt cannot hold or not yet: its
 --- own refusals, for `isolate`, `loopback`, `nest`, `from`,
 --- `limits.processes` and a digest without its value. With `connect`
@@ -3577,6 +3595,18 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   local options, resolve_trouble = Seatbelt.resolve(policy, opts.cwd, own, core, sealed, terminal)
   if options == nil then return nil, "sandbox: " .. resolve_trouble end
   options.serves_relay = serves_relay
+  -- A cosmic child holds itself to the profile at boot, which grants its
+  -- core and this program `r` alone: it runs neither again. The relay is
+  -- held by the trampoline, as its profile is the start's.
+  local booted = relaunch ~= nil and serves_relay == nil and core ~= nil and
+    startable(core, merged.grants or {}, opts.cwd)
+  for name in pairs(merged.set_env or {}) do
+    if name:sub(1, 5) == "DYLD_" then booted = false end
+  end
+  for _, name in ipairs(merged.env or {}) do
+    if name:sub(1, 5) == "DYLD_" and sys.getenv(name) ~= nil then booted = false end
+  end
+  options.booted = booted
   -- The relay's port is known once it serves, after this: a port of the
   -- right form lets this compile refuse what the profile cannot hold, with
   -- nothing started, and [`relay_held`] compiles it again with the real one.
@@ -3607,11 +3637,11 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
     if not holds then return nil, "sandbox: " .. held_why end
   end
   local sandbox: raw_process.Sandbox = {
-    seatbelt = { profile = profile.text, parameters = profile.parameters },
+    seatbelt = { profile = profile.text, parameters = profile.parameters, boot = booted },
     rlimits = profile.rlimits,
   }
   return { path = path, env = env, tmp = "", wants_tmp = merged.tmp, tmp_parameter = profile.tmp, -- checked: nil_not_allowed*2
-    sandbox = sandbox, nests = false, seatbelt = true, argv = run_argv,
+    sandbox = sandbox, nests = false, seatbelt = true, seatbelt_boot = booted, argv = run_argv,
     fds = if relaunch ~= nil then relaunch.fds else nil end, relay = if relayed then merged.connect else nil end,
     seatbelt_policy = policy, seatbelt_options = options }, ""
 end
@@ -3630,6 +3660,22 @@ local function relay_held(held: Held, port: integer, token: string): string
     held.env[name] = value
   end
   return ""
+end
+
+--- Hands `held`'s Seatbelt profile and its parameters to the cosmic core
+--- it starts, which applies them at boot (core/main.c), and leaves the
+--- trampoline none to apply (its `boot`). The parameters are each name and value
+--- "<length>:<bytes>", after [`make_tmp`] and [`relay_held`] have
+--- set the last of them.
+local function seatbelt_boot_env(held: Held)
+  local seatbelt = assert(held.sandbox.seatbelt)
+  local words: mut {string} = {}
+  for name, value in pairs(seatbelt.parameters) do
+    words[#words + 1] = tostring(#name) .. ":" .. name .. tostring(#value) .. ":" .. value
+  end
+  table.sort(words)
+  held.env["COSMIC_SEATBELT_PROFILE"] = seatbelt.profile
+  held.env["COSMIC_SEATBELT_PARAMETERS"] = table.concat(words)
 end
 
 --- `grants` as the core reads them at boot (core/sandbox_rules.c's
@@ -4136,6 +4182,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
     end
     local layer = held.layer
     if layer ~= nil then held.env["COSMIC_SANDBOX_LAYER"] = layer_text(layer) end
+    if held.seatbelt_boot == true then seatbelt_boot_env(held) end
   end
   -- Nothing but the spawn lies between the directory's making and its
   -- owner, the handle: a spawn that raises (an argument it refuses) must
@@ -4175,7 +4222,9 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
       -- The profile held the start itself: what it runs is the one thing it
       -- must grant.
       trouble = trouble .. ": a child held by Seatbelt needs an `rx` grant for its program, " ..
-        "and the \"system\" profile for the host's own files it loads"
+        "and the \"system\" profile for the host's own files it loads; a start with `limits` " ..
+        "or a pty runs this program first, which a cosmic child under a policy is granted " ..
+        "`r` and not `rx`"
     elseif held ~= nil and errno == sys.ENOSYS then
       trouble = trouble .. ": a policy is held by Landlock and seccomp, which only Linux gives"
     elseif (errno == sys.ENOENT or errno == sys.ENOTDIR) and missing_cwd(opts) then

@@ -48,6 +48,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Headers = require("cosmic.web.headers")
 local Html = require("cosmic.html")
+local Failure = require("cosmic.failure")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local Response = require("cosmic.web.response")
@@ -334,7 +335,7 @@ local record Watch is Sse.EventSource
   queue: mut {Sse.Event}
   mut shut: boolean
   notifier: Poll.Notifier
-  next: function(Watch, timeout_ns?: integer): Sse.Event?, string
+  next: function(Watch, timeout_ns?: integer): (Sse.Event | false) | (nil, Failure)
   close: function(Watch)
 end
 
@@ -371,20 +372,24 @@ local function look(self: Watch)
   if #paths > 0 then table.insert(self.queue, event_for(paths)) end
 end
 
-function Watch.next(self: Watch, timeout_ns?: integer): Sse.Event?, string
+function Watch.next(self: Watch, timeout_ns?: integer): (Sse.Event | false) | (nil, Failure)
   local deadline: integer? = nil
   if timeout_ns ~= nil then deadline = Clock.monotonic_ns() + timeout_ns end
   while true do
-    if self.queue[1] ~= nil then return table.remove(self.queue, 1), "" end
-    if self.shut then return nil, "" end
+    local queued = self.queue[1]
+    if queued ~= nil then
+      table.remove(self.queue, 1)
+      return queued
+    end
+    if self.shut then return false end
     local wait = math.max(self.look_at - Clock.monotonic_ns(), 0)
     if deadline ~= nil then
       local left = deadline - Clock.monotonic_ns()
-      if left <= 0 then return nil, Poll.TIMEOUT end
+      if left <= 0 then return nil, Failure.timeout(Poll.TIMEOUT) end
       if left < wait then wait = left end
     end
     local _, _ = self.notifier:wait(wait)
-    if self.shut then return nil, "" end
+    if self.shut then return false end
     local now = Clock.monotonic_ns()
     if now >= self.look_at then
       self.look_at = now + self.interval_ns

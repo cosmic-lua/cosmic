@@ -1206,6 +1206,63 @@ local function test_a_connect_goes_through_the_upstream_proxy_which_resolves(tmp
   end)
 end
 
+--- Reads one request head, then replies `ok` and closes, as an origin that is asked to close does.
+local function answers_once(conn: Net.Conn, seen: Origin)
+  while not seen.received:find("\r\n\r\n", 1, true) do
+    local data, _ = conn:read()
+    if data == nil or data == false then return end
+    seen.received = seen.received .. data
+  end
+  local _, _ = conn:write("HTTP/1.1 200 OK\r\nConnection: keep-alive\r\nContent-Length: 2\r\n\r\nok")
+end
+
+--- A plain request to an absolute http:// URL, as curl or Python sends one through an http proxy, reaches a granted
+--- target with the head the origin reads, and the origin's reply comes back as it sent it; one to a target nothing
+--- grants is refused as a CONNECT to it is.
+local function test_a_plain_request_to_a_granted_url_is_passed_on(tmp: string)
+  Poll.run(function()
+    local server = origin(answers_once)
+    local port = tostring(server.port)
+    local rig = start(tmp, { grants = { "svc.test:" .. port, "127.0.0.1:" .. port } })
+    local conn = dial(rig.http)
+    assert(conn:write("GET http://svc.test:" .. port .. "/x?y=1 HTTP/1.1\r\nHost: evil.test\r\n" ..
+        "Proxy-Connection: keep-alive\r\nAccept: */*\r\n\r\n"))
+    local reply = read_all(conn)
+    -- The origin said keep-alive; the program is told the connection closes, so it asks no other target down it.
+    assert(reply == "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok", reply)
+    assert(server.received == "GET /x?y=1 HTTP/1.1\r\nHost: svc.test:" .. port ..
+        "\r\nAccept: */*\r\nConnection: close\r\n\r\n", server.received)
+    assert(#lines_with(rig, "#1 http svc.test:" .. port .. ": allowed via 127.0.0.1:" .. port) == 1,
+      table.concat(rig.log, "\n"))
+    local _, _ = conn:close()
+    local refused = dial(rig.http)
+    assert(refused:write("GET http://evil.test:" .. port .. "/ HTTP/1.1\r\n\r\n"))
+    local head = read_head(refused)
+    assert(status_line(head):find("^HTTP/1.1 403 not granted: %-%-connect evil.test:" .. port), head)
+    local _, _ = refused:close()
+    assert(server.connections == 1, tostring(server.connections))
+    finish(rig, server)
+  end)
+end
+
+--- A plain request goes through the upstream proxy as a CONNECT to its URL's target, and the origin is sent its head.
+local function test_a_plain_request_goes_through_the_upstream_proxy_as_a_connect(tmp: string)
+  Poll.run(function()
+    local through = proxy("200")
+    local up: Relay.Upstream = { host = "127.0.0.1", port = through.server.port, no_proxy = {}, addresses = { "127.0.0.1" } }
+    local rig = start(tmp, { grants = { "api.test:80" }, upstream = up })
+    local conn = dial(rig.http)
+    assert(conn:write("GET http://api.test/ HTTP/1.1\r\n\r\n"))
+    local want = "GET / HTTP/1.1\r\nHost: api.test\r\nConnection: close\r\n\r\n"
+    -- The upstream echoes, which is no HTTP response: the relay passes the head on, and ends the reply.
+    until_it(function(): boolean return through.server.received == want end)
+    assert(read_all(conn) == "")
+    assert(through.head:find("^CONNECT api.test:80 HTTP/1.1\r\nHost: api.test:80\r\n\r\n"), through.head)
+    local _, _ = conn:close()
+    finish(rig, through.server)
+  end)
+end
+
 --- An upstream proxy named by its numeric address is reached with no
 --- lookup.
 local function test_a_numeric_upstream_is_reached_with_no_lookup(tmp: string)
@@ -1344,7 +1401,7 @@ local function test_every_connection_has_one_decision_line(tmp: string)
     local bad = dial(rig.http)
     assert(bad:write("GET / HTTP/1.1\r\n\r\n"))
     local head = read_head(bad)
-    assert(status_line(head):find("^HTTP/1.1 405 plain HTTP is not relayed"), head)
+    assert(status_line(head):find("^HTTP/1.1 405 plain HTTP is relayed only as a request to an absolute http:// URL"), head)
     local _, _ = bad:close()
     until_it(function(): boolean return rig.server:stats().open == 0 end)
     local decided: mut {integer: integer} = {}

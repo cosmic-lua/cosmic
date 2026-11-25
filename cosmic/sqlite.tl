@@ -1305,17 +1305,6 @@ local class Handle
     return self.connection:limit(name, value)
   end
 
-  -- TODO: once ci/cosmic-driver.pin names a release with the handle's
-  -- methods, move build/zig.tl's lock to `exec` and delete this and
-  -- [`Sqlite.ExecResult`].
-
-  --- Runs `sql` as [`Handle.exec`] does and returns SQLite's outcome as
-  --- a record: for a script that also runs on a release older than
-  --- [`Handle.exec`]'s failure. Write new code with [`Handle.exec`].
-  function exec_result(self, sql: string): raw_sqlite.ExecResult
-    return self.connection:exec_result(sql)
-  end
-
   function __close(self)
     local _, _ = self:close()
   end
@@ -1491,9 +1480,6 @@ local record Sqlite
   --- Internal: whether a statement is closed, which a query on it reads.
   --- No caller outside this module holds one.
   type Kept = Kept
-  --- What [`Handle.exec_result`] returns.
-  type ExecResult = raw_sqlite.ExecResult
-
   --- Successful execution.
   OK: integer
   --- Another connection prevents the operation; extended_code can
@@ -1727,13 +1713,23 @@ function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): (Sqlite.Handle) |
 end
 
 --- A schema: the tables a database holds, as the DDL that creates
---- them. Give it to [`Sqlite.open`] or [`Sqlite.memory`] as `schema`:
+--- them. A program declares one with `local schema`, which names a
+--- type and a value, and gives the value to [`Sqlite.open`] or
+--- [`Sqlite.memory`] as `schema`:
 ---
----     local Notes <const> = Sqlite.schema([[
+---     local schema Notes [[
 ---       CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL);
 ---       CREATE INDEX notes_body ON notes (body);
----     ]])
+---     ]]
 ---     local db = assert(Sqlite.open("notes.db", { writable = true, schema = Notes }))
+---
+--- The value is [`Sqlite.schema`] of the DDL. The type, `Notes`, is a
+--- class of the handles that hold its tables: `open` and `memory`
+--- give a `Notes` for `{ schema = Notes }`, and a `Notes` is a
+--- [`Handle`] wherever one is wanted, but a handle is no `Notes`. A
+--- module that exports the schema exports the type (`type Notes =
+--- Notes` in its record) and a function that opens a handle of it: a
+--- field that holds the value is a [`Schema`], which opens a plain handle.
 ---
 --- A writable open of a new file (one with no table, index, view or
 --- trigger) runs the DDL on it, in one transaction. Every open then
@@ -1752,20 +1748,23 @@ end
 --- So the DDL creates and does nothing else: an `ATTACH` in it fails
 --- there, and a `BEGIN` fails at the open that runs it on a file. The
 --- checker runs the DDL too, and reads the SQL a program sends to a
---- handle opened with the schema against it: a table or column it does
---- not create, or a values list of another length than the SQL binds,
---- is refused where it is written. So is a read of a row from that SQL
---- past its last column, or one that raises on every cell its column
---- may hold: in a `STRICT` table, any read but that of the declared
---- type (`row:text(1)` of an `INTEGER` column); in another, which keeps
---- a text it cannot convert in any column, `integer` and `number` of a
+--- handle of the schema's type against it, wherever the handle goes (a
+--- local, a parameter, a field): a table or column it does not create,
+--- or a values list of another length than the SQL binds, is refused
+--- where it is written. So is a read of a row from that SQL past its
+--- last column, or one that raises on every cell its column may hold:
+--- in a `STRICT` table, any read but that of the declared type
+--- (`row:text(1)` of an `INTEGER` column); in another, which keeps a
+--- text it cannot convert in any column, `integer` and `number` of a
 --- text column and `integer` of a `REAL` one. A compound select
---- (`UNION`) and an expression are not read. That holds for a handle held in a
---- local the program never assigns, given the schema in a local of the
---- same module, and SQL that is a literal or joins literals; a row is
---- read where it is a local given `db:one`, an element of a local given
---- `db:rows`, the variable of `for _, row in ipairs(rows)`, or the
---- parameter of the function `db:map` takes.
+--- (`UNION`) and an expression are not read. SQL is read where it is
+--- a literal or joins literals, until a handle of the schema is sent
+--- SQL that may make a table or attach a database, or is migrated: the
+--- rest of the module reads that schema's SQL no more. SQL sent in
+--- another module is not seen. A row is read where it is a
+--- local given `db:one`, an element of a local given `db:rows`, the
+--- variable of `for _, row in ipairs(rows)`, or the parameter of the
+--- function `db:map` takes.
 function Sqlite.schema(ddl: string): Sqlite.Schema
   if ddl:find("\0", 1, true) ~= nil then error("sqlite: a schema's DDL cannot hold a NUL", 2) end
   local schema: Sqlite.Schema = { ddl = ddl }
@@ -1831,44 +1830,6 @@ end
 --- caller uses it.
 function Sqlite.borrowed(connection: Sqlite.Connection): Handle
   return handle_of(connection)
-end
-
--- TODO: once ci/cosmic-driver.pin names a release with the handle's
--- methods, move the callers in ci/, build/perf.tl and
--- eval/check/grade.tl to them and delete these six, which those files
--- call on the pinned release.
-
---- [`Handle.run`] of `handle`, for ci/.
-function Sqlite.run(handle: Handle, sql: string, values?: {raw_sqlite.Param}): (true) | (false, Failure)
-  return handle:run(sql, values)
-end
-
---- [`Handle.rows`] of `handle`, for ci/.
-function Sqlite.rows(handle: Handle, sql: string, values?: {raw_sqlite.Param}): ({Row}) | (nil, Failure)
-  return handle:rows(sql, values)
-end
-
---- [`Handle.map`] of `handle`, for ci/.
-function Sqlite.map<T>(handle: Handle, sql: string, values: {raw_sqlite.Param}?,
-                       project: function(Row): T): ({T}) | (nil, Failure)
-  return handle:map(sql, values, project)
-end
-
---- [`Handle.query`] of `handle`, for ci/.
-function Sqlite.query(handle: Handle, sql: string, values?: {raw_sqlite.Param}): (Query) | (nil, Failure)
-  return handle:query(sql, values)
-end
-
---- [`Handle.text_rows`] of `handle`, for ci/ and the files the pinned
---- release runs.
-function Sqlite.text_rows(handle: Handle, sql: string, values?: {raw_sqlite.Param}): ({Row}) | (nil, Failure)
-  return handle:text_rows(sql, values)
-end
-
---- [`Handle.transact`] of `handle`, for ci/.
-function Sqlite.transact(handle: Handle,
-                         work: function(): (true) | (false, Failure), begin?: Begin): (true) | (false, Failure)
-  return handle:transact(work, begin)
 end
 
 Sqlite.OK = OK

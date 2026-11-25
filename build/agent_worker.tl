@@ -178,7 +178,7 @@ local function reply_of(channel: Channel, call: integer): ({string: Json.Value})
   end
 end
 
---- How a snippet's calls ([`cosmic.agent.host`]) reach the agent on `channel`: a line `{"id":1,"call":"sql",
+--- How a snippet's calls ([`cosmic.agent.host`]) reach the agent on `channel`: a line `{"id":1,"call":"history",
 --- "call_id":1,"args":{...}}` out, and the reply, `{"call_id":1,"reply":...}` or `{"call_id":1,"failed":"..."}`, in.
 --- Calls made from tasks of one run ([`Poll.run`]) are out at once, and the agent answers each as it can.
 local function transport_of(channel: Channel): Host.Transport

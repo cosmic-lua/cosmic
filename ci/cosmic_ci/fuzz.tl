@@ -72,9 +72,9 @@ local final_output_ns <const> = 5 * 1000 * 1000 * 1000
 --- Every `*_fuzz_test.tl` under `root`, outside its top-level o/,
 --- vendor/ and ci/, as `./`-relative paths in byte order.
 function Fuzz.discover(root: string): {string}
-  local found = assert(Fs.walk(root, function(entry: string, _name: string, _kind: sys.Kind): boolean
+  local found = assert(Fs.walk(root, { skip = function(entry: string, _name: string, _kind: sys.Kind): boolean
     return pruned[entry] == true
-  end))
+  end }))
   local tests: mut {string} = {}
   for _, entry in ipairs(found) do
     local name = Fs.basename(entry)
@@ -350,7 +350,7 @@ local function streamed(guard: Signal.Guard, argv: {string}, cwd: string,
         end
         if eof then
           if kept.status ~= nil then return "" end
-          local _, _ = Clock.sleep_ns(poll_ns)
+          local _, _ = Clock.sleep(poll_ns)
         else
           local wait = poll_ns
           if deadline ~= nil then

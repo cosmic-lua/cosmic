@@ -288,7 +288,7 @@ local function release_cosmic(tag: string, work: string): string?, string
   local path = cache .. "/cosmic-" .. digest
   local part = path .. ".part." .. tostring(Proc.pid())
   local fetched = Http.download_result(base .. "cosmic", part,
-    { roots = "mozilla", timeout_ns = 300 * 1000000000, sha256 = digest })
+    { roots = "mozilla", timeout_ns = 300 * 1000000000, digests = { ["sha256"] = digest } })
   if fetched.kind ~= "downloaded" then
     local _, _ = Fs.remove(part)
     return nil, "its cosmic: " .. fetched.reason

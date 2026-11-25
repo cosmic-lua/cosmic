@@ -211,10 +211,9 @@ function Vendor.fetch(url: string, path: string, digests: {Vendor.Digest}): stri
   -- and the download is held to the PIN's digests whoever serves it, so it
   -- trusts every root rather than the minimal set a request trusts by
   -- default.
-  local want: mut {string:string} = {}
+  local want: mut {Hash.Algorithm:string} = {}
   for _, digest in ipairs(digests) do want[digest.algorithm] = digest.hex end
-  local options: Http.Options = { timeout_ns = Http.FOREVER, roots = "mozilla", sha256 = want["sha256"],
-    sha3_256 = want["sha3-256"] }
+  local options: Http.Options = { timeout_ns = Http.FOREVER, roots = "mozilla", digests = want }
   local ok, trouble = Http.download(url, path, options)
   if not ok then
     return nil, tostring(trouble)

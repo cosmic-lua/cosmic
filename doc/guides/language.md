@@ -882,6 +882,38 @@ print(numbers.value)
 2
 ```
 
+## a schema is a type of handle
+
+`local schema Name [[DDL]]` declares the tables a SQLite database holds. `Name` is two things: a value, which
+[`Sqlite.open`] and [`Sqlite.memory`] of [`cosmic.sqlite`] take as `schema`, and a class of the handles that hold the
+tables, which they give for it. A handle of `Name` is a [`Sqlite.Handle`] wherever one is wanted; a handle is no `Name`. The
+checker runs the DDL, and reads SQL sent to a handle of `Name` against it, through parameters and fields alike:
+
+```teal
+local Sqlite = require("cosmic.sqlite")
+
+local schema Notes [[CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL) STRICT]]
+
+local function body_of(db: Notes, id: integer): string
+  local row = assert(db:one("SELECT body FROM notes WHERE id = ?1", { id }))
+  return row:text(1)
+end
+
+local db = assert(Sqlite.memory({ schema = Notes }))
+assert(db:run("INSERT INTO notes (body) VALUES (?1)", { "hi" }))
+print(body_of(db, 1))
+```
+
+```output
+hi
+```
+
+A schema's handles are made by [`Sqlite.open`] and [`Sqlite.memory`] alone: a table literal of `Notes`, `v is Notes` and a
+function written into `Notes` (`function Notes.f()`) are refused, since a handle's metatable is [`cosmic.sqlite`]'s. The
+value `Notes` has the field `ddl`. A module exports a schema as the type, `type Notes = Notes` in its record, and a
+function that opens a handle of it: another module that holds the value in a field holds a [`Sqlite.Schema`], which
+opens a plain handle.
+
 ## a value or a failure
 
 A function that returns a value or a failure declares both lists of
@@ -1005,9 +1037,14 @@ true	/no/such/file: No such file or directory
 [`cosmic.defer`]: ../../cosmic/defer.tl
 [`cosmic.failure`]: ../../cosmic/failure.tl
 [`cosmic.net`]: ../../cosmic/net.tl
+[`cosmic.sqlite`]: ../../cosmic/sqlite.tl
 [`Fs.close`]: ../../cosmic/fs.tl
 [`Fs.open_read`]: ../../cosmic/fs.tl
 [`Fs.read`]: ../../cosmic/fs.tl
 [`Fs.Scratch`]: ../../cosmic/fs.tl
 [`Http.open`]: ../../cosmic/http/init.tl
 [`Signal.guard`]: ../../cosmic/signal.tl
+[`Sqlite.Handle`]: ../../cosmic/sqlite.tl
+[`Sqlite.memory`]: ../../cosmic/sqlite.tl
+[`Sqlite.open`]: ../../cosmic/sqlite.tl
+[`Sqlite.Schema`]: ../../cosmic/sqlite.tl

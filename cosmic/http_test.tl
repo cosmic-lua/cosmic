@@ -938,13 +938,13 @@ local function test_a_download_with_a_sha3_256_checks_it(tmp: string)
   local path = tmp .. "/sha3.bin"
   local sha3 = Codec.hex(Hash.digest("sha3-256", "hello"))
   local ok, why = Http.download(url, path, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "hello") },
-    sha3_256 = sha3:upper() })
+    digests = { ["sha3-256"] = sha3:upper() } })
   assert(ok, why)
   assert(assert(Fs.read(path)) == "hello")
   local other = tmp .. "/wrong-sha3.bin"
   local zeros = string.rep("0", 64)
   local bad, bad_why = Http.download(url, other, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "hello") },
-    sha256 = Hash.hex_sha256("hello"), sha3_256 = zeros })
+    digests = { ["sha256"] = Hash.hex_sha256("hello"), ["sha3-256"] = zeros } })
   assert(not bad and tostring(bad_why):find("sha3-256 mismatch: want " .. zeros .. ", got " .. sha3, 1, true) ~= nil, bad_why)
   assert(not assert(Fs.status(other)).exists, "the target was created")
 end
@@ -984,8 +984,7 @@ local function test_download_result_checksums_keep_typed_digests_and_legacy_text
   for _, algorithm in ipairs(algorithms) do
     for _, expected in ipairs({ "ABC", "not HEX", string.rep("0", if algorithm == "sha256" then 64 else 128 end) }) do
       local options: Http.Options = { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "body") },
-        sha256 = if algorithm == "sha256" then expected else nil end,
-        sha512 = if algorithm == "sha256" then nil else expected end }
+        digests = { [algorithm] = expected } }
       local result = Http.download_result(url, path, options)
       local actual = Codec.hex(Hash.digest(algorithm, "body"))
       assert(result.kind == "digest_mismatch" and result.status == nil)
@@ -997,14 +996,12 @@ local function test_download_result_checksums_keep_typed_digests_and_legacy_text
       assert(assert(Fs.read(path)) == "old" and #assert(Fs.list(tmp)) == 1)
     end
   end
-  local empty = Http.download_result(url, path, { timeout_ns = Clock.seconds(60), sha256 = "", sha512 = "",
-    script = { reply("200 OK", "", "unchecked") } })
-  assert(empty.kind == "downloaded" and assert(Fs.read(path)) == "unchecked")
 end
 
 local function test_download_result_bad_checksum_shape_raises_before_publication(tmp: string)
   local path = tmp .. "/got"
-  local options: Http.Options = { timeout_ns = Clock.seconds(60), sha256 = true as string, script = {} } -- checked: cast_refused
+  local digests: {Hash.Algorithm:string} = { ["sha256"] = true as string } -- checked: cast_refused
+  local options: Http.Options = { timeout_ns = Clock.seconds(60), digests = digests, script = {} }
   local ok = pcall(Http.download_result, url, path, options) -- checked: alternatives_as_value
   assert(not ok and #assert(Fs.list(tmp)) == 0)
 end
@@ -1020,21 +1017,16 @@ local function test_a_download_checks_a_digest_of_any_algorithm(tmp: string)
   assert(wrong.kind == "digest_mismatch" and wrong.algorithm == "sha3-512", wrong.reason)
 end
 
-local function test_a_download_refuses_an_empty_digest_and_two_that_differ(tmp: string)
+local function test_a_download_refuses_an_empty_digest_and_reads_hex_in_either_case(tmp: string)
   local path = tmp .. "/got"
   local empty = Test.raises(function()
     local _ = Http.download_result(url, path, { timeout_ns = Clock.seconds(60), script = {}, digests = { ["sha256"] = "" } })
   end, 'opts.digests["sha256"] must be a digest in hex')
   assert(empty:find("^cosmic%.http_test:%d+: ") ~= nil, empty)
-  local differ = Test.raises(function()
-    local _ = Http.download_result(url, path, { timeout_ns = Clock.seconds(60), script = {},
-      sha256 = string.rep("a", 64), digests = { ["sha256"] = string.rep("b", 64) } })
-  end, 'opts.sha256 and opts.digests["sha256"] differ')
-  assert(differ:find("^cosmic%.http_test:%d+: ") ~= nil, differ)
   assert(#assert(Fs.list(tmp)) == 0)
   local same = string.rep("A", 64)
   local agreed = Http.download_result(url, path, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "body") },
-    sha256 = same, digests = { ["sha256"] = same:lower() } })
+    digests = { ["sha256"] = same } })
   assert(agreed.kind == "digest_mismatch" and agreed.expected == same:lower(), agreed.reason)
 end
 

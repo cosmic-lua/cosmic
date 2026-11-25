@@ -405,7 +405,7 @@ local class SocketConn is Duplex
           local ok, why = Poll.delay(slice)
           if not ok then return false, why end
         else
-          local _, _ = Clock.sleep_ns(slice)
+          local _, _ = Clock.sleep(slice)
         end
       end
     end

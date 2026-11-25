@@ -876,7 +876,7 @@ end
 --- `first` is what `far` sent already, and `sniff` the check on what
 --- the client sends first. Returns why it ended.
 local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Conn, first: string,
-                      sniff: Sniff?): string
+                      sniff: Sniff?, closer?: Wire.ResponseCloser): string
   local idle = run.timeouts.idle
   local flow_ended: string = ""
   local flow_stamp: integer = Clock.monotonic_ns()
@@ -888,11 +888,22 @@ local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Con
     end
   end
   --- Pumps `from` to `to`; `check` is the sniff, for the client's side.
-  local function pump(from: Net.Conn, to: Net.Conn, pending: string, check: Sniff?, name: string)
+  local function pump(from: Net.Conn, to: Net.Conn, pending: string, check: Sniff?, name: string,
+                      rewrite?: Wire.ResponseCloser)
     -- The check stands until the hello is judged.
     local sniff_pending: Sniff? = check
-    local function pass(data: string): boolean
+    local function pass(given: string): boolean
       flow_stamp = Clock.monotonic_ns()
+      local data = given
+      if rewrite ~= nil then
+        local out, why = rewrite:feed(given)
+        if out == nil then
+          end_with(why)
+          return false
+        end
+        if out == "" then return true end
+        data = out
+      end
       if not send(to, data, idle) then
         end_with(name .. ": the other side stopped taking bytes")
         return false
@@ -961,7 +972,7 @@ local function tunnel(run: Running, req: Request, client: Net.Conn, far: Net.Con
       end
     end
   end
-  local down = Poll.spawn(function() pump(far, client, first, nil, "from the far side") end)
+  local down = Poll.spawn(function() pump(far, client, first, nil, "from the far side", closer) end)
   pump(client, far, req.leftover, sniff, "from the program")
   local _, _ = down:join()
   if flow_ended == "" then
@@ -1054,6 +1065,8 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
   end
   local reading_until = Clock.monotonic_ns() + first_wait(run)
   local sniffed = ""
+  --- Whether the request is plain HTTP to an absolute URL, which is passed on with no CONNECT reply.
+  local plain = false
   if protocol == "mixed" then
     local data, why = read_before(client, reading_until, 1)
     if data == nil or data == "" then
@@ -1090,6 +1103,13 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
       return
     end
     req.host, req.kind, req.port, req.leftover = host, kind, port, rest
+    local forward = head.forward
+    if forward ~= nil then
+      -- A plain request: the origin is sent its head in place of the client's, and no CONNECT reply.
+      plain = true
+      req.protocol = "http"
+      req.leftover = forward .. rest
+    end
   else
     local asked = read_socks(run, client, authenticated, sniffed, reading_until)
     if asked.status == "refused" then
@@ -1182,19 +1202,23 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
     local _, _ = far:close()
     return
   end
-  local ok = send(client, if protocol == "connect" then Wire.connect_ok() else Wire.socks_reply("succeeded") end, run.timeouts.head)
-  if not ok then
-    run.log(("#%d %s %s: the program went away before the reply"):format(id, protocol, shown))
-    local _, _ = far:close()
-    local _, _ = client:close()
-    return
+  if not plain then
+    local ok = send(client, if protocol == "connect" then Wire.connect_ok() else Wire.socks_reply("succeeded") end,
+      run.timeouts.head)
+    if not ok then
+      run.log(("#%d %s %s: the program went away before the reply"):format(id, protocol, shown))
+      local _, _ = far:close()
+      local _, _ = client:close()
+      return
+    end
   end
-  run.log(("#%d %s %s: allowed %s"):format(id, protocol, shown, how))
-  local sniff: Sniff = {
+  run.log(("#%d %s %s: allowed %s"):format(id, req.protocol, shown, how))
+  -- A plain request is no TLS: what it reaches is the target its URL named, which the grants judged.
+  local sniff: Sniff? = if plain then nil else {
     reader = Wire.hello_reader(), host = req.host, kind = req.kind, strict = run.tls_ports[req.port] == true,
     held = "", deadline = 0,
-  }
-  tunnel(run, req, client, far, first, sniff)
+  } end
+  tunnel(run, req, client, far, first, sniff, if plain then Wire.response_closer() else nil end)
 end
 
 --- Takes the connections of `listener`, each in a task of its own.

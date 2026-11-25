@@ -78,14 +78,30 @@ local record relay_wire
     --- When `done`, the port.
     port?: integer
     --- When `done`, the value of the `Proxy-Authorization` header, or nil
-    --- when there is none. No other header is kept.
+    --- when there is none.
     authorization?: string
+    --- When `done` for a plain HTTP request to an absolute http:// URL (as a
+    --- proxy client sends one, `GET http://host:port/path HTTP/1.1`), the head
+    --- to send the origin in its place: the path alone on the request line, a
+    --- Host header naming the URL's host, the client's other headers but the
+    --- proxy's and hop-by-hop ones, and `Connection: close`, so the one
+    --- connection carries one exchange. nil for a CONNECT.
+    forward?: string
   end
 
   --- Reads a CONNECT head from the bytes fed to it.
   interface ConnectReader
     --- Feeds the next bytes and returns what all fed so far say.
     feed: function(ConnectReader, chunk: string): Connect
+  end
+
+  --- Passes on what an origin sends back for a plain request, its final response
+  --- head told to close the connection ([`relay_wire.response_closer`]).
+  record ResponseCloser
+    --- The bytes to send the program for the next bytes the origin sent:
+    --- held back until a head is whole, then the head rewritten and what
+    --- follows as it came. nil and why for a reply that is no HTTP response.
+    feed: function(ResponseCloser, chunk: string): string?, string
   end
 
   --- The SOCKS5 method selection, replied to with [`socks_method_reply`].
@@ -402,6 +418,14 @@ end
 --- A header name's bytes (RFC 9110's token).
 local TOKEN <const> = "^[%w!#$%%&'*+%-%.%^_`|~]+$"
 
+--- The headers of a plain request that are the client's to the proxy, not
+--- to the origin, by lower-case name: the relay writes its own Host and
+--- Connection.
+local HOP_BY_HOP <const>: {string: boolean} = {
+  ["host"] = true, ["connection"] = true, ["proxy-connection"] = true, ["keep-alive"] = true,
+  ["proxy-authorization"] = true, ["te"] = true, ["trailer"] = true, ["upgrade"] = true,
+}
+
 --- `value` without the blanks at its ends, in two passes that each cost its
 --- length (a pattern that anchors both ends backtracks quadratically).
 local function trimmed(value: string): string
@@ -417,11 +441,14 @@ end
 --- Reads the CONNECT request head from the bytes fed to it.
 ---
 --- It is exactly `CONNECT host:port HTTP/1.1` (or `HTTP/1.0`) with CRLF
---- line endings, then header lines up to an empty line. A request line of
---- another method is refused as plain HTTP, which is not relayed. At most
---- 8192 bytes to a line, 16384 to the head and 100 headers; a bare LF or CR,
---- NUL or other control byte, and an obsolete line fold are refused.
---- `Proxy-Authorization` is kept, and no other header is read.
+--- line endings, then header lines up to an empty line. Or it is a plain
+--- HTTP request to an absolute http:// URL, which a proxy client sends for
+--- http (`GET http://host:port/path HTTP/1.1`, port 80 where none is
+--- written), read to the head to send the origin in its place
+--- ([`relay_wire.Connect.forward`]); any other request line is refused. At
+--- most 8192 bytes to a line, 16384 to the head and 100 headers; a bare LF or
+--- CR, NUL or other control byte, and an obsolete line fold are refused.
+--- `Proxy-Authorization` is kept; of a CONNECT, no other header is read.
 function relay_wire.connect_reader(): relay_wire.ConnectReader
   --- Bytes fed before the chunk in hand (`seen`), the position of the
   --- first byte of the line being read, and what the head has said so
@@ -438,8 +465,12 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
     mut host?: string
     mut kind?: relay_wire.Kind
     mut port?: integer
+    --- Of a plain request: its request line as the origin is sent it, and
+    --- the header lines passed on.
+    mut forward_line?: string
+    mut passed: mut {string}
   end
-  local st: Reading = { seen = 0, line_start = 1, pieces = {}, after_cr = false, first = true, count = 0 }
+  local st: Reading = { passed = {}, seen = 0, line_start = 1, pieces = {}, after_cr = false, first = true, count = 0 }
 
   local function finish(answer: relay_wire.Connect): relay_wire.Connect
     st.final = answer
@@ -456,6 +487,38 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
       String.counted(MAX_LINE, "byte")), if st.first then 414 else 431 end))
   end
 
+  --- What the request line `content` of a request that is not a CONNECT
+  --- decides: a refusal, or nil once it has read an absolute http:// URL.
+  local function plain_line(content: string): relay_wire.Connect?
+    local method, uri, version = content:match("^([^ ]+) ([^ ]+) ([^ ]+)$")
+    if method == nil or uri == nil or version == nil or not method:find(TOKEN) or
+        lower(uri:sub(1, 7)) ~= "http://" then
+      return finish(refused("plain HTTP is relayed only as a request to an absolute http:// URL " ..
+          "(GET http://host:port/path HTTP/1.1, as a proxy client sends one); for anything else, CONNECT host:port", 405))
+    end
+    if version ~= "HTTP/1.1" and version ~= "HTTP/1.0" then
+      return finish(refused("unsupported HTTP version " .. version .. " (HTTP/1.1 or HTTP/1.0)", 505))
+    end
+    local after = uri:sub(8)
+    local cut = after:find("[/?#]")
+    local written = if cut ~= nil then after:sub(1, cut - 1) else after end
+    local path = if cut ~= nil then after:sub(cut) else "/" end
+    if path:find("#", 1, true) then
+      return finish(refused("a fragment (#) in the request's URL", 400))
+    end
+    if path:sub(1, 1) == "?" then path = "/" .. path end
+    -- A URL may leave its port out: http's is 80.
+    local has_port = if written:sub(1, 1) == "[" then written:find("]:", 1, true) ~= nil else
+      written:find(":", 1, true) ~= nil end
+    local found, trouble = authority(if has_port then written else written .. ":80" end)
+    if found == nil then
+      return finish(refused(trouble, 400))
+    end
+    st.host, st.kind, st.port = found.host, found.kind, found.port
+    st.forward_line = method .. " " .. path .. " " .. version
+    return nil
+  end
+
   --- What a whole line, ending at position `at`, decides: a result, or
   --- nil to go on.
   local function line(content: string, at: integer): relay_wire.Connect?
@@ -463,7 +526,7 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
       st.first = false
       local method = content:match("^[^ \t]*")
       if method ~= "CONNECT" then
-        return finish(refused("plain HTTP is not relayed: only CONNECT host:port is accepted", 405))
+        return plain_line(content)
       end
       local target, version = content:match("^CONNECT ([^ ]*) ([^ ]*)$")
       if target == nil or version == nil then
@@ -480,8 +543,18 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
       return nil
     end
     if content == "" then
+      local forward: string? = nil
+      local forward_line = st.forward_line
+      if forward_line ~= nil then
+        local host, port = assert(st.host), assert(st.port)
+        local named = if st.kind == "ipv6" then "[" .. host .. "]" else host end
+        local lines: mut {string} = { forward_line, "Host: " .. named .. (if port ~= 80 then ":" .. tostring(port) else "" end) }
+        for _, kept in ipairs(st.passed) do lines[#lines + 1] = kept end
+        lines[#lines + 1] = "Connection: close"
+        forward = table.concat(lines, "\r\n") .. "\r\n\r\n"
+      end
       return finish({ status = "done", consumed = at, host = st.host, kind = st.kind, port = st.port,
-        authorization = st.authorization })
+        authorization = st.authorization, forward = forward })
     end
     if content:find("^[ \t]") then
       return finish(refused("an obsolete header line fold (a line starting with whitespace)", 400))
@@ -497,11 +570,14 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
     if not name:find(TOKEN) then
       return finish(refused("a header name that is not a token", 400))
     end
-    if lower(name) == "proxy-authorization" then
+    local named = lower(name)
+    if named == "proxy-authorization" then
       if st.authorization ~= nil then
         return finish(refused("a repeated Proxy-Authorization header", 400))
       end
       st.authorization = trimmed(value)
+    elseif st.forward_line ~= nil and HOP_BY_HOP[named] == nil then
+      st.passed[#st.passed + 1] = content
     end
     return nil
   end
@@ -583,6 +659,67 @@ function relay_wire.number_of(text: string): integer?
   local port = math.tointeger(tonumber(text))
   if port == nil or port < 1 or port > 65535 then return nil end
   return port
+end
+
+--- What a plain request's origin sends back, passed on with its final response
+--- head saying `Connection: close`: the origin's own Connection, Keep-Alive
+--- and Proxy-Connection lines are dropped. So a client that pools proxy
+--- connections never sends a later request, for another target, down the
+--- connection the relay opened to this one. Interim (1xx) heads, but 101, go
+--- as they came. A head longer than 16384 bytes, or one that is not
+--- `HTTP/1.x NNN`, is refused; past the final head, bytes pass untouched.
+function relay_wire.response_closer(): relay_wire.ResponseCloser
+  local held = ""
+  local done = false
+  local failed: string? = nil
+  return {
+    feed = function(_: relay_wire.ResponseCloser, chunk: string): string?, string
+      local why = failed
+      if why ~= nil then return nil, why end
+      if done then return chunk, "" end
+      -- The search starts 3 bytes back, where an end split across feeds may begin.
+      local from = math.max(1, #held - 2)
+      held = held .. chunk
+      local out: mut {string} = {}
+      while true do
+        local ends = held:find("\r\n\r\n", from, true)
+        if ends == nil then
+          if #held > MAX_HEAD then
+            failed = ("the origin's response head is longer than %s"):format(String.counted(MAX_HEAD, "byte"))
+            return nil, assert(failed)
+          end
+          return table.concat(out), ""
+        end
+        local head, rest = held:sub(1, ends + 3), held:sub(ends + 4)
+        if ends + 3 > MAX_HEAD then
+          failed = ("the origin's response head is longer than %s"):format(String.counted(MAX_HEAD, "byte"))
+          return nil, assert(failed)
+        end
+        local status = head:match("^HTTP/1%.[01] (%d%d%d)")
+        if status == nil then
+          failed = "the origin's answer is not an HTTP/1 response"
+          return nil, assert(failed)
+        end
+        if status:sub(1, 1) == "1" and status ~= "101" then
+          out[#out + 1] = head
+          held, from = rest, 1
+        else
+          local lines: mut {string} = {}
+          for line in head:sub(1, -5):gmatch("[^\r\n]+") do
+            local name = line:match("^([^:]*):")
+            local named = if name ~= nil then lower(name) else "" end
+            if named ~= "connection" and named ~= "keep-alive" and named ~= "proxy-connection" then
+              lines[#lines + 1] = line
+            end
+          end
+          lines[#lines + 1] = "Connection: close"
+          out[#out + 1] = table.concat(lines, "\r\n") .. "\r\n\r\n" .. rest
+          held, done = "", true
+          return table.concat(out), ""
+        end
+      end
+    end,
+  }
 end
 
 --- The reply to a CONNECT that was granted and connected.
