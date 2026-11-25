@@ -6,9 +6,15 @@
 
 local Array = require("cosmic.array")
 local Sandbox = require("cosmic.sandbox")
+local Test = require("cosmic.test")
 
---- The layers of `policy`, which must be ones a restriction takes.
+--- The layers of `policy`, which must be ones a restriction takes; ends
+--- the test on macOS, where a Seatbelt profile holds the process and
+--- there are no layers to tell.
 local function layers_of(policy: Sandbox.Policy): Sandbox.Layers
+  if Sandbox.on_macos() then
+    Test.skip("a Seatbelt profile holds a process on macOS, which has no layers to tell")
+  end
   local layers, why = Sandbox.layers(policy)
   assert(layers ~= nil, why)
   return layers
@@ -55,6 +61,11 @@ end
 --- What a restriction refuses, this refuses in its words: a policy the
 --- merge refuses, and what only a child can be held to.
 local function test_what_a_restriction_refuses_is_refused()
+  if Sandbox.on_macos() then
+    local held, seatbelt = Sandbox.layers({})
+    assert(held == nil and seatbelt:find("Seatbelt", 1, true) ~= nil, seatbelt)
+    return
+  end
   local none, why = Sandbox.layers({ profiles = { "nosuch" } })
   assert(none == nil and why:find("^sandbox: ") ~= nil and why:find("nosuch", 1, true) ~= nil, why)
   local child_only: {Sandbox.Policy} = { { grants = { { connect = "api.github.com:443" } } },
