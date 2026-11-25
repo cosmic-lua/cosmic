@@ -103,7 +103,7 @@ local function test_copies_of_the_process_answer_as_the_process_does(tmp: string
       return assert(rows[index])
     end, {}, {})
     local kept: mut {string} = {}
-    local found = assert(memo:text_rows(
+    local found = assert(memo:rows(
       "SELECT key || '=' || value FROM check_memo WHERE kind = 'pipeline' ORDER BY key"))
     for _, row in ipairs(found) do
       kept[#kept + 1] = row:text(1)

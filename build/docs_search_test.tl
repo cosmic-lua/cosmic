@@ -85,7 +85,7 @@ end
 local function test_the_tool_records_the_public_library()
   local databases: {Sqlite.Handle} = Store.databases()
   local binary = assert(databases[#databases], "the tool has a database")
-  local rows = assert(binary:text_rows(
+  local rows = assert(binary:rows(
     "SELECT (SELECT count(*) FROM public_modules WHERE path IN ('cosmic.fs', 'cosmic.sys', 'cosmic.web', " ..
       "'cosmic.web.input', 'cosmic.http.server')), " ..
       "(SELECT count(*) FROM public_modules WHERE path LIKE 'cosmic.internal.%' OR path LIKE '%\\_test' ESCAPE '\\' " ..
@@ -96,10 +96,10 @@ local function test_the_tool_records_the_public_library()
       "(SELECT group_concat(path, ' ' ORDER BY path) FROM modules WHERE kind = 'module' AND path LIKE 'cosmic.%' " ..
       "AND path NOT LIKE 'cosmic.internal.%' AND path NOT IN (SELECT path FROM public_modules))"))
   local row = assert(rows[1])
-  assert(row:text(1) == "5", "a module any module may require is public, a declaration among them: " .. row:text(1))
-  assert(row:text(2) == "0", "an internal module, a test or a module outside the library is recorded: " .. row:text(2))
-  assert(row:text(3) == "0", "a module a closed directory keeps to itself is recorded: " .. row:text(3))
-  assert(row:text(4) == "0", "a module directly under cosmic/ is not recorded: " .. row:text(4))
+  assert(row:integer(1) == 5, "a module any module may require is public, a declaration among them: " .. tostring(row:integer(1)))
+  assert(row:integer(2) == 0, "an internal module, a test or a module outside the library is recorded: " .. tostring(row:integer(2)))
+  assert(row:integer(3) == 0, "a module a closed directory keeps to itself is recorded: " .. tostring(row:integer(3)))
+  assert(row:integer(4) == 0, "a module directly under cosmic/ is not recorded: " .. tostring(row:integer(4)))
   -- Every module of the library a closed directory keeps. One more here is a module whose docs a project has lost:
   -- say `--- @public` in it, or name it here on purpose.
   local kept = "cosmic.agent.prompt_data cosmic.agent.prompt_text cosmic.agent.run_text cosmic.agent.run_text_data cosmic.agent.where_text cosmic.http.wire cosmic.mcp.wire cosmic.sandbox.policy cosmic.template.codegen cosmic.template.context " ..

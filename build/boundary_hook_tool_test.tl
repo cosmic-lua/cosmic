@@ -84,7 +84,7 @@ end
 --- The rows of `type_violations` the project's last checked run kept.
 local function violations(root: string): Sqlite.Rows
   local db = assert(Sqlite.open(assert(build_paths.directory(root)) .. "/build.db"))
-  local rows = assert(db:text_rows(
+  local rows = assert(db:rows(
     "SELECT kind, site, target, declared, actual, count FROM type_violations ORDER BY site"))
   assert(db:close())
   return rows
@@ -100,7 +100,7 @@ local function test_a_checked_run_reports_the_parameter_that_is_false_at_the_cal
   local rows = violations(root)
   local seen: mut {string} = {}
   for _, row in ipairs(rows) do
-    seen[#seen + 1] = table.concat(row:texts(), " | ")
+    seen[#seen + 1] = table.concat(row:as_texts(), " | ")
   end
   local want = {
     "parameter | boundary_test.tl:10 | parameter name of take (lib.tl:1) | string | integer | 1",

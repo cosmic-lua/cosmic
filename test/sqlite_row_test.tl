@@ -135,6 +135,14 @@ local function test_texts_lists_the_columns_of_a_row_of_text()
   assert(db:close())
 end
 
+local function test_as_texts_shows_a_row_of_any_types_whole()
+  local db = assert(Sqlite.memory())
+  local shown = first_row((assert(db:rows("SELECT 7, 'x', NULL, 1.5, CAST('ab' AS BLOB)")))):as_texts()
+  assert(#shown == 5 and shown[1] == "7" and shown[2] == "x" and shown[3] == "" and shown[4] == "1.5" and
+      shown[5] == "ab", table.concat(shown, ","))
+  assert(db:close())
+end
+
 --- `text_rows` keeps SQLite's byte representation: its rows hold `text`
 --- for every column, NULL as "" and numbers as SQLite spells them.
 local function test_text_rows_answer_text_for_every_column()

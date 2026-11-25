@@ -37,7 +37,7 @@ end
 --- table, or "" when it has none.
 local function projected(path: string): string
   local db = assert(Sqlite.open(path))
-  local rows = assert(db:text_rows(
+  local rows = assert(db:rows(
     "SELECT value FROM meta WHERE key = 'projected'"))
   assert(db:close())
   if #rows == 0 then
@@ -103,7 +103,7 @@ local function test_a_file_another_binary_wrote_is_rewritten(tmp: string)
   assert(writer.write_result(handle, tmp .. "/out.db", result))
   assert(work.close(handle))
   local out = assert(Sqlite.open(tmp .. "/out.db"))
-  local rows = assert(out:text_rows("SELECT key FROM meta WHERE key = 'older'"))
+  local rows = assert(out:rows("SELECT key FROM meta WHERE key = 'older'"))
   assert(out:close())
   assert(#rows == 0, "a file another binary wrote must be rewritten")
 end
@@ -125,12 +125,12 @@ local function test_a_declaration_ships_its_docs(tmp: string)
   local handle = build_and_write(tmp .. "/a", "world", tmp .. "/out.db")
   assert(work.close(handle))
   local out = assert(Sqlite.open(tmp .. "/out.db"))
-  local rows = assert(out:text_rows(
+  local rows = assert(out:rows(
     "SELECT text, file, line FROM docs WHERE module = 'clock' AND symbol = 'now'"))
   assert(out:close())
   assert(#rows == 1, tostring(#rows))
   assert(support.nth(rows, 1):text(1) == "Seconds since the epoch." and support.nth(rows, 1):text(2) == "clock.d.tl" and
-      support.nth(rows, 1):text(3) == "4", table.concat(support.nth(rows, 1):texts(), " "))
+      support.nth(rows, 1):integer(3) == 4, table.concat(support.nth(rows, 1):as_texts(), " "))
 end
 
 --- What the tool carries is the projection without the tree's own
@@ -192,7 +192,7 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
 
   local function rows(path: string, sql: string): Sqlite.Rows
     local db = assert(Sqlite.open(path))
-    local found = assert(db:text_rows(sql))
+    local found = assert(db:rows(sql))
     assert(db:close())
     return found
   end
@@ -212,8 +212,8 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
       "+ (SELECT count(*) FROM catalog WHERE module IN ('greet_test', 'greet_example'))")
   local in_whole = rows(tmp .. "/whole.db",
     "SELECT count(*) FROM catalog WHERE module = 'greet_test'")
-  assert(support.nth(in_whole, 1):text(1) == "1", "the projection holds the test's catalog row")
-  assert(support.nth(about_dropped, 1):text(1) == "0", "a row about a dropped module is carried")
+  assert(support.nth(in_whole, 1):integer(1) == 1, "the projection holds the test's catalog row")
+  assert(support.nth(about_dropped, 1):integer(1) == 0, "a row about a dropped module is carried")
   -- `greet` is a module any module of this project may require, which its
   -- projection records as public, so its docs and the example about it
   -- are carried: `test_the_carried_docs_*` below covers which rows are.
@@ -224,9 +224,9 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
   local documented = rows(tmp .. "/whole.db",
     "SELECT (SELECT count(*) FROM examples WHERE module = 'greet'), " ..
       "(SELECT count(*) FROM docs WHERE module = 'greet')")
-  assert(support.nth(documented, 1):text(1) == "1" and assert(tonumber(support.nth(documented, 1):text(2)), "the docs count is a number") > 0,
+  assert(support.nth(documented, 1):integer(1) == 1 and support.nth(documented, 1):integer(2) > 0,
     "the projection documents greet")
-  assert(support.nth(kept, 1):text(1) == "1" and support.nth(kept, 1):text(2) == support.nth(documented, 1):text(2),
+  assert(support.nth(kept, 1):integer(1) == 1 and support.nth(kept, 1):integer(2) == support.nth(documented, 1):integer(2),
     "the docs of a module the projection records as public are carried")
   assert(support.nth(kept, 1):text(3) == "cmd.hello.main", "meta is carried")
   local materials = rows(tmp .. "/carried.db",
@@ -282,18 +282,18 @@ local function test_a_module_ships_its_bytecode_and_not_its_lua(tmp: string)
   local handle = build_and_write(tmp .. "/a", "world", tmp .. "/out.db")
   assert(work.close(handle))
   local out = assert(Sqlite.open(tmp .. "/out.db"))
-  local columns = assert(out:text_rows(
+  local columns = assert(out:rows(
     "SELECT name FROM pragma_table_info('modules') WHERE name = 'lua'"))
-  local rows = assert(out:text_rows(
+  local rows = assert(out:rows(
     "SELECT length(bytecode) > 0, " ..
       "instr(CAST(inflate(source) AS TEXT), 'hello, world') > 0, " ..
       "instr(CAST(source AS TEXT), 'function greet.hello') = 0 " ..
       "FROM modules WHERE path = 'greet'"))
   assert(out:close())
   assert(#columns == 0, "the shipped modules table carries generated Lua")
-  assert(#rows == 1 and rows[1]:text(1) == "1" and support.nth(rows, 1):text(2) == "1",
+  assert(#rows == 1 and rows[1]:integer(1) == 1 and support.nth(rows, 1):integer(2) == 1,
     tostring(#rows))
-  assert(support.nth(rows, 1):text(3) == "1", "the source is stored deflated")
+  assert(support.nth(rows, 1):integer(3) == 1, "the source is stored deflated")
 end
 
 --- The zones the working database holds ship in the projection, and are
@@ -307,7 +307,7 @@ local function test_the_zones_ship_and_sign_the_projection(tmp: string)
   assert(work.close(handle))
   assert(projected(out) ~= before, "new zones sign a new projection")
   local db = assert(Sqlite.open(out))
-  local rows = assert(db:text_rows(
+  local rows = assert(db:rows(
     "SELECT group_concat(name || ' ' || typeof(data) || ' ' || length(data), ',' ORDER BY rowid) " ..
       "FROM zoneinfo"))
   assert(db:close())
@@ -315,7 +315,7 @@ local function test_the_zones_ship_and_sign_the_projection(tmp: string)
   -- And the tool built from the projection carries them too.
   assert(writer.carried(out, tmp .. "/carried.db"))
   local carried = assert(Sqlite.open(tmp .. "/carried.db"))
-  local kept = assert(carried:text_rows(
+  local kept = assert(carried:rows(
     "SELECT group_concat(name || ' ' || typeof(data), ',' ORDER BY rowid) FROM zoneinfo"))
   assert(carried:close())
   assert(support.nth(kept, 1):text(1) == "A/Zone blob,Test/Zone blob", support.nth(kept, 1):text(1))
@@ -335,7 +335,7 @@ local function test_the_web_assets_ship_and_sign_the_projection(tmp: string)
   assert(projected(out) ~= before, "new web assets sign a new projection")
   local function listed(path: string): string
     local db = assert(Sqlite.open(path))
-    local rows = assert(db:text_rows(
+    local rows = assert(db:rows(
       "SELECT group_concat(name || ' ' || typeof(data) || ' ' || length(data) || ' ' || " ..
         "sha256 || ' ' || sha384 || ' ' || version, ',' ORDER BY name) FROM web_assets"))
     assert(db:close())
@@ -409,7 +409,7 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
   assert(writer.carried(whole, tmp .. "/carried.db"))
   local out = assert(Sqlite.open(tmp .. "/carried.db"))
   local function column(sql: string): string
-    local found = assert(out:text_rows(
+    local found = assert(out:rows(
       "SELECT coalesce(group_concat(v, ' '), '') FROM (" .. sql .. ")"))
     return support.nth(found, 1):text(1)
   end
@@ -493,10 +493,10 @@ local function test_the_carried_internal_types_are_the_ones_a_public_signature_n
   assert(db:close())
   assert(writer.carried(whole, tmp .. "/carried.db"))
   local out = assert(Sqlite.open(tmp .. "/carried.db"))
-  local found = assert(out:text_rows(
+  local found = assert(out:rows(
     "SELECT coalesce(group_concat(symbol, ' '), '') FROM (SELECT symbol FROM docs " ..
       "WHERE module LIKE 'cosmic.internal.%' ORDER BY id)"))
-  local kept = assert(out:text_rows(
+  local kept = assert(out:rows(
     "SELECT coalesce(group_concat(symbol, ' '), '') FROM (SELECT symbol FROM docs " ..
       "WHERE module = 'cosmic.net.wire' ORDER BY id)"))
   assert(out:close())
@@ -531,7 +531,7 @@ local function test_the_carried_docs_hold_the_user_guides_prose(tmp: string)
   assert(db:close())
   assert(writer.carried(whole, tmp .. "/carried.db"))
   local out = assert(Sqlite.open(tmp .. "/carried.db"))
-  local found = assert(out:text_rows(
+  local found = assert(out:rows(
     "SELECT coalesce(group_concat(module || '|' || text, ' '), '') FROM docs"))
   assert(out:close())
   assert(support.nth(found, 1):text(1) == "doc.guides.quickstart|A tour. doc.guides.newcomer|Named in no list.",
@@ -554,29 +554,29 @@ end
 --- cache holds no source the tree no longer has.
 local function test_an_edited_source_is_not_served_from_the_deflate_cache(tmp: string)
   local handle = build_and_write(tmp .. "/a", "world", tmp .. "/first.db")
-  local before = assert(handle.db:text_rows("SELECT count(*) FROM deflated"))
-  assert(assert(before[1]):text(1) ~= "0", "writing a projection fills the cache")
+  local before = assert(handle.db:rows("SELECT count(*) FROM deflated"))
+  assert(assert(before[1]):integer(1) ~= 0, "writing a projection fills the cache")
 
   support.write_project(tmp .. "/a", "moon")
   assert(work.stage(handle, { own = false }))
   local result = assert(importer.compile(handle, "writer-test"))
   assert(writer.write_result(handle, tmp .. "/second.db", result))
-  local stale = assert(handle.db:text_rows(
+  local stale = assert(handle.db:rows(
     "SELECT count(*) FROM deflated WHERE source_hash NOT IN (SELECT source_hash FROM inputs)"))
-  assert(assert(stale[1]):text(1) == "0", "the cache holds a source no input has")
+  assert(assert(stale[1]):integer(1) == 0, "the cache holds a source no input has")
   assert(work.close(handle))
 
   assert(work.close((build_and_write(tmp .. "/b", "moon", tmp .. "/fresh.db"))))
   assert(assert(Fs.read(tmp .. "/second.db")) == assert(Fs.read(tmp .. "/fresh.db")),
     "a projection served from the cache differs from a fresh one")
   local out = assert(Sqlite.open(tmp .. "/second.db"))
-  local rows = assert(out:text_rows(
+  local rows = assert(out:rows(
     "SELECT instr(CAST(inflate(source) AS TEXT), 'hello, moon') > 0, " ..
       "instr(CAST(inflate(source) AS TEXT), 'hello, world') > 0 " ..
       "FROM modules WHERE path = 'greet'"))
   assert(out:close())
   local shipped = assert(rows[1])
-  assert(shipped:text(1) == "1" and shipped:text(2) == "0", "the edited source was not shipped")
+  assert(shipped:integer(1) == 1 and shipped:integer(2) == 0, "the edited source was not shipped")
 end
 
 --- A compressed source is kept for the core that compressed it: a
@@ -589,15 +589,15 @@ local function test_a_source_is_deflated_again_by_a_core_of_another_image(tmp: s
   assert(work.stage(handle, { own = false }))
   local result = assert(importer.compile(handle, "writer-test"))
   assert(writer.write_result(handle, tmp .. "/second.db", result))
-  local cores = assert(handle.db:text_rows("SELECT DISTINCT core FROM deflated"))
+  local cores = assert(handle.db:rows("SELECT DISTINCT core FROM deflated"))
   assert(#cores == 1 and assert(cores[1]):text(1) == "6f746865722d636f7265",
     "the cache holds a core's bytes that is not the writing core's")
   assert(work.close(handle))
   local out = assert(Sqlite.open(tmp .. "/second.db"))
-  local rows = assert(out:text_rows(
+  local rows = assert(out:rows(
     "SELECT instr(CAST(inflate(source) AS TEXT), 'hello, world') > 0 FROM modules WHERE path = 'greet'"))
   assert(out:close())
-  assert(assert(rows[1]):text(1) == "1", "another core's compressed source was shipped")
+  assert(assert(rows[1]):integer(1) == 1, "another core's compressed source was shipped")
 end
 
 --- The bytecode a projection ships is kept in the working database by
@@ -608,9 +608,9 @@ end
 --- ([`test_a_source_is_deflated_again_by_a_core_of_another_image`]).
 local function test_bytecode_is_kept_once_per_compile(tmp: string)
   local handle = build_and_write(tmp .. "/a", "world", tmp .. "/first.db")
-  local keys = assert(handle.db:text_rows("SELECT count(*), sum(substr(data, 1, 4) = CAST(x'1b4c7561' AS BLOB)) FROM kept_bytecode"))
-  assert(assert(keys[1]):text(1) ~= "0", "writing a projection keeps its bytecode")
-  assert(assert(keys[1]):text(1) == assert(keys[1]):text(2), "each is a chunk as it was dumped")
+  local keys = assert(handle.db:rows("SELECT count(*), sum(substr(data, 1, 4) = CAST(x'1b4c7561' AS BLOB)) FROM kept_bytecode"))
+  assert(assert(keys[1]):integer(1) ~= 0, "writing a projection keeps its bytecode")
+  assert(assert(keys[1]):integer(1) == assert(keys[1]):integer(2), "each is a chunk as it was dumped")
 
   -- Bytes the table holds are what ships: a planted row would show.
   assert(handle.db:exec("UPDATE kept_bytecode SET data = x'00'"))
@@ -618,26 +618,26 @@ local function test_bytecode_is_kept_once_per_compile(tmp: string)
   local result = assert(importer.compile(handle, "writer-test"))
   assert(writer.write_result(handle, tmp .. "/planted.db", result))
   local planted = assert(Sqlite.open(tmp .. "/planted.db"))
-  local shipped = assert(planted:text_rows(
+  local shipped = assert(planted:rows(
     "SELECT count(*) FROM modules WHERE bytecode = x'00'"))
   assert(planted:close())
-  assert(assert(shipped[1]):text(1) ~= "0", "a kept chunk was not shipped")
+  assert(assert(shipped[1]):integer(1) ~= 0, "a kept chunk was not shipped")
   assert(handle.db:exec("DELETE FROM kept_bytecode"))
 
   support.write_project(tmp .. "/a", "moon")
   assert(work.stage(handle, { own = false }))
   result = assert(importer.compile(handle, "writer-test"))
   assert(writer.write_result(handle, tmp .. "/second.db", result))
-  local stale = assert(handle.db:text_rows(
+  local stale = assert(handle.db:rows(
     "SELECT count(*) FROM kept_bytecode WHERE key NOT IN (SELECT key FROM plan)"))
-  assert(assert(stale[1]):text(1) == "0", "the table holds a compile no module names")
+  assert(assert(stale[1]):integer(1) == 0, "the table holds a compile no module names")
   assert(work.close(handle))
 
   assert(work.close((build_and_write(tmp .. "/b", "moon", tmp .. "/fresh.db"))))
   local second = assert(Sqlite.open(tmp .. "/second.db"))
   local fresh = assert(Sqlite.open(tmp .. "/fresh.db"))
   local function chunks(db: Sqlite.Handle): string
-    local rows = assert(db:text_rows(
+    local rows = assert(db:rows(
       "SELECT group_concat(hex(chunk(bytecode)), ',') FROM (SELECT bytecode FROM modules ORDER BY path)"))
     return assert(rows[1]):text(1)
   end
@@ -653,13 +653,13 @@ local function test_a_declarations_docs_and_links_are_attributed_to_its_file(tmp
     ["foo.d.tl"] = '--- @kind binding\nlocal Dep = require("dep")\n' ..
       "--- Public interface.\n--- See [`Dep.declared`].\nlocal record Foo\n  answer: integer\nend\nreturn Foo\n",
   })
-  local docs = assert(db:text_rows("SELECT file, text FROM docs WHERE module = 'foo' AND symbol = 'Foo'"))
+  local docs = assert(db:rows("SELECT file, text FROM docs WHERE module = 'foo' AND symbol = 'Foo'"))
   assert(#docs == 1 and docs[1]:text(1) == "foo.d.tl" and support.nth(docs, 1):text(2):find("Public interface.", 1, true) ~= nil)
-  local links = assert(db:text_rows(
+  local links = assert(db:rows(
     "SELECT module, symbol, from_file FROM links WHERE from_module = 'foo'"))
   assert(#links == 1 and links[1]:text(1) == "dep" and support.nth(links, 1):text(2) == "declared" and
       support.nth(links, 1):text(3) == "foo.d.tl")
-  assert(support.nth(assert(db:text_rows("SELECT count(*) FROM modules WHERE path = 'foo'")), 1):text(1) == "0",
+  assert(support.nth(assert(db:rows("SELECT count(*) FROM modules WHERE path = 'foo'")), 1):integer(1) == 0,
     "a declaration is no module to run")
   assert(db:close())
 end
@@ -676,7 +676,7 @@ local function test_an_edge_to_a_declaration_is_kept_beside_the_runtime_edges(tm
       "local record Foo\n  only: Only\nend\nreturn Foo\n",
   })
   local function names(table_name: string): string
-    local rows = assert(db:text_rows(
+    local rows = assert(db:rows(
       "SELECT requires FROM " .. table_name .. " WHERE path = 'foo' AND requires <> '' " ..
         "ORDER BY requires"))
     local out: mut {string} = {}
@@ -685,10 +685,10 @@ local function test_an_edge_to_a_declaration_is_kept_beside_the_runtime_edges(tm
   end
   assert(names("imports") == "dep", names("imports"))
   assert(names("decl_imports") == "dep,only", names("decl_imports"))
-  local paired = assert(db:text_rows(
+  local paired = assert(db:rows(
     "SELECT requires FROM decl_imports WHERE path = 'paired' AND requires <> ''"))
   assert(#paired == 1 and paired[1]:text(1) == "dep", "a declaration keeps its edges")
-  local leaf = assert(db:text_rows(
+  local leaf = assert(db:rows(
     "SELECT requires FROM decl_imports WHERE path = 'dep'"))
   assert(#leaf == 1 and leaf[1]:text(1) == "", "a module with no edge has the empty row")
   assert(db:close())
@@ -747,26 +747,26 @@ local function test_static_files_ship_as_payload_not_as_modules(tmp: string)
   write_static(tmp .. "/p", css)
   write_projection(tmp .. "/p", tmp .. "/p.db")
   local db = assert(Sqlite.open(tmp .. "/p.db"))
-  local rows = assert(db:text_rows(
+  local rows = assert(db:rows(
     "SELECT path, sha256, type, gzip IS NOT NULL, length(data), zstd IS NOT NULL FROM payload ORDER BY path"))
   assert(#rows == 4, tostring(#rows) .. " payload rows")
   assert(support.nth(rows, 1):text(1) == "css/app.css" and support.nth(rows, 1):text(2) == Hash.hex_sha256(css))
-  assert(support.nth(rows, 1):text(3) == "text/css; charset=utf-8" and support.nth(rows, 1):text(4) == "1" and support.nth(rows, 1):text(5) == tostring(#css))
-  assert(support.nth(rows, 1):text(6) == "1" and support.nth(rows, 2):text(6) == "0" and support.nth(rows, 3):text(6) == "0",
+  assert(support.nth(rows, 1):text(3) == "text/css; charset=utf-8" and support.nth(rows, 1):integer(4) == 1 and support.nth(rows, 1):integer(5) == #css)
+  assert(support.nth(rows, 1):integer(6) == 1 and support.nth(rows, 2):integer(6) == 0 and support.nth(rows, 3):integer(6) == 0,
     "zstd is held for the stylesheet alone, as gzip is")
-  assert(support.nth(rows, 2):text(1) == "logo.png" and support.nth(rows, 2):text(3) == "image/png" and support.nth(rows, 2):text(4) == "0")
+  assert(support.nth(rows, 2):text(1) == "logo.png" and support.nth(rows, 2):text(3) == "image/png" and support.nth(rows, 2):integer(4) == 0)
   assert(support.nth(rows, 3):text(1) == "notes.tl" and support.nth(rows, 3):text(3) == "application/octet-stream")
   assert(support.nth(rows, 4):text(1) == "page.tmpl")
-  local packed = assert(db:text_rows("SELECT gzip FROM payload WHERE path = 'css/app.css'"))
-  assert(assert(Compress.decode("gzip", support.nth(packed, 1):text(1))) == css)
-  local squeezed = assert(db:text_rows("SELECT zstd FROM payload WHERE path = 'css/app.css'"))
-  local expanded = assert(Stream.run(assert(Compress.decoder("zstd")), support.nth(squeezed, 1):text(1)))
-  assert(expanded == css and #support.nth(squeezed, 1):text(1) < #css)
-  local bytes = assert(db:text_rows("SELECT data FROM payload WHERE path = 'logo.png'"))
-  assert(support.nth(bytes, 1):text(1) == "\137PNG\0\1\2", "binary bytes, a NUL among them, are kept")
-  local modules = assert(db:text_rows(
+  local packed = assert(db:rows("SELECT gzip FROM payload WHERE path = 'css/app.css'"))
+  assert(assert(Compress.decode("gzip", support.nth(packed, 1):blob(1))) == css)
+  local squeezed = assert(db:rows("SELECT zstd FROM payload WHERE path = 'css/app.css'"))
+  local expanded = assert(Stream.run(assert(Compress.decoder("zstd")), support.nth(squeezed, 1):blob(1)))
+  assert(expanded == css and #support.nth(squeezed, 1):blob(1) < #css)
+  local bytes = assert(db:rows("SELECT data FROM payload WHERE path = 'logo.png'"))
+  assert(support.nth(bytes, 1):blob(1) == "\137PNG\0\1\2", "binary bytes, a NUL among them, are kept")
+  local modules = assert(db:rows(
     "SELECT count(*) FROM modules WHERE path LIKE 'static%' OR path LIKE '%notes%' OR path LIKE '%page%'"))
-  assert(support.nth(modules, 1):text(1) == "0")
+  assert(support.nth(modules, 1):integer(1) == 0)
   assert(db:close())
 end
 
@@ -784,8 +784,8 @@ local function test_an_edit_to_an_asset_moves_the_projection(tmp: string)
   write_projection(tmp .. "/one", tmp .. "/one.db")
   assert(projected(tmp .. "/one.db") ~= before)
   local db = assert(Sqlite.open(tmp .. "/one.db"))
-  local rows = assert(db:text_rows("SELECT data FROM payload WHERE path = 'css/app.css'"))
-  assert(support.nth(rows, 1):text(1) == "body { margin: 0 }")
+  local rows = assert(db:rows("SELECT data FROM payload WHERE path = 'css/app.css'"))
+  assert(support.nth(rows, 1):bytes(1) == "body { margin: 0 }")
   assert(db:close())
 end
 
@@ -815,7 +815,7 @@ end
 
 --- The text of the first column of the one row `sql` finds in `db`.
 local function scalar(db: Sqlite.Handle, sql: string): string
-  return support.nth(assert(db:text_rows(sql)), 1):text(1)
+  return support.nth(assert(db:rows(sql)), 1):as_text(1) or ""
 end
 
 --- The `column` a projection at `out` ships for `path`.
@@ -915,7 +915,7 @@ local function test_a_tree_without_static_has_no_payload(tmp: string)
   support.write_project(tmp .. "/p", "world")
   write_projection(tmp .. "/p", tmp .. "/p.db")
   local db = assert(Sqlite.open(tmp .. "/p.db"))
-  local rows = assert(db:text_rows("SELECT count(*) FROM payload"))
-  assert(support.nth(rows, 1):text(1) == "0")
+  local rows = assert(db:rows("SELECT count(*) FROM payload"))
+  assert(support.nth(rows, 1):integer(1) == 0)
   assert(db:close())
 end

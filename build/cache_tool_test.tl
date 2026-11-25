@@ -70,7 +70,7 @@ local function test_busy_cache_cancellation_is_prompt_and_preserves_file(tmp: st
   assert(result.timed_out, "the live writer must block maintenance")
   assert(assert(Fs.status(path)).exists)
   db = assert(Sqlite.open(path))
-  local untouched = assert(db:text_rows("SELECT value FROM untouched"))
+  local untouched = assert(db:rows("SELECT value FROM untouched"))
   assert(#untouched == 1, "the table holds its one row")
   assert(Array.at(untouched, 1):text(1) == "keep")
   assert(db:close())
