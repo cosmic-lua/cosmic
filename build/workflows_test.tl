@@ -1776,7 +1776,7 @@ local function test_a_queue_try_stands_on_its_pull_requests_last_failed_try()
   local taken, taken_at = step_named(steps, "take in the last failed try's verdicts")
   local _, restore_at = step_with_id(steps, "verdicts-restore")
   local _, suite_at = step_with_id(steps, "release-suite")
-  local _, trim_at = step_with_id(steps, "verdicts-trim")
+  local trim, trim_at = step_with_id(steps, "verdicts-trim")
   local upload, upload_at = step_named(steps, "upload what this failed try in the merge queue reached")
   assert(restore_at < find_at and find_at < download_at and download_at < taken_at and taken_at < suite_at and
       trim_at < upload_at, "the tried verdicts are taken in out of order")
@@ -1785,11 +1785,19 @@ local function test_a_queue_try_stands_on_its_pull_requests_last_failed_try()
   assert(find["if"] == "github.event_name == 'merge_group'" and find["continue-on-error"] == true and
       env["ARTIFACT"] == name and env["HEAD_REF"] == "${{ github.event.merge_group.head_ref }}" and
       env["RUN_ID"] == "${{ github.run_id }}" and env["BASE_SHA"] == "${{ github.event.merge_group.base_sha }}" and
-      env["SHA"] == "${{ github.sha }}" and (find.run or ""):find("driver.tl queue-tried-run", 1, true) ~= nil,
+      env["SHA"] == "${{ github.sha }}" and env["GH_TOKEN"] == "${{ github.token }}" and
+      (find.run or ""):find("driver.tl queue-tried-run", 1, true) ~= nil,
     "the tried run's lookup")
-  assert(download["if"] == "steps.tried-run.outputs.run != ''" and download["continue-on-error"] == true and
-      param(download, "name") == name and param(download, "run-id") == "${{ steps.tried-run.outputs.run }}",
+  -- By the artifact's id, which the lookup checked, not its name: an
+  -- attempt again uploads another of the same name.
+  assert(download["if"] == "steps.tried-run.outputs.artifact != ''" and download["continue-on-error"] == true and
+      with_of(download)["name"] == nil and with_of(download)["pattern"] == nil and
+      param(download, "artifact-ids") == "${{ steps.tried-run.outputs.artifact }}" and
+      with_of(download)["merge-multiple"] == true and param(download, "run-id") == "${{ steps.tried-run.outputs.run }}",
     "the tried verdicts' download")
+  -- A failed try in the queue keeps only the rows it used, as a passing one does.
+  assert((trim.run or ""):find("(job.status == 'success' || github.event_name == 'merge_group') && " ..
+      "steps.names.outputs.since || 'whole'", 1, true) ~= nil, "a failed try uploads the rows it restored")
   assert(taken["if"] == "steps.tried-download.outcome == 'success'" and taken["continue-on-error"] == true and
       (taken.run or ""):find("driver.tl verdicts-merge \"" .. param(download, "path") .. "\"", 1, true) ~= nil,
     "the tried verdicts are taken in otherwise")
@@ -1798,9 +1806,11 @@ local function test_a_queue_try_stands_on_its_pull_requests_last_failed_try()
       param(upload, "name") == name and param(upload, "path") == "${{ runner.temp }}/verdicts/*.db",
     "the tried verdicts' upload: " .. tostring(upload["if"]))
   -- The lookup reads a tried run's ref checks by these names
-  -- (QueueVerdicts.REF_JOB, GATE_JOB, the key of a job with no name, and RECHECK_STEP).
+  -- (QueueVerdicts.REF_JOB, GATE_JOB, the key of a job with no name, and
+  -- RECHECK_STEP); a name changed here turns the lookup off.
   local jobs = ci_workflow().jobs
-  assert(job_of(jobs, "queue-ref").name == "merge-queue ref", "the tried run's ref job is named otherwise")
+  assert(job_of(jobs, "queue-ref").name == "merge-queue ref" and job_of(jobs, "ci").name == nil,
+    "the tried run's ref job, or the gate, is named otherwise")
   local _ = step_named(job_of(jobs, "ci").steps, "refuse a cache the merge-queue ref saved, after every job")
 end
 

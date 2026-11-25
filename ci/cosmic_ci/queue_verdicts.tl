@@ -53,6 +53,7 @@ local record RunRow
   head_sha?: any
   head_branch?: any
   head_repository?: any
+  run_attempt?: any
 end
 local RUN_ROW <const> = Shape.record_of("RunRow")
 local record RepositoryRow
@@ -64,6 +65,7 @@ local record RunList
 end
 local RUN_LIST <const> = Shape.record_of("RunList")
 local record ArtifactRow
+  id?: any
   name?: any
   expired?: any
 end
@@ -73,9 +75,9 @@ local record ArtifactList
 end
 local ARTIFACT_LIST <const> = Shape.record_of("ArtifactList")
 
---- How many of the newest runs that tested a commit are asked for the
---- artifact: a run the queue started again (its entry put back) holds a
---- newer id.
+--- How many of the newest runs that tested a commit, or of a pull
+--- request's failed tries, are asked for the artifact: a run the queue
+--- started again (its entry put back) holds a newer id.
 local TRIED <const> = 5
 
 --- Whether `item`, a run on the list, is a merge-queue run of `sha` in
@@ -134,6 +136,36 @@ local function holds_artifact(host: Github.Host, repository: string, id: integer
   return false, "run " .. tostring(id) .. " holds no " .. name .. " that has not expired"
 end
 
+--- The id of the one artifact `name` that run `id` holds and that has
+--- not expired; nil and why where it holds none or more than one.
+local function tried_artifact(host: Github.Host, repository: string, id: integer, name: string): integer?, string
+  local path = "repos/" .. repository .. "/actions/runs/" .. tostring(id) .. "/artifacts?name=" .. name
+  local pages = Github.ask(host, path, false, LOOKUP_SECONDS)
+  if pages == nil then
+    return nil, "GitHub did not answer which artifacts run " .. tostring(id) .. " holds"
+  end
+  local listed, trouble = ARTIFACT_LIST:decode_into(pages[1] or "")
+  if listed == nil then return nil, "the list of artifacts: " .. trouble end
+  local found: integer? = nil
+  for _, item in ipairs(listed.artifacts or {}) do
+    local artifact, _ = ARTIFACT_ROW:into(item)
+    if artifact == nil then
+      return nil, "the list of artifacts names one GitHub did not describe"
+    end
+    local artifact_id = artifact.id
+    if artifact.name == name and artifact.expired == false then
+      if found ~= nil or not (artifact_id is integer) then
+        return nil, "run " .. tostring(id) .. " holds more than one " .. name .. ", or one of no id"
+      end
+      found = artifact_id
+    end
+  end
+  if found == nil then
+    return nil, "run " .. tostring(id) .. " holds no " .. name .. " that has not expired"
+  end
+  return found, ""
+end
+
 --- `driver.tl queue-run`: writes `run=<id>` to $GITHUB_OUTPUT, the newest
 --- merge-queue run of ci.yml that tested SHA and uploaded ARTIFACT, in
 --- GITHUB_REPOSITORY. Where it finds none it says why and writes nothing:
@@ -185,7 +217,14 @@ end
 --- its own base ([`change_of`]). Its ref must hold no cache now, and
 --- its jobs must have found none there before and after they ran
 --- ([`refused_caches`]): a cache there may have been written by code
---- that never merges ([`QueueVerdicts.ref_caches`]).
+--- that never merges ([`QueueVerdicts.ref_caches`]). Only a run's
+--- first attempt: an attempt again keeps the earlier one's artifacts and
+--- the jobs it did not run again, so what GitHub says of its jobs need
+--- not be of the attempt that uploaded the rows.
+---
+--- TODO: upload a try's rows from the legs that passed too, so the next
+--- try reruns none of them whole, once the size of a day's queue
+--- artifacts is measured.
 
 --- How many of the newest failed merge-queue runs are read for the pull
 --- request's: some 14 hours of the queue's failures on 2026-11-24.
@@ -240,6 +279,11 @@ local LISTED_FILES <const> = 300
 --- `head` is not ahead of `base`, the list may be cut, or a file that
 --- stays has no blob named. GitHub names no file's mode, so a change of
 --- mode alone is not told apart.
+---
+--- TODO: tell a change of mode alone apart, from each commit's tree
+--- (`git/trees/<sha>`, which names modes), once a listing of the tree's
+--- changed paths alone is found that is not cut short as the whole
+--- tree's is.
 local function change_of(host: Github.Host, repository: string, base: string, head: string): string?
   local pages = Github.ask(host, "repos/" .. repository .. "/compare/" .. base .. "..." .. head, false, LOOKUP_SECONDS)
   local compared, _ = CHANGE_ROW:decode_into((pages or {})[1] or "")
@@ -283,7 +327,9 @@ local function caches_of(host: Github.Host, repository: string, ref: string): in
   return nil
 end
 
---- What a run's job, and its step, is read for.
+--- What a run's job, and its step, is read for. A run lists at most 100
+--- jobs a page; a job on a page after the first goes unseen, and the
+--- run is not taken.
 local record StepRow
   name?: any
   conclusion?: any
@@ -360,6 +406,7 @@ local function tried_run_of(item: any, repository: string, entry: string, own: i
   local from, _ = REPOSITORY_ROW:into(run.head_repository)
   if from == nil or from.full_name ~= repository then return nil end
   local id, sha = run.id, run.head_sha
+  if run.run_attempt ~= 1 then return nil end
   if id is integer and id ~= own and sha is string and Github.is_commit(sha) then
     return { id = id, on = of.on, sha = sha, ref = "refs/heads/" .. branch }
   end
@@ -386,14 +433,15 @@ local function tried_runs(host: Github.Host, repository: string, entry: string, 
   return runs, ""
 end
 
---- `driver.tl queue-tried-run`: writes `run=<id>` to $GITHUB_OUTPUT, the
---- newest merge-queue run of ci.yml in GITHUB_REPOSITORY that failed for
---- the pull request HEAD_REF is of, was built on a commit of main with
---- the change SHA makes over BASE_SHA, this run's, refused its ref's
---- caches before and after its jobs, and uploaded ARTIFACT,
---- other than RUN_ID, this run. Where it finds none it says why and writes nothing:
---- the run's suites run their tests. 2 where the step names no queue
---- ref, artifact or repository, else 0.
+--- `driver.tl queue-tried-run`: writes `run=<id>` and `artifact=<id>`
+--- to $GITHUB_OUTPUT: the newest merge-queue run of ci.yml in
+--- GITHUB_REPOSITORY, other than RUN_ID (this run), that failed at its
+--- first attempt for the pull request HEAD_REF is of, was built on a
+--- commit of main with the change SHA makes over BASE_SHA (this run's),
+--- and refused its ref's caches before and after its jobs; and the one
+--- ARTIFACT it uploaded. Where it finds none it says why and writes
+--- nothing: the run's suites run their tests. 2 where the step names no
+--- queue ref, artifact, repository, base or commit, else 0.
 function QueueVerdicts.find_tried(env: {string:string}, host: Github.Host): integer
   local ref, name, repository = env["HEAD_REF"] or "", env["ARTIFACT"] or "", env["GITHUB_REPOSITORY"] or ""
   local queued = QueueVerdicts.entry_of(ref)
@@ -419,7 +467,8 @@ function QueueVerdicts.find_tried(env: {string:string}, host: Github.Host): inte
   local why = if runs == nil then trouble else "no failed merge-queue run of pull request " .. entry .. " is listed" end
   for _, tried in ipairs(runs or {}) do
     local id = tried.id
-    local held, absent = false, "run " .. tostring(id) .. " was built on " .. tried.on .. ", which is not on main"
+    local held: integer? = nil
+    local absent = "run " .. tostring(id) .. " was built on " .. tried.on .. ", which is not on main"
     if on_main(host, repository, tried.on) then
       absent = "run " .. tostring(id) .. " tested another change than this run's"
       if change_of(host, repository, tried.on, tried.sha) == mine then
@@ -429,13 +478,14 @@ function QueueVerdicts.find_tried(env: {string:string}, host: Github.Host): inte
         if caches_of(host, repository, tried.ref) == 0 then
           absent = "run " .. tostring(id) .. " did not refuse its ref's caches before and after its jobs"
           if refused_caches(host, repository, id) then
-            held, absent = holds_artifact(host, repository, id, name)
+            held, absent = tried_artifact(host, repository, id, name)
           end
         end
       end
     end
-    if held then
+    if held ~= nil then
       host.output("run=" .. tostring(id))
+      host.output("artifact=" .. tostring(held))
       host.print("merge-queue run " .. tostring(id) .. " of pull request " .. entry .. " failed and uploaded " .. name)
       return 0
     end
