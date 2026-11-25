@@ -420,12 +420,15 @@ local function wake(w: Wait, ok: boolean, why: string, notice?: NotifierState)
   queue[#queue + 1] = { task = w.task, ok = ok, why = why, notice = notice }
 end
 
+--- What a call outside a run is told to do instead.
+local OUTSIDE = ": call it in the function `Poll.run(main)` runs, or in a task that function spawns"
+
 --- The task the calling coroutine is, raising at `level` where there is
 --- none: a wait outside [`Poll.run`], in a coroutine a task made of its
 --- own, or while the run closes its tasks.
 local function current(what: string, level: integer): State
   local loop = ongoing.loop
-  if loop == nil then error("poll: " .. what .. " outside Poll.run", level + 1) end
+  if loop == nil then error("poll: " .. what .. " outside Poll.run" .. OUTSIDE, level + 1) end
   if loop.closing == true then
     error("poll: " .. what .. " while Poll.run closes its tasks", level + 1)
   end
@@ -811,7 +814,7 @@ end
 --- and notify, as [`Poll.Notifier`] says. It raises outside a run.
 function Poll.notifier(): Poll.Notifier
   local ongoing_loop = ongoing.loop
-  if ongoing_loop == nil then error("poll: Poll.notifier outside Poll.run", 2) end
+  if ongoing_loop == nil then error("poll: Poll.notifier outside Poll.run" .. OUTSIDE, 2) end
   local notifier: NotifierState = { loop = ongoing_loop, waiters = {} }
   return notifier
 end
