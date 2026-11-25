@@ -16,8 +16,20 @@
 ---       { stdout = "capture" }))
 ---     print(ran.stdout) -- abc1234
 ---
+--- A fake can run a module of the tree in place of a script: the test
+--- requires it, so it is of the test's import closure, and builds with
+--- its name. Each copy reads what `place` gave it with [`Fake.given`].
+---
+---     -- my.git_fake is a module whose main prints Fake.given() and returns 0
+---     local _ = require("my.git_fake")
+---     local program = assert(Fake.build(tmp .. "/fake", "my.git_fake"))
+---     assert(Fake.place(program, tmp .. "/bin/git", "abc1234"))
+---
+--- The command language below is going away: new fakes use a module.
+---
 --- `build` makes one, in a few milliseconds past reading the core, and
---- `place` copies it where a test needs one, with the script it runs. A
+--- `place` copies it where a test needs one, with the script it runs
+--- or the text its main reads. A
 --- test that builds one declares nothing for it in its [`Test.policy`]:
 --- the build starts nothing and reads only the running core and the
 --- modules the fake carries, which are of every test's import
@@ -174,6 +186,7 @@
 
 local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
 -- Required, not only named, so the probe and what it requires are of the
 -- import closure of every module that requires this one, whose store
@@ -197,15 +210,20 @@ local probe_module <const> = "cosmic.internal.fake_probe"
 local core_requires <const>: {string} = { "cosmic.errors" }
 
 --- Builds a fake under `dir`, made if it is not there, and returns
---- the path of the executable, `dir/probe`. With no `main`, it runs its
+--- the path of the executable: `dir/probe`, or `dir/` and `main`'s
+--- name with a `main`, so one `dir` holds a fake of each. With no
+--- `main`, it runs its
 --- first argument as its script, with the rest its arguments, or the
 --- script `place` wrote beside a copy of it. With `main`, the name of a
 --- module this process holds -- one its test requires, so it is of the
 --- test's import closure -- it runs that module as a program, as
---- `cosmic build` would make one of it: a function of the arguments that
---- returns the exit status. Nil and a Failure where `dir` cannot be made
---- or written, `main` is not held, or this process has no artifact of
---- its own to take its core from.
+--- `cosmic build` would make one of it: the module returns a
+--- `function(argv: {string}): integer`, given the arguments past the
+--- program's name and returning the exit status. Nil and a Failure where
+--- `dir` cannot be made or written, `main` is not of the test's closure,
+--- or this process has no artifact of its own to take its core from. A
+--- `main` that returns no function is not refused here: the fake it
+--- makes says so when it starts, and ends with a failing status.
 function Fake.build(dir: string, main?: string): (string) | (nil, Failure)
   local made, trouble = Fs.mkdirs(dir)
   if not made then return nil, trouble end
@@ -214,10 +232,15 @@ function Fake.build(dir: string, main?: string): (string) | (nil, Failure)
   for _, name in ipairs(core_requires) do roots[#roots + 1] = name end
   local found, names = pcall(Store.closure, roots)
   if not found then
-    return nil, Failure.new("building the fake: " .. tostring(names) .. ": require " .. runs ..
-      " from the test, so this process holds it")
+    local why = tostring(names)
+    if main ~= nil and why:find(main, 1, true) ~= nil then
+      why = why .. ": require " .. main .. " from the test (a value require, not `local type`), " ..
+        "so the test's closure carries it"
+    end
+    return nil, Failure.new("building the fake: " .. why)
   end
-  local database = dir .. "/probe.db"
+  local name = if main ~= nil then main else "probe" end
+  local database = dir .. "/" .. name .. ".db"
   local sealed, seal_trouble = Store.seal(names, database, { main = runs, data = false })
   if sealed == nil then
     return nil, Failure.new("building the fake: " .. tostring(seal_trouble))
@@ -231,7 +254,7 @@ function Fake.build(dir: string, main?: string): (string) | (nil, Failure)
   if program == nil then
     return nil, Failure.new("building the fake: " .. tostring(program_trouble))
   end
-  local out = dir .. "/probe"
+  local out = dir .. "/" .. name
   local written, write_trouble = Fs.write(out, program, 0x1ed)
   if not written then return nil, write_trouble end
   return out
@@ -240,8 +263,10 @@ end
 --- Copies the fake `program` ([`Fake.build`]'s path) to `path`,
 --- executable -- a copy, not a symbolic link, since it finds its script
 --- beside the path it resolves itself to -- and writes `script`, when one
---- is given, to `path .. ".do"`, for it to run. False and a Failure
---- where either cannot be read or written.
+--- is given, to `path .. ".do"`, for it to run -- or, for a fake built
+--- with a `main`, for that main to read by [`Fake.given`]. With no
+--- `script` it removes a `.do` an earlier place left there. False and a
+--- Failure where either cannot be read or written.
 -- TODO: make a hard link to `program` where one can be made (the same
 -- file system), falling back to this copy, once cosmic.sys carries
 -- link: a checked core's program is 39.5 MB, about 0.2 s a copy.
@@ -253,8 +278,22 @@ function Fake.place(program: string, path: string, script?: string): (true) | (f
   if script ~= nil then
     local wrote, written_why = Fs.write(path .. ".do", script)
     if not wrote then return false, written_why end
+  else
+    local _, _ = Fs.remove(path .. ".do")
   end
   return true
+end
+
+--- What [`Fake.place`] wrote beside the copy now running, for a fake
+--- built with a `main` to read: its words, a number, a reply to give.
+--- It reads the `.do` file beside this process's own executable, so it
+--- is nil where `place` wrote nothing for the copy, and for a program
+--- that was never placed (its `.do`, if any, is no one's).
+function Fake.given(): string?
+  local self, _ = Proc.executable()
+  if self == nil then return nil end
+  local text, _ = Fs.read(self .. ".do")
+  return text
 end
 
 return Fake
