@@ -793,7 +793,17 @@ COSMIC_SYSCALL(open_dir_at, 2) {
   do {
     fd = openat(dir, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
   } while (fd < 0 && errno == EINTR);
-  if (fd < 0) return cosmic_fail(L, errno);
+  if (fd < 0) {
+    /* macOS answers ENOTDIR for a link when O_DIRECTORY is asked; a link
+     * is ELOOP here, as on Linux. Only the answer is read again: nothing
+     * is opened through the name. */
+    int number = errno;
+    struct stat st;
+    if (number == ENOTDIR && fstatat(dir, name, &st, AT_SYMLINK_NOFOLLOW) == 0 && S_ISLNK(st.st_mode)) {
+      number = ELOOP;
+    }
+    return cosmic_fail(L, number);
+  }
 #endif
   lua_pushinteger(L, fd);
   return 1;
