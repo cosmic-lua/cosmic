@@ -160,6 +160,97 @@ function QueueVerdicts.find_command(_argv: {string}): integer
   return QueueVerdicts.find(env, Github.live(env))
 end
 
+--- What a merge-queue run that failed left for the entry's next try. A
+--- queue run saves no cache, so an entry that moved every key and whose
+--- suite the deadline stopped (COSMIC_TEST_DEADLINE) started cold again
+--- on its next try, and could be stopped as far short. Each of its legs
+--- uploads what it reached as `queue-tried-verdicts-<job>`, and the next
+--- run of the same pull request takes it in before its suites.
+---
+--- Only the same pull request's: its run ran that pull request's code,
+--- which the next try runs again, so its rows give that try nothing its
+--- own code could not.
+
+--- How many of the newest failed merge-queue runs are read for the pull
+--- request's: about 15 hours of the queue's failures.
+local FAILED_LISTED <const> = 50
+
+--- The pull request a merge-queue ref is of, `refs/heads/gh-readonly-queue/<base>/pr-<n>-<sha>`
+--- or its branch alone, as a number's text; nil for any other ref.
+function QueueVerdicts.entry_of(ref: string): string?
+  local branch = ref:match("^refs/heads/(.*)$") or ref
+  return branch:match("^gh%-readonly%-queue/[%w._/-]-/pr%-(%d+)%-%x+$")
+end
+
+--- Whether `item`, a run on the list, is a merge-queue run in `repository`
+--- itself of pull request `entry`, other than run `own`, and its id.
+local function tried_run_of(item: any, repository: string, entry: string, own: integer?): integer?
+  local run, _ = RUN_ROW:into(item)
+  if run == nil then return nil end
+  local branch = run.head_branch
+  if not (branch is string) or QueueVerdicts.entry_of(branch) ~= entry then return nil end
+  local from, _ = REPOSITORY_ROW:into(run.head_repository)
+  if from == nil or from.full_name ~= repository then return nil end
+  local id = run.id
+  if id is integer and id ~= own then return id end
+  return nil
+end
+
+--- The ids of the failed merge-queue runs of ci.yml for pull request
+--- `entry` in `repository`, other than `own`, newest first and at most
+--- TRIED; nil and why where the list cannot be read.
+local function tried_runs(host: Github.Host, repository: string, entry: string, own: integer?): {integer}?, string
+  local path = "repos/" .. repository .. "/actions/workflows/ci.yml/runs?event=merge_group&status=failure&per_page=" ..
+    tostring(FAILED_LISTED)
+  local pages = Github.ask(host, path, false, LOOKUP_SECONDS)
+  if pages == nil then return nil, "GitHub did not answer which merge-queue runs failed" end
+  local listed, trouble = RUN_LIST:decode_into(pages[1] or "")
+  if listed == nil then return nil, "the list of runs: " .. trouble end
+  local ids: mut {integer} = {}
+  for _, item in ipairs(listed.workflow_runs or {}) do
+    local id = tried_run_of(item, repository, entry, own)
+    if id ~= nil then ids[#ids + 1] = id end
+  end
+  table.sort(ids, function(a: integer, b: integer): boolean return a > b end)
+  while #ids > TRIED do table.remove(ids) end
+  return ids, ""
+end
+
+--- `driver.tl queue-tried-run`: writes `run=<id>` to $GITHUB_OUTPUT, the
+--- newest merge-queue run of ci.yml in GITHUB_REPOSITORY that failed for
+--- the pull request HEAD_REF is of and uploaded ARTIFACT, other than
+--- RUN_ID, this run. Where it finds none it says why and writes nothing:
+--- the run's suites run their tests. 2 where the step names no queue
+--- ref, artifact or repository, else 0.
+function QueueVerdicts.find_tried(env: {string:string}, host: Github.Host): integer
+  local ref, name, repository = env["HEAD_REF"] or "", env["ARTIFACT"] or "", env["GITHUB_REPOSITORY"] or ""
+  local entry = QueueVerdicts.entry_of(ref)
+  if entry == nil or not name:match("^[%w._-]+$") or not repository:match("^[%w._-]+/[%w._-]+$") then
+    local _, _ = Fs.put(Fs.stderr, "queue-tried-run: HEAD_REF, ARTIFACT and GITHUB_REPOSITORY must name " ..
+        "a merge-queue ref, an artifact and a repository\n")
+    return 2
+  end
+  local own = math.tointeger(tonumber(env["RUN_ID"] or ""))
+  local ids, trouble = tried_runs(host, repository, entry, own)
+  local why = if ids == nil then trouble else "no failed merge-queue run of pull request " .. entry .. " is listed" end
+  for _, id in ipairs(ids or {}) do
+    local held, absent = holds_artifact(host, repository, id, name)
+    if held then
+      host.output("run=" .. tostring(id))
+      host.print("merge-queue run " .. tostring(id) .. " of pull request " .. entry .. " failed and uploaded " .. name)
+      return 0
+    end
+    why = absent
+  end
+  host.print("no verdicts from an earlier try: " .. why .. "; the suites run what they would have answered")
+  return 0
+end
+
+function QueueVerdicts.find_tried_command(_argv: {string}): integer
+  local env = Env.all()
+  return QueueVerdicts.find_tried(env, Github.live(env))
+end
+
 --- `name` quoted as an SQL identifier.
 local function quoted(name: string): string
   return '"' .. name:gsub('"', '""') .. '"'

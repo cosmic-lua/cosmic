@@ -306,6 +306,39 @@
           "continue-on-error": true,
           run: "cosmic-driver cosmic_ci/driver.tl verdicts-merge \"${{ runner.temp }}/queue-verdicts\"",
         },
+        # A merge-queue run takes in what the last failed try of its pull
+        # request reached (cosmic_ci/queue_verdicts.tl's `find_tried`): a
+        # try whose suite the deadline stopped keeps no cache, so without
+        # these its next try started cold too. None of the three fails
+        # the job.
+        {
+          name: "find this pull request's last failed try in the merge queue",
+          id: "tried-run",
+          if: "github.event_name == 'merge_group'",
+          shell: "sh",
+          "continue-on-error": true,
+          env: {HEAD_REF: "${{ github.event.merge_group.head_ref }}", ARTIFACT: "queue-tried-verdicts-${{ matrix.name }}", RUN_ID: "${{ github.run_id }}", GH_TOKEN: "${{ github.token }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl queue-tried-run",
+        },
+        {
+          name: "download the last failed try's verdicts",
+          id: "tried-download",
+          if: "steps.tried-run.outputs.run != ''",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            name: "queue-tried-verdicts-${{ matrix.name }}",
+            path: "${{ runner.temp }}/tried-verdicts",
+            "run-id": "${{ steps.tried-run.outputs.run }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        {
+          name: "take in the last failed try's verdicts",
+          if: "steps.tried-download.outcome == 'success'",
+          "continue-on-error": true,
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-merge \"${{ runner.temp }}/tried-verdicts\"",
+        },
         {
           name: "restore compiles and parses",
           id: "compiles-restore",
@@ -564,6 +597,21 @@
           id: "verdicts-trim",
           if: "always() && steps.driver.outcome == 'success' && (env.COSMIC_CI_SAVES == 'true' || github.event_name == 'merge_group')",
           run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ job.status == 'success' && steps.names.outputs.since || 'whole' }}",
+        },
+        # Read by this pull request's next try in the merge queue ("find
+        # this pull request's last failed try"): what a failed try
+        # reached, its restored rows among them.
+        {
+          name: "upload what this failed try in the merge queue reached",
+          if: "always() && github.event_name == 'merge_group' && job.status == 'failure' && steps.verdicts-trim.outputs.digest != ''",
+          "continue-on-error": true,
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "queue-tried-verdicts-${{ matrix.name }}",
+            path: "${{ runner.temp }}/verdicts/*.db",
+            "if-no-files-found": "ignore",
+            "retention-days": 1,
+          },
         },
         # The cache the verdicts belong in, named by this host, for the
         # relay (relay.yml), which runs on a host of its own.

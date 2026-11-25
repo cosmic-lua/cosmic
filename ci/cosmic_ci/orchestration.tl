@@ -755,11 +755,8 @@ local suite_test_timeout_s <const> = "10"
 --- run something to stand on; ended by the bound, it would keep none.
 --- The margin holds the longest a test in flight may take and the run's
 --- settling.
---- TODO: keep a merge-queue suite's verdicts when the deadline stops it:
---- the queue uploads them only from a passing run (ci.yml's "upload the
---- merge queue's verdicts") and saves no cache, so an entry whose change
---- moves every key starts cold again on its next try; it waits on a
---- relay of a failed entry's verdicts to the queue's next run.
+--- In the merge queue, which saves no cache, the pull request's next try
+--- takes them in (ci.yml's "find this pull request's last failed try").
 function Orchestration.deadlined(env: {string:string}, timeout_ns: integer,
                                  margin_ns: integer): {string:string}
   return Maps.with(env, { COSMIC_TEST_DEADLINE = tostring((timeout_ns - margin_ns) // Clock.seconds(1)) })
