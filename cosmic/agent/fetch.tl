@@ -8,7 +8,7 @@
 ---
 --- A status of 400 or more fails, as `curl -f` does, with the method, URL, status and the start of the body, unless
 --- the request asks for any status: a snippet that reads an error's body as data asks for it. It takes http and https
---- alone, and a 3xx is answered, its `location` header with it: a snippet that follows it makes a new call. Where it may connect is the worker's sandbox's to say, as for any of its connections: a session
+--- alone, and a 3xx is returned, its `location` header with it: a snippet that follows it makes a new call. Where it may connect is the worker's sandbox's to say, as for any of its connections: a session
 --- with no network reaches none, and with --network the sandbox's relay refuses loopback, private, link-local and
 --- the host's own addresses, whatever a name resolves to, but an address --connect names, and reaches the rest through
 --- any proxy the agent was given.
@@ -31,7 +31,7 @@ local record AgentFetch
     body?: string
     --- How long the request may take, in seconds: 30 by default, at most [`AgentFetch.MOST_SECONDS`].
     timeout?: integer
-    --- Whether a status of 400 or more is answered, in place of failing.
+    --- Whether a status of 400 or more is returned, in place of failing.
     any_status?: boolean
   end
 
@@ -53,7 +53,7 @@ local record AgentFetch
     script?: {string}
   end
 
-  --- The most bytes of a body answered, which keeps a snippet that prints or returns one within its reply.
+  --- The most bytes of a body returned, which keeps a snippet that prints or returns one within its reply.
   MOST_BYTES: integer
   --- The most seconds one request may take.
   MOST_SECONDS: integer
