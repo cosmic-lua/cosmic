@@ -19,7 +19,7 @@ Test.policy{
 }
 
 --- An empty database of the shipped shape.
-local function database(): Sqlite.Handle
+local function database(): schema.Build
   local db = assert(schema.hold(assert(Sqlite.memory())))
   return db
 end
