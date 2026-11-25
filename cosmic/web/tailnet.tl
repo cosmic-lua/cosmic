@@ -254,7 +254,7 @@ local function daemon_whois(): function(address: string): Tailscale.WhoIsResult
     local c = client
     if c == nil then
       local made, why = Tailscale.connect()
-      if made == nil then return { kind = "failed", reason = why, status = 0 } end
+      if made == nil then return { kind = "failed", reason = tostring(why), status = 0 } end
       client = made
       c = made
     end
@@ -437,7 +437,7 @@ local function through_serve(client: Tailscale.Client, o: Types.TailnetServe, vi
     certs = nil,
     put_up = function(): Tailscale.Serving?, string
       local served, refused = client:serve(spec)
-      if served == nil then return nil, "web: tailnet: " .. refused end
+      if served == nil then return nil, "web: tailnet: " .. tostring(refused) end
       return served, ""
     end,
     cleanup = function()
@@ -478,11 +478,11 @@ function Tailnet.serving(o: Types.TailnetServe): Reached?, string
   local client = o.client
   if client == nil then
     local made, why = Tailscale.connect()
-    if made == nil then return nil, "web: tailnet: " .. why end
+    if made == nil then return nil, "web: tailnet: " .. tostring(why) end
     client = made
   end
   local status, why = client:status()
-  if status == nil then return nil, "web: tailnet: " .. why end
+  if status == nil then return nil, "web: tailnet: " .. tostring(why) end
   if status.backend_state ~= "Running" then
     return nil, "web: tailnet: the node is not running (" .. status.backend_state .. ")"
   end
