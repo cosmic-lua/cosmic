@@ -46,7 +46,7 @@ local cases: {string:function({string}): integer} = {
     return 0
   end,
   ["fd-closed"] = function(words: {string}): integer
-    return Steps.fd_closed(math.tointeger(tonumber(words[1])) or -1) or 0
+    return Steps.fd_closed(Steps.int(words[1] or "")) or 0
   end,
   -- Uses the directory the policy's `tmp` gives it: names it, writes
   -- its first word to a note there and reads it back, and, given
@@ -55,9 +55,7 @@ local cases: {string:function({string}): integer} = {
     local tmp = Env.get("TMPDIR") or ""
     local stopped = Steps.env_of("TMPDIR") or Steps.write(tmp .. "/note", words[1]!) or Steps.cat(tmp .. "/note")
     if stopped ~= nil or words[2] ~= "deep" then return stopped or 0 end
-    local made, trouble = Fs.mkdirs(tmp .. "/sub/deeper")
-    if not made then return Steps.fail(tmp .. "/sub/deeper", tostring(trouble)) end
-    return Steps.create(tmp .. "/sub/deeper/f", "x") or 0
+    return Steps.mkdirs(tmp .. "/sub/deeper") or Steps.create(tmp .. "/sub/deeper/f", "x") or 0
   end,
   -- Writes `$TMPDIR/f`, then sleeps until it is ended.
   ["write-tmp-and-wait"] = function(_: {string}): integer

@@ -32,7 +32,7 @@ Test.policy{
 
 local process = require("cosmic.internal.process")
 
---- What a script left on stdout and stderr, and how its program ended.
+--- What a case left on stdout and stderr, and how its program ended.
 local record Outcome
   code: integer
   signal: integer
@@ -42,7 +42,7 @@ local record Outcome
   errno?: integer
 end
 
---- Starts `program` with `script` under `grants`, in `tmp`'s directory:
+--- Starts `program` on the case `args` under `grants`, in `tmp`'s directory:
 --- its output and how it ended, or, when the start fails, why.
 local function start(tmp: string, program: string, grants: {raw_process.Grant}, args: {string},
                      promises?: {string}): Outcome
@@ -82,10 +82,10 @@ end
 --- The same, held to the grants of `program` itself (`rx`, which a
 --- child needs to run at all) and `more`. Skips the test where the start
 --- is refused for want of Landlock.
-local function under(tmp: string, program: string, more: {raw_process.Grant}, script: {string}): Outcome
+local function under(tmp: string, program: string, more: {raw_process.Grant}, args: {string}): Outcome
   local grants: mut {raw_process.Grant} = { { path = program, access = "rx" } }
   for _, grant in ipairs(more) do grants[#grants + 1] = grant end
-  local outcome = start(tmp, program, grants, script)
+  local outcome = start(tmp, program, grants, args)
   if unsandboxable(outcome) then Test.skip(assert(outcome.refused)) end
   assert(outcome.refused == nil, "the start was refused: " .. tostring(outcome.refused))
   return outcome
@@ -151,20 +151,20 @@ local function test_a_truncation_that_writes_nothing_is_held_on_every_abi(tmp: s
   local abi = abi_or_skip()
   local probe = assert(Fake.build(tmp .. "/fake", "build.grants_child_fake"))
   local file = tmp .. "/f"
-  local script = { "truncate-unwritten", file }
+  local args = { "truncate-unwritten", file }
   local refusal = if abi >= 3 then DENIED else "not permitted" end
   for _, promising in ipairs({ true, false }) do
     local promises: {string}? = if promising then {} else nil end
     local shown = if promising then "with promises" else "without promises" end
     assert(Fs.write(file, "kept"))
     local read = start(tmp, probe, { { path = probe, access = "rx" }, { path = file, access = "r" } },
-      script, promises)
+      args, promises)
     if unsandboxable(read) then Test.skip(assert(read.refused)) end
     assert(read.code == 1 and read.said:find(refusal, 1, true) ~= nil,
       shown .. ": refused: " .. tostring(read.refused) .. " " .. read.said)
     assert(assert(Fs.read(file)) == "kept")
     local written = start(tmp, probe, { { path = probe, access = "rx" }, { path = file, access = "rw" } },
-      script, promises)
+      args, promises)
     if abi >= 3 then
       assert(written.code == 0, shown .. ": a `w` grant truncates: " .. written.said)
       assert(assert(Fs.read(file)) == "")
@@ -187,12 +187,12 @@ local function test_c_creates_and_removes_where_granted_and_nowhere_else(tmp: st
   assert(made.code == 0, "created and removed: " .. made.said)
   assert(not assert(Fs.status(tmp .. "/open/new")).exists and not assert(Fs.status(tmp .. "/open/renamed")).exists)
   assert(assert(Fs.status(tmp .. "/open/fifo")).exists and assert(Fs.status(tmp .. "/open/sub")).is_dir)
-  for _, script in ipairs({
+  for _, args in ipairs({
       { "create", tmp .. "/shut/new", "x" }, { "mkdirs", tmp .. "/shut/sub" }, { "rm", tmp .. "/shut/old" },
       { "mkfifo", tmp .. "/shut/fifo" },
   }) do
-    local refused = under(tmp, probe, grants, script)
-    assert(refused.code == 1 and refused.said:find(DENIED, 1, true) ~= nil, table.concat(script, " ") .. ": " .. refused.said)
+    local refused = under(tmp, probe, grants, args)
+    assert(refused.code == 1 and refused.said:find(DENIED, 1, true) ~= nil, table.concat(args, " ") .. ": " .. refused.said)
   end
   assert(assert(Fs.status(tmp .. "/shut/old")).exists and not assert(Fs.status(tmp .. "/shut/new")).exists)
 end
@@ -226,10 +226,10 @@ local function test_x_runs_a_granted_program_and_no_other(tmp: string)
   local probe = assert(Fake.build(tmp .. "/fake", "build.grants_child_fake"))
   assert(Fs.mkdirs(tmp .. "/bin"))
   local other = assert(Fake.build(tmp .. "/bin/other", "build.grants_child_fake"))
-  local script = { "run", other, "print", "inner" }
-  local without = under(tmp, probe, { { path = other, access = "r" } }, script)
+  local args = { "run", other, "print", "inner" }
+  local without = under(tmp, probe, { { path = other, access = "r" } }, args)
   assert(without.code == 127 and without.said == "", "not run: " .. tostring(without.code) .. " " .. without.said)
-  local with = under(tmp, probe, { { path = other, access = "rx" } }, script)
+  local with = under(tmp, probe, { { path = other, access = "rx" } }, args)
   assert(with.code == 0 and with.said == "inner\n", "run: " .. tostring(with.code) .. " " .. with.said)
 end
 
@@ -262,9 +262,9 @@ local function test_u_connects_to_a_granted_socket_where_the_kernel_can_hold_it(
   assert(Fs.mkdirs(tmp .. "/s"))
   local socket = tmp .. "/s/sock"
   local _listener <close> = assert(Net.listen(Net.unix(socket), { timeout_ns = Clock.seconds(5) }))
-  local script = { "connect", socket }
+  local args = { "connect", socket }
   local grants: {raw_process.Grant} = { { path = probe, access = "rx" }, { path = socket, access = "u" } }
-  local with = start(tmp, probe, grants, script)
+  local with = start(tmp, probe, grants, args)
   if abi < 9 then
     local refused = with.refused
     -- Below ABI 9 the start fails, naming the ABI that is needed and the one given.
@@ -275,7 +275,7 @@ local function test_u_connects_to_a_granted_socket_where_the_kernel_can_hold_it(
   end
   assert(with.refused == nil, "the start was refused: " .. tostring(with.refused))
   assert(with.code == 0 and with.said == "connected\n", "connects: " .. with.said)
-  local without = under(tmp, probe, { { path = tmp .. "/s", access = "r" } }, script)
+  local without = under(tmp, probe, { { path = tmp .. "/s", access = "r" } }, args)
   assert(without.said:find(DENIED, 1, true), "refused: " .. without.said)
 end
 
@@ -321,12 +321,12 @@ local function test_a_signal_to_a_process_outside_is_refused_where_the_kernel_sc
   end
 end
 
---- Starts `program` with `script` held to `grants` and the `fork` promise,
+--- Starts `program` on the case `args` held to `grants` and the `fork` promise,
 --- whose filter takes the scope of the ruleset the grants make: the grants
---- are `program` itself (`rx`) and `tmp`, which the script may write.
-local function forking(tmp: string, program: string, script: {string}): Outcome
+--- are `program` itself (`rx`) and `tmp`, which the case may write.
+local function forking(tmp: string, program: string, args: {string}): Outcome
   local outcome = start(tmp, program, { { path = program, access = "rx" },
-    { path = tmp, access = "rwcx" } }, script, { "fork" })
+    { path = tmp, access = "rwcx" } }, args, { "fork" })
   if unsandboxable(outcome) then Test.skip(assert(outcome.refused)) end
   assert(outcome.refused == nil, "the start was refused: " .. tostring(outcome.refused))
   return outcome

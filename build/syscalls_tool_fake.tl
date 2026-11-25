@@ -24,7 +24,8 @@ local cases: {string:function({string}): integer} = {
   print = function(words: {string}): integer
     return Steps.print(table.concat(words, " ")) or 0
   end,
-  exit = function(words: {string}): integer return int(words[1]!) end,
+  -- Ends with status `words[1]`, or 2 where it names none.
+  exit = function(words: {string}): integer return math.tointeger(tonumber(words[1])) or 2 end,
   cat = function(words: {string}): integer return Steps.cat(words[1]!) or 0 end,
   sleep = function(words: {string}): integer return Steps.sleep(int(words[1]!)) or 0 end,
   -- Run from directory `tmp`, with `words[1]` the real path of link's

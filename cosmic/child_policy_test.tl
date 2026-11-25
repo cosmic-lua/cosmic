@@ -28,7 +28,7 @@ local function unsandboxable(why: string): boolean
     why:find("not implemented", 1, true) ~= nil
 end
 
---- What a script left and how its program ended.
+--- What a case left and how its program ended.
 local record Outcome
   code: integer
   signal: integer
@@ -269,7 +269,7 @@ local function test_without_fattr_no_promise_lets_a_child_change_a_mode(tmp: str
   searchable.share(file)
   local without = under(probe, { grants = itself(probe, { { path = file, letters = "rw" } }) },
     { "chmod", file, "600" })
-  assert(without.code == 1, without.said)
+  assert(without.code == 1 and without.said:find("not permitted", 1, true) ~= nil, without.said)
 end
 
 --- A root caller's child owns none of the host's files, so no promise lets

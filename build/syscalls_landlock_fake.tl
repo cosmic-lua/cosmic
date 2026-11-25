@@ -3,11 +3,10 @@
 
 local Steps = require("build.fake_steps")
 
-local int = Steps.int
-
 --- Each case, handed the words past its name.
 local cases: {string:function({string}): integer} = {
-  exit = function(words: {string}): integer return int(words[1]!) end,
+  -- Ends with status `words[1]`, or 2 where it names none.
+  exit = function(words: {string}): integer return math.tointeger(tonumber(words[1])) or 2 end,
   -- Runs the program and words that follow; ends with 7 where it fails
   -- or cannot start.
   ["run-or-7"] = function(argv: {string}): integer

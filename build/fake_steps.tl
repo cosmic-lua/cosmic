@@ -121,6 +121,7 @@ end
 
 --- Nil where descriptor `fd` is closed; 1 where it is open.
 function Steps.fd_closed(fd: integer): integer?
+  if fd < 0 then return Steps.fail("fd-closed", "no descriptor " .. tostring(fd)) end
   local open, _ = sys.fstat(fd)
   if open ~= nil then return 1 end
   return nil
@@ -339,6 +340,7 @@ end
 
 --- Sleeps `ms` milliseconds.
 function Steps.sleep(ms: integer): integer?
+  if ms < 0 then return Steps.fail("sleep", "no time " .. tostring(ms)) end
   assert(Clock.sleep(Clock.ms(ms)))
   return nil
 end
@@ -415,6 +417,7 @@ end
 function Steps.setrlimit(name: string, limit: integer): integer?
   local resource = resources[name]
   if resource == nil then return Steps.fail("setrlimit", "no resource " .. name) end
+  if limit < 0 then return Steps.fail("setrlimit", "no limit " .. tostring(limit)) end
   local ok, trouble = sys.setrlimit(resource, limit, limit)
   if not ok then return Steps.fail("setrlimit", trouble) end
   return Steps.print("set")
@@ -500,7 +503,13 @@ function Steps.find_writable(root: string): integer?
         if entries[name] == "dir" then
           pending[#pending + 1] = path
         elseif entries[name] == "file" then
-          local fd, _ = sys.open(path, sys.O_WRONLY | sys.O_APPEND)
+          -- A listing may take a device bound over an entry for the file it hides.
+          local st, _ = sys.stat(path)
+          local fd: integer? = nil
+          if st ~= nil and st.kind == "file" then
+            local opened, _ = sys.open(path, sys.O_WRONLY | sys.O_APPEND)
+            fd = opened
+          end
           if fd ~= nil then
             local _, _ = sys.close(fd)
             lines[#lines + 1] = path .. "\n"

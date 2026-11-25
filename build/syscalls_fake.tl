@@ -7,7 +7,8 @@ local int = Steps.int
 
 --- Each case, handed the words past its name.
 local cases: {string:function({string}): integer} = {
-  exit = function(words: {string}): integer return int(words[1]!) end,
+  -- Ends with status `words[1]`, or 2 where it names none.
+  exit = function(words: {string}): integer return math.tointeger(tonumber(words[1])) or 2 end,
   append = function(words: {string}): integer return Steps.append(words[1]!, words[2]!) or 0 end,
   cat = function(words: {string}): integer return Steps.cat(words[1]!) or 0 end,
   sleep = function(words: {string}): integer return Steps.sleep(int(words[1]!)) or 0 end,
