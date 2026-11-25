@@ -41,7 +41,8 @@ it names. The id is shown, so check first that the user may end it, or pass
 the user as `subject`, which ends it only where it is theirs.
 `session:label("M's iPad")` gives a session a name to show beside it, and
 [`SessionSqlite.label`] renames one by its id. [`SessionSqlite.info`] returns
-the request's own session (from `session:id()`), to mark it on the page.
+the request's own session (from `session:id()`), to mark it on the page, or
+false where it is not live.
 
 With `seen_interval`, the store notes when and from which client address
 each session was last used. It writes after a request that reads or saves
@@ -163,7 +164,9 @@ local function store(): (Session.Store?, string)
   if path ~= nil then
     local db, why = Sqlite.open(path)
     if db == nil then return nil, why.message end
-    return SessionSqlite.store(db)
+    local made, made_why = SessionSqlite.store(db)
+    if made == nil then return nil, tostring(made_why) end
+    return made, ""
   end
   local keys, trouble = Secret.keys_from_env("VISITS_KEYS")
   if keys == nil then return nil, tostring(trouble) end
@@ -261,7 +264,7 @@ local function test_a_stored_session_can_be_revoked()
   local laptop = browser(Greet.app{ store = store })
   laptop:post("/login")
   assert(laptop:get("/me"):text() == "ada")
-  assert(SessionSqlite.destroy_subject(store, "ada") == 1)
+  assert(assert(SessionSqlite.destroy_subject(store, "ada")) == 1)
   assert(laptop:get("/me"):text() == "anonymous")
 end
 
@@ -285,8 +288,8 @@ local function test_a_user_lists_their_sessions_and_ends_one_by_its_id()
   local mine = assert(SessionSqlite.list(store, now, { subject = "ada" }))
   local first = assert(mine[1])
   assert(#mine == 2 and first.seen_at ~= nil, "a login saves the session, so it is seen")
-  assert(SessionSqlite.destroy_id(store, first.id, "grace") == 0, "not grace's to end")
-  assert(SessionSqlite.destroy_id(store, first.id, "ada") == 1)
+  assert(assert(SessionSqlite.destroy_id(store, first.id, "grace")) == 0, "not grace's to end")
+  assert(assert(SessionSqlite.destroy_id(store, first.id, "ada")) == 1)
   local left = { laptop:get("/me"):text(), phone:get("/me"):text() }
   table.sort(left)
   assert(left[1] == "ada" and left[2] == "anonymous")

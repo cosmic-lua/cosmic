@@ -136,11 +136,11 @@ local function is_id(token: string): boolean
 end
 
 --- Deletes up to `limit` rows that expired at or before `now`.
-local function delete_expired(store: Backing, now: integer, limit: integer): integer?, string
+local function delete_expired(store: Backing, now: integer, limit: integer): (integer) | (nil, Failure)
   local ok, why = store.db:run(("DELETE FROM %s WHERE id_hash IN (SELECT id_hash FROM %s WHERE expires <= ?1 LIMIT ?2)"):
       format(store.table, store.table), { { integer = now }, { integer = limit } })
-  if not ok then return nil, "sessions: " .. tostring(why) end
-  return store.db:changes(), ""
+  if not ok then return nil, Failure.within(why, "sessions") end
+  return store.db:changes()
 end
 
 --- Deletes up to `limit` (the store's `sweep_limit` by default) expired
@@ -149,9 +149,7 @@ end
 --- @param store Session.Store The store
 --- @param now integer The time in seconds since the epoch
 --- @param limit integer | nil The most rows
---- @return integer | nil The count
---- @return string Why none, or ""
-function SessionSqlite.sweep(store: Session.Store, now: integer, limit?: integer): integer?, string
+function SessionSqlite.sweep(store: Session.Store, now: integer, limit?: integer): (integer) | (nil, Failure)
   local b = backing(store)
   return delete_expired(b, now, limit or b.sweep_limit)
 end
@@ -160,14 +158,12 @@ end
 --- "sign out everywhere", for a password change. Returns how many.
 --- @param store Session.Store The store
 --- @param subject string The user key given to `bind_subject`
---- @return integer | nil The count
---- @return string Why none, or ""
-function SessionSqlite.destroy_subject(store: Session.Store, subject: string): integer?, string
+function SessionSqlite.destroy_subject(store: Session.Store, subject: string): (integer) | (nil, Failure)
   local b = backing(store)
   local ok, why = b.db:run(("DELETE FROM %s WHERE subject = ?1"):format(b.table),
     { { text = subject } })
-  if not ok then return nil, "sessions: " .. tostring(why) end
-  return b.db:changes(), ""
+  if not ok then return nil, Failure.within(why, "sessions") end
+  return b.db:changes()
 end
 
 --- Runs `work` in a transaction that begins IMMEDIATE and commits when it
@@ -383,9 +379,7 @@ local INFO_COLUMNS <const> = "public_id, subject, label, created, expires, seen_
 --- @param store Session.Store The store
 --- @param now integer The time in seconds since the epoch
 --- @param opts SessionSqlite.ListOptions | nil The user and the limit
---- @return {SessionSqlite.Info} | nil The sessions
---- @return string Why none, or ""
-function SessionSqlite.list(store: Session.Store, now: integer, opts?: SessionSqlite.ListOptions): {SessionSqlite.Info}?, string
+function SessionSqlite.list(store: Session.Store, now: integer, opts?: SessionSqlite.ListOptions): ({SessionSqlite.Info}) | (nil, Failure)
   local b = backing(store)
   local o: SessionSqlite.ListOptions = opts or {}
   local params: mut {Sqlite.Value} = { { integer = now } }
@@ -403,29 +397,27 @@ function SessionSqlite.list(store: Session.Store, now: integer, opts?: SessionSq
   local rows, why = b.db:rows(
     ("SELECT %s FROM %s WHERE %s ORDER BY coalesce(seen_at, created) DESC, created DESC, public_id LIMIT ?%d"):
       format(INFO_COLUMNS, b.table, where, #params), params)
-  if rows == nil then return nil, "sessions: " .. tostring(why) end
+  if rows == nil then return nil, Failure.within(why, "sessions") end
   local out: mut {SessionSqlite.Info} = {}
   for _, row in ipairs(rows) do out[#out + 1] = info_of(row) end
-  return out, ""
+  return out
 end
 
 --- The info of the session `token` names, as [`SessionSqlite.list`] shows it,
 --- so a page can mark the request's own session (`token` from
---- [`Handle:id`]); nil and "" where it names none that is live.
+--- [`Handle:id`]); false where it names none that is live.
 --- @param store Session.Store The store
 --- @param token string The session's token
 --- @param now integer The time in seconds since the epoch
---- @return SessionSqlite.Info | nil The session
---- @return string Why none, or ""
-function SessionSqlite.info(store: Session.Store, token: string, now: integer): SessionSqlite.Info?, string
+function SessionSqlite.info(store: Session.Store, token: string, now: integer): (SessionSqlite.Info | false) | (nil, Failure)
   local b = backing(store)
-  if not is_id(token) then return nil, "" end
+  if not is_id(token) then return false end
   local rows, why = b.db:rows(("SELECT %s FROM %s WHERE id_hash = ?1 AND expires > ?2 AND public_id IS NOT NULL"):
       format(INFO_COLUMNS, b.table), { hash_of(token), { integer = now } })
-  if rows == nil then return nil, "sessions: " .. tostring(why) end
+  if rows == nil then return nil, Failure.within(why, "sessions") end
   local row = rows[1]
-  if row == nil then return nil, "" end
-  return info_of(row), ""
+  if row == nil then return false end
+  return info_of(row)
 end
 
 --- `sql` and `params` narrowed to the sessions of `subject`, where given.
@@ -444,14 +436,12 @@ end
 --- @param store Session.Store The store
 --- @param id string The public id
 --- @param subject string | nil Only a session bound to this user
---- @return integer | nil The count
---- @return string Why none, or ""
-function SessionSqlite.destroy_id(store: Session.Store, id: string, subject?: string): integer?, string
+function SessionSqlite.destroy_id(store: Session.Store, id: string, subject?: string): (integer) | (nil, Failure)
   local b = backing(store)
   local sql, params = scoped(("DELETE FROM %s WHERE public_id = ?1"):format(b.table), { { text = id } }, subject)
   local ok, why = b.db:run(sql, params)
-  if not ok then return nil, "sessions: " .. tostring(why) end
-  return b.db:changes(), ""
+  if not ok then return nil, Failure.within(why, "sessions") end
+  return b.db:changes()
 end
 
 --- Gives the session whose public id is `id` the label `text`, or removes
@@ -462,9 +452,7 @@ end
 --- @param id string The public id
 --- @param text string The label
 --- @param subject string | nil Only a session bound to this user
---- @return integer | nil The count
---- @return string Why none, or ""
-function SessionSqlite.label(store: Session.Store, id: string, text: string, subject?: string): integer?, string
+function SessionSqlite.label(store: Session.Store, id: string, text: string, subject?: string): (integer) | (nil, Failure)
   local b = backing(store)
   if type(text) ~= "string" or #text > Session.MAX_LABEL or not utf8.len(text) then
     error("session: a label is UTF-8 text no longer than Session.MAX_LABEL (" .. tostring(Session.MAX_LABEL) .. ")", 2)
@@ -472,8 +460,8 @@ function SessionSqlite.label(store: Session.Store, id: string, text: string, sub
   local sql, params = scoped(("UPDATE %s SET label = ?2 WHERE public_id = ?1"):format(b.table),
     { { text = id }, text_value(if text == "" then nil else text end) }, subject)
   local ok, why = b.db:run(sql, params)
-  if not ok then return nil, "sessions: " .. tostring(why) end
-  return b.db:changes(), ""
+  if not ok then return nil, Failure.within(why, "sessions") end
+  return b.db:changes()
 end
 
 --- The columns a table made before public ids and last-seen lacks, with
@@ -535,14 +523,12 @@ end
 --- sets WAL, `synchronous=NORMAL` and a 250 ms busy timeout unless
 --- `configure` is false. A table an earlier version made gains the
 --- columns of public ids, labels and last-seen, and each of its sessions
---- a public id, once, at the first open. Nil and why when the table
+--- a public id, once, at the first open. Nil and a [`Failure`] when the table
 --- cannot be made. Raises for a table name that is not a plain
 --- identifier, which is put in SQL.
 --- @param db Sqlite.Handle The database
 --- @param opts SessionSqlite.Options | nil The table and sweep
---- @return Session.Store | nil The store
---- @return string Why none, or ""
-function SessionSqlite.store(db: Sqlite.Handle, opts?: SessionSqlite.Options): Session.Store?, string
+function SessionSqlite.store(db: Sqlite.Handle, opts?: SessionSqlite.Options): (Session.Store) | (nil, Failure)
   local o: SessionSqlite.Options = opts or {}
   local name = o.table or "web_sessions"
   if name:match("^[A-Za-z_][A-Za-z0-9_]*$") == nil then
@@ -551,9 +537,9 @@ function SessionSqlite.store(db: Sqlite.Handle, opts?: SessionSqlite.Options): S
   if o.configure ~= false then
     -- A memory database stays as it is.
     local switched, mode_why = db:wal()
-    if not switched then return nil, "sessions: " .. tostring(mode_why) end
+    if not switched then return nil, Failure.within(mode_why, "sessions") end
     local ok, why = db:exec("PRAGMA synchronous=NORMAL")
-    if not ok then return nil, "sessions: " .. tostring(why) end
+    if not ok then return nil, Failure.within(why, "sessions") end
     db:busy_timeout(Clock.ms(250))
   end
   local seen_interval = o.seen_interval
@@ -561,14 +547,14 @@ function SessionSqlite.store(db: Sqlite.Handle, opts?: SessionSqlite.Options): S
     error("session: seen_interval is a number of seconds, at least 1", 2)
   end
   local ok, why = migrate(db, name)
-  if not ok then return nil, "sessions: " .. why end
+  if not ok then return nil, Failure.new("sessions: " .. why) end
   local store: Session.Store = {
     load = load_session, save = save_session, destroy = destroy_session, revocable = true,
     seen = if seen_interval ~= nil then seen_session else nil end,
   }
   backings[store] = { db = db, table = name, sweep_interval = o.sweep_interval or 600,
     sweep_limit = o.sweep_limit or 500, seen_interval = seen_interval, swept = 0 }
-  return store, ""
+  return store
 end
 
 return SessionSqlite
