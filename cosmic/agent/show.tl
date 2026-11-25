@@ -5,7 +5,7 @@
 ---
 --- [`Show.text`] is the verb's at a terminal: the turn's answer to one
 --- writer, and each tool call, the first lines of what run and bash
---- answered, each call that failed, and what the model says on the way,
+--- printed, each call that failed, and what the model says on the way,
 --- to another.
 --- [`Show.json`] is its `--json` and its rpc: a line of JSON an event.
 ---
@@ -22,7 +22,7 @@ local String = require("cosmic.string")
 local Tools = require("cosmic.agent.tools")
 
 local record Show
-  --- Lays out a run call's code for showing, or answers nil to show it as the model wrote it. `cosmic agent` gives
+  --- Lays out a run call's code for showing, or returns nil to show it as the model wrote it. `cosmic agent` gives
   --- the layout `cosmic fix` writes.
   type Arrange = function(code: string): string?
 end
@@ -61,18 +61,22 @@ local function lines_of(text: string): {string}
   return out
 end
 
---- `line` cut to 120 bytes, its control bytes but tab taken out first: what a file or a program says must not move
---- the terminal's cursor or send it escape sequences.
+--- `text` with its control bytes taken out, but tab and newline: what a file, a program or the model says must not
+--- move the terminal's cursor or send it escape sequences.
+local function plain(text: string): string
+  return (text:gsub("[%z\1-\8\11-\31\127]", ""))
+end
+
+--- `line` cut to 120 bytes.
 local function cut(line: string): string
-  local plain = line:gsub("[%z\1-\8\11-\31\127]", "")
-  if #plain > 120 then return String.cut(plain, 117) .. "..." end
-  return plain
+  if #line > 120 then return String.cut(line, 117) .. "..." end
+  return line
 end
 
 -- At most this many lines show of what a call answered.
 local MOST_ANSWER_LINES <const> = 6
 
---- `lines` in a Markdown code fence of `info`, each behind `lead`, cut to `most` lines and each line to 120 bytes,
+--- `lines` in a Markdown code fence of `info`, the first behind `lead`, cut to `most` lines and each line to 120 bytes,
 --- to `err`. The fence is a backtick longer than the longest run of backticks in the lines it shows, so no line
 --- closes it.
 local function fenced(err: function(line: string), info: string, lines: {string}, lead: string, most: integer)
@@ -80,7 +84,7 @@ local function fenced(err: function(line: string), info: string, lines: {string}
   local ticks = 3
   for i, line in ipairs(lines) do
     if i > most then break end
-    local one = lead .. cut(line)
+    local one = (if i == 1 then lead else "" end) .. cut(line)
     shown[#shown + 1] = one
     for run in one:gmatch("`+") do
       if #run >= ticks then ticks = #run + 1 end
@@ -127,7 +131,7 @@ end
 --- The lines a tool call shows at a terminal, as Markdown: run's code in a
 --- code fence of the language teal, so a Markdown viewer colors it, laid
 --- out by `layout` where one is given and lays it out; bash's command in
---- one of console, each line behind "$ ";
+--- one of console, behind "$ ";
 --- edit's path, then its changes in one named diff, as [`Show.diff`] lines
 --- (each replacement after a line "@@"); a path for read and write, the
 --- statement for sql, else the name and [`Show.input`].
@@ -177,9 +181,13 @@ end
 --- [`Show.call`] shows it (run's code laid out by `layout`), and below
 --- it what the call answered: the first lines of what run or bash said,
 --- in a code fence named output, and of what any call that failed said,
---- in one named error. The other events show nothing.
+--- in one named error. An output of no lines shows no fence. No control
+--- byte but tab and newline is shown. The other events show nothing.
 function Show.text(out: function(line: string), err: function(line: string), layout?: Show.Arrange):
     function(event: Agent.Event)
+  local raw_out, raw_err = out, err
+  out = function(line: string) raw_out(plain(line)) end
+  err = function(line: string) raw_err(plain(line)) end
   return function(e: Agent.Event)
     if e.kind == "text" then
       if e.calls == true then err(e.text) else out(e.text) end
@@ -188,7 +196,7 @@ function Show.text(out: function(line: string), err: function(line: string), lay
     elseif e.kind == "result" then
       if e.result.is_error then
         fenced(err, "error", lines_of(e.result.text), "", MOST_LINES)
-      elseif e.name == "run" or e.name == "bash" then
+      elseif (e.name == "run" or e.name == "bash") and e.result.text ~= "" then
         fenced(err, "output", lines_of(e.result.text), "", MOST_ANSWER_LINES)
       end
     end

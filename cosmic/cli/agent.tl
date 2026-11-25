@@ -107,9 +107,10 @@
 ---
 --- Output and sessions:
 ---
---- - The turn's answer goes to standard output. Each tool call (run's
----   code, edit's changes as a diff), and what the model says on the way,
----   go to standard error.
+--- - The turn's answer goes to standard output. Each tool call, as
+---   Markdown (run's code in a teal fence, edit's changes in a diff),
+---   the first lines of what run and bash printed, and what the model
+---   says on the way, go to standard error.
 --- - Everything is kept in sessions.db, in `$XDG_DATA_HOME/cosmic/agent`
 ---   (or `~/.local/share/cosmic/agent`), before it is shown: each
 ---   message, each tool's whole output, and each request with its usage

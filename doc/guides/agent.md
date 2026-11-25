@@ -12,12 +12,13 @@ What it gives you:
   `run`, takes a short program in the cosmic environment. The agent
   type-checks it before it runs it. A refused program runs nothing,
   and the refusal says how to fix it.
-- **No program runs by default.** The default tools are `run`, `read`,
-  `edit` and `write`. `bash` and background jobs come only with
-  `--with bash,jobs`.
-- **A sandbox the kernel holds.** The tools reach the working
-  directory and a home of their own. They get no network and none of
-  your environment, your API key included.
+- **No shell by default.** The default tools are `run`, `read`,
+  `edit` and `write`. On Linux, they run no program. `bash` and
+  background jobs come only with `--with bash,jobs`.
+- **A sandbox the kernel holds.** The tools change only the working
+  directory and a home of their own. They get no network, and none of
+  your environment but `LANG`, `LC_ALL` and `TERM`, so not your API
+  key.
 - **Everything is kept.** Each session's messages, each tool's whole
   output and each request's cost go to a SQLite database. A later
   prompt goes on with the same session.
@@ -97,17 +98,18 @@ tool call goes to standard error, in a code fence:
 
 - `teal`: a `run` program, laid out as `cosmic fix` lays out a file.
   The fence names the language, so a viewer colors it.
-- `console`: a `bash` command, each line behind `$ `.
+- `console`: a `bash` command, behind `$ `.
 - `diff`: an `edit`, after a line `edit <path>`. `@@` starts each
   replacement, `-` marks what it takes out, `+` what it puts in, and a
   line that starts with a space is unchanged context.
 - `output`: the first 6 lines of what `run` or `bash` printed.
-  `... N more lines` says how many more the model got.
 - `error`: the first 12 lines of what a call that failed said.
 
-`read` and `write` show one line, such as `read README.md`. A fence is
-longer than any run of backticks inside it, so no line closes it
-early. Control bytes but tab are taken out, so no output moves the
+The `teal`, `console` and `diff` fences show 12 lines at most. A line
+`... N more lines` says how many more there are. `read` and `write`
+show one line, such as `read README.md`. A fence is longer than any
+run of backticks inside it, so no line closes it early. Control bytes
+but tab and newline are taken out of all of it, so nothing moves the
 cursor or sends escape sequences to your terminal. A line and column
 in an error count in the program as the model wrote it, not as shown.
 
@@ -173,10 +175,9 @@ cosmic agent ask 'fix the broken links. for the #undo link, add a short Undo sec
 >
 > I checked the other links in the docs by reading them, including `install.md` → `faq.md#macos-says-the-file-is-damaged`, and their targets all exist. I didn't run a link checker.
 
-Read the answer as a colleague's report. Ask again to check the work,
-or look with your own tools (`git diff`). Here the model writes a link
-checker of 75 lines. The checker refuses its first try, and the model
-fixes it on the next request:
+To check the work, ask again, or look with your own tools
+(`git diff`). A program the checker refuses runs nothing, and the
+refusal goes back to the model as an error:
 
 ```sh
 cosmic agent ask 'now check every relative link in every .md file, including #anchors, and list any that are still broken'
@@ -232,14 +233,16 @@ and raise where they fail:
 
 - `Host.find(dir, suffix?)`: every file under `dir`, sorted.
 - [`Host.cat`], [`Host.lines`], [`Host.wc`], [`Host.exists`], [`Host.write`].
-- `Host.grep(pattern, paths)`: the lines that hold a pattern, each as
-  `{path, line, text}`.
+- `Host.grep(pattern, paths, plain?)`: the lines that hold a pattern,
+  each as `{path, line, text}`.
 - `Host.sed(path, pattern, replacement)`: replaces every match.
 - [`Host.sort`], [`Host.uniq`], [`Host.top`]: lists and counts.
-- `Host.fetch(url, options?)`: an HTTP request, with `--network`.
-- `Host.sqlite(path, statement)`: SQL on a SQLite file.
-- `Host.output(id)` and `Host.history(query)`: what the session kept
-  (see "sessions" below).
+- `Host.fetch(url, options?)`: an HTTP request to a public address
+  with `--network`, or to a `--connect` target. It follows no
+  redirect.
+- `Host.sqlite(path, statement, values?)`: SQL on a SQLite file.
+- `Host.output(id)` and `Host.history(query)`: what the sessions
+  database keeps (see "sessions" below).
 - [`Host.modules()`] lists the `cosmic.*` modules a program may require,
   and `Host.docs(name)` shows one.
 
@@ -252,7 +255,7 @@ These tools are offered only when you ask for them:
 
 `--with bash,jobs` adds tools, `--without write` takes one out, and
 `--tools run,read` names all of them. `cosmic agent prompt` prints the
-system prompt and the tools the model reads.
+system prompt the model reads.
 
 Without bash, the model does with `Host` and cosmic's modules what a
 program would. With bash, it runs your programs (`git`, `make`, the
@@ -296,7 +299,8 @@ This takes 1 command and $0.03.
 ## the sandbox
 
 `cosmic agent policy` prints what the tools may reach here, path by
-path, with the same flags, before you run anything:
+path, with the same flags, before you run anything. Here, paths in
+your home are shown as `~`:
 
 ```text
 $ cosmic agent policy
@@ -311,7 +315,9 @@ grants (r reads, w writes, x runs, c creates and removes):
   rwxc  ~/.cache/cosmic/agent/home
   rwxc  ~/src/tidy
   rx    /usr
+  ...
 tmp: a fresh /tmp for each command, removed after it
+...
 processes: at most 512
 env passed on: LANG LC_ALL TERM
 ...
@@ -321,15 +327,17 @@ What the default sandbox holds:
 
 - **Files.** The tools read, write and create in the working
   directory and in their home. They read and run the system's
-  programs (`/usr`, `/bin`, the directories on `PATH`). Nothing else
-  is there. In a git worktree, its git directories are granted too.
+  programs (`/usr`, `/bin`, the directories on `PATH`), and read the
+  files programs need, such as `/etc/ssl`. Nothing else is there. In a
+  git worktree, its git directories are granted too.
 - **Programs.** With the default tools, on Linux, no file but cosmic's
   own may run. On macOS, a `run` program still may run one.
 - **Home.** The commands get a home of their own, not yours, kept
   from one session to the next. Every session shares it, so keep
   nothing secret in it. `cosmic agent policy clear-home` empties it.
 - **Environment.** A command gets `PATH`, `LANG`, `LC_ALL` and `TERM`
-  alone, so no key of yours reaches it.
+  from yours, and its own `HOME`, `TMPDIR` and the like. No other
+  variable of yours is passed, so no key of yours reaches it.
 - **Network.** There is none.
 
 The kernel holds it. On Linux, a command runs in a root of its own,
@@ -472,10 +480,11 @@ $ cosmic agent sessions
   session, and `--fork` goes on in a copy.
 - A tool output too long to give the model is cut, and a note under it
   names the output's id. In a `run` program, `Host.output(id)` reads
-  it back whole, and `Host.history(query)` runs one read-only SQL
-  statement on the database.
-- A run that ends in the middle of a turn, by a crash or Ctrl-C, loses
-  nothing: `cosmic agent resume` finishes the turn.
+  it back as the database keeps it, and `Host.history(query)` runs one
+  read-only SQL statement on the database. Both see every session.
+- A run that ends in the middle of a turn, by a crash or a kill,
+  loses nothing: `cosmic agent resume` finishes the turn. Ctrl-C
+  stops the turn, and there is nothing to resume.
 
 ## other ways in
 
@@ -487,7 +496,8 @@ $ cosmic agent sessions
   commands on standard input and events on standard output.
 - [`cosmic.agent`] runs the loop in a program of your own, with tools
   of its own and its own `before` and `after` hooks.
-  [`cosmic.agent.show`] shows its events as the verb does.
+  [`cosmic.agent.show`] shows its events as the verb does, with a
+  layout of run's code given.
 - `cosmic help agent` lists every option.
 
 [`cosmic.agent.policy`]: ../../cosmic/agent/policy.tl

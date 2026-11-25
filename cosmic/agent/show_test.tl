@@ -64,7 +64,7 @@ local function test_call_shows_code_commands_and_edits()
   local function none(_: string): string? return nil end
   assert(table.concat(Show.call("run", { code = "print(a)" }, upper), "|") == "```teal|PRINT(A)|```")
   assert(table.concat(Show.call("run", { code = "print(a)" }, none), "|") == "```teal|print(a)|```")
-  assert(joined("bash", { command = "git status\ngit diff" }) == "```console|$ git status|$ git diff|```")
+  assert(joined("bash", { command = "git status\ngit diff" }) == "```console|$ git status|git diff|```")
   assert(joined("write", { path = "a.md", content = "a\nb\n" }) == "write a.md (2 lines)")
   assert(joined("sql", { query = "SELECT 1" }) == "sql SELECT 1")
   local edit = joined("edit", { path = "R.md", edits = {
@@ -103,6 +103,12 @@ local function test_a_fence_outlasts_the_backticks_it_holds()
     result = { text = "\27[31mred\27[0m\r\nover\27]52;c;aGk=\7\tend", is_error = false } } })
   joined = table.concat(plain, "|")
   assert(joined == "```output|[31mred[0m|over]52;c;aGk=\tend|```", joined)
+  -- The model's words, and a path a call names, lose them too; an output of no lines shows no fence.
+  local outs, errs2 = shown({ { kind = "text", text = "a\27[2Jb\nc" },
+    { kind = "tool", name = "read", input = { path = "x\27[2J" } },
+    { kind = "result", name = "run", result = { text = "", is_error = false } } })
+  assert(#outs == 1 and outs[1] == "a[2Jb\nc", outs[1])
+  assert(#errs2 == 1 and errs2[1] == "read x[2J", table.concat(errs2, "|"))
 end
 
 local function test_diff_keeps_one_line_of_context()
