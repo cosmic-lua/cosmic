@@ -100,11 +100,18 @@ tool call goes to standard error, in a code fence:
 - `teal`: a `run` program, laid out as `cosmic fix` lays out a file.
   The fence names the language, so a viewer colors it.
 - `console`: a `bash` command of an older session, behind `$ `.
-- `diff`: an `edit` of an older session, after a line `edit <path>`.
-  `@@` starts each replacement, `-` marks what it takes out, `+` what
-  it puts in, and a line that starts with a space is unchanged context.
 - `output`: the first 6 lines of what `run` printed.
 - `error`: the first 12 lines of what a call that failed said.
+- `diff`: each [`Host.edit`] a `run` program made, after its output
+  and a line `edit <path>` (an older session's `edit` calls show the
+  same way). `@@` starts each replacement, `-` marks what it takes
+  out, `+` what it puts in, and a line that starts with a space is
+  unchanged context.
+
+Each [`Host.write`] a program made shows one line after its output,
+not in a fence, such as `write notes.md (12 lines)`. The view keeps
+about 64 KB of a program's changes, with the lines both sides share
+taken out; a line `... N more changes not shown` counts the rest.
 
 The `teal`, `console` and `diff` fences show 12 lines at most. A line
 `... N more lines` says how many more there are. An older session's
