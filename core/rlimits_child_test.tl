@@ -1,13 +1,13 @@
 --- `spawn`'s `rlimits` (core/process.h) on a live child: the limits the
 --- child reads back with getrlimit, soft and hard together. The child is a
---- stand-in ([`cosmic.stand_in`]), which prints what its script says. A host
+--- fake ([`cosmic.fake`]), which prints what its script says. A host
 --- that refuses to set one (ENOSYS: anything but Linux) skips the test
 --- (Test.skip).
 
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local StandIn = require("cosmic.stand_in")
+local Fake = require("cosmic.fake")
 -- Required, so the module whose loader is handed the raw table is of this
 -- test's import closure, and the store has it to hand it from.
 local type _ = require("cosmic.child")
@@ -16,10 +16,10 @@ Test.policy{}
 
 local process = require("cosmic.internal.process")
 
---- What `script` printed in a stand-in started with `rlimits`, or nil and why
+--- What `script` printed in a fake started with `rlimits`, or nil and why
 --- the start was refused.
 local function run(tmp: string, rlimits: {string:integer}, script: string): string?, string, integer
-  local program = assert(StandIn.build(tmp .. "/stand-in"))
+  local program = assert(Fake.build(tmp .. "/fake"))
   local path = tmp .. "/said"
   local output = assert(sys.open(path, sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
   local pid, trouble, errno = process.spawn(program, { program, script }, nil, nil, nil, output,
@@ -70,7 +70,7 @@ local function test_math_maxinteger_is_no_limit_and_an_empty_table_names_none(tm
 end
 
 local function test_a_limit_the_call_cannot_hold_raises(tmp: string)
-  local program = assert(StandIn.build(tmp .. "/stand-in"))
+  local program = assert(Fake.build(tmp .. "/fake"))
   local function refuses(sandbox: any, text: string)
     local ok, why = pcall(process.spawn, program, { program, "print x" }, nil, nil, nil, nil, nil, false, nil, -- checked: overload_none
       sandbox)

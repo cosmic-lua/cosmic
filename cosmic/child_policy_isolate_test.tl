@@ -2,7 +2,7 @@
 --- "file", a root of the child's own holding only what is granted, and
 --- "proc", a pid namespace and a /proc of its own; `loopback` and `u`
 --- grants, which give it a network namespace of its own. The kernel's own
---- verdict on live children: the child is a stand-in ([`cosmic.stand_in`]),
+--- verdict on live children: the child is a fake ([`cosmic.fake`]),
 --- a static program that does what its script says, so a refusal shows as a
 --- command that fails. They need a sandbox that nests (`requires`): where the
 --- platform has none they are not applicable, and where this host gives no
@@ -19,7 +19,7 @@ local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local searchable = require("build.searchable")
 local confine = require("build.confine")
-local StandIn = require("cosmic.stand_in")
+local Fake = require("cosmic.fake")
 local unix_socket = require("build.unix_socket")
 local ChildPolicy = require("build.child_policy_fixture")
 
@@ -45,10 +45,10 @@ local record Place
   home: string
 end
 
---- Builds the stand-in and a working directory holding `ro/a` and, beside
+--- Builds the fake and a working directory holding `ro/a` and, beside
 --- it, `other/b`, which nothing grants.
 local function placed(tmp: string): Place
-  local probe = assert(StandIn.build(searchable.open(tmp) .. "/stand-in"))
+  local probe = assert(Fake.build(searchable.open(tmp) .. "/fake"))
   local work = tmp .. "/work"
   assert(Fs.mkdirs(work))
   assert(Fs.mkdirs(work .. "/ro"))
@@ -246,7 +246,7 @@ local function test_a_program_beneath_tmp_starts_over_the_sandboxs_own_tmp(tmp: 
   local at = placed(tmp)
   local dir = tmp .. "/beneath-tmp"
   assert(Fs.mkdirs(dir))
-  local program = dir .. "/stand-in"
+  local program = dir .. "/fake"
   assert(Fs.write(program, assert(Fs.read(at.probe))))
   assert(Fs.chmod(program, 0x1ed)) -- rwxr-xr-x
   local policy: Sandbox.Policy = { isolate = { "file" }, tmp = true, grants = { { path = dir, letters = "r" } } }

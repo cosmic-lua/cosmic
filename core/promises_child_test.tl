@@ -1,7 +1,7 @@
 --- `spawn`'s `promises` (core/process.h) on a live child: the kernel's own
 --- verdict on the filter core/promises.c builds, which core/promises_test.tl
---- can only judge against an interpreter of its own. The child is a stand-in
---- ([`cosmic.stand_in`]): this program's own static core, which starts under
+--- can only judge against an interpreter of its own. The child is a fake
+--- ([`cosmic.fake`]): this program's own static core, which starts under
 --- the basics and does what its script says, so a call the filter refuses
 --- shows as a command that fails, with the filter's errno.
 --- Where the platform has no sandbox they are not applicable and where
@@ -13,7 +13,7 @@
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local StandIn = require("cosmic.stand_in")
+local Fake = require("cosmic.fake")
 local type raw_process = require("cosmic.internal.process")
 -- Required, so the module whose loader is handed the raw table is of this
 -- test's import closure, and the store has it to hand it from.
@@ -36,11 +36,11 @@ local record Outcome
   said: string
 end
 
---- Runs `script` in a stand-in held to `promises`, in a directory of
+--- Runs `script` in a fake held to `promises`, in a directory of
 --- `tmp`'s: its output and how it ended. Skips the test where the kernel
 --- gives no seccomp filter, which only the start can tell.
 local function under(tmp: string, promises: {string}, script: string, probe?: string): Outcome
-  local program = probe or assert(StandIn.build(tmp .. "/stand-in"))
+  local program = probe or assert(Fake.build(tmp .. "/fake"))
   local path = tmp .. "/said"
   local output = assert(sys.open(path, sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
   local pid, trouble = process.spawn(program, { program, script }, nil, nil, nil, output, output,
@@ -76,7 +76,7 @@ local function test_the_static_core_runs_under_the_basics(tmp: string)
 end
 
 local function test_a_signal_to_itself_ends_it_and_to_another_is_refused(tmp: string)
-  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local own = under(tmp, {}, "signal TERM", probe)
   assert(own.signal == sys.SIGTERM, "its own pid is a signal it may send: " .. own.said)
   -- Another process, one of this test's own: the filter refuses it with EPERM, and it lives.
@@ -91,7 +91,7 @@ local function test_a_signal_to_itself_ends_it_and_to_another_is_refused(tmp: st
 end
 
 local function test_a_child_forks_only_with_fork(tmp: string)
-  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local without = under(tmp, {}, "run " .. probe .. " print inner", probe)
   assert(without.code == 127 and without.said == "", "a clone is refused: " .. tostring(without.code) .. " " .. without.said)
   for _, promises in ipairs({ { "fork" }, { "fork", "jit" }, { "fork", "jit", "fattr" } }) do
@@ -104,7 +104,7 @@ local function test_a_child_forks_only_with_fork(tmp: string)
 end
 
 local function test_the_mode_of_a_file_changes_only_with_fattr(tmp: string)
-  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local file = tmp .. "/target"
   assert(Fs.write(file, "x", 420))
   local without = under(tmp, { "fork", "jit" }, "chmod " .. file .. " 600", probe)
@@ -130,7 +130,7 @@ local function test_the_mode_of_a_file_changes_only_with_fattr(tmp: string)
 end
 
 local function test_no_socket_is_made_but_a_socketpair(tmp: string)
-  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   for _, promises in ipairs(PROMISE_SETS) do
     local inet = under(tmp, promises, "connect-tcp 127.0.0.1 9", probe)
     assert(inet.said:find("not permitted", 1, true) ~= nil, "an inet socket is refused: " .. inet.said)
@@ -160,7 +160,7 @@ local function holds_resource_capability(): boolean
 end
 
 local function test_a_child_that_cannot_raise_a_hard_limit_sets_its_own_limits(tmp: string)
-  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local lowers = under(tmp, {}, "setrlimit nofile 64", probe)
   local raises = under(tmp, {}, "setrlimit nofile 64; setrlimit nofile 128", probe)
   if holds_resource_capability() then
@@ -199,7 +199,7 @@ end
 --- one more than this worker inherits, which a container's runtime may
 --- have installed.
 local function test_the_filter_stacks_on_an_inherited_one(tmp: string)
-  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   under(tmp, {}, "status-field Seccomp", probe) -- skips where the kernel gives no filter
   local inherited = assert(filters(tmp, probe, nil))
   local held = assert(filters(tmp, probe, { promises = {} }))
@@ -209,7 +209,7 @@ end
 --- No grants, no Landlock domain, so no scope: the filter keeps its signal
 --- calls to the starting pid, on every ABI.
 local function test_promises_without_grants_keep_the_filter_to_the_starting_pid(tmp: string)
-  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local outcome = under(tmp, { "fork" }, "run " .. probe .. " signal TERM", probe)
   assert(outcome.code == 1 and outcome.said:find("not permitted", 1, true) ~= nil,
     "its own pid only: " .. tostring(outcome.code) .. " " .. outcome.said)

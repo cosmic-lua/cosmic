@@ -1,15 +1,15 @@
 --- [`Child.start`]'s `policy` with the `nest` promise (cosmic/child.tl): a
 --- program that builds a sandbox of its own, in a root of its own, held
 --- by that root instead of Landlock, which the kernel would have refuse
---- every mount. The kernel's own verdict on live children: a stand-in
---- ([`cosmic.stand_in`]) started under the policy. They need
+--- every mount. The kernel's own verdict on live children: a fake
+--- ([`cosmic.fake`]) started under the policy. They need
 --- a host that lets a sandbox nest (`requires`): where the platform has none
 --- they are not applicable, and where this host gives no seccomp each skips
 --- itself (Test.skip). The refusals that come before a child, which hold on
 --- every platform, are in cosmic/child_policy_anywhere_test.tl; what a
 --- program inside makes of the namespace and mount calls themselves, in
 --- cosmic/child_policy_nest_calls_test.tl; and what Landlock holds beside a
---- root (a sandbox the stand-in starts of its own, a directory handed
+--- root (a sandbox the fake starts of its own, a directory handed
 --- without `nest`), in cosmic/child_policy_nest_landlock_test.tl, which
 --- requires it.
 

@@ -6,7 +6,7 @@ local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
-local StandIn = require("cosmic.stand_in")
+local Fake = require("cosmic.fake")
 local confine = require("build.confine")
 
 local record fixture
@@ -37,7 +37,7 @@ function fixture.invoke(root: string, output: string, args: {string},
 end
 
 --- A hung test that also started a process group of its own, which the
---- end of its worker's group does not reach -- the stand-in `probe`,
+--- end of its worker's group does not reach -- the fake `probe`,
 --- placed at the project's bin/probe and named by `marker`, which it
 --- keeps running; a test that ends its own process after printing; and
 --- a quiet one that passes. With no `probe`, the hung test spins without
@@ -47,7 +47,7 @@ function fixture.project(tmp: string, marker: string, probe?: string): string
   assert(Fs.mkdirs(root .. "/suite"))
   if probe ~= nil then
     assert(Fs.mkdirs(root .. "/bin"))
-    assert(StandIn.place(probe, root .. "/bin/probe"))
+    assert(Fake.place(probe, root .. "/bin/probe"))
   end
   local hang = [[
 local Child = require("cosmic.child")

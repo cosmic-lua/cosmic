@@ -1,6 +1,6 @@
---- The stand-in's whole program ([`cosmic.stand_in`], whose doc comment
+--- The fake's whole program ([`cosmic.fake`], whose doc comment
 --- says what its script runs): the main module of the host program
---- [`StandIn.build`] makes, which carries it and the modules it requires,
+--- [`Fake.build`] makes, which carries it and the modules it requires,
 --- and nothing else.
 
 local Child = require("cosmic.child")
@@ -606,7 +606,7 @@ local function run_script(script: string, args: {string}, dir: string): integer
 end
 
 --- Runs the script its path, its first argument or a `#!` file names
---- (see [`cosmic.stand_in`]).
+--- (see [`cosmic.fake`]).
 --- @param argv {string} The command line past the program's own name
 --- @return integer The exit status
 local function main(argv: mut {string}): integer

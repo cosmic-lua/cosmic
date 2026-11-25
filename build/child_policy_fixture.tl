@@ -1,6 +1,6 @@
 --- What the tests of [`Child.start`]'s `policy` on a live child share
 --- (cosmic/child_policy_*_test.tl): when a start's refusal is the host
---- giving no sandbox, a stand-in run under a policy, and the place the
+--- giving no sandbox, a fake run under a policy, and the place the
 --- tests of `nest` run one in. Test support.
 
 local Child = require("cosmic.child")
@@ -9,7 +9,7 @@ local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local searchable = require("build.searchable")
-local StandIn = require("cosmic.stand_in")
+local Fake = require("cosmic.fake")
 
 local record child_policy_fixture
   --- What a script left and how its program ended.
@@ -24,11 +24,11 @@ local record child_policy_fixture
     work: string
   end
 
-  --- What a test of `nest` starts a stand-in in ([`nest_placed`]): the
-  --- stand-in, a working directory holding `ro/a`, a directory `rw` beside
+  --- What a test of `nest` starts a fake in ([`nest_placed`]): the
+  --- fake, a working directory holding `ro/a`, a directory `rw` beside
   --- it and one, `extra`, that only the first sandbox is given, the
-  --- directory a start of the stand-in's own builds its root in, and the
-  --- grants of the stand-in and the working directories.
+  --- directory a start of the fake's own builds its root in, and the
+  --- grants of the fake and the working directories.
   record NestPlace
     probe: string
     work: string
@@ -97,14 +97,14 @@ local function octal(text: string): integer
   return assert(math.tointeger(tonumber(text, 8)))
 end
 
---- Builds the stand-in and a working directory in `tmp`, opened to
+--- Builds the fake and a working directory in `tmp`, opened to
 --- everyone as a sandbox's own user needs it of the host's tree, whatever
 --- the umask they were made under.
 --- @param tmp the test's temporary directory
---- @return the stand-in and the working directory
+--- @return the fake and the working directory
 function child_policy_fixture.placed(tmp: string): child_policy_fixture.Place
   searchable.open(tmp)
-  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   assert(sys.chmod(probe, octal("755")))
   searchable.open(Fs.dirname(probe))
   local work = tmp .. "/work"
@@ -119,7 +119,7 @@ end
 --- @return the place
 function child_policy_fixture.nest_placed(tmp: string): child_policy_fixture.NestPlace
   local base = assert(sys.realpath(searchable.open(tmp)))
-  local probe = assert(StandIn.build(base .. "/stand-in"))
+  local probe = assert(Fake.build(base .. "/fake"))
   local work = base .. "/work"
   assert(Fs.mkdirs(work .. "/ro"))
   assert(Fs.mkdirs(work .. "/rw"))

@@ -7,7 +7,7 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
-local StandIn = require("cosmic.stand_in")
+local Fake = require("cosmic.fake")
 local test_child = require("build.test_child")
 
 -- TODO: start the session with cosmic once cosmic.sys carries setsid,
@@ -99,13 +99,13 @@ end)
 --- checked only in a run as root -- not CI's, which runs unprivileged,
 --- nor ci/run-local's, as nobody. Run in a session of this test's own,
 --- so a failure changes nothing of the runner's. The child is a
---- stand-in program ([`cosmic.stand_in`]), given only itself, /proc and
+--- fake program ([`cosmic.fake`]), given only itself, /proc and
 --- /dev/null. Where the kernel has no autogroup, or the host no setsid
 --- program, there is nothing to check.
 local function test_a_confined_child_s_autogroup_is_not_its_parent_s(tmp: string)
   if sys.stat("/proc/self/autogroup") == nil then Test.skip("this kernel has no autogroup") end
   if setsid_program() == nil then Test.skip("this host has no setsid program") end
-  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local reads: mut {string} = { probe }
   for _, path in ipairs({ "/proc", "/dev/null" }) do
     if sys.stat(path) ~= nil then reads[#reads + 1] = path end

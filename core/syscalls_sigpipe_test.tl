@@ -5,11 +5,11 @@
 --- /proc/self/status, which macOS has none of.
 
 local sys = require("cosmic.sys")
-local StandIn = require("cosmic.stand_in")
+local Fake = require("cosmic.fake")
 
 local process = require("cosmic.internal.process")
 
---- How a stand-in program ([`cosmic.stand_in`]) ends writing to a pipe no
+--- How a fake program ([`cosmic.fake`]) ends writing to a pipe no
 --- one reads, handed as its descriptor 3: the signal that ended it, or
 --- 0 where its write failed instead (EPIPE), as one that ignores
 --- SIGPIPE's does.
@@ -29,7 +29,7 @@ end
 --- disposition intact: default when this process installed the ignore,
 --- ignored when it was already ignored at this process's start.
 local function test_a_child_keeps_the_inherited_sigpipe_disposition(tmp: string)
-  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local inherited = writing_to_a_closed_pipe(probe)
   assert(inherited == 0 or inherited == sys.SIGPIPE, "ended by " .. tostring(inherited))
   assert(process.ignore_sigpipe())

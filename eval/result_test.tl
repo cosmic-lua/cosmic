@@ -4,7 +4,7 @@
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Result = require("eval.result")
-local StandIn = require("cosmic.stand_in")
+local Fake = require("cosmic.fake")
 
 local function line(value: {string: Json.Value}): string
   return (assert(Json.encode(value)))
@@ -110,9 +110,9 @@ end
 --- git is found on the PATH given, not run as a bare name, which
 --- Child.run would not search for.
 local function test_the_harness_commit_comes_from_the_git_on_the_path(dir: string)
-  local probe = assert(StandIn.build(dir .. "/stand-in"))
+  local probe = assert(Fake.build(dir .. "/fake"))
   assert(Fs.mkdirs(dir .. "/bin"))
-  assert(StandIn.place(probe, dir .. "/bin/git", "print 0123456789abcdef0123456789abcdef01234567"))
+  assert(Fake.place(probe, dir .. "/bin/git", "print 0123456789abcdef0123456789abcdef01234567"))
   assert(Result.git_head("/anywhere", dir .. "/bin") == "0123456789abcdef0123456789abcdef01234567")
   assert(Result.git_head("/anywhere", dir .. "/nowhere") == nil)
 end

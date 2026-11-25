@@ -2,8 +2,8 @@
 --- triple, argument rewriting, root detection, `PATH` lookup, the exit
 --- statuses a failed exec means, the cache hit, and the snapshots that
 --- catch a source edited while a build runs, the rebuild lock a boot
---- holds, and what [`Zig.run`] returns for a stand-in zig
---- ([`cosmic.stand_in`]). The tests
+--- holds, and what [`Zig.run`] returns for a fake zig
+--- ([`cosmic.fake`]). The tests
 --- that start bin/zig are build/zig_tool_test.tl's.
 
 local Clock = require("cosmic.clock")
@@ -13,7 +13,7 @@ local Failure = require("cosmic.failure")
 local sys = require("cosmic.sys")
 local build_paths = require("build.paths")
 local rebuild_lock = require("build.rebuild_lock")
-local StandIn = require("cosmic.stand_in")
+local Fake = require("cosmic.fake")
 local Zig = require("build.zig")
 local Child = require("cosmic.child")
 local test_child = require("build.test_child")
@@ -169,7 +169,7 @@ end
 
 local function test_repo_root_from_the_scripts_own_path(tmp: string)
   assert(Fs.mkdirs(tmp .. "/repo/build"))
-  assert(Fs.write(tmp .. "/repo/build/zig.tl", "-- stand-in"))
+  assert(Fs.write(tmp .. "/repo/build/zig.tl", "-- fake"))
   local root = assert(Zig.repo_root(tmp .. "/repo/build/zig.tl"))
   assert(root == assert(Fs.absolute(tmp .. "/repo")))
 end
@@ -238,7 +238,7 @@ end
 local function test_ensure_installed_is_a_cache_hit_when_zig_is_already_there(tmp: string)
   local install = tmp .. "/cache/0.16.0-x86_64-linux"
   assert(Fs.mkdirs(install))
-  assert(Fs.write(install .. "/zig", "#!/bin/sh\necho stand-in\n", 0x1ed))
+  assert(Fs.write(install .. "/zig", "#!/bin/sh\necho fake\n", 0x1ed))
   -- No sha for the host and no root to fetch from: a miss would fail loudly.
   local pin: Zig.Pin = { version = "0.16.0", shas = {} }
   local zig = assert(Zig.ensure_installed(tmp .. "/root", tmp .. "/cache", install, pin, "x86_64-linux"))
@@ -362,14 +362,14 @@ local function test_a_build_a_source_moved_during_is_run_again_and_only_so_often
 end
 
 local function test_run_answers_as_the_child_did(tmp: string)
-  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   assert(Zig.run({ probe, "exit 0" }) == 0)
   assert(Zig.run({ probe, "exit 3" }) == 3)
   assert(Zig.run({ probe, "signal KILL" }) == 128 + sys.SIGKILL)
 end
 
 local function test_run_passes_on_a_signal_sent_to_it_alone(tmp: string)
-  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   -- The child has this process interrupted, as a `kill -INT` aimed at
   -- bin/zig alone would; the child hears of it only if it is passed on.
   local started = Clock.monotonic_ns()
@@ -495,7 +495,7 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
     closes = closes + 1
     return (real_close as function(any): boolean, string)(self) -- checked: cast_refused
   end
-  -- [`Sqlite.memory`] opens through [`Sqlite.open`], so the stand-in opens through the real one.
+  -- [`Sqlite.memory`] opens through [`Sqlite.open`], so the fake opens through the real one.
   Sqlite.open = function(_path: string, _opts?: Sqlite.OpenOptions): (Sqlite.Handle) | (nil, Failure) -- checked: field_fixed
     return real_open(":memory:", { writable = true })
   end

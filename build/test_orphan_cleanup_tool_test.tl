@@ -3,7 +3,7 @@
 --- may hide even when its /proc/self/status is readable.
 
 local Test = require("cosmic.test")
-local StandIn = require("cosmic.stand_in")
+local Fake = require("cosmic.fake")
 local fixture = require("build.test_isolation_fixture")
 
 Test.policy{
@@ -15,6 +15,6 @@ Test.policy{
 }
 
 local function test_a_hung_workers_orphan_is_ended(tmp: string)
-  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   fixture.hung_runs(tmp, probe, false)
 end

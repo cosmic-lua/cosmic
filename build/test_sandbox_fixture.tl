@@ -6,7 +6,7 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local StandIn = require("cosmic.stand_in")
+local Fake = require("cosmic.fake")
 local this_program = require("build.this_program")
 
 local record test_sandbox_fixture
@@ -93,21 +93,21 @@ end
 ]]))
 end
 
---- Makes `root`, a tree for a suite, with a stand-in program
---- ([`cosmic.stand_in`]) at bin/probe for its tests to start, which
+--- Makes `root`, a tree for a suite, with a fake program
+--- ([`cosmic.fake`]) at bin/probe for its tests to start, which
 --- declare it -- not this program, which would take `tool` -- in the
 --- tree, since a sandboxed worker has a /tmp of its own over this
 --- test's.
---- @param tmp the test's directory, where the stand-in is built
+--- @param tmp the test's directory, where the fake is built
 --- @param root the suite's tree
 function test_sandbox_fixture.suite_tree(tmp: string, root: string)
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.mkdirs(root .. "/bin"))
-  assert(StandIn.place(assert(StandIn.build(tmp .. "/stand-in")), root .. "/bin/probe"))
+  assert(Fake.place(assert(Fake.build(tmp .. "/fake")), root .. "/bin/probe"))
 end
 
 --- Makes `root` as [`suite_tree`] does, with `hidden`, a directory outside it,
---- and a suite of one test that declares a file of the tree and the stand-in
+--- and a suite of one test that declares a file of the tree and the fake
 --- and fails with what it and a process it starts see, `seen|<cwd>|<tmp>|
 --- <data>|<secret>|<hidden exists>|<declared var>|<undeclared var>|<child>|end`.
 --- @param tmp the test's directory

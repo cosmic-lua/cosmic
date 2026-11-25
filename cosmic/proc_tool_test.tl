@@ -8,7 +8,7 @@ local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
-local StandIn = require("cosmic.stand_in")
+local Fake = require("cosmic.fake")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 
@@ -68,10 +68,10 @@ local function test_exec_hands_on_sigpipe_at_its_default(tmp: string)
   if own_mask & (1 << (sys.SIGPIPE - 1)) ~= 0 then
     Test.skip("this runner ignores SIGPIPE, which everything it starts inherits")
   end
-  -- The program it becomes, and the child it feeds: a stand-in, which
+  -- The program it becomes, and the child it feeds: a fake, which
   -- starts with no descriptors and no environment handed it, and says
   -- which signals it arrived ignoring.
-  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local chunk = [[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -121,7 +121,7 @@ local function test_exec_takes_argv_and_the_whole_environment(tmp: string)
     Test.skip("a native start has nothing to relaunch")
     return
   end
-  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local given = becomes(tmp, probe, 'Proc.exec({ probe, "env-of FOO" }, { env = { FOO = "given" } })')
   assert(given == "FOO=given\n", given)
   local replaced = becomes(tmp, probe, 'Proc.exec({ probe, "env-of FOO" }, { env = { OTHER = "x" } })')

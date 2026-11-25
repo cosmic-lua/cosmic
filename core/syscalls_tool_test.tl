@@ -16,7 +16,7 @@ local Test = require("cosmic.test")
 local type raw_process = require("cosmic.internal.process")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
-local StandIn = require("cosmic.stand_in")
+local Fake = require("cosmic.fake")
 local test_child = require("build.test_child")
 local Clock = require("cosmic.clock")
 
@@ -43,9 +43,9 @@ local function refused(what: string, trouble: string, errno: integer)
   Test.skip("the kernel gives no " .. what .. ": " .. tostring(trouble))
 end
 
---- A stand-in program built under `tmp` ([`cosmic.stand_in`]).
+--- A fake program built under `tmp` ([`cosmic.fake`]).
 local function probe_in(tmp: string): string
-  return (assert(StandIn.build(tmp .. "/stand-in")))
+  return (assert(Fake.build(tmp .. "/fake")))
 end
 
 --- What a confined `probe` is given to read: itself, and /proc and
@@ -322,7 +322,7 @@ local function test_an_unveiled_child_runs_as_the_user_given(tmp: string)
   local root = may_run_as(user)
   -- A setuid-root copy of the probe, where this process may make one.
   local setuid = tmp .. "/setuid-probe"
-  assert(StandIn.place(probe, setuid))
+  assert(Fake.place(probe, setuid))
   if root then
     assert(sys.chown(setuid, 0, 0))
     assert(sys.chmod(setuid, 0x9ed)) -- 04755
@@ -523,7 +523,7 @@ local function test_an_unveiled_path_is_bound_at_the_name_given(tmp: string)
   -- The host's /proc bound through `at` -- here at /proc itself, so the
   -- child has no procfs of its own there, only the host's -- is the
   -- host's state, and mounted read-only, given to write as it may be:
-  -- the stand-in, a native program, finds itself in it, and its own pid
+  -- the fake, a native program, finds itself in it, and its own pid
   -- there is the host's, not the 2 its own namespace gives it.
   local without_proc: mut {string} = {}
   for _, path in ipairs(reads) do
@@ -550,7 +550,7 @@ end
 
 --- An unveiled child is pid 2 of a pid namespace of its own, beneath the
 --- sandbox's init, pid 1: it cannot signal a process outside it, of its
---- own user as it may be -- here a stand-in of this process's, which it
+--- own user as it may be -- here a fake of this process's, which it
 --- tries to kill -- and its /proc, a procfs of that namespace, lists
 --- its init, itself and what it starts, and nothing else; where the
 --- kernel refuses a procfs of its own (a container masking parts of its

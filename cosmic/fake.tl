@@ -1,6 +1,6 @@
---- Stand-in programs, for a test that needs an outside program to start:
+--- Fake programs, for a test that needs an outside program to start:
 --- a fake `git`, `zig` or `cosmic`, a process to leave running, a child
---- to sandbox. A stand-in runs a small script of commands (below) with
+--- to sandbox. A fake runs a small script of commands (below) with
 --- no system shell. It is a host program of the running core, laid out
 --- as `cosmic build --host` lays one out ([`Store.host_program`]): a
 --- static executable of the core and a small database, which the kernel
@@ -9,9 +9,9 @@
 --- same, where a shell script would need /bin/sh, and a program run from
 --- source would need its launcher.
 ---
----     local StandIn = require("cosmic.stand_in")
----     local program = assert(StandIn.build(tmp .. "/stand-in"))
----     assert(StandIn.place(program, tmp .. "/bin/git", "print abc1234"))
+---     local Fake = require("cosmic.fake")
+---     local program = assert(Fake.build(tmp .. "/fake"))
+---     assert(Fake.place(program, tmp .. "/bin/git", "print abc1234"))
 ---     local ran = assert(Child.run({ tmp .. "/bin/git", "rev-parse", "HEAD" },
 ---       { stdout = "capture" }))
 ---     print(ran.stdout) -- abc1234
@@ -20,7 +20,7 @@
 --- `place` copies it where a test needs one, with the script it runs. A
 --- test that builds one declares nothing for it in its [`Test.policy`]:
 --- the build starts nothing and reads only the running core and the
---- modules the stand-in carries, which are of every test's import
+--- modules the fake carries, which are of every test's import
 --- closure that requires this module. It writes `dir`, and a scratch
 --- directory of [`Store.seal`]'s under `TMPDIR`, which `cosmic test`
 --- points at the test's own directory.
@@ -32,7 +32,7 @@
 --- The script is `<its path>.do` when that exists. Failing that, it is
 --- the body of the file its first argument names, past its first line,
 --- where that is a regular file whose first line starts `#!`: a file
---- starting `#!<stand-in>` and nothing more runs its body, as a shell
+--- starting `#!<fake>` and nothing more runs its body, as a shell
 --- script does, on every system, however one splits the words after
 --- `#!`. Failing both, it is the first argument itself. Its arguments
 --- are the rest: every one for a `.do` script, and those after the
@@ -179,30 +179,30 @@ local Store = require("cosmic.store")
 -- import closure of every module that requires this one, whose store
 -- then holds the rows `build` seals; loading it defines its verbs and
 -- nothing more.
-local _ = require("cosmic.internal.stand_in_probe")
+local _ = require("cosmic.internal.fake_probe")
 -- What the core itself requires of the program it runs, beside its main
 -- module: [`cosmic.errors`], for an uncaught error's guidance (core/main.c's
 -- `ask_guidance`). Required so it is of the closure too.
 local type _ = require("cosmic.errors")
 
-local record StandIn
+local record Fake
 end
 
---- The stand-in's program, its main module, which it carries with the
+--- The fake's program, its main module, which it carries with the
 --- modules it requires: the whole of what it runs.
-local probe_module <const> = "cosmic.internal.stand_in_probe"
+local probe_module <const> = "cosmic.internal.fake_probe"
 
---- What the stand-in carries beside `probe_module`'s closure: what the
+--- What the fake carries beside `probe_module`'s closure: what the
 --- core requires of any program it runs (see the requires above).
 local core_requires <const>: {string} = { "cosmic.errors" }
 
---- Builds a stand-in under `dir`, made if it is not there, and returns
+--- Builds a fake under `dir`, made if it is not there, and returns
 --- the path of the executable, `dir/probe`. It runs its first argument as
 --- its script, with the rest its arguments, or the script `place` wrote
 --- beside a copy of it. Nil and a Failure where `dir` cannot be made or
 --- written, or where this process has no artifact of its own to take
 --- its core from.
-function StandIn.build(dir: string): (string) | (nil, Failure)
+function Fake.build(dir: string): (string) | (nil, Failure)
   local made, trouble = Fs.mkdirs(dir)
   if not made then return nil, trouble end
   local roots: mut {string} = { probe_module }
@@ -210,16 +210,16 @@ function StandIn.build(dir: string): (string) | (nil, Failure)
   local database = dir .. "/probe.db"
   local sealed, seal_trouble = Store.seal(Store.closure(roots), database, { main = probe_module, data = false })
   if sealed == nil then
-    return nil, Failure.new("building the stand-in: " .. tostring(seal_trouble))
+    return nil, Failure.new("building the fake: " .. tostring(seal_trouble))
   end
   local bytes, read_trouble = Fs.read(database)
   local _, _ = Fs.remove(database)
   if bytes == nil then
-    return nil, Failure.new("building the stand-in: " .. tostring(read_trouble))
+    return nil, Failure.new("building the fake: " .. tostring(read_trouble))
   end
   local program, program_trouble = Store.host_program(bytes)
   if program == nil then
-    return nil, Failure.new("building the stand-in: " .. tostring(program_trouble))
+    return nil, Failure.new("building the fake: " .. tostring(program_trouble))
   end
   local out = dir .. "/probe"
   local written, write_trouble = Fs.write(out, program, 0x1ed)
@@ -227,7 +227,7 @@ function StandIn.build(dir: string): (string) | (nil, Failure)
   return out
 end
 
---- Copies the stand-in `program` ([`StandIn.build`]'s path) to `path`,
+--- Copies the fake `program` ([`Fake.build`]'s path) to `path`,
 --- executable -- a copy, not a symbolic link, since it finds its script
 --- beside the path it resolves itself to -- and writes `script`, when one
 --- is given, to `path .. ".do"`, for it to run. False and a Failure
@@ -235,7 +235,7 @@ end
 -- TODO: make a hard link to `program` where one can be made (the same
 -- file system), falling back to this copy, once cosmic.sys carries
 -- link: a checked core's program is 39.5 MB, about 0.2 s a copy.
-function StandIn.place(program: string, path: string, script?: string): (true) | (false, Failure)
+function Fake.place(program: string, path: string, script?: string): (true) | (false, Failure)
   local bytes, trouble = Fs.read(program)
   if bytes == nil then return false, trouble end
   local written, write_trouble = Fs.write(path, bytes, 0x1ed)
@@ -247,4 +247,4 @@ function StandIn.place(program: string, path: string, script?: string): (true) |
   return true
 end
 
-return StandIn
+return Fake

@@ -9,12 +9,12 @@ local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
-local StandIn = require("cosmic.stand_in")
+local Fake = require("cosmic.fake")
 local test_child = require("build.test_child")
 local this_program = require("build.this_program")
 
 --- What a sandboxed worker of this very program reads: /proc, where the
---- stand-in it starts finds itself, and the program itself, which its
+--- fake it starts finds itself, and the program itself, which its
 --- tests start again as that worker; and `nests`, since they confine
 --- what they start in a root of its own.
 Test.policy{
@@ -24,12 +24,12 @@ Test.policy{
   env = { "COSMIC_SANDBOX" },
 }
 
---- A stand-in program built under `tmp` ([`cosmic.stand_in`]), which runs
+--- A fake program built under `tmp` ([`cosmic.fake`]), which runs
 --- the script its first argument holds: a static executable that reads
 --- only itself (and /proc, where it finds itself), so one confined needs
 --- nothing of the system's own.
 local function probe_in(tmp: string): string
-  return (assert(StandIn.build(tmp .. "/stand-in")))
+  return (assert(Fake.build(tmp .. "/fake")))
 end
 
 --- What a sandboxed worker's child says: whether its
@@ -37,7 +37,7 @@ end
 --- or the host's; whether its core found the stamp beside it in the
 --- cache that spares hashing it again; and what a grandchild it
 --- confines to the first path its words name reads of that path and of the
---- second, which it was not given. The grandchild is the stand-in named
+--- second, which it was not given. The grandchild is the fake named
 --- third, and it also gets /proc to find itself.
 test_child.register("worker", function(args: {string}): integer
   local given, hidden, probe = assert(args[1]), assert(args[2]), assert(args[3])
@@ -73,7 +73,7 @@ end)
 --- Runs the child `worker` in a worker of this very program, sandboxed to
 --- [`confine.worker_unveil`]'s paths as a worker whose module declares
 --- nothing of the system's is, with `tmp` its scratch, where the
---- stand-in the chunk starts is built. Returns the lines it said; skips the
+--- fake the chunk starts is built. Returns the lines it said; skips the
 --- test where there is no portable artifact to start again or no sandbox
 --- to be had.
 local function sandboxed_worker(tmp: string): {string}

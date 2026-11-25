@@ -15,7 +15,7 @@ local TestSandboxFixture = require("build.test_sandbox_fixture")
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Test = require("cosmic.test")
-local StandIn = require("cosmic.stand_in")
+local Fake = require("cosmic.fake")
 local test_child = require("build.test_child")
 local test_inputs = require("build.test_inputs")
 -- The checker `-e` types its chunk with: loaded here, as a child's is. build.standalone loads it only to compile.
@@ -131,11 +131,11 @@ local function test_the_compilers_identity_is_not_in_what_a_child_runs()
   assert(ok and out == "cmd.cosmic.main\n", out .. err)
 end
 
---- A stand-in ([`cosmic.stand_in`]), built of the closure, runs its main
+--- A fake ([`cosmic.fake`]), built of the closure, runs its main
 --- module, which it carries under a name of its own: started by the test,
 --- and by a child of it in turn.
-local function test_a_stand_in_runs(tmp: string)
-  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+local function test_a_fake_runs(tmp: string)
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local direct = assert(Child.run({ probe, "print ran" }, { stdout = "capture",
     stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(direct.ok and direct.stdout == "ran\n", tostring(direct.stdout) ..

@@ -9,13 +9,13 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local type raw_process = require("cosmic.internal.process")
 local this_program = require("build.this_program")
-local StandIn = require("cosmic.stand_in")
+local Fake = require("cosmic.fake")
 
 --- The program itself, which the exit watch starts only to run a chunk
 --- (`lua`); and `nests`, since a worker held by a Landlock ruleset is
 --- refused a start that unveils a root before the start reads its
 --- arguments (build.confine's `forbid_running`), and these cases pass
---- such starts to see them refused. The stand-in they name is built in
+--- such starts to see them refused. The fake they name is built in
 --- the test's own directory and never started.
 Test.policy{
   profiles = { "cosmic" },
@@ -24,9 +24,9 @@ Test.policy{
 
 local process = require("cosmic.internal.process")
 
---- A stand-in program built under `tmp` ([`cosmic.stand_in`]).
+--- A fake program built under `tmp` ([`cosmic.fake`]).
 local function probe_in(tmp: string): string
-  return (assert(StandIn.build(tmp .. "/stand-in")))
+  return (assert(Fake.build(tmp .. "/fake")))
 end
 
 --- Whether `sandbox` is refused as an argument, which raises before any

@@ -548,16 +548,16 @@ sandbox.
 ### a fake program
 
 A test that needs an outside program to start -- a fake `git`, a
-process to leave running, a child to sandbox -- starts a stand-in
-([`cosmic.stand_in`]), not a shell script. A stand-in is a static
+process to leave running, a child to sandbox -- starts a fake
+([`cosmic.fake`]), not a shell script. A fake is a static
 executable of the running core that runs a small script of commands.
 It needs no /bin/sh and no environment, so the test declares nothing
 for it.
 
 ```text
-local StandIn = require("cosmic.stand_in")
-local program = assert(StandIn.build(tmp .. "/stand-in"))
-assert(StandIn.place(program, tmp .. "/bin/git", "print abc1234"))
+local Fake = require("cosmic.fake")
+local program = assert(Fake.build(tmp .. "/fake"))
+assert(Fake.place(program, tmp .. "/bin/git", "print abc1234"))
 ```
 
 ## host requirements
@@ -1379,10 +1379,10 @@ Other rules:
 [`Check.Checked.narrowed`]: ../lang/check.tl
 [`ci/cosmic_ci/capabilities.json`]: ../ci/cosmic_ci/capabilities.json
 [`ci/README.md`]: ../ci/README.md
+[`cosmic.fake`]: ../cosmic/fake.tl
 [`cosmic.internal.symbols`]: ../cosmic/internal/symbols.tl
 [`cosmic.layout`]: ../cosmic/layout.tl
 [`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
-[`cosmic.stand_in`]: ../cosmic/stand_in.tl
 [`cosmic.store`]: ../cosmic/store.tl
 [`cosmic.template`]: ../cosmic/template/init.tl
 [`cosmic.test`]: ../cosmic/test.tl

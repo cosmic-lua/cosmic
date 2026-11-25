@@ -19,7 +19,7 @@ local Sandbox = require("cosmic.sandbox")
 local sys = require("cosmic.sys")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
-local StandIn = require("cosmic.stand_in")
+local Fake = require("cosmic.fake")
 local Restrict = require("build.sandbox_restrict_fixture")
 
 --- The program is this one, which a test starts only with `tool`; its
@@ -85,7 +85,7 @@ say("create", writes(%q))
 end
 
 local function test_the_filter_refuses_a_socket_and_a_process(tmp: string)
-  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local said = Restrict.in_child(restricted(
     string.format("{ grants = { { path = %q, letters = \"rx\" } } }", probe),
     string.format([[
@@ -105,7 +105,7 @@ end
 --- before Landlock would (EACCES), so the text says which layer held. A
 --- process forked after the restriction inherits both.
 local function test_grants_with_no_x_run_no_program(tmp: string)
-  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local said = Restrict.in_child(restricted(
     string.format("{ grants = { { path = %q, letters = \"r\" } }, promises = { \"fork\" } }", probe),
     string.format([[
@@ -124,7 +124,7 @@ end
 --- A later restriction that grants `x` does not lift the filter an
 --- earlier one with no `x` added: the kernel holds every layer.
 local function test_a_later_x_grant_runs_no_program_after_none(tmp: string)
-  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local said = Restrict.in_child(restricted(
     string.format("{ grants = { { path = %q, letters = \"r\" } } }", probe),
     string.format([[
@@ -178,7 +178,7 @@ say("held", #assert(held.grants))
 end
 
 local function test_the_fork_promise_lets_a_process_start(tmp: string)
-  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local said = Restrict.in_child(restricted(
     string.format("{ grants = { { path = %q, letters = \"rx\" } }, promises = { \"fork\" } }", probe),
     string.format([[
@@ -194,7 +194,7 @@ end
 --- the calls to the pid it was built for.
 local function test_the_signal_scope_lets_a_forked_process_signal_what_is_inside(tmp: string)
   local abi, _ = require("cosmic.internal.process").landlock_abi()
-  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local sibling = assert(Child.start({ probe, "sleep-forever" }, { timeout_ns = Child.FOREVER, process_group = false }))
   local said = Restrict.in_child(restricted(
     string.format("{ grants = { { path = %q, letters = \"rx\" } }, promises = { \"fork\" } }", probe),
@@ -401,7 +401,7 @@ say("after", reads(%q))
 end
 
 local function test_a_child_reaped_does_not_refuse(tmp: string)
-  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local said = Restrict.in_child(string.format([[
 local running = assert(Child.start({ %q, "sleep-forever" }, { timeout_ns = Child.FOREVER, process_group = false }))
 assert(running:close())
