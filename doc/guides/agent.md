@@ -73,12 +73,7 @@ cosmic agent ask 'what does this repository do? keep it short'
 
 > ```teal
 > for _, p in ipairs(Host.find(".")) do print(p) end
-> for _, n in ipairs({ "README.md", "readme.md", "README" }) do
->   if Host.exists(n) then
->     print(Host.read(n):sub(1, 2000))
->     break
->   end
-> end
+> if Host.exists("README.md") then print(Host.read("README.md"):sub(1, 1500)) end
 > ```
 > ```output
 > .git/COMMIT_EDITMSG
@@ -89,7 +84,9 @@ cosmic agent ask 'what does this repository do? keep it short'
 > .git/hooks/commit-msg.sample
 > ... 45 more lines
 > ```
-> `tidy` sorts the files in a folder into subfolders by file type. It uses the IANA media types list to decide each file's type. Docs are in `docs/`, and it's MIT licensed.
+> **tidy** sorts the files in a folder into subfolders by file type. It's MIT licensed, and its file types come from the IANA media types list.
+>
+> The repo holds only the README, LICENSE, and docs (install, usage, configuration, FAQ). There's no source code here.
 
 The output is Markdown, so a Markdown viewer shows it as above. Each
 tool call goes to standard error, in a code fence:
@@ -134,27 +131,24 @@ cosmic agent ask 'fix the broken links. for the #undo link, add a short Undo sec
 
 > cosmic: agent: going on with session 1 (4 messages, claude-haiku-5-5); --new starts a fresh one
 > ```teal
-> for _, h in ipairs(Host.grep("%]%(", Host.find(".", ".md"), false)) do
->   print(h.path .. ":" .. tostring(h.line) .. ": " .. h.text)
+> for _, p in ipairs({ "README.md", "docs/install.md", "docs/usage.md", "docs/configuration.md", "docs/faq.md" }) do
+>   print("== " .. p)
+>   for i, l in ipairs(Host.lines(p)) do print(tostring(i) .. ": " .. l) end
 > end
-> print("----usage")
-> print(Host.read("docs/usage.md"))
-> print("----faq")
-> print(Host.read("docs/faq.md"))
 > ```
 > ```output
-> README.md:5: - [Install](docs/install.md)
-> README.md:6: - [Usage](docs/usage.md)
-> README.md:7: - [Configuration](docs/config.md)
-> README.md:8: - [FAQ](docs/faq.md)
-> README.md:10: tidy is MIT licensed: see [LICENSE](LICENSE).
-> README.md:12: The file types come from [the IANA media types list](https://www.iana.org/assignments/media-types/media...
-> ... 30 more lines
+> == README.md
+> 1: # tidy
+> 2: 
+> 3: tidy sorts the files in a folder into subfolders by type.
+> 4: 
+> 5: - [Install](docs/install.md)
+> ... 46 more lines
 > ```
 > ```teal
 > Host.edit("README.md", { { old = "(docs/config.md)", new = "(docs/configuration.md)" } })
-> Host.edit("docs/faq.md", { { old = "[Install](instal.md)", new = "[Install](install.md)" } })
-> Host.edit("docs/usage.md", { { old = "See the [FAQ](faq.md).\n", new = "See the [FAQ](faq.md).\n\n## Undo\n\ntidy onl...
+> Host.edit("docs/faq.md", { { old = "(instal.md)", new = "(install.md)" } })
+> Host.edit("docs/usage.md", { { old = "See the [FAQ](faq.md).\n", new = "See the [FAQ](faq.md).\n\n## Undo\n\nRun `tid...
 > print(Host.read("docs/usage.md"))
 > ```
 > ```output
@@ -175,8 +169,8 @@ cosmic agent ask 'fix the broken links. for the #undo link, add a short Undo sec
 > edit docs/faq.md
 > ```diff
 > @@
-> -[Install](instal.md)
-> +[Install](install.md)
+> -(instal.md)
+> +(install.md)
 > ```
 > edit docs/usage.md
 > ```diff
@@ -184,15 +178,15 @@ cosmic agent ask 'fix the broken links. for the #undo link, add a short Undo sec
 > +
 > +## Undo
 > +
-> +tidy only moves files, it never deletes them. Undo a run with `tidy --undo`.
+> +Run `tidy --undo` to move the files back. tidy only moves files, it never deletes them.
 > ```
-> Fixed two broken links and added the Undo section:
+> I fixed three broken links and added the Undo section:
 >
-> - `README.md`: `docs/config.md` → `docs/configuration.md`
-> - `docs/faq.md`: `instal.md` → `install.md`
-> - `docs/usage.md`: new `## Undo` section saying tidy only moves files and that `tidy --undo` reverses a run. The FAQ's `usage.md#undo` link now resolves.
+> - **`README.md`**: `docs/config.md` → `docs/configuration.md`
+> - **`docs/faq.md`**: `instal.md` → `install.md`
+> - **`docs/usage.md`**: added an `## Undo` section, so the `usage.md#undo` link in the FAQ now resolves. It says to run `tidy --undo` and that tidy only moves files, never deletes them.
 >
-> I didn't check the links with a link checker, only by reading the files.
+> I checked the other links by reading the files, and they point to real files and anchors. I didn't run any link checker.
 
 To check the work, ask again, or look with your own tools
 (`git diff`). A program the checker refuses runs nothing, and the
@@ -204,38 +198,45 @@ cosmic agent ask 'now check every relative link in every .md file, including #an
 
 > cosmic: agent: going on with session 1 (10 messages, claude-haiku-5-5); --new starts a fresh one
 > ```teal
+> local mds = {}
+> for _, p in ipairs(Host.find(".", ".md")) do
+>   if not p:find("^%./%.git/") then mds[#mds + 1] = p end
+> end
 > local function slug(h: string): string
->   local s = h:lower():gsub("[^%w%- _]", ""):gsub(" ", "-")
+>   local s = h:lower():gsub("[^%w%s%-_]", ""):gsub("%s", "-")
 >   return s
 > end
-> local function anchors(path: string): {string: boolean}
+> local anchors: mut {string: {string: boolean}} = {}
+> local function anchorsOf(path: string): {string: boolean}
+>   if anchors[path] ~= nil then return anchors[path] end
 >   local set: mut {string: boolean} = {}
->   local text = Host.read(path)
->   for line in text:gmatch("[^\n]+") do
->     local h = line:match("^#+%s+(.-)%s*$")
->     if h ~= nil then set[slug(h)] = true end
->   end
->   return set
-> ... 34 more lines
+> ... 43 more lines
 > ```
 > ```error
 > The checker refused the snippet, so it did not run:
-> run.tl:30:43: `goto continue` is not in the grammar (label_or_goto): write `continue`
-> run.tl:31:37: `goto continue` is not in the grammar (label_or_goto): write `continue`
-> run.tl:40:7: the label `::continue::` is not in the grammar (label_or_goto): delete the label, and write `continue` w...
+> run.tl:1:13: this literal has no items and no type to make it from (literal_needs_type): declare the type: `local nam...
+> run.tl: 1 error of literal_needs_type in its bodies on line 1; follow the fix above
+> run.tl:11:39: `anchors[path]` is `{string: boolean}?` (an index read may be nil), where `{string: boolean}` is wanted...
+> run.tl: 1 error of index_may_be_nil in its bodies on line 11; follow the fix above
+> run.tl:35:16: `file` is `string?`, so it may be nil, and it has no method `sub` to call (nil_not_allowed): test it fi...
+> run.tl: 1 error of nil_not_allowed in its bodies on line 35; follow the fix above
+> run.tl:36:22: `file` is `string?`, so it may be nil, and it has no method `sub` to call (nil_not_allowed): test it fi...
+> run.tl: 1 error of nil_not_allowed in its bodies on line 36; follow the fix above
+> run.tl:38:62: `file` is `string?`, so it may be nil, and `..` takes strings (nil_not_allowed): test it first (`if fil...
+> run.tl: 1 error of nil_not_allowed in its bodies on line 38; follow the fix above
+> run.tl:38:23: `dir == "."` is a boolean and `file` is `string?`: `and` answers the left operand when it is false (or_...
+> ... 9 more lines
 > ```
-> ...
 > ```teal
-> local function slug(h: string): string
+> local mds: mut {string} = {}
 > ...
 > ```
 > ```output
-> checked 13 relative links
-> none broken
+> 13 relative links checked, 0 broken
 > ```
-> No broken relative links remain. I checked 13 relative links across all `.md` files, including the `#anchor` fragments, and every target file and heading exists.
+> All 13 relative links across the five `.md` files resolve, including the `#anchor` links. Nothing is still broken.
 >
-> The anchor check uses a simplified version of GitHub's heading-slug rules, so an unusual heading could be misjudged.
+> The links checked are in `README.md`, `docs/install.md`, `docs/usage.md`, `docs/configuration.md` and `docs/faq.md`. External URLs were skipped.
 
 ## the tools
 
@@ -280,20 +281,31 @@ cosmic agent ask --new 'write a one-line commit message for the uncommitted chan
 ```
 
 Here the model reads the docs of [`cosmic.child`] and tries to start
-`git` with it. The checker
-refuses three of its programs, and it fixes each one. Then the sandbox
-refuses to start `git`, and the model asks for the diff:
+`git` with it. The checker refuses three of its programs, and it fixes
+each one, but the sandbox refuses to start `git`. The model then
+reads its earlier edits back from the sessions database:
 
+> ...
+> ```teal
+> local Child = require("cosmic.child")
+> local r, e = Child.run({ "git", "status", "--short" }, { stdout = "capture", timeout_ns = Child.FOREVER })
+> if r == nil then print("no git: " .. tostring(e)) else print(r.stdout or "") end
+> local d, e2 = Child.run({ "git", "diff" }, { stdout = "capture", timeout_ns = Child.FOREVER })
+> if d ~= nil then print((d.stdout or ""):sub(1, 6000)) end
+> local l, e3 = Child.run({ "git", "log", "--oneline", "-5" }, { stdout = "capture", timeout_ns = Child.FOREVER })
+> if l ~= nil then print(l.stdout or "") end
+> ```
 > ```output
-> fail child: start: Operation not permitted
-> fail child: start: Operation not permitted
+> no git: child: start: Operation not permitted
 > ```
 > ...
-> I can't see the uncommitted changes, so I can't write the message yet. The sandbox refuses to start `git` here (`child: start: Operation not permitted`), and I haven't found an earlier `git diff` output in the session history to work from.
+> Suggested message:
 >
-> ...
+> `Fix broken doc links and document undo and [ignore]`
+>
+> I couldn't run `git status` or `git diff` here (the sandbox refused starting git), so I inferred this from the edits made earlier in this session. They cover `README.md` and `docs/faq.md` (link fixes), `docs/usage.md` (new Undo section), and `docs/configuration.md` (new `[ignore]` section). If other changes exist, the message would need updating.
 
-This takes 6 programs and $0.002.
+This takes 8 programs, 3 of them refused and fixed, and $0.004.
 
 ```sh
 cosmic agent ask --new --commands 'write a one-line commit message for the uncommitted changes'
@@ -321,11 +333,9 @@ cosmic agent ask --new --commands 'write a one-line commit message for the uncom
 >  README.md             | 2 +-
 > ... 55 more lines
 > ```
-> Suggested commit message:
+> Commit message:
 >
-> `docs: fix broken links, document [ignore] table and undo`
->
-> This covers the four modified docs: the README link to configuration.md, the install link in the FAQ, the new `[ignore]` section, and the new Undo section in usage.md.
+> `docs: fix broken links and document the [ignore] table and undo`
 
 This takes 2 programs, 1 of them refused and fixed, and $0.001.
 
@@ -399,8 +409,8 @@ cosmic agent ask --new 'do the external (http) links in the docs still work?'
 
 > ...
 > ```teal
-> local r = Host.fetch("https://www.iana.org/assignments/media-types/media-types.xhtml", { method = "HEAD", any_status ...
-> print("status " .. tostring(r.status))
+> local r = Host.fetch("https://www.iana.org/assignments/media-types/media-types.xhtml", { any_status = true })
+> print(tostring(r.status))
 > for k, v in pairs(r.headers) do
 >   if k:lower() == "location" then print("location: " .. tostring(v)) end
 > end
@@ -409,7 +419,7 @@ cosmic agent ask --new 'do the external (http) links in the docs still work?'
 > (no output)
 > Error: run.tl:1: host: fetch: https://www.iana.org/assignments/media-types/media-types.xhtml: Could not resolve host:...
 > ```
-> I checked the docs, but I couldn't confirm the link works because this sandbox has no network access.
+> I couldn't check the links: there's no network access here, so the one external link I found could not be fetched.
 >
 > ...
 
@@ -420,23 +430,25 @@ cosmic agent ask --network 'ok, try again'
 ```
 
 > cosmic: agent: going on with session 4 (8 messages, claude-haiku-5-5); --new starts a fresh one
-> ...
 > ```teal
-> local url = "https://www.iana.org/assignments/media-types/media-types.xhtml"
-> local r = Host.fetch(url, { method = "HEAD", any_status = true })
-> print("status " .. tostring(r.status))
+> local r = Host.fetch("https://www.iana.org/assignments/media-types/media-types.xhtml", { any_status = true })
+> print(tostring(r.status))
 > for k, v in pairs(r.headers) do
 >   if k:lower() == "location" then print("location: " .. tostring(v)) end
 > end
 > ```
 > ```output
-> status 302
+> 302
 > location: /assignments/media-types
 > ```
-> ...
-> The link now works, but it redirects. `https://www.iana.org/assignments/media-types/media-types.xhtml` returns a 302 to `/assignments/media-types`, which returns 200. This is the link in `README.md` line 12.
->
-> ...
+> ```teal
+> local r = Host.fetch("https://www.iana.org/assignments/media-types", { any_status = true })
+> print(tostring(r.status))
+> ```
+> ```output
+> 200
+> ```
+> The link works now, but it redirects. `https://www.iana.org/assignments/media-types/media-types.xhtml` returns a 302 to `/assignments/media-types`, which returns 200. The link is in `README.md` line 12. You could update it to `https://www.iana.org/assignments/media-types` to skip the redirect, but it still works as written.
 
 ## budgets
 
@@ -451,30 +463,23 @@ cosmic agent ask --new --budget turns=2 'document the [ignore] table in docs/con
 ```
 
 > ```teal
-> local doc = Host.read("docs/configuration.md")
-> print(doc)
-> print("-----")
-> for _, h in ipairs(Host.grep("ignore", Host.find("src", ".tl"), true)) do
+> print(Host.read("docs/configuration.md"))
+> print("---")
+> for _, h in ipairs(Host.grep("ignore", Host.find(".", ".tl"), true)) do
 >   print(h.path .. ":" .. tostring(h.line) .. ": " .. h.text)
 > end
 > for _, h in ipairs(Host.grep("ignore", Host.find(".", ".toml"), true)) do
 >   print(h.path .. ":" .. tostring(h.line) .. ": " .. h.text)
 > end
 > ```
-> ```error
+> ```output
 > # Configuration
 >
 > tidy reads `~/.config/tidy/rules.toml` if it is there.
 >
 >     [images]
 >     folder = "pictures"
->
-> TODO: document the [ignore] table.
->
-> Back to [Usage](usage.md) or the [README](../README.md).
->
-> -----
-> ... 1 more line
+> ... 6 more lines
 > ```
 > cosmic: agent: ask: the turn's budget is spent: 2 requests, of 2; go on with `cosmic agent ask --session 3 'go on'` and a larger --budget
 
@@ -487,34 +492,33 @@ cosmic agent ask --budget turns=6 'go on'
 > cosmic: agent: going on with session 3 (5 messages, claude-haiku-5-5); --new starts a fresh one
 > ...
 > ```teal
-> local n = Host.edit("docs/configuration.md", { { old = "TODO: document the [ignore] table.\n", new = "## `[ignore]`\n...
-> print("edits: " .. tostring(n))
+> Host.edit("docs/configuration.md", { { old = "The [ignore] table is not documented yet.\n", new = "## [ignore]\n\nThe...
 > print(Host.read("docs/configuration.md"))
 > ```
 > ```output
-> edits: 1
 > # Configuration
 >
 > tidy reads `~/.config/tidy/rules.toml` if it is there.
 >
 >     [images]
-> ... 8 more lines
+>     folder = "pictures"
+> ... 7 more lines
 > ```
 > edit docs/configuration.md
 > ```diff
 > @@
-> -TODO: document the [ignore] table.
-> +## `[ignore]`
+> -The [ignore] table is not documented yet.
+> +## [ignore]
 > +
-> +The `[ignore]` table in `rules.toml` lists file names that tidy never moves.
+> +The `[ignore]` table lists file names that tidy never moves.
 > ```
-> I replaced the TODO in `docs/configuration.md` with a short `[ignore]` section:
+> I replaced the placeholder in `docs/configuration.md` with a short `[ignore]` section:
 >
-> > ## `[ignore]`
+> > ## [ignore]
 > >
-> > The `[ignore]` table in `rules.toml` lists file names that tidy never moves.
+> > The `[ignore]` table lists file names that tidy never moves.
 >
-> This repo has no tidy source, so I couldn't check the table's key format or whether names are matched exactly or by pattern. The section says only what you told me. If you want an example block, send me the format and I'll add one.
+> The repo has no tidy source code, only docs and `.git`, and a search of every file found no other mention of `[ignore]`. So I could not check the wording against the implementation. It comes from your description. The table's key format and whether matching is by exact name or pattern are not documented, because I couldn't confirm them. Tell me the format and I'll add an example.
 
 `--model sonnet` costs less than the default, `opus`, and `--model haiku`
 costs least: its list price is a twentieth of sonnet's. A session keeps
@@ -529,14 +533,13 @@ whole output, and each request with its tokens and cost. It is
 written before it is shown.
 
 ```text
-$ cosmic agent sessions
   id  started              model              msgs  context     cost  first prompt
-   6  2026-11-25 21:32:20  claude-haiku-5-5      6     7.3k   $0.001  write a one-line commit message for the uncommitted changes
-   5  2026-11-25 21:32:11  claude-haiku-5-5     14    13.0k   $0.002  write a one-line commit message for the uncommitted changes
-   4  2026-11-25 21:32:02  claude-haiku-5-5     16     7.9k   $0.002  do the external (http) links in the docs still work?
-   3  2026-11-25 21:31:52  claude-haiku-5-5     11     8.7k   $0.002  document the [ignore] table in docs/configuration.md: it lists file names tid...
-   2  2026-11-25 21:31:45  claude-haiku-5-5      6     7.4k   $0.001  how would you document the [ignore] table in docs/configuration.md? it lists ...
-   1  2026-11-25 21:31:26  claude-haiku-5-5     20    13.1k   $0.004  what does this repository do? keep it short
+   6  2026-11-25 21:47:27  claude-haiku-5-5      6     7.2k   $0.001  write a one-line commit message for the uncommitted changes
+   5  2026-11-25 21:47:14  claude-haiku-5-5     18    16.7k   $0.004  write a one-line commit message for the uncommitted changes
+   4  2026-11-25 21:47:06  claude-haiku-5-5     14     7.5k   $0.001  do the external (http) links in the docs still work?
+   3  2026-11-25 21:46:54  claude-haiku-5-5     11     8.7k   $0.002  document the [ignore] table in docs/configuration.md: it lists file names tid...
+   2  2026-11-25 21:46:49  claude-haiku-5-5      6     6.8k   $0.001  how would you document the [ignore] table in docs/configuration.md? it lists ...
+   1  2026-11-25 21:46:34  claude-haiku-5-5     16    12.1k   $0.004  what does this repository do? keep it short
 ```
 
 - `ask` and `chat` go on with the newest session in the directory.
