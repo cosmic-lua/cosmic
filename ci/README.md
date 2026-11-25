@@ -472,7 +472,8 @@ branch's push runs nothing.
   `bin/cosmic test`, `ci/run-local`) are the branch's (the tree's
   `doc/contributing.md`). A **manual run** (`workflow_dispatch`) of a
   branch runs what main's daily run does but macOS, unless it asks for
-  it (`-f macos=true`), and runs the checked suite in the queue's shares.
+  it (`-f macos=true`), and runs the checked and narrowing suites in the
+  queue's shares.
 - **a pull request** runs the lightest check, the `ci` check the merge
   queue requires of a pull request before it takes it: linux-x86_64's leg
   boots the tree, checks the bootstrap's scripts, and checks the tree's
@@ -507,7 +508,10 @@ branch's push runs nothing.
   macOS meets showed before only in the next daily or manual run. The checked suite runs
   in three shares at once (`linux-x86_64-checked-1` to `-3`,
   `cosmic test --shard`), so it is not the entry's longest job; a share
-  does not check the C functions, which main's push does. The gate
+  does not check the C functions, which main's push does. The checked
+  narrowing suite runs in three shares too
+  (`linux-x86_64-checked-narrowing-1` to `-3`): whole, standing on no
+  verdict, it reached its deadline. The gate
   compares the three products. An entry takes as long as its longest job. Main moves
   only through the queue, so its check of what changed holds main's whole
   tree.
