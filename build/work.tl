@@ -134,14 +134,6 @@ local text = bind.text
 
 local integer = bind.integer
 
---- One column of one row, read as the integer it was written as.
-local function integer_of(rows: Sqlite.Rows): integer
-  if #rows == 0 then
-    return 0
-  end
-  return math.tointeger(tonumber(rows[1]:text(1)) or 0) or 0
-end
-
 --- How long a run waits for another run of the same tree to end its
 --- transaction on `build.db`. That run holds it from staging through
 --- its compile: a cold compile, a boot, or a stale tool's whole rebuild
@@ -357,7 +349,7 @@ end
 --- did. Unless `wait`, it waits for no other run, returning "busy".
 local function to_wal(db: Sqlite.Handle, path: string, wait: boolean, doing?: string): Took?, string
   while true do
-    local rows, why = db:text_rows("PRAGMA journal_mode = WAL")
+    local rows, why = db:rows("PRAGMA journal_mode = WAL")
     if rows ~= nil then return "done", "" end
     if why.kind == "cancelled" then return nil, "interrupted while waiting for the write lock" end
     if why.code ~= Sqlite.BUSY and why.code ~= Sqlite.LOCKED then
@@ -374,15 +366,12 @@ end
 --- Whether the `SELECT count(*)` in `counting` counted none. It gives
 --- one row; a database that gives none is in trouble.
 local function counted_none(db: Sqlite.Handle, counting: string): boolean?, string
-  local counted, trouble = db:text_rows(counting)
-  if counted == nil then
-    return nil, tostring(trouble)
-  end
-  local row = counted[1]
+  local row, trouble = db:one(counting)
   if row == nil then
+    if trouble ~= nil then return nil, tostring(trouble) end
     return nil, "`" .. counting .. "` answered no row"
   end
-  return row:text(1) == "0", ""
+  return row:integer(1) == 0, ""
 end
 
 --- Creates every table the schema names, in order, in the working
@@ -406,7 +395,7 @@ local function create(db: Sqlite.Handle, path: string, wait: boolean, doing?: st
     -- shows as a duplicate column, and the table is read again before that is taken for a failure. The index the
     -- file may hold of the old layout, which nothing reads, goes.
     for _, name in ipairs({ "fact_wraps", "parameter_checks" }) do
-      local columns, columns_trouble = db:text_rows("PRAGMA table_info(compiled)")
+      local columns, columns_trouble = db:rows("PRAGMA table_info(compiled)")
       if columns == nil then return nil, tostring(columns_trouble) end
       local present = #columns == 0
       for _, column in ipairs(columns) do
@@ -415,7 +404,7 @@ local function create(db: Sqlite.Handle, path: string, wait: boolean, doing?: st
       if not present then
         local added, add_trouble = db:exec("ALTER TABLE compiled ADD COLUMN " .. name .. " INTEGER NOT NULL DEFAULT 0")
         if not added then
-          local again, again_trouble = db:text_rows("PRAGMA table_info(compiled)")
+          local again, again_trouble = db:rows("PRAGMA table_info(compiled)")
           if again == nil then return nil, tostring(again_trouble) end
           local now_present = false
           for _, column in ipairs(again) do
@@ -437,11 +426,10 @@ local function create(db: Sqlite.Handle, path: string, wait: boolean, doing?: st
     for _, statement in ipairs(work.schema) do
       local name = statement:match("^CREATE VIEW IF NOT EXISTS (%S+) AS")
       if name ~= nil then
-        local stored, stored_trouble = db:text_rows(
+        local row, stored_trouble = db:one(
           "SELECT sql FROM sqlite_master WHERE type = 'view' AND name = ?1", { text(name) })
-        if stored == nil then return nil, tostring(stored_trouble) end
+        if stored_trouble ~= nil then return nil, tostring(stored_trouble) end
         local now = (statement:gsub("^CREATE VIEW IF NOT EXISTS ", "CREATE VIEW ", 1))
-        local row = stored[1]
         if row ~= nil and row:text(1) ~= now then
           local begun, begin_trouble = begin_waiting(db, path, wait, doing)
           if begun == nil then return nil, begin_trouble end
@@ -486,16 +474,15 @@ end
 --- The schema `db` records in `meta`, or nil where it records none: a
 --- fresh file, or one whose run never stamped it.
 local function schema_of(db: Sqlite.Handle): string?, string
-  local tables, table_trouble = db:text_rows(
-    "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'meta'")
-  if tables == nil then return nil, tostring(table_trouble) end
-  if assert(tables[1]):text(1) == "0" then return nil, "" end
-  local versions, version_trouble = db:text_rows(
-    "SELECT value FROM meta WHERE key = 'schema'")
-  if versions == nil then return nil, tostring(version_trouble) end
-  local row = versions[1]
+  local meta, table_trouble = db:one(
+    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'")
+  if table_trouble ~= nil then return nil, tostring(table_trouble) end
+  if meta == nil then return nil, "" end
+  local row, version_trouble = db:one("SELECT value FROM meta WHERE key = 'schema'")
+  if version_trouble ~= nil then return nil, tostring(version_trouble) end
   if row == nil then return nil, "" end
-  return row:text(1), ""
+  -- A file of another tool is read here, before its tables are held to the schema: its version may be of any type.
+  return row:as_text(1) or "", ""
 end
 
 --- With the write lock held on `db`, a file of another schema whose
@@ -727,20 +714,14 @@ local function opened(root: string, dir: string?, wait: boolean,
     local _, _ = db:close()
     return nil, path .. ": " .. tostring(stamp_trouble)
   end
-  local counted, count_trouble = db:run(
+  local counted, count_trouble = typed:one(
     "INSERT INTO meta (key, value) VALUES ('run', 1) " ..
-      "ON CONFLICT (key) DO UPDATE SET value = value + 1")
-  if not counted then
+      "ON CONFLICT (key) DO UPDATE SET value = value + 1 RETURNING value")
+  if counted == nil then
     local _, _ = db:close()
     return nil, path .. ": " .. tostring(count_trouble)
   end
-  local runs, run_trouble = db:text_rows(
-    "SELECT value FROM meta WHERE key = 'run'")
-  if runs == nil then
-    local _, _ = db:close()
-    return nil, path .. ": " .. tostring(run_trouble)
-  end
-  return { handle = { db = typed, root = root, dir = out, run = integer_of(runs), inside = true, standing = nil },
+  return { handle = { db = typed, root = root, dir = out, run = counted:integer(1), inside = true, standing = nil },
     other_schema = nil }, ""
 end
 
@@ -870,7 +851,7 @@ end
 --- file in rollback mode has no log, and nothing is done.
 local function checkpoint(db: Database)
   db:busy_timeout(notice_ns)
-  local _, _ = db:text_rows("PRAGMA wal_checkpoint(TRUNCATE)")
+  local _, _ = db:rows("PRAGMA wal_checkpoint(TRUNCATE)")
   db:busy_timeout(wait_ns)
 end
 
@@ -1537,15 +1518,13 @@ end
 --- what its parses and compiles keyed, may mean other than this code
 --- takes it to. Nil and why where the read fails.
 function work.other_code(db: Sqlite.Handle): string?, string
-  local rows, trouble = db:text_rows("SELECT value FROM meta WHERE key = 'staged_by'")
-  if rows == nil then
-    return nil, tostring(trouble)
-  end
-  local row = rows[1]
+  local row, trouble = db:one("SELECT value FROM meta WHERE key = 'staged_by'")
   if row == nil then
+    if trouble ~= nil then return nil, tostring(trouble) end
     return "", ""
   end
-  local recorded = row:text(1)
+  -- Read on a file another code staged, whose tables are not held to the schema: the value may be of any type.
+  local recorded = row:as_text(1) or ""
   local own, own_trouble = running_tool(db)
   if own == nil then
     return nil, own_trouble
@@ -1597,7 +1576,7 @@ local function links_finder(db: Database): string?, string
     end
     return fingerprint, ""
   end
-  local last, last_trouble = db:text_rows(
+  local last, last_trouble = db:rows(
     "SELECT key, value FROM meta WHERE key IN ('links_boot', 'links_by')")
   if last == nil then
     return nil, tostring(last_trouble)
@@ -1647,12 +1626,11 @@ find_links = function(handle: work.Handle, texts: {string:string}): boolean, str
   if finder == nil then
     return false, finder_trouble
   end
-  local last, last_trouble = db:text_rows(
-    "SELECT value FROM meta WHERE key = 'links_by'")
-  if last == nil then
+  local last, last_trouble = db:one("SELECT value FROM meta WHERE key = 'links_by'")
+  if last_trouble ~= nil then
     return false, tostring(last_trouble)
   end
-  if #last == 0 or last[1]:text(1) ~= finder then
+  if last == nil or last:text(1) ~= finder then
     for _, statement in ipairs({ "DELETE FROM linked_found", "DELETE FROM linked_texts" }) do
       local ok, trouble = db:exec(statement)
       if not ok then
@@ -1665,7 +1643,7 @@ find_links = function(handle: work.Handle, texts: {string:string}): boolean, str
       return false, tostring(trouble)
     end
   end
-  local unread, unread_trouble = db:text_rows(
+  local unread, unread_trouble = db:rows(
     "SELECT path, kind, sha256 FROM linked l WHERE NOT EXISTS (SELECT 1 FROM linked_texts t " ..
       "WHERE t.sha256 = l.sha256 AND t.kind = l.kind) ORDER BY path")
   if unread == nil then
@@ -1691,13 +1669,13 @@ find_links = function(handle: work.Handle, texts: {string:string}): boolean, str
         end
       end
     end
-    local fresh, fresh_trouble = db:text_rows(
+    local fresh, fresh_trouble = db:one(
       "INSERT OR IGNORE INTO linked_texts (sha256, kind) VALUES (?1, ?2) RETURNING 1",
       { text(sha256), text(kind) })
-    if fresh == nil then
+    if fresh_trouble ~= nil then
       return false, tostring(fresh_trouble)
     end
-    if #fresh > 0 then
+    if fresh ~= nil then
       for ordinal, entry in ipairs(link_files.found(kind, data)) do
         local link = entry.link
         local ok, trouble = db:run(

@@ -154,15 +154,20 @@ local record Types
     lines: integer
   end
 
-  --- A pipeline stage: the function `func` of the module `module_path`.
+  --- A pipeline stage: the function `func` of the module `module_path`, or
+  --- with `module_path` "", the `{{define}}` `func` of the same template.
   record Stage
     --- The module's import path, as `require` is given it.
     module_path: string
     --- The function's name in that module.
     func: string
+    --- The line its word stands on.
+    line: integer
+    --- The column its word starts at.
+    col: integer
   end
 
-  --- What a pipeline's path starts from: dot, `$` (the value `render` is
+  --- What a pipeline's path starts from: dot, `$` (the value `render`, or the define it stands in, is
   --- given), or a variable a range binds.
   enum Head
     "dot"
@@ -235,8 +240,28 @@ local record Types
   --- than `d.end`, and a record cannot be named one.
   keywords: {string: boolean}
 
+  --- A `{{define name Type}} .. {{end}}`: a template of its own in the
+  --- same file, exported as `name` beside `render`, which a stage `| name`
+  --- calls.
+  record Define
+    --- The name it is exported and called by.
+    name: string
+    --- The record it is given, exported by the template's module.
+    type_name: string
+    --- What it writes.
+    body: {Node}
+    --- The line of its `{{define}}`.
+    line: integer
+    --- The column of its `{{define}}`.
+    col: integer
+    --- The line of its `{{end}}`: its body ends just before.
+    end_line: integer
+    --- The column of its `{{end}}`.
+    end_col: integer
+  end
+
   --- A parsed template: the record it takes, where from, its mode, its
-  --- body, and its line count.
+  --- body, its defines, and its line count.
   record Template
     --- The record's name in its module.
     type_name: string
@@ -248,8 +273,16 @@ local record Types
     mode: Mode
     --- The dialects it uses (`{{use name}}`), in order.
     dialects: {string}
-    --- The nodes after the declaration.
+    --- The nodes after the declaration, up to the first `{{define}}`.
     body: {Node}
+    --- The line the body ends on: the first `{{define}}`'s, or the
+    --- template's last.
+    body_end_line: integer
+    --- The column the body ends at: the first `{{define}}`'s `{{`, or just
+    --- past the template's last byte.
+    body_end_col: integer
+    --- The `{{define}}`s, in order.
+    defines: {Define}
     --- The template's line count.
     lines: integer
   end

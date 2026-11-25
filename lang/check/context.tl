@@ -76,6 +76,8 @@ local record Member
   type: Type
   mut: boolean
   method: boolean
+  --- The names its parameters were declared with, where it is a function ([`Types.Field.params`]).
+  params?: {string}
 end
 
 --- A declaration's members by name, and its array part.

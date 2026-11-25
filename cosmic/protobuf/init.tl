@@ -27,7 +27,7 @@
 --- of another wire type than the read asks for is not that field: the read passes over it. Every field stays in
 --- the message, known to the caller or not, and `fields` lists them.
 ---
---- [`Protobuf.decode`] takes bytes from anywhere. It never raises and reads no byte outside what it was given.
+--- [`Protobuf.decode`] takes bytes from anywhere. No bytes make it raise, and it reads no byte outside them.
 --- It refuses the whole message, with nil and why, for a varint of more than 64 bits, a field number of 0 or
 --- above 536870911, a length that passes the end, a value the bytes end inside, the wire types the
 --- format does not have (6 and 7), and a group (wire types 3 and 4, which only proto2 writes). A varint written

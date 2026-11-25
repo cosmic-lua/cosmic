@@ -781,7 +781,7 @@ function wire.needs_input(result: any): boolean
   return kind ~= nil and kind.resultType == "input_required"
 end
 
---- Whether `result` is a final result; nil and why for one that asks
+--- Whether `result` is a final result: true, or false and why for one that is no object, asks
 --- for more ("input_required", which this client never declared a
 --- capability for) or names a kind no revision defines.
 function wire.complete(result: any): (true) | (false, Failure)
@@ -951,30 +951,37 @@ function wire.discovery(result: any): (Mcp.Discovery) | (nil, Failure)
     serverInfo = info }
 end
 
+--- A page of `resources/list`: its resources and the cursor of the
+--- next.
 function wire.resources(result: any): (wire.Resources) | (nil, Failure)
   local page, why = RESOURCES:into(result)
   if page == nil then return nil, bad("a resource list that does not fit: " .. why) end
   return page
 end
 
+--- A page of `resources/templates/list`: its resource templates and
+--- the cursor of the next.
 function wire.templates(result: any): (wire.Templates) | (nil, Failure)
   local page, why = TEMPLATES:into(result)
   if page == nil then return nil, bad("a template list that does not fit: " .. why) end
   return page
 end
 
+--- A page of `prompts/list`: its prompts and the cursor of the next.
 function wire.prompts(result: any): (wire.Prompts) | (nil, Failure)
   local page, why = PROMPTS:into(result)
   if page == nil then return nil, bad("a prompt list that does not fit: " .. why) end
   return page
 end
 
+--- The contents of a `resources/read` result, from a server.
 function wire.read(result: any): ({Mcp.ResourceContents}) | (nil, Failure)
   local r, why = READ:into(result)
   if r == nil then return nil, bad("resource contents that do not fit: " .. why) end
   return r.contents
 end
 
+--- The result of `prompts/get`, from a server.
 function wire.prompt_result_of(result: any): (Mcp.PromptResult) | (nil, Failure)
   local r, why = PROMPT_RESULT:into(result)
   if r == nil then return nil, bad("a prompt that does not fit: " .. why) end

@@ -25,6 +25,7 @@ local tree_readers = require("build.tree_checks.readers")
 local tree_tests = require("build.tree_checks.tests")
 local writer = require("build.writer")
 local support = require("build.test_support_fixture")
+local build_schema = require("build.schema")
 
 Test.policy{
   grants = {
@@ -45,7 +46,7 @@ end
 --- value only, or through a method declared outside its record; the same
 --- types exported (one under another name) pass.
 local function test_a_type_the_api_names_but_does_not_export_is_refused(dir: string)
-  local function tree(exported: boolean): Sqlite.Handle
+  local function tree(exported: boolean): build_schema.Build
     return fixture.database(dir, {
       ["cosmic/thing.tl"] = source(
         "local enum Where",
@@ -107,8 +108,8 @@ local function test_an_internal_module_is_absent_from_the_public_docs(dir: strin
       "function fs.read() end",
       "return fs"),
   })
-  local all = assert(db:text_rows("SELECT DISTINCT module FROM docs ORDER BY module"))
-  local public = assert(db:text_rows("SELECT DISTINCT module FROM docs WHERE " ..
+  local all = assert(db:rows("SELECT DISTINCT module FROM docs ORDER BY module"))
+  local public = assert(db:rows("SELECT DISTINCT module FROM docs WHERE " ..
       symbols.public_only("module", true) .. " ORDER BY module"))
   assert(#all == 2 and all[1]:text(1) == "cosmic.fs" and support.nth(all, 2):text(1) == "cosmic.internal.shared",
     tostring(#all) .. " modules")
@@ -937,8 +938,8 @@ local function test_a_run_in_copies_tells_what_the_process_tells(dir: string)
   local meminfo = fanout.meminfo
   fanout.meminfo = "MemAvailable: 67108864 kB\n"
   local ran, told = pcall(function(): {string}
-    return tree_checks.run(db, "", nil, nil, nil, nil, function(): Sqlite.Handle?, Sqlite.Handle?
-      local opened, _ = Sqlite.open(path)
+    return tree_checks.run(db, "", nil, nil, nil, nil, function(): build_schema.Build?, Sqlite.Handle?
+      local opened, _ = Sqlite.open(path, { schema = build_schema.Build })
       return opened, nil
     end)
   end)

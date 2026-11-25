@@ -32,7 +32,7 @@
 --- place is a type error, and a value is made only in this module, by the
 --- escaping or by the `trust` functions, which a review can search for.
 --- There is no `__concat` and no `__tostring`: a safe value cannot reach a
---- string except through [`Html.raw`] or [`Html.raw_attr`]. A cast (`x as Html.SafeHtml`)
+--- string except through its `raw` function above. A cast (`x as Html.SafeHtml`)
 --- defeats the types, as it does anywhere; it stops forged and
 --- accidental values, not deliberate ones.
 ---
@@ -157,6 +157,21 @@ function Html.trust_url(s: string): Html.SafeUrl
   return raw.trust_url(s)
 end
 
+--- Whether a template's `{{if}}` or `{{with}}` holds of `v`: it does not
+--- of `nil`, `false`, `""`, a safe value of this module that holds `""`
+--- (`Html.trust("")`) or a table with no key (an empty list or map, or a
+--- record with no field set), and does of anything else, `0` among them.
+--- [`cosmic.template`]'s generated code calls it; a program has `#t > 0`
+--- and `s ~= ""`.
+---
+---     Html.filled({}) -- false
+---     Html.filled({ "a" }) -- true
+---     Html.filled(0) -- true
+---     Html.filled(Html.escape("")) -- false
+function Html.filled(v: any): boolean
+  return raw.filled(v)
+end
+
 --- The string a [`Html.SafeUrl`] holds.
 function Html.raw_url(x: Html.SafeUrl): string
   return raw.raw_url(x)
@@ -249,8 +264,9 @@ function Html.escape_css_attr(s: string | number): Html.SafeAttr
   return raw.escape_css_attr(s)
 end
 
---- `value` as JSON text, from [`Json.encode`]. Returns `nil` and a
---- Failure where it cannot be encoded (a function, a cycle, NaN, ...).
+--- `value` as JSON text, encoded as [`Json.encode_any`] encodes it.
+--- Returns `nil` and a Failure where it cannot be encoded (a function, a
+--- cycle, NaN, ...).
 ---
 ---     Html.raw_json(assert(Html.json({ id = 7 }))) -- '{"id":7}'
 function Html.json(value: any): (Html.SafeJson) | (nil, Failure)

@@ -620,7 +620,9 @@ local function test_a_project_file_named_for_a_module_of_the_language_is_refused
   -- A name an edit from one of cosmic's modules is told the module, from the docs (this test's store withholds the
   -- binary's).
   StandardMeant.read_from({ index = { { module = "cosmic.codec", text = "Byte-to-text encodings.", closed = "" } },
-    exact = function(_: string): {{string}} return {} end })
+    exact = function(_: string): {{string}} return {} end, takes = function(_: string): {{string}}
+      return {}
+    end })
   local near, near_trouble = write_fixture("cosmic-module-near", { ["main.tl"] = 'local s = require("cosmic.codecs")\nreturn s\n' })
   assert(near ~= nil, "could not write fixture: " .. tostring(near_trouble))
   local _, told = importer_fixture.compile_fixture(near)

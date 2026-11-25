@@ -449,7 +449,7 @@ local function carry_forward(db: Database, root: string, head: string,
   if head == "" then
     return true, ""
   end
-  local heads, trouble = db:text_rows(
+  local heads, trouble = db:rows(
     "SELECT DISTINCT head FROM blames WHERE head != ?1 AND head != ''",
     { { text = head } })
   if heads == nil then
@@ -471,7 +471,7 @@ local function carry_forward(db: Database, root: string, head: string,
       -- A commit blame now passes over, or no longer does, may be the
       -- one any line is blamed on.
       local ignore_moved = touched[IGNORED_REVS] == true
-      local kept, rows_trouble = db:text_rows(
+      local kept, rows_trouble = db:rows(
         "SELECT DISTINCT path FROM blames WHERE head = ?1", { { text = old } })
       if kept == nil then
         return false, tostring(rows_trouble)
@@ -713,7 +713,7 @@ end
 --- and every one required, when it does not (as [`cosmic.sys`] does not).
 function todos.search(db: Database, query: string): {integer:integer}?, string
   local sql = "SELECT rowid FROM todos_fts WHERE todos_fts MATCH ?1 ORDER BY rank"
-  local first, _ = db:text_rows(sql, { { text = query } })
+  local first, _ = db:rows(sql, { { text = query } })
   local rows: Sqlite.Rows = {}
   if first ~= nil then
     rows = first
@@ -722,7 +722,7 @@ function todos.search(db: Database, query: string): {integer:integer}?, string
     if words == "" then
       return {}, ""
     end
-    local retried, trouble = db:text_rows(sql, { { text = words } })
+    local retried, trouble = db:rows(sql, { { text = words } })
     if retried == nil then
       return nil, tostring(trouble)
     end
@@ -730,8 +730,7 @@ function todos.search(db: Database, query: string): {integer:integer}?, string
   end
   local out: mut {integer:integer} = {}
   for index, row in ipairs(rows) do
-    local id = math.tointeger(tonumber(row:text(1)))
-    if id ~= nil then out[id] = index end
+    out[row:integer(1)] = index
   end
   return out, ""
 end

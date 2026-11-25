@@ -396,10 +396,13 @@ local function show_whois(to: verb.Io, complain: function(line: string), ts: Tai
     complain(unknown)
     return bare.failed
   end
-  local result = ts:whois_result(address)
-  local who = result.whois
+  local who, why = ts:whois(address)
+  if who == false then
+    complain("no node has the address " .. address)
+    return bare.failed
+  end
   if who == nil then
-    complain((result.reason:gsub("^tailscale: ", "")))
+    complain((tostring(why):gsub("^tailscale: ", "")))
     return bare.failed
   end
   if parsed.set["--json"] == true then

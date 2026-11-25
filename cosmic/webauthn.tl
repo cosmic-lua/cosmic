@@ -242,7 +242,7 @@ end
 
 --- The JSON of `PublicKeyCredentialRequestOptions` for a login under
 --- `challenge`, as `PublicKeyCredential.parseRequestOptionsFromJSON`
---- takes it.
+--- takes it. Raises on an empty `rp_id`.
 ---
 ---     local options = Webauthn.request_options({ rp_id = "example.com" }, Webauthn.challenge())
 function Webauthn.request_options(opts: Webauthn.RequestOptions, challenge: string): {string: Json.Value}

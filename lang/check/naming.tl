@@ -12,7 +12,6 @@ local Context = require("lang.check.context")
 local Lookup = require("lang.check.members")
 local type Ctx = Context.Ctx
 local type Type = Types.Type
-local show = Context.show
 local members_index = Lookup.members_index
 local names_of = Lookup.names_of
 local base_of = Context.base_of
@@ -173,7 +172,8 @@ function Naming.members_told(ctx: Ctx, t: Type, name: string, close: string): st
   for _, n in ipairs(picked) do
     local list = index.by_name[n]
     local first = if list ~= nil then list[1] else nil end
-    local shown = if first ~= nil then NearNames.cut(show(ctx, first.type), 120) else "" end
+    local shown = if first ~= nil then
+      NearNames.cut(Types.display(first.type, ctx.binders, ctx.fn_names, first.params), 120) else "" end
     -- A type that holds a type variable of the checker's own (`?0.0`) is shown by its name alone.
     typed[#typed + 1] = if shown ~= "" and shown:find("%?%d") == nil then "`" .. n .. ": " .. shown .. "`" else quoted(n) end
   end
