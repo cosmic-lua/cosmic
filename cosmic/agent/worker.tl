@@ -19,8 +19,9 @@
 --- 16KB and its last 48KB with a line between them of how many bytes were cut, `cut` true then, and `head_bytes` and
 --- `tail_bytes`, the length of each part; and `bytes`, how much was written. Only its start and its end are held, so a
 --- snippet that prints without end fills no file. Before its response line, a snippet may call the
---- agent ([`cosmic.agent.host`]): a line `{"id":1,"call":"history","args":{...}}`, which [`Worker.Options.serve`] serves
---- in the agent and the reply goes back on the worker's input, `{"reply":...}` or `{"failed":"..."}`. A snippet sets no global, which the checker
+--- agent ([`cosmic.agent.host`]): a line `{"id":1,"call":"history","call_id":1,"args":{...}}`, which
+--- [`Worker.Options.serve`] serves in the agent and the reply goes back on the worker's input, with the call's
+--- `call_id`: `{"call_id":1,"reply":...}` or `{"call_id":1,"failed":"..."}`. A snippet sets no global, which the checker
 --- refuses; what it keeps for the next it keeps with [`Host.store`], or writes to a file. Its standard input is /dev/null.
 ---
 --- Under a policy the worker is held as bash is, with these changes. Where it runs no commands

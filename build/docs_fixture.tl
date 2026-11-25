@@ -20,6 +20,7 @@ local rebuild = require("build.rebuild")
 local work = require("build.work")
 local work_schema = require("build.work_schema")
 local writer = require("build.writer")
+local build_schema = require("build.schema")
 
 local record docs_fixture
 end
@@ -36,7 +37,7 @@ local written: integer = 0
 --- need not type-check, and every module the tree holds is planned; the
 --- projection names as its compiler (`compiled_by`) the one a build in
 --- this process compiles under ([`rebuild.compiled_by`]), as a build's does.
-function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Handle
+function docs_fixture.database(dir: string, files: {string: string}): build_schema.Build
   local db = assert(Sqlite.memory({ schema = work_schema.Database }))
   local paths: mut {string} = {}
   for path in pairs(files) do paths[#paths + 1] = path end
@@ -75,7 +76,7 @@ function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Han
     parses = { parsed = 0, shared = 0 },
   }, nil, link_index.none))
   assert(db:close())
-  return (assert(Sqlite.open(path)))
+  return (assert(Sqlite.open(path, { schema = build_schema.Build })))
 end
 
 return docs_fixture

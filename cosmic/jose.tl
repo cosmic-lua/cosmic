@@ -441,8 +441,10 @@ end
 --- [`Jose.verify`] checks, `iss` is `opts.issuer`, `aud` holds
 --- `opts.audience`, and the time is within its `nbf` and `exp` and not
 --- before its `iat`, give or take `opts.leeway`. Nil and why otherwise,
---- including for a payload that is no JSON object, a `sub` that is
---- absent or no string, and a date claim that is no number.
+--- including for a header whose `typ` is not `opts.typ`, a payload that
+--- is no JSON object, a `sub` that is absent, empty or no string, a
+--- date claim that is no number, and no `exp` unless `opts.require_exp`
+--- is false.
 ---
 ---     local claims = assert(Jose.verify_jwt(token, keys, {
 ---       issuer = "https://accounts.example.com", audience = "my-client-id",

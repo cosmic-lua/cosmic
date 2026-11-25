@@ -1,21 +1,22 @@
 --- The checks of the tree over what modules declare: every quieted method one a module declares, every member kept
 --- to a few files used by those alone, and every declaration's requires declared.
 
-local Sqlite = require("cosmic.sqlite")
 local closure_store = require("build.closure_store")
 local ContractRules = require("build.contract_rules")
 local _ = require("build.reads.all")
+local type build_schema = require("build.schema")
+local type Build = build_schema.Build
 
 local record tree_declares
 end
 
 --- Each of `names` (by default [`build.contract_rules`]' `quiet_entries`), as
 --- `<module> <symbol>`, that no module of `db` declares.
-function tree_declares.quieted(db: Sqlite.Handle, names?: {string}): {string}
+function tree_declares.quieted(db: Build, names?: {string}): {string}
   local out: mut {string} = {}
   for _, name in ipairs(names or ContractRules.quieted_names()) do
     local module, symbol = name:match("^(%S+) (%S+)$")
-    local rows, trouble = db:text_rows(
+    local rows, trouble = db:rows(
       "SELECT 1 FROM docs WHERE module = ?1 AND symbol = ?2 LIMIT 1",
       { { text = module or "" }, { text = symbol or "" } })
     if rows == nil then
@@ -62,7 +63,7 @@ local restricted: {string: Restriction} = {
 --- from a file its rule does not name, as `<file>:<line>: <module> <member>
 --- ...`; by default also each module that requires one only a few may
 --- ([`tree_declares.requirers`]).
-function tree_declares.restricted(db: Sqlite.Handle, rules?: {string: Restriction}): {string}
+function tree_declares.restricted(db: Build, rules?: {string: Restriction}): {string}
   local out: mut {string} = {}
   local names: mut {string} = {}
   for name in pairs(rules or restricted) do names[#names + 1] = name end
@@ -70,7 +71,7 @@ function tree_declares.restricted(db: Sqlite.Handle, rules?: {string: Restrictio
   for _, name in ipairs(names) do
     local rule = assert((rules or restricted)[name], "a name listed is one of the rules")
     local module, symbol = name:match("^(%S+) (%S+)$")
-    local rows, trouble = db:text_rows(
+    local rows, trouble = db:rows(
       "SELECT from_file, line FROM uses WHERE module = ?1 AND symbol = ?2 " ..
         "ORDER BY from_file, line",
       { { text = module or "" }, { text = symbol or "" } })
@@ -81,7 +82,7 @@ function tree_declares.restricted(db: Sqlite.Handle, rules?: {string: Restrictio
     for _, file in ipairs(rule.files) do allowed_here[file] = true end
     for _, row in ipairs(rows) do
       if allowed_here[row:text(1)] ~= true then
-        out[#out + 1] = row:text(1) .. ":" .. row:text(2) .. ": " .. name .. " is used outside " ..
+        out[#out + 1] = row:text(1) .. ":" .. tostring(row:integer(2)) .. ": " .. name .. " is used outside " ..
           table.concat(rule.files, ", ") .. ": " .. rule.why
       end
     end
@@ -121,10 +122,10 @@ local requirers: {string: Restriction} = {
 
 --- Each module of `db` (by its `decl_imports`, which hold a core module's name too) that requires a module of `rules` (by default [`requirers`]) and is not one that rule names, as
 --- `<module>: requires <name>, which only <modules> may require: <why>`.
-function tree_declares.requirers(db: Sqlite.Handle, rules?: {string: Restriction}): {string}
+function tree_declares.requirers(db: Build, rules?: {string: Restriction}): {string}
   local out: mut {string} = {}
   for name, rule in pairs(rules or requirers) do
-    local rows, trouble = db:text_rows(
+    local rows, trouble = db:rows(
       "SELECT path FROM decl_imports WHERE requires = ?1 ORDER BY path", { { text = name } })
     if rows == nil then
       return { "reading the imports: " .. tostring(trouble) }
@@ -147,8 +148,8 @@ end
 --- follows a declaration's requires among declarations alone
 --- ([`build.closure_store`]'s `declared`), so a module one required would
 --- be neither carried nor in the store's address.
-function tree_declares.declarations(db: Sqlite.Handle): {string}
-  local rows, trouble = db:text_rows(
+function tree_declares.declarations(db: Build): {string}
+  local rows, trouble = db:rows(
     "SELECT path, CAST(inflate(source) AS TEXT) FROM decls ORDER BY path")
   if rows == nil then
     return { "reading the declarations: " .. tostring(trouble) }

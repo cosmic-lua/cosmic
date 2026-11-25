@@ -173,7 +173,13 @@ end
 --- addressed to the host the daemon requires and the capability version.
 local function test_whois_answers_the_node_its_user_and_its_capabilities(tmp: string)
   local said, seen = across(tmp, Net.unix(tmp .. "/ts.sock"), over_socket([[
-  local who = assert(ts:whois("100.64.0.2:443"))
+  local function peer(address: string): Tailscale.WhoIs
+    local found, why = ts:whois(address)
+    assert(found ~= nil, why)
+    assert(found ~= false, address .. " is no peer's")
+    return found
+  end
+  local who = peer("100.64.0.2:443")
   say(who.node.name .. " " .. who.node.host_name .. " " .. who.node.os .. " " .. tostring(who.node.id))
   say(table.concat(who.node.addresses, ",") .. " tags=" .. tostring(#who.node.tags) .. " tagged=" .. tostring(who.tagged))
   say(who.user.login_name .. " " .. who.user.display_name .. " " .. tostring(who.user.picture_url) ..
@@ -183,12 +189,12 @@ local function test_whois_answers_the_node_its_user_and_its_capabilities(tmp: st
   say("admin=" .. assert(Json.encode_any(admin)) .. " read=" .. tostring(#assert(who.caps["example.com/cap/read"])) ..
     " ping=" .. tostring(#assert(who.caps["example.com/cap/ping"])) ..
     " write=" .. tostring(who.caps["example.com/cap/write"]))
-  local tagged = assert(ts:whois("100.64.0.3"))
+  local tagged = peer("100.64.0.3")
   say(tagged.node.name .. " " .. table.concat(tagged.node.tags, ",") .. " tagged=" .. tostring(tagged.tagged) ..
     " " .. tagged.user.login_name .. " host=" .. tagged.node.host_name)
-  local six = assert(ts:whois("[fd7a:115c:a1e0::3]:443"))
+  local six = peer("[fd7a:115c:a1e0::3]:443")
   say(six.node.name)
-  say("here own=" .. tostring(assert(ts:whois("100.64.0.1:80")).own))
+  say("here own=" .. tostring(peer("100.64.0.1:80").own))
 ]]))
   assert(said == table.concat({
     "laptop.tail1234.ts.net laptop macOS 7",
@@ -204,25 +210,22 @@ local function test_whois_answers_the_node_its_user_and_its_capabilities(tmp: st
     seen[1])
 end
 
---- An address the daemon knows no node at is "not_a_peer", told apart
---- from a daemon that cannot be reached, which is "failed".
-local function test_whois_result_tells_a_stranger_from_a_daemon_that_is_not_there(tmp: string)
+--- An address the daemon knows no node at is false, told apart from a
+--- daemon that refuses or cannot be reached, which is nil and a Failure.
+local function test_whois_tells_a_stranger_from_a_daemon_that_is_not_there(tmp: string)
   local said, _ = across(tmp, Net.unix(tmp .. "/ts.sock"), over_socket([[
-  local stranger = ts:whois_result("192.0.2.7")
-  say(stranger.kind .. " " .. tostring(stranger.status) .. " " .. stranger.reason .. " " .. tostring(stranger.whois))
-  local refused = ts:whois_result("100.64.0.4")
-  say(refused.kind .. " " .. tostring(refused.status) .. " " .. refused.reason)
-  local who, why = ts:whois("192.0.2.7")
-  say(tostring(who) .. " " .. tostring(why))
+  local stranger, none = ts:whois("192.0.2.7")
+  say(tostring(stranger) .. " " .. tostring(none))
+  local refused, denied = ts:whois("100.64.0.4")
+  say(tostring(refused) .. " " .. tostring(denied))
   local gone = assert(Tailscale.connect({ socket = (argv[1] or "") .. ".none" }))
-  local failed = gone:whois_result("100.64.0.2")
-  say(failed.kind .. " " .. tostring(failed.status) .. " " .. tostring(failed.reason:find("tailscale: ", 1, true) == 1))
+  local failed, why = gone:whois("100.64.0.2")
+  say(tostring(failed) .. " " .. tostring(tostring(why):find("tailscale: ", 1, true) == 1))
 ]]))
   assert(said == table.concat({
-    "not_a_peer 404 tailscale: no node has the address 192.0.2.7 nil",
-    "failed 403 tailscale: /localapi/v0/whois: whois access denied",
-    "nil tailscale: no node has the address 192.0.2.7",
-    "failed 0 true",
+    "false nil",
+    "nil tailscale: /localapi/v0/whois: whois access denied",
+    "nil true",
     "",
   }, "\n"), said)
 end
@@ -346,12 +349,12 @@ end
 --- the field, and any path is reachable as bytes.
 local function test_a_reply_of_the_wrong_shape_fails_naming_the_field(tmp: string)
   local said, _ = across(tmp, Net.unix(tmp .. "/ts.sock"), over_socket([[
-  local bad = ts:whois_result("100.64.0.66")
-  say(bad.kind .. " " .. bad.reason)
+  local bad, why = ts:whois("100.64.0.66")
+  say(tostring(bad) .. " " .. tostring(why))
   local missing = assert(ts:get("/localapi/v0/nothing"))
   say(tostring(missing.status) .. " " .. missing.body)
 ]]))
-  assert(said == "failed tailscale: whois: WireWhoIs: $.Node.ID: want integer, got string\n" ..
+  assert(said == "nil tailscale: whois: WireWhoIs: $.Node.ID: want integer, got string\n" ..
       "404 404 page not found\n\n", said)
 end
 
@@ -402,7 +405,8 @@ local function test_a_call_in_a_task_lets_the_run_answer_it(tmp: string)
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local ts = assert(Tailscale.connect({ socket = assert(Array.at(addresses, 1).path), timeout_ns = Clock.seconds(5) }))
       local who, why = ts:whois("100.64.0.2:443")
-      said[1] = if who ~= nil then who.user.login_name else tostring(why) end
+      local line = if who == nil then tostring(why) elseif who == false then "not a peer" else who.user.login_name end
+      said[#said + 1] = line
       server:stop()
     end,
   })
