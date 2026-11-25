@@ -10,7 +10,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local stand_in = require("build.stand_in")
+local Fake = require("cosmic.fake")
 local test_child = require("build.test_child")
 local testing = require("cosmic.internal.testing")
 local this_program = require("build.this_program")
@@ -64,7 +64,7 @@ end)
 
 local function test_nested_bind_preserves_noexec_and_cannot_clear_it(tmp: string)
   local ordinary = tmp .. "/ordinary"
-  assert(stand_in.place(assert(stand_in.build(tmp .. "/stand-in")), ordinary))
+  assert(Fake.place(assert(Fake.build(tmp .. "/fake")), ordinary))
   local noexec = assert(Env.get("COSMIC_TEST_NOEXEC"))
   assert(noexec == "/noexec" and noexec ~= Env.get("TMPDIR"))
   local path = noexec .. "/program"

@@ -1,24 +1,38 @@
---- A stand-in program for a test that needs an outside program to start
---- -- a fake zig, codesign or cosmic, a process to leave running --
---- without the system's shell. It is a host program of this core, laid
---- out as `cosmic build --host` lays one out: a static executable of
---- the core and a small database, which the kernel runs directly and
---- which reads only itself. A caller that starts it with no environment
---- and no descriptors of its own, as bin/zig, codesign's verifier and
---- the eval grader start theirs, starts it all the same. This program,
---- past its launcher ([`Proc.relaunch`]), could not be started so.
+--- Fake programs, for a test that needs an outside program to start:
+--- a fake `git`, `zig` or `cosmic`, a process to leave running, a child
+--- to sandbox. A fake runs a small script of commands (below) with
+--- no system shell. It is a host program of the running core, laid out
+--- as `cosmic build --host` lays one out ([`Store.host_program`]): a
+--- static executable of the core and a small database, which the kernel
+--- runs directly and which reads only itself. A caller that starts it
+--- with no environment and no descriptors of its own starts it all the
+--- same, where a shell script would need /bin/sh, and a program run from
+--- source would need its launcher.
+---
+---     local Fake = require("cosmic.fake")
+---     local program = assert(Fake.build(tmp .. "/fake"))
+---     assert(Fake.place(program, tmp .. "/bin/git", "print abc1234"))
+---     local ran = assert(Child.run({ tmp .. "/bin/git", "rev-parse", "HEAD" },
+---       { stdout = "capture" }))
+---     print(ran.stdout) -- abc1234
 ---
 --- `build` makes one, in a few milliseconds past reading the core, and
---- `place` copies it where a test needs one, with the script it runs.
---- A test that builds one declares nothing for it: the build runs
---- nothing and reads only this program's core and the rows of modules
---- its test's import closure holds (build/stand_in_probe.tl, which the
---- stand-in runs, and what that requires).
+--- `place` copies it where a test needs one, with the script it runs. A
+--- test that builds one declares nothing for it in its [`Test.policy`]:
+--- the build starts nothing and reads only the running core and the
+--- modules the fake carries, which are of every test's import
+--- closure that requires this module. It writes `dir`, and a scratch
+--- directory of [`Store.seal`]'s under `TMPDIR`, which `cosmic test`
+--- points at the test's own directory.
+---
+--- Its main, the probe, is a module of the binary's own, so it loads
+--- trusted as the core loads any `cosmic.*` module: it reaches no raw
+--- binding its wrappers do not, since it is none of them.
 ---
 --- The script is `<its path>.do` when that exists. Failing that, it is
 --- the body of the file its first argument names, past its first line,
 --- where that is a regular file whose first line starts `#!`: a file
---- starting `#!<stand-in>` and nothing more runs its body, as a shell
+--- starting `#!<fake>` and nothing more runs its body, as a shell
 --- script does, on every system, however one splits the words after
 --- `#!`. Failing both, it is the first argument itself. Its arguments
 --- are the rest: every one for a `.do` script, and those after the
@@ -158,193 +172,79 @@
 --- would have said is not said. A chain that ends the script ends it
 --- with the status of the last command run.
 
-local Fs = require("cosmic.fs")
-local Sqlite = require("cosmic.sqlite")
 local Failure = require("cosmic.failure")
+local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
-local String = require("cosmic.string")
-local artifact = require("build.artifact")
-local bind = require("build.bind")
-local schema = require("build.schema")
--- Required, not only named, so the module and what it requires are of
--- the import closure of every test that builds a stand-in, whose store
--- then holds the rows `database` copies; loading it defines its verbs
--- and nothing more.
-local _ = require("build.stand_in_probe")
--- What the core itself requires of the program it runs, beside its
--- main module: [`cosmic.errors`], for an uncaught error's guidance
--- (core/main.c's `ask_guidance`). Required so it is of the closure too.
--- Not [`cosmic.removed`], which the core requires only to say what to
--- write instead of a removed global (core/surface.c's
--- `removed_message`): the probe reaches for none, and without the
--- catalog the core still refuses one, by name. Carrying it would key
--- every test that builds a stand-in by an edit to the catalog.
+-- Required, not only named, so the probe and what it requires are of the
+-- import closure of every module that requires this one, whose store
+-- then holds the rows `build` seals; loading it defines its verbs and
+-- nothing more.
+local _ = require("cosmic.internal.fake_probe")
+-- What the core itself requires of the program it runs, beside its main
+-- module: [`cosmic.errors`], for an uncaught error's guidance (core/main.c's
+-- `ask_guidance`). Required so it is of the closure too.
 local type _ = require("cosmic.errors")
 
-local record stand_in
+local record Fake
 end
 
-local text = bind.text
+--- The fake's program, its main module, which it carries with the
+--- modules it requires: the whole of what it runs.
+local probe_module <const> = "cosmic.internal.fake_probe"
 
---- The stand-in's program, which it carries with the modules it
---- requires, the whole of what it runs.
-local probe_module <const> = "build.stand_in_probe"
-
---- The name the stand-in carries `probe_module`'s bytecode under, as
---- its main module: under neither `build.*` nor `cosmic.*`, so, as a
---- program `cosmic build --host` makes, its main loads untrusted
---- (core/store.c's `names_trusted_kind`).
-local main_module <const> = "stand_in.main"
-
---- What the stand-in carries of what the core requires of any program
---- it runs, beside its main module (see the requires above).
+--- What the fake carries beside `probe_module`'s closure: what the
+--- core requires of any program it runs (see the requires above).
 local core_requires <const>: {string} = { "cosmic.errors" }
 
---- One row of the `meta` table a stand-in's database is given.
-local record MetaRow
-  key: string
-  value: string
-end
-
---- One module the stand-in carries, with what it requires.
-local record Carried
-  name: string
-  requires: {string}
-end
-
---- The modules `probe_module` loads, itself first, then
---- `core_requires`, each once: the ones this program's own `imports`
---- rows record it requiring, and theirs in turn. A raw
---- `cosmic.internal.*` value is no row of any database, since the core
---- registers it itself (core/store.c's `raw_values`), so those
---- are left out; a Teal module of `cosmic/internal/` has its row and is
---- carried like any other.
-local function carried(): {Carried}?, string
-  local order: mut {Carried} = {}
-  local seen: mut {string:boolean} = {}
-  local pending: mut {string} = { probe_module }
-  for _, name in ipairs(core_requires) do pending[#pending + 1] = name end
-  while #pending > 0 do
-    local name = assert(table.remove(pending, 1), "pending is not empty")
-    local row, _ = Store.bytecode(name)
-    local raw = String.starts_with(name, "cosmic.internal.") and row == nil
-    if seen[name] ~= true and not raw then
-      seen[name] = true
-      local requires, trouble = Store.requires(name)
-      if requires == nil then return nil, name .. ": " .. tostring(trouble) end
-      order[#order + 1] = { name = name, requires = requires }
-      for _, required in ipairs(requires) do pending[#pending + 1] = required end
-    end
-  end
-  return order, ""
-end
-
---- The database the stand-in carries, as bytes, written through
---- `path`: the rows of `carried`'s modules, as this program carries
---- them, with their import edges -- `probe_module`'s under
---- `main_module`, named its main module -- and the runtime basis this
---- program runs on. Of what a program `cosmic build` makes carries
---- ([`build.embed`]'s `database`), it leaves out the rest of the standard
---- library, its declarations, time zones, bill of materials and CA
---- roots, which the probe never reads, and the error catalog, so an
---- uncaught error of the stand-in's prints its message and trace with
---- no guidance beneath.
-local function database(path: string): string?, string
-  local modules, closure_trouble = carried()
-  if modules == nil then return nil, closure_trouble end
-  local _, _ = Fs.remove(path)
-  local opened, open_trouble = Sqlite.open(path, { writable = true })
-  if opened == nil then return nil, path .. ": " .. tostring(open_trouble) end
-  local db, hold_trouble = schema.hold(opened)
-  if db == nil then
-    local _, _ = opened:close()
-    return nil, path .. ": " .. tostring(hold_trouble)
-  end
-  local basis = Store.meta("runtime_basis")
-  if basis == nil or basis == "" then
-    local _, _ = db:close()
-    return nil, "the running binary names no runtime basis"
-  end
-  local made, trouble = db:transact(function(): (true) | (false, Failure)
-    for _, module in ipairs(modules) do
-      local bytecode, bytecode_trouble = Store.bytecode(module.name)
-      if bytecode == nil then
-        return false, Failure.new(module.name .. ": " .. tostring(bytecode_trouble))
-      end
-      local name = if module.name == probe_module then main_module else module.name end
-      -- A module's kind is all the runtime reads of a row but its
-      -- bytecode: `cosmic.*` modules of kind "module" load trusted, as
-      -- the binary's own, and the main, under no such name, does not.
-      local ok, insert_trouble = db:run("INSERT INTO modules (path, file, kind, " ..
-          "source_hash, key, bytecode, tests, source) VALUES (?1, '', ?2, x'', x'', ?3, '', x'')",
-        { text(name), text(if name == main_module then "main" else "module" end), bind.blob(bytecode) })
-      if not ok then return false, Failure.new(name .. ": " .. tostring(insert_trouble)) end
-      for _, required in ipairs(module.requires) do
-        local edge, edge_trouble = db:run(
-          "INSERT INTO imports (path, requires) VALUES (?1, ?2)", { text(name), text(required) })
-        if not edge then return false, edge_trouble end
-      end
-    end
-    local meta: {MetaRow} = {
-      { key = "main", value = main_module }, { key = "runtime_basis", value = basis },
-    }
-    for _, row in ipairs(meta) do
-      local ok, meta_trouble = db:run("INSERT INTO meta (key, value) VALUES (?1, ?2)",
-        { text(row.key), text(row.value) })
-      if not ok then return false, meta_trouble end
-    end
-    return true
-  end)
-  local _, _ = db:close()
-  if not made then return nil, tostring(trouble) end
-  local bytes, read_trouble = Fs.read(path)
-  local _, _ = Fs.remove(path)
-  if bytes == nil then return nil, tostring(read_trouble) end
-  return bytes, ""
-end
-
---- Builds a stand-in under `dir`, made if it is not there, and returns
---- the executable's path, `dir/probe`: this program's own core, as
---- `cosmic build --host` lays one out ([`artifact.host_program`]), with a
---- database of `probe_module`, its main under `main_module`, and the
---- modules it and the core require, taken from the ones this program
---- carries (`database`). Nothing is compiled and nothing of this program
---- runs, so a test that builds one needs no `tool`: what it carries is
---- its test's import closure, and the core is the runtime its verdict is
---- keyed by.
-function stand_in.build(dir: string): string?, string
+--- Builds a fake under `dir`, made if it is not there, and returns
+--- the path of the executable, `dir/probe`. It runs its first argument as
+--- its script, with the rest its arguments, or the script `place` wrote
+--- beside a copy of it. Nil and a Failure where `dir` cannot be made or
+--- written, or where this process has no artifact of its own to take
+--- its core from.
+function Fake.build(dir: string): (string) | (nil, Failure)
   local made, trouble = Fs.mkdirs(dir)
-  if not made then return nil, tostring(trouble) end
-  local core, core_trouble = artifact.trusted_core()
-  if core == nil then return nil, "building the stand-in: " .. core_trouble end
-  local bytes, database_trouble = database(dir .. "/probe.db")
-  if bytes == nil then return nil, "building the stand-in: " .. database_trouble end
-  local program, program_trouble = artifact.host_program(core, bytes)
-  if program == nil then return nil, "building the stand-in: " .. program_trouble end
+  if not made then return nil, trouble end
+  local roots: mut {string} = { probe_module }
+  for _, name in ipairs(core_requires) do roots[#roots + 1] = name end
+  local database = dir .. "/probe.db"
+  local sealed, seal_trouble = Store.seal(Store.closure(roots), database, { main = probe_module, data = false })
+  if sealed == nil then
+    return nil, Failure.new("building the fake: " .. tostring(seal_trouble))
+  end
+  local bytes, read_trouble = Fs.read(database)
+  local _, _ = Fs.remove(database)
+  if bytes == nil then
+    return nil, Failure.new("building the fake: " .. tostring(read_trouble))
+  end
+  local program, program_trouble = Store.host_program(bytes)
+  if program == nil then
+    return nil, Failure.new("building the fake: " .. tostring(program_trouble))
+  end
   local out = dir .. "/probe"
   local written, write_trouble = Fs.write(out, program, 0x1ed)
-  if not written then return nil, tostring(write_trouble) end
-  return out, ""
+  if not written then return nil, write_trouble end
+  return out
 end
 
---- Copies the stand-in `probe` to `path`, executable -- a copy, not a
---- symbolic link, since it finds its script beside the path it
---- resolves itself to -- and writes `script` to `path .. ".do"`, when
---- one is given, for it to run.
--- TODO: make a hard link to `probe` where one can be made (the same
+--- Copies the fake `program` ([`Fake.build`]'s path) to `path`,
+--- executable -- a copy, not a symbolic link, since it finds its script
+--- beside the path it resolves itself to -- and writes `script`, when one
+--- is given, to `path .. ".do"`, for it to run. False and a Failure
+--- where either cannot be read or written.
+-- TODO: make a hard link to `program` where one can be made (the same
 -- file system), falling back to this copy, once cosmic.sys carries
--- link: a checked core's probe is 39.5 MB, about 0.2 s a copy.
-function stand_in.place(probe: string, path: string, script?: string): boolean, string
-  local bytes, trouble = Fs.read(probe)
-  if bytes == nil then return false, tostring(trouble) end
+-- link: a checked core's program is 39.5 MB, about 0.2 s a copy.
+function Fake.place(program: string, path: string, script?: string): (true) | (false, Failure)
+  local bytes, trouble = Fs.read(program)
+  if bytes == nil then return false, trouble end
   local written, write_trouble = Fs.write(path, bytes, 0x1ed)
-  if not written then return false, tostring(write_trouble) end
+  if not written then return false, write_trouble end
   if script ~= nil then
     local wrote, written_why = Fs.write(path .. ".do", script)
-    if not wrote then return false, tostring(written_why) end
-    return true, ""
+    if not wrote then return false, written_why end
   end
-  return true, ""
+  return true
 end
 
-return stand_in
+return Fake

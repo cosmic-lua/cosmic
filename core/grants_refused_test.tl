@@ -7,12 +7,12 @@
 
 local Test = require("cosmic.test")
 local type raw_process = require("cosmic.internal.process")
-local stand_in = require("build.stand_in")
+local Fake = require("cosmic.fake")
 -- Required, so the module whose loader is handed the raw table is of this
 -- test's import closure, and the store has it to hand it from.
 local type _ = require("cosmic.child")
 
---- Nothing is read beyond the closure: the stand-in is built in the
+--- Nothing is read beyond the closure: the fake is built in the
 --- test's own directory and never started.
 Test.policy{}
 
@@ -29,7 +29,7 @@ local function raised(probe: string, name: string, value: any): boolean, string
 end
 
 local function test_a_degenerate_grant_raises(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local function raises(grants: any): boolean
     return (raised(probe, "grants", grants))
   end
@@ -48,7 +48,7 @@ end
 --- A sandbox naming an option spawn no longer has is refused, so a
 --- caller that asked for that hold never gets an unconfined child.
 local function test_a_sandbox_naming_a_gone_option_raises(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local none: {string} = {}
   local ruleset_raised, ruleset_why = raised(probe, "ruleset", 0)
   local pledge_raised, pledge_why = raised(probe, "pledge", none)

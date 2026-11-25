@@ -11,7 +11,7 @@ local stale_reason = require("build.stale_reason")
 local rebuild = require("build.rebuild")
 local rebuild_lock = require("build.rebuild_lock")
 local artifact = require("build.artifact")
-local stand_in = require("build.stand_in")
+local Fake = require("cosmic.fake")
 local logger = require("build.logger")
 local work = require("build.work")
 local sys = require("cosmic.sys")
@@ -49,13 +49,13 @@ local function test_a_boot_keeps_the_cores_the_tool_carries()
   assert(table.concat(reboot.boot_command("zig", false), " ") == "zig build boot -Dboot-cores=all")
 end
 
---- A tree whose bin/zig is a stand-in that records how it was run and
+--- A tree whose bin/zig is a fake that records how it was run and
 --- exits with `status`.
 local function tree_with_zig(tmp: string, status: integer): string
   local root = tmp .. "/tree"
   assert(Fs.mkdirs(root .. "/bin"))
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  assert(stand_in.place(probe, root .. "/bin/zig",
+  local probe = assert(Fake.build(tmp .. "/fake"))
+  assert(Fake.place(probe, root .. "/bin/zig",
     "write $DIR/ran $@\nprint built\nexit " .. tostring(status)))
   return root
 end
@@ -93,8 +93,8 @@ local function test_boot_into_hands_on_the_lock_it_holds(tmp: string)
   local layout = paths.resolve(root)
   assert(Fs.mkdirs(root .. "/bin"))
   assert(Fs.mkdirs(layout.directory))
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  assert(stand_in.place(probe, root .. "/bin/zig",
+  local probe = assert(Fake.build(tmp .. "/fake"))
+  assert(Fake.place(probe, root .. "/bin/zig",
     "write $DIR/handed [$COSMIC_REBUILD_LOCK_HANDED]\nexit 1"))
   local _ = reboot.boot_into(root, { "test" }, {})
   assert(assert(Fs.read(root .. "/bin/handed")) == "[]\n", assert(Fs.read(root .. "/bin/handed")))
@@ -116,7 +116,7 @@ local function test_boot_into_enters_the_booted_tool(tmp: string)
 end
 
 --- A tool still stale after its own boot refuses instead of booting
---- again. Its bin/zig cannot start, so no stand-in need be built: a
+--- again. Its bin/zig cannot start, so no fake need be built: a
 --- boot would have been refused with another reason.
 local function test_boot_into_boots_once(tmp: string)
   local root = tmp .. "/tree"
@@ -127,9 +127,9 @@ local function test_boot_into_boots_once(tmp: string)
   assert(trouble == "the tool is still stale after a reboot", trouble)
 end
 
---- A checkout in `tmp` whose bin/zig is a stand-in that records how it was
+--- A checkout in `tmp` whose bin/zig is a fake that records how it was
 --- run and exits 0, and that checkout's own tool as a run in a project sees
---- it. A test makes one and uses it for each of its cases: a stand-in is a
+--- it. A test makes one and uses it for each of its cases: a fake is a
 --- copy of the core twice over, and a worker's scratch holds few of a
 --- checked core's.
 local function checkout_with_zig(tmp: string): string, reboot.Seen
@@ -155,10 +155,10 @@ local function test_every_core_into_boots_every_core_in_the_checkout(tmp: string
   end)
   assert(assert(Fs.read(checkout .. "/bin/ran")) == every_core_words, assert(Fs.read(checkout .. "/bin/ran")))
   assert(said:find("running bin/zig build boot -Dboot-cores=all", 1, true), said)
-  -- The stand-in wrote no tool, so there is none to enter.
+  -- The fake wrote no tool, so there is none to enter.
   assert(trouble ~= "nil" and trouble ~= "", trouble)
 
-  -- The same stand-in, told to fail.
+  -- The same fake, told to fail.
   assert(Fs.write(checkout .. "/bin/zig.do", "exit 1\n"))
   local failed = reboot.every_core_into({ "build" }, own, {})
   assert(failed == "bin/zig build boot -Dboot-cores=all failed; fix what it reports and run this again",
@@ -189,7 +189,7 @@ local function test_every_core_into_boots_every_core_once(tmp: string)
   assert(reboot.every_core_into({ "build" }, own, environment) ~= nil)
   assert(assert(Fs.read(checkout .. "/bin/ran")) == every_core_words)
   assert(Fs.remove(checkout .. "/bin/ran"))
-  -- What the tool it enters runs in, the stand-in having written none to enter.
+  -- What the tool it enters runs in, the fake having written none to enter.
   assert(environment["COSMIC_REBOOTED"] ~= "1" and environment["COSMIC_REBOOTED"] ~= "2",
     "the boot of every core entered its tool as a stale reboot does")
   assert(reboot.every_core_into({ "build" }, own, environment) == nil, "booted every core a second time")

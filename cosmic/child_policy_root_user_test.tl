@@ -1,7 +1,7 @@
 --- [`Child.start`]'s `policy` and the user its child runs as for a root
 --- caller (cosmic/child.tl): a user of a range of its own, never root, the
 --- files it cannot use mounted idmapped or refused. The kernel's own verdict
---- on live children: the child is a stand-in (build/stand_in.tl), a static
+--- on live children: the child is a fake ([`cosmic.fake`]), a static
 --- program that does what its script says.
 ---
 --- A root caller's paths need a root that holds CAP_SETUID, CAP_SETGID,
@@ -45,7 +45,7 @@ local function octal(text: string): integer
   return assert(math.tointeger(tonumber(text, 8)))
 end
 
---- The user ids a `Uid:` line of /proc/self/status lists, as a stand-in
+--- The user ids a `Uid:` line of /proc/self/status lists, as a fake
 --- prints them for `status-field Uid`: real, effective, saved and
 --- filesystem.
 local function uids(said: string): {integer}
