@@ -558,8 +558,8 @@ Agent.tasks = {
     name = "sqlite",
     prompt = "Make files.db, a SQLite database with a table files(dir text, path text, lines integer): one row " ..
       "for each .tl file under cosmic/, `lines` as `wc -l` counts them and `dir` the path's directory " ..
-      "(cosmic, or cosmic/x/y). Then, with SQL on it, write to answer.txt one `dir count lines` per line, such as `cosmic/x 4 812`, the " ..
-      "files and lines of each dir: the ten dirs of the most lines, most first, ties by dir.",
+      "(cosmic, or cosmic/x/y). Then, with SQL on it, write to answer.txt one `dir count lines` per line, the files " ..
+      "and lines of each dir, such as `cosmic/x 4 812`: the ten dirs of the most lines, most first, ties by dir.",
     truth = "echo 'SQLite format 3'; find cosmic -name '*.tl' -type f -exec wc -l {} + | grep -v ' total$' | " ..
       "awk '{d=$2; sub(/\\/[^\\/]*$/, \"\", d); c[d]++; l[d] += $1} END {for (d in c) print d\" \"c[d]\" \"l[d]}' | " ..
       "sort -k3,3nr -k1,1 | head -10",
@@ -605,7 +605,7 @@ Agent.tasks = {
   },
   {
     name = "mcp-low",
-    prompt = "Write to answer.txt each item of the inventory MCP server whose stock is below 3, as `id stock`, such as `i0001 2`, " ..
+    prompt = "Write to answer.txt each item of the inventory MCP server whose stock is below 3, as `id stock`, such as `i9999 2`, " ..
       "one a line, sorted by id.",
     truth = "awk -F'\\t' '$5 < 3 {print $1\" \"$5}' \"$data\" | sort",
     check = "cat answer.txt",
@@ -613,7 +613,7 @@ Agent.tasks = {
   },
   {
     name = "mcp-many-low",
-    prompt = "Write to answer.txt each item of the warehouse whose stock is below 3, as `id stock`, such as `i0001 2`, one a line, " ..
+    prompt = "Write to answer.txt each item of the warehouse whose stock is below 3, as `id stock`, such as `i9999 2`, one a line, " ..
       "sorted by id.",
     truth = "awk -F'\\t' '$5 < 3 {print $1\" \"$5}' \"$data\" | sort",
     check = "cat answer.txt",
@@ -631,7 +631,7 @@ Agent.tasks = {
     name = "web-low",
     prompt = "The inventory web API at {url} answers GET /items?page=N, from page 1, with JSON: `items`, each " ..
       "with id, name, category, price_cents and stock, and `next`, the page after it, which the last page has " ..
-      "not. Write to answer.txt each item whose stock is below 3, as `id stock`, such as `i0001 2`, one a line, sorted by id.",
+      "not. Write to answer.txt each item whose stock is below 3, as `id stock`, such as `i9999 2`, one a line, sorted by id.",
     truth = "awk -F'\\t' '$5 < 3 {print $1\" \"$5}' \"$data\" | sort",
     check = "cat answer.txt",
     site = { source = INVENTORY_SITE, data = inventory() },
@@ -640,7 +640,7 @@ Agent.tasks = {
     name = "web-csv",
     prompt = "The web API at {url} serves the sales as CSV at GET /sales.csv, with a header row " ..
       "`region,customer,amount_cents`. Write to answer.txt, for each customer, the sum of its amount_cents, as " ..
-      "`sum customer`, such as `5000 Acme, Inc.`, the name as it reads unquoted, one a line, largest first, ties by customer in byte order.",
+      "`sum customer`, the name as it reads unquoted, such as `5000 Zephyr Goods`, one a line, largest first, ties by customer in byte order.",
     truth = "awk -F'\\t' '{s[$2] += $3} END {for (c in s) print s[c]\" \"c}' \"$data\" | LC_ALL=C sort -k1,1nr -k2",
     check = "cat answer.txt",
     site = { source = SALES_SITE, data = sales() },
@@ -657,10 +657,10 @@ Agent.tasks = {
   },
   {
     name = "docedit",
-    prompt = "In cosmic/compress.tl, before each line that starts `local function <name>(` where the line just " ..
-      "before it does not start with `---`, insert the line `--- TODO: say what this does.`, and change " ..
+    prompt = "In cosmic/compress.tl, before each line that starts `local function <name>(`, such as " ..
+      "`local function helper(`, where the line just before it does not start with `---`, insert the line `--- TODO: say what this does.`, and change " ..
       "nothing else.",
-    truth = [==[awk '/^local function [A-Za-z_][A-Za-z0-9_]*\(/ && prev !~ /^---/ {print "--- TODO: say what this does."; n++} {print; prev=$0} END {if (n == 0) exit 1}' cosmic/compress.tl | sha256sum | cut -c1-64]==],
+    truth = [==[n=$(awk '/^local function [A-Za-z_][A-Za-z0-9_]*\(/ && prev !~ /^---/ {n++} {prev=$0} END {print n+0}' cosmic/compress.tl); [ "$n" -gt 0 ] && awk '/^local function [A-Za-z_][A-Za-z0-9_]*\(/ && prev !~ /^---/ {print "--- TODO: say what this does."} {print; prev=$0}' cosmic/compress.tl | sha256sum | cut -c1-64]==],
     check = "sha256sum cosmic/compress.tl | cut -c1-64",
   },
 }
