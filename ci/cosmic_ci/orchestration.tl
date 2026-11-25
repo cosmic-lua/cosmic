@@ -69,6 +69,7 @@ local record Orchestration
   darwin_words: function(words: {string}, modules: {string}): {string}?
   native_ran_every: function(text: string, code: integer): boolean
   replay: function(out: string, err: string, to_out?: integer, to_err?: integer): boolean
+  ended_line: function(phase: string, outcome: Runner.Outcome): string
   fixture_lanes: function(env: {string:string}, cpus: integer): Lanes
   run_groups: function(high: Orchestration.Group, low: {Orchestration.Group},
     lanes: boolean): integer
@@ -404,12 +405,14 @@ local function operation(c: Context, phase: string, command: {string},
 end
 
 --- What a failed command's own output may not say: that it timed out,
---- did not start, or was ended by a signal, as a line Failures.pick keeps.
-local function ended_line(phase: string, outcome: Runner.Outcome): string
-  if outcome.status == "exit" then return "" end
+--- did not start, was ended by a signal, or left members of its group
+--- alive, as a line Failures.pick keeps.
+function Orchestration.ended_line(phase: string, outcome: Runner.Outcome): string
+  if outcome.status == "exit" and outcome.trouble == nil then return "" end
   local trouble = outcome.trouble
   return "\nerror: " .. phase .. ": " .. outcome.status .. (if trouble ~= nil then ": " .. trouble else "" end) .. "\n"
 end
+local ended_line = Orchestration.ended_line
 
 -- Work done in this process, recorded as an operation as a command is.
 local function step(c: Context, phase: string,
