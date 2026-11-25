@@ -2989,7 +2989,7 @@ end
 --- What a declaration that stands for another type adds to its page:
 --- the target's fields (or values), and its methods, each with its
 --- documentation. [`Sqlite.Handle`] and [`Child.Options`] are aliases, so
---- they list what their target does; [`Http.Options`] extends one, so it
+--- they list what their target does; [`Http.GetOptions`] extends one, so it
 --- lists what it inherits after its own. Empty for a declaration that
 --- stands for nothing.
 local function inherited_lines(view: Doc.View, entry: Doc.Entry): {string}?, string
