@@ -1116,7 +1116,7 @@ end
 
 local record Exchange
   name: string
-  options: Http.Options
+  options: Http.OpenOptions
 end
 
 --- Each shape of scripted exchange a request walks: a Content-Length
@@ -1141,7 +1141,7 @@ local exchanges: {Exchange} = {
 --- Opens `options`' exchange, reads the body to its end, closes, and
 --- returns the body. A response a refusal leaves open is the
 --- collector's to close, as any dropped one is.
-local function exchange(options: Http.Options): string
+local function exchange(options: Http.OpenOptions): string
   local response = assert(Http.open("http://cosmic.test/", options))
   local parts: mut {string} = {}
   while true do

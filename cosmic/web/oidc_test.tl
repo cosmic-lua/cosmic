@@ -94,7 +94,7 @@ end
 
 --- The provider's fetch.
 local function fetch_of(p: Provider): Web.OidcFetch
-  return function(method: string, url: string, opts: Http.Options): Http.Body?, string
+  return function(method: string, url: string, opts: Http.RequestOptions): Http.Body?, string
     p.fetched[url] = (p.fetched[url] or 0) + 1
     -- A redirect would take the fetch to a URL no check has seen.
     if opts.follow ~= false then error("a fetch of " .. url .. " follows redirects") end
