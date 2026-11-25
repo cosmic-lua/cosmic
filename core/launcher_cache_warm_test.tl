@@ -1,12 +1,11 @@
 --- The portable launcher's warm start: a stamped cache entry runs with no
 --- program but the shell, and startup checks what the shell cannot see.
---- The module requires Linux, whose launcher's cold path runs other
---- programs. The cache's cold path is core/launcher_cache_test.tl's.
----
---- TODO: hold macOS's warm start (the entry run by name, the Library/Caches
---- leaf, bash 3.2's test) to these tests once a macOS worker runs them: the
---- stamp's launches and the fixture's `name_leaf` know Linux's paths and
---- tools alone.
+--- The cache's cold path is core/launcher_cache_test.tl's.
+
+-- TODO: hold macOS's warm start (the entry run by name, the Library/Caches
+-- leaf, bash 3.2's test) to these tests, and drop `os:linux` below, once a
+-- macOS worker runs them: the stamp's launches and the fixture's
+-- `name_leaf` know Linux's paths and tools alone.
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
