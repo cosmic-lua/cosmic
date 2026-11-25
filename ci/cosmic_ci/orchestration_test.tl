@@ -1723,7 +1723,7 @@ end
 --- What the checked job's leg promises and `checked`, which the run's core
 --- does not have: the phase leaves that one out.
 local narrowing_promised <const> = "all_cores,pinned_zig,sandbox,landlock,userns,nest,own_proc,proc,unix_socket,path:/bin/sh," ..
-  "path:/bin/cat,path:/proc/thread-self/children,path:/usr/bin/env,path:/etc/passwd"
+  "path:/bin/cat,path:/proc/thread-self/children,path:/usr/bin/env,path:/etc/passwd,os:linux"
 
 --- Runs the `checked-narrowing` phase of a fixture checkout for each of
 --- `cases` and holds what the fixture's tool was run as, and whether the
