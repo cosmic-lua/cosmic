@@ -72,8 +72,9 @@ local function probe(mode, scratch, beside)
   if mode == "child" then
     below({ database = { path = db }, isolate = { "file" } }, "plain")
   elseif mode == "relay" then
-    below({ isolate = { "file" }, promises = { "fork", "nest" }, set_env = { TMPDIR = scratch },
-      grants = { { path = scratch, letters = "rwc" }, { path = core, letters = "rx" } } }, "plain")
+    below({ isolate = { "file" }, set_env = { TMPDIR = scratch },
+      grants = { { path = scratch, letters = "rwc" }, { path = core, letters = "rx" }, { calls = "fork" },
+        { calls = "nest" } } }, "plain")
   elseif mode == "remount" then
     -- CLONE_NEWUSER 0x10000000, CLONE_NEWNS 0x20000; MS_BIND 4096,
     -- MS_REMOUNT 32, and MS_RDONLY (1) left out, which is what makes the

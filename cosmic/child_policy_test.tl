@@ -280,8 +280,7 @@ local function test_fattr_lets_a_child_change_a_mode_of_its_own_file(tmp: string
   local file = tmp .. "/f"
   assert(Fs.write(file, "x"))
   searchable.share(file)
-  local with = under(probe, { grants = itself(probe, { { path = file, letters = "rw" } }),
-    promises = { "fattr" } }, "chmod " .. file .. " 600")
+  local with = under(probe, { grants = itself(probe, { { path = file, letters = "rw" }, { calls = "fattr" } }) }, "chmod " .. file .. " 600")
   assert(with.code == 0, with.said)
 end
 

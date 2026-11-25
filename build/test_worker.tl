@@ -1326,8 +1326,8 @@ local hold_flag: {worker.Hold:string} = { forbid = "--worker-no-tool", mounts = 
 
 --- Whether `policy` promises `nest`.
 local function promises_nest(policy: Sandbox.Policy): boolean
-  for _, promise in ipairs(policy.promises or {}) do
-    if promise == "nest" then return true end
+  for _, grant in ipairs(policy.grants or {}) do
+    if grant is Sandbox.Calls and grant.calls == "nest" then return true end
   end
   return false
 end
@@ -1413,7 +1413,7 @@ function worker.invocation(given: worker.Invocation): worker.Command
     -- made whole, goes in the policy's `set_env`.
     local held = given_policy2
     local policy: Sandbox.Policy = { profiles = held.profiles, grants = held.grants,
-      isolate = held.isolate, promises = held.promises, connect = held.connect,
+      isolate = held.isolate, connect = held.connect,
       loopback = held.loopback, env = held.env, tmp = held.tmp, limits = held.limits,
       database = held.database }
     policy.set_env = env -- checked: field_fixed
