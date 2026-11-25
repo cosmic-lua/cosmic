@@ -436,8 +436,8 @@ local record Tls
   type Client = Client
 end
 
---- What a session's handshake settled, as [`Info`] says it; nil for
---- one not done. [`Net.Conn`]'s `tls` reads it.
+--- What a session's handshake settled, as [`Info`] says it; meaningful
+--- only once the handshake is done. [`Net.Conn`]'s `tls` reads it.
 function Tls.info(session: raw_tls.Session): Info
   local got = session:info()
   local raw_peer = got.peer
@@ -451,7 +451,7 @@ end
 --- and a [`Failure`] where the roots cannot be had (the binary carries none, or
 --- `ca` holds what the TLS stack cannot read), or `identity` cannot be
 --- read or its key is not its certificate's. Raises on options of the
---- wrong shape, naming them.
+--- wrong shape, naming them, and on `verify = false` with `roots` or `ca`.
 ---
 ---     local client = assert(Tls.client({ roots = "none", ca = assert(Fs.read("ca.pem")) }))
 function Tls.client(opts?: ClientOptions): (Client) | (nil, Failure)

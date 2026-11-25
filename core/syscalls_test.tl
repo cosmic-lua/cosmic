@@ -18,10 +18,10 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local unix_socket = require("build.unix_socket")
 local type raw_process = require("cosmic.internal.process")
-local stand_in = require("build.stand_in")
+local Fake = require("cosmic.fake")
 
---- What the syscall table is tested on: /proc. A stand-in program
---- (build/stand_in.tl) is what a child here runs, reading nothing of the system's. The cases
+--- What the syscall table is tested on: /proc. A fake program
+--- ([`cosmic.fake`]) is what a child here runs, reading nothing of the system's. The cases
 --- that start this program itself to run a chunk, or unveil a child's
 --- root -- which a worker that declares neither `lua` nor `nests`
 --- cannot (see core/syscalls_tool_test.tl) -- are
@@ -36,11 +36,11 @@ local process = require("cosmic.internal.process")
 local cipher = require("cosmic.internal.cipher")
 local hash = require("cosmic.internal.hash")
 
---- A stand-in program built under `tmp` (build/stand_in.tl), which runs
+--- A fake program built under `tmp` ([`cosmic.fake`]), which runs
 --- the script its first argument holds: a static executable that reads
 --- only itself, so one confined needs nothing of the system's own.
 local function probe_in(tmp: string): string
-  return (assert(stand_in.build(tmp .. "/stand-in")))
+  return (assert(Fake.build(tmp .. "/fake")))
 end
 
 --- Asserts `value, message, number` is the failure shape: `nil` or
@@ -625,7 +625,7 @@ end
 --- finds it.
 local function test_a_relative_program_is_found_from_the_child_s_directory(tmp: string)
   assert(sys.mkdir(tmp .. "/bin", 0x1c0))
-  assert(stand_in.place(probe_in(tmp), tmp .. "/bin/probe"))
+  assert(Fake.place(probe_in(tmp), tmp .. "/bin/probe"))
   local function status_of(path: string, cwd: string): integer
     local pid = assert(process.spawn(path, { path, "exit 3" }, nil, cwd, nil, nil, nil, false))
     return assert(process.waitpid(pid, false)).code

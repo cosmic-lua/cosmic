@@ -72,7 +72,8 @@ return Paths
 set -eu
 phase=$3
 printf '%s\n' "$phase" >> "$TRACE"
-printf '%s\n' "$GITHUB_WORKSPACE" "$RUNNER_TEMP" "$TARGET" "$COSMIC_ZIG_CACHE_FROM" "$COSMIC_ZIG_GLOBAL_CACHE" "$XDG_CACHE_HOME" > "$TRACE.env"
+printf '%s\n' "$GITHUB_WORKSPACE" "$RUNNER_TEMP" "$TARGET" "$COSMIC_ZIG_CACHE_FROM" "$COSMIC_ZIG_GLOBAL_CACHE" "$XDG_CACHE_HOME" \
+  "fixed_point=${COSMIC_CI_FIXED_POINT-}" > "$TRACE.env"
 printf '%s\n' "$PWD" > "$TRACE.cwd"
 if [ "$phase" = fail ]; then
   printf 'error: selected phase failed\n'
@@ -231,6 +232,21 @@ local function test_default_phases_keep_the_workflow_order(tmp: string)
       "build\nlocal-boundary\ndarwin-suite\nsandbox\nassemble\nfixtures\nportable\nportable-boundary\n")
 end
 
+local function test_fixed_point_is_skipped_unless_the_caller_runs_it(tmp: string)
+  local root, env = checkout(tmp)
+  local unset: mut {string:string} = {}
+  for name, value in pairs(env) do
+    if name ~= "COSMIC_CI_FIXED_POINT" then unset[name] = value end
+  end
+  assert(invoke(root, unset, { "build" }) == 0)
+  local trace = assert(env["TRACE"]) .. ".env"
+  assert(assert(Fs.read(trace)):find("\nfixed_point=skip\n", 1, true), "an unset COSMIC_CI_FIXED_POINT was not skip")
+  assert(invoke(root, Maps.with(unset, { COSMIC_CI_FIXED_POINT = "run" }), { "build" }) == 0)
+  assert(assert(Fs.read(trace)):find("\nfixed_point=run\n", 1, true), "the caller's COSMIC_CI_FIXED_POINT was replaced")
+  assert(invoke(root, Maps.with(unset, { COSMIC_CI_FIXED_POINT = "" }), { "build" }) == 0)
+  assert(assert(Fs.read(trace)):find("\nfixed_point=\n", 1, true), "the caller's empty COSMIC_CI_FIXED_POINT was replaced")
+end
+
 local function test_phase_failure_stops_and_preserves_its_status(tmp: string)
   local root, env = checkout(tmp)
   local code, diagnostic = invoke(root, env, { "build", "fail", "fixtures" })
@@ -302,6 +318,44 @@ local function test_default_base_of_another_or_open_to_others_is_refused(tmp: st
   assert(Fs.chmod(other, 0x1c0))
   assert(invoke(root, default, { "build" }, uid + 1) == 2)
   assert(#assert(Fs.list(other)) == 0, "another's base was written")
+end
+
+--- A run on the default base records its checkout beside its state, and removes each state whose recorded checkout
+--- is gone. A state with no record, or one whose checkout is there, is kept.
+local function test_a_default_run_removes_the_state_of_a_checkout_that_is_gone(tmp: string)
+  local root, env = checkout(tmp)
+  local uid = sys.getuid()
+  local base = tmp .. "/cosmic-ci-local-" .. tostring(uid)
+  assert(Fs.mkdirs(base))
+  assert(Fs.chmod(base, 0x1c0))
+  local states: {string: string} = { ["11"] = tmp .. "/gone", ["22"] = root, ["33"] = "" }
+  for key, source in pairs(states) do
+    assert(Fs.mkdirs(base .. "/" .. key .. "/candidate"))
+    assert(Fs.write(base .. "/" .. key .. "/candidate/held", "bytes\n"))
+    if source ~= "" then assert(Fs.write(base .. "/" .. key .. ".source", source .. "\n")) end
+  end
+  -- A state that cannot be removed is said and left, and the run goes on.
+  local stuck = base .. "/44/cache/ro"
+  assert(Fs.mkdirs(stuck))
+  assert(Fs.write(stuck .. "/held", "bytes\n"))
+  assert(Fs.chmod(stuck, 0x16d))
+  assert(Fs.write(base .. "/44.source", tmp .. "/also gone\n"))
+  local code, said = invoke(root, Maps.without(env, { "COSMIC_CI_LOCAL" }), { "build" }, uid)
+  assert(Fs.chmod(stuck, 0x1ed))
+  assert(code == 0, said)
+  assert(said:find("removed the state of " .. tmp .. "/gone, which is gone", 1, true) ~= nil, said)
+  if uid ~= 0 then
+    assert(said:find("could not remove the state of " .. tmp .. "/also gone, which is gone", 1, true) ~= nil, said)
+    assert(assert(Fs.status(base .. "/44.source")).exists, "the record of a state left was removed")
+  end
+  assert(not assert(Fs.status(base .. "/11")).exists and not assert(Fs.status(base .. "/11.source")).exists)
+  assert(assert(Fs.status(base .. "/22/candidate/held")).exists and assert(Fs.status(base .. "/33/candidate/held")).exists)
+  local own: mut {string} = {}
+  for _, name in ipairs(assert(Fs.list(base))) do
+    local key = name:match("^(%d+)%.source$")
+    if key ~= nil and states[key] == nil and key ~= "44" then own[#own + 1] = name end
+  end
+  assert(#own == 1 and assert(Fs.read(base .. "/" .. own[1])) == assert(Fs.absolute(root)) .. "\n", table.concat(own, " "))
 end
 
 local function test_root_account_refusal_creates_no_state(tmp: string)

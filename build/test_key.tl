@@ -74,6 +74,7 @@ local worker = require("build.test_worker")
 local log = require("build.logger").log
 local bind = require("build.bind")
 local Stamp = require("build.stamp")
+local CodeWalk = require("build.code_walk")
 local type State = require("build.test_state")
 -- Declares what text this module reads ([`build.code_walk`]'s `markers`): the stubs and places the sealed program's digest holds.
 local _ = require("build.reads.all")
@@ -1684,12 +1685,75 @@ function test_key.sealed_meta(with_compiler: boolean, with_image: boolean,
   return meta, ""
 end
 
+--- The stamps of the code a worker reads that a sealed database carries, by key, with the walk of [`build.code_walk`]
+--- each is worked out over: the code that reads and checks ([`build.code_identity`]) and the analyzer
+--- ([`build.importer`]'s `analyzer_identity`).
+local walked_stamps <const>: {{key: string, walk: string}} = { { key = "stamp_coded", walk = CodeWalk.pipeline },
+  { key = "stamp_analyzer", walk = CodeWalk.analyzer } }
+
+--- The stamps of [`walked_stamps`] that the sealed database `sealed` carries of the program's database `program`: each
+--- that `program` holds of its own rows ([`build.stamp`]'s `read`), where `sealed` holds the code of its walk as `program`
+--- does. That is each module the walk reaches, which both reach alike over their `imports`, with its source and by the
+--- same hash; and the runtime's basis, which the analyzer's holds too, as [`test_key.sealed_meta`] copies it. So the
+--- code a worker carries on `sealed` works out the same, and it reads the stamps rather than lexing each walk again for
+--- each test that builds a pipeline. A walk's source is a module's, never a declaration's: no path of the tree is both.
+--- Read whatever COSMIC_STAMPS says, as a worker does not see it, so the database is the same either way. `stamped`,
+--- where given, is what `program` holds of its stamps, by key, read once for the many sealed databases of a run.
+function test_key.sealed_stamps(sealed: Sqlite.Handle, program: Sqlite.Handle,
+                                stamped?: {string:string}): {{key: string, value: string}}
+  local function walk(db: Sqlite.Handle, which: string): {string}?
+    local names, _ = CodeWalk.reach(which, function(name: string): {string}?, string
+      local rows, trouble = db:text_rows("SELECT requires FROM imports WHERE path = ?1 ORDER BY requires",
+        { { text = name } })
+      if rows == nil then return nil, tostring(trouble) end
+      local out: mut {string} = {}
+      for _, row in ipairs(rows) do out[#out + 1] = row:text(1) end
+      return out, ""
+    end)
+    return names
+  end
+  local function source_hash(db: Sqlite.Handle, name: string): string?
+    local rows, _ = db:text_rows("SELECT lower(hex(source_hash)) FROM modules WHERE path = ?1 AND length(source) > 0",
+      { { text = name } })
+    local row = if rows ~= nil then rows[1] else nil end
+    return if row ~= nil then row:text(1) else nil end
+  end
+  local function held_alike(which: string): boolean
+    -- Most closures hold no walk at all: their roots say so before either walk is taken.
+    for _, root in ipairs(CodeWalk.roots_of(which)) do
+      if source_hash(sealed, root) == nil then return false end
+    end
+    local held, carried = walk(sealed, which), walk(program, which)
+    if held == nil or carried == nil or #held ~= #carried then return false end
+    for i, name in ipairs(held) do
+      if carried[i] ~= name then return false end
+      local hash = source_hash(sealed, name)
+      if hash == nil or hash ~= source_hash(program, name) then return false end
+    end
+    return true
+  end
+  local out: mut {{key: string, value: string}} = {}
+  for _, walked in ipairs(walked_stamps) do
+    local value = if stamped ~= nil then stamped[walked.key] else Stamp.read(walked.key, program) end
+    if value ~= nil and held_alike(walked.walk) then
+      out[#out + 1] = { key = walked.key, value = value }
+    end
+  end
+  return out
+end
+
+--- What each program's database holds of its stamps of [`walked_stamps`], by its path and then by key: binding them
+--- to its rows digests every module, so they are read once a run rather than for each of its sealed databases.
+local program_stamps: mut {string:{string:string}} = {}
+
 --- Writes the sealed database of the closure store at `store`, which was
 --- written from the projection `whole`, to `out`: [`sealed_fill`]'s
 --- statements over them and the program's own database (`sealing`), the
---- modules every worker loads ([`worker.loads`]) going along, and the meta
---- rows the core on a database reads ([`test_key.sealed_meta`]). Written
---- aside and moved into place, so one at `out` is whole.
+--- modules every worker loads ([`worker.loads`]) going along, the meta
+--- rows the core on a database reads ([`test_key.sealed_meta`]), and the
+--- stamps of the program it holds the code of ([`test_key.sealed_stamps`]),
+--- bound to its rows ([`build.stamp`]'s `of`). Written aside and moved
+--- into place, so one at `out` is whole.
 local function write_sealed(sealing: Sealing, store: string, whole: string, out: string,
                             with_compiler: boolean, with_image: boolean): boolean, string
   local meta, meta_trouble = test_key.sealed_meta(with_compiler, with_image, Store.meta)
@@ -1759,6 +1823,34 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
           "INSERT INTO main.meta (key, value) VALUES (?1, ?2)",
           { { text = pair[1] }, { text = pair[2] } })
         if not inserted then return false, insert_trouble end
+      end
+      local program, program_trouble = Sqlite.open(sealing.program)
+      if program == nil then
+        return false, Failure.new(sealing.program .. ": " .. tostring(program_trouble))
+      end
+      local stamped = program_stamps[sealing.program]
+      if stamped == nil then
+        local read: mut {string:string} = {}
+        for _, walked in ipairs(walked_stamps) do
+          local value = Stamp.read(walked.key, program)
+          if value ~= nil then read[walked.key] = value end
+        end
+        program_stamps[sealing.program] = read
+        stamped = read
+      end
+      local stamps = test_key.sealed_stamps(db, program, stamped)
+      local _, _ = program:close()
+      if #stamps > 0 then
+        for _, pair in ipairs(stamps) do
+          local kept, stamp_trouble = db:run("INSERT INTO main.meta (key, value) VALUES (?1, ?2)",
+            { { text = pair.key }, { text = pair.value } })
+          if not kept then return false, stamp_trouble end
+        end
+        local content, content_trouble = Stamp.content(db)
+        if content == nil then return false, Failure.new(content_trouble) end
+        local bound, bind_trouble = db:run("INSERT INTO main.meta (key, value) VALUES (?1, ?2)",
+          { { text = Stamp.of }, { text = content } })
+        if not bound then return false, bind_trouble end
       end
       return true
     end)

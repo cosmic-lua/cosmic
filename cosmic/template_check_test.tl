@@ -32,6 +32,10 @@ local record data
   record Leaf
     x: string
   end
+  record Tree
+    label: string
+    kids: {Tree}
+  end
   record Mid
     c: string
     e: Leaf?
@@ -58,6 +62,7 @@ local record data
     error: string?
     flag: boolean
     list: {string}
+    tree: Tree
     ["end"]: string
     ["type"]: string
     ["record"]: string
@@ -85,6 +90,7 @@ return data
 local record Item name: string n: integer end
 local record User name: string end
 local record Leaf x: string end
+local record Tree label: string kids: {Tree} end
 local record Mid c: string e?: Leaf end
 local record Outer b?: Mid c: string s?: string end
 local record Page
@@ -104,6 +110,7 @@ local record Page
   error?: string
   flag?: boolean
   list?: {string}
+  tree?: Tree
 end
 
 local record Row page: Page want: string end
@@ -146,6 +153,10 @@ return fmt
 local MULTI <const> = [[
 local record multi
   pair: function(s: string): string?, string
+  times: function(s: string, n: integer): string
+end
+function multi.times(s: string, n: integer): string
+  return s:rep(n)
 end
 function multi.pair(s: string): string?, string
   if s == "" then
@@ -288,6 +299,49 @@ local HEAD <const> = "{{type Page from data}}\n"
 local function spelled(type_name: string): string
   return (type_name:gsub("{Item}", "{data.Item}"):gsub("string | number", "number | string"):gsub(
     "wrong number of arguments", "(arity)"))
+end
+
+local function test_a_define_renders_where_a_stage_names_it_and_may_call_itself(tmp: string)
+  local items = HEAD .. "<ul>{{range .items}}{{. | item}}{{end}}</ul>\n{{define item Item}}<li>{{.name}}={{.n}}</li>{{end}}\n"
+  local got = render(tmp, "define-items", items, { items = { { name = "a&", n = 1 }, { name = "b", n = 2 } } })
+  assert(got == "\n<ul><li>a&amp;=1</li><li>b=2</li></ul>\n", got)
+  local tree = HEAD .. "{{.tree | node}}\n{{define node Tree}}({{.label}}{{range .kids}}{{. | node}}{{end}}){{end}}\n"
+  got = render(tmp, "define-tree", tree, { tree = { label = "a", kids = { { label = "<b>", kids = {} },
+    { label = "c", kids = { { label = "d", kids = {} } } } } } })
+  assert(got == "\n(a(&lt;b&gt;)(c(d)))\n", got)
+end
+
+local function test_a_define_is_exported_and_checked_as_its_own_type(tmp: string)
+  local lua, trouble = project(tmp, "define-export", HEAD .. "x\n{{define item Item}}{{.name}}{{end}}\n")
+  assert(lua ~= nil, trouble)
+  local page = assert(lua["page"])
+  assert(page:find("function _Module.item(", 1, true) ~= nil, page)
+  local wrong = refused(tmp, "define-wrong", HEAD .. "{{.user | item}}\n{{define item Item}}{{.name}}{{end}}\n")
+  assert(wrong:find("page.tmpl:2:", 1, true) ~= nil, wrong)
+  local field = refused(tmp, "define-field", HEAD .. "x\n{{define item Item}}\n{{.title}}{{end}}\n")
+  assert(field:find("page.tmpl:4:", 1, true) ~= nil, field)
+end
+
+local function test_a_define_is_markup_only_a_text_slot_takes(tmp: string)
+  local define = "\n{{define item Item}}<b>{{.name}}</b>{{end}}\n"
+  for index, slot in ipairs({ "<p title=\"{{.user | item}}\">", "<a href=\"{{.user | item}}\">",
+      "<div data-x='{{.user | item}}'>", "<title>{{.user | item}}</title>", "<svg>{{.user | item}}</svg>" }) do
+    local trouble = refused(tmp, "define-slot-" .. tostring(index), HEAD .. "{{range .items}}" ..
+        slot:gsub("%.user", ".") .. "{{end}}" .. define)
+    assert(trouble:find("page.tmpl:2:", 1, true) ~= nil, slot .. ": " .. trouble)
+  end
+end
+
+local function test_a_define_sees_its_own_value_and_nothing_of_the_body(tmp: string)
+  local own = HEAD .. "{{range .items}}{{. | item}}{{end}}\n{{define item Item}}{{$.name}}{{end}}\n"
+  local got = render(tmp, "define-root", own, { items = { { name = "a", n = 1 } } })
+  assert(got == "\na\n", got)
+  local text = "{{type Page from data}}{{mode text}}\n{{.user | who}}\n{{define who User}}<{{.name}}>{{end}}\n"
+  got = render(tmp, "define-text", text, { user = { name = "x&" } })
+  assert(got == "\n<x&>\n", got)
+  local narrowed = refused(tmp, "define-bound", HEAD .. "{{if .error}}{{$ | page}}{{end}}\n" ..
+      "{{define page Page}}{{.error}}{{end}}\n")
+  assert(narrowed:find("page.tmpl:3:", 1, true) ~= nil, narrowed)
 end
 
 local function test_the_checker_counts_a_warning_as_a_refusal_here(tmp: string)
@@ -659,6 +713,23 @@ local function test_a_range_over_strings_and_a_with_over_an_optional_field(tmp: 
   assert(none == "\nnone", none)
 end
 
+--- `{{if}}` and `{{with}}` hold of a value that is there and not empty: an empty list, map or string is false, 0 is
+--- true, and a list or a string needs no `?` to be tested.
+local function test_if_and_with_are_false_of_an_empty_list_or_string(tmp: string)
+  local template = HEAD .. "{{with .list}}<ul>{{range .}}<li>{{.}}</li>{{end}}</ul>{{else}}none{{end}}" ..
+    "|{{if .title}}t{{else}}no title{{end}}|{{if .n}}n{{end}}|{{with .owner}}{{.name}}{{else}}nobody{{end}}"
+  local outs = renders(tmp, "empty-is-false", template, {
+    { list = { "a" }, title = "x", n = 0, owner = { name = "u" } },
+    { list = {}, title = "", n = 1 },
+  })
+  assert(outs[1] == "\n<ul><li>a</li></ul>|t|n|u", outs[1])
+  assert(outs[2] == "\nnone|no title|n|nobody", outs[2])
+  -- A text template tests the same way.
+  local text = renders(tmp, "empty-is-false-text", "{{type Page from data}}{{mode text}}\n{{with .list}}{{range .}}{{.}},{{end}}{{end}}" ..
+      "{{if .title}}!{{end}}", { { list = {}, title = "" }, { list = { "a", "b" }, title = "t" } })
+  assert(text[1] == "\n" and text[2] == "\na,b,!", table.concat(text, "/"))
+end
+
 local function test_a_stage_answering_a_safe_type_fits_the_slot_that_takes_it(tmp: string)
   local page: Page = { title = "/a<b" }
   local out = render(tmp, "stages", HEAD ..
@@ -765,6 +836,20 @@ local function test_a_range_else_reads_the_enclosing_dot(tmp: string)
   assert(wrong:find("page.tmpl:3:", 1, true) and wrong:find("name", 1, true), wrong)
 end
 
+local function test_a_stage_takes_arguments_after_the_piped_value(tmp: string)
+  local template = HEAD .. "{{.title | fmt.join \"-\"}} {{.title | fmt.join}} {{.title | fmt.join $.cls}}" ..
+    "{{range .items}} {{.name | fmt.join $.title | fmt.upper}}{{end}}"
+  local got = render(tmp, "args", template, { title = "t<", cls = "c", items = { { name = "a", n = 1 } } })
+  assert(got == "\nt&lt;|- t&lt;|none t&lt;|c A|T&lt;", got)
+  local repeated = render(tmp, "args-integer", "{{type Page from data}}{{mode text}}\n{{.title | multi.times 3}}",
+    { title = "ab" })
+  assert(repeated == "\nababab", repeated)
+  local number = refused(tmp, "args-number", HEAD .. "fine\n{{.title | fmt.join 2}}")
+  assert(number:find("page.tmpl:3:", 1, true) ~= nil, number)
+  local extra = refused(tmp, "args-extra", HEAD .. "fine\n{{.title | fmt.upper \"x\"}}")
+  assert(extra:find("page.tmpl:3:", 1, true) ~= nil, extra)
+end
+
 local function test_a_stage_answering_more_than_one_value_is_refused_in_every_position(tmp: string)
   for index, action in ipairs({ "{{.title | multi.pair}}", "{{.title | multi.pair | fmt.join}}",
       "{{.title | multi.pair | fmt.upper}}", "{{if .title | multi.pair}}x{{end}}",
@@ -816,7 +901,7 @@ local function test_a_misspelled_field_after_a_variable_is_a_type_error_on_its_l
 end
 
 local function test_a_binding_named_like_a_generated_name_or_a_module_builds_and_renders(tmp: string)
-  local names = { "html", "d", "d1", "v", "parts", "render", "_one", "_text", "T", "fmt", "data", "end", "table" }
+  local names = { "html", "d", "d1", "v", "parts", "render", "_one", "_sure", "_text", "T", "fmt", "data", "end", "table" }
   local body: mut {string} = {}
   for _, name in ipairs(names) do
     body[#body + 1] = "{{range $i, $" .. name .. " := .items}}{{$" .. name .. ".name | fmt.upper}}{{$i}}{{end}}"

@@ -61,6 +61,13 @@ local record Driver
   --- An error or a warning of a module ([`build.source_parse`]).
   type Problem = SourceParse.Problem
 
+  --- The errors of an outcome that its markers do not hold ([`Driver.unheld`]), by stage, each in source order.
+  record Unheld
+    scope_errors: {Problem}
+    declared: {Problem}
+    bodies: {Problem}
+  end
+
   --- What a module came to.
   record Outcome
     module: string
@@ -259,6 +266,11 @@ local record Driver
   --- A source as a build reads it, and no more: its text lexed and parsed ([`build.source_parse`]).
   type Parsed = SourceParse.Parsed
   parse: function(source: Source): Parsed
+
+  --- The errors of `result` that the markers of its text do not hold ([`build.ceilings`]). Unlike [`Driver.Build.held`],
+  --- it keeps errors of codes outside each stage's and takes no `free`, so it errs toward a doubt. With `markers` false (a
+  --- project's, which no marker holds) every error.
+  unheld: function(result: Outcome, markers: boolean): Unheld
 end
 
 Driver.source = SourceParse.source
@@ -383,26 +395,12 @@ end
 
 --- The problem for an error: its fix is the words of [`cosmic.removed`] where it is about a name cosmic withholds
 --- ([`build.removed_fix`]), else the fix the checker wrote.
-local TEMPLATE_CONDITION <const> = "`{{if}}` and `{{with}}` need a value that can be absent: make the field optional, or " ..
-  "drop the `{{if}}`"
-
 local function error_of(result: Driver.Outcome, stage: string, code: string, msg: string, fix: string, y: integer, x: integer,
                         offset: integer, length: integer, argument?: Check.Argument,
                         other?: Scopes.Place): Driver.Problem
   local instead = RemovedFix.fix({ tokens = result.chunk.tokens, scoped = result.scoped }, code, offset, length)
-  -- A condition of a template is written by the generator, over a local it names: the checker's fix would tell the template's
-  -- author to write a test of that local. What a template can say is whether a value is there.
-  local file = result.source.filename
-  if result.source.pinned ~= "" then
-    file = result.source.pinned
-  end
-  local told = instead or fix
-  if instead == nil and code == "condition_type" and file:match("%.tmpl$") ~= nil and
-      msg:find("no boolean or optional", 1, true) ~= nil then
-    told = TEMPLATE_CONDITION
-  end
   return {
-    kind = "error", stage = stage, code = code, msg = msg, fix = told, y = y, x = x, offset = offset,
+    kind = "error", stage = stage, code = code, msg = msg, fix = instead or fix, y = y, x = x, offset = offset,
     length = length, other = other, removed = instead ~= nil, argument = argument,
   }
 end
@@ -1037,6 +1035,35 @@ function Driver.new(options: Driver.Options): Driver.Build
   end
 
   return build
+end
+
+function Driver.unheld(result: Driver.Outcome, markers: boolean): Driver.Unheld
+  local source = result.source
+  -- As [`Driver.Build.held`] reads them: a text the build writes from another file has no markers, and a project's none.
+  local text = if source.pinned ~= "" or not markers then "" else source.text end
+  local file = if source.pinned ~= "" then source.pinned else source.filename end
+  local function stage(list: {Driver.Problem}, codes: {string}, name: Ceilings.Stage): {Driver.Problem}
+    local held = Ceilings.holds(name, file, text, codes)
+    local found: mut {integer: mut {string: integer}} = {}
+    for _, p in ipairs(list) do
+      local on = found[p.y] or {}
+      found[p.y] = on
+      on[p.code] = (on[p.code] or 0) + 1
+    end
+    -- A line's errors of a code are held together or refused together, as the markers count them.
+    local out: mut {Driver.Problem} = {}
+    for _, p in ipairs(list) do
+      if assert(assert(found[p.y])[p.code]) > ((held[p.y] or {})[p.code] or 0) then
+        out[#out + 1] = p
+      end
+    end
+    return out
+  end
+  return {
+    scope_errors = stage(result.scope_errors, Scopes.codes, "scoped"),
+    declared = stage(result.declared, Declarations.codes, "declared"),
+    bodies = stage(result.bodies, Check.codes, "checked"),
+  }
 end
 
 return Driver

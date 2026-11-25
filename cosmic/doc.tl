@@ -179,6 +179,14 @@ local record Doc
     closed: string
   end
 
+  --- An exported function with a parameter of a given name ([`Doc.taking`]).
+  record Taking
+    --- The module that exports it.
+    module: string
+    --- Its name as a caller of the module writes it ([`Fs.basename`]).
+    symbol: string
+  end
+
   --- One row of `uses`, or of `links` (`link`): a link names the
   --- symbol `module` and `symbol` name, or the file at `path` and, when
   --- it is not "", the heading `anchor` of it.
@@ -2360,8 +2368,11 @@ end
 --- up to the first `.`, `?` or `!` that a space or the end follows,
 --- outside backticks and not closing "e.g" or "i.e".
 local function first_sentence(documented: string): string
-  local trimmed = String.trim(link_text.unlinked(documented))
-  local paragraph = (trimmed:match("^(.-)\n%s*\n") or trimmed):gsub("%s+", " ")
+  -- The first paragraph is cut out before its links are read: a module's whole text costs many times as much, and
+  -- what is past the paragraph is never shown.
+  local whole = String.trim(documented)
+  local head = String.trim(link_text.unlinked(whole:match("^(.-)\n%s*\n") or whole))
+  local paragraph = (head:match("^(.-)\n%s*\n") or head):gsub("%s+", " ")
   local quoted = false
   for at = 1, #paragraph do
     local char = paragraph:sub(at, at)
@@ -2729,6 +2740,34 @@ function Doc.uses(view: Doc.View, query: string): ({Doc.Use}) | (nil, Failure)
   local value, why = uses_text(view, query)
   if value == nil then return nil, Failure.new(why) end
   return value
+end
+
+--- The exported functions of `db` whose signature names a parameter `word` (`path` of `Fs.basename(path: string)`).
+local function taking_of(db: Sqlite.Handle, public: boolean, word: string): {Doc.Taking}?, string
+  local rows, trouble = db:rows(
+    "SELECT module, symbol FROM docs WHERE kind = 'function' AND exported = 1 AND " ..
+      symbols.public_only("module", public) .. " AND (" ..
+      "instr(signature, '(' || ?1 || ':') > 0 OR instr(signature, '(' || ?1 || '?:') > 0 OR " ..
+      "instr(signature, ', ' || ?1 || ':') > 0 OR instr(signature, ', ' || ?1 || '?:') > 0) ORDER BY module, symbol",
+    { text(word) })
+  if rows == nil then
+    return nil, tostring(trouble)
+  end
+  local out: mut {Doc.Taking} = {}
+  for _, row in ipairs(rows) do
+    out[#out + 1] = { module = row:text(1), symbol = row:text(2) }
+  end
+  return out, ""
+end
+
+--- The exported functions that take a parameter named `word`, as their signatures write it: what a module named for a
+--- word (`cosmic.path`) may have meant is the module most of them are in ([`Fs.basename`] takes a `path`).
+function Doc.taking(view: Doc.View, word: string): ({Doc.Taking}) | (nil, Failure)
+  local found, trouble = across(view, function(db: Sqlite.Handle, public: boolean): {Doc.Taking}?, string
+    return taking_of(db, public, word)
+  end, function(t: Doc.Taking): string return t.module end)
+  if found == nil then return nil, Failure.new(trouble) end
+  return found
 end
 
 --- The declaring record or enum of a member's source symbol:

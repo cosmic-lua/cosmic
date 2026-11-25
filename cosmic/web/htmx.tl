@@ -26,8 +26,10 @@
 ---   under `/_web/` ([`Web.app`]).
 --- @public
 
+local HtmxHead = require("cosmic.web.htmx_head")
 local Html = require("cosmic.html")
 local Json = require("cosmic.json")
+local type MarkupData = require("cosmic.web.markup_data")
 local Response = require("cosmic.web.response")
 local Store = require("cosmic.store")
 local Types = require("cosmic.web.types")
@@ -482,17 +484,14 @@ local function config_of(opts: Htmx.HeadOptions): {string: Json.Value}
   local history_cache_size = config.history_cache_size
   if history_cache_size ~= nil then out["historyCacheSize"] = history_cache_size end
   local nonce = opts.nonce
-  if nonce ~= nil then out["inlineScriptNonce"] = nonce end
+  -- An empty nonce is none, as the tags' template takes it.
+  if nonce ~= nil and nonce ~= "" then out["inlineScriptNonce"] = nonce end
   return out
 end
 
---- One script tag: the parts are the binary's own or escaped.
-local function script_tag(which: Htmx.Asset, opts: Htmx.HeadOptions): string
-  local opts_nonce = opts.nonce
-  local nonce = if opts_nonce ~= nil then (' nonce="' .. Html.raw_attr(Html.escape_attr(opts_nonce)) .. '"') else "" end
-  local prefix = opts.prefix or ""
-  return '<script src="' .. prefix .. Htmx.path(which) .. '" integrity="' .. Htmx.integrity(which) ..
-    '" crossorigin="anonymous"' .. nonce .. " defer></script>"
+--- One script: its path is the binary's own, under a prefix `head` checked.
+local function script_of(which: Htmx.Asset, opts: Htmx.HeadOptions): MarkupData.Script
+  return { src = Html.trust_resource_url((opts.prefix or "") .. Htmx.path(which)), integrity = Htmx.integrity(which) }
 end
 
 --- The `<meta name="htmx-config">` tag and the script tags of htmx (and of
@@ -517,12 +516,10 @@ function Htmx.head(opts?: Htmx.HeadOptions): Html.SafeHtml
     error("htmx: head: the nonce is text without a control byte", 2)
   end
   local json = assert(Html.json(config_of(opts)))
-  -- Everything written here is the binary's own constants or has been
-  -- through Html.escape_attr.
-  local tags = { '<meta name="htmx-config" content="' ..
-      Html.raw_attr(Html.escape_attr(Html.raw_json(json))) .. '">', script_tag("htmx", opts) }
-  if opts.sse == true then tags[#tags + 1] = script_tag("sse", opts) end
-  return Html.trust(table.concat(tags, "\n"))
+  local scripts: mut {MarkupData.Script} = { script_of("htmx", opts) }
+  if opts.sse == true then scripts[#scripts + 1] = script_of("sse", opts) end
+  -- The markup is the template htmx_head.tmpl (cosmic.template).
+  return HtmxHead.render({ config = Html.raw_json(json), scripts = scripts, nonce = nonce })
 end
 
 --- The CSS for the `htmx-indicator` class, which htmx would otherwise inject

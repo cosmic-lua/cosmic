@@ -1,4 +1,4 @@
---- The stand-in for `spawn` (build.confine's `enter` and `call`): what a
+--- The fake for `spawn` (build.confine's `enter` and `call`): what a
 --- process a test confines in a root of its own is given, and what
 --- starts where the kernel can confine none.
 
@@ -11,11 +11,11 @@ local Test = require("cosmic.test")
 local confine = require("build.confine")
 local fixture = require("build.must_confine_fixture")
 local test_child = require("build.test_child")
-local stand_in = require("build.stand_in")
+local Fake = require("cosmic.fake")
 local support = require("build.test_support_fixture")
 local type raw_process = require("cosmic.internal.process")
 
---- What the stand-in is tested holding: /proc, where the stand-in program
+--- What the fake is tested holding: /proc, where the fake program
 --- a test starts finds itself; `nests`, since the processes it confines
 --- have roots of their own; and `tool`, since a process confined is
 --- given the program (the TODO above build.confine's `forbid_running`).
@@ -24,16 +24,16 @@ Test.policy{
   grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } },
 }
 
---- A stand-in program built under `tmp` (build/stand_in.tl), which runs
+--- A fake program built under `tmp` ([`cosmic.fake`]), which runs
 --- the script its first argument holds: a static executable that reads
 --- only itself (and /proc, where it finds itself), so one confined
 --- needs nothing of the system's own.
 local function probe_in(tmp: string): string
-  return (assert(stand_in.build(tmp .. "/stand-in")))
+  return (assert(Fake.build(tmp .. "/fake")))
 end
 
 --- Whether a process `probe` confined to itself alone, started under
---- `own`'s stand-in, sees `hidden`, which it was not given: false where
+--- `own`'s fake, sees `hidden`, which it was not given: false where
 --- the kernel confined it, true where it could not and it ran
 --- unconfined.
 local function sees(probe: string, own: string, hidden: string): boolean
@@ -49,14 +49,14 @@ local function sees(probe: string, own: string, hidden: string): boolean
 end
 
 --- `call` returns what its call returned, the very table, and puts back
---- the stand-in it made, whether the call returned or raised.
+--- the fake it made, whether the call returned or raised.
 local function test_a_run_answers_what_its_call_made_and_puts_the_spawn_back(tmp: string)
   local process = require("cosmic.internal.process")
   local before = process.spawn
   local produced = { answer = 42 }
   local ran = confine.call(function(argument: any): any -- checked: not_assignable
     assert(argument == tmp)
-    assert(process.spawn ~= before, "no stand-in")
+    assert(process.spawn ~= before, "no fake")
     return produced -- checked: any_use
   end, tmp, { tmp })
   assert(ran.ok and ran.produced == produced)
@@ -94,9 +94,9 @@ local function test_a_confined_process_has_what_it_was_given(tmp: string)
   assert(assert(Fs.read(own .. "/out")) == "in")
 end
 
---- A process a library's work starts (`declaring`), under a stand-in
+--- A process a library's work starts (`declaring`), under a fake
 --- that says this process runs in a sandbox, inherits that sandbox and
---- is confined no further, even in a stand-in of the test's own, which
+--- is confined no further, even in a fake of the test's own, which
 --- says nothing of one: it sees what this process sees.
 local function test_a_process_a_library_declares_in_a_sandbox_is_held_by_it(tmp: string)
   local probe = probe_in(tmp)
@@ -275,8 +275,8 @@ end
 
 --- The refusals that need the core's raw process table, which this module reads: the sandbox refused outright, as a
 --- kernel with no user namespaces for this user does; a sandbox of its own that is not the one `must_confine` adds; and a
---- spawn taken while an earlier stand-in ran. They are a child's, since a start `must_confine` refuses fails every running
---- stand-in, the one that runs a test included. The words are the stand-in program and a directory the child may change.
+--- spawn taken while an earlier fake ran. They are a child's, since a start `must_confine` refuses fails every running
+--- fake, the one that runs a test included. The words are the fake program and a directory the child may change.
 test_child.register("raw_refusals", function(args: {string}): integer
   local probe, tmp = args[1], args[2]
   if probe == nil or tmp == nil then return 2 end
@@ -321,7 +321,7 @@ test_child.register("raw_refusals", function(args: {string}): integer
 end)
 
 --- A spawn `must_confine` refuses -- the sandbox refused by the kernel, a sandbox of its own that does not unveil and take
---- the network, a spawn taken during a stand-in that has since ended -- does not start, and fails the test that made it,
+--- the network, a spawn taken during a fake that has since ended -- does not start, and fails the test that made it,
 --- naming the program, the part of the sandbox, why, and the errno's name, whatever the test made of the spawn's result;
 --- and one that raised besides is told with its own failure after.
 local function test_a_refused_spawn_fails_the_test_whatever_it_made_of_it(tmp: string)

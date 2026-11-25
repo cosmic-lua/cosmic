@@ -8,7 +8,7 @@
 
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local stand_in = require("build.stand_in")
+local Fake = require("cosmic.fake")
 -- Required, so the module whose loader is handed the raw table is of this
 -- test's import closure, and the store has it to hand it from.
 local type _ = require("cosmic.child")
@@ -21,11 +21,11 @@ Test.policy{
 
 local process = require("cosmic.internal.process")
 
---- A stand-in program built under `tmp` (build/stand_in.tl), which runs
+--- A fake program built under `tmp` ([`cosmic.fake`]), which runs
 --- the script its first argument holds: a static executable that reads
 --- only itself, so one confined needs nothing of the system's own.
 local function probe_in(tmp: string): string
-  return (assert(stand_in.build(tmp .. "/stand-in")))
+  return (assert(Fake.build(tmp .. "/fake")))
 end
 
 --- Opens `path` for writing, creating it, and returns the descriptor.
@@ -45,8 +45,8 @@ local function test_a_process_held_to_running_some_paths_runs_nothing_else(tmp: 
   local built = probe_in(tmp)
   local probe, elsewhere = tmp .. "/bin/probe", tmp .. "/elsewhere/run"
   assert(sys.mkdir(tmp .. "/bin", 0x1c0) and sys.mkdir(tmp .. "/elsewhere", 0x1c0))
-  assert(stand_in.place(built, probe))
-  assert(stand_in.place(built, elsewhere))
+  assert(Fake.place(built, probe))
+  assert(Fake.place(built, elsewhere))
   local function status_of(path: string, argv: {string}): integer | string
     local pid, trouble = process.spawn(path, argv, nil, tmp, nil, nil, nil, false)
     if pid == nil then return trouble end

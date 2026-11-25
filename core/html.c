@@ -10,6 +10,7 @@
 #define SAFE_ATTR_TYPE "cosmic.html.SafeAttr"
 #define SAFE_URL_TYPE "cosmic.html.SafeUrl"
 #define SAFE_URL_PART_TYPE "cosmic.html.SafeUrlPart"
+#define SAFE_RESOURCE_URL_TYPE "cosmic.html.SafeResourceUrl"
 #define SAFE_JSON_TYPE "cosmic.html.SafeJson"
 
 /* A safe value is a userdata with no memory of its own whose one user
@@ -295,6 +296,21 @@ static int html_raw_url (lua_State *L) {
   return 1;
 }
 
+/* `trust_resource_url`: a URL the page loads and runs or styles itself
+ * by (a script's src, a stylesheet's href). Only this door makes one, and
+ * it checks nothing: no allowlist can say a resource is the program's. */
+static int html_trust_resource_url (lua_State *L) {
+  luaL_checktype(L, 1, LUA_TSTRING);
+  lua_settop(L, 1);
+  wrap(L, SAFE_RESOURCE_URL_TYPE);
+  return 1;
+}
+
+static int html_raw_resource_url (lua_State *L) {
+  push_string_of(L, 1, SAFE_RESOURCE_URL_TYPE);
+  return 1;
+}
+
 /* `trust` and `trust_attr`: the string is taken as already safe. The
  * only door that does not escape, kept apart in name so a review can
  * find every use. */
@@ -573,6 +589,39 @@ static int html_raw_json (lua_State *L) {
   return 1;
 }
 
+/* `filled`: what a template's `{{if}}` and `{{with}}` hold of. nil,
+ * false, "", a safe value whose string is "" and a table with no key are
+ * not filled; anything else is, 0 among them. A table's metamethods are
+ * not asked. */
+static int html_filled (lua_State *L) {
+  static const char *const safe[] = { SAFE_HTML_TYPE, SAFE_ATTR_TYPE,
+    SAFE_URL_TYPE, SAFE_URL_PART_TYPE, SAFE_RESOURCE_URL_TYPE, SAFE_JSON_TYPE };
+  luaL_checkany(L, 1);
+  int type = lua_type(L, 1);
+  bool filled = true;
+  if (type == LUA_TNIL) {
+    filled = false;
+  } else if (type == LUA_TBOOLEAN) {
+    filled = lua_toboolean(L, 1);
+  } else if (type == LUA_TSTRING) {
+    filled = lua_rawlen(L, 1) > 0;
+  } else if (type == LUA_TTABLE) {
+    lua_pushnil(L);
+    filled = lua_next(L, 1) != 0;
+  } else if (type == LUA_TUSERDATA) {
+    /* A safe value of this module is empty when its string is. */
+    for (size_t i = 0; i < sizeof safe / sizeof *safe; i++) {
+      if (luaL_testudata(L, 1, safe[i]) != NULL) {
+        lua_getiuservalue(L, 1, 1);
+        filled = lua_rawlen(L, -1) > 0;
+        break;
+      }
+    }
+  }
+  lua_pushboolean(L, filled);
+  return 1;
+}
+
 static const luaL_Reg module[] = {
   {"escape", html_escape},
   {"escape_attr", html_escape_attr},
@@ -583,6 +632,8 @@ static const luaL_Reg module[] = {
   {"href", html_href},
   {"trust_url", html_trust_url},
   {"raw_url", html_raw_url},
+  {"trust_resource_url", html_trust_resource_url},
+  {"raw_resource_url", html_raw_resource_url},
   {"concat", html_concat},
   {"url_part", html_url_part},
   {"url_query", html_url_query},
@@ -591,6 +642,7 @@ static const luaL_Reg module[] = {
   {"escape_css_attr", html_escape_css_attr},
   {"trust_json", html_trust_json},
   {"raw_json", html_raw_json},
+  {"filled", html_filled},
   {NULL, NULL},
 };
 
@@ -598,7 +650,7 @@ int cosmic_open_html (lua_State *L) {
   /* `__metatable` is false so no program can read the metatable to add
    * an operator or a `__tostring` to every safe value. */
   const char *types[] = { SAFE_HTML_TYPE, SAFE_ATTR_TYPE,
-    SAFE_URL_TYPE, SAFE_URL_PART_TYPE, SAFE_JSON_TYPE };
+    SAFE_URL_TYPE, SAFE_URL_PART_TYPE, SAFE_RESOURCE_URL_TYPE, SAFE_JSON_TYPE };
   for (size_t i = 0; i < sizeof types / sizeof *types; i++) {
     luaL_newmetatable(L, types[i]);
     lua_pushboolean(L, 0);

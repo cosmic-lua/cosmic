@@ -185,6 +185,49 @@ local function private_base(path: string, uid: integer)
       "COSMIC_CI_LOCAL")
 end
 
+--- Removes each state of the default base whose `<key>.source` names a
+--- checkout that is gone, and then that record: a state holds a candidate,
+--- its build and the phases' outputs, often over 10 GB. `kept` is this run's
+--- own key. A state with no record is left, since nothing says whose it is.
+--- A record that cannot be read and a checkout whose status cannot be read
+--- are left; a state that cannot be removed is said and left. No later run
+--- stops on them, and the record stays until a removal succeeds. A run of a
+--- checkout removed while it runs can lose its state to another checkout's
+--- run: nothing holds a state for the length of a run.
+local function remove_abandoned(base: string, kept: string)
+  local names, unlisted = Fs.list(base)
+  if names == nil then
+    say("could not list " .. base .. ": " .. tostring(unlisted))
+    return
+  end
+  for _, name in ipairs(names) do
+    local key = name:match("^(%d+)%.source$")
+    if key ~= nil and key ~= kept then
+      local record = base .. "/" .. name
+      local text, _ = Fs.read(record)
+      local source = if text ~= nil then (text:gsub("\n$", "")) else "" end
+      local status: Fs.Status? = nil
+      if source:sub(1, 1) == "/" then
+        local found, _ = Fs.status(source)
+        status = found
+      end
+      if status ~= nil and not status.exists then
+        local removed, why = Fs.remove_tree(base .. "/" .. key)
+        if not removed then
+          say("could not remove the state of " .. source .. ", which is gone: " .. tostring(why))
+        else
+          local forgot, unforgot = Fs.remove(record)
+          if forgot then
+            say("removed the state of " .. source .. ", which is gone")
+          else
+            say("removed the state of " .. source .. ", which is gone, but not its record: " .. tostring(unforgot))
+          end
+        end
+      end
+    end
+  end
+end
+
 local function execute(argv: {string}, program: string): integer
   local root = Fs.dirname(Fs.dirname((assert(Fs.absolute(program)))))
   local caller_env = current.env_all()
@@ -229,8 +272,6 @@ local function execute(argv: {string}, program: string): integer
   local sum = assert(current.child_run({ cksum }, { timeout_ns = Child.FOREVER, input = root, stdout = "capture", stderr = "capture" }))
   successful(sum, "cksum")
   local key = assert((sum.stdout or ""):match("^(%d+) %d+\n$"), "cksum returned an invalid checksum")
-  -- TODO: prune state for checkouts that no longer exist, once each state
-  -- records its source path so a later run can identify abandoned worktrees.
   local base = fallback_value(env, "TMPDIR", "/tmp") .. "/cosmic-ci-local-" .. tostring(uid)
   local state = env["COSMIC_CI_LOCAL"]
   if state == nil or state == "" then
@@ -242,6 +283,11 @@ local function execute(argv: {string}, program: string): integer
     private_base(base, uid)
     base = resolved(base)
     state = base .. "/" .. key
+    remove_abandoned(base, key)
+    local recorded, unrecorded = Fs.write(base .. "/" .. key .. ".source", root .. "\n", 0x180)
+    if not recorded then
+      say("could not record this checkout beside its state: " .. tostring(unrecorded))
+    end
   end
   assert(state:sub(1, 1) == "/", "COSMIC_CI_LOCAL must be absolute")
   owned_root(state)
@@ -443,6 +489,10 @@ local function execute(argv: {string}, program: string): integer
   driver_env["GITHUB_RUN_ID"], driver_env["GITHUB_RUN_ATTEMPT"], driver_env["COSMIC_WORKER"] = "local", "1", "local"
   driver_env["TARGET"], driver_env["XDG_CACHE_HOME"] = target, state .. "/cache"
   driver_env["COSMIC_ZIG_CACHE_FROM"], driver_env["COSMIC_ZIG_GLOBAL_CACHE"] = seed, zig_global
+  -- Gating CI skips the fixed-point regression, its slowest fixture (ci.yml's
+  -- COSMIC_CI_FIXED_POINT). On a small host its compiles also outlast the per-test
+  -- bound. A caller's value, even "", is kept: any value but "skip" runs it.
+  if env["COSMIC_CI_FIXED_POINT"] == nil then driver_env["COSMIC_CI_FIXED_POINT"] = "skip" end
   for _, phase in ipairs(phases) do
     assert(phase:match("^[%w_-]+$"), "invalid phase: " .. phase)
     if phase == "build" then

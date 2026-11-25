@@ -146,8 +146,15 @@ copy of this checkout's `ci/`, fixtures included, taken each time run-local
 starts, so after one full run `ci/run-local fixtures` re-runs edited
 fixtures against the same products. Each phase's log is under
 `$COSMIC_CI_LOCAL/logs/` (default `${TMPDIR:-/tmp}/cosmic-ci-local-<uid>/<key>`,
-keyed by the checkout's path, so worktrees can run at once; a removed
-worktree's state stays until deleted).
+keyed by the checkout's path, so worktrees can run at once). Each run on
+that default records its checkout in `<key>.source` beside its state, and
+removes the state of every recorded checkout that is gone. A state with no
+record, as each made before records were, stays until deleted.
+
+Like gating CI, run-local sets `COSMIC_CI_FIXED_POINT=skip` unless the
+caller sets it, so `fixtures` skips the fixed-point regression. Gating CI
+skips it as its slowest fixture; on a host of four CPUs its compiles also
+outlast the 340 s per-test bound. Any other value, such as `run`, runs it.
 
 The `sandbox` phase writes what spawn's sandbox can hold on this machine
 (`build/sandbox_probe.tl`) to its log and the summary, and fails only when
@@ -472,10 +479,11 @@ branch's push runs nothing.
   `bin/cosmic test`, `ci/run-local`) are the branch's (the tree's
   `doc/contributing.md`). A **manual run** (`workflow_dispatch`) of a
   branch runs what main's daily run does but macOS, unless it asks for
-  it (`-f macos=true`), and runs the checked suite in the queue's shares.
+  it (`-f macos=true`), and runs the checked and narrowing suites in the
+  queue's shares.
 - **a pull request** runs the lightest check, the `ci` check the merge
   queue requires of a pull request before it takes it: linux-x86_64's leg
-  boots the tree, checks the bootstrap's scripts, and checks the tree's
+  boots the tree, runs its native suite, checks the bootstrap's scripts, and checks the tree's
   format over the paths the pull request changed since its merge base with
   main (driver.tl changed-paths, `fix --check --changed`, which lays out
   only those and makes every check spanning files, the markers held to
@@ -484,7 +492,16 @@ branch's push runs nothing.
   `cosmic_ci/changed_paths.tl`: `build/launcher.tl`, `core/startup.c`,
   `ci/fixtures/` and the like), or the paths changed are not known, it
   also builds the artifacts and runs those fixtures, which nothing else
-  before main's push runs. No suite, and it saves nothing.
+  before main's push runs. Beside it, once the pull request is not a
+  draft, `macos-aarch64` (part `suite`) runs macOS's native suite and
+  darwin suite, as the queue's does; marking it ready runs the check
+  again. GitHub gives no job a priority, so a draft's pushes leave the
+  few macOS runners to the queue. Both native
+  suites stand on main's verdicts ([`cosmic_ci/orchestration.tl`]'s
+  `standing_events`), so they run only the tests the change reaches. A
+  failure the queue would meet on those legs shows on the pull request
+  first, before the change takes a queue slot: a macOS-only test, for one,
+  or a test of the built binary's verbs. It saves nothing.
 - **the merge queue** (`merge_group`) runs what a push to main runs:
   every Linux leg and the checked and narrowing jobs. Each leg is two jobs
   at once, each booting the tree: `<leg>` (part `suite`) runs the native
@@ -507,7 +524,10 @@ branch's push runs nothing.
   macOS meets showed before only in the next daily or manual run. The checked suite runs
   in three shares at once (`linux-x86_64-checked-1` to `-3`,
   `cosmic test --shard`), so it is not the entry's longest job; a share
-  does not check the C functions, which main's push does. The gate
+  does not check the C functions, which main's push does. The checked
+  narrowing suite runs in three shares too
+  (`linux-x86_64-checked-narrowing-1` to `-3`): whole, standing on no
+  verdict, it reached its deadline. The gate
   compares the three products. An entry takes as long as its longest job. Main moves
   only through the queue, so its check of what changed holds main's whole
   tree.
@@ -610,8 +630,8 @@ the only runs that save a cache, and is decided in the top-level `env`. The
 driver does not read it (it is `COSMIC_CI_*`, which a suite's workers are
 never given).
 
-The platform job's `include` is an expression that chooses one of four
-lists by the kind of run (linux-x86_64 alone for a pull request; for the
+The platform job's `include` is an expression that chooses a list by the
+kind of run (linux-x86_64 for a draft pull request, and macOS's suite beside it for one that is not; for the
 queue every leg but macOS as its suite and its product, linux-x86_64's
 format check and macOS's suite; every leg but macOS, and macOS's suite, for a push to main; all four otherwise),
 each listing every job: an `include` entry naming a leg
@@ -619,7 +639,7 @@ no dimension holds would start that leg anyway (GitHub adds an entry that
 fits no combination as one of its own). Each entry names the job
 (`name`), the host it is (`leg`: its caches, its verdicts,
 `COSMIC_WORKER`) and what of the leg it runs (`part`: `all`, or the
-queue's `suite`, `product` or `format`). build/workflows_test.tl reads all four as
+queue's `suite`, `product` or `format`). build/workflows_test.tl reads each list as
 GitHub would.
 
 A newer manual run supersedes a branch's, but every main run finishes and

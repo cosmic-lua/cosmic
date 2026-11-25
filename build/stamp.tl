@@ -21,7 +21,9 @@
 --- COSMIC_STAMPS=0 has `read` return none of the binary's own, so each
 --- caller works its value out: for the test that holds a run to reaching
 --- the same keys either way (build/sandboxed_verdicts_test.tl), and for
---- telling whether a stamp is at fault.
+--- telling whether a stamp is at fault. A sealed test worker, which does
+--- not see it, still reads the stamps its runner carried into its database
+--- ([`build.test_key`]'s `sealed_stamps`).
 
 local Env = require("cosmic.env")
 local Sqlite = require("cosmic.sqlite")

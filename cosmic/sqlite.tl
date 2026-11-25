@@ -874,7 +874,7 @@ local class Handle
   --- Every row a query yields as `project` makes it: the list of what
   --- `project` returned for each row in turn, or `nil` and why.
   --- `project` reads the row's columns (`r:text(1)`) and returns one
-  --- value, never nil, which is how a caller builds a record per row. A
+  --- value, which is how a caller builds a record per row; a nil raises. A
   --- raise inside `project`, such as a column of another type than it
   --- read, leaves nothing open and reaches the caller. `values` follows
   --- [`Handle.run`]'s contract, and is nil where the query takes none.
@@ -1335,27 +1335,58 @@ local record Column
   hidden: integer
 end
 
---- The user tables of `handle`'s main database, by name.
-local TABLES_SQL <const> = "SELECT name FROM main.sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'"
+--- Each declared type a column was read with, as [`type_spelled`] spells it.
+local spelled_types: mut {string: string} = {}
 
---- The columns of table `name` in `handle`'s main database, in order;
---- an empty list for a table it lacks.
-local function columns_of(handle: Handle, name: string): ({Column}) | (nil, Failure)
-  -- A view's columns are described too: only a table's count.
-  local rows, why = handle:rows('SELECT name, type, "notnull", pk, hidden FROM pragma_table_xinfo(?1, \'main\') ' ..
-      "WHERE EXISTS (SELECT 1 FROM main.sqlite_schema WHERE type = 'table' AND name = ?1 COLLATE NOCASE)", { name })
-  if rows == nil then return nil, why end
-  local columns: mut {Column} = {}
-  for _, row in ipairs(rows) do
-    -- A type reads the same in capitals or not, and with other spaces.
-    local spaced = (row:text(2):upper():gsub("%s+", " "))
-    local typed = (spaced:gsub(" ?([(),]) ?", "%1"):match("^ ?(.-) ?$"))
-    columns[#columns + 1] = {
-      name = row:text(1), declared = typed or "", notnull = row:integer(3) ~= 0, key = row:integer(4),
-      hidden = row:integer(5),
-    }
+--- The declared type `declared` as two that read the same spell it: in capitals, with one space between words and
+--- none at a parenthesis or comma.
+local function type_spelled(declared: string): string
+  local known = spelled_types[declared]
+  if known ~= nil then return known end
+  local spaced = (declared:upper():gsub("%s+", " "))
+  local spelled = (spaced:gsub(" ?([(),]) ?", "%1"):match("^ ?(.-) ?$")) or ""
+  spelled_types[declared] = spelled
+  return spelled
+end
+
+--- The user tables of `handle`'s main database and their columns, read in one statement: the tables' names in order
+--- of name, and each one's columns, in order, by its name in lower case (SQLite's names are without case). With
+--- `only`, the tables of those names alone: a table this process cannot read (a virtual table of a module it lacks) is
+--- then no failure unless it is one of them.
+local function tables_of(handle: Handle, only?: {string}): ({string}, {string: {Column}}) | (nil, Failure)
+  local sql = 'SELECT m.name, p.name, p.type, p."notnull", p.pk, p.hidden ' ..
+    "FROM main.sqlite_schema AS m, pragma_table_xinfo(m.name, 'main') AS p " ..
+    "WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite\\_%' ESCAPE '\\' "
+  local values: {raw_sqlite.Param} = {}
+  if only ~= nil then
+    -- As a JSON array of strings: a name of SQL holds no control character, so `"` and `\` are all to escape.
+    local listed: mut {string} = {}
+    for _, name in ipairs(only) do
+      listed[#listed + 1] = '"' .. (name:gsub('[\\"]', "\\%0")) .. '"'
+    end
+    sql = sql .. "AND lower(m.name) IN (SELECT lower(value) FROM json_each(?1)) "
+    values = { "[" .. table.concat(listed, ",") .. "]" }
   end
-  return columns
+  local rows, why = handle:rows(sql .. "ORDER BY m.name, p.cid", values)
+  if rows == nil then return nil, why end
+  local names: mut {string} = {}
+  local columns: mut {string: mut {Column}} = {}
+  for _, row in ipairs(rows) do
+    local name = row:text(1)
+    local key = name:lower()
+    local found = columns[key]
+    local held: mut {Column} = if found ~= nil then found else {} end
+    if found == nil then
+      columns[key] = held
+      names[#names + 1] = name
+    end
+    local column: Column = {
+      name = row:text(2), declared = type_spelled(row:text(3)), notnull = row:integer(4) ~= 0, key = row:integer(5),
+      hidden = row:integer(6),
+    }
+    held[#held + 1] = column
+  end
+  return names, columns
 end
 
 --- `columns` as the open failure names them: `(id INTEGER PRIMARY KEY 1, body TEXT NOT NULL)`.
@@ -1410,12 +1441,11 @@ local function declared(schema: Schema): SchemaTables
   local _ = handle:limit("attached", 0)
   local ran, why = handle:exec(schema.ddl)
   if not ran then error("sqlite: schema: the DDL fails: " .. tostring(why), 0) end
-  local rows = assert(handle:rows(TABLES_SQL .. " ORDER BY name"))
+  local names, columns = assert(tables_of(handle))
   local found: SchemaTables = { names = {}, columns = {} }
-  for _, row in ipairs(rows) do
-    local name = row:text(1)
+  for _, name in ipairs(names) do
     found.names[#found.names + 1] = name
-    found.columns[name] = assert(columns_of(handle, name))
+    found.columns[name] = assert(columns[name:lower()])
   end
   if #found.names == 0 then error("sqlite: schema: the DDL creates no table", 0) end
   declared_tables[schema] = found
@@ -1454,10 +1484,11 @@ local function hold_schema(handle: Handle, path: string, schema: Schema, writabl
       if not made then return false, made_why end
     end
   end
+  local listed, held = tables_of(handle, wanted.names)
+  if listed == nil then return false, held end
   local differences: mut {string} = {}
   for _, name in ipairs(wanted.names) do
-    local has, why = columns_of(handle, name)
-    if has == nil then return false, why end
+    local has = held[name:lower()] or {}
     local want = assert(wanted.columns[name])
     if #has == 0 then
       differences[#differences + 1] = ("no table %s %s"):format(name, column_list(want))
@@ -1653,8 +1684,8 @@ end
 ---
 --- `handle:limit(name, value)` sets one of the connection's limits and
 --- returns the old one. A handle may attach 10 databases
---- (`ATTACH DATABASE`) until `handle:limit("attached", n)` raises that,
---- to at most 125; the refusal of one too many says so.
+--- (`ATTACH DATABASE`) until `handle:limit("attached", n)` sets more,
+--- at most 125; the refusal of one too many says so.
 function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): (Sqlite.Handle) | (nil, Failure)
   local writable, immutable, create = opts and opts.writable, opts and opts.immutable, opts and opts.create
   local held = opts ~= nil and opts.reads_only == true
@@ -1726,7 +1757,9 @@ end
 --- The DDL may be written `local schema Notes = A .. B`, which joins
 --- string literals, `<const>` locals of the same block, and the `ddl`
 --- of another schema (`Other.ddl`, `module.Other.ddl`).
---- The value is [`Sqlite.schema`] of the DDL. The type, `Notes`, is a
+--- The value is a [`Schema`] of the DDL, which the checker has read:
+--- a load of the module runs no database, and the first open or
+--- [`Sqlite.hold`] of it reads its tables. The type, `Notes`, is a
 --- class of the handles that hold its tables: `open` and `memory`
 --- give a `Notes` for `{ schema = Notes }`, as [`Sqlite.hold`] does for
 --- a handle opened without it, and a `Notes` is a
@@ -1749,8 +1782,9 @@ end
 --- state: to bring an old file to it, open the file without the schema
 --- and [`Handle.migrate`] it.
 ---
---- `schema` runs the DDL once in a memory database, to read the
---- tables, and raises when SQLite refuses it or it creates no table.
+--- The first open or [`Sqlite.hold`] of a schema runs its DDL once in
+--- a memory database, to read the tables, and raises when SQLite
+--- refuses it or it creates no table, as [`Sqlite.schema`] does at once.
 --- So the DDL creates and does nothing else: an `ATTACH` in it fails
 --- there, and a `BEGIN` fails at the open that runs it on a file. The
 --- checker runs the DDL too, and reads the SQL a program sends to a

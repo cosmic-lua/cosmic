@@ -44,7 +44,9 @@ template, built into a module of the same path.
 
 The compiler refuses a slot where no escaping is right, and says where and
 why. A slot in `hx-on*`, `hx-vars`, `hx-trigger` or a `<script>` is refused
-in every template, with or without `{{use htmx}}`; the dialect adds the
+in every template, with or without `{{use htmx}}`, but for a script's `src`
+(a whole `SafeResourceUrl`, as a `<link>`'s `href` takes), `nonce`
+and `integrity`; the dialect adds the
 rules for URL, selector and JSON attributes. This example checks some of
 what is refused, and prints how many of its templates the compiler turned away.
 
@@ -60,9 +62,9 @@ do
     tally.refused = tally.refused + 1
     return why
   end
-  -- A link can load anything, so its href takes no slot: the layout is
-  -- given a ready made head.
-  assert(reason('<link rel="stylesheet" href="{{.css}}">'):find("would make the page load or run it", 1, true))
+  -- A script's src and a link's href take a slot only as the whole value, a
+  -- SafeResourceUrl the program vouched for: a part of one could name any script.
+  assert(reason('<script src="/js/{{.name}}" defer></script>'):find("must be the whole value, a SafeResourceUrl", 1, true))
   -- Script: handlers, filters and code cannot be escaped into safety.
   assert(reason('<a hx-on:click="{{.code}}">x</a>'):find("htmx runs it as JavaScript", 1, true))
   assert(reason('<a hx-trigger="click[{{.filter}}]">x</a>'):find("'[filter]'", 1, true))

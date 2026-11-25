@@ -15,12 +15,17 @@
 ---                                        else, if any, runs when there is none
 ---     {{range $x := P}} ..               the same, `$x` the element too
 ---     {{range $i, $x := P}} ..           and `$i` its index, from 1
----     {{with P}} .. {{else}} .. {{end}}  dot is the value, when it is truthy
+---     {{with P}} .. {{else}} .. {{end}}  dot is the value, when it is filled
+---     {{define name Type}} .. {{end}}    after the body, at the top level: a
+---                                        template of `Type` of its own, which
+---                                        `| name` calls and the module exports
 ---
 --- where a pipeline `P` is a head, a path of fields from it, and then
---- stages `| import.path.func`, each applied to what is before it. The
+--- stages `| import.path.func` (or `| name`, a `{{define}}`), each applied
+--- to what is before it, and given after it the arguments that follow
+--- its name: strings, numbers and paths (`| fmt.date "%Y" .zone`). The
 --- head is dot (`.a` is a field of dot, `.` alone is dot), `$` (the value
---- `render` is given, wherever it stands) or a variable `$name`. A range's
+--- `render`, or the `{{define}}` it stands in, is given) or a variable `$name`. A range's
 --- variables are seen in its own body and everything nested in it, not in
 --- its `{{else}}` nor after its `{{end}}`, so a variable used where none of
 --- that name is seen is refused; and a name is bound only where no
@@ -48,6 +53,8 @@ local record Parser
   --- The variables seen where the parse is, by name without the `$`,
   --- each with the word that bound it.
   visible: mut {string: types.Token}
+  --- How many blocks the parse is inside: a `{{define}}` stands at 0.
+  mut depth: integer
 end
 
 --- `name:line:col: reason`.
@@ -97,6 +104,65 @@ local function fields(path: string): {string}
   return out
 end
 
+--- The path `token` spells, from dot, `$` or a variable, with no stages.
+local function path_of(p: Parser, token: types.Token): types.Pipeline?, string
+  local result: types.Pipeline = { head = "dot", name = "", path = {}, stages = {} }
+  if token.kind == "variable" then
+    local name = token.value:match("^%$([%a_][%w_]*)") or ""
+    local rest = token.value:sub(2 + #name)
+    if rest ~= "" and (rest:sub(1, 1) ~= "." or not dotted(rest:sub(2), 1)) then
+      return nil, refuse(p, token.line, token.col,
+        "'" .. token.value .. "' is not a variable such as $, $.a, $x or $x.a")
+    end
+    result.head = if name == "" then "root" else "variable" end
+    result.name = name
+    result.path = fields(rest)
+  elseif token.kind == "field" and (token.value == "." or dotted(token.value:sub(2), 1)) then
+    result.path = fields(token.value:sub(2))
+  else
+    return nil, refuse(p, token.line, token.col, if token.kind == "string" then STRING_ALONE else
+      "'" .. token.value .. "' is not a field path such as . or .a.b, nor a variable such as $ or $x.a" ..
+        trim_hint(token) end)
+  end
+  return result, ""
+end
+
+--- Why the variable `path` starts from, which `token` spells, is not seen
+--- here, or "".
+local function unseen(p: Parser, path: types.Pipeline, token: types.Token): string
+  if path.head == "variable" and p.visible[path.name] == nil then
+    return refuse(p, token.line, token.col, "'$" .. path.name .. "' is not declared here: a variable is seen only in the body of " ..
+        "the {{range}} that binds it, as {{range $x := .list}}")
+  end
+  return ""
+end
+
+--- The argument `token` spells after a stage: a string, a number, or a
+--- path.
+local function argument(p: Parser, token: types.Token): types.Arg?, string
+  if token.kind == "string" then
+    return { kind = "string", text = token.value }, ""
+  elseif token.kind == "word" then
+    local v = token.value
+    -- An integer is one Lua reads as an integer, with no leading zero.
+    local whole = v:find("^%-?[1-9]%d*$") ~= nil or v == "0"
+    if (whole and math.tointeger(tonumber(v)) ~= nil) or v:find("^%-?%d+%.%d+$") ~= nil then
+      return { kind = "number", text = v }, ""
+    end
+    return nil, refuse(p, token.line, token.col, "'" .. v .. "' is not an argument: a stage takes strings (\"x\"), " ..
+        "numbers (2, -1, 0.5) and paths (.a, $, $x.a) after the value piped to it" .. trim_hint(token))
+  end
+  local path, why = path_of(p, token)
+  if path == nil then
+    return nil, why
+  end
+  local hidden = unseen(p, path, token)
+  if hidden ~= "" then
+    return nil, hidden
+  end
+  return { kind = "path", text = "", path = path }, ""
+end
+
 --- The pipeline `tokens[first ..]` spell, which is all that is left of
 --- the action; `ranged` when it is a range's list.
 local function pipeline(p: Parser, item: types.Item, first: integer, ranged: boolean): types.Pipeline?, string
@@ -105,29 +171,19 @@ local function pipeline(p: Parser, item: types.Item, first: integer, ranged: boo
   if head == nil then
     return nil, refuse(p, item.line, item.col, "expected a value: a field path such as . or .name, or $ or $x.name")
   end
-  local result: types.Pipeline = { head = "dot", name = "", path = {}, stages = {} }
-  if head.kind == "variable" then
-    local name = head.value:match("^%$([%a_][%w_]*)") or ""
-    local rest = head.value:sub(2 + #name)
-    if rest ~= "" and (rest:sub(1, 1) ~= "." or not dotted(rest:sub(2), 1)) then
-      return nil, refuse(p, head.line, head.col,
-        "'" .. head.value .. "' is not a variable such as $, $.a, $x or $x.a")
-    end
-    result.head = if name == "" then "root" else "variable" end
-    result.name = name
-    result.path = fields(rest)
-  elseif head.kind == "field" and (head.value == "." or dotted(head.value:sub(2), 1)) then
-    result.path = fields(head.value:sub(2))
-  else
-    return nil, refuse(p, head.line, head.col, if head.kind == "string" then STRING_ALONE else
-      "'" .. head.value .. "' is not a field path such as . or .a.b, nor a variable such as $ or $x.a" ..
-        trim_hint(head) end)
+  local result, hwhy = path_of(p, head)
+  if result == nil then
+    return nil, hwhy
   end
+  -- A comma or `:=` is never part of a pipeline, nor a string before the first stage.
+  local staged = false
   for at = first + 1, #tokens do
     local token = assert(tokens[at], "the loop stays inside the tokens")
     local kind = token.kind
     local why = ""
-    if kind == "string" then
+    if kind == "pipe" then
+      staged = true
+    elseif kind == "string" and not staged then
       why = STRING_ALONE
     elseif kind == "comma" then
       why = STRAY_COMMA
@@ -138,9 +194,9 @@ local function pipeline(p: Parser, item: types.Item, first: integer, ranged: boo
       return nil, refuse(p, token.line, token.col, why)
     end
   end
-  if result.head == "variable" and p.visible[result.name] == nil then
-    return nil, refuse(p, head.line, head.col, "'$" .. result.name .. "' is not declared here: a variable is seen only in the body of " ..
-        "the {{range}} that binds it, as {{range $x := .list}}")
+  local hidden = unseen(p, result, head)
+  if hidden ~= "" then
+    return nil, hidden
   end
   local stages = result.stages
   local at = first + 1
@@ -153,18 +209,46 @@ local function pipeline(p: Parser, item: types.Item, first: integer, ranged: boo
     if stage == nil then
       return nil, refuse(p, pipe.line, pipe.col, "expected a function after |, as module.path.func")
     end
-    if stage.kind ~= "word" or not dotted(stage.value, 2) then
-      return nil, refuse(p, stage.line, stage.col,
-        "'" .. stage.value .. "' is not a function reached by import path, as module.path.func")
+    if stage.kind == "string" then
+      return nil, refuse(p, stage.line, stage.col, "a string is not a function: write the stage's name bare, " ..
+          "as | module.path.func")
     end
-    local module_path, func = stage.value:match("^(.+)%.([^.]+)$")
-    if module_path == nil or func == nil then
-      return nil, refuse(p, stage.line, stage.col,
-        "'" .. stage.value .. "' is not a function reached by import path, as module.path.func")
+    -- The stage's name is checked before its arguments, so a refusal names
+    -- what goes wrong first.
+    local module_path, func = "", stage.value
+    local after = tokens[at + 2]
+    if stage.kind == "word" and dotted(stage.value, 1) and not dotted(stage.value, 2) then
+      -- One name is a `{{define}}` of this template, which the parse checks once it has read them all.
+      if after ~= nil and after.kind ~= "pipe" then
+        return nil, refuse(p, stage.line, stage.col, "'" .. stage.value .. "' is one name, as only a {{define}} is " ..
+            "called, and a {{define}} takes no arguments: a function that takes them is written module.path.func")
+      end
+    else
+      if stage.kind ~= "word" or not dotted(stage.value, 2) then
+        return nil, refuse(p, stage.line, stage.col,
+          "'" .. stage.value .. "' is not a function reached by import path, as module.path.func, nor a {{define}}'s name")
+      end
+      local path, name = stage.value:match("^(.+)%.([^.]+)$")
+      if path == nil or name == nil then
+        return nil, refuse(p, stage.line, stage.col,
+          "'" .. stage.value .. "' is not a function reached by import path, as module.path.func")
+      end
+      module_path, func = path, name
     end
-    stages[#stages + 1] = { module_path = module_path, func = func }
+    local args: mut {types.Arg} = {}
     at = at + 2
-    pipe = tokens[at]
+    local next_token = tokens[at]
+    while next_token ~= nil and next_token.kind ~= "pipe" do
+      local given, why = argument(p, next_token)
+      if given == nil then
+        return nil, why
+      end
+      args[#args + 1] = given
+      at = at + 1
+      next_token = tokens[at]
+    end
+    stages[#stages + 1] = { module_path = module_path, func = func, line = stage.line, col = stage.col, args = args }
+    pipe = next_token
   end
   return result, ""
 end
@@ -271,6 +355,7 @@ local function block(p: Parser, open: types.Item): types.Node?, string -- checke
   if element ~= "" and element_token ~= nil then
     p.visible[element] = element_token
   end
+  p.depth = p.depth + 1
   while true do
     local body, berr = nodes(p)
     if body == nil then
@@ -293,6 +378,7 @@ local function block(p: Parser, open: types.Item): types.Node?, string -- checke
         return nil, refuse(p, close.line, close.col, "{{end}} takes nothing")
       end
       node.close_line = close.line
+      p.depth = p.depth - 1
       return node, ""
     end
     if seen_else then
@@ -330,6 +416,11 @@ nodes = function(p: Parser): {types.Node}?, string
       local word = keyword(item)
       local first_token = item.tokens[1]
       if word == "else" or word == "end" then
+        return out, ""
+      elseif word == "define" then
+        if p.depth > 0 then
+          return nil, refuse(p, item.line, item.col, "{{define}} stands at the top level, after the body, in no block")
+        end
         return out, ""
       elseif word == "if" or word == "range" or word == "with" then
         local node, why = block(p, item)
@@ -400,6 +491,95 @@ local function declaration(p: Parser, item: types.Item): Declared?, string
   return { name = name.value, import_path = path.value }, ""
 end
 
+--- Reads the `{{define}}`s from the next item on, each with the blank
+--- text after it.
+local function definitions(p: Parser): {types.Define}?, string
+  local defines: mut {types.Define} = {}
+  local seen: mut {string: boolean} = {}
+  local open = p.items[p.pos]
+  while open ~= nil and open.action and keyword(open) == "define" do
+    local tokens = open.tokens
+    local name, type_name = tokens[2], tokens[3]
+    if #tokens ~= 3 or name == nil or type_name == nil or name.kind ~= "word" or type_name.kind ~= "word" then
+      return nil, refuse(p, open.line, open.col, "write {{define name Type}}, Type a record of the {{type}}'s module")
+    end
+    if not name.value:find("^[%a_][%w_]*$") or types.keywords[name.value] == true or name.value == "render" or
+        name.value:sub(1, 2) == "__" then
+      return nil, refuse(p, name.line, name.col, "'" .. name.value .. "' is not a name for a {{define}}: write an " ..
+          "identifier other than render, which the module exports for the body, that starts with no __")
+    end
+    if seen[name.value] == true then
+      return nil, refuse(p, name.line, name.col, "'" .. name.value .. "' is defined twice")
+    end
+    if not type_name.value:find("^[%a_][%w_]*$") or types.keywords[type_name.value] == true then
+      return nil, refuse(p, type_name.line, type_name.col, "'" .. type_name.value .. "' is not a type name")
+    end
+    seen[name.value] = true
+    p.pos = p.pos + 1
+    local body, why = nodes(p)
+    if body == nil then
+      return nil, why
+    end
+    local close = p.items[p.pos]
+    if close == nil then
+      return nil, refuse(p, open.line, open.col, "{{define}} is never closed: missing {{end}}")
+    elseif keyword(close) ~= "end" then
+      return nil, refuse(p, close.line, close.col, "{{" .. keyword(close) .. "}} inside a {{define}}: " ..
+          (if keyword(close) == "define" then "close the one before with {{end}} first" else
+            "it has no block to belong to" end))
+    elseif #close.tokens ~= 1 then
+      return nil, refuse(p, close.line, close.col, "{{end}} takes nothing")
+    end
+    defines[#defines + 1] = { name = name.value, type_name = type_name.value, body = body, line = open.line,
+      col = open.col, end_line = close.line, end_col = close.col }
+    p.pos = p.pos + 1
+    if blank_text(p.items[p.pos]) then
+      p.pos = p.pos + 1
+    end
+    open = p.items[p.pos]
+  end
+  return defines, ""
+end
+
+--- Why a stage of one name in `body` or the `defines` names none of them,
+--- or "".
+local function called_defines(p: Parser, body: {types.Node}, defines: {types.Define}): string
+  local named: mut {string: boolean} = {}
+  for _, define in ipairs(defines) do
+    named[define.name] = true
+  end
+  local function pipeline_ok(pipe: types.Pipeline?): string
+    if pipe == nil then return "" end
+    for _, stage in ipairs(pipe.stages) do
+      if stage.module_path == "" and named[stage.func] == nil then
+        return refuse(p, stage.line, stage.col, "'" .. stage.func .. "' names no {{define}} of this template, " ..
+            "and a function of a module is reached by its path, as module.path.func")
+      end
+    end
+    return ""
+  end
+  local function walk(list: {types.Node}): string
+    for _, node in ipairs(list) do
+      local why = pipeline_ok(node.pipeline)
+      if why ~= "" then return why end
+      for _, branch in ipairs(node.branches) do
+        why = pipeline_ok(branch.pipeline)
+        if why ~= "" then return why end
+        why = walk(branch.body)
+        if why ~= "" then return why end
+      end
+    end
+    return ""
+  end
+  local why = walk(body)
+  if why ~= "" then return why end
+  for _, define in ipairs(defines) do
+    why = walk(define.body)
+    if why ~= "" then return why end
+  end
+  return ""
+end
+
 local record Parse
 end
 
@@ -414,7 +594,7 @@ function Parse.parse(src: string, name: string, registry: {string: types.Def}): 
   if lexed == nil then
     return nil, lerr
   end
-  local p: Parser = { items = lexed.items, pos = 1, name = name, visible = {} }
+  local p: Parser = { items = lexed.items, pos = 1, name = name, visible = {}, depth = 0 }
   if blank_text(p.items[p.pos]) then
     p.pos = p.pos + 1
   end
@@ -484,12 +664,32 @@ function Parse.parse(src: string, name: string, registry: {string: types.Def}): 
   if body == nil then
     return nil, berr
   end
+  local _, newlines = src:gsub("\n", "")
+  local body_end_line = newlines + 1
+  local body_end_col = #src - (src:match(".*()\n") or 0) + 1
+  local defines, dwhy = definitions(p)
+  if defines == nil then
+    return nil, dwhy
+  end
+  local first_define = defines[1]
+  if first_define ~= nil then
+    body_end_line, body_end_col = first_define.line, first_define.col
+  end
   local stray = p.items[p.pos]
   if stray ~= nil then
+    if #defines > 0 and (not stray.action or (keyword(stray) ~= "else" and keyword(stray) ~= "end")) then
+      return nil, refuse(p, stray.line, stray.col, (if stray.action then "an action" else "text" end) ..
+          " after a {{define}}: after the first, only blank text and other {{define}}s follow")
+    end
     return nil, refuse(p, stray.line, stray.col, "{{" .. keyword(stray) .. "}} without a block to close")
   end
+  local called = called_defines(p, body, defines)
+  if called ~= "" then
+    return nil, called
+  end
   return { type_name = declared.name, import_path = declared.import_path, line = head.line, mode = mode,
-    dialects = dialects, body = body, lines = lexed.lines }, ""
+    dialects = dialects, body = body, body_end_line = body_end_line, body_end_col = body_end_col, defines = defines,
+    lines = lexed.lines }, ""
 end
 
 return Parse

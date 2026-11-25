@@ -378,11 +378,11 @@ local function through(coder: codec.Coder, pieces: {string}): string?, string
   local out: mut {string} = {}
   for _, piece in ipairs(pieces) do
     local part, why = coder:update(piece)
-    assert(part ~= nil, "update refused: " .. why)
+    assert(part ~= nil, "update refused: " .. tostring(why))
     out[#out + 1] = part
   end
   local last, why = coder:finish()
-  if last == nil then return nil, why end
+  if last == nil then return nil, tostring(why) end
   out[#out + 1] = last
   return table.concat(out), ""
 end
@@ -483,14 +483,15 @@ end
 local function test_a_finished_coder_raises_and_an_unknown_name_is_refused()
   for _, make in ipairs({ codec.encoder, codec.decoder }) do
     local c = make("base64")
-    assert(c:update("") == "" and c:finish() == "")
-    Test.raises(function() c:update("x") end)
-    Test.raises(function() c:finish() end)
+    assert(assert(c:update("")) == "" and assert(c:finish()) == "")
+    Test.raises(function() local _, _ = c:update("x") end)
+    Test.raises(function() local _, _ = c:finish() end)
   end
   local bad = codec.decoder("hex")
-  assert(bad:update("z") == "")
-  assert(bad:finish() == nil)
-  Test.raises(function() bad:finish() end)
+  assert(assert(bad:update("z")) == "")
+  local refused, _ = bad:finish()
+  assert(refused == nil)
+  Test.raises(function() local _, _ = bad:finish() end)
 end
 
 local function test_a_long_stream_takes_bounded_memory()

@@ -4,7 +4,7 @@ local Sandbox = require("cosmic.sandbox")
 local String = require("cosmic.string")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local stand_in = require("build.stand_in")
+local Fake = require("cosmic.fake")
 local PolicyMerge = require("build.policy_merge_fixture")
 
 local function test_check_holds_letters_to_the_canonical_order_only_when_exact()
@@ -278,13 +278,13 @@ local function test_loaders_follows_macos_sh_to_the_shell_it_runs()
 end
 
 local function test_loaders_names_a_static_program_alone(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local files = assert(Sandbox.loaders(probe))
   assert(#files == 1 and files[1] == assert(sys.realpath(probe)), table.concat(files, " "))
 end
 
 local function test_loaders_follows_links_and_a_shebang_chain(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   assert(Fs.mkdirs(tmp .. "/bin"))
   assert(Fs.symlink(probe, tmp .. "/bin/link"))
   assert(Fs.write(tmp .. "/inner", "#!" .. tmp .. "/bin/link\nprint hi\n", 493))
@@ -339,7 +339,7 @@ local function elf(class: integer, data: integer, interpreter: string?, claimed?
 end
 
 local function test_loaders_reads_an_elf_interpreter_of_every_layout(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/ld"))
+  local probe = assert(Fake.build(tmp .. "/ld"))
   local real = assert(sys.realpath(probe))
   local n = 0
   for _, class in ipairs({ 1, 2 }) do
@@ -367,7 +367,7 @@ end
 --- (a 64-bit entry holds its filesz at byte 33, a 32-bit one at 17) is not
 --- read past the entry: the file stands alone, as any unreadable ELF does.
 local function test_loaders_refuses_an_elf_whose_program_header_size_is_too_small_for_its_class(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/ld"))
+  local probe = assert(Fake.build(tmp .. "/ld"))
   local record Small
     class: integer
     claimed: integer

@@ -36,6 +36,13 @@ Tools a snippet of run calls with Host.use(name, input), which answers the tool'
 - Be concise in your responses
 - Show file paths clearly when working with files
 </rules>
+{{- with .modules}}
+
+<cosmic_modules>
+The cosmic.* modules a snippet of run may require, a line each (not io or os); print(Host.docs("cosmic.csv")) shows one, and Host.docs("words") searches them all:
+{{.}}
+</cosmic_modules>
+{{- end}}
 {{- with .instructions}}
 
 <project_context>

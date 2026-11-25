@@ -17,13 +17,17 @@
 ---     <h1>{{.title}}</h1>               a value: fields from dot, `.` for dot
 ---     {{$.title}}  {{$}}                fields from `$`, the record itself
 ---     {{.when | site.fmt.date}}         then each stage `| module.path.func`
+---     {{.when | site.fmt.date "%Y" .tz}}  a stage's arguments, after the piped value
 ---     {{if .admin}}..{{else if .user}}..{{else}}..{{end}}
 ---     {{range .items}}<li>{{.name}}</li>{{end}}   dot is each element
 ---     {{range .items}}..{{else}}none{{end}}       `none` when there is no element
 ---     {{range $x := .items}}{{$x.name}}{{end}}    `$x` is each element, as dot is
 ---     {{range $i, $x := .items}}{{$i}}{{end}}     `$i` its index: 1, 2, ...
----     {{with .owner}}{{.name}}{{else}}nobody{{end}}  dot is the value, if truthy
+---     {{with .owner}}{{.name}}{{else}}nobody{{end}}  dot is the value, if filled
 ---     {{"{{"}}                          literal text: writes {{
+---     {{.row | row}}                    a stage of one name: the {{define}} below
+---     {{define row Row}}<li>{{.name}}</li>{{end}}  after the body: a template of
+---                                       `Row`, from the same module, of its own
 ---
 --- A name in a field path is a field of the record: a typo is a type
 --- error, not an empty hole. The record's module is required for its types
@@ -38,7 +42,34 @@
 --- one declared to return a fixed number of values above one is a type
 --- error on the template's line, so a function that can fail (`nil,
 --- reason`) is wrapped by the caller into a stage that returns a value.
---- Truthiness is Lua's: only `nil` and `false` are false, not `""` or `0`.
+--- A stage may take arguments after its name, each a string (`"%Y"`), a
+--- number (`2`, `-1`, `0.5`) or a path with no stages (`.tz`, `$.lang`,
+--- `$x.id`): `{{.when | site.fmt.date "%Y" .tz}}` is
+--- `fmt.date(d.when, "%Y", d.tz)`, the piped value first, and the checker
+--- holds each argument to the function's parameter.
+--- An `{{if}}` or a `{{with}}` holds of a value that is filled
+--- ([`html.filled`]): not `nil`, `false` or empty. `""`, a safe value of
+--- [`cosmic.html`] that holds `""` (an empty `SafeHtml`) and a table with
+--- no key are empty: an empty list or map, and a record with no field set
+--- too, so `{{with .options}}` over a record of optional fields means "has
+--- some field set". `0` is filled, as in Lua (Go's templates take it for
+--- false), and so is [`Json.null`], a value, and a class instance
+--- whose fields are all on its metatable is a table with no key, so
+--- empty. So
+--- `{{with .tools}}<tools>{{range .}}..{{end}}</tools>{{end}}` leaves the
+--- section out when the list is empty, with no nil to stand for "none".
+---
+--- A file may end with `{{define name Type}} .. {{end}}`s, after its body
+--- and outside every block: each is a template of its own in the same
+--- file, given a record `Type` of the `{{type}}`'s module, written to
+--- the same result (`SafeHtml`, or a string in `text` mode), and checked
+--- as a whole template is, so it must end where it began. The module
+--- exports it as `name` beside `render`, and a stage of the one word
+--- `| name` calls it, in the body and in every define, itself too: so a
+--- page and the rows and fragments it is made of are one file, and a tree
+--- renders by a define that calls itself. Only blank text may stand
+--- between and after the defines, and the newline after a define's
+--- `{{define}}` is its text unless `-}}` drops it.
 ---
 --- A value starts from dot, from `$` or from a variable. `range` and `with`
 --- make dot the element or the value, so `$` is how a block reaches the
@@ -95,7 +126,14 @@
 --- or the legacy `hx-ws` (a socket URL after `connect:`),
 --- in `hx-vals`, `hx-headers` or `hx-request` unless the template says
 --- `{{use htmx}}` (they are JSON that htmx may run), in `<script>` or `<style>`, and a few like them
---- (cosmic/template/markup.tl lists them). An `html` template must also end in plain text, since its
+--- (cosmic/template/markup.tl lists them). In a `<script>`, `nonce` and
+--- `integrity` take a string as any attribute does, and `src` takes a
+--- slot only as the whole value and only a [`html.SafeResourceUrl`]
+--- (`<script src="{{.js}}" nonce="{{.nonce}}" defer></script>`), as does
+--- the `href` of a `<link>`: only [`html.trust_resource_url`] makes one,
+--- since no allowlist can say a script or a stylesheet is the program's,
+--- so a `SafeUrl` from [`html.href`] does not stand in for it.
+--- An `html` template must also end in plain text, since its
 --- `SafeHtml` can go into another's text slot. `{{mode text}}` returns a
 --- `string` and escapes nothing, for anything that is not HTML; a slot
 --- there takes a string or a number.
@@ -122,7 +160,7 @@
 --- escaped for either quote, with nothing before or after the slot: JSON
 --- text cannot begin with the `js:` that makes htmx run it. A selector
 --- attribute (`hx-target`, `hx-select`, `hx-select-oob`, `hx-include`,
---- `hx-indicator`, `hx-disabled-elt`, `hx-sync`, `hx-swap`, `hx-swap-oob`
+--- `hx-indicator`, `hx-disabled-elt`, `hx-sync`, `hx-swap-oob`
 --- and `hx-target-*` of the response-targets extension) takes a slot only
 --- inside an identifier after `#` or `.` (`hx-target="#row-{{.id}}"`), a
 --- string or a number escaped by [`html.escape_css_attr`] as CSS identifier
@@ -145,8 +183,7 @@
 --- `{{range}}` and `{{with}}` take one `{{else}}` but no `{{else if}}`:
 --- nest an `{{if}}`. A range's `{{else}}` runs when the list has no first
 --- element, and dot there is what it is outside the range; the list is
---- read once. It is the way to say "none": `{{if .items}}` is true of an
---- empty list, which is a table.
+--- read once. `{{if .items}}` is false of an empty list too, as above.
 ---
 --- Line N of the template is line N of the source, so a type error reads
 --- as `page.tmpl:12: ...`.
@@ -193,9 +230,7 @@ function Template.compile(src: string, name: string, options?: Template.Options)
   if attributes == nil then
     return nil, name .. ":" .. tostring(template.line) .. ":1: " .. conflict
   end
-  local _, newlines = src:gsub("\n", "")
-  local end_col = #src - (src:match(".*()\n") or 0) + 1
-  local placed, reason = context.annotate(template, name, newlines + 1, end_col, attributes)
+  local placed, reason = context.annotate(template, name, attributes)
   if not placed then
     return nil, reason
   end

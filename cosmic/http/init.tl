@@ -270,7 +270,7 @@ local record Http
   --- seconds, each rounded up, so no span but 0 is read as none.
   --- `digests` is read only by [`Http.download_result`] and
   --- [`Http.download`], and so is `cancelled` but for the waits of
-  --- `retry`, which it ends too.
+  --- `retry` and `pace`, which it ends too.
   ---
   --- `via`, a unix address ([`Net.unix`]), sends the request over the
   --- socket file at its path instead of the network. The URL still gives
@@ -442,7 +442,9 @@ local record Http
     --- algorithm, the digest wanted and the one got, leaving no file. An
     --- empty digest raises.
     digests?: {Hash.Algorithm:string}
-    --- Download only: asked before each chunk is read and once
+    --- Asked whether to stop: read by downloads, and by the waits of
+    --- `retry` and `pace`, which it ends with "interrupted" too. In a
+    --- download: asked before each chunk is read and once
     --- more when the body is complete, before it is renamed into place;
     --- when it returns true the download stops, removes its temporary
     --- file, never creates `path`, and fails with "interrupted", the
@@ -497,8 +499,10 @@ local record Http
   end
 
   --- What [`Http.request`] and [`Http.get`] return: a status, a whole
-  --- body, and headers, bundled into one value since a public fallible
-  --- function here returns exactly `(value, string)`.
+  --- body, and headers, bundled into one value since most fallible
+  --- functions here return one value, or nil and a [`Failure`].
+  --- [`Http.download`] and [`Http.check_certificate`] return true, or
+  --- false and a Failure; [`Http.download_result`] returns a record.
   record Body
     --- The final response's HTTP status code, after any redirect taken.
     status: integer
@@ -604,7 +608,7 @@ local class DecodingReader is Stream.Reader
       chunk, self.head = self.head, ""
     end
     local out, trouble = codec:update(chunk, max_bytes)
-    if out == nil then return nil, self:fail(trouble) end
+    if out == nil then return nil, self:fail(tostring(trouble)) end
     return out
   end
 
@@ -637,7 +641,7 @@ local class DecodingReader is Stream.Reader
           end
           if codec == nil then return nil, self:fail("no codec") end
           local last, trouble = codec:finish()
-          if last == nil then return nil, self:fail(trouble) end
+          if last == nil then return nil, self:fail(tostring(trouble)) end
           if codec:rest() ~= "" then
             return nil, self:fail("bytes follow the compressed data")
           end
@@ -1502,7 +1506,8 @@ end
 --- failure, `opts.cancelled` returning true ("interrupted", as a
 --- caught signal says it) included.
 --- Returns a classified outcome; [`Http.download`] gives the same operation
---- as a boolean and reason, including the caller URL on an HTTP rejection.
+--- as `true`, or `false` and a [`Failure`], with the caller URL on an HTTP
+--- rejection.
 function Http.download_result(url: string, path: string, opts: Http.Options): Http.DownloadResult
   stated(opts)
   local result = downloading(url, path, opts)
