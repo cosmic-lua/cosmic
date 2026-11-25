@@ -204,7 +204,8 @@ local record Check
 
   --- What the fix of a value that is none of the arms of a recursive alias adds, and what a table literal wanted as an
   --- interface is told in place of the generic fix, by the type (`<module> <name>`): the library's own advice for the type it
-  --- declares, in words that name its functions.
+  --- declares, in words that name its functions. A key `<module> <name> .<field>` is what the fix of a field the type
+  --- does not have adds: a field it had once.
   advice: {string: string}
 end
 
@@ -216,6 +217,8 @@ Check.advice = {
   ["cosmic.time Time.CivilFields"] = "write the literal where it is typed as the record that lists it: `local wall: Time.Wall = " ..
     "{ ... }`, or `Time.Civil`; for a date alone, `Time.parse_date(text, zone)` reads one",
   ["cosmic.json Json.Value"] = "for a record or a class of your own, call `Json.encode_any`, which takes any value",
+  ["cosmic.sandbox.policy rules.Policy .promises"] = "a promise is a grant now: write `grants = { { calls = \"fork\" } }`, " ..
+    "and read them with `Sandbox.calls(policy)`",
 }
 
 -- State ----------------------------------------------------------------------------------
@@ -2443,9 +2446,11 @@ function TableLiterals.literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
       local field = TableLiterals.plain_field(ctx, n, name)
       if field == nil then
         local close = nearest(name, names_of(ctx, n))
+        local advised = Check.advice[n.decl.module .. " " .. n.decl.name .. " ." .. name]
         report(ctx, "literal_unknown", item, owner .. " has no field " .. quoted(name) ..
             (if close ~= "" then ", nearest " .. quoted(close) else "" end),
-          (if close ~= "" then "write " .. quoted(close) .. ", or declare " else "declare " end) .. quoted(name) .. " in " .. owner)
+          if advised ~= nil then advised else (if close ~= "" then "write " .. quoted(close) .. ", or declare " else
+            "declare " end) .. quoted(name) .. " in " .. owner end)
       elseif value ~= nil then
         given[name] = true
         local want = put_in(ctx, n, field.type)
@@ -3023,9 +3028,11 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
     -- A record of cosmic's own modules is the binary's to a program, which cannot declare a field in it.
     declare = "`cosmic docs " .. t.decl.module .. "` lists what " .. owner .. " has"
   end
+  local advised = if (t.tag == "named") then Check.advice[t.decl.module .. " " .. t.decl.name .. " ." .. name] else nil end
   report(ctx, "field_unknown", node, owner .. " has no field " .. quoted(name) ..
       (if close ~= "" then ", nearest " .. quoted(close) else "" end),
-    if close ~= "" then "write " .. quoted(close) .. ", or " .. declare else declare end, { show(ctx, t) })
+    if advised ~= nil then advised elseif close ~= "" then "write " .. quoted(close) .. ", or " .. declare else declare end,
+    { show(ctx, t) })
 end
 
 --- How a message names the static `name` of `decl` that a statement of the module has yet to give, and that statement:

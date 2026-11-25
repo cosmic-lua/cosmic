@@ -317,7 +317,9 @@ end
 --- artifact and core itself where it is told of none. Any other worker, or
 --- one under a policy without `nest`, has both as the relaunch hands them.
 local function test_a_nesting_worker_is_handed_no_descriptor_of_the_program()
-  local function started(promises: {string}): worker.Command
+  local function started(promises: {Sandbox.Promise}): worker.Command
+    local grants: mut {Sandbox.Grant} = {}
+    for _, call in ipairs(promises) do grants[#grants + 1] = { calls = call } end
     return worker.invocation({
       start = { argv = { "/core", "--artifact", "/a" },
         env = { COSMIC_PORTABLE_ARTIFACT_FD = "254", COSMIC_PORTABLE_CORE_FD = "255",
@@ -325,7 +327,7 @@ local function test_a_nesting_worker_is_handed_no_descriptor_of_the_program()
         fds = { [254] = 7, [255] = 8 } },
       env = {}, root = "/tree", module_path = "suite.a_test", name = "test_x", scratch = "/tmp",
       needs = "", hold = "none", closure = {}, tree = {},
-      policy = { isolate = { "file" }, promises = promises as {Sandbox.Promise} }, -- checked: cast_refused
+      policy = { isolate = { "file" }, grants = grants },
     })
   end
   local nesting = started({ "fork", "nest" })

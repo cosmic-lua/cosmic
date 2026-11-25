@@ -44,31 +44,58 @@ end
 --- runs, and writes its cache, and nothing else: not the files whose lines
 --- set a later step's environment, nor the driver that step runs; of the
 --- job's variables it gets PATH and HOME alone.
+--- `value` as JSON text, or "nil".
+local function encoded(value: Json.Value?): string
+  if value == nil then return "nil" end
+  local text, _ = Json.encode(value)
+  return tostring(text)
+end
+
 local function test_the_smoke_policy_grants_the_tool_and_its_cache_alone()
-  local policy = Prerelease.smoke_policy("/runner/release/cosmic", "/tmp/smoke-cache")
   local launcher: {string: boolean} = { uname = true, id = true, mkdir = true, stat = true, mktemp = true, dd = true,
     head = true, sha256sum = true, chmod = true, ln = true, rm = true, rmdir = true }
-  local granted: mut {string: boolean} = {}
-  local grants: mut {string} = {}
-  for at, grant in ipairs(policy.grants or {}) do
-    if at > 2 then
-      local program = grant.path:match("^/usr/bin/(%w+)$") or grant.path:match("^/bin/(%w+)$")
-      local kernel = grant.path == "/proc/sys/kernel/ostype" or grant.path == "/proc/sys/kernel/arch"
-      assert((program ~= nil and launcher[program] == true and grant.letters == "rx") or
-          (kernel and grant.letters == "r"), grant.path .. " " .. grant.letters)
-      if program ~= nil then granted[program] = true end
+  for _, as_grants in ipairs({ true, false }) do
+    local text = Prerelease.smoke_policy_text("/runner/release/cosmic", "/tmp/smoke-cache", as_grants)
+    local decoded, trouble = Json.decode(text)
+    local policy = assert(Json.object_of(decoded), tostring(trouble))
+    local granted: mut {string: boolean} = {}
+    local grants: mut {string} = {}
+    local calls: mut {string} = {}
+    for at, value in ipairs(assert(Json.array_of(policy["grants"]))) do
+      local grant = assert(Json.object_of(value))
+      local call = grant["calls"]
+      if type(call) == "string" then
+        calls[#calls + 1] = call
+      else
+        local path, letters = tostring(grant["path"]), tostring(grant["letters"])
+        if at > 2 then
+          local program = path:match("^/usr/bin/(%w+)$") or path:match("^/bin/(%w+)$") or path:match("^/sbin/(%w+)$")
+          local kernel = path == "/proc/sys/kernel/ostype" or path == "/proc/sys/kernel/arch"
+          assert((program ~= nil and launcher[program] == true and letters == "rx") or
+              (kernel and letters == "r"), path .. " " .. letters)
+          if program ~= nil then granted[program] = true end
+        end
+        grants[#grants + 1] = path .. " " .. letters
+      end
     end
-    grants[#grants + 1] = grant.path .. " " .. grant.letters
+    assert(table.concat(grants, ",", 1, 2) == "/runner/release/cosmic rx,/tmp/smoke-cache rwxc",
+      table.concat(grants, ","))
+    for name in pairs(launcher) do
+      assert(granted[name] == true, "the launcher's " .. name .. " is not granted")
+    end
+    if as_grants then
+      assert(table.concat(calls, ",") == "fork,fattr" and policy["promises"] == nil, text)
+    else
+      assert(#calls == 0 and encoded(policy["promises"]) == '["fork","fattr"]', text)
+    end
+    assert(encoded(policy["env"]) == '["PATH","HOME"]', text)
+    assert(encoded(policy["profiles"]) == '["system"]', text)
+    assert(encoded(policy["set_env"]) == '{"COSMIC_PORTABLE_CACHE":"/tmp/smoke-cache"}', text)
+    assert(policy["isolate"] == nil and policy["connect"] == nil, text)
   end
-  assert(table.concat(grants, ",", 1, 2) == "/runner/release/cosmic rx,/tmp/smoke-cache rwxc", table.concat(grants, ","))
-  for name in pairs(launcher) do
-    assert(granted[name] == true, "the launcher's " .. name .. " is not granted")
-  end
-  assert(table.concat(policy.env or {}, ",") == "PATH,HOME")
-  assert(table.concat(policy.profiles or {}, ",") == "system")
-  assert((policy.set_env or {})["COSMIC_PORTABLE_CACHE"] == "/tmp/smoke-cache")
-  assert(policy.isolate == nil and policy.connect == nil)
-  assert(table.concat(policy.promises or {}, ",") == "fork,fattr")
+  -- The running cosmic reads one of the two forms.
+  local taken = Prerelease.smoke_policy("/runner/release/cosmic", "/tmp/smoke-cache")
+  assert((taken.set_env or {})["COSMIC_PORTABLE_CACHE"] == "/tmp/smoke-cache")
 end
 
 --- Under the smoke policy a program cannot write a file outside its cache,
