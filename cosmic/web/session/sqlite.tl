@@ -91,7 +91,7 @@ local record SessionSqlite
   record ListOptions
     --- Only the sessions bound to this user.
     subject?: string
-    --- The most sessions answered (100).
+    --- The most sessions listed (100).
     limit?: integer
   end
 
@@ -145,7 +145,7 @@ end
 
 --- Deletes up to `limit` (the store's `sweep_limit` by default) expired
 --- sessions, for a lifespan task that sweeps on a timer; a save sweeps on
---- its own every `sweep_interval`. Answers how many it deleted.
+--- its own every `sweep_interval`. Returns how many it deleted.
 --- @param store Session.Store The store
 --- @param now integer The time in seconds since the epoch
 --- @param limit integer | nil The most rows
@@ -157,7 +157,7 @@ function SessionSqlite.sweep(store: Session.Store, now: integer, limit?: integer
 end
 
 --- Revokes every session bound to `subject` (see [`Handle:bind_subject`]):
---- "sign out everywhere", for a password change. Answers how many.
+--- "sign out everywhere", for a password change. Returns how many.
 --- @param store Session.Store The store
 --- @param subject string The user key given to `bind_subject`
 --- @return integer | nil The count
@@ -200,7 +200,7 @@ local function new_public_id(): string?, string
   return Codec.base64url(bytes), ""
 end
 
---- The columns a row is read with, in the order [`find`] answers them.
+--- The columns a row is read with, in the order [`find`] reads them.
 local COLUMNS <const> = "data, created, expires, subject, label, seen_at, seen_from, public_id"
 
 --- The row for `token` that has not expired, or nil.
@@ -438,7 +438,7 @@ local function scoped(sql: string, params: {Sqlite.Value}, subject?: string): st
 end
 
 --- Revokes the session whose public id is `id` (from [`SessionSqlite.list`]):
---- "forget this device". Answers how many, 0 or 1. An app checks that the
+--- "forget this device". Returns how many, 0 or 1. An app checks that the
 --- user may end that session first, as the id is shown, not secret, or
 --- passes `subject`, which ends it only where it is that user's.
 --- @param store Session.Store The store
@@ -455,7 +455,7 @@ function SessionSqlite.destroy_id(store: Session.Store, id: string, subject?: st
 end
 
 --- Gives the session whose public id is `id` the label `text`, or removes
---- it with "": renaming a device from a list. Answers how many, 0 or 1.
+--- it with "": renaming a device from a list. Returns how many, 0 or 1.
 --- Raises for a label [`Handle:label`] refuses. With `subject`, only a
 --- session bound to that user.
 --- @param store Session.Store The store

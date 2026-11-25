@@ -59,7 +59,7 @@
 --- while another run holds the write lock for minutes (a `cosmic test`
 --- compiling, say). Staging is a write, and waits for no other run
 --- either ([`rebuild.stage`]): where another holds the write lock, the
---- session says so, does not stage, and answers from the tree as last
+--- session says so, does not stage, and serves from the tree as last
 --- committed; that run stages the same tree, and its commit brings the
 --- database up to it. It stages again at its next check. A database of
 --- another schema, another tool's, it neither stages nor reads, and
@@ -398,7 +398,7 @@ end
 --- older one made it, or one on a file system with no shared memory --
 --- a read a writer holds off fails at once, saying so, rather than
 --- hold up the session. A file of another schema, another tool's, whose
---- rows this one's code may misread, it opens no handle on: it answers
+--- rows this one's code may misread, it opens no handle on: it returns
 --- nil and that schema, having read nothing of it but its schema.
 local function database(src: source.View): Sqlite.Handle?, string
   local db = src.db
@@ -467,7 +467,7 @@ end
 local function listed(src: source.View, staged: boolean)
   local db, _ = database(src)
   if db == nil then return end
-  -- Other code's rows are read none of: each query answers none.
+  -- Other code's rows are read none of: each query gives none.
   local own = 1
   if staged_by_other(src, db) then own = 0 end
   local rows, trouble = db:text_rows(
@@ -663,7 +663,7 @@ end
 
 --- What every open document the build reads is told while the last stage staged nothing, or nil when it did: the stage's own
 --- text, worded as the tree's refusal where the derive refused the sources and as the editor's trouble where the stage could
---- not run, and what the modules the editor answers from are: the tree as last staged, or none where no stage ever staged
+--- not run, and what the modules the editor is served from are: the tree as last staged, or none where no stage ever staged
 --- it. A document a refusal names is told [`source.refusal`] instead.
 function source.banner(src: source.View): string?
   if src.trouble == "" then return nil end
@@ -772,7 +772,7 @@ local function made_stub(src: source.View, file: string, text: string, hash: str
   return held
 end
 
---- One column of the first row `sql` answers given `value`, or nil.
+--- One column of the first row `sql` finds given `value`, or nil.
 local function first(db: Sqlite.Handle, sql: string, value: string): string?
   local rows, _ = db:text_rows(sql, { { text = value } })
   if rows == nil then return nil end
@@ -869,7 +869,7 @@ local function forget_rows(scratch: Sqlite.Handle, hash: string)
 end
 
 --- Lets go of what the scratch database holds for the file `file`: a document closed, or one whose text is the staged
---- file's now, which `build.db` answers. The rows of its text stay while another file holds the same text.
+--- file's now, which `build.db` serves. The rows of its text stay while another file holds the same text.
 function source.release(src: source.View, file: string)
   local old = src.scratched[file]
   if old == nil then return end
@@ -1336,12 +1336,12 @@ end
 
 --- Where the module `name` declares its types and their members ([`build.syntax_places`]), in its text as written
 --- (an open document's, else the working database's), nil where that is none. The rows the stage derived of the file
---- (`places`) answer it while the text is the staged file's (not open, or open and the same) and they are the running
+--- (`places`) serve it while the text is the staged file's (not open, or open and the same) and they are the running
 --- analyzer's. Any other text, an open document that was edited or a file whose rows are another analyzer's, is derived
---- into the scratch database ([`View`]'s `scratch`), once a text, and answered from the rows there; so is a file the
+--- into the scratch database ([`View`]'s `scratch`), once a text, and served from the rows there; so is a file the
 --- stage could not parse (it has no `parsed` row), which has none if it does not parse here either. The text itself is
 --- read when it is asked for (`text` of [`source.Placed`]), and a place on an ASCII line (`plain`) needs none. A module
---- generated from another file (`mapped`) answers from the rows its `-- line` map gave, in the text of that file
+--- generated from another file (`mapped`) is served from the rows its `-- line` map gave, in the text of that file
 --- ([`mapped_places`]); in an open document of that file that differs from the staged one, from the rows the generator
 --- makes of its text ([`buffer_places`]); where the file is not staged, as a name the database lists no module of: among
 --- the binary's own modules, whose generated ones the tool carries the header of ([`carried_origin`]).
@@ -1531,7 +1531,7 @@ end
 
 --- The types the module `name` declares and their members, from the rows derived of its text: the open document's, else
 --- the working database's, or `given` where that is the text the caller means (the text a check read, which is no text
---- being typed). The staged file's own rows answer while the text is the staged file's and they are the running analyzer's;
+--- being typed). The staged file's own rows serve while the text is the staged file's and they are the running analyzer's;
 --- any other text is derived into the scratch database, once a text, as [`source.places`] does. nil where the module is
 --- not listed, or the text does not parse, and a module generated from another file (`mapped`) is as the rows of its text
 --- say. A name the database lists no module of is looked up among the binary's own modules, in the rows the tool carries
@@ -1567,13 +1567,13 @@ function source.members(src: source.View, name: string, open: source.Open, given
   return read_members(scratch, hash)
 end
 
---- Lets go of the scratch database in the files whose text is the staged file's now, the rows of `build.db` answering
---- for it ([`source.places`]): after a stage, a document saved.
+--- Lets go of the scratch database in the files whose text is the staged file's now, the rows of `build.db` serving
+--- it ([`source.places`]): after a stage, a document saved.
 local function settle(src: source.View)
   for file, held in pairs(src.scratched) do
     local staged = src.files[file]
     if staged == nil then
-      -- A file the tree no longer lists (deleted, renamed) has no module to answer for.
+      -- A file the tree no longer lists (deleted, renamed) has no module to serve.
       source.release(src, file)
     elseif src.stubs and holds(held, staged.source_hash) then
       local db, _ = database(src)

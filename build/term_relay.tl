@@ -16,9 +16,9 @@
 --- echo of what is typed, its stdin's -- so it reaches the terminal as
 --- text and the few sequences a screen is drawn with, and no more. Both
 --- output streams being terminals, they share the pty and so the filter
---- and the stdout's terminal. The filter answers the program's terminal
---- queries itself, and the answers are written to the master as the
---- terminal's input.
+--- and the stdout's terminal. The filter replies to the program's
+--- terminal queries itself, and the replies are written to the master
+--- as the terminal's input.
 ---
 --- THE CALLER'S TERMINAL is, where stdin is one, saved, put in raw mode
 --- for the run and restored on every way out: the program's exit, a
@@ -82,8 +82,8 @@ local TermFilter = require("build.term_filter")
 local TICK_MS <const> = 20
 --- The most bytes read from either side at a time.
 local CHUNK <const> = 65536
---- The most bytes held for the master (keys and answers): reading the
---- caller's keys stops above it, and an answer to a query is dropped
+--- The most bytes held for the master (keys and replies): reading the
+--- caller's keys stops above it, and a reply to a query is dropped
 --- instead of held, so a program that never reads its input and floods
 --- queries holds no more than this.
 local MOST_PENDING <const> = 65536
@@ -124,7 +124,7 @@ local record TermRelay
   type Terminal = Terminal
   --- Runs `argv` as [`Child.start_on_pty`] starts it, with `opts`, on a
   --- pty for each of `terminal`'s streams (this process's own when nil)
-  --- that is a terminal, and answers its [`Child.Result`] once it has
+  --- that is a terminal, and returns its [`Child.Result`] once it has
   --- ended, as [`Child.run`] does; nil and why where the relay cannot be
   --- set up (none of the streams a terminal, no pty, or the start failed). Raises as
   --- [`Child.start_on_pty`] does for `opts`.
@@ -137,7 +137,7 @@ local record TermRelay
   --- standard error, which is not all lines it chose. A tail that grows
   --- past a line a screen holds is written as a line of its own.
   note_lines: function(held: string, data: string): TermRelay.Notes
-  --- What [`note_lines`] answers.
+  --- What [`note_lines`] returns.
   record Notes
     --- The text to write, ending in CR LF where it is not empty.
     text: string

@@ -438,7 +438,7 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
       s.timeout_ns = s.timeout_ns + Clock.seconds(1) -- checked: field_fixed
     end },
     launcher = append("launcher"), declaration = append("declaration"),
-    -- Each present answer, by name and by what it holds.
+    -- Each present result, by name and by what it holds.
     requires = { change = function(s: declared_key.Spec)
       local answers = assert(s.requires)
       answers["program:jq"] = "sha256:other"
@@ -546,7 +546,7 @@ local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
     }
   end
   -- A host with no /proc/self/status, as macOS is, whose groups the
-  -- bindings answer.
+  -- bindings give.
   local function without_status(s: declared_key.HostSources)
     s.status = tmp .. "/no-status"
   end
@@ -581,7 +581,7 @@ local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
 end
 
 --- Where there is no /proc/self/status (macOS), the key holds the group
---- and the supplementary groups the bindings answer, each group once,
+--- and the supplementary groups the bindings give, each group once,
 --- in any order the system lists them. Where there is one, its lines are
 --- the key's and these move nothing, so a Linux key holds its status
 --- file's lines alone.
@@ -606,7 +606,7 @@ local function test_the_groups_key_a_host_with_no_status(tmp: string)
 end
 
 --- A file is read once to be hashed: a later look, in the same run or,
---- through what `kept` answers, in another, whose `lstat` says the same
+--- through what `kept` returns, in another, whose `lstat` says the same
 --- reads nothing; one rewritten is read again.
 local function test_a_file_hashed_once_is_not_read_again(tmp: string)
   tree(tmp)
@@ -745,8 +745,8 @@ end
 
 --- Under one snapshot, the keys of one test under two hosts differ: the
 --- module's inputs a run remembers hold the host, so a lookup under
---- another host's key (build/test_key.tl's `lookup`) must not be answered
---- with the first host's.
+--- another host's key (build/test_key.tl's `lookup`) must not get the
+--- first host's.
 local function test_a_frozen_run_keys_each_host_apart(tmp: string)
   tree(tmp)
   local digests = declared_key.digests(tmp)
@@ -1291,7 +1291,7 @@ local function test_an_ordinary_key_is_unchanged_by_the_checked_fields(tmp: stri
   assert(plain == "f1b31545745bb36dd6a9717cecd4d09d3b43e1fd8870e7609f7a321698a73e1a", "the ordinary key moved: " .. plain)
 end
 
---- `key_part` hex-encodes both the path and the answer; these literals
+--- `key_part` hex-encodes both the path and `answer`; these literals
 --- pin the encoding for the bytes most likely to break a lookup-table
 --- rewrite of it: NUL, newline, DEL, and 0xff, plus a multibyte UTF-8
 --- path, none of which are ASCII letters or digits.
@@ -1322,7 +1322,7 @@ end
 --- A file an earlier run kept a hash of, rewritten since, is read once
 --- in a run however many keys hold it: the hash this run took stands
 --- ahead of the earlier run's, which no longer matches what `lstat`
---- says. Only the reads move; each answer is the file's hash either way.
+--- says. Only the reads move; each result is the file's hash either way.
 local function test_a_file_rewritten_since_an_earlier_run_is_read_once(tmp: string)
   local path = tmp .. "/store.db"
   assert(Fs.write(path, "rows"))

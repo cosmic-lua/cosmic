@@ -295,7 +295,7 @@ static int reach (int fd, const struct target *target, bool binding, int *strand
     cosmic_errno_describe((why), NULL))
 
 /* Makes `fd` what every socket of the table is: closed on exec,
- * nonblocking, and, where a send cannot say so itself, answering EPIPE
+ * nonblocking, and, where a send cannot say so itself, failing with EPIPE
  * rather than raising SIGPIPE. 0, or why not. */
 static int made (int fd) {
 #if !defined(SOCK_CLOEXEC)
@@ -317,7 +317,7 @@ static int made (int fd) {
  * chunked reply, a server-sent event or a TLS 1.2 handshake flight that
  * wait each time. A socket of another family has no such option, and its
  * refusal is passed over, as is a TCP one's on a connection already reset
- * (macOS answers EINVAL). */
+ * (macOS fails with EINVAL). */
 static void undelayed (int fd) {
   int on = 1;
   (void)setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &on, sizeof on);
@@ -599,7 +599,7 @@ COSMIC_SYSCALL(listen, 2) {
 }
 
 /* Whether accept's errno `e` is the failure of one pending connection
- * rather than of the listener, which accept(2) says to answer by taking
+ * rather than of the listener, which accept(2) says to handle by taking
  * the next one: ECONNABORTED for a client that reset before it was
  * taken (macOS; Linux hands such a connection over), and on Linux a
  * pending connection's network error. */
@@ -613,9 +613,9 @@ COSMIC_SYSCALL(listen, 2) {
 #endif
 
 /* How many failed pending connections in a row accept takes before it
- * answers the last failure. It is bounded because the same errno can
- * also be the listener's own and persist: macOS answers ECONNABORTED
- * for every accept on a listener whose receive side is shut down. */
+ * returns the last failure. It is bounded because the same errno can
+ * also be the listener's own and persist: macOS fails with ECONNABORTED
+ * every accept on a listener whose receive side is shut down. */
 #define ACCEPT_RETRIES 16
 
 COSMIC_SYSCALL(accept, 1) {
@@ -648,7 +648,7 @@ COSMIC_SYSCALL(accept, 1) {
 }
 
 /* 0 where the stream socket `fd` is listening, EINVAL where it is not, or
- * why that could not be told. Darwin's getsockopt answers ENOPROTOOPT for
+ * why that could not be told. Darwin's getsockopt fails with ENOPROTOOPT for
  * SO_ACCEPTCONN, so its socket's own option word is read through libproc. */
 static int listening_state (int fd) {
 #if defined(__APPLE__)
@@ -712,7 +712,7 @@ COSMIC_SYSCALL(connect, 2) {
   if (owned->fd < 0) return cosmic_fail(L, errno);
   /* A unix socket connects or fails at once -- where its listener's
    * backlog is full, EAGAIN on Linux and ECONNREFUSED on macOS; a TCP
-   * one answers EINPROGRESS and connects over time, which `settled`
+   * one fails with EINPROGRESS and connects over time, which `settled`
    * waits out. */
   int stranded = 0;
   failure = reach(owned->fd, &target, false, &stranded);
@@ -784,8 +784,8 @@ static int tcp_pushed (lua_State *L, const struct sockaddr_storage *address,
 }
 
 /* Pushes the address `length` bytes of `address` hold, as getsockname
- * or getpeername answered them: 1. Any but a TCP one is a unix one: one
- * bound nowhere may answer no path, and no family either, and a path's
+ * or getpeername returned them: 1. Any but a TCP one is a unix one: one
+ * bound nowhere may have no path, and no family either, and a path's
  * length may count its NUL. */
 static int address_pushed (lua_State *L, const struct sockaddr_storage *address,
                            socklen_t length) {
@@ -957,7 +957,7 @@ COSMIC_SYSCALL(recvfrom, 2) {
   int failure = datagram_type(fd);
   if (failure != 0) return cosmic_fail(L, failure);
   /* A fixed bounded stack buffer holds no heap resource across the Lua
-   * allocations that build the answer. MSG_TRUNC refuses cut packets. */
+   * allocations that build the result. MSG_TRUNC refuses cut packets. */
   char data[65535];
   struct sockaddr_storage address;
   memset(&address, 0, sizeof address);
@@ -1202,10 +1202,11 @@ static lua_Integer interface_named (const struct ifaddrs *list, const char *name
   request.link.ifi_family = AF_UNSPEC;
   int fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
   if (fd < 0) return 0;
-  /* The answer is one RTM_NEWLINK, or an NLMSG_ERROR where no link has the
-   * name; only its header and ifinfomsg are read, and the attributes after
-   * them are cut off. The kernel queues it before send returns, so the
-   * receive does not wait for one that is not there. */
+  /* What the kernel sends back is one RTM_NEWLINK, or an NLMSG_ERROR
+   * where no link has the name; only its header and ifinfomsg are read,
+   * and the attributes after them are cut off. The kernel queues it
+   * before send returns, so the receive does not wait for one that is not
+   * there. */
   union {
     struct nlmsghdr header;
     char bytes[NLMSG_SPACE(sizeof(struct ifinfomsg))];
@@ -1340,7 +1341,7 @@ static int rights_checked (lua_State *L, int arg, int fd) {
 }
 
 /* An ancillary channel must be a Unix stream socket. Passing rights
- * on other transports is never silently answered as an ordinary send. */
+ * on other transports is never silently treated as an ordinary send. */
 static int rights_channel (int fd) {
   struct sockaddr_storage address = {0};
   socklen_t length = sizeof address;
@@ -1542,7 +1543,7 @@ COSMIC_SYSCALL(wait, 3) {
   return cosmic_ok(L);
 }
 
-/* What `resolve` answers where the resolver, not the system, refused:
+/* What `resolve` returns where the resolver, not the system, refused:
  * negative, so none is an errno's number, and fixed, so every OS reads
  * the same (they are glibc's EAI_NONAME, EAI_FAIL and EAI_NODATA). */
 #define RESOLVE_NOTFOUND (-2)
@@ -1562,8 +1563,8 @@ struct watched_socket {
   short events;
 };
 
-/* One lookup: the channel, what it answered and the sockets it has
- * open. A `Lookup` userdata owns it, so a raise while the answer is
+/* One lookup: the channel, what it found and the sockets it has
+ * open. A `Lookup` userdata owns it, so a raise while the result is
  * built leaves it to the collector; the channel goes first at release,
  * as destroying it ends a query still pending, which calls `resolved`
  * once more, with ARES_EDESTRUCTION, while this struct is still whole. */
@@ -1574,7 +1575,7 @@ struct resolution {
   bool done;
   size_t watching;
   struct watched_socket sockets[RESOLVE_WATCHED_MAX];
-  /* A numeric address answers itself: its family (0 for a name) and
+  /* A numeric address resolves to itself: its family (0 for a name) and
    * bytes. */
   int literal_family;
   unsigned char literal[sizeof(struct in6_addr)];
@@ -1626,7 +1627,7 @@ static void resolution_process (struct resolution *resolution, ares_socket_t fd,
   ares_process_fd(resolution->channel, readable ? fd : ARES_SOCKET_BAD, writable ? fd : ARES_SOCKET_BAD);
 }
 
-/* The failure a lookup c-ares ended with `status` answers. */
+/* Returns the failure of a lookup c-ares ended with `status`. */
 static int resolve_failed (lua_State *L, int status) {
   int code;
   const char *why;
@@ -1854,7 +1855,7 @@ static struct lookup *lookup_push (lua_State *L) {
 static int lookup_begin (const char *name, int timeout, const char *servers, const char *hosts,
                          struct resolution *resolution) {
   /* c-ares needs no library initialization off Windows
-   * (ares_library_initialized answers success). */
+   * (ares_library_initialized returns success). */
   struct ares_options options;
   memset(&options, 0, sizeof options);
   int mask = ARES_OPT_FLAGS | ARES_OPT_TRIES | ARES_OPT_SOCK_STATE_CB;

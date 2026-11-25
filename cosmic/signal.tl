@@ -27,9 +27,9 @@ local open_guards: mut {Innermost.Held} = {}
 --- delivers it, where that guard opened after it and so never saw it.
 local owed: integer = 0
 
---- Takes `stamp`, a stamp the core answered, as what `g` has read: a
+--- Takes `stamp`, a stamp the core returned, as what `g` has read: a
 --- stamp that moved since the last is a signal caught, for both what
---- `cancelled` and what `take` answer.
+--- `cancelled` and what `take` return.
 local function noted(g: Guard, stamp: integer)
   if stamp ~= g.state.read then
     local signal = stamp % raw.SIGNAL_STAMP_UNIT
@@ -44,8 +44,8 @@ local function read_guard(self: Guard)
 end
 
 --- Closes the guard in the core, once: the last open restores the
---- caller's dispositions. Answers "" or why they could not be
---- restored, kept for every later close or release to answer again;
+--- caller's dispositions. Returns "" or why they could not be
+--- restored, kept for every later close or release to return again;
 --- whether this was the last; and, for the last, the signal owed it.
 local function restore_guard(self: Guard): string, boolean, integer
   Innermost.close(self.state)
@@ -126,7 +126,7 @@ local class Guard is Innermost.Held
   end
 
   --- Closes the guard as `close` does, but keeps the last signal caught
-  --- instead of delivering it, and answers that signal, or 0. Nil and
+  --- instead of delivering it, and returns that signal, or 0. Nil and
   --- a Failure when the dispositions cannot be restored.
   function release(self): (integer) | (nil, Failure)
     if self.state.closed then
@@ -178,7 +178,7 @@ end
 
 --- Opens a guard, the innermost of those open. The guard is made, and
 --- given its place, before the core opens it, so nothing between that
---- and the answer allocates.
+--- and the result allocates.
 local function opened(): Guard?, string
   local g = make_guard()
   open_guards[#open_guards + 1] = g
@@ -199,21 +199,21 @@ end
 --- Holds SIGINT and SIGTERM for this process while it supervises
 --- children, so it can end them before it is ended itself. Until the
 --- guard closes, either signal is caught rather than acted on:
---- `g:cancelled()` answers the last one delivered, 0 until one is. A signal
+--- `g:cancelled()` returns the last one delivered, 0 until one is. A signal
 --- the process ignores stays ignored (a shell's `cmd &` starts with SIGINT
---- ignored). Only `h:wait` reads the guard -- it ends its child and answers
---- "child: cancelled by signal N" once a signal is caught -- and a stream's
---- read or write, which fails with the same message and leaves the
---- child running; [`Child.wait_any`] and `h:try_wait` do not, so a loop
---- over them asks `g:cancelled()` each round. `g:take()` answers the
+--- ignored). Only `h:wait` reads the guard -- it ends its child and fails
+--- with "child: cancelled by signal N" once a signal is caught -- and a
+--- stream's read or write, which fails with the same message and leaves
+--- the child running; [`Child.wait_any`] and `h:try_wait` do not, so a
+--- loop over them asks `g:cancelled()` each round. `g:take()` returns the
 --- last signal delivered since the previous take, or 0, and clears it,
 --- so a caller that passes signals on to its child passes each one on,
---- a repeat included; signals
---- delivered between two takes answer as the last of them. In a task
---- of [`Poll.run`], `g:wait(timeout_ns)` waits for the next signal to
---- take while the other tasks run, and takes it: the signal, or nil
---- and a Failure once `timeout_ns` passes (kind "timeout"), the task is
---- cancelled (kind "cancelled"), or the guard closes. A signal this process ignores stays ignored: a non-interactive
+--- a repeat included; of signals delivered between two takes, the next
+--- take returns the last. In a task of [`Poll.run`], `g:wait(timeout_ns)`
+--- waits for the next signal to take while the other tasks run, and takes
+--- it: the signal, or nil and a Failure once `timeout_ns` passes (kind
+--- "timeout"), the task is cancelled (kind "cancelled"), or the guard
+--- closes. A signal this process ignores stays ignored: a non-interactive
 --- shell starts `cmd &` with SIGINT ignored, so the guard never catches
 --- it there.
 ---
@@ -232,18 +232,18 @@ end
 --- and delivers: one closed while another is open leaves the signal to
 --- the guards still open, and the last to close delivers it though it
 --- opened after it. `close`
---- answers false and a Failure when the dispositions could not be restored,
+--- returns false and a Failure when the dispositions could not be restored,
 --- and again on every later close; the signal is not delivered then.
 --- A guard never closed holds the signals for the rest of the
 --- process's life: hold it in a `<close>` variable.
 --- `g:release()` restores the dispositions as closing does but keeps
---- the last signal caught rather than delivering it, and answers it,
+--- the last signal caught rather than delivering it, and returns it,
 --- or 0: a caller that passed signals on to its child re-raises one
---- only if the child died of it, or never got it. It answers nil and a
+--- only if the child died of it, or never got it. It returns nil and a
 --- Failure when the dispositions could not be restored, and again on every
 --- later release. A released guard is closed: closing it again, or
 --- releasing it again, does nothing, and a release after a close
---- answers the signal the close delivered. The first guard fails, nil
+--- returns the signal the close delivered. The first guard fails, nil
 --- and a Failure, where the process has no descriptor left for the pipe
 --- `g:wait` waits on. In [`Poll.run`], a wait another task began while no
 --- guard was open is not ended by the signals of one opened after it.

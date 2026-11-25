@@ -1,4 +1,4 @@
---- Tests of [`build.driver`]: the names a tree's files answer to, one program over a module graph through its
+--- Tests of [`build.driver`]: the names a tree's files go by, one program over a module graph through its
 --- providers, each module's errors and warnings and type report, a test module's functions, and a module held to its
 --- ceilings.
 local Ast = require("lang.ast")
@@ -111,7 +111,7 @@ local function test_a_module_a_provider_answers_with_text_is_lowered_for_its_typ
   assert(#result.errors == 0, codes_of(result.errors))
   local library = assert(build:result("cosmic.box", true))
   assert(library.checked == nil and #library.bodies == 0 and #library.warnings == 0 and not library.source.checked)
-  -- stubs are answered after the providers before them, and are no more checked
+  -- stubs are consulted after the providers before them, and are no more checked
   local stubbed = build_of({ { "use.tl", "local Box = require(\"stub.box\")\nlocal b: Box = { n = 2 }\nreturn b\n" } })
   stubbed:provide(Driver.stubs({ ["stub.box"] = RECORD }))
   assert(#assert(stubbed:result("use", true)).errors == 0)
@@ -228,9 +228,9 @@ local function test_the_function_each_call_took_is_kept_by_the_id_of_the_call()
     assert(t ~= nil and (t.tag == "fn"), "call " .. tostring(i) .. " took no function")
     return t
   end
-  -- the method takes its record as the first parameter and answers two results
+  -- the method takes its record as the first parameter and returns two results
   assert(#took(1).params == 2 and #support.nth(took(1).rets, 1).items == 2)
-  -- a chained call is judged by the function the inner call answered
+  -- a chained call is judged by the function the inner call returned
   assert(#took(2).params == 0 and #support.nth(took(2).rets, 1).items == 2 and #support.nth(took(3).rets, 1).items == 1)
   -- the overload taken, not the first the name has
   assert(support.nth(took(4).params, 1).type.tag == "string" and support.nth(took(5).params, 1).type.tag == "named")
@@ -400,8 +400,8 @@ local function test_a_declaration_answers_to_its_whole_module_name_whichever_fil
   end
 end
 
---- Two files that are one module, a source and its package's entry, are not a pair: the first given answers, and the other is
---- a source of the index all the same.
+--- Two files that are one module, a source and its package's entry, are not a pair: the first given is the module, and the
+--- other is a source of the index all the same.
 local function test_the_first_of_two_files_of_one_module_answers()
   local one = "local n: integer = 1\nreturn n\n"
   local two = "local n: integer = 2\nreturn n\n"
@@ -639,7 +639,7 @@ local function lua_of(text: string): string
   return Codegen.generate(read.chunk, read.scoped, read.never_false).text
 end
 
---- The value `if c then (v as T) else "z"` gives for `v` of `value`, a lie about the type `T`: the program's answer is `v`.
+--- The value `if c then (v as T) else "z"` gives for `v` of `value`, a lie about the type `T`: what the program gives is `v`.
 local function cast_if(value: string, cast: string): any
   local text = table.concat({
     "local v: any = " .. value,
@@ -653,7 +653,7 @@ local function cast_if(value: string, cast: string): any
 end
 
 local function test_a_cast_does_not_make_the_middle_of_an_if_expression_never_false()
-  -- the cast promises a type and holds no value: a nil or a false behind it is the answer, not the else branch
+  -- the cast promises a type and holds no value: a nil or a false behind it is the result, not the else branch
   assert(cast_if("nil", "string") == nil)
   assert(cast_if("nil", "{string}") == nil)
   assert(cast_if("nil", "integer") == nil)
@@ -823,7 +823,7 @@ local function test_a_retired_module_is_forgotten_and_a_module_that_requires_it_
   local box = assert(build:result("box", true))
   assert(box.lowered ~= nil and #box.errors == 0)
   build:retire("box")
-  -- the build answers nothing for it, and reads it again outside the program when asked to
+  -- the build returns nothing for it, and reads it again outside the program when asked to
   assert(build:result("box", true) == nil)
   local again = assert(build:parsed("box"))
   assert(again ~= box and again.lowered == nil and not again.broken)

@@ -2,8 +2,8 @@
 --- Lua's own test suite walks them: run the same work with the first
 --- allocation refused, then the second, and so on, until it runs with
 --- every allocation granted. Each refusal raises "not enough memory"
---- from wherever Lua asked, or is the NULL a C allocation of the core's
---- own answers with (core/memory.h), and each must leave nothing behind
+--- wherever Lua asked for memory, or makes a C allocation of the core's
+--- own (core/memory.h) return NULL, and each must leave nothing behind
 --- -- no descriptor, no statement, no block on the C heap, no HTTP
 --- transfer -- and nothing freed that is still in use.
 ---
@@ -18,8 +18,8 @@
 --- Only the checked core can refuse an allocation (core/testing.h), and
 --- CI runs this suite on it; any other core has no instrument to
 --- refuse one with: this module requires `checked`, so another core finds
---- it not applicable, and core/instrument_test.tl holds what its
---- instruments answer there. The
+--- it not applicable, and core/instrument_test.tl checks that the
+--- instruments raise there. The
 --- walks that start the program again, or count the store's
 --- databases, are core/allocation_tool_test.tl's and
 --- core/allocation_store_test.tl's, so these stand while the tree moves.
@@ -46,6 +46,7 @@ local Protobuf = require("cosmic.protobuf")
 -- The raw signing operations on bytes, which the fixtures build keys of.
 local Sign = require("cosmic.internal.sign")
 local Sqlite = require("cosmic.sqlite")
+local type raw_sqlite = require("cosmic.internal.sqlite")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
@@ -129,7 +130,7 @@ local function test_print_survives_every_refused_allocation()
   assert(ended > 0, "a line past the inline buffer allocates")
 end
 
---- open_temporary builds its answer with the descriptor already open; a
+--- open_temporary builds its result with the descriptor already open; a
 --- refusal while it does must close it, not leave it to the process.
 local function test_open_temporary_closes_its_descriptor_whenever_an_allocation_fails(tmp: string)
   local path = tmp .. "/t"
@@ -168,7 +169,7 @@ local function test_execve_survives_every_refused_allocation(tmp: string)
   assert(ended > 0, "joining the environment allocates")
 end
 
---- A pipe is made after its answer is: a refusal leaves neither end open.
+--- A pipe is made after its result is: a refusal leaves neither end open.
 local function test_pipe_leaves_no_end_open_whenever_an_allocation_fails(tmp: string)
   local before = AllocationFixture.next_descriptor(tmp)
   -- Taken on the line that makes the call, and released in `settle`, so
@@ -228,8 +229,8 @@ local function test_udp_leaves_no_descriptor_whenever_an_allocation_fails(tmp: s
 end
 
 --- A lookup from a hosts file, which opens no socket, under every
---- refusal: each raises or answers, no descriptor is left open, and the
---- next lookup answers the same. What it cannot see is c-ares's own heap,
+--- refusal: each raises or returns, no descriptor is left open, and the
+--- next lookup returns the same. What it cannot see is c-ares's own heap,
 --- which core/memory.h's counters do not cover: the channel is held in a
 --- guard (core/guard.h) so that a raise releases it, and the checked
 --- core's sanitizers are what would report one left.
@@ -246,8 +247,8 @@ local function test_resolve_leaves_no_descriptor_whenever_an_allocation_fails(tm
 end
 
 --- A lookup keeps a c-ares channel: under every refusal, started,
---- stepped and ended, it leaves no descriptor open and its Lookup answers
---- or raises.
+--- stepped and ended, it leaves no descriptor open and its Lookup's
+--- `step` and `result` return or raise.
 local function test_lookup_leaves_no_descriptor_whenever_an_allocation_fails(tmp: string)
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, "192.0.2.1 a.example.test\n"))
@@ -302,7 +303,7 @@ local function test_net_in_a_run_leaves_no_descriptor_whenever_an_allocation_fai
 end
 
 --- Asserts the core's own C heap holds what it held when `c_heap`
---- answered `before_bytes` and `before_blocks`: a block a refusal path
+--- returned `before_bytes` and `before_blocks`: a block a refusal path
 --- forgot to free shows here.
 local function assert_c_heap(before_bytes: integer, before_blocks: integer, what: string)
   collectgarbage("collect")
@@ -346,7 +347,8 @@ end
 
 --- `getifaddrs` holds libc's list in a guard while it builds the table, so
 --- a refusal anywhere in the table frees it; a core that has no
---- `getifaddrs` (every one but Darwin's) answers ENOSYS under refusal too.
+--- `getifaddrs` (every one but Darwin's) fails with ENOSYS under refusal
+--- too.
 local function test_getifaddrs_survives_every_refused_allocation()
   local darwin = assert(sys.uname()).sysname == "Darwin"
   local bytes, blocks = testing.c_heap()
@@ -381,11 +383,11 @@ local function test_the_c_heap_counts_its_blocks_and_refusals()
   end
   assert_c_heap(bytes, blocks, "a collected decoder")
   -- Some run grants the userdata and refuses the window: the decoder
-  -- answers that refused C allocation with nil and a message.
+  -- returns nil and a message for that refused C allocation.
   local answered = false
   for after = 0, 100 do
     testing.fail_allocations(after)
-    -- The core's own inflater, which answers the refusal in words:
+    -- The core's own inflater, which reports the refusal in words:
     -- Compress.decoder's Failure is a Lua table, and no Lua allocation
     -- is granted until allow_allocations.
     local ok, made, trouble = pcall(raw_compress.inflater, "raw")
@@ -409,7 +411,7 @@ local hello_zst = "\40\181\47\253\4\88\113\0\0\104\101\108\108\111\44\32\99\111\
 local hello_bz2 = "\66\90\104\57\49\65\89\38\83\89\153\84\167\133\0\0\3\17\128\96\4\10\102\136\0\32\0\34\0\30\160\128\105\166\135\131\39\44\211\152\60\93\201\20\225\66\66\101\82\158\20"
 
 --- Decodes `packed` with `stream` in two pieces and at most four bytes
---- an update, so input is kept back between updates, and answers what
+--- an update, so input is kept back between updates, and returns what
 --- came out.
 local function decode_in_pieces(stream: Compress.Stream, packed: string): string
   local parts: mut {string} = {}
@@ -432,7 +434,7 @@ local record Decoding
 end
 
 --- Every decoder, over a small vector with bytes trailing it, and the
---- deflater, whenever an allocation fails: a refusal raises or answers
+--- deflater, whenever an allocation fails: a refusal raises or returns
 --- nil and a message, and leaves no block behind.
 local function test_compress_leaves_nothing_whenever_an_allocation_fails()
   local function packed(format: Compress.Format): string
@@ -594,7 +596,7 @@ end
 
 --- The vector functions parse, copy and build blobs and text with
 --- SQLite's allocator; a refusal in any of them leaves no block on the C
---- heap, and with none refused a query answers in full.
+--- heap, and with none refused a query yields its rows in full.
 local function test_vector_functions_leave_nothing_whenever_an_allocation_fails()
   local db = assert(Sqlite.memory())
   collectgarbage("collect")
@@ -664,8 +666,8 @@ local function test_a_corpus_leaves_nothing_whenever_an_allocation_fails()
 end
 
 --- A refused growth, bit-vector build or search leaves the corpus as it
---- was: its count, its ids and its answers are the same once allocation
---- is granted again, and a later add and search work.
+--- was: its count, its ids and its search results are the same once
+--- allocation is granted again, and a later add and search work.
 local function test_a_corpus_is_intact_after_a_refused_allocation()
   for _, storage in ipairs(corpus_storages) do
     local corpus = Vector.corpus(4, { storage = storage })
@@ -717,11 +719,11 @@ local function block_rows(db: Sqlite.Handle): {Vector.Storage: string}
 end
 
 --- The block aggregate grows four buffers and assembles one result, and
---- the table-valued function holds a heap and its answer, all on the
+--- the table-valued function holds a heap and its result, all on the
 --- core's own heap (the vtab and its cursors too, which a connection
 --- keeps until it closes, so each run opens one): a refusal anywhere
 --- leaves no block on the C heap, in every storage, and with none refused
---- the search answers. Forty rows make the aggregate grow twice.
+--- the search yields its rows. Forty rows make the aggregate grow twice.
 local function test_blocks_leave_nothing_whenever_an_allocation_fails()
   local query = corpus_vector(3)
   for _, storage in ipairs(corpus_storages) do
@@ -755,7 +757,7 @@ end
 
 --- A refused allocation while a block is added to a corpus, in every pair
 --- of storages, leaves the corpus as it was: its count, its ids and its
---- answers are the same once allocation is granted again.
+--- search results are the same once allocation is granted again.
 local function test_a_corpus_is_intact_after_a_refused_block()
   local db = assert(Sqlite.memory())
   local made = block_rows(db)
@@ -832,7 +834,7 @@ local function test_hash_leaves_nothing_whenever_an_allocation_fails()
 end
 
 --- nanopb reads from the bytes it is given and allocates nothing. A message is one userdata that holds its
---- fields, and each answer a string or a table of Lua's own, so a refusal of any raises and leaves no C memory.
+--- fields, and each value a binding returns is a string or a table of Lua's own, so a refusal of any raises and leaves no C memory.
 local function test_protobuf_leaves_nothing_whenever_an_allocation_fails()
   local inner = assert(Protobuf.writer():string(1, "a"):int(2, 7):encode())
   local bytes = assert(Protobuf.writer():int(1, 5):bytes(2, inner):bytes(2, inner):packed(3, "double", { 1.5, 2.5 })
@@ -875,7 +877,7 @@ end
 
 --- Monocypher allocates nothing: a key pair and a signature are worked out
 --- on the C stack, and the one allocation of each binding is the string it
---- answers with, whose refusal raises and leaves no C memory.
+--- returns, whose refusal raises and leaves no C memory.
 local function test_sign_leaves_nothing_whenever_an_allocation_fails()
   local seed = string.rep("s", 32)
   collectgarbage("collect")
@@ -891,7 +893,7 @@ local function test_sign_leaves_nothing_whenever_an_allocation_fails()
 end
 
 --- The one allocation of the core's own each P-256 binding makes is the
---- string it answers with, made after its key is destroyed, so a refusal
+--- string it returns, made after its key is destroyed, so a refusal
 --- raises and leaves no C memory. mbedtls's key slots and allocations are
 --- its own, which the walk neither refuses nor counts.
 local function test_p256_signing_leaves_nothing_whenever_an_allocation_fails()
@@ -911,7 +913,7 @@ end
 
 --- So with the RSA bindings, from a fixed key: drawing one is too slow
 --- to repeat once for every allocation the walk refuses, and it makes no
---- allocation of the core's own before its answer's string.
+--- allocation of the core's own before the string it returns.
 local function test_rsa_signing_leaves_nothing_whenever_an_allocation_fails()
   local secret = rsa_fixture.FIRST
   collectgarbage("collect")
@@ -927,7 +929,7 @@ local function test_rsa_signing_leaves_nothing_whenever_an_allocation_fails()
 end
 
 --- Each call holds its numbers in one block of the core's own, under a
---- guard: a refusal of the block, of the guard or of the answer's string
+--- guard: a refusal of the block, of the guard or of the returned string
 --- leaves none. The limbs of the functions that take a time depending on
 --- values are mbedtls's own allocations, which the walk neither refuses
 --- nor counts; those of the functions for secrets are the block.
@@ -966,7 +968,7 @@ end
 
 --- Sealing, opening and agreeing on a key hold no C memory of the core's
 --- own, and a key is in the library's slot only between two calls into
---- Lua: a refusal of the scratch userdata or of the answer's string
+--- Lua: a refusal of the scratch userdata or of the returned string
 --- raises with no key imported, and leaves nothing.
 local function test_cipher_leaves_nothing_whenever_an_allocation_fails()
   local key, nonce = string.rep("k", 32), string.rep("n", 12)
@@ -1017,7 +1019,7 @@ local function test_html_leaves_nothing_whenever_an_allocation_fails()
 end
 
 --- `decode` holds a yyjson document and `encode` its output on the C
---- heap; a refusal anywhere, Lua's or theirs, raises or answers nil and
+--- heap; a refusal anywhere, Lua's or theirs, raises or returns nil and
 --- a message, and leaves neither behind.
 local function test_json_leaves_nothing_whenever_an_allocation_fails()
   local text = '{"b": [1, 2.5, "x\\u00e9", true, null], "a": {"c": {}, "d": []}}'
@@ -1048,10 +1050,10 @@ local function test_json_leaves_nothing_whenever_an_allocation_fails()
   assert_c_heap(bytes, blocks, "JSON under refusal")
 end
 
---- A parser holds expat's state and the character data it has not yet
---- answered on the C heap, and appends each event under `lua_pcall`; a
---- refusal anywhere, Lua's, expat's or the text buffer's, raises or
---- answers nil and a message, and leaves nothing behind.
+--- A parser holds expat's state, and the character data it has not yet
+--- put in an event, on the C heap, and appends each event under
+--- `lua_pcall`; a refusal anywhere, Lua's, expat's or the text buffer's,
+--- raises or returns nil and a message, and leaves nothing behind.
 local function test_xml_leaves_nothing_whenever_an_allocation_fails()
   local text = '<!DOCTYPE r [<!ENTITY e "entity">]><r xmlns:x="urn:x" x:k="v">' ..
     string.rep("text &e; ", 40) .. '<!-- c --><?pi data?><x:i a="1"/></r>'
@@ -1069,7 +1071,7 @@ local function test_xml_leaves_nothing_whenever_an_allocation_fails()
 end
 
 --- yyjson refusing its document alone -- which an allocation walk,
---- refusing every allocation after, cannot arrange -- answers "out of
+--- refusing every allocation after, cannot arrange -- fails with "out of
 --- memory", and a JSON Lines record's names its line.
 local function test_json_names_a_record_yyjson_could_not_allocate()
   testing.fail_at("json_malloc")
@@ -1137,7 +1139,7 @@ local exchanges: {Exchange} = {
 }
 
 --- Opens `options`' exchange, reads the body to its end, closes, and
---- answers the body. A response a refusal leaves open is the
+--- returns the body. A response a refusal leaves open is the
 --- collector's to close, as any dropped one is.
 local function exchange(options: Http.Options): string
   local response = assert(Http.open("http://cosmic.test/", options))
@@ -1190,7 +1192,7 @@ local function test_sqlite_exec_result_releases_its_snapshot_under_allocation_fa
   local bytes, blocks = testing.c_heap()
   for _, sql in ipairs({ "SELECT 1", "SELECT * FROM missing" }) do
     local ended = AllocationFixture.under_every_failure(function()
-      local result = db:exec_result(sql)
+      local result = db.connection:exec_result(sql)
       assert(result.cancelled == false)
       assert((result.code == Sqlite.OK) == (sql == "SELECT 1"))
       assert((result.reason == "") == (sql == "SELECT 1"))
@@ -1249,7 +1251,7 @@ local function test_sqlite_existing_only_open_releases_every_refused_allocation(
   assert(sys.lstat(tmp .. "/missing.db") == nil, "a refusal created the missing database")
 end
 
---- Building a full-flush failure answer under allocation refusal must
+--- Building a full-flush failure result under allocation refusal must
 --- not consume the caller's descriptor or leak another one.
 local function test_full_fsync_preserves_its_descriptor_under_allocation_failure(tmp: string)
   local fd = assert(sys.open(tmp .. "/full-flush", sys.O_CREAT | sys.O_RDWR, 420))
@@ -1342,7 +1344,7 @@ local function test_sqlite_captured_operations_release_every_refused_allocation(
     assert(statement:reset())
     assert(statement:bind_integer(1, 0))
     local failed = statement:step_result()
-    assert(failed is Sqlite.ExecResult and failed.code == 1 and failed.reason ~= "")
+    assert(failed is raw_sqlite.ExecResult and failed.code == 1 and failed.reason ~= "")
     statement:finalize()
   end)
   assert(ended > 0)
@@ -1351,7 +1353,7 @@ local function test_sqlite_captured_operations_release_every_refused_allocation(
   assert(db:close())
 end
 
---- The pty pair builds its answer before opening either descriptor.
+--- The pty pair builds its result before opening either descriptor.
 --- Sandboxed workers refuse those devices; unsandboxed checked runs walk
 --- successful acquisition too, and both must leave no descriptor behind.
 local function test_openpty_closes_both_descriptors_whenever_an_allocation_fails(tmp: string)

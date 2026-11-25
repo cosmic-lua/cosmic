@@ -8,7 +8,7 @@
 ---   the file of every module it requires, directly or not, by value
 ---   (a `local type` require of a module is no edge: see `closure`), as
 ---   the build's module graph has them, or the declaration file of one
----   only a declaration answers for;
+---   only a declaration covers;
 --- - every fuzz corpus (`testdata/fuzz/`, where [`build.fuzz`] looks),
 ---   when the closure holds [`build.fuzz`];
 --- - the tree's public guides (`doc/guides/*.md`), for a module that
@@ -178,7 +178,7 @@ local corpora <const> = "testdata/fuzz/"
 --- holds -- a module the binary carries rather than the tree is no file
 --- of it -- as the files they are read from, sorted; and the declaration
 --- file of each it requires that only `declarations`, the tree's
---- declaration files by import path, answers for. Whether [`build.fuzz`]
+--- declaration files by import path, covers. Whether [`build.fuzz`]
 --- is among them rides along, and so do the modules' names, sorted.
 ---
 --- `type_only` names the edges not followed (importer path, then required
@@ -256,7 +256,7 @@ local function closure(m: Module, by_path: {string:Module},
     hold(test_inputs.lua_loads)
   end
   -- A test that reads its store's text may read its tree's documentation, whose public guides are modules no
-  -- module requires: it holds them, so its store answers for them as the built program does, and its key moves
+  -- module requires: it holds them, so its store covers them as the built program does, and its key moves
   -- with an edit to one.
   if declared ~= nil and declared.store_text == true then
     local guides: mut {string} = {}
@@ -278,7 +278,7 @@ end
 
 --- The names of the modules `m`'s import closure holds, sorted: itself,
 --- every module of `by_path` it requires, directly or not, and each it
---- requires that only a declaration of `declarations` answers for --
+--- requires that only a declaration of `declarations` covers --
 --- what a worker lets its tests `require` of the tree.
 function test_inputs.modules(m: Module, by_path: {string:Module},
                              declarations: {string:string},

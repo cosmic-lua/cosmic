@@ -18,7 +18,7 @@ local record alias_members
   end
 
   --- Where the rule finds the rows it follows a declaration through.
-  --- Each answers nil and why only when its rows cannot be read; a nil beside an empty reason is none.
+  --- Each returns nil and why only when its rows cannot be read; nil beside an empty reason is none.
   record Source<T>
     --- The first record, interface, enum or `type X = Y` of `module`
     --- that its source spells `name`, or nil for none.

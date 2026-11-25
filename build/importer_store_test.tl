@@ -199,7 +199,7 @@ end
 
 --- Concrete checker families point at checked language examples. These are
 --- real project compiles, so the original position and diagnostic remain in
---- the output beside the hint. That every query advertised is answered by
+--- the output beside the hint. That every query advertised is found in
 --- the tree's docs is held by `cosmic fix --check .` ([`build.tree_checks`]).
 local function test_language_errors_name_relevant_checked_docs()
   local record Case

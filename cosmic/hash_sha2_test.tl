@@ -5,9 +5,10 @@
 --- them (x86 SHA-NI, Armv8 SHA2) and on the portable code elsewhere, and
 --- a wrong round, schedule word or state shuffle in one path changes
 --- every digest it makes: the vectors and the independent Lua SHA-256
---- below hold both paths to the same answers. The processor features
---- [`sys.cpu_features`] answers key the verdict (build/declared_key.tl), so
---- each kind of processor runs this on its own path.
+--- below hold both paths to the same results. The verdict is keyed by
+--- the processor features [`sys.cpu_features`] returns
+--- (build/declared_key.tl), so each kind of processor runs this on its
+--- own path.
 
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")

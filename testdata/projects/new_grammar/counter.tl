@@ -7,7 +7,7 @@ local class Counter
   --- The words, in the order they came.
   seen: mut {string}
 
-  --- Counts `word` and answers how many have been counted.
+  --- Counts `word` and returns how many have been counted.
   function add(self, word: string): integer
     self.count = self.count + 1
     table.insert(self.seen, word)

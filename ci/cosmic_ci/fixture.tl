@@ -218,7 +218,7 @@ function Fixture.count_occurrences(text: string, needle: string): integer
 end
 
 --- Unpacks the tar at `tar` into `destination`, which must not exist
---- yet, and answers it: a copy the fixture may write in, of files the
+--- yet, and returns it: a copy the fixture may write in, of files the
 --- runtime setup packed (cosmic_ci/runtime_setup.tl's `pack`).
 function Fixture.unpack(tar: string, destination: string): string
   assert(not assert(Fs.status(destination)).exists, "unpack destination already exists: " .. destination)
@@ -268,10 +268,10 @@ end
 --- locates them. `scratch` is a path to write the database at first.
 function Fixture.synthetic(scratch: string, built_from: string?, boot?: string): string
   local db = assert(Sqlite.open(scratch, { writable = true }))
-  assert(Sqlite.run(db, "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT) WITHOUT ROWID"))
-  assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES ('boot_hash', ?1)", { { text = boot or "kept" } }))
+  assert(db:run("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT) WITHOUT ROWID"))
+  assert(db:run("INSERT INTO meta (key, value) VALUES ('boot_hash', ?1)", { { text = boot or "kept" } }))
   if built_from ~= nil then
-    assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES ('built_from', ?1)", { { text = built_from } }))
+    assert(db:run("INSERT INTO meta (key, value) VALUES ('built_from', ?1)", { { text = built_from } }))
   end
   assert(db:close())
   local head = "the launcher and the manifest"

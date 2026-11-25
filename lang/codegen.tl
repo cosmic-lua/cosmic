@@ -5,7 +5,7 @@
 --- same indent, the same `; ` between statements on a line, a trailing `,` in a table that spans lines,
 --- `type(x) == "string"` for `x is string`. A node is placed at the line of its operator token for a binary operator, a
 --- field, an index, a call and a test, and of its first token for the rest. No comment and no type is written.
---- A `;` that ends a statement is not in the grammar and is not written, except where the next
+--- A `;` that ends a statement is no node of the tree and is not written, except where the next
 --- statement begins a line with `(`, which would otherwise continue it.
 ---
 --- Where a plain respelling would not be Lua, or not what the program means, this writes what it means:

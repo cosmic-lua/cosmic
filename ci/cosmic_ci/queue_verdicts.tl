@@ -167,7 +167,7 @@ end
 
 --- The texts of column 1 of `sql`'s rows on `db`, nil and why.
 local function column(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): {string}?, string
-  local rows, trouble = Sqlite.text_rows(db, sql, values)
+  local rows, trouble = db:text_rows(sql, values)
   if rows == nil then return nil, tostring(trouble) end
   local out: mut {string} = {}
   for _, row in ipairs(rows) do out[#out + 1] = row:text(1) end
@@ -184,12 +184,12 @@ local function merged(into: string, from: string): integer?, string
   local db, opened = Sqlite.open(into, { writable = true })
   if db == nil then return nil, tostring(opened) end
   local function steps(): integer?, string
-    local attached, trouble = Sqlite.run(db, "ATTACH DATABASE ?1 AS queue", { { text = from } })
+    local attached, trouble = db:run("ATTACH DATABASE ?1 AS queue", { { text = from } })
     if not attached then return nil, tostring(trouble) end
     local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
     if not begun then return nil, tostring(begin_trouble) end
     local function within(): integer?, string
-      local made, made_trouble = Sqlite.text_rows(db, "SELECT name, sql FROM queue.sqlite_schema " ..
+      local made, made_trouble = db:text_rows("SELECT name, sql FROM queue.sqlite_schema " ..
           "WHERE type IN ('table', 'index') AND sql IS NOT NULL AND name NOT LIKE 'sqlite_%' " ..
           "AND name NOT IN (SELECT name FROM main.sqlite_schema) ORDER BY type = 'index', name")
       if made == nil then return nil, tostring(made_trouble) end
@@ -215,7 +215,7 @@ local function merged(into: string, from: string): integer?, string
           local names: mut {string} = {}
           for i, each in ipairs(shared) do names[i] = quoted(each) end
           local list = table.concat(names, ", ")
-          local ok, why = Sqlite.run(db, "INSERT OR REPLACE INTO main." .. quoted(name) .. " (" .. list ..
+          local ok, why = db:run("INSERT OR REPLACE INTO main." .. quoted(name) .. " (" .. list ..
               ") SELECT " .. list .. " FROM queue." .. quoted(name))
           if not ok then return nil, "taking " .. name .. ": " .. tostring(why) end
           local counted, count_trouble = column(db, "SELECT changes()")
@@ -243,7 +243,8 @@ end
 --- Merges each `.db` file in `from` into the file of the same name in
 --- `into` (`merged`), and puts a copy where `into` has none. A file that
 --- cannot be merged is left as it was and said: the suites run what it
---- would have answered. 2 where a directory is not absolute, else 0.
+--- would have held verdicts for. 2 where a directory is not absolute,
+--- else 0.
 function QueueVerdicts.merge(from: string, into: string): QueueVerdicts.Said
   if from:sub(1, 1) ~= "/" or into:sub(1, 1) ~= "/" or from:find("\0", 1, true) ~= nil or
       into:find("\0", 1, true) ~= nil then

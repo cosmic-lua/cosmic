@@ -1,6 +1,6 @@
 --- The table of what a test may require of its host (build.host_requires):
 --- how a name is read and refused, what class each has, and what a probe
---- of this host answers.
+--- of this host finds.
 
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
@@ -20,7 +20,7 @@ local function host_with(answer: host_requires.Sandbox, path?: string, system?: 
     path = path, system = given, host_only = host_only })
 end
 
---- The one answer for `name` of `host`.
+--- The one result for `name` of `host`.
 local function ask(host: host_requires.Host, name: string): host_requires.Answer
   local answers = host_requires.answer(host, { name })
   assert(#answers == 1)
@@ -75,8 +75,8 @@ end
 
 --- Where workers run sandboxed each has a loopback of its own, so
 --- `loopback` is present (`worker`) without the direct probe of this
---- process answering present -- or being asked at all; false and nil
---- keep the direct probe's answer.
+--- process saying present -- or being asked at all; false and nil
+--- keep the direct probe's result.
 local function test_loopback_answers_from_sandboxed_workers_without_the_direct_probe()
   local calls: mut {integer} = { 0 }
   local refused_probe = function(): boolean, string
@@ -101,7 +101,7 @@ local function test_loopback_answers_from_sandboxed_workers_without_the_direct_p
   end, "probe failed")
 end
 
---- The real probe of this host answers present or skipped, never n/a:
+--- The real probe of this host gives present or skipped, never n/a:
 --- loopback is every platform's to have or lack.
 local function test_the_hosts_loopback_answers_present_or_skipped()
   local answer = ask(host_requires.new(), "loopback")
@@ -187,7 +187,7 @@ local function test_a_bad_name_is_refused_naming_the_rule()
 end
 
 --- A refused name is refused whatever the host and the platform, and
---- answers beside the others rather than ending the list.
+--- its outcome stands beside the others rather than ending the list.
 local function test_a_refused_name_answers_beside_the_others()
   local answers = host_requires.answer(host_requires.new(), { "bogus", "root", "path:rel" })
   assert(#answers == 3)
@@ -246,7 +246,7 @@ local function test_present_has_a_key_and_absent_a_reason()
   end
 end
 
---- The sandbox probe answers `sandbox` on Linux: an ok is present, a
+--- The sandbox probe settles `sandbox` on Linux: an ok is present, a
 --- refusal skipped, and a defect or a missing probe raises, never passes.
 local function test_sandbox_follows_the_runners_probe()
   if not (assert(sys.uname()).sysname == "Linux") then Test.skip("only Linux has this probe") end
@@ -397,7 +397,7 @@ local function test_a_script_is_keyed_with_its_interpreter(tmp: string)
   assert(changed.key ~= through_env.key, "the program env runs is keyed")
 end
 
---- Each answer carries its class.
+--- Each result carries its class.
 local function test_an_answer_carries_its_class()
   local answers = host_requires.answer(host_requires.new(), { "root", "proc", "bogus" })
   assert(support.nth(answers, 1).class == "host" and support.nth(answers, 2).class == "platform" and support.nth(answers, 3).class == "host")
@@ -568,7 +568,7 @@ local function test_all_cores_follows_the_cores_the_tool_carries()
   assert(only.why:find("-Dboot-cores=all", 1, true) ~= nil, only.why)
 end
 
---- `pinned_zig` answers what the runner's probe of the zig answers: its key where a worker can start the zig, a skip
+--- `pinned_zig` gives what the runner's probe of the zig gives: its key where a worker can start the zig, a skip
 --- with the probe's reason where not, on every platform (never n/a: a check of the C runs everywhere), and a raise
 --- where the runner hands no probe in, never a present that would fail every check.
 local function test_pinned_zig_follows_the_runners_probe_of_the_zig()

@@ -17,7 +17,7 @@
  * inherit that pointer. The userdata itself stays rooted in the registry.
  *
  * Pushes the collector's table onto the stack. Its members, and what
- * each answers, are cosmic/internal/debug.d.tl's, which
+ * each returns, are cosmic/internal/debug.d.tl's, which
  * core/declarations_test.tl holds to what this registers. A C
  * function's lines are how a test is seen to reach it, in a core built
  * with COSMIC_NATIVE_COVERAGE. Registered as the raw value behind

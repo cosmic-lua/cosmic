@@ -99,7 +99,7 @@ local function test_a_row_one_checkout_wrote_stands_in_another_of_the_same_code(
   for _, db in ipairs({ first, second, third, other, back }) do assert(db:close()) end
 end
 
---- A row a checkout answers from its own memo is not written to the shared file: the tool that made it may have been
+--- A row a checkout takes from its own memo is not written to the shared file: the tool that made it may have been
 --- of other code than the one the file would hold it under. A row it took from the file is, and stays there.
 local function test_a_row_answered_by_the_checkouts_own_memo_is_not_shared(tmp: string)
   local own = assert(Sqlite.memory())
@@ -177,7 +177,7 @@ local function test_rows_are_shared_in_the_cache_directory(tmp: string)
 end
 
 --- A shared file that cannot be opened, or is not this user's alone to write, or is a link, is done without: the
---- checkout's own memo answers as it did.
+--- checkout's own memo works as it did.
 local function test_a_shared_file_that_cannot_be_trusted_is_done_without(tmp: string)
   local opened, why = check_memo.share(tmp .. "/none/checks.db", { code = "a" })
   assert(not opened and why ~= "", "a file in no directory was opened")

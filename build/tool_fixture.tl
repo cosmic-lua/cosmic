@@ -17,7 +17,7 @@ local record tool_fixture
 end
 
 --- Runs `cosmic <words>` in `dir`, feeding it `input` when given, and
---- answers how it ended. A child a signal ended has no code: -1 is none a
+--- returns how it ended. A child a signal ended has no code: -1 is none a
 --- test expects.
 --- @param dir the directory it starts in
 --- @param words its command line after the program

@@ -102,7 +102,7 @@ say("free", reads(%q))
   -- Its checks passed and its limit was planned, so what holds a process was
   -- asked: a ruleset refuses the grant of a path that is not there, and a
   -- kernel with no Landlock refuses the restriction itself. The child's
-  -- answer is this process's, whose filter it inherits.
+  -- result is this process's, whose filter it inherits.
   local missing = assert(said.lines["missing"])
   local abi, _ = confine.landlock_abi()
   if abi ~= nil then

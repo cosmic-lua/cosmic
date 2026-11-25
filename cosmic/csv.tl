@@ -108,7 +108,7 @@ local record Csv
 
   --- A record `records` read: its fields and the line it began on.
   record Record
-    --- The record's fields, all strings, as `parse` answers them.
+    --- The record's fields, all strings, as `parse` returns them.
     fields: {string}
     --- The line of the text the record began on, from 1.
     line: integer
@@ -170,9 +170,9 @@ local Array = require("cosmic.array")
 local Failure = require("cosmic.failure")
 local Sqlite = require("cosmic.sqlite")
 
---- What a failure of this module answers: nil and a [`Failure`] under
---- the module's name, at `line` (and `column`) of the text when given,
---- about `path` when one is.
+--- What a function returns for a failure of this module: nil and a
+--- [`Failure`] under the module's name, at `line` (and `column`) of the
+--- text when given, about `path` when one is.
 local function refuse(why: string, line?: integer, column?: integer, path?: string): nil, Failure
   if line ~= nil then return nil, Failure.at("csv: " .. why, line, column, path) end
   return nil, Failure.new("csv: " .. why, path)
@@ -518,7 +518,7 @@ local literal, identifier = Sqlite.literal, Sqlite.identifier
 --- An SQL expression for `column`'s cell, typed as `cosmic sql --from`
 --- types a CSV's cells (build/dataset.tl): NULL when empty, an INTEGER or
 --- REAL when it is plainly a number, and its text otherwise. `toreal`
---- answers NULL for a number that underflows, which `--from` reads as
+--- returns NULL for a number that underflows, which `--from` reads as
 --- 0.0, or overflows, which it keeps as text; adding 0.0 makes -0.0 the
 --- 0.0 it reads.
 local function typed(column: string): string
@@ -544,7 +544,7 @@ local counts: integer = 0
 --- `cosmic sql --from` types one: NULL when empty, an INTEGER or REAL when
 --- plainly a number (`-`, digits with no leading zero, an optional
 --- fraction and exponent), and TEXT otherwise; with `source.raw` every
---- cell is the text `table` reads. Answers what it made, or nil and why:
+--- cell is the text `table` reads. Returns what it made, or nil and why:
 --- for what `table` refuses, a table `name` the main schema already
 --- holds, a file SQLite cannot open or read, a NUL byte, CSV with no
 --- header, or a header wider than SQLite's 2000 columns. Nothing is left
@@ -684,7 +684,7 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): (Csv
     end)
     local members: mut {string} = {}
     for _, index in ipairs(order) do
-      -- [`Csv.column_names`] answers one name for each of its entries, so
+      -- [`Csv.column_names`] returns one name for each of its entries, so
       -- `names` is as long as `keys`.
       members[#members + 1] = literal(Array.at(keys, index)) .. ", " .. identifier(Array.at(names, index))
     end

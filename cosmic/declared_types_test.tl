@@ -1,5 +1,5 @@
 --- The declarations of the standard library tell the truth about nil: a
---- function declared to answer a value may answer nil only where its type
+--- function declared to return a value may return nil only where its type
 --- says so, a record field absent where the field is optional, and a
 --- parameter a caller may leave out is optional. Each test drives the
 --- paths where a value may be nil and asks a checked run
@@ -29,9 +29,9 @@ local function honest(what: string, fn: function())
 end
 
 --- A reader of text that is not valid RFC 3339, HTTP date or POSIX TZ in
---- each way the readers name: a position they stop at answers no value
---- but a reason, and the readers' helpers answer a number or text every
---- time.
+--- each way the readers name: at a position they stop at they return no
+--- value but a reason, and the readers' helpers return a number or text
+--- every time.
 local function test_the_time_readers_answer_what_they_declare(tmp: string)
   honest("time", function()
     for _, text in ipairs({
@@ -181,7 +181,7 @@ local function test_sqlite_runs_without_values_as_declared(tmp: string)
     assert(db:run("insert into t values (3)"))
     local query = assert(db:query("select a from t"))
     local count = 0
-    -- (Not `each`, whose iterator answers nil at the end: see the TODO
+    -- (Not `each`, whose iterator returns nil at the end: see the TODO
     -- in cosmic/sqlite.tl.)
     while query:read() ~= nil do count = count + 1 end
     assert(count == 3 and query:failure() == nil)

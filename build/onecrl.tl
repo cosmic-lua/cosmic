@@ -55,7 +55,7 @@ local function kind_of(value: any): string
   return type(value)
 end
 
---- The string `change` holds under `name`, or nil where it holds none; the second answer is why it holds another kind of
+--- The string `change` holds under `name`, or nil where it holds none; the second result is why it holds another kind of
 --- value, where it does (a field the feed may omit, not mistype).
 local function text_field(change: {string: Json.Value}, name: string, at: integer): string?, string
   local value = change[name]

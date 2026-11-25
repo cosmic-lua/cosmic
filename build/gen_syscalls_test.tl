@@ -52,7 +52,7 @@ local function docs(): {string: analyzer.DocEntry}
   return by_symbol
 end
 
---- `cosmic docs` answers a call with the header's own prose -- every
+--- `cosmic docs` shows a call with the header's own prose -- every
 --- line of it, then what each parameter and result is -- rather than
 --- a bare signature.
 local function test_a_call_carries_its_prose()

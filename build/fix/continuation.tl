@@ -21,7 +21,7 @@
 --- The roles of [`build.fix.roles`] and the tree decide what an entry is; a line break the source did not have is
 --- never added.
 ---
---- A [`Continuation.Cursor`] follows the tokens in the order they are written and answers the column a line beginning
+--- A [`Continuation.Cursor`] follows the tokens in the order they are written and tells the column a line beginning
 --- with a token takes, from what was written before. It also records how far each token moved from the column it
 --- was written at, which a comment that keeps its column moves by.
 local Ast = require("lang.ast")
@@ -248,7 +248,9 @@ function Continuation.of(chunk: Ast.Chunk): Continuation.Plan
         bare[i] = true
       end
     end
-    if (kind == "Call" or kind == "MethodCall") and kids[2] ~= nil then
+    -- The `assert` of `e!` holds no token (an empty range before `e`), and its argument is no sugar.
+    local must = kind == "Call" and head ~= nil and head.last < head.first
+    if (kind == "Call" or kind == "MethodCall") and kids[2] ~= nil and not must then
       local callee_end = (head or base).last + (if kind == "Call" then 1 else 3 end)
       if not spells(callee_end, "(") then
         sugar[callee_end] = true

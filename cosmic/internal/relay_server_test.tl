@@ -16,7 +16,7 @@ Test.policy{ loopback = { "127.0.0.1" } }
 -- writes.
 
 --- The addresses a name resolves to in the test's hosts file: loopback
---- (which only a literal grant opens), and a name whose answers mix a
+--- (which only a literal grant opens), and a name whose addresses mix a
 --- private address with two public ones, which the `connect` below maps to
 --- a server of the test's.
 local HOSTS <const> = table.concat({
@@ -96,7 +96,7 @@ local function echo(conn: Net.Conn, seen: Origin)
   end
 end
 
---- Reads to the end of what the client sends, then answers "after-eof".
+--- Reads to the end of what the client sends, then writes "after-eof".
 local function answers_after_eof(conn: Net.Conn, seen: Origin)
   drain(conn, seen)
   local _, _ = conn:write("after-eof")
@@ -128,7 +128,7 @@ local record Options
   tls_ports?: {integer}
   connect?: Relay.Connect
   resolve?: Net.ResolveOptions
-  --- Address of a name's answer, to the port of the server it stands for.
+  --- By an address a name resolves to, the port of the server it stands for.
   redirect?: {string: integer}
   own_addresses?: {string}
   token?: string
@@ -493,7 +493,7 @@ local function test_a_name_whose_first_address_fails_connects_to_the_next(tmp: s
       assert(conn:write("second"))
       assert(Fixture.read_exact(conn, 6) == "second")
       assert(#asked == 2 and asked[1] ~= asked[2], table.concat(asked, ","))
-      -- Only the public answers are candidates: the private one is never tried.
+      -- Only the public addresses are candidates: the private one is never tried.
       assert(not contains(asked, "10.1.2.3"), table.concat(asked, ","))
       local second_asked = assert(asked[2], "expected two addresses asked")
       assert(#lines_with(rig, "allowed via " .. second_asked .. ":" .. tostring(port)) == 1, table.concat(rig.log, "\n"))
@@ -536,7 +536,7 @@ local function test_the_connect_timeout_bounds_every_address_together(tmp: strin
       connect = function(address: string, _port: integer, timeout_ns: integer): Net.Conn?, string
         asked[#asked + 1] = address
         given[#given + 1] = timeout_ns
-        -- A host that never answers: the attempt lasts what it is given.
+        -- A host that never accepts: the attempt lasts what it is given.
         assert(Clock.sleep(timeout_ns))
         return nil, Poll.TIMEOUT
       end })
@@ -586,7 +586,7 @@ end
 
 local function test_a_lookup_that_is_not_answered_times_out(tmp: string)
   Poll.run(function()
-    -- A socket nothing reads: the query is sent and never answered.
+    -- A socket nothing reads: the query is sent and never gets a reply.
     local silent = assert(Udp.bind("127.0.0.1", 0))
     local silent_port = silent.address.port
     assert(silent_port, "the socket is bound")
@@ -604,7 +604,7 @@ local function test_a_lookup_that_is_not_answered_times_out(tmp: string)
   end)
 end
 
---- A lookup nobody answers holds up its own connection alone: a tunnel
+--- A lookup that gets no reply holds up its own connection alone: a tunnel
 --- to a literal address is opened and carries bytes meanwhile, and the
 --- relay stops without waiting for the lookup's time.
 local function test_a_lookup_that_is_not_answered_stalls_only_its_own_connection(tmp: string)
@@ -622,7 +622,7 @@ local function test_a_lookup_that_is_not_answered_stalls_only_its_own_connection
     local waiting = Poll.spawn(function()
       local conn = dial(rig.http)
       assert(conn:write(Fixture.connect("slow.test:80")))
-      -- Answered, or ended by the relay's stop.
+      -- The relay replies, or its stop ends the connection.
       local _, _ = conn:read(1)
       slow_answered = true
       local _, _ = conn:close()
@@ -648,7 +648,7 @@ local function test_a_lookup_that_is_not_answered_stalls_only_its_own_connection
 end
 
 --- The lookup's own deadline still ends it, with the 504 that says so,
---- while another connection's lookup is answered at once.
+--- while another connection's lookup gets its reply at once.
 local function test_a_lookup_out_of_time_is_refused_while_another_is_answered(tmp: string)
   Poll.run(function()
     local silent = assert(Udp.bind("127.0.0.1", 0))
@@ -665,7 +665,7 @@ local function test_a_lookup_out_of_time_is_refused_while_another_is_answered(tm
       head = answer
       local _, _ = conn:close()
     end)
-    -- A name the hosts file answers needs no server.
+    -- A name the hosts file resolves needs no server.
     local conn, answer = connect_to(rig, "svc.test:" .. tostring(port))
     assert(status_line(answer):find("^HTTP/1.1 200 "), answer)
     assert(conn:write("hosts"))
@@ -987,7 +987,7 @@ local function test_each_side_ending_what_it_sends_is_passed_on(tmp: string)
     local seen = origin(answers_after_eof)
     local greeter = origin(greets_then_half_closes)
     local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(seen.port), "127.0.0.1:" .. tostring(greeter.port) } })
-    -- The program ends first: the server sees the end, and can still answer.
+    -- The program ends first: the server sees the end, and can still reply.
     local conn = connect_to(rig, "127.0.0.1:" .. tostring(seen.port))
     assert(conn:write("ping"))
     assert(conn:shutdown("write"))
@@ -1129,7 +1129,7 @@ local function test_a_request_head_past_the_cap_is_refused_saying_so(tmp: string
 end
 
 --- A server that is a CONNECT proxy: it notes the request it is sent,
---- answers with `status`, and for a 200 serves the tunnel by echoing.
+--- replies with `status`, and for a 200 serves the tunnel by echoing.
 local record Proxy
   mut head: string
   server: Origin
@@ -1206,7 +1206,7 @@ local function test_a_connect_goes_through_the_upstream_proxy_which_resolves(tmp
   end)
 end
 
---- Reads one request head, then answers `ok` and closes, as an origin that is asked to close does.
+--- Reads one request head, then replies `ok` and closes, as an origin that is asked to close does.
 local function answers_once(conn: Net.Conn, seen: Origin)
   while not seen.received:find("\r\n\r\n", 1, true) do
     local data, _ = conn:read()
@@ -1254,7 +1254,7 @@ local function test_a_plain_request_goes_through_the_upstream_proxy_as_a_connect
     local conn = dial(rig.http)
     assert(conn:write("GET http://api.test/ HTTP/1.1\r\n\r\n"))
     local want = "GET / HTTP/1.1\r\nHost: api.test\r\nConnection: close\r\n\r\n"
-    -- The upstream echoes, which is no HTTP response: the relay passes the head on, and ends the answer.
+    -- The upstream echoes, which is no HTTP response: the relay passes the head on, and ends the reply.
     until_it(function(): boolean return through.server.received == want end)
     assert(read_all(conn) == "")
     assert(through.head:find("^CONNECT api.test:80 HTTP/1.1\r\nHost: api.test:80\r\n\r\n"), through.head)
@@ -1517,7 +1517,7 @@ local function basic(user: string, password: string): string
   return "Proxy-Authorization: Basic " .. Codec.base64(user .. ":" .. password)
 end
 
---- A SOCKS5 greeting offering `methods`, and the method answer.
+--- Sends a SOCKS5 greeting offering `methods`; returns the method reply.
 local function socks_greet(conn: Net.Conn, methods: string): string
   assert(conn:write("\5" .. string.char(#methods) .. methods))
   return Fixture.read_exact(conn, 2)

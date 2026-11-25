@@ -673,7 +673,7 @@ end
 
 local HEAD <const> = "{{type T from m.t}}\n"
 
---- The start tags a browser's tree builder answers with a tokenizer state
+--- The start tags a browser's tree builder handles with a tokenizer state
 --- of its own (or, in foreign content, other rules), which the test data
 --- does not model: the input after one is not held to the tokenizer's.
 local SWITCHING <const>: {string} = {
@@ -815,7 +815,7 @@ local record Suite tests?: {Case} end
 
 local SUITE <const> = Shape.record_of("Suite")
 
---- Part `at` of the token `item`, which [`Json.get`] answers nil for where it holds `null`.
+--- Part `at` of the token `item`, which [`Json.get`] returns nil for where it holds `null`.
 local function part(item: any, at: integer): Json.Value?
   local value, _ = Json.get(item, { at })
   return value

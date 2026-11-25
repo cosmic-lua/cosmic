@@ -4,7 +4,7 @@
 --- summary and the listing of the `cosmic test` that ran them. A module
 --- whose requirement is absent is never loaded, is keyed by none and keeps no
 --- verdict; one whose requirements are present runs under a key that holds
---- what the host answered. Each run here is unsandboxed
+--- what the host reported. Each run here is unsandboxed
 --- (COSMIC_TEST_SANDBOX=0), so it means the same on every host, and a
 --- held run (COSMIC_SANDBOX=must, COSMIC_CI_REQUIRE_SANDBOX=1) fails only
 --- for an absence its leg promised (COSMIC_TEST_PROMISES).
@@ -61,7 +61,7 @@ local function run(root: string, extra?: {string:string}): string, integer
 end
 
 --- A present requirement lets the module run, under a key that holds the
---- answer: the file's bytes moving runs the tests again, and the same bytes
+--- result: the file's bytes moving runs the tests again, and the same bytes
 --- stand.
 local function test_a_present_requirement_runs_and_its_answer_keys_the_verdict(tmp: string)
   local root = project(tmp)
@@ -224,7 +224,7 @@ end
 --- A module that declares loopback addresses requires `loopback` without
 --- writing it: where the host refuses loopback its tests are skipped
 --- naming the requirement and the module is never loaded; where the host
---- permits it the tests run. This host's answer decides which is checked.
+--- permits it the tests run. This host's result decides which is checked.
 local function test_loopback_is_required_by_declaring_loopback_addresses(tmp: string)
   local root = project(tmp)
   assert(Fs.write(root .. "/net_test.tl", [[

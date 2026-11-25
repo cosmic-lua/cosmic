@@ -103,7 +103,7 @@ local record Event
 end
 local EVENT <const> = Shape.record_of("Event")
 
---- What `follow` reads of a `.../actions/runs` answer.
+--- What `follow` reads of a `.../actions/runs` response.
 local record RunRepository
   full_name: string
 end
@@ -283,7 +283,7 @@ function Requeue.context(env: {string:string}): Requeue.Context
     started = need("STARTED"),
     bot = need("BOT"),
     sleep = function(seconds: integer)
-      local _, _ = Clock.sleep_ns(Clock.seconds(seconds))
+      local _, _ = Clock.sleep(Clock.seconds(seconds))
     end,
   }
 end

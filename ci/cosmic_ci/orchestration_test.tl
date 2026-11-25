@@ -29,7 +29,7 @@ Test.policy{
 }
 
 --- One case of a test that runs the driver over a fixture: a named
---- scenario and what it is to answer, one record for each test that
+--- scenario and its expected outcome, one record for each test that
 --- tables them.
 local record SandboxCase
   name: string
@@ -85,7 +85,7 @@ local record ChecksCase
   env?: {string:string}
 end
 
---- [`cosmic_ci.orchestration.suite_run`], its answer as two values.
+--- [`cosmic_ci.orchestration.suite_run`], what it returns as two values.
 local function suite_run(extra?: {string:string}): {string}, {string:string}
   local Orchestration = require("cosmic_ci.orchestration")
   local run = Orchestration.suite_run(extra)
@@ -677,7 +677,7 @@ local function test_the_self_rebuild_seed_copies_the_legs_compiles(tmp: string)
   end
   local function seeded_from(path: string): string
     local db = assert(Sqlite.open(path))
-    local rows = assert(Sqlite.text_rows(db, "SELECT key FROM compiles"))
+    local rows = assert(db:text_rows("SELECT key FROM compiles"))
     assert(db:close())
     assert(#rows == 1, path .. ": " .. tostring(#rows) .. " rows")
     return assert(rows[1]):text(1)
@@ -1027,9 +1027,9 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
         "'entry 1 1 1 0 16384 1 " .. string.rep("1", 64) .. " 1 " .. string.rep("1", 64) .. "' " ..
         "'entry 1 2 1 0 16384 " .. tostring(#core) .. " " .. digest .. " " .. tostring(#core) .. " " ..
         digest .. "'\n", 493)
-    -- The checked artifact: a script that answers each run as the tool
-    -- would, `tool.tl entry` with `checked`, its core at the first
-    -- aligned offset past it. Its `-e` answers only a chunk that prints
+    -- The checked artifact: a script that prints for each run what the
+    -- tool would print, `tool.tl entry` with `checked`, its core at the
+    -- first aligned offset past it. Its `-e` accepts only a chunk that prints
     -- the three keys, in order.
     local script = "#!/bin/sh\nprintf '%s\\n' \"$1\" >> \"$0.ran\"\n" ..
       "if [ \"$1\" = -e ]; then case \"$2\" in " ..
@@ -1184,7 +1184,7 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
     assert(Fs.write(fake .. "/ci/testdata/portable/work_db_integrity.tl", "\n"))
     -- bin/zig's boot leaves a cosmic whose suite says its figures, and
-    -- which answers the integrity check.
+    -- which passes the integrity check.
     Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nmkdir -p o/bin\nprintf db > o/build.db\n" ..
         "cat > o/bin/cosmic <<'EOF'\n#!/bin/sh\n" ..
         "if [ \"$1 $2\" = \"test --census\" ]; then printf '%s\\n' " ..
@@ -1204,7 +1204,7 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
     assert(outcome.result.ok, case.name .. ": the build phase failed: " .. err)
     local db = assert(Sqlite.open(database))
     if case.broken then
-      local count = assert(Sqlite.text_rows(db, "SELECT COUNT(*) FROM suite_runs"))
+      local count = assert(db:text_rows("SELECT COUNT(*) FROM suite_runs"))
       assert(assert(count[1]):text(1) == "0", case.name .. ": " .. assert(count[1]):text(1) .. " rows")
       assert(err:find("local suite: row not recorded", 1, true), err)
     else
@@ -1217,7 +1217,7 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
       local parts = assert(row.parts)
       assert(parts["runtime"] == "04" and parts["harness"] == "06")
     end
-    local phases = assert(Sqlite.text_rows(db, "SELECT phase, status FROM operation_events " ..
+    local phases = assert(db:text_rows("SELECT phase, status FROM operation_events " ..
         "WHERE event = 'complete' AND phase IN ('local suite', 'platform: build') ORDER BY id"))
     assert(#phases == 2 and assert(phases[1]):text(2) == "success" and assert(phases[2]):text(2) == "success",
       case.name .. ": the phases did not succeed")
@@ -1245,7 +1245,7 @@ end
 --- legs, `checked`, and the whole suite on a checked run in another,
 --- `narrowing`. Each runs the phases that build what it reads: run after a
 --- leg's own suites, the suite would make that leg the run's longest. The
---- format check, which answers the same on every leg, runs on one,
+--- format check, which gives the same verdict on every leg, runs on one,
 --- linux-x86_64, in a step of its own (COSMIC_CI_FORMAT=run there alone),
 --- and every leg's assemble skips it.
 local function test_the_checked_suite_runs_in_jobs_of_its_own_and_the_format_check_on_one_leg()
@@ -1278,8 +1278,8 @@ local function test_the_checked_suite_runs_in_jobs_of_its_own_and_the_format_che
       if run ~= nil then phase = run:match("driver%.tl platform ([%w-]+)$") end
       if phase ~= nil then phases[#phases + 1] = phase end
       if phase == "performance-checked" then
-        -- Every run, once: in the queue's first share of the checked suite, which runs in two.
-        assert(step["if"] == nil or step["if"] == "matrix.shard != '2/2'",
+        -- Every run, once: in the queue's third share of the checked suite, which runs in three.
+        assert(step["if"] == nil or step["if"] == "matrix.performance == 'run'",
           "the performance fixture runs on some runs alone: " .. tostring(step["if"]))
       end
     end
@@ -2097,7 +2097,7 @@ end
 local function pid_of(path: string): integer
   local waited = Clock.monotonic_ns()
   while not assert(Fs.status(path)).exists and Clock.monotonic_ns() - waited < lane_hang_guard do
-    Clock.sleep_ns(Clock.ms(10))
+    assert(Clock.sleep(Clock.ms(10)))
   end
   return assert(math.tointeger(tonumber((assert(Fs.read(path)):gsub("%s", "")))))
 end
@@ -2236,4 +2236,14 @@ local function test_the_format_check_lays_out_only_the_paths_changed(tmp: string
     assert(ran == case["ran"], assert(case["name"]) .. ": the check ran " .. tostring(ran))
     assert(assert(Fs.read(fake .. "/o/bin/cosmic.ci")) == "fix --check", assert(case["name"]) .. ": ci/ was not checked as its own project")
   end
+end
+
+--- A suite stops starting tests its margin before the driver would end
+--- it (COSMIC_TEST_DEADLINE), so a suite that runs out of time keeps the
+--- verdicts it reached; what else its environment holds stays.
+local function test_a_suite_stops_starting_tests_before_its_bound()
+  local Orchestration = require("cosmic_ci.orchestration")
+  local env = Orchestration.deadlined({ COSMIC_TEST_TIMEOUT = "10" }, Clock.seconds(720), Clock.seconds(210))
+  assert(env["COSMIC_TEST_DEADLINE"] == "510" and env["COSMIC_TEST_TIMEOUT"] == "10",
+    tostring(env["COSMIC_TEST_DEADLINE"]))
 end

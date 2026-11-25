@@ -12,7 +12,7 @@
 --- A fix repeated word for word in one file (the same advice for several unused functions) is printed on the first line
 --- that has it, with how many more lines it holds for, and those lines carry the message and the code alone.
 ---
---- A name the checker could not resolve is followed by what `cosmic docs` answers for it (`-- see also in docs:
+--- A name the checker could not resolve is followed by what `cosmic docs` finds for it (`-- see also in docs:
 --- cosmic.fs`), and a call, a value a parameter's type refused (`not_assignable`) or a field the checker refused by the
 --- worked example that teaches the form (`-- see also: cosmic docs records_interfaces_methods`), when the databases the
 --- caller hands over hold them.
@@ -47,7 +47,7 @@ local record ErrorRender
   line: function(file: string, problem: Driver.Problem): string
 
   --- What `hints` points a reader of `problem` to, to append to its line: ` -- see also in docs: <names>` for a name the
-  --- checker could not resolve that `cosmic docs` answers, ` -- see also: cosmic docs <example>` for a call, a value a
+  --- checker could not resolve that `cosmic docs` finds, ` -- see also: cosmic docs <example>` for a call, a value a
   --- parameter's type refused (`not_assignable`) or a field it refused that a worked example teaches; "" for any other problem.
   pointers: function(result: Driver.Outcome, problem: Driver.Problem, hints: Hints): string
 
@@ -100,7 +100,7 @@ local function unresolved_name(result: Driver.Outcome, problem: Driver.Problem):
   return nil
 end
 
---- What `cosmic docs` answers, exactly, for the name an unresolved-name error is about, as a pointer.
+--- What `cosmic docs` finds, exactly, for the name an unresolved-name error is about, as a pointer.
 local function docs_pointer(result: Driver.Outcome, problem: Driver.Problem, hints: ErrorRender.Hints): string
   local name = unresolved_name(result, problem)
   if name == nil then
@@ -127,7 +127,7 @@ local function example_query(problem: Driver.Problem): string?
 end
 
 --- The worked example a refused call or field points to, as a pointer, when a database holds it. A problem whose fix is
---- what cosmic replaced a removed name with is given none: the replacement is the answer.
+--- what cosmic replaced a removed name with is given none: the replacement is the fix.
 local function example_pointer(problem: Driver.Problem, hints: ErrorRender.Hints): string
   local query = example_query(problem)
   if problem.removed or query == nil then

@@ -40,8 +40,8 @@
     # Every day, the run that tests macOS and publishes a prerelease
     # (prerelease.yml): every leg and job, on the verdicts main's pushes
     # left. On Sundays (the second line), also every test run whatever
-    # stood (COSMIC_CI_EVENT), and zig's caches built cold: for
-    # what no key answers for (the clock, a flake).
+    # stood (COSMIC_CI_EVENT), and zig's caches built cold: to catch
+    # what no key is responsible for (the clock, a flake).
     # TODO: tell the maintainers of a red scheduled run: GitHub notifies
     # only whoever last edited this cron line. A step that opens (or
     # comments on) an issue when a scheduled run fails would, once one is
@@ -84,8 +84,10 @@
     # first to meet them. A pull request runs
     # a light gate, linux-x86_64's boot and the format check of what it
     # changed (and the launcher fixtures, where it reaches them). A push to main runs
-    # three legs whole, all but macOS; the daily scheduled run and a
-    # manual run run all four, macOS among them.
+    # three legs whole, all but macOS, and macOS's suite, which saves
+    # macOS's caches for the queue (only a part `suite` job's boot builds
+    # what the zig saves keep there); the daily scheduled run and a
+    # manual run run all four whole, macOS among them.
     platform: {
       name: "${{ matrix.name }}",
       defaults: {run: {"working-directory": "ci", shell: "${{ matrix.image && 'leg-shell {0}' || 'sh' }}"}},
@@ -104,8 +106,12 @@
         # the sandbox probe and the credential proofs), `product` (assemble,
         # the regressions, the portable suite, the attestation and the
         # product) or `format` (linux-x86_64's format check alone).
+        # alpine-x86_64's product, the queue's longest job (20 min on
+        # 45475769968: the portable suite 10.5, the regressions 5.5), is
+        # two jobs, each assembling: `portable` (the portable suite, the
+        # attestation and the product) and `regressions`.
         matrix: {
-          include: "${{ fromJSON(github.event_name == 'pull_request' && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}]' || github.event_name == 'merge_group' && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"suite\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-x86_64-product\", \"leg\": \"linux-x86_64\", \"part\": \"product\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-x86_64-format\", \"leg\": \"linux-x86_64\", \"part\": \"format\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"suite\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64-product\", \"leg\": \"linux-aarch64\", \"part\": \"product\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"suite\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}, {\"name\": \"alpine-x86_64-product\", \"leg\": \"alpine-x86_64\", \"part\": \"product\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}, {\"name\": \"macos-aarch64\", \"leg\": \"macos-aarch64\", \"part\": \"suite\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}]' || github.event_name == 'push' && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}]' || '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"macos-aarch64\", \"leg\": \"macos-aarch64\", \"part\": \"all\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}]') }}",
+          include: "${{ fromJSON(github.event_name == 'pull_request' && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}]' || github.event_name == 'merge_group' && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"suite\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-x86_64-product\", \"leg\": \"linux-x86_64\", \"part\": \"product\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-x86_64-format\", \"leg\": \"linux-x86_64\", \"part\": \"format\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"suite\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64-product\", \"leg\": \"linux-aarch64\", \"part\": \"product\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"suite\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}, {\"name\": \"alpine-x86_64-portable\", \"leg\": \"alpine-x86_64\", \"part\": \"portable\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}, {\"name\": \"alpine-x86_64-regressions\", \"leg\": \"alpine-x86_64\", \"part\": \"regressions\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}, {\"name\": \"macos-aarch64\", \"leg\": \"macos-aarch64\", \"part\": \"suite\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}]' || github.event_name == 'push' && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}, {\"name\": \"macos-aarch64\", \"leg\": \"macos-aarch64\", \"part\": \"suite\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}]' || '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"macos-aarch64\", \"leg\": \"macos-aarch64\", \"part\": \"all\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}]') }}",
         },
       },
       "runs-on": "${{ matrix.runner }}",
@@ -220,7 +226,7 @@
           with: {
             path: "${{ runner.temp }}/zig-build",
             key: "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-${{ github.run_id }}-${{ github.run_attempt }}",
-            "restore-keys": "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-\n${{ steps.names.outputs.vendor }}full-\n${{ steps.names.outputs.vendor }}\n",
+            "restore-keys": "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-\n${{ steps.names.outputs.vendor }}boot-${{ steps.names.outputs.core }}-\n${{ steps.names.outputs.vendor }}full-\n${{ steps.names.outputs.vendor }}\n",
             "lookup-only": "${{ github.event.schedule == '41 3 * * 0' }}",
           },
         },
@@ -501,25 +507,25 @@
         {
           name: "build local portable and checked artifacts",
           id: "assemble",
-          if: "(github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'product')) || (github.event_name == 'pull_request' && steps.changed.outputs.fixtures != 'skip')",
+          if: "(github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'product' || matrix.part == 'portable' || matrix.part == 'regressions')) || (github.event_name == 'pull_request' && steps.changed.outputs.fixtures != 'skip')",
           run: "cosmic-driver cosmic_ci/driver.tl platform assemble",
         },
         # What a save of zig's caches would carry that no build of this tree
         # reads (cosmic_ci/zig_prune.tl): only before main's save.
         {
           name: "prune the zig build outputs no step vouches for",
-          if: "always() && steps.assemble.outcome == 'success' && env.COSMIC_CI_SAVES == 'true' && (github.event.schedule == '41 3 * * 0' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-', steps.names.outputs.vendor)))",
+          if: "always() && (steps.assemble.outcome == 'success' || matrix.part == 'suite' && steps.boot.outcome == 'success') && env.COSMIC_CI_SAVES == 'true' && (github.event.schedule == '41 3 * * 0' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-', steps.names.outputs.vendor))) && (matrix.part != 'suite' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}boot-', steps.names.outputs.vendor)))",
           run: "cosmic-driver cosmic_ci/driver.tl zig-prune",
         },
         {
           name: "run runtime, launcher, rebuild, and identity regressions",
-          if: "(github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'product')) || (github.event_name == 'pull_request' && steps.changed.outputs.fixtures != 'skip')",
+          if: "(github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'product' || matrix.part == 'regressions')) || (github.event_name == 'pull_request' && steps.changed.outputs.fixtures != 'skip')",
           run: "cosmic-driver cosmic_ci/driver.tl platform fixtures",
         },
         {
           name: "run the product suite from fresh tracked source",
           id: "portable-suite",
-          if: "github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'product')",
+          if: "github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'product' || matrix.part == 'portable')",
           run: "cosmic-driver cosmic_ci/driver.tl platform portable",
         },
         {
@@ -529,13 +535,13 @@
         },
         {
           name: "attest the exact executed product bytes",
-          if: "github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'product')",
+          if: "github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'product' || matrix.part == 'portable')",
           run: "cosmic-driver cosmic_ci/driver.tl platform attest",
         },
         # Read by the `ci` join, and by prerelease.yml as main's run ends.
         {
           name: "upload the attested product",
-          if: "github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'product')",
+          if: "github.event_name != 'pull_request' && (matrix.part == 'all' || matrix.part == 'product' || matrix.part == 'portable')",
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
             name: "portable-product-${{ matrix.leg }}",
@@ -668,6 +674,8 @@
         # and compiles to the newer commit's relay (relay.yml), saved a
         # minute after that merge: a save of this run's, made later, would
         # be the newest and lack them. Where GitHub does not say, it saves.
+        # macOS saves all the same: no relay runs on a macOS runner, so its
+        # push is the only main run that saves them.
         {
           name: "ask whether main moved past this commit",
           id: "main-newest",
@@ -701,10 +709,10 @@
         # where the rows differ from the entry restored. Not the macOS
         # leg's weekly run: its keys hold the tree's path, which that run
         # chooses by the commit (driver.tl place-tree), so its rows would
-        # answer no other run.
+        # match no other run.
         {
           name: "save test verdicts",
-          if: "always() && env.COSMIC_CI_SAVES == 'true' && steps.main-newest.outputs.newest != 'false' && steps.verdicts-trim.outputs.digest != '' && !(github.event.schedule == '41 3 * * 0' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
+          if: "always() && env.COSMIC_CI_SAVES == 'true' && (matrix.leg == 'macos-aarch64' || steps.main-newest.outputs.newest != 'false') && steps.verdicts-trim.outputs.digest != '' && !(github.event.schedule == '41 3 * * 0' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/verdicts",
@@ -717,7 +725,7 @@
         # which a save the relay made already leaves as it is.
         {
           name: "save compiles and parses",
-          if: "always() && env.COSMIC_CI_SAVES == 'true' && steps.main-newest.outputs.newest != 'false' && steps.release-suite.outcome == 'success' && steps.compiles-trim.outputs.digest != '' && steps.compiles-restore.outputs.cache-matched-key != format('compiles-{0}-{1}', matrix.leg, steps.compiles-trim.outputs.digest)",
+          if: "always() && env.COSMIC_CI_SAVES == 'true' && (matrix.leg == 'macos-aarch64' || steps.main-newest.outputs.newest != 'false') && steps.release-suite.outcome == 'success' && steps.compiles-trim.outputs.digest != '' && steps.compiles-restore.outputs.cache-matched-key != format('compiles-{0}-{1}', matrix.leg, steps.compiles-trim.outputs.digest)",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/build-cache",
@@ -726,19 +734,22 @@
         },
         # Once per vendor part and leg, not per core change, which the
         # cache cannot hold, where assemble passed and main found no entry
-        # of this vendor part; and on the weekly run, which built cold.
+        # of this vendor part; and on the weekly run, which built cold. A
+        # suite job (macOS's on a push) builds only its boot, and saves it
+        # under `<vendor>boot-`, so it does not stand in for the whole
+        # leg's entry, which the daily run still saves.
         {
           name: "save zig build outputs",
-          if: "always() && steps.assemble.outcome == 'success' && env.COSMIC_CI_SAVES == 'true' && (github.event.schedule == '41 3 * * 0' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-', steps.names.outputs.vendor)))",
+          if: "always() && (steps.assemble.outcome == 'success' || matrix.part == 'suite' && steps.boot.outcome == 'success') && env.COSMIC_CI_SAVES == 'true' && (github.event.schedule == '41 3 * * 0' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-', steps.names.outputs.vendor))) && (matrix.part != 'suite' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}boot-', steps.names.outputs.vendor)))",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/zig-build",
-            key: "${{ steps.zig-cache-restore.outputs.cache-primary-key }}",
+            key: "${{ matrix.part == 'suite' && format('{0}boot-{1}-{2}-{3}', steps.names.outputs.vendor, steps.names.outputs.core, github.run_id, github.run_attempt) || steps.zig-cache-restore.outputs.cache-primary-key }}",
           },
         },
         {
           name: "save the pinned zig",
-          if: "always() && steps.assemble.outcome == 'success' && env.COSMIC_CI_SAVES == 'true' && steps.zig-restore.outputs.cache-hit != 'true'",
+          if: "always() && (steps.assemble.outcome == 'success' || matrix.part == 'suite' && steps.boot.outcome == 'success') && env.COSMIC_CI_SAVES == 'true' && steps.zig-restore.outputs.cache-hit != 'true'",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/cache/cosmic/zig",
@@ -753,19 +764,20 @@
     # `checked_suite_timeout_ns`), and the bounded performance fixture, on
     # linux-x86_64's host, beside the legs. Not on a pull request: the
     # merge queue, main's push, the scheduled and a manual run. Its verdicts are kept under a
-    # cache name of its own on that host. The queue runs the suite in two
+    # cache name of its own on that host. The queue runs the suite in three
     # shares at once (`cosmic test --shard`), each its own job, so the
-    # longest job of a queue run is not the suite whole (14 of its 16
-    # minutes); a share saves nothing, and the performance fixture runs
-    # in the first. Elsewhere it is one job, whose run checks the C
-    # functions too, which a share cannot.
+    # longest job of a queue run is not the suite whole (about 28
+    # minutes; two shares took 16.4 and 11.8, since tests are dealt by
+    # name, not time); a share saves nothing, and the performance fixture
+    # (`performance`) runs in the third. Elsewhere it is one job, whose
+    # run checks the C functions too, which a share cannot.
     checked: {
       if: "github.event_name != 'pull_request'",
       name: "${{ matrix.name }}",
       strategy: {
         "fail-fast": false,
         matrix: {
-          include: "${{ fromJSON(github.event_name == 'pull_request' && '[{\"name\": \"linux-x86_64-checked\", \"shard\": \"\"}]' || github.event_name == 'merge_group' && '[{\"name\": \"linux-x86_64-checked-1\", \"shard\": \"1/2\"}, {\"name\": \"linux-x86_64-checked-2\", \"shard\": \"2/2\"}]' || github.event_name == 'push' && '[{\"name\": \"linux-x86_64-checked\", \"shard\": \"\"}]' || '[{\"name\": \"linux-x86_64-checked\", \"shard\": \"\"}]') }}",
+          include: "${{ fromJSON(github.event_name == 'pull_request' && '[{\"name\": \"linux-x86_64-checked\", \"shard\": \"\", \"performance\": \"run\"}]' || github.event_name == 'merge_group' && '[{\"name\": \"linux-x86_64-checked-1\", \"shard\": \"1/3\", \"performance\": \"skip\"}, {\"name\": \"linux-x86_64-checked-2\", \"shard\": \"2/3\", \"performance\": \"skip\"}, {\"name\": \"linux-x86_64-checked-3\", \"shard\": \"3/3\", \"performance\": \"run\"}]' || github.event_name == 'push' && '[{\"name\": \"linux-x86_64-checked\", \"shard\": \"\", \"performance\": \"run\"}]' || '[{\"name\": \"linux-x86_64-checked\", \"shard\": \"\", \"performance\": \"run\"}]') }}",
         },
       },
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
@@ -909,7 +921,7 @@
         },
         {
           name: "check performance fixture histories on the checked core",
-          if: "matrix.shard != '2/2'",
+          if: "matrix.performance == 'run'",
           run: "cosmic-driver cosmic_ci/driver.tl platform performance-checked",
         },
         # A run that failed keeps what it restored too (`whole`). Cut to
@@ -988,7 +1000,7 @@
         # where the rows differ from the entry restored. Not the macOS
         # leg's scheduled runs: its keys hold the tree's path, which such a
         # run chooses by the commit (driver.tl place-tree), so its rows
-        # would answer no other run.
+        # would match no other run.
         {
           name: "save test verdicts",
           if: "always() && steps.verdicts-trim.outputs.digest != '' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
@@ -1218,7 +1230,7 @@
         # where the rows differ from the entry restored. Not the macOS
         # leg's scheduled runs: its keys hold the tree's path, which such a
         # run chooses by the commit (driver.tl place-tree), so its rows
-        # would answer no other run.
+        # would match no other run.
         {
           name: "save test verdicts",
           if: "always() && steps.verdicts-trim.outputs.digest != '' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",

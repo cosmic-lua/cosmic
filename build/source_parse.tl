@@ -1,6 +1,6 @@
 --- A source of a build and its parse: what a module's text is read as before any of it is typed.
 ---
---- [`build.driver`] builds a program over these and answers them under its own names ([`Driver.Source`],
+--- [`build.driver`] builds a program over these and gives them under its own names ([`Driver.Source`],
 --- [`Driver.parse`], [`Driver.index`]); the code that writes the rows of a parse ([`build.parse_derive`]) reads them from
 --- here. Nothing here requires the checker ([`lang.check`]) or anything that does, a type import included, since a
 --- `require` for a type is a row of `requires` like any other: a parse is keyed by the source of the modules its code
@@ -33,7 +33,7 @@ local record SourceParse
     --- `cmd/<name>/main.tl`, or a file checked as it is run alone.
     entry: boolean
     --- The other names a `require` may give it: only a declaration file of the globals has any
-    --- ([`SourceParse.declarations`]); a module of an index ([`SourceParse.index`]) answers to its whole name alone.
+    --- ([`SourceParse.declarations`]); a module of an index ([`SourceParse.index`]) goes by its whole name alone.
     mut aliases: mut {string}
     --- The name its findings are told under, "" where that is its `filename`. A source the build writes from another
     --- file (a guide's examples, a template, the declarations of a header) is named for the file it comes from, which
@@ -91,7 +91,7 @@ local record SourceParse
     syntax: {Problem}
   end
 
-  --- The sources of a tree and the names they answer to.
+  --- The sources of a tree and the names they go by.
   record Index
     sources: mut {Source}
     by_module: mut {string: Source}
@@ -104,7 +104,7 @@ local record SourceParse
   --- A source with the defaults: checked, no alias, and a test module only where `tests`.
   source: function(module: string, filename: string, text: string, dialect: Ast.Dialect, tests?: boolean): Source
 
-  --- A declaration file whose globals every module may use ([`Driver.Options.globals`]): not checked, answering to `aliases` as
+  --- A declaration file whose globals every module may use ([`Driver.Options.globals`]): not checked, going by `aliases` as
   --- well.
   declarations: function(module: string, filename: string, text: string, aliases: mut {string}): Source
 
@@ -124,7 +124,7 @@ local record SourceParse
   parse: function(source: Source): Parsed
 
   --- The modules `entries` (pairs of a path below the root and its text) are: each `.tl` and `.d.tl` a module named by its
-  --- path ([`Declarations.module_of`]), checked. A module is answered to by that name alone, the one the run time resolves:
+  --- path ([`Declarations.module_of`]), checked. A module goes by that name alone, the one the run time resolves:
   --- `b/m.tl` is `b.m`, never `m`. A project inside the tree names its modules from its own root by being built from there.
   --- `skip` says which paths are left out. A module
   --- given as both `.tl` and `.d.tl` is refused before an index is made ([`SourceParse.declared`]); two files that are one module

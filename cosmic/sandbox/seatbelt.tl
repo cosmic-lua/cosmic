@@ -271,7 +271,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
   if merged == nil then return nil, failure end
   local fattr = false
   -- What every program needs to start, whatever it is granted. Contents
-  -- and writes stay denied; only these answers are given:
+  -- and writes stay denied; only these are allowed:
   --   file-read-metadata: stat of any path. dyld and libc stat each
   --     component of every path they open, from the root down, so a
   --     grant's own path is not enough to reach it. It shows that a path
@@ -324,7 +324,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     if not absolute(terminal) then return refuse("terminal needs an absolute canonical path") end
     -- Data and ioctl alone: file-write* would let a child without `fattr`
     -- chmod its slave for other users to read, or unlink /dev/tty as root.
-    -- The slave answers tcgetsid and tcgetpgrp only where granted by its
+    -- tcgetsid and tcgetpgrp succeed on the slave only where granted by its
     -- path, /dev/tty opens only where granted as that literal, and ttyname
     -- and tty list /dev.
     parameters.TTY = terminal -- checked: map_field

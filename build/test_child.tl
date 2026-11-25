@@ -32,7 +32,7 @@ local record test_child
   --- `args`. Raises when the store cannot be written.
   words: function(dir: string, module: string, name: string, args?: {string}): {string}
 
-  --- Calls the child `name`, registered by the module the chunk loaded, with `...` as its `args`, and answers its
+  --- Calls the child `name`, registered by the module the chunk loaded, with `...` as its `args`, and returns its
   --- exit status. Raises for a name nothing registered.
   run: function(name: string, ...: string?): integer
 end

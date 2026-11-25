@@ -32,7 +32,7 @@ end
 
 local current: Local.Calls = {
   child_run = function(argv: {string}, options?: Child.Options): Child.Result?, string
-    -- In words, as the pinned release's Child.run answers them too.
+    -- In words, as the pinned release's Child.run returns them too.
     local result, why = Child.run(argv, options or { timeout_ns = Child.FOREVER })
     if result == nil then return nil, tostring(why) end
     return result, ""
@@ -48,7 +48,7 @@ local current: Local.Calls = {
     if text == nil then return nil, tostring(why) end
     return text, ""
   end,
-  -- Words on both checkers: the pinned release answers a string, this checkout a Failure.
+  -- Words on both checkers: the pinned release returns a string, this checkout a Failure.
   proc_user = function(name: string): Proc.User?, string
     local account, why = Proc.user(name)
     if account == nil then return nil, tostring(why) end
@@ -106,7 +106,7 @@ local class Opened
   end
 end
 
---- What [`execute`] answered, kept where the function that runs it under `pcall` can read it.
+--- What [`execute`] returned, kept where the function that runs it under `pcall` can read it.
 local record Ended
   mut status: integer
 end
@@ -539,7 +539,7 @@ local function execute(argv: {string}, program: string): integer
         local reading <close>: Opened = { fd = opened }
         local reader = Stream.lines(Stream.from_fd(opened), 65536)
         local lines = 0
-        -- `each` and `failure`, which answer alike on the pinned release
+        -- `each` and `failure`, which return alike on the pinned release
         -- and this tree, whose reads end differently.
         for line in reader:each() do
           -- A complaint names the trouble; a failing test says FAIL.

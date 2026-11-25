@@ -1,5 +1,5 @@
 -- Authenticated encryption and X25519 key agreement at the Lua boundary,
--- as the core provides them. Every fallible function answers `value, ""`
+-- as the core provides them. Every fallible function returns `value, ""`
 -- on success and `nil, error` on the failures its comment names. Any
 -- other failure of the library (out of memory, no entropy to blind an
 -- X25519 computation with) raises, from every function here.
@@ -12,7 +12,7 @@ local record cipher
   -- 12-byte nonce. Raises when no algorithm has that name, or the key or
   -- nonce is not the algorithm's length.
   seal: function(algorithm: string, key: string, nonce: string, plaintext: string, aad?: string): string
-  -- The plaintext of what `seal` answered for the same algorithm, key,
+  -- The plaintext of what `seal` gave for the same algorithm, key,
   -- nonce and aad; nil, error when `sealed` is shorter than a tag or does
   -- not authenticate. Raises as `seal` does.
   open: function(algorithm: string, key: string, nonce: string, sealed: string, aad?: string): string?, string

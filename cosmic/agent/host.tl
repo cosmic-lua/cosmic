@@ -602,6 +602,49 @@ function Host.history(query: string): {Host.Row}
   return value
 end
 
+--- The characters of a kept output one history call reads: JSON takes a control character as six bytes, so a part
+--- stays within the 512KB a reply holds.
+local OUTPUT_PART <const> = 64 * 1024
+
+--- The text kept of output `id` of sessions.db, which the note under a cut output names ("kept as output 17"): what
+--- the tool's call gave, but for a run output past 64KB, of which its first 16KB and last 48KB are kept; bytes that
+--- are not UTF-8 come back replaced. It reads any session's outputs, as Host.history does: a forked session's notes
+--- name the outputs of the session it was copied from. Raises where it fails, as "host: output: ...".
+function Host.output(id: integer): string
+  local function rows_of(query: string): {Host.Row}
+    local rows, why = history_of(query)
+    if rows == nil then error("host: output: " .. tostring(why):gsub("^host: history: ", ""), 3) end
+    return rows
+  end
+  local sized = rows_of("SELECT length(text) AS n FROM outputs WHERE id = " .. tostring(id))[1]
+  local n = if sized ~= nil then sized["n"] else nil end
+  if not (n is integer) then
+    error("host: output: no output " .. tostring(id) .. " in sessions.db", 2)
+  end
+  local parts: mut {string} = {}
+  for start = 1, n, OUTPUT_PART do
+    local row = rows_of("SELECT substr(text, " .. tostring(start) .. ", " .. tostring(OUTPUT_PART) ..
+        ") AS part FROM outputs WHERE id = " .. tostring(id))[1]
+    local part = if row ~= nil then row["part"] else nil end
+    if not (part is string) then
+      error("host: output: output " .. tostring(id) .. " changed as it was read", 2)
+    end
+    parts[#parts + 1] = part
+  end
+  return table.concat(parts)
+end
+
+--- What the agent's tool `name` answers `input`, as the model would call it: its text. Only a tool code may call
+--- is called (`callers` "code" or "both", cosmic.agent.tools), under the agent's `before` and `after` as a call by
+--- code. Raises where the call is refused or the tool's result is an error, as "host: use: ...".
+function Host.use(name: string, input?: {string: Json.Value}): string
+  local none: {string: Json.Value} = {}
+  local answer, why = Host.call("use", { name = name, input = input or none })
+  if answer == nil then error(tostring(why), 2) end
+  if not (answer is string) then error("host: use: the agent's reply is no text", 2) end
+  return answer
+end
+
 --- The MCP servers the agent was given: each one's `name`, `reached` and `description`; none where it was
 --- given none. Raises where it fails, as "host: ...".
 function Host.servers(): {{string: Json.Value}}

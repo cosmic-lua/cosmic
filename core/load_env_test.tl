@@ -5,7 +5,7 @@ local Test = require("cosmic.test")
 
 Test.policy{}
 
---- Runs `source` as a chunk with the default environment and answers what it returns.
+--- Runs `source` as a chunk with the default environment and returns what the chunk returns.
 local function run(source: string): any
   local chunk, why = load(source, "=load_env", "t")
   assert(chunk ~= nil, tostring(why))
@@ -31,7 +31,7 @@ local function test_the_environment_has_no_metatable_that_leads_back_to_the_glob
   assert(run("return getmetatable(print)") == nil)
 end
 
---- The chunk walks its own environment and the tables in it, and answers the first name that reaches the globals, `require` or
+--- The chunk walks its own environment and the tables in it, and returns the first name that reaches the globals, `require` or
 --- `package` (given as its arguments), or nil.
 local WALK <const> = [[
 local globals, require_function, package_table, host = ...
@@ -62,7 +62,7 @@ local function test_nothing_the_environment_holds_is_the_globals_or_require_or_p
   local chunk = assert(load(WALK, "=walk", "t"))
   -- The host's libraries and the metatable of its strings, which a chunk must not be handed or write to.
   local host_chunk = assert(load("return { string, table, math, utf8, coroutine, getmetatable(''), " ..
-    "getmetatable('').__index }", "=host_values", "t", globals))
+      "getmetatable('').__index }", "=host_values", "t", globals))
   local host: any = host_chunk()
   local found: any = chunk(globals, globals["require"], globals["package"], host)
   assert(found == nil, tostring(found))

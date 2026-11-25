@@ -599,7 +599,7 @@ local function test_a_link_target_holding_a_nul_byte_is_refused()
   assert(w:add_symlink("l", "ok"))
 end
 
---- A failing Writer's own words are what the writer answers, as they
+--- A failing Writer's own words are returned by the writer as they
 --- are; a failing body Reader's are told what the writer was doing.
 local function test_a_failing_underlying_writer_is_answered_as_it_said_it()
   local function closed(_self: Stream.Writer): (true) | (false, Failure) return true end

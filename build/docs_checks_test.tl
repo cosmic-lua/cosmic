@@ -252,7 +252,7 @@ local function test_a_comment_in_a_signature_and_an_internal_path_are_refused()
   assert(#found == 0, table.concat(found, "\n"))
 end
 
---- A module the index lists must answer `cosmic docs <module>`.
+--- A module the index lists must resolve under `cosmic docs <module>`.
 local function test_a_module_the_index_lists_must_resolve()
   local db = projection(clean())
   assert(db:run(
@@ -295,7 +295,7 @@ local function test_a_dangling_reference_is_named()
     table.concat(found, "\n"))
 end
 
---- A name `cosmic docs` answers as removed is still a stale reference: a
+--- A name `cosmic docs` reports as removed is still a stale reference: a
 --- page that names it in a `cosmic docs` span is reported with what
 --- replaces it.
 local function test_a_page_naming_a_removed_symbol_is_stale()
@@ -374,7 +374,7 @@ local function test_a_help_text_is_held_to_the_same_references()
 end
 
 --- A type standing for another module's lists that type's members, and
---- each answers as `Type.member`.
+--- each resolves as `Type.member`.
 local function test_a_type_standing_for_another_lists_members_that_resolve(dir: string)
   local db = fixture.database(dir, {
     ["cosmic/internal/thing.tl"] = source(

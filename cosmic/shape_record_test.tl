@@ -1,4 +1,4 @@
---- [`Shape.record_of`] in modules the build compiled: the check the build wrote off a record answers the record, and the
+--- [`Shape.record_of`] in modules the build compiled: the check the build wrote off a record returns the record, and the
 --- node it describes the fields with is what the binders read. Which records
 --- the build refuses is build/shape_specs_test.tl's.
 local Json = require("cosmic.json")
@@ -95,7 +95,7 @@ local function test_the_check_answers_the_record_and_drops_what_it_does_not_name
   assert((profile as {string: any}).unlisted == nil, "a key the record lacks was kept") -- checked: cast_refused
 end
 
---- `into` answers the record's own type: no annotation chooses it.
+--- `into` returns a value of the record's own type: no annotation chooses it.
 local function test_into_answers_the_records_type()
   local value, err = Json.decode(GOOD, { null_value = Json.null })
   assert(err == nil, err)

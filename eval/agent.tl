@@ -37,6 +37,9 @@ local record Agent
     name: string
     --- The prompt, which says what to leave and in what form.
     prompt: string
+    --- A second prompt, asked once the first's turn ended, in the same session (ask goes on with the newest
+    --- session in the directory): for a task about what the first turn saw.
+    follow_up?: string
     --- A bash command run in an untouched copy of the fixture: its output is what a right answer leaves.
     truth: string
     --- A bash command run in the run's copy once the agent ended: its output must be the truth's.
@@ -87,7 +90,7 @@ local record Agent
     tasks: {Task}
     reps: integer
     model: string
-    --- Each run's deadline, in seconds.
+    --- Each ask's deadline, in seconds: a task with a follow-up asks twice.
     timeout: integer
   end
 
@@ -168,6 +171,27 @@ local function inventory(): string
   for i = 1, 240 do
     lines[#lines + 1] = string.format("i%04d\t%s %s\t%s\t%d\t%d", i, adjectives[draw(#adjectives) + 1],
       nouns[draw(#nouns) + 1], categories[draw(#categories) + 1], 100 + draw(9900), draw(61))
+  end
+  return table.concat(lines, "\n") .. "\n"
+end
+
+--- The event log earlier-log's web API serves: 400 lines of `HH:MM:SS LEVEL component message`, about 17KB. That
+--- is more than run shows, so the printed log is cut. Each process draws it anew, so no copy of this file tells it.
+local function event_log(): string
+  local levels <const> = { "INFO", "INFO", "INFO", "WARN", "ERROR" }
+  local components <const> = { "billing", "cache", "gateway", "queue", "search", "storage" }
+  local messages <const> = { "request done", "retrying after timeout", "connection reset by peer",
+    "slow response from upstream", "config reloaded", "lease renewed", "disk usage above threshold" }
+  local seed = math.random(1, 2147483647)
+  local function draw(n: integer): integer
+    seed = (seed * 1103515245 + 12345) % 2147483648
+    return (seed // 65536) % n
+  end
+  local lines: mut {string} = {}
+  for i = 1, 400 do
+    local t = 36000 + i * 7
+    lines[#lines + 1] = string.format("%02d:%02d:%02d %s %s %s", t // 3600, t // 60 % 60, t % 60,
+      levels[draw(#levels) + 1], components[draw(#components) + 1], messages[draw(#messages) + 1])
   end
   return table.concat(lines, "\n") .. "\n"
 end
@@ -285,6 +309,34 @@ return function(argv: {string}): integer
       if first + PAGE <= #items then body["next"] = page + 1 end
       return { status = 200, headers = { ["Content-Type"] = "application/json" },
         body = assert(Json.encode(body)) .. "\n" }
+    end,
+  })
+  return 0
+end
+]==]
+
+--- The log web API: GET /log answers the event log, as plain text, once; every request after the first is
+--- answered 410, so a question about the log after the first turn is answered from sessions.db. It writes its port to the file its second argument names once it serves.
+local LOG_SITE <const> = [==[
+local Fs = require("cosmic.fs")
+local Net = require("cosmic.net")
+local Server = require("cosmic.http.server")
+
+return function(argv: {string}): integer
+  local text, why = Fs.read(argv[1] or "")
+  if text == nil then error("log: the data: " .. tostring(why)) end
+  local ready = argv[2] or ""
+  local served = false
+  assert(Server.serve{
+    listeners = { Net.tcp("127.0.0.1", 0) },
+    on_ready = function(addresses: {Net.Address}, _: Net.Server)
+      assert(Fs.write(ready, tostring(assert(addresses[1]).port)))
+    end,
+    handle = function(req: Server.Request): Server.Reply
+      if req.method ~= "GET" or req.path ~= "/log" then return { status = 404, body = "no such page: GET /log\n" } end
+      if served then return { status = 410, body = "gone: the log is served once, and it was\n" } end
+      served = true
+      return { status = 200, headers = { ["Content-Type"] = "text/plain" }, body = text }
     end,
   })
   return 0
@@ -425,6 +477,16 @@ Agent.tasks = {
     truth = "awk -F'\\t' '$5 < 3 {print $1\" \"$5}' \"$data\" | sort",
     check = "cat answer.txt",
     site = { source = INVENTORY_SITE, data = inventory() },
+  },
+  {
+    name = "earlier-log",
+    prompt = "The web API at {url} serves its event log as plain text at GET /log: lines of " ..
+      "`HH:MM:SS LEVEL component message`. Print the log.",
+    follow_up = "Write to answer.txt, for each component, how many lines of that log have level ERROR, as " ..
+      "`count component`, one a line, most first, ties by component.",
+    truth = "awk '$2 == \"ERROR\" {n[$3]++} END {for (c in n) print n[c]\" \"c}' \"$data\" | sort -k1,1nr -k2,2",
+    check = "cat answer.txt",
+    site = { source = LOG_SITE, data = event_log() },
   },
 }
 
@@ -642,11 +704,21 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
             prompt = (prompt:gsub("{url}", "http://127.0.0.1:" .. port))
           end
         end
+        local follow_up = task.follow_up
+        local again: mut {string} = {}
+        for _, word in ipairs(argv) do again[#again + 1] = word end
         argv[#argv + 1] = prompt
         -- A run that raises still ends the web API.
         local asked: Agent.Output = { code = 127, stdout = "", stderr = unserved or "" }
         local ran, why = pcall(function()
-          if unserved == nil then asked = system.run(argv, work, env, options.timeout) end
+          if unserved ~= nil then return end
+          asked = system.run(argv, work, env, options.timeout)
+          if follow_up == nil or asked.code ~= 0 then return end
+          again[#again + 1] = follow_up
+          local next_asked = system.run(again, work, env, options.timeout)
+          asked = { code = next_asked.code, stdout = asked.stdout .. "\n--- follow-up\n" .. next_asked.stdout,
+            stderr = asked.stderr .. "\n--- follow-up\n" .. next_asked.stderr,
+            seconds = (asked.seconds or 0) + (next_asked.seconds or 0) }
         end)
         stop()
         if not ran then error(why, 0) end
@@ -667,17 +739,17 @@ end
 
 --- What the session of a run spent, from `db`: the newest session whose directory's name holds `marker`.
 function Agent.spent_in(db: Sqlite.Handle, marker: string): Agent.Spent?
-  local found, _ = Sqlite.rows(db, "SELECT id FROM sessions WHERE instr(cwd, ?1) > 0 ORDER BY id DESC LIMIT 1",
+  local found, _ = db:rows("SELECT id FROM sessions WHERE instr(cwd, ?1) > 0 ORDER BY id DESC LIMIT 1",
     { { text = marker } })
   local row = found and found[1]
   if row == nil then return nil end
   local id = row:integer(1)
-  local r, _ = Sqlite.rows(db, "SELECT count(*), coalesce(sum(input_tokens), 0), coalesce(sum(output_tokens), 0), " ..
+  local r, _ = db:rows("SELECT count(*), coalesce(sum(input_tokens), 0), coalesce(sum(output_tokens), 0), " ..
       "coalesce(sum(cache_read), 0), coalesce(sum(coalesce(cache_write_5m, 0) + coalesce(cache_write_1h, 0)), 0), " ..
       "coalesce(sum(cost), 0.0), coalesce(sum(ms), 0) FROM requests WHERE session = ?1", { { integer = id } })
-  local o, _ = Sqlite.rows(db, "SELECT count(*), coalesce(sum(tool = 'run'), 0) FROM outputs WHERE session = ?1",
+  local o, _ = db:rows("SELECT count(*), coalesce(sum(tool = 'run'), 0) FROM outputs WHERE session = ?1",
     { { integer = id } })
-  local snippets, _ = Sqlite.rows(db, "SELECT input FROM outputs WHERE session = ?1 AND tool = 'run'",
+  local snippets, _ = db:rows("SELECT input FROM outputs WHERE session = ?1 AND tool = 'run'",
     { { integer = id } })
   -- A helper's name starts with a small letter (Host.Count is a record type), after no other word (MyHost.x).
   local helpers: mut {string: integer} = {}
@@ -695,9 +767,9 @@ function Agent.spent_in(db: Sqlite.Handle, marker: string): Agent.Spent?
       end
     end
   end
-  local first, _ = Sqlite.rows(db, "SELECT coalesce(cache_read, 0) FROM requests WHERE session = ?1 AND status = 200 ORDER BY rowid " ..
+  local first, _ = db:rows("SELECT coalesce(cache_read, 0) FROM requests WHERE session = ?1 AND status = 200 ORDER BY rowid " ..
       "LIMIT 1", { { integer = id } })
-  local refusals, _ = Sqlite.rows(db, "SELECT text FROM outputs WHERE session = ?1 AND tool = 'run' AND " ..
+  local refusals, _ = db:rows("SELECT text FROM outputs WHERE session = ?1 AND tool = 'run' AND " ..
       "instr(text, 'The checker refused the snippet') = 1", { { integer = id } })
   local codes: mut {string: integer} = {}
   for _, refusal in ipairs(refusals or {}) do
@@ -891,7 +963,7 @@ local function real(out: string): Agent.System
         stop()
         return nil, "it ended before it served"
       end
-      local _, _ = Clock.sleep_ns(50000000)
+      local _, _ = Clock.sleep(50000000)
     end
     stop()
     return nil, "it did not serve in " .. tostring(seconds) .. " s"

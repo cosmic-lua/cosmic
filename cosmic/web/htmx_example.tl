@@ -7,8 +7,8 @@ local Web = require("cosmic.web")
 
 local Example = {} -- checked: literal_needs_type
 
---- One handler answers a fragment to an htmx request and the whole page to
---- a browser, to a boosted link and to a history restore; both answers
+--- One handler returns a fragment for an htmx request and the whole page
+--- for a browser, a boosted link and a history restore; both responses
 --- vary on the headers that chose, so a cache keeps them apart.
 function Example.page()
   local app = Web.app{ routes = { Web.get("/items", function(req: Web.Request): Web.Response
@@ -65,7 +65,7 @@ function Example.head()
 end
 
 --- A handler reads what htmx says of the request; a poll that is done
---- answers 286, which htmx swaps in and then stops polling. The indicator
+--- gets 286, which htmx swaps in and then stops polling. The indicator
 --- rules go in the app's stylesheet.
 function Example.poll()
   local app = Web.app{ routes = { Web.get("/job", function(req: Web.Request): Web.Response

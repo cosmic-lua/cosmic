@@ -1,4 +1,4 @@
---- The header's `Kind` ([`sys.Kind`]) against the core that answers it.
+--- The header's `Kind` ([`sys.Kind`]) against the core that returns it.
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local gen_syscalls = require("build.gen_syscalls")
@@ -10,8 +10,8 @@ Test.policy{
   },
 }
 
---- Every kind the core can answer is a member of the enum, and every
---- member is one it answers: the header's `Kind` and the words
+--- Every kind the core can return is a member of the enum, and every
+--- member is one it returns: the header's `Kind` and the words
 --- core/syscalls_fs.c's `mode_kind` and `readdir` push are one set, so
 --- a kind added to the C cannot be left out of the type.
 local function test_the_enum_is_what_the_core_answers()

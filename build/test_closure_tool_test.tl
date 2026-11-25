@@ -11,7 +11,7 @@ local Clock = require("cosmic.clock")
 --- The program itself, which its tests start.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
---- Runs `cosmic test` on `root`, answering whether it passed and what
+--- Runs `cosmic test` on `root`, returning whether it passed and what
 --- it printed. Its workers run unsandboxed (`COSMIC_TEST_SANDBOX=0`):
 --- the worker holds `require` to the closure sandboxed or not, and
 --- attaches the store of the closure in the projection's place, as a

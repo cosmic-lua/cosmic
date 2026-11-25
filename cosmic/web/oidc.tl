@@ -29,14 +29,14 @@
 ---       },
 ---     }
 ---
---- The middleware answers three paths itself, before the routes:
+--- The middleware handles three paths itself, before the routes:
 ---
 --- - `GET /auth/login?next=/admin` sends the browser to the provider,
 ---   with a new `state`, `nonce` and PKCE challenge kept in the session.
 ---   A request for it from another site that is not a navigation of the
 ---   browser's window (an image, a frame, a script, a fetch) is refused
 ---   403, so a page cannot push the logins under way out of the session;
---- - the path of `redirect_uri` takes the provider's answer, trades the
+--- - the path of `redirect_uri` takes the provider's response, trades the
 ---   code for tokens at the token endpoint, checks the ID token, and
 ---   keeps who logged in in a regenerated session, then sends the browser
 ---   on to `next`;
@@ -58,16 +58,16 @@
 --- not check against them, as one signed by a key the provider has just
 --- rolled to does not. A fetch follows no redirect and waits at most 5
 --- seconds, through the server's run, so other requests are served
---- meanwhile. A failure to reach the provider answers 503 and writes why
---- to the app's sink. A discovery or fetch of the keys that fails is not
---- tried again for 10 seconds: the requests in between answer 503 at
---- once. Since a stranger can start a trade of a code for tokens with
---- two requests, the trades are limited: one client address may start 30
---- a minute, have 10 fail or be refused in a minute and have 10 under way,
---- and all clients together may have 600 fail or be refused in a minute.
---- Past that the callback answers 429, and the login under way can come
---- back to it. Behind a proxy, every client has the proxy's address unless
---- the app sets `trusted_proxy`.
+--- meanwhile. Where the provider cannot be reached the request gets 503,
+--- and why is written to the app's sink. A discovery or fetch of the keys
+--- that fails is not tried again for 10 seconds: the requests in between
+--- get 503 at once. Since a stranger can start a trade of a code for
+--- tokens with two requests, the trades are limited: one client address
+--- may start 30 a minute, have 10 fail or be refused in a minute and have
+--- 10 under way, and all clients together may have 600 fail or be refused
+--- in a minute. Past that the callback responds 429, and the login under
+--- way can come back to it. Behind a proxy, every client has the proxy's
+--- address unless the app sets `trusted_proxy`.
 ---
 --- A login under way is kept in the session too: its `state`, `nonce`
 --- and PKCE verifier. The signed cookie store
@@ -118,8 +118,8 @@ local record Oidc
     jwks_uri: string
     --- Where a login at the provider is ended, when it has one.
     end_session_endpoint?: string
-    --- Whether the provider names itself in its answer to a login, as
-    --- `iss` (RFC 9207): then an answer that does not is refused.
+    --- Whether the provider names itself in its response to a login, as
+    --- `iss` (RFC 9207): then a response that does not is refused.
     iss_in_answer?: boolean
   end
 
@@ -138,14 +138,14 @@ local record Oidc
     --- itself with PKCE alone.
     client_secret?: string
     --- The absolute URL the provider sends the browser back to, as it
-    --- is registered there. The middleware answers its path.
+    --- is registered there. The middleware handles its path.
     redirect_uri: string
     --- The scopes asked for: `openid email profile` by default.
     --- `openid` is always asked for.
     scopes?: {string}
     --- The path that starts a login ("/auth/login").
     login_path?: string
-    --- The path that ends one ("/auth/logout"), answered to a POST.
+    --- The path that ends one ("/auth/logout"), for a POST.
     logout_path?: string
     --- Where logout sends the browser after ("/").
     after_logout?: string
@@ -207,9 +207,9 @@ local MAX_NEXT <const> = 512
 local PENDING_SECONDS <const> = 600
 --- How long a request to the provider may take.
 local REQUEST_TIMEOUT <const> = 5 * 1000000000
---- How long a failed discovery or fetch of the keys is answered again
---- without asking the provider, in seconds: while the provider is down or
---- slow, a stream of requests costs one fetch a period.
+--- How long a failed discovery or fetch of the keys is kept and given
+--- again without asking the provider, in seconds: while the provider is
+--- down or slow, a stream of requests costs one fetch a period.
 local RETRY_SECONDS <const> = 10
 --- The trades of a code for tokens one client address may start in
 --- `EXCHANGE_WINDOW`.
@@ -590,7 +590,7 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
   end
 
   --- Trades `code`, of the login under way `entry`, for tokens at `p`:
-  --- the claims to keep of who logged in, or nil and the answer that
+  --- the claims to keep of who logged in, or nil and the response that
   --- refuses the login.
   local function exchange(req: Types.Request, p: Oidc.Provider, entry: {string: Json.Value},
                           code: string): {string: Json.Value}?, Types.Response?
@@ -654,7 +654,7 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
     if entry == nil then
       return Response.problem(400, "no login of this browser is under way with this state")
     end
-    -- Each answer that refuses the login uses up its state.
+    -- Each response that refuses the login uses up its state.
     local function spend()
       under_way[state] = nil
       session:set(PENDING, if next(under_way) == nil then nil else under_way end)
@@ -734,7 +734,7 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
     end
     return Response.redirect(after_logout)
   end
-  -- The middleware answers logout before any CSRF middleware inside it.
+  -- The middleware handles logout before any CSRF middleware inside it.
   local guarded_logout = Csrf.middleware{ token = false, strict_same_site = true }(logout)
 
   return function(inner: Types.Handler): Types.Handler
@@ -766,7 +766,7 @@ end
 
 --- Middleware that requires a login: a GET or HEAD that would take HTML
 --- is sent to [`Web.oidc`]'s login path, to come back here after; any
---- other request with nobody logged in is answered 401. Put it inside
+--- other request with nobody logged in gets 401. Put it inside
 --- [`Web.oidc`], on the app, a mount or a route.
 function Oidc.require_login(): Types.Middleware
   return function(inner: Types.Handler): Types.Handler

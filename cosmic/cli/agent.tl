@@ -114,7 +114,7 @@
 ---   (or `~/.local/share/cosmic/agent`), before it is shown: each
 ---   message, each tool's whole output, and each request with its usage
 ---   and cost (`cosmic docs cosmic.agent.sessions`). The model reads it
----   with Host.history in run (or the sql tool, `--with sql`).
+---   with Host.output and Host.history in run (or the sql tool, `--with sql`).
 --- - A run that ends mid-turn loses nothing: `cosmic agent resume` takes
 ---   the turn up again (`cosmic docs cosmic.agent`).
 --- - A program runs the loop itself with [`cosmic.agent`].

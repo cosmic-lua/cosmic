@@ -12,7 +12,7 @@ local function stand_in_under(dir: string): string
 end
 
 --- A codesign in `dir`, the PATH each test searches, that appends its
---- arguments to the log it answers and exits `status`.
+--- arguments to the log whose path this returns, and exits `status`.
 local function fake_codesign(probe: string, dir: string, status: integer): string
   local log = dir .. "/calls"
   assert(stand_in.place(probe, dir .. "/codesign",
@@ -21,7 +21,7 @@ local function fake_codesign(probe: string, dir: string, status: integer): strin
 end
 
 --- A codesign that cannot start, which no stand-in need be built for:
---- running it would answer 127.
+--- running it would exit 127.
 local function unstartable_codesign(dir: string, mode: integer)
   assert(Fs.write(dir .. "/codesign", "#!/nonexistent/interpreter\n", mode))
 end
@@ -77,7 +77,7 @@ local function test_the_first_codesign_on_path_runs(dir: string)
 end
 
 local function test_main_answers_help_and_refuses_an_option()
-  -- Help is answered wherever it is asked, and nothing is verified: a
+  -- Help is printed wherever it is asked, and nothing is verified: a
   -- second word is no usage error and "-x" is not the binary's path.
   assert(VerifyCodesign.main({ "a", "--help" }) == 0)
   assert(VerifyCodesign.main({ "-h" }) == 0)
