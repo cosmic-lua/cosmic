@@ -632,8 +632,8 @@ end
 --- far, and with `only` set, only that call; with `skip`, all but that one.
 local PART_RUN: PartRun = { calls = 0, only = 0, skip = 0 }
 
---- The made values the stand-in's helpers below return: each helper takes `any`, as the core's do.
-local record StandIn
+--- The made values the fake's helpers below return: each helper takes `any`, as the core's do.
+local record Fake
   escape: function(s: any): {string: string}
   escape_attr: function(s: any): {string: string}
   href: function(s: any): {string: string}
@@ -651,7 +651,7 @@ end
 --- and \5 ahead of what `href` returned. A payload `A|B` is `A` to a
 --- whole-URL slot and `B` to a part, as a template given an origin in one
 --- slot and a hostile value in another.
-local STAND_IN <const>: StandIn = {
+local STAND_IN <const>: Fake = {
   escape = function(s: any): {string: string} return { s = "\1" .. esc(s) .. "\2" } end,
   escape_attr = function(s: any): {string: string} return { s = "\3" .. esc_attr(s) .. "\4" } end,
   href = function(s: any): {string: string}

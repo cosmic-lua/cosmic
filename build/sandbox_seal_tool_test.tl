@@ -167,7 +167,7 @@ end
 --- without the modules the main requires it cannot load, and with them it runs.
 local function test_modules_seals_exactly_the_named_modules(tmp: string)
   local program = (assert(Proc.executable()))
-  local main = "build.stand_in_probe"
+  local main = "cosmic.internal.fake_probe"
   local alone = cosmic(tmp, { "sandbox", "--modules", main, "--", program, "exit 3" })
   assert(alone.code ~= 0 and alone.code < 125 and alone.err:find("cosmic.child", 1, true) ~= nil,
     tostring(alone.code) .. alone.err)

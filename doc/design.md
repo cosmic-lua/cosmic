@@ -672,7 +672,8 @@ private, mode 0500, in the validated leaf. a `noexec` cache fails
 there, with a diagnostic that names it. a program `cosmic build`
 writes shares the prefix, and so the compressed cores. the runtime's
 own readers never decode. `trusted_prefix` hashes each stored range
-against its stored digest. `trusted_core` (for `cosmic build --host`)
+against its stored digest. `trusted_core` (for `cosmic build --host` and
+[`Store.host_program`])
 reads the running cached core and hashes it again.
 
 the database is read-only, and the runtime never writes it. it is
@@ -1299,7 +1300,7 @@ tree.
 
 the boot checks that the first stage equals the second wherever the
 generator writes what the release's does. it fails, naming the files,
-unless `lang/SEED_DIFFERS` lists them (one path a line) as declared to
+unless [`lang/SEED_DIFFERS`] lists them (one path a line) as declared to
 differ: a generator change ahead of the pin. a file listed that does
 not differ fails too, unless `COSMIC_BOOTSTRAP` names the seed instead
 of the pin. the sources are in the compiler's identity, and so in
@@ -1628,9 +1629,9 @@ mechanism produced it.
 per-host network rules are not in the kernel's part of the core.
 Landlock's port rule has no address. so "only the proxy's port"
 reaches any host on that port, and no Landlock ABI or seccomp filter
-can close it. a policy's `connect` list holds per-host rules instead,
-on both OSes. a child's start runs a network relay that connects only
-to the hosts the list grants ([`Child.start`]). a caller who needs
+can close it. a policy's `{ connect = "host:port" }` grants hold
+per-host rules instead, on both OSes. a child's start runs a network
+relay that connects only to the hosts they grant ([`Child.start`]). a caller who needs
 more takes the Linux extension below, or a container.
 
 Linux extensions may only deny what the core allows, never allow what
@@ -1993,6 +1994,8 @@ in [roadmap.md](roadmap.md).
 [`doc/guides/project.md`]: guides/project.md
 [`Fs.status`]: ../cosmic/fs.tl
 [`Http.download_result`]: ../cosmic/http/init.tl
+[`lang/SEED_DIFFERS`]: ../lang/SEED_DIFFERS
 [`Proc.find`]: ../cosmic/proc.tl
 [`Rand.uuid`]: ../cosmic/rand.tl
 [`Store.holds`]: ../cosmic/store.tl
+[`Store.host_program`]: ../cosmic/store.tl

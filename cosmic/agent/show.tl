@@ -73,7 +73,7 @@ local function cut(line: string): string
   return line
 end
 
--- At most this many lines show of what a call answered.
+-- At most this many lines show of a call's result.
 local MOST_ANSWER_LINES <const> = 6
 
 --- `lines` in a Markdown code fence of `info`, the first behind `lead`, cut to `most` lines and each line to 120 bytes,
@@ -176,7 +176,7 @@ end
 --- turn's answer to `out`, and to `err` the words the model says on the
 --- way (in a message that also calls a tool), each tool call as
 --- [`Show.call`] shows it (run's code laid out by `layout`), and below
---- it what the call answered: the first lines of what run or bash said,
+--- it the call's result: the first lines of what run or bash said,
 --- in a code fence named output, and of what any call that failed said,
 --- in one named error. An output of no lines shows no fence. No control
 --- byte but tab and newline is shown. The other events show nothing.

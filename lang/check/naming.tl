@@ -9,7 +9,12 @@ local Types = require("lang.types")
 local type Alt = Types.Alt
 local type Code = Codes.Code
 local Context = require("lang.check.context")
+local Lookup = require("lang.check.members")
 local type Ctx = Context.Ctx
+local type Type = Types.Type
+local show = Context.show
+local members_index = Lookup.members_index
+local names_of = Lookup.names_of
 local base_of = Context.base_of
 local dropped_by = Context.dropped_by
 local quoted = Context.quoted
@@ -143,6 +148,49 @@ function Naming.call(ctx: Ctx, node: Ast.Node): string
     end
   end
   return text
+end
+
+--- What `t` (named) has, for a read of the field `name` it does not have: the members `name` may mean ([`Context.nearest`]
+--- `close`, then [`NearNames.related`] ones) with their types, then the names of the others; nil where it has none.
+function Naming.members_told(ctx: Ctx, t: Type, name: string, close: string): string?
+  local NearNames = require("lang.near_names")
+  if not (t.tag == "named") then return nil end
+  local index = members_index(ctx, t.decl, t.value)
+  if index == nil then return nil end
+  local names = names_of(ctx, t)
+  if #names == 0 then return nil end
+  local picked: mut {string} = {}
+  local taken: mut {string: boolean} = {}
+  local function pick(n: string)
+    if n ~= "" and taken[n] == nil and #picked < NearNames.TYPED then
+      picked[#picked + 1] = n
+      taken[n] = true
+    end
+  end
+  pick(close)
+  for _, n in ipairs(NearNames.related(name, names)) do pick(n) end
+  local typed: mut {string} = {}
+  for _, n in ipairs(picked) do
+    local list = index.by_name[n]
+    local first = if list ~= nil then list[1] else nil end
+    local shown = if first ~= nil then NearNames.cut(show(ctx, first.type), 120) else "" end
+    -- A type that holds a type variable of the checker's own (`?0.0`) is shown by its name alone.
+    typed[#typed + 1] = if shown ~= "" and shown:find("%?%d") == nil then "`" .. n .. ": " .. shown .. "`" else quoted(n) end
+  end
+  local rest: mut {string} = {}
+  local more = 0
+  for _, n in ipairs(names) do
+    if taken[n] == nil then
+      if #rest < NearNames.NAMED then rest[#rest + 1] = n else more = more + 1 end
+    end
+  end
+  local owner = quoted(Types.decl_name(t.decl))
+  local told = if #typed > 0 then owner .. " has " .. table.concat(typed, ", ") .. "; " ..
+      (if #rest > 0 then "its other members: " else "" end) else owner .. " has: " end
+  if #rest > 0 then
+    told = told .. table.concat(rest, ", ") .. (if more > 0 then ", and " .. tostring(more) .. " more" else "" end)
+  end
+  return told
 end
 
 return Naming

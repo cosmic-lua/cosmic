@@ -2230,27 +2230,42 @@ local function parse_local_binding(what: string): Ast.Binding
   return b
 end
 
+--- What stands in the folded DDL of a `local schema` for the DDL of another schema, which the declarations put in:
+--- a NUL, which no DDL holds ([`Sqlite.schema`] refuses one).
+local SCHEMA_MARK <const> = "\0"
+
+--- Whether `e` may name a schema: a name, or a field of a name (`module.Schema`).
+local function schema_reference(e: Ast.Exp): boolean
+  return (e.kind == "Name") or ((e.kind == "Field") and (e.object.kind == "Name"))
+end
+
 --- The text of `e` where it is constant: a string literal, a `<const>` local of the block being parsed given
 --- constant text, and a `..` or a parenthesis of them. Nil otherwise, and for a local of a block around, which the
---- parser does not tell apart from a parameter or a loop variable that shadows it.
-local function constant_text(e: Ast.Exp): string?
+--- parser does not tell apart from a parameter or a loop variable that shadows it. With `marks`, a schema's `ddl`
+--- is the mark that stands for it.
+local function constant_text(e: Ast.Exp, marks: boolean): string?
   if (e.kind == "String") then
-    return e.value
+    -- A NUL would read as the mark of a schema's `ddl`; no DDL holds one.
+    return if marks and e.value:find(SCHEMA_MARK, 1, true) ~= nil then nil else e.value end
   elseif (e.kind == "Paren") then
-    return constant_text(e.inner)
+    return constant_text(e.inner, marks)
   elseif (e.kind == "Name") then
     local consts = S.consts[S.depth]
-    return if consts ~= nil then consts[e.text] else nil end
+    local text = if consts ~= nil then consts[e.text] else nil end
+    return if marks and text ~= nil and text:find(SCHEMA_MARK, 1, true) ~= nil then nil else text end
+  elseif marks and (e.kind == "Field") and e.name == "ddl" and schema_reference(e.object) then
+    -- The DDL of another schema, `Other.ddl` or `module.Other.ddl`: the declarations read it, in place of the mark.
+    return SCHEMA_MARK
   elseif (e.kind == "Binary") and e.op == ".." then
-    local left = constant_text(e.left)
-    local right = if left ~= nil then constant_text(e.right) else nil end
+    local left = constant_text(e.left, marks)
+    local right = if left ~= nil then constant_text(e.right, marks) else nil end
     return if left ~= nil and right ~= nil then left .. right else nil end
   end
   return nil
 end
 
 --- `local schema Name [[DDL]]`: a class of the handles that hold the tables of the DDL, and the
---- value of `require("cosmic.sqlite").schema` of it. The module is required as any is.
+--- value `{ ddl = DDL }`, a [`Sqlite.Schema`] of [`cosmic.sqlite`] that the first open of it reads.
 local function parse_schema(first: integer): Ast.Class
   advance()
   local name = binding("a schema")
@@ -2264,11 +2279,13 @@ local function parse_schema(first: integer): Ast.Class
     local errors = #S.errors
     local given = parse_expression()
     value = given
-    local text = constant_text(given)
+    local text = constant_text(given, true)
     -- An expression the parser refused is reported once, as what it is.
     if text == nil and #S.errors == errors then
       report("schema_not_constant", at, "the DDL of the schema `" .. name.name .. "` is no constant text, which the checker " ..
-          "reads where it is written", "write string literals, and `<const>` locals of the same block given them, joined with `..`")
+          "reads where it is written",
+        "write string literals, `<const>` locals of the same block given them, and the `ddl` of another schema " ..
+          "(`Other.ddl`, `module.Other.ddl`), joined with `..`")
     end
     ddl = text or ""
   else
@@ -2358,7 +2375,7 @@ local function parse_local(): Ast.Stat
     -- A local that a `local schema` of its block may read: one `<const>` given constant text.
     local only, given = bindings[1], values[1]
     if #bindings == 1 and #values == 1 and only ~= nil and only.attr == "const" and given ~= nil then
-      local text = constant_text(given)
+      local text = constant_text(given, false)
       if text ~= nil then
         consts[only.name] = text
       end

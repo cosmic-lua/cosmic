@@ -58,7 +58,7 @@ end
 --- Every regular file under `dir`, at any depth, as the command
 --- `find` lists the files (`path` alone where `dir` is `"."`), sorted; only those
 --- whose names end with `suffix` where given (`".tl"`).
-function Shell.find(dir: string, suffix?: string): ({string}) | (nil, Failure)
+function Shell.find(dir: string, suffix?: string): (mut {string}) | (nil, Failure)
   local found, why = Fs.walk(dir)
   if found == nil then return nil, why end
   local base = dir:gsub("/+$", "")
@@ -74,7 +74,7 @@ end
 --- The lines of `text`, each without its newline: a last line with no
 --- newline is one too, and none follows a last newline. A `\r` before a
 --- newline stays.
-function Shell.split(text: string): {string}
+function Shell.split(text: string): mut {string}
   -- In C: a split in Lua took 5 ms a MiB, as long as wc -l takes to start and count.
   return raw.lines(text, false)
 end
@@ -88,7 +88,7 @@ end
 --- The lines of the file `path`, without their newlines (or a `\r`
 --- before one), as a loop of `IFS= read -r line` reads them: a last line with no
 --- newline is one too.
-function Shell.lines(path: string): ({string}) | (nil, Failure)
+function Shell.lines(path: string): (mut {string}) | (nil, Failure)
   local text, why = Fs.read(path)
   if text == nil then return nil, why end
   return raw.lines(text, true)
@@ -114,7 +114,7 @@ end
 --- Each line of the files `paths` that holds `pattern`, a Lua pattern,
 --- or plain text where `plain`, as `grep -n` finds them: in the order of
 --- `paths`, then of lines. A malformed pattern is a failure.
-function Shell.grep(pattern: string, paths: {string}, plain?: boolean): ({Shell.Hit}) | (nil, Failure)
+function Shell.grep(pattern: string, paths: {string}, plain?: boolean): (mut {Shell.Hit}) | (nil, Failure)
   local out: mut {Shell.Hit} = {}
   for _, path in ipairs(paths) do
     local text, why = Fs.read(path)
@@ -188,7 +188,7 @@ end
 --- `counts` as a list, the most first, ties by key, as
 --- `sort -k1,1nr -k2 | head -n most` lists them; only the first `most`
 --- where given.
-function Shell.top(counts: {string: integer}, most?: integer): {Shell.Count}
+function Shell.top(counts: {string: integer}, most?: integer): mut {Shell.Count}
   local out: mut {Shell.Count} = {}
   for key, count in pairs(counts) do out[#out + 1] = { key = key, count = count } end
   table.sort(out, function(a: Shell.Count, b: Shell.Count): boolean
@@ -244,7 +244,7 @@ end
 --- `values`, `statement` may be a script of several
 --- (`create table ...; insert ...`), which yields none. For more than
 --- one statement on a file, [`Sqlite.open`] it.
-function Shell.sqlite(path: string, statement: string, values?: {Json.Value}): ({Shell.Row}) | (nil, Failure)
+function Shell.sqlite(path: string, statement: string, values?: {Json.Value}): (mut {Shell.Row}) | (nil, Failure)
   local db, open_why = Sqlite.open(path, { writable = true })
   if db == nil then return nil, open_why end
   local prepared, why = db:prepare(statement)

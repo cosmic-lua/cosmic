@@ -37,6 +37,20 @@ Refusals.advice = {
   ["cosmic.json Json.Value"] = "for a record or a class of your own, call `Json.encode_any`, which takes any value",
   ["cosmic.sandbox.policy rules.Policy .promises"] = "a promise is a grant now: write `grants = { { calls = \"fork\" } }`, " ..
     "and read them with `Sandbox.calls(policy)`",
+  ["cosmic.sandbox.policy rules.Policy .connect"] = "a host is a grant now: write " ..
+    "`grants = { { connect = \"github.com:443\" } }`, and read them with `Sandbox.connects(policy)`",
+  ["cosmic.internal.test_policy test_policy.Policy .promises"] = "a promise is a grant now: write " ..
+    "`grants = { { calls = \"nest\" } }`",
+  -- The names other languages give what these records have under another, which programs guess most.
+  ["cosmic.json Json .parse"] = "`Json.decode(text)` reads JSON text: `local value, why = Json.decode(text)`",
+  ["cosmic.json Json .stringify"] = "`Json.encode(value)` writes JSON text: `local text, why = Json.encode(value)`",
+  ["cosmic.json Json .dumps"] = "`Json.encode(value)` writes JSON text: `local text, why = Json.encode(value)`",
+  ["cosmic.json Json .loads"] = "`Json.decode(text)` reads JSON text: `local value, why = Json.decode(text)`",
+  ["cosmic.fs Fs .exists"] = "`Fs.status(path)` tells whether anything is there: `local status = Fs.status(path)!`, " ..
+    "then `status.exists`",
+  ["cosmic.fs Fs .glob"] = "`Fs.walk(root)` lists every file under `root`, relative to it: filter the list with `path:match(...)`",
+  ["cosmic.fs Fs .listdir"] = "`Fs.list(path)` lists the names in a directory",
+  ["cosmic.fs Fs .readdir"] = "`Fs.list(path)` lists the names in a directory",
 }
 
 --- Whether a value of the optional type `t` may be a boolean where it is not nil: `false` is then a value of it, which a
@@ -125,6 +139,27 @@ function Refusals.names_invalid(t: Type): boolean
 end
 local names_invalid = Refusals.names_invalid
 
+--- For `e` that names a local made by a `local` statement with a type that has no nil (a cursor made of a value, which
+--- runs out to nil later: `local p = 1`): the fix that declares it optional where it is made, so it may be nil. Nil for
+--- a parameter, a loop variable, a global, or a local whose type has nil or reads otherwise with `?`.
+function Refusals.optional_local(ctx: Ctx, e: Ast.Node): string?
+  local at = peel(e)
+  if not (at.kind == "Name") then return nil end
+  local id = at.binding
+  if id == nil then return nil end
+  local v, t = ctx.scoped.vars[id], ctx.vars[id]
+  if v == nil or t == nil or v.kind ~= "local" then return nil end
+  -- A type that `T?` writes plainly: no union, function or type variable, whose `?` would read otherwise.
+  local tag = t.tag
+  if not (tag == "integer" or tag == "number" or tag == "string" or tag == "boolean" or tag == "true" or
+      tag == "false" or tag == "named" or tag == "array" or tag == "map") then
+    return nil
+  end
+  local shown = Types.display(t, ctx.binders, ctx.fn_names)
+  return "declare `" .. at.text .. "` `" .. shown .. "?` where it is declared (`local " .. at.text .. ": " .. shown ..
+    "? = ...`), so it may be nil"
+end
+
 --- Reports that the value of `node`, of type `got`, is not below `want`, and `r` says why. `where` is a phrase that
 --- says what wants it, with a space before it, or "". `named` is how to write `want` where the program spells it
 --- otherwise than the type is (a parameter of a generic function that a failed inference made `invalid`).
@@ -171,8 +206,12 @@ function Refusals.refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Re
   local e = peel(node)
   if code == "nil" then
     if got.tag == "nil" then
+      -- A local made of a value and set to nil later (a cursor that runs out) is declared optional where it is made.
+      local target = ctx.written
+      local cursor = if target ~= nil then Refusals.optional_local(ctx, target) else nil end
       report(ctx, "nil_not_allowed", node, "nil is given" .. where .. ", where " .. quoted(w) .. " is wanted",
-        "give a value, or declare what takes it `" .. w .. "?` (a parameter or field `name?: T`)", shown)
+        if cursor ~= nil then cursor .. ", or give a value" else
+          "give a value, or declare what takes it `" .. w .. "?` (a parameter or field `name?: T`)" end, shown)
     elseif (e.kind == "Index") then
       report(ctx, "index_may_be_nil", node, s .. " is " .. quoted(g) .. " (an index read may be nil), where " ..
           quoted(w) .. " is wanted" .. where,

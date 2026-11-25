@@ -18,7 +18,7 @@ local _net = require("cosmic.net")
 local _sandbox = require("cosmic.sandbox")
 local _store = require("cosmic.store")
 local Test = require("cosmic.test")
-local stand_in = require("build.stand_in")
+local Fake = require("cosmic.fake")
 local Restrict = require("build.sandbox_restrict_fixture")
 
 --- The program is this one, which a test starts only with `tool`; its
@@ -41,7 +41,7 @@ end
 local REFUSED <const>: {Refusal} = {
   { policy = "{ isolate = { \"file\" } }", says = "isolate \"file\"" },
   { policy = "{ isolate = { \"proc\" } }", says = "isolate \"proc\"" },
-  { policy = "{ connect = { \"example.com:443\" } }", says = "connect \"example.com:443\"" },
+  { policy = "{ grants = { { connect = \"example.com:443\" } } }", says = "connect \"example.com:443\"" },
   { policy = "{ loopback = { \"127.0.0.2\" } }", says = "loopback \"127.0.0.2\"" },
   { policy = "{ grants = { { calls = \"nest\" } } }", says = "calls \"nest\"" },
   { policy = "{ grants = { { path = \"/\", letters = \"ru\" } } }", says = "grant \"/\" has u" },
@@ -62,7 +62,7 @@ local REFUSED <const>: {Refusal} = {
 local function test_every_refusal_holds_nothing(tmp: string)
   assert(Fs.write(tmp .. "/free", "free"))
   assert(Fs.write(tmp .. "/held", "held"))
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local lines: mut {string} = {}
   for i, case in ipairs(REFUSED) do
     lines[#lines + 1] = string.format("say(%q, Sandbox.restrict(%s))", "case" .. tostring(i), case.policy)

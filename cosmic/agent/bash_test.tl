@@ -52,7 +52,8 @@ local function test_bash_runs_in_the_directory_and_says_its_status()
   local one = run("bash", { command = "head -c 60000 /dev/zero | tr '\\0' y" }, dir)
   assert(one.text:find("^" .. string.rep("y", 100)) ~= nil, one.text:sub(1, 40))
   assert(run("bash", NONE, dir).is_error)
-  assert(run("nope", NONE, dir).text == "Tool nope not found")
+  local nope = run("nope", NONE, dir).text
+  assert(nope:find("^Tool nope not found: the tools are read, bash, run") ~= nil, nope)
 end
 
 local function test_each_output_is_kept_before_it_is_shown()
@@ -81,8 +82,9 @@ local function test_each_output_is_kept_before_it_is_shown()
   assert(assert(whole[1]):integer(1) > 13000)
   -- The note names the Host.output call that reads it in a snippet of run.
   local id = assert(assert(db:rows("SELECT id FROM outputs WHERE call = 't2'"))[1]):integer(1)
-  assert(answer.text:find("kept as output " .. tostring(id) .. ": read it in run with Host.output(" .. tostring(id) ..
-      ").]", 1, true) ~= nil, answer.text:sub(-100))
+  -- It comes first, where a model that reads only the top sees it.
+  assert(answer.text:find("[The whole output is kept as output " .. tostring(id) .. ": read it in run with Host.output(" ..
+      tostring(id) .. ").]\n", 1, true) == 1, answer.text:sub(1, 100))
   -- With no run tool, nothing reads it, so there is no note.
   s, _, db = kept({ { content = { bash_call("t3", "seq 3000") }, stop_reason = "tool_use" }, text_reply("ok") })
   s.tools = Tools.without(s.tools, { "run" })

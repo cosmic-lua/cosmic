@@ -153,19 +153,23 @@ function Fields.field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
   end
   local close = nearest(name, names)
   local declare = "declare " .. quoted(name) .. " in " .. owner
+  local told: string? = nil
   if (t.tag == "named") and Types.shape_record(t.decl) then
     declare = "add `" .. name .. ": T` to the braces of " .. owner
   elseif (t.tag == "named") and t.value and t.decl.kind == "integer_enum" then
     declare = "add the member `" .. name .. " = n` to " .. owner
   end
   if (t.tag == "named") and t.decl.module:sub(1, 7) == "cosmic." and ctx.input.module:sub(1, 7) ~= "cosmic." then
-    -- A record of cosmic's own modules is the binary's to a program, which cannot declare a field in it.
-    declare = "`cosmic docs " .. t.decl.module .. "` lists what " .. owner .. " has"
+    -- A record of cosmic's own modules is the binary's to a program, which cannot declare a field in it: what it has
+    -- is told here, so the next try needs no lookup.
+    told = Naming.members_told(ctx, t, name, close)
+    declare = told or ("`cosmic docs " .. t.decl.module .. "` lists what " .. owner .. " has")
   end
   local advised = if (t.tag == "named") then Refusals.advice[t.decl.module .. " " .. t.decl.name .. " ." .. name] else nil end
   report(ctx, "field_unknown", node, owner .. " has no field " .. quoted(name) ..
       (if close ~= "" then ", nearest " .. quoted(close) else "" end),
-    if advised ~= nil then advised elseif close ~= "" then "write " .. quoted(close) .. ", or " .. declare else declare end,
+    if advised ~= nil then advised elseif close ~= "" then
+      "write " .. quoted(close) .. (if told ~= nil then "; " else ", or " end) .. declare else declare end,
     { show(ctx, t) })
 end
 local field_unknown = Fields.field_unknown

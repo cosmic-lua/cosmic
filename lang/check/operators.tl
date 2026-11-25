@@ -15,6 +15,7 @@ local Operands = require("lang.check.operands")
 local Narrowing = require("lang.check.narrowing")
 local type Type = Types.Type
 local type Ctx = Context.Ctx
+local peel = Context.peel
 local below = Context.below
 local has_enum = Context.has_enum
 local is_bool = Context.is_bool
@@ -47,13 +48,73 @@ local type_names = TableLiterals.type_names
 local record Operators
 end
 
+--- For a test of a local against nil (`p ~= nil`) where the local's declared type has no nil: it is to be declared
+--- optional where it is made, as a cursor that runs out is (`local p: integer? = 1`). Nil for any other test.
+function Operators.optional_fix(ctx: Ctx, node: Ast.Binary): string?
+  local name, other = peel(node.left), peel(node.right)
+  if (name.kind ~= "Name") then name, other = other, name end
+  if not (other.kind == "Nil") then return nil end
+  local fix = Refusals.optional_local(ctx, name)
+  return if fix ~= nil then fix .. ", or remove the test" else nil end
+end
+
+--- The integer an integer literal or its negation (`-1`) writes, else nil.
+function Operators.literal_integer(e: Ast.Node): integer?
+  local at = peel(e)
+  if (at.kind == "Integer") then return at.value end
+  if (at.kind == "Unary") and at.op == "-" then
+    local inner = peel(at.operand)
+    if (inner.kind == "Integer") then return -inner.value end
+  end
+  return nil
+end
+
+--- The bounds of `s:sub(i, j)` when both are literals of one sign (`sub(1, 19)`, `sub(-3)`), else 0, 0 (never a bound
+--- of one sign).
+function Operators.literal_range(e: Ast.Node): integer, integer
+  local at = peel(e)
+  if not ((at.kind == "MethodCall") and at.name == "sub") or #at.args < 1 or #at.args > 2 then
+    return 0, 0
+  end
+  local i = Operators.literal_integer(assert(at.args[1]))
+  local j = if #at.args == 2 then Operators.literal_integer(assert(at.args[2])) else -1 end
+  if i == nil or j == nil or (i > 0) ~= (j > 0) or i == 0 or j == 0 then return 0, 0 end
+  return i, j
+end
+
+--- `s:sub(1, 19) == "local function test_"`: a literal longer than the range is never what the range answers, which
+--- finds a miscounted prefix.
+function Operators.short_range(ctx: Ctx, node: Ast.Binary)
+  local range, literal = peel(node.left), peel(node.right)
+  if not (literal.kind == "String") then range, literal = literal, range end
+  if not (literal.kind == "String") or not (range.kind == "MethodCall") or ctx.string_subs[range.id] ~= true then
+    return
+  end
+  local i, j = Operators.literal_range(range)
+  if i == 0 then return end
+  local most, n = math.max(0, j - i + 1), #literal.value
+  if n <= most then return end
+  local object = text_of(ctx, range.object)
+  local fix = if i > 0 then "write `" .. object .. ":sub(" .. tostring(i) .. ", " .. tostring(i + n - 1) .. ")`"
+    elseif j == -1 then "write `" .. object .. ":sub(" .. tostring(-n) .. ")`"
+    else "make the range " .. tostring(n) .. (if n == 1 then " byte" else " bytes" end) .. " long" end
+  report(ctx, "compare_disjoint", node, subject(ctx, range) .. " has at most " .. tostring(most) ..
+      (if most == 1 then " byte" else " bytes" end) .. " and " ..
+      subject(ctx, literal) .. " has " .. tostring(n) .. ": the test is never " ..
+      (if node.op == "==" then "true" else "false" end),
+    fix .. ", which is as long as the string")
+end
+
 --- `a == b` and `a ~= b`: both sides overlap, else the test is dead.
 function Operators.equality(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
   if not Operands.overlaps(ctx, left, right) then
     report(ctx, "compare_disjoint", node, subject(ctx, node.left) .. " is " .. tq(ctx, left) .. " and " ..
         subject(ctx, node.right) .. " is " .. tq(ctx, right) .. ", which share no value: the test is never " ..
         (if node.op == "==" then "true" else "false" end),
-      "compare values of one type, or remove the test", { show(ctx, left), show(ctx, right) })
+      Operators.optional_fix(ctx, node) or "compare values of one type, or remove the test",
+      { show(ctx, left), show(ctx, right) })
+  else
+    Operators.short_range(ctx, node)
   end
 end
 

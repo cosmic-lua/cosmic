@@ -1413,7 +1413,7 @@ function worker.invocation(given: worker.Invocation): worker.Command
     -- made whole, goes in the policy's `set_env`.
     local held = given_policy2
     local policy: Sandbox.Policy = { profiles = held.profiles, grants = held.grants,
-      isolate = held.isolate, connect = held.connect,
+      isolate = held.isolate,
       loopback = held.loopback, env = held.env, tmp = held.tmp, limits = held.limits,
       database = held.database }
     policy.set_env = env -- checked: field_fixed
@@ -2098,7 +2098,7 @@ local function fork_tests(names: {string}, tested: function(string): (worker.Rep
     if ended.code ~= 0 or said:find("\npassed 1\n", 1, true) == nil or said:sub(-5) ~= "\nend\n" then
       retire = "its test did not pass"
     elseif strays then
-      retire = "its test left a process running"
+      retire = "its test " .. name .. " left a process running"
     elseif index < #names and asks and not allowed() then
       retire = "the runner failed its test"
     elseif index < #names then

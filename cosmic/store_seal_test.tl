@@ -223,6 +223,17 @@ local function test_seal_carries_zones_and_roots_only_for_their_modules(tmp: str
   assert(count_of(zoned, "web_assets") == 0 and count_of(trusting, "web_assets") == 0)
 end
 
+--- `data = false` leaves the zones, roots and web files out, though the
+--- modules that call for them are sealed.
+local function test_seal_without_data_carries_none_of_it(tmp: string)
+  local path = tmp .. "/bare.db"
+  assert(Store.seal({ "cosmic.time", "cosmic.http", "cosmic.web.htmx" }, path, { data = false }))
+  for _, table_name in ipairs({ "zoneinfo", "ca_roots", "ca_revoked", "web_assets" }) do
+    assert(count_of(path, table_name) == 0, table_name)
+  end
+  assert(count_of(path, "modules") >= 3)
+end
+
 --- The files cosmic.web serves go only with the module that reads them,
 --- with the hashes the binary computed.
 local function test_seal_carries_the_web_assets_only_for_cosmic_web_htmx(tmp: string)

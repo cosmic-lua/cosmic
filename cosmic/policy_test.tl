@@ -21,9 +21,9 @@ local function test_decode_reads_every_field()
   local policy = assert(PolicyJson.decode([[{
     "profiles": ["system"],
     "grants": [{"path": "data", "letters": "rwxcu", "from": "/srv/data"}, {"calls": "fork"}, {"calls": "jit"},
-      {"calls": "fattr"}, {"calls": "nest"}],
+      {"calls": "fattr"}, {"calls": "nest"},
+      {"connect": "example.com:443"}, {"connect": "*:80"}, {"connect": "host:*"}],
     "isolate": ["file", "proc"],
-    "connect": ["example.com:443", "*:80", "host:*"],
     "loopback": ["127.0.0.1", "127.1.2.3"],
     "env": ["HOME"],
     "set_env": {"MODE": "fast"},
@@ -33,7 +33,7 @@ local function test_decode_reads_every_field()
   assert(assert(policy.profiles)[1] == "system")
   assert(Array.at(Sandbox.paths(policy), 1).path == "data" and Array.at(Sandbox.paths(policy), 1).letters == "rwxcu")
   assert(Array.at(Sandbox.paths(policy), 1).from == "/srv/data")
-  assert(#assert(policy.isolate) == 2 and #Sandbox.calls(policy) == 4 and #assert(policy.connect) == 3)
+  assert(#assert(policy.isolate) == 2 and #Sandbox.calls(policy) == 4 and #Sandbox.connects(policy) == 3)
   assert(assert(policy.loopback)[2] == "127.1.2.3" and assert(policy.env)[1] == "HOME")
   assert(assert(policy.set_env)["MODE"] == "fast" and policy.tmp == true)
   assert(assert(policy.limits).open_files == 64 and assert(policy.limits).file_bytes == 0)
@@ -70,12 +70,14 @@ local function test_decode_refusals_name_the_field()
     { text = '{"grants": [{"path": "a", "letters": "r", "calls": "fork"}]}', path = "$.grants[0]" },
     { text = '{"grants": [{}]}', path = "$.grants[0]" },
     { text = '{"promises": ["fork"]}', path = "$.promises" },
+    { text = '{"connect": ["example.com:443"]}', path = "$.connect" },
+    { text = '{"grants": [{"connect": "h:1", "calls": "fork"}]}', path = "$.grants[0]" },
     { text = '{"profiles": ["system", "bogus"]}', path = "$.profiles[1]" },
-    { text = '{"connect": ["example.com"]}', path = "$.connect[0]" },
-    { text = '{"connect": ["example.com:0"]}', path = "$.connect[0]" },
-    { text = '{"connect": ["example.com:00080"]}', path = "$.connect[0]" },
-    { text = '{"connect": ["example.com:65536"]}', path = "$.connect[0]" },
-    { text = '{"connect": [":80"]}', path = "$.connect[0]" },
+    { text = '{"grants": [{"connect": "example.com"}]}', path = "$.grants[0].connect" },
+    { text = '{"grants": [{"connect": "example.com:0"}]}', path = "$.grants[0].connect" },
+    { text = '{"grants": [{"connect": "example.com:00080"}]}', path = "$.grants[0].connect" },
+    { text = '{"grants": [{"connect": "example.com:65536"}]}', path = "$.grants[0].connect" },
+    { text = '{"grants": [{"connect": ":80"}]}', path = "$.grants[0].connect" },
     { text = '{"loopback": ["10.0.0.1"]}', path = "$.loopback[0]" },
     { text = '{"loopback": ["127.0.0.256"]}', path = "$.loopback[0]" },
     { text = '{"loopback": ["127.0.0.01"]}', path = "$.loopback[0]" },
@@ -146,9 +148,9 @@ local function test_encode_decode_encode_is_the_identity()
   local policies: {Sandbox.Policy} = {
     {},
     { tmp = true },
-    { grants = { { path = "a b", letters = "rwxcu", from = "/h" }, { path = "/x\u{e9}", letters = "c" }, { calls = "nest" }, { calls = "fattr" }, { calls = "jit" }, { calls = "fork" } },
+    { grants = { { path = "a b", letters = "rwxcu", from = "/h" }, { path = "/x\u{e9}", letters = "c" }, { calls = "nest" }, { calls = "fattr" }, { calls = "jit" }, { calls = "fork" }, { connect = "h:1" }, { connect = "*:*" } },
       isolate = { "file", "proc" },
-      connect = { "h:1", "*:*" }, loopback = { "127.9.9.9" }, env = { "A", "B" },
+      loopback = { "127.9.9.9" }, env = { "A", "B" },
       set_env = { K = "v", E = "" }, limits = { open_files = 3, file_bytes = 0, cpu_seconds = 1, processes = 2 },
       tmp = true },
     { set_env_digests = { X = string.rep("a", 64) } },

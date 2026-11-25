@@ -549,7 +549,7 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
         ", " .. model .. unfinished .. "); --new starts a fresh one")
   end
   local s = Agent.new({ model = model, effort = effort, sign = sign, base_url = base, cwd = here,
-    send = r.io.send, system = Prompt.build(here, Prompt.contexts(here), { servers = servers, tools = offered }),
+    send = r.io.send, system = Prompt.build(here, Prompt.contexts(here), { tools = offered }),
     sandbox = if policy == nil then nil else { policy } end, jobs = Jobs.new(), worker = Worker.new(), mcp = AgentMcp.new(servers, here), build = build(),
     tools = offered, messages = held, db = db, id = id, restarts = restarts, ended = ended, budget = budget })
   if budget ~= nil and budget.cost ~= nil and Agent.cost(model, {}) == nil then

@@ -477,7 +477,7 @@ $ cosmic agent sessions
 - `ask` and `chat` go on with the newest session in the directory.
   `--new` starts a fresh one, `--session <id>` goes on with any
   session, and `--fork` goes on in a copy.
-- A tool output too long to give the model is cut, and a note under it
+- A tool output too long to give the model is cut, and a note atop it
   names the output's id. In a `run` program, `Host.output(id)` reads
   it back as the database keeps it, and `Host.history(query)` runs one
   read-only SQL statement on the database. Both see every session.

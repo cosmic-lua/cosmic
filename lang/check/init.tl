@@ -500,6 +500,7 @@ local function apply_method(ctx: Ctx, node: Ast.MethodCall, object: Type, expect
     end
     ft, cands = common, overloads
   else
+    if node.name == "sub" and (t.tag == "string") then ctx.string_subs[node.id] = true end
     ft = member_read(ctx, node, t, node.name)
     module = ctx.member_module
     if ctx.cand_node == node then
@@ -2421,7 +2422,8 @@ local function stat(ctx: Ctx, s: Ast.Stat)
     if schema_value ~= nil then
       local _ = expect(ctx, schema_value, expr(ctx, schema_value, ctx.store.string), ctx.store.string, " as the DDL of a schema")
     end
-    local ddl = if (s.kind == "Class") then s.schema else nil end
+    local body = if decl ~= nil and (s.kind == "Class") and s.schema ~= nil then decl.body else nil end
+    local ddl = if body ~= nil then body.schema else nil end
     local refusal = if ddl ~= nil then require("lang.sql").schema(ddl) else nil end
     if refusal ~= nil then
       report(ctx, "sql_schema", s.name, "SQLite refuses the DDL of the schema " .. quoted(s.name.name) .. ": " .. refusal,
@@ -2511,7 +2513,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
       return false
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, spreads = {}, tags = {}, declared = {}, union_fields = {}, spine = {},
-    ternaries = {}, spare = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
+    ternaries = {}, spare = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, string_subs = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
     loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, runs = {}, inferred = {}, boundaries = {}, types = {}, callees = {}, consts = {}, unread_schemas = {}, call_columns = {}, row_lists = {}, row_columns = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })

@@ -1,6 +1,6 @@
 --- [`build/zig.tl`]'s tests that start this program: bin/zig itself, to
 --- see the status a zig that cannot run exits with, and a build that
---- settles or passes on a signal the stand-in zig ([`build.stand_in`])
+--- settles or passes on a signal the fake zig ([`cosmic.fake`])
 --- sends. Apart from build/zig_test.tl's so those stand while the tree
 --- moves.
 
@@ -10,7 +10,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local this_program = require("build.this_program")
 local rebuild_lock = require("build.rebuild_lock")
-local stand_in = require("build.stand_in")
+local Fake = require("cosmic.fake")
 local sys = require("cosmic.sys")
 local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
@@ -21,7 +21,7 @@ local build_paths = require("build.paths")
 
 --- A source whose build a test interrupts, and the program itself, which
 --- its tests start. bin/zig is started with an environment of the
---- test's own, and the stand-in reads none of the one it inherits.
+--- test's own, and the fake reads none of the one it inherits.
 --- build/zig_fetch.tl is the script a cache miss starts.
 Test.policy{
   profiles = { "cosmic" },
@@ -100,22 +100,22 @@ local function bare_root(tmp: string): string
 end
 
 --- Runs [`build/zig.tl`] from `script` as bin/zig, building with the
---- stand-in `tmp/zig-for-test`, and returns how it ended. Once it has
+--- fake `tmp/zig-for-test`, and returns how it ended. Once it has
 --- started, `tmp/zig-pid` holds its pid -- negated, naming its process
---- group, which it leads, when `group` -- for the stand-in to wait for
+--- group, which it leads, when `group` -- for the fake to wait for
 --- and signal, as a shell's `$PPID` or `0` would name it.
--- TODO: have the stand-in signal its parent, or its own process group,
+-- TODO: have the fake signal its parent, or its own process group,
 -- itself, as a shell's `kill $PPID` and `kill 0` would, rather than wait
 -- for the pid in a file, once cosmic.sys carries getppid and a kill of
 -- pid 0 (its binding refuses 0 as out of range): today a program has
 -- neither, and /proc/self/stat, which names both, is Linux's alone.
-local function build_with_stand_in(tmp: string, script: string, group: boolean): Child.Result
+local function build_with_fake(tmp: string, script: string, group: boolean): Child.Result
   local started = this_program.program({ "--standalone", script, "build" }, { timeout_ns = Child.FOREVER,
     env = { COSMIC_ZIG = "zig-for-test", PATH = tmp, XDG_CACHE_HOME = tmp .. "/cache" },
     stdout = "capture", stderr = "capture",
   })
   local h = assert(Child.start(started.argv, started.options))
-  -- Written whole under another name, so the stand-in never reads half.
+  -- Written whole under another name, so the fake never reads half.
   assert(Fs.write(tmp .. "/zig-pid.writing", (if group then "-" else "" end) .. tostring(h.pid)))
   assert(Fs.rename(tmp .. "/zig-pid.writing", tmp .. "/zig-pid"))
   return (assert(h:wait(Clock.seconds(30))))
@@ -128,12 +128,12 @@ end
 --- does, and exits at once, well inside the pass-on window.
 local function test_run_answers_a_caught_ctrl_c_by_the_childs_status(tmp: string)
   local script = bare_root(tmp)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   -- Child.start starts bin/zig in a group of its own, so the SIGINT to
   -- that group stays inside it.
-  assert(stand_in.place(probe, tmp .. "/zig-for-test",
+  assert(Fake.place(probe, tmp .. "/zig-for-test",
     "trap 0; wait-for $DIR/zig-pid; signal INT @$DIR/zig-pid; exit 0"))
-  local result = build_with_stand_in(tmp, script, true)
+  local result = build_with_fake(tmp, script, true)
   assert(result.signal == nil and result.code == 0,
     tostring(result.code) .. " " .. tostring(result.signal) .. ": " .. tostring(result.stderr))
 end
@@ -143,10 +143,10 @@ end
 --- it not been running a build.
 local function test_run_reraises_a_signal_its_child_never_got(tmp: string)
   local script = bare_root(tmp)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  assert(stand_in.place(probe, tmp .. "/zig-for-test",
+  local probe = assert(Fake.build(tmp .. "/fake"))
+  assert(Fake.place(probe, tmp .. "/zig-for-test",
     "wait-for $DIR/zig-pid; signal TERM @$DIR/zig-pid; exit 0"))
-  local result = build_with_stand_in(tmp, script, false)
+  local result = build_with_fake(tmp, script, false)
   assert(result.signal == sys.SIGTERM,
     tostring(result.code) .. " " .. tostring(result.signal) .. ": " .. tostring(result.stderr))
 end
@@ -154,13 +154,13 @@ end
 --- A build of the boot step holds the checkout's rebuild lock while zig
 --- runs, so a `cosmic test` run or a rebuild in the checkout waits for
 --- it, and hands it on to zig, whose bridge writes the projection holding
---- it (build/writer.tl): the stand-in zig records the variable, and
+--- it (build/writer.tl): the fake zig records the variable, and
 --- waits while this test finds the lock busy.
 local function test_a_boot_holds_the_lock_and_hands_it_on(tmp: string)
   local script = bare_root(tmp)
   local root = tmp .. "/root"
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  assert(stand_in.place(probe, tmp .. "/zig-for-test",
+  local probe = assert(Fake.build(tmp .. "/fake"))
+  assert(Fake.place(probe, tmp .. "/zig-for-test",
     "write $DIR/handed [$COSMIC_REBUILD_LOCK_HANDED]; wait-for $DIR/go; exit 0"))
   local env: mut {string:string} = { COSMIC_ZIG = "zig-for-test", PATH = tmp, XDG_CACHE_HOME = tmp .. "/cache" }
   local build_home = Env.get("COSMIC_BUILD_HOME")
@@ -194,8 +194,8 @@ end
 
 local function test_other_subcommands_accept_cache_directories_not_yet_created(tmp: string)
   local script = bare_root(tmp)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  assert(stand_in.place(probe, tmp .. "/zig-for-test", "exit 0"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
+  assert(Fake.place(probe, tmp .. "/zig-for-test", "exit 0"))
   local project, shared = tmp .. "/new-project", tmp .. "/new-global"
   local started = this_program.program({ "--standalone", script, "version" }, {
     env = { COSMIC_ZIG = tmp .. "/zig-for-test", COSMIC_ZIG_CACHE = project,
@@ -210,8 +210,8 @@ end
 
 local function test_a_build_repairs_a_manifest_whose_contents_do_not_match_its_name(tmp: string)
   local script = bare_root(tmp)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  assert(stand_in.place(probe, tmp .. "/zig-for-test", "exit 0"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
+  assert(Fake.place(probe, tmp .. "/zig-for-test", "exit 0"))
   local project = tmp .. "/project"
   local started = this_program.program({ "--standalone", script, "build" }, {
     env = { COSMIC_ZIG = tmp .. "/zig-for-test", COSMIC_ZIG_CACHE = project,
@@ -230,8 +230,8 @@ end
 
 local function test_boot_refuses_an_install_prefix_that_would_name_another_lock(tmp: string)
   local script = bare_root(tmp)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  assert(stand_in.place(probe, tmp .. "/zig-for-test", "exit 0"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
+  assert(Fake.place(probe, tmp .. "/zig-for-test", "exit 0"))
   for _, args in ipairs({ { "build", "boot", "--prefix", tmp .. "/other" },
       { "build", "sanitized", "--prefix=" .. tmp .. "/other" },
       { "build", "boot", "-p", tmp .. "/other" } }) do

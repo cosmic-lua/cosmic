@@ -6,18 +6,17 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local stand_in = require("build.stand_in")
+local Fake = require("cosmic.fake")
 
 --- The declared scratch, and permission to create the root the unveiled
 --- child's sandbox is.
 Test.policy{
-  grants = { { path = "/noexec", letters = "rwc" } },
-  promises = { "nest" },
+  grants = { { path = "/noexec", letters = "rwc" }, { calls = "nest" } },
 }
 
 local function executable(tmp: string): string, string
   local ordinary = tmp .. "/ordinary"
-  assert(stand_in.place(assert(stand_in.build(tmp .. "/stand-in")), ordinary))
+  assert(Fake.place(assert(Fake.build(tmp .. "/fake")), ordinary))
   local noexec = assert(Env.get("COSMIC_TEST_NOEXEC"))
   assert(noexec == "/noexec" and noexec ~= Env.get("TMPDIR"))
   local path = noexec .. "/program"
@@ -28,7 +27,7 @@ local function executable(tmp: string): string, string
 end
 
 local function refused(path: string)
-  -- If exec unexpectedly succeeds, the native stand-in exits without
+  -- If exec unexpectedly succeeds, the native fake exits without
   -- a worker report; the test fails instead of losing the assertion.
   local ok, trouble, errno = sys.execve(path, { path, "exit 97" }, {})
   assert(not ok and errno == sys.EACCES, trouble)

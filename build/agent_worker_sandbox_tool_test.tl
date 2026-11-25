@@ -9,8 +9,8 @@ local Test = require("cosmic.test")
 local Worker = require("cosmic.agent.worker")
 
 --- This program, which the worker runs, and a root of its own for it, which needs the nest promise.
-Test.policy{ profiles = { "cosmic", "system" }, grants = { { path = "o/bin", letters = "rx" } }, env = { "PATH", "TMPDIR" },
-  promises = { "nest" }, requires = { "nest" } }
+Test.policy{ profiles = { "cosmic", "system" }, grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } }, env = { "PATH", "TMPDIR" },
+  requires = { "nest" } }
 
 --- `answer` as JSON text, for an assertion's message.
 local function shown(answer: Worker.Answer): string
@@ -65,7 +65,7 @@ local function test_a_snippet_of_no_commands_runs_no_program()
   assert(value ~= nil, shown(answer))
   local ran, _ = Fs.read(dir .. "/ran.txt")
   assert(answer["ok"] == true and value["bashed"] == false and value["ran"] == false and ran == nil, shown(answer))
-  -- Nor may the worker become another program: execve itself is refused, and the worker answers on.
+  -- Nor may the worker become another program: execve itself is refused, and the worker goes on responding.
   local exec = "local sys = require(\"cosmic.sys\")\n" ..
     "local done, _, errno = sys.execve(\"/bin/sh\", { \"/bin/sh\", \"-c\", \"echo ran > ran.txt\" }, {})\n" ..
     "return not done and (errno == sys.EPERM or errno == sys.EACCES)\n"

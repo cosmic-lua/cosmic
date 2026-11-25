@@ -17,8 +17,7 @@ local _ = require("build.must_confine_children_test")
 --- own (`nests`).
 Test.policy{
   profiles = { "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" } },
-  promises = { "nest" },
+  grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } },
 }
 -- What these tests start is this very program.
 confine.confine({ reads = confine.itself() })
@@ -55,7 +54,7 @@ local function test_a_worker_held_by_landlock_is_refused_a_root_of_its_own(tmp: 
   local said = fixture.run(tmp, "held", { probe, tmp }, { [confine.held_variable] = module })
   assert(said.code == 0, said.text)
   local refused = probe .. " cannot start in a root of its own: " .. module .. "'s worker is held by a Landlock " ..
-    "ruleset, under which the kernel refuses every mount; declare the promise \"nest\" in its Test.policy"
+    "ruleset, under which the kernel refuses every mount; declare the grant { calls = \"nest\" } in its Test.policy"
   assert(fixture.field(said, "confined") == refused, said.text)
   assert(fixture.field(said, "own_sandbox") == refused, said.text)
 end
@@ -77,7 +76,7 @@ local function test_a_run_started_in_a_held_worker_refuses_to_sandbox_its_worker
   local text = result.stdout or ""
   assert(not result.ok and text:find("test: this run was started in suite.outer_test's worker, " ..
       "which a Landlock ruleset holds", 1, true) ~= nil and
-      text:find("declare the promise \"nest\" in its Test.policy", 1, true) ~= nil, text)
+      text:find("declare the grant { calls = \"nest\" } in its Test.policy", 1, true) ~= nil, text)
 end
 
 --- COSMIC_SANDBOX=must makes every `confine` a `must_confine`: a process that fell back to running unconfined, and

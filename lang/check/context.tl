@@ -383,6 +383,8 @@ local record Ctx
   mut written: Ast.Name?
   --- The name of the function of the string library each local that is given one and never assigned holds, by id.
   library: mut {integer: string}
+  --- Each `s:sub(...)` whose `s` is a string, by the call's id: its bounds bound what it answers ([`Operators.short_range`]).
+  string_subs: mut {integer: boolean}
   --- The reads of `table.move` not yet taken as the callee of a call, by the id of the node ([`Writes.move_stray`]).
   moves: mut {integer: Ast.Node}
   --- Whether the type of each node is kept in `types`.

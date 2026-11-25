@@ -20,8 +20,7 @@ local Test = require("cosmic.test")
 Test.policy{
   profiles = { "system", "cosmic", "proc" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" },
-    { path = "/bin/sh", letters = "r" }, { path = "/etc/passwd", letters = "r" } },
-  promises = { "nest" },
+    { path = "/bin/sh", letters = "r" }, { path = "/etc/passwd", letters = "r" }, { calls = "nest" } },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
   requires = { "path:/bin/sh", "path:/etc/passwd" },
 }

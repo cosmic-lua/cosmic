@@ -4,7 +4,7 @@ local Sandbox = require("cosmic.sandbox")
 local String = require("cosmic.string")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local stand_in = require("build.stand_in")
+local Fake = require("cosmic.fake")
 local PolicyMerge = require("build.policy_merge_fixture")
 
 local function test_check_holds_letters_to_the_canonical_order_only_when_exact()
@@ -13,15 +13,15 @@ local function test_check_holds_letters_to_the_canonical_order_only_when_exact()
   local ok, why = Sandbox.check(grant, true)
   assert(not ok and why:find("^sandbox: %$%.grants%[0%]%.letters: ") ~= nil and why:find('"rx"', 1, true) ~= nil, why)
   assert(Sandbox.check({ grants = { { path = "a", letters = "rx" } } }, true))
-  local bad, trouble = Sandbox.check({ connect = { "nope" } })
-  assert(not bad and trouble:find("$.connect[0]", 1, true) ~= nil, trouble)
+  local bad, trouble = Sandbox.check({ grants = { { connect = "nope" } } })
+  assert(not bad and trouble:find("$.grants[0].connect", 1, true) ~= nil, trouble)
 end
 
 --- A merged policy's `loopback` is one list, so the failure says which one.
 local function test_a_loopback_conflict_of_the_merged_policy_is_named_by_its_path()
-  local none, why = Sandbox.union({ loopback = { "127.0.0.1" } }, { connect = { "127.0.0.1:80" } })
+  local none, why = Sandbox.union({ loopback = { "127.0.0.1" } }, { grants = { { connect = "127.0.0.1:80" } } })
   assert(none == nil and why:find("^sandbox: %$%.loopback%[0%]: in the merged policy, ") ~= nil, why)
-  local ok, own = Sandbox.check({ loopback = { "127.0.0.2", "127.0.0.1" }, connect = { "127.0.0.1:80" } })
+  local ok, own = Sandbox.check({ loopback = { "127.0.0.2", "127.0.0.1" }, grants = { { connect = "127.0.0.1:80" } } })
   assert(not ok and own:find("^sandbox: %$%.loopback%[1%]: ") ~= nil, own)
 end
 
@@ -42,10 +42,10 @@ end
 
 local function test_check_takes_an_ipv6_connect_host_in_brackets_only()
   for _, target in ipairs({ "[::1]:80", "[::]:80", "[1::]:80", "[1:2:3:4:5:6:7:8]:80", "[::ffff:1.2.3.4]:80", "[2001:db8::1]:*", "1.2.3.4:80", "example.com:443", "*:*", "*:443" }) do
-    local ok, why = Sandbox.check({ connect = { target } })
+    local ok, why = Sandbox.check({ grants = { { connect = target } } })
     assert(ok, target .. ": " .. tostring(why))
   end
-  local bad, why = Sandbox.check({ connect = { "::1:80" } })
+  local bad, why = Sandbox.check({ grants = { { connect = "::1:80" } } })
   assert(not bad and why:find("brackets", 1, true) ~= nil, why)
 end
 
@@ -70,13 +70,11 @@ end
 
 local function test_merge_unions_lists_sorted_without_repeats()
   local out = PolicyMerge.merged(
-    { grants = { { calls = "jit" }, { calls = "fork" } }, env = { "B", "A" }, connect = { "b:1", "a:1" },
-      isolate = { "proc" }, loopback = { "127.0.0.2" } },
-    { grants = { { calls = "fork" }, { calls = "fattr" } }, env = { "A", "C" }, connect = { "a:1" },
-      isolate = { "file", "proc" }, loopback = { "127.0.0.1" } })
+    { grants = { { calls = "jit" }, { calls = "fork" }, { connect = "b:1" }, { connect = "a:1" } }, env = { "B", "A" }, isolate = { "proc" }, loopback = { "127.0.0.2" } },
+    { grants = { { calls = "fork" }, { calls = "fattr" }, { connect = "a:1" } }, env = { "A", "C" }, isolate = { "file", "proc" }, loopback = { "127.0.0.1" } })
   assert(table.concat(Sandbox.calls(out), ",") == "fattr,fork,jit")
   assert(table.concat(assert(out.env), ",") == "A,B,C")
-  assert(table.concat(assert(out.connect), ",") == "a:1,b:1")
+  assert(table.concat(Sandbox.connects(out), ",") == "a:1,b:1")
   assert(table.concat(assert(out.isolate), ",") == "file,proc")
   assert(table.concat(assert(out.loopback), ",") == "127.0.0.1,127.0.0.2")
 end
@@ -84,7 +82,7 @@ end
 local function test_merge_answers_every_field_even_for_nothing()
   local out = PolicyMerge.merged()
   assert(out.profiles == nil and out.tmp == false)
-  assert(#assert(out.grants) == 0 and #assert(out.isolate) == 0 and #Sandbox.calls(out) == 0 and #assert(out.connect) == 0)
+  assert(#assert(out.grants) == 0 and #assert(out.isolate) == 0 and #Sandbox.calls(out) == 0 and #Sandbox.connects(out) == 0)
   assert(#assert(out.loopback) == 0 and #assert(out.env) == 0 and next(assert(out.set_env)) == nil)
   assert(next(assert(out.set_env_digests)) == nil and assert(out.limits).open_files == nil)
   assert(PolicyMerge.merged({}, { tmp = false }).tmp == false and PolicyMerge.merged({ tmp = false }, { tmp = true }).tmp) -- checked: or_mix
@@ -167,25 +165,25 @@ local function test_merge_refuses_values_a_type_does_not_stop()
     { policy = { grants = { { path = "a", letters = "z" } } }, at = "$.grants[0].letters" },
     { policy = { grants = { { path = "a", letters = "" } } }, at = "$.grants[0].letters" },
     { policy = { grants = { { path = "", letters = "r" } } }, at = "$.grants[0].path" },
-    { policy = { connect = { "nope" } }, at = "$.connect[0]" },
-    { policy = { connect = { "::1:80" } }, at = "$.connect[0]" },
-    { policy = { connect = { "2001:db8::1:443" } }, at = "$.connect[0]" },
-    { policy = { connect = { "[1.2.3.4]:80" } }, at = "$.connect[0]" },
-    { policy = { connect = { "[::1:80" } }, at = "$.connect[0]" },
-    { policy = { connect = { "[::g]:80" } }, at = "$.connect[0]" },
-    { policy = { connect = { "[:]:80" } }, at = "$.connect[0]" },
-    { policy = { connect = { "[1:2]:80" } }, at = "$.connect[0]" },
-    { policy = { connect = { "[1:2:3:4:5:6:7:8:9]:80" } }, at = "$.connect[0]" },
-    { policy = { connect = { "[1::2::3]:80" } }, at = "$.connect[0]" },
-    { policy = { connect = { "[:1:2:3:4:5:6:7]:80" } }, at = "$.connect[0]" },
-    { policy = { connect = { "[1:2:3:4:5:6:7:]:80" } }, at = "$.connect[0]" },
-    { policy = { connect = { "[::1.2.3]:80" } }, at = "$.connect[0]" },
-    { policy = { connect = { "[]:80" } }, at = "$.connect[0]" },
-    { policy = { connect = { "[::1.2.3.04]:80" } }, at = "$.connect[0]" },
-    { policy = { connect = { "[::1.2.3.256]:80" } }, at = "$.connect[0]" },
+    { policy = { grants = { { connect = "nope" } } }, at = "$.grants[0].connect" },
+    { policy = { grants = { { connect = "::1:80" } } }, at = "$.grants[0].connect" },
+    { policy = { grants = { { connect = "2001:db8::1:443" } } }, at = "$.grants[0].connect" },
+    { policy = { grants = { { connect = "[1.2.3.4]:80" } } }, at = "$.grants[0].connect" },
+    { policy = { grants = { { connect = "[::1:80" } } }, at = "$.grants[0].connect" },
+    { policy = { grants = { { connect = "[::g]:80" } } }, at = "$.grants[0].connect" },
+    { policy = { grants = { { connect = "[:]:80" } } }, at = "$.grants[0].connect" },
+    { policy = { grants = { { connect = "[1:2]:80" } } }, at = "$.grants[0].connect" },
+    { policy = { grants = { { connect = "[1:2:3:4:5:6:7:8:9]:80" } } }, at = "$.grants[0].connect" },
+    { policy = { grants = { { connect = "[1::2::3]:80" } } }, at = "$.grants[0].connect" },
+    { policy = { grants = { { connect = "[:1:2:3:4:5:6:7]:80" } } }, at = "$.grants[0].connect" },
+    { policy = { grants = { { connect = "[1:2:3:4:5:6:7:]:80" } } }, at = "$.grants[0].connect" },
+    { policy = { grants = { { connect = "[::1.2.3]:80" } } }, at = "$.grants[0].connect" },
+    { policy = { grants = { { connect = "[]:80" } } }, at = "$.grants[0].connect" },
+    { policy = { grants = { { connect = "[::1.2.3.04]:80" } } }, at = "$.grants[0].connect" },
+    { policy = { grants = { { connect = "[::1.2.3.256]:80" } } }, at = "$.grants[0].connect" },
     { policy = { loopback = { "8.8.8.8" } }, at = "$.loopback[0]" },
-    { policy = { loopback = { "127.0.0.2", "127.0.0.1" }, connect = { "127.0.0.1:80" } }, at = "$.loopback[1]" },
-    { policy = { loopback = { "127.0.0.1" }, connect = { "[::ffff:127.0.0.1]:*" } }, at = "$.loopback[0]" },
+    { policy = { loopback = { "127.0.0.2", "127.0.0.1" }, grants = { { connect = "127.0.0.1:80" } } }, at = "$.loopback[1]" },
+    { policy = { loopback = { "127.0.0.1" }, grants = { { connect = "[::ffff:127.0.0.1]:*" } } }, at = "$.loopback[0]" },
     { policy = { env = { "A=1" } }, at = "$.env[0]" },
     { policy = { limits = { open_files = 0 } }, at = "$.limits.open_files" },
   }
@@ -198,11 +196,11 @@ end
 --- A loopback address and a connect target of the same address, in one
 --- policy or in two, are refused at the loopback entry, saying what to do.
 local function test_a_loopback_address_a_connect_target_names_is_refused()
-  local none, why = Sandbox.union({ loopback = { "127.0.0.1" } }, { connect = { "127.0.0.1:8080" } })
+  local none, why = Sandbox.union({ loopback = { "127.0.0.1" } }, { grants = { { connect = "127.0.0.1:8080" } } })
   assert(none == nil and why:find("$.loopback[0]", 1, true) ~= nil and why:find("127.0.0.2", 1, true) ~= nil, tostring(why))
-  local ok, checked = Sandbox.check({ loopback = { "127.0.0.2" }, connect = { "127.0.0.1:80" } })
+  local ok, checked = Sandbox.check({ loopback = { "127.0.0.2" }, grants = { { connect = "127.0.0.1:80" } } })
   assert(ok, checked)
-  assert(PolicyMerge.merged({ loopback = { "127.0.0.2" }, connect = { "127.0.0.3:80", "[::1]:80", "example.com:80" } }))
+  assert(PolicyMerge.merged({ loopback = { "127.0.0.2" }, grants = { { connect = "127.0.0.3:80" }, { connect = "[::1]:80" }, { connect = "example.com:80" } } }))
 end
 
 local function test_merge_takes_letters_in_any_order_where_decode_does_not()
@@ -280,13 +278,13 @@ local function test_loaders_follows_macos_sh_to_the_shell_it_runs()
 end
 
 local function test_loaders_names_a_static_program_alone(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local files = assert(Sandbox.loaders(probe))
   assert(#files == 1 and files[1] == assert(sys.realpath(probe)), table.concat(files, " "))
 end
 
 local function test_loaders_follows_links_and_a_shebang_chain(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   assert(Fs.mkdirs(tmp .. "/bin"))
   assert(Fs.symlink(probe, tmp .. "/bin/link"))
   assert(Fs.write(tmp .. "/inner", "#!" .. tmp .. "/bin/link\nprint hi\n", 493))
@@ -341,7 +339,7 @@ local function elf(class: integer, data: integer, interpreter: string?, claimed?
 end
 
 local function test_loaders_reads_an_elf_interpreter_of_every_layout(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/ld"))
+  local probe = assert(Fake.build(tmp .. "/ld"))
   local real = assert(sys.realpath(probe))
   local n = 0
   for _, class in ipairs({ 1, 2 }) do
@@ -369,7 +367,7 @@ end
 --- (a 64-bit entry holds its filesz at byte 33, a 32-bit one at 17) is not
 --- read past the entry: the file stands alone, as any unreadable ELF does.
 local function test_loaders_refuses_an_elf_whose_program_header_size_is_too_small_for_its_class(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/ld"))
+  local probe = assert(Fake.build(tmp .. "/ld"))
   local record Small
     class: integer
     claimed: integer
@@ -593,10 +591,10 @@ local function test_intersect_keeps_the_deeper_path_with_the_letters_of_both()
 end
 
 local function test_intersect_meets_connect_targets_and_lists()
-  local a: Sandbox.Policy = { connect = { "*:443", "db.internal:5432" }, grants = { { calls = "fork" }, { calls = "jit" } }, env = { "HOME", "PATH" } }
-  local b: Sandbox.Policy = { connect = { "api.github.com:*" }, grants = { { calls = "fork" } }, env = { "PATH" } }
+  local a: Sandbox.Policy = { grants = { { calls = "fork" }, { calls = "jit" }, { connect = "*:443" }, { connect = "db.internal:5432" } }, env = { "HOME", "PATH" } }
+  local b: Sandbox.Policy = { grants = { { calls = "fork" }, { connect = "api.github.com:*" } }, env = { "PATH" } }
   local both = assert(Sandbox.intersect(a, b))
-  assert(table.concat(assert(both.connect), ",") == "api.github.com:443", table.concat(assert(both.connect), ","))
+  assert(table.concat(Sandbox.connects(both), ",") == "api.github.com:443", table.concat(Sandbox.connects(both), ","))
   assert(table.concat(Sandbox.calls(both), ",") == "fork")
   assert(table.concat(assert(both.env), ",") == "PATH")
 end
@@ -622,7 +620,7 @@ local function test_intersect_joins_what_the_start_sets_up_and_refuses_two_users
 end
 
 local function test_intersect_with_itself_is_the_merged_policy()
-  local p: Sandbox.Policy = { grants = { { path = "/a", letters = "rw" }, { path = "/a/b", letters = "x" } }, connect = { "h:1" } }
+  local p: Sandbox.Policy = { grants = { { path = "/a", letters = "rw" }, { path = "/a/b", letters = "x" }, { connect = "h:1" } } }
   local merged = assert(Sandbox.union(p))
   local both = assert(Sandbox.intersect(p, p))
   for _, path in ipairs({ "/a", "/a/b", "/a/b/c", "/z" }) do
@@ -650,8 +648,8 @@ end
 
 local function test_intersect_meets_targets_as_the_relay_reads_them()
   local function met(a: string, b: string): string
-    local both = assert(Sandbox.intersect({ connect = { a } }, { connect = { b } }))
-    return table.concat(assert(both.connect), ",")
+    local both = assert(Sandbox.intersect({ grants = { { connect = a } } }, { grants = { { connect = b } } }))
+    return table.concat(Sandbox.connects(both), ",")
   end
   -- "*" grants names alone: never an address or a tailnet node.
   assert(met("*:443", "10.0.0.5:443") == "")

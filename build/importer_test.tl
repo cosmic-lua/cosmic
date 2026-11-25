@@ -25,11 +25,13 @@ local type _ = require("build.test_inputs")
 local type _ = require("build.module")
 local type _ = require("build.inputs")
 local work = require("build.work")
+local work_schema = require("build.work_schema")
 local build_paths = require("build.paths")
 local writer = require("build.writer")
 local shared_compiles = require("build.shared_compiles")
 local fanout = require("build.compile_fanout")
 local Lexer = require("lang.lexer")
+local StandardMeant = require("build.standard_meant")
 local Parser = require("lang.parser")
 local SyntaxNode = require("build.syntax_node")
 local support = require("build.test_support_fixture")
@@ -434,10 +436,7 @@ end
 
 --- What a build of the tree `files` as cosmic's own tree (not a project) says of it: the trouble of its derive, "" for none.
 local function tree_trouble(dir: string, files: {string: string}): string
-  local db = assert(Sqlite.memory())
-  for _, statement in ipairs(work.schema) do
-    assert(db:exec(statement))
-  end
+  local db = assert(Sqlite.memory({ schema = work_schema.Database }))
   for path, text in pairs(files) do
     assert(db:run(
       "INSERT INTO files (path, size, mtime_ns, ino, dev, sha256, data) " ..
@@ -618,6 +617,14 @@ local function test_a_project_file_named_for_a_module_of_the_language_is_refused
   local _, absent = importer_fixture.compile_fixture(missing)
   assert(absent:find("main.tl:1:", 1, true) ~= nil and absent:find("cosmic has no module `cosmic.no_such_module`", 1,
     true) ~= nil, tostring(absent))
+  -- A name an edit from one of cosmic's modules is told the module, from the docs (this test's store withholds the
+  -- binary's).
+  StandardMeant.read_from({ index = { { module = "cosmic.codec", text = "Byte-to-text encodings.", closed = "" } },
+    exact = function(_: string): {{string}} return {} end })
+  local near, near_trouble = write_fixture("cosmic-module-near", { ["main.tl"] = 'local s = require("cosmic.codecs")\nreturn s\n' })
+  assert(near ~= nil, "could not write fixture: " .. tostring(near_trouble))
+  local _, told = importer_fixture.compile_fixture(near)
+  assert(told:find("cosmic has no module `cosmic.codecs`; did you mean `cosmic.codec` (", 1, true) ~= nil, tostring(told))
 end
 
 --- A module's own compile is keyed by its file as well as its import
@@ -1635,6 +1642,31 @@ local function test_a_module_that_requires_a_refused_one_is_checked_and_its_find
   assert(#result.modules == 1 and assert(result.modules[1]).path == "e" and kept == 1, tostring(kept))
 end
 
+--- In cosmic's own tree an error a marker holds is one the module builds with: a module whose `return` holds a marked error
+--- stands for the modules that require it, as it would with no error there, so one run still tells the findings of a module
+--- two steps from the refused one. It guards against reading a held error as a doubt about the module's interface.
+local function test_a_marked_error_in_a_return_leaves_a_module_standing_for_its_dependents()
+  local root = assert(write_fixture("marked-standing", {
+    ["build/importer.tl"] = "local record Stub end\nreturn Stub\n",
+    -- A core/ beside build/importer.tl makes the tree cosmic's own ([`build.tree.standing`]), whose markers hold.
+    ["core/syscalls.h"] = "/**\n * --- Reads bytes.\n * ---@param fd integer descriptor\n * ---@return string|nil data bytes\n" ..
+      " * ---@return string error failure\n * ---@return integer errno number\n */\nCOSMIC_SYSCALL(read, 1);\n",
+    ["build/a.tl"] = defaulting("A", "", "x"),
+    ["build/m.tl"] = "local A = require(\"build.a\")\nlocal record M\nend\nfunction M.f(n: integer): integer\n" ..
+      "  return A.f(n or 4) -- checked: condition_type\nend\nreturn M\n",
+    ["build/c.tl"] = defaulting("C", "local M = require(\"build.m\")\n", "M.f(x)"),
+  }))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, { own = true }))
+  local result, trouble = importer.compile(handle, "marked-standing-test")
+  work.close(handle)
+  local refused = table.concat(assert(result, trouble).refused, "\n")
+  assert(refused:find("build/m.tl: not compiled: it requires build.a, which did not build; checked all the same, it has no " ..
+      "finding of its own", 1, true) ~= nil, refused)
+  assert(refused:find("build/c.tl: 1 error of condition_type in its bodies", 1, true) ~= nil and
+      refused:find("\nbuild/c.tl: checked against the declarations of build.m as they are written", 1, true) ~= nil, refused)
+end
+
 --- A module that does not parse, or whose declarations are in error or in doubt (a `return` that does not fit them is
 --- as often mended by declaring another result), says nothing sound of itself to a module that requires it: a check of
 --- that module would refuse it for what the other got wrong. It is left out unchecked, with the line that says its
@@ -2103,6 +2135,7 @@ local function test_the_writer_modules_are_closed_under_require()
   --- and why no projection's bytes turn on it.
   local neither: mut {string:string} = {
     ["build.work"] = "stages rows and owns transactions and history",
+    ["build.work_schema"] = "the working database's tables, build.work's; the projection holds rows, not this DDL",
     ["build.link_files"] = "stages prose links, whose rows the projection holds",
     ["build.c_tokens"] = "reads C comments for those staged links",
     ["build.importer"] = "coordinates semantic operations and cache transport, and renders diagnostics",

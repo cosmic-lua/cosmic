@@ -30,7 +30,7 @@ local function test_text_shows_words_and_each_call()
   assert(#outs == 1 and outs[1] == "hi", outs[1])
   assert(#errs == 5, tostring(#errs))
   assert(errs[1] == "read a.tl, from line 3", errs[1])
-  -- A failure shows in a fence named error; read's answer, which is not run's or bash's, shows nothing.
+  -- A failure shows in a fence named error; read's result, which is not run's or bash's, shows nothing.
   assert(table.concat(errs, "|", 2) == "```error|no match|for this|```", table.concat(errs, "|"))
   assert(Show.input({ command = "ls", path = "x" }) == "ls")
   assert(Show.input({ n = 1 }) == '{"n":1}', Show.input({ n = 1 }))
@@ -59,7 +59,7 @@ local function test_call_shows_code_commands_and_edits()
     return table.concat(Show.call(name, input), "|")
   end
   assert(joined("run", { code = "local a = 1\nprint(a)\n" }) == "```teal|local a = 1|print(a)|```")
-  -- A layout shows run's code as it lays it out, and one that answers nil shows it as written.
+  -- A layout shows run's code as it lays it out, and one that returns nil shows it as written.
   local function upper(code: string): string? return code:upper() end
   local function none(_: string): string? return nil end
   assert(table.concat(Show.call("run", { code = "print(a)" }, upper), "|") == "```teal|PRINT(A)|```")

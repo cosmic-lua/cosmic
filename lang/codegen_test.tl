@@ -225,15 +225,15 @@ local C = {}; C.__index = C;
 (a).x = C]])
 end
 
-local function test_a_schema_is_the_value_of_sqlite_schema_of_its_ddl()
+local function test_a_schema_is_a_table_of_its_ddl()
   emits(program(
     "local schema Notes [[",
     "  CREATE TABLE notes (id)",
     "]]",
     "print(Notes)"), [=[
-local Notes = require("cosmic.sqlite").schema([[
+local Notes = { ddl = [[
   CREATE TABLE notes (id)
-]])
+]] }
 print(Notes)]=])
 end
 
@@ -244,9 +244,25 @@ local function test_a_schema_of_joined_constants_is_the_value_of_their_join()
     "  \" CREATE TABLE b (y)\"",
     "print(S)"), [[
 local A <const> = "CREATE TABLE a (x);"
-local S = require("cosmic.sqlite").schema(A ..
-" CREATE TABLE b (y)")
+local S = { ddl = A ..
+" CREATE TABLE b (y)" }
 print(S)]])
+end
+
+local function test_a_record_that_names_a_schema_holds_its_value()
+  emits(program(
+    "local schema Notes \"CREATE TABLE notes (id)\"",
+    "local record M",
+    "  type Notes = Notes",
+    "  type Other = string",
+    "end",
+    "return M"), [[
+local Notes = { ddl = "CREATE TABLE notes (id)" }
+local M = { Notes = Notes }
+
+
+
+return M]])
 end
 
 local function test_a_statement_that_is_erased_does_not_hide_the_expression_the_one_before_it_ends_in()

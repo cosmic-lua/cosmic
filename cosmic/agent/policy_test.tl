@@ -15,7 +15,7 @@ local Test = require("cosmic.test")
 local Tools = require("cosmic.agent.tools")
 
 --- Whether `p` lets the agent's tools do each of `letters` at `path`, as
---- [`Sandbox.permits`] answers: r reads, w writes, c creates.
+--- [`Sandbox.permits`] returns: r reads, w writes, c creates.
 local function allows(p: Sandbox.Policy, path: string, letters: string): boolean, string
   local actions: {string: string} = { r = "read", w = "write", c = "create" }
   for letter in letters:gmatch(".") do
@@ -30,7 +30,7 @@ end
 -- which a test's own grant of a program (read alone) does not give. This
 -- is the agent's one module that keys the system; the others name their
 -- programs.
-Test.policy{ profiles = { "system" }, env = { "PATH", "TMPDIR" }, promises = { "nest" }, requires = { "nest" } }
+Test.policy{ profiles = { "system" }, env = { "PATH", "TMPDIR" }, grants = { { calls = "nest" } }, requires = { "nest" } }
 
 local slurp = agent_fixture.slurp
 local scratch = agent_fixture.scratch

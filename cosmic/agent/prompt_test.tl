@@ -1,5 +1,6 @@
 --- The system prompt: its tools, rules, project context and directory.
 
+local Agent = require("cosmic.agent")
 local agent_fixture = require("build.agent_fixture")
 local AgentMcp = require("cosmic.agent.mcp")
 local Fs = require("cosmic.fs")
@@ -70,10 +71,7 @@ local function test_the_prompt_is_exactly_its_sections()
   local servers: {AgentMcp.Server} = { { name = "gh", description = "GitHub\n  tools" }, { name = "plain" } }
   local guidelines: mut {string} = {}
   for _, g in ipairs(read.guidelines) do guidelines[#guidelines + 1] = "\n- " .. g end
-  local p = Prompt.build("/w/a", contexts, { tools = { read }, servers = servers })
-  local intro = "MCP servers a snippet of run may call: "
-  local at = assert(p:find(intro, 1, true))
-  local stop = assert(p:find("until cursor == nil\n", at, true))
+  local p = Prompt.build("/w/a", contexts, { tools = { read } })
   local want = "You are a coding assistant running inside cosmic agent, the coding agent of cosmic. " ..
     "Help users inspect files, run commands, and modify code.\n\n" ..
     "<tools>\n- read: " .. read.snippet .. "\n</tools>\n\n" ..
@@ -84,10 +82,19 @@ local function test_the_prompt_is_exactly_its_sections()
     "\n- Be concise in your responses\n- Show file paths clearly when working with files\n</rules>\n\n" ..
     "<project_context>\nProject-specific instructions and guidelines:\n\n" ..
     "<project_instructions path=\"../AGENTS.md\">\ntop\n</project_instructions>\n\n" ..
-    "<project_instructions path=\"CLAUDE.md\">\nsub\n</project_instructions>\n</project_context>\n\n" ..
-    "<mcp_servers>\n" .. p:sub(at, stop + #"until cursor == nil") ..
-    "- gh: GitHub tools\n- plain\n</mcp_servers>"
+    "<project_instructions path=\"CLAUDE.md\">\nsub\n</project_instructions>\n</project_context>"
   assert(p == want, p)
+  -- The servers follow the working directory, past the cache mark, so the system prompt is the same for any servers.
+  local where = Prompt.where("/w/a", servers)
+  local intro = "MCP servers a snippet of run may call: "
+  local at = assert(where:find(intro, 1, true))
+  local stop = assert(where:find("until cursor == nil\n", at, true))
+  assert(where == "<cwd>\n/w/a\n</cwd>\n\n<mcp_servers>\n" .. where:sub(at, stop + #"until cursor == nil") ..
+      "- gh: GitHub tools\n- plain\n</mcp_servers>", where)
+  assert(Prompt.where("/w/a", {}) == "<cwd>\n/w/a\n</cwd>")
+  -- An agent given a set of servers names them there by default.
+  local s = Agent.new({ sign = agent_fixture.keyed("k"), cwd = "/w/a", mcp = AgentMcp.new(servers, "/w/a") })
+  assert(s.where == where and s.system:find("mcp_servers", 1, true) == nil, s.where)
   -- No tools: no tools section, and the rules a tool brings are gone.
   local bare = Prompt.build("/w/a", {}, { tools = {} })
   assert(bare == "You are a coding assistant running inside cosmic agent, the coding agent of cosmic. " ..
@@ -115,4 +122,23 @@ local function test_the_prompt_lists_the_tools_code_may_call()
   assert(both:find("- stamp: Stamp a word", 1, true) == nil, both)
   local alone = Prompt.build(dir, {}, { tools = { stamp } })
   assert(alone:find("<code_tools>", 1, true) == nil, alone)
+end
+
+local function test_a_prompt_that_offers_run_lists_the_modules_a_snippet_may_require()
+  local run = assert(Tools.find(Tools.all(), "run"))
+  local read = assert(Tools.find(Tools.all(), "read"))
+  local listed = Prompt.build("/w", {}, { tools = { run }, modules = "cosmic.csv: CSV.\ncosmic.fs: Files." })
+  assert(listed:find("\n\n<cosmic_modules>\nThe cosmic.* modules a snippet of run may require", 1, true) ~= nil, listed)
+  assert(listed:find(":\ncosmic.csv: CSV.\ncosmic.fs: Files.\n</cosmic_modules>", 1, true) ~= nil, listed)
+  -- No run, or no modules: no section.
+  assert(Prompt.build("/w", {}, { tools = { read }, modules = "cosmic.csv: CSV." }):find("cosmic_modules", 1, true) == nil)
+  assert(Prompt.build("/w", {}, { tools = { run }, modules = "" }):find("cosmic_modules", 1, true) == nil)
+end
+
+--- Given no modules, a prompt that offers run reads them from this binary's docs; where they cannot be read, as under
+--- this test's store, it lists none rather than raise (build/agent_modules_tool_test.tl reads a built binary's).
+local function test_a_prompt_whose_binary_withholds_its_docs_lists_no_modules()
+  local run = assert(Tools.find(Tools.all(), "run"))
+  local built = Prompt.build("/w", {}, { tools = { run } })
+  assert(built:find("<cosmic_modules>", 1, true) == nil, built)
 end

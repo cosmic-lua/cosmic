@@ -1,7 +1,7 @@
 --- @public
 --- A streamed reply of the Messages API (`"stream": true`), read as
 --- server-sent events and put back together as the message the API
---- answers without a stream: its content blocks whole, a tool call's
+--- sends without a stream: its content blocks whole, a tool call's
 --- input decoded, the usage of its start and its end in one.
 ---
 ---     local message, why = Stream.message(read, function() first = Clock.now_ns() end)

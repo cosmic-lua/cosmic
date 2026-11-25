@@ -229,8 +229,8 @@ end
 --- naming the declaration that lets it.
 local function nests_refusal(program: string, module: string): string
   return string.format("%s cannot start in a root of its own: %s's worker is held by a " ..
-      "Landlock ruleset, under which the kernel refuses every mount; declare the promise " ..
-      "\"nest\" in its Test.policy", program, module)
+      "Landlock ruleset, under which the kernel refuses every mount; declare " ..
+      "the grant { calls = \"nest\" } in its Test.policy", program, module)
 end
 
 --- `wanted`, each relative path taken from the directory this process
