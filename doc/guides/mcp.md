@@ -379,8 +379,8 @@ Revision 2026-07-28 deprecates sampling, roots and logging, so cosmic has
 none of them. Elicitation is there: a handler asks the person for input with
 `call.elicit`, and the client replies through its `elicit` option.
 
-[`Child.FOREVER`]: ../../cosmic/child.tl
-[`cosmic.child`]: ../../cosmic/child.tl
+[`Child.FOREVER`]: ../../cosmic/child/init.tl
+[`cosmic.child`]: ../../cosmic/child/init.tl
 [`cosmic.http.server`]: ../../cosmic/http/server.tl
 [`cosmic.mcp.client`]: ../../cosmic/mcp/client.tl
 [`cosmic.mcp.server`]: ../../cosmic/mcp/server.tl
