@@ -7618,8 +7618,11 @@ function Calls.row_read(ctx: Ctx, method: string, args: {Ast.Exp}, recv_node: As
     return
   end
   local better: string = kind
-  report(ctx, "sql_column", index, "column " .. tostring(n) .. " is " .. origin .. ", declared " .. declared ..
-      (if column.strict then " in a STRICT table" else "" end) .. ", so `" .. method .. "` raises on each of its cells", "read it with `" .. better .. "(" .. tostring(n) .. ")`",
+  local said = if column.strict then " in a STRICT table, so `" .. method .. "` raises on each of its cells"
+    else ", so `" .. method .. "` raises on each cell of that type" end
+  local fix = "read it with `" .. better .. "(" .. tostring(n) .. ")`" ..
+    (if column.strict then "" else ", or `as_text(" .. tostring(n) .. ")` where the column holds cells of other types" end)
+  report(ctx, "sql_column", index, "column " .. tostring(n) .. " is " .. origin .. ", declared " .. declared .. said, fix,
     { origin, declared })
 end
 

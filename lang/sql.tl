@@ -225,28 +225,23 @@ end
 
 Sql.row_reads = { integer = true, number = true, text = true, blob = true, bytes = true }
 
---- The reads that raise on every cell of a column of each kind, in a table that is not `STRICT`:
---- affinity turns a number into text in a text column and an integer into a float in a REAL one,
---- but keeps a text it cannot convert, and a blob, as given, in any column.
-local LOOSE_REFUSALS <const>: {Sql.Kind: {string: boolean}} = {
-  text = { integer = true, number = true },
-  number = { integer = true },
-}
-
---- The reads that raise on every cell of a column of each kind in a `STRICT` table, which holds
---- only cells of the declared type (or NULL, on which every read raises).
-local STRICT_REFUSALS <const>: {Sql.Kind: {string: boolean}} = {
+--- The reads that raise on every cell of a column's declared type, by its kind. A `STRICT` table
+--- holds only such cells (or NULL, on which every read raises). A table that is not may keep a
+--- text it cannot convert, or a blob, in any column, but the declared type says what the column
+--- is for: a column that holds cells of other types is read with `as_text`, `kind` or `value`.
+--- A `BLOB` column of such a table has no affinity, and no kind.
+local REFUSALS <const>: {Sql.Kind: {string: boolean}} = {
   integer = { text = true, blob = true, bytes = true },
   number = { integer = true, text = true, blob = true, bytes = true },
   text = { integer = true, number = true, blob = true },
   blob = { integer = true, number = true, text = true },
 }
 
---- Whether the read `method` raises on every cell of `column`.
+--- Whether the read `method` raises on every cell of `column`'s declared type.
 function Sql.refuses(column: Sql.Column, method: string): boolean
   local kind = column.kind
   if kind == nil then return false end
-  local refusals = if column.strict then STRICT_REFUSALS[kind] else LOOSE_REFUSALS[kind] end
+  local refusals = REFUSALS[kind]
   return refusals ~= nil and refusals[method] == true
 end
 

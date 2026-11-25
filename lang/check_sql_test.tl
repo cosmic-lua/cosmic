@@ -13,6 +13,7 @@ local record Row
   text: function(Row, integer): string
   bytes: function(Row, integer): string
   blob: function(Row, integer): string
+  as_text: function(Row, integer): string
 end
 local record Handle
   run: function(Handle, string, ?{integer | string}): boolean
@@ -303,17 +304,24 @@ local function test_reads_of_the_declared_type_and_of_any_column_are_accepted()
   accepted(ROWS .. 'local row = db:one("SELECT id, body, data, w, count(*) FROM docs")\n' ..
       'print(row:integer(1), row:number(1), row:text(2), row:bytes(2), row:blob(3), row:number(4), row:text(5), ' ..
       'row:integer(5))\n')
-  -- a table that is not STRICT keeps a text it cannot convert, and a blob, in any column
+  -- a table that is not STRICT is read by its declared types; a BLOB column of it has no affinity, so any read goes,
+  -- and `as_text` reads a cell of any type
   accepted(ROWS .. 'local row = db:one("SELECT n, t, r, b FROM loose")\n' ..
-      'print(row:text(1), row:blob(1), row:text(3), row:bytes(2), row:integer(4), row:text(4), row:number(1))\n')
+      'print(row:integer(1), row:number(1), row:text(2), row:bytes(2), row:number(3), row:integer(4), row:text(4), ' ..
+      'row:as_text(1), row:as_text(3))\n')
   -- the later arms of a compound select may give any cell
   accepted(ROWS .. 'local row = db:one("SELECT id FROM docs UNION ALL SELECT \'a\'")\nprint(row:text(1))\n')
 end
 
-local function test_a_loose_table_refuses_what_affinity_never_gives()
+--- A table that is not STRICT may keep a cell of another type in any column, but its declared type says what the
+--- column is for: a read that raises on each cell of that type is refused, naming `as_text` for a column that mixes.
+local function test_a_loose_table_is_read_by_its_declared_types()
   says(ROWS .. 'local row = db:one("SELECT t FROM loose")\nprint(row:integer(1))\n', "sql_column",
-    "column 1 is loose.t, declared TEXT, so `integer` raises")
+    "column 1 is loose.t, declared TEXT, so `integer` raises on each cell of that type")
   says(ROWS .. 'local row = db:one("SELECT r FROM loose")\nprint(row:integer(1))\n', "sql_column", "declared REAL")
+  says(ROWS .. 'local row = db:one("SELECT n FROM loose")\nprint(row:text(1))\n', "sql_column",
+    "column 1 is loose.n, declared INTEGER, so `text` raises on each cell of that type")
+  says(ROWS .. 'local row = db:one("SELECT r FROM loose")\nprint(row:text(1))\n', "sql_column", "declared REAL, so `text` raises")
   says(ROWS .. 'local row = db:one("SELECT data FROM docs")\nprint(row:text(1))\n', "sql_column",
     "declared BLOB in a STRICT table")
 end
