@@ -893,6 +893,6 @@ local function test_a_snippet_edits_a_file_and_a_miss_says_which_edit()
       "print(Host.read(\"a.md\"))\n" }, context)
   assert(not ran.is_error and ran.text:find("^1\none the\ntwo\n") ~= nil, ran.text)
   local missed = tools_run("run", { code = "Host.edit(\"a.md\", { { old = \"zzz\", new = \"y\" } })\n" }, context)
-  assert(missed.is_error and missed.text:find("Could not find edits[0] in a.md", 1, true) ~= nil, missed.text)
+  assert(missed.is_error and missed.text:find("Could not find edits[1] in a.md", 1, true) ~= nil, missed.text)
   worker_close(w)
 end

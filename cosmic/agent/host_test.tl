@@ -33,7 +33,7 @@ local function test_docs_say_why_there_are_none()
   assert(Host.docs("  ") == "host: docs: name a module, a function or words to search for")
 end
 
---- The helpers a snippet composes, named for the commands they do as: find, cat, grep, sed, wc, sort, uniq; each
+--- The helpers a snippet composes, named for the commands they do as: find, read, edit, grep, sed, wc, sort, uniq; each
 --- raises where it fails, so a snippet needs no assert.
 local function test_the_helpers_do_as_their_commands_do(tmp: string)
   assert(Fs.mkdirs(tmp .. "/d/sub"))
@@ -85,10 +85,22 @@ local function test_the_helpers_do_as_their_commands_do(tmp: string)
   Test.raises(function()
     Host.edit(tmp .. "/d/e.txt", { { old = "one", new = "1" }, { old = "nope", new = "x" } })
   end,
-    "host: edit: Could not find edits[1] in " .. tmp .. "/d/e.txt. The old must match exactly")
+    "host: edit: Could not find edits[2] in " .. tmp .. "/d/e.txt. The old must match exactly")
   Test.raises(function() Host.edit(tmp .. "/d/e.txt", { { old = "\n", new = "" } }) end, "Found more than one occurrence")
   Test.raises(function() Host.edit(tmp .. "/d/nope", { { old = "a", new = "b" } }) end, "host: edit: ")
   assert(Host.read(tmp .. "/d/e.txt") == "one the\r\n2\r\n")
+  Test.raises(function()
+    Host.edit(tmp .. "/d/e.txt", { { old = "one", new = "1" }, { old = "one the", new = "x" } })
+  end,
+    "Two edits overlap")
+  Test.raises(function() Host.edit(tmp .. "/d/e.txt", {}) end, "at least one replacement")
+  -- A list built up is typed with Host.Replacement; a link's file is edited, and the link kept.
+  local edits: mut {Host.Replacement} = {}
+  edits[#edits + 1] = { old = "2", new = "two" }
+  assert(Fs.symlink("e.txt", tmp .. "/d/link.txt"))
+  assert(Host.edit(tmp .. "/d/link.txt", edits) == 1 and Host.read(tmp .. "/d/e.txt") == "one the\r\ntwo\r\n")
+  local target, _ = Fs.readlink(tmp .. "/d/link.txt")
+  assert(target == "e.txt", target)
 end
 
 --- sqlite runs a statement or, with no values, a script, and raises "host: sqlite: " where it fails; sha256

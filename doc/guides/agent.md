@@ -232,7 +232,7 @@ as the commands they are named for, but give values in place of text,
 and raise where they fail:
 
 - `Host.find(dir, suffix?)`: every file under `dir`, sorted.
-- [`Host.read`], [`Host.edit`], [`Host.lines`], [`Host.wc`], [`Host.exists`], [`Host.write`].
+- [`Host.read`], [`Host.edit`] (exact replacements, `{ { old = "...", new = "..." } }`, each old text in the file once), [`Host.lines`], [`Host.wc`], [`Host.exists`], [`Host.write`].
 - `Host.grep(pattern, paths, plain?)`: the lines that hold a pattern,
   each as `{path, line, text}`.
 - `Host.sed(path, pattern, replacement)`: replaces every match.
@@ -507,11 +507,11 @@ $ cosmic agent sessions
 [`cosmic.agent.show`]: ../../cosmic/agent/show.tl
 [`cosmic.agent`]: ../../cosmic/agent/init.tl
 [`cosmic.compress`]: ../../cosmic/compress.tl
-[`Host.read`]: ../../cosmic/agent/host.tl
 [`Host.edit`]: ../../cosmic/agent/host.tl
 [`Host.exists`]: ../../cosmic/agent/host.tl
 [`Host.lines`]: ../../cosmic/agent/host.tl
 [`Host.modules()`]: ../../cosmic/agent/host.tl
+[`Host.read`]: ../../cosmic/agent/host.tl
 [`Host.sort`]: ../../cosmic/agent/host.tl
 [`Host.top`]: ../../cosmic/agent/host.tl
 [`Host.uniq`]: ../../cosmic/agent/host.tl
