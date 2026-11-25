@@ -101,7 +101,7 @@ end
 --- The command line of a verb that grants `target` and runs the client for
 --- `host` and `port` as its program, this program's own file.
 local function client(target: string, host: string, port: integer): {string}
-  return { "sandbox", "--cosmic", "--connect", target, "--", assert(Proc.executable()), "sandbox", "connect",
+  return { "sandbox", "--connect", target, "--", assert(Proc.executable()), "sandbox", "connect",
     host, tostring(port) }
 end
 

@@ -29,10 +29,10 @@ local command: Flags.Command = {
   },
   spec = {
     ["-o"] = { value = "path", about = "write the refreshed binary here" },
-    ["--binary"] = { value = "path", about = "refresh this binary rather than the running one" },
-    ["--cacert"] = { value = "file", about = "read the CA roots from this certdata.txt (NSS's) or PEM bundle" },
-    ["--onecrl"] = { value = "file", about = "read the revoked certificates from this OneCRL changeset" },
-    ["--tzdata"] = { value = "file", about = "read the time zones from this tzdata sdist" },
+    ["--binary"] = { value = "path", about = "refresh this binary rather than the running one", dash = "input" },
+    ["--cacert"] = { value = "file", about = "read the CA roots from this certdata.txt (NSS's) or PEM bundle", dash = "input" },
+    ["--onecrl"] = { value = "file", about = "read the revoked certificates from this OneCRL changeset", dash = "input" },
+    ["--tzdata"] = { value = "file", about = "read the time zones from this tzdata sdist", dash = "input" },
   },
 }
 

@@ -386,13 +386,7 @@ end
 local function test_seal_schema_is_the_builds(tmp: string)
   local path = tmp .. "/schema.db"
   assert(Store.seal({ "cosmic.time", "cosmic.http" }, path))
-  local reference = assert(Sqlite.memory())
-  for _, statement in ipairs(schema.settings("")) do
-    assert(reference:exec(statement))
-  end
-  for _, statement in ipairs(schema.create("")) do
-    assert(reference:exec(statement))
-  end
+  local reference = assert(schema.hold(assert(Sqlite.memory())))
   local sealed = assert(Sqlite.open(path))
   for _, name in ipairs({ "meta", "modules", "imports", "decl_imports", "decls", "zoneinfo",
       "ca_roots", "ca_revoked", "web_assets" }) do

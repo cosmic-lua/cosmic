@@ -1468,7 +1468,7 @@ local function hold_schema(handle: Handle, path: string, schema: Schema, writabl
   end
   if #differences == 0 then return true end
   return false, Failure.new(("sqlite: %s does not hold the schema: %s. A file another program made, or an older " ..
-    "one: open it without the schema to migrate it"):format(path, table.concat(differences, "; ")))
+    "one: migrate it on a handle given no schema ([`Handle.migrate`]), then give it the schema"):format(path, table.concat(differences, "; ")))
 end
 
 local record Sqlite
@@ -1723,9 +1723,12 @@ end
 ---     ]]
 ---     local db = assert(Sqlite.open("notes.db", { writable = true, schema = Notes }))
 ---
+--- The DDL may be written `local schema Notes = A .. B`, string
+--- literals and `<const>` locals of the same block joined with `..`.
 --- The value is [`Sqlite.schema`] of the DDL. The type, `Notes`, is a
 --- class of the handles that hold its tables: `open` and `memory`
---- give a `Notes` for `{ schema = Notes }`, and a `Notes` is a
+--- give a `Notes` for `{ schema = Notes }`, as [`Sqlite.hold`] does for
+--- a handle opened without it, and a `Notes` is a
 --- [`Handle`] wherever one is wanted, but a handle is no `Notes`. A
 --- module that exports the schema exports the type (`type Notes =
 --- Notes` in its record) and a function that opens a handle of it: a
@@ -1771,6 +1774,28 @@ function Sqlite.schema(ddl: string): Sqlite.Schema
   local read, why = pcall(declared, schema)
   if not read then error(why, 2) end
   return schema
+end
+
+--- `db` as a handle of `schema`, once its database holds the tables.
+--- This is what [`Sqlite.open`] does for `{ schema = S }`, for a handle
+--- opened first. On a writable handle of a database with no schema
+--- object, it runs the DDL in one transaction. So a program can set a
+--- pragma that must come before the first table, then hold the schema:
+--- SQLite fixes `page_size`, `auto_vacuum` and `encoding` of a new file
+--- once a transaction writes it. Then each table the DDL creates must
+--- be in the database as `open` checks it, or this fails naming what
+--- differs. A read-only handle, and one held to queries
+--- ([`Handle.reads_only`]), only check. The checker reads the answer as
+--- a handle of `schema`'s type where `schema` is a `local schema`. It
+--- is `db` itself, so closing either closes both.
+---
+---     local db = assert(Sqlite.open(path, { writable = true }))
+---     assert(db:exec("PRAGMA page_size = 4096"))
+---     local notes = assert(Sqlite.hold(db, Notes))
+function Sqlite.hold(db: Sqlite.Handle, schema: Sqlite.Schema): (Sqlite.Handle) | (nil, Failure)
+  local holds, why = hold_schema(db, "the database", schema, not db.connection:read_only())
+  if not holds then return nil, why end
+  return db
 end
 
 --- `bytes` as a parameter value that binds as a blob: a plain string

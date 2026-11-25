@@ -40,6 +40,7 @@ local record Sqlite
   schema: function(string): Schema
   open: function(string, ?OpenOptions): Handle
   memory: function(?MemoryOptions): Handle
+  hold: function(Handle, Schema): Handle
 end
 return Sqlite
 ]]
@@ -133,6 +134,17 @@ local function test_a_schema_is_no_class_a_program_makes_or_tests()
   assert(count == 1, tostring(count))
 end
 
+--- A schema's DDL may be string literals and `<const>` locals joined with `..`, read as their text.
+local function test_a_schema_of_joined_constants_is_read()
+  local head = 'local Sqlite = require("cosmic.sqlite")\n' ..
+    'local NOTES <const> = "CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL) STRICT;"\n' ..
+    'local TAGS <const> = " CREATE TABLE tags (tag TEXT NOT NULL)"\n' ..
+    'local schema S = NOTES .. TAGS\nlocal db = Sqlite.memory({ schema = S })\n'
+  accepted(head .. 'print(db:rows("SELECT body, tag FROM notes, tags"))\n')
+  says(head .. 'print(db:rows("SELECT nme FROM tags"))\n', "sql_refused", "no such column: nme")
+  says(head .. 'local row = db:one("SELECT id FROM notes")\nprint(row:text(1))\n', "sql_column", "declared INTEGER")
+end
+
 --- A schema is a type and a value that crosses modules as any declaration does.
 local function test_a_schema_of_another_module_is_read()
   local modules: {string: string} = {
@@ -147,6 +159,19 @@ local function test_a_schema_of_another_module_is_read()
   local first = run.errors[1]
   assert(first ~= nil and first.code == "sql_refused" and first.msg:find("no such table: note", 1, true) ~= nil,
     if first ~= nil then first.code .. ": " .. first.msg else "no error" end)
+end
+
+--- A handle opened plainly, then given the schema by [`Sqlite.hold`], is a handle of it; the plain handle is not.
+local function test_a_held_handle_is_read_against_its_schema()
+  local head = 'local Sqlite = require("cosmic.sqlite")\n' ..
+    'local schema Notes "CREATE TABLE notes (id INTEGER PRIMARY KEY)"\n' ..
+    'local db = Sqlite.open("x.db", { writable = true })\nprint(db:exec("PRAGMA page_size = 4096"))\n'
+  says(head .. 'local notes = Sqlite.hold(db, Notes)\nprint(notes:rows("SELECT nme FROM notes"))\n',
+    "sql_refused", "no such column: nme")
+  says(head .. 'local notes = assert(Sqlite.hold(db, Notes))\nprint(notes:rows("SELECT nme FROM notes"))\n',
+    "sql_refused", "no such column: nme")
+  accepted(head .. 'local notes = assert(Sqlite.hold(db, Notes))\nprint(notes:rows("SELECT id FROM notes"))\n' ..
+      'print(db:rows("SELECT nme FROM notes"))\n')
 end
 
 local function test_assert_around_open_keeps_the_schema()

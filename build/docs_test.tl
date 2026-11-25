@@ -35,10 +35,7 @@ end
 --- its ninth its `source_symbol` when that differs from its symbol.
 local function database(rows: {{string}}, uses: {{string}},
                         modules?: {string}, public?: {string}): Sqlite.Handle
-  local db = assert(Sqlite.memory())
-  for _, statement in ipairs(schema.create("")) do
-    assert(db:exec(statement))
-  end
+  local db = assert(schema.hold(assert(Sqlite.memory())))
   local members: mut {string: boolean} = {}
   if modules ~= nil then
     for _, module in ipairs(modules) do
@@ -2781,10 +2778,7 @@ local function test_a_projection_other_code_wrote_is_left_out(dir: string)
   local store = built(dir, fs_tree())
   local directory = dir .. "/build"
   assert(Fs.mkdirs(directory))
-  local projection = assert(Sqlite.open(directory .. "/cosmic.db", { writable = true }))
-  for _, statement in ipairs(schema.create("")) do
-    assert(projection:exec(statement))
-  end
+  local projection = assert(schema.hold(assert(Sqlite.open(directory .. "/cosmic.db", { writable = true }))))
   -- What this process names its writer: the one it carries, or,
   -- carrying no boot hash, the tree's, which the projection records.
   local boot_hash = Store.meta("boot_hash")

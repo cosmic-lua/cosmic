@@ -16,7 +16,7 @@
 ---   run, create or remove a path by its real name ([`Sandbox.real`]), for
 ---   code that acts for a held program outside the sandbox.
 --- - [`Sandbox.profile`] is what a named profile holds on this host:
----   "system", "programs", "cosmic" and "proc".
+---   "system", "programs" and "proc".
 --- - [`Sandbox.loaders`] is what a program needs read and run to start.
 --- - [`Sandbox.restrict`] holds the calling process, and what it starts,
 ---   to a policy for good.
@@ -167,11 +167,7 @@ end
 --- the first host's paths; "programs" runs the host's programs: `rx`
 --- on /usr, /bin, /sbin and the library directories, which hold the loader
 --- a program it runs starts by (on macOS /usr, /bin and /sbin), so a shell
---- under it can run the tools it names; "cosmic"
---- grants `rx` on the path this program is started by ([`Proc.executable`]),
---- which is its launcher where it has one: what [`Child.start`] runs as
---- this program's core, by a relaunch, and which that core gives up at
---- boot, so it is the start's grant, not the program's; "proc" is the kernel's process
+--- under it can run the tools it names; "proc" is the kernel's process
 --- information: `r` on /proc, where the host has one (Linux), and nothing
 --- on macOS, where sysctl reports it with no file to grant, so a policy that
 --- names it reads the same on both. That is every process's entries
@@ -209,9 +205,7 @@ end
 --- holds if any policy has it; a limit, `user` and `group` are the one
 --- value given, and two different values for one are refused, as two different
 --- values for one `set_env` name are (without saying them: they may be
---- secrets). Two different `database`s are refused too, and with one given
---- the "cosmic" profile resolves to nothing, since its grant is of this
---- program's own file, which a program on a database is not given. A name
+--- secrets). Two different `database`s are refused too. A name
 --- with a value in one policy and a digest in another must have the
 --- value's digest. The result has no `profiles`, and every
 --- list and table of it, empty or not, and `isolate` "file" holds "proc"
@@ -774,8 +768,7 @@ local function held_by_seatbelt(policy: Sandbox.Policy, kept: {integer}): boolea
   for _, grant in ipairs(runtime_grants()) do grants[#grants + 1] = grant end
   local held: Sandbox.Policy = { profiles = policy.profiles, grants = grants,
     limits = policy.limits, user = policy.user, group = policy.group }
-  local executable, _ = executable_path()
-  local options, resolve_trouble = seatbelt_resolve(held, nil, executable)
+  local options, resolve_trouble = seatbelt_resolve(held)
   if options == nil then return denied(resolve_trouble) end
   local profile, compile_trouble = seatbelt_compile(held, options)
   if profile == nil then return denied(compile_trouble) end

@@ -630,7 +630,7 @@ local function laid_out(system: Agent.System, server: Agent.Server, tool: Agent.
   system.put(dir .. "/data.tsv", server.data)
   local servers: {string: Json.Value} = { [server.name] = {
     command = Json.array({ tool.path, "--standalone", dir .. "/server.tl", dir .. "/data.tsv" }),
-    policy = { profiles = Json.array({ "cosmic" }), grants = Json.array({ { path = dir, letters = "r" } }) },
+    policy = { grants = Json.array({ { path = dir, letters = "r" } }) },
   } }
   local encoded = assert(Json.encode({ servers = servers }))
   system.put(dir .. "/mcp.json", encoded)

@@ -155,8 +155,8 @@ cosmic sandbox --system --read . -- ls -l
 Here `ls` can read this directory, and `--system` grants what a host
 program needs to start. A path you did not grant fails. If this host
 cannot enforce the policy, nothing runs, and the command says what is
-missing. `--cosmic` grants what cosmic itself needs, to run a script of
-yours the same way. `cosmic help sandbox` has the rest.
+missing. `cosmic sandbox --read . -- cosmic convert.tl` runs a script of
+yours the same way: cosmic needs no grant of its own to start. `cosmic help sandbox` has the rest.
 
 ## running another cosmic program
 

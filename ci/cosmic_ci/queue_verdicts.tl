@@ -202,10 +202,13 @@ end
 
 --- What a merge-queue run that failed left for its pull request's next
 --- try. A queue run saves no cache, so what a try whose suite the
---- deadline stopped (COSMIC_TEST_DEADLINE) reached is kept only here: each
---- of its legs uploads the rows it used as `queue-tried-verdicts-<job>`,
---- and the next run of the same pull request takes them in before its
---- suites.
+--- deadline stopped (COSMIC_TEST_DEADLINE) reached is kept only here,
+--- and the next run of the same pull request takes it in before its
+--- suites: a release leg that failed uploads the rows it used as
+--- `queue-tried-verdicts-<job>`, and one whose suite passed left them as
+--- `queue-verdicts-<leg>` for main's push; a checked shard and the
+--- narrowing suite upload theirs as `queue-tried-verdicts-<job>` whether
+--- they pass or fail.
 ---
 --- Only a try built on main with this try's change. A merge-queue commit
 --- holds the entries queued ahead of it too, and an entry dropped from the
@@ -213,8 +216,8 @@ end
 --- The code a run ran can write any row, so a try is taken only where
 --- GitHub's own record shows it ran merged code and this try's change:
 --- the commit its entry was put on is on main, and its commit changes the
---- same files, by name, name before and content, as this try's does over
---- its own base ([`change_of`]). Its ref must hold no cache now, and
+--- same files, by name, name before, content and mode, as this try's
+--- does over its own base ([`change_of`]). Its ref must hold no cache now, and
 --- its jobs must have found none there before and after they ran
 --- ([`refused_caches`]): a cache there may have been written by code
 --- that never merges ([`QueueVerdicts.ref_caches`]). Only a run's
@@ -222,9 +225,11 @@ end
 --- the jobs it did not run again, so what GitHub says of its jobs need
 --- not be of the attempt that uploaded the rows.
 ---
---- TODO: upload a try's rows from the legs that passed too, so the next
---- try reruns none of them whole, once the size of a day's queue
---- artifacts is measured.
+--- TODO: upload the rows a release leg's product, portable and
+--- regressions parts used where they pass too, so the next try reruns
+--- none of their suites whole, once a day of the checked and narrowing
+--- jobs' uploads shows what one costs (a leg's `queue-verdicts` is some
+--- 44 MB).
 
 --- How many of the newest failed merge-queue runs are read for the pull
 --- request's: some 14 hours of the queue's failures on 2026-11-24.
@@ -273,24 +278,65 @@ local CHANGE_ROW <const> = Shape.record_of("ChangeRow")
 --- The most files a comparison lists; one that lists as many may hold more.
 local LISTED_FILES <const> = 300
 
+--- What a commit's tree, and an entry of it, is read for.
+local record TreeEntry
+  path?: any
+  mode?: any
+end
+local TREE_ENTRY <const> = Shape.record_of("TreeEntry")
+local record TreeRow
+  truncated?: any
+  tree?: {any}
+end
+local TREE_ROW <const> = Shape.record_of("TreeRow")
+
+--- The mode of each of `paths` in commit `sha`'s tree in `repository`,
+--- by path; nil where GitHub does not say, cuts the tree short, names
+--- none for one of them, or names one twice.
+local function modes_of(host: Github.Host, repository: string, sha: string, paths: {string}): {string:string}?
+  local pages = Github.ask(host, "repos/" .. repository .. "/git/trees/" .. sha .. "?recursive=1", false, LOOKUP_SECONDS)
+  local listed, _ = TREE_ROW:decode_into((pages or {})[1] or "")
+  if listed == nil or listed.truncated ~= false or listed.tree == nil then return nil end
+  local wanted: mut {string:boolean} = {}
+  for _, path in ipairs(paths) do wanted[path] = true end
+  local modes: mut {string:string} = {}
+  for _, item in ipairs(listed.tree) do
+    local entry, _ = TREE_ENTRY:into(item)
+    if entry == nil then return nil end
+    local path, mode = entry.path, entry.mode
+    if path is string and wanted[path] == true then
+      if not (mode is string) or modes[path] ~= nil then return nil end
+      modes[path] = mode
+    end
+  end
+  for _, path in ipairs(paths) do
+    if modes[path] == nil then return nil end
+  end
+  return modes
+end
+
+--- A commit's change over a base, as [`change_of`] reads it: `text`,
+--- each changed file's name, the name it had before, its status and its
+--- content's blob, sorted, one a line; `head`, the commit; and
+--- `staying`, the files it does not remove.
+local record Change
+  text: string
+  head: string
+  staying: {string}
+end
+
 --- What commit `head` changes over `base` in `repository`, as GitHub
---- says: each changed file's name, the name it had before, its status and
---- its content's blob, sorted, one a line. Nil where GitHub does not say,
---- `head` is not ahead of `base`, the list may be cut, or a file that
---- stays has no blob named. GitHub names no file's mode, so a change of
---- mode alone is not told apart.
----
---- TODO: tell a change of mode alone apart, from each commit's tree
---- (`git/trees/<sha>`, which names modes), once a listing of the tree's
---- changed paths alone is found that is not cut short as the whole
---- tree's is.
-local function change_of(host: Github.Host, repository: string, base: string, head: string): string?
+--- says. Nil where GitHub does not say, `head` is not ahead of `base`,
+--- the list may be cut, or a file that stays has no blob named. GitHub
+--- names no file's mode here: [`moded`] adds them.
+local function change_of(host: Github.Host, repository: string, base: string, head: string): Change?
   local pages = Github.ask(host, "repos/" .. repository .. "/compare/" .. base .. "..." .. head, false, LOOKUP_SECONDS)
   local compared, _ = CHANGE_ROW:decode_into((pages or {})[1] or "")
   if compared == nil or compared.status ~= "ahead" then return nil end
   local files = compared.files
   if files == nil or #files >= LISTED_FILES then return nil end
   local lines: mut {string} = {}
+  local staying: mut {string} = {}
   for _, item in ipairs(files) do
     local file, _ = FILE_ROW:into(item)
     if file == nil then return nil end
@@ -303,10 +349,24 @@ local function change_of(host: Github.Host, repository: string, base: string, he
       return nil
     end
     if before is string then was = before end
+    if status ~= "removed" then staying[#staying + 1] = name end
     lines[#lines + 1] = name .. "\0" .. was .. "\0" .. status .. "\0" .. content
   end
   table.sort(lines)
-  return table.concat(lines, "\n")
+  return { text = table.concat(lines, "\n"), head = head, staying = staying }
+end
+
+--- `change`'s text and, after it, the mode in its commit's tree of each
+--- file it keeps, sorted, one a line; nil where [`modes_of`] is.
+local function moded(host: Github.Host, repository: string, change: Change): string?
+  local modes = modes_of(host, repository, change.head, change.staying)
+  if modes == nil then return nil end
+  local lines: mut {string} = {}
+  for _, name in ipairs(change.staying) do
+    lines[#lines + 1] = name .. "\0" .. (modes[name] or "")
+  end
+  table.sort(lines)
+  return change.text .. "\n\n" .. table.concat(lines, "\n")
 end
 
 --- What a listing of caches is read for.
@@ -440,15 +500,19 @@ end
 --- first attempt for the pull request HEAD_REF is of, was built on a
 --- commit of main with the change SHA makes over BASE_SHA (this run's),
 --- and refused its ref's caches before and after its jobs; and the one
---- ARTIFACT it uploaded. Where it finds none it says why and writes
---- nothing: the run's suites run their tests. 2 where the step names no
---- queue ref, artifact, repository, base or commit, else 0.
+--- ARTIFACT it uploaded, or else the one PASSED_ARTIFACT, where it names
+--- one: what this job uploads where its suite passes. Where it finds
+--- none it says why and writes nothing: the run's suites run their
+--- tests. 2 where the step names no queue ref, artifact, repository, base
+--- or commit, or a PASSED_ARTIFACT that is no artifact's name, else 0.
 function QueueVerdicts.find_tried(env: {string:string}, host: Github.Host): integer
   local ref, name, repository = env["HEAD_REF"] or "", env["ARTIFACT"] or "", env["GITHUB_REPOSITORY"] or ""
+  local passed = env["PASSED_ARTIFACT"] or ""
   local queued = QueueVerdicts.entry_of(ref)
-  if queued == nil or not name:match("^[%w._-]+$") or not repository:match("^[%w._-]+/[%w._-]+$") then
-    local _, _ = Fs.put(Fs.stderr, "queue-tried-run: HEAD_REF, ARTIFACT and GITHUB_REPOSITORY must name " ..
-        "a merge-queue ref, an artifact and a repository\n")
+  if queued == nil or not name:match("^[%w._-]+$") or not repository:match("^[%w._-]+/[%w._-]+$") or
+      not passed:match("^[%w._-]*$") then
+    local _, _ = Fs.put(Fs.stderr, "queue-tried-run: HEAD_REF, ARTIFACT, PASSED_ARTIFACT and GITHUB_REPOSITORY " ..
+        "must name a merge-queue ref, an artifact, an artifact or nothing, and a repository\n")
     return 2
   end
   local entry = queued.pr
@@ -464,6 +528,7 @@ function QueueVerdicts.find_tried(env: {string:string}, host: Github.Host): inte
         base .. "; the suites run what they would have answered")
     return 0
   end
+  local mine_moded: string? = nil
   local runs, trouble = tried_runs(host, repository, entry, own)
   local why = if runs == nil then trouble else "no failed merge-queue run of pull request " .. entry .. " is listed" end
   for _, tried in ipairs(runs or {}) do
@@ -472,14 +537,33 @@ function QueueVerdicts.find_tried(env: {string:string}, host: Github.Host): inte
     local absent = "run " .. tostring(id) .. " was built on " .. tried.on .. ", which is not on main"
     if on_main(host, repository, tried.on) then
       absent = "run " .. tostring(id) .. " tested another change than this run's"
-      if change_of(host, repository, tried.on, tried.sha) == mine then
-        -- A run whose ref holds a cache may have restored one that code
-        -- which never merges wrote ([`QueueVerdicts.ref_caches`]).
-        absent = "run " .. tostring(id) .. "'s ref holds a cache, or GitHub does not say"
-        if caches_of(host, repository, tried.ref) == 0 then
-          absent = "run " .. tostring(id) .. " did not refuse its ref's caches before and after its jobs"
-          if refused_caches(host, repository, id) then
-            held, absent = tried_artifact(host, repository, id, name)
+      local change = change_of(host, repository, tried.on, tried.sha)
+      if change ~= nil and change.text == mine.text then
+        -- The trees are read only for a change that matches otherwise.
+        mine_moded = mine_moded or moded(host, repository, mine)
+        absent = "GitHub did not say the modes of the files " .. sha .. " or run " .. tostring(id) .. "'s commit keeps"
+        local same = false
+        if mine_moded ~= nil then
+          local theirs = moded(host, repository, change)
+          same = theirs == mine_moded
+          if theirs ~= nil and not same then
+            absent = "run " .. tostring(id) .. " tested another change than this run's: a mode differs"
+          end
+        end
+        if same then
+          -- A run whose ref holds a cache may have restored one that code
+          -- which never merges wrote ([`QueueVerdicts.ref_caches`]).
+          absent = "run " .. tostring(id) .. "'s ref holds a cache, or GitHub does not say"
+          if caches_of(host, repository, tried.ref) == 0 then
+            absent = "run " .. tostring(id) .. " did not refuse its ref's caches before and after its jobs"
+            if refused_caches(host, repository, id) then
+              held, absent = tried_artifact(host, repository, id, name)
+              if held == nil and passed ~= "" then
+                local missed = absent
+                held, absent = tried_artifact(host, repository, id, passed)
+                if held == nil then absent = missed .. "; " .. absent end
+              end
+            end
           end
         end
       end
@@ -487,7 +571,8 @@ function QueueVerdicts.find_tried(env: {string:string}, host: Github.Host): inte
     if held ~= nil then
       host.output("run=" .. tostring(id))
       host.output("artifact=" .. tostring(held))
-      host.print("merge-queue run " .. tostring(id) .. " of pull request " .. entry .. " failed and uploaded " .. name)
+      host.print("merge-queue run " .. tostring(id) .. " of pull request " .. entry .. " failed; its artifact " ..
+          tostring(held) .. " holds this job's verdicts")
       return 0
     end
     why = absent

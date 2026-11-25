@@ -53,17 +53,12 @@ local function store_of(module: string, path: string): boolean, string
   local basis = Store.meta("runtime_basis")
   if basis == nil or basis == "" then return false, "the running binary names no runtime basis" end
   local _, _ = Fs.remove(path)
-  local db, open_trouble = Sqlite.open(path, { writable = true })
-  if db == nil then return false, path .. ": " .. tostring(open_trouble) end
-  local statements: mut {string} = {}
-  for _, statement in ipairs(schema.settings("")) do statements[#statements + 1] = statement end
-  for _, statement in ipairs(schema.create("")) do statements[#statements + 1] = statement end
-  for _, statement in ipairs(statements) do
-    local ok, failure = db:exec(statement)
-    if not ok then
-      local _, _ = db:close()
-      return false, tostring(failure)
-    end
+  local opened, open_trouble = Sqlite.open(path, { writable = true })
+  if opened == nil then return false, path .. ": " .. tostring(open_trouble) end
+  local db, hold_trouble = schema.hold(opened)
+  if db == nil then
+    local _, _ = opened:close()
+    return false, path .. ": " .. tostring(hold_trouble)
   end
   local made, trouble = db:transact(function(): (true) | (false, Failure)
     local row, row_trouble = db:run("INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, " ..

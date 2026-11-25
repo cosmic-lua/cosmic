@@ -123,8 +123,9 @@ local command: Flags.Command = {
     ["--db"] = { value = "path", about = "run against this file" },
     ["--build"] = { about = "run against the build directory's build.db" },
     ["--store"] = { about = "run against the binary's own; only PRAGMA data_version" },
-    ["--from"] = { value = "file", about = "load a data file (`-` for standard input) as a table " ..
-        "named for its stem, or `name=file`; repeat for a join. A SQLite database is read as itself, as --db reads it" },
+    ["--from"] = { value = "file", about = "load a data file as a table " ..
+        "named for its stem, or `name=file`; repeat for a join. A SQLite database is read as itself, as --db reads it",
+      dash = "input" },
     ["--as"] = { value = "format", about = "read the --from before it as json, ndjson, csv " ..
         "or tsv, rather than by its extension" },
     ["--raw"] = { about = "keep every cell of the csv or tsv --from before it as text: " ..
