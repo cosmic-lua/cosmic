@@ -693,10 +693,12 @@ local checked_suite_test_timeout_s <const> = "120"
 
 --- The whole suite on a checked run ([`phase_checked_narrowing`]), in ci.yml's
 --- `narrowing` job; a test 120 s at most, as on the checked core. The whole run
---- takes 510 s on four processors locally and 726 to 861 s on CI's runner where
---- no verdict stands (the merge queue's runs of 23 October 2026). The bound is
---- 1500 s, 1.7 times the slowest.
--- TODO: lower this bound once CI's own runs of it standing on verdicts show its elapsed time.
+--- took 726 to 861 s on CI's runner where no verdict stood (the merge queue's
+--- runs of 23 October 2026), and by November 1276 and 1289 s, past its deadline
+--- (the bound less `checked_margin_ns`, 1260 s; #4241, #4245). The bound is
+--- 1500 s; the merge queue and a manual run of a branch run the suite in three
+--- shares (COSMIC_CI_NARROWING_SHARD), each well within it, and main's push and
+--- the scheduled run whole, standing on the verdicts the last push saved.
 local checked_narrowing_timeout_ns <const> = Clock.seconds(1500)
 local checked_narrowing_test_timeout_s <const> = "120"
 
