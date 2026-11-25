@@ -180,6 +180,24 @@ local function test_a_function_exported_under_another_name_is_documented_on_its_
   assert(text:find("Whether `pattern` is not empty.", 1, true), text)
 end
 
+--- [`Doc.taking`] finds the exported functions with a parameter of the name, first or later, optional or not, and no
+--- unexported one, no field, and no parameter whose name only begins with it.
+local function test_the_functions_that_take_a_parameter_of_a_name_are_found()
+  local db = database({
+    { "cosmic.fs", "Fs.basename", "function", "function Fs.basename(path: string): string", "", "cosmic/fs.tl", "1" },
+    { "cosmic.fs", "Fs.write", "function", "function Fs.write(path: string, data: string): boolean", "", "cosmic/fs.tl", "2" },
+    { "cosmic.fs", "Fs.chmod", "function", "function Fs.chmod(mode: integer, path?: string): boolean", "", "cosmic/fs.tl", "3" },
+    { "cosmic.fs", "Fs.join", "function", "function Fs.join(paths: {string}): string", "", "cosmic/fs.tl", "4" },
+    { "cosmic.fs", "Fs.hidden", "function", "function Fs.hidden(path: string): string", "", "cosmic/fs.tl", "5", "private" },
+    { "cosmic.fs", "Fs.Dir.path", "field", "path: string", "", "cosmic/fs.tl", "6" },
+  }, {})
+  local found = assert(Doc.taking(view({ db }), "path"))
+  local symbols_found: mut {string} = {}
+  for _, t in ipairs(found) do symbols_found[#symbols_found + 1] = t.module .. " " .. t.symbol end
+  local listed = table.concat(symbols_found, ", ")
+  assert(listed == "cosmic.fs Fs.basename, cosmic.fs Fs.chmod, cosmic.fs Fs.write", listed)
+end
+
 --- A symbol's last name alone finds every symbol ending in it.
 local function test_looks_up_a_symbol_by_its_last_name(dir: string)
   local db = built(dir, fs_tree())

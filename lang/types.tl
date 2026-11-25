@@ -51,11 +51,12 @@
 --- it stands. `open` says how many binders outside a type it reaches.
 ---
 --- **Functions.** A function type holds no parameter names: they are in the syntax tree, and
---- a signature is the same type whatever its parameters were called. Its returns are a set
+--- a signature is the same type whatever its parameters were called. A field or method keeps the
+--- names it was declared with beside its type ([`Field.params`]), for a message to show. Its returns are a set
 --- of alternatives, kept without repeats and in digest order. A narrowing declaration is an
 --- alternative with `narrows`, and the only one, since the grammar makes it the whole return
---- list. Display names a parameter `p<position>` where a spelling needs a name: an
---- omittable parameter and the one a narrowing declaration names.
+--- list. Display names a parameter `p<position>` where a spelling needs a name (an
+--- omittable parameter and the one a narrowing declaration names) and it was given none.
 ---
 --- **Text.** [`Types.encode`] writes a type as canonical text, an S-expression that names
 --- a declaration by its path, and [`Store.decode`] reads it into any store, in normal form
@@ -335,6 +336,9 @@ local record Types
     type: Type
     mut?: boolean
     omittable?: boolean
+    --- The names the parameters of a function field have where it is declared ("" for one written with its type
+    --- alone), for a message that shows the field: they are no part of its type.
+    params?: {string}
   end
 
   --- A method of a class or a userdata record: a function whose first parameter is the
@@ -342,6 +346,8 @@ local record Types
   record Method
     name: string
     type: Type
+    --- As [`Field.params`].
+    params?: {string}
   end
 
   --- A type parameter of a declaration.
@@ -536,8 +542,9 @@ local record Types
 
   --- The type in the grammar's own spelling, as an error prints it. `binders` names the
   --- type parameters a free variable stands for, outermost first. `fns` holds the names a generic function was
-  --- declared with, by the id of its type: it is shown with them, not with letters, where they are free.
-  display: function(t: Type, binders?: {{string}}, fns?: {integer: {string}}): string
+  --- declared with, by the id of its type: it is shown with them, not with letters, where they are free. `params`
+  --- names the parameters of `t`, a function type, as a declaration wrote them ([`Field.params`]).
+  display: function(t: Type, binders?: {{string}}, fns?: {integer: {string}}, params?: {string}): string
 
   --- The name display gives the type parameter at `index` (from 0) of a function type that has no binder around it:
   --- a letter, and `P` and the index from the 27th.
@@ -872,6 +879,8 @@ local record Names
   --- The names a generic function was declared with, by the id of its type, which it is shown with where they take
   --- no name already in use.
   fns?: {integer: {string}}
+  --- The names of the parameters of `root`, a function type, as its declaration wrote them.
+  params?: {string}
 end
 
 local NAME_LETTERS <const> = "TUVWXYZABCDEFGHIJKLMNOPQRS"
@@ -1163,10 +1172,13 @@ local function show_item(t: Type, names: Names): string
   return show(t, names, false)
 end
 
-local function show_alt(alt: Alt, names: Names): string
+--- `given` names the parameters of the function the alternative is of, as [`Names.params`] does.
+local function show_alt(alt: Alt, names: Names, given?: {string}): string
   local narrows = alt.narrows
   if narrows ~= nil then
-    return (if narrows.asserts then "asserts " else "" end) .. "p" .. tostring(narrows.param) .. " is " .. show(narrows.to, names, false)
+    local declared = if given ~= nil then given[narrows.param] or "" else "" end
+    local param = if declared ~= "" then declared else "p" .. tostring(narrows.param) end
+    return (if narrows.asserts then "asserts " else "" end) .. param .. " is " .. show(narrows.to, names, false)
   end
   local parts: mut {string} = {}
   for _, item in ipairs(alt.items) do
@@ -1198,7 +1210,7 @@ end
 local function show_rets(f: Fn, names: Names): string
   local alts: mut {SortedAlt} = {}
   for _, alt in ipairs(f.rets) do
-    local text = show_alt(alt, names)
+    local text = show_alt(alt, names, if f == names.root then names.params else nil end)
     alts[#alts + 1] = { text = text, order = alt_order(alt, text) }
   end
   if #alts == 0 then
@@ -1286,12 +1298,15 @@ local function show_fn(f: Fn, names: Names): string
   end
   local params: mut {string} = {}
   local rest = f.rest
+  local given_names = if f == names.root then names.params else nil end
   for i, p in ipairs(f.params) do
     local last = rest == nil and i == #f.params
+    local given = if given_names ~= nil then given_names[i] or "" else "" end
+    local name = if given ~= "" then given else "p" .. tostring(i) end
     if p.omittable == true then
-      params[#params + 1] = "p" .. tostring(i) .. "?: " .. show_without_nil(p.type, names, last)
-    elseif named[i] == true then
-      params[#params + 1] = "p" .. tostring(i) .. ": " .. show_element(p.type, names, last)
+      params[#params + 1] = name .. "?: " .. show_without_nil(p.type, names, last)
+    elseif named[i] == true or given ~= "" then
+      params[#params + 1] = name .. ": " .. show_element(p.type, names, last)
     else
       params[#params + 1] = show_element(p.type, names, last)
     end
@@ -1376,8 +1391,8 @@ show = function(t: Type, names: Names, parenthesized: boolean): string
   return ""
 end
 
-function Types.display(t: Type, binders?: {{string}}, fns?: {integer: {string}}): string
-  local names: Names = { binders = {}, budget = DISPLAY_BUDGET, root = t, fns = fns } -- checked: literal_missing
+function Types.display(t: Type, binders?: {{string}}, fns?: {integer: {string}}, params?: {string}): string
+  local names: Names = { binders = {}, budget = DISPLAY_BUDGET, root = t, fns = fns, params = params } -- checked: literal_missing
   for _, b in ipairs(binders or {}) do
     names.binders[#names.binders + 1] = b
   end
@@ -1925,7 +1940,8 @@ local function normal_body(store: Store, decl: Decl, body: Body): Body
     owned(store, field.type)
     local omittable = field.omittable == true
     local t = if omittable then store:optional(field.type) else field.type end
-    made.fields[#made.fields + 1] = { name = field.name, type = t, mut = field.mut == true, omittable = omittable }
+    made.fields[#made.fields + 1] = { name = field.name, type = t, mut = field.mut == true, omittable = omittable,
+      params = field.params }
     roots[#roots + 1] = t
   end
   local array = body.array
@@ -1942,7 +1958,7 @@ local function normal_body(store: Store, decl: Decl, body: Body): Body
     if not is_name(method.name) then
       error("types: a method's name is a name the lexer reads, not " .. string.format("%q", method.name), 3)
     end
-    made.methods[#made.methods + 1] = { name = method.name, type = method.type }
+    made.methods[#made.methods + 1] = { name = method.name, type = method.type, params = method.params }
     roots[#roots + 1] = method.type
   end
   local named = body.alias
@@ -2006,7 +2022,16 @@ end
 
 -- Declaration text -----------------------------------------------------------------
 
+--- ` (params "a" "b")` of the names a function field's parameters were declared with, or "" where none is held.
+local function params_text(params?: {string}): string
+  if params == nil then return "" end
+  local quoted_names: mut {string} = {}
+  for _, name in ipairs(params) do quoted_names[#quoted_names + 1] = quote(name) end
+  return " (params " .. table.concat(quoted_names, " ") .. ")"
+end
+
 --- `(opt T)` for an omittable slot (a parameter or a field), or `T`.
+
 local function slot_text(type_: Type, omittable: boolean?): string
   if omittable == true then
     return "(opt " .. written(type_) .. ")"
@@ -2032,7 +2057,7 @@ local function declaration_text(decl: Decl, body: Body): string
   parts[#parts + 1] = ") (fields"
   for _, field in ipairs(body.fields) do
     parts[#parts + 1] = " (field " .. quote(field.name) .. (if field.mut == true then " mut " else " " end) ..
-      slot_text(field.type, field.omittable) .. ")"
+      slot_text(field.type, field.omittable) .. params_text(field.params) .. ")"
   end
   parts[#parts + 1] = ") (elements"
   local array = body.array
@@ -2041,7 +2066,7 @@ local function declaration_text(decl: Decl, body: Body): string
   end
   parts[#parts + 1] = ") (methods"
   for _, method in ipairs(body.methods) do
-    parts[#parts + 1] = " (method " .. quote(method.name) .. " " .. written(method.type) .. ")"
+    parts[#parts + 1] = " (method " .. quote(method.name) .. " " .. written(method.type) .. params_text(method.params) .. ")"
   end
   parts[#parts + 1] = ") (values"
   for _, v in ipairs(body.values) do
@@ -2268,6 +2293,16 @@ local function read_slot(r: Reader): Type, boolean -- checked: not_assigned
   return read_type(r), false
 end
 
+--- The names ` (params ...)` holds, where the reader is at one; nil where it is not.
+local function read_params(r: Reader): {string}?
+  if peek(r) ~= "(" or head(r) ~= "params" then return nil end
+  expect(r, "params")
+  local names: mut {string} = {}
+  while peek(r) ~= ")" do names[#names + 1] = string_of(r) end
+  close(r)
+  return names
+end
+
 local function read_types(r: Reader): {Type}
   local out: mut {Type} = {}
   while peek(r) ~= ")" do
@@ -2434,8 +2469,9 @@ local function read_body(r: Reader, decl: Decl): Body
       mutable = true
     end
     local t, omittable = read_slot(r)
+    local params = read_params(r)
     close(r)
-    body.fields[#body.fields + 1] = { name = field_name, type = t, mut = mutable, omittable = omittable }
+    body.fields[#body.fields + 1] = { name = field_name, type = t, mut = mutable, omittable = omittable, params = params }
   end
   close(r)
   expect(r, "elements")
@@ -2447,7 +2483,8 @@ local function read_body(r: Reader, decl: Decl): Body
   while peek(r) ~= ")" do
     expect(r, "method")
     local method_name = string_of(r)
-    table.insert(body.methods, { name = method_name, type = read_type(r) })
+    local method_type = read_type(r)
+    table.insert(body.methods, { name = method_name, type = method_type, params = read_params(r) })
     close(r)
   end
   close(r)
