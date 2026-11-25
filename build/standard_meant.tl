@@ -42,11 +42,6 @@ local TAKERS <const> = 3
 local TAKING <const> = 3
 local SHOWN <const> = 4
 
--- The query of the exported functions with a parameter named ?1, as a declaration's signature writes one.
-local TAKES <const> = "SELECT module, symbol FROM docs WHERE kind = 'function' AND exported = 1 AND (" ..
-  "instr(signature, '(' || ?1 || ':') > 0 OR instr(signature, '(' || ?1 || '?:') > 0 OR " ..
-  "instr(signature, ', ' || ?1 || ':') > 0 OR instr(signature, ', ' || ?1 || '?:') > 0)"
-
 --- `text` on one line, cut to [`ABOUT`] bytes.
 local function about(text: string): string
   return NearNames.cut((text:gsub("%s+", " "):gsub("^ ", "")), ABOUT)
@@ -79,11 +74,9 @@ local function binary_docs(): StandardMeant.Docs?
       end
       return rows
     end, takes = function(w: string): {{string}}
+      local found, _ = Docs.taking(view, w)
       local rows: mut {{string}} = {}
-      for _, db in ipairs(view.databases) do
-        local found, _ = db:rows(TAKES, { w })
-        for _, row in ipairs(found or {}) do rows[#rows + 1] = { row:text(1), row:text(2) } end
-      end
+      for _, t in ipairs(found or {}) do rows[#rows + 1] = { t.module, t.symbol } end
       return rows
     end }
   end)
