@@ -97,6 +97,15 @@ local record Sandbox
   --- its bytes where the policy is to hold to that ([`rules.Database`]).
   type Database = rules.Database
 
+  --- The kernel layers a policy is held by ([`rules.Layers`]).
+  type Layers = rules.Layers
+
+  --- A socket family a filter lets a program make ([`rules.Socket`]).
+  type Socket = rules.Socket
+
+  --- A namespace a child starts in ([`rules.Namespace`]).
+  type Namespace = rules.Namespace
+
   --- What [`Sandbox.reach`] finds.
   record Reach
     --- Who gives the user its rights: "user" (its own bits, as owner or
@@ -798,6 +807,31 @@ local function held_by_seatbelt(policy: Sandbox.Policy, kept: {integer}): boolea
   return true, ""
 end
 
+--- The kernel layers [`Sandbox.restrict`] would hold this process to
+--- under `policy`, merged first ([`Sandbox.union`]), with nothing applied:
+--- its paths as one Landlock ruleset with their letters, the groups of
+--- system calls its seccomp filter allows, whether the exec filter refuses
+--- execve (no grant gives `x`) and the rlimits. Restrict applies what this
+--- answers. Nil and why for a policy it refuses, as it does: one the union
+--- refuses, or one only a child can be held to (`isolate`, a connect
+--- grant, `loopback`, `tmp` and the rest), and on macOS, where a
+--- Seatbelt profile holds the process instead. It looks at the policy
+--- alone: what restrict refuses of the process (a thread, a child, a
+--- descriptor) is not told here. [`Child.layers`] tells a child's.
+---
+---     local layers = assert(Sandbox.layers({ grants = { { path = "/srv", letters = "r" }, { calls = "fork" } } }))
+---     print(layers.landlock[1].path, layers.calls[1], layers.exec_refused) -- /srv  fork  true
+function Sandbox.layers(policy: Sandbox.Policy): Sandbox.Layers?, string
+  local merged, why = Sandbox.union(policy)
+  if merged == nil then return nil, why end
+  if rules.on_macos() then
+    return nil, "sandbox: restrict: on macOS a Seatbelt profile holds the process, not Landlock and seccomp"
+  end
+  local trouble = not_in_process(merged)
+  if trouble ~= "" then return nil, "sandbox: restrict: " .. trouble end
+  return rules.layers(merged), ""
+end
+
 --- Holds the calling process, and everything it starts, for good to the
 --- policy's `grants` and `limits`: Landlock holds the paths
 --- (a process with no grant reaches no file, its own program and the
@@ -894,15 +928,15 @@ function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOpti
     record_held(merged, runtime_grants())
     return true, ""
   end
+  local layers = rules.layers(merged)
   local grants: mut {raw_process.Grant} = {}
-  for _, grant in ipairs(rules.paths(merged)) do
+  for _, grant in ipairs(layers.landlock) do
     grants[#grants + 1] = { path = grant.path, access = grant.letters }
   end
-  local rlimits = rules.rlimits(merged.limits)
   local promises: mut {string} = {}
-  for _, promise in ipairs(rules.calls(merged)) do promises[#promises + 1] = promise end
+  for _, promise in ipairs(layers.calls) do promises[#promises + 1] = promise end
   local done, held, failure = raw.restrict_self({ grants = grants, promises = promises,
-    rlimits = rlimits }, kept)
+    rlimits = layers.rlimits }, kept)
   if not done then
     if failure == sys.ENOSYS then
       return denied("this system cannot hold a process: it needs Landlock and seccomp, " ..
