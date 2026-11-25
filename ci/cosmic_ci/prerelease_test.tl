@@ -69,7 +69,7 @@ local function test_the_smoke_policy_grants_the_tool_and_its_cache_alone()
       else
         local path, letters = tostring(grant["path"]), tostring(grant["letters"])
         if at > 2 then
-          local program = path:match("^/usr/bin/(%w+)$") or path:match("^/bin/(%w+)$")
+          local program = path:match("^/usr/bin/(%w+)$") or path:match("^/bin/(%w+)$") or path:match("^/sbin/(%w+)$")
           local kernel = path == "/proc/sys/kernel/ostype" or path == "/proc/sys/kernel/arch"
           assert((program ~= nil and launcher[program] == true and letters == "rx") or
               (kernel and letters == "r"), path .. " " .. letters)

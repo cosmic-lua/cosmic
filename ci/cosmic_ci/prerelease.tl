@@ -235,8 +235,8 @@ local launcher_programs <const> = { "uname", "id", "mkdir", "stat", "mktemp", "d
   "ln", "rm", "rmdir" }
 
 --- The policy [`Prerelease.smoke`] runs the tool at `path` under, its cores unpacked in `cache`, as JSON text: it
---- reads and runs `path` and the programs its launcher runs, of those under /bin and /usr/bin, writes `cache`, and
---- nothing else, so it cannot touch the files whose lines set the environment of the job's later steps
+--- reads and runs `path` and the programs its launcher runs, of those under /bin, /usr/bin and /sbin (where macOS
+--- keeps sha256sum), writes `cache`, and nothing else, so it cannot touch the files whose lines set the environment of the job's later steps
 --- (`GITHUB_ENV`, `GITHUB_PATH`), the publishing one among them, nor the driver that step runs; of the job's
 --- variables it gets `PATH` and `HOME` alone. The launcher is a shell script that unpacks its core and marks it
 --- executable: `fork` lets it run its programs, and `fattr` lets the tool change the mode of any file its user
@@ -245,7 +245,7 @@ local launcher_programs <const> = { "uname", "id", "mkdir", "stat", "mktemp", "d
 function Prerelease.smoke_policy_text(path: string, cache: string, as_grants: boolean): string
   local grants: mut {Json.Value} = { { path = path, letters = "rx" }, { path = cache, letters = "rwxc" } }
   for _, name in ipairs(launcher_programs) do
-    for _, dir in ipairs({ "/bin/", "/usr/bin/" }) do
+    for _, dir in ipairs({ "/bin/", "/usr/bin/", "/sbin/" }) do
       local program = dir .. name
       local found, _ = Fs.status(program)
       if found ~= nil and found.exists then
