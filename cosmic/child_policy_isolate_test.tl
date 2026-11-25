@@ -259,12 +259,12 @@ local function test_a_grant_of_tmp_with_x_makes_the_sandboxs_own_tmp_executable(
   local script = "mkdirs /tmp/mine && copy " .. at.probe .. " /tmp/mine/p && chmod /tmp/mine/p 755 " ..
     "&& env-of TMPDIR && run /tmp/mine/p print"
   local plain: Sandbox.Policy = { isolate = { "file" }, tmp = true, set_env = { TMPDIR = "/tmp/mine" },
-    promises = { "fattr", "fork" }, grants = at.grants }
+    grants = ChildPolicy.with(at.grants, { calls = "fattr" }, { calls = "fork" }) }
   local refused = ChildPolicy.under(at.probe, plain, at.work, script)
   -- No letters of its own: noexec, and a TMPDIR beneath /tmp that set_env names stays.
   assert(refused.code ~= 0 and refused.said:find("TMPDIR=/tmp/mine\n", 1, true) ~= nil, refused.said)
   local run_here: Sandbox.Policy = { isolate = { "file" }, tmp = true, set_env = { TMPDIR = "/tmp/mine" },
-    promises = { "fattr", "fork" }, grants = ChildPolicy.with(at.grants, { path = "/tmp", letters = "rwxc" }) }
+    grants = ChildPolicy.with(at.grants, { path = "/tmp", letters = "rwxc" }, { calls = "fattr" }, { calls = "fork" }) }
   local mounts = ChildPolicy.under(at.probe, run_here, at.work, "cat /proc/self/mountinfo")
   local held = mount_at(mounts.said, "/tmp")
   assert(held ~= nil and held.fstype == "tmpfs" and not held.options:find("noexec", 1, true), mounts.said)
@@ -500,8 +500,8 @@ local function test_a_refused_namespace_fails_naming_the_remedy(tmp: string)
   local scratch = tmp .. "/scratch"
   assert(Fs.mkdirs(scratch))
   searchable.share(scratch)
-  local policy: Sandbox.Policy = { promises = { "fork" }, set_env = { TMPDIR = scratch },
-    grants = ChildPolicy.with(at.grants, { path = scratch, letters = "rwc" }) }
+  local policy: Sandbox.Policy = { set_env = { TMPDIR = scratch },
+    grants = ChildPolicy.with(at.grants, { path = scratch, letters = "rwc" }, { calls = "fork" }) }
   local ran = ChildPolicy.under(at.probe, policy, at.work, "start-isolated " .. at.probe)
   assert(ran.code == 0, ran.said)
   assert(ran.said:find("namespace was refused", 1, true) and

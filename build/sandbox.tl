@@ -173,12 +173,12 @@ local limits <const>: {Limit} = {
   { flag = "--processes", field = "processes", least = 1 },
 }
 
---- The fields of a policy's JSON the flags give; the words of `isolate` and `promises` are left to [`PolicyJson.decode`].
+--- The fields of a policy's JSON the flags give; the words of `isolate` and of a grant's `calls` are left to
+--- [`PolicyJson.decode`].
 local record PolicyFields
   mut grants?: {{string:string}}
   mut profiles?: {string}
   mut isolate?: {string}
-  mut promises?: {string}
   mut connect?: {string}
   mut loopback?: {string}
   mut env?: {string}
@@ -234,6 +234,9 @@ local function table_of(parsed: Flags.Parsed): PolicyFields?, string
     end
     grants[#grants + 1] = { path = path, letters = letters }
   end
+  for _, call in ipairs(list("--promise")) do
+    grants[#grants + 1] = { calls = call }
+  end
   if #grants > 0 then policy.grants = grants end
   local profiles: mut {string} = {}
   if parsed.set["--system"] == true then profiles[#profiles + 1] = "system" end
@@ -244,7 +247,6 @@ local function table_of(parsed: Flags.Parsed): PolicyFields?, string
     return if #list(name) > 0 then list(name) else nil end
   end
   policy.isolate = some("--isolate")
-  policy.promises = some("--promise")
   policy.connect = some("--connect")
   policy.loopback = some("--loopback")
   policy.env = some("--env")

@@ -78,8 +78,8 @@ end
 --- `isolate` proc: how many it started before the kernel refused one, and
 --- the refusal.
 local function started_under(at: ChildPolicy.Place, limit: integer, wanted: integer): integer, string
-  local ran = ChildPolicy.under(at.probe, { isolate = { "proc" }, promises = { "fork" },
-    grants = { { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" } },
+  local ran = ChildPolicy.under(at.probe, { isolate = { "proc" },
+    grants = { { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" }, { calls = "fork" } },
     limits = { processes = limit } }, at.work,
     "start-count " .. tostring(wanted) .. " " .. at.probe .. " sleep-forever")
   assert(ran.code == 0, ran.said)
