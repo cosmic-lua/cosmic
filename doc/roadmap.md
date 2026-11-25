@@ -26,7 +26,7 @@ defines the target; once something ships, it leaves this file.
   (`read: function(self: Reader, ...)`) and drop each implementing record's
   redeclaration of them, so that the design note above `FromStringReader` in
   [`cosmic/stream.tl`] shrinks. every interface of the module and every record
-  that implements one changes together, with the `skip?:` and `pending?:`
+  that implements one changes together, with the `skip?:`
   declarations the TODO at the top of that file names. it also closes the
   hole a function-typed record field leaves: a callback field
   `function(Event)` also takes a `function(k: KeyEvent)`, because the first

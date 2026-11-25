@@ -27,11 +27,6 @@ local Poll = require("cosmic.poll")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 
--- The raw declaration holds the interface. A declaration may require only
--- declarations, and Teal's interface conformance is nominal: the raw
--- Stream must say `is Transform` where it is declared.
-local type raw_compress = require("cosmic.internal.compress")
-
 -- TODO: the tests that replace `read` or `close` of a Reader or `write`, `close` or `abort` of a Writer assign through
 -- these interfaces (`field_fixed`, held by markers in stream_test, tar_test, zip_test and others), once
 -- they make a test double that implements the interface instead of patching a real one.
@@ -205,26 +200,34 @@ local record Stream
   --- [`Stream.transform`], [`Stream.transform_writer`] and
   --- [`Stream.run`] drive. [`cosmic.compress`]'s inflaters, deflaters
   --- and decoders are Transforms, and so are `cosmic codec`'s coders.
-  --- Every call returns `value, ""` on success and `nil, error` on
-  --- failure.
+  --- Every call returns its output, or nil and a [`Failure`].
   ---
-  --- `update(chunk)` feeds `chunk` and returns the output that is
-  --- ready, possibly "". On bad input it returns `nil` and why, and
-  --- the Transform is finished.
+  --- `update(chunk, max_bytes?)` feeds `chunk` and returns the output
+  --- that is ready, possibly "". A Transform that holds output back
+  --- returns at most `max_bytes` bytes, when given; one that never
+  --- holds output back returns it all. On bad input it returns nil
+  --- and why, and the Transform is finished.
   ---
-  --- `finish()` says no more input follows and returns what is left,
-  --- or `nil` and why when the input ended where it could not (a
+  --- [`finish()`] says no more input follows and returns what is left,
+  --- or nil and why when the input ended where it could not (a
   --- compressed stream cut short). A driver calls it once, after the
   --- last `update`.
   ---
-  --- `pending()` is present only on a Transform that can hold output
-  --- back, as a decoder does to bound what one call returns however
-  --- far its input expands: it says whether some is held, which
-  --- `update("")` then gives out. A driver drains it, calling
-  --- `update("")` while `pending()` returns true, before it feeds
-  --- more input or calls `finish`; where there is no `pending`,
-  --- nothing is ever held.
-  type Transform = raw_compress.Transform
+  --- [`pending()`] says whether some output is held back, which
+  --- `update("")` then gives out. A decoder holds output back to bound
+  --- what one call returns however far its input expands; a Transform
+  --- that never does returns false. A driver drains it, calling
+  --- `update("")` while [`pending()`] returns true, before it feeds more
+  --- input or calls `finish`.
+  interface Transform
+    --- Feeds a chunk; the output that is ready, possibly "", at most
+    --- `max_bytes` bytes of it where the Transform holds output back.
+    update: function(Transform, chunk: string, max_bytes?: integer): (string) | (nil, Failure)
+    --- Ends the input; what is left.
+    finish: function(Transform): (string) | (nil, Failure)
+    --- Whether `update("")` has more to give.
+    pending: function(Transform): boolean
+  end
 
   --- What an archive entry is. A zip entry is only ever a "file", a
   --- "dir" or a "symlink".
@@ -352,12 +355,6 @@ local record Stream
 end
 
 local chunk_size = 1 << 16
-
---- What a function of this module returns when it fails: nil and `why`
---- under the module's name.
-local function refuse(why: string): nil, string
-  return nil, "stream: " .. why
-end
 
 local closed_reader <const> = "stream: the reader is closed"
 
@@ -616,20 +613,6 @@ function Stream.open(path: string): (Stream.Reader) | (nil, Failure)
   return make_fd_reader(fd, true, {})
 end
 
---- Whether `t` holds output back, which `update("")` gives out; a
---- Transform with no `pending` never does.
-local function holds_output(t: Stream.Transform): boolean
-  return t.pending ~= nil and t:pending() -- checked: compare_disjoint
-end
-
--- What a codec's `update` or `finish` gave, as a Reader returns it.
-local function codec_out(out: string?, why: string): (string) | (nil, Failure)
-  if out == nil then
-    return nil, failure_of(if why ~= "" then why else "stream: codec failed" end)
-  end
-  return out
-end
-
 -- One step of the codec: its next batch of output (possibly ""), or
 -- nil and the codec's Failure or the source's own. A decoder hands back a bounded batch per call
 -- and says `pending` while it still holds input it has not
@@ -639,10 +622,10 @@ end
 -- pending, and so returns only the codec's small tail.
 local function step(self: TransformReader): (string) | (nil, Failure)
   local codec = self.codec
-  if holds_output(codec) then return codec_out(codec:update("")) end
+  if codec:pending() then return codec:update("") end
   if self.at_eof then
     self.finished = true
-    return codec_out(codec:finish())
+    return codec:finish()
   end
   local chunk, trouble = self.source:read(chunk_size)
   if chunk == nil then return nil, trouble end
@@ -650,7 +633,7 @@ local function step(self: TransformReader): (string) | (nil, Failure)
     self.at_eof = true
     return ""
   end
-  return codec_out(codec:update(chunk))
+  return codec:update(chunk)
 end
 
 local class TransformReader is Stream.Reader
@@ -679,9 +662,10 @@ local class TransformReader is Stream.Reader
         -- A source that timed out or was cancelled gave the codec
         -- nothing, so a later read picks up where this one stopped.
         if trouble.kind == "timeout" or trouble.kind == "cancelled" then return nil, trouble end
-        self.failed = trouble
+        local why = if tostring(trouble) ~= "" then trouble else Failure.new("stream: codec failed") end
+        self.failed = why
         self.batch, self.at = "", 1
-        return nil, trouble
+        return nil, why
       end
       self.batch, self.at = out, 1
     end
@@ -1376,8 +1360,9 @@ local function hasher_for(algorithm: Hash.Algorithm, key?: string): (Hash.Hasher
   return Hash.hmac_hasher(algorithm, key)
 end
 
--- TODO: once Hash.Hasher's `update` returns `"", ""` (or a thin adapter
--- stands over it), make a Hasher a Stream.Transform with `finish` as its
+-- TODO: once Hash.Hasher's `update` returns `(string) | (nil, Failure)`
+-- and it has `pending` (or a thin adapter stands over it), make a Hasher
+-- a Stream.Transform with `finish` as its
 -- `digest`, so [`Stream.run`] and [`transform_writer`] drive it and this
 -- Writer shrinks to that adapter.
 --- A Writer that digests what is written to it under `algorithm`,
@@ -1437,14 +1422,14 @@ local function feed(self: TransformWriter, data: string): (true) | (false, Failu
   local parts: mut {string} = {}
   while true do
     local out, trouble = codec:update(data)
-    if out == nil then return false, Failure.new(trouble) end
+    if out == nil then return false, trouble end
     if hold == 0 then
       local ok, why = emit(self, out)
       if not ok then return false, why end
     else
       parts[#parts + 1] = out
     end
-    if not holds_output(codec) then break end
+    if not codec:pending() then break end
     data = ""
   end
   if hold == 0 then return true end
@@ -1498,7 +1483,7 @@ local class TransformWriter is Stream.Writer
     if not self.failed then
       local out, trouble = self.codec:finish()
       if out == nil then
-        self.failed = Failure.new(trouble)
+        self.failed = trouble
       else
         self.held[#self.held + 1] = out
         local ok, why = emit(self, table.concat(self.held))
@@ -1525,7 +1510,7 @@ end
 --- last bytes with `codec:finish` and then closes `writer`, or aborts
 --- `writer` when the codec or a write fails. `abort` aborts `writer`
 --- without finishing the codec. A decoder's held output is drained
---- (`update("")` while `pending()`) after each write and before
+--- (`update("")` while [`pending()`]) after each write and before
 --- `finish`, so each write to `writer` stays bounded however far the
 --- input expands. That bound holds only without `hold`: with it, a
 --- write's drained output is held and written whole, and `close`
@@ -1551,8 +1536,20 @@ function Stream.transform_writer(writer: Stream.Writer, codec: Stream.Transform,
   return w
 end
 
--- Stream.run, its failure in words.
-local function run_text(t: Stream.Transform, data: string, max_bytes?: integer): string?, string
+--- Drives `t` over the whole of `data` and returns everything it
+--- produces: `t:update(data)`, `update("")` while `t` holds output
+--- back, then `t:finish()`. Output that would pass `max_bytes`, when
+--- given, fails naming the bound, so a small input a decoder expands
+--- greatly cannot fill memory; a `max_bytes` under 0
+--- raises. `t` is finished by it, or left unfinished by a
+--- failure, and is not reused. A failure of `t` is returned as it is.
+---
+---     local gz = assert(Compress.encoder("gzip"))
+---     local packed = assert(Stream.run(gz, text))
+function Stream.run(t: Stream.Transform, data: string, max_bytes?: integer): (string) | (nil, Failure)
+  if max_bytes ~= nil and max_bytes < 0 then
+    error("stream: max_bytes must be at least 0", 2)
+  end
   local parts: mut {string} = {}
   local kept: integer = 0
   --- Keeps `out`, or returns why not when it takes the total past the bound.
@@ -1564,38 +1561,20 @@ local function run_text(t: Stream.Transform, data: string, max_bytes?: integer):
     end
     return nil
   end
-  local out, trouble = t:update(data)
+  local input = data
   while true do
+    local out, trouble = t:update(input)
     if out == nil then return nil, trouble end
     local over = keep(out)
-    if over ~= nil then return refuse(over) end
-    if not holds_output(t) then break end
-    out, trouble = t:update("")
+    if over ~= nil then return nil, Failure.new("stream: " .. over) end
+    if not t:pending() then break end
+    input = ""
   end
   local last, finish_trouble = t:finish()
   if last == nil then return nil, finish_trouble end
   local last_over = keep(last)
-  if last_over ~= nil then return refuse(last_over) end
-  return table.concat(parts), ""
-end
-
---- Drives `t` over the whole of `data` and returns everything it
---- produces: `t:update(data)`, `update("")` while `t` holds output
---- back, then `t:finish()`. Output that would pass `max_bytes`, when
---- given, fails naming the bound, so a small input a decoder expands
---- greatly cannot fill memory; a `max_bytes` under 0
---- raises. `t` is finished by it, or left unfinished by a
---- failure, and is not reused.
----
----     local gz = assert(Compress.encoder("gzip"))
----     local packed = assert(Stream.run(gz, text))
-function Stream.run(t: Stream.Transform, data: string, max_bytes?: integer): (string) | (nil, Failure)
-  if max_bytes ~= nil and max_bytes < 0 then
-    error("stream: max_bytes must be at least 0", 2)
-  end
-  local value, why = run_text(t, data, max_bytes)
-  if value == nil then return nil, Failure.new(why) end
-  return value
+  if last_over ~= nil then return nil, Failure.new("stream: " .. last_over) end
+  return table.concat(parts)
 end
 
 return Stream

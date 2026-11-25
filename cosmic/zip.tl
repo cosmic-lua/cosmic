@@ -963,7 +963,7 @@ local function feed_chunk(self: FeedWriter, chunk: string): (true) | (false, Fai
   local encoder = self.encoder
   if encoder == nil then return emit(self, chunk) end
   local out, etrouble = encoder:update(chunk)
-  if out == nil then return self.fail(etrouble) end
+  if out == nil then return self.fail(tostring(etrouble)) end
   return emit(self, out)
 end
 

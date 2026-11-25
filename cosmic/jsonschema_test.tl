@@ -115,6 +115,23 @@ local function test_a_ref_that_reads_nothing_ends()
   assert(not ok and why.message:find("leads back to itself", 1, true) ~= nil, why.message)
 end
 
+--- A `definitions` entry is refused at its own pointer, and a name under both `$defs` and `definitions` is two
+--- schemas, each reached by its own `$ref`.
+local function test_definitions_and_defs_are_apart()
+  local s, why = JsonSchema.compile(decoded('{"definitions":{"bad":{"type":"thing"}}}'))
+  assert(s == nil and why.path == "/definitions/bad/type", tostring(why and why.path))
+  holds('{"$defs":{"x":{"type":"string"}},"definitions":{"x":{"type":"integer"}},' ..
+      '"properties":{"a":{"$ref":"#/$defs/x"},"b":{"$ref":"#/definitions/x"}}}',
+    { '{"a":"s","b":1}' }, { '{"a":1}', '{"b":"s"}' })
+  local _, missing = JsonSchema.compile(decoded('{"$defs":{"x":true},"$ref":"#/definitions/x"}'))
+  assert(missing ~= nil and missing.message:find("does not hold", 1, true) ~= nil, tostring(missing))
+  local _, bad = JsonSchema.compile(decoded('{"$defs":{"x":true},"definitions":{"x":{"minimum":"0"}}}'))
+  assert(bad ~= nil and bad.path == "/definitions/x/minimum", tostring(bad and bad.path))
+  local _, escaped = JsonSchema.compile(decoded('{"definitions":{"a/b~":{"type":"thing"}}}'))
+  assert(escaped ~= nil and escaped.path == "/definitions/a~1b~0/type", tostring(escaped and escaped.path))
+  holds('{"definitions":{"a/b":{"type":"string"}},"$ref":"#/definitions/a~1b"}', { '"s"' }, { '1' })
+end
+
 --- A schema whose branches double at each level ends with a failure, and so does one that leads back to itself
 --- through anyOf.
 local function test_a_check_that_branches_for_ever_ends()

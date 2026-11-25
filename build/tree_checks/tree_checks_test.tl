@@ -938,7 +938,7 @@ local function test_a_run_in_copies_tells_what_the_process_tells(dir: string)
   local meminfo = fanout.meminfo
   fanout.meminfo = "MemAvailable: 67108864 kB\n"
   local ran, told = pcall(function(): {string}
-    return tree_checks.run(db, "", nil, nil, nil, nil, function(): build_schema.Build?, Sqlite.Handle?
+    return tree_checks.run(db, "", nil, nil, nil, nil, function(): build_schema.Build?, build_schema.Build?
       local opened, _ = Sqlite.open(path, { schema = build_schema.Build })
       return opened, nil
     end)

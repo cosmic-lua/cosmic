@@ -6,14 +6,17 @@
 
 local type Doc = require("cosmic.doc")
 local NearNames = require("lang.near_names")
+local plural = require("build.plural")
 
 local record StandardMeant
   --- What [`StandardMeant.of`] reads of the docs: the summary of each module, and the rows a word names
   --- ([`Doc.exact`]).
   record Docs
     index: {Doc.Summary}
-    --- The module and the symbol of each row the word names.
+    --- The module, the symbol and the kind (`function`, `field`, ...) of each row the word names.
     exact: function(word: string): {{string}}
+    --- The module and the symbol of each exported function with a parameter of the word's name (`Fs.basename(path)`).
+    takes: function(word: string): {{string}}
   end
 
   --- What a `require` of `name` in the file `file` that names no module may have meant, as the driver asks it.
@@ -32,6 +35,12 @@ local MOST <const> = 8
 
 -- A module's words in a candidate are cut to this many bytes.
 local ABOUT <const> = 70
+
+-- A module is named for its functions that take a parameter of the word's name where it has at least this many, and at
+-- most this many such modules are named, with this many of the functions each.
+local TAKERS <const> = 3
+local TAKING <const> = 3
+local SHOWN <const> = 4
 
 --- `text` on one line, cut to [`ABOUT`] bytes.
 local function about(text: string): string
@@ -60,7 +69,12 @@ local function binary_docs(): StandardMeant.Docs?
     return { index = index, exact = function(w: string): {{string}}
       local found, _ = Docs.exact(view, w)
       local rows: mut {{string}} = {}
-      for _, e in ipairs(found or {}) do rows[#rows + 1] = { e.module, e.symbol } end
+      for _, e in ipairs(found or {}) do rows[#rows + 1] = { e.module, e.symbol, e.kind } end
+      return rows
+    end, takes = function(w: string): {{string}}
+      local found, _ = Docs.taking(view, w)
+      local rows: mut {{string}} = {}
+      for _, t in ipairs(found or {}) do rows[#rows + 1] = { t.module, t.symbol } end
       return rows
     end }
   end)
@@ -69,8 +83,8 @@ local function binary_docs(): StandardMeant.Docs?
 end
 
 --- The modules `name` (`cosmic.<words>`) may have meant, each as "`cosmic.m` (why)", best first: those whose name, or
---- last part, is an edit or two from the name's, those that export a function or value named its last part, then those
---- whose summary holds that part. None where `name` is not `cosmic.*` or the docs cannot be read. `docs` stands in for
+--- last part, is an edit or two from the name's, those with the most functions that take a parameter named its last part,
+--- those that export a function named it, then those whose summary holds it. None where `name` is not `cosmic.*` or the docs cannot be read. `docs` stands in for
 --- the binary's, for a test.
 function StandardMeant.of(name: string, docs?: StandardMeant.Docs): {string}
   local out: mut {string} = {}
@@ -107,9 +121,44 @@ function StandardMeant.of(name: string, docs?: StandardMeant.Docs): {string}
       put(module, about(summaries[module] or ""))
     end
   end
+  -- The modules most of whose functions take a parameter of the name (`cosmic.path`: `Fs.basename(path)`).
+  local taking: mut {string: mut {string}} = {}
+  local seen: mut {string: boolean} = {}
+  for _, row in ipairs(held.takes(last)) do
+    local module, symbol = row[1] or "", row[2] or ""
+    local short = symbol:match("[%w_]+$") or symbol
+    if summaries[module] ~= nil and seen[module .. " " .. short] == nil then
+      seen[module .. " " .. short] = true
+      local list = taking[module] or {}
+      list[#list + 1] = short
+      taking[module] = list
+    end
+  end
+  local takers: mut {string} = {}
+  for module, list in pairs(taking) do
+    if #list >= TAKERS then takers[#takers + 1] = module end
+  end
+  table.sort(takers, function(a: string, b: string): boolean
+    local na, nb = #(taking[a] or {}), #(taking[b] or {})
+    if na ~= nb then return na > nb end
+    return a < b
+  end)
+  for i, module in ipairs(takers) do
+    if i <= TAKING then
+      local list = taking[module] or {}
+      table.sort(list)
+      local shown: mut {string} = {}
+      for j = 1, math.min(#list, SHOWN) do shown[#shown + 1] = list[j] end
+      put(module, plural.count(#list, "function") .. " take a `" .. last .. "`: " .. table.concat(shown, ", ") ..
+          (if #list > SHOWN then ", ..." else "" end))
+    end
+  end
   for _, row in ipairs(held.exact(last)) do
     local module, symbol = row[1] or "", row[2] or ""
-    if summaries[module] ~= nil and symbol == last then put(module, "has `" .. symbol .. "`") end
+    -- A field of a record of the module ([`Failure.path`]) is no part of what the module offers.
+    if summaries[module] ~= nil and symbol == last and row[3] == "function" then
+      put(module, "has `" .. symbol .. "`")
+    end
   end
   for _, module in ipairs(modules) do
     local text = summaries[module] or ""
