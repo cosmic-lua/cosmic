@@ -29,6 +29,7 @@
 
 local type tree_standing = require("build.tree")
 local build_paths = require("build.paths")
+local work_schema = require("build.work_schema")
 local c_functions = require("build.c_functions")
 local Ceilings = require("build.ceilings")
 local CeilingsBase = require("build.ceilings_base")
@@ -281,7 +282,7 @@ end
 --- the zig cache with no `pinned_zig` ([`tree_build.unguarded_zig`]), the
 --- declarations read from the working database the projection just wrote.
 local function promise_findings(root: string): {string}
-  local build, open_trouble = Sqlite.open(build_paths.resolve(root).working)
+  local build, open_trouble = Sqlite.open(build_paths.resolve(root).working, { schema = work_schema.Database })
   if build == nil then return { "tree checks: " .. tostring(open_trouble) } end
   local declared, declared_trouble = tree_build.requirements(build)
   local unguarded, unguarded_trouble = tree_build.unguarded_zig(build)
@@ -305,7 +306,7 @@ end
 --- ([`tree_build.sealed_launch`]), over the projection `db` and the
 --- declarations the working database holds.
 local function sealed_launch_findings(root: string, db: Sqlite.Handle): {string}
-  local build, open_trouble = Sqlite.open(build_paths.resolve(root).working)
+  local build, open_trouble = Sqlite.open(build_paths.resolve(root).working, { schema = work_schema.Database })
   if build == nil then return { "tree checks: " .. tostring(open_trouble) } end
   local unsealed, unsealed_trouble = tree_build.unsealed(build)
   local _, _ = build:close()
@@ -320,7 +321,7 @@ end
 --- Whether the build's own pipeline holds each module as the checks of the tree do, over the working database's inputs
 --- ([`tree_checked.pipeline`]).
 local function pipeline_findings(root: string, memo: Sqlite.Handle?): {string}
-  local build, open_trouble = Sqlite.open(build_paths.resolve(root).working)
+  local build, open_trouble = Sqlite.open(build_paths.resolve(root).working, { schema = work_schema.Database })
   if build == nil then return { tostring(open_trouble) } end
   local lines = tree_checked.pipeline(root, build, memo)
   local _, _ = build:close()

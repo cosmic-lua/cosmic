@@ -18,6 +18,7 @@ local importer = require("build.importer")
 local link_index = require("build.link_index")
 local rebuild = require("build.rebuild")
 local work = require("build.work")
+local work_schema = require("build.work_schema")
 local writer = require("build.writer")
 
 local record docs_fixture
@@ -36,7 +37,7 @@ local written: integer = 0
 --- projection names as its compiler (`compiled_by`) the one a build in
 --- this process compiles under ([`rebuild.compiled_by`]), as a build's does.
 function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Handle
-  local db = assert(Sqlite.memory({ schema = work.Database }))
+  local db = assert(Sqlite.memory({ schema = work_schema.Database }))
   local paths: mut {string} = {}
   for path in pairs(files) do paths[#paths + 1] = path end
   table.sort(paths)
