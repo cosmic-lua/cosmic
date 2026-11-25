@@ -2816,6 +2816,20 @@ local function test_a_table_literal_for_an_interface_with_library_advice_is_told
   assert(has(other, "class C is Time.CivilFields"), other)
 end
 
+local RULES <const> = "local record rules\n  record Policy\n    profiles?: {string}\n  end\nend\nreturn rules\n"
+
+local function test_a_field_a_library_type_had_once_is_told_what_took_its_place()
+  local modules = { ["cosmic.sandbox.policy"] = RULES }
+  local head = "local rules = require(\"cosmic.sandbox.policy\")\n"
+  local written = fix_of(head .. "local p: rules.Policy = { promises = { \"fork\" } }\nlocal _ = p\n", modules)
+  assert(has(written, "calls = \"fork\"") and has(written, "Sandbox.calls(policy)"), written)
+  local read = fix_of(head .. "local p: rules.Policy = {}\nlocal _ = p.promises\n", modules)
+  assert(has(read, "Sandbox.calls(policy)"), read)
+  -- a field of no advice keeps the generic fix
+  local other = fix_of(head .. "local p: rules.Policy = { profile = { \"a\" } }\nlocal _ = p\n", modules)
+  assert(has(other, "write `profiles`"), other)
+end
+
 local function test_a_write_to_a_view_that_may_leave_a_hole_names_the_map_that_runs_clean()
   local r = Programs.run("local buf: {number} = {}\nbuf[3] = 1\nlocal _ = buf\n")
   assert(#r.errors == 2 and assert(r.errors[1]).code == "view_written", Programs.codes(r))
