@@ -90,8 +90,7 @@ local function test_an_absent_path_skips_the_module_and_keeps_no_verdict(tmp: st
   for _, extra in ipairs({ {}, {}, { COSMIC_SANDBOX = "must" }, { COSMIC_CI_REQUIRE_SANDBOX = "1" } }) do -- checked: literal_needs_type*2
     local out, code = run(root, extra)
     assert(code == 0, out)
-    assert(out:find("test: SKIP  prog_test test_passes: requires path:" .. outside(tmp) .. "/absent: ", 1, true), out)
-    assert(out:find("test: SKIP  prog_test test_passes_too: requires path:", 1, true), out)
+    assert(out:find("test: SKIP  prog_test: 2 tests, requires path:" .. outside(tmp) .. "/absent: ", 1, true), out)
     assert(out:find("2 tests passed in 1 module; 2 ran, 0 stood, 2 skipped ", 1, true), out)
     assert(not out:find("must not load", 1, true), out)
   end

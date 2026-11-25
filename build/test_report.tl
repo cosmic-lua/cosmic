@@ -121,12 +121,43 @@ local function printed_lines(printed: string, whole?: boolean): {string}
   return lines
 end
 
---- Each skipped test with its reason, sorted as the failure list is.
-function test_report.skips(skips: mut {string}): {string}
-  table.sort(skips)
+--- Entries `<module> <test>: <why>` counted in one line `<label><module>: N tests, <why>` for each module and
+--- reason, sorted. Where `lone` is set, a module and reason only one test gave keeps that test's own line. An entry
+--- of another form is its own line.
+local function counted(entries: {string}, label: string, lone: boolean): {string}
+  local groups: mut {string: mut {string}} = {}
   local lines: mut {string} = {}
-  for _, skip in ipairs(skips) do lines[#lines + 1] = "test: SKIP  " .. skip end
+  for _, entry in ipairs(entries) do
+    local module, why = entry:match("^(%S+) %S+: (.*)$")
+    if module ~= nil and why ~= nil then
+      local key = module .. ": " .. why
+      local group = groups[key]
+      if group == nil then
+        groups[key] = { entry }
+      else
+        group[#group + 1] = entry
+      end
+    else
+      lines[#lines + 1] = label .. entry
+    end
+  end
+  for key, group in pairs(groups) do
+    if lone and #group == 1 then
+      lines[#lines + 1] = label .. group[1]
+    else
+      local module, why = key:match("^(%S+): (.*)$")
+      lines[#lines + 1] = label .. tostring(module) .. ": " .. plural.count(#group, "test") .. ", " .. tostring(why)
+    end
+  end
+  table.sort(lines)
   return lines
+end
+
+--- The skipped tests (`<module> <test>: <reason>`), sorted. The tests of a module that gave one reason are counted
+--- in one line, so a host that lacks what a module checks says so once. A test whose reason no other test of its
+--- module gave keeps its own line.
+function test_report.skips(skips: {string}): {string}
+  return counted(skips, "test: SKIP  ", true)
 end
 
 --- Each test that passed having made no call to `assert`, sorted as the
@@ -184,23 +215,7 @@ end
 --- The not applicable tests (`<module> <test>: <why>`), counted in one line for each module and reason, sorted: a
 --- module requires what this platform never has, and its tests share that. An entry of another form is its own line.
 function test_report.nas(nas: {string}): {string}
-  local counts: mut {string: integer} = {}
-  local lines: mut {string} = {}
-  for _, na in ipairs(nas) do
-    local module, why = na:match("^(%S+) %S+: (.*)$")
-    if module ~= nil and why ~= nil then
-      local key = module .. ": " .. why
-      counts[key] = (counts[key] or 0) + 1
-    else
-      lines[#lines + 1] = "test: N/A  " .. na
-    end
-  end
-  for key, count in pairs(counts) do
-    local module, why = key:match("^(%S+): (.*)$")
-    lines[#lines + 1] = "test: N/A  " .. tostring(module) .. ": " .. plural.count(count, "test") .. ", " .. tostring(why)
-  end
-  table.sort(lines)
-  return lines
+  return counted(nas, "test: N/A  ", false)
 end
 
 --- `failures` with the tests of each module that failed to load folded into one failure of that module: each of its
