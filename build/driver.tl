@@ -527,19 +527,26 @@ function Driver.new(options: Driver.Options): Driver.Build
       " more?"
   end
 
-  --- The fix for a name that is not declared where it names a module of cosmic (`Csv`: [`cosmic.csv`]), as the
-  --- program binds it: the line to write, so the next try needs no lookup; nil where it names none.
+  --- The fix for a name that is not declared where it names a module of cosmic as a program binds it (`Csv`:
+  --- [`cosmic.csv`]): the line to write, so the next try needs no lookup; nil where it names none. A module is one that
+  --- `options.meant` names for `cosmic.<name>`, spelled so: the binary's docs, read once and never raising, which leave
+  --- out the tools' own modules. A name in lower case is a variable more often than a module, so only a capital's counts.
   local function undeclared_module(result: Driver.Outcome, offset: integer): string?
     local tokens = result.chunk.tokens
     local at = RemovedFix.token_at(tokens, offset)
-    if at == nil then return nil end
+    local ending = options.meant
+    if at == nil or ending == nil then return nil end
     local name = tokens.text[at]
-    if tokens.kind[at] ~= "identifier" or name == nil or name:match("^%a%w*$") == nil then
+    if tokens.kind[at] ~= "identifier" or name == nil or name:match("^%u%w*$") == nil then
       return nil
     end
     local module = "cosmic." .. name:lower()
-    if find(module) == nil then return nil end
-    return "require its module above this use: `local " .. name .. " = require(\"" .. module .. "\")`"
+    for _, found in ipairs(ending(module, result.source.filename)) do
+      if found:sub(1, #module + 4) == "`" .. module .. "` (" then
+        return "require its module above this use: `local " .. name .. " = require(\"" .. module .. "\")`"
+      end
+    end
+    return nil
   end
 
   --- The entry for a source that has been read: scoped against the globals.
@@ -986,7 +993,9 @@ function Driver.new(options: Driver.Options): Driver.Build
       entry.checked = true
       for _, e in ipairs(result.scoped.errors) do
         local fix = e.fix
-        if e.code == "unknown_variable" and e.msg:sub(-#" is not declared") == " is not declared" then
+        -- Not where a near name is declared ("if you meant `csv`"): that one is more likely what was meant.
+        if e.code == "unknown_variable" and e.msg:sub(-#" is not declared") == " is not declared" and
+            fix:sub(1, #"if you meant ") ~= "if you meant " then
           fix = undeclared_module(result, e.offset) or fix
         end
         table.insert(result.scope_errors, error_of(result, "scoped", tostring(e.code), e.msg, fix, e.y, e.x,
