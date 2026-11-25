@@ -1,0 +1,6 @@
+{
+  "autoCompactWindow": 200000,
+  "env": {
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "200000"
+  }
+}

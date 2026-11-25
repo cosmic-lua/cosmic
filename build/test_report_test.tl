@@ -34,6 +34,14 @@ local function test_failures_sort_and_keep_reruns_and_output_together()
       "test: SKIP  a: denied\ntest: SKIP  z: denied")
 end
 
+local function test_a_module_s_skips_for_one_reason_are_one_line()
+  local lines = test_report.skips({ "m test_b: no socket", "m test_a: no socket", "m test_c: no tty", "n test_a: no socket" })
+  assert(table.concat(lines, "\n") ==
+      "test: SKIP  m test_c: no tty\n" ..
+      "test: SKIP  m: 2 tests, no socket\n" ..
+      "test: SKIP  n test_a: no socket", table.concat(lines, "\n"))
+end
+
 local function test_a_pass_with_no_assert_is_told_of_skip()
   local lines = test_report.unchecked({ "b test_y", "a test_x" })
   assert(lines[1] == "test: NO ASSERT  a test_x" and lines[2] == "test: NO ASSERT  b test_y")
