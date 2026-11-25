@@ -358,7 +358,7 @@ local record Agent
     mut tools: {Tools.Tool}
     --- The system prompt, sent as a block with a cache mark of its own.
     mut system: string
-    --- What follows the system prompt, past its cache mark: the working directory; "" for nothing.
+    --- What follows the system prompt, past its cache mark: the working directory and the MCP servers; "" for nothing.
     mut where: string
     --- Where the tools run from.
     cwd: string

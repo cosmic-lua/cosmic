@@ -606,7 +606,7 @@ end
 --- stays within the 512KB a reply holds.
 local OUTPUT_PART <const> = 64 * 1024
 
---- The text kept of output `id` of sessions.db, which the note under a cut output names ("kept as output 17"): what
+--- The text kept of output `id` of sessions.db, which the note atop a cut output names ("kept as output 17"): what
 --- the tool's call gave, but for a run output past 64KB, of which its first 16KB and last 48KB are kept; bytes that
 --- are not UTF-8 come back replaced. It reads any session's outputs, as Host.history does: a forked session's notes
 --- name the outputs of the session it was copied from. Raises where it fails, as "host: output: ...".

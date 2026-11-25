@@ -2870,3 +2870,18 @@ local function test_a_range_as_long_as_its_string_or_not_literal_is_not_a_dead_t
   -- a bound that is not a literal, or bounds of two signs, can answer any length
   assert(codes_of(head .. "assert(l:sub(1, n) == \"abcd\" or l:sub(2, -1) == \"abcd\" or l:sub(2) == \"abcd\")\n") == "")
 end
+
+local function test_only_a_local_with_a_plain_type_is_told_to_be_declared_optional()
+  local generic = "compare values of one type, or remove the test"
+  local fix = fix_of
+  -- a parameter, a loop variable, a narrowed optional and a union are not told to declare `local x: T?`
+  assert(fix("local function f(x: integer): integer\n  if x ~= nil then return 1 end\n  return 0\nend\nprint(f(1))\n") ==
+      generic)
+  assert(fix("for i = 1, 3 do\n  if i ~= nil then print(i) end\nend\n") == generic)
+  assert(fix("local function g(): integer? return nil end\nlocal p = g()\nif p == nil then return end\n" ..
+      "if p ~= nil then print(p) end\n") == generic)
+  assert(fix("local u: integer | string = 1\nif u ~= nil then print(u) end\n") == generic)
+  -- a method named `sub` of a record is not the string library's
+  assert(codes_of("local record U\n  sub: function(self: U, i: integer, j: integer): string\nend\n" ..
+      "local function h(o: U): boolean return o:sub(1, 1) == \"ab\" end\nprint(h)\n") == "")
+end
