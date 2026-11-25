@@ -8,7 +8,8 @@
 --- checked as the module its path below `--root` (the working directory)
 --- names, [`lang/flow.tl`] as [`lang.flow`], and a `require` of
 --- another named file gets its text; a path outside the
---- root is refused. A `.d.tl` file is skipped with a note, and types a
+--- root is refused. `-` compiles standard input, as the module `stdin`
+--- at the root (`stdin.tl` in messages, `stdin.lua` under `-o`). A `.d.tl` file is skipped with a note, and types a
 --- `require` of it. The Lua is raw: no wrapper, nothing joining files.
 --- A type error is reported and the Lua is written anyway: standard
 --- error gets a count per file, and with `--errors` each error as
@@ -33,7 +34,7 @@ local Flags = require("cosmic.flags")
 
 local command: Flags.Command = {
   about = "Teal to Lua, even with type errors",
-  usage = "[options] <file.tl>...",
+  usage = "[options] <file.tl|->...",
   examples = {
     { line = "file.tl", about = "print the Lua a Teal file compiles to" },
     { line = "-o out a.tl b.tl", about = "write out/a.lua and out/b.lua" },

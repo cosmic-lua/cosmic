@@ -290,6 +290,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   if target ~= nil and target == "" then
     return refuse("an empty file name after -o")
   end
+  -- `-o -` is standard output, where the body goes with no -o.
+  if target == "-" then target = nil end
   -- What the body must hash to, by algorithm, and where each came from.
   local wants: mut {string:string} = {}
   local from: mut {string:string} = {}
@@ -345,9 +347,9 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local ca: string? = nil
   local cacert = parsed.values["--cacert"]
   if cacert ~= nil then
-    local text, why = Fs.read(cacert)
+    local text, why = Flags.read(cacert)
     if text == nil then
-      complain("--cacert: " .. tostring(why))
+      complain("--cacert: " .. why)
       return bare.undone
     end
     ca = text
