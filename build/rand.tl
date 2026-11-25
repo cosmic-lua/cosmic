@@ -60,6 +60,7 @@ local Verb = require("cosmic.cli.rand")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Rand = require("cosmic.rand")
+local type Failure = require("cosmic.failure")
 local Clock = require("cosmic.clock")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
@@ -79,7 +80,7 @@ local record verb
     --- The whole of standard input, or nil and why.
     stdin: function(): string?, string
     --- The operating system's entropy: [`Rand.entropy`] when nil.
-    entropy: function(count: integer): string?, string
+    entropy: function(count: integer): (string) | (nil, Failure)
     --- The wall clock in nanoseconds: [`Clock.now_ns`] when nil.
     now_ns: function(): integer
   end
@@ -277,8 +278,12 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local drawn: Drawn = { pool = "", used = 0 }
   local function fetch(count: integer): string
     local bytes, why = draw_entropy(count) -- untyped: call
-    if bytes == nil or #bytes ~= count then
-      drawn.broken = why ~= "" and why or "short read"
+    if bytes == nil then
+      drawn.broken = tostring(why)
+      error("entropy", 0)
+    end
+    if #bytes ~= count then
+      drawn.broken = "short read"
       error("entropy", 0)
     end
     return bytes
@@ -357,8 +362,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
 
   -- One maker for the run, so its version 7 values sort as drawn; it
   -- draws through `secret` and reads the stood-in clock.
-  local draw_uuid = Rand.uuid_maker(function(count: integer): string?, string
-    return secret(count), ""
+  local draw_uuid = Rand.uuid_maker(function(count: integer): (string) | (nil, Failure)
+    return secret(count)
   end, now_ns)
 
   local function body(): integer
@@ -369,7 +374,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
         local text, why = draw_uuid(request.version)
         if text == nil then
           flush()
-          complain((why:gsub("^rand: ", "")))
+          complain((tostring(why):gsub("^rand: ", "")))
           return bare.undone
         end
         if not emit(text) then

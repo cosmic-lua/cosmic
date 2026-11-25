@@ -29,8 +29,10 @@ local record Prompt
 
   --- What a prompt holds beside the project's instructions.
   record Options
-    --- The tools the model is offered, each a line and its rules; [`Tools.default`] where nil, as an agent's.
+    --- The tools the model is offered, each a line and its rules; [`Tools.all`] where nil, as an agent's.
     tools?: {Tools.Tool}
+    --- Whether a snippet may run programs (Host.bash), as the agent's `commands`; false where nil.
+    commands?: boolean
     --- The cosmic.* modules a snippet may require, a line each, which the prompt lists where run is offered;
     --- [`Host.modules`]' from this binary's docs where nil, "" for none.
     modules?: string
@@ -94,7 +96,7 @@ end
 --- and `options`' tools.
 -- The words are the text template prompt_text.tmpl (cosmic.template); this fills its record.
 function Prompt.build(cwd: string, contexts: {Prompt.Context}, options?: Prompt.Options): string
-  local offered = if options ~= nil and options.tools ~= nil then options.tools else Tools.default() end
+  local offered = if options ~= nil and options.tools ~= nil then options.tools else Tools.all() end
   local instructions: mut {Data.Instructions} = {}
   for _, c in ipairs(contexts) do
     instructions[#instructions + 1] = { path = seen_from(c.path, cwd), content = c.content }
@@ -126,7 +128,7 @@ function Prompt.build(cwd: string, contexts: {Prompt.Context}, options?: Prompt.
   return Text.render({
     tools = if #for_model > 0 then for_model else nil end,
     code_tools = if #for_code > 0 and run then for_code else nil end,
-    bash = Tools.find(for_model, "bash") ~= nil,
+    commands = run and options ~= nil and options.commands == true,
     run = run,
     instructions = if #instructions > 0 then instructions else nil end,
     modules = modules,

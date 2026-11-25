@@ -278,7 +278,7 @@ end
 
 local function new_server(): Server
   local server: Server = {
-    request = function(_m: string, _u: string, _o: Http.Options): Http.Body?, string
+    request = function(_m: string, _u: string, _o: Http.RequestOptions): Http.Body?, string
       return nil, "not yet"
     end,
     account = nil,
@@ -419,7 +419,7 @@ local function new_server(): Server
     return { payload = assert(Json.decode_object((assert(Codec.unbase64url(payload_text))))), payload_text = payload_text }
   end
 
-  local function handle(method: string, url: string, opts: Http.Options): Http.Body
+  local function handle(method: string, url: string, opts: Http.RequestOptions): Http.Body
     local line = method .. " " .. url:sub(#BASE + 1)
     table.insert(server.log, line)
     if url == BASE .. "/directory" then
@@ -556,7 +556,7 @@ local function new_server(): Server
     error("no such resource: " .. url)
   end
 
-  server.request = function(method: string, url: string, opts: Http.Options): Http.Body?, string
+  server.request = function(method: string, url: string, opts: Http.RequestOptions): Http.Body?, string
     return handle(method, url, opts), ""
   end
   return server

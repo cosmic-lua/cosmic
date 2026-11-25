@@ -14,27 +14,24 @@ local agent = require("build.agent")
 local agent_fixture = require("build.agent_fixture")
 local Sandbox = require("cosmic.sandbox")
 local Sessions = require("cosmic.agent.sessions")
+local Worker = require("cosmic.agent.worker")
+local this_program = require("build.this_program")
+--- What the `cosmic agent worker` run's calls start loads, which the store of this module's run must hold.
+local type _ = require("build.verb_list")
 local sys = require("cosmic.sys")
 
--- The host programs the tests start, each where hosts keep it: named,
--- not the whole system, so the key holds them alone. /bin/sh is the
--- shell the bash tool falls back to on a host with no bash (Alpine's
--- busybox, which its sleep, seq, head and tr link to as well).
-Test.policy{
-  grants = {
-    { path = "/bin/bash", letters = "r" }, { path = "/usr/bin/bash", letters = "r" },
-    { path = "/bin/sh", letters = "r" },
-    { path = "/bin/sleep", letters = "r" }, { path = "/usr/bin/sleep", letters = "r" },
-  },
-  env = { "PATH", "TMPDIR" },
-}
+-- No test here starts a host program: run's worker is cosmic itself.
+Test.policy{ profiles = { "cosmic" }, env = { "PATH", "TMPDIR" } }
 
 local type Api = agent_fixture.Api
-local bash_call = agent_fixture.bash_call
+
+--- A call `id` of run with `code`.
+local function run_call(id: string, code: string): Json.Value
+  return { type = "tool_use", id = id, name = "run", input = { code = code } }
+end
 local said = agent_fixture.said
 local scratch = agent_fixture.scratch
 local sent = agent_fixture.sent
-local slurp = agent_fixture.slurp
 local text_reply = agent_fixture.text_reply
 
 --- What a run printed, and its exit status.
@@ -81,16 +78,13 @@ local function cli(argv: {string}, env: {string: string}, replies: {Json.Value},
   local err: mut {string} = {}
   local at = 0
   local full: mut {string} = { "agent" }
-  local named, picked = false, false
+  local named = false
   for _, word in ipairs(argv) do
     full[#full + 1] = word
     if word == "--sandbox" then named = true end
-    if word == "--tools" or word == "--with" then picked = true end
   end
   local runs = { ask = true, chat = true, resume = true, rpc = true }
   if not named and runs[argv[1] or ""] == true then full[#full + 1] = "--sandbox=off" end
-  -- The scripted replies call every tool, bash among them, which the default leaves out.
-  if not picked and runs[argv[1] or ""] == true then full[#full + 1] = "--with=bash,jobs" end
   local code = agent.run(full, {
     out = function(line: string) out[#out + 1] = line end,
     err = function(line: string) err[#err + 1] = line end,
@@ -116,6 +110,11 @@ local function cli(argv: {string}, env: {string: string}, replies: {Json.Value},
       return env[name]
     end,
     send = a.send,
+    -- `cosmic agent worker` of this program, as a test starts it: the core run on, its artifact handed it.
+    worker = function(): Worker.Set
+      local started = this_program.program({ "agent", "worker" }, { env = this_program.environment(), timeout_ns = -1 })
+      return Worker.new(started.argv, started.options)
+    end,
   })
   return { code = code, out = table.concat(out, "\n"), err = table.concat(err, "\n") }, a
 end
@@ -162,7 +161,7 @@ end
 --- --budget caps each turn; a limit it cannot read is refused before any request.
 local function test_budget_ends_a_turn()
   local r, a = cli({ "ask", "--budget", "turns=1,cost=2.5,time=10m,tokens=1000000", "go" }, KEYED, {
-    { content = { agent_fixture.bash_call("t1", "true") }, stop_reason = "tool_use" }, text_reply("never") })
+    { content = { run_call("t1", "local _ = 1") }, stop_reason = "tool_use" }, text_reply("never") })
   assert(r.code ~= 0 and #a.sent == 1 and r.err:find("the turn's budget is spent: 1 request, of 1", 1, true) ~= nil,
     r.err)
   assert(r.err:find("go on with `cosmic agent ask %-%-session %d+ 'go on'` and a larger %-%-budget") ~= nil, r.err)
@@ -182,11 +181,11 @@ local function test_ask_and_chat()
   assert(r.code == Flags.REFUSED and r.err:find("ANTHROPIC_API_KEY") ~= nil, r.err)
   local a: Api
   r, a = cli({ "ask", "--effort", "low", "hello", "there" }, KEYED, {
-    { content = { { type = "tool_use", id = "t", name = "bash", input = { command = "true" } } }, stop_reason = "tool_use" },
+    { content = { run_call("t", "print(1)") }, stop_reason = "tool_use" },
     text_reply("hi back"),
   })
   assert(r.code == 0 and r.out == "hi back", r.out .. r.err)
-  assert(r.err:find("```console\n$ true\n```\n", 1, true) ~= nil, r.err)
+  assert(r.err:find("```teal\nprint(1)\n```\n", 1, true) ~= nil, r.err)
   -- Run's code shows as `cosmic fix` lays it out, and as written where it does not parse.
   r = cli({ "ask", "--new", "x" }, KEYED, {
     { content = { { type = "tool_use", id = "a", name = "run", input = { code = "for i = 1, 2 do if i > 1 then print(i) end end" } },
@@ -208,16 +207,18 @@ local function test_ask_and_chat()
   assert(r.code == Flags.REFUSED and r.err:find("--effort") ~= nil, r.err)
   r = cli({ "ask", "x" }, KEYED, { text_reply("no", "refusal") })
   assert(r.code == Flags.FAILED and r.err:find("refused") ~= nil, r.err)
-  r = cli({ "ask", "x" }, KEYED, { { content = { { type = "tool_use", id = "t", name = "read",
-    input = { path = "/no/such/file" } } }, stop_reason = "tool_use" }, text_reply("gone") })
-  assert(r.code == 0 and r.err:find("read /no/such/file\n```error\n", 1, true) ~= nil, r.err)
-  -- --tools shows the model those tools alone, and a name no tool has is refused before any request.
-  r, a = cli({ "ask", "--new", "--tools", "run,read", "x" }, KEYED, { text_reply("ok") })
+  r = cli({ "ask", "x" }, KEYED, { { content = { run_call("t", "print(Host.read(\"/no/such/file\"))") },
+    stop_reason = "tool_use" }, text_reply("gone") })
+  assert(r.code == 0 and r.err:find("```error\n", 1, true) ~= nil, r.err)
+  -- run is the one tool, and it names Host.bash only with --commands.
+  r, a = cli({ "ask", "--new", "x" }, KEYED, { text_reply("ok") })
   local body = assert(a.bodies[1])
-  assert(r.code == 0 and body:find('"name":"read"', 1, true) ~= nil and body:find('"name":"bash"', 1, true) == nil,
-    body)
-  r, a = cli({ "ask", "--tools", "nope", "x" }, KEYED, {})
-  assert(r.code ~= 0 and #a.sent == 0 and r.err:find("tools: no tool nope", 1, true) ~= nil, r.err)
+  assert(r.code == 0 and body:find('"name":"run"', 1, true) ~= nil and body:find("Host.bash", 1, true) == nil, body)
+  r, a = cli({ "ask", "--new", "--commands", "x" }, KEYED, { text_reply("ok") })
+  body = assert(a.bodies[1])
+  assert(r.code == 0 and body:find("Host.bash", 1, true) ~= nil, body)
+  r, a = cli({ "ask", "--tools", "run", "x" }, KEYED, {})
+  assert(r.code ~= 0 and #a.sent == 0, r.err)
   r, a = cli({ "chat" }, KEYED, { text_reply("one"), "down", text_reply("three") },
     { "first", "", "second", "third", "/exit", "never" })
   assert(r.code == 0 and r.out == "one\nthree" and r.err:find("HTTP 500") ~= nil, r.out .. r.err)
@@ -228,13 +229,13 @@ end
 
 local function test_json_rpc_and_resume_on_the_command_line()
   home = scratch()
-  local r = cli({ "ask", "--json", "hi" }, KEYED, { { content = { bash_call("t", "true") }, stop_reason = "tool_use" },
+  local r = cli({ "ask", "--json", "hi" }, KEYED, { { content = { run_call("t", "print(1)") }, stop_reason = "tool_use" },
     text_reply("there") })
   local lines: mut {string} = {}
   for line in (r.out .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
   assert(r.code == 0 and assert(lines[1]):find('^{"id":%d+,"type":"session"}$') ~= nil, r.out)
-  assert(r.out:find('{"input":{"command":"true"},"name":"bash","type":"tool"}', 1, true) ~= nil, r.out)
-  assert(r.out:find('{"is_error":false,"name":"bash","type":"result"}', 1, true) ~= nil, r.out)
+  assert(r.out:find('{"input":{"code":"print(1)"},"name":"run","type":"tool"}', 1, true) ~= nil, r.out)
+  assert(r.out:find('{"is_error":false,"name":"run","type":"result"}', 1, true) ~= nil, r.out)
   assert(lines[#lines] == '{"ok":true,"type":"end"}', r.out)
   assert(r.out:find('"error":""', 1, true) == nil, r.out)
   assert(r.err == "" and r.out:find('"type":"request"', 1, true) ~= nil, r.err)
@@ -252,7 +253,7 @@ local function test_json_rpc_and_resume_on_the_command_line()
   r, a = cli({ "ask", "--continue", "next" }, KEYED, { text_reply("one"), text_reply("two") })
   assert(r.code == 0 and r.out == "one\ntwo" and #a.sent == 2, r.out .. r.err)
   -- rpc: commands on stdin, events on stdout.
-  r, a = cli({ "rpc" }, KEYED, { { content = { bash_call("t1", "echo a"), bash_call("t2", "echo b") },
+  r, a = cli({ "rpc" }, KEYED, { { content = { run_call("t1", "print(\"a\")"), run_call("t2", "print(\"b\")") },
     stop_reason = "tool_use" }, text_reply("steered"), text_reply("followed") },
     { '{"type":"prompt","text":"go"}', "", "nonsense", '{"type":"nothing"}' },
     { '{"type":"steer","text":"stop that"}', '{"type":"follow_up","text":"then this"}' })
@@ -262,7 +263,7 @@ local function test_json_rpc_and_resume_on_the_command_line()
   assert(r.out:find("not a command", 1, true) ~= nil, r.out)
   r, a = cli({ "rpc" }, KEYED, {}, { '{"type":"prompt","text":" "}' })
   assert(#a.sent == 0 and r.out:find("not a command", 1, true) ~= nil, r.out)
-  r, a = cli({ "rpc" }, KEYED, { { content = { bash_call("t1", "echo a"), bash_call("t2", "echo b") },
+  r, a = cli({ "rpc" }, KEYED, { { content = { run_call("t1", "print(\"a\")"), run_call("t2", "print(\"b\")") },
     stop_reason = "tool_use" } }, { '{"type":"prompt","text":"go"}' }, { '{"type":"abort"}' })
   assert(r.code == 0 and #a.sent == 0 and r.out:find('"error":"stopped by the user","ok":false', 1, true) ~= nil,
     r.out)
@@ -270,7 +271,7 @@ local function test_json_rpc_and_resume_on_the_command_line()
   assert(r.out:find('"error":"no unfinished turn"', 1, true) ~= nil, r.out)
   assert(cli({ "rpc", "x" }, KEYED, {}).code == Flags.REFUSED)
   -- chat at a terminal: a line typed meanwhile steers; /later waits for the turn.
-  r, a = cli({ "chat" }, KEYED, { { content = { bash_call("t1", "true") }, stop_reason = "tool_use" },
+  r, a = cli({ "chat" }, KEYED, { { content = { run_call("t1", "local _ = 1") }, stop_reason = "tool_use" },
     text_reply("one"), text_reply("two") }, { "first" }, { "steer it", "/later after", "/exit" })
   assert(r.code == 0 and #a.sent == 3, r.out .. r.err)
   assert(said(a, 2):find('"steer it"', 1, true) ~= nil and said(a, 3):find('"after"', 1, true) ~= nil, said(a, 3))
@@ -341,8 +342,8 @@ local function test_sessions_are_kept_and_go_on()
     busy_fork.err)
   assert(sys.close(lock))
   -- Every tool's output is kept, and a later session finds it.
-  r = cli({ "ask", "run it" }, KEYED, { { content = { { type = "tool_use", id = "t", name = "bash",
-    input = { command = "echo kept-output-marker" } } }, stop_reason = "tool_use" }, text_reply("ran") })
+  r = cli({ "ask", "run it" }, KEYED, { { content = { run_call("t", "print(\"kept-output-marker\")") },
+    stop_reason = "tool_use" }, text_reply("ran") })
   assert(r.code == 0, r.err)
   local found = kept_count("SELECT count(*) FROM outputs_fts WHERE outputs_fts MATCH '\"kept-output-marker\"'")
   assert(found == 1, tostring(found))
@@ -350,8 +351,6 @@ end
 
 local function test_the_sandbox_on_the_command_line()
   home = scratch()
-  local nothing = cli({ "ask", "--new", "--sandbox", "read", "--tools", "edit,write", "x" }, KEYED, {})
-  assert(nothing.code == Flags.REFUSED and nothing.err:find("no tool is left", 1, true) ~= nil, nothing.err)
   local outside = scratch()
   assert(cli({ "ask", "--grant", "/tmp:rwu", "x" }, KEYED, {}).err:find("letters", 1, true) ~= nil)
   assert(cli({ "ask", "--sandbox", "off", "--network", "x" }, KEYED, {}).err:find("--sandbox off", 1, true) ~= nil)
@@ -380,32 +379,13 @@ local function test_the_sandbox_on_the_command_line()
   local before = cli({ "sessions" }, KEYED, {})
   local refused = cli({ "ask", "--grant", "/no/such/path", "x" }, KEYED, {})
   assert(refused.code == Flags.REFUSED and cli({ "sessions" }, KEYED, {}).out == before.out, refused.err)
-  local ran, a = cli({ "ask", "--sandbox", "read", "--grant", outside .. ":rwc", "go" }, KEYED, {
-    { content = { { type = "tool_use", id = "t", name = "write", input = { path = outside .. "/z", content = "z" } } },
-      stop_reason = "tool_use" }, text_reply("done") })
-  assert(ran.code == 0 and slurp(outside .. "/z") == "z" and #a.sent == 2, ran.err)
-  -- With no grant that writes, read offers no tool that changes a file, and policy says what runs.
-  local read_only, ra = cli({ "ask", "--new", "--sandbox", "read", "go" }, KEYED, { text_reply("done") })
-  local offered = ra.bodies[1] or ("no request: " .. read_only.err)
-  assert(read_only.code == 0 and offered:find('"name":"edit"', 1, true) == nil and
-      offered:find('"name":"write"', 1, true) == nil and offered:find('"name":"read"', 1, true) ~= nil, offered)
+  -- policy says what runs.
   local shown = cli({ "policy" }, KEYED, {})
-  local no_bash = if Sandbox.on_macos() then "^programs: no tool offered is bash, but on macOS" else
-    "^programs: none run, since no tool offered is bash" end
+  local no_bash = if Sandbox.on_macos() then "^programs: none run by Host.bash without %-%-commands, but on macOS" else
+    "^programs: none run without %-%-commands" end
   assert(shown.out:find(no_bash) ~= nil, shown.out)
-  local with_bash = cli({ "policy", "--with", "bash" }, KEYED, {})
-  assert(with_bash.out:find("^programs: bash runs") ~= nil, with_bash.out)
-end
-
-local function test_a_job_never_read_is_kept_as_the_session_ends()
-  home = scratch()
-  local ran = cli({ "ask", "start it" }, KEYED, { { content = { { type = "tool_use", id = "t", name = "bash",
-    input = { command = "echo bg-job-marker; sleep 30", background = true } } }, stop_reason = "tool_use" },
-    text_reply("started") })
-  assert(ran.code == 0, ran.err)
-  local found = kept_count("SELECT count(*) FROM outputs WHERE tool = 'bash' AND input LIKE '%background%' " ..
-      "AND input LIKE '%bg-job-marker%' AND call IS NULL")
-  assert(found == 1, tostring(found))
+  local with_bash = cli({ "policy", "--commands" }, KEYED, {})
+  assert(with_bash.out:find("^programs: Host.bash runs") ~= nil, with_bash.out)
 end
 
 local function test_the_command_line_is_refused_where_it_should_be()
@@ -425,19 +405,15 @@ local function test_the_command_line_is_refused_where_it_should_be()
   assert(sent(ha, 1)["model"] == "claude-haiku-5-5", haiku.err)
   local p = cli({ "prompt" }, {}, {})
   assert(p.code == 0 and p.out:find("<cwd>", 1, true) ~= nil and p.out:find("cosmic agent", 1, true) ~= nil, p.out)
-  -- By default the model is shown no tool that runs a program.
-  assert(p.out:find("- run: ", 1, true) ~= nil and p.out:find("- bash: ", 1, true) == nil and
-      p.out:find("- jobs: ", 1, true) == nil, p.out)
-  local every = cli({ "prompt", "--with", "bash,jobs" }, {}, {})
-  assert(every.code == 0 and every.out:find("- bash: ", 1, true) ~= nil, every.out)
+  -- By default the model is told no program runs; --commands names Host.bash.
+  assert(p.out:find("- run: ", 1, true) ~= nil and p.out:find("Host.bash", 1, true) == nil, p.out)
+  local every = cli({ "prompt", "--commands" }, {}, {})
+  assert(every.code == 0 and every.out:find("Host.bash", 1, true) ~= nil, every.out)
   local extra = cli({ "prompt", "x" }, {}, {})
   assert(extra.code == Flags.REFUSED and extra.err:find("prompt: takes no words; usage: cosmic agent prompt", 1, true) ~=
       nil, extra.err)
   local chat = cli({ "chat", "--json" }, KEYED, {})
   assert(chat.err:find("; usage: cosmic agent chat [options]", 1, true) ~= nil, chat.err)
-  local shown = cli({ "prompt", "--tools", "run,read" }, {}, {})
-  assert(shown.code == 0 and shown.out:find("- run: ", 1, true) ~= nil and shown.out:find("- bash: ", 1, true) == nil,
-    shown.out)
   -- The sessions database is the data directory's, its owner's alone.
   assert(cli({ "sessions" }, KEYED, {}).code == 0)
   assert(assert(Fs.stat(home .. "/.local/share/cosmic/agent/sessions.db")).mode & 0x1ff == 0x180)

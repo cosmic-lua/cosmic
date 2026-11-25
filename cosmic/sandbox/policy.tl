@@ -197,6 +197,73 @@ local record rules
     --- The SHA-256 of the file's bytes, in lowercase hex; nil for a path alone.
     sha256?: string
   end
+
+  --- The kernel layers a process is held by: what [`Sandbox.restrict`]
+  --- applies ([`Sandbox.layers`]) or what [`Child.start`] hands its spawn
+  --- ([`Child.layers`]), told with nothing applied.
+  record Layers
+    --- The paths of the Landlock ruleset the process is held by first,
+    --- each with its letters. A child's holds the start's own grants too:
+    --- `rx` on the program and its loaders, or on this program's core for a
+    --- cosmic child; the directory `tmp` makes; and, for one unveiled, its
+    --- own /proc to read and the /tmp `tmp` mounts. Empty under the `nest`
+    --- calls grant, which gives Landlock up: the root's binds hold the
+    --- paths then.
+    landlock: {rules.Path}
+    --- The paths of a second ruleset a cosmic child's core applies to
+    --- itself at boot, before any module loads: the policy's grants
+    --- without the start's `rx` on that core, so the kernel holds the
+    --- child to the policy alone; under `isolate` file by the names the
+    --- root binds the grants at, with the root's own /proc and /tmp. Empty
+    --- where there is none: a host program, `nest`, and
+    --- [`Sandbox.restrict`].
+    boot: {rules.Path}
+    --- The groups of system calls a seccomp filter allows beyond the
+    --- basics.
+    calls: {rules.Promise}
+    --- Whether a filter of its own refuses execve and execveat: no `x`
+    --- in the last ruleset (`boot` where there is one). A host program
+    --- and a child of `nest` keep `rx` on their start files, so it is
+    --- false for them.
+    exec_refused: boolean
+    --- The socket families the filter lets the process make: "unix" for a
+    --- child with a `u` grant, "inet" for one with `loopback` or a
+    --- connect grant. A restricted process makes none.
+    sockets: {rules.Socket}
+    --- The namespaces a child starts in, of its own: "user", "pid",
+    --- "mount" and "ipc" for one unveiled (`isolate`, or a root caller's
+    --- policy that makes a namespace), "user" and "net" for one with a
+    --- network of its own (`loopback`, a connect grant or a `u` grant), all
+    --- five for both.
+    namespaces: {rules.Namespace}
+    --- Whether the child's files are a root of its own (`isolate` file),
+    --- which binds only what is granted.
+    root: boolean
+    --- The hosts the relay reaches for the child: its connect grants.
+    relay: {string}
+    --- The addresses of 127/8 the policy declares for the child's own
+    --- network (`loopback`); the relay's own listeners there are not among
+    --- them.
+    loopback: {string}
+    --- The resource limits, by the names spawn and restriction take
+    --- ([`rules.rlimits`]); a child's `nproc` among them.
+    rlimits: {string:integer}
+  end
+
+  --- A socket family a filter lets a program make ([`rules.Layers`]).
+  enum Socket
+    "unix"
+    "inet"
+  end
+
+  --- A namespace a child starts in ([`rules.Layers`]).
+  enum Namespace
+    "user"
+    "pid"
+    "mount"
+    "ipc"
+    "net"
+  end
 end
 
 --- What a function returns for a failure of this module: nil and `why`
@@ -1007,6 +1074,23 @@ function rules.with_connect(p: rules.Policy, connect: {string}): rules.Policy
     user = p.user, group = p.group, database = p.database, profiles = p.profiles,
   }
   return result
+end
+
+--- The kernel layers [`Sandbox.restrict`] holds a process to under the
+--- merged policy `merged` ([`rules.merge`]), which it can hold: its paths as
+--- one Landlock ruleset, its calls as the seccomp filter's groups, the exec
+--- filter where no grant gives `x`, and its rlimits. Nothing is applied and
+--- no file is read.
+function rules.layers(merged: rules.Policy): rules.Layers
+  local paths = rules.paths(merged)
+  local runs = false
+  for _, grant in ipairs(paths) do
+    if grant.letters:find("x", 1, true) ~= nil then runs = true end
+  end
+  return {
+    landlock = paths, boot = {}, calls = rules.calls(merged), exec_refused = not runs, sockets = {},
+    namespaces = {}, root = false, relay = {}, loopback = {}, rlimits = rules.rlimits(merged.limits),
+  }
 end
 
 --- The rlimits `limits` hold a process to, by the names spawn and

@@ -467,7 +467,7 @@ do
   assert(Web.header(res, "HX-Trigger") == '{"saved":{"id":7}}')
   local refused, why = Htmx.apply(Web.empty(200), { redirect = "https://evil.example/" })
   assert(refused == nil)
-  assert(why:find("same-origin", 1, true))
+  assert(tostring(why):find("same-origin", 1, true))
   local app = Web.app{ routes = { Web.post("/login", function(req: Web.Request): Web.Response
     return (assert(Htmx.redirect_to(req, "/")))
   end) } }
@@ -610,7 +610,7 @@ local log = Log.new("tasks")
 return function(): integer
   local keys, why = Secret.keys_from_env("TASKS_KEYS")
   if keys == nil then
-    log:complain(why)
+    log:complain(tostring(why))
     return 2
   end
   local app = Tasks.app{

@@ -221,7 +221,27 @@ local CASES <const>: {Case} = {
     code = "failure_ignored", at = { line = 2, column = 1 },
     source = "local f: function(): (true, integer) | (false, string) = function() return true, 1 end\nf()\n",
     msg = "`f()` answers one of 2 lists of values, one of which may be a failure, and as a statement it drops which one it answered",
-    fix = "bind its values and test the first (`local ok, why = f()`), match the call, or discard them on purpose: `local _, _ = f()`",
+    fix = "bind its values and test the first (`local ok, why = f()`), match the call, raise where it fails with `f()!`, " ..
+      "or discard them on purpose: `local _, _ = f()`",
+  },
+  {
+    -- Where `assert` cannot tell the lists apart, `!` is not offered.
+    code = "failure_ignored", at = { line = 2, column = 1 },
+    source = "local f: function(): (boolean, integer) | (nil, string) = function() return true, 1 end\nf()\n",
+    msg = "`f()` answers one of 2 lists of values, one of which may be a failure",
+    fix = "bind its values and test the first (`local v, why = f()`), match the call, or discard them on purpose: `local _, _ = f()`",
+  },
+  {
+    code = "alternatives_as_value",
+    source = "local f: function(): (integer) | (nil, string) = function() return 1 end\nlocal x = f() + 1\n",
+    msg = "`f()` answers one of 2 lists of values, which is no value",
+    fix = "bind its values and test the first (`local v, why = f()`), take the value with `f()!`, which raises where it " ..
+      "fails, or match the call: `match f() do | ... end`",
+  },
+  {
+    -- `pcall(f)!` would raise what `pcall` caught: `!` is not offered for it.
+    code = "alternatives_as_value", source = "local function f(): integer return 1 end\nlocal x = pcall(f) + 1\n",
+    msg = "`pcall(f)` answers one of 2 lists of values, which is no value", fix = "`) or match the call: `match pcall(f) do",
   },
   {
     code = "value_count", source = "local a, b = 1\n", at = { line = 1, column = 1 },
@@ -455,6 +475,23 @@ local CASES <const>: {Case} = {
         "function Fs.read(path: string, n?: integer): string return path end\nreturn Fs\n" },
     msg = "`Fs` has no field `read_file`",
     fix = "`Fs` has `read: function(path: string, n?: integer): string`, `read_is: function(v: any): v is string`",
+  },
+  {
+    -- A field whose function may be nil, written either way.
+    code = "field_unknown", source = "local Fs = require(\"cosmic.fs\")\nlocal r = Fs.read_file\n",
+    modules = { ["cosmic.fs"] = "local record Fs\n  read: (function(path: string): string)?\n" ..
+        "  read_at?: function(path: string, at: integer): string\nend\nreturn Fs\n" },
+    msg = "`Fs` has no field `read_file`",
+    fix = "`Fs` has `read: (function(path: string): string)?`, `read_at: (function(path: string, at: integer): string)?`",
+  },
+  {
+    -- A signature too long to show whole keeps its first parameters and its returns.
+    code = "field_unknown", source = "local Fs = require(\"cosmic.fs\")\nlocal r = Fs.read_file\n",
+    modules = { ["cosmic.fs"] = "local record Fs\n  read: function(path: string, offset: integer, length: integer, " ..
+        "flags: {string: boolean}, encoding: string, callback: function(chunk: string)): string, integer\nend\nreturn Fs\n" },
+    msg = "`Fs` has no field `read_file`",
+    fix = "`Fs` has `read: function(path: string, offset: integer, length: integer, flags: {string: boolean}, " ..
+      "...): string, integer`",
   },
   {
     -- A method of a class.
@@ -2130,11 +2167,12 @@ local function test_a_call_of_math_given_numbers_leaves_a_fill_loop_a_fill_loop(
   local head = "local u: mut {integer} = { 1, 2, 3 }\nlocal k: integer = 2\nlocal function pick(): integer\n  return 1\nend\n"
   assert(codes_of(head .. "for i = 1, #u do\n  u[i] = math.max(i, 2)\nend\n") == "")
   assert(codes_of(head .. "for i = 1, #u do\n  u[i] = math.max(i + 1, #u * 2, -i)\nend\n") == "")
-  -- a name that is not the index may hold anything, a call is a call, and a name of another library is not math
-  assert(codes_of(head .. "for i = 1, #u do\n  u[i] = math.max(i, k)\nend\n") == "array_hole")
+  -- a name typed as a number is as plain as the index, while a call of a function of the program runs its code
+  assert(codes_of(head .. "for i = 1, #u do\n  u[i] = math.max(i, k)\nend\n") == "")
   assert(codes_of(head .. "for i = 1, #u do\n  u[i] = math.max(i, pick())\nend\n") == "array_hole")
   assert(codes_of(head .. "for i = 1, #u do\n  u[i] = pick()\nend\n") == "array_hole")
-  assert(codes_of(head .. "for i = 1, #u do\n  u[i] = #string.upper(\"a\")\nend\n") == "array_hole")
+  -- a function of `string` given strings runs no code of the program either
+  assert(codes_of(head .. "for i = 1, #u do\n  u[i] = #string.upper(\"a\")\nend\n") == "")
 end
 
 local function test_no_metamethod_runs_in_the_body_of_a_fill_loop_while_three_refusals_stand()
@@ -2168,7 +2206,8 @@ local function test_the_hint_of_an_index_read_names_the_loop_and_the_checked_rea
   end
   local named = fix_of("local xs: {integer} = {}\nlocal i: integer = 2\nlocal n: integer = xs[i]\n", "index_may_be_nil")
   for _, part in ipairs({ "for i = 1, #xs do", "if i >= 1 and i <= #xs then", "Array.at(xs, i)", "xs[i]!", "ipairs(xs)",
-      "or <default>", "a wrong value" }) do
+      "or <default>", "a wrong value", "before the read or after it, calls a function that may run code of the program",
+      "(`v > best` counts; `v > 0` does not)" }) do
     assert(has(named, part), part .. " is not in " .. named)
   end
   -- the loop is offered only for a local array read at a name
@@ -2183,6 +2222,13 @@ local function test_the_hint_of_an_index_read_names_the_loop_and_the_checked_rea
 end
 
 local function test_a_read_at_the_index_of_a_loop_over_the_length_of_the_array_is_not_optional()
+  -- what the hint of an index read names: a call of a function of the program or a comparison of two locals, before
+  -- the read or after it, keeps it optional, in a loop and in a test of the index alike
+  assert(counted("for i = 1, #xs do\n  total = total + xs[i]\n  other(ys)\nend\n") ~= "")
+  assert(counted("for i = 1, #xs do\n  local v: integer = xs[i]\n  if v > total then total = v end\nend\n") ~= "")
+  assert(counted("local i = 2\nif i >= 1 and i <= #xs then\n  total = xs[i]\n  local _ = tostring(h)\nend\n") ~= "")
+  local kept = counted("for i = 1, #xs do\n  total = total + xs[i]\n  if xs[i] > 0 then total = 0 end\nend\n")
+  assert(kept == "", kept)
   assert(counted("for i = 1, #xs do\n  total = total + xs[i]\nend\n") == "")
   assert(counted("for i = 2, #xs do\n  total = total + xs[i]\nend\n") == "")
   assert(counted("for i = 1, #xs, 1 do\n  total = total + xs[i]\nend\n") == "")
@@ -2198,6 +2244,26 @@ local function test_a_read_at_the_index_of_a_loop_over_the_length_of_the_array_i
   -- an upvalue is a local the loop's function reads
   assert(counted("local function sum(): integer\n  local s = 0\n  for i = 1, #xs do\n    s = s + xs[i]\n  end\n  return s\nend\n" ..
       "total = sum()\n") == "")
+  -- a call that runs no code of the program, by what it is given: `print` and `tostring` of plain values, `string.*`,
+  -- and a method of a string, also of the element read
+  assert(counted("for i = 1, #xs do\n  print(i)\n  total = xs[i]\nend\n") == "")
+  assert(counted("for i = 1, #xs do\n  for j = 1, #ys do\n    print(j, ys[j])\n  end\n  total = xs[i]\nend\n") == "")
+  -- a proof inside another's quiet run is taken on trust there and tested after, so the cost of nested proofs is linear in
+  -- their depth: 20 levels check in well under a second, and took minutes when each level ran its own quiet run
+  local deep = "local function f(): integer\n  local s = 0\n"
+  for k = 1, 20 do
+    deep = deep .. "for i" .. tostring(k) .. " = 1, #xs do\nprint(i" .. tostring(k) .. ")\n"
+  end
+  deep = deep .. "s = s + xs[i1] + xs[i20]\n" .. string.rep("end\n", 20) .. "  return s\nend\ntotal = f()\n"
+  assert(counted(deep) == "")
+  assert(counted("for i = 1, #xs do\n  print(tostring(i) .. \": \" .. tostring(xs[i]))\n  total = xs[i]\nend\n") == "")
+  do
+    local got = counted("for i = 1, #xs do\n  local u = (\"a\"):upper()\n  total = xs[i] + #string.sub(u, 1, i)\nend\n")
+    assert(got == "", got)
+  end
+  assert(codes_of("local function head(lines: {string}): integer\n  local n = 0\n  for i = 1, #lines do\n" ..
+      "    if lines[i]:sub(1, 3) == \"---\" then\n      n = i\n    else\n      break\n    end\n  end\n" ..
+      "  for j = 1, math.min(n + 2, #lines) do\n    print(tostring(j) .. \": \" .. lines[j])\n  end\n  return n\nend\n") == "")
 end
 
 --- `math.min` returns the least of its arguments, so a limit of `math.min(n, #t)` is at most `#t`.
@@ -2246,8 +2312,13 @@ local function test_a_read_at_the_index_of_a_counted_loop_stays_optional_where_t
   stays("for i = 1, #xs do\n  table.remove(xs)\n  total = xs[i]\nend\n")
   stays("for i = 1, #xs do\n  table.insert(xs, 1)\n  total = xs[i]\nend\n")
   stays("for i = 1, #xs do\n  local n = other(xs)\n  total = xs[i]\nend\n")
-  stays("for i = 1, #xs do\n  print(i)\n  total = xs[i]\nend\n")
-  stays("for i = 1, #xs do\n  local u = (\"a\"):upper()\n  total = xs[i]\nend\n")
+  stays("for i = 1, #xs do\n  local f = print\n  f(i)\n  total = xs[i]\nend\n")
+  stays("for i = 1, #xs do\n  print(h)\n  total = xs[i]\nend\n")
+  -- an element whose `__tostring` may run code of the program, given to `print`; and a nested loop's call
+  assert(codes_of("local class C\n  function __tostring(self): string\n    return \"c\"\n  end\nend\n" ..
+      "local cs: mut {C} = { {} }\nlocal function first(): C\n  local got: C = {}\n  for i = 1, #cs do\n" ..
+      "    print(cs[i])\n    got = cs[i]\n  end\n  return got\nend\n") == "index_may_be_nil")
+  stays("for i = 1, #xs do\n  for j = 1, #ys do\n    print(j, other(ys))\n  end\n  total = xs[i]\nend\n")
   stays("for i = 1, #xs do\n  xs = {}\n  total = xs[i]\nend\n")
   stays("for i = 1, #xs do\n  xs[#xs] = nil\n  total = xs[i]\nend\n")
   stays("for i = 1, #xs do\n  xs[i + 1] = 1\n  total = xs[i]\nend\n", "array_hole")
@@ -2313,7 +2384,7 @@ local function test_a_read_beside_the_index_of_a_counted_loop_stays_optional_whe
   stays("for i = 2, #xs - 1 do\n  xs[#xs] = nil\n  total = xs[i + 1]\nend\n")
   stays("for i = 2, #xs - 1 do\n  ys[#ys] = nil\n  total = xs[i - 1]\nend\n")
   stays("for i = 2, #xs - 1 do\n  local n = other(xs)\n  total = xs[i - 1]\nend\n")
-  stays("for i = 2, #xs - 1 do\n  print(i)\n  total = xs[i + 1]\nend\n")
+  stays("for i = 2, #xs - 1 do\n  print(h)\n  total = xs[i + 1]\nend\n")
   stays("for i = 2, #xs - 1 do\n  xs = {}\n  total = xs[i + 1]\nend\n")
   stays("for i = 1, #xs - 1 do\n  xs[i + 1] = 1\n  total = xs[i]\nend\n", "array_hole")
   -- a function made in the loop may run when the array is shorter
@@ -2347,6 +2418,15 @@ local function test_a_read_inside_a_range_test_of_its_index_is_not_optional_whil
       "  return \"\"\nend\n") == "")
   -- a function made in the block leaves the block's own read standing
   assert(guarded("i >= 1 and i <= #xs", "    fns[#fns + 1] = function(): integer\n      return 0\n    end\n    return xs[i]") == "")
+  -- a call that runs no code of the program, by what it is given: `print` and `tostring` of plain values, `string.*`,
+  -- and a method of a string, also on the element read
+  assert(guarded("i >= 1 and i <= #xs", "    print(i, \"at \" .. tostring(xs[i]))\n    return xs[i]") == "")
+  do
+    local got = guarded("i >= 1 and i <= #xs", "    local s = string.sub(\"xyz\", 1, i):upper()\n    return xs[i] + #s")
+    assert(got == "", got)
+  end
+  assert(codes_of("local function at(v: {string}, i: integer): string\n  if i >= 1 and i <= #v then\n" ..
+      "    print(v[i]:sub(1, 3))\n    return v[i]\n  end\n  return \"\"\nend\n") == "")
   local function stays(cond: string, body: string, also?: string)
     local got = guarded(cond, body)
     local want = if also == nil then "index_may_be_nil" else also .. " index_may_be_nil" end
@@ -2381,7 +2461,10 @@ local function test_a_read_inside_a_range_test_of_its_index_is_not_optional_whil
   stays("i >= 1 and i <= #xs", "    xs[i + 1] = 1\n    return xs[i]", "array_hole")
   stays("i >= 1 and i <= #xs", "    xs = {}\n    return xs[i]")
   stays("i >= 1 and i <= #xs", "    local n = shrink()\n    return xs[i]")
-  stays("i >= 1 and i <= #xs", "    print(i)\n    return xs[i]")
+  -- a call that runs code of the program: a class value's `__tostring`, which `print` and `tostring` run
+  assert(codes_of("local class C\n  function __tostring(self): string\n    return \"c\"\n  end\nend\n" ..
+      "local xs: mut {integer} = { 1 }\nlocal c: C = {}\nlocal function at(i: integer): integer\n" ..
+      "  if i >= 1 and i <= #xs then\n    print(c)\n    return xs[i]\n  end\n  return 0\nend\n") == "index_may_be_nil")
   assert(guarded("i >= 1 and i <= #xs", "    return xs[i] + shrink()") == "nil_not_allowed")
   stays("i >= 1 and i <= #xs and shrink() > 0", "    return xs[i]")
   -- an alias may be shortened where the array is not named

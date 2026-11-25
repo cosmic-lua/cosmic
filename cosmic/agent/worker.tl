@@ -13,7 +13,8 @@
 --- The worker reads requests, `{"id":1,"code":"..."}`, one JSON object a line, and responds to each with a response line holding
 --- the request's `id` and one of: `refused`, the checker's lines, for a snippet that did not run; `ok` true and `value`
 --- (the JSON of what it returned, where it returned one, at most 64KB); `ok` false and `error`, for one that raised; or
---- `error` alone, for a request it could not read. What a snippet writes to standard output and standard error goes to
+--- `error` alone, for a request it could not read. One of a snippet that ran may hold `changes`, the files it changed
+--- through Host.edit and Host.write, for a person to see. What a snippet writes to standard output and standard error goes to
 --- the worker's standard error, a pipe this module reads while the snippet runs, between the request's marks
 --- ([`Worker.mark`]): a response line of `ok` gains `output`, all of it as UTF-8 where it is 64KB or less, else its first
 --- 16KB and its last 48KB with a line between them of how many bytes were cut, `cut` true then, and `head_bytes` and
@@ -24,12 +25,12 @@
 --- `call_id`: `{"call_id":1,"reply":...}` or `{"call_id":1,"failed":"..."}`. A snippet sets no global, which the checker
 --- refuses; what it keeps for the next it keeps with [`Host.store`], or writes to a file. Its standard input is /dev/null.
 ---
---- Under a policy the worker is held as bash is, with these changes. Where it runs no commands
+--- Under a policy the worker is held as Host.bash's programs are, with these changes. Where it runs no commands
 --- ([`Worker.Options.commands`] false), on Linux no grant keeps `x`, and it has no fork promise, so no program runs; on
 --- macOS the grants keep `x` (Seatbelt's `x` maps libraries too). Beside that: it runs as this program, whose core its
 --- start runs with no grant of its file, and it is not given the nest promise, beside which this program cannot be
 --- started again, so Landlock holds its files too. Its environment is the policy's alone, so no key of the user's reaches it. With no
---- policy (`--sandbox off`) it has the agent's whole environment, the API key included, as bash does then.
+--- policy (`--sandbox off`) it has the agent's whole environment, the API key included, and so does what it runs.
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -68,8 +69,8 @@ local record Worker
     serve?: Worker.Serve
     --- Whether a snippet may run programs (Host.bash, cosmic.child): false holds the worker to no new process and
     --- no file run, by its policy, so that what it does is only what the agent serves it and its grants allow. That
-    --- holds on Linux under a policy: on macOS, or with no policy, a snippet may still run a program. Only the first
-    --- snippet's starts the worker; nil is true.
+    --- holds on Linux under a policy: on macOS, or with no policy, a snippet may still run a program. A run whose
+    --- commands differ from the running worker's starts a new one; nil is false.
     commands?: boolean
   end
 
@@ -139,7 +140,7 @@ end
 --- The worker of `set`, started under `opts` where none runs.
 local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | (nil, Failure)
   local lines = set.lines
-  local commands = opts.commands ~= false
+  local commands = opts.commands == true
   if lines ~= nil and set.held == opts.policy and set.held_commands == commands then
     return lines
   end
@@ -153,7 +154,7 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
     local merged, why = Sandbox.union(given)
     if merged == nil then return nil, Failure.new("worker: " .. why) end
     local promises: mut {Sandbox.Promise} = {}
-    local runs = opts.commands ~= false
+    local runs = commands
     for _, promise in ipairs(Sandbox.calls(merged)) do
       if promise ~= "nest" and (runs or promise ~= "fork") then
         promises[#promises + 1] = promise
@@ -166,11 +167,9 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
     local strip = not runs and not Sandbox.on_macos()
     for _, grant in ipairs(Sandbox.paths(merged)) do
       -- With no commands, no grant runs a file. The worker is this program, which its start runs as its core
-      -- whatever the policy grants. Outside `isolate` file the core holds its policy again at boot without that `rx`:
-      -- with no grant left with `x` the exec filter holds too, so the worker cannot become another program, nor run
-      -- itself again. A grant of `x` alone is then no grant.
-      -- TODO: under `isolate` file (the agent's Linux policy) the core's `rx` stays the worker's, so it may execve its
-      -- own core again (held as it is, with no fork); Child.start's boot layer under `isolate` file would close it.
+      -- whatever the policy grants. The core holds its policy again at boot without that `rx` (under `isolate` file
+      -- by the names the root binds): with no grant left with `x` the exec filter holds too, so the worker cannot
+      -- become another program, nor run itself again. A grant of `x` alone is then no grant.
       local letters = if not strip then grant.letters else (grant.letters:gsub("x", "")) end
       if letters ~= "" then
         grants[#grants + 1] = { path = grant.path, letters = letters, from = grant.from }

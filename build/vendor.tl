@@ -213,8 +213,7 @@ function Vendor.fetch(url: string, path: string, digests: {Vendor.Digest}): stri
   -- default.
   local want: mut {Hash.Algorithm:string} = {}
   for _, digest in ipairs(digests) do want[digest.algorithm] = digest.hex end
-  local options: Http.Options = { timeout_ns = Http.FOREVER, roots = "mozilla", digests = want }
-  local ok, trouble = Http.download(url, path, options)
+  local ok, trouble = Http.download(url, path, { timeout_ns = Http.FOREVER, roots = "mozilla", digests = want })
   if not ok then
     return nil, tostring(trouble)
   end

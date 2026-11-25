@@ -241,16 +241,19 @@ local function generic_reason(reason: string): string
 end
 
 --- Each reason a skipped test gave in `text`, a suite's stdout (its
---- `test: SKIP  <module> <test>: <reason>` lines), with how many gave it,
---- the most first, ties by reason.
+--- `test: SKIP  <module> <test>: <reason>` lines, and the
+--- `test: SKIP  <module>: N tests, <reason>` lines that count a module's
+--- tests that gave one reason), with how many gave it, the most first,
+--- ties by reason.
 function SuiteOutput.skips(text: string): {SuiteOutput.Skip}
   local counts: mut {string:integer} = {}
   for raw in text:gmatch("[^\n]+") do
     local line = raw:gsub("\r$", "")
-    local reason = line:match("^test: SKIP  %S+ %S+: (.*)$")
+    local n, counted = line:match("^test: SKIP  %S+: (%d+) tests, (.*)$")
+    local reason = counted or line:match("^test: SKIP  %S+ %S+: (.*)$")
     if reason ~= nil then
       local key = generic_reason(reason)
-      counts[key] = (counts[key] or 0) + 1
+      counts[key] = (counts[key] or 0) + (math.tointeger(tonumber(n)) or 1)
     end
   end
   local out: mut {SuiteOutput.Skip} = {}

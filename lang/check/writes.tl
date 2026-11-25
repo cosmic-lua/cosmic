@@ -201,6 +201,11 @@ end
 --- refuses `setmetatable`, and `operand_type` refuses any other operator on a record or a class. The loop rule must be
 --- revisited if any of the three is relaxed; lang/check_test.tl pins them beside the loop tests. [`Writes.length_limit`]
 --- also relies on `math.min` taking only `Numeric` values (lang/stdlib.d.tl), so that its comparisons call no `__lt`.
+---
+--- With `pending`, a call that is no [`Writes.scalar_math`] is not refused here but put in `pending`: whether it runs code
+--- of the program depends on the types of what it is given, which the walk of the body finds (`ctx.inert`, set where
+--- the call is checked). The caller walks the body quietly with the proof and keeps the proof only if each call there
+--- was inert (lang/check/init.tl's `for_numeric` and `if_statement`).
 function Writes.scalar_math(call: Ast.Call, var: integer): boolean
   local callee = call.callee
   if not ((callee.kind == "Field") and (callee.object.kind == "Name") and callee.object.binding == nil and callee.object.text == "math") then
@@ -247,7 +252,7 @@ function Writes.scalar(e: Ast.Exp, var: integer): boolean
   return at.kind == "Integer" or at.kind == "Float" or at.kind == "String" or at.kind == "Boolean"
 end
 
-function Writes.keeps_length(body: Ast.Node, array: integer, var: integer): boolean
+function Writes.keeps_length(body: Ast.Node, array: integer, var: integer, pending?: mut {Ast.Node}): boolean
   -- A closure may not assign a local of its function, so a way the body may change the length is a mark in a list. The
   -- statements wait in a list too, so that a body of any depth is read without recursion.
   local marks: mut {boolean} = {}
@@ -258,7 +263,10 @@ function Writes.keeps_length(body: Ast.Node, array: integer, var: integer): bool
   while #waiting > 0 and #marks == 0 do
     local node = assert(waiting[#waiting])
     waiting[#waiting] = nil
-    if (node.kind == "Call" and not Writes.scalar_math(node, var)) or (node.kind == "MethodCall") or (node.kind == "ForIn") or
+    if pending ~= nil and ((node.kind == "Call" and not Writes.scalar_math(node, var)) or (node.kind == "MethodCall")) then
+      -- Whether the call runs code of the program is known once its arguments are typed.
+      pending[#pending + 1] = node
+    elseif (node.kind == "Call" and not Writes.scalar_math(node, var)) or (node.kind == "MethodCall") or (node.kind == "ForIn") or
         ((node.kind == "Binary") and not Writes.plain_compare(node, var)) then
       marks[#marks + 1] = true
     elseif (node.kind == "Local") then
@@ -303,7 +311,7 @@ end
 --- it stops short of that length by: `#t`, `#t - b`, or a `math.min` of such a one and other values that run no code
 --- of the program ([`Writes.keeps_length`] of each), so that nothing they run can change `t` between its length and the
 --- loop. `math.min` returns the least of its arguments, so the limit is at most `#t - b`. Nil for another form.
-function Writes.length_limit(to: Ast.Exp, var: integer): (Ast.Exp, integer) | (nil, integer)
+function Writes.length_limit(to: Ast.Exp, var: integer, pending?: mut {Ast.Node}): (Ast.Exp, integer) | (nil, integer)
   local at = peel(to)
   local slack = 0
   if (at.kind == "Binary") and at.op == "-" then
@@ -334,7 +342,7 @@ function Writes.length_limit(to: Ast.Exp, var: integer): (Ast.Exp, integer) | (n
   local which = 0
   for i, given in ipairs(at.args) do
     if found == nil and peel(given).kind ~= "Call" then
-      local object, short = Writes.length_limit(given, var)
+      local object, short = Writes.length_limit(given, var, pending)
       if object ~= nil then
         found, inner, which = object, short, i
       end
@@ -345,7 +353,7 @@ function Writes.length_limit(to: Ast.Exp, var: integer): (Ast.Exp, integer) | (n
     return nil, 0
   end
   for i, given in ipairs(at.args) do
-    if i ~= which and not Writes.keeps_length(given, held, var) then
+    if i ~= which and not Writes.keeps_length(given, held, var, pending) then
       return nil, 0
     end
   end
@@ -357,7 +365,7 @@ end
 --- of 1 or more by a literal step of 1 or more, over a local `t` that the body does not assign, append to, shorten or
 --- pass to a call, and whose index nothing assigns. `t` has at least as many elements at each pass as it had when the
 --- loop began, so `i` is a key it has.
-function Writes.fill_of(s: Ast.ForNum): Fill?
+function Writes.fill_of(s: Ast.ForNum, pending?: mut {Ast.Node}): Fill?
   local from = peel(s.from)
   local step = s.step
   if not ((from.kind == "Integer") and from.value >= 1) then
@@ -368,12 +376,12 @@ function Writes.fill_of(s: Ast.ForNum): Fill?
       return nil
     end
   end
-  local object, slack = Writes.length_limit(s.to, s.var.id)
+  local object, slack = Writes.length_limit(s.to, s.var.id, pending)
   if object == nil or slack ~= 0 or not (object.kind == "Name") then
     return nil
   end
   local held = object.binding
-  if held == nil or not Writes.keeps_length(s.body, held, s.var.id) then
+  if held == nil or not Writes.keeps_length(s.body, held, s.var.id, pending) then
     return nil
   end
   local unit = true
@@ -431,7 +439,7 @@ end
 --- `i`. So `t` keeps every element it had and `i` its value, in the block and in the operands of the chain evaluated after
 --- the bounds; the range is given to the block alone, so a read in such an operand is still optional. A function made in the block may run when `t` is shorter: its body starts with no range
 --- ([`Functions.function_body`]).
-function Writes.ranges_of(cond: Ast.Exp, body: Ast.Block): {Fill}
+function Writes.ranges_of(cond: Ast.Exp, body: Ast.Block, pending?: mut {Ast.Node}): {Fill}
   local operands: mut {Ast.Node} = {}
   local waiting: mut {Ast.Exp} = { cond }
   while #waiting > 0 do
@@ -462,8 +470,8 @@ function Writes.ranges_of(cond: Ast.Exp, body: Ast.Block): {Fill}
     if object ~= nil and object.kind == "Name" then
       held = object.binding
     end
-    if array ~= nil and held ~= nil and low[high.var] == true and Writes.keeps_length(cond, held, high.var) and
-        Writes.keeps_length(body, held, high.var) then
+    if array ~= nil and held ~= nil and low[high.var] == true and Writes.keeps_length(cond, held, high.var, pending) and
+        Writes.keeps_length(body, held, high.var, pending) then
       out[#out + 1] = { var = high.var, object = array, unit = true }
     end
   end
@@ -475,7 +483,7 @@ end
 --- or more to at most the length of a local `t` less a literal `b` of 0 or more, with no step or a literal step of 1, where [`Writes.keeps_length`] says the body cannot shorten `t`, assign `t`
 --- or assign `i`. The limit is computed once, before the first pass, so `a <= i <= #t - b` for the length `t` had then,
 --- and `t` has at least as many elements at each pass.
-function Writes.span_of(s: Ast.ForNum): Span?
+function Writes.span_of(s: Ast.ForNum, pending?: mut {Ast.Node}): Span?
   local from = peel(s.from)
   local step = s.step
   if not ((from.kind == "Integer") and from.value >= 1) then
@@ -486,12 +494,12 @@ function Writes.span_of(s: Ast.ForNum): Span?
       return nil
     end
   end
-  local object, slack = Writes.length_limit(s.to, s.var.id)
+  local object, slack = Writes.length_limit(s.to, s.var.id, pending)
   if object == nil or not (object.kind == "Name") then
     return nil
   end
   local held = object.binding
-  if held == nil or not Writes.keeps_length(s.body, held, s.var.id) then
+  if held == nil or not Writes.keeps_length(s.body, held, s.var.id, pending) then
     return nil
   end
   return { var = s.var.id, object = object, from = from.value, slack = slack }
@@ -515,8 +523,13 @@ end
 --- of a value that may be nil into `t` is an error of its own statement, and a checked run (`cosmic test --check-types`)
 --- tests the read.
 ---
---- TODO: read the index of a loop whose body calls a function, once the checker can show that no code the call runs names
---- the array ([`Writes.unreachable`] shows it only for a local made `{}`): a body with a call keeps the read `T?` now.
+--- A body may call the functions of the standard library that run no code of the program, given plain values
+--- ([`Writes.keeps_length`] with `pending`): `print`, `tostring`, `string.*`, a string's methods and the rest of
+--- [`Tests.inert_callee`].
+---
+--- TODO: read the index of a loop whose body calls a function of the program, once the checker can show that no code the
+--- call runs names the array ([`Writes.unreachable`] shows it only for a local made `{}`): such a body keeps the read `T?`
+--- now.
 function Writes.counted_read(ctx: Ctx, node: Ast.Index): boolean
   local key = peel(node.key)
   local name = key

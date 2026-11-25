@@ -105,6 +105,8 @@ local record verb
     --- All of standard input, for `--database -`, or nil and why it could not be read; [`Flags.read`]
     --- of "-" when nil.
     stdin?: function(): string?, string
+    --- Writes `--explain`'s text to standard output, as [`bare.out`] does, which is what it is when nil.
+    out?: function(text: string): boolean, string
   end
 end
 
@@ -215,6 +217,8 @@ local record Request
   mut cwd?: string
   --- The program and its arguments.
   argv: mut {string}
+  --- Whether `--explain` was given: print the layers, run nothing.
+  explain: boolean
 end
 
 --- The policy `parsed` names, as the fields a policy's JSON holds.
@@ -321,6 +325,7 @@ local function request_of(argv: {string}): Request?, string
   if policy == nil then return nil, why end
   local request: Request = {
     policy = policy, fds = {}, argv = {}, closure = parsed.set["--closure"] == true,
+    explain = parsed.set["--explain"] == true,
   }
   local databases = parsed.all["--database"] or {}
   if #databases > 1 then return nil, "--database is given more than once" end
@@ -650,7 +655,7 @@ local function run_here(argv: {string}, opts: Child.Options): Child.Result?, str
   if not (sys.isatty(0) or sys.isatty(1) or sys.isatty(2)) then return run_child(argv, opts) end
   local terminal: TermRelay.Terminal?
   local notes: Notes?
-  local policy = opts.policy
+  local policy, _ = Child.policy_of(opts)
   local connects = policy ~= nil and #Sandbox.connects(policy) > 0
   if opts.relay_log == "inherit" and connects and sys.isatty(2) then
     local made, why = notes_pipe()
@@ -673,6 +678,50 @@ local function read_stdin(): string?, string
   local bytes, why = Flags.read("-")
   if bytes == nil then return nil, why end
   return bytes, ""
+end
+
+--- The words of a list, or "none".
+local function listing(words: {string}): string
+  if #words == 0 then return "none" end
+  return table.concat(words, " ")
+end
+
+--- One Landlock grant, as `--explain` writes it.
+local function granted(grant: Sandbox.Path): string
+  local from = grant.from
+  if from == nil then return grant.letters .. " " .. grant.path end
+  return grant.letters .. " " .. grant.path .. " (from " .. from .. ")"
+end
+
+--- `--explain`'s text: the layers a start of `argv` under `opts` would
+--- hold the child to ([`Child.layers`]), a line each; nil and why for a
+--- start that would be refused.
+local function explained(argv: {string}, opts: Child.Options): string?, string
+  local layers, why = Child.layers(argv, opts)
+  if layers == nil then return nil, why end
+  local lines: mut {string} = {}
+  if #layers.landlock == 0 then
+    lines[#lines + 1] = if layers.root then "landlock: none (the root's binds hold the files)" else
+      "landlock: a ruleset that grants no file" end
+  end
+  for _, grant in ipairs(layers.landlock) do lines[#lines + 1] = "landlock: " .. granted(grant) end
+  for _, grant in ipairs(layers.boot) do lines[#lines + 1] = "boot: " .. granted(grant) end
+  lines[#lines + 1] = "calls: " .. listing(layers.calls)
+  lines[#lines + 1] = "exec: " .. (if layers.exec_refused then "refused (no x in the last ruleset)" else "by the x grants" end)
+  lines[#lines + 1] = "sockets: " .. listing(layers.sockets)
+  lines[#lines + 1] = "namespaces: " .. listing(layers.namespaces)
+  lines[#lines + 1] = "root: " .. (if layers.root then "its own (isolate file)" else "the host's" end)
+  lines[#lines + 1] = "relay: " .. listing(layers.relay)
+  lines[#lines + 1] = "loopback: " .. listing(layers.loopback)
+  local names: mut {string} = {}
+  for name in pairs(layers.rlimits) do names[#names + 1] = name end
+  table.sort(names)
+  local held: mut {string} = {}
+  for _, name in ipairs(names) do
+    held[#held + 1] = name .. "=" .. tostring(layers.rlimits[name])
+  end
+  lines[#lines + 1] = "rlimits: " .. listing(held)
+  return table.concat(lines, "\n") .. "\n", ""
 end
 
 local standard: verb.Io = { err = bare.err, run = run_here }
@@ -735,6 +784,17 @@ local function execute(argv: {string}, io: verb.Io?, held: mut {string}): intege
     complain((why:gsub("^sandbox: ", "")))
     return bare.refused
   end
+  if request.explain then
+    local text, explain_why = explained(request.argv, {
+      policy = policy, fds = request.fds, timeout_ns = Child.FOREVER, cwd = request.cwd,
+    })
+    if text == nil then
+      complain((explain_why:gsub("^child: layers: ", "", 1):gsub("^sandbox: ", "", 1)))
+      return START_FAILED
+    end
+    local wrote, write_why = (to.out or bare.out)(text)
+    return bare.written(complain, wrote, write_why)
+  end
   local run = to.run or run_child
   -- TODO: have the child end with this process where this one is ended by
   -- SIGKILL, which no handler sees: PR_SET_PDEATHSIG in the child, once
@@ -788,7 +848,7 @@ verb.spec = {
   bare = true,
   program_slot = verb.program_slot,
   takes = "options, then a program and its arguments",
-  exits = "`sandbox` prints nothing of its own when the program starts and exits with the program's status, 128 and the signal's number when a signal ended it, or 124 when `--timeout` did; it exits 2 when it refuses its command line, 125 when the start failed, 126 when the program cannot be run and 127 when it is not there.",
+  exits = "`sandbox` prints nothing of its own when the program starts (`--explain` prints the layers and exits 0, or 125 where the start would be refused) and exits with the program's status, 128 and the signal's number when a signal ended it, or 124 when `--timeout` did; it exits 2 when it refuses its command line, 125 when the start failed, 126 when the program cannot be run and 127 when it is not there.",
   passthrough = "its output and exit status are the program's (build/sandbox_test.tl)",
 }
 

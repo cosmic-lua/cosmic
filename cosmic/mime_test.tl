@@ -1,4 +1,5 @@
 local Compress = require("cosmic.compress")
+local type Failure = require("cosmic.failure")
 local Mime = require("cosmic.mime")
 local Stream = require("cosmic.stream")
 
@@ -22,24 +23,41 @@ local function test_of_never_guesses_past_the_last_extension()
   assert(Mime.of("trailing.") == "application/octet-stream")
 end
 
+--- What `compress` gives for `data`, a file called `path`: the bytes, or
+--- false where they are not worth it. Fails the test on a Failure.
+local function outcome(compress: function(string, string): (string | false) | (nil, Failure),
+                       path: string, data: string): string | false
+  local got, why = compress(path, data)
+  assert(got ~= nil, tostring(why))
+  return got
+end
+
+--- The bytes `compress` keeps for `data`; fails the test where it keeps none.
+local function kept(compress: function(string, string): (string | false) | (nil, Failure),
+                    path: string, data: string): string
+  local got = outcome(compress, path, data)
+  assert(got ~= false, path .. " is worth compressing")
+  return got
+end
+
 local function test_gzip_keeps_only_a_text_file_it_shrinks_enough()
   local text = ("body { margin: 0 }\n"):rep(200)
-  local packed = assert(Mime.gzip("app.css", text))
+  local packed = kept(Mime.gzip, "app.css", text)
   assert(#packed * 10 <= #text * 9)
   assert(assert(Compress.decode("gzip", packed)) == text)
   -- deterministic: the bytes depend on the input alone.
-  assert(Mime.gzip("app.css", text) == packed)
-  assert(Mime.gzip("app.css", ("x"):rep(1024)) == nil, "1 KiB is not past the minimum")
-  assert(Mime.gzip("photo.png", text) == nil, "an image is not gzipped")
-  assert(Mime.gzip("noext", text) == nil)
+  assert(outcome(Mime.gzip, "app.css", text) == packed)
+  assert(outcome(Mime.gzip, "app.css", ("x"):rep(1024)) == false, "1 KiB is not past the minimum")
+  assert(outcome(Mime.gzip, "photo.png", text) == false, "an image is not gzipped")
+  assert(outcome(Mime.gzip, "noext", text) == false)
   local noise: mut {string} = {}
   local state = 12345
   for i = 1, 4000 do
     state = (state * 1103515245 + 12345) % 2147483648
     noise[i] = string.char((state // 65536) % 256)
   end
-  local none, trouble = Mime.gzip("random.txt", table.concat(noise))
-  assert(none == nil and trouble == "", "no gzip that saves under 10%, and no failure")
+  assert(outcome(Mime.gzip, "random.txt", table.concat(noise)) == false,
+    "no gzip that saves under 10%, and no failure")
 end
 
 local function unzstd(packed: string): string
@@ -49,22 +67,22 @@ end
 
 local function test_zstd_keeps_only_a_text_file_it_shrinks_enough()
   local text = ("body { margin: 0 }\n"):rep(200)
-  local packed = assert(Mime.zstd("app.css", text))
+  local packed = kept(Mime.zstd, "app.css", text)
   assert(#packed * 10 <= #text * 9)
   assert(unzstd(packed) == text)
-  assert(Mime.zstd("app.css", text) == packed, "the bytes depend on the input alone")
-  assert(#packed <= #assert(Mime.gzip("app.css", text)), "level 19 is no larger than gzip here")
-  assert(Mime.zstd("app.css", ("x"):rep(1024)) == nil, "1 KiB is not past the minimum")
-  assert(Mime.zstd("photo.png", text) == nil, "an image is not compressed")
-  assert(Mime.zstd("noext", text) == nil)
+  assert(outcome(Mime.zstd, "app.css", text) == packed, "the bytes depend on the input alone")
+  assert(#packed <= #kept(Mime.gzip, "app.css", text), "level 19 is no larger than gzip here")
+  assert(outcome(Mime.zstd, "app.css", ("x"):rep(1024)) == false, "1 KiB is not past the minimum")
+  assert(outcome(Mime.zstd, "photo.png", text) == false, "an image is not compressed")
+  assert(outcome(Mime.zstd, "noext", text) == false)
   local noise: mut {string} = {}
   local state = 12345
   for i = 1, 4000 do
     state = (state * 1103515245 + 12345) % 2147483648
     noise[i] = string.char((state // 65536) % 256)
   end
-  local none, trouble = Mime.zstd("random.txt", table.concat(noise))
-  assert(none == nil and trouble == "", "no zstd that saves under 10%, and no failure")
+  assert(outcome(Mime.zstd, "random.txt", table.concat(noise)) == false,
+    "no zstd that saves under 10%, and no failure")
 end
 
 local function test_scripted_names_the_types_a_browser_runs_script_from()

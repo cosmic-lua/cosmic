@@ -270,14 +270,19 @@ local function test_a_policy_of_the_wrong_shape_raises_naming_the_option(tmp: st
   }
   for _, case in ipairs(cases) do
     local option, policy = "opts.retry." .. case.option, case.policy
-    local function opts(): Http.Options
-      return { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } }
-    end
     local entries: {string:function()} = {
-      open = function() local _, _ = Http.open(url, opts()) end,
-      get = function() local _, _ = Http.get(url, opts()) end,
-      request = function() local _, _ = Http.request("PUT", url, opts()) end,
-      download = function() local _, _ = Http.download(url, tmp .. "/never", opts()) end,
+      open = function()
+        local _, _ = Http.open(url, { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
+      end,
+      get = function()
+        local _, _ = Http.get(url, { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
+      end,
+      request = function()
+        local _, _ = Http.request("PUT", url, { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
+      end,
+      download = function()
+        local _, _ = Http.download(url, tmp .. "/never", { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
+      end,
     }
     for name, entry in pairs(entries) do
       local err = Test.raises(entry)

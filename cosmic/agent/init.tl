@@ -30,8 +30,7 @@
 --- agent (its Host helpers, fetch through the relay) only the sandbox
 --- sees.
 ---
----     agent.tools = Tools.only(Tools.all(), { "read", "edit" })
----     agent.before = Check.all({ Check.paths({ grants = { { path = cwd, letters = "rwc" } } }), Check.budget({ edit = 20 }) })
+---     agent.before = Check.all({ Check.only({ "run", "history" }), Check.budget({ run = 20 }) })
 ---
 --- How the agent works, which is how pi works:
 ---
@@ -84,7 +83,6 @@ local AgentMcp = require("cosmic.agent.mcp")
 local Auth = require("cosmic.agent.auth")
 local Clock = require("cosmic.clock")
 local Http = require("cosmic.http")
-local Jobs = require("cosmic.agent.jobs")
 local Worker = require("cosmic.agent.worker")
 local Json = require("cosmic.json")
 local Sandbox = require("cosmic.sandbox")
@@ -109,7 +107,7 @@ local record Agent
   end
 
   --- Opens one request: Http.open's work, so a test can stand in.
-  type Send = function(url: string, opts: Http.Options): Reply?, string
+  type Send = function(url: string, opts: Http.OpenOptions): Reply?, string
 
   --- The most one turn ([`Agent.Session.prompt`], or `resume`) may
   --- spend: each field nil for no limit. The first limit reached ends the
@@ -117,8 +115,7 @@ local record Agent
   --- stopped, with why ([`Agent.BUDGET_SPENT`]). Tokens, cost and turns
   --- are counted when each request comes back, so the request that
   --- reaches a limit is the last; the time is counted from the turn's
-  --- start, and a tool that runs past it is stopped as the user stops one
-  --- (bash's command is ended as at its timeout). A turn resumed
+  --- start, and a tool that runs past it is stopped as the user stops one. A turn resumed
   --- ([`Agent.Session.resume`]) counts from nothing again. The model
   --- reads the limits beside the turn's prompt. Once a limit is mostly
   --- spent (a quarter left, or one request), a note with the tool results
@@ -145,11 +142,11 @@ local record Agent
     cwd: string
     --- The model, as the API names it; the latest Opus ([`Agent.MODELS`]) by default.
     model?: string
-    --- How hard it thinks: low, medium, high, xhigh or max; [`Agent.EFFORT`] by default.
+    --- How hard it thinks: low, medium, high, xhigh or max; the model's ([`Agent.effort`]) by default.
     effort?: string
     --- The API's root; https://api.anthropic.com by default.
     base_url?: string
-    --- The tools the model is offered (cosmic.agent.tools); [`Tools.default`]'s, with no bash, by default.
+    --- The tools the model is offered (cosmic.agent.tools); [`Tools.all`]'s, run alone, by default.
     tools?: {Tools.Tool}
     --- The system prompt; [`Prompt.build`]'s for `cwd` and `tools` by default.
     system?: string
@@ -163,8 +160,9 @@ local record Agent
     --- The layers the tools are held to (cosmic.agent.policy), each held stacked: only what every layer lets
     --- them do ([`Sandbox.intersect`]); nil or {} for nothing.
     sandbox?: {Sandbox.Policy}
-    --- The background jobs the tools start (cosmic.agent.jobs); nil for none.
-    jobs?: Jobs.Set
+    --- Whether a snippet may run programs (Host.bash; [`Worker.Options`] `commands`); false by default, so none runs
+    --- where the sandbox holds it: on Linux, under a policy. With no sandbox, or on macOS, a snippet may still run one.
+    commands?: boolean
     --- The worker the run tool sends its snippets to (cosmic.agent.worker); nil for none.
     worker?: Worker.Set
     --- The MCP servers a snippet may call (cosmic.agent.mcp); nil for none.
@@ -283,7 +281,7 @@ local record Agent
     --- The session's id where it is kept; nil where it is not.
     id?: integer
     --- The paths it touches, as the tool says ([`Tools.Tool`]'s `paths`);
-    --- none for a tool that says none, which may touch any (bash, run).
+    --- none for a tool that says none, which may touch any (run).
     paths: {Tools.Touch}
     --- Whether the user stopped the turn.
     stopped: function(): boolean
@@ -314,9 +312,7 @@ local record Agent
   --- A snippet's call gives its result as JSON text, escaped as JSON is,
   --- or its failure as an error result; the text it is given back is
   --- read as JSON where it is JSON. A hook that raises makes the result
-  --- an error that says so. What a
-  --- background job of bash wrote is kept as it is, when the job ends
-  --- unread (`close`): it is not asked.
+  --- an error that says so.
   type After = function(call: Call, result: Tools.Result): Tools.Result?
 
   --- What an agent tells its `on` as it goes, each after what it tells
@@ -341,7 +337,7 @@ local record Agent
 
   --- An agent: one conversation, how it calls the API, and how it is
   --- heard. What [`Agent.new`] gave `model`, `effort`, `sign`,
-  --- `base_url`, `tools`, `system`, `send`, `sandbox`, `jobs`, `worker`, `mcp` and
+  --- `base_url`, `tools`, `system`, `send`, `sandbox`, `commands`, `worker`, `mcp` and
   --- `build` is a default: change it between prompts. `on`, `steering`
   --- and `stopping` are the caller's to set. The rest is the agent's
   --- state, kept as it goes: read it, but leave it to the agent.
@@ -370,8 +366,10 @@ local record Agent
     --- The layers the tools are held to (cosmic.agent.policy), stacked as [`Sandbox.intersect`] joins them at
     --- each call; nil or {} for nothing. A call is blocked when they do not join.
     mut sandbox?: {Sandbox.Policy}
-    --- The background jobs the tools start (cosmic.agent.jobs); nil for none.
-    mut jobs?: Jobs.Set
+    --- Whether a snippet may run programs (Host.bash): a worker started without them is started again with them. The
+    --- system prompt says whether programs run, so one changed here is told the model only by a new `system`
+    --- ([`Prompt.build`] with the same `commands`).
+    mut commands: boolean
     --- The worker the run tool sends its snippets to (cosmic.agent.worker); nil for none.
     mut worker?: Worker.Set
     --- The MCP servers a snippet may call (cosmic.agent.mcp); nil for none.
@@ -451,8 +449,7 @@ local record Agent
     --- `sent_ns`: true, or false and why. Nothing is sent, and true
     --- comes back, where `sent_ns` is nil.
     warm: function(Session): boolean, string
-    --- Ends the worker, the MCP servers and the background jobs, each
-    --- job's output not kept yet kept. The database is the caller's to
+    --- Ends the worker and the MCP servers. The database is the caller's to
     --- close. Safe to call more than once; the agent is not to be
     --- prompted after.
     close: function(Session)
@@ -471,8 +468,11 @@ local record Agent
   MODELS: Models
   --- The model, unless one is named.
   MODEL: string
-  --- The effort, unless one is named.
+  --- The effort, unless one is named, of a model [`Agent.effort`] names none for.
   EFFORT: string
+  --- The effort of `model`, as the API names it, unless one is named: low for Haiku, which at medium spent a
+  --- quarter more on the same evals and passed no more of them; [`Agent.EFFORT`] for the rest.
+  effort: function(model: string): string
   --- What a turn that spent its budget ends with, before a colon and
   --- the limit it reached.
   BUDGET_SPENT: string
@@ -481,6 +481,11 @@ end
 Agent.MODELS = { opus = "claude-opus-5-5", sonnet = "claude-sonnet-5-5", haiku = "claude-haiku-5-5" }
 Agent.MODEL = "opus"
 Agent.EFFORT = "medium"
+-- Haiku 5.5, eval/agent with run only, 12 tasks x3 in two rounds (2026-11-25): medium $0.0013-0.0014 a run, low
+-- $0.0010-0.0011, every run passed at both.
+local EFFORTS <const>: {string: string} = { ["claude-haiku-5-5"] = "low" }
+--- The effort of `model` unless one is named: low for Haiku, [`Agent.EFFORT`] for the rest.
+function Agent.effort(model: string): string return EFFORTS[model] or Agent.EFFORT end
 Agent.BUDGET_SPENT = "the turn's budget is spent"
 --- How often a turn is started again before resume gives up on it.
 local RESTARTS <const> = 5
@@ -582,8 +587,10 @@ local function afterward(s: Agent.Session, call: Agent.Call, result: Tools.Resul
   if after == nil then return result end
   local ran, made = pcall(after, call, result)
   if not ran then
-    return { text = "The agent's after hook failed: " .. told(made), is_error = true }
+    return { text = "The agent's after hook failed: " .. told(made), is_error = true, changes = result.changes }
   end
+  -- What the snippet changed is shown whatever the hook made of what the model reads.
+  if made ~= nil and made.changes == nil then made.changes = result.changes end
   return made or result
 end
 
@@ -671,7 +678,7 @@ local function request_body(s: Agent.Session): Json.Value
   local body: mut {string: Json.Value} = {
     model = s.model,
     max_tokens = MAX_TOKENS,
-    tools = Tools.definitions(s.tools),
+    tools = Tools.definitions(s.tools, s.commands),
     messages = Json.array(s.messages),
     stream = true,
     thinking = { type = "adaptive" },
@@ -780,7 +787,7 @@ local function count_of(v?: Json.Value): integer?
 end
 
 --- Opens a request with Http.open.
-local function open(url: string, opts: Http.Options): Agent.Reply?, string
+local function open(url: string, opts: Http.OpenOptions): Agent.Reply?, string
   local res, why = Http.open(url, opts)
   if res == nil then return nil, tostring(why) end
   return {
@@ -1215,9 +1222,9 @@ local function loop(s: Agent.Session): boolean, string
             tell(s, { kind = "blocked", name = called, caller = "model", input = given, reason = reason })
           else
             local context: Tools.Context = { cwd = s.cwd, db = s.db, session = s.id,
-              policy = policy, jobs = s.jobs, worker = s.worker,
+              policy = policy, worker = s.worker,
               mcp = s.mcp, stopped = asking, deadline_ns = deadline, tools = s.tools,
-              commands = Tools.find(s.tools, "bash") ~= nil,
+              commands = s.commands,
               guard = if s.before == nil then nil else function(host: string, args: Tools.Object): string?
                 local touches, touches_why = code_paths(s, host, args)
                 local by_code: Agent.Call = { name = host, input = args, caller = "code", cwd = s.cwd, id = s.id,
@@ -1317,22 +1324,12 @@ local function resume(s: Agent.Session): boolean, string
   return loop(s)
 end
 
---- Ends what the tools of `s` started, each job's output not kept yet kept.
+--- Ends what the tools of `s` started.
 local function close(s: Agent.Session)
   local worker = s.worker
   if worker ~= nil then Worker.close(worker) end
   local mcp = s.mcp
   if mcp ~= nil then AgentMcp.close(mcp) end
-  local set = s.jobs
-  if set == nil then return end
-  Jobs.close(set, function(job: Jobs.Job, output: string)
-    local db, id = s.db, s.id
-    if db == nil or id == nil then return end
-    local input, _ = Json.encode({ command = job.command, background = true })
-    local result = job.result
-    local _, _ = Sessions.output(db, id, { tool = "bash", input = input or "{}", text = output,
-      is_error = result == nil or not result.ok })
-  end)
 end
 
 --- The agent [`Agent.new`] makes: [`Agent.Session`]'s fields, and its
@@ -1348,7 +1345,7 @@ local class AgentSession is Agent.Session
   cwd: string
   mut send?: Agent.Send
   mut sandbox?: {Sandbox.Policy}
-  mut jobs?: Jobs.Set
+  mut commands: boolean
   mut worker?: Worker.Set
   mut mcp?: AgentMcp.Set
   mut build?: string
@@ -1412,13 +1409,15 @@ function Agent.new(options: Agent.Options): Agent.Session
   local held: mut {Json.Value} = {}
   for _, m in ipairs(options.messages or {}) do held[#held + 1] = m end
   local tools: mut {Tools.Tool} = {}
-  for _, t in ipairs(options.tools or Tools.default()) do tools[#tools + 1] = t end
+  for _, t in ipairs(options.tools or Tools.all()) do tools[#tools + 1] = t end
+  local model = options.model or Agent.MODELS.opus
   local agent: AgentSession = {
-    model = options.model or Agent.MODELS.opus, effort = options.effort or Agent.EFFORT, sign = options.sign, base_url = options.base_url,
+    model = model, effort = options.effort or Agent.effort(model), sign = options.sign, base_url = options.base_url,
     tools = tools,
-    system = options.system or Prompt.build(options.cwd, Prompt.contexts(options.cwd), { tools = tools }),
+    system = options.system or Prompt.build(options.cwd, Prompt.contexts(options.cwd),
+      { tools = tools, commands = options.commands == true }),
     where = options.where or Prompt.where(options.cwd, servers_of(options.mcp)), cwd = options.cwd,
-    send = options.send, sandbox = options.sandbox, jobs = options.jobs, worker = options.worker,
+    send = options.send, sandbox = options.sandbox, commands = options.commands == true, worker = options.worker,
     mcp = options.mcp, build = options.build, messages = held, db = options.db, id = options.id,
     restarts = options.restarts or 0, ended = options.ended == true, stopped = false, spent = false,
     on = nil, before = nil, after = nil, on_failed = nil, steering = nil, stopping = nil, last_reply = nil,

@@ -1,8 +1,9 @@
 --- `cosmic agent <ask|chat|policy|prompt|resume|rpc|sessions|worker> ...`: a
---- small coding agent, after pi. It is Claude, with tools that read,
---- write and edit files, run commands in the foreground or as background
---- jobs, check and run snippets in the cosmic environment in a worker kept for the session,
---- and query what the agent has kept. Every tool is held to a sandbox.
+--- small coding agent, after pi. It is Claude, with one tool, run: it
+--- checks and runs snippets in the cosmic environment, in a worker kept
+--- for the session, which read, edit and write files, run programs where
+--- `--commands` lets them, and query what the agent has kept. Every
+--- snippet is held to a sandbox.
 ---
 --- To start, go to the directory to work in and set `ANTHROPIC_API_KEY`
 --- (for other credentials, see `cosmic docs cosmic.agent.auth`):
@@ -42,7 +43,7 @@
 ---
 --- - `--model opus|sonnet|haiku` picks the latest of each (default opus).
 --- - `--effort low|medium|high|xhigh|max` sets how hard it thinks
----   (default medium).
+---   (default low for haiku, medium for the rest).
 --- - `--budget tokens=N,cost=USD,turns=N,time=N[s|m|h]` caps what each
 ---   turn may spend, any of the four; turns counts requests. The model
 ---   reads the limits with the prompt. The first limit reached ends the
@@ -52,10 +53,8 @@
 ---   `--session <id>` goes on with any session, and `--fork` copies the
 ---   newest (or `--session`'s) and goes on in the copy. `rpc` goes on
 ---   with one only when told (`--continue`).
---- - The default tools are run, read, edit and write, which run no
----   program. `--with bash,jobs` adds bash and its background jobs,
----   `--without write` takes a tool out, and `--tools run,read` names
----   them all.
+--- - The model's one tool is run. Its snippets run no program unless
+---   `--commands` lets them (Host.bash).
 ---
 --- Events and rpc commands:
 ---
@@ -85,18 +84,16 @@
 ---
 --- The sandbox (`cosmic docs cosmic.agent.policy`):
 ---
---- - The tools can read and change the working directory. They have a
----   home of their own, which outlives each command. They reach nothing
----   else, not even the network.
---- - With the default tools (no bash), no program runs: on Linux the
----   sandbox refuses every file but cosmic's own the right to run.
----   On macOS, or with `--sandbox off`, a snippet may still run one.
---- - `--sandbox read` lets them change nothing, and offers no edit or
----   write.
+--- - Snippets can read and change the working directory. Their programs
+---   have a home of their own, which outlives each command. They reach
+---   nothing else, not even the network.
+--- - Without `--commands`, no program runs: on Linux the sandbox refuses
+---   every file but cosmic's own the right to run. On macOS, or with
+---   `--sandbox off`, a snippet may still run one.
+--- - `--sandbox read` lets them change nothing.
 --- - `--sandbox off` runs them with your user's rights and environment,
 ---   your API key included.
---- - `--network` lets the tools reach the network: Host.fetch, and bash
----   where it is offered. Your SSL_CERT_FILE goes with it (and with
+--- - `--network` lets snippets and their programs reach the network. Your SSL_CERT_FILE goes with it (and with
 ---   `--connect`), so a proxy that signs with its own root is trusted.
 --- - `--connect host:port` lets them reach one more target. An address
 ---   written out, loopback or private too (`--connect 127.0.0.1:8123`),
@@ -109,8 +106,8 @@
 --- Output and sessions:
 ---
 --- - The turn's answer goes to standard output. Each tool call, as
----   Markdown (run's code in a teal fence, edit's changes in a diff),
----   the first lines of what run and bash printed, and what the model
+---   Markdown (run's code in a teal fence), the first lines of what run
+---   printed, and what the model
 ---   says on the way, go to standard error.
 --- - Everything is kept in sessions.db, in `$XDG_DATA_HOME/cosmic/agent`
 ---   (or `~/.local/share/cosmic/agent`), before it is shown: each
@@ -126,7 +123,7 @@ local Flags = require("cosmic.flags")
 
 local model: Flags.Option = { value = "name", about = "the latest of opus, sonnet or haiku (default opus, or the session's own)",
   choices = { "opus", "sonnet", "haiku" } }
-local effort: Flags.Option = { value = "level", about = "how hard it thinks (default medium, as cosmic.agent sets it)",
+local effort: Flags.Option = { value = "level", about = "how hard it thinks (default low for haiku, medium for the rest, as cosmic.agent sets it)",
   choices = { "low", "medium", "high", "xhigh", "max" } }
 local continue_: Flags.Option = { about = "go on with the newest session in this directory " ..
     "(ask and chat do unless --new)" }
@@ -136,16 +133,13 @@ local fork: Flags.Option = { about = "copy the newest session here, or --session
 local session: Flags.Option = { value = "id", about = "go on with the session of this id" }
 local sandbox: Flags.Option = { value = "mode", about = "what the tools may change",
   choices = { "write", "read", "off" }, default = "write" }
-local network: Flags.Option = { about = "let bash and snippets (Host.fetch, cosmic.http) reach the network" }
+local network: Flags.Option = { about = "let snippets (Host.fetch, cosmic.http) and their programs reach the network" }
 local connect: Flags.Option = { value = "host:port", about = "let the tools reach this target too: an address " ..
     "written out may be loopback or private (127.0.0.1:8123); a port of * opens every port" }
 local grant: Flags.Option = { value = "path[:rwxc]",
   about = "let the tools reach this path too, read alone unless letters say more" }
-local tools: Flags.Option = { value = "names", about = "the tools the model is shown, such as run,read " ..
-    "(default: run, read, edit and write, which run no program)" }
-local with: Flags.Option = { value = "names", about = "offer these tools too, such as bash,jobs " ..
-    "(bash runs programs, jobs its background ones)" }
-local without: Flags.Option = { value = "names", about = "do not offer these tools, such as edit,write" }
+local commands: Flags.Option = { about = "let snippets run programs (Host.bash), as the grants below let them; " ..
+    "by default none runs" }
 local budget: Flags.Option = { value = "limits",
   about = "the most each turn may spend, such as tokens=200000,cost=0.50,turns=20,time=10m; the first reached ends it" }
 local mcp: Flags.Option = { value = "file",
@@ -157,7 +151,7 @@ local function session_spec(): mut {string: Flags.Option}
     ["--model"] = model, ["--effort"] = effort, ["--continue"] = continue_, ["--session"] = session,
     ["--new"] = new, ["--fork"] = fork,
     ["--sandbox"] = sandbox, ["--network"] = network, ["--connect"] = connect, ["--grant"] = grant, ["--mcp"] = mcp,
-    ["--tools"] = tools, ["--with"] = with, ["--without"] = without, ["--budget"] = budget,
+    ["--commands"] = commands, ["--budget"] = budget,
   }
 end
 
@@ -188,11 +182,11 @@ local command: Flags.Command = {
     rpc = { about = "one session for another program, as JSON lines", spec = waiting_spec() },
     sessions = { about = "the newest sessions in this directory" },
     prompt = { about = "the system prompt the model reads",
-      spec = { ["--tools"] = tools, ["--with"] = with, ["--without"] = without } },
+      spec = { ["--commands"] = commands } },
     policy = { about = "the sandbox the tools would run under here; clear-home empties their kept home",
       usage = "[options] [clear-home]",
       spec = { ["--sandbox"] = sandbox, ["--network"] = network, ["--connect"] = connect, ["--grant"] = grant,
-        ["--tools"] = tools, ["--with"] = with, ["--without"] = without } },
+        ["--commands"] = commands } },
     worker = { about = "the process that runs the snippets; the agent starts it" },
   },
 }

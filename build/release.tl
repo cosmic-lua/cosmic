@@ -387,25 +387,33 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local token = getenv("GH_TOKEN")
   local https_only: {string} = { "https" }
   local requests: Requests = { made = 0 }
-  --- The options of one request. Only an API call has `headers`, and it
-  --- takes no redirect: its token is for the API's own origin, and an
-  --- response that moved (a renamed repository) fails rather than be
-  --- followed.
   local function never(): boolean return false end
-  local function options(headers?: {string:string}, sha256?: string, cancelled?: function(): boolean): Http.Options
+  --- The canned reply of the next request, when a test gives them.
+  local function scripted(): {string}?
     requests.made = requests.made + 1
-    local script: {string}? = nil
     local scripts = to.script
-    if scripts ~= nil then
-      script = scripts[requests.made]
-      if script == nil then script = { "" } end
-    end
-    -- The API's response names the digest each download is checked
-    -- against, so it trusts the minimal roots (and $SSL_CERT_FILE's),
-    -- not every root the binary carries, as `cosmic refresh` does.
-    return { timeout_ns = Http.FOREVER, script = script, headers = headers, follow = headers == nil,
-      digests = if sha256 ~= nil then { ["sha256"] = sha256 } else nil end,
-      redirect_protocols = https_only, cancelled = cancelled or never, roots = "minimal" }
+    if scripts == nil then return nil end
+    return scripts[requests.made] or { "" }
+  end
+  --- The options of one call to the API. It takes no redirect: its token
+  --- is for the API's own origin, and a response that moved (a renamed
+  --- repository) fails rather than be followed.
+  local function asking(headers: {string:string}): Http.GetOptions
+    return { timeout_ns = Http.FOREVER, script = scripted(), headers = headers, follow = false,
+      redirect_protocols = https_only, cancelled = never, roots = "minimal" }
+  end
+  --- The options of opening an asset. The API's response names the digest
+  --- each download is checked against, so it trusts the minimal roots
+  --- (and $SSL_CERT_FILE's), not every root the binary carries, as
+  --- `cosmic refresh` does.
+  local function opening(): Http.OpenOptions
+    return { timeout_ns = Http.FOREVER, script = scripted(), follow = true,
+      redirect_protocols = https_only, cancelled = never, roots = "minimal" }
+  end
+  --- The options of downloading an asset, checked against `sha256`.
+  local function downloading(sha256: string, cancelled: function(): boolean): Http.DownloadOptions
+    return { timeout_ns = Http.FOREVER, script = scripted(), follow = true, digests = { ["sha256"] = sha256 },
+      redirect_protocols = https_only, cancelled = cancelled, roots = "minimal" }
   end
 
   --- One request to the API: the body, or nil and why. A 404 is nil and "".
@@ -418,7 +426,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     if token ~= "" then headers["Authorization"] = "Bearer " .. token end
     local requested = to.requested
     if requested ~= nil then requested(url) end
-    local got, why = Http.get(url, options(headers))
+    local got, why = Http.get(url, asking(headers))
     if got == nil then return nil, url .. ": " .. tostring(why) end
     local status = tostring(got.status)
     if got.status == 404 then return nil, "" end
@@ -605,7 +613,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
 
   local function small(name: string): string?, string
     local url = assets_url .. release.tag .. "/" .. name
-    local response, open_trouble = Http.open(url, options())
+    local response, open_trouble = Http.open(url, opening())
     if response == nil then return nil, url .. ": " .. tostring(open_trouble) end
     local body, read_trouble: string?, string = nil, ""
     if response.status >= 200 and response.status < 300 then
@@ -652,7 +660,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
 
   local binary = assets_url .. release.tag .. "/cosmic"
   local function download_until(path: string, cancelled: function(): boolean): boolean, string
-    local done, failed = Http.download(binary, path, options(nil, digest, cancelled))
+    local done, failed = Http.download(binary, path, downloading(digest, cancelled))
     if done then
       local changed, mode_why = Fs.chmod(path, 0x1ed)
       if not changed then return false, tostring(mode_why) end
@@ -691,7 +699,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     -- /dev/stdout`) takes the binary in place ([`Fs.output`]): a rename
     -- would put a regular file where it was. Nothing reaches it until
     -- the whole binary is in memory and matches its digest.
-    local response, open_trouble = Http.open(binary, options())
+    local response, open_trouble = Http.open(binary, opening())
     if response == nil then return fail(binary .. ": " .. tostring(open_trouble)) end
     if response.status < 200 or response.status >= 300 then
       local _, _ = response:close()
@@ -728,7 +736,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     kept = path
   else
     -- Only the pin is kept, so the bytes are hashed as they arrive.
-    local response, open_trouble = Http.open(binary, options())
+    local response, open_trouble = Http.open(binary, opening())
     if response == nil then return fail(binary .. ": " .. tostring(open_trouble)) end
     local hashing = assert(Stream.hashing("sha256"))
     local copied, copy_trouble: integer?, string = nil, ""

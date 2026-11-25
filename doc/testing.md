@@ -648,7 +648,11 @@ fails a requirement no leg promises, because a module that is n/a or
 skipped on every leg runs nowhere.
 
 A run that is not held ignores the promises. A held run (below) fails a
-module for an n/a or a skip of a requirement its leg promises.
+module for an n/a or a skip of a requirement its leg promises. A promised
+name whose base this cosmic does not know is left out, with a note: some
+legs start an older cosmic (the release, a rebuild's first stage), which
+no module needing the new name can run under. A name of a known base that
+breaks its rule still fails the run.
 
 ## skipping
 
@@ -661,7 +665,10 @@ passes having checked nothing.
 - A `pcall` or a coroutine around it must raise what it caught again.
 - A test with more to check first defers the call to its end.
 - It is called from a test, not as the module loads.
-- A skip is counted apart (`N skipped`) and listed with its reason.
+- A skip is counted apart (`N skipped`) and listed with its reason:
+  `test: SKIP  <module> <test>: <reason>`. The skips of one module
+  that gave one reason are one line, `test: SKIP  <module>: N tests,
+  <reason>`.
   No verdict is kept, so the test runs again every run.
 - A skip waiting on what the policy path cannot give yet (a Unix
   socket by path, a mode with a setuid bit) carries a `TODO:` beside

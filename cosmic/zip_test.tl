@@ -1174,3 +1174,40 @@ local function test_file_writer_holds_the_archive_while_open()
   local finished, fwhy = orphan:close()
   assert(not finished and tostring(fwhy) == "zip: the writer is closed", fwhy)
 end
+
+--- `why`'s kind, errno and path and its words, said in an assertion.
+local function said(why?: Failure): string
+  if why == nil then return "no failure" end
+  return why.kind .. " " .. tostring(why.errno) .. " " .. tostring(why.path) .. ": " .. tostring(why)
+end
+
+--- Whether `why` is a failure of `kind`, `errno` and `path`.
+local function is_failure(why: Failure?, kind: Failure.Kind, errno: integer, path?: string): boolean
+  return why ~= nil and why.kind == kind and why.errno == errno and why.path == path
+end
+
+--- A Reader whose every read times out.
+local class TimingOut is Stream.Reader
+  function read(self, _max_bytes?: integer): (string | false) | (nil, Failure)
+    return nil, Failure.timeout()
+  end
+
+  function close(self): (true) | (false, Failure) return true end
+end
+
+local function test_a_body_whose_source_times_out_keeps_the_kind_in_the_writer()
+  local w = Zip.writer(Stream.collect())
+  local slow: TimingOut = { skip = nil }
+  local ok, why = w:add_file("f", slow)
+  assert(not ok and is_failure(why, "timeout", 0), said(why))
+  assert(tostring(why) == "zip: add_file: timed out", tostring(why))
+end
+
+local function test_a_failed_read_of_the_file_keeps_its_errno_and_path(tmp: string)
+  local sys = require("cosmic.sys")
+  -- A directory opens for reading, and every read of it fails.
+  local path = tmp .. "/a.zip"
+  assert(Fs.mkdirs(path))
+  local none, why = Zip.open(path)
+  assert(none == nil and is_failure(why, "system", sys.EISDIR, path), said(why))
+end
