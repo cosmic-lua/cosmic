@@ -238,6 +238,13 @@ local function test_a_table_of_an_attached_database_is_not_read()
   accepted(HEAD .. 'print(db:rows("SELECT y FROM other.t"))\n')
 end
 
+--- A `temp.` table is one the program makes as it runs, perhaps in another module: it is not read, where a table of the
+--- main database the schema lacks is refused.
+local function test_a_temp_table_is_not_read()
+  accepted(HEAD .. 'print(db:rows("SELECT count(*) FROM temp.reused"))\n')
+  says(HEAD .. 'print(db:rows("SELECT count(*) FROM main.reused"))\n', "sql_refused", "no such table: main.reused")
+end
+
 --- SQL that makes a table or attaches a database ends the reads of the handle: a table made at run time is not refused.
 local function test_sql_that_changes_the_schema_ends_the_reads()
   accepted(HEAD .. 'print(db:exec("CREATE TEMP TABLE scratch (a)"))\nprint(db:rows("SELECT a FROM scratch"))\n')

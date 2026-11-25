@@ -1845,16 +1845,18 @@ local function class_statement(s: Ast.Class): Output
   add_child(out, text(line_of(s.name.first), name), " ")
   put(out, " =")
   if s.schema ~= nil then
-    -- `local schema Name [[DDL]]` is the value of [`Sqlite.schema`] of its DDL.
+    -- `local schema Name [[DDL]]` is a [`Sqlite.Schema`] of its DDL, written as a table: the checker has read the DDL,
+    -- so a load requires no module and runs no database, and a module the boot's seed holds may declare one. The first
+    -- open or hold of the schema reads its tables.
     local at = s.name.last + 1
-    put(out, " require(\"cosmic.sqlite\").schema(")
+    put(out, " { ddl = ")
     local value = s.schema_value
     if value ~= nil then
       add_child(out, exp(value))
     else
       add_child(out, text(line_of(at), Lexer.text(G.tokens, at)))
     end
-    put(out, ")")
+    put(out, " }")
     return out
   end
   add_child(out, text(y, if #s.typeparams > 0 then "{}" else record_table(s.members, false) end), " ")
