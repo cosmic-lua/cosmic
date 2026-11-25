@@ -155,6 +155,11 @@ local record Pipeline
     edits?: {Rewrite.Edit}
   end
 
+  --- The rewrites of the errors of `result` that put each right with the meaning kept ([`lang.rewrite`]), less those
+  --- a marker of its text holds (`-- checked: concat_type`): the one path by which cosmic agent's run rewrites a refused
+  --- snippet and `cosmic fix` a refused file.
+  edits: function(result: Driver.Outcome): {Rewrite.Edit}
+
   --- [`Pipeline.lone`] with the refusal as a line for each problem, for a caller that lists them.
   --- With `entry`, the source is an entry point: what it returns is called with the command line's words
   --- ([`Declarations.Input.entry`]).
@@ -838,6 +843,36 @@ local function note_stages(stages: mut {string: string}, stage: string, list: {D
   end
 end
 
+--- Whether line `y` of `text` holds a marker of `code` (`-- checked: code`, among others).
+local function marked(text: string, y: integer, code: string): boolean
+  local n = 0
+  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+    n = n + 1
+    if n == y then
+      local marker = line:match("%-%-%s*checked:%s*(.*)$")
+      if marker == nil then return false end
+      for word in marker:gmatch("[%w_]+") do
+        if word == code then return true end
+      end
+      return false
+    end
+  end
+  return false
+end
+
+function Pipeline.edits(result: Driver.Outcome): {Rewrite.Edit}
+  local text = result.source.text
+  local out: mut {Rewrite.Edit} = {}
+  for _, p in ipairs(result.bodies) do
+    local r = p.rewrite
+    if r ~= nil and not marked(text, p.y, p.code) then
+      out[#out + 1] = { code = p.code, y = p.y, x = p.x, offset = p.offset, length = p.length, before = r.before,
+        after = r.after }
+    end
+  end
+  return out
+end
+
 --- What a build holding `module`, the file `file`, lowered made of it ([`Pipeline.Alone`]).
 local function alone_of(build: Driver.Build, module: string, file: string, options: Pipeline.Options,
                         declared_return?: boolean): Pipeline.Alone
@@ -874,15 +909,7 @@ local function alone_of(build: Driver.Build, module: string, file: string, optio
     end
   end
   if #told > 0 then
-    local edits: mut {Rewrite.Edit} = {}
-    for _, p in ipairs(result.bodies) do
-      local r = p.rewrite
-      if r ~= nil then
-        edits[#edits + 1] = { code = p.code, y = p.y, x = p.x, offset = p.offset, length = p.length, before = r.before,
-          after = r.after }
-      end
-    end
-    return { code = nil, lines = told, stages = stages, edits = edits }
+    return { code = nil, lines = told, stages = stages, edits = Pipeline.edits(result) }
   end
   -- A file alone keeps an import it reads as a type only: nothing serves the module it names.
   local emitted = CompileGrammar.emit(build, result, false, true, false)

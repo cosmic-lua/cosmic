@@ -9,6 +9,10 @@
 ---   that fails this check.
 --- - It builds the tree, and fails where the build refuses it, with the
 ---   compiler's reasons.
+--- - Where the build refuses a file it is named, it writes the checker's
+---   rewrites of the errors that have one fix with the meaning kept: a
+---   number or boolean in `..` becomes `tostring(x)`, and a `boolean?`
+---   condition `x == true`. It tells each one, and builds again.
 --- - It puts parentheses around each `assert(...)` that the type checker
 ---   says passes on more values than its place can take.
 ---   `(assert(...))` keeps only the first value.
