@@ -39,8 +39,12 @@ local function test_a_raise_inside_update_leaves_the_stream_finished()
   local raised = 0
   for after = 0, 100000 do
     local dec = gzip_decoder()
+    -- Made before allocations are refused: the closure is an allocation too.
+    local function feed()
+      local _, _ = dec:update(packed, 1 << 20)
+    end
     testing.fail_allocations(after)
-    local ok, _ = pcall(function() local _, _ = dec:update(packed, 1 << 20) end)
+    local ok, _ = pcall(feed)
     local refused = testing.allow_allocations()
     if refused == 0 then
       assert(ok)
