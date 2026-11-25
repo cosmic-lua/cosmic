@@ -1778,7 +1778,7 @@ local function test_a_queue_run_refuses_its_own_refs_caches()
       "the queue ref's check restores a cache: " .. tostring(step.name))
     if (step.run or ""):find("driver.tl queue-ref-caches", 1, true) ~= nil then
       checked_at = at
-      assert(step["continue-on-error"] == nil and map_of(step.env)["GH_TOKEN"] == "${{ github.token }}",
+      assert(step["if"] == nil and step["continue-on-error"] == nil and map_of(step.env)["GH_TOKEN"] == "${{ github.token }}",
         "the queue ref's check passes a job otherwise")
     end
   end
@@ -1809,10 +1809,22 @@ local function test_a_queue_run_refuses_its_own_refs_caches()
   local _, passed_at = step_named(ci.steps, "every job passed")
   local action, action_at = step_with_id(ci.steps, "driver")
   assert(recheck["if"] == "github.event_name == 'merge_group'" and recheck["continue-on-error"] == nil and
+      map_of(recheck.env)["GH_TOKEN"] == "${{ github.token }}" and
       (recheck.run or ""):find("driver.tl queue-ref-caches", 1, true) ~= nil and fetch["if"] == "github.event_name == 'merge_group'" and
       (fetch.run or ""):find("cosmic-driver.sh", 1, true) ~= nil and fetch_at < recheck_at and recheck_at < passed_at and
       passed_at < action_at and (action["if"] or ""):find("github.event_name != 'merge_group'", 1, true) ~= nil,
     "the gate checks the queue ref's caches otherwise")
+  -- In the queue the gate restores nothing: each restore it has runs on other events alone.
+  for _, step in ipairs(ci.steps) do
+    local uses = step.uses or ""
+    if uses:find("actions/cache", 1, true) ~= nil or uses:find("cosmic-driver", 1, true) ~= nil then
+      assert((step["if"] or ""):find("github.event_name != 'merge_group'", 1, true) ~= nil and
+          (step["if"] or ""):find("||", 1, true) == nil, "the gate restores in the merge queue: " .. tostring(step.name))
+    end
+  end
+  local summary = step_named(ci.steps, "summarize provenance operations")
+  assert(summary["if"] == "always() && (steps.driver.outcome == 'success' || steps.driver-fetch.outcome == 'success')",
+    "the gate's summary runs on neither driver: " .. tostring(summary["if"]))
   -- Both list the ref's caches, which takes actions: read.
   assert(map_of(gate.permissions)["actions"] == "read" and map_of(ci.permissions)["actions"] == "read",
     "the queue ref's caches cannot be listed")

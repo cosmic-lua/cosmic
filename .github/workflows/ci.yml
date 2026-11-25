@@ -1378,8 +1378,9 @@
     },
 
     # The one check a ruleset requires: it fails when a leg, the checked
-    # suite, the checked narrowing run or the queue's pinned driver check
-    # failed or was cancelled. The checked jobs read as passed on a pull
+    # suite, the checked narrowing run, the queue's pinned driver check or
+    # its check of the queue ref's caches did not pass, or when the queue
+    # ref holds a cache once they have run. The checked jobs read as passed on a pull
     # request, which skips them; the driver job's result is read in the
     # queue alone, where it runs. On every run but a pull request's it is
     # the provenance join too, proving the legs attested identical bytes:

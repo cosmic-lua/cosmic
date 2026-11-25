@@ -424,9 +424,9 @@ end
 --- that never merged, which chose what its archive holds, and a restore
 --- extracts that over the job's checkout. ci.yml's `queue-ref` job runs
 --- this and restores nothing, and every job that restores a cache waits
---- on it, and the `ci` gate runs it again once every job has run. 1 where
---- the ref holds one or GitHub does not say, 2 where the step names no queue ref or
---- repository, else 0.
+--- on it, and the `ci` gate runs it again once every job has run. 1
+--- where the ref holds one or GitHub does not say, 2 where the step names
+--- no queue ref or repository, else 0.
 function QueueVerdicts.ref_caches(env: {string:string}, host: Github.Host): integer
   local ref, repository = env["GITHUB_REF"] or "", env["GITHUB_REPOSITORY"] or ""
   if QueueVerdicts.entry_of(ref) == nil or not ref:match("^refs/heads/") or
