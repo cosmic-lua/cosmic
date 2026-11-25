@@ -268,11 +268,12 @@ local function checked_in(dir: string, main: string): boolean
   end
   for _, check in ipairs(checks) do
     say("checking: " .. check.name)
-    local env: {string:string}? = nil
+    -- A fresh worktree's tool boots once. This process may have been
+    -- entered by a reboot, and its marker would make that boot refuse.
+    local env = Env.all()
+    env["COSMIC_REBOOTED"] = nil
     if check.env ~= nil then
-      local all = Env.all()
-      for name, value in pairs(check.env) do all[name] = value end
-      env = all
+      for name, value in pairs(check.env) do env[name] = value end
     end
     local ran = run(check.argv, nil, check.cwd, CHECK_TIMEOUT_NS, env)
     if not ran.ok and check.root_only == true and as_root and only_root_fails(ran.out .. "\n" .. ran.err) then
