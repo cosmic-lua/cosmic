@@ -66,8 +66,8 @@ local command: Flags.Command = {
       usage = "[options] [domain]",
       spec = {
         ["--socket"] = socket,
-        ["--cert-file"] = { value = "file", about = "write the chain here (default <domain>.crt; -: standard output)" },
-        ["--key-file"] = { value = "file", about = "write the key here (default <domain>.key; -: standard output)" },
+        ["--cert-file"] = { value = "file", about = "write the chain here (default <domain>.crt)", dash = "output" },
+        ["--key-file"] = { value = "file", about = "write the key here (default <domain>.key)", dash = "output" },
         ["--min-validity"] = { value = "duration", about = "renew first one that expires within this, such as 30d" },
       },
     },

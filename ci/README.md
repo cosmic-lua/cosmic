@@ -463,14 +463,16 @@ drives it against a fake host.
 
 The merge queue gates a merge and runs what main's push runs, so a
 commit that would turn main red fails its queue entry instead. The
-queue also runs macOS's native suite; the daily and a manual run add
-macOS's whole leg. A branch's push runs nothing.
+queue also runs macOS's native suite; the daily run, a manual run of
+main and one that asks for it (`macos`) add macOS's whole leg. A
+branch's push runs nothing.
 
 - **a push to a branch** runs no CI. The merge queue tests every change
   before it lands, and the author's local checks (`bin/cosmic fix`,
   `bin/cosmic test`, `ci/run-local`) are the branch's (the tree's
   `doc/contributing.md`). A **manual run** (`workflow_dispatch`) of a
-  branch runs what main's run does.
+  branch runs what main's daily run does but macOS, unless it asks for
+  it (`-f macos=true`), and runs the checked suite in the queue's shares.
 - **a pull request** runs the lightest check, the `ci` check the merge
   queue requires of a pull request before it takes it: linux-x86_64's leg
   boots the tree, checks the bootstrap's scripts, and checks the tree's
@@ -499,7 +501,10 @@ macOS's whole leg. A branch's push runs nothing.
   scripts and the tree's format over the paths the commit changed since
   main, as a pull request does, and `linux-x86_64-driver` (the `driver`
   job) boots nothing and checks the pinned CI driver where those paths
-  reach what its tests read (`ci/`, `.github/`). The checked suite runs
+  reach what its tests read (`ci/`, `.github/`). `macos-aarch64` checks
+  it there too, before its suites: its tests start the host's programs,
+  which macOS keeps elsewhere (`/sbin/sha256sum`), and a break only
+  macOS meets showed before only in the next daily or manual run. The checked suite runs
   in three shares at once (`linux-x86_64-checked-1` to `-3`,
   `cosmic test --shard`), so it is not the entry's longest job; a share
   does not check the C functions, which main's push does. The gate
@@ -520,8 +525,8 @@ macOS's whole leg. A branch's push runs nothing.
   very commit; the daily run checks the driver on every leg, and the
   weekly and a manual run check the whole tree's format too. Each leg
   stands on the verdicts its queue job reached for the commit.
-- **the daily scheduled run** and **a manual run** run all that and the
-  macOS leg, and the gate compares the four products, which
+- **the daily scheduled run** and **a manual run** of main (or one with
+  `macos`) run all that and the macOS leg, and the gate compares the four products, which
   prerelease.yml publishes: a prerelease is tested on all four legs, and
   some hours behind main (`prerelease-follow`, below). The daily run and a manual run stand on the
   verdicts main's pushes left, as a push does (`COSMIC_CI_EVENT`); Sunday's,

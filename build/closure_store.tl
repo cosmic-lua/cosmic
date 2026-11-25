@@ -1088,10 +1088,8 @@ function closure_store.write(whole: string, out: string, names: {string},
                              basis: closure_store.Basis, extraction?: string,
                              own?: string): boolean, string
   local image = carries_image(names)
-  local function fill(db: Sqlite.Handle): boolean, string
+  local function fill(db: schema.Build): boolean, string
     local statements: mut {string} = {}
-    for _, statement in ipairs(schema.settings("")) do statements[#statements + 1] = statement end
-    for _, statement in ipairs(schema.create("")) do statements[#statements + 1] = statement end
     statements[#statements + 1] = "CREATE TEMP TABLE wanted (path TEXT PRIMARY KEY)"
     statements[#statements + 1] = "CREATE TEMP TABLE declared (path TEXT PRIMARY KEY)"
     statements[#statements + 1] = "CREATE TEMP TABLE kept (path TEXT PRIMARY KEY)"
@@ -1186,8 +1184,13 @@ function closure_store.write(whole: string, out: string, names: {string},
     if not moved then return false, tostring(move_why) end
     return true, ""
   end
-  local db, open_trouble = Sqlite.memory()
-  if db == nil then return false, tostring(open_trouble) end
+  local opened, open_trouble = Sqlite.memory()
+  if opened == nil then return false, tostring(open_trouble) end
+  local db, hold_trouble = schema.hold(opened)
+  if db == nil then
+    local _, _ = opened:close()
+    return false, tostring(hold_trouble)
+  end
   local ok, trouble = fill(db)
   local _, _ = db:close()
   if not ok then return false, trouble end

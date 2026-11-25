@@ -251,7 +251,6 @@ These tools are offered only when you ask for them:
 - `bash`: a shell command in the directory, under the same sandbox.
 - `jobs`: commands that run in the background, each in a sandbox of
   its own.
-- `sql`: one read-only statement on the sessions database.
 
 `--with bash,jobs` adds tools, `--without write` takes one out, and
 `--tools run,read` names all of them. `cosmic agent prompt` prints the

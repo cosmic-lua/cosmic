@@ -20,10 +20,7 @@ end
 --- A shipped database whose catalog holds the rows of the codes when `with_codes`, and whose docs hold, when
 --- `with_symbols`, the enum member of every code and a few other symbols that share a code's name.
 local function database(with_codes: boolean, with_symbols?: boolean): Sqlite.Handle
-  local db = assert(Sqlite.memory())
-  for _, statement in ipairs(schema.create("")) do
-    assert(db:exec(statement))
-  end
+  local db = assert(schema.hold(assert(Sqlite.memory())))
   if with_codes then
     local count, trouble = ErrorCatalog.insert(db, "")
     assert(count ~= nil, trouble)

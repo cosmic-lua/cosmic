@@ -589,6 +589,13 @@ local function test_the_first_longest_running_line_says_where_every_tests_time_i
   assert(test.longest_detail("a 61 s", true) == "longest running: a 61 s")
 end
 
+--- A run past its deadline names its slowest tests, slowest first, ties by id, at most as many as asked.
+local function test_the_slowest_tests_come_first_and_as_many_as_asked()
+  local got = test.slowest({ ["a.tl t"] = 2500000000, ["b.tl u"] = 12340000000, ["c.tl v"] = 2500000000 }, 2)
+  assert(got == "b.tl u 12.3 s, a.tl t 2.5 s", got)
+  assert(test.slowest({}, 5) == "")
+end
+
 --- `--shard I/N` names one of N shares, from 1; nothing else does.
 local function test_a_shard_is_one_of_n_shares_from_one()
   local shard = assert(test.shard("2/3"))

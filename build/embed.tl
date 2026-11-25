@@ -459,25 +459,23 @@ function embed.database(project: string, main: string, roots?: string): string?,
   local building = project .. ".embed"
   local _, _ = Fs.remove(building)
   local _, _ = Fs.remove(building .. ".vacuumed")
-  local out, open_trouble = Sqlite.open(building, { writable = true })
-  if out == nil then
+  local opened, open_trouble = Sqlite.open(building, { writable = true })
+  if opened == nil then
     return nil, building .. ": " .. tostring(open_trouble)
   end
   -- Written aside, read back whole and removed, and begun again from nothing if a build is cut short: a journal
   -- on disk and a sync at each commit would only cost time. MEMORY, not OFF, which a defensive handle refuses.
-  local statements: mut {string} = { "PRAGMA journal_mode = MEMORY", "PRAGMA synchronous = OFF" }
-  for _, statement in ipairs(schema.settings("")) do
-    statements[#statements + 1] = statement
-  end
-  for _, statement in ipairs(schema.create("")) do
-    statements[#statements + 1] = statement
-  end
-  for _, statement in ipairs(statements) do
-    local ok, failure = out:exec(statement)
+  for _, statement in ipairs({ "PRAGMA journal_mode = MEMORY", "PRAGMA synchronous = OFF" }) do
+    local ok, failure = opened:exec(statement)
     if not ok then
-      local _, _ = out:close()
+      local _, _ = opened:close()
       return nil, tostring(failure)
     end
+  end
+  local out, hold_trouble = schema.hold(opened)
+  if out == nil then
+    local _, _ = opened:close()
+    return nil, building .. ": " .. tostring(hold_trouble)
   end
 
   local made, trouble = out:transact(function(): (true) | (false, Failure)

@@ -68,8 +68,8 @@ end
 local function test_it_names_every_path_the_branch_changed(tmp: string)
   local listed, said, printed, code = named(tmp, "edited", RECORDED_BASE)
   assert(code == 0 and listed == "doc/a b.md\nedited.tl\nremoved.tl\n", tostring(listed))
-  -- None of them reaches the launcher and startup fixtures.
-  assert(said == "paths=" .. tmp .. "/changed\nfixtures=skip\n", said)
+  -- None of them reaches the launcher and startup fixtures, or the pinned driver's tests.
+  assert(said == "paths=" .. tmp .. "/changed\nfixtures=skip\ndriver=skip\n", said)
   assert(printed == "the format check lays out the 3 paths changed since " .. RECORDED_BASE .. "\n", printed)
   -- Past its limit, it names none.
   local over, over_said, over_printed = named(tmp, "edited", RECORDED_BASE, "2")
@@ -80,7 +80,7 @@ end
 --- A branch that changed nothing names no path, and says so.
 local function test_a_branch_that_changed_nothing_names_none(tmp: string)
   local listed, said, printed = named(tmp, "none", RECORDED_BASE)
-  assert(listed == "" and said == "paths=" .. tmp .. "/changed\nfixtures=skip\n", tostring(listed) .. said)
+  assert(listed == "" and said == "paths=" .. tmp .. "/changed\nfixtures=skip\ndriver=skip\n", tostring(listed) .. said)
   assert(printed == "the format check lays out the 0 paths changed since " .. RECORDED_BASE .. "\n", printed)
 end
 
@@ -119,7 +119,7 @@ end
 local function test_a_branch_that_reaches_the_fixtures_runs_them(tmp: string)
   local listed, said, printed, code = named(tmp, "reaches", RECORDED_BASE)
   assert(code == 0 and listed == "core/startup.c\ndoc/a b.md\nedited.tl\nremoved.tl\n", tostring(listed))
-  assert(said == "paths=" .. tmp .. "/changed\n", said)
+  assert(said == "paths=" .. tmp .. "/changed\ndriver=skip\n", said)
   assert(printed == "the format check lays out the 4 paths changed since " .. RECORDED_BASE .. "\n" ..
       "the launcher and startup fixtures run: core/startup.c changed\n", printed)
 end
@@ -134,6 +134,17 @@ local function test_the_fixtures_run_where_a_path_changed_reaches_them()
   assert(ChangedPaths.reaching_fixtures("test/portable/tool.tl\0") == "test/portable/tool.tl")
   for _, listed in ipairs({ "", "build/launcher_test.tl\0", "ci/fixtures\0", "core/startup.cc\0", "build/launcher.tl.md\0" }) do
     assert(ChangedPaths.reaching_fixtures(listed) == nil, listed)
+  end
+end
+
+--- The queue's legs check the pinned driver's tests where a path the
+--- branch changed lies under ci/ or .github/, and only there: a path that
+--- only starts like one does not reach them.
+local function test_the_driver_tests_run_where_a_path_changed_reaches_them()
+  assert(ChangedPaths.reaching_driver("doc/a.md\0ci/cosmic_ci/report.tl\0") == "ci/cosmic_ci/report.tl")
+  assert(ChangedPaths.reaching_driver(".github/workflows/ci.yml\0") == ".github/workflows/ci.yml")
+  for _, listed in ipairs({ "", "build/ci.tl\0", "ci\0", "cosmic/ci/x.tl\0", ".githubx/a\0", "doc/ci/a.md\0" }) do
+    assert(ChangedPaths.reaching_driver(listed) == nil, listed)
   end
 end
 

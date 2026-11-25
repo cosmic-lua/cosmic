@@ -135,8 +135,8 @@ local function test_system_expands_mac_paths_only_and_cosmic_names_the_supplied_
     ["/lib"] = { path = "/lib", directory = true },
     ["program"] = { path = "/opt/cosmic", directory = false },
   }
-  local out = assert(Seatbelt.compile({ profiles = { "system", "cosmic" } },
-    { paths = paths, executable = "program" }))
+  local out = assert(Seatbelt.compile({ profiles = { "system" }, grants = { { path = "program", letters = "rx" } } },
+    { paths = paths }))
   assert(out.parameters["PATH_1"] == "/System/Cryptexes/OS")
   assert(out.parameters["PATH_2"] == "/System/Library")
   assert(out.parameters["PATH_3"] == "/dev/null")
@@ -175,7 +175,7 @@ local function test_unmet_policy_fields_are_refused()
     { policy = { set_env_digests = { A = string.rep("0", 64) } }, says = "set_env_digests" },
     { policy = { profiles = { "unrecognized" } }, says = "profiles" },
     { policy = { grants = { { path = "a", letters = "bad" } } }, says = "letters" },
-    { policy = { profiles = { "cosmic" } }, says = "executable" },
+    { policy = { profiles = { "cosmic" } }, says = "no profile \"cosmic\"" },
     { policy = { set_env = { A = "secret" }, set_env_digests = { A = string.rep("0", 64) } },
       says = "set_env_digests" },
   }
@@ -248,9 +248,8 @@ local function test_a_database_grants_its_core_and_itself_and_not_this_programs_
     [database] = { path = database, directory = false },
     ["/launcher"] = { path = "/private/launcher", directory = false },
   }
-  local policy: Sandbox.Policy = { database = { path = database }, profiles = { "cosmic" } }
-  local out = assert(Seatbelt.compile(policy,
-    { paths = paths, core = "/core", database = database, executable = "/launcher" }))
+  local policy: Sandbox.Policy = { database = { path = database } }
+  local out = assert(Seatbelt.compile(policy, { paths = paths, core = "/core", database = database }))
   assert(out.text == BASE .. '(allow file-read* file-map-executable (literal (param "PATH_1")))\n' ..
       '(allow process-exec file-map-executable (literal (param "PATH_1")))\n' ..
       '(allow file-read* file-map-executable (literal (param "PATH_2")))\n', out.text)
@@ -262,26 +261,21 @@ local function test_a_database_grants_its_core_and_itself_and_not_this_programs_
   end
 end
 
---- A core that applies its profile at boot runs already: it and this
---- program are granted `r`, which maps and does not run, unless the
+--- A core that applies its profile at boot runs already: it is granted `r`, which maps and does not run, unless the
 --- policy's own grant gives `x`.
-local function test_a_booted_core_and_this_program_are_read_and_not_run()
+local function test_a_booted_core_is_read_and_not_run()
   local paths: {string:Seatbelt.Path} = {
     ["/core"] = { path = "/private/core", directory = false },
     ["/launcher"] = { path = "/private/launcher", directory = false },
   }
-  local policy: Sandbox.Policy = { profiles = { "cosmic" } }
-  local out = assert(Seatbelt.compile(policy,
-    { paths = paths, core = "/core", executable = "/launcher", booted = true }))
+  local policy: Sandbox.Policy = {}
+  local out = assert(Seatbelt.compile(policy, { paths = paths, core = "/core", booted = true }))
   assert(not out.text:find("process-exec", 1, true), out.text)
   assert(out.text:find('(allow file-read* file-map-executable (literal (param "PATH_1")))', 1, true), out.text)
-  assert(out.text:find('(allow file-read* file-map-executable (literal (param "PATH_2")))', 1, true), out.text)
-  local started = assert(Seatbelt.compile(policy,
-    { paths = paths, core = "/core", executable = "/launcher" }))
+  local started = assert(Seatbelt.compile(policy, { paths = paths, core = "/core" }))
   assert(started.text:find("process-exec", 1, true), started.text)
-  local granted: Sandbox.Policy = { profiles = { "cosmic" }, grants = { { path = "/launcher", letters = "rx" } } }
-  local runs = assert(Seatbelt.compile(granted,
-    { paths = paths, core = "/core", executable = "/launcher", booted = true }))
+  local granted: Sandbox.Policy = { grants = { { path = "/launcher", letters = "rx" } } }
+  local runs = assert(Seatbelt.compile(granted, { paths = paths, core = "/core", booted = true }))
   local _, execs = runs.text:gsub("process%-exec", "")
   assert(execs == 1, runs.text)
 end

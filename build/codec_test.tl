@@ -538,7 +538,11 @@ local function test_a_long_stream_takes_bounded_memory()
     held = held .. assert(dec:update(text)) .. assert(dec:finish())
     drain()
     assert(held == "" and matched == rounds, name)
-    assert(early < 128 and late < early + 64,
+    -- A coder that kept what it saw would grow by a chunk's worth over the last rounds; one that holds a round's
+    -- worth at most stays near where the first rounds took it. No fixed size: an allocator's overhead (the
+    -- checked core's most) sets where that is.
+    local chunk_kib = #chunk // 1024
+    assert(late < early + chunk_kib,
       ("%s grew %.0f KiB, then %.0f KiB, over %d KiB of input"):format(
         name, early, late, #chunk * rounds // 1024))
   end

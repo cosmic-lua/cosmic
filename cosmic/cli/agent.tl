@@ -54,8 +54,8 @@
 ---   with one only when told (`--continue`).
 --- - The default tools are run, read, edit and write, which run no
 ---   program. `--with bash,jobs` adds bash and its background jobs,
----   `--with sql` the sql tool, `--without write` takes a tool out, and
----   `--tools run,read` names them all.
+---   `--without write` takes a tool out, and `--tools run,read` names
+---   them all.
 ---
 --- Events and rpc commands:
 ---
@@ -116,7 +116,7 @@
 ---   (or `~/.local/share/cosmic/agent`), before it is shown: each
 ---   message, each tool's whole output, and each request with its usage
 ---   and cost (`cosmic docs cosmic.agent.sessions`). The model reads it
----   with Host.output and Host.history in run (or the sql tool, `--with sql`).
+---   with Host.output and Host.history in run.
 --- - A run that ends mid-turn loses nothing: `cosmic agent resume` takes
 ---   the turn up again (`cosmic docs cosmic.agent`).
 --- - A program runs the loop itself with [`cosmic.agent`].

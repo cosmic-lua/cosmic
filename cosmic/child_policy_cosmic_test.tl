@@ -1,6 +1,6 @@
---- [`Child.start`]'s `policy` starting this program: granted its own
---- file, it runs as its core by a relaunch, with no shell, cache or
---- promise beyond what the policy gives. A runner that is not root (every
+--- [`Child.start`]'s `policy` starting this program: granted its file or
+--- not, it runs as its core by a relaunch, with no shell, cache or promise
+--- beyond what the policy gives. A runner that is not root (every
 --- sandboxed worker, and CI's) checks that its child runs its own core;
 --- the copy a root caller's child runs (/run/cosmic-sandbox-cores) is
 --- checked only by a run as root unsandboxed (`COSMIC_TEST_SANDBOX=0`),
@@ -53,19 +53,12 @@ local function scripted(tmp: string, text: string): string
   return work
 end
 
-local function test_this_program_runs_under_a_policy_that_grants_its_file(tmp: string)
+--- This program needs no grant of its own file to start: its core is the start's, as a host program's start is.
+local function test_this_program_runs_under_a_policy_that_grants_none_of_it(tmp: string)
   local work = scripted(tmp, 'print("ran")\n')
-  local result = ran({ work .. "/run.tl" }, { profiles = { "cosmic" },
-    grants = { { path = work, letters = "rwc" } } }, work)
+  local result = ran({ work .. "/run.tl" }, { grants = { { path = work, letters = "rwc" } } }, work)
   assert(result.code == 0 and result.stdout == "ran\n", tostring(result.code) .. ": " ..
       tostring(result.stdout) .. tostring(result.stderr))
-end
-
-local function test_this_program_ungranted_is_refused(tmp: string)
-  local work = scripted(tmp, 'print("ran")\n')
-  local result, why = Child.run({ assert(Proc.executable()), work .. "/run.tl" },
-    { timeout_ns = Child.FOREVER, policy = { grants = { { path = work, letters = "rwc" } } }, cwd = work })
-  assert(result == nil and why.message:find("sandbox:", 1, true) ~= nil, tostring(why))
 end
 
 local function test_a_descriptor_the_relaunch_hands_on_is_refused(tmp: string)
@@ -78,7 +71,7 @@ local function test_a_descriptor_the_relaunch_hands_on_is_refused(tmp: string)
     return
   end
   local result, why = Child.run({ assert(Proc.executable()), work .. "/run.tl" },
-    { timeout_ns = Child.FOREVER, policy = { profiles = { "cosmic" }, grants = { { path = work, letters = "rwc" } } },
+    { timeout_ns = Child.FOREVER, policy = { grants = { { path = work, letters = "rwc" } } },
       cwd = work, fds = { [taken] = 0 } })
   assert(result == nil and why.message:find("relaunch", 1, true) ~= nil, tostring(why))
 end
@@ -86,7 +79,7 @@ end
 local function test_this_program_under_nest_is_refused(tmp: string)
   local work = scripted(tmp, 'print("ran")\n')
   local result, why = Child.run({ (assert(Proc.executable())), work .. "/run.tl" },
-    { timeout_ns = Child.FOREVER, policy = { profiles = { "cosmic" }, isolate = { "file" },
+    { timeout_ns = Child.FOREVER, policy = { isolate = { "file" },
       grants = { { path = work, letters = "rwc" }, { calls = "nest" } } }, cwd = work })
   assert(result == nil and why.message:find("nest", 1, true) ~= nil and why.message:find("artifact and core", 1, true) ~= nil,
     tostring(why))
@@ -98,8 +91,7 @@ end
 local function test_a_file_runs_standalone_on_a_grant_to_read(tmp: string)
   local work = scripted(tmp, 'return function(argv: {string}): integer\n' ..
       '  print(table.concat(argv, ","))\n  return 0\nend\n')
-  local result = ran({ work .. "/run.tl", "one", "two" }, { profiles = { "cosmic" },
-    grants = { { path = work, letters = "r" } } }, work)
+  local result = ran({ work .. "/run.tl", "one", "two" }, { grants = { { path = work, letters = "r" } } }, work)
   assert(result.code == 0 and result.stdout == "one,two\n", tostring(result.code) .. ": " ..
       tostring(result.stdout) .. tostring(result.stderr))
   local names = assert(Fs.list(work))
@@ -117,7 +109,7 @@ local function test_a_policy_may_build_the_tree_around_the_file(tmp: string)
   searchable.share(work .. "/helper.tl")
   local home = assert(Fs.absolute(tmp)) .. "/builds"
   assert(Fs.mkdirs(home))
-  local built = ran({ work .. "/run.tl", "beside" }, { profiles = { "cosmic" }, set_env = {
+  local built = ran({ work .. "/run.tl", "beside" }, { set_env = {
     COSMIC_STANDALONE = "0", COSMIC_BUILD_HOME = home }, grants = {
       { path = work, letters = "rwc" }, { path = home, letters = "rwc" } } }, work)
   assert(built.code == 0 and built.stdout == "from beside\n", tostring(built.code) .. ": " ..
@@ -125,15 +117,14 @@ local function test_a_policy_may_build_the_tree_around_the_file(tmp: string)
   assert(assert(Fs.status(build_paths.required(work, { COSMIC_BUILD_HOME = home }) .. "/build.db")).exists,
     "the tree was not built in its build directory")
   assert(not assert(Fs.status(work .. "/o")).exists, "the tree was built into o/")
-  local refused = ran({ work .. "/run.tl", "beside" }, { profiles = { "cosmic" }, grants = {
+  local refused = ran({ work .. "/run.tl", "beside" }, { grants = {
     { path = work, letters = "r" } } }, work)
   assert(refused.code ~= 0 and tostring(refused.stderr):find("COSMIC_STANDALONE=0", 1, true) ~= nil,
     tostring(refused.code) .. ": " .. tostring(refused.stderr))
 end
 
 --- A policy's grants are what the child may do once it runs: the start's
---- `rx` on the core, and the "cosmic" profile's on this program, are the
---- start's, which the core gives up at boot. So a child whose policy has
+--- `rx` on the core is the start's, which the core gives up at boot. So a child whose policy has
 --- no `x` runs no program, its own core included. On macOS the core
 --- applies the policy's Seatbelt profile itself at boot, in place of the
 --- start, as macOS applies one profile to a process.
@@ -150,8 +141,7 @@ local function test_a_child_with_no_x_cannot_run_its_own_core_again(tmp: string)
     '  print(if result == nil then "refused: " .. tostring(why) else "ran" end)',
     'end',
   }, "\n") .. "\n")
-  local result = ran({ work .. "/run.tl" }, { profiles = { "cosmic" },
-    grants = { { path = work, letters = "rwc" }, { calls = "fork" } } }, work)
+  local result = ran({ work .. "/run.tl" }, { grants = { { path = work, letters = "rwc" }, { calls = "fork" } } }, work)
   local out = result.stdout or ""
   local _, refusals = out:gsub("refused: [^\n]*not permitted", "")
   assert(result.code == 0 and refusals == (if linux then 2 else 1 end),
