@@ -2194,9 +2194,10 @@ local function lower_method(ctx: Ctx, build: Build, m: Ast.Method)
   end
 end
 
---- The names of the parameters `t` writes, where it is a function type that names one ("" for one it does not name), for
---- [`Types.Field.params`]; nil otherwise.
+--- The names of the parameters `t` writes, where it is a function type, or one made optional, that names one ("" for
+--- one it does not name), for [`Types.Field.params`]; nil otherwise.
 local function type_param_names(t: Ast.Type): {string}?
+  if t.kind == "TypeOptional" then return type_param_names(t.inner) end
   if not (t.kind == "TypeFunction") then return nil end
   local names: mut {string} = {}
   local any = false
