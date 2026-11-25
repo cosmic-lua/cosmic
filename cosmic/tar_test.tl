@@ -653,3 +653,68 @@ local function test_a_header_with_a_checksum_over_high_bytes_is_read()
   local entry = entry_of(r)
   assert(entry.path == ("\200"):rep(30), entry.path)
 end
+
+--- `why`'s kind, errno and path and its words, said in an assertion.
+local function said(why?: Failure): string
+  if why == nil then return "no failure" end
+  return why.kind .. " " .. tostring(why.errno) .. " " .. tostring(why.path) .. ": " .. tostring(why)
+end
+
+--- Whether `why` is a failure of `kind`, `errno` and `path`.
+local function is_failure(why: Failure?, kind: Failure.Kind, errno: integer, path?: string): boolean
+  return why ~= nil and why.kind == kind and why.errno == errno and why.path == path
+end
+
+--- What [`failing_after`] returns.
+local class FailingAfter is Stream.Reader
+  mut data: string
+  failure: Failure
+
+  function read(self, _max_bytes?: integer): (string | false) | (nil, Failure)
+    local data = self.data
+    if data == "" then return nil, self.failure end
+    self.data = ""
+    return data
+  end
+
+  function close(self): (true) | (false, Failure) return true end
+end
+
+--- A Reader that gives `data`, as one read, then fails with `failure`.
+local function failing_after(data: string, failure: Failure): Stream.Reader
+  local r: FailingAfter = { data = data, failure = failure, skip = nil }
+  return r
+end
+
+local function test_a_failing_source_gives_the_reader_its_failure_as_it_is()
+  local timeout = Failure.timeout("read of /dev/tty", "/dev/tty")
+  local r = Tar.reader(failing_after("", timeout))
+  local none, why = r:next()
+  assert(none == nil and why == timeout, said(why))
+  local again, again_why = r:next()
+  assert(again == nil and again_why == timeout, said(again_why))
+
+  -- A body cut short by its source fails with the source's own Failure,
+  -- as does the skip past it, which says what it was doing.
+  local c = Stream.collect()
+  local w = Tar.writer(c)
+  assert(w:add_file("f", string.rep("x", 4096)))
+  assert(w:close())
+  local head = c:result():sub(1, 1024)
+  local body_reader = Tar.reader(failing_after(head, timeout))
+  local body = assert(entry_of(body_reader):open())
+  local got, body_why = Stream.read_all(body)
+  assert(got == nil and body_why == timeout, said(body_why))
+  local skipping = Tar.reader(failing_after(head, timeout))
+  local _ = entry_of(skipping)
+  local skipped, skip_why = skipping:next()
+  assert(skipped == nil and is_failure(skip_why, "timeout", 0, "/dev/tty"), said(skip_why))
+  assert(tostring(skip_why) == "/dev/tty: tar: cannot skip to the next entry: read of /dev/tty", tostring(skip_why))
+end
+
+local function test_a_body_whose_source_times_out_keeps_the_kind_in_the_writer()
+  local w = Tar.writer(Stream.collect())
+  local ok, why = w:add_file("f", failing_after("", Failure.timeout()), { size = 3 })
+  assert(not ok and is_failure(why, "timeout", 0), said(why))
+  assert(tostring(why) == "tar: add_file: timed out", tostring(why))
+end
