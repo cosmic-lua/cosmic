@@ -284,6 +284,8 @@ function Prerelease.smoke_policy(path: string, cache: string): Sandbox.Policy
 end
 
 --- Runs the tool at `path` with `help`, under [`Prerelease.smoke_policy`], and raises unless it succeeds.
+-- TODO: let a root caller smoke a release (its child runs as a user of its own, whom the 0700 cache is not open
+-- to: `isolate` "file" mounts it as that user's), once a prerelease is staged anywhere but CI's unprivileged runner.
 function Prerelease.smoke(path: string)
   local cache = assert(Fs.mkdtemp("cosmic-release-smoke-"))
   -- Seatbelt refuses a read of an ungranted start directory; the cache is granted.
