@@ -239,7 +239,9 @@ local function check_text(input: string): boolean, string
     Fuzz.label(if want == nil then "clean refused" else "clean read" end)
   end
   if blob.kind ~= "blob" then
-    if json_why == nil or tostring(json_why) == "" then return false, "from_json refused without a reason" end
+    if json_why == nil or tostring(json_why) == "" then
+      return false, "from_json refused without a reason"
+    end
     Fuzz.label("refused")
     return true, ""
   end
