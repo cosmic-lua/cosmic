@@ -26,6 +26,7 @@
 local AgentMcp = require("cosmic.agent.mcp")
 local Clock = require("cosmic.clock")
 local Failure = require("cosmic.failure")
+local type AgentEdit = require("cosmic.agent.edit")
 local Json = require("cosmic.json")
 local RunText = require("cosmic.agent.run_text")
 local Sandbox = require("cosmic.sandbox")
@@ -55,6 +56,19 @@ local record Tools
     --- The whole output, where `text` holds less of it: it is what the
     --- sessions database keeps, and the model is told its id.
     mut raw?: string
+    --- The files a snippet of run changed through Host.edit and Host.write, in order, for a person to see: the model
+    --- reads none of it.
+    mut changes?: {Change}
+  end
+
+  --- A file a snippet changed: an edit's replacements (each text cut to 4KB), or the lines a write wrote.
+  record Change
+    --- The file, as the snippet named it.
+    path: string
+    --- An edit's replacements; nil for a write.
+    edits?: {AgentEdit.Replacement}
+    --- How many lines a write wrote; nil for an edit.
+    lines?: integer
   end
 
   --- Where a tool runs: the working directory, the database of the
@@ -562,6 +576,33 @@ local function served(context: Tools.Context): Worker.Serve
   end
 end
 
+--- The changes an answer of the worker names (`{path, edits = {{old, new}}}` or `{path, lines}`); nil for none.
+local function changes_in(given?: Json.Value): {Tools.Change}?
+  local list, _ = Json.to_array(given)
+  if list == nil or #list == 0 then return nil end
+  local out: mut {Tools.Change} = {}
+  for _, item in ipairs(list) do
+    local c, _ = Json.to_object(item)
+    local path = c and c["path"]
+    if c ~= nil and path is string then
+      local edits, _ = Json.to_array(c["edits"])
+      if edits ~= nil then
+        local made: mut {AgentEdit.Replacement} = {}
+        for _, e in ipairs(edits) do
+          local r, _ = Json.to_object(e)
+          local old, new = r and r["old"], r and r["new"]
+          if old is string and new is string then made[#made + 1] = { old = old, new = new } end
+        end
+        out[#out + 1] = { path = path, edits = made }
+      else
+        local lines = c["lines"]
+        out[#out + 1] = { path = path, lines = if lines is integer then lines else 0 end }
+      end
+    end
+  end
+  return out
+end
+
 local function run(input: Tools.Object, context: Tools.Context): Tools.Result
   local code, why = text_of(input, "code")
   if code == nil then return fail(why) end
@@ -615,6 +656,7 @@ local function run(input: Tools.Object, context: Tools.Context): Tools.Result
   local r = if answer["ok"] == true then ok(text) else
     fail(text .. (if text:sub(-1) == "\n" then "" else "\n" end) .. "Error: " .. tostring(trouble)) end
   if cut then r.raw = said end
+  r.changes = changes_in(answer["changes"])
   return r
 end
 

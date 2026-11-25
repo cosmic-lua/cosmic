@@ -108,6 +108,29 @@ local record Channel
   mut arrived?: Poll.Notifier
   --- How many calls wait for their replies.
   mut waiting: integer
+  --- The files the request's snippet changed through Host.edit and Host.write, in order.
+  mut changes: mut {Host.Change}
+end
+
+-- The most bytes of an edit's old or new text an answer carries: the agent shows a few lines of each.
+local CHANGE_BYTES <const> = 4096
+
+--- `changes` as JSON for the answer, each text cut to CHANGE_BYTES: `{path, edits = {{old, new}}}` or `{path, lines}`.
+local function changes_of(changes: {Host.Change}): Json.Value
+  local out: mut {Json.Value} = {}
+  for _, c in ipairs(changes) do
+    local edits = c.edits
+    if edits ~= nil then
+      local list: mut {Json.Value} = {}
+      for _, r in ipairs(edits) do
+        list[#list + 1] = { old = String.as_utf8(r.old:sub(1, CHANGE_BYTES)), new = String.as_utf8(r.new:sub(1, CHANGE_BYTES)) }
+      end
+      out[#out + 1] = { path = c.path, edits = Json.array(list) }
+    else
+      out[#out + 1] = { path = c.path, lines = c.lines or 0 }
+    end
+  end
+  return Json.array(out)
 end
 
 --- The most bytes of a call's line: well within the line of 1MB the agent reads.
@@ -380,6 +403,7 @@ local function answer_to(kept: Pipeline.Kept, modules: Modules, capture: Capture
   channel.id = id
   -- Each request starts the calls' state anew: what a cancelled call or a closed task of the last one left goes.
   channel.replies, channel.reading, channel.arrived, channel.waiting = {}, false, nil, 0
+  channel.changes = {}
   local trouble = provide(modules, code)
   if trouble ~= nil then return { id = id, refused = Json.array({ trouble }) } end
   local made = snippet_check(kept, code)
@@ -404,6 +428,7 @@ local function answer_to(kept: Pipeline.Kept, modules: Modules, capture: Capture
   end)
   for k, v in pairs(answer) do ran[k] = v end
   ran["id"] = id
+  if #channel.changes > 0 then ran["changes"] = changes_of(channel.changes) end
   return ran
 end
 
@@ -458,8 +483,10 @@ function worker.main(): integer
   options.lax = true
   local kept = Pipeline.kept_alone(SNIPPET, options)
   local channel: Channel = { input = input, out = out, pending = "", id = Json.null, next_call = 1, replies = {},
-    reading = false, waiting = 0 }
-  Host.connect(transport_of(channel))
+    reading = false, waiting = 0, changes = {} }
+  Host.connect(transport_of(channel), function(change: Host.Change)
+    channel.changes[#channel.changes + 1] = change
+  end)
   while true do
     local line = line_of(channel)
     if line == nil then break end

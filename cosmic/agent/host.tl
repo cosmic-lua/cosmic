@@ -183,14 +183,32 @@ local record Host
 
   --- How a call reaches the agent, and its reply: what the worker connects ([`Host.connect`]).
   type Transport = function(name: string, args: Json.Value): (Json.Value) | (nil, Failure)
+
+  --- A change Host.edit or Host.write made to the file `path`: the replacements of an edit, or the lines a write wrote.
+  record Change
+    --- The file, as the snippet named it.
+    path: string
+    --- An edit's replacements; nil for a write.
+    edits?: {Replacement}
+    --- How many lines a write wrote; nil for an edit.
+    lines?: integer
+  end
+
+  --- What hears each change ([`Host.connect`]).
+  type Noted = function(change: Host.Change)
 end
 
 --- The way calls reach the agent; nil outside a worker.
 local transport: Host.Transport? = nil
 
---- Sends each later call by `through`: the worker calls it before it runs a snippet.
-function Host.connect(through: Host.Transport)
+--- What hears each change Host.edit and Host.write make; nil outside a worker.
+local noted: Host.Noted? = nil
+
+--- Sends each later call by `through`, and tells `changes` each file Host.edit and Host.write change: the worker
+--- calls it before it runs a snippet.
+function Host.connect(through: Host.Transport, changes?: Host.Noted)
   transport = through
+  noted = changes
 end
 
 --- The agent's reply to the call `name` with `args`, or why there is none: no agent, a call it does not serve, or
@@ -551,6 +569,8 @@ function Host.edit(path: string, edits: {Host.Replacement}): integer
   if edited == nil then error("host: edit: " .. made, 2) end
   local ok, write_why = Fs.write(file, edited)
   if not ok then error("host: edit: " .. tostring(write_why), 2) end
+  local hears = noted
+  if hears ~= nil then hears({ path = path, edits = edits }) end
   return made
 end
 
@@ -575,6 +595,11 @@ function Host.write(path: string, text: string | {string})
   local body = if text is string then text elseif #text == 0 then "" else table.concat(text, "\n") .. "\n" end
   local ok, why = Fs.write(path, body)
   if not ok then error("host: write: " .. tostring(why), 2) end
+  local hears = noted
+  if hears ~= nil then
+    local _, newlines = body:gsub("\n", "")
+    hears({ path = path, lines = newlines + (if body ~= "" and body:sub(-1) ~= "\n" then 1 else 0 end) })
+  end
 end
 
 --- The lines of `paths` that hold `pattern` ([`Shell.grep`]); raises where a file cannot

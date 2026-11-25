@@ -893,7 +893,18 @@ local function test_a_snippet_edits_a_file_and_a_miss_says_which_edit()
   local ran = tools_run("run", { code = "print(Host.edit(\"a.md\", { { old = \"teh\", new = \"the\" } }))\n" ..
       "print(Host.read(\"a.md\"))\n" }, context)
   assert(not ran.is_error and ran.text:find("^1\none the\ntwo\n") ~= nil, ran.text)
+  -- What it changed comes back for a person to see: the edit's replacements, and a write's lines.
+  local changes = assert(ran.changes)
+  local first = assert(changes[1])
+  local made = assert(first.edits)
+  assert(#changes == 1 and first.path == "a.md" and #made == 1 and assert(made[1]).old == "teh", ran.text)
+  local wrote = tools_run("run", { code = "Host.write(\"b.md\", { \"x\", \"y\" })\nHost.write(\"c.md\", \"z\")\n" },
+    context)
+  local both = assert(wrote.changes)
+  assert(#both == 2 and assert(both[1]).lines == 2 and assert(both[2]).lines == 1 and assert(both[2]).path == "c.md",
+    wrote.text)
   local missed = tools_run("run", { code = "Host.edit(\"a.md\", { { old = \"zzz\", new = \"y\" } })\n" }, context)
   assert(missed.is_error and missed.text:find("Could not find edits[1] in a.md", 1, true) ~= nil, missed.text)
+  assert(missed.changes == nil, missed.text)
   worker_close(w)
 end
