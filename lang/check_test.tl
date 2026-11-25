@@ -221,7 +221,27 @@ local CASES <const>: {Case} = {
     code = "failure_ignored", at = { line = 2, column = 1 },
     source = "local f: function(): (true, integer) | (false, string) = function() return true, 1 end\nf()\n",
     msg = "`f()` answers one of 2 lists of values, one of which may be a failure, and as a statement it drops which one it answered",
-    fix = "bind its values and test the first (`local ok, why = f()`), match the call, or discard them on purpose: `local _, _ = f()`",
+    fix = "bind its values and test the first (`local ok, why = f()`), match the call, raise where it fails with `f()!`, " ..
+      "or discard them on purpose: `local _, _ = f()`",
+  },
+  {
+    -- Where `assert` cannot tell the lists apart, `!` is not offered.
+    code = "failure_ignored", at = { line = 2, column = 1 },
+    source = "local f: function(): (boolean, integer) | (nil, string) = function() return true, 1 end\nf()\n",
+    msg = "`f()` answers one of 2 lists of values, one of which may be a failure",
+    fix = "bind its values and test the first (`local v, why = f()`), match the call, or discard them on purpose: `local _, _ = f()`",
+  },
+  {
+    code = "alternatives_as_value",
+    source = "local f: function(): (integer) | (nil, string) = function() return 1 end\nlocal x = f() + 1\n",
+    msg = "`f()` answers one of 2 lists of values, which is no value",
+    fix = "bind its values and test the first (`local v, why = f()`), take the value with `f()!`, which raises where it " ..
+      "fails, or match the call: `match f() do | ... end`",
+  },
+  {
+    -- `pcall(f)!` would raise what `pcall` caught: `!` is not offered for it.
+    code = "alternatives_as_value", source = "local function f(): integer return 1 end\nlocal x = pcall(f) + 1\n",
+    msg = "`pcall(f)` answers one of 2 lists of values, which is no value", fix = "`) or match the call: `match pcall(f) do",
   },
   {
     code = "value_count", source = "local a, b = 1\n", at = { line = 1, column = 1 },

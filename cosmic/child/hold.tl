@@ -786,6 +786,15 @@ function Hold.seatbelt_credentials(merged: Rules.Policy): string
   return Seatbelt.credentials_unmet(merged, effective_user(), effective_group())
 end
 
+--- `p` with `grants` in place of its own. Field by field: a record has
+--- no copy that keeps its type, so a field [`Sandbox.Policy`] gains is
+--- copied here too.
+function Hold.grants_replaced(p: Rules.Policy, grants: {Rules.Grant}): Rules.Policy
+  return { profiles = p.profiles, grants = grants, isolate = p.isolate, loopback = p.loopback, env = p.env,
+    set_env = p.set_env, set_env_digests = p.set_env_digests, tmp = p.tmp, limits = p.limits, user = p.user,
+    group = p.group, database = p.database }
+end
+
 --- `p` with `extra` grants beside its own, every other field as it is:
 --- the policy a profile is compiled from once the start grants its
 --- program's start files, unmerged, as [`Seatbelt.compile`] takes it.
@@ -793,13 +802,7 @@ function Hold.with_grants(p: Rules.Policy, extra: {Rules.Path}): Rules.Policy
   local grants: mut {Rules.Grant} = {}
   for _, grant in ipairs(p.grants or {}) do grants[#grants + 1] = grant end
   for _, grant in ipairs(extra) do grants[#grants + 1] = grant end
-  local result: Rules.Policy = {
-    grants = grants, isolate = p.isolate,
-    loopback = p.loopback, env = p.env, set_env = p.set_env,
-    set_env_digests = p.set_env_digests, tmp = p.tmp, limits = p.limits,
-    user = p.user, group = p.group, database = p.database, profiles = p.profiles,
-  }
-  return result
+  return Hold.grants_replaced(p, grants)
 end
 
 --- Points the program of `held`, held by Seatbelt, at its relay, which
