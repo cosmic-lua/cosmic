@@ -117,6 +117,8 @@ local record Host
     body?: string
     --- The most seconds it may take: 30 by default, at most 120.
     timeout?: integer
+    --- Whether a status of 400 or more is answered as a value, in place of raising.
+    any_status?: boolean
   end
 
   --- What [`Host.fetch`] got back.
@@ -707,12 +709,13 @@ end
 
 --- The response to a request of `url`, which follows no redirect
 --- ([`cosmic.agent.fetch`]): made from the snippet's sandbox, which reaches no network in a session started without
---- --network or --connect, and no loopback, private or link-local address but those --connect names. A response of
---- any status is answered; a request that gets none raises.
+--- --network or --connect, and no loopback, private or link-local address but those --connect names. A status under
+--- 400 is answered; one of 400 or more raises, as `curl -f` fails, with the status and the start of the body in the
+--- message, unless `any_status` is given; a request that gets no response raises.
 function Host.fetch(url: string, options?: Host.FetchOptions): Host.Fetched
   local o: Host.FetchOptions = options or {}
   local got, why = AgentFetch.fetch({ url = url, method = o.method, headers = o.headers, body = o.body,
-    timeout = o.timeout })
+    timeout = o.timeout, any_status = o.any_status })
   if got == nil then error(tostring(why), 2) end
   return { status = got.status, headers = got.headers, body = got.body, cut = got.cut }
 end

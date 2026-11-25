@@ -709,6 +709,14 @@ local function resuming(s: Agent.Session): boolean, string
   return s:resume()
 end
 
+--- A run call's code as `cosmic fix` lays out a Teal file, for showing; nil where the formatter refuses it. The fix
+--- module is required at the first call, so a turn with no run call never loads it.
+local function laid_out(code: string): string?
+  local laid = require("build.fix").format_text(code, "run.tl").text
+  if laid == nil then return nil end
+  return (laid:gsub("\n+$", ""))
+end
+
 local function prompting(text: string): Go
   return function(s: Agent.Session): boolean, string
     return s:prompt(text)
@@ -734,7 +742,7 @@ local function ask(r: Run, got: Flags.Parsed): integer
     return bare.refused
   end
   local json = got.set["--json"] == true
-  local events = if json then Show.json(r.io.out) else Show.text(r.io.out, r.io.err) end
+  local events = if json then Show.json(r.io.out) else Show.text(r.io.out, r.io.err, laid_out) end
   return with_session(r, "ask", got, function(s: Agent.Session): integer
     if json then emit(r, { type = "session", id = s.id or 0 }) end
     -- A turn the last run left unfinished is finished first.
@@ -770,7 +778,7 @@ local function chat(r: Run, got: Flags.Parsed): integer
     r.complain("chat: " .. keep_why)
     return bare.refused
   end
-  local events = Show.text(r.io.out, r.io.err)
+  local events = Show.text(r.io.out, r.io.err, laid_out)
   return with_session(r, "chat", got, function(s: Agent.Session): integer
     local later: mut {string} = {}
     local steers: mut {string} = {}
@@ -815,7 +823,7 @@ local function resume(r: Run, got: Flags.Parsed): integer
       r.complain("resume: session " .. tostring(s.id) .. " has no unfinished turn")
       return bare.ok
     end
-    local ok, trouble = turn(r, s, Show.text(r.io.out, r.io.err), resuming)
+    local ok, trouble = turn(r, s, Show.text(r.io.out, r.io.err, laid_out), resuming)
     if not ok then
       r.complain("resume: " .. trouble)
       return bare.failed

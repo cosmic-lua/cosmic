@@ -69,7 +69,33 @@
     "cancel-in-progress": "${{ github.ref != 'refs/heads/main' }}",
   },
 
-  jobs: { # A platform leg: the native suite on its host, and, on main's runs,
+  jobs: {
+    # No merge-queue run saves a cache, so one its ref holds was written
+    # by code the queue ran, and a job's restore would take it before
+    # main's, extracting it over the checkout. Every job that restores a
+    # cache waits on this one, which restores none and fails where the
+    # ref holds a cache (cosmic_ci/queue_verdicts.tl's `ref_caches`); the
+    # `ci` gate checks again once they have run.
+    "queue-ref": {
+      if: "github.event_name == 'merge_group'",
+      name: "merge-queue ref",
+      defaults: {run: {"working-directory": "ci", shell: "sh"}},
+      "runs-on": "ubuntu-24.04",
+      permissions: {contents: "read", actions: "read"},
+      "timeout-minutes": 10,
+      steps: [
+        {uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"}, # v6
+        # The pinned driver, fetched and checked against its pin; the
+        # cosmic-driver action would restore a cache first.
+        {name: "fetch the pinned CI driver", run: "sh ../.github/scripts/cosmic-driver.sh"},
+        {
+          name: "refuse a cache the merge-queue ref saved",
+          env: {GH_TOKEN: "${{ github.token }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl queue-ref-caches",
+        },
+      ],
+    },
+    # A platform leg: the native suite on its host, and, on main's runs,
     # the complete product, its regressions and its portable suite, the
     # bytes it ran uploaded for the join. The merge queue runs what main's
     # push runs, so a commit that breaks a push breaks its queue entry
@@ -89,6 +115,8 @@
     # what the zig saves keep there); the daily scheduled run and a
     # manual run run all four whole, macOS among them.
     platform: {
+      needs: ["queue-ref"],
+      if: "!cancelled() && (github.event_name != 'merge_group' || needs.queue-ref.result == 'success')",
       name: "${{ matrix.name }}",
       defaults: {run: {"working-directory": "ci", shell: "${{ matrix.image && 'leg-shell {0}' || 'sh' }}"}},
       strategy: {
@@ -305,6 +333,41 @@
           if: "steps.queue-download.outcome == 'success'",
           "continue-on-error": true,
           run: "cosmic-driver cosmic_ci/driver.tl verdicts-merge \"${{ runner.temp }}/queue-verdicts\"",
+        },
+        # A merge-queue run takes in what the last failed try of its pull
+        # request, built on main with the same change, reached (cosmic_ci/queue_verdicts.tl's
+        # `find_tried`): the queue keeps no cache, so this is all a try
+        # the deadline stopped keeps. None of the three fails the job.
+        {
+          name: "find this pull request's last failed try in the merge queue",
+          id: "tried-run",
+          if: "github.event_name == 'merge_group'",
+          shell: "sh",
+          "continue-on-error": true,
+          env: {HEAD_REF: "${{ github.event.merge_group.head_ref }}", BASE_SHA: "${{ github.event.merge_group.base_sha }}", SHA: "${{ github.sha }}", ARTIFACT: "queue-tried-verdicts-${{ matrix.name }}", RUN_ID: "${{ github.run_id }}", GH_TOKEN: "${{ github.token }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl queue-tried-run",
+        },
+        {
+          name: "download the last failed try's verdicts",
+          id: "tried-download",
+          # By the id the lookup checked: a run attempted again holds a
+          # newer artifact of the same name.
+          if: "steps.tried-run.outputs.artifact != ''",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            "artifact-ids": "${{ steps.tried-run.outputs.artifact }}",
+            "merge-multiple": true,
+            path: "${{ runner.temp }}/tried-verdicts",
+            "run-id": "${{ steps.tried-run.outputs.run }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        {
+          name: "take in the last failed try's verdicts",
+          if: "steps.tried-download.outcome == 'success'",
+          "continue-on-error": true,
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-merge \"${{ runner.temp }}/tried-verdicts\"",
         },
         {
           name: "restore compiles and parses",
@@ -556,14 +619,31 @@
           if: "always() && steps.driver.outcome == 'success' && (env.COSMIC_CI_SAVES == 'true' || github.event_name == 'merge_group')",
           run: "cosmic-driver cosmic_ci/driver.tl compiles-trim \"${{ steps.names.outputs.since }}\" \"${{ runner.temp }}/compiles-restored.db\"",
         },
-        # A run that failed keeps what it restored too (`whole`). Cut to
+        # A run that failed keeps what it restored too (`whole`), but in
+        # the merge queue, which saves no cache, only what it used. Cut to
         # the rows this run used, named by their digest: for main's save,
-        # and in the merge queue for main's push of the commit.
+        # and in the merge queue for main's push of the commit or the pull
+        # request's next try.
         {
           name: "keep only this run's test verdicts",
           id: "verdicts-trim",
           if: "always() && steps.driver.outcome == 'success' && (env.COSMIC_CI_SAVES == 'true' || github.event_name == 'merge_group')",
-          run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ job.status == 'success' && steps.names.outputs.since || 'whole' }}",
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ (job.status == 'success' || github.event_name == 'merge_group') && steps.names.outputs.since || 'whole' }}",
+        },
+        # Read by this pull request's next try in the merge queue ("find
+        # this pull request's last failed try"): the rows a failed try
+        # used.
+        {
+          name: "upload what this failed try in the merge queue reached",
+          if: "always() && github.event_name == 'merge_group' && job.status == 'failure' && steps.verdicts-trim.outputs.digest != ''",
+          "continue-on-error": true,
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "queue-tried-verdicts-${{ matrix.name }}",
+            path: "${{ runner.temp }}/verdicts/*.db",
+            "if-no-files-found": "ignore",
+            "retention-days": 1,
+          },
         },
         # The cache the verdicts belong in, named by this host, for the
         # relay (relay.yml), which runs on a host of its own.
@@ -772,7 +852,8 @@
     # (`performance`) runs in the third. Elsewhere it is one job, whose
     # run checks the C functions too, which a share cannot.
     checked: {
-      if: "github.event_name != 'pull_request'",
+      needs: ["queue-ref"],
+      if: "!cancelled() && (github.event_name != 'merge_group' || needs.queue-ref.result == 'success') && github.event_name != 'pull_request'",
       name: "${{ matrix.name }}",
       strategy: {
         "fail-fast": false,
@@ -1019,7 +1100,8 @@
     # a pull request. Its verdicts stand apart (`narrowing.db`), under a
     # cache name of its own.
     narrowing: {
-      if: "github.event_name != 'pull_request'",
+      needs: ["queue-ref"],
+      if: "!cancelled() && (github.event_name != 'merge_group' || needs.queue-ref.result == 'success') && github.event_name != 'pull_request'",
       name: "linux-x86_64-checked-narrowing",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",
@@ -1250,7 +1332,8 @@
     # grants), or where the paths changed are not known. The other runs
     # check it on each leg ("check the pinned CI driver" above).
     driver: {
-      if: "github.event_name == 'merge_group'",
+      needs: ["queue-ref"],
+      if: "!cancelled() && (github.event_name != 'merge_group' || needs.queue-ref.result == 'success') && github.event_name == 'merge_group'",
       name: "linux-x86_64-driver",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",
@@ -1347,20 +1430,49 @@
     },
 
     # The one check a ruleset requires: it fails when a leg, the checked
-    # suite, the checked narrowing run or the queue's pinned driver check
-    # failed or was cancelled. The checked jobs read as passed on a pull
+    # suite, the checked narrowing run, the queue's pinned driver check or
+    # its check of the queue ref's caches did not pass, or when the queue
+    # ref holds a cache once they have run. The checked jobs read as passed on a pull
     # request, which skips them; the driver job's result is read in the
     # queue alone, where it runs. On every run but a pull request's it is
     # the provenance join too, proving the legs attested identical bytes:
     # the queue's and a push's three, the scheduled and a manual run's
     # four.
     ci: {
-      needs: ["platform", "checked", "narrowing", "driver"],
+      needs: ["queue-ref", "platform", "checked", "narrowing", "driver"],
       if: "always()",
       "runs-on": "ubuntu-24.04",
+      # actions: to list the merge-queue ref's caches again.
+      permissions: {contents: "read", actions: "read"},
       "timeout-minutes": 5,
       env: {COSMIC_WORKER: "provenance"},
       steps: [
+        {
+          if: "github.event_name != 'pull_request'",
+          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+        },
+        # In the merge queue, fetched and checked against its pin with no
+        # cache restored, so the check below runs on what no restore wrote.
+        {
+          name: "fetch the pinned provenance driver",
+          id: "driver-fetch",
+          if: "github.event_name == 'merge_group'",
+          "working-directory": "ci",
+          shell: "sh",
+          run: "sh ../.github/scripts/cosmic-driver.sh",
+        },
+        # The ref's caches again, now every job has restored what it
+        # restores, whether or not it passed: a cache written to the ref
+        # while the run ran (by a runtime token an earlier run of the ref
+        # leaked) fails the run here, so it does not merge.
+        {
+          name: "refuse a cache the merge-queue ref saved, after every job",
+          if: "github.event_name == 'merge_group'",
+          "working-directory": "ci",
+          shell: "sh",
+          env: {GH_TOKEN: "${{ github.token }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl queue-ref-caches",
+        },
         {
           name: "every job passed",
           env: {
@@ -1368,17 +1480,14 @@
             CHECKED: "${{ github.event_name == 'pull_request' && 'success' || needs.checked.result }}",
             NARROWING: "${{ github.event_name == 'pull_request' && 'success' || needs.narrowing.result }}",
             DRIVER: "${{ github.event_name == 'merge_group' && needs.driver.result || 'success' }}",
+            QUEUE_REF: "${{ github.event_name == 'merge_group' && needs.queue-ref.result || 'success' }}",
           },
-          run: "echo \"legs: $RESULT; checked suite: $CHECKED; checked narrowing: $NARROWING; pinned driver: $DRIVER\"; [ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ] && [ \"$NARROWING\" = success ] && [ \"$DRIVER\" = success ]",
-        },
-        {
-          if: "github.event_name != 'pull_request'",
-          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+          run: "echo \"merge-queue ref: $QUEUE_REF; legs: $RESULT; checked suite: $CHECKED; checked narrowing: $NARROWING; pinned driver: $DRIVER\"; [ \"$QUEUE_REF\" = success ] && [ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ] && [ \"$NARROWING\" = success ] && [ \"$DRIVER\" = success ]",
         },
         {
           name: "bootstrap the pinned provenance driver",
           id: "driver",
-          if: "github.event_name != 'pull_request'",
+          if: "github.event_name != 'pull_request' && github.event_name != 'merge_group'",
           uses: "./.github/actions/cosmic-driver",
         },
         {
@@ -1410,7 +1519,7 @@
         },
         {
           name: "summarize provenance operations",
-          if: "always() && steps.driver.outcome == 'success'",
+          if: "always() && (steps.driver.outcome == 'success' || steps.driver-fetch.outcome == 'success')",
           "working-directory": "ci",
           run: "cosmic-driver cosmic_ci/driver.tl summarize",
         },

@@ -176,7 +176,15 @@ local function test_ask_and_chat()
     text_reply("hi back"),
   })
   assert(r.code == 0 and r.out == "hi back", r.out .. r.err)
-  assert(r.err:find("bash\n    $ true", 1, true) ~= nil, r.err)
+  assert(r.err:find("```console\n$ true\n```\n", 1, true) ~= nil, r.err)
+  -- Run's code shows as `cosmic fix` lays it out, and as written where it does not parse.
+  r = cli({ "ask", "--new", "x" }, KEYED, {
+    { content = { { type = "tool_use", id = "a", name = "run", input = { code = "for i = 1, 2 do if i > 1 then print(i) end end" } },
+      { type = "tool_use", id = "b", name = "run", input = { code = "print((" } } }, stop_reason = "tool_use" },
+    text_reply("done"),
+  })
+  assert(r.err:find("```teal\nfor i = 1, 2 do\n  if i > 1 then print(i) end\nend\n```\n", 1, true) ~= nil, r.err)
+  assert(r.err:find("```teal\nprint((\n```\n", 1, true) ~= nil, r.err)
   assert(said(a, 1):find('"hello there"', 1, true) ~= nil, said(a, 1))
   r, a = cli({ "ask" }, KEYED, { text_reply("ok") })
   assert(r.code == 0 and said(a, 1):find("from stdin", 1, true) ~= nil)
@@ -189,7 +197,7 @@ local function test_ask_and_chat()
   assert(r.code == Flags.FAILED and r.err:find("refused") ~= nil, r.err)
   r = cli({ "ask", "x" }, KEYED, { { content = { { type = "tool_use", id = "t", name = "read",
     input = { path = "/no/such/file" } } }, stop_reason = "tool_use" }, text_reply("gone") })
-  assert(r.code == 0 and r.err:find("read failed", 1, true) ~= nil, r.err)
+  assert(r.code == 0 and r.err:find("read /no/such/file\n```error\n", 1, true) ~= nil, r.err)
   -- --tools shows the model those tools alone, and a name no tool has is refused before any request.
   r, a = cli({ "ask", "--new", "--tools", "run,read", "x" }, KEYED, { text_reply("ok") })
   local body = assert(a.bodies[1])

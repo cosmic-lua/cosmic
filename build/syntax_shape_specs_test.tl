@@ -211,6 +211,13 @@ local function test_a_union_of_two_types_is_refused_by_name()
   refused("local record R\n  v: (string | integer)?\nend", "R.v", "a union of more than one type has no shape")
 end
 
+local function test_a_union_of_records_no_field_tells_apart_is_refused_naming_the_record()
+  refused("local record A\n  a: string\nend\nlocal record B\n  a: string\n  b: string\nend\nlocal record R\n" ..
+      "  v: A | B\nend", "R.v", "a union of more than one type has no shape unless each member is a record")
+  refused("local record A\n  a: string\nend\nlocal record B\n  a: string\n  b: string\nend\nlocal record R\n" ..
+      "  v: A | B\nend", "R.v", "(A has none)")
+end
+
 local function test_an_interface_and_a_class_field_are_refused_by_name()
   refused("local interface Named\n  name: string\nend\nlocal record R\n  who: Named\nend", "R.who",
     "an interface has no shape")
