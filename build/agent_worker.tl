@@ -4,7 +4,7 @@
 --- standard library is not lowered again for the next, and runs the snippet only where the checker passes it: a snippet
 --- is checked as `cosmic -e` checks a chunk, and reaches only `cosmic.*`.
 ---
---- It reads requests, one JSON object a line, on standard input, and replies to each with one response line on standard output:
+--- It reads requests, one JSON object a line, on standard input, and responds to each with one response line on standard output:
 ---
 ---     {"id":1,"code":"print(1)"}
 ---     {"id":1,"ok":true,"output":"1\n"}
@@ -44,7 +44,7 @@ local standalone = require("build.standalone")
 local sys = require("cosmic.sys")
 
 local record worker
-  --- `cosmic agent worker`: replies to requests on standard input until it ends. 0 at its end, 1 where it could not start.
+  --- `cosmic agent worker`: responds to requests on standard input until it ends. 0 at its end, 1 where it could not start.
   main: function(): integer
 end
 
@@ -262,7 +262,7 @@ local function value_of_module(server: string, made: McpModule.Made): {string: C
 end
 
 --- Makes the module of each MCP server `code` requires that `modules` lacks ([`cosmic.agent.mcp_module`]), of the tools
---- the server lists now, and lets the snippet's `require` return it: nil, or the line of why a server's could not be made, which
+--- the server lists now, so the snippet's `require` returns it. Returns nil, or the line of why a server's could not be made, which
 --- refuses the snippet.
 local function provide(modules: Modules, code: string): string?
   for server in code:gmatch("require%s*%(?%s*[\"']mcp%.([%w_]+)[\"']") do

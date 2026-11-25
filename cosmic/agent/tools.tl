@@ -884,7 +884,7 @@ end
 local KEY_BYTES <const> = 256
 
 --- What a snippet of `context` keeps for a later one, in sessions.db ([`Sessions.keep`]): `store.put` keeps `value`
---- under `key` (no value lets it go), and `store.get` returns what is kept, null for nothing.
+--- under `key` (no value lets it go), and a `store.get` call gets what is kept, null for nothing.
 local function stored(context: Tools.Context, name: string, given: {string: Json.Value}): (Json.Value) | (nil, Failure)
   local db, session = context.db, context.session
   if db == nil or session == nil then
@@ -983,7 +983,7 @@ local SERVED <const>: {string: boolean} = {
   ["mcp.servers"] = true, ["mcp.tools"] = true, ["mcp.call"] = true,
 }
 
---- What `context`'s amend makes of the host call `name` with `given`, which returned `result`: the value the
+--- What `context`'s amend makes of the host call `name` with `given`, whose result is `result`: the value the
 --- snippet reads, or nil and why. An amend that raises, or returns no text, makes the call fail.
 local function amended(context: Tools.Context, name: string, given: Tools.Object, result: Tools.Result):
     (Json.Value) | (nil, Failure)

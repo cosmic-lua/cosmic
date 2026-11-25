@@ -10,7 +10,7 @@
 ---     print(answer["output"]) -- 1
 ---     Worker.close(w)
 ---
---- The worker reads requests, `{"id":1,"code":"..."}`, one JSON object a line, and replies to each with a response line holding
+--- The worker reads requests, `{"id":1,"code":"..."}`, one JSON object a line, and responds to each with a response line holding
 --- the request's `id` and one of: `refused`, the checker's lines, for a snippet that did not run; `ok` true and `value`
 --- (the JSON of what it returned, where it returned one, at most 64KB); `ok` false and `error`, for one that raised; or
 --- `error` alone, for a request it could not read. What a snippet writes to standard output and standard error goes to
@@ -41,7 +41,7 @@ local Sandbox = require("cosmic.sandbox")
 local Stream = require("cosmic.stream")
 
 local record Worker
-  --- The most bytes of a snippet's output a response line holds: 64KB.
+  --- The most bytes of a snippet's output a result holds: 64KB.
   OUTPUT_BYTES: integer
 
   --- What the worker writes on its output before (`kind` "start") and after ("end") the output of the request `id`.
@@ -72,7 +72,6 @@ local record Worker
     commands?: boolean
   end
 
-  --- What serves a snippet's call `name` with `args`.
   --- How long a call a snippet makes may take: a long call tests it, and stops.
   record Budget
     --- Whether the snippet's time ran out, or the user stopped the turn.
@@ -81,6 +80,7 @@ local record Worker
     left: function(): integer?
   end
 
+  --- What serves a snippet's call `name` with `args`.
   type Serve = function(name: string, args: Json.Value, budget: Budget): (Json.Value) | (nil, Failure)
 
   --- The worker of a session: none until the first snippet.
@@ -107,7 +107,7 @@ local record Worker
     mut started: integer
   end
 
-  --- The response line the worker sent for a snippet: see above.
+  --- What the worker gave for a snippet: its response line, with the output the agent read (see above).
   type Answer = {string: Json.Value}
 end
 
@@ -207,7 +207,7 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
   return lines
 end
 
---- The reply to the call `message` a snippet made, as `serve` returns it: `{"reply":...}` or `{"failed":"..."}`, with
+--- The reply to the call `message`: what `serve` returns, sent as `{"reply":...}` or `{"failed":"..."}`, with
 --- the call's `call_id`.
 local function reply_to(message: {string: Json.Value}, serve: Worker.Serve?, budget: Worker.Budget): string
   local call = message["call"]
@@ -232,7 +232,7 @@ local function reply_to(message: {string: Json.Value}, serve: Worker.Serve?, bud
   return text
 end
 
---- The worker's response line to the request `id`, read from `lines`, each call it makes first served by `serve` and
+--- The worker's response line to the request `id`, read from `lines`, each call it makes before its response line served by `serve` and
 --- replied to on `writer`: or why there is none, which ends the worker. Each call is served in a task of its own, so
 --- calls a snippet makes from tasks of its own are served at once; each reply goes out whole, one at a time.
 local function answer_of(lines: Stream.Lines, writer: Stream.Writer, id: integer, serve: Worker.Serve?,
@@ -313,7 +313,7 @@ local record Output
   mut started: boolean
   --- Whether its end mark was read.
   mut ended: boolean
-  --- What came after its start mark: before the end mark, its last bytes alone, past what a response line holds by a mark's
+  --- What came after its start mark: before the end mark, its last bytes alone, past what a result holds by a mark's
   --- length, which may be the start of a mark cut in two; before the start mark, those bytes alone.
   mut kept: string
   --- Whether bytes after the start mark were let go.
@@ -326,10 +326,10 @@ local record Output
   mut dropped: integer
 end
 
---- How many bytes an output holds past what a response line does: one more tells it was cut, and a mark cut in two is held.
+--- How many bytes an output holds past what a result does: one more tells it was cut, and a mark cut in two is held.
 local HOLD_MORE <const> = 64
 
---- The most bytes of the start of a snippet's output a response line holds, where the whole is more than it holds: the
+--- The most bytes of the start of a snippet's output a result holds, where the whole is more than it holds: the
 --- rest, TAIL_BYTES, is the end, and between them a line says how much was cut.
 local HEAD_BYTES <const> = 16 * 1024
 local TAIL_BYTES <const> = 48 * 1024
@@ -377,7 +377,7 @@ local function took(output: Output, chunk: string)
   output.kept = text
 end
 
---- Checks and runs `code` in the worker of `set`, starting one under `opts` where none runs: the worker's response line, or
+--- Checks and runs `code` in the worker of `set`, starting one under `opts` where none runs: the worker's result, or
 --- why there is none. A snippet that runs past `opts.seconds` ends the worker, and the failure says so.
 function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worker.Answer) | (nil, Failure)
   local lines, why = started(set, opts)
@@ -439,7 +439,7 @@ function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worke
         break
       end
     end
-    -- The worker marks the end of the output before it replies, so it is near once the response line is in; a response line to a
+    -- The worker marks the end of the output before it responds, so it is near once the response line is in; a result for a
     -- request the worker could not read has no output.
     local given = answer
     if given ~= nil and given["ok"] ~= nil and not timed_out and not halted then

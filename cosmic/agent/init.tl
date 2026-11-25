@@ -435,11 +435,11 @@ local record Agent
     --- ended it, refused, ran out, or the user stopped it), and the
     --- user's (a prompt or tool results) is the last word.
     unfinished: function(Session): boolean
-    --- Gives a result to each tool call of the last message, where it is the
-    --- model's and they went without results (a run ended in the middle of
-    --- its calls), so the API takes the conversation again: a call
-    --- whose output was kept with that output, one that never ended as
-    --- interrupted, not run again.
+    --- Gives each tool call of the last message a result, where that
+    --- message is the model's and its calls have none (a run ended in the
+    --- middle of its calls), so the API takes the conversation again. A
+    --- call whose output was kept gets that output. One that never ended
+    --- gets interrupted, and is not run again.
     settle: function(Session): boolean, string
     --- Sends the conversation as the last request sent it, to the user's
     --- last word, asking for no reply: the cache keeps it 5 minutes more,

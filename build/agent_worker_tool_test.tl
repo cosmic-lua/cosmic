@@ -1,5 +1,5 @@
 --- `cosmic agent worker` as the run tool drives it ([`cosmic.agent.worker`]): one process that checks and runs one
---- snippet after another, and replies to each on its own.
+--- snippet after another, and responds to each on its own.
 local AgentMcp = require("cosmic.agent.mcp")
 local Clock = require("cosmic.clock")
 local Failure = require("cosmic.failure")
@@ -444,7 +444,7 @@ print(tostring(long))
   Worker.close(w)
 end
 
---- A snippet reads sessions.db through the agent (Host.history), which runs it read-only, as the sql tool does, row by row.
+--- A snippet reads sessions.db through the agent (Host.history), whose query the agent runs read-only, as the sql tool does, row by row.
 local function test_a_snippet_queries_the_sessions_through_the_agent()
   local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
@@ -480,7 +480,7 @@ return assert(again[1])["n"]
   local _, _ = db:close()
 end
 
---- What a query returns is held to JSON and to the reply's limit: no infinity, one column of a name, and control
+--- The rows a query yields are held to JSON and to the reply's limit: no infinity, one column of a name, and control
 --- characters counted as their escapes.
 local function test_a_snippets_query_answer_is_held_to_json_and_its_limit()
   local w = set_of_worker()
@@ -544,7 +544,6 @@ local function test_a_snippets_endless_query_step_is_stopped_at_its_time()
   local _, _ = db:close()
 end
 
---- Outside a worker no agent replies to a call.
 local function test_a_snippet_calls_an_mcp_servers_tools_as_typed_functions()
   local dir = assert(Fs.mkdtemp("agent-worker-mcp-module-"))
   local script = dir .. "/server.tl"
@@ -682,6 +681,7 @@ print(got[1], got[2], got[3])
   Worker.close(w)
 end
 
+--- Outside a worker no agent replies to a call.
 local function test_a_call_outside_a_worker_raises()
   Test.raises(function() Host.history("SELECT 1") end, "no agent answers here")
 end

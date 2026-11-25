@@ -319,7 +319,7 @@ local function ended(set: AgentMcp.Set, name: string)
   if handle ~= nil then local _, _ = handle:close() end
 end
 
---- `value`, a record or a list of records the client returned, as the text of its JSON.
+--- `value`, a record or a list of records the client got, as the text of its JSON.
 local function json_text(value: any): (string) | (nil, Failure)
   return Json.encode_any(value)
 end
@@ -371,7 +371,7 @@ function AgentMcp.tools(set: AgentMcp.Set, name: string): ({Json.Value}) | (nil,
   return Json.decode_array(text, { null_value = Json.null })
 end
 
---- What the tool `tool` of the server `name` replied to `arguments`, as a JSON object: its content, structuredContent
+--- What the MCP server `name` replied for the tool `tool` called with `arguments`, as a JSON object: its content, structuredContent
 --- and isError, as the server sent them.
 function AgentMcp.call(set: AgentMcp.Set, name: string, tool: string, arguments: {string: Json.Value}):
     ({string: Json.Value}) | (nil, Failure)

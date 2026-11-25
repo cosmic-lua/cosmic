@@ -1,7 +1,7 @@
 --- @public
 --- What a snippet that cosmic agent's `run` tool runs asks of the agent itself: the calls the worker cannot make in
 --- its sandbox, which the agent serves in its own process. Each call goes out to the agent as a line beside the
---- snippet's response line, and the snippet waits for the reply; the agent checks each call as it checks a tool's input, and
+--- worker's response line, and the snippet waits for the reply; the agent checks each call as it checks a tool's input, and
 --- serves only what it offers. Each call of Host raises where it fails, with a message that begins "host:", so a
 --- snippet reads its value with no assert:
 ---
@@ -71,7 +71,7 @@ local record Host
   --- name each with `AS`.
   type Row = {string: Json.Value}
 
-  --- What a tool of an MCP server returned, as [`Host.tool`] reads it.
+  --- What an MCP server replied for a call of one of its tools, as [`Host.tool`] reads it.
   record Result
     --- The text of its text blocks, one after another, each on lines of its own.
     text: string
@@ -243,7 +243,7 @@ local function tools_of(server: string): ({{string: Json.Value}}) | (nil, Failur
   return objects("mcp.tools", { server = server })
 end
 
---- What the tool `tool` of the MCP server `server` returned for `arguments`: its `content` (a list of blocks, a text one
+--- What the MCP server `server` replied for the tool `tool` called with `arguments`: its `content` (a list of blocks, a text one
 --- `{type = "text", text = ...}`), its `structuredContent` where it gives one, and `isError` true where the tool ran
 --- and failed. A call the server refused, or one that got no reply, is a failure. The agent replies with at most 512KB.
 local function mcp_of(server: string, tool: string, arguments?: {string: Json.Value}): ({string: Json.Value}) | (nil, Failure)
@@ -275,7 +275,7 @@ local function without_nulls(value: Json.Value): Json.Value
   return value
 end
 
---- What the tool `tool` of the MCP server `server` returned for `arguments`, read: the text of its blocks, the blocks, and
+--- What the MCP server `server` replied for the tool `tool` called with `arguments`, read: the text of its blocks, the blocks, and
 --- its `structuredContent`. A tool that ran and failed (`isError`) is a failure, its text the message, as is a call the
 --- server refused or one that got no reply. The functions of `require("mcp.<server>")` call it ([`cosmic.agent.mcp_module`]).
 local function tool_of(server: string, tool: string, arguments?: {string: Json.Value}): (Host.Result) | (nil, Failure)
@@ -300,7 +300,7 @@ local function tool_of(server: string, tool: string, arguments?: {string: Json.V
   return { text = text, content = content, structured = without_nulls(structured) }
 end
 
---- The `structuredContent` the tool `tool` of the MCP server `server` returned for `arguments`, its null members taken out,
+--- The `structuredContent` the MCP server `server` replied for the tool `tool` called with `arguments`, its null members taken out,
 --- as [`Host.tool`] calls it: for a tool that lists an `outputSchema`, which the client holds its result to. A result
 --- with none is a failure.
 local function structured_of(server: string, tool: string, arguments?: {string: Json.Value}): (Json.Value) | (nil, Failure)
@@ -421,7 +421,7 @@ local MOST_SECONDS <const> = 24 * 24 * 60 * 60
 
 --- Runs `command` with bash, or sh where there is none, in the snippet's own sandbox and directory, as the bash tool
 --- does: what it wrote to standard output and standard error, together, and how it ended. A command that exits other
---- than 0 is returned all the same, `ok` false; a call fails for a command that could not start, or for a timeout
+--- than 0 still gives a result, `ok` false; a call fails for a command that could not start, or for a timeout
 --- outside 1 to 24 days. A command still running when the snippet ends ends with its worker.
 local function bash_of(command: string, options?: Host.BashOptions): (Host.Ran) | (nil, Failure)
   local seconds = if options ~= nil then options.timeout else nil end
@@ -626,7 +626,7 @@ function Host.tools(server: string): {{string: Json.Value}}
   return value
 end
 
---- What the tool `tool` of the MCP server `server` returned for `arguments`, as the server sent it:
+--- What the MCP server `server` replied for the tool `tool` called with `arguments`, as the server sent it:
 --- `content`, `structuredContent` and `isError`. Raises where it fails, as "host: ...".
 function Host.mcp(server: string, tool: string, arguments?: {string: Json.Value}): {string: Json.Value}
   local value, why = mcp_of(server, tool, arguments)
@@ -634,7 +634,7 @@ function Host.mcp(server: string, tool: string, arguments?: {string: Json.Value}
   return value
 end
 
---- What the tool `tool` of the MCP server `server` returned for `arguments`, read: its text, blocks and
+--- What the MCP server `server` replied for the tool `tool` called with `arguments`, read: its text, blocks and
 --- `structuredContent`; a tool that ran and failed (`isError`) raises with its text. Raises where it fails, as "host: ...".
 function Host.tool(server: string, tool: string, arguments?: {string: Json.Value}): Host.Result
   local value, why = tool_of(server, tool, arguments)
@@ -642,7 +642,7 @@ function Host.tool(server: string, tool: string, arguments?: {string: Json.Value
   return value
 end
 
---- The `structuredContent` the tool `tool` of the MCP server `server` returned for `arguments`, its nulls
+--- The `structuredContent` the MCP server `server` replied for the tool `tool` called with `arguments`, its nulls
 --- taken out; a result with none raises. Raises where it fails, as "host: ...".
 function Host.structured(server: string, tool: string, arguments?: {string: Json.Value}): Json.Value
   local value, why = structured_of(server, tool, arguments)
@@ -666,7 +666,7 @@ function Host.load(key: string): Host.Loaded
 end
 
 --- Runs `command` with bash in the snippet's sandbox and directory, as the bash tool does: its output and how it
---- ended. A command that exits other than 0 is returned, `ok` false; one that cannot start raises. Raises where it fails, as "host: ...".
+--- ended. A command that exits other than 0 still gives a result, `ok` false; one that cannot start raises. Raises where it fails, as "host: ...".
 function Host.bash(command: string, options?: Host.BashOptions): Host.Ran
   local value, why = bash_of(command, options)
   if value == nil then error(tostring(why), 2) end
