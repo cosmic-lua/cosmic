@@ -27,12 +27,15 @@ local function test_the_command_line_names_tools_a_fixture_and_tasks()
   assert(assert(efforts.tools[1]).effort == "high" and assert(efforts.tools[2]).effort == "low" and
       assert(efforts.tools[3]).effort == "high")
   assert(assert(options({ "--tool", "a=/c", "--fixture", "/f", "--out", "/o" }).tools[1]).effort == nil)
+  assert(assert(options({ "--tool", "a=cosmic", "--fixture", "/f", "--out", "/o" }).tools[1]).path == "cosmic")
   assert(Agent.parse({ "--tool", "a=/c", "--effort", "a=hard", "--fixture", "/f", "--out", "/o" }) == nil)
   assert(Agent.parse({ "--effort", "a=low", "--tool", "a=/c", "--fixture", "/f", "--out", "/o" }) == nil)
   for _, bad in ipairs({ { "--fixture", "/f", "--out", "/o" }, { "--tool", "t=/c", "--out", "/o" },
       { "--tool", "t", "--fixture", "/f", "--out", "/o" }, { "--tool", "t=/c", "--tool", "t=/d", "--fixture", "/f",
           "--out", "/o" }, { "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--tasks", "nope" },
-      { "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--reps", "0" }, { "--tool" } }) do
+      { "--tool", "t=/c", "--fixture", "/f", "--out", "/o", "--reps", "0" }, { "--tool" },
+      { "--tool", "t=bin/cosmic", "--fixture", "/f", "--out", "/o" }, { "--tool", "t=/c", "--fixture", "f", "--out", "/o" },
+      { "--tool", "t=/c", "--fixture", "/f", "--out", "evals/x" } }) do
     assert(Agent.parse(bad) == nil, table.concat(bad, " "))
   end
 end
@@ -114,6 +117,34 @@ local function test_runs_are_graded_against_the_truth_of_an_untouched_copy()
   assert(answer:find("grade: fail\n", 1, true) == 1 and answer:find("--- left\ny.tl:2\n--- truth\nx.tl:1\n", 1, true) ~= nil,
     answer)
   local report = Agent.report(o, results)
+  local want = table.concat({
+    "# cosmic agent evals",
+    "",
+    "Model sonnet; runs of each task with each tool: 1; fixture /f. Each number is the mean of a run.",
+    "",
+    "Effort: bad low; the agent's default for the rest.",
+    "",
+    "## all tasks",
+    "",
+    "- good: 1 of 1 passed (1 unfit on this fixture, left out); $0.5000, 30 cache read, 40 cache write, 20 out a run; $0.500 in all",
+    "- bad: 0 of 1 passed (1 unfit on this fixture, left out); $0.0000, 0 cache read, 0 cache write, 0 out a run; $0.000 in all",
+    "",
+    "## todos",
+    "",
+    "- good: 1 of 1 passed; 3.0 requests, $0.500, 3 s wall (2 s in requests); tokens 10 in, 20 out, 30 cache read (5 by the first request), 40 cache write; 4.0 tool calls, 1.0 of them run, 1.0 refused",
+    "  - refused for: semicolon 1",
+    "  - snippets naming each Host helper: grep 2.0, bash 1.0",
+    "- bad: 0 of 1 passed; 0.0 requests, $0.000, 3 s wall (0 s in requests); tokens 0 in, 0 out, 0 cache read (0 by the first request), 0 cache write; 0.0 tool calls, 0.0 of them run, 0.0 refused",
+    "",
+    "## rename",
+    "",
+    "- good: unfit on this fixture; 3.0 requests, $0.500, 3 s wall (2 s in requests); tokens 10 in, 20 out, 30 cache read (5 by the first request), 40 cache write; 4.0 tool calls, 1.0 of them run, 1.0 refused",
+    "  - refused for: semicolon 1",
+    "  - snippets naming each Host helper: grep 2.0, bash 1.0",
+    "- bad: unfit on this fixture; 0.0 requests, $0.000, 3 s wall (0 s in requests); tokens 0 in, 0 out, 0 cache read (0 by the first request), 0 cache write; 0.0 tool calls, 0.0 of them run, 0.0 refused",
+    "",
+  }, "\n")
+  assert(report == want, report)
   assert(report:find("## todos\n\n- good: 1 of 1 passed; 3.0 requests, $0.500, 3 s wall (2 s in requests)", 1, true) ~= nil, report)
   assert(report:find("30 cache read (5 by the first request)", 1, true) ~= nil and
       report:find("1.0 of them run, 1.0 refused\n  - refused for: semicolon 1\n" ..
@@ -126,6 +157,18 @@ local function test_runs_are_graded_against_the_truth_of_an_untouched_copy()
 end
 
 --- What a run spent is its session's, the newest whose directory's name holds the run's marker.
+--- A report with no effort set, no unfit run and no task is the totals alone.
+local function test_a_report_of_no_task_is_its_totals()
+  local o: Agent.Options = { tools = { { name = "a", path = "/a" } }, fixture = "/f", out = "/o", tasks = {}, reps = 1,
+    model = "m", timeout = 1 }
+  local spent: Agent.Spent = { requests = 1, input = 1, output = 2, cache_read = 3, cache_write = 4, cost = 0.25,
+    seconds = 1, tools = 0, runs = 0, refused = 0, codes = {}, first_read = 0, helpers = {} }
+  local report = Agent.report(o, { { tool = "a", task = "todos", rep = 1, grade = "pass", spent = spent, wall = 1 } })
+  assert(report == "# cosmic agent evals\n\nModel m; runs of each task with each tool: 1; fixture /f. Each number is " ..
+      "the mean of a run.\n\n## all tasks\n\n- a: 1 of 1 passed; $0.2500, 3 cache read, 4 cache write, 2 out a run; " ..
+      "$0.250 in all\n", report)
+end
+
 local function test_what_a_run_spent_is_read_from_its_session()
   local db = assert(Sqlite.memory())
   assert(db:exec([[

@@ -4,7 +4,7 @@
 --- tokens, cost, seconds and tool calls, read from each tool's own sessions.db. Two tools of one task compare, for
 --- example, the agent with code mode and the release before it.
 ---
----     cosmic --standalone eval/agent.tl --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR
+---     bin/cosmic eval/agent.tl --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR
 ---         [--offer NAME=TOOL,...] [--effort [NAME=]LEVEL] [--tasks T,...|all] [--reps N] [--model M]
 ---         [--timeout S]
 ---
@@ -22,8 +22,8 @@
 --- once the run is graded (as is each other directory the evals make), with
 --- `HOME` and `XDG_DATA_HOME` the tool's own under <out>/<tool>. ANTHROPIC_API_KEY, or HARNESS_ANTHROPIC_API_KEY,
 --- is the key. <out>/report.md is the report, <out>/results.json each run's numbers, and each run's answer, the
---- agent's words, and the grade are in <out>/<tool>/<task>-<rep>.txt. [`eval/agent`] runs this on the bootstrap
---- cosmic: it requires `cosmic.*` modules only. [`Agent.execute`] works through an [`Agent.System`], which a test
+--- agent's words, and the grade are in <out>/<tool>/<task>-<rep>.txt. [`eval/agent`] runs this on the checkout's
+--- own cosmic, and the report is the text template eval/report.tmpl. [`Agent.execute`] works through an [`Agent.System`], which a test
 --- replaces with a fake.
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -31,6 +31,8 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
+local Report = require("eval.report")
+local ReportData = require("eval.report_data")
 local Sqlite = require("cosmic.sqlite")
 
 local record Agent
@@ -695,6 +697,10 @@ function Agent.parse(argv: {string}): Agent.Options?, string
     if word == "--tool" then
       local name, path = value:match("^([%w_-]+)=(.+)$")
       if name == nil or path == nil then return nil, "--tool takes NAME=PATH: " .. value end
+      -- A run starts the tool from its work copy: a path is absolute, or a bare name found on PATH.
+      if path:find("/", 1, true) ~= nil and path:sub(1, 1) ~= "/" then
+        return nil, "--tool " .. name .. ": give an absolute path or a name on PATH, not " .. path
+      end
       for _, t in ipairs(tools) do
         if t.name == name then return nil, "two tools named " .. name end
       end
@@ -761,6 +767,10 @@ function Agent.parse(argv: {string}): Agent.Options?, string
   end
   if #tools == 0 then return nil, "--tool is required; " .. USAGE end
   if fixture == "" or out == "" then return nil, "--fixture and --out are required; " .. USAGE end
+  -- The runs read and write them from other directories, and eval/agent runs from the checkout's root.
+  if fixture:sub(1, 1) ~= "/" or out:sub(1, 1) ~= "/" then
+    return nil, "--fixture and --out take absolute paths: " .. (if fixture:sub(1, 1) ~= "/" then fixture else out end)
+  end
   if #tasks == 0 then return nil, "--tasks names no task" end
   local offering: mut {Agent.Tool} = {}
   for _, t in ipairs(tools) do
@@ -1003,24 +1013,33 @@ function Agent.spent_in(db: Sqlite.Handle, marker: string): Agent.Spent?
     first_read = if opened ~= nil then opened:integer(1) else 0 end }
 end
 
+--- `counts` as "key n, key n", most first, ties by key, each count written by `show`; nil when empty.
+local function ranked(counts: {string: integer}, show: function(k: integer): string): string?
+  local keys: mut {string} = {}
+  for key in pairs(counts) do keys[#keys + 1] = key end
+  if #keys == 0 then return nil end
+  table.sort(keys, function(a: string, b: string): boolean
+    local ka, kb = counts[a] or 0, counts[b] or 0
+    if ka ~= kb then return ka > kb end
+    return a < b
+  end)
+  local parts: mut {string} = {}
+  for _, key in ipairs(keys) do
+    parts[#parts + 1] = key .. " " .. show(counts[key] or 0)
+  end
+  return table.concat(parts, ", ")
+end
+
 --- The report of `results` for `options`: for each task, each tool's passes and mean spending per run, as
---- Markdown.
+--- Markdown, which the text template eval/report.tmpl writes.
 function Agent.report(options: Agent.Options, results: {Agent.Result}): string
-  local lines: mut {string} = { "# cosmic agent evals", "",
-    "Model " .. options.model .. "; runs of each task with each tool: " .. tostring(options.reps) .. "; fixture " ..
-      options.fixture .. ". Each number is the mean of a run.", "" }
   local set: mut {string} = {}
   for _, tool in ipairs(options.tools) do
     local effort = tool.effort
     if effort ~= nil then set[#set + 1] = tool.name .. " " .. effort end
   end
-  if #set > 0 then
-    lines[#lines + 1] = "Effort: " .. table.concat(set, ", ") .. "; the agent's default for the rest."
-    lines[#lines + 1] = ""
-  end
   -- Each tool over every task: what a comparison reads first.
-  lines[#lines + 1] = "## all tasks"
-  lines[#lines + 1] = ""
+  local totals: mut {ReportData.Total} = {}
   for _, tool in ipairs(options.tools) do
     local passed, n, unfit, counted = 0, 0, 0, 0
     local cost, write, read, output = 0.0, 0.0, 0.0, 0.0
@@ -1039,14 +1058,12 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}): string
       end
     end
     local d = math.max(counted, 1)
-    local left = if unfit > 0 then " (" .. tostring(unfit) .. " unfit on this fixture, left out)" else "" end
-    lines[#lines + 1] = string.format("- %s: %d of %d passed%s; $%.4f, %.0f cache read, %.0f cache write, " ..
-        "%.0f out a run; $%.3f in all", tool.name, passed, n, left, cost / d, read / d, write / d, output / d, cost)
+    totals[#totals + 1] = { tool = tool.name, passed = passed, n = n, unfit = if unfit > 0 then unfit else nil end,
+      cost = cost / d, cache_read = read / d, cache_write = write / d, output = output / d, total = cost }
   end
-  lines[#lines + 1] = ""
+  local tasks: mut {ReportData.Task} = {}
   for _, task in ipairs(options.tasks) do
-    lines[#lines + 1] = "## " .. task.name
-    lines[#lines + 1] = ""
+    local rows: mut {ReportData.Row} = {}
     for _, tool in ipairs(options.tools) do
       local passed, unfit, n, counted = 0, 0, 0, 0
       local sum: mut {string: number} = { requests = 0, input = 0, output = 0, cache_read = 0, cache_write = 0,
@@ -1083,46 +1100,21 @@ function Agent.report(options: Agent.Options, results: {Agent.Result}): string
       end
       local d = math.max(counted, 1)
       local function mean(k: string): number return (sum[k] or 0) / d end
-      local wall = (sum["wall"] or 0) / math.max(n, 1)
       local grade = tostring(passed) .. " of " .. tostring(n) .. " passed"
       if unfit > 0 then grade = "unfit on this fixture" end
-      lines[#lines + 1] = string.format("- %s: %s; %.1f requests, $%.3f, %.0f s wall (%.0f s in requests); " ..
-          "tokens %.0f in, %.0f out, %.0f cache read (%.0f by the first request), %.0f cache write; %.1f tool calls, " ..
-          "%.1f of them run, %.1f refused", tool.name, grade, mean("requests"), mean("cost"),
-        wall, mean("seconds"), mean("input"), mean("output"), mean("cache_read"), mean("first_read"),
-        mean("cache_write"), mean("tools"), mean("runs"), mean("refused"))
-      local named: mut {string} = {}
-      for code in pairs(codes) do named[#named + 1] = code end
-      table.sort(named, function(a: string, b: string): boolean
-        local ka, kb = codes[a] or 0, codes[b] or 0
-        if ka ~= kb then return ka > kb end
-        return a < b
-      end)
-      if #named > 0 then
-        local parts: mut {string} = {}
-        for _, code in ipairs(named) do
-          parts[#parts + 1] = code .. " " .. tostring(codes[code] or 0)
-        end
-        lines[#lines + 1] = "  - refused for: " .. table.concat(parts, ", ")
-      end
-      local used: mut {string} = {}
-      for name in pairs(helpers) do used[#used + 1] = name end
-      table.sort(used, function(a: string, b: string): boolean
-        local ka, kb = helpers[a] or 0, helpers[b] or 0
-        if ka ~= kb then return ka > kb end
-        return a < b
-      end)
-      if #used > 0 then
-        local parts: mut {string} = {}
-        for _, name in ipairs(used) do
-          parts[#parts + 1] = string.format("%s %.1f", name, (helpers[name] or 0) / d)
-        end
-        lines[#lines + 1] = "  - snippets naming each Host helper: " .. table.concat(parts, ", ")
-      end
+      rows[#rows + 1] = { tool = tool.name, grade = grade, requests = mean("requests"), cost = mean("cost"),
+        wall = (sum["wall"] or 0) / math.max(n, 1), seconds = mean("seconds"), input = mean("input"),
+        output = mean("output"), cache_read = mean("cache_read"), first_read = mean("first_read"),
+        cache_write = mean("cache_write"), tools = mean("tools"), runs = mean("runs"), refused = mean("refused"),
+        refused_for = ranked(codes, function(k: integer): string return tostring(k) end),
+        helpers = ranked(helpers, function(k: integer): string
+          return string.format("%.1f", k / d)
+        end) }
     end
-    lines[#lines + 1] = ""
+    tasks[#tasks + 1] = { name = task.name, rows = rows }
   end
-  return table.concat(lines, "\n")
+  return Report.render({ model = options.model, reps = options.reps, fixture = options.fixture,
+    effort = if #set > 0 then table.concat(set, ", ") else nil end, totals = totals, tasks = tasks })
 end
 
 --- The world as it is: commands found on PATH, run with Child.
