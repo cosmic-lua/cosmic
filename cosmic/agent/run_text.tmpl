@@ -3,7 +3,8 @@ Run a program in cosmic, a typed language of its own with a library of its own (
 
 Host (cosmic.agent.host), Fs (cosmic.fs) and Json (cosmic.json) need no require. Host's calls do as the commands they are named for, and raise where they fail, so they need no assert:
 - Host.find(dir, suffix?) -> {string}: every file under dir, sorted (`Host.find("src", ".tl")`).
-- Host.cat(path) -> string; Host.lines(path) -> {string}; Host.wc(path) -> integer, its newlines as `wc -l`; Host.write(path, text or {lines}); Host.exists(path) -> boolean.
+- Host.read(path) -> string; Host.lines(path) -> {string}; Host.wc(path) -> integer, its newlines as `wc -l`; Host.write(path, text or {lines}); Host.exists(path) -> boolean.
+- Host.edit(path, {{"{{"}}old = "...", new = "..."}, ...}) -> integer: replaces exact text, each old in the file once as it was before any edit, none overlapping (`Host.edit("a.md", {{"{{"}}old = "teh", new = "the"}})`); Host.Replacement types a list of them. Host.sed is for a pattern on every line.
 - Host.grep(pattern, paths, plain?) -> {{"{{"}}path, line, text}}: the lines that hold a pattern (`%d`, `%.`, `[^/]+`; no regex).
 - Host.sed(path, pattern, replacement, plain?) -> integer: replaces every match, line by line (`%1` a capture).
 - Host.sort(list, by?) -> mut {string}, a new list, by the key `by(item)` gives where given; Host.sort_by(items, by) -> mut {T}, the same for a list of records (`Host.sort_by(items, function(i: Item): string return i.id end)`); Host.uniq(keys) -> {string: integer}, each key's count; Host.top(counts, n?) -> {{"{{"}}key, count}}, most first, ties by key.
