@@ -209,8 +209,8 @@ moved path.
 
 A module declares what its tests read with one top-level
 `Test.policy { ... }` ([`Test.policy`]). Its fields are those of
-[`cosmic.sandbox`]'s `Policy`: `profiles`, `grants`, `env` and `loopback`,
-and `promises`, the system calls a policy grants as `{ calls = ... }`, and
+[`cosmic.sandbox`]'s `Policy`: `profiles`, `grants` (paths, and the system
+calls a test makes, `{ calls = "nest" }`), `env` and `loopback`, and
 `requires`, `cpu_features` and `store_text`, which only a test declares
 (below, and "the pure store"). The harness takes only some of the rest.
 

@@ -12,7 +12,7 @@ local stand_in = require("build.stand_in")
 --- child's sandbox is.
 Test.policy{
   grants = { { path = "/noexec", letters = "rwc" }, { calls = "nest" } },
-  }
+}
 
 local function executable(tmp: string): string, string
   local ordinary = tmp .. "/ordinary"

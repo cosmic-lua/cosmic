@@ -51,7 +51,7 @@ end
 --- The promises every worker is started with: all that a test may make
 --- but `nest` ([`worker_promises`]).
 -- TODO: hold a worker by the promises its module declares
--- ([`Test.policy`]'s `promises`) rather than all but `nest`, once the
+-- ([`Test.policy`]'s `{ calls = ... }` grants) rather than all but `nest`, once the
 -- tests declare them (see the TODO on [`Test.needs_of`]): until then no
 -- test says what it makes, and the filter refuses only what no test is
 -- meant to.

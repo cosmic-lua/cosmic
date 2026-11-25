@@ -2711,7 +2711,7 @@ local function choose_sandbox(ctx: Run): integer?
     local _, _ = work.close(handle)
     log:complain("test: this run was started in " .. holder .. "'s worker, which a " ..
         "Landlock ruleset holds, under which the kernel refuses every mount, and so every " ..
-        "worker's sandbox: declare the promise \"nest\" in its Test.policy, or start the run with " ..
+        "worker's sandbox: declare the grant { calls = \"nest\" } in its Test.policy, or start the run with " ..
         test_sandbox.switch .. "=0")
     return 1
   end
