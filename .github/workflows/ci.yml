@@ -119,9 +119,8 @@
     # a light gate: linux-x86_64's boot, native suite and format check of
     # what it changed (and the launcher fixtures, where it reaches them), and,
     # once it is not a draft, macOS's suite, each suite on main's verdicts.
-    # GitHub gives no job a priority, so a draft leaves the few macOS
-    # runners to the queue: a pull request is marked ready about when it
-    # goes to the queue, not on each push. A push to main runs
+    # A draft leaves the few macOS runners to the queue (ci/README.md says
+    # why). A push to main runs
     # three legs whole, all but macOS, and macOS's suite, which saves
     # macOS's caches for the queue (only a part `suite` job's boot builds
     # what the zig saves keep there); the daily scheduled run runs all

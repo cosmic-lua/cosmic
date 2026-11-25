@@ -619,8 +619,8 @@ the only runs that save a cache, and is decided in the top-level `env`. The
 driver does not read it (it is `COSMIC_CI_*`, which a suite's workers are
 never given).
 
-The platform job's `include` is an expression that chooses one of four
-lists by the kind of run (linux-x86_64, and macOS's suite once it is not a draft, for a pull request; for the
+The platform job's `include` is an expression that chooses a list by the
+kind of run (linux-x86_64 for a draft pull request, and macOS's suite beside it for one that is not; for the
 queue every leg but macOS as its suite and its product, linux-x86_64's
 format check and macOS's suite; every leg but macOS, and macOS's suite, for a push to main; all four otherwise),
 each listing every job: an `include` entry naming a leg
@@ -628,7 +628,7 @@ no dimension holds would start that leg anyway (GitHub adds an entry that
 fits no combination as one of its own). Each entry names the job
 (`name`), the host it is (`leg`: its caches, its verdicts,
 `COSMIC_WORKER`) and what of the leg it runs (`part`: `all`, or the
-queue's `suite`, `product` or `format`). build/workflows_test.tl reads all four as
+queue's `suite`, `product` or `format`). build/workflows_test.tl reads each list as
 GitHub would.
 
 A newer manual run supersedes a branch's, but every main run finishes and

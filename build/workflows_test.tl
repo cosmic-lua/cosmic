@@ -339,7 +339,7 @@ local KIND_CHOICE <const> = "^%${{ fromJSON%(github%.event_name == 'pull_request
 local DRAFT_CHOICE <const> = "github%.event_name == 'pull_request' && %(github%.event%.pull_request%.draft && " ..
   "'(%[[^']-%])' || '(%[[^']-%])'%)"
 --- `include` with a pull request's choice of [`DRAFT_CHOICE`] made the ready one's list, and the draft's list, nil
---- where the two do not differ.
+--- where no draft choice is made.
 local function ready_include(include: string): string, string?
   local draft, ready = include:match(DRAFT_CHOICE)
   if ready == nil then return include, nil end
@@ -2419,8 +2419,7 @@ local function test_a_pull_request_runs_the_suites_and_the_light_check()
   local _, listed = step_running(steps, "driver.tl changed-paths")
   assert(based < moved and listed < moved, "a step fetches from origin after the tree moved, without the checkout's credentials")
   assert(names_of(platform_legs("pr")) == "linux-x86_64 macos-aarch64", "a pull request's legs")
-  -- GitHub gives no job a priority: a draft's every push leaves the few macOS runners to the queue, and marking
-  -- it ready runs the check again with macOS's leg.
+  -- Marking a pull request ready runs the check again, with macOS's leg (ci/README.md).
   assert(names_of(platform_legs("draft")) == "linux-x86_64", "a draft's legs")
   local types = table.concat(filters_of(ci["on"])["pull_request"]!.types or {}, " ")
   assert(types == "opened synchronize reopened ready_for_review", "marking a pull request ready does not run its check: " ..
