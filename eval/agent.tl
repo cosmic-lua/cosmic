@@ -18,7 +18,8 @@
 --- servers laid out in its own temp directory, which the agent's tools may not read: only a snippet reaches them, so
 --- a tool with no `--mcp` or no code mode fails it. The mcp-many-* tasks give eight servers, the one the task needs
 --- named for what it holds and not for its tools, so a run finds its tools among the others'. Where the evals run as root, the tool's path must be one every
---- user may search, as the server runs as a user of its own. Each run is a fresh copy, `bench-<tool>-<task>-*` in the temp directory, with
+--- user may search, as the server runs as a user of its own. Each run is a fresh copy, `bench-<tool>-<task>-*` in the temp directory, removed
+--- once the run is graded (as is each other directory the evals make), with
 --- `HOME` and `XDG_DATA_HOME` the tool's own under <out>/<tool>. ANTHROPIC_API_KEY, or HARNESS_ANTHROPIC_API_KEY,
 --- is the key. <out>/report.md is the report, <out>/results.json each run's numbers, and each run's answer, the
 --- agent's words, and the grade are in <out>/<tool>/<task>-<rep>.txt. [`eval/agent`] runs this on the bootstrap
@@ -146,6 +147,8 @@ local record Agent
     run: function(argv: {string}, cwd: string, env: {string: string}?, seconds: integer): Agent.Output
     --- A new, empty directory, its name starting `prefix`.
     fresh: function(prefix: string): string
+    --- Removes the directory `dir` that `fresh` made, and all in it.
+    discard: function(dir: string)
     --- What one run spent: the session of `tool` whose directory's name holds `marker`.
     spent: function(tool: string, marker: string): Agent.Spent?
     --- Writes `text` to the file `path`, making the directories it is in.
@@ -825,99 +828,126 @@ end
 --- environment; each run's answer goes to `write`. The results, in order.
 function Agent.execute(options: Agent.Options, system: Agent.System, key: string, base: {string: string},
                        write: function(string, string)): {Agent.Result}
-  local results: mut {Agent.Result} = {}
-  local truths: mut {string: string} = {}
-  for _, task in ipairs(options.tasks) do
-    local pristine = system.fresh("truth-" .. task.name .. "-")
-    system.run({ "cp", "-a", options.fixture .. "/.", pristine }, "/", nil, 600)
-    local script = task.truth
-    local first = task.servers and task.servers[1]
-    local site = task.site
-    local served: string? = if first ~= nil then first.data elseif site ~= nil then site.data else nil end
-    if served ~= nil then
-      local data = system.fresh("data-" .. task.name .. "-") .. "/data.tsv"
-      system.put(data, served)
-      script = "data=" .. quoted(data) .. "; " .. script
-    end
-    local truth = system.run({ "bash", "-c", script }, pristine, nil, 60)
-    truths[task.name] = Agent.lines_of(truth.stdout)
+  -- Every directory the evals make, each removed once it is used, and all that are left where a step raises.
+  local made: mut {string} = {}
+  local function sweep()
+    for _, dir in ipairs(made) do system.discard(dir) end
+    made = {}
   end
-  for _, tool in ipairs(options.tools) do
-    local data, home = options.out .. "/" .. tool.name .. "/data", options.out .. "/" .. tool.name .. "/home"
-    system.run({ "mkdir", "-p", data, home }, "/", nil, 60)
-    local env = env_of(base, key, data, home)
+  local own: Agent.System = {
+    run = system.run,
+    fresh = function(prefix: string): string
+      local dir = system.fresh(prefix)
+      made[#made + 1] = dir
+      return dir
+    end,
+    discard = system.discard,
+    spent = system.spent,
+    put = system.put,
+    serve = system.serve,
+  }
+  local ran, got = pcall(function(): {Agent.Result}
+    local results: mut {Agent.Result} = {}
+    local truths: mut {string: string} = {}
     for _, task in ipairs(options.tasks) do
-      for rep = 1, options.reps do
-        local marker = "bench-" .. tool.name .. "-" .. task.name .. "-"
-        local work = system.fresh(marker)
-        system.run({ "cp", "-a", options.fixture .. "/.", work }, "/", nil, 600)
-        local argv: mut {string} = { tool.path, "agent", "ask", "--model", options.model }
-        local effort = tool.effort
-        if effort ~= nil then
-          argv[#argv + 1] = "--effort"
-          argv[#argv + 1] = effort
-        end
-        local offered = tool.tools
-        if offered ~= nil then
-          argv[#argv + 1] = "--tools"
-          argv[#argv + 1] = offered
-        end
-        local servers = task.servers
-        if servers ~= nil then
-          local config = laid_out(system, servers, tool, "mcp-" .. tool.name .. "-" .. task.name .. "-")
-          argv[#argv + 1] = "--mcp"
-          argv[#argv + 1] = config
-        end
-        local prompt = task.prompt
-        local stop: function() = function() end
-        local unserved: string? = nil
-        local site = task.site
-        if site ~= nil then
-          local dir = system.fresh("site-" .. tool.name .. "-" .. task.name .. "-")
-          system.put(dir .. "/site.tl", site.source)
-          system.put(dir .. "/data.tsv", site.data)
-          local port, ended = system.serve({ tool.path, "--standalone", dir .. "/site.tl", dir .. "/data.tsv",
-            dir .. "/port" }, dir, dir .. "/port", 60)
-          if port == nil then
-            unserved = "the web API did not start: " .. tostring(ended)
-          else
-            stop = ended
-            argv[#argv + 1] = "--connect"
-            argv[#argv + 1] = "127.0.0.1:" .. port
-            prompt = (prompt:gsub("{url}", "http://127.0.0.1:" .. port))
+      local pristine = own.fresh("truth-" .. task.name .. "-")
+      own.run({ "cp", "-a", options.fixture .. "/.", pristine }, "/", nil, 600)
+      local script = task.truth
+      local first = task.servers and task.servers[1]
+      local site = task.site
+      local served: string? = if first ~= nil then first.data elseif site ~= nil then site.data else nil end
+      local data_dir: string? = nil
+      if served ~= nil then
+        data_dir = own.fresh("data-" .. task.name .. "-")
+        local data = data_dir .. "/data.tsv"
+        own.put(data, served)
+        script = "data=" .. quoted(data) .. "; " .. script
+      end
+      local truth = own.run({ "bash", "-c", script }, pristine, nil, 60)
+      truths[task.name] = Agent.lines_of(truth.stdout)
+      sweep()
+    end
+    for _, tool in ipairs(options.tools) do
+      local data, home = options.out .. "/" .. tool.name .. "/data", options.out .. "/" .. tool.name .. "/home"
+      own.run({ "mkdir", "-p", data, home }, "/", nil, 60)
+      local env = env_of(base, key, data, home)
+      for _, task in ipairs(options.tasks) do
+        for rep = 1, options.reps do
+          local marker = "bench-" .. tool.name .. "-" .. task.name .. "-"
+          local work = own.fresh(marker)
+          own.run({ "cp", "-a", options.fixture .. "/.", work }, "/", nil, 600)
+          local argv: mut {string} = { tool.path, "agent", "ask", "--model", options.model }
+          local effort = tool.effort
+          if effort ~= nil then
+            argv[#argv + 1] = "--effort"
+            argv[#argv + 1] = effort
           end
+          local offered = tool.tools
+          if offered ~= nil then
+            argv[#argv + 1] = "--tools"
+            argv[#argv + 1] = offered
+          end
+          local servers = task.servers
+          if servers ~= nil then
+            local config = laid_out(own, servers, tool, "mcp-" .. tool.name .. "-" .. task.name .. "-")
+            argv[#argv + 1] = "--mcp"
+            argv[#argv + 1] = config
+          end
+          local prompt = task.prompt
+          local stop: function() = function() end
+          local unserved: string? = nil
+          local site = task.site
+          if site ~= nil then
+            local dir = own.fresh("site-" .. tool.name .. "-" .. task.name .. "-")
+            own.put(dir .. "/site.tl", site.source)
+            own.put(dir .. "/data.tsv", site.data)
+            local port, ended = own.serve({ tool.path, "--standalone", dir .. "/site.tl", dir .. "/data.tsv",
+              dir .. "/port" }, dir, dir .. "/port", 60)
+            if port == nil then
+              unserved = "the web API did not start: " .. tostring(ended)
+            else
+              stop = ended
+              argv[#argv + 1] = "--connect"
+              argv[#argv + 1] = "127.0.0.1:" .. port
+              prompt = (prompt:gsub("{url}", "http://127.0.0.1:" .. port))
+            end
+          end
+          local follow_up = task.follow_up
+          local again: mut {string} = {}
+          for _, word in ipairs(argv) do again[#again + 1] = word end
+          argv[#argv + 1] = prompt
+          -- A run that raises still ends the web API.
+          local asked: Agent.Output = { code = 127, stdout = "", stderr = unserved or "" }
+          local ran, why = pcall(function()
+            if unserved ~= nil then return end
+            asked = own.run(argv, work, env, options.timeout)
+            if follow_up == nil or asked.code ~= 0 then return end
+            again[#again + 1] = follow_up
+            local next_asked = own.run(again, work, env, options.timeout)
+            asked = { code = next_asked.code, stdout = asked.stdout .. "\n--- follow-up\n" .. next_asked.stdout,
+              stderr = asked.stderr .. "\n--- follow-up\n" .. next_asked.stderr,
+              seconds = (asked.seconds or 0) + (next_asked.seconds or 0) }
+          end)
+          stop()
+          if not ran then error(why, 0) end
+          local truth = truths[task.name] or ""
+          local left = Agent.lines_of(own.run({ "bash", "-c", task.check }, work, nil, 60).stdout)
+          local grade = "fail"
+          if truth == "" then grade = "unfit" elseif left == truth then grade = "pass" end
+          write(options.out .. "/" .. tool.name .. "/" .. task.name .. "-" .. tostring(rep) .. ".txt",
+            "grade: " .. grade .. "\nexit: " .. tostring(asked.code) .. "\n--- left\n" .. left .. "\n--- truth\n" ..
+              truth .. "\n--- words\n" .. asked.stdout .. "\n--- stderr\n" .. asked.stderr .. "\n")
+          results[#results + 1] = { tool = tool.name, task = task.name, rep = rep, grade = grade,
+            spent = own.spent(tool.name, work:match("[^/]+$") or marker), wall = asked.seconds or 0 }
+          sweep()
         end
-        local follow_up = task.follow_up
-        local again: mut {string} = {}
-        for _, word in ipairs(argv) do again[#again + 1] = word end
-        argv[#argv + 1] = prompt
-        -- A run that raises still ends the web API.
-        local asked: Agent.Output = { code = 127, stdout = "", stderr = unserved or "" }
-        local ran, why = pcall(function()
-          if unserved ~= nil then return end
-          asked = system.run(argv, work, env, options.timeout)
-          if follow_up == nil or asked.code ~= 0 then return end
-          again[#again + 1] = follow_up
-          local next_asked = system.run(again, work, env, options.timeout)
-          asked = { code = next_asked.code, stdout = asked.stdout .. "\n--- follow-up\n" .. next_asked.stdout,
-            stderr = asked.stderr .. "\n--- follow-up\n" .. next_asked.stderr,
-            seconds = (asked.seconds or 0) + (next_asked.seconds or 0) }
-        end)
-        stop()
-        if not ran then error(why, 0) end
-        local truth = truths[task.name] or ""
-        local left = Agent.lines_of(system.run({ "bash", "-c", task.check }, work, nil, 60).stdout)
-        local grade = "fail"
-        if truth == "" then grade = "unfit" elseif left == truth then grade = "pass" end
-        write(options.out .. "/" .. tool.name .. "/" .. task.name .. "-" .. tostring(rep) .. ".txt",
-          "grade: " .. grade .. "\nexit: " .. tostring(asked.code) .. "\n--- left\n" .. left .. "\n--- truth\n" ..
-            truth .. "\n--- words\n" .. asked.stdout .. "\n--- stderr\n" .. asked.stderr .. "\n")
-        results[#results + 1] = { tool = tool.name, task = task.name, rep = rep, grade = grade,
-          spent = system.spent(tool.name, work:match("[^/]+$") or marker), wall = asked.seconds or 0 }
       end
     end
-  end
-  return results
+    return results
+  end)
+  sweep()
+  if not ran then error(got, 0) end
+  return got
 end
 
 --- What the session of a run spent, from `db`: the newest session whose directory's name holds `marker`.
@@ -1120,6 +1150,10 @@ local function real(out: string): Agent.System
   local function fresh(prefix: string): string
     return (assert(Fs.mkdtemp(prefix)))
   end
+  -- A directory that cannot be removed is left, rather than end the evals and lose the runs graded so far.
+  local function discard(dir: string)
+    local _, _ = Fs.remove_tree(dir)
+  end
   local function spent(tool: string, marker: string): Agent.Spent?
     local db, _ = Sqlite.open(out .. "/" .. tool .. "/data/cosmic/agent/sessions.db")
     if db == nil then return nil end
@@ -1153,7 +1187,7 @@ local function real(out: string): Agent.System
     stop()
     return nil, "it did not serve in " .. tostring(seconds) .. " s"
   end
-  return { run = run, fresh = fresh, spent = spent, put = put, serve = serve }
+  return { run = run, fresh = fresh, discard = discard, spent = spent, put = put, serve = serve }
 end
 
 --- Runs the evals `argv` asks for: 0 when every graded run passed, 1 when one did not, 2 for a bad command line.
