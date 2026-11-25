@@ -91,6 +91,8 @@ end
 --- others.
 local TEXT_ROLES <const>: {string: Roles.Role} = {
   [","] = "comma", [":"] = "colon", ["?"] = "question", ["."] = "dot", ["("] = "call_open", [")"] = "paren_close",
+  -- The `!` of `e!` closes on `e`, as a call's `)` does.
+  ["!"] = "paren_close",
 }
 
 --- The kinds of node that are members of a record, an interface or an enum.

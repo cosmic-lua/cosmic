@@ -17,15 +17,19 @@ exits 4, the status of code that did not compile. It takes the library by `requi
 literal name, as a file does, and the tool's own modules the same way;
 nothing is bound for it. The words after
 the chunk are its `...`, each a `string?`, and an integer it returns is
-the exit code.
+the exit code. A table it returns is printed as JSON, and it exits 0.
+A name the chunk never uses is let pass: a run is not a review, and
+`cosmic fix` still refuses it in a file.
 
 ```sh
 cosmic -e 'print(select("#", ...), ...)' a b
 cosmic -e 'return 3'  # exits 3
+cosmic -e 'return { n = 1 }'
 ```
 
 ```output
 2	a	b
+{"n":1}
 ```
 
 A chunk prints only what it prints. It gets no summary, as a file run

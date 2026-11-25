@@ -172,6 +172,7 @@ local CASES <const>: {Case} = {
   { code = "method_needs_self", source = "local class C\n  function m(a) end\nend", y = 2, x = 13, says = "first parameter of a method is `self`", fix = "`function m(self, ...)`" },
   { code = "too_deep", source = "local x = " .. ("("):rep(250) .. "1", y = 1, x = 210, says = "more than 200 levels of nesting", fix = "move an inner block into a function" },
   { code = "label_or_goto", source = "goto done", y = 1, x = 1, says = "`goto done` is not in the grammar", fix = "write `continue`" },
+  { code = "semicolon", source = "t = { 1; 2 }", y = 1, x = 8, says = "`;` separates the items of a table", fix = "write `,`" },
   { code = "label_or_goto", source = "goto = 1", y = 1, x = 1, says = "`goto` is not in the grammar", fix = "write `continue`" },
 }
 
