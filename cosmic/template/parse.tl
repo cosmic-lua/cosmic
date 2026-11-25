@@ -15,7 +15,7 @@
 ---                                        else, if any, runs when there is none
 ---     {{range $x := P}} ..               the same, `$x` the element too
 ---     {{range $i, $x := P}} ..           and `$i` its index, from 1
----     {{with P}} .. {{else}} .. {{end}}  dot is the value, when it is truthy
+---     {{with P}} .. {{else}} .. {{end}}  dot is the value, when it is filled
 ---
 --- where a pipeline `P` is a head, a path of fields from it, and then
 --- stages `| import.path.func`, each applied to what is before it. The
