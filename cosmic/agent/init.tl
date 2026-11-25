@@ -151,12 +151,12 @@ local record Agent
     base_url?: string
     --- The tools the model is offered (cosmic.agent.tools); [`Tools.default`]'s, with no bash, by default.
     tools?: {Tools.Tool}
-    --- The system prompt; [`Prompt.build`]'s for `cwd` and `tools` by default,
-    --- which names no MCP server: build one with `servers` and `tools` when you give `mcp`.
+    --- The system prompt; [`Prompt.build`]'s for `cwd` and `tools` by default.
     system?: string
-    --- What the system prompt is followed by, in a block past its cache mark; [`Prompt.where`]'s for `cwd`
-    --- by default, "" for nothing. The working directory is here, not in `system`, so `system` is the same
-    --- in each directory and read from the cache that a session elsewhere wrote.
+    --- What the system prompt is followed by, in a block past its cache mark; [`Prompt.where`]'s for `cwd` and
+    --- the servers of `mcp` by default, "" for nothing. The working directory and the servers are here, not in
+    --- `system`, so `system` is the same in each directory and for each set of servers, and read from the cache
+    --- that a session elsewhere wrote.
     where?: string
     --- What opens a request; Http.open by default.
     send?: Send
@@ -1416,6 +1416,14 @@ local class AgentSession is Agent.Session
   end
 end
 
+--- The servers of `set` in its order; none where there is no set.
+local function servers_of(set?: AgentMcp.Set): {AgentMcp.Server}
+  local out: mut {AgentMcp.Server} = {}
+  if set == nil then return out end
+  for _, name in ipairs(set.names) do out[#out + 1] = assert(set.servers[name]) end
+  return out
+end
+
 --- A new agent, from `options`: a session kept where `options.db` is, or
 --- nowhere. A kept session's tool calls left unanswered are not settled
 --- here: call `settle` before its next prompt.
@@ -1431,7 +1439,7 @@ function Agent.new(options: Agent.Options): Agent.Session
     model = options.model or Agent.MODELS.opus, effort = options.effort or Agent.EFFORT, sign = options.sign, base_url = options.base_url,
     tools = tools,
     system = options.system or Prompt.build(options.cwd, Prompt.contexts(options.cwd), { tools = tools }),
-    where = options.where or Prompt.where(options.cwd), cwd = options.cwd,
+    where = options.where or Prompt.where(options.cwd, servers_of(options.mcp)), cwd = options.cwd,
     send = options.send, sandbox = options.sandbox, jobs = options.jobs, worker = options.worker,
     mcp = options.mcp, build = options.build, messages = held, db = options.db, id = options.id,
     restarts = options.restarts or 0, ended = options.ended == true, stopped = false, spent = false,
