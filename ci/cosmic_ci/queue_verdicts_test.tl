@@ -276,6 +276,9 @@ local function test_the_newest_failed_try_of_the_pull_request_is_named()
     end
     if path == "repos/o/r/compare/" .. OTHER .. "...main" then return '{"status":"ahead"}' end
     if path == "repos/o/r/compare/" .. AHEAD .. "...main" then return '{"status":"diverged"}' end
+    if path == "repos/o/r/actions/caches?ref=refs/heads/" .. mine .. "&per_page=1" then
+      return '{"total_count":0}'
+    end
     if path == "repos/o/r/compare/" .. SHA .. "..." .. NOW then return change("aa") end
     for _, id in ipairs({ 5, 8, 11, 15 }) do
       if path == "repos/o/r/compare/" .. OTHER .. "..." .. tried_sha(id) then
@@ -300,14 +303,15 @@ local function test_the_newest_failed_try_of_the_pull_request_is_named()
 end
 
 --- A change GitHub lists in part, or with a file of no content named,
---- or that renames another file into the same one, is not this run's.
+--- or that renames another file into the same one, is not this run's;
+--- nor is a run whose ref holds a cache.
 local function test_a_change_that_cannot_be_matched_is_not_taken()
   local mine = "gh-readonly-queue/main/pr-41-" .. OTHER
   local many: mut {string} = {}
   for i = 1, 300 do
     many[i] = '{"filename":"f' .. tostring(i) .. '","status":"added","sha":"aa"}'
   end
-  local answers: {string:string} = {
+  local answers: mut {string:string} = {
     ["no files"] = '{"status":"ahead"}',
     ["no blob"] = '{"status":"ahead","files":[{"filename":"b.tl","status":"added"},' ..
       '{"filename":"a.tl","status":"modified","sha":"aa"}]}',
@@ -316,9 +320,13 @@ local function test_a_change_that_cannot_be_matched_is_not_taken()
     ["cut"] = '{"status":"ahead","files":[' .. table.concat(many, ",") .. ']}',
     ["behind"] = '{"status":"behind","files":[]}',
   }
-  for _, case in ipairs({ "no files", "no blob", "another rename", "cut", "behind" }) do
+  answers["cached"] = change("aa")
+  for _, case in ipairs({ "no files", "no blob", "another rename", "cut", "behind", "cached" }) do
     local fake = GithubFake.new(function(path: string, _nth: integer): string?
       if path == FAILED then return '{"workflow_runs":[' .. run(5, tried_sha(5), mine) .. ']}' end
+      if path == "repos/o/r/actions/caches?ref=refs/heads/" .. mine .. "&per_page=1" then
+        return if case == "cached" then '{"total_count":1}' else '{"total_count":0}' end
+      end
       if path == "repos/o/r/compare/" .. OTHER .. "...main" then return '{"status":"ahead"}' end
       if path == "repos/o/r/compare/" .. SHA .. "..." .. NOW then
         if case == "another rename" then

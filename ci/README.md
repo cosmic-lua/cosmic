@@ -569,7 +569,10 @@ and a run restores its own ref's caches before main's; a cache there was
 saved by code the queue ran, whose archive a restore extracts over the
 checkout. So every job that restores a cache waits on the `queue-ref`
 job, which restores none and fails a queue run whose ref holds one
-(`driver.tl queue-ref-caches`).
+(`driver.tl queue-ref-caches`); the `ci` gate lists them again once
+every job has run, for a cache written while the run ran, and a failed
+try is taken only from a run whose ref holds none. A cache GitHub
+evicted before the second listing goes unseen.
 The queue's format job, where its check passed, seals the memo of the
 tree checks (the shared rows of `build/check_memo.tl`, in the cache
 directory: `driver.tl checks-seal` keeps the rows the run used, in one

@@ -332,9 +332,9 @@ local KIND_CHOICE <const> = "^%${{ fromJSON%(github%.event_name == 'pull_request
 --- What every run but a pull request's runs: the merge queue, main's
 --- push, the scheduled and a manual run.
 local PR_SKIPS <const> = "github.event_name != 'pull_request'"
---- How a job that restores a cache starts: only where the merge-queue
---- ref's check (`queue-ref`) did not fail.
-local QUEUE_REF <const> = "!cancelled() && needs.queue-ref.result != 'failure'"
+--- How a job that restores a cache starts: in the merge queue, only where
+--- the merge-queue ref's check (`queue-ref`) passed.
+local QUEUE_REF <const> = "!cancelled() && (github.event_name != 'merge_group' || needs.queue-ref.result == 'success')"
 --- The parts of a leg ([`expand`]'s `part`) a step runs in: a whole leg
 --- (`all`) runs every part, and the queue runs a leg as its `suite` and
 --- its `product` in two jobs at once, beside linux-x86_64's `format`.
@@ -1741,7 +1741,7 @@ local function test_only_main_saves_and_only_the_queue_relays_to_main()
   assert(map_of(ci.env)["COSMIC_CI_SAVES"] == MAIN_SAVES, "the saves' condition: " .. tostring(map_of(ci.env)["COSMIC_CI_SAVES"]))
   for name, job in pairs(ci.jobs) do
     local actions = map_of(job.permissions)["actions"]
-    assert(actions == nil or ((name == "platform" or name == "queue-ref") and actions == "read"), name .. " holds actions permission")
+    assert(actions == nil or ((name == "platform" or name == "queue-ref" or name == "ci") and actions == "read"), name .. " holds actions permission")
     local gated: mut {string: boolean} = {}
     for _, step in ipairs(job.steps) do
       local condition = step["if"] or ""
@@ -1823,15 +1823,21 @@ local function test_a_queue_run_refuses_its_own_refs_caches()
       local uses = step.uses or ""
       restores = restores or uses:find("actions/cache", 1, true) ~= nil or uses:find("cosmic-driver", 1, true) ~= nil
     end
-    -- The gate restores only after its first step, which fails unless every job passed.
-    if restores and name ~= "ci" then
+    if restores then
       local needs = needs_of(job)
       local waits = false
       for _, each in ipairs(needs) do waits = waits or each == "queue-ref" end
-      assert(waits and (job["if"] or ""):find(QUEUE_REF, 1, true) == 1,
+      local condition = job["if"] or ""
+      local rest = condition:sub(#QUEUE_REF + 1)
+      assert(waits and condition:sub(1, #QUEUE_REF) == QUEUE_REF and (rest == "" or rest:sub(1, 4) == " && ") and
+          rest:find("||", 1, true) == nil,
         name .. " restores a cache without waiting on the queue ref's check")
     end
   end
+  -- The gate, which restores none, lists the ref's caches again once every job has restored its own.
+  local recheck = step_named(job_of(jobs, "ci").steps, "refuse a cache the merge-queue ref saved, after every job")
+  assert(recheck["if"] == "github.event_name == 'merge_group'" and recheck["continue-on-error"] == nil and
+      (recheck.run or ""):find("driver.tl queue-ref-caches", 1, true) ~= nil, "the gate checks the queue ref's caches otherwise")
 end
 
 local function relay_workflow(): Workflow
@@ -2109,14 +2115,16 @@ end
 local function test_the_gate_needs_every_job_and_compares_the_legs_products()
   local jobs = ci_workflow().jobs
   local gate = job_of(jobs, "ci")
-  assert(table.concat(needs_of(gate), ",") == "platform,checked,narrowing,driver" and gate["if"] == "always()",
+  assert(table.concat(needs_of(gate), ",") == "queue-ref,platform,checked,narrowing,driver" and gate["if"] == "always()",
     "the gate needs " .. table.concat(needs_of(gate), ","))
   local env = map_of(assert(gate.steps[1]).env)
   assert(env["RESULT"] == "${{ needs.platform.result }}" and
       env["CHECKED"] == "${{ github.event_name == 'pull_request' && 'success' || needs.checked.result }}" and
       env["NARROWING"] == "${{ github.event_name == 'pull_request' && 'success' || needs.narrowing.result }}" and
       env["DRIVER"] == "${{ github.event_name == 'merge_group' && needs.driver.result || 'success' }}" and
-      (assert(gate.steps[1]).run or ""):find("[ \"$DRIVER\" = success ]", 1, true) ~= nil,
+      env["QUEUE_REF"] == "${{ github.event_name == 'merge_group' && needs.queue-ref.result || 'success' }}" and
+      (assert(gate.steps[1]).run or ""):find("[ \"$DRIVER\" = success ]", 1, true) ~= nil and
+      (assert(gate.steps[1]).run or ""):find("[ \"$QUEUE_REF\" = success ]", 1, true) ~= nil,
     "the gate reads other results")
   local compare = step_named(gate.steps, "compare the Cosmic bytes executed on every native host")
   assert(compare["if"] == PR_SKIPS and

@@ -259,12 +259,31 @@ local function change_of(host: Github.Host, repository: string, base: string, he
   return table.concat(lines, "\n")
 end
 
+--- What a listing of caches is read for.
+local record CacheList
+  total_count?: any
+end
+local CACHE_LIST <const> = Shape.record_of("CacheList")
+
+--- How many caches `ref` holds in `repository`; nil where GitHub does
+--- not say.
+local function caches_of(host: Github.Host, repository: string, ref: string): integer?
+  local pages = Github.ask(host, "repos/" .. repository .. "/actions/caches?ref=" .. ref .. "&per_page=1", false,
+    LOOKUP_SECONDS)
+  local listed, _ = CACHE_LIST:decode_into((pages or {})[1] or "")
+  if listed == nil then return nil end
+  local total = listed.total_count
+  if total is integer then return total end
+  return nil
+end
+
 --- A failed run of the pull request: its id, the commit its entry was
---- put on and its own commit.
+--- put on, its own commit and its ref.
 local record Tried
   id: integer
   on: string
   sha: string
+  ref: string
 end
 
 --- `item`, a run on the list, where it is a merge-queue run in
@@ -280,7 +299,7 @@ local function tried_run_of(item: any, repository: string, entry: string, own: i
   if from == nil or from.full_name ~= repository then return nil end
   local id, sha = run.id, run.head_sha
   if id is integer and id ~= own and sha is string and Github.is_commit(sha) then
-    return { id = id, on = of.on, sha = sha }
+    return { id = id, on = of.on, sha = sha, ref = "refs/heads/" .. branch }
   end
   return nil
 end
@@ -341,7 +360,12 @@ function QueueVerdicts.find_tried(env: {string:string}, host: Github.Host): inte
     if on_main(host, repository, tried.on) then
       absent = "run " .. tostring(id) .. " tested another change than this run's"
       if change_of(host, repository, tried.on, tried.sha) == mine then
-        held, absent = holds_artifact(host, repository, id, name)
+        -- A run whose ref holds a cache may have restored one that code
+        -- which never merges wrote ([`QueueVerdicts.ref_caches`]).
+        absent = "run " .. tostring(id) .. "'s ref holds a cache, or GitHub does not say"
+        if caches_of(host, repository, tried.ref) == 0 then
+          held, absent = holds_artifact(host, repository, id, name)
+        end
       end
     end
     if held then
@@ -580,12 +604,6 @@ function QueueVerdicts.key_command(argv: {string}): integer
   return QueueVerdicts.key(argv[1] or ".", argv[2] or "", Github.live(env))
 end
 
---- What a listing of caches is read for.
-local record CacheList
-  total_count?: any
-end
-local CACHE_LIST <const> = Shape.record_of("CacheList")
-
 --- `driver.tl queue-ref-caches`: fails a merge-queue run whose own ref,
 --- GITHUB_REF in GITHUB_REPOSITORY, holds a cache. No queue run saves one
 --- (only main's push and scheduled runs do), but a queue ref's name comes
@@ -606,16 +624,8 @@ function QueueVerdicts.ref_caches(env: {string:string}, host: Github.Host): inte
         "and a repository\n")
     return 2
   end
-  local pages = Github.ask(host, "repos/" .. repository .. "/actions/caches?ref=" .. ref .. "&per_page=1", false,
-    LOOKUP_SECONDS)
-  local listed, _ = CACHE_LIST:decode_into((pages or {})[1] or "")
-  local count = 0
-  local said = false
-  if listed ~= nil then
-    local total = listed.total_count
-    if total is integer then count, said = total, true end
-  end
-  if not said then
+  local count = caches_of(host, repository, ref)
+  if count == nil then
     local _, _ = Fs.put(Fs.stderr, "queue-ref-caches: GitHub did not say which caches " .. ref ..
         " holds; this run stands on none it cannot vouch for\n")
     return 1
