@@ -4,7 +4,7 @@
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
-local stand_in = require("build.stand_in")
+local StandIn = require("cosmic.stand_in")
 local test_child = require("build.test_child")
 local this_program = require("build.this_program")
 
@@ -15,7 +15,7 @@ local record must_confine_fixture
     text: string
   end
 
-  --- A stand-in program built under `tmp` (build/stand_in.tl), which a child confined to itself alone can start.
+  --- A stand-in program built under `tmp` ([`cosmic.stand_in`]), which a child confined to itself alone can start.
   probe: function(tmp: string): string
 
   --- Runs the child `name` of build/must_confine_children_test.tl in this program with `args`, in `tmp`, with `set` added
@@ -30,7 +30,7 @@ local record must_confine_fixture
 end
 
 function must_confine_fixture.probe(tmp: string): string
-  return (assert(stand_in.build(tmp .. "/stand-in")))
+  return (assert(StandIn.build(tmp .. "/stand-in")))
 end
 
 function must_confine_fixture.run(tmp: string, name: string, args: {string}, set?: {string:string}): must_confine_fixture.Said

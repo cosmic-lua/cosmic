@@ -6,7 +6,7 @@ local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
-local stand_in = require("build.stand_in")
+local StandIn = require("cosmic.stand_in")
 local confine = require("build.confine")
 
 local record fixture
@@ -47,7 +47,7 @@ function fixture.project(tmp: string, marker: string, probe?: string): string
   assert(Fs.mkdirs(root .. "/suite"))
   if probe ~= nil then
     assert(Fs.mkdirs(root .. "/bin"))
-    assert(stand_in.place(probe, root .. "/bin/probe"))
+    assert(StandIn.place(probe, root .. "/bin/probe"))
   end
   local hang = [[
 local Child = require("cosmic.child")

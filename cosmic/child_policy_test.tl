@@ -1,6 +1,6 @@
 --- [`Child.start`]'s `policy` (cosmic/child.tl) on a live child: the kernel's
 --- own verdict on the Landlock ruleset, the seccomp filter and the rlimits
---- a policy is made into. The child is a stand-in (build/stand_in.tl), a
+--- a policy is made into. The child is a stand-in ([`cosmic.stand_in`]), a
 --- static program that does what its script says, so a refusal shows as a
 --- command that fails. They need a sandbox (`requires`): where the platform
 --- has none they are not applicable, and where this host's kernel gives no
@@ -13,7 +13,7 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local searchable = require("build.searchable")
-local stand_in = require("build.stand_in")
+local StandIn = require("cosmic.stand_in")
 local Sandbox = require("cosmic.sandbox")
 
 --- The temporary directory and the environment the tests read.
@@ -59,7 +59,7 @@ local function itself(program: string, more?: {Sandbox.Grant}): {Sandbox.Grant}
 end
 
 local function test_a_granted_path_is_read_and_its_sibling_is_not(tmp: string)
-  local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
+  local probe = assert(StandIn.build(searchable.open(tmp) .. "/stand-in"))
   assert(Fs.mkdirs(tmp .. "/ro"))
   assert(Fs.mkdirs(tmp .. "/other"))
   assert(Fs.write(tmp .. "/ro/a", "alpha\n"))
@@ -75,7 +75,7 @@ local function test_a_granted_path_is_read_and_its_sibling_is_not(tmp: string)
 end
 
 local function test_a_relative_grant_is_relative_to_the_childs_directory(tmp: string)
-  local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
+  local probe = assert(StandIn.build(searchable.open(tmp) .. "/stand-in"))
   assert(Fs.mkdirs(tmp .. "/work/ro"))
   assert(Fs.mkdirs(tmp .. "/work/shut"))
   assert(Fs.write(tmp .. "/work/ro/a", "alpha\n"))
@@ -88,7 +88,7 @@ local function test_a_relative_grant_is_relative_to_the_childs_directory(tmp: st
 end
 
 local function test_a_grant_of_a_path_that_is_not_there_fails_naming_it(tmp: string)
-  local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
+  local probe = assert(StandIn.build(searchable.open(tmp) .. "/stand-in"))
   local policy: Sandbox.Policy = { grants = itself(probe, { { path = tmp .. "/absent", letters = "r" } }) }
   local result, why = Child.run({ probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = policy })
   assert(result == nil)
@@ -100,13 +100,13 @@ local function test_a_grant_of_a_path_that_is_not_there_fails_naming_it(tmp: str
 end
 
 local function test_a_grant_on_the_directory_above_a_program_gives_it_both_r_and_x(tmp: string)
-  local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
+  local probe = assert(StandIn.build(searchable.open(tmp) .. "/stand-in"))
   local above = under(probe, { grants = { { path = tmp, letters = "rx" } } }, "print hi")
   assert(above.code == 0 and above.said == "hi\n", above.said)
 end
 
 local function test_an_interpreter_that_is_granted_too_runs_the_script(tmp: string)
-  local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
+  local probe = assert(StandIn.build(searchable.open(tmp) .. "/stand-in"))
   assert(Fs.mkdirs(tmp .. "/scripts"))
   assert(Fs.write(tmp .. "/scripts/run", "#!" .. probe .. "\nprint scripted\n", 493))
   local policy: Sandbox.Policy = { grants = { { path = tmp .. "/scripts", letters = "rx" },
@@ -121,7 +121,7 @@ local function test_an_interpreter_that_is_granted_too_runs_the_script(tmp: stri
 end
 
 local function test_a_program_named_through_a_link_is_granted_by_what_it_leads_to(tmp: string)
-  local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
+  local probe = assert(StandIn.build(searchable.open(tmp) .. "/stand-in"))
   assert(Fs.mkdirs(tmp .. "/bin"))
   assert(Fs.symlink(probe, tmp .. "/bin/tool"))
   -- Named through a link, the grant it needs is of what the link leads to.
@@ -136,7 +136,7 @@ local function test_a_program_named_through_a_link_is_granted_by_what_it_leads_t
 end
 
 local function test_the_environment_is_the_policys_alone(tmp: string)
-  local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
+  local probe = assert(StandIn.build(searchable.open(tmp) .. "/stand-in"))
   local passed = sys.getenv("TMPDIR")
   assert(passed ~= nil, "the test has no TMPDIR to pass through")
   local hidden: string?
@@ -161,7 +161,7 @@ local function test_the_environment_is_the_policys_alone(tmp: string)
 end
 
 local function test_tmp_is_made_writable_named_by_tmpdir_and_removed(tmp: string)
-  local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
+  local probe = assert(StandIn.build(searchable.open(tmp) .. "/stand-in"))
   local policy: Sandbox.Policy = { grants = itself(probe), tmp = true }
   local out = under(probe, policy,
     "env-of TMPDIR; write $TMPDIR/note hello; cat $TMPDIR/note; mkdirs $TMPDIR/sub/deeper; create $TMPDIR/sub/deeper/f x")
@@ -189,7 +189,7 @@ local function sandbox_directories(): {string}
 end
 
 local function test_tmp_is_removed_after_a_child_ended_for_its_timeout(tmp: string)
-  local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
+  local probe = assert(StandIn.build(searchable.open(tmp) .. "/stand-in"))
   local policy: Sandbox.Policy = { grants = itself(probe), tmp = true }
   local handle, why = Child.start({ probe, "write $TMPDIR/f x; sleep-forever" },
     { timeout_ns = Child.FOREVER, policy = policy, stdout = "null", stderr = "null" })
@@ -205,7 +205,7 @@ local function test_tmp_is_removed_after_a_child_ended_for_its_timeout(tmp: stri
 end
 
 local function test_a_start_that_fails_leaves_no_tmp_behind(tmp: string)
-  local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
+  local probe = assert(StandIn.build(searchable.open(tmp) .. "/stand-in"))
   local policy: Sandbox.Policy = { grants = itself(probe, { { path = tmp .. "/absent", letters = "r" } }), tmp = true }
   local none, why = Child.start({ probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = policy })
   assert(none == nil)
@@ -217,7 +217,7 @@ local function test_a_start_that_fails_leaves_no_tmp_behind(tmp: string)
 end
 
 local function test_limits_default_and_as_given(tmp: string)
-  local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
+  local probe = assert(StandIn.build(searchable.open(tmp) .. "/stand-in"))
   local script = "rlimit nofile; rlimit core; rlimit fsize; rlimit cpu"
   local default = under(probe, { grants = itself(probe) }, script)
   local hard = assert(sys.getrlimit(sys.RLIMIT_NOFILE)).hard
@@ -235,7 +235,7 @@ local function test_limits_default_and_as_given(tmp: string)
 end
 
 local function test_a_limit_above_this_processs_hard_limit_fails_the_start(tmp: string)
-  local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
+  local probe = assert(StandIn.build(searchable.open(tmp) .. "/stand-in"))
   local ceiling = 1 << 20
   local held = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
   -- A hard limit of none leaves nothing to exceed: give this process one
@@ -260,7 +260,7 @@ local function test_a_limit_above_this_processs_hard_limit_fails_the_start(tmp: 
 end
 
 local function test_without_fattr_no_promise_lets_a_child_change_a_mode(tmp: string)
-  local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
+  local probe = assert(StandIn.build(searchable.open(tmp) .. "/stand-in"))
   local file = tmp .. "/f"
   assert(Fs.write(file, "x"))
   searchable.share(file)
@@ -276,7 +276,7 @@ local function test_fattr_lets_a_child_change_a_mode_of_its_own_file(tmp: string
     Test.skip("this process is root, whose child owns none of the host's files")
     return
   end
-  local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
+  local probe = assert(StandIn.build(searchable.open(tmp) .. "/stand-in"))
   local file = tmp .. "/f"
   assert(Fs.write(file, "x"))
   searchable.share(file)
@@ -286,7 +286,7 @@ local function test_fattr_lets_a_child_change_a_mode_of_its_own_file(tmp: string
 end
 
 local function test_only_the_descriptors_named_reach_the_program(tmp: string)
-  local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
+  local probe = assert(StandIn.build(searchable.open(tmp) .. "/stand-in"))
   assert(Fs.write(tmp .. "/f", "x"))
   local kept = assert(sys.open(tmp .. "/f", sys.O_RDONLY))
   local dropped = assert(sys.open(tmp .. "/f", sys.O_RDONLY))
@@ -301,7 +301,7 @@ local function test_only_the_descriptors_named_reach_the_program(tmp: string)
 end
 
 local function test_the_tmp_directory_is_absolute_and_usable_from_another_directory(tmp: string)
-  local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
+  local probe = assert(StandIn.build(searchable.open(tmp) .. "/stand-in"))
   assert(Fs.mkdirs(tmp .. "/elsewhere"))
   local out = under(probe, { grants = itself(probe), tmp = true },
     "env-of TMPDIR; write $TMPDIR/note hi; cat $TMPDIR/note", { timeout_ns = Child.FOREVER, cwd = tmp .. "/elsewhere" })

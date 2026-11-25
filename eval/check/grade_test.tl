@@ -7,7 +7,7 @@ local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local Grader = require("eval.check.grade")
-local stand_in = require("build.stand_in")
+local StandIn = require("cosmic.stand_in")
 
 --- A build database with the two tables the evidence reads: one input
 --- per path, and one run per passing or failing test.
@@ -97,10 +97,10 @@ end
 local function test_a_failed_build_does_not_run_an_earlier_binary(dir: string)
   assert(Fs.mkdirs(dir .. "/bin"))
   assert(Fs.mkdirs(dir .. "/project/o/bin"))
-  local probe = assert(stand_in.build(dir .. "/stand-in"))
-  assert(stand_in.place(probe, dir .. "/bin/cosmic",
+  local probe = assert(StandIn.build(dir .. "/stand-in"))
+  assert(StandIn.place(probe, dir .. "/bin/cosmic",
     "[build] eprint build: FAIL\n[build] exit 1\nexit 0"))
-  assert(stand_in.place(probe, dir .. "/project/o/bin/notes", "print 1"))
+  assert(StandIn.place(probe, dir .. "/project/o/bin/notes", "print 1"))
   local status, said = graded("notes", dir)
   assert(status == 1, said)
   -- The stand-in cosmic ran, and failed the build alone.
@@ -117,10 +117,10 @@ end
 local function test_a_build_that_did_not_write_notes_does_not_run_an_earlier_one(dir: string)
   assert(Fs.mkdirs(dir .. "/bin"))
   assert(Fs.mkdirs(dir .. "/project/o/bin"))
-  local probe = assert(stand_in.build(dir .. "/stand-in"))
-  assert(stand_in.place(probe, dir .. "/bin/cosmic",
+  local probe = assert(StandIn.build(dir .. "/stand-in"))
+  assert(StandIn.place(probe, dir .. "/bin/cosmic",
     "[build] print build: PASS (no executable: no cmd/<name>/main.tl)\nexit 0"))
-  assert(stand_in.place(probe, dir .. "/project/o/bin/notes", "print 1"))
+  assert(StandIn.place(probe, dir .. "/project/o/bin/notes", "print 1"))
   local status, said = graded("notes", dir)
   assert(status == 1, said)
   -- The stand-in cosmic ran, and passed the build without naming notes.
@@ -133,10 +133,10 @@ end
 --- The grader asks the arena's cosmic where it builds the project, and
 --- takes the project's o/ from one that prints nothing.
 local function test_the_build_directory_is_the_arena_cosmics_answer(dir: string)
-  local probe = assert(stand_in.build(dir .. "/stand-in"))
-  assert(stand_in.place(probe, dir .. "/answers", "print /elsewhere/trees/key"))
+  local probe = assert(StandIn.build(dir .. "/stand-in"))
+  assert(StandIn.place(probe, dir .. "/answers", "print /elsewhere/trees/key"))
   assert(Grader.build_directory(dir .. "/answers", dir .. "/project") == "/elsewhere/trees/key")
-  assert(stand_in.place(probe, dir .. "/quiet", "exit 0"))
+  assert(StandIn.place(probe, dir .. "/quiet", "exit 0"))
   assert(Grader.build_directory(dir .. "/quiet", dir .. "/project") == dir .. "/project/o")
 end
 
@@ -167,11 +167,11 @@ end
 local function test_a_failed_build_runs_no_binary_for_any_task(dir: string)
   assert(Fs.mkdirs(dir .. "/bin"))
   assert(Fs.mkdirs(dir .. "/project/o/bin"))
-  local probe = assert(stand_in.build(dir .. "/stand-in"))
-  assert(stand_in.place(probe, dir .. "/bin/cosmic",
+  local probe = assert(StandIn.build(dir .. "/stand-in"))
+  assert(StandIn.place(probe, dir .. "/bin/cosmic",
     "[build] eprint build: FAIL\n[build] exit 1\nexit 0"))
   for _, name in ipairs({ "pack", "ledger", "kv", "jobs", "mirror", "relay" }) do
-    assert(stand_in.place(probe, dir .. "/project/o/bin/" .. name, "print 1"))
+    assert(StandIn.place(probe, dir .. "/project/o/bin/" .. name, "print 1"))
     local status, said = graded(name, dir)
     assert(status == 1, said)
     assert(said:find("skip " .. dir .. "/project/o/bin/" .. name .. ": cosmic build failed", 1, true), said)
@@ -223,8 +223,8 @@ local function graded_with_journal(dir: string, journal: string?): integer, stri
   if journal ~= nil then
     assert(Fs.write(dir .. "/project/JOURNAL.md", journal))
   end
-  local probe = assert(stand_in.build(dir .. "/stand-in"))
-  assert(stand_in.place(probe, dir .. "/bin/cosmic",
+  local probe = assert(StandIn.build(dir .. "/stand-in"))
+  assert(StandIn.place(probe, dir .. "/bin/cosmic",
     "[fix] exists JOURNAL.md 1\nexit 0"))
   return graded("kv", dir)
 end
@@ -337,8 +337,8 @@ local function graded_api(dir: string, lines: {string}, code: integer,
   end
   script[#script + 1] = "[test] exit " .. tostring(code)
   script[#script + 1] = "exit 0"
-  local probe = assert(stand_in.build(dir .. "/stand-in"))
-  assert(stand_in.place(probe, dir .. "/bin/cosmic", table.concat(script, "\n")))
+  local probe = assert(StandIn.build(dir .. "/stand-in"))
+  assert(StandIn.place(probe, dir .. "/bin/cosmic", table.concat(script, "\n")))
   return graded("kv", dir, env)
 end
 
@@ -411,8 +411,8 @@ end
 local function test_a_grade_past_its_deadline_is_a_timeout_not_a_failure(dir: string)
   assert(Fs.mkdirs(dir .. "/bin"))
   assert(Fs.mkdirs(dir .. "/project"))
-  local probe = assert(stand_in.build(dir .. "/stand-in"))
-  assert(stand_in.place(probe, dir .. "/bin/cosmic", "[test] sleep 5000\n[test] exit 0\nexit 0"))
+  local probe = assert(StandIn.build(dir .. "/stand-in"))
+  assert(StandIn.place(probe, dir .. "/bin/cosmic", "[test] sleep 5000\n[test] exit 0\nexit 0"))
   assert(Fs.write(dir .. "/project/JOURNAL.md", "**Log**\n"))
   local clock = require("cosmic.clock")
   local started = clock.monotonic_ns()

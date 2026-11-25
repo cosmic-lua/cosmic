@@ -7,7 +7,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
-local stand_in = require("build.stand_in")
+local StandIn = require("cosmic.stand_in")
 local this_program = require("build.this_program")
 
 --- /proc, where the stand-in program a test starts finds itself; `nests`,
@@ -26,7 +26,7 @@ Test.policy{
 --- it is told, still runs. A process of its own takes the hold, which
 --- lasts for good.
 local function test_forbid_running_within_refuses_the_program_by_every_name(tmp: string)
-  local sibling = assert(stand_in.build(tmp .. "/sibling/stand-in"))
+  local sibling = assert(StandIn.build(tmp .. "/sibling/stand-in"))
   -- `itself` lists the running program first.
   local program = Array.at(confine.itself(), 1)
   assert(Fs.mkdirs(tmp .. "/links"))

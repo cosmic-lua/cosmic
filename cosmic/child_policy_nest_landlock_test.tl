@@ -1,6 +1,6 @@
 --- [`Child.start`]'s `policy` with the `nest` promise (cosmic/child.tl), where
 --- what the kernel is asked to hold is held by Landlock: a start without
---- `nest` handed a directory, and a stand-in (build/stand_in.tl) that starts
+--- `nest` handed a directory, and a stand-in ([`cosmic.stand_in`]) that starts
 --- a sandbox of its own, which Landlock holds inside the root of the first.
 --- They need a host that lets a sandbox nest and gives Landlock
 --- (`requires`): where the platform has neither they are not applicable,

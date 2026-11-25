@@ -11,7 +11,7 @@ local Clock = require("cosmic.clock")
 local sys = require("cosmic.sys")
 local test_key = require("build.test_key")
 local this_program = require("build.this_program")
-local stand_in = require("build.stand_in")
+local StandIn = require("cosmic.stand_in")
 local Test = require("cosmic.test")
 
 --- A worker a test starts, to hang or exit, and /proc, where what a
@@ -43,14 +43,14 @@ end
 --- starts only once `ends` has ended and the runner has ended the
 --- strays it would.
 local function test_a_running_workers_orphan_outlives_another_worker(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
   local root = tmp .. "/project"
   local shared = tmp .. "/shared"
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.mkdirs(root .. "/bin"))
   assert(Fs.mkdirs(shared))
-  assert(stand_in.place(probe, root .. "/bin/probe"))
-  assert(stand_in.place(probe, shared .. "/late", "wait-for $DIR/go\nwrite $DIR/done done"))
+  assert(StandIn.place(probe, root .. "/bin/probe"))
+  assert(StandIn.place(probe, shared .. "/late", "wait-for $DIR/go\nwrite $DIR/done done"))
   local await = [[
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")

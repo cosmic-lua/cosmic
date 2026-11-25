@@ -9,7 +9,7 @@ local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
-local stand_in = require("build.stand_in")
+local StandIn = require("cosmic.stand_in")
 local test_child = require("build.test_child")
 local this_program = require("build.this_program")
 
@@ -24,12 +24,12 @@ Test.policy{
   env = { "COSMIC_SANDBOX" },
 }
 
---- A stand-in program built under `tmp` (build/stand_in.tl), which runs
+--- A stand-in program built under `tmp` ([`cosmic.stand_in`]), which runs
 --- the script its first argument holds: a static executable that reads
 --- only itself (and /proc, where it finds itself), so one confined needs
 --- nothing of the system's own.
 local function probe_in(tmp: string): string
-  return (assert(stand_in.build(tmp .. "/stand-in")))
+  return (assert(StandIn.build(tmp .. "/stand-in")))
 end
 
 --- What a sandboxed worker's child says: whether its

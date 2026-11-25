@@ -11,7 +11,7 @@ local Test = require("cosmic.test")
 local confine = require("build.confine")
 local fixture = require("build.must_confine_fixture")
 local test_child = require("build.test_child")
-local stand_in = require("build.stand_in")
+local StandIn = require("cosmic.stand_in")
 local support = require("build.test_support_fixture")
 local type raw_process = require("cosmic.internal.process")
 
@@ -25,12 +25,12 @@ Test.policy{
   promises = { "nest" },
 }
 
---- A stand-in program built under `tmp` (build/stand_in.tl), which runs
+--- A stand-in program built under `tmp` ([`cosmic.stand_in`]), which runs
 --- the script its first argument holds: a static executable that reads
 --- only itself (and /proc, where it finds itself), so one confined
 --- needs nothing of the system's own.
 local function probe_in(tmp: string): string
-  return (assert(stand_in.build(tmp .. "/stand-in")))
+  return (assert(StandIn.build(tmp .. "/stand-in")))
 end
 
 --- Whether a process `probe` confined to itself alone, started under

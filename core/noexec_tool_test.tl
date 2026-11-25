@@ -6,7 +6,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local stand_in = require("build.stand_in")
+local StandIn = require("cosmic.stand_in")
 
 --- The declared scratch, and permission to create the root the unveiled
 --- child's sandbox is.
@@ -17,7 +17,7 @@ Test.policy{
 
 local function executable(tmp: string): string, string
   local ordinary = tmp .. "/ordinary"
-  assert(stand_in.place(assert(stand_in.build(tmp .. "/stand-in")), ordinary))
+  assert(StandIn.place(assert(StandIn.build(tmp .. "/stand-in")), ordinary))
   local noexec = assert(Env.get("COSMIC_TEST_NOEXEC"))
   assert(noexec == "/noexec" and noexec ~= Env.get("TMPDIR"))
   local path = noexec .. "/program"

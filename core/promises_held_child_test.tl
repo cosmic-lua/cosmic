@@ -2,7 +2,7 @@
 --- (core/promises.h's COSMIC_HELD_ bits), on a live child: the kernel's own
 --- verdict on the calls the filter lets through only where a namespace or
 --- a ruleset holds what they reach. The child is a stand-in
---- (build/stand_in.tl). Where the platform has no sandbox they are not
+--- ([`cosmic.stand_in`]). Where the platform has no sandbox they are not
 --- applicable, and where this host gives no user namespace, seccomp or
 --- Landlock they are skipped (`requires`). The filter's own rules, on both
 --- architectures, are core/promises_test.tl's.
@@ -12,7 +12,7 @@ local Net = require("cosmic.net")
 local Test = require("cosmic.test")
 local unix_socket = require("build.unix_socket")
 local sys = require("cosmic.sys")
-local stand_in = require("build.stand_in")
+local StandIn = require("cosmic.stand_in")
 local type raw_process = require("cosmic.internal.process")
 -- Required, so the module whose loader is handed the raw table is of this
 -- test's import closure, and the store has it to hand it from.
@@ -77,7 +77,7 @@ local function in_sandbox(tmp: string, probe: string, sandbox: raw_process.Sandb
 end
 
 local function test_a_child_in_a_user_namespace_of_its_own_sets_its_own_limits(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
   local lowers = in_sandbox(tmp, probe, { promises = {}, offline = true },
     "setrlimit nofile 64; rlimit nofile")
   -- Whoever started it, whatever capability that has: the namespace's are the
@@ -89,7 +89,7 @@ local function test_a_child_in_a_user_namespace_of_its_own_sets_its_own_limits(t
 end
 
 local function test_a_child_asks_after_any_pid_only_in_a_pid_namespace_of_its_own(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
   -- The first process of the namespace is pid 1, which this one is not.
   local own = in_sandbox(tmp, probe, { promises = {}, unveil = { reads = { probe, "/proc", "/dev/null" } } },
     "getpgid 1")
@@ -116,7 +116,7 @@ local function test_a_unix_socket_is_made_only_where_the_root_the_network_and_la
     Test.skip("no Landlock here: " .. tostring(trouble))
     return
   end
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
   local script = "connect /none.sock"
   local held = in_sandbox(tmp, probe, rooted(probe, true), script)
   -- A root that shows no directory and no socket file holds it on every ABI,
@@ -168,7 +168,7 @@ local function test_a_root_of_its_own_tmpfs_alone_makes_a_unix_socket_there(tmp:
     return
   end
   unix_socket.skip_if_refused(tmp)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
   -- What it makes in its own /tmp it also reaches there, whatever Landlock's ABI.
   local made = in_sandbox(tmp, probe, rooted_with(probe, {}), "loopback-unix /tmp/pair.sock")
   assert(made.code == 0 and made.said == "connected\n", "made in its own tmpfs: " .. made.said)
@@ -189,7 +189,7 @@ end
 
 local function test_a_nest_start_with_a_root_of_files_alone_makes_a_unix_socket(tmp: string)
   unix_socket.skip_if_refused(tmp)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
   local made = in_sandbox(tmp, probe, nesting(probe, {}), "loopback-unix /tmp/pair.sock")
   assert(made.code == 0 and made.said == "connected\n", "made in its own tmpfs: " .. made.said)
   -- A file that is no socket beside it changes nothing.
@@ -203,7 +203,7 @@ end
 
 local function test_a_nest_start_whose_root_shows_a_host_directory_or_socket_is_refused_a_unix_socket(tmp: string)
   unix_socket.skip_if_refused(tmp)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
   local socket, listener = host_socket(tmp)
   local control = in_sandbox(tmp, probe, nesting(probe, {}), "connect /none.sock")
   assert(not refused(control.said), "held, with nothing shown: " .. control.said)
@@ -223,7 +223,7 @@ local function test_a_root_that_shows_a_directory_of_the_host_is_held_by_landloc
     return
   end
   unix_socket.skip_if_refused(tmp)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
   local socket, listener = host_socket(tmp)
   local control = in_sandbox(tmp, probe, rooted_with(probe, {}), "connect /none.sock")
   assert(not refused(control.said), "held, with nothing shown: " .. control.said)
@@ -243,7 +243,7 @@ local function test_a_socket_file_in_the_root_is_not_held_below_abi_9(tmp: strin
     return
   end
   unix_socket.skip_if_refused(tmp)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
   local socket, listener = host_socket(tmp)
   local control = in_sandbox(tmp, probe, rooted_with(probe, {}), "connect /none.sock")
   assert(not refused(control.said), "held, with nothing shown: " .. control.said)
@@ -263,7 +263,7 @@ local function test_a_descriptor_that_opens_a_directory_or_a_socket_is_not_held_
     return
   end
   unix_socket.skip_if_refused(tmp)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
   local socket, listener = host_socket(tmp)
   local sandbox = rooted_with(probe, {})
   -- A file descriptor leads nowhere beyond its file.
@@ -313,7 +313,7 @@ local function test_a_unix_socket_below_abi_9_fails_a_start_that_binds_a_directo
   end
   -- Read before the local function below, after which the checker no longer knows `abi` is set.
   local below_abi_9 = abi < 9
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
   assert(Fs.mkdirs(tmp .. "/socks"))
   assert(Fs.write(tmp .. "/u.file", "x"))
   -- A `u` grant allows unix sockets (the start's `sockets`), so the root alone must
@@ -345,7 +345,7 @@ local function test_a_path_swapped_for_a_directory_after_the_check_fails_the_sta
   if abi >= 9 then
     Test.skip("this test is about a kernel below Landlock ABI 9, and this one gives " .. tostring(abi))
   end
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
   assert(Fs.write(tmp .. "/swap-a", "x"))
   assert(Fs.mkdirs(tmp .. "/swap-b"))
   local null = assert(sys.open("/dev/null", sys.O_RDWR))

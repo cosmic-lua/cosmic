@@ -1,6 +1,6 @@
 --- Ending a sandboxed worker also ends an orphan it left in another group.
 
-local stand_in = require("build.stand_in")
+local StandIn = require("cosmic.stand_in")
 local Test = require("cosmic.test")
 local fixture = require("build.test_isolation_fixture")
 
@@ -13,6 +13,6 @@ Test.policy{
 }
 
 local function test_a_sandboxed_hung_workers_orphan_is_ended(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
   fixture.hung_runs(tmp, probe, true)
 end

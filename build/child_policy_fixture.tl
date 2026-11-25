@@ -9,7 +9,7 @@ local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local searchable = require("build.searchable")
-local stand_in = require("build.stand_in")
+local StandIn = require("cosmic.stand_in")
 
 local record child_policy_fixture
   --- What a script left and how its program ended.
@@ -104,7 +104,7 @@ end
 --- @return the stand-in and the working directory
 function child_policy_fixture.placed(tmp: string): child_policy_fixture.Place
   searchable.open(tmp)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
   assert(sys.chmod(probe, octal("755")))
   searchable.open(Fs.dirname(probe))
   local work = tmp .. "/work"
@@ -119,7 +119,7 @@ end
 --- @return the place
 function child_policy_fixture.nest_placed(tmp: string): child_policy_fixture.NestPlace
   local base = assert(sys.realpath(searchable.open(tmp)))
-  local probe = assert(stand_in.build(base .. "/stand-in"))
+  local probe = assert(StandIn.build(base .. "/stand-in"))
   local work = base .. "/work"
   assert(Fs.mkdirs(work .. "/ro"))
   assert(Fs.mkdirs(work .. "/rw"))

@@ -15,6 +15,7 @@ local core_image = require("build.core_image")
 local hashing = require("build.digest")
 local key_parts = require("build.key_parts")
 local launcher_template = require("build.launcher")
+local layout = require("cosmic.internal.artifact_layout")
 local type raw_store = require("cosmic.internal.store")
 
 -- Hashed and spelled through build.digest and build.key_parts, not
@@ -120,27 +121,28 @@ function artifact.zstd_level(): integer
   return 19
 end
 
-local version = 2
-local shell_length = 16384
-local core_alignment = 16384
-local manifest_length = 4096
-local manifest_header_length = 32
-local entry_length = 104
-local trailer_length = 48
+-- The layout's fixed terms, which [`Store.host_program`] writes by too.
+local version = layout.version
+local shell_length = layout.shell_length
+local core_alignment = layout.core_alignment
+local manifest_length = layout.manifest_length
+local manifest_header_length = layout.manifest_header_length
+local entry_length = layout.entry_length
+local trailer_length = layout.trailer_length
 -- Three compressed cores, their three stubs and a raw checked core are
 -- seven entries; the eighth is headroom. core/portable.h holds the same bound.
 local max_entries = 8
-local manifest_magic = "CosmicM1"
-local trailer_magic = "CosmicT1"
-local host_trailer_magic = "CosmicH1"
-local sqlite_header = "SQLite format 3\0"
+local manifest_magic = layout.manifest_magic
+local trailer_magic = layout.trailer_magic
+local host_trailer_magic = layout.host_trailer_magic
+local sqlite_header = layout.sqlite_header
 
 -- An entry's kind: a core, or the stub that decodes a compressed core of
 -- its target and configuration. Its codec: how its bytes are stored.
-local kind_core = 1
-local kind_stub = 2
-local codec_raw = 0
-local codec_zstd = 1
+local kind_core = layout.kind_core
+local kind_stub = layout.kind_stub
+local codec_raw = layout.codec_raw
+local codec_zstd = layout.codec_zstd
 
 --- What a reader of this version says of a file written for another.
 local function version_refusal(found: integer): string
@@ -181,9 +183,7 @@ local function positive_u32(text: string): integer?
   return value
 end
 
-local function align(value: integer, boundary: integer): integer
-  return ((value + boundary - 1) // boundary) * boundary
-end
+local align = layout.align
 
 local function parse(records: string, cores: {string:string},
                      packing?: artifact.Packing): {Target}?, string
@@ -339,9 +339,8 @@ local function launcher(targets: {Target}, test_hooks: boolean,
 end
 
 local function entry_bytes(piece: Piece): string
-  return string.pack(">I4I4I4I4I8I8", piece.target_id, piece.configuration_id,
-    piece.kind, piece.codec, piece.offset, #piece.stored) ..
-    piece.stored_digest .. string.pack(">I8", piece.length) .. piece.digest
+  return layout.entry(piece.target_id, piece.configuration_id, piece.kind, piece.codec,
+    piece.offset, piece.stored, piece.stored_digest, piece.length, piece.digest)
 end
 
 local function compose(records: string, cores: {string:string},
@@ -442,35 +441,7 @@ end
 --- a manifest naming it as the one entry (a raw core), then `database` and a
 --- trailer whose magic says host. It runs only where that core does.
 function artifact.host_program(core: raw_store.Core, database: string): string?, string
-  if #database < #sqlite_header or database:sub(1, #sqlite_header) ~= sqlite_header then
-    return nil, "host program database has no SQLite header"
-  end
-  if #core.bytes == 0 or #core.digest ~= 32 then
-    return nil, "host program core is empty or has no digest"
-  end
-  local manifest_offset = align(#core.bytes, core_alignment)
-  local prefix_length = manifest_offset + manifest_length
-  local manifest = manifest_magic .. string.pack(">I4I4I8I4I4", version, manifest_length,
-    prefix_length, 1, entry_length) .. entry_bytes({
-      target_id = core.target_id,
-      configuration_id = core.configuration_id,
-      kind = kind_core,
-      codec = codec_raw,
-      offset = 0,
-      stored = core.bytes,
-      stored_digest = core.digest,
-      length = #core.bytes,
-      digest = core.digest,
-    })
-  local trailer = host_trailer_magic .. string.pack(">I4I4I8I8I8I8",
-    version, trailer_length, manifest_offset, manifest_length,
-    prefix_length, #database)
-  return table.concat({
-    core.bytes,
-    string.rep("\0", manifest_offset - #core.bytes),
-    manifest, string.rep("\0", manifest_length - #manifest),
-    database, trailer,
-  }), ""
+  return layout.host_program(core, database)
 end
 
 --- The database the artifact of `size` bytes carries, a portable

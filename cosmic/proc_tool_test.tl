@@ -8,7 +8,7 @@ local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
-local stand_in = require("build.stand_in")
+local StandIn = require("cosmic.stand_in")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 
@@ -71,7 +71,7 @@ local function test_exec_hands_on_sigpipe_at_its_default(tmp: string)
   -- The program it becomes, and the child it feeds: a stand-in, which
   -- starts with no descriptors and no environment handed it, and says
   -- which signals it arrived ignoring.
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
   local chunk = [[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -121,7 +121,7 @@ local function test_exec_takes_argv_and_the_whole_environment(tmp: string)
     Test.skip("a native start has nothing to relaunch")
     return
   end
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
   local given = becomes(tmp, probe, 'Proc.exec({ probe, "env-of FOO" }, { env = { FOO = "given" } })')
   assert(given == "FOO=given\n", given)
   local replaced = becomes(tmp, probe, 'Proc.exec({ probe, "env-of FOO" }, { env = { OTHER = "x" } })')

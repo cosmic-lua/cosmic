@@ -16,7 +16,7 @@ local Test = require("cosmic.test")
 local type raw_process = require("cosmic.internal.process")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
-local stand_in = require("build.stand_in")
+local StandIn = require("cosmic.stand_in")
 local test_child = require("build.test_child")
 local Clock = require("cosmic.clock")
 
@@ -43,9 +43,9 @@ local function refused(what: string, trouble: string, errno: integer)
   Test.skip("the kernel gives no " .. what .. ": " .. tostring(trouble))
 end
 
---- A stand-in program built under `tmp` (build/stand_in.tl).
+--- A stand-in program built under `tmp` ([`cosmic.stand_in`]).
 local function probe_in(tmp: string): string
-  return (assert(stand_in.build(tmp .. "/stand-in")))
+  return (assert(StandIn.build(tmp .. "/stand-in")))
 end
 
 --- What a confined `probe` is given to read: itself, and /proc and
@@ -322,7 +322,7 @@ local function test_an_unveiled_child_runs_as_the_user_given(tmp: string)
   local root = may_run_as(user)
   -- A setuid-root copy of the probe, where this process may make one.
   local setuid = tmp .. "/setuid-probe"
-  assert(stand_in.place(probe, setuid))
+  assert(StandIn.place(probe, setuid))
   if root then
     assert(sys.chown(setuid, 0, 0))
     assert(sys.chmod(setuid, 0x9ed)) -- 04755

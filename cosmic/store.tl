@@ -20,6 +20,7 @@ local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local layout = require("cosmic.internal.artifact_layout")
 
 local extra: any = select(2, ...) -- checked: any_use
 local store: raw_store
@@ -257,6 +258,27 @@ end
 --- at every open.
 function Store.paths(): {string}
   return store.paths()
+end
+
+--- A program of the running core and `database`, as bytes, laid out as
+--- `cosmic build --host` lays one out: the core first, which the kernel
+--- runs directly, with no launcher and no shell, then the database it
+--- runs (its `main`). It runs only where this core runs. Write it with
+--- [`Fs.write`] and mode 0755 to start it. `database` is a SQLite
+--- database's bytes, as [`Store.seal`] writes one; nil and a Failure
+--- when it is not one, or when this process has no core of its own to
+--- take (one run from source).
+---
+---     local names = Store.closure({ "hello" })
+---     assert(Store.seal(names, "hello.db", { main = "hello" }))
+---     local program = assert(Store.host_program(assert(Fs.read("hello.db"))))
+---     assert(Fs.write("hello", program, tonumber("755", 8)))
+function Store.host_program(database: string): (string) | (nil, Failure)
+  local core, trouble = store.trusted_core()
+  if core == nil then return nil, Failure.new("no core to make a program of: " .. trouble) end
+  local program, layout_trouble = layout.host_program(core, database)
+  if program == nil then return nil, Failure.new(layout_trouble) end
+  return program
 end
 
 --- Calls `fn` searching only the binary's own database, as a process

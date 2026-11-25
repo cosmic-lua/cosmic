@@ -9,7 +9,7 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local type raw_process = require("cosmic.internal.process")
 local this_program = require("build.this_program")
-local stand_in = require("build.stand_in")
+local StandIn = require("cosmic.stand_in")
 
 --- The program itself, which the exit watch starts only to run a chunk
 --- (`lua`); and `nests`, since a worker held by a Landlock ruleset is
@@ -24,9 +24,9 @@ Test.policy{
 
 local process = require("cosmic.internal.process")
 
---- A stand-in program built under `tmp` (build/stand_in.tl).
+--- A stand-in program built under `tmp` ([`cosmic.stand_in`]).
 local function probe_in(tmp: string): string
-  return (assert(stand_in.build(tmp .. "/stand-in")))
+  return (assert(StandIn.build(tmp .. "/stand-in")))
 end
 
 --- Whether `sandbox` is refused as an argument, which raises before any

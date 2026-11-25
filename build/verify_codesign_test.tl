@@ -3,19 +3,19 @@
 --- and a failing one's status.
 local Fs = require("cosmic.fs")
 local VerifyCodesign = require("build.verify_codesign")
-local stand_in = require("build.stand_in")
+local StandIn = require("cosmic.stand_in")
 local sys = require("cosmic.sys")
 
 --- A stand-in program built under `dir`, outside the PATH it searches.
 local function stand_in_under(dir: string): string
-  return (assert(stand_in.build(dir .. "/stand-in")))
+  return (assert(StandIn.build(dir .. "/stand-in")))
 end
 
 --- A codesign in `dir`, the PATH each test searches, that appends its
 --- arguments to the log it answers and exits `status`.
 local function fake_codesign(probe: string, dir: string, status: integer): string
   local log = dir .. "/calls"
-  assert(stand_in.place(probe, dir .. "/codesign",
+  assert(StandIn.place(probe, dir .. "/codesign",
     "append " .. log .. " $@\nexit " .. tostring(status)))
   return log
 end
@@ -44,7 +44,7 @@ local function test_a_failed_verification_is_its_status(dir: string)
 end
 
 local function test_a_codesign_ended_by_a_signal_is_128_past_it(dir: string)
-  assert(stand_in.place(stand_in_under(dir), dir .. "/codesign", "signal TERM"))
+  assert(StandIn.place(stand_in_under(dir), dir .. "/codesign", "signal TERM"))
   assert(VerifyCodesign.verify("Darwin", "core", dir) == 143)
 end
 

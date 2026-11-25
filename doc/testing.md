@@ -536,6 +536,21 @@ Set `COSMIC_TEST_SANDBOX=0` for it, so it means the same on every host.
 Nest its workers in a sandbox only where the assertion is about their
 sandbox.
 
+### a fake program
+
+A test that needs an outside program to start -- a fake `git`, a
+process to leave running, a child to sandbox -- starts a stand-in
+([`cosmic.stand_in`]), not a shell script. A stand-in is a static
+executable of the running core that runs a small script of commands.
+It needs no /bin/sh and no environment, so the test declares nothing
+for it.
+
+```text
+local StandIn = require("cosmic.stand_in")
+local program = assert(StandIn.build(tmp .. "/stand-in"))
+assert(StandIn.place(program, tmp .. "/bin/git", "print abc1234"))
+```
+
 ## host requirements
 
 A test whose host lacks what it is about does not probe by hand and
@@ -1358,6 +1373,7 @@ Other rules:
 [`cosmic.internal.symbols`]: ../cosmic/internal/symbols.tl
 [`cosmic.layout`]: ../cosmic/layout.tl
 [`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
+[`cosmic.stand_in`]: ../cosmic/stand_in.tl
 [`cosmic.store`]: ../cosmic/store.tl
 [`cosmic.template`]: ../cosmic/template/init.tl
 [`cosmic.test`]: ../cosmic/test.tl

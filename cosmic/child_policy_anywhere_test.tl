@@ -11,7 +11,7 @@ local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
 local searchable = require("build.searchable")
-local stand_in = require("build.stand_in")
+local StandIn = require("cosmic.stand_in")
 local ChildPolicy = require("build.child_policy_fixture")
 
 --- The temporary directory and the environment the tests read; the system's
@@ -47,7 +47,7 @@ end
 
 --- The stand-in, built in the test's directory, which is searchable.
 local function stand_in_of(tmp: string): string
-  return (assert(stand_in.build(searchable.open(tmp) .. "/stand-in")))
+  return (assert(StandIn.build(searchable.open(tmp) .. "/stand-in")))
 end
 
 --- The directories a policy's `tmp` made that are still in the temporary directory.

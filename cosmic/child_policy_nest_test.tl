@@ -2,7 +2,7 @@
 --- program that builds a sandbox of its own, in a root of its own, held
 --- by that root instead of Landlock, which the kernel would have refuse
 --- every mount. The kernel's own verdict on live children: a stand-in
---- (build/stand_in.tl) started under the policy. They need
+--- ([`cosmic.stand_in`]) started under the policy. They need
 --- a host that lets a sandbox nest (`requires`): where the platform has none
 --- they are not applicable, and where this host gives no seccomp each skips
 --- itself (Test.skip). The refusals that come before a child, which hold on

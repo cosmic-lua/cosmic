@@ -3,7 +3,7 @@
 --- statuses a failed exec means, the cache hit, and the snapshots that
 --- catch a source edited while a build runs, the rebuild lock a boot
 --- holds, and what [`Zig.run`] answers of a stand-in zig
---- ([`build.stand_in`]). The tests
+--- ([`cosmic.stand_in`]). The tests
 --- that start bin/zig are build/zig_tool_test.tl's.
 
 local Clock = require("cosmic.clock")
@@ -13,7 +13,7 @@ local Failure = require("cosmic.failure")
 local sys = require("cosmic.sys")
 local build_paths = require("build.paths")
 local rebuild_lock = require("build.rebuild_lock")
-local stand_in = require("build.stand_in")
+local StandIn = require("cosmic.stand_in")
 local Zig = require("build.zig")
 local Child = require("cosmic.child")
 local test_child = require("build.test_child")
@@ -362,14 +362,14 @@ local function test_a_build_a_source_moved_during_is_run_again_and_only_so_often
 end
 
 local function test_run_answers_as_the_child_did(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
   assert(Zig.run({ probe, "exit 0" }) == 0)
   assert(Zig.run({ probe, "exit 3" }) == 3)
   assert(Zig.run({ probe, "signal KILL" }) == 128 + sys.SIGKILL)
 end
 
 local function test_run_passes_on_a_signal_sent_to_it_alone(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
   -- The child has this process interrupted, as a `kill -INT` aimed at
   -- bin/zig alone would; the child hears of it only if it is passed on.
   local started = Clock.monotonic_ns()

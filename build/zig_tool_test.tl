@@ -1,6 +1,6 @@
 --- [`build/zig.tl`]'s tests that start this program: bin/zig itself, to
 --- see the status a zig that cannot run exits with, and a build that
---- answers or passes on a signal the stand-in zig ([`build.stand_in`])
+--- answers or passes on a signal the stand-in zig ([`cosmic.stand_in`])
 --- sends. Apart from build/zig_test.tl's so those stand while the tree
 --- moves.
 
@@ -10,7 +10,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local this_program = require("build.this_program")
 local rebuild_lock = require("build.rebuild_lock")
-local stand_in = require("build.stand_in")
+local StandIn = require("cosmic.stand_in")
 local sys = require("cosmic.sys")
 local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
@@ -128,10 +128,10 @@ end
 --- does, and exits at once, well inside the pass-on window.
 local function test_run_answers_a_caught_ctrl_c_by_the_childs_status(tmp: string)
   local script = bare_root(tmp)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
   -- Child.start starts bin/zig in a group of its own, so the SIGINT to
   -- that group stays inside it.
-  assert(stand_in.place(probe, tmp .. "/zig-for-test",
+  assert(StandIn.place(probe, tmp .. "/zig-for-test",
     "trap 0; wait-for $DIR/zig-pid; signal INT @$DIR/zig-pid; exit 0"))
   local result = build_with_stand_in(tmp, script, true)
   assert(result.signal == nil and result.code == 0,
@@ -143,8 +143,8 @@ end
 --- it not been running a build.
 local function test_run_reraises_a_signal_its_child_never_got(tmp: string)
   local script = bare_root(tmp)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  assert(stand_in.place(probe, tmp .. "/zig-for-test",
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  assert(StandIn.place(probe, tmp .. "/zig-for-test",
     "wait-for $DIR/zig-pid; signal TERM @$DIR/zig-pid; exit 0"))
   local result = build_with_stand_in(tmp, script, false)
   assert(result.signal == sys.SIGTERM,
@@ -159,8 +159,8 @@ end
 local function test_a_boot_holds_the_lock_and_hands_it_on(tmp: string)
   local script = bare_root(tmp)
   local root = tmp .. "/root"
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  assert(stand_in.place(probe, tmp .. "/zig-for-test",
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  assert(StandIn.place(probe, tmp .. "/zig-for-test",
     "write $DIR/handed [$COSMIC_REBUILD_LOCK_HANDED]; wait-for $DIR/go; exit 0"))
   local env: mut {string:string} = { COSMIC_ZIG = "zig-for-test", PATH = tmp, XDG_CACHE_HOME = tmp .. "/cache" }
   local build_home = Env.get("COSMIC_BUILD_HOME")
@@ -194,8 +194,8 @@ end
 
 local function test_other_subcommands_accept_cache_directories_not_yet_created(tmp: string)
   local script = bare_root(tmp)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  assert(stand_in.place(probe, tmp .. "/zig-for-test", "exit 0"))
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  assert(StandIn.place(probe, tmp .. "/zig-for-test", "exit 0"))
   local project, shared = tmp .. "/new-project", tmp .. "/new-global"
   local started = this_program.program({ "--standalone", script, "version" }, {
     env = { COSMIC_ZIG = tmp .. "/zig-for-test", COSMIC_ZIG_CACHE = project,
@@ -210,8 +210,8 @@ end
 
 local function test_a_build_repairs_a_manifest_whose_contents_do_not_match_its_name(tmp: string)
   local script = bare_root(tmp)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  assert(stand_in.place(probe, tmp .. "/zig-for-test", "exit 0"))
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  assert(StandIn.place(probe, tmp .. "/zig-for-test", "exit 0"))
   local project = tmp .. "/project"
   local started = this_program.program({ "--standalone", script, "build" }, {
     env = { COSMIC_ZIG = tmp .. "/zig-for-test", COSMIC_ZIG_CACHE = project,
@@ -230,8 +230,8 @@ end
 
 local function test_boot_refuses_an_install_prefix_that_would_name_another_lock(tmp: string)
   local script = bare_root(tmp)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  assert(stand_in.place(probe, tmp .. "/zig-for-test", "exit 0"))
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  assert(StandIn.place(probe, tmp .. "/zig-for-test", "exit 0"))
   for _, args in ipairs({ { "build", "boot", "--prefix", tmp .. "/other" },
       { "build", "sanitized", "--prefix=" .. tmp .. "/other" },
       { "build", "boot", "-p", tmp .. "/other" } }) do

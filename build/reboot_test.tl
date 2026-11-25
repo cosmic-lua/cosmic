@@ -11,7 +11,7 @@ local stale_reason = require("build.stale_reason")
 local rebuild = require("build.rebuild")
 local rebuild_lock = require("build.rebuild_lock")
 local artifact = require("build.artifact")
-local stand_in = require("build.stand_in")
+local StandIn = require("cosmic.stand_in")
 local logger = require("build.logger")
 local work = require("build.work")
 local sys = require("cosmic.sys")
@@ -54,8 +54,8 @@ end
 local function tree_with_zig(tmp: string, status: integer): string
   local root = tmp .. "/tree"
   assert(Fs.mkdirs(root .. "/bin"))
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  assert(stand_in.place(probe, root .. "/bin/zig",
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  assert(StandIn.place(probe, root .. "/bin/zig",
     "write $DIR/ran $@\nprint built\nexit " .. tostring(status)))
   return root
 end
@@ -93,8 +93,8 @@ local function test_boot_into_hands_on_the_lock_it_holds(tmp: string)
   local layout = paths.resolve(root)
   assert(Fs.mkdirs(root .. "/bin"))
   assert(Fs.mkdirs(layout.directory))
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  assert(stand_in.place(probe, root .. "/bin/zig",
+  local probe = assert(StandIn.build(tmp .. "/stand-in"))
+  assert(StandIn.place(probe, root .. "/bin/zig",
     "write $DIR/handed [$COSMIC_REBUILD_LOCK_HANDED]\nexit 1"))
   local _ = reboot.boot_into(root, { "test" }, {})
   assert(assert(Fs.read(root .. "/bin/handed")) == "[]\n", assert(Fs.read(root .. "/bin/handed")))
