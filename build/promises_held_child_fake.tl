@@ -4,9 +4,7 @@
 
 local Steps = require("build.fake_steps")
 
-local function int(word: string): integer
-  return math.tointeger(tonumber(word)) or -1
-end
+local int = Steps.int
 
 --- Each case, handed the words past its name.
 local cases: {string:function({string}): integer} = {
@@ -30,12 +28,7 @@ local cases: {string:function({string}): integer} = {
 }
 
 local function main(argv: {string}): integer
-  local name = argv[1] or ""
-  local words: mut {string} = {}
-  for i = 2, #argv do words[#words + 1] = argv[i] end
-  local case = cases[name]
-  if case == nil then return Steps.fail("promises held child fake", "no case " .. name) end
-  return case(words)
+  return Steps.dispatch("promises held child fake", cases, argv)
 end
 
 return main

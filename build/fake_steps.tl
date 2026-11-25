@@ -519,4 +519,25 @@ function Steps.start_isolated(program: string): integer?
   return Steps.print("started")
 end
 
+--- A case of a fake main: handed the words past its name, it returns
+--- the status to end with.
+local type Case = function({string}): integer
+
+--- Runs the case of `cases` that `argv[1]` names, handed the words past
+--- it; a name of none fails, saying `fake` has no such case.
+function Steps.dispatch(fake: string, cases: {string:Case}, argv: {string}): integer
+  local name = argv[1] or ""
+  local words: mut {string} = {}
+  for i = 2, #argv do words[#words + 1] = argv[i] end
+  local case = cases[name]
+  if case == nil then return Steps.fail(fake, "no case " .. name) end
+  return case(words)
+end
+
+--- `word` as an integer, or -1 where it is none, which each step that
+--- takes a number refuses.
+function Steps.int(word: string): integer
+  return math.tointeger(tonumber(word)) or -1
+end
+
 return Steps
