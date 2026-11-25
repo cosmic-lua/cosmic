@@ -262,7 +262,7 @@ end
 --- A run's jobs: its merge-queue ref job, and its gate with the step
 --- that refuses the ref's caches again, of the conclusions given.
 local function jobs(before: string, after: string): string
-  return '{"jobs":[{"name":"linux-x86_64","conclusion":"failure","steps":[{"name":"test","conclusion":"failure"}]},' ..
+  return '{"total_count":3,"jobs":[{"name":"linux-x86_64","conclusion":"failure","steps":[{"name":"test","conclusion":"failure"}]},' ..
     '{"name":"' .. QueueVerdicts.REF_JOB .. '","conclusion":"' .. before .. '"},' ..
     '{"name":"' .. QueueVerdicts.GATE_JOB .. '","conclusion":"failure","steps":[{"name":"' ..
     QueueVerdicts.RECHECK_STEP .. '","conclusion":"' .. after .. '"},' ..
@@ -327,7 +327,8 @@ end
 --- commit GitHub does not place on main, one whose commit is no commit,
 --- one whose ref holds a cache or whose caches GitHub does not count,
 --- one whose jobs did not refuse its ref's caches exactly once before
---- and once after they ran, or one that holds no one artifact of an id.
+--- and once after they ran, or whose jobs GitHub lists in part, or one
+--- that holds no one artifact of the name and an id.
 local function test_a_change_that_cannot_be_matched_is_not_taken()
   local mine = "gh-readonly-queue/main/pr-41-" .. OTHER
   local many: mut {string} = {}
@@ -372,15 +373,18 @@ local function test_a_change_that_cannot_be_matched_is_not_taken()
     ["ref job failed"] = { jobs = jobs("failure", "success") },
     ["ref job skipped"] = { jobs = jobs("skipped", "success") },
     ["recheck skipped"] = { jobs = jobs("success", "skipped") },
-    ["no ref job"] = { jobs = '{"jobs":[{"name":"' .. QueueVerdicts.GATE_JOB .. '","steps":[' .. recheck .. ']}]}' },
-    ["no recheck"] = { jobs = '{"jobs":[' .. ref_job .. ',{"name":"' .. QueueVerdicts.GATE_JOB .. '","steps":[]}]}' },
-    ["recheck in another job"] = { jobs = '{"jobs":[' .. ref_job .. ',{"name":"' .. QueueVerdicts.GATE_JOB ..
+    ["no ref job"] = { jobs = '{"total_count":1,"jobs":[{"name":"' .. QueueVerdicts.GATE_JOB .. '","steps":[' .. recheck .. ']}]}' },
+    ["no recheck"] = { jobs = '{"total_count":2,"jobs":[' .. ref_job .. ',{"name":"' .. QueueVerdicts.GATE_JOB .. '","steps":[]}]}' },
+    ["recheck in another job"] = { jobs = '{"total_count":3,"jobs":[' .. ref_job .. ',{"name":"' .. QueueVerdicts.GATE_JOB ..
         '","steps":[]},{"name":"linux-x86_64","steps":[' .. recheck .. ']}]}' },
-    ["two ref jobs"] = { jobs = '{"jobs":[' .. ref_job .. ',' .. ref_job .. ',{"name":"' .. QueueVerdicts.GATE_JOB ..
+    ["two ref jobs"] = { jobs = '{"total_count":3,"jobs":[' .. ref_job .. ',' .. ref_job .. ',{"name":"' .. QueueVerdicts.GATE_JOB ..
         '","steps":[' .. recheck .. ']}]}' },
-    ["two rechecks"] = { jobs = '{"jobs":[' .. ref_job .. ',{"name":"' .. QueueVerdicts.GATE_JOB ..
+    ["two rechecks"] = { jobs = '{"total_count":2,"jobs":[' .. ref_job .. ',{"name":"' .. QueueVerdicts.GATE_JOB ..
         '","steps":[' .. recheck .. ',' .. recheck .. ']}]}' },
     ["no jobs"] = { jobs = "" },
+    ["more jobs than listed"] = { jobs = (jobs("success", "success"):gsub('"total_count":3', '"total_count":4')) },
+    ["jobs uncounted"] = { jobs = (jobs("success", "success"):gsub('"total_count":3,', '')) },
+    ["another artifact"] = { artifacts = '{"artifacts":[{"id":500,"name":"queue-tried-verdicts-macos","expired":false}]}' },
     ["two artifacts"] = { artifacts = '{"artifacts":[' .. artifact .. ',' .. artifact:gsub("500", "501") .. ']}' },
     ["no artifact id"] = { artifacts = '{"artifacts":[{"name":"' .. TRIED_ARTIFACT .. '","expired":false}]}' },
     ["expired"] = { artifacts = '{"artifacts":[' .. artifact:gsub("false", "true") .. ']}' },

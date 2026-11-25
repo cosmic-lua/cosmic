@@ -575,7 +575,10 @@ holds the entries ahead of it too, and one dropped from the queue never
 merges), and its commit changes the same files, by name, name before and
 content, as this try's does (an earlier head of the pull request never
 merges either). The run's `queue-ref` job and the gate's second listing
-must both have passed, and its ref must hold no cache now.
+must both have passed, and its ref must hold no cache now. Only a run's
+first attempt counts (an attempt again keeps the earlier one's artifacts
+and jobs), and the download takes the one artifact the lookup checked,
+by its id.
 The queue's format job, where its check passed, seals the memo of the
 tree checks (the shared rows of `build/check_memo.tl`, in the cache
 directory: `driver.tl checks-seal` keeps the rows the run used, in one

@@ -328,8 +328,8 @@ local function caches_of(host: Github.Host, repository: string, ref: string): in
 end
 
 --- What a run's job, and its step, is read for. A run lists at most 100
---- jobs a page; a job on a page after the first goes unseen, and the
---- run is not taken.
+--- jobs a page; a run whose count of jobs is not those on the first
+--- page is not taken.
 local record StepRow
   name?: any
   conclusion?: any
@@ -342,6 +342,7 @@ local record JobRow
 end
 local JOB_ROW <const> = Shape.record_of("JobRow")
 local record JobList
+  total_count?: any
   jobs?: {any}
 end
 local JOB_LIST <const> = Shape.record_of("JobList")
@@ -363,9 +364,9 @@ local function refused_caches(host: Github.Host, repository: string, id: integer
   local pages = Github.ask(host, "repos/" .. repository .. "/actions/runs/" .. tostring(id) .. "/jobs?per_page=100",
     false, LOOKUP_SECONDS)
   local listed, _ = JOB_LIST:decode_into((pages or {})[1] or "")
-  if listed == nil then return false end
+  if listed == nil or listed.jobs == nil or listed.total_count ~= #listed.jobs then return false end
   local before, after = 0, 0
-  for _, item in ipairs(listed.jobs or {}) do
+  for _, item in ipairs(listed.jobs) do
     local job, _ = JOB_ROW:into(item)
     if job == nil then return false end
     if job.name == QueueVerdicts.REF_JOB then
