@@ -237,6 +237,18 @@ local Notes = require("cosmic.sqlite").schema([[
 print(Notes)]=])
 end
 
+local function test_a_schema_of_joined_constants_is_the_value_of_their_join()
+  emits(program(
+    "local A <const> = \"CREATE TABLE a (x);\"",
+    "local schema S = A ..",
+    "  \" CREATE TABLE b (y)\"",
+    "print(S)"), [[
+local A <const> = "CREATE TABLE a (x);"
+local S = require("cosmic.sqlite").schema(A ..
+" CREATE TABLE b (y)")
+print(S)]])
+end
+
 local function test_a_statement_that_is_erased_does_not_hide_the_expression_the_one_before_it_ends_in()
   emits(program(
     "local a: any = {}",

@@ -133,6 +133,17 @@ local function test_a_schema_is_no_class_a_program_makes_or_tests()
   assert(count == 1, tostring(count))
 end
 
+--- A schema's DDL may be string literals and `<const>` locals joined with `..`, read as their text.
+local function test_a_schema_of_joined_constants_is_read()
+  local head = 'local Sqlite = require("cosmic.sqlite")\n' ..
+    'local NOTES <const> = "CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL) STRICT;"\n' ..
+    'local TAGS <const> = " CREATE TABLE tags (tag TEXT NOT NULL)"\n' ..
+    'local schema S = NOTES .. TAGS\nlocal db = Sqlite.memory({ schema = S })\n'
+  accepted(head .. 'print(db:rows("SELECT body, tag FROM notes, tags"))\n')
+  says(head .. 'print(db:rows("SELECT nme FROM tags"))\n', "sql_refused", "no such column: nme")
+  says(head .. 'local row = db:one("SELECT id FROM notes")\nprint(row:text(1))\n', "sql_column", "declared INTEGER")
+end
+
 --- A schema is a type and a value that crosses modules as any declaration does.
 local function test_a_schema_of_another_module_is_read()
   local modules: {string: string} = {
