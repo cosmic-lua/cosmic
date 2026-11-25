@@ -326,7 +326,7 @@ end
 --- The policy the options of `got` ask for in `here`: nil and "" for
 --- --sandbox off, or nil and why.
 local function policy_of(r: Run, got: Flags.Parsed, here: string): Sandbox.Policy?, string
-  local grants: mut {Sandbox.Grant} = {}
+  local grants: mut {Sandbox.Path} = {}
   for _, given_grant in ipairs(got.all["--grant"] or {}) do
     local path, letters = given_grant:match("^(.-):(%a+)$")
     if letters ~= nil and letters:match("^[rwxc]+$") == nil then

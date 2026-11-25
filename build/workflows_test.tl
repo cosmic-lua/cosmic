@@ -1729,30 +1729,48 @@ local function test_mains_push_repeats_nothing_the_queue_checked()
   end
 end
 
+--- The terms `condition` ANDs at its top level, outside any parentheses.
+local function conjuncts(condition: string): {string}
+  local terms: mut {string} = {}
+  local depth, start, at = 0, 1, 1
+  while at <= #condition do
+    local c = condition:sub(at, at)
+    if c == "(" then
+      depth = depth + 1
+    elseif c == ")" then
+      depth = depth - 1
+    elseif depth == 0 and condition:sub(at, at + 3) == " && " then
+      terms[#terms + 1] = condition:sub(start, at - 1)
+      start = at + 4
+      at = at + 3
+    elseif depth == 0 and condition:sub(at, at + 3) == " || " then
+      return {}
+    end
+    at = at + 1
+  end
+  terms[#terms + 1] = condition:sub(start)
+  return terms
+end
+
 --- Only main's push and the weekly run save a cache (COSMIC_CI_SAVES):
---- every save holds it, or follows a step that does. Two things are
+--- every save ANDs it at the top of its own condition. Two things are
 --- relayed between runs: main's push of a commit takes the verdicts the
 --- merge queue's run of the same commit reached (cosmic_ci/queue_verdicts.tl),
 --- and the memo of its tree checks (build/check_memo.tl).
---- No other step downloads another run's artifacts, only the platform
---- job reads the runs (`actions: read`), and none holds `actions: write`.
+--- No other step downloads another run's artifacts, only the jobs that
+--- relay verdicts read the runs (`actions: read`), and none holds
+--- `actions: write`.
 local function test_only_main_saves_and_only_the_queue_relays_to_main()
   local ci = ci_workflow()
   assert(map_of(ci.env)["COSMIC_CI_SAVES"] == MAIN_SAVES, "the saves' condition: " .. tostring(map_of(ci.env)["COSMIC_CI_SAVES"]))
   for name, job in pairs(ci.jobs) do
     local actions = map_of(job.permissions)["actions"]
-    assert(actions == nil or ((name == "platform" or name == "queue-ref" or name == "ci") and actions == "read"), name .. " holds actions permission")
-    local gated: mut {string: boolean} = {}
+    assert(actions == nil or ((name == "platform" or name == "checked" or name == "narrowing" or name == "queue-ref" or name == "ci") and actions == "read"), name .. " holds actions permission")
     for _, step in ipairs(job.steps) do
       local condition = step["if"] or ""
-      if condition:find(SAVES, 1, true) ~= nil and step.id ~= nil then
-        gated[assert(step.id)] = true
-      end
       if (step.uses or ""):find("actions/cache/save@", 1, true) ~= nil then
-        local held = condition:find(SAVES, 1, true) ~= nil
-        for id in pairs(gated) do
-          held = held or condition:find("steps." .. id .. ".outputs", 1, true) ~= nil
-        end
+        local held = false
+        for _, term in ipairs(conjuncts(condition)) do held = held or term == SAVES end
         assert(held, name .. "'s " .. tostring(step.name) .. " saves off main: " .. condition)
       end
       assert(with_of(step)["run-id"] == nil or step.id == "queue-download" or step.id == "tried-download" or step.id == "queue-checks" or
@@ -1760,51 +1778,65 @@ local function test_only_main_saves_and_only_the_queue_relays_to_main()
         name .. "'s " .. tostring(step.name) .. " takes another run's artifact")
     end
   end
-  -- The verdicts' save holds the saves' condition itself: the queue trims them too, for the relay.
-  local save = step_named(job_of(ci.jobs, "platform").steps, "save test verdicts")
-  assert((save["if"] or ""):find(SAVES, 1, true) ~= nil, "the queue saves its verdicts: " .. tostring(save["if"]))
+  -- Each verdicts' save holds the saves' condition itself: the queue trims them too, for the
+  -- relay and the next try, and a save on a queue ref fails the run (`queue-ref`).
+  for _, name in ipairs({ "platform", "checked", "narrowing" }) do
+    local save = step_named(job_of(ci.jobs, name).steps, "save test verdicts")
+    assert((save["if"] or ""):find(SAVES, 1, true) ~= nil, name .. " saves its verdicts in the queue: " .. tostring(save["if"]))
+  end
 end
 
 --- A merge-queue run takes in what the last failed try of its pull
---- request reached, before its suites, and a failed try uploads that
---- under the job's own name; neither takes part outside the queue, and
+--- request reached, before each job's suite, and a failed try uploads
+--- that under the job's own name, in the release legs, the checked
+--- shards and the narrowing suite; neither takes part outside the queue, and
 --- none of their steps fails the job.
 local function test_a_queue_try_stands_on_its_pull_requests_last_failed_try()
-  local steps = job_of(ci_workflow().jobs, "platform").steps
-  local find, find_at = step_with_id(steps, "tried-run")
-  local download, download_at = step_with_id(steps, "tried-download")
-  local taken, taken_at = step_named(steps, "take in the last failed try's verdicts")
-  local _, restore_at = step_with_id(steps, "verdicts-restore")
-  local _, suite_at = step_with_id(steps, "release-suite")
-  local trim, trim_at = step_with_id(steps, "verdicts-trim")
-  local upload, upload_at = step_named(steps, "upload what this failed try in the merge queue reached")
-  assert(restore_at < find_at and find_at < download_at and download_at < taken_at and taken_at < suite_at and
-      trim_at < upload_at, "the tried verdicts are taken in out of order")
-  local name = "queue-tried-verdicts-${{ matrix.name }}"
-  local env = map_of(find.env)
-  assert(find["if"] == "github.event_name == 'merge_group'" and find["continue-on-error"] == true and
-      env["ARTIFACT"] == name and env["HEAD_REF"] == "${{ github.event.merge_group.head_ref }}" and
-      env["RUN_ID"] == "${{ github.run_id }}" and env["BASE_SHA"] == "${{ github.event.merge_group.base_sha }}" and
-      env["SHA"] == "${{ github.sha }}" and env["GH_TOKEN"] == "${{ github.token }}" and
-      (find.run or ""):find("driver.tl queue-tried-run", 1, true) ~= nil,
-    "the tried run's lookup")
-  -- By the artifact's id, which the lookup checked, not its name: an
-  -- attempt again uploads another of the same name.
-  assert(download["if"] == "steps.tried-run.outputs.artifact != ''" and download["continue-on-error"] == true and
-      with_of(download)["name"] == nil and with_of(download)["pattern"] == nil and
-      param(download, "artifact-ids") == "${{ steps.tried-run.outputs.artifact }}" and
-      with_of(download)["merge-multiple"] == true and param(download, "run-id") == "${{ steps.tried-run.outputs.run }}",
-    "the tried verdicts' download")
-  -- A failed try in the queue keeps only the rows it used, as a passing one does.
-  assert((trim.run or ""):find("(job.status == 'success' || github.event_name == 'merge_group') && " ..
-      "steps.names.outputs.since || 'whole'", 1, true) ~= nil, "a failed try uploads the rows it restored")
-  assert(taken["if"] == "steps.tried-download.outcome == 'success'" and taken["continue-on-error"] == true and
-      (taken.run or ""):find("driver.tl verdicts-merge \"" .. param(download, "path") .. "\"", 1, true) ~= nil,
-    "the tried verdicts are taken in otherwise")
-  assert(upload["if"] == "always() && github.event_name == 'merge_group' && job.status == 'failure' && " ..
-      "steps.verdicts-trim.outputs.digest != ''" and upload["continue-on-error"] == true and
-      param(upload, "name") == name and param(upload, "path") == "${{ runner.temp }}/verdicts/*.db",
-    "the tried verdicts' upload: " .. tostring(upload["if"]))
+  -- Each job that runs a suite in the queue: its suite step and its artifact.
+  for _, leg in ipairs({ { "platform", "release-suite", "queue-tried-verdicts-${{ matrix.name }}" },
+      { "checked", "checked-suite", "queue-tried-verdicts-${{ matrix.name }}" },
+      { "narrowing", "checked-narrowing", "queue-tried-verdicts-linux-x86_64-checked-narrowing" } }) do
+    local job_name, suite, name = leg[1]!, leg[2]!, leg[3]!
+    local steps = job_of(ci_workflow().jobs, job_name).steps
+    local find, find_at = step_with_id(steps, "tried-run")
+    local download, download_at = step_with_id(steps, "tried-download")
+    local taken, taken_at = step_named(steps, "take in the last failed try's verdicts")
+    local _, restore_at = step_with_id(steps, "verdicts-restore")
+    local _, suite_at = step_with_id(steps, suite)
+    local trim, trim_at = step_with_id(steps, "verdicts-trim")
+    local upload, upload_at = step_named(steps, "upload what this failed try in the merge queue reached")
+    assert(restore_at < find_at and find_at < download_at and download_at < taken_at and taken_at < suite_at and
+        trim_at < upload_at, "the tried verdicts are taken in out of order")
+    local env = map_of(find.env)
+    -- On the runner's own shell: a leg's container takes in only some of the step's env.
+    assert(find["if"] == "github.event_name == 'merge_group'" and find["continue-on-error"] == true and find.shell == "sh" and
+        env["ARTIFACT"] == name and env["HEAD_REF"] == "${{ github.event.merge_group.head_ref }}" and
+        env["RUN_ID"] == "${{ github.run_id }}" and env["BASE_SHA"] == "${{ github.event.merge_group.base_sha }}" and
+        env["SHA"] == "${{ github.sha }}" and env["GH_TOKEN"] == "${{ github.token }}" and
+        (find.run or ""):find("driver.tl queue-tried-run", 1, true) ~= nil,
+      "the tried run's lookup")
+    -- By the artifact's id, which the lookup checked, not its name: an
+    -- attempt again uploads another of the same name.
+    assert(download["if"] == "steps.tried-run.outputs.artifact != ''" and download["continue-on-error"] == true and
+        with_of(download)["name"] == nil and with_of(download)["pattern"] == nil and
+        param(download, "artifact-ids") == "${{ steps.tried-run.outputs.artifact }}" and
+        with_of(download)["merge-multiple"] == true and param(download, "run-id") == "${{ steps.tried-run.outputs.run }}",
+      "the tried verdicts' download")
+    -- A failed try in the queue keeps only the rows it used, as a passing one does.
+    assert(trim["if"] == "always() && steps.driver.outcome == 'success' && " ..
+        "(env.COSMIC_CI_SAVES == 'true' || github.event_name == 'merge_group')", job_name .. "'s trim: " .. tostring(trim["if"]))
+    assert((trim.run or ""):find("(job.status == 'success' || github.event_name == 'merge_group') && " ..
+        "steps.names.outputs.since || 'whole'", 1, true) ~= nil, "a failed try uploads the rows it restored")
+    assert(taken["if"] == "steps.tried-download.outcome == 'success'" and taken["continue-on-error"] == true and
+        (taken.run or ""):find("driver.tl verdicts-merge \"" .. param(download, "path") .. "\"", 1, true) ~= nil,
+      "the tried verdicts are taken in otherwise")
+    assert(upload["if"] == "always() && github.event_name == 'merge_group' && job.status == 'failure' && " ..
+        "steps.verdicts-trim.outputs.digest != ''" and upload["continue-on-error"] == true and
+        param(upload, "name") == name and param(upload, "path") == "${{ runner.temp }}/verdicts/*.db" and
+        with_of(upload)["retention-days"] == 1,
+      "the tried verdicts' upload: " .. tostring(upload["if"]))
+    assert(map_of(job_of(ci_workflow().jobs, job_name).permissions)["actions"] == "read", job_name .. " cannot read the runs")
+  end
   -- The lookup reads a tried run's ref checks by these names
   -- (QueueVerdicts.REF_JOB, GATE_JOB, the key of a job with no name, and
   -- RECHECK_STEP); a name changed here turns the lookup off.

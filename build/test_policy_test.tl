@@ -29,8 +29,8 @@ local function plan_of(reads: {string}, writes: {string}, at: {string:string},
 end
 
 --- The grant of `policy` at `path`, or nil.
-local function grant_at(policy: Sandbox.Policy, path: string): Sandbox.Grant?
-  for _, grant in ipairs(policy.grants or {}) do
+local function grant_at(policy: Sandbox.Policy, path: string): Sandbox.Path?
+  for _, grant in ipairs(Sandbox.paths(policy)) do
     if grant.path == path then return grant end
   end
   return nil
@@ -100,14 +100,14 @@ local function test_the_declaration_beside_the_paths_is_the_policys_other_fields
   local inputs = effective()
   local policy = worker_of(plan, inputs)
   assert(#assert(policy.isolate) == 1 and assert(policy.isolate)[1] == "file")
-  local promises = assert(policy.promises)
+  local promises = Sandbox.calls(policy)
   assert(support.holds(promises, "fork") and support.holds(promises, "fattr") and
       support.holds(promises, "jit") and not support.holds(promises, "nest"),
     table.concat(promises, ","))
   assert(policy.profiles == nil and #assert(policy.loopback) == 0)
   policy = worker_of(plan, { ...inputs, nests = true, system = true, tool = true,
     network = { ["127.0.0.3"] = true, ["127.0.0.1"] = true } })
-  promises = assert(policy.promises)
+  promises = Sandbox.calls(policy)
   assert(support.holds(promises, "nest"), table.concat(promises, ","))
   assert(table.concat(assert(policy.profiles), ",") == "system,programs", table.concat(assert(policy.profiles), ","))
   local loopback = assert(policy.loopback)
