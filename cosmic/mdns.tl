@@ -545,7 +545,7 @@ local function open(opts: Mdns.Options): Hunt?, string
   if not grouped then
     -- One that cannot be guessed tells a response from a datagram sent blind to the port.
     local drawn, why = Rand.entropy(2)
-    if drawn == nil then return nil, why end
+    if drawn == nil then return nil, tostring(why) end
     id = string.unpack(">I2", drawn)
   end
   local bound = Net.udp("0.0.0.0", if grouped then port else 0 end)

@@ -604,7 +604,7 @@ local function state_of(spec: McpServer.Spec): State
   local state_key = spec.state_key
   if state_key == nil then
     local made, why = Rand.entropy(Cipher.key_length)
-    if made == nil then refuse("making a state key: " .. why) end
+    if made == nil then refuse("making a state key: " .. tostring(why)) end
     state_key = made
   end
   if #state_key ~= Cipher.key_length then
@@ -851,7 +851,7 @@ local RETRY_PARAMS <const>: Shape.Typed<RetryParams> = Shape.record_of("RetryPar
 --- `state` sealed for `context`, with the time it stops holding, as text a client carries.
 local function seal(self: State, context: string, state: string): string
   local nonce, why = Rand.entropy(Cipher.nonce_length)
-  if nonce == nil then error("mcp: sealing state: " .. why) end
+  if nonce == nil then error("mcp: sealing state: " .. tostring(why)) end
   local plain = string.pack(">i8", Clock.now_ns() + self.state_ttl_ns) .. state
   return Codec.base64url(nonce .. Cipher.seal("chacha20-poly1305", self.state_key, nonce, plain, context))
 end
