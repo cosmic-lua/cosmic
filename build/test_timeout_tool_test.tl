@@ -27,6 +27,8 @@ local function project(tmp: string): string
     assert(Fs.write(root .. "/suite/" .. name .. "_test.tl", head .. [[
 
 local function test_sleeps()
+  local Fs = require("cosmic.fs")
+  local _, _ = Fs.put(Fs.stderr, "asleep from here\n")
   local _, _ = require("cosmic.clock").sleep(2000000000)
   assert(true)
 end
@@ -70,6 +72,8 @@ local function test_a_module_declares_a_longer_limit(tmp: string)
   assert(text:find("test: FAIL  suite.plain_test test_sleeps: timed out after 1 s", 1, true), text)
   assert(text:find("test: FAIL  suite.short_test test_sleeps: timed out after 1 s", 1, true), text)
   assert(not text:find("FAIL  suite.long_test", 1, true), text)
+  -- A test that timed out shows what it printed last, which says where it stopped.
+  assert(text:find("was ended\n  what it printed last:\n  | asleep from here", 1, true), text)
 end
 
 --- The limit a test ran under is in its key. A module that declares 100

@@ -1456,6 +1456,22 @@ local function ending(result: Child.Result): string
   return "exited with status " .. tostring(result.code)
 end
 
+--- The most of a timed-out test's output its verdict shows: its last lines, which say where it stopped.
+local LAST_PRINTED_LINES <const> = 20
+
+--- What a test that timed out printed last (`printed`, its standard output and error), as lines under its verdict's
+--- first, each `  | `; "" where it printed nothing. A hang leaves no report, so this is the one trace of where it was.
+function worker.last_printed(printed?: string): string
+  if printed == nil or printed == "" then return "" end
+  local lines: mut {string} = {}
+  for line in printed:gmatch("[^\n]+") do lines[#lines + 1] = line end
+  local first = math.max(1, #lines - LAST_PRINTED_LINES + 1)
+  local tail: mut {string} = {}
+  for i = first, #lines do tail[#tail + 1] = "  | " .. lines[i]!:sub(1, 300) end
+  if #tail == 0 then return "" end
+  return "\n  what it printed last:\n" .. table.concat(tail, "\n")
+end
+
 --- Reads a finished worker (`judging`) into its test's verdict: what it
 --- reported, unless it could not be supervised, ran past its deadline,
 --- or ended before it reported; a pass fails where what it started
@@ -1473,7 +1489,8 @@ function worker.judge(judging: worker.Judging): worker.Judgement
   if result.timed_out then
     return { passed = false, skipped = "", message = "timed out after " ..
         tostring(judging.timeout_ns // SECOND_NS) .. " s; " ..
-        (if judging.sandboxed then "its pid namespace" else "its process group" end) .. " was ended" }
+        (if judging.sandboxed then "its pid namespace" else "its process group" end) .. " was ended" ..
+        worker.last_printed(result.stdout) }
   end
   local captured = result.captured[worker.report_fd]
   local report: worker.Report? = nil
