@@ -344,7 +344,12 @@ local function ipv6(text: string): string?, string
   return Grant.ipv6_text(bytes), ""
 end
 
-local dns_name = Grant.name
+--- [`Grant.name`], with why as text, as the wire's refusals carry it.
+local function dns_name(text: string): string?, string
+  local name, why = Grant.name(text)
+  if name == nil then return nil, tostring(why) end
+  return name, ""
+end
 
 --- A host in the form a grant is matched in and its kind, or nil, nil and why.
 local function bare_host(text: string): string?, relay_wire.Kind?, string
@@ -358,7 +363,12 @@ local function bare_host(text: string): string?, relay_wire.Kind?, string
   return name, "name", ""
 end
 
-local port_of = Grant.port
+--- [`Grant.port`], with why as text.
+local function port_of(text: string): integer?, string
+  local port, why = Grant.port(text)
+  if port == nil then return nil, tostring(why) end
+  return port, ""
+end
 
 --- A `host:port` authority taken apart.
 local record Authority

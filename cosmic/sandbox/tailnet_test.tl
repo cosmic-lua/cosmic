@@ -40,21 +40,29 @@ local function status(peers?: {Tailscale.Peer}): Tailscale.Status
   }
 end
 
+--- The tailnet target `text` reads to; fails the test where it is none.
+local function tailnet_of(text: string): Grant.Tailnet
+  local read, why = Grant.tailnet(text)
+  assert(read ~= nil, text .. ": " .. tostring(why))
+  assert(read ~= false, text .. " is no tailnet target")
+  return read
+end
+
 --- A tag or a user target reads to its canonical text; a text of
 --- neither kind is left to Grant.parse, and a malformed one says why.
 local function test_a_tailnet_target_reads_its_kind_name_and_port()
-  local tag = assert(Grant.tailnet("tag:db:5432"))
+  local tag = tailnet_of("tag:db:5432")
   assert(tag.kind == "tag" and tag.name == "tag:db" and tag.port == 5432 and tag.text == "tag:db:5432", tag.text)
-  local user = assert(Grant.tailnet("user:Will@Example.com:*"))
+  local user = tailnet_of("user:Will@Example.com:*")
   assert(user.kind == "user" and user.name == "will@example.com" and user.port == 0, user.text)
   assert(user.text == "user:will@example.com:*", user.text)
-  local github = assert(Grant.tailnet("user:alice@github:22"))
+  local github = tailnet_of("user:alice@github:22")
   assert(github.name == "alice@github", github.name)
-  local other, none = Grant.tailnet("example.com:443")
-  assert(other == nil and none == "", none)
+  local other, _ = Grant.tailnet("example.com:443")
+  assert(other == false, "a host:port target is no tailnet target")
   for _, text in ipairs({ "tag:9db:1", "tag:d_b:1", "user:will:1", "user:@x:1", "tag:db:0", "tag::1" }) do
     local read, why = Grant.tailnet(text)
-    assert(read == nil and why ~= "", text)
+    assert(read == nil and tostring(why) ~= "", text)
   end
 end
 
@@ -105,8 +113,8 @@ end
 --- A host named `tag` or `user` is a name, as it was before tailnet
 --- targets.
 local function test_a_host_named_tag_is_still_a_name()
-  local read, why = Grant.tailnet("tag:443")
-  assert(read == nil and why == "", why)
+  local read, _ = Grant.tailnet("tag:443")
+  assert(read == false, "tag:443 is a host named tag")
   assert(Sandbox.check({ grants = { { connect = "tag:443" }, { connect = "user:22" } } }))
 end
 
