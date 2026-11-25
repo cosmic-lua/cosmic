@@ -33,6 +33,8 @@ end
 local record Answer
   result?: Child.Result
   why?: string
+  --- What standard input holds, for `--database -`; a read that fails when nil.
+  stdin?: string
 end
 
 local function finished(code: integer?, signal?: integer, timed_out?: boolean): Child.Result
@@ -56,6 +58,10 @@ local function run(words: {string}, answer?: Answer): Ran
         return nil, (assert(given.why, "a run that gives no result says why"))
       end
       return result, ""
+    end,
+    stdin = function(): string?, string
+      if given.stdin == nil then return nil, "no standard input given" end
+      return given.stdin, ""
     end,
   })
   return ran
@@ -361,6 +367,21 @@ local function test_database_sets_the_policys_database(tmp: string)
   same(ran.argv, { (assert(Proc.executable())) })
   local missing = refused({ "--database", tmp .. "/absent.db", "prog" })
   assert(missing.err:find("absent.db", 1, true), missing.err)
+end
+
+--- `--database -` keeps standard input in a file of the run's own, which the policy names and the run's
+--- end removes; a read that fails is a start that failed.
+local function test_database_dash_reads_standard_input()
+  local ran = run({ "--database", "-", "--", "prog", "a" }, { result = finished(0), stdin = "sealed\n" })
+  assert(ran.code == 0 and ran.err == "", ran.err)
+  local path = assert(assert(assert(ran.opts.policy).database).path)
+  assert(path:find("/program.db$") ~= nil, path)
+  assert(not assert(Fs.status(path)).exists, path .. " is left after the run")
+  same(ran.argv, { "prog", "a" })
+  local failed = run({ "--database", "-", "--", "prog" })
+  assert(failed.code == 125 and failed.err:find("--database -: no standard input given", 1, true) ~= nil,
+    tostring(failed.code) .. failed.err)
+  assert(failed.argv == nil, "nothing starts")
 end
 
 --- Each of the three options names the database the program runs on, so

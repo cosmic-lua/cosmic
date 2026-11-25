@@ -22,7 +22,9 @@
 --- A SEALED RUN: `--database`, `--modules` and `--closure` each name the
 --- database the program runs on ([`Sandbox.Policy`]'s `database`), the
 --- program being this program's core and the words after it the main's
---- arguments. `--database` takes a file as it is. `--modules` and
+--- arguments. `--database` takes a file as it is, or standard input for
+--- `-`, kept in a file in a directory of the run's own (the program's own
+--- standard input is then at its end). `--modules` and
 --- `--closure` seal one first, through [`Store.seal`], into a directory
 --- of the run's own that the program's user can search, removed when it
 --- ends: the named modules (the first the main, and no requires followed),
@@ -98,6 +100,9 @@ local record verb
     --- and returns its exit status, as [`build.sandbox_connect`]'s `run`
     --- does, which is what it is when nil.
     connect?: function(args: {string}): integer
+    --- All of standard input, for `--database -`, or nil and why it could not be read; [`Flags.read`]
+    --- of "-" when nil.
+    stdin?: function(): string?, string
   end
 end
 
@@ -317,9 +322,6 @@ local function request_of(argv: {string}): Request?, string
   local databases = parsed.all["--database"] or {}
   if #databases > 1 then return nil, "--database is given more than once" end
   request.database = databases[1]
-  if request.database == "-" then
-    return nil, "--database opens a sealed database by its path, not - (standard input)"
-  end
   local listed = parsed.all["--modules"] or {}
   if #listed > 1 then return nil, "--modules is given more than once" end
   local listed_modules = listed[1]
@@ -468,6 +470,20 @@ local record Sealing
   path?: string
   why: string
   refused: boolean
+end
+
+--- Standard input, a sealed database `--database -` names, kept as program.db in a directory of this
+--- run's own ([`scratch`]) that the program's user can read.
+local function spooled(read: function(): string?, string, held: mut {string}): Sealing
+  local bytes, why = read()
+  if bytes == nil then return { why = "--database -: " .. why, refused = false } end
+  local dir, dir_why = scratch(held)
+  if dir == nil then return { why = dir_why, refused = false } end
+  local path = dir .. "/program.db"
+  -- 0644, in decimal: the program's user reads it.
+  local wrote, write_why = Fs.write(path, bytes, 4 * 64 + 4 * 8 + 4)
+  if not wrote then return { why = tostring(write_why), refused = false } end
+  return { path = path, why = "", refused = false }
 end
 
 --- Seals `names` (the main among them, or `opts.extra`) into a directory
@@ -647,6 +663,13 @@ local function run_here(argv: {string}, opts: Child.Options): Child.Result?, str
   return result, ""
 end
 
+--- All of standard input, as [`verb.Io`]'s `stdin` reads it.
+local function read_stdin(): string?, string
+  local bytes, why = Flags.read("-")
+  if bytes == nil then return nil, why end
+  return bytes, ""
+end
+
 local standard: verb.Io = { err = bare.err, run = run_here }
 
 --- [`verb.run`], with the directories it makes for a sealed database put
@@ -671,7 +694,9 @@ local function execute(argv: {string}, io: verb.Io?, held: mut {string}): intege
   local sealing: Sealing?
   local request_database = request.database
   local request_modules = request.modules
-  if request_database ~= nil then
+  if request_database == "-" then
+    sealing = spooled(to.stdin or read_stdin, held)
+  elseif request_database ~= nil then
     local path, why = absolute(request_database, request.cwd)
     sealing = { path = path, why = why, refused = true }
   elseif request_modules ~= nil then
