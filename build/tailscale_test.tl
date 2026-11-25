@@ -260,7 +260,9 @@ local function run(tmp: string, words: {string}, status?: string, no_socket?: bo
           return file == "/in" or file == "/" or file:match("^/ro") ~= nil
         end,
         connect = function(opts: Tailscale.Daemon): Tailscale.Client?, string
-          return Tailscale.connect({ socket = opts.socket or path })
+          local client, why = Tailscale.connect({ socket = opts.socket or path })
+          if client == nil then return nil, tostring(why) end
+          return client, ""
         end,
       })
       server:stop()

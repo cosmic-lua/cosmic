@@ -28,6 +28,7 @@ lang/generics.tl
 lang/lexer.tl
 lang/literals.tl
 lang/load_order.tl
+lang/near_names.tl
 lang/parser.tl
 lang/relation.tl
 lang/scopes.tl

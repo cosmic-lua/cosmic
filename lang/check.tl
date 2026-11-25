@@ -223,6 +223,16 @@ Check.advice = {
     "`grants = { { connect = \"github.com:443\" } }`, and read them with `Sandbox.connects(policy)`",
   ["cosmic.internal.test_policy test_policy.Policy .promises"] = "a promise is a grant now: write " ..
     "`grants = { { calls = \"nest\" } }`",
+  -- The names other languages give what these records have under another, which programs guess most.
+  ["cosmic.json Json .parse"] = "`Json.decode(text)` reads JSON text: `local value, why = Json.decode(text)`",
+  ["cosmic.json Json .stringify"] = "`Json.encode(value)` writes JSON text: `local text, why = Json.encode(value)`",
+  ["cosmic.json Json .dumps"] = "`Json.encode(value)` writes JSON text: `local text, why = Json.encode(value)`",
+  ["cosmic.json Json .loads"] = "`Json.decode(text)` reads JSON text: `local value, why = Json.decode(text)`",
+  ["cosmic.fs Fs .exists"] = "`Fs.status(path)` tells whether anything is there: `local status = Fs.status(path)!`, " ..
+    "then `status.exists`",
+  ["cosmic.fs Fs .glob"] = "`Fs.walk(root)` lists every file under `root`, relative to it: filter the list with `path:match(...)`",
+  ["cosmic.fs Fs .listdir"] = "`Fs.list(path)` lists the names in a directory",
+  ["cosmic.fs Fs .readdir"] = "`Fs.list(path)` lists the names in a directory",
 }
 
 -- State ----------------------------------------------------------------------------------
@@ -2982,6 +2992,49 @@ local function member_types(ctx: Ctx, t: Named, name: string): {Member}?
   return held
 end
 
+--- What `t` (named) has, for a read of the field `name` it does not have: the members `name` may mean ([`nearest`]
+--- `close`, then [`NearNames.related`] ones) with their types, then the names of the others; nil where it has none.
+function Naming.members_told(ctx: Ctx, t: Type, name: string, close: string): string?
+  local NearNames = require("lang.near_names")
+  if not (t.tag == "named") then return nil end
+  local index = members_index(ctx, t.decl, t.value)
+  if index == nil then return nil end
+  local names = names_of(ctx, t)
+  if #names == 0 then return nil end
+  local picked: mut {string} = {}
+  local taken: mut {string: boolean} = {}
+  local function pick(n: string)
+    if n ~= "" and taken[n] == nil and #picked < NearNames.TYPED then
+      picked[#picked + 1] = n
+      taken[n] = true
+    end
+  end
+  pick(close)
+  for _, n in ipairs(NearNames.related(name, names)) do pick(n) end
+  local typed: mut {string} = {}
+  for _, n in ipairs(picked) do
+    local list = index.by_name[n]
+    local first = if list ~= nil then list[1] else nil end
+    local shown = if first ~= nil then NearNames.cut(show(ctx, first.type), 120) else "" end
+    -- A type that holds a type variable of the checker's own (`?0.0`) is shown by its name alone.
+    typed[#typed + 1] = if shown ~= "" and shown:find("%?%d") == nil then "`" .. n .. ": " .. shown .. "`" else quoted(n) end
+  end
+  local rest: mut {string} = {}
+  local more = 0
+  for _, n in ipairs(names) do
+    if taken[n] == nil then
+      if #rest < NearNames.NAMED then rest[#rest + 1] = n else more = more + 1 end
+    end
+  end
+  local owner = quoted(Types.decl_name(t.decl))
+  local told = if #typed > 0 then owner .. " has " .. table.concat(typed, ", ") .. "; " ..
+      (if #rest > 0 then "its other members: " else "" end) else owner .. " has: " end
+  if #rest > 0 then
+    told = told .. table.concat(rest, ", ") .. (if more > 0 then ", and " .. tostring(more) .. " more" else "" end)
+  end
+  return told
+end
+
 local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
   if (t.tag == "named") and t.value and (ctx.program.absent[t.decl] or {})[name] == true then
     -- The function is a field every value holds, filled where the value is made: the table of the functions has none.
@@ -3050,19 +3103,23 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
   end
   local close = nearest(name, names)
   local declare = "declare " .. quoted(name) .. " in " .. owner
+  local told: string? = nil
   if (t.tag == "named") and Types.shape_record(t.decl) then
     declare = "add `" .. name .. ": T` to the braces of " .. owner
   elseif (t.tag == "named") and t.value and t.decl.kind == "integer_enum" then
     declare = "add the member `" .. name .. " = n` to " .. owner
   end
   if (t.tag == "named") and t.decl.module:sub(1, 7) == "cosmic." and ctx.input.module:sub(1, 7) ~= "cosmic." then
-    -- A record of cosmic's own modules is the binary's to a program, which cannot declare a field in it.
-    declare = "`cosmic docs " .. t.decl.module .. "` lists what " .. owner .. " has"
+    -- A record of cosmic's own modules is the binary's to a program, which cannot declare a field in it: what it has
+    -- is told here, so the next try needs no lookup.
+    told = Naming.members_told(ctx, t, name, close)
+    declare = told or ("`cosmic docs " .. t.decl.module .. "` lists what " .. owner .. " has")
   end
   local advised = if (t.tag == "named") then Check.advice[t.decl.module .. " " .. t.decl.name .. " ." .. name] else nil end
   report(ctx, "field_unknown", node, owner .. " has no field " .. quoted(name) ..
       (if close ~= "" then ", nearest " .. quoted(close) else "" end),
-    if advised ~= nil then advised elseif close ~= "" then "write " .. quoted(close) .. ", or " .. declare else declare end,
+    if advised ~= nil then advised elseif close ~= "" then
+      "write " .. quoted(close) .. (if told ~= nil then "; " else ", or " end) .. declare else declare end,
     { show(ctx, t) })
 end
 

@@ -318,6 +318,44 @@ local function test_default_base_of_another_or_open_to_others_is_refused(tmp: st
   assert(#assert(Fs.list(other)) == 0, "another's base was written")
 end
 
+--- A run on the default base records its checkout beside its state, and removes each state whose recorded checkout
+--- is gone. A state with no record, or one whose checkout is there, is kept.
+local function test_a_default_run_removes_the_state_of_a_checkout_that_is_gone(tmp: string)
+  local root, env = checkout(tmp)
+  local uid = sys.getuid()
+  local base = tmp .. "/cosmic-ci-local-" .. tostring(uid)
+  assert(Fs.mkdirs(base))
+  assert(Fs.chmod(base, 0x1c0))
+  local states: {string: string} = { ["11"] = tmp .. "/gone", ["22"] = root, ["33"] = "" }
+  for key, source in pairs(states) do
+    assert(Fs.mkdirs(base .. "/" .. key .. "/candidate"))
+    assert(Fs.write(base .. "/" .. key .. "/candidate/held", "bytes\n"))
+    if source ~= "" then assert(Fs.write(base .. "/" .. key .. ".source", source .. "\n")) end
+  end
+  -- A state that cannot be removed is said and left, and the run goes on.
+  local stuck = base .. "/44/cache/ro"
+  assert(Fs.mkdirs(stuck))
+  assert(Fs.write(stuck .. "/held", "bytes\n"))
+  assert(Fs.chmod(stuck, 0x16d))
+  assert(Fs.write(base .. "/44.source", tmp .. "/also gone\n"))
+  local code, said = invoke(root, Maps.without(env, { "COSMIC_CI_LOCAL" }), { "build" }, uid)
+  assert(Fs.chmod(stuck, 0x1ed))
+  assert(code == 0, said)
+  assert(said:find("removed the state of " .. tmp .. "/gone, which is gone", 1, true) ~= nil, said)
+  if uid ~= 0 then
+    assert(said:find("could not remove the state of " .. tmp .. "/also gone, which is gone", 1, true) ~= nil, said)
+    assert(assert(Fs.status(base .. "/44.source")).exists, "the record of a state left was removed")
+  end
+  assert(not assert(Fs.status(base .. "/11")).exists and not assert(Fs.status(base .. "/11.source")).exists)
+  assert(assert(Fs.status(base .. "/22/candidate/held")).exists and assert(Fs.status(base .. "/33/candidate/held")).exists)
+  local own: mut {string} = {}
+  for _, name in ipairs(assert(Fs.list(base))) do
+    local key = name:match("^(%d+)%.source$")
+    if key ~= nil and states[key] == nil and key ~= "44" then own[#own + 1] = name end
+  end
+  assert(#own == 1 and assert(Fs.read(base .. "/" .. own[1])) == assert(Fs.absolute(root)) .. "\n", table.concat(own, " "))
+end
+
 local function test_root_account_refusal_creates_no_state(tmp: string)
   local root, env = checkout(tmp)
   for _, name in ipairs({ "root", "cosmic-user-that-does-not-exist-95672" }) do

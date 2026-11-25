@@ -14,6 +14,8 @@
 --- checker or the generator refuses for something else (listed as above, with no Lua to count). A module with an error no marker holds is
 --- still counted. A chunk Lua refuses for its registers and not its locals is left alone ([`build.main_locals`]'s `over`).
 
+local type work_schema = require("build.work_schema")
+local type Database = work_schema.Database
 local CompileGrammar = require("build.compile_grammar")
 local MainLocals = require("build.main_locals")
 local Pipeline = require("build.pipeline")
@@ -46,7 +48,7 @@ local record PipelineCheck
   --- a comparison of a few agrees with everything. It says how many it compared.
   compare: function(
     root: string,
-    build_db: Sqlite.Handle,
+    build_db: Database,
     memo: Sqlite.Handle?,
     count: integer,
     row_at: function(index: integer): Row,
@@ -84,7 +86,7 @@ end
 local copy_bytes <const> = 1024 * 1024 * 1024
 
 --- What the pipeline gives for the staged modules of `rows`, and the lines that say why it could not.
-local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {PipelineCheck.Row}): Answers, {string}
+local function asked(build_db: Database, options: Pipeline.Options, rows: {PipelineCheck.Row}): Answers, {string}
   local over: mut {string: boolean} = {}
   local other: mut {string: string} = {}
   local answers: mut {string: string} = {}
@@ -288,7 +290,7 @@ end
 
 function PipelineCheck.compare(
     root: string,
-    build_db: Sqlite.Handle,
+    build_db: Database,
     memo: Sqlite.Handle?,
     count: integer,
     row_at: function(index: integer): PipelineCheck.Row,

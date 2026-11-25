@@ -7,7 +7,7 @@
 --- `stack` checks out BRANCH fresh from origin's main and squashes each
 --- pull request N onto it in the order given, as one commit titled
 --- `<title> (#N)` whose body is the member's own commit messages. A
---- member is left out, and the reason said, when it is a draft, is not
+--- member is left out, and the reason said, when it is not
 --- open, has no green `ci` check at its head, or does not apply on what
 --- is stacked before it. It writes the batch pull request's body to
 --- standard output; the caller pushes BRANCH and opens the pull request.
@@ -123,7 +123,6 @@ end
 --- Why pull request `pr` cannot be batched, or nil.
 local function refusal(pr: Pull): string?
   if pr.state ~= "open" then return "not open" end
-  if pr.draft then return "a draft" end
   if pr.base.ref ~= "main" then return "for " .. pr.base.ref .. ", not main" end
   local text, why = api("repos/" .. REPO .. "/commits/" .. pr.head.sha .. "/check-runs?per_page=100")
   if text == nil then return "its checks could not be read: " .. why end

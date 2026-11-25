@@ -146,8 +146,10 @@ copy of this checkout's `ci/`, fixtures included, taken each time run-local
 starts, so after one full run `ci/run-local fixtures` re-runs edited
 fixtures against the same products. Each phase's log is under
 `$COSMIC_CI_LOCAL/logs/` (default `${TMPDIR:-/tmp}/cosmic-ci-local-<uid>/<key>`,
-keyed by the checkout's path, so worktrees can run at once; a removed
-worktree's state stays until deleted).
+keyed by the checkout's path, so worktrees can run at once). Each run on
+that default records its checkout in `<key>.source` beside its state, and
+removes the state of every recorded checkout that is gone. A state with no
+record, as each made before records were, stays until deleted.
 
 Like gating CI, run-local sets `COSMIC_CI_FIXED_POINT=skip` unless the
 caller sets it, so `fixtures` skips the fixed-point regression: its

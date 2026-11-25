@@ -66,13 +66,13 @@
 --- before it is shown (`cosmic docs cosmic.agent.sessions`). So a run that ends in
 --- the middle of a turn loses nothing it showed, and `cosmic agent resume`
 --- (or ask or chat, which go on with the newest session) takes the turn up where it was:
---- each tool call that ended is answered with its kept output, one
---- that never ended is answered as interrupted, not run again, and the
+--- each tool call that ended gets its kept output as its result, one
+--- that never ended gets a result of interrupted, not run again, and the
 --- request the run was in is sent again. A turn is started again at
 --- most 5 times; after that, a new prompt goes on.
 ---
 --- Ctrl-C stops the turn: the tool running is ended, the rest are
---- answered as stopped, and the turn is kept as stopped, not to be
+--- given a result of stopped, and the turn is kept as stopped, not to be
 --- resumed; SIGTERM ends the agent once the turn is kept. A turn the
 --- model ended, refused or ran out of tokens is not resumed either.
 --- In chat at a terminal, a line typed while the model works
@@ -113,7 +113,7 @@ local record Agent
 
   --- The most one turn ([`Agent.Session.prompt`], or `resume`) may
   --- spend: each field nil for no limit. The first limit reached ends the
-  --- turn for good, the tool calls of its last reply answered as
+  --- turn for good, the tool calls of its last reply given results of
   --- stopped, with why ([`Agent.BUDGET_SPENT`]). Tokens, cost and turns
   --- are counted when each request comes back, so the request that
   --- reaches a limit is the last; the time is counted from the turn's
@@ -217,13 +217,13 @@ local record Agent
     input: Tools.Object
   end
 
-  --- The tool `name` answered `result`.
+  --- The tool `name` gave `result`.
   record ResultEvent
     --- "result".
     kind: ResultKind
     --- The tool's name.
     name: string
-    --- What it answered.
+    --- What it gave.
     result: Tools.Result
   end
 
@@ -292,7 +292,7 @@ local record Agent
   --- and the model reads that string as the reason. A hook that raises
   --- blocks the call, with the error as the reason, so a bug fails
   --- closed; so does a tool's `paths` that raises. A call of a tool the
-  --- agent does not offer is not asked: it is answered as not found.
+  --- agent does not offer is not asked: it gets a result of not found.
   --- cosmic.agent.check makes the common ones.
   ---
   --- A snippet's call has `caller` "code", its name the call's, its
@@ -308,7 +308,7 @@ local record Agent
   --- nil keeps the result, a result takes its place
   --- (to redact a secret, or cut it short). What is kept is `raw` where
   --- it is set, else `text`: redact both, or give a result with no `raw`.
-  --- A snippet's call gives its answer as JSON text, escaped as JSON is,
+  --- A snippet's call gives its result as JSON text, escaped as JSON is,
   --- or its failure as an error result; the text it is given back is
   --- read as JSON where it is JSON. A hook that raises makes the result
   --- an error that says so. What a
@@ -352,7 +352,7 @@ local record Agent
     --- The API's root; https://api.anthropic.com where nil.
     mut base_url?: string
     --- The tools the model is offered, read at each request: a call to
-    --- one not here is answered as not found. The system prompt is not
+    --- one not here gets a result of not found. The system prompt is not
     --- built again when they change: set `system` to
     --- `Prompt.build(cwd, Prompt.contexts(cwd), { tools = tools })` too.
     mut tools: {Tools.Tool}
@@ -435,11 +435,11 @@ local record Agent
     --- ended it, refused, ran out, or the user stopped it), and the
     --- user's (a prompt or tool results) is the last word.
     unfinished: function(Session): boolean
-    --- Answers the tool calls of the last message, where it is the
-    --- model's and they went unanswered (a run ended in the middle of
-    --- its calls), so the API takes the conversation again: a call
-    --- whose output was kept with that output, one that never ended as
-    --- interrupted, not run again.
+    --- Gives each tool call of the last message a result, where that
+    --- message is the model's and its calls have none (a run ended in the
+    --- middle of its calls), so the API takes the conversation again. A
+    --- call whose output was kept gets that output. One that never ended
+    --- gets interrupted, and is not run again.
     settle: function(Session): boolean, string
     --- Sends the conversation as the last request sent it, to the user's
     --- last word, asking for no reply: the cache keeps it 5 minutes more,
@@ -607,11 +607,11 @@ local function mark(s: Agent.Session, restarts: integer, ended: boolean): boolea
   return true, ""
 end
 
---- The tool results that answer the tool calls of `s`'s last message,
---- where it is the model's and they went unanswered (a run ended in
+--- The tool results for the tool calls of `s`'s last message,
+--- where it is the model's and they went without results (a run ended in
 --- the middle of its calls): so the API takes the conversation again.
---- A call whose output was kept is answered with it; one that never
---- ended is answered as interrupted, not run again.
+--- A call whose output was kept gets it as its result; one that never
+--- ended gets a result of interrupted, not run again.
 local function settle(s: Agent.Session): boolean, string
   local last, _ = Json.to_object(s.messages[#s.messages])
   if last == nil or last["role"] ~= "assistant" then return true, "" end
@@ -720,7 +720,7 @@ function Agent.cost(model: string, usage: {string: Json.Value}): number?
   return (input * p.input + output * p.output + read * p.cache_read + five * 1.25 * p.input + hour * 2 * p.input) / 1e6
 end
 
---- What a reply's `usage` costs, in USD, where `model` answered it:
+--- What a reply's `usage` costs, in USD, where `model` sent it:
 --- after a fallback, each attempt of `usage.iterations` at its own
 --- model's price, the declined ones too (an upper bound: some declines
 --- before any output are not billed). Nil where an attempt's model has
@@ -733,7 +733,7 @@ function Agent.billed(model: string, usage: {string: Json.Value}): number?
     local attempt, _ = Json.to_object(a)
     if attempt == nil then return nil end
     local named = attempt["model"]
-    -- The attempt that answered is the top-level usage, whose split of
+    -- The attempt that replied is the top-level usage, whose split of
     -- cache writes (5m, 1h) an attempt may not carry.
     local priced: mut {string: Json.Value} = {}
     for k, v in pairs(attempt) do priced[k] = v end
@@ -850,7 +850,7 @@ local function call(s: Agent.Session, r: Sessions.Request, warming?: integer): {
       sent[#sent + 1] = m
     end
     -- No tokens asked for, which the API takes only unstreamed: it reads
-    -- the prefix (from the cache) and answers nothing.
+    -- the prefix (from the cache) and replies with no output.
     warm["messages"], warm["max_tokens"], warm["stream"] = Json.array(sent), 0, false
     body = warm
     r.max_tokens = 0
@@ -1175,7 +1175,7 @@ local function loop(s: Agent.Session): boolean, string
           for _, t in ipairs(steering(s)) do sent[#sent + 1] = t end
         end
         if halted or failed ~= "" or #sent > 0 then
-          -- Answered all the same: the API takes no tool call left without its result.
+          -- Given results all the same: the API takes no tool call left without its result.
           local why_not = if halted and spent_reason ~= nil then "Stopped: " .. spent_reason .. "."
             elseif halted then "Stopped: the user stopped the turn." elseif failed ~= "" then
             "Not run: the agent could not keep what came before." else "Skipped: the user sent a message instead." end
@@ -1229,7 +1229,7 @@ local function loop(s: Agent.Session): boolean, string
                 return afterward(s, by_code, answered)
               end end }
             result = if tool ~= nil then Tools.dispatch(s.tools, called, given, context) else
-              { text = "Tool " .. called .. " not found", is_error = true } end
+              { text = Tools.unknown(s.tools, called), is_error = true } end
             if tool ~= nil then result = afterward(s, asked_call, result) end
           end
           local shown, record_why = record(s, call_id, called, given, result)
@@ -1247,7 +1247,7 @@ local function loop(s: Agent.Session): boolean, string
     -- None where the budget is spent already: the turn ends next, and a later prompt would read it stale.
     local near = if #results > 0 and not halted and spent_why(s, spent) == nil then nearly_spent(s, spent) else nil end
     if near ~= nil then results[#results + 1] = { type = "text", text = near } end
-    -- Each tool call is answered before any stop, so the session stays one the API takes.
+    -- Each tool call gets its result before any stop, so the session stays one the API takes.
     if #results > 0 then
       local answers: Json.Value = { role = "user", content = Json.array(results) }
       local added, add_why = add(s, answers)
@@ -1396,7 +1396,7 @@ local function servers_of(set?: AgentMcp.Set): {AgentMcp.Server}
 end
 
 --- A new agent, from `options`: a session kept where `options.db` is, or
---- nowhere. A kept session's tool calls left unanswered are not settled
+--- nowhere. A kept session's tool calls left without results are not settled
 --- here: call `settle` before its next prompt.
 ---
 ---     local agent = Agent.new({ sign = sign, cwd = "/src", effort = "low", system = "Be brief." })

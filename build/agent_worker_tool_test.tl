@@ -1,5 +1,5 @@
 --- `cosmic agent worker` as the run tool drives it ([`cosmic.agent.worker`]): one process that checks and runs one
---- snippet after another, answering each as its own.
+--- snippet after another, and responds to each on its own.
 local AgentMcp = require("cosmic.agent.mcp")
 local Clock = require("cosmic.clock")
 local Failure = require("cosmic.failure")
@@ -56,7 +56,7 @@ local function tools_run(name: string, input: {string: Json.Value}, context: Too
   return result
 end
 
---- A set whose worker is `cosmic agent worker` of this program, as the agent starts it. Its first snippet answers in
+--- A set whose worker is `cosmic agent worker` of this program, as the agent starts it. Its first snippet ends in
 --- about 60 ms; a child of this module ([`build.test_child`]) took 1.3 s, checking its `-e` chunk and loading the
 --- module first.
 local function set_of_worker(): Worker.Set
@@ -146,7 +146,7 @@ local function test_the_run_tool_shows_what_a_snippet_printed_returned_and_was_r
   assert(not long.is_error and long.text:find("Output cut", 1, true) ~= nil and long.text:find("line 4000\n", 1, true) ~= nil and
       long.text:find("\nline 1\n", 1, true) ~= nil and long.text:find("line 2000\n", 1, true) == nil and
       long.text:find(" cut ...]\n", 1, true) ~= nil and #long.text < 8400 and long.raw ~= nil, long.text:sub(1, 200))
-  -- Past 64KB, the count is of all that was cut, not of what the worker answered.
+  -- Past 64KB, the count is of all that was cut, not of what the worker sent.
   local huge = tools_run("run", { code = "for i = 1, 40000 do print(\"line \" .. tostring(i)) end\n" }, context)
   local cut_bytes = tonumber(huge.text:match("%[%.%.%. (%d+) bytes cut %.%.%.%]")) or 0
   assert(not huge.is_error and cut_bytes > 400000 and huge.text:find("line 40000\n", 1, true) ~= nil, huge.text:sub(1, 300))
@@ -223,7 +223,7 @@ local function test_a_snippet_that_prints_without_end_runs_to_its_timeout()
   worker_close(w)
 end
 
---- What a program an earlier snippet started writes after that snippet answered is not the next snippet's output,
+--- What a program an earlier snippet started writes after that snippet ended is not the next snippet's output,
 --- nor is a snippet's end mark another's.
 local function test_a_late_write_and_a_snippets_own_mark_are_not_the_next_snippets_output()
   -- macOS has no setsid program, so the shell could leave nothing behind that outlives its group.
@@ -234,7 +234,7 @@ local function test_a_late_write_and_a_snippets_own_mark_are_not_the_next_snippe
   local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
   -- The shell leaves a program behind in a session of its own, which outlives the shell's group and writes once the
-  -- snippet answered.
+  -- snippet ended.
   -- The left one runs in the background of the shell, not as a leader of its group, so setsid makes its session at
   -- once with no fork of its own and no -f, which busybox's setsid (Alpine's) has not. Child.run ends what is left of
   -- its group when the shell exits, so the shell waits, up to 5 s, for the left one, past setsid, to say it is up.
@@ -246,7 +246,7 @@ local function test_a_late_write_and_a_snippets_own_mark_are_not_the_next_snippe
     "print(\"now\")\n"
   local first = run(w, late, nil, dir)
   assert(first["ok"] == true and first["output"] == "now\n", shown(first))
-  -- The left program writes once the snippet answered, when told to.
+  -- The left program writes once the snippet ended, when told to.
   assert(Fs.write(dir .. "/go", ""))
   local deadline = Clock.monotonic_ns() + Clock.seconds(5)
   local wrote, _ = Fs.read(dir .. "/wrote")
@@ -291,7 +291,7 @@ local function test_calls_from_a_snippets_tasks_are_served_at_once()
       -- Calls served one at a time would leave this one alone here until its deadline.
       local deadline = Clock.monotonic_ns() + Clock.seconds(20)
       while most_held < 4 and Clock.monotonic_ns() < deadline do
-        -- A cancelled task's delay answers at once: stop, rather than spin to the deadline.
+        -- A cancelled task's sleep returns at once: stop, rather than spin to the deadline.
         local slept, _ = Clock.sleep(Clock.ms(10))
         if not slept then break end
       end
@@ -347,7 +347,7 @@ print(ok)
   worker_close(w)
 end
 
---- An answer out of step, one that is no JSON, and a worker that ends are each told, and the worker ended.
+--- A response line out of step, one that is no JSON, and a worker that ends are each told, and the worker ended.
 local function test_a_worker_that_answers_wrong_or_ends_is_ended_and_told()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
   local cases: {{string}} = {
@@ -432,6 +432,21 @@ print(tostring(long))
   assert(not bare.is_error and bare.text:find("^3\t\"x\"\tb\n") ~= nil, bare.text)
   local own = tools_run("run", { code = "local Host = 7\nprint(Host + 1)" }, context)
   assert(not own.is_error and own.text:find("^8\n") ~= nil, own.text)
+  -- A snippet that requires one of the prelude's modules itself still has the others.
+  local mixed = tools_run("run", { code = "local Json = require(\"cosmic.json\")\nprint(Json.encode({ Host.cat(\"one.tl\") })!)" },
+    context)
+  assert(not mixed.is_error and mixed.text:find('^%["x') ~= nil, mixed.text)
+  for _, code in ipairs({ "local Json: integer = 3\nprint(Host.cat(\"one.tl\"), Json + 1)",
+      -- A `local` in a comment or a string binds nothing.
+      "-- local Json = 1\nprint(Json.quote(\"q\"))", "print(\"local Json = 1\", Json.quote(\"q\"))" }) do
+    local r = tools_run("run", { code = code }, context)
+    assert(not r.is_error, code .. ": " .. r.text)
+  end
+  -- A refusal of its own is told as it is, with the other prelude names bound.
+  local own_error = tools_run("run", { code = "local Json = require(\"cosmic.json\")\nlocal n: integer = Host.cat(\"one.tl\")" },
+    context)
+  assert(own_error.is_error and own_error.text:find("not_assignable", 1, true) ~= nil and
+      own_error.text:find("not declared", 1, true) == nil, own_error.text)
   local wrong = tools_run("run", { code = "print(Host.find(\".\"))\nlocal n: integer = \"x\"\nprint(n)" }, context)
   assert(wrong.is_error and wrong.text:find(":2:", 1, true) ~= nil, wrong.text)
   -- A name in a string or a comment, a binding of the name, and a first line that begins with `(` all run.
@@ -458,7 +473,7 @@ print(tostring(long))
   worker_close(w)
 end
 
---- A snippet reads sessions.db through the agent (Host.history), which answers it read-only, row by row: a write, a
+--- A snippet reads sessions.db through the agent (Host.history), whose query the agent runs read-only, row by row: a write, a
 --- copy (VACUUM INTO) and an attach are refused.
 local function test_a_snippet_queries_the_sessions_through_the_agent()
   local w = set_of_worker()
@@ -535,7 +550,7 @@ local function test_a_snippet_reads_a_kept_output_by_its_id()
   local _, _ = db:close()
 end
 
---- What a query answers is held to JSON and to the reply's limit: no infinity, one column of a name, and control
+--- The rows a query yields are held to JSON and to the reply's limit: no infinity, one column of a name, and control
 --- characters counted as their escapes.
 local function test_a_snippets_query_answer_is_held_to_json_and_its_limit()
   local w = set_of_worker()
@@ -599,7 +614,6 @@ local function test_a_snippets_endless_query_step_is_stopped_at_its_time()
   local _, _ = db:close()
 end
 
---- Outside a worker no agent answers a call.
 local function test_a_snippet_calls_an_mcp_servers_tools_as_typed_functions()
   local dir = assert(Fs.mkdtemp("agent-worker-mcp-module-"))
   local script = dir .. "/server.tl"
@@ -716,7 +730,7 @@ print(missing)
   -- Both tools named sum are found, and the one of no such word is not.
   assert(text:find("sum\tadder.sum_up=sum-up,adder.sum_up_2=sum.up\t0\n", 1, true) ~= nil or
       text:find("sum\tadder.sum_up_2=sum.up,adder.sum_up=sum-up\t0\n", 1, true) ~= nil, text)
-  -- Tasks of a snippet call one server at once, each answered its own.
+  -- Tasks of a snippet call one server at once, each given its own result.
   local at_once = [[
 local adder = require("mcp.adder")
 local Poll = require("cosmic.poll")
@@ -737,6 +751,7 @@ print(got[1], got[2], got[3])
   worker_close(w)
 end
 
+--- Outside a worker no agent replies to a call.
 local function test_a_call_outside_a_worker_raises()
   Test.raises(function() Host.history("SELECT 1") end, "no agent answers here")
 end
@@ -856,7 +871,7 @@ local function test_a_snippet_reads_json_into_records()
   worker_close(w)
 end
 
---- Host.sort answers a new list the snippet may add to, so a list sorted in place of itself still checks.
+--- Host.sort returns a new list the snippet may add to, so a list sorted in place of itself still checks.
 local function test_a_snippet_sorts_a_list_into_itself_and_adds_to_it()
   local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))

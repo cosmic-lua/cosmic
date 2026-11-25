@@ -672,7 +672,8 @@ private, mode 0500, in the validated leaf. a `noexec` cache fails
 there, with a diagnostic that names it. a program `cosmic build`
 writes shares the prefix, and so the compressed cores. the runtime's
 own readers never decode. `trusted_prefix` hashes each stored range
-against its stored digest. `trusted_core` (for `cosmic build --host`)
+against its stored digest. `trusted_core` (for `cosmic build --host` and
+[`Store.host_program`])
 reads the running cached core and hashes it again.
 
 the database is read-only, and the runtime never writes it. it is
@@ -1997,3 +1998,4 @@ in [roadmap.md](roadmap.md).
 [`Proc.find`]: ../cosmic/proc.tl
 [`Rand.uuid`]: ../cosmic/rand.tl
 [`Store.holds`]: ../cosmic/store.tl
+[`Store.host_program`]: ../cosmic/store.tl

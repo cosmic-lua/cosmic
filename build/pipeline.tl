@@ -52,6 +52,7 @@ local String = require("cosmic.string")
 local SyntaxContracts = require("build.syntax_contracts")
 local TreeProgram = require("build.tree_program")
 local standard_text = require("build.standard_text")
+local StandardMeant = require("build.standard_meant")
 local type Plans = require("build.plans")
 -- Declares what text this module reads ([`build.code_walk`]'s `markers`): pipeline, stubs.
 local _ = require("build.reads.pipeline")
@@ -381,7 +382,7 @@ function Pipeline.over(entries: {{string}}, kinds: {string: string}, options: Pi
   local standard = options.standard or Pipeline.carried()
   return {
     build = TreeProgram.build(index, options.globals, options.types, nil, standard,
-      TreeProgram.meant(index, options.project ~= true)), index = index,
+      StandardMeant.wrap(TreeProgram.meant(index, options.project ~= true))), index = index,
     globals = options.globals, standard = standard, types = options.types, given = stubs or {}, stubs = nil, stubbed = nil,
     project = options.project, standing = {},
   }
