@@ -428,8 +428,9 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
     budget = b
   end
   local name = got.values["--model"] or Agent.MODEL
-  local model = if name == "opus" then Agent.MODELS.opus elseif name == "sonnet" then Agent.MODELS.sonnet else nil end
-  if model == nil then return nil, "--model is opus or sonnet" end
+  local model = if name == "opus" then Agent.MODELS.opus elseif name == "sonnet" then Agent.MODELS.sonnet
+    elseif name == "haiku" then Agent.MODELS.haiku else nil end
+  if model == nil then return nil, "--model is opus, sonnet or haiku" end
   local base = r.io.env("ANTHROPIC_BASE_URL") or "https://api.anthropic.com"
   local sign, sign_why = Auth.from(r.io.env, base)
   if sign == nil then return nil, sign_why end

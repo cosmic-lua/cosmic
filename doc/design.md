@@ -49,7 +49,7 @@ these argues with the principle, not with the reviewer.
    (false, Failure)` for an effect, two slots and nothing in a third.
    a [`cosmic.failure`] keeps the words, the path where there is one,
    the errno where a system call failed, and a `kind` (`other`,
-   `system`, `parse`, `library`, `timeout`, `cancelled`), so a caller
+   `system`, `parse`, `library`, `timeout`, `cancelled`, `mismatch`), so a caller
    acts on the cause and never matches the words. a call that asks
    whether something is there returns that as a value ([`Fs.status`]'s
    `exists`, [`Store.holds`]), not as a failure. the stdlib moves to this
@@ -57,8 +57,7 @@ these argues with the principle, not with the reviewer.
    string` and `boolean, string`, which the checks on callers hold as
    well. intended: one operation is one function, with no twin beside
    it that raises or that returns a classified record
-   ([`Http.download_result`] goes once its module moves;
-   [`Proc.find`]'s failure carries the errno a shell's 126 and 127
+   ([`Proc.find`]'s failure carries the errno a shell's 126 and 127
    tell apart). the raw binding table [`cosmic.sys`] is
    the one exception to the two slots: its C calls add the errno in a
    third slot. a stand-in that a module stores into that table in a
@@ -855,7 +854,7 @@ semantic identities keep different kinds of reuse separate:
   syntax tree and the statements that write their rows. it is not the
   whole compiler identity. it holds nothing of the checker, which no
   module of that walk requires. so an edit that only a compile runs
-  (build.plans, lang/check.tl, [`build.driver`]) parses nothing again.
+  (build.plans, lang/check/, [`build.driver`]) parses nothing again.
   an edit to the lexer or the parser parses every source again.
 - the writer identity holds the code and core image that determine a
   projection's bytes, including its standard-library dependencies. the
@@ -1260,7 +1259,7 @@ it:
   `.d.tl`, or their own record, class, interface and enum
   declarations. [`lang/relation.tl`] says when one type stands for
   another, and [`lang/generics.tl`] binds a generic's parameters.
-- [`lang/check.tl`] types each expression and statement.
+- [`lang/check/init.tl`] types each expression and statement.
   [`lang/flow.tl`] decides reachability: which statements end their
   block, and so which narrowings survive an `if`.
   [`lang/check_codes.tl`] lists every code an error can carry.
@@ -1811,7 +1810,7 @@ target. a name marked intended is no module yet.
   [`cosmic.string`], [`cosmic.errno`], [`cosmic.errors`],
   [`cosmic.log`], [`cosmic.test`], [`cosmic.coverage`], [`cosmic.doc`]
   and [`cosmic.shape`]. the checker and the syntax tree are
-  [`lang/check.tl`] and [`lang/ast.tl`], and the Teal compiler is the
+  [`lang/check/init.tl`] and [`lang/ast.tl`], and the Teal compiler is the
   rest of `lang/`. the formatter is [`build.fix.format`], and embedding
   is [`build/embed.tl`].
 - **second**: [`cosmic.http`], [`cosmic.net`], [`cosmic.dns`],
@@ -1925,7 +1924,7 @@ in [roadmap.md](roadmap.md).
 [`cosmic/fs_example.tl`]: ../cosmic/fs_example.tl
 [`doc/testing.md`]: testing.md
 [`lang/ast.tl`]: ../lang/ast.tl
-[`lang/check.tl`]: ../lang/check.tl
+[`lang/check/init.tl`]: ../lang/check/init.tl
 [`lang/check_codes.tl`]: ../lang/check_codes.tl
 [`lang/codegen.tl`]: ../lang/codegen.tl
 [`lang/declarations.tl`]: ../lang/declarations.tl
@@ -1993,7 +1992,6 @@ in [roadmap.md](roadmap.md).
 [`cosmic.zip`]: ../cosmic/zip.tl
 [`doc/guides/project.md`]: guides/project.md
 [`Fs.status`]: ../cosmic/fs.tl
-[`Http.download_result`]: ../cosmic/http/init.tl
 [`lang/SEED_DIFFERS`]: ../lang/SEED_DIFFERS
 [`Proc.find`]: ../cosmic/proc.tl
 [`Rand.uuid`]: ../cosmic/rand.tl

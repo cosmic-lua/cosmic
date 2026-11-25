@@ -444,7 +444,8 @@ cosmic agent ask --budget turns=6 'go on'
 >
 > The key name `names` is my guess. I searched the repo and found no code that reads `[ignore]`, so I couldn't check what tidy actually expects. Please change `names` to the real key, or tell me what it is and I'll update the doc.
 
-`--model sonnet` costs less than the default, `opus`. A session keeps
+`--model sonnet` costs less than the default, `opus`, and `--model haiku`
+costs least: its list price is a twentieth of sonnet's. A session keeps
 the model it used last, until `--model` names another. `--effort low`
 to `max` sets how hard the model thinks (default `medium`).
 

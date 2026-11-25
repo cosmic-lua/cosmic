@@ -129,7 +129,8 @@ local record host_requires
     --- Of a `platform` entry, whether this platform ever has it, where the
     --- result is no probe's but the platform's own; the outcome is `na`
     --- where it does not.
-    platform_has?: function(host: host_requires.Host): boolean
+    --- It is handed the host and the argument ("" for none).
+    platform_has?: function(host: host_requires.Host, argument: string): boolean
     --- The probe, handed its argument ("" for none) and the host.
     probe: function(argument: string, host: host_requires.Host): Found
   end
@@ -209,7 +210,8 @@ local record host_requires
     --- Whether the platform is Linux, which is the platform's own to say
     --- ([`confine.sandbox_platform`]) where nil. A test of the runner
     --- sets it false to make every Linux requirement not applicable on a
-    --- host that has them.
+    --- host that has them; `os:` then reads the host as none of
+    --- [`host_names`]'s systems, so every `os:` is not applicable too.
     linux?: boolean
     --- The paths a worker with the profile "system" is given, which a
     --- `program:` must be under; [`confine.system_paths`] by default.
@@ -237,6 +239,19 @@ local function linux(host: host_requires.Host): boolean
   local stood_in = host.context.linux
   if stood_in ~= nil then return stood_in end
   return sandbox_platform()
+end
+
+--- The name `os:` gives this host's operating system ([`host_names`]'s `systems`), "" for one it names none of.
+--- Under the context's `linux` stand-in, "linux" where it is true and "" where false.
+local function system(host: host_requires.Host): string
+  local stood_in = host.context.linux
+  if stood_in ~= nil then return if stood_in then "linux" else "" end end
+  local names, trouble = sys.uname()
+  if names == nil then error("host_requires: " .. tostring(trouble), 0) end
+  for name, sysname in pairs(host_names.systems) do
+    if names.sysname == sysname then return name end
+  end
+  return ""
 end
 
 local type Found = host_requires.Found
@@ -550,6 +565,13 @@ local table_of: {string:Entry} = {
       if there("/proc/self") and directory("/proc/self") then return present("mounted") end
       return absent("/proc/self is not there")
     end },
+  os = { platform_has = function(host: host_requires.Host, argument: string): boolean
+    return system(host) == argument
+  end,
+    probe = function(argument: string, _: host_requires.Host): Found
+      -- Only the system it names gets here ([`platform_has`]).
+      return present(argument)
+    end },
   portable = { platform_has = function(host: host_requires.Host): boolean
     return host.context.portable == true
   end,
@@ -654,8 +676,9 @@ function host_requires.answer(host: host_requires.Host, names: {string},
         if spec.class == "platform" and has == nil then
           error("host_requires: " .. spec.base .. " is a platform requirement with no platform_has", 0)
         end
-        if has ~= nil and spec.class == "platform" and not has(host) then
-          cached = { name = name, class = spec.class, kind = "na", key = "", why = spec.base .. ": this platform has none" }
+        if has ~= nil and spec.class == "platform" and not has(host, spec.argument) then
+          cached = { name = name, class = spec.class, kind = "na", key = "", why = if spec.base == "os" then "this is not " .. spec.argument
+            else spec.base .. ": this platform has none" end }
         else
           local found = entry.probe(spec.argument, host)
           if found.present then

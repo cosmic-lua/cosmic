@@ -41,7 +41,7 @@
 ---
 --- Model and session:
 ---
---- - `--model opus|sonnet` picks the latest of each (default opus).
+--- - `--model opus|sonnet|haiku` picks the latest of each (default opus).
 --- - `--effort low|medium|high|xhigh|max` sets how hard it thinks
 ---   (default medium).
 --- - `--budget tokens=N,cost=USD,turns=N,time=N[s|m|h]` caps what each
@@ -121,8 +121,8 @@
 
 local Flags = require("cosmic.flags")
 
-local model: Flags.Option = { value = "name", about = "the latest of opus or sonnet (default opus, or the session's own)",
-  choices = { "opus", "sonnet" } }
+local model: Flags.Option = { value = "name", about = "the latest of opus, sonnet or haiku (default opus, or the session's own)",
+  choices = { "opus", "sonnet", "haiku" } }
 local effort: Flags.Option = { value = "level", about = "how hard it thinks (default medium, as cosmic.agent sets it)",
   choices = { "low", "medium", "high", "xhigh", "max" } }
 local continue_: Flags.Option = { about = "go on with the newest session in this directory " ..
