@@ -208,16 +208,16 @@ local record Stream
   --- holds output back returns it all. On bad input it returns nil
   --- and why, and the Transform is finished.
   ---
-  --- `finish()` says no more input follows and returns what is left,
+  --- [`finish()`] says no more input follows and returns what is left,
   --- or nil and why when the input ended where it could not (a
   --- compressed stream cut short). A driver calls it once, after the
   --- last `update`.
   ---
-  --- `pending()` says whether some output is held back, which
+  --- [`pending()`] says whether some output is held back, which
   --- `update("")` then gives out. A decoder holds output back to bound
   --- what one call returns however far its input expands; a Transform
   --- that never does returns false. A driver drains it, calling
-  --- `update("")` while `pending()` returns true, before it feeds more
+  --- `update("")` while [`pending()`] returns true, before it feeds more
   --- input or calls `finish`.
   interface Transform
     --- Feeds a chunk; the output that is ready, possibly "", at most
@@ -671,7 +671,7 @@ local class TransformReader is Stream.Reader
     while self.at > #self.batch and not self.finished do
       local out, trouble = step(self)
       if out == nil then
-        local why = if trouble.message ~= "" then trouble else Failure.new("stream: codec failed") end
+        local why = if tostring(trouble) ~= "" then trouble else Failure.new("stream: codec failed") end
         self.failed = why
         self.batch, self.at = "", 1
         return nil, why
@@ -1390,8 +1390,9 @@ local function hasher_for(algorithm: Hash.Algorithm, key?: string): (Hash.Hasher
   return Hash.hmac_hasher(algorithm, key)
 end
 
--- TODO: once Hash.Hasher's `update` returns `"", ""` (or a thin adapter
--- stands over it), make a Hasher a Stream.Transform with `finish` as its
+-- TODO: once Hash.Hasher's `update` returns `(string) | (nil, Failure)`
+-- and it has `pending` (or a thin adapter stands over it), make a Hasher
+-- a Stream.Transform with `finish` as its
 -- `digest`, so [`Stream.run`] and [`transform_writer`] drive it and this
 -- Writer shrinks to that adapter.
 --- A Writer that digests what is written to it under `algorithm`,
@@ -1539,7 +1540,7 @@ end
 --- last bytes with `codec:finish` and then closes `writer`, or aborts
 --- `writer` when the codec or a write fails. `abort` aborts `writer`
 --- without finishing the codec. A decoder's held output is drained
---- (`update("")` while `pending()`) after each write and before
+--- (`update("")` while [`pending()`]) after each write and before
 --- `finish`, so each write to `writer` stays bounded however far the
 --- input expands. That bound holds only without `hold`: with it, a
 --- write's drained output is held and written whole, and `close`

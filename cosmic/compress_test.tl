@@ -594,7 +594,7 @@ end
 
 local function test_input_after_the_limit_queues_behind_the_backlog()
   local dec = gzip_decoder()
-  local parts = { assert(dec:update(hello_gz, 2)) } -- checked: arms_differ
+  local parts = { assert(dec:update(hello_gz, 2)) }
   assert(dec:pending())
   parts[#parts + 1] = assert(dec:update("trailer", 2))
   while dec:pending() do parts[#parts + 1] = assert(dec:update("", 2)) end

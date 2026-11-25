@@ -198,7 +198,9 @@ local function test_a_closed_writer_and_a_closed_reader_say_which_they_are(tmp: 
   local collected = Stream.collect()
   local codec: Fake = {
     pending = function(_self: Fake): boolean return false end,
-    update = function(_self: Fake, chunk: string, _max_bytes?: integer): (string) | (nil, Failure) return chunk end,
+    update = function(_self: Fake, chunk: string, _max_bytes?: integer): (string) | (nil, Failure)
+      return chunk
+    end,
     finish = function(_self: Fake): (string) | (nil, Failure) return "" end,
   }
   local transformed = Stream.transform_writer(Stream.collect(), codec)

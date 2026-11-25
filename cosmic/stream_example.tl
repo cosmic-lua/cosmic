@@ -5,7 +5,6 @@
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
-local type Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Stream = require("cosmic.stream")
@@ -196,6 +195,7 @@ end
 --- memory. Any record that lists [`Stream.Transform`] and gives its
 --- functions is one, such as this one that shouts.
 function Example.run()
+  local type Failure = require("cosmic.failure")
   local packed = assert(Stream.run(assert(Compress.encoder("gzip")), string.rep("a", 10000)))
   local back = assert(Stream.run(assert(Compress.decoder("gzip")), packed, 10000))
   assert(back == string.rep("a", 10000))
