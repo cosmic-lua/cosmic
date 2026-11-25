@@ -268,9 +268,9 @@ local record Http
   --- it ([`Http.FOREVER`] for no bound): one without it raises. The
   --- transfer counts them in milliseconds, and `low_speed_ns` in whole
   --- seconds, each rounded up, so no span but 0 is read as none.
-  --- `digests` is read only by [`Http.download_result`] and
-  --- [`Http.download`], and so is `cancelled` but for the waits of
-  --- `retry` and `pace`, which it ends too.
+  --- `digests` is read only by [`Http.download`], and so is
+  --- `cancelled` but for the waits of `retry` and `pace`, which it ends
+  --- too.
   ---
   --- `via`, a unix address ([`Net.unix`]), sends the request over the
   --- socket file at its path instead of the network. The URL still gives
@@ -318,7 +318,7 @@ local record Http
   --- the response is closed unread and the whole request goes again,
   --- body and all, whatever its method, since those statuses say the
   --- server did not act on it. [`Http.open`], [`Http.get`],
-  --- [`Http.request`], [`Http.download`] and [`Http.download_result`]
+  --- [`Http.request`] and [`Http.download`]
   --- all do it. The wait before a retry is the response's `Retry-After`
   --- when it has one this module reads (a number of seconds, or an HTTP
   --- date, a date in the past being no wait), else `retry.backoff_ns`,
@@ -472,37 +472,11 @@ local record Http
   --- fails. `sent` after close raises.
   type Response = Response
 
-  --- The outcome of a download, classified where it succeeds or fails.
-  enum DownloadKind
-    "downloaded"
-    "http_status"
-    "digest_mismatch"
-    "failed"
-  end
-
-  --- One completed [`Http.download_result`] operation. `reason` is empty
-  --- on success. This operation adds no caller URL to a failure's reason;
-  --- underlying transport diagnostics are passed through, not redacted.
-  record DownloadResult
-    --- Success, HTTP rejection, checksum mismatch, or another failure.
-    kind: DownloadKind
-    --- Empty on success; otherwise the human reason, without an added URL.
-    reason: string
-    --- Present only for `http_status`: the rejected response's status.
-    status?: integer
-    --- Present only for `digest_mismatch`: the checked algorithm.
-    algorithm?: Hash.Algorithm
-    --- The supplied checksum, lowercased; an empty option requests no check.
-    expected?: string
-    --- The computed digest as lower-case hex.
-    actual?: string
-  end
-
   --- What [`Http.request`] and [`Http.get`] return: a status, a whole
   --- body, and headers, bundled into one value since most fallible
   --- functions here return one value, or nil and a [`Failure`].
   --- [`Http.download`] and [`Http.check_certificate`] return true, or
-  --- false and a Failure; [`Http.download_result`] returns a record.
+  --- false and a Failure.
   record Body
     --- The final response's HTTP status code, after any redirect taken.
     status: integer
@@ -1433,10 +1407,34 @@ local function wanted_digests(opts: Http.Options): {Given}
   return out
 end
 
---- [`Http.download_result`]'s work, which each public entry point that
---- downloads calls itself (`CALLER`).
+--- The outcome of a download, classified where it succeeds or fails.
+local enum DownloadKind
+  "downloaded"
+  "http_status"
+  "digest_mismatch"
+  "failed"
+end
+
+--- One completed download, as `downloading` returns it. `reason` is
+--- empty on success; it adds no caller URL to a failure's reason.
+local record DownloadResult
+  --- Success, HTTP rejection, checksum mismatch, or another failure.
+  kind: DownloadKind
+  --- Empty on success; otherwise the human reason, without an added URL.
+  reason: string
+  --- Present only for `http_status`: the rejected response's status.
+  status?: integer
+  --- Present only for `digest_mismatch`: the checked algorithm.
+  algorithm?: Hash.Algorithm
+  --- The supplied checksum, lowercased.
+  expected?: string
+  --- The computed digest as lower-case hex.
+  actual?: string
+end
+
+--- [`Http.download`]'s work.
 local function downloading(url: string, path: string,
-                           opts: Http.Options): Http.DownloadResult
+                           opts: Http.Options): DownloadResult
   local record Check
     algorithm: Hash.Algorithm
     hex: string
@@ -1495,36 +1493,24 @@ local function downloading(url: string, path: string,
   return { kind = "downloaded", reason = "" }
 end
 
---- Downloads `url` to `path`, streaming
---- to a fresh temporary file beside it ([`Stream.create`]'s, so two
---- downloads never share one and a planted symlink is never followed)
---- and renaming into place only once the transfer is complete, synced to
---- disk and, when `opts.digests` is
---- given, verified: a reader never sees a partial file at the final name. Fails on a
---- non-2xx status (a redirect `opts.follow` already took does not count)
---- or a checksum mismatch, and removes the temporary file on every
---- failure, `opts.cancelled` returning true ("interrupted", as a
---- caught signal says it) included.
---- Returns a classified outcome; [`Http.download`] gives the same operation
---- as `true`, or `false` and a [`Failure`], with the caller URL on an HTTP
---- rejection.
-function Http.download_result(url: string, path: string, opts: Http.Options): Http.DownloadResult
-  stated(opts)
-  local result = downloading(url, path, opts)
-  return result
-end
-
---- Downloads as `curl -fLo` or `wget` would: [`Http.download_result`]'s
---- streaming, verified and atomic download as `true`, or `false` and a
---- [`Failure`]. An HTTP rejection is of kind "library", its `code` the
---- status and its message `url: HTTP 404`; a checksum mismatch's path is
---- `path` and its message names the algorithm and both digests. Other
---- failures keep their words, of kind "cancelled" where a signal or
---- `opts.cancelled` stopped it, as [`Http.open`] gives them.
+--- Downloads `url` to `path` as `curl -fLo` or `wget` would.
 ---
---- TODO: drop [`Http.download_result`] once ci/cosmic-driver.pin names a
---- release with this shape: ci/ and the bootstrap's files read its record
---- on the pinned release too.
+--- It streams to a fresh temporary file beside `path`
+--- ([`Stream.create`]'s, so two downloads never share one and a planted
+--- symlink is never followed) and renames it into place only once the
+--- transfer is complete, synced to disk and, when `opts.digests` is
+--- given, verified: a reader never sees a partial file at the final name. Fails on a non-2xx status (a
+--- redirect `opts.follow` already took does not count) or a checksum
+--- mismatch, and removes the temporary file on every failure,
+--- `opts.cancelled` returning true ("interrupted", as a caught signal
+--- says it) included.
+---
+--- It returns `true`, or `false` and a [`Failure`]. An HTTP rejection,
+--- a status `curl -f` fails on too, is of kind "library", its `code` the status and its message
+--- `url: HTTP 404`. A checksum mismatch is of kind "mismatch", its path
+--- `path` and its message naming the algorithm and both digests. Other failures keep their words, of kind
+--- "cancelled" where a signal or `opts.cancelled` stopped it, as
+--- [`Http.open`] gives them.
 function Http.download(url: string, path: string, opts: Http.Options): (true) | (false, Failure)
   stated(opts)
   local result = downloading(url, path, opts)
@@ -1534,7 +1520,7 @@ function Http.download(url: string, path: string, opts: Http.Options): (true) | 
     return false, Failure.coded(url .. ": HTTP " .. tostring(status), status)
   end
   if result.kind == "digest_mismatch" then
-    return false, Failure.new(assert(result.algorithm) .. " mismatch: want " .. assert(result.expected) ..
+    return false, Failure.mismatch(assert(result.algorithm) .. " mismatch: want " .. assert(result.expected) ..
         ", got " .. assert(result.actual), path)
   end
   return false, failure_of(result.reason)

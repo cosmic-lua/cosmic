@@ -51,6 +51,7 @@ local GenSyscalls = require("build.gen_syscalls")
 local Lexer = require("lang.lexer")
 local Rules = require("build.contract_rules")
 local Node = require("build.syntax_node")
+local Positions = require("build.positions")
 local Report = require("build.syntax_report")
 local String = require("cosmic.string")
 local Types = require("lang.types")
@@ -84,11 +85,22 @@ local record SyntaxContracts
   --- an error, a node typed `invalid` or a call the checker gave no function. A statement like that is where the next
   --- edit goes, and what a rule reads of a place lies in the place's own statement or in the declarations. `untyped` is
   --- then 0 and no stale exemption is told, since a rule that skipped a place used none there.
-  check: function(subject: Subject, given?: Rules.Exemptions, declared?: {string}, errors?: {Driver.Problem}): Result
+  ---
+  --- `private` says the module is private to its directory ([`SyntaxContracts.is_private`]): its exports are the
+  --- package's own and no API, so rule 10 does not hold them.
+  check: function(subject: Subject, given?: Rules.Exemptions, declared?: {string}, errors?: {Driver.Problem},
+                  private?: boolean): Result
 
   --- The modules of `index` that are declarations of a table of C bindings: a declaration that holds the line
   --- [`analysis_schema.binding_tag`], which `check` holds the calls of besides the ones the generator derives.
   declared_in: function(index: Driver.Index): {string}
+
+  --- Whether `file`, a module of `index`, is private to its directory, as [`build.positions`]'s `reach` tells: some
+  --- importers may not require it. A module of a directory below the top ([`cosmic/web/request.tl`]), or of a top-level
+  --- directory with an `init.tl`, that does not say `--- @public`, and one of an `internal/` directory, are; a module
+  --- at the top, or of a top-level directory with no `init.tl` (a namespace), is not. cosmic's own `cosmic/internal/` is
+  --- the library's to every module of the tree, as `reach` takes it, and so is held.
+  is_private: function(index: Driver.Index, file: string): boolean
 
   --- Whether the discipline holds the file: every module and main of the tree, not its tests, examples or declarations.
   applies: function(file: string): boolean
@@ -107,6 +119,31 @@ function SyntaxContracts.declared_in(index: Driver.Index): {string}
     end
   end
   return out
+end
+
+--- The entries ([`Positions.entries`]) of each index [`SyntaxContracts.is_private`] is asked of, which a build asks of
+--- each module in turn, with how many sources the index held then: an index given more sources since is read again.
+local record Entries
+  count: integer
+  entries: {string: string}
+end
+local entries_of: mut {Driver.Index: Entries} = setmetatable({}, { __mode = "k" })
+
+function SyntaxContracts.is_private(index: Driver.Index, file: string): boolean
+  local text = ""
+  for _, source in ipairs(index.sources) do
+    if source.filename == file then text = source.text end
+  end
+  local kept = entries_of[index]
+  if kept == nil or kept.count ~= #index.sources then
+    local files: mut {string} = {}
+    for _, source in ipairs(index.sources) do files[#files + 1] = source.filename end
+    kept = { count = #index.sources, entries = Positions.entries(files) }
+    entries_of[index] = kept
+  end
+  return Positions.reach(file, kept.entries, function(): boolean
+    return AnalysisSchema.declares_public(text)
+  end, true) ~= nil
 end
 
 function SyntaxContracts.applies(file: string): boolean
@@ -501,6 +538,8 @@ local record Run
   --- The modules the sources of the build declare tables of C bindings ([`SyntaxContracts.declared_in`]), beside the ones
   --- the generator derives.
   declared: {string}
+  --- Whether the module is private to its directory, which rule 10 does not hold.
+  private: boolean
   used: Used
   mut problems: mut {string}
   sites: mut {string: integer}
@@ -1208,8 +1247,12 @@ local function exported_functions(run: Run): {Exported}
   return out
 end
 
---- Rule 10, over every exported function's declared results.
+--- Rule 10, over every exported function's declared results. A module private to its directory exports to its package
+--- alone, which is no API, so the rule does not hold it.
 local function check_exports(run: Run, exported: {Exported})
+  if run.private then
+    return
+  end
   local file = run.subject.file
   local said: mut {string: boolean} = {}
   for _, e in ipairs(exported) do
@@ -1802,9 +1845,10 @@ local function sound_lines(run: Run, errors: {Driver.Problem}): {integer: boolea
 end
 
 function SyntaxContracts.check(subject: Subject, given?: Rules.Exemptions, declared?: {string},
-                               errors?: {Driver.Problem}): SyntaxContracts.Result
+                               errors?: {Driver.Problem}, private?: boolean): SyntaxContracts.Result
   local run: Run = {
     subject = subject, index = index_of(subject), exemptions = given or Rules.own_exemptions(), declared = declared or {},
+    private = private == true,
     used = { exempt = {}, parsing = {}, casts = {}, modes = {} }, problems = {}, sites = {}, scopes = {}, static_lines = {},
   }
   run.scopes = scope_names(run.index, bound_names(subject))
