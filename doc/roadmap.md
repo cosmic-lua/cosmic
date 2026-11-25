@@ -142,7 +142,7 @@ The sandbox's own next steps, none of which a caller needs yet:
   module's key, plus a core that opens a second database as a layer over the
   first. [`Test.needs_of`] and build/analyzer.tl refuse the field until then.
 - add a `--proc` flag to `cosmic sandbox` for the profile "proc", beside
-  `--system` and `--cosmic`; `--path r:/proc` says it today.
+  `--system` and `--programs`; `--path r:/proc` says it today.
 - hold a sandbox's memory and CPU as a whole, by a cgroup of its own.
   [`Sandbox.Limits`] sets rlimits on each process and counts the
   sandbox's processes by its user namespace; nothing bounds what the

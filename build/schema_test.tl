@@ -4,10 +4,10 @@
 local Array = require("cosmic.array")
 local Sqlite = require("cosmic.sqlite")
 local schema = require("build.schema")
+local symbols = require("cosmic.internal.symbols")
 
 local function database(): Sqlite.Handle
-  local db = assert(Sqlite.memory())
-  for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
+  local db = assert(schema.hold(assert(Sqlite.memory())))
   return db
 end
 
@@ -81,4 +81,45 @@ local function test_tables_digest_holds_the_web_assets_and_reads_an_older_databa
   assert(absent == nil, "the table was read though absent")
   local older = digest_of(db, schema.tables_digest("", false))
   assert(older ~= empty and #older == 64)
+end
+
+--- The indexes spell the expressions the queries of [`cosmic.internal.symbols`] spell, so SQLite uses them.
+local function test_the_docs_indexes_are_the_queries_expressions()
+  local ddl = schema.build.ddl
+  assert(ddl:find("CREATE INDEX docs_by_last_name ON docs (" .. symbols.last_name("symbol") .. ")", 1, true) ~= nil,
+    "docs_by_last_name is not on symbols.last_name")
+  assert(ddl:find("CREATE INDEX " .. symbols.local_index .. " ON docs ", 1, true) ~= nil,
+    "no index is named symbols.local_index")
+end
+
+--- `create` gives the statements of the schema, each under the qualifier, and a database of them holds the schema.
+local function test_create_is_the_schema_under_a_qualifier()
+  local plain = schema.create("")
+  assert(table.concat(plain, ";\n") == schema.build.ddl)
+  for k, statement in ipairs(schema.create("out.")) do
+    local head = statement:match("^CREATE TABLE ") or statement:match("^CREATE INDEX ") or
+      statement:match("^CREATE VIRTUAL TABLE ")
+    assert(head ~= nil and statement:sub(#head + 1, #head + 4) == "out.", statement)
+    assert(head .. statement:sub(#head + 5) == Array.at(plain, k), statement)
+  end
+  local db = assert(Sqlite.memory({ schema = schema.build }))
+  assert(db:run("INSERT INTO meta VALUES ('k', X'01')"))
+  assert(db:close())
+end
+
+--- A new file takes the settings before its first table; a file that holds the tables keeps its own.
+local function test_hold_sets_a_new_file_up_and_checks_an_old_one(tmp: string)
+  local path = tmp .. "/build.db"
+  local opened = assert(Sqlite.open(path, { writable = true }))
+  assert(opened:exec("PRAGMA page_size = 8192"))
+  -- A file with no table yet takes the settings, which put the page size back.
+  local db = assert(schema.hold(opened))
+  assert(assert(db:one("PRAGMA page_size")):integer(1) == 4096)
+  assert(assert(db:one("PRAGMA auto_vacuum")):integer(1) == 0)
+  assert(db:run("INSERT INTO meta VALUES ('k', X'01')"))
+  assert(db:close())
+  local reading = assert(Sqlite.open(path, { reads_only = true }))
+  local held = assert(schema.hold(reading))
+  assert(assert(held:one("SELECT count(*) FROM meta")):integer(1) == 1)
+  assert(held:close())
 end

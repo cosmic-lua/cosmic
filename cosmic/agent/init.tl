@@ -512,40 +512,14 @@ local function tell(s: Agent.Session, event: Agent.Event)
   if not ran and s.on_failed == nil then s.on_failed = told(err) end
 end
 
---- What `layers` hold stacked, and "": nil for no sandbox where `layers` is nil; nil and why for no layer, or
---- layers that do not join. A profile every layer names stays a profile, as one layer's does: Child.start reads the
---- "cosmic" profile's `rx` on this program as the start's alone, which a grant of it is not.
+--- What `layers` hold stacked ([`Sandbox.intersect`]), and "": nil for no sandbox where `layers` is nil; nil and why
+--- for no layer, or layers that do not join.
 local function joined(layers?: {Sandbox.Policy}): Sandbox.Policy?, string
   if layers == nil then return nil, "" end
   if #layers == 0 then return nil, "the sandbox has no layer: give nil for none" end
   if #layers == 1 then return layers[1], "" end
-  local common: mut {string} = {}
-  for _, name in ipairs(layers[1].profiles or {}) do
-    local everywhere = true
-    for _, layer in ipairs(layers) do
-      local named = false
-      for _, other in ipairs(layer.profiles or {}) do
-        if other == name then named = true end
-      end
-      if not named then everywhere = false end
-    end
-    if everywhere then common[#common + 1] = name end
-  end
-  local stripped: mut {Sandbox.Policy} = {}
-  for _, layer in ipairs(layers) do
-    local rest: mut {string} = {}
-    for _, name in ipairs(layer.profiles or {}) do
-      local shared = false
-      for _, held in ipairs(common) do
-        if held == name then shared = true end
-      end
-      if not shared then rest[#rest + 1] = name end
-    end
-    stripped[#stripped + 1] = { ...layer, profiles = rest }
-  end
-  local policy, why = Sandbox.intersect(table.unpack(stripped))
+  local policy, why = Sandbox.intersect(table.unpack(layers))
   if policy == nil then return nil, "the sandbox's layers do not join: " .. why end
-  if #common > 0 then return { ...policy, profiles = common }, "" end
   return policy, ""
 end
 
@@ -675,15 +649,12 @@ local function record(s: Agent.Session, call: string, tool: string, input: Tools
   local output, why = Sessions.output(db, id, { tool = tool, input = given or "{}", text = result.raw or result.text,
     is_error = result.is_error, call = call })
   if output == nil then return nil, why end
-  -- What sql says is kept already, and it says where to find more.
-  if result.raw == nil or tool == "sql" then return result.text, "" end
-  local sql, run = Tools.find(s.tools, "sql"), Tools.find(s.tools, "run")
-  local how = if sql ~= nil and Tools.for_model(sql) then "use sql"
-    elseif run ~= nil and Tools.for_model(run) then "read it in run with Host.output(" .. tostring(output) .. ")"
-    else "" end
-  if how == "" then return result.text, "" end
+  if result.raw == nil then return result.text, "" end
+  local run = Tools.find(s.tools, "run")
+  if run == nil or not Tools.for_model(run) then return result.text, "" end
   -- The way to the whole comes first: a model that reads only the top fetches it again where it was served once.
-  local shown = "[The whole output is kept as output " .. tostring(output) .. ": " .. how .. ".]\n" .. result.text
+  local shown = "[The whole output is kept as output " .. tostring(output) .. ": read it in run with Host.output(" ..
+    tostring(output) .. ").]\n" .. result.text
   local kept, shown_why = Sessions.shown(db, output, shown)
   if not kept then return nil, shown_why end
   return shown, ""

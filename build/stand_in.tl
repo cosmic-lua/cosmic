@@ -253,17 +253,12 @@ local function database(path: string): string?, string
   local modules, closure_trouble = carried()
   if modules == nil then return nil, closure_trouble end
   local _, _ = Fs.remove(path)
-  local db, open_trouble = Sqlite.open(path, { writable = true })
-  if db == nil then return nil, path .. ": " .. tostring(open_trouble) end
-  local statements: mut {string} = {}
-  for _, statement in ipairs(schema.settings("")) do statements[#statements + 1] = statement end
-  for _, statement in ipairs(schema.create("")) do statements[#statements + 1] = statement end
-  for _, statement in ipairs(statements) do
-    local ok, failure = db:exec(statement)
-    if not ok then
-      local _, _ = db:close()
-      return nil, tostring(failure)
-    end
+  local opened, open_trouble = Sqlite.open(path, { writable = true })
+  if opened == nil then return nil, path .. ": " .. tostring(open_trouble) end
+  local db, hold_trouble = schema.hold(opened)
+  if db == nil then
+    local _, _ = opened:close()
+    return nil, path .. ": " .. tostring(hold_trouble)
   end
   local basis = Store.meta("runtime_basis")
   if basis == nil or basis == "" then

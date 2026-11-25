@@ -14,8 +14,11 @@
 --- removes since it to OUT, one a line, and `paths=<OUT>` to
 --- $GITHUB_OUTPUT (standard output, for a run by hand). It also writes
 --- `fixtures=skip` where none of the paths is one the launcher and startup
---- fixtures check, which a pull request then skips; where it cannot list
---- the paths it writes no `fixtures=skip`, and they run. Where it cannot
+--- fixtures check, which a pull request then skips, and `driver=skip`
+--- where none is under ci/ or .github/, whose change the queue's legs
+--- check the pinned driver's tests for (`cosmic-driver test cosmic_ci`,
+--- on linux-x86_64 and macOS); where it cannot list the paths it writes
+--- neither, and both run. Where it cannot
 --- -- no base, a fetch or a diff that fails, a path holding a line break,
 --- more than LIMIT paths (400, past which the whole tree's check costs
 --- about as much) -- it writes neither, and the check covers the whole
@@ -53,6 +56,9 @@ local record ChangedPaths
   --- The first of `listed`'s paths (each ended by a NUL) that the launcher and
   --- startup fixtures check, or nil where none is.
   reaching_fixtures: function(listed: string): string?
+  --- The first of `listed`'s paths (each ended by a NUL) under ci/ or
+  --- .github/, which the pinned driver's tests check, or nil where none is.
+  reaching_driver: function(listed: string): string?
   --- `driver.tl changed-paths`, in the process's environment.
   command: function(argv: {string}): integer
 end
@@ -75,15 +81,29 @@ local fixture_paths <const>: {string} = {
   "ci/cosmic_ci/runtime_setup.tl",
 }
 
-function ChangedPaths.reaching_fixtures(listed: string): string?
+--- The first of `listed`'s paths that is one of `named`, or under one of
+--- them that ends in `/`, or nil where none is.
+local function first_reaching(listed: string, named: {string}): string?
   for path in listed:gmatch("[^%z]+") do
-    for _, named in ipairs(fixture_paths) do
-      if path == named or (named:sub(-1) == "/" and path:sub(1, #named) == named) then
+    for _, name in ipairs(named) do
+      if path == name or (name:sub(-1) == "/" and path:sub(1, #name) == name) then
         return path
       end
     end
   end
   return nil
+end
+
+function ChangedPaths.reaching_fixtures(listed: string): string?
+  return first_reaching(listed, fixture_paths)
+end
+
+-- What the pinned driver's tests check: the driver's own tree and the
+-- workflows that run it.
+local driver_paths <const>: {string} = { "ci/", ".github/" }
+
+function ChangedPaths.reaching_driver(listed: string): string?
+  return first_reaching(listed, driver_paths)
 end
 
 -- No test runs this, since no test runs the system's git: the tests hold
@@ -150,6 +170,12 @@ function ChangedPaths.changed_paths(env: {string:string}, host: Github.Host, git
     host.output("fixtures=skip")
   else
     host.print("the launcher and startup fixtures run: " .. reached .. " changed")
+  end
+  local driver = ChangedPaths.reaching_driver(listed)
+  if driver == nil then
+    host.output("driver=skip")
+  else
+    host.print("the pinned driver's tests run: " .. driver .. " changed")
   end
   return 0
 end

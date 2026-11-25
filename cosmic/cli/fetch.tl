@@ -76,7 +76,7 @@ local function fetch_spec(own: {string: boolean | Flags.Option}): {string: boole
     ["--roots"] = { value = "set", about = "trust these CA roots: minimal (the default), mozilla, none, " ..
         "or root sha256 digests joined by commas" },
     ["--cacert"] = { value = "file", about = "also trust the certificates in this PEM or DER file; " ..
-        "with --roots none, only them" },
+        "with --roots none, only them", dash = "input" },
     ["--pin"] = { value = "pin", about = "fail unless the server's key hashes to this sha256//<base64>; " ..
         "repeat for more than one" },
   }
@@ -99,7 +99,7 @@ local command: Flags.Command = {
       usage = "<url[#sha256=<hex>]>",
       spec = fetch_spec({
         ["-o"] = { value = "file", about = "write the body to file, renamed into place once complete and verified " ..
-            "(a device or FIFO is written in place)" },
+            "(a device or FIFO is written in place)", dash = "output" },
         ["--sha256"] = { value = "hex", about = "fail unless the body has this sha256; on stdout, buffer until verified" },
         ["--sha512"] = { value = "hex", about = "fail unless the body has this sha512 (also checked with --sha256)" },
       }),
