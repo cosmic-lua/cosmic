@@ -682,7 +682,8 @@ local function record(s: Agent.Session, call: string, tool: string, input: Tools
     elseif run ~= nil and Tools.for_model(run) then "read it in run with Host.output(" .. tostring(output) .. ")"
     else "" end
   if how == "" then return result.text, "" end
-  local shown = result.text .. "\n\n[The whole output is kept as output " .. tostring(output) .. ": " .. how .. ".]"
+  -- The way to the whole comes first: a model that reads only the top fetches it again where it was served once.
+  local shown = "[The whole output is kept as output " .. tostring(output) .. ": " .. how .. ".]\n" .. result.text
   local kept, shown_why = Sessions.shown(db, output, shown)
   if not kept then return nil, shown_why end
   return shown, ""

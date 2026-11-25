@@ -85,8 +85,9 @@ local function test_each_output_is_kept_before_it_is_shown()
   assert(s:prompt("go"))
   local noted = assert(Sessions.answer(db, assert(s.id), "t3"))
   local id = assert(assert(db:rows("SELECT id FROM outputs WHERE call = 't3'"))[1]):integer(1)
-  assert(noted.text:find("kept as output " .. tostring(id) .. ": read it in run with Host.output(" .. tostring(id) ..
-      ").]", 1, true) ~= nil, noted.text:sub(-100))
+  -- It comes first, where a model that reads only the top sees it.
+  assert(noted.text:find("[The whole output is kept as output " .. tostring(id) .. ": read it in run with Host.output(" ..
+      tostring(id) .. ").]\n", 1, true) == 1, noted.text:sub(1, 100))
 end
 
 local function test_the_user_stops_and_steers_a_turn()
