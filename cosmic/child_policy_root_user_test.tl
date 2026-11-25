@@ -1,8 +1,9 @@
 --- [`Child.start`]'s `policy` and the user its child runs as for a root
 --- caller (cosmic/child.tl): a user of a range of its own, never root, the
 --- files it cannot use mounted idmapped or refused. The kernel's own verdict
---- on live children: the child is a fake ([`cosmic.fake`]), a static
---- program that does what its script says.
+--- on live children: the child is a fake built from
+--- build/child_policy_fake.tl, a static program that runs the case its
+--- args name.
 ---
 --- A root caller's paths need a root that holds CAP_SETUID, CAP_SETGID,
 --- CAP_SETFCAP and CAP_SYS_ADMIN and a user namespace mapping the ids a

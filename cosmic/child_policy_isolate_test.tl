@@ -2,9 +2,9 @@
 --- "file", a root of the child's own holding only what is granted, and
 --- "proc", a pid namespace and a /proc of its own; `loopback` and `u`
 --- grants, which give it a network namespace of its own. The kernel's own
---- verdict on live children: the child is a fake ([`cosmic.fake`]),
---- a static program that does what its script says, so a refusal shows as a
---- command that fails. They need a sandbox that nests (`requires`): where the
+--- verdict on live children: the child is a fake built from
+--- build/child_policy_fake.tl, a static program that runs the case its
+--- args name, so a refusal shows as a case that fails. They need a sandbox that nests (`requires`): where the
 --- platform has none they are not applicable, and where this host gives no
 --- user namespace, Landlock or seccomp each skips itself (Test.skip). The
 --- refusals that come before a child, which hold on every platform, are in

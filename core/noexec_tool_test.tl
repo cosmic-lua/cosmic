@@ -31,7 +31,7 @@ end
 local function refused(path: string)
   -- If exec unexpectedly succeeds, the native fake exits without
   -- a worker report; the test fails instead of losing the assertion.
-  local ok, trouble, errno = sys.execve(path, { path }, {})
+  local ok, trouble, errno = sys.execve(path, { path, "exit", "97" }, {})
   assert(not ok and errno == sys.EACCES, trouble)
 end
 

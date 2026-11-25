@@ -6,7 +6,7 @@ local Steps = require("build.fake_steps")
 --- Each case, handed the words past its name.
 local cases: {string:function({string}): integer} = {
   -- Ends with status `words[1]`, or 2 where it names none.
-  exit = function(words: {string}): integer return math.tointeger(tonumber(words[1])) or 2 end,
+  exit = function(words: {string}): integer return math.tointeger(tonumber(words[1] or "")) or 2 end,
   cat = function(words: {string}): integer return Steps.cat(words[1]!) or 0 end,
 }
 

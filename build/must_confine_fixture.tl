@@ -31,6 +31,8 @@ local record must_confine_fixture
   field: function(said: must_confine_fixture.Said, name: string): string
 end
 
+--- A fake built under `tmp` from build/confine_fake.tl, which a confined
+--- process starts.
 function must_confine_fixture.probe(tmp: string): string
   return (assert(Fake.build(tmp .. "/fake", "build.confine_fake")))
 end

@@ -9,7 +9,7 @@ local Steps = require("build.fake_steps")
 --- Each case, handed the words past its name.
 local cases: {string:function({string}): integer} = {
   -- Ends with status `words[1]`, or 2 where it names none.
-  exit = function(words: {string}): integer return math.tointeger(tonumber(words[1])) or 2 end,
+  exit = function(words: {string}): integer return math.tointeger(tonumber(words[1] or "")) or 2 end,
   -- What of the suite's files and the worker's environment it sees:
   -- data.txt and secret.txt where they read, then
   -- `/<DECLARED_VAR>/<UNDECLARED_VAR>`, each empty where unset.

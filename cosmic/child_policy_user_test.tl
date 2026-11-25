@@ -2,8 +2,8 @@
 --- processes it may start (cosmic/child.tl): a caller that is not root meets
 --- one user, itself, and `limits.processes` is the count of the sandbox's
 --- user namespace. The kernel's own verdict on live children: the child is a
---- fake ([`cosmic.fake`]), a static program that does what its script
---- says. They need a sandbox that nests (`requires`): where the platform has
+--- fake built from build/child_policy_fake.tl, a static program that
+--- runs the case its args name. They need a sandbox that nests (`requires`): where the platform has
 --- none they are not applicable, and where this host gives no user
 --- namespace, Landlock or seccomp each skips itself (Test.skip). The tests
 --- of a root caller are in cosmic/child_policy_root_user_test.tl; the

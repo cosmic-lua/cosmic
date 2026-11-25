@@ -11,7 +11,7 @@ local Steps = require("build.fake_steps")
 --- Each case, handed the words past its name.
 local cases: {string:function({string}): integer} = {
   -- Ends with status `words[1]`, or 2 where it names none.
-  exit = function(words: {string}): integer return math.tointeger(tonumber(words[1])) or 2 end,
+  exit = function(words: {string}): integer return math.tointeger(tonumber(words[1] or "")) or 2 end,
   write = function(words: {string}): integer return Steps.write(words[1]!, words[2]!) or 0 end,
   -- Its working directory, as the whole of file `words[1]`.
   cwd = function(words: {string}): integer return Steps.cwd(words[1]!) or 0 end,
@@ -45,9 +45,10 @@ local cases: {string:function({string}): integer} = {
   end,
   -- Reads `words[1]`/f, and says whether `words[2]`/f, not given it, is there.
   ["given-hidden"] = function(words: {string}): integer
+    local stopped = Steps.cat(words[1]! .. "/f") or Steps.print("")
+    if stopped ~= nil then return stopped end
     local seen = Steps.attempt(function(): integer? return Steps.present(words[2]! .. "/f") end)
-    return Steps.cat(words[1]! .. "/f") or Steps.print("") or
-      Steps.print(if seen then "hidden-seen" else "hidden-absent" end) or 0
+    return Steps.print(if seen then "hidden-seen" else "hidden-absent" end) or 0
   end,
   -- Writes /tmp/f and reads it back, then names TMPDIR.
   ["tmp-write-and-env"] = function(_: {string}): integer
