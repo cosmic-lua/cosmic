@@ -11,6 +11,7 @@ local Prerelease = require("cosmic_ci.prerelease")
 local Proc = require("cosmic.proc")
 local Shape = require("cosmic.shape")
 local Test = require("cosmic.test")
+local sys = require("cosmic.sys")
 local TestSupport = require("cosmic_ci.test_support")
 
 -- These tests start this program (the pinned driver's own cosmic, or a copy of it
@@ -98,9 +99,21 @@ local function test_the_smoke_policy_grants_the_tool_and_its_cache_alone()
   assert((taken.set_env or {})["COSMIC_PORTABLE_CACHE"] == "/tmp/smoke-cache")
 end
 
+--- Skips where this run is root: the smoke's sandbox then runs the tool as
+--- a user of its own (cosmic.child), who cannot search the directories root
+--- made 0700 above its cache (the test's, or [`Prerelease.smoke`]'s mkdtemp).
+--- CI's prerelease job runs as an unprivileged user.
+local function unprivileged_or_skip()
+  if sys.getuid() == 0 then
+    Test.skip("as root the smoke runs as a user of its own, who cannot reach a cache root made 0700")
+  end
+end
+
 --- Under the smoke policy a program cannot write a file outside its cache,
 --- as GITHUB_ENV is, though its user can.
+
 local function test_the_smoke_policy_keeps_a_program_from_writing_elsewhere(tmp: string)
+  unprivileged_or_skip()
   local outside = tmp .. "/set_env"
   assert(Fs.write(outside, "kept\n"))
   local cache = tmp .. "/cache"
@@ -1025,6 +1038,7 @@ end
 --- orchestration_test.tl): stage, then publish, which fails without a
 --- token before it asks the API anything.
 local function test_driver_stages_and_refuses_to_publish_without_a_token(tmp: string)
+  unprivileged_or_skip()
   local host = assert(Proc.executable())
   -- The tool this test runs on, as the lanes' product: the driver runs what it releases.
   local r = repo(tmp, read(host))
