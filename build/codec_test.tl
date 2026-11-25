@@ -360,7 +360,7 @@ end
 local NAMES <const>: {codec.Name} = { "hex", "base64", "base64url" }
 
 --- The whole-string decoder for each encoding.
-local function whole_decode(name: codec.Name, text: string): string?, string
+local function whole_decode(name: codec.Name, text: string): (string) | (nil, Failure)
   if name == "hex" then return Codec.unhex(text) end
   if name == "base64" then return Codec.unbase64(text) end
   return Codec.unbase64url(text)
@@ -452,11 +452,11 @@ local function test_a_refusal_says_the_same_at_every_cut()
   for _, case in ipairs(REFUSED) do
     local name, text = case.name as codec.Name, case.text -- checked: cast_refused
     local bytes, want = whole_decode(name, text)
-    assert(bytes == nil and want ~= "", name .. " " .. text)
+    assert(bytes == nil and want ~= nil, name .. " " .. text)
     for _, pieces in ipairs(cuts(text)) do
       local got, why = through(codec.decoder(name), pieces)
-      assert(got == nil and why == want,
-        ("%s cut %q: %q, want %q"):format(name, table.concat(pieces, "|"), tostring(why), want))
+      assert(got == nil and why == tostring(want),
+        ("%s cut %q: %q, want %q"):format(name, table.concat(pieces, "|"), tostring(why), tostring(want)))
     end
   end
 end

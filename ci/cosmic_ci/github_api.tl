@@ -13,6 +13,7 @@
 --- without it, since that URL is a signed link to another host.
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local type Failure = require("cosmic.failure")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
 local Stream = require("cosmic.stream")
@@ -71,9 +72,9 @@ local record GithubApi
   record Live
     script?: {{string}}
     sent?: function(text: string)
-    --- Downloads in place of [`Http.download_result`], to see what a
+    --- Downloads in place of [`Http.download`], to see what a
     --- download is given.
-    download?: function(url: string, path: string, opts?: Http.Options): Http.DownloadResult
+    download?: function(url: string, path: string, opts?: Http.Options): (true) | (false, Failure)
   end
 end
 
@@ -219,15 +220,16 @@ function GithubApi.live(env: {string:string}, test?: GithubApi.Live): GithubApi.
   end
 
   local function fetch(url: string, path: string): boolean, string
-    local download = Http.download_result
+    local download = Http.download
     if test ~= nil and test.download ~= nil then download = test.download end
-    local result = download(url, path, { headers = { ["User-Agent"] = user_agent },
+    local downloaded, failed = download(url, path, { headers = { ["User-Agent"] = user_agent },
       redirect_protocols = { "https" }, max_redirects = download_redirects,
       timeout_ns = download_ns, script = script() })
-    if result.kind == "downloaded" then return true, "" end
+    if downloaded then return true, "" end
     -- The URL is a signed link, so it stays out of the message.
-    if result.kind == "http_status" then return false, "HTTP " .. tostring(result.status) end
-    return false, result.reason
+    local status = failed.code
+    if failed.kind == "library" and status ~= nil then return false, "HTTP " .. tostring(status) end
+    return false, tostring(failed)
   end
 
   return { send = send, fetch = fetch, base = base, upload_origin = upload_origin,

@@ -1776,9 +1776,9 @@ local function test_mains_push_repeats_nothing_the_queue_checked()
     "the legs check the pinned driver on other runs: " .. tostring(check["if"]))
   assert(leg_changed_at < leg_check_at, "the macOS leg asks of the paths changed after its check")
   local driver = job_of(jobs, "driver")
-  assert(driver["if"] == QUEUE_REF .. " && github.event_name == 'merge_group'" and
+  assert(driver["if"] == QUEUE_REF .. " && (github.event_name == 'merge_group' || github.event_name == 'pull_request')" and
       table.concat(needs_of(driver), ",") == "queue-ref",
-    "the pinned driver's own job runs on other runs, or waits on another job")
+    "the pinned driver's own job runs on other runs than the queue's and a pull request's, or waits on another job")
   local own = driver.steps
   -- Its unprivileged builder cannot write the default ~/.cache, and it
   -- has no `zig-cache` to name another.
@@ -1972,7 +1972,9 @@ local function test_a_queue_run_refuses_its_own_refs_caches()
       local condition = job["if"] or ""
       local rest = condition:sub(#QUEUE_REF + 1)
       assert(waits and condition:sub(1, #QUEUE_REF) == QUEUE_REF and (rest == "" or rest:sub(1, 4) == " && ") and
-          rest:find("||", 1, true) == nil,
+          -- An `||` only inside parentheses cannot run the job past the queue ref's check; a
+          -- string literal is emptied first, so a parenthesis in one pairs with none outside it.
+          ((rest:gsub("'[^']*'", "''")):gsub("%b()", "")):find("||", 1, true) == nil,
         name .. " restores a cache without waiting on the queue ref's check")
     end
   end
@@ -2325,7 +2327,7 @@ local function test_the_gate_needs_every_job_and_compares_the_legs_products()
   assert(env["RESULT"] == "${{ needs.platform.result }}" and
       env["CHECKED"] == "${{ github.event_name == 'pull_request' && 'success' || needs.checked.result }}" and
       env["NARROWING"] == "${{ github.event_name == 'pull_request' && 'success' || needs.narrowing.result }}" and
-      env["DRIVER"] == "${{ github.event_name == 'merge_group' && needs.driver.result || 'success' }}" and
+      env["DRIVER"] == "${{ (github.event_name == 'merge_group' || github.event_name == 'pull_request') && needs.driver.result || 'success' }}" and
       env["QUEUE_REF"] == "${{ github.event_name == 'merge_group' && needs.queue-ref.result || 'success' }}" and
       (passed.run or ""):find("[ \"$DRIVER\" = success ]", 1, true) ~= nil and
       (passed.run or ""):find("[ \"$QUEUE_REF\" = success ]", 1, true) ~= nil,

@@ -458,12 +458,14 @@ local record Agent
     close: function(Session)
   end
 
-  --- The models to choose from: the latest Opus and the latest Sonnet.
+  --- The models to choose from: the latest Opus, Sonnet and Haiku.
   record Models
     --- The latest Opus.
     opus: string
     --- The latest Sonnet.
     sonnet: string
+    --- The latest Haiku: the cheapest, for many short runs such as evals.
+    haiku: string
   end
   --- The models `--model` names, the latest of each.
   MODELS: Models
@@ -476,7 +478,7 @@ local record Agent
   BUDGET_SPENT: string
 end
 
-Agent.MODELS = { opus = "claude-opus-5-5", sonnet = "claude-sonnet-5-5" }
+Agent.MODELS = { opus = "claude-opus-5-5", sonnet = "claude-sonnet-5-5", haiku = "claude-haiku-5-5" }
 Agent.MODEL = "opus"
 Agent.EFFORT = "medium"
 Agent.BUDGET_SPENT = "the turn's budget is spent"
@@ -494,6 +496,7 @@ local PRICES <const>: {string: Agent.Price} = {
   ["claude-opus-5"] = { input = 5, output = 25, cache_read = 0.5 },
   ["claude-opus-4-8"] = { input = 5, output = 25, cache_read = 0.5 },
   ["claude-sonnet-5"] = { input = 2, output = 10, cache_read = 0.2 },
+  ["claude-haiku-5-5"] = { input = 0.1, output = 0.5, cache_read = 0.01 },
 }
 
 local VERSION <const> = "2026-10-21"
@@ -674,7 +677,8 @@ local function request_body(s: Agent.Session): Json.Value
     thinking = { type = "adaptive" },
     output_config = { effort = s.effort },
     cache_control = { type = "ephemeral" },
-    -- Both models fall back to another on the server where they refuse.
+    -- Each model falls back to another on the server where it refuses
+    -- and the server has one for it.
     fallbacks = "default",
     -- Past 150k tokens of input, the server sums up what came before (a
     -- compaction block), and later requests are read from there on.
