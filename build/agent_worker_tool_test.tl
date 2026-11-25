@@ -468,8 +468,6 @@ print(tostring(long))
   -- A refusal on line 1 tells the snippet's own column, not one the prelude moved.
   local first = tools_run("run", { code = "local n: integer = Host.read(\"one.tl\")" }, context)
   assert(first.is_error and first.text:find("run.tl:1:20:", 1, true) ~= nil, first.text)
-  local huge = tools_run("bash", { command = "true", timeout = 10000000000 }, context)
-  assert(huge.is_error and huge.text:find("give at most", 1, true) ~= nil, huge.text)
   worker_close(w)
 end
 

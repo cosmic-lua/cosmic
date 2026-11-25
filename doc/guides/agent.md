@@ -2,19 +2,20 @@
 
 <!-- policy: profiles = { "cosmic" } -->
 
-`cosmic agent` is a small coding agent. It is Claude, with tools that
-read, edit and write the files of one directory, held to a sandbox.
+`cosmic agent` is a small coding agent. It is Claude, with one tool
+that runs programs to read, edit and write the files of one directory,
+held to a sandbox.
 This guide shows how it works, from an API key to a fixed project.
 
 What it gives you:
 
-- **Checked programs in place of shell commands.** The main tool,
+- **Checked programs in place of shell commands.** The one tool,
   `run`, takes a short program in the cosmic environment. The agent
   type-checks it before it runs it. A refused program runs nothing,
   and the refusal says how to fix it.
-- **No shell by default.** The default tools are `run`, `read`,
-  `edit` and `write`. On Linux, they run no program. `bash` and
-  background jobs come only with `--with bash,jobs`.
+- **No shell by default.** A program reads, edits and writes files
+  through `Host` and cosmic's modules. On Linux, it runs no other
+  program. `Host.bash` runs one only with `--commands`.
 - **A sandbox the kernel holds.** The tools change only the working
   directory and a home of their own. They get no network, and none of
   your environment but `LANG`, `LC_ALL` and `TERM`, so not your API
@@ -98,16 +99,16 @@ tool call goes to standard error, in a code fence:
 
 - `teal`: a `run` program, laid out as `cosmic fix` lays out a file.
   The fence names the language, so a viewer colors it.
-- `console`: a `bash` command, behind `$ `.
-- `diff`: an `edit`, after a line `edit <path>`. `@@` starts each
-  replacement, `-` marks what it takes out, `+` what it puts in, and a
-  line that starts with a space is unchanged context.
-- `output`: the first 6 lines of what `run` or `bash` printed.
+- `console`: a `bash` command of an older session, behind `$ `.
+- `diff`: an `edit` of an older session, after a line `edit <path>`.
+  `@@` starts each replacement, `-` marks what it takes out, `+` what
+  it puts in, and a line that starts with a space is unchanged context.
+- `output`: the first 6 lines of what `run` printed.
 - `error`: the first 12 lines of what a call that failed said.
 
 The `teal`, `console` and `diff` fences show 12 lines at most. A line
-`... N more lines` says how many more there are. `read` and `write`
-show one line, such as `read README.md`. A fence is longer than any
+`... N more lines` says how many more there are. An older session's
+`read` and `write` show one line, such as `read README.md`. A fence is longer than any
 run of backticks inside it, so no line closes it early. Control bytes
 but tab and newline are taken out of all of it, so nothing moves the
 cursor or sends escape sequences to your terminal. A line and column
@@ -217,15 +218,10 @@ cosmic agent ask 'now check every relative link in every .md file, including #an
 
 ## the tools
 
-The model is offered these tools by default:
-
-- `run`: a program in the cosmic environment, in a worker kept for the
-  session. One program does the work of many tool calls and prints
-  only what the model needs. The agent type-checks it first: a
-  refusal runs nothing and names the fix.
-- `read`: a file's text, from a line, cut to a size.
-- `edit`: exact text replacements in one file, several in one call.
-- `write`: a new file, or a whole file again.
+The model is offered one tool, `run`: a program in the cosmic
+environment, in a worker kept for the session. One program does the
+work of many tool calls and prints only what the model needs. The
+agent type-checks it first: a refusal runs nothing and names the fix.
 
 A `run` program reaches the directory through [`Host`]. Its calls do
 as the commands they are named for, but give values in place of text,
@@ -246,20 +242,17 @@ and raise where they fail:
 - [`Host.modules()`] lists the `cosmic.*` modules a program may require,
   and `Host.docs(name)` shows one.
 
-These tools are offered only when you ask for them:
+`--commands` adds one call:
 
-- `bash`: a shell command in the directory, under the same sandbox.
-- `jobs`: commands that run in the background, each in a sandbox of
-  its own.
+- `Host.bash(command)`: a shell command in the directory, under the
+  same sandbox, as `{output, ok, code}`.
 
-`--with bash,jobs` adds tools, `--without write` takes one out, and
-`--tools run,read` names all of them. `cosmic agent prompt` prints the
-system prompt the model reads.
+`cosmic agent prompt` prints the system prompt the model reads.
 
-Without bash, the model does with `Host` and cosmic's modules what a
-program would. With bash, it runs your programs (`git`, `make`, the
-project's tests), so the sandbox is its only fence. The same prompt,
-both ways:
+Without `--commands`, the model does with `Host` and cosmic's modules
+what a program would. With it, the model runs your programs (`git`,
+`make`, the project's tests), so the sandbox is its only fence. The
+same prompt, both ways:
 
 ```sh
 cosmic agent ask --new 'write a one-line commit message for the uncommitted changes'
@@ -270,7 +263,7 @@ The model reads `.git` itself. It lists the modules, reads the docs of
 programs, 2 of them refused and fixed, and $0.09.
 
 ```sh
-cosmic agent ask --new --with bash,jobs 'write a one-line commit message for the uncommitted changes'
+cosmic agent ask --new --commands 'write a one-line commit message for the uncommitted changes'
 ```
 
 > ```console
@@ -303,7 +296,7 @@ your home are shown as `~`:
 
 ```text
 $ cosmic agent policy
-programs: none run, since no tool offered is bash: the sandbox lets no file but cosmic's own run, whatever x the grants below give (--with bash runs them)
+programs: none run without --commands: the sandbox lets no file but cosmic's own run, whatever x the grants below give
 home: ~/.cache/cosmic/agent/home, kept between sessions, 0.0 KB (cosmic agent policy clear-home empties it)
 network: none
 grants (r reads, w writes, x runs, c creates and removes):
@@ -329,7 +322,7 @@ What the default sandbox holds:
   programs (`/usr`, `/bin`, the directories on `PATH`), and read the
   files programs need, such as `/etc/ssl`. Nothing else is there. In a
   git worktree, its git directories are granted too.
-- **Programs.** With the default tools, on Linux, no file but cosmic's
+- **Programs.** Without `--commands`, on Linux, no file but cosmic's
   own may run. On macOS, a `run` program still may run one.
 - **Home.** The commands get a home of their own, not yours, kept
   from one session to the next. Every session shares it, so keep
@@ -341,14 +334,13 @@ What the default sandbox holds:
 
 The kernel holds it. On Linux, a command runs in a root of its own,
 where what was not granted is not there, in its own pid namespace. On
-macOS it runs under Seatbelt. `read`, `write` and `edit` run in the
-agent itself and check each path against the same grants.
+macOS it runs under Seatbelt. A `run` program runs in a worker held
+to the same grants.
 [`cosmic.agent.policy`] holds the details.
 
 These flags change it:
 
-- `--sandbox read`: the tools change nothing, and the model is offered
-  no `edit` or `write`. Use it for advice.
+- `--sandbox read`: the tools change nothing. Use it for advice.
 - `--network`: the tools may reach public addresses. `SSL_CERT_FILE`
   goes with it, so a proxy that signs with its own root is trusted.
 - `--connect host:port`: one more target. An address written out may

@@ -17,6 +17,7 @@
 ---     end
 
 local type Agent = require("cosmic.agent")
+local type AgentEdit = require("cosmic.agent.edit")
 local Json = require("cosmic.json")
 local String = require("cosmic.string")
 local Tools = require("cosmic.agent.tools")
@@ -128,6 +129,35 @@ function Show.diff(old: string, new: string): {string}
   return out
 end
 
+--- The replacements of an edit call's `input`, as a session kept before the edit tool went (Host.edit took its place)
+--- holds it, in each shape models sent: `edits` a list, one object or a JSON string of either, or `oldText` and
+--- `newText` at the top; or nil and why.
+local function replacements(input: Tools.Object): {AgentEdit.Replacement}?, string
+  local out: mut {AgentEdit.Replacement} = {}
+  local list = input["edits"]
+  if list is string then
+    local decoded, _ = Json.decode(list)
+    list = decoded
+  end
+  local single, _ = Json.to_object(list)
+  if single ~= nil and not Json.is_array(list) then list = Json.array({ single }) end
+  local items, _ = Json.to_array(list)
+  for i, item in ipairs(items or {}) do
+    local e, _ = Json.to_object(item)
+    local old, new = e and e["oldText"], e and e["newText"]
+    if not (old is string) or not (new is string) then
+      return nil, string.format("edits[%d]", i - 1) .. " needs oldText and newText, each a string"
+    end
+    out[#out + 1] = { old = old, new = new }
+  end
+  local old, new = input["oldText"], input["newText"]
+  if old is string and new is string then
+    out[#out + 1] = { old = old, new = new }
+  end
+  if #out == 0 then return nil, "edits must hold at least one replacement" end
+  return out, ""
+end
+
 --- The lines a tool call shows at a terminal, as Markdown: run's code in a
 --- code fence of the language teal, so a Markdown viewer colors it, laid
 --- out by `layout` where one is given and lays it out; bash's command in
@@ -151,8 +181,8 @@ function Show.call(name: string, input: Tools.Object, layout?: Show.Arrange): {s
   elseif name == "edit" and path is string then
     put("edit " .. path)
     local diff: mut {string} = {}
-    local replacements, _ = Tools.replacements(input)
-    for _, r in ipairs(replacements or {}) do
+    local made, _ = replacements(input)
+    for _, r in ipairs(made or {}) do
       diff[#diff + 1] = "@@"
       for _, line in ipairs(Show.diff(r.old, r.new)) do diff[#diff + 1] = line end
     end
