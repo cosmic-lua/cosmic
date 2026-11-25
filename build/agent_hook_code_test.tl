@@ -183,14 +183,23 @@ end
 local function test_a_snippets_tasks_each_use_a_tool_for_code()
   local dir = assert(Fs.mkdtemp("agent-hook-"))
   local none: {string: Json.Value} = {}
+  local stamped: mut {string} = {}
   local stamp: Tools.Tool = { name = "stamp", snippet = "Stamp a word", guidelines = {}, description = "Stamps a word.",
     schema = { type = "object", properties = none }, callers = "code",
     run = function(input: Tools.Object, _: Tools.Context): Tools.Result
-      -- The first call is the last answered, so each reply must find its own task, not the next one waiting.
-      if input["word"] == "w1" then
-        local _, _ = Poll.delay(Clock.ms(300))
+      -- The first call waits until the two others it lets through are answered, so it is the last answered, and
+      -- each reply must find its own task, not the next one waiting. It waits for them, never for a time: calls
+      -- served one at a time leave it alone here until the deadline, and the order below then fails.
+      local word = tostring(input["word"])
+      if word == "w1" then
+        local deadline = Clock.monotonic_ns() + Clock.seconds(20)
+        while #stamped < 2 and Clock.monotonic_ns() < deadline do
+          local slept, _ = Poll.delay(Clock.ms(10))
+          if not slept then break end
+        end
       end
-      return { text = "stamped " .. tostring(input["word"]), is_error = false }
+      stamped[#stamped + 1] = word
+      return { text = "stamped " .. word, is_error = false }
     end }
   local code = "local Host = require(\"cosmic.agent.host\")\nlocal Poll = require(\"cosmic.poll\")\n" ..
     "local got: mut {integer: string} = {}\n" ..
@@ -225,7 +234,7 @@ local function test_a_snippets_tasks_each_use_a_tool_for_code()
   local answer = agent_fixture.said(a, 2)
   assert(answer:find("STAMPED W1,STAMPED W2,raised host: use: Blocked: not w3,STAMPED W4", 1, true) ~= nil, answer)
   -- w1 was answered after w2 and w4, so its answer reached its own task out of order.
-  assert(after[#after] == "w1", table.concat(after, " "))
+  assert(table.concat(stamped, " ") == "w2 w4 w1", table.concat(stamped, " "))
   table.sort(before)
   table.sort(after)
   assert(table.concat(before, " ") == "w1 w2 w3 w4", table.concat(before, " "))
