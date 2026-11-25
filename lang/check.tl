@@ -10598,7 +10598,8 @@ local function stat(ctx: Ctx, s: Ast.Stat)
     if schema_value ~= nil then
       local _ = expect(ctx, schema_value, expr(ctx, schema_value, ctx.store.string), ctx.store.string, " as the DDL of a schema")
     end
-    local ddl = if (s.kind == "Class") then s.schema else nil end
+    local body = if decl ~= nil and (s.kind == "Class") and s.schema ~= nil then decl.body else nil end
+    local ddl = if body ~= nil then body.schema else nil end
     local refusal = if ddl ~= nil then require("lang.sql").schema(ddl) else nil end
     if refusal ~= nil then
       report(ctx, "sql_schema", s.name, "SQLite refuses the DDL of the schema " .. quoted(s.name.name) .. ": " .. refusal,

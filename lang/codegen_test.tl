@@ -249,6 +249,22 @@ local S = require("cosmic.sqlite").schema(A ..
 print(S)]])
 end
 
+local function test_a_record_that_names_a_schema_holds_its_value()
+  emits(program(
+    "local schema Notes \"CREATE TABLE notes (id)\"",
+    "local record M",
+    "  type Notes = Notes",
+    "  type Other = string",
+    "end",
+    "return M"), [[
+local Notes = require("cosmic.sqlite").schema("CREATE TABLE notes (id)")
+local M = { Notes = Notes }
+
+
+
+return M]])
+end
+
 local function test_a_statement_that_is_erased_does_not_hide_the_expression_the_one_before_it_ends_in()
   emits(program(
     "local a: any = {}",

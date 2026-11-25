@@ -20,6 +20,16 @@ local function test_a_schema_of_joined_constants_holds_their_join()
   assert(db:close())
 end
 
+local schema Both = Notes.ddl .. "; CREATE TABLE extra (x)"
+
+local function test_a_schema_that_joins_another_holds_both()
+  assert(Both.ddl == Notes.ddl .. "; CREATE TABLE extra (x)")
+  local db = assert(Sqlite.memory({ schema = Both }))
+  assert(db:run("INSERT INTO notes (body) VALUES ('a')"))
+  assert(db:run("INSERT INTO extra VALUES (1)"))
+  assert(db:close())
+end
+
 local function has(failure: Failure, text: string): boolean
   return failure.message:find(text, 1, true) ~= nil
 end
