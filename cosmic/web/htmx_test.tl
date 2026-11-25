@@ -1,4 +1,5 @@
 local Codec = require("cosmic.codec")
+local type Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Html = require("cosmic.html")
@@ -24,7 +25,7 @@ local function through(fn: function(Web.Request): Web.Response, headers?: {strin
 end
 
 --- The response [`Htmx.apply`] writes `reply` to, or why it refused.
-local function applied(reply: Htmx.Reply): Web.Response?, string
+local function applied(reply: Htmx.Reply): (Web.Response) | (nil, Failure)
   return Htmx.apply(Web.empty(200), reply)
 end
 
@@ -154,9 +155,9 @@ local function test_a_location_object_is_ascii_json_with_a_checked_path()
   assert(decoded.path == "/items" and decoded.target == "#list" and decoded.values["name"] == "\u{e9}")
   assert(not assert(header(res, "HX-Location")):find("[\128-\255]"))
   local refused, why = applied({ location = { path = "//evil.example/x" } })
-  assert(refused == nil and why:find("same-origin", 1, true) ~= nil, tostring(why))
+  assert(refused == nil and tostring(why):find("same-origin", 1, true) ~= nil, tostring(why))
   local bad, bad_why = applied({ location = { path = "/ok", target = "#a\n#b" } })
-  assert(bad == nil and bad_why:find("location target", 1, true) ~= nil, tostring(bad_why))
+  assert(bad == nil and tostring(bad_why):find("location target", 1, true) ~= nil, tostring(bad_why))
 end
 
 local function test_a_redirect_must_stay_on_the_origin()
@@ -168,7 +169,7 @@ local function test_a_redirect_must_stay_on_the_origin()
     for index, reply in ipairs(replies) do
       local res, why = applied(reply)
       assert(res == nil, "reply " .. tostring(index) .. " accepted " .. target)
-      assert(why:find("htmx: ", 1, true) == 1, why)
+      assert(tostring(why):find("htmx: ", 1, true) == 1, tostring(why))
     end
   end
   local external = assert(applied({ redirect = Html.href("https://login.example/start?x=1") }))
@@ -181,7 +182,7 @@ end
 local function test_nothing_is_written_when_anything_is_refused()
   local res = Web.empty(200)
   local done, why = Htmx.apply(res, { redirect = "/fine", refresh = true, reswap = "sideways" })
-  assert(done == nil and why:find("reswap", 1, true) ~= nil, tostring(why))
+  assert(done == nil and tostring(why):find("reswap", 1, true) ~= nil, tostring(why))
   assert(header(res, "HX-Redirect") == nil and header(res, "HX-Refresh") == nil)
 end
 
@@ -196,11 +197,12 @@ local function test_selectors_swaps_and_events_are_checked()
   }
   for _, reply in ipairs(refused) do
     local res, why = applied(reply)
-    assert(res == nil and why:find("htmx: ", 1, true) == 1, tostring(why))
+    assert(res == nil and tostring(why):find("htmx: ", 1, true) == 1, tostring(why))
   end
   for _, style in ipairs({ "innerHTML", "outerHTML", "textContent", "beforebegin", "afterbegin", "beforeend",
       "afterend", "delete", "none", "innerHTML transition:true" }) do
-    assert(applied({ reswap = style }) ~= nil, style)
+    local swapped, swap_why = applied({ reswap = style })
+    assert(swapped ~= nil, style .. ": " .. tostring(swap_why))
   end
 end
 
@@ -221,9 +223,9 @@ local function test_redirect_to_is_a_header_for_htmx_and_a_303_otherwise()
   assert(external.status == 303 and external.redirect_location == "https://example.com/next")
   through(function(req: Web.Request): Web.Response
     local refused, why = Htmx.redirect_to(req, "//evil.example")
-    assert(refused == nil and why:find("same-origin", 1, true) ~= nil, tostring(why))
+    assert(refused == nil and tostring(why):find("same-origin", 1, true) ~= nil, tostring(why))
     local relative, relative_why = Htmx.redirect_to(req, "items")
-    assert(relative == nil and relative_why:find("redirect", 1, true) ~= nil, tostring(relative_why))
+    assert(relative == nil and tostring(relative_why):find("redirect", 1, true) ~= nil, tostring(relative_why))
     return Web.text("")
   end)
 end
