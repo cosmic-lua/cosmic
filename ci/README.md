@@ -552,13 +552,14 @@ relay the next queue entry stood on main's last save, a commit or more
 behind, and ran its whole native suite where that commit moved a key. A
 row stands only for a test whose key is the same, so the relay decides how
 many tests stand, never whether one is right, and no step of it fails a
-job. A queue leg that failed uploads what it reached too
-(`queue-tried-verdicts-<job>`, kept a day), its restored rows among them,
-and the next try of the same pull request in the queue finds it
-(`driver.tl queue-tried-run`) and merges it in before its suites: a suite
-the deadline stopped (COSMIC_TEST_DEADLINE) keeps its passes, and the
-next try runs only the rest. Only the same pull request's, since that run
-ran the code its next try runs. The queue's format job, where its check passed, seals the memo of the
+job. A queue leg that failed uploads the rows it used too
+(`queue-tried-verdicts-<job>`, kept a day), and the next try of the same
+pull request finds the newest such run that has ended (`driver.tl
+queue-tried-run`) and merges them in before its suites, so a suite the
+deadline stopped (COSMIC_TEST_DEADLINE) keeps its passes for that try.
+It takes only a run built on a commit of main: a queue commit holds the
+entries ahead of it too, and one dropped from the queue never merges.
+The queue's format job, where its check passed, seals the memo of the
 tree checks (the shared rows of `build/check_memo.tl`, in the cache
 directory: `driver.tl checks-seal` keeps the rows the run used, in one
 file with no write-ahead log) and uploads it (`queue-checks-linux-x86_64`);

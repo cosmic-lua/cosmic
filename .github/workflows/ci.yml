@@ -307,10 +307,9 @@
           run: "cosmic-driver cosmic_ci/driver.tl verdicts-merge \"${{ runner.temp }}/queue-verdicts\"",
         },
         # A merge-queue run takes in what the last failed try of its pull
-        # request reached (cosmic_ci/queue_verdicts.tl's `find_tried`): a
-        # try whose suite the deadline stopped keeps no cache, so without
-        # these its next try started cold too. None of the three fails
-        # the job.
+        # request, built on main, reached (cosmic_ci/queue_verdicts.tl's
+        # `find_tried`): the queue keeps no cache, so this is all a try
+        # the deadline stopped keeps. None of the three fails the job.
         {
           name: "find this pull request's last failed try in the merge queue",
           id: "tried-run",
@@ -589,18 +588,20 @@
           if: "always() && steps.driver.outcome == 'success' && (env.COSMIC_CI_SAVES == 'true' || github.event_name == 'merge_group')",
           run: "cosmic-driver cosmic_ci/driver.tl compiles-trim \"${{ steps.names.outputs.since }}\" \"${{ runner.temp }}/compiles-restored.db\"",
         },
-        # A run that failed keeps what it restored too (`whole`). Cut to
+        # A run that failed keeps what it restored too (`whole`), but in
+        # the merge queue, which saves no cache, only what it used. Cut to
         # the rows this run used, named by their digest: for main's save,
-        # and in the merge queue for main's push of the commit.
+        # and in the merge queue for main's push of the commit or the pull
+        # request's next try.
         {
           name: "keep only this run's test verdicts",
           id: "verdicts-trim",
           if: "always() && steps.driver.outcome == 'success' && (env.COSMIC_CI_SAVES == 'true' || github.event_name == 'merge_group')",
-          run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ job.status == 'success' && steps.names.outputs.since || 'whole' }}",
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ (job.status == 'success' || github.event_name == 'merge_group') && steps.names.outputs.since || 'whole' }}",
         },
         # Read by this pull request's next try in the merge queue ("find
-        # this pull request's last failed try"): what a failed try
-        # reached, its restored rows among them.
+        # this pull request's last failed try"): the rows a failed try
+        # used.
         {
           name: "upload what this failed try in the merge queue reached",
           if: "always() && github.event_name == 'merge_group' && job.status == 'failure' && steps.verdicts-trim.outputs.digest != ''",
@@ -978,7 +979,7 @@
           name: "keep only this run's test verdicts",
           id: "verdicts-trim",
           if: "always() && steps.driver.outcome == 'success' && env.COSMIC_CI_SAVES == 'true'",
-          run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ job.status == 'success' && steps.names.outputs.since || 'whole' }}",
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ (job.status == 'success' || github.event_name == 'merge_group') && steps.names.outputs.since || 'whole' }}",
         },
         {
           name: "summarize worker operations",
@@ -1208,7 +1209,7 @@
           name: "keep only this run's test verdicts",
           id: "verdicts-trim",
           if: "always() && steps.driver.outcome == 'success' && env.COSMIC_CI_SAVES == 'true'",
-          run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ job.status == 'success' && steps.names.outputs.since || 'whole' }}",
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ (job.status == 'success' || github.event_name == 'merge_group') && steps.names.outputs.since || 'whole' }}",
         },
         {
           name: "summarize worker operations",
