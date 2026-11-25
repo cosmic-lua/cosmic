@@ -86,6 +86,14 @@ local record host_names
     --- Its table entry's class.
     class: Class
   end
+
+  --- A leg's promises as [`read_promises`] reads them.
+  record Promises
+    --- The names the table knows.
+    names: {string}
+    --- The names of a base it does not know, left out.
+    unknown: {string}
+  end
 end
 
 --- A name's shape: its class, and whether it takes an argument, which may
@@ -184,23 +192,34 @@ function host_names.class(name: string): host_names.Class?, string
 end
 
 --- The requirements a run's leg promises, as the variable
---- COSMIC_TEST_PROMISES writes them: names separated by commas, each one
---- [`parse`] accepts (a `path:` with a comma in it cannot be promised).
---- An empty text promises nothing.
+--- COSMIC_TEST_PROMISES writes them: names separated by commas (a `path:`
+--- with a comma in it cannot be promised). An empty text promises
+--- nothing. A name whose base is shaped as the table's are (lower case,
+--- digits and `_`) but is not one of them is left out and returned apart:
+--- a leg may promise a name newer than the cosmic it starts, which no
+--- module of that cosmic's tree can require. Any other name [`parse`]
+--- refuses, and one written twice, is refused.
 --- @param text the variable's value
---- @return the names, or nil and the rule one breaks
-function host_names.read_promises(text: string): {string}?, string
+--- @return the names the table knows and those left out, or nil and the rule one breaks
+function host_names.read_promises(text: string): host_names.Promises?, string
   local out: mut {string} = {}
-  if text == "" then return out, "" end
+  local unknown: mut {string} = {}
+  if text == "" then return { names = out, unknown = unknown }, "" end
   local seen: mut {string:boolean} = {}
   for name in (text .. ","):gmatch("([^,]*),") do
-    local spec, why = host_names.parse(name)
-    if spec == nil then return nil, why end
     if seen[name] == true then return nil, string.format("%q is promised twice", name) end
     seen[name] = true
-    out[#out + 1] = name
+    local base = name:match("^([a-z][a-z0-9_]*)") or ""
+    local rest = name:sub(#base + 1)
+    if base ~= "" and shapes[base] == nil and (rest == "" or rest:sub(1, 1) == ":") then
+      unknown[#unknown + 1] = name
+    else
+      local spec, why = host_names.parse(name)
+      if spec == nil then return nil, why end
+      out[#out + 1] = name
+    end
   end
-  return out, ""
+  return { names = out, unknown = unknown }, ""
 end
 
 --- The least Landlock ABI version a `landlock` or `landlock:N` asks for.

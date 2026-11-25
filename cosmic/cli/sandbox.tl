@@ -120,6 +120,26 @@
 --- To run a program that is named `connect`, put it after `--`:
 --- `cosmic sandbox -- connect`.
 ---
+--- What holds it:
+---
+--- `--explain` prints the kernel layers the start would hold the program
+--- to, read from the plan the start hands its spawn, and starts nothing
+--- ([`Child.layers`]). A line each: the first Landlock ruleset's grants
+--- with their letters (`landlock`), the start's own `rx` on the program or
+--- this program's core among them; the ruleset a cosmic program's core
+--- applies to itself at boot (`boot`), the policy alone; the system calls
+--- allowed beyond the basics; whether execve is refused (no `x` in the last
+--- ruleset); the socket families, the namespaces and root of its own, the
+--- relay's hosts, the declared loopback addresses and the rlimits. It
+--- checks the policy and the program as a start does, but not what a start
+--- checks at the spawn itself (the descriptors handed over, the relay's
+--- start, the kernel's support), so a start may still fail where it
+--- answers. It exits 0, 2 for a command line or policy it refuses, and 125
+--- for a start that would be refused, or on macOS, where a Seatbelt profile
+--- holds the program.
+---
+---     cosmic sandbox --explain --system --read . -- ls -l
+---
 --- The user, the streams and the terminal:
 ---
 --- `--user` gives the user and group that the program runs as, by number.
@@ -176,6 +196,7 @@ local command: Flags.Command = {
     ["--fd"] = { value = "n", about = "hand it descriptor n (3 to 255), as the same number" },
     ["--timeout"] = { value = "seconds", about = "end it after this many whole seconds" },
     ["--cwd"] = { value = "dir", about = "start it in this directory, which relative paths are taken from" },
+    ["--explain"] = { about = "print the kernel layers the options give, and run nothing" },
   },
 }
 

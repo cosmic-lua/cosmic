@@ -90,8 +90,7 @@ local function test_an_absent_path_skips_the_module_and_keeps_no_verdict(tmp: st
   for _, extra in ipairs({ {}, {}, { COSMIC_SANDBOX = "must" }, { COSMIC_CI_REQUIRE_SANDBOX = "1" } }) do -- checked: literal_needs_type*2
     local out, code = run(root, extra)
     assert(code == 0, out)
-    assert(out:find("test: SKIP  prog_test test_passes: requires path:" .. outside(tmp) .. "/absent: ", 1, true), out)
-    assert(out:find("test: SKIP  prog_test test_passes_too: requires path:", 1, true), out)
+    assert(out:find("test: SKIP  prog_test: 2 tests, requires path:" .. outside(tmp) .. "/absent: ", 1, true), out)
     assert(out:find("2 tests passed in 1 module; 2 ran, 0 stood, 2 skipped ", 1, true), out)
     assert(not out:find("must not load", 1, true), out)
   end
@@ -210,14 +209,19 @@ error("a module with an absent requirement must not load")
   end
 end
 
---- A promise a name of the table does not accept fails a held run before
---- any test, naming it; a run that is not held never reads the variable.
+--- A promise of a known name that breaks its rule fails a held run before
+--- any test, naming it; one of a base the table does not have is left out
+--- with a note, since a leg may promise a name newer than this cosmic
+--- (the tree's check, build/tree_checks/build.tl, refuses a misspelled
+--- one in capabilities.json); a run that is not held never reads the variable.
 local function test_a_promise_the_table_refuses_fails_a_held_run(tmp: string)
   local root = project(tmp)
   assert(Fs.write(root .. "/plain_test.tl", "local function test_c() assert(true) end\n"))
-  local out, code = run(root, { COSMIC_TEST_PROMISES = "nest,sandbxo", COSMIC_SANDBOX = "must" })
-  assert(code ~= 0 and out:find("COSMIC_TEST_PROMISES: unknown requirement \"sandbxo\"", 1, true) ~= nil, out)
-  out, code = run(root, { COSMIC_TEST_PROMISES = "nest,sandbxo" })
+  local out, code = run(root, { COSMIC_TEST_PROMISES = "nest,landlock:0", COSMIC_SANDBOX = "must" })
+  assert(code ~= 0 and out:find("COSMIC_TEST_PROMISES: \"landlock:0\"", 1, true) ~= nil, out)
+  out, code = run(root, { COSMIC_TEST_PROMISES = "nest,newer_name", COSMIC_SANDBOX = "must" })
+  assert(code == 0 and out:find("COSMIC_TEST_PROMISES: left out newer_name, which this cosmic does not know", 1, true) ~= nil, out)
+  out, code = run(root, { COSMIC_TEST_PROMISES = "nest,landlock:0" })
   assert(code == 0, out)
 end
 

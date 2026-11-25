@@ -21,10 +21,10 @@ end
 
 local function test_unhex_reads_either_case()
   for _, v in ipairs(VECTORS) do
-    assert(Codec.unhex(Array.at(v, 2)) == Array.at(v, 1), Array.at(v, 2))
-    assert(Codec.unhex(Array.at(v, 2):lower()) == Array.at(v, 1), Array.at(v, 2))
+    assert(assert(Codec.unhex(Array.at(v, 2))) == Array.at(v, 1), Array.at(v, 2))
+    assert(assert(Codec.unhex(Array.at(v, 2):lower())) == Array.at(v, 1), Array.at(v, 2))
   end
-  assert(Codec.unhex("aBcD") == "\xab\xcd")
+  assert(assert(Codec.unhex("aBcD")) == "\xab\xcd")
 end
 
 local function test_hex_covers_every_byte()
@@ -34,26 +34,26 @@ local function test_hex_covers_every_byte()
   local text = Codec.hex(bytes)
   assert(#text == 512)
   assert(text:sub(1, 6) == "000102" and text:sub(-4) == "feff", text)
-  assert(Codec.unhex(text) == bytes)
+  assert(assert(Codec.unhex(text)) == bytes)
 end
 
 local function test_unhex_refuses_odd_length_and_non_digits()
   for _, bad in ipairs({ "a", "abc", "0g", "zz", " 00", "00\n", "0x00", "\0\0" }) do
     local out, why = Codec.unhex(bad)
     assert(out == nil, bad)
-    assert(why:match("^codec: "), why)
+    assert(tostring(why):match("^codec: "), tostring(why))
   end
-  local _, why = Codec.unhex("abc")
-  assert(why:find("odd length 3", 1, true), why)
-  _, why = Codec.unhex("00g0")
-  assert(why:find("0x67 at 3", 1, true), why)
+  local _, odd = Codec.unhex("abc")
+  assert(tostring(odd):find("odd length 3", 1, true), tostring(odd))
+  local _, digit = Codec.unhex("00g0")
+  assert(tostring(digit):find("0x67 at 3", 1, true), tostring(digit))
 end
 
 local function test_base64_matches_rfc4648()
   for _, v in ipairs(VECTORS) do
     assert(Codec.base64(Array.at(v, 1)) == Array.at(v, 3), Array.at(v, 1))
     local out, why = Codec.unbase64(Array.at(v, 3))
-    assert(out == v[1] and why == "", v[3])
+    assert(out == v[1] and why == nil, v[3])
   end
 end
 
@@ -61,12 +61,12 @@ local function test_base64url_is_unpadded_and_url_safe()
   for _, v in ipairs(VECTORS) do
     local bare = (Array.at(v, 3):gsub("=", ""))
     assert(Codec.base64url(Array.at(v, 1)) == bare, Array.at(v, 1))
-    assert(Codec.unbase64url(bare) == v[1], bare)
+    assert(assert(Codec.unbase64url(bare)) == v[1], bare)
   end
   assert(Codec.base64("\xfb\xff") == "+/8=")
   assert(Codec.base64url("\xfb\xff") == "-_8")
-  assert(Codec.unbase64("+/8=") == "\xfb\xff")
-  assert(Codec.unbase64url("-_8") == "\xfb\xff")
+  assert(assert(Codec.unbase64("+/8=")) == "\xfb\xff")
+  assert(assert(Codec.unbase64url("-_8")) == "\xfb\xff")
 end
 
 local record Refusal
@@ -92,7 +92,7 @@ local function test_unbase64_refuses_malformed_text()
   for _, c in ipairs(cases) do
     local out, why = Codec.unbase64(c.text)
     assert(out == nil, c.text)
-    assert(why:find(c.says, 1, true), c.text .. ": " .. why)
+    assert(tostring(why):find(c.says, 1, true), c.text .. ": " .. tostring(why))
   end
 end
 
@@ -107,7 +107,7 @@ local function test_unbase64url_refuses_padding_and_the_standard_alphabet()
   for _, c in ipairs(cases) do
     local out, why = Codec.unbase64url(c.text)
     assert(out == nil, c.text)
-    assert(why:find(c.says, 1, true), c.text .. ": " .. why)
+    assert(tostring(why):find(c.says, 1, true), c.text .. ": " .. tostring(why))
   end
 end
 
@@ -119,11 +119,11 @@ local function test_a_megabyte_round_trips()
     parts[i] = string.char(table.unpack(row))
   end
   local big = table.concat(parts)
-  assert(Codec.unhex(Codec.hex(big)) == big)
+  assert(assert(Codec.unhex(Codec.hex(big))) == big)
   local text = Codec.base64(big .. "x")
   assert(#text == (#big + 1 + 2) // 3 * 4)
-  assert(Codec.unbase64(text) == big .. "x")
-  assert(Codec.unbase64url(Codec.base64url(big .. "xy")) == big .. "xy")
+  assert(assert(Codec.unbase64(text)) == big .. "x")
+  assert(assert(Codec.unbase64url(Codec.base64url(big .. "xy"))) == big .. "xy")
 end
 
 --- Every byte's two hex digits decode in each of their four case spellings.
@@ -131,7 +131,7 @@ local function test_unhex_reads_every_byte_in_each_case()
   for byte = 0, 255 do
     local l = ("%02x"):format(byte)
     for _, spelled in ipairs({ l, l:upper(), l:sub(1, 1):upper() .. l:sub(2, 2), l:sub(1, 1) .. l:sub(2, 2):upper() }) do
-      assert(Codec.unhex(spelled) == string.char(byte), spelled)
+      assert(assert(Codec.unhex(spelled)) == string.char(byte), spelled)
     end
   end
 end

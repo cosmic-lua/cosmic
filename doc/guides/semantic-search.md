@@ -92,7 +92,7 @@ local function embed_texts(texts: {string}, model: string, key: string): Embedde
   for _, item in ipairs(parsed.data) do
     local blob, trouble = Codec.unbase64(item.embedding)
     if blob == nil then
-      return nil, trouble
+      return nil, tostring(trouble)
     end
     vectors[item.index + 1] = blob
   end
