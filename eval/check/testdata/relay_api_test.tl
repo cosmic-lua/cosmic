@@ -105,7 +105,7 @@ local function test_pipe_keeps_a_busy_pair_past_its_idle_limit()
     for _ = 1, 6 do
       assert(client:write("a"))
       assert(read_n(target, 1) == "a", "a byte was lost")
-      assert(Poll.delay(Clock.ms(100)))
+      assert(Clock.sleep(Clock.ms(100)))
     end
     assert(client:close())
     assert(target:close())
