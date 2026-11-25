@@ -975,6 +975,9 @@ local services: {Kind:Service} = {
         end_stream(stream)
       else
         keep(owner, stream, data)
+        -- Every pump of a child watches each of its streams: another task's read of a streamed one, waiting on this
+        -- descriptor for what this read took, is woken to find it queued, as the descriptor will not wake it again.
+        if stream.streamed then Poll.answer(fd, sys.POLLIN) end
       end
     end,
     broken = function(e: Entry, trouble: string) fail_stream(assert(e.output), trouble) end,
