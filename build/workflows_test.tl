@@ -323,9 +323,17 @@ end
 
 --- The kinds of run the platform job's legs differ by, in the order its
 --- `include` expression chooses between them: the merge queue's and a pull
---- request's (`queue`), a push to main's (`push`), and every other (`full`:
---- the scheduled and a manual run).
+--- request's (`queue`), a push to main's (`push`), the scheduled run, a
+--- manual run of main and one that asks for macOS (`full`), and every other
+--- manual run (`dispatch`: a branch's checks before the queue). An
+--- include that names no `dispatch` list ([`FOUR_KINDS`]) gives it `full`'s.
+--- What else a manual run asks for to be `full` is the include's own
+--- (the platform job's `inputs.macos`); [`full_condition`] answers it.
 local KIND_CHOICE <const> = "^%${{ fromJSON%(github%.event_name == 'pull_request' && '(%[[^']-%])' || " ..
+  "github%.event_name == 'merge_group' && '(%[[^']-%])' || github%.event_name == 'push' && '(%[[^']-%])' || " ..
+  "%((github%.event_name == 'schedule' || github%.ref == 'refs/heads/main'[^)]-)%) && '(%[[^']-%])' || " ..
+  "'(%[[^']-%])'%) }}$"
+local FOUR_KINDS <const> = "^%${{ fromJSON%(github%.event_name == 'pull_request' && '(%[[^']-%])' || " ..
   "github%.event_name == 'merge_group' && '(%[[^']-%])' || github%.event_name == 'push' && '(%[[^']-%])' || " ..
   "'(%[[^']-%])'%) }}$"
 
@@ -440,10 +448,16 @@ local function expand(matrix: {string: Json.Value}, kind: string): {{string: str
   local created: mut {{string: string}} = {}
   local include: Json.Value? = matrix["include"]
   if include is string then
-    local pr, queue, push, full = include:match(KIND_CHOICE)
-    assert(full ~= nil, "the include is chosen other than by the kind of run: " .. include)
-    local chosen = if kind == "pr" then pr elseif kind == "queue" then queue elseif kind == "push" then push else full end
-    assert(kind == "pr" or kind == "queue" or kind == "push" or kind == "full", "no kind of run " .. kind)
+    local pr, queue, push, _, full, dispatch = include:match(KIND_CHOICE)
+    if dispatch == nil then
+      pr, queue, push, full = include:match(FOUR_KINDS)
+      dispatch = full
+    end
+    assert(dispatch ~= nil, "the include is chosen other than by the kind of run: " .. include)
+    local chosen = if kind == "pr" then pr elseif kind == "queue" then queue elseif kind == "push" then push
+      elseif kind == "full" then full else dispatch end
+    assert(kind == "pr" or kind == "queue" or kind == "push" or kind == "full" or kind == "dispatch",
+      "no kind of run " .. kind)
     local chosen_include, include_trouble = Json.decode(assert(chosen))
     assert(chosen_include ~= nil, include_trouble)
     include = chosen_include
@@ -473,6 +487,16 @@ end
 --- A job's matrix legs on a run of `kind`, as [`expand`] gives them.
 local function legs_of(job: Job, kind: string): {{string: string}}
   return expand(assert(Json.to_object(assert(assert(job.strategy).matrix))), kind)
+end
+
+--- The condition under which `job`'s include gives a manual run `full`'s
+--- list, not `dispatch`'s ([`KIND_CHOICE`]); nil where it names no
+--- `dispatch` list.
+local function full_condition(job: Job): string?
+  local include = assert(Json.to_object(assert(assert(job.strategy).matrix)))["include"]
+  if not (include is string) then return nil end
+  local _, _, _, condition = include:match(KIND_CHOICE)
+  return condition
 end
 
 --- [`expand`] gives the combinations GitHub's docs give for their
@@ -1419,7 +1443,7 @@ local function test_every_leg_has_its_promises_and_no_other_does()
   local promised: mut {string: boolean} = {}
   for name in pairs(loaded.legs) do promised[name] = true end
   local ran: mut {string: boolean} = {}
-  for _, kind in ipairs({ "pr", "queue", "push", "full" }) do
+  for _, kind in ipairs({ "pr", "queue", "push", "full", "dispatch" }) do
     for _, leg in pairs(platform_legs(kind)) do ran[assert(leg["leg"])] = true end
   end
   ran[assert(map_of(assert(ci_workflow().jobs["narrowing"]).env)["COSMIC_WORKER"])] = true
@@ -1547,6 +1571,26 @@ local function test_each_kind_of_run_has_its_legs()
     "a suite job saves its boot as the leg's whole entry")
   assert(names_of(full) == "alpine-x86_64 linux-aarch64 linux-x86_64 macos-aarch64",
     "a full run's legs: " .. names_of(full))
+  -- A branch's manual run, its checks before the queue, runs the full run's legs but macOS, which the queue runs on
+  -- every entry: its macOS jobs held the few macOS runners the queue's waited for (45561589392, 35 min).
+  assert(full_condition(job_of(ci_workflow().jobs, "platform")) ==
+      "github.event_name == 'schedule' || github.ref == 'refs/heads/main' || inputs.macos",
+    "a manual run runs macOS otherwise: " .. tostring(full_condition(job_of(ci_workflow().jobs, "platform"))))
+  local dispatch = platform_legs("dispatch")
+  assert(names_of(dispatch) == "alpine-x86_64 linux-aarch64 linux-x86_64", "a branch's manual run's legs: " .. names_of(dispatch))
+  for name, leg in pairs(dispatch) do
+    for _, key in ipairs({ "name", "leg", "part", "runner", "target", "image" }) do
+      assert(leg[key] == assert(full[name])[key], "a branch's manual run runs " .. name .. " otherwise: " .. key)
+    end
+  end
+  local function object_of(value: any, what: string): {string: any}
+    local map, err: {string: any}?, string = Shape.into(value, Shape.map(Shape.any))
+    return (assert(map, what .. ": " .. tostring(err)))
+  end
+  local inputs = object_of(object_of(ci_workflow()["on"]["workflow_dispatch"], "workflow_dispatch")["inputs"], "inputs")
+  local macos = object_of(inputs["macos"], "the macos input")
+  assert(macos["type"] == "boolean" and macos["default"] == false,
+    "a manual run cannot ask for macOS, or asks by default")
   local keys <const>: {string} = { "name", "leg", "part", "runner", "target", "image" }
   for name, leg in pairs(full) do
     local count = 0
@@ -2149,8 +2193,8 @@ local function test_mains_push_takes_the_queues_verdicts_before_its_suites()
     "the queue uploads its verdicts otherwise: " .. tostring(upload["if"]))
 end
 
---- The merge queue runs the checked suite in three shares at once, each a job named for its share, which saves no
---- verdicts; every other run runs it whole, as one job, `linux-x86_64-checked`, whose run checks the C functions,
+--- The merge queue and a manual run of a branch run the checked suite in three shares at once, each a job named for
+--- its share, which saves no verdicts; every other run runs it whole, as one job, `linux-x86_64-checked`, whose run checks the C functions,
 --- which a share cannot (build/test.tl). The performance fixture runs in the third share, and once elsewhere.
 --- Each job's uploads are named for it, so the shares' do not collide.
 local function test_the_queue_runs_the_checked_suite_in_three_shares()
@@ -2169,6 +2213,11 @@ local function test_the_queue_runs_the_checked_suite_in_three_shares()
   for _, kind in ipairs({ "push", "full" }) do
     assert(shares(kind) == "linux-x86_64-checked==run", kind .. " runs the checked suite in shares: " .. shares(kind))
   end
+  -- A manual run of a branch runs the queue's shares: whole, the suite took 1738-1749 s of its 1860 s deadline and
+  -- missed it on slower runners (45557741219). The scheduled run and a manual run of main run it whole.
+  assert(shares("dispatch") == shares("queue"), "a branch's manual run's shares: " .. shares("dispatch"))
+  assert(full_condition(checked) == "github.event_name == 'schedule' || github.ref == 'refs/heads/main'",
+    "the checked suite is whole on other manual runs: " .. tostring(full_condition(checked)))
   local env = map_of(checked.env)
   assert(env["COSMIC_CI_CHECKED_SHARD"] == "${{ matrix.shard }}" and env["COSMIC_WORKER"] == "linux-x86_64-checked",
     "the share does not reach the suite, or a share keys its verdicts apart")
@@ -2208,7 +2257,8 @@ local function test_the_gate_needs_every_job_and_compares_the_legs_products()
   local compare = step_named(gate.steps, "compare the Cosmic bytes executed on every native host")
   assert(compare["if"] == PR_SKIPS and
       map_of(compare.env)["COSMIC_CI_PRODUCTS"] ==
-      "${{ (github.event_name == 'push' || github.event_name == 'merge_group') && '3' || '4' }}",
+      "${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && " ..
+      "(github.ref == 'refs/heads/main' || inputs.macos)) && '4' || '3' }}",
     "the join compares other than main's products: " .. tostring(map_of(compare.env)["COSMIC_CI_PRODUCTS"]))
   local function count(legs: {string: {string: string}}): integer
     local n = 0

@@ -1372,6 +1372,27 @@ end
 local times_query <const> = "cosmic sql --build \"select path, test, elapsed_ns/1000000 as ms " ..
   "from runs order by elapsed_ns desc limit 20\""
 
+--- The `count` slowest of `ran_ns`'s tests (id to nanoseconds), slowest
+--- first, each with its seconds: "a.tl t 12.3 s, b.tl u 9.0 s".
+function test.slowest(ran_ns: {string:integer}, count: integer): string
+  local record Timed
+    id: string
+    ns: integer
+  end
+  local timed: mut {Timed} = {}
+  for id, ns in pairs(ran_ns) do timed[#timed + 1] = { id = id, ns = ns } end
+  table.sort(timed, function(a: Timed, b: Timed): boolean
+    if a.ns ~= b.ns then return a.ns > b.ns end
+    return a.id < b.id
+  end)
+  local out: mut {string} = {}
+  for index, t in ipairs(timed) do
+    if index > count then break end
+    out[index] = string.format("%s %.1f s", t.id, t.ns / 1e9)
+  end
+  return table.concat(out, ", ")
+end
+
 --- What a progress line says of `longest`, the longest-running tests
 --- ([`progress.longest`]), and, on the first such line of a run (`said`
 --- false), where every test's time is: the line comes every half minute,
@@ -1612,6 +1633,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
   -- key trusts its declaration as it trusts the test's own.
   if key == nil and job.unrun ~= true then rec.tally.every = rec.tally.every + 1 end
   local ran_at_ns, recorded_key = Clock.now_ns(), run_key(key or "", key)
+  rec.ran_ns[id] = elapsed
   local saved, save_trouble = record_run(rec.records, job.m.path, job.name, kept_pass,
     message, ran_at_ns, recorded_key, rec.run_at_ns, elapsed)
   if not saved then
@@ -3002,7 +3024,7 @@ local function make_recording(ctx: Run)
     checks = ctx.checks == true, files = {}, violations = {}, violation_order = {}, violation_tests = {},
     violations_dropped = 0, fact_wraps = assert(ctx.result).fact_wraps,
     parameter_checks = assert(ctx.result).parameter_checks, violation_met = {}, violators = {}, violator_ns = {},
-    failures = failures, errors = errors, outputs = {}, reruns = {},
+    ran_ns = {}, failures = failures, errors = errors, outputs = {}, reruns = {},
     show_output = ctx.show_output == true, shown = {}, printed = 0,
     failed = {}, skips = {}, unchecked = {}, deliberate = {}, stopped = {}, held = ctx.held == true, nas = {}, unmet = {}, answered = {},
     hits = hits, by_test = by_test, unowned = unowned,
@@ -3525,6 +3547,10 @@ local function settle(ctx: Run)
     -- counts as one failure in the summary's figures.
     local late = string.format("the run passed its deadline of %s: %s not started",
       plural.count(assert(assert(ctx.limits).deadline_s), "second"), plural.count(rec.not_run, "test"))
+    local slowest = test.slowest(rec.ran_ns, 10)
+    if slowest ~= "" then
+      late = late .. "; slowest it ran: " .. slowest .. "; every test's time: " .. times_query
+    end
     failures[#failures + 1] = late
   end
   if ctx.own_tree == true and rec.not_run > 0 then
