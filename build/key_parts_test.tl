@@ -23,11 +23,12 @@ local function test_hex_is_codec_hex_and_unhex_inverts_it()
     assert(text == Codec.hex(sample), sample)
     assert(key_parts.unhex(text) == sample, text)
     assert(key_parts.unhex(text:upper()) == sample, text)
-    assert(key_parts.unhex(text:upper()) == Codec.unhex(text:upper()), text)
+    assert(key_parts.unhex(text:upper()) == assert(Codec.unhex(text:upper())), text)
   end
   for _, bad in ipairs({ "a", "abc", "0g", "zz", "0 " }) do
     local decoded, why = key_parts.unhex(bad)
-    assert(decoded == nil and Codec.unhex(bad) == nil and why ~= "", bad)
+    local direct, _ = Codec.unhex(bad)
+    assert(decoded == nil and direct == nil and why ~= "", bad)
   end
 end
 

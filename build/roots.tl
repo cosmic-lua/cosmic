@@ -61,7 +61,7 @@ local function parse_pem(pem: string): {roots.Root}?, string
       if line == "-----END CERTIFICATE-----" then
         local der, why = Codec.unbase64(table.concat(body))
         if der == nil then
-          return nil, "line " .. tostring(number) .. ": the certificate above is not base64: " .. why
+          return nil, "line " .. tostring(number) .. ": the certificate above is not base64: " .. tostring(why)
         end
         if der == "" then
           return nil, "line " .. tostring(number) .. ": the certificate above is empty"

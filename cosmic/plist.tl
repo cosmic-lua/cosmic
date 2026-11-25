@@ -841,7 +841,9 @@ function Elements.read(r: Reading, element: Xml.Element, depth: integer): Plist.
     return { kind = "date", date = date }, ""
   end
   local bytes, trouble = Codec.unbase64((text:gsub("%s+", "")))
-  if bytes == nil then return nil, misplaced(r, "data that is not base64: " .. trouble) end
+  if bytes == nil then
+    return nil, misplaced(r, "data that is not base64: " .. tostring(trouble))
+  end
   return { kind = "data", data = bytes }, ""
 end
 
