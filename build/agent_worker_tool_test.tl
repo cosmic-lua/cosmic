@@ -11,29 +11,25 @@ local Sessions = require("cosmic.agent.sessions")
 local Test = require("cosmic.test")
 local Tools = require("cosmic.agent.tools")
 local Worker = require("cosmic.agent.worker")
-local agent_worker = require("build.agent_worker")
-local test_child = require("build.test_child")
 local _ = require("build.standalone")
+--- What `cosmic agent worker` loads, which the store of this module's run must hold: the tests start that verb of
+--- this program. build.verb_list names every verb's module, so an edit to any of them reruns these tests.
+local type _ = require("build.agent")
+local type _ = require("build.verb_list")
 --- What the MCP server script requires, as its standalone run loads it.
 local type _ = require("cosmic.mcp.server")
 local this_program = require("build.this_program")
 
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "/bin/sh", letters = "r" }, { path = "/bin/sleep", letters = "r" }, { path = "/usr/bin/sleep", letters = "r" }, { path = "/usr/bin/setsid", letters = "r" } },
-  -- Most tests start a worker, whose first snippet loads the checker: 1.6 s alone here, 3.5 s beside four others,
-  -- and past 10 s on a loaded macOS runner (test_a_snippet_keeps_a_value_for_a_later_one, 2026-11-24). A test that
-  -- hangs still ends at the bound.
+  -- CI's suites give a test 10 s. On a loaded macOS runner a worker test started with the suite ran past that
+  -- (portable suite, run 45557741219). A test that hangs still ends at this bound.
   timeout = 30 }
 
---- The worker, as `cosmic agent worker` runs it, in a child of this module.
-test_child.register("worker", function(_args: {string}): integer
-  return agent_worker.main()
-end)
-
---- A set whose worker is this program, as a test starts it.
+--- A set whose worker is `cosmic agent worker` of this program, as the agent starts it. Its first snippet answers in
+--- about 60 ms; a child of this module ([`build.test_child`]) took 1.3 s, checking its `-e` chunk and loading the
+--- module first.
 local function set_of_worker(): Worker.Set
-  local dir = assert(Fs.mkdtemp("agent-worker-store-"))
-  local started = this_program.program(test_child.words(dir, "build.agent_worker_tool_test", "worker"),
-    { env = this_program.environment(), timeout_ns = -1 })
+  local started = this_program.program({ "agent", "worker" }, { env = this_program.environment(), timeout_ns = -1 })
   return Worker.new(started.argv, started.options)
 end
 
@@ -431,30 +427,47 @@ print(tostring(long))
   Worker.close(w)
 end
 
---- A snippet reads sessions.db through the agent (Host.history), which answers it read-only, as the sql tool does, row by row.
+--- A snippet reads sessions.db through the agent (Host.history), which answers it read-only, row by row: a write, a
+--- copy (VACUUM INTO) and an attach are refused.
 local function test_a_snippet_queries_the_sessions_through_the_agent()
   local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
   local db = assert(Sessions.open(dir .. "/sessions.db"))
   local id = assert(Sessions.start(db, "/", "m", 0))
   local _ = assert(Sessions.output(db, id, { tool = "bash", input = "{}", text = "a\xffb", is_error = false }))
+  local found = assert(Sessions.output(db, id, { tool = "bash", input = "{}", text = "a needle in the haystack",
+    is_error = false }))
   local context: Tools.Context = { cwd = dir, worker = w, db = db, session = id }
   local code = [[
 local Host = require("cosmic.agent.host")
-local rows = Host.history("SELECT tool, text, 1.5 AS r, NULL AS z, ?1 AS here FROM outputs")
+local rows = Host.history("SELECT tool, text, 1.5 AS r, NULL AS z, ?1 AS here FROM outputs ORDER BY id")
 local row = assert(rows[1])
 print(row["tool"], row["text"], row["r"], row["z"] == require("cosmic.json").null, row["here"])
 local refused, why = pcall(Host.history, "DELETE FROM outputs")
 print(not refused, tostring(why))
+for _, statement in ipairs({ "VACUUM INTO 'COPY'", "ATTACH 'KEPT' AS b" }) do
+  local copied, copy_why = pcall(Host.history, statement)
+  print("refused", not copied, tostring(copy_why))
+end
+local hit = assert(Host.history("SELECT rowid AS id, snippet(outputs_fts, 0, '>>', '<<', '...', 64) AS s " ..
+  "FROM outputs_fts WHERE outputs_fts MATCH '\"haystack\"'")[1])
+print("found", hit["id"], hit["s"])
 local again = Host.history("SELECT count(*) AS n FROM outputs")
 return assert(again[1])["n"]
 ]]
-  local ran = Tools.run("run", { code = code }, context)
+  local copy = dir .. "/copy.db"
+  local named = code:gsub("COPY", function(): string return copy end):gsub("KEPT", function(): string
+    return dir .. "/sessions.db"
+  end)
+  local ran = Tools.run("run", { code = named }, context)
   assert(not ran.is_error, ran.text)
   assert(ran.text:find("bash\ta\u{FFFD}b\t1.5\ttrue\t" .. tostring(id) .. "\n", 1, true) ~= nil, ran.text)
   assert(ran.text:find("true\thost: history: not authorized", 1, true) ~= nil and ran.text:find("refuses a write", 1, true) ~= nil,
     ran.text)
-  assert(ran.text:find("Returned: 1", 1, true) ~= nil, ran.text)
+  assert(ran.text:find("Returned: 2", 1, true) ~= nil, ran.text)
+  assert(ran.text:find("found\t" .. tostring(found) .. "\ta needle in the >>haystack<<", 1, true) ~= nil, ran.text)
+  local _, refusals = ran.text:gsub("refused\ttrue\t[^\n]*refuses an ATTACH", "")
+  assert(refusals == 2 and not assert(Fs.status(copy)).exists, ran.text)
   local big = Tools.run("run", { code = "local Host = require(\"cosmic.agent.host\")\n" ..
       "local _, why = pcall(Host.history, \"SELECT printf('%.1000c', 'x') AS x FROM generate_series(1, 1000)\")\n" ..
       "return tostring(why)\n" }, context)

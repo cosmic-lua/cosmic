@@ -2,7 +2,6 @@
 --- `cosmic test`.
 
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
 local sys = require("cosmic.sys")
 
@@ -25,17 +24,20 @@ function Example.union()
   assert(why:find("limits.open_files", 1, true), why)
 end
 
---- A profile's grants as a policy: "cosmic" is this program's own
---- executable, read and run, and a profile named in `profiles` is
+--- A profile's grants as a policy: "system" is what a host's programs read, and a profile named in `profiles` is
 --- resolved by [`Sandbox.union`].
 function Example.profile()
-  local cosmic = assert(Sandbox.profile("cosmic"))
-  local grant = assert(Sandbox.paths(cosmic)[1])
-  assert(grant.path == assert(Proc.executable()) and grant.letters == "rx")
-  local merged = assert(Sandbox.union({ profiles = { "cosmic" } }))
-  assert(merged.profiles == nil and assert(Sandbox.paths(merged)[1]).path == grant.path)
+  local system = assert(Sandbox.profile("system"))
+  local grant = assert(Sandbox.paths(system)[1])
+  print(grant.path, grant.letters) -- /usr  r
+  local merged = assert(Sandbox.union({ profiles = { "system" } }))
+  local held = false
+  for _, joined in ipairs(Sandbox.paths(merged)) do
+    if joined.path == grant.path then held = true end
+  end
+  assert(merged.profiles == nil and held)
   local none, why = Sandbox.profile("everything")
-  print(why) -- sandbox: unknown profile "everything" (known: cosmic, proc, system)
+  print(why) -- sandbox: unknown profile "everything" (known: proc, programs, system)
   assert(none == nil)
 end
 

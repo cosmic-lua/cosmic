@@ -453,18 +453,17 @@ local record Options
   ---   and to be a cosmic core, which
   ---   the start says where it is not. On macOS the relay runs as below.
   ---
-  --- A program that is this program's own file ([`Proc.executable`]),
-  --- which the policy grants `rx` (the "cosmic" profile does), runs as its
-  --- core by a relaunch ([`Proc.relaunch`]), granted with it: its launcher
+  --- A program that is this program's own file ([`Proc.executable`]) runs
+  --- as its core by a relaunch ([`Proc.relaunch`]), granted with it, as any
+  --- program is given what it needs to start: its launcher
   --- would fork and unpack a core into a cache the policy does not give
   --- it. Where this process is root, the child's user runs a copy of the
   --- core that every user may run, made once in /run/cosmic-sandbox-cores,
   --- root's alone. The relaunch's descriptors are two more `fds` the child
   --- gets; one `fds` names is refused, as is the `nest` promise (a core on a
   --- `database` below has no descriptor, and takes it).
-  --- The core's `rx`, and the "cosmic" profile's, are the start's, not
-  --- the child's: on Linux the core holds itself at boot, before any module
-  --- loads, to the policy's grants without them (a second Landlock layer,
+  --- The core's `rx` is the start's, not the child's: on Linux the core holds itself at boot, before any module
+  --- loads, to the policy's grants without it (a second Landlock layer,
   --- and the exec filter where no grant is left with `x`), so a child
   --- whose policy has no `x` runs no program, its own core included, and
   --- one that starts this program again grants its file by name. Under
@@ -476,8 +475,7 @@ local record Options
   --- ([`Proc.executable`]) and this process a cosmic core, not a host
   --- program, or the start fails. The child is granted its core to read
   --- and run and the database to read, and no more of this program: a
-  --- grant that reaches this program's own file (the "cosmic" profile's
-  --- among them, left out of a merge with a `database`) fails the start,
+  --- grant that reaches this program's own file fails the start,
   --- since that file holds the modules the database leaves out. The
   --- child's [`Proc.relaunch`] is that same core and database, and so are
   --- its own children's. With `nest` the core and the database are read-only
@@ -2999,13 +2997,6 @@ local function this_program(name: string, cwd: string?): string?
   return own
 end
 
---- Whether `name`, a policy's program, is this program's own file, which
---- `grants` let it read and run.
-local function runs_this_program(name: string, cwd: string?, grants: {Rules.Path}): boolean
-  local own = this_program(name, cwd)
-  return own ~= nil and ungranted({ own }, grants, cwd) == ""
-end
-
 --- The path of the first of `grants` that reaches `file`, a real path
 --- (the grant is at it or above it, where it is a directory), as the
 --- grant names it; "" for none. A relative grant is from `base`, this
@@ -3042,7 +3033,7 @@ local function core_of(argv: {string}, opts: Options, merged: Rules.Policy, user
       return nil, "sandbox: database " .. database .. ": a program runs on a database only " ..
         "where it is this program's core, and " .. argv[1] .. " is not this program" -- checked: nil_not_allowed
     end
-  elseif not runs_this_program(argv[1], opts.cwd, Rules.paths(merged)) then -- checked: index_may_be_nil
+  elseif this_program(argv[1], opts.cwd) == nil then -- checked: index_may_be_nil
     return nil, ""
   end
   local found, relaunch_trouble = relaunch_of(user, database)
@@ -3349,30 +3340,8 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- and under `nest` no ruleset holds the child.
   -- TODO: a layer at boot under `isolate` file too, by the names the root
   -- binds each grant at.
-  -- The "cosmic" profile is the start's too: `rx` on the file this
-  -- program is started by, which a relaunch runs as its core. A policy
-  -- that runs this program again from the child grants it by name.
+  -- A policy that runs this program again from the child grants its file by name: that grant is the child's.
   local layer: mut {raw_process.Grant} = {}
-  -- Merging joins the profile's grant with the policy's own by path, so
-  -- it is the start's only where the policy as given names no grant of
-  -- that file itself.
-  local starts: mut {string:boolean} = {}
-  for _, name in ipairs(policy.profiles or {}) do
-    if name == "cosmic" then
-      local own, _ = Proc.executable()
-      if own ~= nil then
-        local real, _ = sys.realpath(own)
-        if real ~= nil then starts[real] = true end
-      end
-    end
-  end
-  for _, grant in ipairs(Rules.paths(policy)) do
-    local named_at = grant.from or grant.path
-    local cwd = opts.cwd
-    if cwd ~= nil and named_at:sub(1, 1) ~= "/" then named_at = cwd .. "/" .. named_at end
-    local real, _ = sys.realpath(named_at)
-    if real ~= nil then starts[real] = nil end
-  end
   local unix = false
   for _, grant in ipairs(Rules.paths(merged)) do
     local at = grant.from or grant.path
@@ -3381,8 +3350,9 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     -- The child reads each path from where it starts, so it is handed
     -- the real one, not one relative to this process's directory.
     local real, _ = sys.realpath(at)
-    local start_only = grant == core_grant or (real ~= nil and starts[real] == true)
-    if not start_only then layer[#layer + 1] = { path = real or at, access = grant.letters } end
+    if grant ~= core_grant then
+      layer[#layer + 1] = { path = real or at, access = grant.letters }
+    end
     if lettered(grant.letters, "u") then unix = true end
   end
   local env: mut {string:string} = {}
@@ -3530,12 +3500,6 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
     return nil, "sandbox: a policy's child on macOS leads a session, and so a process group, of " ..
       "its own, so process_group = false is refused"
   end
-  local own: string?
-  local executable, _ = Proc.executable()
-  if executable ~= nil then
-    local real, _ = sys.realpath(executable)
-    own = real
-  end
   -- The pty's slave, where stdin is on it, is the child's controlling
   -- terminal, which the profile grants and /dev/tty with it.
   local terminal = pty ~= nil and pty.streams[0] and pty.name or nil -- checked: or_mix
@@ -3594,7 +3558,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   -- directory: getcwd: cannot access parent directories" and goes on, as
   -- Linux's Landlock start never does. Until then a start whose output is
   -- compared (test/terminal) gives the program the root as its `cwd`.
-  local options, resolve_trouble = Seatbelt.resolve(policy, opts.cwd, own, core, sealed, terminal)
+  local options, resolve_trouble = Seatbelt.resolve(policy, opts.cwd, core, sealed, terminal)
   if options == nil then return nil, "sandbox: " .. resolve_trouble end
   options.serves_relay = serves_relay
   -- A cosmic child holds itself to the profile at boot, which grants its

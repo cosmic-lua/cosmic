@@ -125,8 +125,8 @@ local record verb
     wait?: function(ns: integer): boolean
     --- The time, as [`Clock.now_ns`] gives it; nil for that.
     now?: function(): integer
-    --- All of standard input.
-    read_all: function(): string
+    --- All of standard input ([`Flags.read`] of "-"), or nil and why it could not be read.
+    read_all: function(): string?, string
     --- The next whole line typed while the model works, without
     --- waiting: nil where none is whole yet.
     typed: function(): string?
@@ -212,14 +212,10 @@ local function hold(): verb.Hold
   }
 end
 
-local function read_all(): string
-  local parts: mut {string} = {}
-  while true do
-    local chunk, _ = Fs.take(Fs.stdin, 65536)
-    if chunk == nil or chunk == "" then break end
-    parts[#parts + 1] = chunk
-  end
-  return table.concat(parts)
+local function read_all(): string?, string
+  local text, why = Flags.read("-")
+  if text == nil then return nil, why end
+  return text, ""
 end
 
 local standard: verb.Io = {
@@ -736,7 +732,12 @@ local function ask(r: Run, got: Flags.Parsed): integer
       r.complain("ask: standard input is a terminal: give the prompt as words, or pipe it in")
       return bare.refused
     end
-    input = r.io.read_all()
+    local read, read_why = r.io.read_all()
+    if read == nil then
+      r.complain("ask: " .. read_why)
+      return bare.undone
+    end
+    input = read
     if input:match("^%s*$") then
       r.complain("ask: standard input is empty")
       return bare.refused

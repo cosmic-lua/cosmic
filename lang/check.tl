@@ -7323,25 +7323,33 @@ function Calls.sqlite_function(ctx: Ctx, callee: Ast.Node): string?
   return at.name
 end
 
---- What `Sqlite.open(path, { schema = S })` and `Sqlite.memory({ schema = S })` return where `S` is a
---- `local schema`: the lists `rets` with each handle a handle of `S`.
+--- What `Sqlite.open(path, { schema = S })`, `Sqlite.memory({ schema = S })` and `Sqlite.hold(db, S)` return
+--- where `S` is a `local schema`: the lists `rets` with each handle a handle of `S`.
 function Calls.opened_handle(ctx: Ctx, node: Ast.Call, rets: {Alt}): {Alt}?
   local fn = Calls.sqlite_function(ctx, node.callee)
-  local opts = if fn == "open" then node.args[2] elseif fn == "memory" then node.args[1] else nil end
-  local given = if opts ~= nil then peel(opts) else nil end
-  if given == nil or not (given.kind == "Table") then
-    return nil
+  local value: Ast.Node? = nil
+  if fn == "hold" then
+    local given = node.args[2]
+    value = if given ~= nil then peel(given) else nil end
+  else
+    local opts = if fn == "open" then node.args[2] elseif fn == "memory" then node.args[1] else nil end
+    local given = if opts ~= nil then peel(opts) else nil end
+    if given == nil or not (given.kind == "Table") then
+      return nil
+    end
+    for _, item in ipairs(given.items) do
+      if (item.kind == "Named") and item.name == "schema" then
+        value = peel(item.value)
+      end
+    end
   end
   local schema: Type? = nil
-  for _, item in ipairs(given.items) do
-    local value = if (item.kind == "Named") and item.name == "schema" then peel(item.value) else nil end
-    -- A name or a field of one, which reads no value but the one the call was given.
-    if value ~= nil and ((value.kind == "Name") or ((value.kind == "Field") and (peel(value.object).kind == "Name"))) then
-      -- Read again, quiet: the call's own check of the argument reported what it found.
-      ctx.quiet = ctx.quiet + 1
-      schema = expr(ctx, value, nil)
-      ctx.quiet = ctx.quiet - 1
-    end
+  -- A name or a field of one, which reads no value but the one the call was given.
+  if value ~= nil and ((value.kind == "Name") or ((value.kind == "Field") and (peel(value.object).kind == "Name"))) then
+    -- Read again, quiet: the call's own check of the argument reported what it found.
+    ctx.quiet = ctx.quiet + 1
+    schema = expr(ctx, value, nil)
+    ctx.quiet = ctx.quiet - 1
   end
   if schema == nil or not (schema.tag == "named") or not schema.value then
     return nil

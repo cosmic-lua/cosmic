@@ -183,10 +183,7 @@ end
 
 --- A database with the shipped tables, the rows of the catalog written to it and its indexes built.
 local function written(): Sqlite.Handle, integer
-  local db = assert(Sqlite.memory())
-  for _, statement in ipairs(schema.create("")) do
-    assert(db:exec(statement))
-  end
+  local db = assert(schema.hold(assert(Sqlite.memory())))
   local count, trouble = ErrorCatalog.insert(db, "")
   assert(count ~= nil, trouble)
   for _, statement in ipairs(schema.rebuild("")) do

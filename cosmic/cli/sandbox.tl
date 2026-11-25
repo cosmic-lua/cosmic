@@ -10,8 +10,8 @@
 --- that looks like an option. The program is found on the PATH. The
 --- start grants the program and its loader to run, and nothing else:
 --- `--system` grants the libraries and files a host's programs read,
---- `--programs` lets the program run the host's programs in turn (a
---- shell's commands), and `--cosmic` grants this program's own file.
+--- and `--programs` lets the program run the host's programs in turn (a
+--- shell's commands).
 ---
 ---     cosmic sandbox --system --read . -- ls -l
 ---     cosmic sandbox --system --programs --read . --promise fork -- sh -c 'ls | wc -l'
@@ -34,13 +34,13 @@
 ---
 --- Running cosmic in a sandbox:
 ---
---- `--cosmic` grants this program's file, which then runs as its core
---- directly, past its launcher. It needs no shell, cache or promise to
---- start, and no `--system` unless what it runs needs one. When this
+--- This program runs as its core directly, past its launcher, with no
+--- grant of its file: it needs no shell, cache or promise to start, and
+--- no `--system` unless what it runs needs one. When this
 --- process is root, the program's user runs a copy of the core that every
 --- user may run, made once in /run/cosmic-sandbox-cores.
 ---
----     cosmic sandbox --cosmic --read . -- cosmic run.tl IN OUT
+---     cosmic sandbox --read . -- cosmic run.tl IN OUT
 ---
 --- A file that it runs is run as `--standalone` (COSMIC_STANDALONE=1). So
 --- a grant to read the file is enough, and no build directory is written
@@ -77,8 +77,7 @@
 --- beside the script) is refused before anything starts.
 ---
 --- The three options exclude each other, because each one names the
---- database. `--cosmic` adds nothing beside `--database` or `--modules`,
---- and is refused beside `--closure`. `--system` fails the start when
+--- database. `--system` fails the start when
 --- this program is installed under a directory that `--system` grants.
 --- The database is written in a directory of the run's own, which the
 --- program's user can search, and is removed when the run ends. A command
@@ -112,10 +111,10 @@
 --- it exits 1 and says what the relay's reply means. ssh runs it as a
 --- program of its own, so the sandbox also needs `--system` (for ssh, its
 --- libraries and a shell for the ProxyCommand), `--promise fork`,
---- `--cosmic` for this program, and `--env PATH` so that the shell finds
---- `cosmic` (or the ProxyCommand gives its absolute path):
+--- `--run` of this program's file, which the shell runs, and `--env PATH`
+--- so that the shell finds `cosmic` (or the ProxyCommand gives its absolute path):
 ---
----     cosmic sandbox --system --cosmic --env PATH --promise fork --read ~/.ssh \
+---     cosmic sandbox --system --run "$(command -v cosmic)" --env PATH --promise fork --read ~/.ssh \
 ---       --connect github.com:22 -- ssh -o ProxyCommand='cosmic sandbox connect %h %p' git@github.com
 ---
 --- To run a program that is named `connect`, put it after `--`:
@@ -149,7 +148,7 @@ local command: Flags.Command = {
   usage = "[options] [--] <program> [args...]",
   examples = {
     { line = "--system --read . -- ls -l", about = "run ls, able to read this directory and what a host program needs" },
-    { line = "--cosmic --read . -- cosmic convert.tl", about = "run a script of yours the same way" },
+    { line = "--read . -- cosmic convert.tl", about = "run a script of yours the same way" },
   },
   spec = {
     ["--read"] = { value = "path", about = "grant a path to read (r)" },
@@ -161,7 +160,6 @@ local command: Flags.Command = {
     ["--database"] = { value = "path", about = "run this program on a sealed database: only its modules load" },
     ["--modules"] = { value = "a,b,...", about = "seal these modules (the first the main) and run on that" },
     ["--closure"] = { about = "seal a script and the modules it requires, and run it on that" },
-    ["--cosmic"] = { about = "this program's own file, which then runs as its core" },
     ["--isolate"] = { value = "file|proc", about = "a root of its own, or a process space of its own" },
     ["--promise"] = { value = "name", about = "a system call it may make: fork, jit, fattr or nest" },
     ["--connect"] = { value = "host:port", about = "a host it may reach, through a relay (Linux only)" },

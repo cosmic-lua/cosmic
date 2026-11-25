@@ -324,6 +324,8 @@ local function index_help(): string
       "  cosmic help exit         exit codes and summaries",
       "  cosmic docs              every module of the standard library",
       "  cosmic docs <module>     a module, or a symbol such as Fs.read",
+      "  cosmic - [args]          run the Teal that standard input holds",
+      "  - for a file             standard input or output, where help says so",
       "",
       "Lua's io, os and debug are absent (print stays): `cosmic docs",
       "cosmic.removed` names what replaces each.",
@@ -758,7 +760,8 @@ end
 --- returns is the exit code as a file run's is -- see build/exit_status.tl -- except a table or [`Json.null`], which is printed as
 --- JSON and exits 0.
 --- @param argv the whole command line, `-e` at slot 1
-local function evaluate(argv: {string}): integer
+--- `name` is how messages name the chunk: "-e", or "stdin" for `cosmic -`.
+local function evaluate(argv: {string}, name?: string): integer
   local chunk = argv[2]
   if chunk == nil then
     log:complain("usage: cosmic -e '<chunk>' [args...]")
@@ -766,11 +769,11 @@ local function evaluate(argv: {string}): integer
   end
   local type importer = require("build.importer")
   local outcome: importer.Outcome = { refused = false }
-  local loaded, trouble = require("build.standalone").compile("-e", chunk, nil, true, outcome)
+  local loaded, trouble = require("build.standalone").compile(name or "-e", chunk, nil, true, outcome)
   if loaded == nil then
     local Fs = require("cosmic.fs")
     local _, _ = Fs.put(Fs.stderr, trouble .. "\n")
-    log:complain("-e runs its chunk as Teal, checked as a file is: see `cosmic help -e`")
+    log:complain((name or "-e") .. " runs its chunk as Teal, checked as a file is: see `cosmic help -e`")
     return if outcome.refused then exit_status.uncompiled else 1 end
   end
   local arguments: mut {string} = {}
@@ -790,14 +793,14 @@ local function evaluate(argv: {string}): integer
       local Fs = require("cosmic.fs")
       local text, why = Json.encode_any(returned)
       if text == nil then
-        log:complain("-e returned a table that is not JSON: " .. tostring(why))
+        log:complain((name or "-e") .. " returned a table that is not JSON: " .. tostring(why))
         return 2
       end
       local _, _ = Fs.put(Fs.stdout, text .. "\n")
       return 0
     end
   end
-  return exit_status.of("-e", returned)
+  return exit_status.of(name or "-e", returned)
 end
 
 --- The ending of each refusal of `help`'s own line, as Flags.dispatch ends every other verb's.
@@ -1023,9 +1026,9 @@ function Dispatch.main(argv: {string}): integer
   elseif word == "run" then
     -- Any other word goes on as a file run, whose own messages name a missing file, a Lua file or a directory.
     local file = argv[2]
-    if file == nil or file == "help" or (file:sub(1, 1) == "-" and file ~= "--standalone") or
+    if file == nil or file == "help" or (file:sub(1, 1) == "-" and file ~= "--standalone" and file ~= "-") or
         (file ~= "--standalone" and file:sub(-3) ~= ".tl" and spec_of(file) ~= nil) then
-      log:complain("run takes a file to run, `cosmic run <file.tl> [args]`, or `cosmic run --standalone " ..
+      log:complain("run takes a file to run, `cosmic run <file.tl> [args]`, `cosmic run -` for standard input, or `cosmic run --standalone " ..
           "<file.tl>`, not " .. (if file ~= nil then file else "nothing" end) .. "; see `cosmic help run`")
       return 2
     end
@@ -1036,6 +1039,25 @@ function Dispatch.main(argv: {string}): integer
   if word == "-e" then
     -- The one-liner: a checked chunk of Teal, like --standalone with no tree and no staleness.
     return evaluate(argv)
+  end
+  if word == "-" then
+    -- A chunk read from standard input, run as `-e` runs one: `echo 'print(1)' | cosmic -`. Read here, not
+    -- through cosmic.flags, which `-e` never loads.
+    local Fs = require("cosmic.fs")
+    if require("cosmic.proc").is_tty(Fs.stdin) then
+      log:complain("- runs standard input as a chunk, and standard input is a terminal: pipe the code in, " ..
+          "or give a file; see `cosmic help -e`")
+      return 5
+    end
+    local Stream = require("cosmic.stream")
+    local chunk, why = Stream.read_all(Stream.from_fd(Fs.stdin))
+    if chunk == nil then
+      log:complain("standard input: " .. tostring(why))
+      return 5
+    end
+    local spelled: mut {string} = { "-e", chunk }
+    for slot = 2, #argv do spelled[#spelled + 1] = argv[slot] end
+    return evaluate(spelled, "stdin")
   end
   if word == "--version" then
     -- Which build this is, with no tree and no staleness: the digest
@@ -1061,8 +1083,8 @@ function Dispatch.main(argv: {string}): integer
       shifted[#shifted + 1] = given
     end
     return require("build.standalone").run(shifted, "this file ran as --standalone, which " ..
-        "finds only cosmic.* modules, because COSMIC_STANDALONE=1 (as under `cosmic sandbox " ..
-        "--cosmic`); COSMIC_STANDALONE=0 builds the tree around it, which finds its own")
+        "finds only cosmic.* modules, because COSMIC_STANDALONE=1 (as under `cosmic " ..
+        "sandbox`); COSMIC_STANDALONE=0 builds the tree around it, which finds its own")
   end
   if word ~= nil and word:sub(-3) == ".tl" and require("cosmic.env").get("COSMIC_STANDALONE") ~= "0" then
     local code = run_alone(word, argv)

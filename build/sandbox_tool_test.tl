@@ -132,7 +132,7 @@ local function test_cosmic_alone_runs_this_program_under_the_sandbox(tmp: string
   assert(Fs.write(tmp .. "/work/run.tl", 'print("ran")\n'))
   searchable.share(tmp .. "/work")
   searchable.share(tmp .. "/work/run.tl")
-  local ran = cosmic(tmp .. "/work", { "sandbox", "--cosmic", "--write", ".", "--",
+  local ran = cosmic(tmp .. "/work", { "sandbox", "--write", ".", "--",
     (assert(Proc.executable())), "run.tl" })
   assert(ran.code == 0 and ran.out == "ran\n", tostring(ran.code) .. ": " .. ran.out .. ran.err)
 end

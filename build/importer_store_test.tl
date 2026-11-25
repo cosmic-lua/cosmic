@@ -169,8 +169,7 @@ local function test_a_hint_names_what_the_tree_s_own_projection_documents()
     ["thing.tl"] = "return function(): integer\n  return greeter.count()\nend\n",
   }))
   assert(support.build_dir(root))
-  local projection = assert(Sqlite.open(support.build_dir(root) .. "/cosmic.db", { writable = true }))
-  for _, statement in ipairs(schema.create("")) do assert(projection:exec(statement)) end
+  local projection = assert(schema.hold(assert(Sqlite.open(support.build_dir(root) .. "/cosmic.db", { writable = true }))))
   assert(projection:exec("INSERT INTO docs (module, symbol, source_symbol, exported, " ..
       "kind, signature, text, file, line) VALUES ('greeter', '', 'greeter', 1, " ..
       "'module', '', 'Greets.', 'greeter.tl', 1)"))
