@@ -370,14 +370,14 @@ local function auth_data(data: string, expected: Webauthn.Expected): AuthData?, 
     out.credential_id = data:sub(id_at, id_at + id_len - 1)
     local key_at = id_at + id_len
     local first, why = Cbor.decode_first(data, key_at, { max_depth = 4 })
-    if first == nil then return nil, "webauthn: the credential's public key: " .. why end
+    if first == nil then return nil, "webauthn: the credential's public key: " .. tostring(why) end
     out.cose = first.item
     out.public_key = data:sub(key_at, first.next - 1)
     at = first.next
   end
   if flags & ED ~= 0 then
     local ext, why = Cbor.decode_first(data, at, { max_depth = 16 })
-    if ext == nil then return nil, "webauthn: the extensions: " .. why end
+    if ext == nil then return nil, "webauthn: the extensions: " .. tostring(why) end
     if ext.item.kind ~= "map" then return nil, "webauthn: the extensions are no map" end
     at = ext.next
   end
@@ -503,7 +503,7 @@ function Webauthn.verify_registration(answer: {string: Json.Value}, user_handle:
   if object_bytes == nil then return nil, bad end
   if #object_bytes > MAX_ANSWER then return nil, "webauthn: the attestation object is too long" end
   local object, wrong = Cbor.decode(object_bytes, { max_depth = 8 })
-  if object == nil then return nil, "webauthn: the attestation object: " .. wrong end
+  if object == nil then return nil, "webauthn: the attestation object: " .. tostring(wrong) end
   local fmt, data_item, statement = Cbor.get(object, "fmt"), Cbor.get(object, "authData"), Cbor.get(object, "attStmt")
   if fmt == nil or fmt.kind ~= "text" or data_item == nil or data_item.kind ~= "bytes" or
       statement == nil or statement.kind ~= "map" then
@@ -599,7 +599,7 @@ function Webauthn.verify_authentication(answer: {string: Json.Value}, credential
   local signature, wrong = bytes(a.response, "signature")
   if signature == nil then return nil, wrong end
   local cose, unreadable = Cbor.decode(credential.public_key, { max_depth = 4 })
-  if cose == nil then return nil, "webauthn: the kept public key: " .. unreadable end
+  if cose == nil then return nil, "webauthn: the kept public key: " .. tostring(unreadable) end
   local public, unusable = cose_key(cose)
   if public == nil then return nil, unusable end
   local key, alg = public.key, public.alg

@@ -565,16 +565,16 @@ local function fill_payload(db: Sqlite.Handle): boolean, string
       packed = if row:is_null(5) then nil else row:blob(5) end
       zstd = if row:is_null(6) then nil else row:blob(6) end
     else
-      local gzip_trouble = ""
-      local zstd_trouble = ""
-      packed, gzip_trouble = Mime.gzip(path, data)
-      zstd, zstd_trouble = Mime.zstd(path, data)
+      local gzipped, gzip_failure = Mime.gzip(path, data)
+      local squeezed, zstd_failure = Mime.zstd(path, data)
+      if gzipped ~= nil and gzipped ~= false then packed = gzipped end
+      if squeezed ~= nil and squeezed ~= false then zstd = squeezed end
       -- A failed encoder ships the file as it is, as a file not worth
       -- compressing does, but leaves no row: nil would be kept for good.
       -- The rows are written inside the working transaction, so an
       -- interrupted cold write keeps none of them; committing per file
       -- would split the transaction the projection is built in.
-      if gzip_trouble == "" and zstd_trouble == "" then
+      if gzip_failure == nil and zstd_failure == nil then
         local kept, kept_trouble = db:run(
           "INSERT OR REPLACE INTO compressed (path, sha256, rules, core, gzip, zstd) " ..
             "VALUES (?1, ?2, ?3, " .. deflating_core .. ", ?4, ?5)",
