@@ -1,0 +1,6 @@
+{{type ErrorPage from cosmic.web.markup_data -}}
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>{{.title}}</title></head><body><h1>{{.title}}</h1>
+{{- with .detail}}<p>{{.}}</p>{{end}}
+{{- with .trace}}<p>debug is on: this page shows the fault and its stack</p><pre>{{.}}</pre>{{end -}}
+</body></html>
+{{- "" -}}
