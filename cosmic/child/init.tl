@@ -2440,7 +2440,7 @@ end
 --- return and makes no directory of the child's: `tmp`'s is [`make_tmp`]'s.
 --- For a cosmic child of a root caller it copies this program's core into
 --- the shared directory it is run from, where none is there yet
---- ([`shared_core`]).
+--- ([`Hold.relaunch_of`]).
 local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, online: boolean): Held?, string
   local joined, why = Rules.union(policy)
   if joined == nil then return nil, why end
