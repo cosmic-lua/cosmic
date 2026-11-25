@@ -44,6 +44,8 @@ local record PromptData
     run: boolean
     --- The project's instructions.
     instructions?: {Instructions}
+    --- The cosmic.* modules a snippet may require, a line each ([`Host.modules`]); nil where run is not offered.
+    modules?: string
   end
 
   --- What `where_text.tmpl` renders: what follows the system prompt, past its cache mark, which differs from one
