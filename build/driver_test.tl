@@ -1007,6 +1007,38 @@ local function test_a_module_is_required_by_its_whole_name_and_a_bare_last_segme
   assert(#result.errors == 0, codes_of(result.errors))
 end
 
+--- The fix of each `unknown_variable` that `user` (a module of `files`, with the `cosmic.*` modules of `standard`) is
+--- refused for, by its message.
+local function undeclared_fixes(files: {{string}}, user: string, standard: {string: string}): {string: string}
+  local build = build_of(files)
+  build:provide(Driver.stubs(standard))
+  local result = assert(build:result(user, true))
+  local fixes: mut {string: string} = {}
+  for _, e in ipairs(result.errors) do
+    if e.code == "unknown_variable" then
+      fixes[e.msg] = e.fix
+    end
+  end
+  return fixes
+end
+
+local function test_a_name_not_declared_that_names_a_cosmic_module_is_told_the_require_to_write()
+  local csv = { ["cosmic.csv"] = "local record Csv\nend\nfunction Csv.parse(_: string): integer return 1 end\nreturn Csv\n" }
+  local use = { "use.tl", "local a = Csv.parse(\"x\")\nlocal b = csv.parse(\"x\")\nlocal c = Nosuch.parse(\"x\")\n" ..
+      "Csv = 1\nreturn a + b + c\n" }
+  local fixes = undeclared_fixes({ use }, "use", csv)
+  local said = fixes["`Csv` is not declared"]
+  assert(said == "require its module above this use: `local Csv = require(\"cosmic.csv\")`", said)
+  -- The name keeps its spelling, as the program wrote it.
+  said = fixes["`csv` is not declared"]
+  assert(said == "require its module above this use: `local csv = require(\"cosmic.csv\")`", said)
+  -- A name no cosmic module answers to keeps the general fix, as does a name assigned with no declaration.
+  said = fixes["`Nosuch` is not declared"]
+  assert(said ~= nil and said:find("declare it with `local Nosuch = ...`", 1, true) == 1, said)
+  said = fixes["`Csv` is assigned but declared nowhere"]
+  assert(said ~= nil and said:find("declare it with `local Csv = ...`", 1, true) == 1, said)
+end
+
 local function test_two_modules_ending_in_a_name_are_both_named_and_neither_is_chosen_by_order()
   local a = { "a/m.tl", "return 1\n" }
   local b = { "b/m.tl", "return 2\n" }

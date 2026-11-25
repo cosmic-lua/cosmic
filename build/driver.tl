@@ -527,6 +527,21 @@ function Driver.new(options: Driver.Options): Driver.Build
       " more?"
   end
 
+  --- The fix for a name that is not declared where it names a module of cosmic (`Csv`: [`cosmic.csv`]), as the
+  --- program binds it: the line to write, so the next try needs no lookup; nil where it names none.
+  local function undeclared_module(result: Driver.Outcome, offset: integer): string?
+    local tokens = result.chunk.tokens
+    local at = RemovedFix.token_at(tokens, offset)
+    if at == nil then return nil end
+    local name = tokens.text[at]
+    if tokens.kind[at] ~= "identifier" or name == nil or name:match("^%a%w*$") == nil then
+      return nil
+    end
+    local module = "cosmic." .. name:lower()
+    if find(module) == nil then return nil end
+    return "require its module above this use: `local " .. name .. " = require(\"" .. module .. "\")`"
+  end
+
   --- The entry for a source that has been read: scoped against the globals.
   local function entry_of(read: Read): Entry
     local source = read.source
@@ -970,7 +985,11 @@ function Driver.new(options: Driver.Options): Driver.Build
     if not entry.checked then
       entry.checked = true
       for _, e in ipairs(result.scoped.errors) do
-        table.insert(result.scope_errors, error_of(result, "scoped", tostring(e.code), e.msg, e.fix, e.y, e.x,
+        local fix = e.fix
+        if e.code == "unknown_variable" and e.msg:sub(-#" is not declared") == " is not declared" then
+          fix = undeclared_module(result, e.offset) or fix
+        end
+        table.insert(result.scope_errors, error_of(result, "scoped", tostring(e.code), e.msg, fix, e.y, e.x,
           e.offset, e.length, nil, e.other))
       end
       if lowered ~= nil then
