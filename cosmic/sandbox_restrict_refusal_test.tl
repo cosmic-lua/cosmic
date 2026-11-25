@@ -43,7 +43,7 @@ local REFUSED <const>: {Refusal} = {
   { policy = "{ isolate = { \"proc\" } }", says = "isolate \"proc\"" },
   { policy = "{ connect = { \"example.com:443\" } }", says = "connect \"example.com:443\"" },
   { policy = "{ loopback = { \"127.0.0.2\" } }", says = "loopback \"127.0.0.2\"" },
-  { policy = "{ promises = { \"nest\" } }", says = "promises \"nest\"" },
+  { policy = "{ grants = { { calls = \"nest\" } } }", says = "calls \"nest\"" },
   { policy = "{ grants = { { path = \"/\", letters = \"ru\" } } }", says = "grant \"/\" has u" },
   { policy = "{ grants = { { path = \"/\", letters = \"r\", from = \"/srv\" } } }", says = "grant \"/\" has from" },
   { policy = "{ env = { \"HOME\" } }", says = "env \"HOME\"" },

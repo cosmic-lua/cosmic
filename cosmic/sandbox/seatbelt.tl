@@ -117,12 +117,12 @@ local function unsupported(policy: rules.Policy): string
   if #(policy.loopback or {}) > 0 then return "loopback needs a network namespace of its own" end
   -- A promise the profile has no rule for would be dropped from it, not
   -- held: each is named here or refused.
-  for _, promise in ipairs(policy.promises or {}) do
+  for _, promise in ipairs(rules.calls(policy)) do
     if promise ~= "fork" and promise ~= "jit" and promise ~= "fattr" then
-      return "promises " .. tostring(promise) .. " cannot be held by Seatbelt"
+      return "calls " .. tostring(promise) .. " cannot be held by Seatbelt"
     end
   end
-  for _, grant in ipairs(policy.grants or {}) do
+  for _, grant in ipairs(rules.paths(policy)) do
     if grant.from ~= nil then return "grant from needs isolate file" end
   end
   local limits = policy.limits
@@ -261,11 +261,12 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     trouble = add(options_database, "r")
     if trouble ~= "" then return refuse(trouble) end
   end
-  for _, grant in ipairs(policy.grants or {}) do
+  for _, grant in ipairs(rules.paths(policy)) do
     trouble = add(grant.path, grant.letters)
     if trouble ~= "" then return refuse(trouble) end
   end
-  local merged, failure = rules.merge({ grants = grants, promises = policy.promises,
+  for _, promise in ipairs(rules.calls(policy)) do grants[#grants + 1] = { calls = promise } end
+  local merged, failure = rules.merge({ grants = grants,
     limits = policy.limits, env = policy.env, set_env = policy.set_env,
     set_env_digests = policy.set_env_digests, user = policy.user, group = policy.group })
   if merged == nil then return nil, failure end
@@ -291,7 +292,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     "(allow file-read-metadata)", '(allow file-read-data (literal (param "ROOT")))',
     "(allow sysctl-read)",
     "(allow signal (target self))", "(allow process-info-pidinfo (target self))" }
-  for _, promise in ipairs(merged.promises or {}) do
+  for _, promise in ipairs(rules.calls(merged)) do
     if promise == "fork" then text[#text + 1] = "(allow process-fork)" end
     if promise == "jit" then text[#text + 1] = "(allow dynamic-code-generation)" end
     if promise == "fattr" then fattr = true end
@@ -308,7 +309,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     end
     runs = core_held.path
   end
-  for i, grant in ipairs(merged.grants or {}) do
+  for i, grant in ipairs(rules.paths(merged)) do
     local name = "PATH_" .. tostring(i)
     parameters[name] = grant.path
     allow(text, fattr, grant.letters, '(' .. (if directories[grant.path] == true then "subpath" else "literal" end) ..
@@ -390,8 +391,8 @@ end
 --- and, for the "system" profile, [`Seatbelt.compile`]'s list of macOS's
 --- paths (not Linux's, which [`Sandbox.union`] gives), each whether or not
 --- this host has it. For a check of which paths a policy reaches.
-function Seatbelt.grants(policy: rules.Policy): {rules.Grant}
-  local out: mut {rules.Grant} = {}
+function Seatbelt.grants(policy: rules.Policy): {rules.Path}
+  local out: mut {rules.Path} = {}
   for _, name in ipairs(policy.profiles or {}) do
     if name == "system" or name == "programs" then
       for _, entry in ipairs(assert(rules.profile_paths(name, "darwin"))) do
@@ -401,7 +402,7 @@ function Seatbelt.grants(policy: rules.Policy): {rules.Grant}
       end
     end
   end
-  for _, grant in ipairs(policy.grants or {}) do out[#out + 1] = grant end
+  for _, grant in ipairs(rules.paths(policy)) do out[#out + 1] = grant end
   return out
 end
 
@@ -434,7 +435,7 @@ function Seatbelt.resolve(policy: rules.Policy, base?: string, executable?: stri
       end
     end
   end
-  for _, grant in ipairs(policy.grants or {}) do
+  for _, grant in ipairs(rules.paths(policy)) do
     local at = grant.path
     if base ~= nil and at:sub(1, 1) ~= "/" then at = base .. "/" .. at end
     local trouble = look(grant.path, at)
