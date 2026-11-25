@@ -10,7 +10,6 @@ local Fuzz = require("cosmic_ci.fuzz")
 local HostId = require("cosmic_ci.host_id")
 local Images = require("cosmic_ci.images")
 local Islands = require("cosmic_ci.islands")
-local Sqlite = require("cosmic.sqlite")
 local Orchestration = require("cosmic_ci.orchestration")
 local PlaceTree = require("cosmic_ci.place_tree")
 local Prerelease = require("cosmic_ci.prerelease")
@@ -59,7 +58,7 @@ local function summarize(_argv: {string}): integer
       "Operation database unavailable: no operation ran (the self-check failed first).\n"
   else
     local db = State.open(db_path)
-    local rows = assert(Sqlite.text_rows(db, [[
+    local rows = assert(db:text_rows([[
       SELECT s.worker, s.run, s.attempt, s.phase,
              COALESCE(c.status, 'incomplete'),
              COALESCE(CAST(c.elapsed_ns / 1000000 AS TEXT), ''),

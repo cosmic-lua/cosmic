@@ -1302,17 +1302,6 @@ local class Handle
     return self.connection:limit(name, value)
   end
 
-  -- TODO: once ci/cosmic-driver.pin names a release with the handle's
-  -- methods, move build/zig.tl's lock to `exec` and delete this and
-  -- [`Sqlite.ExecResult`].
-
-  --- Runs `sql` as [`Handle.exec`] does and answers SQLite's outcome as
-  --- a record: for a script that also runs on a release older than
-  --- [`Handle.exec`]'s failure. Write new code with [`Handle.exec`].
-  function exec_result(self, sql: string): raw_sqlite.ExecResult
-    return self.connection:exec_result(sql)
-  end
-
   function __close(self)
     local _, _ = self:close()
   end
@@ -1488,9 +1477,6 @@ local record Sqlite
   --- Internal: whether a statement is closed, which a query on it reads.
   --- No caller outside this module holds one.
   type Kept = Kept
-  --- What [`Handle.exec_result`] answers.
-  type ExecResult = raw_sqlite.ExecResult
-
   --- Successful execution.
   OK: integer
   --- Another connection prevents the operation; extended_code can
@@ -1839,44 +1825,6 @@ end
 --- caller uses it.
 function Sqlite.borrowed(connection: Sqlite.Connection): Handle
   return handle_of(connection)
-end
-
--- TODO: once ci/cosmic-driver.pin names a release with the handle's
--- methods, move the callers in ci/, build/perf.tl and
--- eval/check/grade.tl to them and delete these six, which those files
--- call on the pinned release.
-
---- [`Handle.run`] of `handle`, for ci/.
-function Sqlite.run(handle: Handle, sql: string, values?: {raw_sqlite.Param}): (true) | (false, Failure)
-  return handle:run(sql, values)
-end
-
---- [`Handle.rows`] of `handle`, for ci/.
-function Sqlite.rows(handle: Handle, sql: string, values?: {raw_sqlite.Param}): ({Row}) | (nil, Failure)
-  return handle:rows(sql, values)
-end
-
---- [`Handle.map`] of `handle`, for ci/.
-function Sqlite.map<T>(handle: Handle, sql: string, values: {raw_sqlite.Param}?,
-                       project: function(Row): T): ({T}) | (nil, Failure)
-  return handle:map(sql, values, project)
-end
-
---- [`Handle.query`] of `handle`, for ci/.
-function Sqlite.query(handle: Handle, sql: string, values?: {raw_sqlite.Param}): (Query) | (nil, Failure)
-  return handle:query(sql, values)
-end
-
---- [`Handle.text_rows`] of `handle`, for ci/ and the files the pinned
---- release runs.
-function Sqlite.text_rows(handle: Handle, sql: string, values?: {raw_sqlite.Param}): ({Row}) | (nil, Failure)
-  return handle:text_rows(sql, values)
-end
-
---- [`Handle.transact`] of `handle`, for ci/.
-function Sqlite.transact(handle: Handle,
-                         work: function(): (true) | (false, Failure), begin?: Begin): (true) | (false, Failure)
-  return handle:transact(work, begin)
 end
 
 Sqlite.OK = OK

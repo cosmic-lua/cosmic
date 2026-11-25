@@ -78,7 +78,7 @@ local function test_operation_records_retained_open_failure_as_error(tmp: string
   assert(outcome.status == "error" and outcome.code == 1 and outcome.trouble ~= nil,
     "retained open failure did not return an error outcome")
   local db = assert(Sqlite.open(database))
-  local rows = assert(Sqlite.text_rows(db, [[
+  local rows = assert(db:text_rows([[
     SELECT c.status, c.detail
       FROM operation_events s JOIN operation_events c ON c.start_id = s.id
      WHERE s.phase = 'retained-open' AND c.event = 'complete'
@@ -111,7 +111,7 @@ local function test_step_records_work_done_in_process(tmp: string)
   assert(raised.status == "error" and raised.code == 1 and
       raised.trouble == long_error:sub(1, 1000))
   local db = assert(Sqlite.open(database))
-  local rows = assert(Sqlite.text_rows(db, [[
+  local rows = assert(db:text_rows([[
     SELECT s.phase, c.status, coalesce(c.detail, ''), c.exit_code IS NULL
       FROM operation_events s JOIN operation_events c ON c.start_id = s.id
      WHERE c.event = 'complete' ORDER BY s.id
@@ -159,7 +159,7 @@ local function test_phase_keeps_exit_codes_full_errors_and_callback_times(tmp: s
   local called, failure = pcall(function(): boolean
     assert(Runner.phase(context, "done", function(): integer
       entered.value = Clock.monotonic_ns()
-      Clock.sleep_ns(Clock.ms(1))
+      assert(Clock.sleep(Clock.ms(1)))
       leaving.value = Clock.monotonic_ns()
       return 0
     end) == 0)
@@ -173,7 +173,7 @@ local function test_phase_keeps_exit_codes_full_errors_and_callback_times(tmp: s
   assert(called, tostring(failure))
   assert(#messages == 1 and messages[1] == detail .. "\n", "phase error logging changed")
   local db = assert(Sqlite.open(context.database))
-  local rows = assert(Sqlite.text_rows(db, [[
+  local rows = assert(db:text_rows([[
     SELECT s.phase, c.status, c.exit_code, coalesce(c.detail, ''),
            s.monotonic_ns, c.monotonic_ns, c.elapsed_ns, c.signal IS NULL, c.timed_out
       FROM operation_events s JOIN operation_events c ON c.start_id = s.id
@@ -204,7 +204,7 @@ local function test_phase_keeps_a_nested_child_timeout_separate(tmp: string)
       cwd = candidate, timeout_ns = Clock.ms(20) }).code
   end) == 124)
   local db = assert(Sqlite.open(context.database))
-  local rows = assert(Sqlite.text_rows(db, [[
+  local rows = assert(db:text_rows([[
     SELECT s.phase, c.status, coalesce(c.exit_code, -1), c.timed_out, s.id, c.id
       FROM operation_events s JOIN operation_events c ON c.start_id = s.id
      WHERE c.event = 'complete' ORDER BY s.id
@@ -247,7 +247,7 @@ end
 
 local function completes(database: string): Sqlite.Rows
   local db = assert(Sqlite.open(database))
-  local rows = assert(Sqlite.text_rows(db, [[
+  local rows = assert(db:text_rows([[
     SELECT s.phase, c.status, coalesce(c.exit_code, -1), c.timed_out
       FROM operation_events s JOIN operation_events c ON c.start_id = s.id
      WHERE c.event = 'complete' ORDER BY c.id
@@ -307,7 +307,7 @@ local function test_stopping_a_command_ends_its_process_group_and_records_it(tmp
     cwd = c.candidate, timeout_ns = hang_guard })
   local waited = Clock.monotonic_ns()
   while not assert(Fs.status(tmp .. "/pid")).exists and Clock.monotonic_ns() - waited < hang_guard do
-    Clock.sleep_ns(Clock.ms(10))
+    assert(Clock.sleep(Clock.ms(10)))
   end
   assert(assert(Fs.status(tmp .. "/pid")).exists, "the command never started")
   local started = Clock.monotonic_ns()
@@ -319,7 +319,7 @@ local function test_stopping_a_command_ends_its_process_group_and_records_it(tmp
   local rows = completes(c.database)
   assert(#rows == 1 and assert(rows[1]):text(1) == "stuck" and assert(rows[1]):text(2) == "cancelled",
     "a stopped command was not recorded")
-  Clock.sleep_ns(Clock.ms(200))
+  assert(Clock.sleep(Clock.ms(200)))
   assert(not assert(Fs.status(tmp .. "/late")).exists, "a stop left the command's group running")
 end
 

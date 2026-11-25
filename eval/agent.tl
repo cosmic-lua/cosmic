@@ -739,17 +739,17 @@ end
 
 --- What the session of a run spent, from `db`: the newest session whose directory's name holds `marker`.
 function Agent.spent_in(db: Sqlite.Handle, marker: string): Agent.Spent?
-  local found, _ = Sqlite.rows(db, "SELECT id FROM sessions WHERE instr(cwd, ?1) > 0 ORDER BY id DESC LIMIT 1",
+  local found, _ = db:rows("SELECT id FROM sessions WHERE instr(cwd, ?1) > 0 ORDER BY id DESC LIMIT 1",
     { { text = marker } })
   local row = found and found[1]
   if row == nil then return nil end
   local id = row:integer(1)
-  local r, _ = Sqlite.rows(db, "SELECT count(*), coalesce(sum(input_tokens), 0), coalesce(sum(output_tokens), 0), " ..
+  local r, _ = db:rows("SELECT count(*), coalesce(sum(input_tokens), 0), coalesce(sum(output_tokens), 0), " ..
       "coalesce(sum(cache_read), 0), coalesce(sum(coalesce(cache_write_5m, 0) + coalesce(cache_write_1h, 0)), 0), " ..
       "coalesce(sum(cost), 0.0), coalesce(sum(ms), 0) FROM requests WHERE session = ?1", { { integer = id } })
-  local o, _ = Sqlite.rows(db, "SELECT count(*), coalesce(sum(tool = 'run'), 0) FROM outputs WHERE session = ?1",
+  local o, _ = db:rows("SELECT count(*), coalesce(sum(tool = 'run'), 0) FROM outputs WHERE session = ?1",
     { { integer = id } })
-  local snippets, _ = Sqlite.rows(db, "SELECT input FROM outputs WHERE session = ?1 AND tool = 'run'",
+  local snippets, _ = db:rows("SELECT input FROM outputs WHERE session = ?1 AND tool = 'run'",
     { { integer = id } })
   -- A helper's name starts with a small letter (Host.Count is a record type), after no other word (MyHost.x).
   local helpers: mut {string: integer} = {}
@@ -767,9 +767,9 @@ function Agent.spent_in(db: Sqlite.Handle, marker: string): Agent.Spent?
       end
     end
   end
-  local first, _ = Sqlite.rows(db, "SELECT coalesce(cache_read, 0) FROM requests WHERE session = ?1 AND status = 200 ORDER BY rowid " ..
+  local first, _ = db:rows("SELECT coalesce(cache_read, 0) FROM requests WHERE session = ?1 AND status = 200 ORDER BY rowid " ..
       "LIMIT 1", { { integer = id } })
-  local refusals, _ = Sqlite.rows(db, "SELECT text FROM outputs WHERE session = ?1 AND tool = 'run' AND " ..
+  local refusals, _ = db:rows("SELECT text FROM outputs WHERE session = ?1 AND tool = 'run' AND " ..
       "instr(text, 'The checker refused the snippet') = 1", { { integer = id } })
   local codes: mut {string: integer} = {}
   for _, refusal in ipairs(refusals or {}) do
@@ -963,7 +963,7 @@ local function real(out: string): Agent.System
         stop()
         return nil, "it ended before it served"
       end
-      local _, _ = Clock.sleep_ns(50000000)
+      local _, _ = Clock.sleep(50000000)
     end
     stop()
     return nil, "it did not serve in " .. tostring(seconds) .. " s"
