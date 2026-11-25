@@ -21,8 +21,7 @@ local Test = require("cosmic.test")
 --- to sandboxing.
 Test.policy{
   profiles = { "cosmic", "proc" },
-  grants = { { path = "o/bin", letters = "rx" } },
-  promises = { "nest" },
+  grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
 }
 

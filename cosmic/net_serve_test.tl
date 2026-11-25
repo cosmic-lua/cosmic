@@ -393,7 +393,7 @@ local function test_a_killed_protocols_close_cannot_wait()
       local _ <close> = closer(function()
         local _, why = conn:write(string.rep("x", 8 * 1024 * 1024))
         wrote = tostring(why)
-        assert(Poll.delay(0))
+        assert(Poll.notifier():wait(0))
       end)
       started = true
       while true do local _, _ = Clock.sleep(Clock.seconds(60)) end

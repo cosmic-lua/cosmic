@@ -18,7 +18,7 @@ local ChildPolicy = require("build.child_policy_fixture")
 --- The temporary directory. `nests`: a policy's isolation makes a root of
 --- its own, which a worker held by a Landlock ruleset cannot.
 Test.policy{
-  promises = { "nest" },
+  grants = { { calls = "nest" } },
   env = { "TMPDIR" },
   requires = { "nest" },
 }

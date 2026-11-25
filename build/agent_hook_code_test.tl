@@ -5,7 +5,6 @@ local Clock = require("cosmic.clock")
 local agent_fixture = require("build.agent_fixture")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
-local Poll = require("cosmic.poll")
 local Policy = require("cosmic.agent.policy")
 local Sessions = require("cosmic.agent.sessions")
 local Test = require("cosmic.test")
@@ -13,8 +12,8 @@ local Tools = require("cosmic.agent.tools")
 local Worker = require("cosmic.agent.worker")
 
 --- This program, which the worker runs, and a root of its own for it, which needs the nest promise.
-Test.policy{ profiles = { "cosmic", "system" }, grants = { { path = "o/bin", letters = "rx" } }, env = { "PATH", "TMPDIR" },
-  promises = { "nest" }, requires = { "nest" } }
+Test.policy{ profiles = { "cosmic", "system" }, grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } }, env = { "PATH", "TMPDIR" },
+  requires = { "nest" } }
 
 local function test_a_snippets_calls_of_the_agent_are_guarded_and_amended()
   local dir = assert(Fs.mkdtemp("agent-hook-"))
@@ -194,7 +193,7 @@ local function test_a_snippets_tasks_each_use_a_tool_for_code()
       if word == "w1" then
         local deadline = Clock.monotonic_ns() + Clock.seconds(20)
         while #stamped < 2 and Clock.monotonic_ns() < deadline do
-          local slept, _ = Poll.delay(Clock.ms(10))
+          local slept, _ = Clock.sleep(Clock.ms(10))
           if not slept then break end
         end
       end

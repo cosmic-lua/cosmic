@@ -7,7 +7,7 @@ local Test = require("cosmic.test")
 --- the shell's own (`nests`).
 Test.policy{
   profiles = { "system", "proc" },
-  promises = { "nest" },
+  grants = { { calls = "nest" } },
 }
 
 --- Every part is tried, and each either held or says why not.

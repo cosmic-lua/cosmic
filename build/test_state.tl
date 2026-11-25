@@ -270,6 +270,9 @@ local record test_state
     --- kept no record of included, and the seconds it ran.
     violators: mut {string:integer}
     violator_ns: mut {string:integer}
+    --- The time each test this run ran took, by its id: what a run cut
+    --- short by its deadline names its slowest of.
+    ran_ns: mut {string:integer}
     --- How many jobs `--bail` left unstarted after the first failure, or
     --- the deadline after it passed (`run_jobs`). Such a test made no
     --- verdict, pass or fail, and is in no figure of the tally.

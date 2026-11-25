@@ -10,8 +10,8 @@ local _ = require("build.standalone")
 local type _ = require("cosmic.mcp.server")
 
 --- This program, which the server runs as.
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } }, env = { "PATH", "TMPDIR" },
-  promises = { "nest" }, requires = { "nest" } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } }, env = { "PATH", "TMPDIR" },
+  requires = { "nest" } }
 
 --- The text of the first block of `result`, a tool's result as JSON.
 local function text_of(result: {string: Json.Value}): string

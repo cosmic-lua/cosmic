@@ -34,8 +34,7 @@ local support = require("build.test_support_fixture")
 Test.policy{
   profiles = { "cosmic", "proc" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" },
-    { path = "core/vector.c", letters = "r" } },
-  promises = { "nest" },
+    { path = "core/vector.c", letters = "r" }, { calls = "nest" } },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
 }
 

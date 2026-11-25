@@ -35,7 +35,7 @@ local record CeilingsBase
   --- (-1 where git could not run, or ran out of time) and what it wrote to standard output.
   type Git = function(root: string, args: {string}, input?: string): integer, string
 
-  --- What the markers of a tree hold: a file to a code to how many findings its markers hold ([`build.tree_checks`]'s
+  --- What the markers of a tree hold: a file to a code to how many findings its markers hold ([`build.tree_checks.checked`]'s
   --- `markers`).
   type Held = {string: {string: integer}}
 
@@ -121,10 +121,39 @@ local function failed(why: string): CeilingsBase.Verdict
   return { lines = { "cannot hold the markers to the merge base, so they are refused: " .. why }, note = "" }
 end
 
+--- The markers of `text` by the code they hold and the line they hold, written as `<stage> <code>`, a NUL and the line with
+--- its marker comment and the space around it removed: what a line that moved to another file still matches.
+local function marked_lines(text: string, name: string): {string: integer}
+  local out: mut {string: integer} = {}
+  local marks = Markers.read(text, name).marks
+  if #marks == 0 then return out end
+  local lines: mut {string} = {}
+  for line in (text .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
+  for _, mark in ipairs(marks) do
+    local held = (Markers.bare(lines[mark.line] or "")):match("^%s*(.-)%s*$") or ""
+    for _, segment in ipairs(mark.segments) do
+      for code, n in pairs(segment.counts) do
+        local key = segment.stage .. " " .. code .. "\0" .. held
+        out[key] = (out[key] or 0) + n
+      end
+    end
+  end
+  return out
+end
+
+--- What the markers of the base are.
+local record Based
+  --- The markers each file holds, by file and code.
+  counts: CeilingsBase.Held
+  --- The marked lines ([`marked_lines`]) the files held at the base and no longer hold on disk: what moved out of them, or
+  --- was fixed, which a new file may carry ([`marks_rise`]).
+  gone: {string: integer}
+end
+
 --- The markers each file holds at `base`, by file and code, read from the commit with git alone: the files that mention the
 --- keyword (`git grep`), then their blobs in one stream (`git cat-file --batch`). nil and why where git fails.
 local function base_marks(root: string, base: string, held: CeilingsBase.Held, git: CeilingsBase.Git):
-    CeilingsBase.Held?, string
+    Based?, string
   local args: mut {string} = { "grep", "-l", "-F" }
   for _, key in ipairs(Markers.keys()) do
     args[#args + 1] = "-e"
@@ -145,8 +174,9 @@ local function base_marks(root: string, base: string, held: CeilingsBase.Held, g
     end
   end
   local out: mut {string: {string: integer}} = {}
+  local gone: mut {string: integer} = {}
   if #paths == 0 then
-    return out, ""
+    return { counts = out, gone = gone }, ""
   end
   local wanted: mut {string} = {}
   for _, path in ipairs(paths) do
@@ -179,23 +209,49 @@ local function base_marks(root: string, base: string, held: CeilingsBase.Held, g
         if next(counts) ~= nil then
           out[path] = counts
         end
+        -- What the file on disk, read whether or not the run names it, no longer holds.
+        local none: {string: integer} = {}
+        local now = if there ~= nil then marked_lines(there, path) else none end
+        for key, count in pairs(marked_lines(content, path)) do
+          local lost = count - (now[key] or 0)
+          if lost > 0 then gone[key] = (gone[key] or 0) + lost end
+        end
       end
       at = header_end + n + 2
     end
   end
-  return out, ""
+  return { counts = out, gone = gone }, ""
+end
+
+--- Which of `files` the commit `base` lacks, by name: files that are new since it. nil where git cannot tell, which holds
+--- every file to its own count.
+local function new_files(root: string, base: string, files: {string}, git: CeilingsBase.Git): {string: boolean}?
+  local args: mut {string} = { "ls-tree", "-z", "--name-only", base, "--" }
+  for _, file in ipairs(files) do args[#args + 1] = file end
+  local status, listed = git(root, args)
+  if status ~= 0 then return nil end
+  local out: mut {string: boolean} = {}
+  for _, file in ipairs(files) do out[file] = true end
+  for name in listed:gmatch("[^%z]+") do out[name] = nil end
+  return out
 end
 
 --- The lines that refuse the markers `held` of the tree where a file holds more of a code than the merge base held in its
 --- markers, or nil and why where the base cannot be read. A moved line keeps its marker and so its count; a marker is never
 --- added, and one for a code no file held at the base (a closed code) says its rule has no exceptions. The count of a file is
---- its own: a marker of a file renamed or split is new where it lands.
+--- its own, with one exception for code that moved to a file the base lacks (a file renamed, or split out of another): a
+--- marker there is carried where a file of the base held the same code on the same line ([`marked_lines`]) and no longer
+--- does. A fixed finding frees its line too, so a new file may copy that line with its marker; it cannot carry a marker to a
+--- line of its own.
 local function marks_rise(root: string, base: string, held: CeilingsBase.Held, git: CeilingsBase.Git):
     {string}?, string
-  local was, why = base_marks(root, base, held, git)
-  if was == nil then
+  local based, why = base_marks(root, base, held, git)
+  if based == nil then
     return nil, why
   end
+  local was = based.counts
+  local gone: mut {string: integer} = {}
+  for key, count in pairs(based.gone) do gone[key] = count end
   local files: mut {string} = {}
   for file in pairs(held) do
     files[#files + 1] = file
@@ -208,6 +264,39 @@ local function marks_rise(root: string, base: string, held: CeilingsBase.Held, g
       anywhere[key:match(" (%S+)$") or key] = true
     end
   end
+  -- What each new file carries, by code: its marked lines that lines the base lost match, drawn in the order of the files.
+  local carried: mut {string: mut {string: integer}} = {}
+  if next(gone) ~= nil then
+    local unmarked: mut {string} = {}
+    for _, file in ipairs(files) do
+      if was[file] == nil then unmarked[#unmarked + 1] = file end
+    end
+    local new: {string: boolean} = {}
+    if #unmarked > 0 then new = new_files(root, base, unmarked, git) or {} end
+    for _, file in ipairs(unmarked) do
+      local text: string? = nil
+      if new[file] == true then
+        local read, _ = Fs.read(root .. "/" .. file)
+        text = read
+      end
+      if text ~= nil then
+        local own: mut {string: integer} = {}
+        local lines = marked_lines(text, file)
+        local keys: mut {string} = {}
+        for key in pairs(lines) do keys[#keys + 1] = key end
+        table.sort(keys)
+        for _, key in ipairs(keys) do
+          local took = math.min(assert(lines[key]), gone[key] or 0)
+          if took > 0 then
+            gone[key] = (gone[key] or 0) - took
+            local code = key:match("^([^%z]*)") or key
+            own[code] = (own[code] or 0) + took
+          end
+        end
+        carried[file] = own
+      end
+    end
+  end
   local out: mut {string} = {}
   for _, file in ipairs(files) do
     local codes: mut {string} = {}
@@ -218,9 +307,15 @@ local function marks_rise(root: string, base: string, held: CeilingsBase.Held, g
     for _, code in ipairs(codes) do
       local now = assert(held[file])[code] or 0
       local before = (was[file] or {})[code] or 0
-      if now > before then
-        local line = file .. ": " .. tostring(now) .. " of its markers hold " .. code .. " and the merge base held " ..
-          tostring(before) .. "; a marker is never added and a count only falls: fix the finding instead"
+      local moved = (carried[file] or {})[code] or 0
+      if now > before + moved then
+        local held_there = "the merge base held " .. tostring(before)
+        if carried[file] ~= nil then
+          held_there = "the merge base lacks the file, which carries only the " .. tostring(moved) ..
+            " that hold the same line as a marker a file of the base lost"
+        end
+        local line = file .. ": " .. tostring(now) .. " of its markers hold " .. code .. " and " .. held_there ..
+          "; a marker is never added and a count only falls: fix the finding instead"
         if anywhere[code:match(" (%S+)$") or code] ~= true then
           line = file .. ": " .. tostring(now) .. " of its markers hold " .. code .. " and no file held one at the merge base: " ..
             "this rule has no exceptions, so fix the code and write no marker"

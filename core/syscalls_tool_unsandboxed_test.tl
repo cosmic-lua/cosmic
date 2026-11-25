@@ -19,7 +19,7 @@ local Fake = require("cosmic.fake")
 --- the test's own directory and never started.
 Test.policy{
   profiles = { "cosmic" },
-  promises = { "nest" },
+  grants = { { calls = "nest" } },
 }
 
 local process = require("cosmic.internal.process")

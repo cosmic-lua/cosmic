@@ -15,8 +15,7 @@ local this_program = require("build.this_program")
 --- itself, which the hold names.
 Test.policy{
   profiles = { "cosmic", "proc" },
-  grants = { { path = "o/bin", letters = "rx" } },
-  promises = { "nest" },
+  grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } },
   requires = { "landlock" },
 }
 

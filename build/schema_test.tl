@@ -85,7 +85,7 @@ end
 
 --- The indexes spell the expressions the queries of [`cosmic.internal.symbols`] spell, so SQLite uses them.
 local function test_the_docs_indexes_are_the_queries_expressions()
-  local ddl = schema.build.ddl
+  local ddl = schema.Build.ddl
   assert(ddl:find("CREATE INDEX docs_by_last_name ON docs (" .. symbols.last_name("symbol") .. ")", 1, true) ~= nil,
     "docs_by_last_name is not on symbols.last_name")
   assert(ddl:find("CREATE INDEX " .. symbols.local_index .. " ON docs ", 1, true) ~= nil,
@@ -95,15 +95,15 @@ end
 --- `create` gives the statements of the schema, each under the qualifier, and a database of them holds the schema.
 local function test_create_is_the_schema_under_a_qualifier()
   local plain = schema.create("")
-  assert(table.concat(plain, ";\n") == schema.build.ddl)
+  assert(table.concat(plain, ";\n") == schema.Build.ddl)
   for k, statement in ipairs(schema.create("out.")) do
     local head = statement:match("^CREATE TABLE ") or statement:match("^CREATE INDEX ") or
       statement:match("^CREATE VIRTUAL TABLE ")
     assert(head ~= nil and statement:sub(#head + 1, #head + 4) == "out.", statement)
     assert(head .. statement:sub(#head + 5) == Array.at(plain, k), statement)
   end
-  local db = assert(Sqlite.memory({ schema = schema.build }))
-  assert(db:run("INSERT INTO meta VALUES ('k', X'01')"))
+  local db = assert(Sqlite.memory({ schema = schema.Build }))
+  assert(db:run("INSERT INTO meta (key, value) VALUES ('k', X'01')"))
   assert(db:close())
 end
 

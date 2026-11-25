@@ -11,8 +11,7 @@ local Fake = require("cosmic.fake")
 --- The declared scratch, and permission to create the root the unveiled
 --- child's sandbox is.
 Test.policy{
-  grants = { { path = "/noexec", letters = "rwc" } },
-  promises = { "nest" },
+  grants = { { path = "/noexec", letters = "rwc" }, { calls = "nest" } },
 }
 
 local function executable(tmp: string): string, string

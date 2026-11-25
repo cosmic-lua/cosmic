@@ -185,20 +185,20 @@ local record Stream
   interface Sticky
     --- Writes `data` to the Writer, failing as `fail` does when it
     --- cannot.
-    put: function(Sticky, data: string): boolean, string
-    --- Keeps `trouble` as the failure, or "<name>: write failed" when it
-    --- is "", and aborts the Writer, the first time; false and the
-    --- failure kept, every time.
-    fail: function(Sticky, trouble: string): boolean, string
-    --- True and "" while more may be written; false and the failure,
-    --- or "<name>: the writer is closed" once `close` or `abort` ran.
-    usable: function(Sticky): boolean, string
+    put: function(Sticky, data: string): (true) | (false, Failure)
+    --- Keeps `trouble` as the failure (words become a [`Failure`], or
+    --- "<name>: write failed" when they are ""), and aborts the Writer,
+    --- the first time; false and the failure kept, every time.
+    fail: function(Sticky, trouble: string | Failure): (true) | (false, Failure)
+    --- True while more may be written; false and the failure, or
+    --- "<name>: the writer is closed" once `close` or `abort` ran.
+    usable: function(Sticky): (true) | (false, Failure)
     --- Puts `trailer` and closes the Writer, once: false and the
-    --- failure kept when there is one, and true and "" when it is
-    --- already closed.
-    close: function(Sticky, trailer: string): boolean, string
+    --- failure kept when there is one, and true when it is already
+    --- closed.
+    close: function(Sticky, trailer: string): (true) | (false, Failure)
     --- Aborts the Writer unless it is closed or failed already.
-    abort: function(Sticky): boolean, string
+    abort: function(Sticky): (true) | (false, Failure)
   end
 
   --- One incremental transform, a chunk at a time: what
@@ -270,20 +270,20 @@ local record Stream
     --- tar body cannot be read after that, and no body can be read once
     --- the reader is closed. An entry from [`Archive.list`] cannot be
     --- opened at all.
-    open: function(ArchiveEntry): Reader?, string
+    open: function(ArchiveEntry): (Reader) | (nil, Failure)
   end
 
   --- The entries of a tar or a zip, one at a time: what
   --- [`cosmic.tar`]'s and [`cosmic.zip`]'s readers are, and what
   --- [`Archive.open`] returns.
   interface ArchiveReader
-    --- The next entry, nil and "" at the end, or nil and an error. For
+    --- The next entry, `false` at the end, or nil and a Failure. For
     --- a compressed tar, the end also runs the decompressor to the end
     --- of its stream, so a truncated or corrupt one fails here rather
     --- than passing as a complete archive.
-    next: function(ArchiveReader): ArchiveEntry?, string
+    next: function(ArchiveReader): (ArchiveEntry | false) | (nil, Failure)
     --- Closes the file or stream the archive is read from.
-    close: function(ArchiveReader): boolean, string
+    close: function(ArchiveReader): (true) | (false, Failure)
   end
 
   --- How an archive stores an entry's bytes where it has the choice:
@@ -334,20 +334,20 @@ local record Stream
   interface ArchiveWriter
     --- Adds a regular file at `path` with `data` as its body. A
     --- [`Stream.Reader`] body is read to `opts.size` bytes (to its end, when
-    --- the format allows no size), and is not closed. Returns `true,
-    --- ""`, or `false` and why.
-    add_file: function(ArchiveWriter, path: string, data: string | Reader, opts?: EntryOptions): boolean, string
+    --- the format allows no size), and is not closed. Returns `true`,
+    --- or `false` and a Failure.
+    add_file: function(ArchiveWriter, path: string, data: string | Reader, opts?: EntryOptions): (true) | (false, Failure)
     --- Adds a directory entry at `path`, to which a trailing `/` is
-    --- added if missing. Returns `true, ""`, or `false` and why.
-    add_dir: function(ArchiveWriter, path: string, opts?: EntryOptions): boolean, string
+    --- added if missing. Returns `true`, or `false` and a Failure.
+    add_dir: function(ArchiveWriter, path: string, opts?: EntryOptions): (true) | (false, Failure)
     --- Adds a symbolic link at `path` pointing at `target`. Returns
-    --- `true, ""`, or `false` and why.
-    add_symlink: function(ArchiveWriter, path: string, target: string, opts?: EntryOptions): boolean, string
+    --- `true`, or `false` and a Failure.
+    add_symlink: function(ArchiveWriter, path: string, target: string, opts?: EntryOptions): (true) | (false, Failure)
     --- Writes the archive's end and closes the underlying [`Stream.Writer`],
-    --- committing it. Returns `true, ""`, or `false` and why.
-    close: function(ArchiveWriter): boolean, string
+    --- committing it. Returns `true`, or `false` and a Failure.
+    close: function(ArchiveWriter): (true) | (false, Failure)
     --- Abandons the archive: aborts the underlying [`Stream.Writer`].
-    abort: function(ArchiveWriter): boolean, string
+    abort: function(ArchiveWriter): (true) | (false, Failure)
   end
 end
 
@@ -880,53 +880,56 @@ local class StickyWriter is Stream.Sticky
   writer: Stream.Writer
   name: string
   mut closed: boolean
-  mut failed?: string
+  mut failed?: Failure
 
-  function fail(self, trouble: string): boolean, string
+  function fail(self, trouble: string | Failure): (true) | (false, Failure)
     local failed = self.failed
     if failed == nil then
-      failed = if trouble ~= "" then trouble else self.name .. ": write failed" end
+      if trouble is string then
+        failed = Failure.new(if trouble ~= "" then trouble else self.name .. ": write failed" end)
+      elseif tostring(trouble) == "" then
+        failed = Failure.new(self.name .. ": write failed")
+      else
+        failed = trouble
+      end
       self.failed = failed
       local _, _ = self.writer:abort()
     end
     return false, failed
   end
 
-  function put(self, data: string): boolean, string
+  function put(self, data: string): (true) | (false, Failure)
     local ok, trouble = self.writer:write(data)
-    if not ok then return self:fail(tostring(trouble)) end
-    return true, ""
+    if not ok then return self:fail(trouble) end
+    return true
   end
 
-  function usable(self): boolean, string
+  function usable(self): (true) | (false, Failure)
     local failed = self.failed
     if failed then return false, failed end
-    if self.closed then return false, self.name .. ": the writer is closed" end
-    return true, ""
+    if self.closed then return false, Failure.new(self.name .. ": the writer is closed") end
+    return true
   end
 
-  function close(self, trailer: string): boolean, string
+  function close(self, trailer: string): (true) | (false, Failure)
     local failed = self.failed
     if failed then return false, failed end
-    if self.closed then return true, "" end
+    if self.closed then return true end
     self.closed = true
     local ok, trouble = self:put(trailer)
     if not ok then return false, trouble end
     local closed, why = self.writer:close()
     if not closed then
-      local text = tostring(why)
-      self.failed = text
-      return false, text
+      self.failed = why
+      return false, why
     end
-    return true, ""
+    return true
   end
 
-  function abort(self): boolean, string
-    if self.closed or self.failed ~= nil then return true, "" end
+  function abort(self): (true) | (false, Failure)
+    if self.closed or self.failed ~= nil then return true end
     self.closed = true
-    local ok, why = self.writer:abort()
-    if not ok then return false, tostring(why) end
-    return true, ""
+    return self.writer:abort()
   end
 end
 

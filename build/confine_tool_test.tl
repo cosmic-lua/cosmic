@@ -21,8 +21,7 @@ local type raw_process = require("cosmic.internal.process")
 --- given the program (the TODO above build.confine's `forbid_running`).
 Test.policy{
   profiles = { "cosmic", "proc" },
-  grants = { { path = "o/bin", letters = "rx" } },
-  promises = { "nest" },
+  grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } },
 }
 
 --- A fake program built under `tmp` ([`cosmic.fake`]), which runs

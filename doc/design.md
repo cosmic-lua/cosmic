@@ -1629,9 +1629,9 @@ mechanism produced it.
 per-host network rules are not in the kernel's part of the core.
 Landlock's port rule has no address. so "only the proxy's port"
 reaches any host on that port, and no Landlock ABI or seccomp filter
-can close it. a policy's `connect` list holds per-host rules instead,
-on both OSes. a child's start runs a network relay that connects only
-to the hosts the list grants ([`Child.start`]). a caller who needs
+can close it. a policy's `{ connect = "host:port" }` grants hold
+per-host rules instead, on both OSes. a child's start runs a network
+relay that connects only to the hosts they grant ([`Child.start`]). a caller who needs
 more takes the Linux extension below, or a container.
 
 Linux extensions may only deny what the core allows, never allow what
