@@ -10,6 +10,7 @@
 #define SAFE_ATTR_TYPE "cosmic.html.SafeAttr"
 #define SAFE_URL_TYPE "cosmic.html.SafeUrl"
 #define SAFE_URL_PART_TYPE "cosmic.html.SafeUrlPart"
+#define SAFE_RESOURCE_URL_TYPE "cosmic.html.SafeResourceUrl"
 #define SAFE_JSON_TYPE "cosmic.html.SafeJson"
 
 /* A safe value is a userdata with no memory of its own whose one user
@@ -292,6 +293,21 @@ static int html_trust_url (lua_State *L) {
 
 static int html_raw_url (lua_State *L) {
   push_string_of(L, 1, SAFE_URL_TYPE);
+  return 1;
+}
+
+/* `trust_resource_url`: a URL the page loads and runs or styles itself
+ * by (a script's src, a stylesheet's href). Only this door makes one, and
+ * it checks nothing: no allowlist can say a resource is the program's. */
+static int html_trust_resource_url (lua_State *L) {
+  luaL_checktype(L, 1, LUA_TSTRING);
+  lua_settop(L, 1);
+  wrap(L, SAFE_RESOURCE_URL_TYPE);
+  return 1;
+}
+
+static int html_raw_resource_url (lua_State *L) {
+  push_string_of(L, 1, SAFE_RESOURCE_URL_TYPE);
   return 1;
 }
 
@@ -583,6 +599,8 @@ static const luaL_Reg module[] = {
   {"href", html_href},
   {"trust_url", html_trust_url},
   {"raw_url", html_raw_url},
+  {"trust_resource_url", html_trust_resource_url},
+  {"raw_resource_url", html_raw_resource_url},
   {"concat", html_concat},
   {"url_part", html_url_part},
   {"url_query", html_url_query},
@@ -598,7 +616,7 @@ int cosmic_open_html (lua_State *L) {
   /* `__metatable` is false so no program can read the metatable to add
    * an operator or a `__tostring` to every safe value. */
   const char *types[] = { SAFE_HTML_TYPE, SAFE_ATTR_TYPE,
-    SAFE_URL_TYPE, SAFE_URL_PART_TYPE, SAFE_JSON_TYPE };
+    SAFE_URL_TYPE, SAFE_URL_PART_TYPE, SAFE_RESOURCE_URL_TYPE, SAFE_JSON_TYPE };
   for (size_t i = 0; i < sizeof types / sizeof *types; i++) {
     luaL_newmetatable(L, types[i]);
     lua_pushboolean(L, 0);

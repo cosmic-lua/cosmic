@@ -36,97 +36,235 @@ local log = require("build.logger").log
 -- Declares what text this module reads ([`build.code_walk`]'s `markers`): links.
 local _ = require("build.reads.links")
 
-local record work
-  --- How the tool stands against the working database of `root` read
-  --- without writing it ([`work.tool_read_unwritten`]).
-  enum Unwritten
-    --- Its recorded files and discovery directories stand as recorded, and
-    --- the boot hash the last stage recorded is the one asked about.
-    "fresh"
-    --- Anything else: something moved, the hash differs or none is
-    --- recorded, or the database is missing or cannot be read. Only a stage
-    --- can tell more.
-    "unknown"
-  end
+-- The schema comes before the record, which holds it.
 
-  --- A file by its device, as a stat gives it, and its inode.
-  record Place
-    dev: integer
-    ino: integer
-  end
+--- The statements of the stage: `meta` to `tool_discovery`.
+local STAGE <const> = [[CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY,
+                                     value BLOB NOT NULL) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY,
+                                      size INTEGER NOT NULL,
+                                      mtime_ns INTEGER,
+                                      ctime_ns INTEGER,
+                                      ino INTEGER NOT NULL,
+                                      dev INTEGER NOT NULL,
+                                      sha256 TEXT NOT NULL,
+                                      data BLOB NOT NULL) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS tool (path TEXT PRIMARY KEY,
+                                     size INTEGER NOT NULL,
+                                     mtime_ns INTEGER,
+                                      ctime_ns INTEGER,
+                                     ino INTEGER NOT NULL,
+                                     dev INTEGER NOT NULL,
+                                     sha256 TEXT NOT NULL) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS scanned (path TEXT PRIMARY KEY,
+                                        size INTEGER NOT NULL,
+                                        mtime_ns INTEGER,
+                                      ctime_ns INTEGER,
+                                        ino INTEGER NOT NULL,
+                                        dev INTEGER NOT NULL,
+                                        sha256 TEXT NOT NULL) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS linked (path TEXT PRIMARY KEY,
+                                       size INTEGER NOT NULL,
+                                       mtime_ns INTEGER,
+                                      ctime_ns INTEGER,
+                                       ino INTEGER NOT NULL,
+                                       dev INTEGER NOT NULL,
+                                       sha256 TEXT NOT NULL,
+                                       kind TEXT NOT NULL) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS linked_texts (sha256 TEXT NOT NULL,
+                                             kind TEXT NOT NULL,
+                                             PRIMARY KEY (sha256, kind)) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS linked_found (sha256 TEXT NOT NULL,
+                                             kind TEXT NOT NULL,
+                                             ordinal INTEGER NOT NULL,
+                                             line INTEGER NOT NULL,
+                                             column INTEGER NOT NULL,
+                                             form TEXT NOT NULL,
+                                             text TEXT NOT NULL,
+                                             target TEXT NOT NULL,
+                                             own INTEGER NOT NULL,
+                                             PRIMARY KEY (sha256, kind, ordinal)) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS tool_discovery (
+  path TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime_ns INTEGER,
+  ctime_ns INTEGER, ino INTEGER NOT NULL, dev INTEGER NOT NULL) WITHOUT ROWID]]
 
-  --- What [`work.holding`] reads of a host to name the holder of a write
-  --- lock ([`work.holder_line`]): the text of /proc/locks, the `-shm` file
-  --- and the database file, the text of the holder file and its age, and
-  --- this process's pid. A field is nil where it could not be read.
-  record Seen
-    locks?: string
-    mut shm?: Place
-    mut file?: Place
-    mut named?: string
-    mut age_ns?: integer
-    own: integer
-  end
-
-  --- One file of `web_assets`: its name in the table, its bytes, their
-  --- SHA-256 as hex, their SHA-384 as base64 and the vendored version.
-  record WebAsset
-    name: string
-    data: string
-    sha256: string
-    sha384: string
-    version: string
-  end
-  --- An open working database, for one run. A run is one transaction
-  --- from `open` to `commit`: staging, deriving and compiling all land
-  --- together with the in-memory projection. Its vacuum and publication
-  --- follow the commit; the test runner's records are their own phase.
-  record Handle
-    db: Sqlite.Handle
-    root: string
-    --- The directory the build writes into: `root`'s build directory, or another
-    --- [`open`] was given.
-    dir: string
-    --- This run's number: one more than the last run over this file.
-    run: integer
-    --- Whether the run's transaction is open.
-    mut inside: boolean
-    --- What `root` is to the running tool, as [`work.stage`] was told: what
-    --- the compile and the writer after it hold the tree to. Nil before the stage.
-    mut standing: tree.Standing?
-  end
-
-  --- What [`work.try_open`] or [`work.try_open_remaking`] opened: the
-  --- run's handle, or nil where another run held the write lock, which it
-  --- waited for no more than to find it held, or where the file was of
-  --- another schema that it did not make again: [`work.try_open`] makes
-  --- none, and [`work.try_open_remaking`] none another run may be using.
-  record Opening
-    handle: Handle?
-    --- The schema the file was found of, where it was not this module's:
-    --- the open read nothing else of it and left it where it was.
-    other_schema: string?
-  end
-
-  --- What one staging pass found and what it had to read.
-  record Staged
-    mut files: integer
-    mut read: integer
-    --- One line for each file under `static/` newly staged whose name
-    --- says it was meant as a module (`.tl`, `.tmpl`): it is carried as an
-    --- asset. Also complained of as it is found.
-    notes: mut {string}
-  end
-
-  --- The statements that create the database, in order. `IF NOT
-  --- EXISTS` because this file is opened again and again across runs
-  --- rather than built fresh every time.
-  mut schema: mut {string}
-end
-
---- The shape of the schema. A file of another shape holds nothing the
---- tree cannot produce again, so it is thrown away.
-local version <const> = "35"
+--- The statements of the records: `todos` to `type_violation_tests`.
+local RECORDS <const> = [[CREATE TABLE IF NOT EXISTS todos (id INTEGER PRIMARY KEY,
+                                      sha256 TEXT NOT NULL,
+                                      line INTEGER NOT NULL,
+                                      last INTEGER NOT NULL,
+                                      text TEXT NOT NULL,
+                                      UNIQUE (sha256, line))]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS todo_misses (sha256 TEXT NOT NULL,
+                                            line INTEGER NOT NULL,
+                                            spelling TEXT NOT NULL,
+                                            PRIMARY KEY (sha256, line)) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE VIRTUAL TABLE IF NOT EXISTS todos_fts
+      USING fts5(text, content=todos, content_rowid=id)]] .. ";\n" ..
+  [[CREATE TRIGGER IF NOT EXISTS todos_inserted AFTER INSERT ON todos BEGIN
+      INSERT INTO todos_fts (rowid, text) VALUES (new.id, new.text);
+    END]] .. ";\n" ..
+  [[CREATE TRIGGER IF NOT EXISTS todos_deleted AFTER DELETE ON todos BEGIN
+      INSERT INTO todos_fts (todos_fts, rowid, text) VALUES ('delete', old.id, old.text);
+    END]] .. ";\n" ..
+  [[CREATE TRIGGER IF NOT EXISTS todos_updated AFTER UPDATE ON todos BEGIN
+      INSERT INTO todos_fts (todos_fts, rowid, text) VALUES ('delete', old.id, old.text);
+      INSERT INTO todos_fts (rowid, text) VALUES (new.id, new.text);
+    END]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS blames (path TEXT NOT NULL,
+                                       line INTEGER NOT NULL,
+                                       sha256 TEXT NOT NULL,
+                                       head TEXT NOT NULL,
+                                       commit_id TEXT NOT NULL,
+                                       author_time INTEGER NOT NULL,
+                                       summary TEXT NOT NULL,
+                                       boundary INTEGER NOT NULL,
+                                       PRIMARY KEY (path, line)) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS zoneinfo (name TEXT PRIMARY KEY,
+                                         data BLOB NOT NULL)]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS web_assets (name TEXT PRIMARY KEY,
+                                           data BLOB NOT NULL,
+                                           sha256 TEXT NOT NULL,
+                                           sha384 TEXT NOT NULL,
+                                           version TEXT NOT NULL) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS compiled (key TEXT PRIMARY KEY,
+                                         tool TEXT NOT NULL,
+                                         lua TEXT NOT NULL,
+                                         bytecode BLOB NOT NULL,
+                                         seen INTEGER NOT NULL,
+                                         fact_wraps INTEGER NOT NULL DEFAULT 0,
+                                         parameter_checks INTEGER NOT NULL DEFAULT 0) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE INDEX IF NOT EXISTS compiled_by_checks ON compiled (key, seen, fact_wraps, parameter_checks)]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS deflated (source_hash TEXT NOT NULL,
+                                         core TEXT NOT NULL,
+                                         data BLOB NOT NULL,
+                                         PRIMARY KEY (source_hash, core)) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS code_hashes (source_hash TEXT NOT NULL,
+                                            by TEXT NOT NULL,
+                                            code_hash TEXT NOT NULL,
+                                            PRIMARY KEY (source_hash, by)) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS kept_bytecode (key TEXT PRIMARY KEY NOT NULL,
+                                              data BLOB NOT NULL) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS compressed (path TEXT NOT NULL,
+                                           sha256 TEXT NOT NULL,
+                                           rules TEXT NOT NULL,
+                                           core TEXT NOT NULL,
+                                           gzip BLOB,
+                                           zstd BLOB,
+                                           PRIMARY KEY (path, sha256, rules, core)) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS link_answers (kind TEXT NOT NULL,
+                                          path TEXT NOT NULL,
+                                          value TEXT NOT NULL,
+                                          found INTEGER NOT NULL,
+                                          PRIMARY KEY (kind, path)) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS link_fill (fingerprint TEXT NOT NULL)]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS link_fill_rows (module TEXT NOT NULL,
+                                               symbol TEXT NOT NULL,
+                                               path TEXT NOT NULL,
+                                               anchor TEXT NOT NULL,
+                                               from_file TEXT NOT NULL,
+                                               line INTEGER NOT NULL,
+                                               column INTEGER NOT NULL,
+                                               from_module TEXT NOT NULL,
+                                               kind TEXT NOT NULL,
+                                               form TEXT NOT NULL,
+                                               source TEXT NOT NULL,
+                                               text TEXT NOT NULL,
+                                               PRIMARY KEY (module, symbol, path, anchor,
+                                                            from_file, line, column))
+                                              WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS compiled_interface (ikey TEXT PRIMARY KEY,
+                                                   key TEXT NOT NULL) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS stub_holds (key TEXT NOT NULL,
+                                              stub TEXT NOT NULL,
+                                              held INTEGER NOT NULL,
+                                              PRIMARY KEY (key, stub)) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS key_memo (path TEXT PRIMARY KEY,
+                                         tool TEXT NOT NULL,
+                                         file TEXT NOT NULL,
+                                         key TEXT NOT NULL,
+                                         graph TEXT NOT NULL) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS key_frags (slot TEXT PRIMARY KEY,
+                                          tool TEXT NOT NULL,
+                                          digest TEXT NOT NULL) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS typed_refs (key TEXT NOT NULL,
+                                           ordinal INTEGER NOT NULL,
+                                           module TEXT NOT NULL,
+                                           member TEXT NOT NULL,
+                                           line INTEGER NOT NULL,
+                                           PRIMARY KEY (key, ordinal)) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS plan (path TEXT PRIMARY KEY,
+                                     key TEXT NOT NULL,
+                                     ordinal INTEGER NOT NULL) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS keys_memo (id INTEGER PRIMARY KEY,
+                                          fp TEXT NOT NULL UNIQUE,
+                                          body TEXT NOT NULL)]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS builds (run INTEGER PRIMARY KEY,
+                                       ms INTEGER NOT NULL,
+                                       files INTEGER NOT NULL,
+                                       read INTEGER NOT NULL,
+                                       compiled INTEGER NOT NULL,
+                                       cached INTEGER NOT NULL,
+                                       verdict TEXT NOT NULL) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS runs (path TEXT NOT NULL,
+                                     test TEXT NOT NULL,
+                                     passed INTEGER NOT NULL,
+                                     message TEXT NOT NULL,
+                                     ran_at_ns INTEGER NOT NULL,
+                                     key TEXT NOT NULL,
+                                     run_at_ns INTEGER NOT NULL,
+                                     elapsed_ns INTEGER NOT NULL,
+                                     PRIMARY KEY (path, test)) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS failures (path TEXT NOT NULL,
+                                         test TEXT NOT NULL,
+                                         message TEXT NOT NULL,
+                                         ran_at_ns INTEGER NOT NULL,
+                                         key TEXT NOT NULL,
+                                         run_at_ns INTEGER NOT NULL,
+                                         PRIMARY KEY (path, test, ran_at_ns)) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS verdicts (key TEXT PRIMARY KEY,
+                                         passed INTEGER NOT NULL,
+                                         run_at_ns INTEGER NOT NULL,
+                                         seen INTEGER NOT NULL,
+                                         elapsed_ns INTEGER NOT NULL) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS digests (path TEXT PRIMARY KEY,
+                                        signature TEXT NOT NULL,
+                                        sha256 TEXT NOT NULL) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS test_runs (ran_at_ns INTEGER NOT NULL
+                                          PRIMARY KEY)]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS coverage (ran_at_ns INTEGER NOT NULL,
+                                         path TEXT NOT NULL,
+                                         line INTEGER NOT NULL,
+                                         hit INTEGER NOT NULL,
+                                         PRIMARY KEY (ran_at_ns, path, line))
+                                        WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS hits_by_test (ran_at_ns INTEGER NOT NULL,
+                                             test TEXT NOT NULL,
+                                             hits TEXT NOT NULL,
+                                             PRIMARY KEY (ran_at_ns, test))]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS coverage_by_test (ran_at_ns INTEGER NOT NULL,
+                                                 test TEXT NOT NULL,
+                                                 hits TEXT NOT NULL,
+                                                 PRIMARY KEY (ran_at_ns, test))]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS type_violations (ran_at_ns INTEGER NOT NULL,
+                                                kind TEXT NOT NULL,
+                                                site TEXT NOT NULL,
+                                                target TEXT NOT NULL,
+                                                declared TEXT NOT NULL,
+                                                actual TEXT NOT NULL,
+                                                count INTEGER NOT NULL,
+                                                test TEXT NOT NULL,
+                                                PRIMARY KEY (kind, site, target, declared,
+                                                             actual)) WITHOUT ROWID]] .. ";\n" ..
+  [[CREATE TABLE IF NOT EXISTS type_violation_tests (test TEXT NOT NULL,
+                                                     kind TEXT NOT NULL,
+                                                     site TEXT NOT NULL,
+                                                     target TEXT NOT NULL,
+                                                     declared TEXT NOT NULL,
+                                                     actual TEXT NOT NULL,
+                                                     count INTEGER NOT NULL,
+                                                     PRIMARY KEY (test, kind, site, target, declared,
+                                                                  actual)) WITHOUT ROWID]]
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -434,239 +572,110 @@ local version <const> = "35"
 --- stage's and the records': what a parse's rows are shaped by is kept
 --- apart from the rest of this module, which the compiler's identity
 --- does not hold ([`identity.compiler_identity`]).
-work.schema = {
-  [[CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY,
-                                     value BLOB NOT NULL) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY,
-                                      size INTEGER NOT NULL,
-                                      mtime_ns INTEGER,
-                                      ctime_ns INTEGER,
-                                      ino INTEGER NOT NULL,
-                                      dev INTEGER NOT NULL,
-                                      sha256 TEXT NOT NULL,
-                                      data BLOB NOT NULL) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS tool (path TEXT PRIMARY KEY,
-                                     size INTEGER NOT NULL,
-                                     mtime_ns INTEGER,
-                                      ctime_ns INTEGER,
-                                     ino INTEGER NOT NULL,
-                                     dev INTEGER NOT NULL,
-                                     sha256 TEXT NOT NULL) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS scanned (path TEXT PRIMARY KEY,
-                                        size INTEGER NOT NULL,
-                                        mtime_ns INTEGER,
-                                      ctime_ns INTEGER,
-                                        ino INTEGER NOT NULL,
-                                        dev INTEGER NOT NULL,
-                                        sha256 TEXT NOT NULL) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS linked (path TEXT PRIMARY KEY,
-                                       size INTEGER NOT NULL,
-                                       mtime_ns INTEGER,
-                                      ctime_ns INTEGER,
-                                       ino INTEGER NOT NULL,
-                                       dev INTEGER NOT NULL,
-                                       sha256 TEXT NOT NULL,
-                                       kind TEXT NOT NULL) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS linked_texts (sha256 TEXT NOT NULL,
-                                             kind TEXT NOT NULL,
-                                             PRIMARY KEY (sha256, kind)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS linked_found (sha256 TEXT NOT NULL,
-                                             kind TEXT NOT NULL,
-                                             ordinal INTEGER NOT NULL,
-                                             line INTEGER NOT NULL,
-                                             column INTEGER NOT NULL,
-                                             form TEXT NOT NULL,
-                                             text TEXT NOT NULL,
-                                             target TEXT NOT NULL,
-                                             own INTEGER NOT NULL,
-                                             PRIMARY KEY (sha256, kind, ordinal)) WITHOUT ROWID]],
-}
-work.schema[#work.schema + 1] = [[CREATE TABLE IF NOT EXISTS tool_discovery (
-  path TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime_ns INTEGER,
-  ctime_ns INTEGER, ino INTEGER NOT NULL, dev INTEGER NOT NULL) WITHOUT ROWID]]
+local schema Database = STAGE .. ";\n" .. analysis_schema.Analysis.ddl .. ";\n" .. RECORDS
+
+local record work
+  --- How the tool stands against the working database of `root` read
+  --- without writing it ([`work.tool_read_unwritten`]).
+  enum Unwritten
+    --- Its recorded files and discovery directories stand as recorded, and
+    --- the boot hash the last stage recorded is the one asked about.
+    "fresh"
+    --- Anything else: something moved, the hash differs or none is
+    --- recorded, or the database is missing or cannot be read. Only a stage
+    --- can tell more.
+    "unknown"
+  end
+
+  --- A file by its device, as a stat gives it, and its inode.
+  record Place
+    dev: integer
+    ino: integer
+  end
+
+  --- What [`work.holding`] reads of a host to name the holder of a write
+  --- lock ([`work.holder_line`]): the text of /proc/locks, the `-shm` file
+  --- and the database file, the text of the holder file and its age, and
+  --- this process's pid. A field is nil where it could not be read.
+  record Seen
+    locks?: string
+    mut shm?: Place
+    mut file?: Place
+    mut named?: string
+    mut age_ns?: integer
+    own: integer
+  end
+
+  --- One file of `web_assets`: its name in the table, its bytes, their
+  --- SHA-256 as hex, their SHA-384 as base64 and the vendored version.
+  record WebAsset
+    name: string
+    data: string
+    sha256: string
+    sha384: string
+    version: string
+  end
+  --- An open working database, for one run. A run is one transaction
+  --- from `open` to `commit`: staging, deriving and compiling all land
+  --- together with the in-memory projection. Its vacuum and publication
+  --- follow the commit; the test runner's records are their own phase.
+  record Handle
+    db: Database
+    root: string
+    --- The directory the build writes into: `root`'s build directory, or another
+    --- [`open`] was given.
+    dir: string
+    --- This run's number: one more than the last run over this file.
+    run: integer
+    --- Whether the run's transaction is open.
+    mut inside: boolean
+    --- What `root` is to the running tool, as [`work.stage`] was told: what
+    --- the compile and the writer after it hold the tree to. Nil before the stage.
+    mut standing: tree.Standing?
+  end
+
+  --- What [`work.try_open`] or [`work.try_open_remaking`] opened: the
+  --- run's handle, or nil where another run held the write lock, which it
+  --- waited for no more than to find it held, or where the file was of
+  --- another schema that it did not make again: [`work.try_open`] makes
+  --- none, and [`work.try_open_remaking`] none another run may be using.
+  record Opening
+    handle: Handle?
+    --- The schema the file was found of, where it was not this module's:
+    --- the open read nothing else of it and left it where it was.
+    other_schema: string?
+  end
+
+  --- What one staging pass found and what it had to read.
+  record Staged
+    mut files: integer
+    mut read: integer
+    --- One line for each file under `static/` newly staged whose name
+    --- says it was meant as a module (`.tl`, `.tmpl`): it is carried as an
+    --- asset. Also complained of as it is found.
+    notes: mut {string}
+  end
+
+  --- What creates the database, in order: the stage's statements as
+  --- one, each of the analysis's (the `inputs` view on its own, which
+  --- an open makes again where its text moved), then the records' as
+  --- one. `IF NOT EXISTS` because this file is opened again and again
+  --- across runs rather than built fresh every time.
+  mut schema: mut {string}
+  --- The schema of the working database: [`work.schema`] joined.
+  type Database = Database
+end
+
+--- The shape of the schema. A file of another shape holds nothing the
+--- tree cannot produce again, so it is thrown away.
+local version <const> = "35"
+
+--- The statements of [`Database`], in order: the stage's, the analysis's, then the records'.
+work.schema = { STAGE }
 for _, statement in ipairs(analysis_schema.statements) do
   work.schema[#work.schema + 1] = statement
 end
-for _, statement in ipairs({
-    [[CREATE TABLE IF NOT EXISTS todos (id INTEGER PRIMARY KEY,
-                                      sha256 TEXT NOT NULL,
-                                      line INTEGER NOT NULL,
-                                      last INTEGER NOT NULL,
-                                      text TEXT NOT NULL,
-                                      UNIQUE (sha256, line))]],
-    [[CREATE TABLE IF NOT EXISTS todo_misses (sha256 TEXT NOT NULL,
-                                            line INTEGER NOT NULL,
-                                            spelling TEXT NOT NULL,
-                                            PRIMARY KEY (sha256, line)) WITHOUT ROWID]],
-    [[CREATE VIRTUAL TABLE IF NOT EXISTS todos_fts
-      USING fts5(text, content=todos, content_rowid=id)]],
-    [[CREATE TRIGGER IF NOT EXISTS todos_inserted AFTER INSERT ON todos BEGIN
-      INSERT INTO todos_fts (rowid, text) VALUES (new.id, new.text);
-    END]],
-    [[CREATE TRIGGER IF NOT EXISTS todos_deleted AFTER DELETE ON todos BEGIN
-      INSERT INTO todos_fts (todos_fts, rowid, text) VALUES ('delete', old.id, old.text);
-    END]],
-    [[CREATE TRIGGER IF NOT EXISTS todos_updated AFTER UPDATE ON todos BEGIN
-      INSERT INTO todos_fts (todos_fts, rowid, text) VALUES ('delete', old.id, old.text);
-      INSERT INTO todos_fts (rowid, text) VALUES (new.id, new.text);
-    END]],
-    [[CREATE TABLE IF NOT EXISTS blames (path TEXT NOT NULL,
-                                       line INTEGER NOT NULL,
-                                       sha256 TEXT NOT NULL,
-                                       head TEXT NOT NULL,
-                                       commit_id TEXT NOT NULL,
-                                       author_time INTEGER NOT NULL,
-                                       summary TEXT NOT NULL,
-                                       boundary INTEGER NOT NULL,
-                                       PRIMARY KEY (path, line)) WITHOUT ROWID]],
-    [[CREATE TABLE IF NOT EXISTS zoneinfo (name TEXT PRIMARY KEY,
-                                         data BLOB NOT NULL)]],
-    [[CREATE TABLE IF NOT EXISTS web_assets (name TEXT PRIMARY KEY,
-                                           data BLOB NOT NULL,
-                                           sha256 TEXT NOT NULL,
-                                           sha384 TEXT NOT NULL,
-                                           version TEXT NOT NULL) WITHOUT ROWID]],
-    [[CREATE TABLE IF NOT EXISTS compiled (key TEXT PRIMARY KEY,
-                                         tool TEXT NOT NULL,
-                                         lua TEXT NOT NULL,
-                                         bytecode BLOB NOT NULL,
-                                         seen INTEGER NOT NULL,
-                                         fact_wraps INTEGER NOT NULL DEFAULT 0,
-                                         parameter_checks INTEGER NOT NULL DEFAULT 0) WITHOUT ROWID]],
-    [[CREATE INDEX IF NOT EXISTS compiled_by_checks ON compiled (key, seen, fact_wraps, parameter_checks)]],
-    [[CREATE TABLE IF NOT EXISTS deflated (source_hash TEXT NOT NULL,
-                                         core TEXT NOT NULL,
-                                         data BLOB NOT NULL,
-                                         PRIMARY KEY (source_hash, core)) WITHOUT ROWID]],
-    [[CREATE TABLE IF NOT EXISTS code_hashes (source_hash TEXT NOT NULL,
-                                            by TEXT NOT NULL,
-                                            code_hash TEXT NOT NULL,
-                                            PRIMARY KEY (source_hash, by)) WITHOUT ROWID]],
-    [[CREATE TABLE IF NOT EXISTS kept_bytecode (key TEXT PRIMARY KEY NOT NULL,
-                                              data BLOB NOT NULL) WITHOUT ROWID]],
-    [[CREATE TABLE IF NOT EXISTS compressed (path TEXT NOT NULL,
-                                           sha256 TEXT NOT NULL,
-                                           rules TEXT NOT NULL,
-                                           core TEXT NOT NULL,
-                                           gzip BLOB,
-                                           zstd BLOB,
-                                           PRIMARY KEY (path, sha256, rules, core)) WITHOUT ROWID]],
-    [[CREATE TABLE IF NOT EXISTS link_answers (kind TEXT NOT NULL,
-                                          path TEXT NOT NULL,
-                                          value TEXT NOT NULL,
-                                          found INTEGER NOT NULL,
-                                          PRIMARY KEY (kind, path)) WITHOUT ROWID]],
-    [[CREATE TABLE IF NOT EXISTS link_fill (fingerprint TEXT NOT NULL)]],
-    [[CREATE TABLE IF NOT EXISTS link_fill_rows (module TEXT NOT NULL,
-                                               symbol TEXT NOT NULL,
-                                               path TEXT NOT NULL,
-                                               anchor TEXT NOT NULL,
-                                               from_file TEXT NOT NULL,
-                                               line INTEGER NOT NULL,
-                                               column INTEGER NOT NULL,
-                                               from_module TEXT NOT NULL,
-                                               kind TEXT NOT NULL,
-                                               form TEXT NOT NULL,
-                                               source TEXT NOT NULL,
-                                               text TEXT NOT NULL,
-                                               PRIMARY KEY (module, symbol, path, anchor,
-                                                            from_file, line, column))
-                                              WITHOUT ROWID]],
-    [[CREATE TABLE IF NOT EXISTS compiled_interface (ikey TEXT PRIMARY KEY,
-                                                   key TEXT NOT NULL) WITHOUT ROWID]],
-    [[CREATE TABLE IF NOT EXISTS stub_holds (key TEXT NOT NULL,
-                                              stub TEXT NOT NULL,
-                                              held INTEGER NOT NULL,
-                                              PRIMARY KEY (key, stub)) WITHOUT ROWID]],
-    [[CREATE TABLE IF NOT EXISTS key_memo (path TEXT PRIMARY KEY,
-                                         tool TEXT NOT NULL,
-                                         file TEXT NOT NULL,
-                                         key TEXT NOT NULL,
-                                         graph TEXT NOT NULL) WITHOUT ROWID]],
-    [[CREATE TABLE IF NOT EXISTS key_frags (slot TEXT PRIMARY KEY,
-                                          tool TEXT NOT NULL,
-                                          digest TEXT NOT NULL) WITHOUT ROWID]],
-    [[CREATE TABLE IF NOT EXISTS typed_refs (key TEXT NOT NULL,
-                                           ordinal INTEGER NOT NULL,
-                                           module TEXT NOT NULL,
-                                           member TEXT NOT NULL,
-                                           line INTEGER NOT NULL,
-                                           PRIMARY KEY (key, ordinal)) WITHOUT ROWID]],
-    [[CREATE TABLE IF NOT EXISTS plan (path TEXT PRIMARY KEY,
-                                     key TEXT NOT NULL,
-                                     ordinal INTEGER NOT NULL) WITHOUT ROWID]],
-    [[CREATE TABLE IF NOT EXISTS keys_memo (id INTEGER PRIMARY KEY,
-                                          fp TEXT NOT NULL UNIQUE,
-                                          body TEXT NOT NULL)]],
-    [[CREATE TABLE IF NOT EXISTS builds (run INTEGER PRIMARY KEY,
-                                       ms INTEGER NOT NULL,
-                                       files INTEGER NOT NULL,
-                                       read INTEGER NOT NULL,
-                                       compiled INTEGER NOT NULL,
-                                       cached INTEGER NOT NULL,
-                                       verdict TEXT NOT NULL) WITHOUT ROWID]],
-    [[CREATE TABLE IF NOT EXISTS runs (path TEXT NOT NULL,
-                                     test TEXT NOT NULL,
-                                     passed INTEGER NOT NULL,
-                                     message TEXT NOT NULL,
-                                     ran_at_ns INTEGER NOT NULL,
-                                     key TEXT NOT NULL,
-                                     run_at_ns INTEGER NOT NULL,
-                                     elapsed_ns INTEGER NOT NULL,
-                                     PRIMARY KEY (path, test)) WITHOUT ROWID]],
-    [[CREATE TABLE IF NOT EXISTS failures (path TEXT NOT NULL,
-                                         test TEXT NOT NULL,
-                                         message TEXT NOT NULL,
-                                         ran_at_ns INTEGER NOT NULL,
-                                         key TEXT NOT NULL,
-                                         run_at_ns INTEGER NOT NULL,
-                                         PRIMARY KEY (path, test, ran_at_ns)) WITHOUT ROWID]],
-    [[CREATE TABLE IF NOT EXISTS verdicts (key TEXT PRIMARY KEY,
-                                         passed INTEGER NOT NULL,
-                                         run_at_ns INTEGER NOT NULL,
-                                         seen INTEGER NOT NULL,
-                                         elapsed_ns INTEGER NOT NULL) WITHOUT ROWID]],
-    [[CREATE TABLE IF NOT EXISTS digests (path TEXT PRIMARY KEY,
-                                        signature TEXT NOT NULL,
-                                        sha256 TEXT NOT NULL) WITHOUT ROWID]],
-    [[CREATE TABLE IF NOT EXISTS test_runs (ran_at_ns INTEGER NOT NULL
-                                          PRIMARY KEY)]],
-    [[CREATE TABLE IF NOT EXISTS coverage (ran_at_ns INTEGER NOT NULL,
-                                         path TEXT NOT NULL,
-                                         line INTEGER NOT NULL,
-                                         hit INTEGER NOT NULL,
-                                         PRIMARY KEY (ran_at_ns, path, line))
-                                        WITHOUT ROWID]],
-    [[CREATE TABLE IF NOT EXISTS hits_by_test (ran_at_ns INTEGER NOT NULL,
-                                             test TEXT NOT NULL,
-                                             hits TEXT NOT NULL,
-                                             PRIMARY KEY (ran_at_ns, test))]],
-    [[CREATE TABLE IF NOT EXISTS coverage_by_test (ran_at_ns INTEGER NOT NULL,
-                                                 test TEXT NOT NULL,
-                                                 hits TEXT NOT NULL,
-                                                 PRIMARY KEY (ran_at_ns, test))]],
-    [[CREATE TABLE IF NOT EXISTS type_violations (ran_at_ns INTEGER NOT NULL,
-                                                kind TEXT NOT NULL,
-                                                site TEXT NOT NULL,
-                                                target TEXT NOT NULL,
-                                                declared TEXT NOT NULL,
-                                                actual TEXT NOT NULL,
-                                                count INTEGER NOT NULL,
-                                                test TEXT NOT NULL,
-                                                PRIMARY KEY (kind, site, target, declared,
-                                                             actual)) WITHOUT ROWID]],
-    [[CREATE TABLE IF NOT EXISTS type_violation_tests (test TEXT NOT NULL,
-                                                     kind TEXT NOT NULL,
-                                                     site TEXT NOT NULL,
-                                                     target TEXT NOT NULL,
-                                                     declared TEXT NOT NULL,
-                                                     actual TEXT NOT NULL,
-                                                     count INTEGER NOT NULL,
-                                                     PRIMARY KEY (test, kind, site, target, declared,
-                                                                  actual)) WITHOUT ROWID]],
-}) do
-  work.schema[#work.schema + 1] = statement
-end
+work.schema[#work.schema + 1] = RECORDS
 
 local text = bind.text
 
@@ -1236,25 +1245,27 @@ local function opened(root: string, dir: string?, wait: boolean,
     -- holding both locks, which are taken in that order.
     return opened(root, dir, wait, remake, locked, doing)
   end
-  -- Old rows have no change time: retain their content caches, but read
-  -- their files once before trusting metadata again.
-  for _, table_name in ipairs({ "files", "tool", "scanned", "linked" }) do
-    local columns, trouble = db:text_rows("PRAGMA table_info(" .. table_name .. ")")
-    if columns == nil then
+  -- Every table as [`Database`] declares it. A file of this version whose tables differ (one made by a tool whose
+  -- schema moved without its version) is a file of another schema, whose rows are not read: a column out of place would
+  -- give wrong ones. Where this open may remove one, it is stamped so and opened again, which removes it; an open that
+  -- may not leaves it as it was. A failure to read the tables is no verdict on them: the open fails, naming it.
+  local typed, hold_trouble = Sqlite.hold(db, Database)
+  if typed == nil then
+    if hold_trouble.code ~= nil then
       local _, _ = db:close()
-      return nil, tostring(trouble)
+      return nil, path .. ": " .. tostring(hold_trouble)
     end
-    local has_ctime = false
-    for _, column in ipairs(columns) do
-      if column:text(2) == "ctime_ns" then has_ctime = true end
+    local shape = version .. " of another shape"
+    if not removable(remake, shape) then
+      local _, _ = db:close()
+      return { handle = nil, other_schema = shape }, ""
     end
-    if not has_ctime then
-      local added, why = db:exec("ALTER TABLE " .. table_name .. " ADD COLUMN ctime_ns INTEGER")
-      if not added then
-        local _, _ = db:close()
-        return nil, tostring(why)
-      end
-    end
+    local marked, mark_trouble = db:run("INSERT INTO meta (key, value) VALUES ('schema', ?1) " ..
+        "ON CONFLICT (key) DO UPDATE SET value = excluded.value", { text(shape) })
+    if marked then marked, mark_trouble = db:exec("COMMIT") end
+    local _, _ = db:close()
+    if not marked then return nil, path .. ": " .. tostring(mark_trouble) end
+    return opened(root, dir, wait, remake, locked, doing)
   end
   local stamp, stamp_trouble = db:run(
     "INSERT INTO meta (key, value) VALUES ('schema', ?1) " ..
@@ -1276,7 +1287,7 @@ local function opened(root: string, dir: string?, wait: boolean,
     local _, _ = db:close()
     return nil, path .. ": " .. tostring(run_trouble)
   end
-  return { handle = { db = db, root = root, dir = out, run = integer_of(runs), inside = true, standing = nil },
+  return { handle = { db = typed, root = root, dir = out, run = integer_of(runs), inside = true, standing = nil },
     other_schema = nil }, ""
 end
 

@@ -36,10 +36,7 @@ local written: integer = 0
 --- projection names as its compiler (`compiled_by`) the one a build in
 --- this process compiles under ([`rebuild.compiled_by`]), as a build's does.
 function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Handle
-  local db = assert(Sqlite.memory())
-  for _, statement in ipairs(work.schema) do
-    assert(db:exec(statement))
-  end
+  local db = assert(Sqlite.memory({ schema = work.Database }))
   local paths: mut {string} = {}
   for path in pairs(files) do paths[#paths + 1] = path end
   table.sort(paths)

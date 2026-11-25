@@ -123,3 +123,14 @@ local function test_the_prompt_lists_the_tools_code_may_call()
   local alone = Prompt.build(dir, {}, { tools = { stamp } })
   assert(alone:find("<code_tools>", 1, true) == nil, alone)
 end
+
+local function test_a_prompt_that_offers_run_lists_the_modules_a_snippet_may_require()
+  local run = assert(Tools.find(Tools.all(), "run"))
+  local read = assert(Tools.find(Tools.all(), "read"))
+  local listed = Prompt.build("/w", {}, { tools = { run }, modules = "cosmic.csv: CSV.\ncosmic.fs: Files." })
+  assert(listed:find("\n\n<cosmic_modules>\nThe cosmic.* modules a snippet of run may require", 1, true) ~= nil, listed)
+  assert(listed:find(":\ncosmic.csv: CSV.\ncosmic.fs: Files.\n</cosmic_modules>", 1, true) ~= nil, listed)
+  -- No run, or no modules: no section.
+  assert(Prompt.build("/w", {}, { tools = { read }, modules = "cosmic.csv: CSV." }):find("cosmic_modules", 1, true) == nil)
+  assert(Prompt.build("/w", {}, { tools = { run }, modules = "" }):find("cosmic_modules", 1, true) == nil)
+end

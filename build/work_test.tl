@@ -692,8 +692,8 @@ local function test_settled_rewrites_with_preserved_mtime_are_read(tmp: string)
 end
 
 --- A ctime-only change causes a read, but the bytes alone decide the
---- build's identity. Rows migrated from a schema without ctime do too.
-local function test_metadata_changes_and_unknown_change_times_keep_content_identity(tmp: string)
+--- build's identity.
+local function test_metadata_changes_keep_content_identity(tmp: string)
   local path = tmp .. "/probe.tl"
   assert(Fs.mkdirs(tmp .. "/core"))
   assert(Fs.mkdirs(tmp .. "/doc"))
@@ -712,23 +712,28 @@ local function test_metadata_changes_and_unknown_change_times_keep_content_ident
     assert(before.image == after.image and before.boot == after.boot)
     assert(stage_settled(handle, true).read == 0)
     assert(work.commit(handle))
-    for _, name in ipairs({ "files", "tool", "scanned", "linked" }) do
-      assert(handle.db:exec("ALTER TABLE " .. name .. " DROP COLUMN ctime_ns"))
-    end
-    assert(handle.db:close())
-    handle = assert(work.open(tmp))
-    assert(staged_bytes(handle.db, "probe.tl") == "return 1\n", "migration preserves content")
-    for _, name in ipairs({ "files", "tool", "scanned", "linked" }) do
-      local rows = assert(handle.db:text_rows("SELECT sha256, ctime_ns IS NULL FROM " .. name))
-      assert(#rows > 0, name .. " migration fixture missing")
-      for _, row in ipairs(rows) do
-        assert(row:text(1) == Hash.hex_sha256("return 1\n") and row:text(2) == "1")
-      end
-    end
-    assert(stage_settled(handle, true).read == 4, "legacy rows must be read once")
-    assert(stage_settled(handle, true).read == 0)
     assert(work.close(handle))
   end)
+end
+
+--- A file of this schema's version whose tables are not the schema's (columns dropped, or added out of their place)
+--- is a file of another schema: an open that may remove one makes it again, staging the tree anew, and one that may
+--- not leaves it, naming it.
+local function test_a_file_of_another_shape_is_made_again(tmp: string)
+  assert(Fs.write(tmp .. "/probe.tl", "return 1\n"))
+  local handle = assert(work.open(tmp))
+  assert(stage_settled(handle, true).read == 1)
+  assert(work.commit(handle))
+  assert(handle.db:exec("ALTER TABLE files DROP COLUMN ctime_ns"))
+  assert(handle.db:exec("ALTER TABLE files ADD COLUMN ctime_ns INTEGER"))
+  assert(handle.db:close())
+  local looked = assert(work.try_open_older(tmp))
+  assert(looked.handle == nil and looked.other_schema ~= nil and looked.other_schema:find("another shape", 1, true) ~= nil,
+    tostring(looked.other_schema))
+  handle = assert(work.open(tmp))
+  assert(handle.run == 1, "a file of another shape is made again, counting its runs anew")
+  assert(stage_settled(handle, true).read == 1, "the tree is staged anew")
+  assert(work.close(handle))
 end
 
 local function test_an_unknown_change_time_never_trusts_cached_bytes(tmp: string)
@@ -1112,4 +1117,10 @@ local function test_an_edit_to_a_file_the_seed_lists_moves_the_image(tmp: string
   local listed = assert(identity.record_fingerprint(handle.db, handle.root))
   assert(listed.image ~= unlisted.image, "an edit to a file the seed lists left the image as it was")
   assert(work.close(handle))
+end
+
+--- The schema the checker reads a handle's SQL against is the statements a file is made of, joined, the analysis's
+--- among them.
+local function test_the_schema_is_the_statements_joined(_: string)
+  assert(work.Database.ddl == table.concat(work.schema, ";\n"))
 end

@@ -200,3 +200,8 @@ local function test_the_sql_and_teal_static_assets_agree(_: string)
     assert(assert(rows[1]):text(1) == expected, path .. ": the SQL says otherwise")
   end
 end
+
+--- The schema the checker reads a handle's SQL against is the statements a database is made of, joined.
+local function test_the_schema_is_the_statements_joined(_: string)
+  assert(analysis_schema.Analysis.ddl == table.concat(analysis_schema.statements, ";\n"))
+end

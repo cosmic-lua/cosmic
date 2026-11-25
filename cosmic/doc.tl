@@ -2360,8 +2360,11 @@ end
 --- up to the first `.`, `?` or `!` that a space or the end follows,
 --- outside backticks and not closing "e.g" or "i.e".
 local function first_sentence(documented: string): string
-  local trimmed = String.trim(link_text.unlinked(documented))
-  local paragraph = (trimmed:match("^(.-)\n%s*\n") or trimmed):gsub("%s+", " ")
+  -- The first paragraph is cut out before its links are read: a module's whole text costs many times as much, and
+  -- what is past the paragraph is never shown.
+  local whole = String.trim(documented)
+  local head = String.trim(link_text.unlinked(whole:match("^(.-)\n%s*\n") or whole))
+  local paragraph = (head:match("^(.-)\n%s*\n") or head):gsub("%s+", " ")
   local quoted = false
   for at = 1, #paragraph do
     local char = paragraph:sub(at, at)
