@@ -53,6 +53,14 @@ local function test_an_optional_boolean_condition_is_tested_with_equals_true()
       "  assert(v == true)\n  local w = v or true\n  print(w)\nend\ng(f())\n", text)
 end
 
+--- A union that holds a boolean and another type is no `boolean?`: `"a"` holds as a condition and is not `true`, so
+--- there is no rewrite.
+local function test_a_union_with_a_boolean_has_no_rewrite()
+  local edits, errors = edits_of("local function g(x: string | boolean | nil)\n  if x then print(1) end\n  assert(x)\nend\n" ..
+      "g(\"a\")\n")
+  assert(errors == 2 and #edits == 0, tostring(errors) .. " errors, " .. tostring(#edits) .. " rewrites")
+end
+
 --- The left of an `and` is the value of the whole where it fails: `nil` there is not `false`, so no rewrite is made.
 --- Nor of the call `assert` is given alone, whose other values `==` would drop.
 local function test_an_optional_boolean_that_and_or_assert_passes_on_has_no_rewrite()

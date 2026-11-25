@@ -1126,7 +1126,7 @@ local function asserted_boolean(ctx: Ctx, node: Ast.Node, args: {Ast.Exp}, t: Ty
   local at = peel(first)
   local fix = "say which is asserted: `assert(" .. text .. " ~= nil)` that it is there, or `assert(" .. text .. " == true)` that it is true"
   -- `assert` passes the value where it is `true`. A call's other values would be cut by `==`, so a call has no rewrite.
-  local rewrite: Codes.Rewrite? = Operands.is_true(first)
+  local rewrite: Codes.Rewrite? = if Operands.only_boolean(ctx, t) then Operands.is_true(first) else nil end
   if at.kind == "Call" or at.kind == "MethodCall" then
     rewrite = nil
     -- A comparison keeps only the first value of a call, so a reason it gives is named to be passed on. A call that

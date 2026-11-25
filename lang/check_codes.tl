@@ -211,6 +211,7 @@ local record Codes
     fix: string
     y: integer
     x: integer
+    --- The byte the place begins at, from 1, and how many bytes it spans.
     offset: integer
     length: integer
     --- The second place the error involves: where a field is declared, where a name was first given.

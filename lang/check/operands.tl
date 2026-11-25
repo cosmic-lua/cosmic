@@ -247,15 +247,23 @@ local UNDECLARED_CALL_FIX <const> = UNDECLARED_RETURN_FIX .. "; where a function
 Operands.UNDECLARED_CALL_FIX = UNDECLARED_CALL_FIX
 
 --- The rewrite of a `boolean?` condition `node` to the test it makes: it holds where the value is `true`, so `== true`.
---- A place that binds less tightly than `==`, and any place where `tight` (the operand of an operator that binds more
---- tightly than `==`), is put in parentheses.
+--- The rewrite of a `boolean?` condition `node` to the test it makes: it holds where the value is `true`, so `== true`.
+--- A place that binds less tightly than `==` is put in parentheses before the test, and where `tight` (the operand of an
+--- operator that binds more tightly than `==`), the test is too.
 function Operands.is_true(node: Ast.Node, tight?: boolean): Codes.Rewrite
   local kind = node.kind
-  if tight == true then return { before = "(", after = " == true)" } end
-  if kind == "Name" or kind == "Field" or kind == "Index" or kind == "Call" or kind == "MethodCall" or kind == "Paren" then
-    return { before = "", after = " == true" }
-  end
-  return { before = "(", after = " == true)" }
+  local primary = kind == "Name" or kind == "Field" or kind == "Index" or kind == "Call" or kind == "MethodCall" or
+    kind == "Paren"
+  local before, after = "", " == true"
+  if not primary then before, after = "(", ") == true" end
+  if tight == true then before, after = "(" .. before, after .. ")" end
+  return { before = before, after = after }
+end
+
+--- Whether `t` is `boolean?`: past nil, a boolean and nothing else. Only there is a condition `x` the same as `x ==
+--- true`; a `string | boolean | nil` that holds `"a"` holds as a condition, and is not `true`.
+function Operands.only_boolean(ctx: Ctx, t: Type): boolean
+  return is_bool(ctx.store:non_nil(t))
 end
 
 --- What a condition of type `t` is: "bool", "opt" (a `T?` for a `T` that is not a boolean), or "bad" after the error.
@@ -280,7 +288,7 @@ function Operands.condition_kind(ctx: Ctx, node: Ast.Node, t: Type, default?: As
     end
     report(ctx, "condition_type", node, s .. " is " .. tq(ctx, t) .. ": nil and false would not be told apart",
       "write the test: `" .. text_of(ctx, node) .. " == true` or `" .. text_of(ctx, node) .. " == nil`", { show(ctx, t) },
-      nil, if within == "and" then nil else Operands.is_true(node, within == "not") end)
+      nil, if within == "and" or not Operands.only_boolean(ctx, t) then nil else Operands.is_true(node, within == "not") end)
     return "bad"
   elseif tag == "any" then
     report(ctx, "any_use", node, s .. " is untrusted data (`any`) and is used as a condition",

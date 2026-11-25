@@ -404,10 +404,6 @@ local function unshifted(lines: {string}, width: integer): {string}
   return out
 end
 
---- What `kept` made of `code` and its prelude ([`prelude_of`]). Where the snippet binds a name of the prelude itself,
---- the prelude without it, else the whole one, else the refusal of the first. Otherwise, where that is refused and the
---- snippet alone is not, the snippet alone; where both are, the refusal of the one with the prelude, unless it tells
---- of a name the prelude declares (`declared at 1:C`, C within the prelude).
 --- The edits of `made`, a refusal of a text with `width` bytes of prelude before the snippet, as places of the snippet:
 --- an edit within the prelude is left out.
 local function edits_of(made: Pipeline.Alone, width: integer): {Rewrite.Edit}
