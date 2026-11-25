@@ -453,7 +453,11 @@ function Host.modules(index?: {Doc.Summary}): string
   if index == nil then
     local Docs = require("cosmic.doc")
     local Store = require("cosmic.store")
-    local view, why = Docs.view(Store.databases())
+    -- The binary's own database alone, the last searched: a project's own would make the list differ by the project.
+    local databases = Store.databases()
+    local own = databases[#databases]
+    if own == nil then return "host: modules: this binary holds no database" end
+    local view, why = Docs.view({ own })
     if view == nil then return "host: modules: " .. tostring(why) end
     local read, index_why = Docs.index(view)
     if read == nil then return "host: modules: " .. tostring(index_why) end
