@@ -591,7 +591,7 @@ local function test_a_large_string_body_reaches_a_slow_reader()
       local piece, _ = slow.conn:read(128 * 1024)
       if piece == nil or piece == false then break end
       got = got + #piece
-      assert(Poll.delay(Clock.ms(5)))
+      assert(Clock.sleep(Clock.ms(5)))
     end
     -- At 26 MB a second the body takes about 1.3 s, past the 500 ms.
     assert(got > size, ("read %d bytes of a %d byte body"):format(got, size))
@@ -607,7 +607,7 @@ local function test_a_full_server_closes_an_idle_connection_for_a_client_waiting
   local release: boolean = false
   local troubles = serving(function(req: Server.Request): Server.Reply
     if req.path == "/slow" then
-      while not release do assert(Poll.delay(Clock.ms(5))) end
+      while not release do assert(Clock.sleep(Clock.ms(5))) end
     end
     return { status = 200, body = req.path }
   end, function(address: Net.Address)
@@ -620,11 +620,11 @@ local function test_a_full_server_closes_an_idle_connection_for_a_client_waiting
     assert(ended(idle), "the idle connection stayed open")
     -- Now `waiting` is the one open, and busy.
     send(waiting, get("/slow"))
-    assert(Poll.delay(Clock.ms(20)))
+    assert(Clock.sleep(Clock.ms(20)))
     local third <close> = peer(address)
     send(third, get("/third"))
     -- Time for the server to see `third` waiting while `waiting` is busy.
-    assert(Poll.delay(Clock.ms(100)))
+    assert(Clock.sleep(Clock.ms(100)))
     release = true
     local slow = reply(waiting)
     assert(slow.body == "/slow" and slow.headers["connection"] == "close", slow.headers["connection"])
@@ -1675,15 +1675,15 @@ local function test_the_server_closes_a_quiet_reply_as_its_client_leaves()
       assert(line(p) == "HTTP/1.1 200 OK")
       local until_ns = Clock.monotonic_ns() + Clock.seconds(2)
       while (quiet == nil or not assert(quiet).started) and Clock.monotonic_ns() < until_ns do
-        assert(Poll.delay(Clock.ms(5)))
+        assert(Clock.sleep(Clock.ms(5)))
       end
-      assert(Poll.delay(Clock.ms(100)))
+      assert(Clock.sleep(Clock.ms(100)))
       assert(assert(quiet).closed_ns == nil, "closed while its client was there")
       left_ns = Clock.monotonic_ns()
       local _, _ = p.conn:close()
       until_ns = left_ns + Clock.seconds(2)
       while assert(quiet).closed_ns == nil and Clock.monotonic_ns() < until_ns do
-        assert(Poll.delay(Clock.ms(5)))
+        assert(Clock.sleep(Clock.ms(5)))
       end
     end, { compress = compress })
     local closed_ns = assert(assert(quiet).closed_ns, "the server never closed the Reader")
@@ -1700,7 +1700,7 @@ local class Slow is Stream.Reader
   function read(self, _max_bytes?: integer): (string | false) | (nil, Failure)
     self.at = self.at + 1
     if self.at > 3 then return false end
-    if self.at > 1 then assert(Poll.delay(Clock.ms(30))) end
+    if self.at > 1 then assert(Clock.sleep(Clock.ms(30))) end
     local piece = ({ "one ", "two ", "three" })[self.at]
     if piece == nil then return false end
     return piece
@@ -1744,13 +1744,13 @@ local function test_a_streamed_body_waiting_for_the_client_wakes_as_it_goes()
     assert(line(p) == "HTTP/1.1 200 OK")
     while not p.buf:find("data: start", 1, true) do assert(more(p)) end
     send(p, get("/next"))
-    assert(Poll.delay(Clock.ms(200)))
+    assert(Clock.sleep(Clock.ms(200)))
     assert(assert(waiting).seen_ns == nil, "the pipelined request read as the client gone")
     closed_ns = Clock.monotonic_ns()
     local _, _ = p.conn:close()
     local until_ns = closed_ns + Clock.seconds(2)
     while assert(waiting).seen_ns == nil and Clock.monotonic_ns() < until_ns do
-      assert(Poll.delay(Clock.ms(5)))
+      assert(Clock.sleep(Clock.ms(5)))
     end
   end)
   local seen_ns = assert(assert(waiting).seen_ns, "the body never saw the client go")
