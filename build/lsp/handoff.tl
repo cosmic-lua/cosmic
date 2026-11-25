@@ -88,7 +88,7 @@ local OLD_SECONDS <const> = 24 * 3600
 --- and why where there is none.
 function handoff.nonce(): string?, string
   local bytes, trouble = Rand.entropy(8)
-  if bytes == nil then return nil, trouble end
+  if bytes == nil then return nil, tostring(trouble) end
   local out: mut {string} = {}
   for i = 1, #bytes do out[#out + 1] = string.format("%02x", bytes:byte(i) or 0) end
   return table.concat(out), ""

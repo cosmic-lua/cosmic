@@ -115,7 +115,7 @@ end
 --- @return string The key
 function Secret.generate(): string
   local bytes, why = Rand.entropy(32)
-  if bytes == nil then error("secret: no entropy: " .. why, 2) end
+  if bytes == nil then error("secret: no entropy: " .. tostring(why), 2) end
   return Codec.hex(bytes)
 end
 
