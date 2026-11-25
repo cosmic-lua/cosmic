@@ -149,6 +149,11 @@ fixtures against the same products. Each phase's log is under
 keyed by the checkout's path, so worktrees can run at once; a removed
 worktree's state stays until deleted).
 
+Like gating CI, run-local sets `COSMIC_CI_FIXED_POINT=skip` unless the
+caller sets it, so `fixtures` skips the fixed-point regression: its
+compiles outlast the 340 s per-test bound on a host of four CPUs. Set it
+to `run` to run that regression too.
+
 The `sandbox` phase writes what spawn's sandbox can hold on this machine
 (`build/sandbox_probe.tl`) to its log and the summary, and fails only when
 `COSMIC_CI_REQUIRE_SANDBOX=1` and a part a confined test needs did not hold:
