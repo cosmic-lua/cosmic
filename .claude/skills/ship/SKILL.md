@@ -23,8 +23,8 @@ default and is dropped from what to change.
    waits on.
 2. Implement in a fresh worktree and branch, check, and commit, per the
    guide.
-3. Start a separate read-only agent with a fresh context and the prompt
-   below. Fix every BLOCKING finding and each cheap, plainly right nit;
+3. Start a separate read-only agent on Sonnet (`model: sonnet`), with a
+   fresh context and the prompt below. Fix every BLOCKING finding and each cheap, plainly right nit;
    say in the PR description why any are left. Review again after a
    large fix.
 4. Take the TODO list from `bin/cosmic todos` (again after merging a
