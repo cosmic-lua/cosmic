@@ -17,13 +17,13 @@ Host (cosmic.agent.host), Fs (cosmic.fs) and Json (cosmic.json) need no require.
 - The cosmic.* modules a snippet may require are listed, a line each, by print(Host.modules()) (and in the system prompt, where it has the list; not io or os): use one before writing what it does (cosmic.csv reads CSV); print(Host.docs("cosmic.fs")) shows one. Their calls that may fail answer a value, or nil and why: take it with `!`, which raises with the reason (`local text = Fs.read(path)!`), as a statement too (`Fs.write(path, text)!`).
 
 The checker refuses, so write:
+- `..` joins strings only, never a number: a count, `#t` or a line number goes through tostring (`tostring(#out) .. " lines"`, `path .. ":" .. tostring(line)`), or format the whole line (`string.format("%s:%d", path, line)`); `%d` takes an integer: `math.floor(x)`.
 - A table you fill is declared: `local out: mut {string} = {}`, `local n: mut {string: integer} = {}`; append with `out[#out + 1] = v`.
 - A local that starts nil, or may become nil (a page cursor), is optional: `local cursor: string? = nil`, `local page: integer? = 1`; test it with `if cursor ~= nil then`. A local of a plain type is never compared with nil.
 - A local function declares its parameters and results: `local function f(x: integer): string`.
 - A read that may be nil (`t[i]`, `m[k]`, `s:match(...)`, `tonumber(s)`) is tested, given a default (`m[k] or 0`, in a sum too: `counts[k] = (counts[k] or 0) + 1`) or taken with `!` (`t[i]!`), which raises where it is nil. Walk a list with ipairs, a map with pairs.
 - A field its record does not mark `?` is never nil: use it as it is, with no `or {}`.
 - A condition is a boolean or an optional of no boolean: `if s ~= "" then`; for a {string: boolean} set, `if seen[k] == nil then`.
-- `..` joins strings: `tostring(n)`; `%d` takes an integer: `math.floor(x)`.
 - `if c then a else b end`, with its `end` even inside a call, in place of `c and a or b`.
 - `{key: string, count: integer}` is a record type, `{string: integer}` a map, and `mut {{"{{"}}key: string}}` a list one may add to. Host.top answers `{Host.Count}`.
 - The first n of a list: `for i, v in ipairs(list) do if i > n then break end ... end`.
