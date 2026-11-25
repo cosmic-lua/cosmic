@@ -23,7 +23,7 @@
 --- fixed by hand. A header is held to the rules through the files that include it.
 ---
 --- When it covers every Teal source of cosmic's own tree (`cosmic fix --check .`, as CI runs it), it also builds the
---- tree's projection with the new checker and holds it to the checks only the whole tree can answer
+--- tree's projection with the new checker and holds it to the checks only the whole tree can settle
 --- ([`build.tree_checks`]), and that every public example and user-guide example compiles as shown, alone
 --- ([`build.example_checks`]). A tree that does not build fails, since the checks need its projection, and a note on the
 --- standard library fails the run instead of being a note. A run over some paths of cosmic's own tree makes the few of
@@ -31,7 +31,7 @@
 --- markers to the merge base; a run in its `ci/` holds the files named to the plurals.
 ---
 --- `--changed` names the paths that changed since the whole tree passed
---- (`cosmic fix --check --changed $(git diff --name-only main)`): it checks only those, yet answers as a run over the whole
+--- (`cosmic fix --check --changed $(git diff --name-only main)`): it checks only those, yet reports as a run over the whole
 --- tree would, making every check that spans files over all of it ([`fix.narrowed`]). Where a path named is part of what
 --- checks each file alone (the C rules, the readers of Teal), it covers the whole tree, and says why. A branch's CI runs it
 --- in place of the whole tree's check; the merge queue still runs that.
@@ -242,8 +242,9 @@ local function checked_alone(root: string, own: boolean, path: string): boolean
   local top, _ = Fs.absolute(root)
   if top == nil then return false end
   local relative, _ = Fs.relative(named_as(path), top)
-  -- Outside the root, which [`Fs.relative`] says by answering nothing: in cosmic's own tree too, a file there is checked
-  -- alone, not only laid out, unless it is a file of another checkout of cosmic, whose modules a check alone cannot see.
+  -- Outside the root, which [`Fs.relative`] says by returning nil and a Failure: in cosmic's own tree too, a file there
+  -- is checked alone, not only laid out, unless it is a file of another checkout of cosmic, whose modules a check alone
+  -- cannot see.
   if relative == nil or relative == ".." or relative:sub(1, 3) == "../" then
     return not own or not in_a_checkout(named_as(path))
   end
@@ -442,7 +443,7 @@ end
 ---
 --- One stat says what a named path is first: a path with nothing at it
 --- is reported missing rather than judged on its suffix, which would
---- answer `nosuchdir/` with a remark about Teal. A directory is walked
+--- report `nosuchdir/` with a remark about Teal. A directory is walked
 --- for its Teal sources (and, in cosmic's own tree, C and flow-style
 --- YAML). A named file is taken at its word by its suffix, so one that
 --- is none of those is refused here, not sent to the parser to come
@@ -608,7 +609,7 @@ end
 --- clang, zig and the bootstrap for [`build.c`] and [`build/zig.tl`], whose binaries bin/ and ci/cosmic-driver.pin pin;
 --- through it the closure took the sandbox, the network and the tailnet, so a change to any of them laid out the
 --- whole tree. Only the C rules read what it runs, and a run of `--changed` holds every C file to them only where one
---- changed; a change to it that moves what clang answers is caught by build/c's tests, by the next run holding the C
+--- changed; a change to it that moves what clang says is caught by build/c's tests, by the next run holding the C
 --- files, or by the weekly run over the whole tree. What a check also requires another way stays in the closure.
 local file_check_runners: {string} = { "cosmic.child" }
 
@@ -713,7 +714,7 @@ end
 ---
 --- Where a path named is part of what checks each file alone
 --- (`file_checks`, read from `databases`, and the like), a file that
---- did not change can answer otherwise, so it answers `every` itself,
+--- did not change can be judged otherwise, so it returns `every` itself,
 --- `widened` saying why; as it does for a path outside `root`. Where
 --- every such path is part of what checks C files alone ([`c_check_path`],
 --- and what only [`build.c`] requires), it lays out every C file and
@@ -852,7 +853,7 @@ local function relaid(kind: string, linked: string): string?, string
   return linked, ""
 end
 
---- The files of the tree at `root` by name, as [`Context.named_files`] answers: each a link may name, so none under
+--- The files of the tree at `root` by name, as [`Context.named_files`] returns: each a link may name, so none under
 --- the root's `o/` or a `.git`, nor what `left_alone` says the tree ignores, whose directories are not walked. Walked
 --- once, when first asked: only a path that names no file asks.
 local function named_files(root: string, left_alone: function(string): boolean): function(string): {string}
@@ -890,7 +891,7 @@ end
 function fix.links(context: link_resolve.Context, files: {string}, mode?: string,
                    facts?: {string: links.Facts}): fix.Linked
   local known: {string: links.Facts} = facts or {}
-  -- A path the tree ignores is no link's target. Only this layer asks: `context` is the build's, and a copy answers.
+  -- A path the tree ignores is no link's target. Only this layer asks: `context` is the build's, and a copy is enough.
   local left_alone = ignored.of(context.root, ignored_notice)
   local guarded: link_resolve.Context = {
     root = context.root,
@@ -971,7 +972,7 @@ local function leave_why(target: LinkSource, why: string)
 end
 
 --- Where `fix` reads what links name, over the project at `root`: its
---- databases (`databases`, as [`docs.databases`] answers), opened when
+--- databases (`databases`, as [`docs.databases`] returns), opened when
 --- a link first names a symbol. A run over part of the tree builds the
 --- project first (`rebuild_here`), so an edit is seen; a `whole` run
 --- reads the projection its tree checks just wrote. Outside cosmic's
@@ -1540,7 +1541,7 @@ local function lay_out_teal(ctx: Fix)
 end
 
 --- The named files that are no input of the project ([`fix.Chosen`]'s `alone`), which the build never reads and so
---- [`find_unbuilt`] cannot vouch for: each is checked on its own as `cosmic --standalone` checks a file ([`Pipeline.lone`]),
+--- [`find_unbuilt`] cannot vouch for: each is checked on its own as `cosmic --standalone --check` checks a file ([`Pipeline.lone`]),
 --- and the checker's refusal fails the run like a finding of the tree. The log says each was checked alone.
 local function check_alone(ctx: Fix)
   local named = assert(ctx.picked).alone
@@ -1845,7 +1846,7 @@ local function named_tree_checks(ctx: Fix, findings: mut {string})
 end
 
 --- Over the whole of cosmic's own tree, what only the whole tree can
---- answer ([`build.tree_checks`]), asked of its projection built afresh:
+--- settle ([`build.tree_checks`]), asked of its projection built afresh:
 --- a finding is the tree's, not a file's, so it is counted apart.
 local function run_tree_checks(ctx: Fix)
   local picked = assert(ctx.picked)
@@ -2258,7 +2259,7 @@ local function report(ctx: Fix): integer
 end
 
 --- `cosmic fix [--check] [path...]`. Each phase above does one part, in
---- order, and the first to answer an exit code ends the run.
+--- order, and the first to return an exit code ends the run.
 --- @param argv {string} The command line, the verb at slot 1
 --- @return integer The exit code: 0 when nothing is left to fix
 local function fix_verb(argv: {string}): integer

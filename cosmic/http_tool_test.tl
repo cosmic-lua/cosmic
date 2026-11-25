@@ -27,7 +27,7 @@ local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
 end
 
 --- Requests to a local port, closed or one a test serves, which a
---- loopback alone answers: the worker runs offline, and is keyed. And
+--- loopback alone reaches: the worker runs offline, and is keyed. And
 --- the program itself, which its tests start only to run a script
 --- standalone (`lua`, [`build.standalone`]).
 Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" } }
@@ -78,9 +78,9 @@ end
 --- A client of this program running `body`, a standalone script's
 --- function of its arguments, against a local server that stalls: once
 --- the client has written `marker`, which it does just before the call
---- that is to wait, it is sent SIGINT, and what it printed is answered.
+--- that is to wait, it is sent SIGINT, and what it printed is returned.
 --- `serve` is the server's side: it gets the accepted connection and
---- the request's head, and answers as it will, then stalls.
+--- the request's head, and writes what it will, then stalls.
 local function interrupted(tmp: string, body: string,
                            serve: function(Net.Conn, string)): string
   local script = tmp .. "/client.tl"
@@ -137,7 +137,7 @@ end
 
 --- A download that waits on a server that sent part of the body and
 --- stalls fails "interrupted" when a guard catches a signal, though the
---- caller's `cancelled` answers true by then too, as the verbs' own do,
+--- caller's `cancelled` returns true by then too, as the verbs' own do,
 --- and leaves nothing at its path or beside it.
 local function test_a_caught_signal_ends_a_download_that_waits(tmp: string)
   local said = interrupted(tmp, [[
@@ -161,10 +161,10 @@ end
 --- A request [`Http.request`] sends to a local server, as the server
 --- read it, and what the client then printed: the status and body of
 --- the server's "done", or why it failed. The client runs in a process
---- of its own, since a server in this one could not answer while the
+--- of its own, since a server in this one could not respond while the
 --- request blocks. Only a server sees what [`Http.request`] sends:
 --- the scripted transport's `sent` is a Response's, and the whole body
---- it answers has none.
+--- it returns has none.
 local function served(tmp: string, method: string, body?: string): string, string
   local script = tmp .. "/request.tl"
   assert(Fs.write(script, [[
@@ -207,7 +207,7 @@ end
   return request, result.stdout or ""
 end
 
---- A PUT reaches the server as a PUT carrying its body, and its answer
+--- A PUT reaches the server as a PUT carrying its body, and its response
 --- comes back whole.
 local function test_request_sends_a_put_with_its_body(tmp: string)
   local request, said = served(tmp, "PUT", "new item")
@@ -235,7 +235,7 @@ local function tls_record(conn: Net.Conn, pending: string): string
   return got:sub(1, 5 + length)
 end
 
---- A TLS 1.2 ServerHello that answers `hello`, a ClientHello record,
+--- A TLS 1.2 ServerHello for `hello`, a ClientHello record,
 --- with `version` as its legacy_version: the ClientHello's session id,
 --- the first ECDHE suite it offers, no compression and no extensions.
 local function server_hello(hello: string, version: integer): string
@@ -261,7 +261,7 @@ end
 
 --- A TLS 1.2 ServerHello whose legacy_version is TLS 1.3's (0x0304) is
 --- refused for its version, with a protocol_version alert (70). mbedtls
---- 4.1.1 took the version (CVE-2026-115490), so a server that answered to
+--- 4.1.1 took the version (CVE-2026-115490), so a server that replied to
 --- fit could finish a handshake with no ephemeral secret in its keys;
 --- this one it refused only later, with handshake_failure (40).
 local function test_a_tls_1_2_server_hello_naming_tls_1_3_is_refused(tmp: string)

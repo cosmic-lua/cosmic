@@ -204,7 +204,7 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt, fi
     return judged == nil or judged[module] == true
   end
 
-  -- Several modules declare `Entry.path`, so one lookup answers each.
+  -- Several modules declare `Entry.path`, so one lookup serves each.
   local looked: mut {string: Doc.Lookup} = {}
   local function lookup(name: string): Doc.Lookup?
     local found = looked[name]
@@ -244,7 +244,7 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt, fi
       end
     end
     -- What a type stands for lists its target's members, each of which
-    -- has to answer as `Type.member`.
+    -- has to resolve as `Type.member`.
     local alias = entry.signature:match("^type ") ~= nil
     local inherited = false
     for _, line in ipairs(lines) do
@@ -464,7 +464,7 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   -- The record a module of the library returns is its last name,
   -- capitalized: `Fs` for [`cosmic.fs`]. One a closed directory keeps to
   -- itself counts too, so that a public page naming its symbol
-  -- ([`Router.match`]) is held to an answer a reader can get.
+  -- ([`Router.match`]) is held to a lookup a reader can make.
   local records: mut {string: boolean} = {}
   local library, library_trouble = db:text_rows("SELECT path FROM modules WHERE kind = 'module' AND " ..
       symbols.library_modules("path"))
@@ -501,7 +501,7 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   local out: mut {string} = {}
   local answered: mut {string: boolean} = {}
   -- What cosmic.removed says to write instead, for a query it lists as
-  -- gone: `cosmic docs` answers such a name, but a page that names it is
+  -- gone: `cosmic docs` finds such a name, but a page that names it is
   -- stale.
   local gone: mut {string: string} = {}
   -- TODO: take a query that names a worked example by its own name

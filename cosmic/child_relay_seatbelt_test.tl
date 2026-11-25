@@ -214,7 +214,7 @@ local record Tally
   mut connections: integer
 end
 
---- An echo server for `listener`, answering "echo:" and the four bytes each
+--- An echo server for `listener`, replying "echo:" and the four bytes each
 --- connection sends, as a task of the run, and counting the connections.
 local function echoing(listener: Net.Listener, count: Tally): Poll.Task
   return Poll.spawn(function()
@@ -536,7 +536,7 @@ local function test_a_public_name_is_resolved_and_reached_through_the_relay(tmp:
     Test.skip("this host resolves no public name: " .. tostring(resolve_why))
     return
   end
-  -- [`Net.resolve`] answers at least one address, or nil and why.
+  -- [`Net.resolve`] returns at least one address, or nil and why.
   local reached, reach_why = Net.connect(Net.tcp(Array.at(found, 1).address, 443), { timeout_ns = Clock.seconds(5) })
   if reached == nil then
     Test.skip("this host reaches no public address: " .. tostring(reach_why))
@@ -557,7 +557,7 @@ local function test_a_public_name_is_resolved_and_reached_through_the_relay(tmp:
       "\nrelay: " .. relay_log)
 end
 
---- What the relay answered a CONNECT to `target` that a policy granting
+--- What the relay replied to a CONNECT to `target` that a policy granting
 --- `target` alone asked of it: the status line, and the relay's log.
 local function connect_through(tmp: string, target: string): string, string
   local log_path = tmp .. "/relay.log"
@@ -589,7 +589,7 @@ end
 --- A granted name that resolves to an address of one of this host's other
 --- interfaces is refused as one of its own, whatever other class the
 --- address is in. The name is a wildcard DNS service's for the address
---- (sslip.io answers `10-1-2-3.sslip.io` with 10.1.2.3); skipped where this
+--- (sslip.io resolves `10-1-2-3.sslip.io` to 10.1.2.3); skipped where this
 --- host has no such routable (not link-local) address or the name does not resolve to it alone.
 local function test_a_granted_name_of_another_host_address_is_refused_as_its_own(tmp: string)
   SeatbeltFixture.macos_only()

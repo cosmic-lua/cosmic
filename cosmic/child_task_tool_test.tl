@@ -32,7 +32,7 @@ end
 --- it. The module takes the one raw table the core has, so the members the
 --- copy changed stand in the real table for the length of a call to `run` or
 --- `start` and are put back after it: `start` asks for the exit watch once,
---- and the handle it answers waits on what it was given.
+--- and the handle it returns waits on what it was given.
 local function reloaded(alter: function({string: any})): Entry
   local real = require("cosmic.internal.process") as mut {string: any} -- cast: to replace members by name -- checked: cast_refused
   local copy: mut {string: any} = {}
@@ -110,7 +110,7 @@ local function sleep(ms: integer): string
 end
 
 --- Runs `main` as a task beside one that ticks every 5 ms until `main`
---- returns, and answers how many times it ticked. A wait that held the
+--- returns; the result is how many times it ticked. A wait that held the
 --- thread lets it tick once at most, so two ticks show the wait yielded,
 --- however a loaded host stretches the 5 ms.
 local function ticking(main: function()): integer
@@ -231,7 +231,7 @@ local function test_every_child_started_here_has_an_exit_watch()
 end
 
 --- A child that has exited by the time its watch is asked for is waited
---- for as any other: a `run` or a `wait` answers its status, whether the
+--- for as any other: a `run` or a `wait` returns its status, whether the
 --- watch was refused, as a Darwin kqueue refuses one (ESRCH, "No such
 --- process"), or not given at all. Here the watch is asked for after the
 --- core's own, opened beside it, says the child has exited, and then
@@ -245,7 +245,7 @@ local function test_a_child_that_exited_before_its_watch_was_asked_for_is_waited
       asked = asked + 1
       local fd, _, _ = watch(pid)
       if fd ~= nil then
-        -- [`sys.poll`] answers the events of each descriptor it was given: one.
+        -- [`sys.poll`] returns the events of each descriptor it was given: one.
         assert(Array.at(assert(sys.poll({ fd }, { sys.POLLIN }, 30000)), 1) & sys.POLLIN ~= 0,
           "the child did not exit")
         assert(sys.close(fd))
@@ -277,7 +277,7 @@ local function test_a_wait_in_a_task_ends_its_child_at_the_timeout()
   assert(ticks >= 2, "the other task ticked " .. tostring(ticks) .. " times")
 end
 
---- A cancelled task's wait answers nil and CANCELLED at once, and leaves
+--- A cancelled task's wait returns nil and CANCELLED at once, and leaves
 --- the child running for its handle; a run's, having ended its child.
 local function test_a_cancelled_task_s_wait_answers_cancelled(tmp: string)
   for _, module in ipairs(both()) do
@@ -535,7 +535,7 @@ local function test_streams_in_a_task_let_the_others_run()
 end
 
 --- Waits for any of several handles in a task end at the first exit,
---- the other task ticking meanwhile; cancelled, they answer CANCELLED.
+--- the other task ticking meanwhile; cancelled, they return CANCELLED.
 local function test_wait_any_in_a_task_ends_at_the_first_exit()
   local first: integer? = nil
   local cancelled: string? = nil
@@ -559,7 +559,7 @@ local function test_wait_any_in_a_task_ends_at_the_first_exit()
 end
 
 --- A signal a guard catches ends a run waiting in a task at once, as it
---- does out of one: the run answers "cancelled by signal N" and leaves
+--- does out of one: the run fails with "cancelled by signal N" and leaves
 --- the signal to the guard open around it. The guards live in a nested
 --- cosmic, where the signal is sent; a task there ticks meanwhile.
 local function test_a_signal_ends_a_run_in_a_task(tmp: string)
@@ -667,7 +667,7 @@ local function exited_unreaped(h: Child.Handle)
   end
 end
 
---- Two tasks settling one child at once answer the same Result: whether
+--- Two tasks settling one child at once get the same Result: whether
 --- both ask `try_wait`, or one waits while the other closes.
 local function test_two_tasks_settle_one_child_once()
   local answers: mut {integer: Child.Result} = {}

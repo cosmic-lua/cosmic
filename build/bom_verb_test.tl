@@ -19,7 +19,7 @@ local DOCUMENT <const> = Shape.record_of("Document")
 --- ([`Store.databases()`]), which reads every module's rows too.
 Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 
---- `cosmic bom` answers from the running binary's own rows: each
+--- `cosmic bom` prints the running binary's own rows: each
 --- component a line, `cyclonedx` a document naming the same components,
 --- and `licenses` every notice.
 local function test_the_verb_prints_the_binary_s_own_rows(tmp: string)

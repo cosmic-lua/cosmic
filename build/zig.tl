@@ -58,7 +58,7 @@
 --- since what it wrote may mix the two versions. The child stays in this
 --- terminal's process group, so a Ctrl-C reaches zig itself. This
 --- process catches SIGINT and SIGTERM while zig runs, passes on one zig
---- has not answered, and waits for zig to exit before it answers as zig
+--- has not acted on, and waits for zig to exit before it ends as zig
 --- did ([`Zig.run`]): dying of the signal that ended zig, or of a SIGTERM
 --- zig never got, and otherwise exiting with zig's status.
 ---
@@ -714,12 +714,12 @@ local record Signals
 end
 
 --- Runs `argv` (`argv[1]` an exact path) to its end in this process
---- group, with the standard streams shared, and answers its status.
+--- group, with the standard streams shared, and returns its status.
 ---
 --- SIGINT and SIGTERM are held by a [`Signal.guard`] meanwhile, so this
 --- process outlives the child whatever it is sent. A terminal's Ctrl-C
 --- reaches the child directly, since it shares this group. A signal sent
---- to this process alone does not, so one the child has not answered by
+--- to this process alone does not, so one the child has not acted on by
 --- exiting within a quarter second is passed on to it; the delay keeps a
 --- child the terminal already interrupted from being interrupted twice.
 ---
@@ -727,7 +727,7 @@ end
 --- signal, as a shell expects of an interrupted command, and so does a
 --- SIGTERM the child never got: one it exited before being passed, or
 --- one that came after it ended. A SIGINT the child never got is
---- answered by the child's status instead, as bash answers a Ctrl-C its
+--- settled by the child's status instead, as bash settles a Ctrl-C its
 --- command caught and exited from: a terminal's Ctrl-C reaches the child
 --- too, and one it caught cleanly within the quarter second looks here
 --- just like a SIGINT sent to this process alone. A terminal never sends
@@ -794,11 +794,11 @@ function Zig.run(argv: {string}, env?: {string:string}): integer
   end
   -- A signal the child never got is re-raised only when it is SIGTERM,
   -- which a terminal never sends. A Ctrl-C the child caught and exited
-  -- from cleanly is answered by its status, as bash answers it.
+  -- from cleanly is settled by its status, as bash settles it.
   -- Signal provenance identifies a sender, not whether kill targeted
   -- this process or its group. A never-passed SIGINT may already have
   -- reached a child that caught it and exited cleanly, so its status
-  -- wins; SIGTERM remains an unanswered cancellation.
+  -- wins; a SIGTERM is still a cancellation the child did not act on.
   local unpassed = signals.pending
   if untaken ~= 0 then
     unpassed = untaken
@@ -835,7 +835,7 @@ local MOST_BUILDS <const> = 3
 --- [`MOST_BUILDS`] runs in all, and then says so and fails. A snapshot
 --- that cannot be taken first leaves the build unwatched rather than
 --- stopped. `command` makes the command line for each run, and `run` runs
---- it and answers its status ([`Zig.run`] in zig's own environment).
+--- it and returns its status ([`Zig.run`] in zig's own environment).
 function Zig.watched_build(root: string, command: function(): {string}?,
                            run: function({string}): integer): integer
   local runs = 0
@@ -1115,7 +1115,7 @@ end
 --- tree's, where `given` is a plain boot and there is such a release, with
 --- no zig (build/seeded_boot.tl, which says what it did): true where the
 --- tree is booted. It runs before a zig is looked for, so a boot it
---- answers fetches none, and holds the build directory's lock as a build
+--- makes fetches none, and holds the build directory's lock as a build
 --- does. Anything else leaves the boot to zig: a boot that is not plain,
 --- no such release, a step that failed.
 local function seeded(root: string, given: {string}): boolean

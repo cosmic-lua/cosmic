@@ -9,7 +9,7 @@
 ---    makes the JSON a page hands to `navigator.credentials.create` (or
 ---    `.get`), through `PublicKeyCredential.parseCreationOptionsFromJSON`,
 ---    around a new challenge from [`Webauthn.challenge`] the app keeps
----    for the request that answers.
+---    for the request that brings the response.
 --- 2. [`Webauthn.verify_registration`] (or
 ---    [`Webauthn.verify_authentication`]) checks the credential's
 ---    `toJSON()` the page sends back, against that challenge, the app's
@@ -19,7 +19,7 @@
 ---     local options = Webauthn.creation_options({
 ---       rp_id = "example.com", rp_name = "Example", user_id = user.handle, user_name = "ada",
 ---     }, challenge)
----     -- ... the page answers with the credential's JSON ...
+---     -- ... the page responds with the credential's JSON ...
 ---     local credential = assert(Webauthn.verify_registration(answer, user.handle, {
 ---       challenge = challenge, origin = "https://example.com", rp_id = "example.com",
 ---     }))
@@ -41,7 +41,7 @@
 ---   refuse an id it does not keep.
 --- - Keep each credential's new `sign_count` and `backed_up`.
 ---
---- An answer is taken from the one origin the app names, never from a
+--- A response is taken from the one origin the app names, never from a
 --- page in another site's frame (`crossOrigin`), and the extensions an
 --- authenticator or browser reports are read past and not used: no
 --- extension is asked for.
@@ -72,7 +72,7 @@ local record Webauthn
   end
 
   --- A registered passkey, as an app keeps it: what
-  --- [`Webauthn.verify_registration`] answers and
+  --- [`Webauthn.verify_registration`] returns and
   --- [`Webauthn.verify_authentication`] checks against.
   record Credential
     --- The credential's id, raw bytes: the key it is looked up by.
@@ -130,7 +130,7 @@ local record Webauthn
   record RequestOptions
     --- The relying party id.
     rp_id: string
-    --- The passkeys that may answer; none lets the browser offer any of
+    --- The passkeys that may be used; none lets the browser offer any of
     --- the app's it holds (a passkey login with no user named first).
     allow?: {Credential}
     --- "preferred" by default.
@@ -139,7 +139,7 @@ local record Webauthn
     timeout_ms?: integer
   end
 
-  --- What a check takes: what the answer must be bound to. A check
+  --- What a check takes: what the response must be bound to. A check
   --- raises on a `challenge`, `origin` or `rp_id` that is empty, as one
   --- read from a session that has lost it is.
   record Expected
@@ -180,12 +180,12 @@ local ED <const> = 0x80
 
 --- The longest credential id WebAuthn allows (section 6.5.1).
 local MAX_ID <const> = 1023
---- The longest answer taken, in bytes: past any real one, and so the
+--- The longest response taken, in bytes: past any real one, and so the
 --- bound on what decoding it may make.
 local MAX_ANSWER <const> = 64 * 1024
 
 --- A new challenge: 32 bytes from the system's entropy. Keep it for the
---- request that answers (in the session), and use it once.
+--- request that brings the response (in the session), and use it once.
 ---
 ---     local challenge = Webauthn.challenge()
 function Webauthn.challenge(): string
@@ -272,7 +272,7 @@ local function bytes(object: {string: Json.Value}, name: string): string?, strin
   return decoded, ""
 end
 
---- What an answer holds that both checks read.
+--- What a response holds that both checks read.
 local record Answer
   id: string
   response: {string: Json.Value}
@@ -304,8 +304,8 @@ end
 --- Whether `client_data` is of `kind`, for the challenge and origin
 --- `expected` names (WebAuthn section 7.1 steps 7 to 10), or why not.
 local function check_client_data(client_data: string, kind: string, expected: Webauthn.Expected): boolean, string
-  -- An empty challenge, as a lost session leaves, would match an
-  -- answer's empty one.
+  -- An empty challenge, as a lost session leaves, would match a
+  -- response's empty one.
   if expected.challenge == "" or expected.origin == "" or expected.rp_id == "" then
     error("webauthn: expected.challenge, origin and rp_id must not be empty", 3)
   end
@@ -320,7 +320,7 @@ local function check_client_data(client_data: string, kind: string, expected: We
   if text(data, "origin") ~= expected.origin then
     return false, ("webauthn: the answer is from another origin than %s"):format(expected.origin)
   end
-  -- A page framed by another site answers with crossOrigin true. Such a
+  -- A page framed by another site responds with crossOrigin true. Such a
   -- page is refused for good: no option names the frames to take.
   local cross = data["crossOrigin"]
   if cross ~= nil and cross ~= false then
@@ -556,7 +556,7 @@ function Webauthn.verify_registration(answer: {string: Json.Value}, user_handle:
 end
 
 --- The credential id the JSON `answer` of a login names, raw bytes, to
---- look the passkey up by; nil and why for an answer that names none.
+--- look the passkey up by; nil and why for one that names none.
 ---
 ---     local id = assert(Webauthn.credential_id(answer))
 function Webauthn.credential_id(answer: {string: Json.Value}): string?, string

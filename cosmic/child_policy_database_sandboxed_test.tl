@@ -41,7 +41,7 @@ Test.policy{
 
 --- Ends the test where a host that gives the sandbox refuses a namespace of
 --- its own, or the write of its ids (AppArmor's restriction): `errno` is
---- "ok" or what the step answered. Any other failure fails the test.
+--- "ok" or what the step returned. Any other failure fails the test.
 local function refuse_or_skip(what: string, errno: string)
   if errno == "ok" then return end
   if errno == tostring(sys.EPERM) or errno == tostring(sys.EACCES) then

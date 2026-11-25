@@ -549,7 +549,7 @@ local function ruin(path: string, page: integer)
   assert(Fs.write(path, bytes:sub(1, start) .. string.rep("\255", 4096) .. bytes:sub(start + 4097)))
 end
 
---- Whether the file at `path` still answers for its `meta`, its schema and
+--- Whether the file at `path` still gives its `meta`, its schema and
 --- the columns that decide which modules stand (what [`build.writer`]'s
 --- `usable_base` and `make_reused` ask) though a row it carries cannot be read.
 local function readable_but_for_rows(path: string): boolean

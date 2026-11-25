@@ -3,8 +3,9 @@
 local Identity = require("cosmic.web.identity")
 local Web = require("cosmic.web")
 
---- A request no middleware has seen comes from no one; one whose tailnet and passkey middleware kept an identity
---- answers both, one whose login kept one answers it, and the ways that found none stay nil.
+--- A request no middleware has seen comes from no one. For one whose tailnet and passkey middleware kept an
+--- identity [`Web.who`] returns both, for one whose login kept one it returns that, and the ways that found none
+--- stay nil.
 local function test_who_answers_what_each_middleware_kept()
   local seen: mut {Web.Who} = {}
   local function keep(inner: Web.Handler): Web.Handler

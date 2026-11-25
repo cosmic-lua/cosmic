@@ -18,7 +18,7 @@ local function held(path: string, lock: string): Sqlite.Handle, Sqlite.Handle
 end
 
 --- Runs `wait` as a task beside one that ends `holder`'s transaction
---- after `hold_ns`: what `wait` answered, and whether the other task
+--- after `hold_ns`: what `wait` returned, and whether the other task
 --- let go before `wait` returned.
 local function race(holder: Sqlite.Handle, hold_ns: integer, wait: function(): boolean): boolean, boolean
   local answered, released_first = false, false
@@ -126,7 +126,7 @@ local function test_a_task_waits_its_turn_behind_one_parked_on_its_handle(tmp: s
   assert(waiter:close())
 end
 
---- A PRAGMA does not park: a checkpoint answers its row as busy where
+--- A PRAGMA does not park: a checkpoint yields its row as busy where
 --- the wait is declined, so the core waits for it, holding the thread.
 local function test_a_pragma_waits_in_the_core(tmp: string)
   local holder = assert(Sqlite.open(tmp .. "/pragma.db", { writable = true }))

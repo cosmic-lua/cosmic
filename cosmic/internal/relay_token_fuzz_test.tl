@@ -1,7 +1,7 @@
 --- A fuzz property for the decision of a relay that holds a token: whatever
 --- bytes a program sends on a connection to either listener, none of them
 --- the right credential, the relay never carries a connection to the
---- upstream, answers no request, and counts no connection as served.
+--- upstream, replies to no request, and counts no connection as served.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Clock = require("cosmic.clock")

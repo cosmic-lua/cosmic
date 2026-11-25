@@ -1,5 +1,5 @@
 --- Fuzz properties for [`cosmic.cbor`]: [`Cbor.decode`] is total,
---- answering for whatever bytes it is handed and never raising, and what
+--- handling whatever bytes it is handed and never raising, and what
 --- it reads is written back as bytes that read the same.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 

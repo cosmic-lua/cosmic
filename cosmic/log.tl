@@ -19,13 +19,13 @@ local record Log
     --- nowhere else to say so may ignore it.
     say: function(self: Logger, line: string): boolean, string
 
-    --- `line` on stderr, after the logger's name and ": ", answering as
-    --- `say` does.
+    --- Writes `line` to stderr, after the logger's name and ": ", and
+    --- returns as `say` does.
     mut complain: function(self: Logger, line: string): boolean, string
   end
 end
 
---- `text` on `fd`, answering as a Logger's calls do.
+--- Writes `text` to `fd`, and returns as a Logger's calls do.
 local function put(fd: integer, text: string): boolean, string
   local wrote, why = Fs.put(fd, text)
   if not wrote then return false, tostring(why) end

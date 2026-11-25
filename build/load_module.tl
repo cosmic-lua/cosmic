@@ -10,7 +10,7 @@
 local Globals = require("cosmic.internal.globals")
 
 local record LoadModule
-  --- What `require` answers for `name`, raising as it does, so a worker that holds `require` to a closure holds this to
+  --- What `require` returns for `name`, raising as it does, so a worker that holds `require` to a closure holds this to
   --- it.
   load: function(name: string): any
 end

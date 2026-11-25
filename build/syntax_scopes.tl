@@ -2,7 +2,7 @@
 --- sees read them, over [`lang.scopes`]: the bindings it resolved, with where each is in scope, and each `alias.member`
 --- whose `alias` is still the module a direct `require` bound.
 ---
---- [`lang.scopes`] decides what a name refers to; this module only puts its answer in the two shapes those readers ask
+--- [`lang.scopes`] decides what a name refers to; this module only puts its result in the two shapes those readers ask
 --- for, so the one place that decides is the scope builder. It requires nothing of the analyzer's own, so what reaches
 --- link_text (the writer's identity, [`build.work`]) does not reach the analyzer.
 local Ast = require("lang.ast")

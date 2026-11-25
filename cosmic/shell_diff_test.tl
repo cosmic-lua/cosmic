@@ -1,7 +1,7 @@
---- cosmic.shell's calls answer as the commands they are named after do, on fixtures drawn at random: wc -l, grep -n
---- -F, sed s///g, LC_ALL=C sort, uniq -c and find -type f, run here as programs. The fixtures keep to what both
---- read alike: no `\r` (Shell.grep and Shell.lines drop one before a newline), no NUL, and needles of letters, so
---- sed's regular expression is plain text.
+--- cosmic.shell's calls return what the commands they are named after print, on fixtures drawn at random: wc -l,
+--- grep -n -F, sed s///g, LC_ALL=C sort, uniq -c and find -type f, run here as programs. The fixtures keep to what
+--- both read alike: no `\r` (Shell.grep and Shell.lines drop one before a newline), no NUL, and needles of letters,
+--- so sed's regular expression is plain text.
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -51,13 +51,13 @@ local function ran(argv: {string}, input?: string): string
   local result, why = Child.run(words, { env = { LC_ALL = "C", PATH = "/usr/bin:/bin" }, input = input,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(20) })
   assert(result ~= nil, tostring(why))
-  -- grep answers 1 where it found no line, which is no failure here.
+  -- grep exits 1 where it found no line, which is no failure here.
   assert(result.code == 0 or (argv[1] == "grep" and result.code == 1), table.concat(argv, " ") .. ": " ..
       tostring(result.stderr))
   return result.stdout or ""
 end
 
---- wc, grep, sed, sort and uniq answer as their commands do on each fixture.
+--- wc, grep, sed, sort and uniq return what their commands print on each fixture.
 local function test_the_file_calls_answer_as_their_commands(tmp: string)
   local draw = drawer(7)
   for case = 1, CASES do

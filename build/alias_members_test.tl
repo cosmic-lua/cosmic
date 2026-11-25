@@ -1,5 +1,5 @@
---- The tests of [`cosmic.internal.alias_members`]: a reference that names no type answers nil beside an empty reason, and a source
---- that cannot be read answers nil beside why.
+--- The tests of [`cosmic.internal.alias_members`]: a reference that names no type gets nil beside an empty reason, and a source
+--- that cannot be read gets nil beside why.
 local Test = require("cosmic.test")
 local alias_members = require("cosmic.internal.alias_members")
 

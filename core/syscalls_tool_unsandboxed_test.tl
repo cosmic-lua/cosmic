@@ -1,6 +1,6 @@
 --- The cases of core/syscalls_tool_test.tl that need no sandbox: what a
---- start refuses as an argument before it makes one, what a platform with
---- no sandbox answers a start that asks for one, and an exit watch, which
+--- start refuses as an argument before it makes one, how a platform with
+--- no sandbox refuses a start that asks for one, and an exit watch, which
 --- starts this very program to run a chunk. They run on every platform,
 --- as the cases that unveil a child's root are Linux's alone.
 
@@ -79,10 +79,10 @@ local function test_an_unveiled_path_is_absolute_and_bound_at_a_plain_name(tmp: 
 end
 
 --- Where the platform has no sandbox, a start that asks for one is
---- refused with an errno a refusal answers, and no argument that would be
+--- refused with an errno that marks a refusal, and no argument that would be
 --- accepted on Linux raises. On Linux, whatever this host refuses of the
 --- sandbox, these starts are core/syscalls_tool_test.tl's, which requires
---- one: so this returns there, and only the platforms without one answer.
+--- one: so this returns there, and checks only the platforms without one.
 local function test_a_sandbox_the_platform_lacks_is_refused(tmp: string)
   if assert(sys.uname()).sysname == "Linux" then
     Test.skip("a platform with a sandbox answers this where a test requires one")

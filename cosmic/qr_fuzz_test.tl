@@ -1,5 +1,5 @@
 --- Fuzz properties for [`cosmic.qr`]: whatever bytes and options within
---- their ranges it is handed, [`Qr.encode`] answers a code or a refusal
+--- their ranges it is handed, [`Qr.encode`] returns a code or a refusal
 --- and never raises; a code is as large as its version says, carries its
 --- finders and the format information of its level and mask, and is the
 --- smallest version that holds the text, within the one allowed; and a refusal comes only for text past what that

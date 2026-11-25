@@ -1,9 +1,9 @@
 --- Which destination addresses the sandbox's network relay
 --- may connect to: the pure half of its address checks.
 --- A granted name is resolved once; [`relay_address.permitted`] classifies
---- every answer and keeps the allowed ones in order, so a name
---- whose answers mix allowed and forbidden addresses is connected to at an
---- allowed one, never a forbidden one.
+--- every address the name resolves to and keeps the allowed ones in
+--- order, so a name that resolves to both allowed and forbidden addresses
+--- is connected to at an allowed one, never a forbidden one.
 ---
 --- An address is refused unless a literal grant names exactly it: a
 --- `connect` target whose host is that numeric address and whose port is
@@ -24,11 +24,11 @@
 ---   may hold each, so the refusal says what it is;
 --- - documentation and benchmarking ranges (192.0.2/24, 198.51.100/24,
 ---   203.0.113/24, 198.18/15, 2001:db8::/32, 3fff::/20, 2001:2::/48). Nothing
----   legitimate answers there, and some networks route them to something
+---   legitimate listens there, and some networks route them to something
 ---   internal (198.18/15 is a common fake-IP range of local proxies), so a
 ---   name that resolves to one is refused rather than trusted;
 --- - IETF protocol assignments and other special ranges nothing public
----   answers on: 192.0.0.0/24 (Oracle's metadata 192.0.0.192 and the NAT64
+---   listens on: 192.0.0.0/24 (Oracle's metadata 192.0.0.192 and the NAT64
 ---   discovery addresses), the deprecated 6to4 relay anycast 192.88.99/24,
 ---   100::/64 (discard), 5f00::/16 (SRv6 segment ids) and 2001::/23, which
 ---   holds the ORCHID ranges 2001:10::/28 and 2001:20::/28;
@@ -50,17 +50,17 @@
 --- IPv4 as four decimal octets
 --- with no leading zeros, IPv6 in hex groups of one to four digits with at
 --- most one "::" and an IPv4 tail, no zone. Anything else is refused as
---- not numeric: an answer is untrusted bytes from DNS.
+--- not numeric: a resolved address is untrusted bytes from DNS.
 --- @public
 
 local Grant = require("cosmic.relay.grant")
 
 local record relay_address
-  --- One answer of a name, as [`Net.resolve`] returns it.
+  --- One address a name resolved to, as [`Net.resolve`] returns it.
   record Answer
     --- The numeric address text.
     address: string
-    --- Its family, kept with the answer and not consulted: the address's
+    --- Its family, kept with it and not consulted: the address's
     --- own text decides how it is read.
     family: string
   end
@@ -257,11 +257,11 @@ function relay_address.granted(address: string, port: integer, grants: {string})
 end
 
 --- The host's own addresses `own`, numeric text, as the bytes [`check`] and
---- [`permitted`] take, which they would otherwise read again for every answer.
+--- [`permitted`] take, which they would otherwise read again for every address.
 --- An IPv4-mapped entry is reduced to the IPv4 address it carries, so an
---- own address is refused however an answer spells it. Raises for an entry
---- that is no numeric address: a list of the host's own addresses is the
---- caller's, never untrusted: the relay's starter lists them.
+--- own address is refused however a resolved address spells it. Raises for
+--- an entry that is no numeric address: a list of the host's own addresses
+--- is the caller's, never untrusted: the relay's starter lists them.
 --- @param own {string} The addresses, as text
 --- @return {{integer}} Each one's bytes
 function relay_address.own_addresses(own: {string}): {{integer}}
@@ -274,17 +274,17 @@ function relay_address.own_addresses(own: {string}): {{integer}}
   return out
 end
 
---- The most bytes of an answer a refusal repeats.
+--- The most bytes of an address a refusal repeats.
 local SHOWN <const> = 64
 
 --- Whether the relay may connect to the numeric `address` on `port`.
---- Allowed answers `true` and "". Refused answers `false` and a reason
---- that names the class and the remedy, a literal grant:
+--- Returns `true` and "" when allowed, and `false` and a reason when
+--- refused, one that names the class and the remedy, a literal grant:
 --- "169.254.169.254 is a metadata address: grant it literally with
 --- --connect 169.254.169.254:80". Text that is no numeric address is
 --- refused too, shown cut to 64 bytes with its control and non-ASCII bytes
 --- as "?".
---- @param address string The numeric address text, as an answer holds it
+--- @param address string The numeric address text, as resolved
 --- @param port integer The port the program asked for
 --- @param grants {string} The policy's `connect` targets (`host:port`)
 --- @param own {{integer}} The host's own addresses, from [`own_addresses`]
@@ -311,14 +311,14 @@ end
 
 --- Every one of `answers` the relay may connect to on `port`, in the order
 --- received: the candidates it tries one after another, and never an
---- address outside them. Nil and every answer's reason when none is
+--- address outside them. Nil and every address's reason when none is
 --- allowed, so the refusal says why each was; an empty list is refused
 --- with its own reason.
---- @param answers {Answer} Every answer for a name, in the order received
+--- @param answers {Answer} Every address resolved for a name, in the order received
 --- @param port integer The port the program asked for
 --- @param grants {string} The policy's `connect` targets (`host:port`)
 --- @param own {{integer}} The host's own addresses, from [`own_addresses`]
---- @return {Answer}|nil The allowed answers, at least one
+--- @return {Answer}|nil The allowed addresses, at least one
 --- @return string Why none is allowed, "" when one is
 function relay_address.permitted(answers: {relay_address.Answer}, port: integer,
                                  grants: {string}, own: {{integer}}): {relay_address.Answer}?, string

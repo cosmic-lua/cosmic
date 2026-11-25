@@ -589,6 +589,10 @@ end
 --- The text of the tokens of `node`, cut at a length a message can hold.
 local function text_of(ctx: Ctx, node: Ast.Node): string
   local b = base_of(node)
+  -- The `assert` of `e!` is written nowhere: its name is its text.
+  if b.last < b.first and node.kind == "Name" then
+    return node.text
+  end
   local tokens = ctx.tokens
   local last = math.min(b.last, b.first + 24)
   local parts: mut {string} = {}
@@ -1159,8 +1163,8 @@ end
 -- Refusals -----------------------------------------------------------------------------------
 
 --- The fix for a read `e` of an index that may be nil. A map's key may be missing, so its read is tested, taken with
---- `assert` or given a default. For an array, the counted loop and the range test are offered only where they could
---- apply: an array that is a local name, read at a name. [`Array.at`] and `assert` take any array and key; `or <default>` is steered from.
+--- `!` (`e!`, which is `assert(e)`) or given a default. For an array, the counted loop and the range test are offered only where they could
+--- apply: an array that is a local name, read at a name. [`Array.at`] and `!` take any array and key; `or <default>` is steered from.
 --
 -- A value that may hold a boolean (`t`) is not taken with `assert(x)`, which raises for false and is refused
 -- ([`asserted_boolean`]), nor given a default with `or`, which replaces false: it is named and said to be there.
@@ -1173,7 +1177,7 @@ local function index_fix(ctx: Ctx, e: Ast.Index, t: Type): string
     if flag then
       return "test it (`local v = " .. read .. " if v ~= nil then ... end`), or " .. named .. " where the key must be there"
     end
-    return "test it (`local v = " .. read .. " if v ~= nil then ... end`), take it with `assert(" .. read .. ")` where " ..
+    return "test it (`local v = " .. read .. " if v ~= nil then ... end`), take it with `" .. read .. "!` where " ..
       "the key must be there, or write `" .. read .. " or <default>` where a missing key means that default"
   end
   local object, at = peel(e.object), peel(e.key)
@@ -1184,7 +1188,7 @@ local function index_fix(ctx: Ctx, e: Ast.Index, t: Type): string
       quoted(read) .. " as a value), "
   end
   return parts .. "read it with `Array.at(" .. xs .. ", " .. key .. ")` (`cosmic.array`: raises when missing)" ..
-    (if flag then ", " .. named else " or `assert(" .. read .. ")`" end) .. ", or test it (`local v = " .. read .. " if v ~= nil then ... end`); `or <default>` turns an out-of-range " ..
+    (if flag then ", " .. named else " or `" .. read .. "!`" end) .. ", or test it (`local v = " .. read .. " if v ~= nil then ... end`); `or <default>` turns an out-of-range " ..
     "read into a wrong value"
 end
 
@@ -1199,7 +1203,7 @@ local function nil_fix(ctx: Ctx, node: Ast.Node, t: Type): string
       return "name the value and say it is there (`local v = " .. text_of(ctx, e) .. "` then `assert(v ~= nil)`), or test " ..
         "it first (`if v == nil then " .. Naming.on_nil(ctx, "v") .. " end`); " .. call .. " answers nil when it fails"
     end
-    return "take the value with `local v = assert(" .. text_of(ctx, e) .. ")`, or test it first (`if v == nil then " ..
+    return "take the value with `local v = " .. text_of(ctx, e) .. "!`, or test it first (`if v == nil then " ..
       Naming.on_nil(ctx, "v") .. " end`); " .. call .. " answers nil when it fails"
   end
   if e.kind == "Index" then
@@ -1208,10 +1212,10 @@ local function nil_fix(ctx: Ctx, node: Ast.Node, t: Type): string
   local s = text_of(ctx, e)
   if (e.kind == "Field") then
     return "copy " .. quoted(s) .. " to a local and test that: `local v = " .. s .. " if v ~= nil then ... end`, or " ..
-      (if flag then "say it is there with `assert(v ~= nil)`" else "take it with `assert(" .. s .. ")`" end)
+      (if flag then "say it is there with `assert(v ~= nil)`" else "take it with `" .. s .. "!`" end)
   end
   return "test it first (`if " .. s .. " == nil then " .. Naming.on_nil(ctx, s) .. " end`), or " ..
-    (if flag then "say it is there with `assert(" .. s .. " ~= nil)`" else "take it with `assert(" .. s .. ")`" end)
+    (if flag then "say it is there with `assert(" .. s .. " ~= nil)`" else "take it with `" .. s .. "!`" end)
 end
 
 --- Whether the type `t` names `invalid` anywhere.
@@ -7342,7 +7346,7 @@ end
 
 --- The result columns of `e` where it is `db:rows(sql)` or `db:one(sql)`, either in `assert`, on a handle
 --- of a `local schema`, with literal SQL that SQLite prepares against its schema: the columns, and whether the
---- call answers a list of rows (`rows`) or one row (`one`). An element of a list [`Ctx.row_lists`] holds (`rows[1]`) is
+--- call returns a list of rows (`rows`) or one row (`one`). An element of a list [`Ctx.row_lists`] holds (`rows[1]`) is
 --- one row of its columns. Nil otherwise.
 function Calls.result_columns(ctx: Ctx, e: Ast.Node): {Sql.Column}?, boolean
   local at = peel(e)
@@ -8498,7 +8502,7 @@ end
 --- The local `t` whose length the limit `to` of a numeric loop with the index `var` is at most, and the literal `b`
 --- it stops short of that length by: `#t`, `#t - b`, or a `math.min` of such a one and other values that run no code
 --- of the program ([`Writes.keeps_length`] of each), so that nothing they run can change `t` between its length and the
---- loop. `math.min` answers the least of its arguments, so the limit is at most `#t - b`. Nil for another form.
+--- loop. `math.min` returns the least of its arguments, so the limit is at most `#t - b`. Nil for another form.
 function Writes.length_limit(to: Ast.Exp, var: integer): (Ast.Exp, integer) | (nil, integer)
   local at = peel(to)
   local slack = 0

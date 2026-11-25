@@ -2,8 +2,8 @@ local relay_address = require("cosmic.relay.address")
 
 local Example = {} -- checked: literal_needs_type
 
---- A name's answers are classified one by one and the allowed ones are the
---- only ones connected to, in order; a refusal names the remedy.
+--- A name's addresses are classified one by one, and the allowed ones
+--- are the only ones connected to, in order; a refusal names the remedy.
 function Example.permitted()
   local own = relay_address.own_addresses({ "192.0.2.7" })
   local allowed = assert(relay_address.permitted({

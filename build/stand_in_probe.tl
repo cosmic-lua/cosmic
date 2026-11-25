@@ -109,7 +109,7 @@ local function opens_to_write(path: string): boolean, string
 end
 
 --- Each verb, handed its first word and the rest, each substituted;
---- answers the status to end with, or nil to go on.
+--- returns the status to end with, or nil to go on.
 local verbs: {string:function(string, string): integer?} = {
   print = function(first: string, rest: string): integer?
     return put_all(1, (if rest ~= "" then first .. " " .. rest else first end) .. "\n")
@@ -554,7 +554,7 @@ local function chained(line: string): {string}, {string}
   return commands, operators
 end
 
---- Command `position` of `commands`, which [`chained`] answers one more of than it has operators.
+--- Command `position` of `commands`, which [`chained`] returns one more of than it has operators.
 local function command_at(commands: {string}, position: integer): string
   return (assert(commands[position], "chained answers a command before and after each operator"))
 end

@@ -289,7 +289,7 @@ end
 --- `sysname`, the host's uname(2) sysname, adds that host's own
 --- exemptions (`exempt_on`) to those every host shares.
 --- `unavailable` holds only prerequisites actually found absent, with
---- their reasons: never an unknown answer or one a held run promised.
+--- their reasons: never an unknown result or one a held run promised.
 function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits,
                            sources?: {string: {string}}, sysname?: string,
                            unavailable?: {string: string}): c_functions.Tally

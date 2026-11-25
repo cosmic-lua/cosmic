@@ -73,12 +73,14 @@ local function test_e_runs_a_teal_chunk(tmp: string)
   assert(cosmic(tmp, { "-e", "return 3.0" }).code == 3)
   assert(cosmic(tmp, { "-e", "return 255" }).code == 255)
   for chunk, shown in pairs({ ["256"] = "256", ["-1"] = "-1", ["1.5"] = "1.5", ["true"] = "true", -- checked: cast_refused
-      ["'text'"] = '"text"', ["{ 1 }"] = "table: " } as {string:string}) do
+      ["'text'"] = '"text"' } as {string:string}) do
     local refused = cosmic(tmp, { "-e", "return " .. chunk })
     assert(refused.code == 2, chunk .. ": " .. tostring(refused.code))
     assert(refused.stderr:find("-e returned " .. shown, 1, true) ~= nil, refused.stderr)
     assert(refused.stderr:find("not an exit status 0-255", 1, true) ~= nil, refused.stderr)
   end
+  local listed = cosmic(tmp, { "-e", "return { 1 }" })
+  assert(listed.code == 0 and listed.stdout == "[1]\n", listed.stdout)
   assert(not assert(Fs.status(tmp .. "/o")).exists, "-e wrote under o/")
 end
 

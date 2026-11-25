@@ -1,5 +1,5 @@
 --- Proves the vector functions core/vector.c registers on every SQLite
---- handle: each distance against a hand-computed answer, the text and
+--- handle: each distance against a hand-computed result, the text and
 --- blob forms agreeing, the refusals, and a whole search -- store,
 --- filter, rank, rerank and blend with full-text search -- in SQL alone.
 
@@ -11,7 +11,7 @@ local function close_to(a: number, b: number): boolean
   return math.abs(a - b) < 1e-6
 end
 
--- The one number a query answers.
+-- The one number a query yields.
 local function number_of(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): number
   local rows = assert(db:rows(sql, values))
   return assert(rows[1]):number(1)
@@ -148,7 +148,7 @@ end
 -- A toy embedding, so a search runs with no model: each word lands on
 -- one of 64 dimensions by its digest, with a sign by its digest too.
 -- Texts that share words point the same way. A real program stores what
--- an embedding API answers instead.
+-- an embedding API responds with instead.
 local function embed(text: string): string
   local sums: mut {integer: number} = {}
   for word in text:lower():gmatch("%a+") do

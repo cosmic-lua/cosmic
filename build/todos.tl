@@ -61,7 +61,7 @@ local record todos
   --- One row of the index.
   record Todo
     --- Its row in `todos`, shared by every file with the same bytes:
-    --- what `search` answers with.
+    --- what `search` returns.
     id: integer
     file: string
     line: integer
@@ -83,7 +83,7 @@ local record todos
 
   --- A command line split by `arguments`.
   record Arguments
-    --- As [`build.narrow.paths`] answers them; none for the whole tree.
+    --- As [`build.narrow.paths`] returns them; none for the whole tree.
     paths: {string}
     --- The words read as paths, as written.
     named: {string}
@@ -121,12 +121,12 @@ function todos.parse_blame(porcelain: string): {integer:todos.Blame}
   return out
 end
 
---- How long one git call may take before it is ended and its answer
+--- How long one git call may take before it is ended and its output
 --- taken as none: a TODO is listed unblamed rather than not at all.
 local git_timeout_ns = Clock.seconds(30)
 
---- A stand-in for git, which [`todos.list`] takes in its place: answers one
---- call's arguments (past `-C root`) with its output where it succeeds
+--- A stand-in for git, which [`todos.list`] takes in its place: returns
+--- the output of one call's arguments (past `-C root`) where it succeeds
 --- and nil where git would fail. A caller that names none runs the
 --- system's git.
 local type GitRunner = function(root: string, args: {string}): string?
@@ -235,7 +235,7 @@ local record BlameRun
 end
 
 --- How [`blame_all`] runs its blames: `start` begins the one with these
---- arguments, and `wait` answers which of the `running` has ended, or
+--- arguments, and `wait` returns which of the `running` has ended, or
 --- none and whether supervising them failed.
 local record Blamer
   start: function(file: string, args: {string}): BlameRun?
@@ -285,7 +285,7 @@ local function spawning(program: string, root: string): Blamer
   }
 end
 
---- A [`Blamer`] that has `run_git` answer each blame at its start, so
+--- A [`Blamer`] that calls `run_git` for each blame at its start, so
 --- every one has ended as soon as it is asked of.
 local function answering(run_git: GitRunner, root: string): Blamer
   return {
@@ -308,8 +308,8 @@ end
 --- running the calls [`blame_jobs`] at a time, past the commits
 --- `IGNORED_REVS` lists; a file git has nothing to
 --- say about maps to an empty table. Once `guard` has caught a signal,
---- it ends every git and stops. With `run_git`, the calls are its
---- answers, and no process starts.
+--- it ends every git and stops. With `run_git`, each call's output
+--- is what it returns, and no process starts.
 local function blame_all(root: string, lines: {string:{integer}}, order: {string},
                          guard: Signal.Guard?,
                          run_git: GitRunner?): {string:{integer:todos.Blame}}
@@ -562,8 +562,8 @@ end
 
 --- Every TODO in the tree staged into `db`, blamed where git can,
 --- in file and line order, and how many files had to be blamed. `run_git`,
---- where given, answers every git call in the system's place (a test's
---- recorded answers); the tree must still lie in a repository.
+--- where given, runs every git call in the system's place (a test's
+--- recorded output); the tree must still lie in a repository.
 function todos.list(db: Sqlite.Handle, root: string,
                     run_git?: function(root: string, args: {string}): string?
 ): todos.Listing?, string
@@ -583,7 +583,7 @@ function todos.list(db: Sqlite.Handle, root: string,
   return listing_of(rows, blamed), ""
 end
 
---- Every TODO `db` holds, as [`todos.list`] answers, but writing
+--- Every TODO `db` holds, as [`todos.list`] returns, but writing
 --- nothing: a TODO not yet blamed for `HEAD` is listed with no commit,
 --- and none is blamed. What `todos` lists from a working database
 --- another run holds the write lock of.

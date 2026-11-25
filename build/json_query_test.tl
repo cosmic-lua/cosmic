@@ -194,7 +194,7 @@ local record Counter
   mut walked: integer
 end
 
---- `value` with every table replaced by an empty one that answers for it,
+--- `value` with every table replaced by an empty one that stands in for it,
 --- and counts in `counter.walked` each time it is walked by `pairs`: one for
 --- every container a walk lays out, so a test can bound the work a walk
 --- does by what it counted, not by how long it took.

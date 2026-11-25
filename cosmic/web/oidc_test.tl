@@ -1,5 +1,5 @@
 --- The OpenID Connect login of cosmic.web, against a stand-in provider:
---- a whole login, and each answer of the provider or the browser that
+--- a whole login, and each message of the provider or the browser that
 --- must not log anyone in.
 
 local Clock = require("cosmic.clock")
@@ -35,7 +35,7 @@ local function signer_of(kid: string): Signer
   return { key = Key.generate("p256"), kid = kid }
 end
 
---- A stand-in provider: what it was asked, and what it answers.
+--- A stand-in provider: what it was asked, and what its fetch ([`fetch_of`]) returns.
 local record Provider
   --- The key its ID tokens are signed with now.
   mut signer: Signer
@@ -58,12 +58,12 @@ local record Provider
   mut discovered_issuer: string
   --- The scheme of the token endpoint its discovery document names.
   mut token_scheme: string
-  --- Whether it says it names itself in an answer (RFC 9207).
+  --- Whether it says it names itself in a response (RFC 9207).
   mut iss_supported: boolean
   --- Whether its discovery document, and its keys, cannot be reached.
   mut discovery_down: boolean
   mut keys_down: boolean
-  --- What its token endpoint waits on before it answers, where given.
+  --- What its token endpoint waits on before it returns, where given.
   mut hold?: Poll.Notifier
   --- The time, in seconds since the epoch.
   mut now: integer
@@ -188,7 +188,7 @@ local function query_of(location: string): Url.Query
 end
 
 --- Starts a login at `client`, notes what the provider was asked, and
---- answers the state.
+--- returns the state.
 local function start(client: Web.TestClient, p: Provider, next_path?: string): string
   local res = client:get("/auth/login" .. (if next_path ~= nil then "?next=" .. Url.escape(next_path) else "" end))
   assert(res.status == 302, res.status)
@@ -258,7 +258,7 @@ local function test_kept_claims()
 end
 
 --- A callback with a state no login of this browser made is refused: it
---- is how a login planted from another browser, or an answer replayed,
+--- is how a login planted from another browser, or a response replayed,
 --- is told apart.
 local function test_a_state_of_no_login_is_refused()
   local p = provider_new()
@@ -482,7 +482,7 @@ local function test_an_endpoint_that_is_not_https_is_refused()
   assert(#p.lines == 1 and p.lines[1]:find("not https", 1, true) ~= nil, p.lines[1])
 end
 
---- A provider that says it names itself must: an answer without `iss`
+--- A provider that says it names itself must: a response without `iss`
 --- may be another provider's (a mix-up).
 local function test_iss_is_required_where_the_provider_sends_it()
   local p = provider_new()
@@ -666,7 +666,7 @@ local function test_trades_under_way_from_one_address_are_limited()
   assert(p.fetched[TOKEN] == 10, p.fetched[TOKEN])
   -- Once the ten failures age out, the refused login goes on: none is
   -- left counted as under way. The last login started was its, so the
-  -- provider answers with its nonce.
+  -- provider returns its nonce.
   p.now = p.now + 60
   p.token_status = 200
   assert(callback(assert(browsers[11]), assert(states[11])).status == 303)
@@ -747,7 +747,7 @@ local function test_logout_from_the_app_s_own_page()
 end
 
 --- The provider's words come through the browser, which may send any
---- text: the answer passes on the printable ASCII RFC 6749 allows, and
+--- text: the response passes on the printable ASCII RFC 6749 allows, and
 --- not much of it.
 local function test_a_refusal_is_passed_on_as_printable_ascii()
   local p = provider_new()

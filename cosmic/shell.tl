@@ -1,7 +1,7 @@
 --- The work of common shell commands, done in this process as calls on
 --- values: `find`, `grep -n`, `sed -i`, `wc -l`, `sort`, `uniq -c` and a
 --- one-shot `sqlite3`. No program runs, so a call needs no `x` grant, no
---- fork and no parse of a command's output, and its answer is a value:
+--- fork and no parse of a command's output, and it returns a value:
 ---
 ---     local Shell = require("cosmic.shell")
 ---     local files = assert(Shell.find(".", ".tl"))
@@ -13,10 +13,10 @@
 --- Each call does what its command does in the common case, after GNU
 --- coreutils, grep, sed and findutils, but takes Lua patterns
 --- ([`string.find`]), not regular expressions, and no flags past those
---- its options name. A call that reads or writes a file answers a
---- [`cosmic.failure`] where that fails; what it is given in a wrong shape
---- (a malformed pattern, a table to bind) is a failure too, so a caller
---- tells the user rather than ending.
+--- its options name. A call that reads or writes a file returns nil and
+--- a [`cosmic.failure`] where that fails; what it is given in a wrong
+--- shape (a malformed pattern, a table to bind) is a failure too, so a
+--- caller tells the user rather than ending.
 ---
 --- What one command does that one stdlib call already does is there,
 --- not here: `cat` is [`Fs.read`], `test -e` is [`Fs.status`]'s
@@ -33,7 +33,7 @@ local String = require("cosmic.string")
 local raw = require("cosmic.internal.text")
 
 local record Shell
-  --- A row [`Shell.sqlite`] answers: each column by its name, NULL as [`Json.null`].
+  --- A row of what [`Shell.sqlite`] returns: each column by its name, NULL as [`Json.null`].
   type Row = {string: Json.Value}
 
   --- A line [`Shell.grep`] found.
@@ -240,9 +240,9 @@ end
 --- it is missing, as the command `sqlite3 path statement` runs it: each
 --- row an object of its columns (NULL is [`Json.null`]); `values` bind
 --- `?1`, `?2`, ... (a string as text, a number as itself, a boolean as 1
---- or 0). A statement that changes the file answers no rows; with no
+--- or 0). A statement that changes the file yields no rows; with no
 --- `values`, `statement` may be a script of several
---- (`create table ...; insert ...`), which answers none. For more than
+--- (`create table ...; insert ...`), which yields none. For more than
 --- one statement on a file, [`Sqlite.open`] it.
 function Shell.sqlite(path: string, statement: string, values?: {Json.Value}): ({Shell.Row}) | (nil, Failure)
   local db, open_why = Sqlite.open(path, { writable = true })

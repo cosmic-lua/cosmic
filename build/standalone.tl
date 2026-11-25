@@ -36,9 +36,10 @@
 --- The file may require `cosmic.*` modules only -- the binary's own,
 --- typed from its own sources -- and a `require` of anything else is
 --- refused by the checker. The checker is as strict as a tree build's:
---- a warning is refused along with an error.
+--- a warning is refused along with an error, but for a name the file
+--- never uses, which a run lets pass and `--check` refuses.
 ---
---- `cosmic --standalone --check <file.tl>` types the file as a run does, prints the same refusals and exits 4 on any, 0 when
+--- `cosmic --standalone --check <file.tl>` types the file as a run does (and refuses an unused name too), prints the same refusals and exits 4 on any, 0 when
 --- there are none, 1 when it cannot read the file, and never calls the file: a gate on one script that reads neither the tree around it nor its siblings.
 ---
 --- What the file returns is its entry point, called as `cosmic
@@ -70,7 +71,7 @@ end
 --- hash (a test's closure store) names no build its sources are fixed in,
 --- so a key without one would outlive an edit of the modules the source was
 --- checked against.
-local function cached_path(source: string, variables?: {string:string}, own?: boolean): string?
+local function cached_path(source: string, variables?: {string:string}, own?: boolean, strict?: boolean): string?
   local boot = Store.meta("boot_hash") or ""
   if boot == "" then
     return nil
@@ -80,8 +81,9 @@ local function cached_path(source: string, variables?: {string:string}, own?: bo
     return nil
   end
   -- A chunk that takes the tool's own modules is checked against more than a file is, so its Lua is kept apart. The
-  -- kind is a word ahead of a separator, so no source spells another kind's key.
-  local kind = if own == true then "own" else "file" end
+  -- kind is a word ahead of a separator, so no source spells another kind's key. A strict check is kept apart from a
+  -- run, which lets an unused name pass.
+  local kind = (if own == true then "own" else "file" end) .. (if strict == true then "-strict" else "" end)
   local key = Hash.hex_sha256(boot .. "\0grammar-new\0" .. kind .. "\0" .. source)
   return dir .. "/" .. key .. ".lua"
 end
@@ -139,7 +141,7 @@ local function sweep(dir: string)
   end
 end
 
---- The Lua of a `require` that answers each of `modules` by its name, and asks `load_module` for any other.
+--- The Lua of a `require` that returns each of `modules` by its name, and asks `load_module` for any other.
 local OWN_REQUIRE <const> = "local modules, load_module = ... " ..
   "return function(name) local found = modules[name] if found ~= nil then return found end return load_module(name) end"
 
@@ -152,7 +154,7 @@ local function loaded_in(file: string, code: string, env: {string: any}): standa
   return chunk, ""
 end
 
---- `code`, Lua the checker wrote of `file`, loaded as `file`'s chunk, with a `require` that answers each of
+--- `code`, Lua the checker wrote of `file`, loaded as `file`'s chunk, with a `require` that resolves each of
 --- `modules` by its name, as a module the binary does not hold: the module of an MCP server a snippet of cosmic agent
 --- requires ([`build.agent_worker`]).
 function standalone.loaded_with<M>(file: string, code: string, modules: {string: M}): standalone.Main?, string
@@ -173,10 +175,11 @@ end
 --- checker ([`build.pipeline`]) holds the file to no ceiling and takes `cosmic.*` from this binary. With `own`, as `cosmic -e` asks, the file
 --- may also require the tool's own modules, which the checker types from their sources ([`build.standard_text`]'s `own`):
 --- the binary's database holds those as it holds the standard library's, so its Lua is kept as a file's is, under a
---- key of its own kind ([`cached_path`]).
+--- key of its own kind ([`cached_path`]). A run lets a name the file never uses pass; `strict`, as `--check` asks, refuses
+--- it, as a tree build does.
 function standalone.code(file: string, source: string, variables?: {string:string}, own?: boolean,
-                         outcome?: importer.Outcome): string?, string
-  local cached = cached_path(source, variables, own)
+                         outcome?: importer.Outcome, strict?: boolean): string?, string
+  local cached = cached_path(source, variables, own, strict)
   local code: string?
   if cached ~= nil then
     -- A cache that cannot be read is a miss.
@@ -197,6 +200,9 @@ function standalone.code(file: string, source: string, variables?: {string:strin
       options = { globals = options.globals, types = options.types,
         standard = Pipeline.carried_own(), project = options.project }
     end
+    -- A run is no review: an unused name is let pass, as an agent's snippet lets it pass. `--check`, `cosmic fix`
+    -- and a tree's tests still refuse it.
+    options.lax = strict ~= true
     -- A file's entry point is held to a declaration, as `cosmic fix` holds it in a tree; a chunk's exit code is not.
     local generated, generate_trouble = Pipeline.lone(file, source, options, nil, own ~= true)
     if generated == nil then
@@ -271,8 +277,8 @@ end
 --- loaded as `file`'s, or as the module `module`'s where given, as its tree loads it), `own` and `outcome` as it says
 --- there.
 function standalone.compile(file: string, source: string, variables?: {string:string}, own?: boolean,
-                            outcome?: importer.Outcome, module?: string): standalone.Main?, string
-  local code, trouble = standalone.code(file, source, variables, own, outcome)
+                            outcome?: importer.Outcome, module?: string, strict?: boolean): standalone.Main?, string
+  local code, trouble = standalone.code(file, source, variables, own, outcome, strict)
   if code == nil then
     return nil, trouble
   end
@@ -344,7 +350,8 @@ end
 --- that module's, as its tree loads it (a traceback and coverage name the module), and its top level finds the name
 --- as its `...`, as `require` hands a module its own.
 function standalone.run(argv: {string}, why?: string, name?: string): integer
-  -- `--check` stands before the file and takes nothing after it: the file is checked as a run checks it, and not run.
+  -- `--check` stands before the file and takes nothing after it: the file is checked as a run checks it, but for an
+  -- unused name, which a check refuses as a tree build does, and not run.
   local only = argv[2] == "--check"
   local file = argv[if only then 3 else 2 end]
   if file == nil or (only and argv[4] ~= nil) then
@@ -357,7 +364,7 @@ function standalone.run(argv: {string}, why?: string, name?: string): integer
     return 1
   end
   local outcome: importer.Outcome = { refused = false }
-  local chunk, trouble = standalone.compile(file, source, nil, nil, outcome, name)
+  local chunk, trouble = standalone.compile(file, source, nil, nil, outcome, name, only)
   if chunk == nil then
     local shown = require("build.error_render").annotated(trouble, function(named: string): string?
       local text, _ = Fs.read(named)

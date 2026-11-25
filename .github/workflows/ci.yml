@@ -40,8 +40,8 @@
     # Every day, the run that tests macOS and publishes a prerelease
     # (prerelease.yml): every leg and job, on the verdicts main's pushes
     # left. On Sundays (the second line), also every test run whatever
-    # stood (COSMIC_CI_EVENT), and zig's caches built cold: for
-    # what no key answers for (the clock, a flake).
+    # stood (COSMIC_CI_EVENT), and zig's caches built cold: to catch
+    # what no key is responsible for (the clock, a flake).
     # TODO: tell the maintainers of a red scheduled run: GitHub notifies
     # only whoever last edited this cron line. A step that opens (or
     # comments on) an issue when a scheduled run fails would, once one is
@@ -709,7 +709,7 @@
         # where the rows differ from the entry restored. Not the macOS
         # leg's weekly run: its keys hold the tree's path, which that run
         # chooses by the commit (driver.tl place-tree), so its rows would
-        # answer no other run.
+        # match no other run.
         {
           name: "save test verdicts",
           if: "always() && env.COSMIC_CI_SAVES == 'true' && (matrix.leg == 'macos-aarch64' || steps.main-newest.outputs.newest != 'false') && steps.verdicts-trim.outputs.digest != '' && !(github.event.schedule == '41 3 * * 0' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
@@ -1000,7 +1000,7 @@
         # where the rows differ from the entry restored. Not the macOS
         # leg's scheduled runs: its keys hold the tree's path, which such a
         # run chooses by the commit (driver.tl place-tree), so its rows
-        # would answer no other run.
+        # would match no other run.
         {
           name: "save test verdicts",
           if: "always() && steps.verdicts-trim.outputs.digest != '' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
@@ -1230,7 +1230,7 @@
         # where the rows differ from the entry restored. Not the macOS
         # leg's scheduled runs: its keys hold the tree's path, which such a
         # run chooses by the commit (driver.tl place-tree), so its rows
-        # would answer no other run.
+        # would match no other run.
         {
           name: "save test verdicts",
           if: "always() && steps.verdicts-trim.outputs.digest != '' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",

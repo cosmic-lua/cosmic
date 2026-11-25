@@ -57,7 +57,7 @@ end
 -- FIFO pause/release and process supervision.
 --------------------------------------------------------------------------
 
--- Starts `program` paused at `hook`, and answers the child and the pipe
+-- Starts `program` paused at `hook`, and returns the child and the pipe
 -- that releases it. The hook "after_validation" pauses through the native
 -- `COSMIC_PORTABLE_STARTUP_TEST_READY`/`_GO` hook
 -- (test/portable/startup_hook.c), which fires at one fixed point in real
@@ -109,7 +109,7 @@ end
 local function host_identifier(work: string, diagnostics: string): string
   local sysname = host_uname(work, diagnostics, "-s", "sysname")
   local arch = host_uname(work, diagnostics, "-m", "arch")
-  -- A launcher arm is the quoted `uname -sm` answer it selects.
+  -- A launcher arm is the quoted `uname -sm` output it selects.
   return "'" .. sysname .. " " .. arch .. "'"
 end
 

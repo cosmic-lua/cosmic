@@ -2,7 +2,7 @@
 --- a channel it encrypts itself, a socket it was handed, or a protocol
 --- with HTTP's message grammar under another name, as RTSP/1.0 is.
 --- [`cosmic.http`] and [`cosmic.http.server`] own theirs. A reader here
---- is fed the bytes as they arrive and answers one message (a request,
+--- is fed the bytes as they arrive and reads one message (a request,
 --- a response, or with [`Message.reader`] either, as its first line
 --- says), and [`Message.format_request`] and [`Message.format_response`]
 --- write one.
@@ -13,21 +13,21 @@
 ---     while read.status == "more" do read = reader:feed(more_bytes()) end
 ---     local request = assert(read.request, read.reason)
 ---
---- A reader reads one message. `feed` answers `more` until the bytes
+--- A reader reads one message. `feed` returns `more` until the bytes
 --- decide it, then `done` with the message, `consumed` (the count of
 --- bytes, of all fed, that it took) and `next` (where in the last chunk
 --- fed the bytes after it start, which are the next message's: feed the
 --- chunk from there to a new reader), or `refused` and why. `finish`
---- says the stream ended: it answers a response that is read to the
+--- says the stream ended: it returns a response that is read to the
 --- end of the stream (an HTTP one that names no length, unless
 --- `lengthless` says otherwise), `empty` where no message began (nothing
 --- came, or blank lines alone), and a refusal where one was cut short.
---- An answer but `more` is final, and every later call gives it again,
+--- A result but `more` is final, and every later call gives it again,
 --- its `next` still a position in the chunk that decided it.
 ---
 --- The bytes are not trusted. A reader never raises on them, does work
 --- linear in the bytes fed, holds no more than its limits allow
---- ([`Message.Options`]), and answers the same status, reason, message
+--- ([`Message.Options`]), and reads the same status, reason, message
 --- and `consumed` wherever the feeds split.
 --- Blank lines before the first line are passed over (RFC 9112 2.2).
 --- It refuses what two readers could read differently:
@@ -57,8 +57,8 @@
 --- HTTP, as RTSP has it (RFC 2326 12.14, RFC 7826 18.17); an HTTP
 --- response's body is then every byte up to the end of the stream (RFC
 --- 9112 6.3). A reader made with `lengthless` frames such a response
---- as it is told, whatever its protocol: AirPlay's HTTP/1.1 answers name
---- no length where they have no body, on a connection kept open. A
+--- as it is told, whatever its protocol: AirPlay's HTTP/1.1 responses
+--- name no length where they have no body, on a connection kept open. A
 --- response with a status below 200, 204 or 304, and one read with
 --- `head_only`, has no body whatever its headers say.
 ---
@@ -71,7 +71,7 @@
 --- HTTP's grammar, and nothing else of another protocol is read (RTSP's
 --- interleaved binary frames are not). A reader holds no rule of HTTP
 --- above the message: a server that needs one `Host`, or a target of a
---- given form, checks it in what the reader answers.
+--- given form, checks it in what the reader reads.
 --- @public
 
 local String = require("cosmic.string")
@@ -119,7 +119,7 @@ local record Message
     max_headers?: integer
     --- Most bytes of a body, once decoded (1 MiB).
     body_bytes?: integer
-    --- Of a response alone: the response answers a HEAD, or a CONNECT
+    --- Of a response alone: the response is for a HEAD, or a CONNECT
     --- that was accepted, so its head is all of it.
     head_only?: boolean
     --- Of a response alone: how one that names neither a length nor
@@ -162,7 +162,7 @@ local record Message
     body: string
   end
 
-  --- What a [`Message.RequestReader`] answers.
+  --- What a [`Message.RequestReader`]'s `feed` and `finish` return.
   record RequestRead
     --- How far the bytes have decided it.
     status: Status
@@ -178,7 +178,7 @@ local record Message
     reason: string
   end
 
-  --- What a [`Message.ResponseReader`] answers.
+  --- What a [`Message.ResponseReader`]'s `feed` and `finish` return.
   record ResponseRead
     --- How far the bytes have decided it.
     status: Status
@@ -192,7 +192,7 @@ local record Message
     reason: string
   end
 
-  --- What a [`Message.Reader`] answers.
+  --- What a [`Message.Reader`]'s `feed` and `finish` return.
   record Read
     --- How far the bytes have decided it.
     status: Status
@@ -214,7 +214,7 @@ local record Message
   --- Reads one request from the bytes fed to it.
   record RequestReader
     --- Feeds the next bytes, `chunk` from the position `from` (1 when
-    --- nil), and answers what all fed so far say.
+    --- nil), and returns what all fed so far say.
     feed: function(RequestReader, chunk: string, from?: integer): RequestRead
     --- Says the stream ended: `empty` where no request began, a refusal
     --- where one was cut short.
@@ -320,8 +320,9 @@ local record Settings
   kind?: Message.Kind
 end
 
---- What any reader answers, before it is a [`Message.RequestRead`], a
---- [`Message.ResponseRead`] or a [`Message.Read`].
+--- What any reader's `feed` and `finish` return, before it is a
+--- [`Message.RequestRead`], a [`Message.ResponseRead`] or a
+--- [`Message.Read`].
 local record Outcome
   status: Message.Status
   consumed: integer
@@ -545,7 +546,7 @@ local function machine(set: Settings): Machine
     return nil
   end
 
-  --- What the head, read whole, says of the body: an answer, or nil
+  --- What the head, read whole, says of the body: an outcome, or nil
   --- where a body follows, `phase` set for it. `after` is where the
   --- chunk fed goes on after the head.
   local function framed(after: integer): Outcome?
@@ -592,7 +593,7 @@ local function machine(set: Settings): Machine
     return nil
   end
 
-  --- What a whole line, without its LF, decides: an answer, or nil to
+  --- What a whole line, without its LF, decides: an outcome, or nil to
   --- go on. `after` is where the chunk fed goes on after the line.
   local function line(raw: string, after: integer): Outcome?
     if raw:sub(-1) ~= "\r" then return refuse("a line ends in a bare LF") end
@@ -713,7 +714,7 @@ local function machine(set: Settings): Machine
   return { feed = feed, finish = finish }
 end
 
---- `read` as what a request reader answers.
+--- `read` as a request reader's result.
 local function request_read(read: Outcome): Message.RequestRead
   local method, target, protocol, headers, values, body =
     read.first, read.second, read.third, read.headers, read.values, read.body
@@ -728,7 +729,7 @@ local function request_read(read: Outcome): Message.RequestRead
   }
 end
 
---- `read` as what a response reader answers.
+--- `read` as a response reader's result.
 local function response_read(read: Outcome): Message.ResponseRead
   local protocol, status, reason, headers, values, body =
     read.first, math.tointeger(tonumber(read.second or "")), read.third, read.headers, read.values, read.body
@@ -743,7 +744,7 @@ local function response_read(read: Outcome): Message.ResponseRead
   }
 end
 
---- `read` as what a reader of either kind answers.
+--- `read` as the result of a reader of either kind.
 local function either_read(read: Outcome): Message.Read
   if read.kind == "request" then
     local got = request_read(read)
@@ -764,8 +765,8 @@ end
 function Message.request_reader(opts?: Message.Options): Message.RequestReader
   local reader = machine(settings(opts, "request"))
   local last: mut {Message.RequestRead} = {}
-  --- One record for each answer of the machine, so a final answer is the
-  --- same value at every call.
+  --- One record for each outcome of the machine, so a final outcome is
+  --- the same value at every call.
   local function answer(read: Outcome): Message.RequestRead
     local kept = last[1]
     if kept ~= nil and read.status ~= "more" then return kept end
@@ -784,7 +785,7 @@ function Message.request_reader(opts?: Message.Options): Message.RequestReader
 end
 
 --- A reader of one response, for the side that asked. Its `opts` are
---- [`Message.request_reader`]'s, with `head_only` for the answer to a
+--- [`Message.request_reader`]'s, with `head_only` for the response to a
 --- HEAD and `lengthless` for a peer that names no length where it sends
 --- no body; the caller says when the stream ends, with `finish`, which
 --- is where a response read to the end of the stream ends.
@@ -810,8 +811,8 @@ end
 
 --- A reader of one message of either kind, for a connection whose
 --- requests and responses share a stream (each side asks the other),
---- or a side that passes over what it is asked while it waits for an
---- answer. Its first line says which kind it is: a status line starts
+--- or a side that passes over what it is asked while it waits for a
+--- response. Its first line says which kind it is: a status line starts
 --- with a protocol, and a method is never one. A first line whose first
 --- word is neither a protocol nor a method (`HTTP/2 200 OK`) is refused
 --- as neither kind. Its `opts` are

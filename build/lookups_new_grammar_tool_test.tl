@@ -1,4 +1,4 @@
---- `cosmic docs`, `uses`, `db` and `sql` in a project written in the new grammar, as the tool runs them: a lookup builds the project as it stands before it answers ([`build.rebuild`]), and that build reads the
+--- `cosmic docs`, `uses`, `db` and `sql` in a project written in the new grammar, as the tool runs them: a lookup builds the project as it stands before it prints ([`build.rebuild`]), and that build reads the
 --- sources with the new checker's syntax tree, so a symbol declared with `mut` or `name?: T` is found, and so is a call through
 --- a method. The project is the project of testdata/projects/new_grammar.
 local Child = require("cosmic.child")
@@ -299,7 +299,7 @@ local function test_a_lookup_answers_from_the_last_build_when_the_new_checker_re
   local text = assert(Fs.read(root .. "/shapes.tl"))
   assert(Fs.write(root .. "/shapes.tl", (text:gsub("function Shapes.new%(width: integer%): Shapes.Box\n",
     "function Shapes.new(width: integer): Shapes.Box\n  local unused = 1\n"))))
-  -- the refusal is said in the summary, beside the answer, not with the checker's text, which `cosmic test` shows; the answer
+  -- the refusal is said in the summary, beside the result, not with the checker's text, which `cosmic test` shows; the result
   -- is the last build's, as a build the fork stops leaves it
   local stale = "from the last build (the tree does not build: shapes.tl refused; `cosmic test` shows why), "
   local last, last_err = looked_up(root, tmp, { "docs", "Box" })

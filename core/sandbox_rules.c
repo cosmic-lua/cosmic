@@ -225,7 +225,7 @@ COSMIC_SYSCALL(landlock_restrict_execute, 1) {
     if (fd >= 0) close(fd);
   }
   /* Whether the process will be held from running its own core, asked
-   * before it is held: the answer names no path the ruleset changes. */
+   * before it is held: what it finds names no path the ruleset changes. */
   char self[PATH_MAX];
   bool keeps = !cosmic_executable_path(self, sizeof self) || !listed_beneath(L, 1, count, self);
   if (number == 0 && prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) number = errno;
@@ -242,8 +242,9 @@ COSMIC_SYSCALL(landlock_restrict_execute, 1) {
 
 #if defined(__APPLE__)
 
-/* Past every RLIMIT_ resource Darwin has (the most is 9): setrlimit's own EINVAL
- * answers one in between, and this keeps the cast to `int` honest. */
+/* Past every RLIMIT_ resource Darwin has (the most is 9): setrlimit
+ * itself fails with EINVAL for one in between, and this keeps the cast to
+ * `int` honest. */
 #define TRAMPOLINE_RESOURCE_MAX 32
 
 /* `text` as the whole of an unsigned decimal number. */
@@ -337,10 +338,11 @@ static bool seatbelt_held;
 
 typedef int (*seatbelt_check_function) (pid_t pid, const char *operation, int type, ...);
 
-/* Whether a Seatbelt profile holds this process, as libsystem_sandbox's
- * sandbox_check answers with no operation (SANDBOX_FILTER_NONE, 0): one it
- * was started under -- a policy's child, which the trampoline's profile
- * holds -- as well as one it applied (`seatbelt_held`). 1 where one does,
+/* Whether a Seatbelt profile holds this process, as told by
+ * libsystem_sandbox's sandbox_check called with no operation
+ * (SANDBOX_FILTER_NONE, 0): one it was started under -- a policy's
+ * child, which the trampoline's profile holds -- as well as one it
+ * applied (`seatbelt_held`). 1 where one does,
  * 0 where none does or the system has no sandbox_check (which a system
  * with sandbox_init has), and -1 with the errno in `error` where
  * sandbox_check fails, which tells neither. */
@@ -658,10 +660,10 @@ bool root_shows_no_socket (char *const *resolved, const char *const *at, int cou
  * on as the plan's `confine`, restricted by the child in
  * `run_program` (core/sandbox_root.c) before the promises filter, which follows it.
  * TODO: report a grant whose target (the path of its descriptor, read
- * from /proc/self/fd) differs from its name, once `spawn` can answer the
+ * from /proc/self/fd) differs from its name, once `spawn` can return the
  * resolutions it made beside the pid and [`cosmic.child`]'s policy start
  * (held_to in cosmic/child.tl) hands them to the caller on the Handle: it
- * prints nothing about grants, and `spawn` answers a pid alone. */
+ * prints nothing about grants, and `spawn` returns a pid alone. */
 int grants_ruleset (const char *const *paths, const unsigned *letters, int count,
                     int inet, int unix_bound, int offline, int unix_tmp, char *message,
                     size_t room, int *error, unsigned *held) {
@@ -1004,7 +1006,7 @@ static int plan_limit (int resource, rlim_t value, struct rlimit *target, bool *
   return 0;
 }
 
-/* Answers `restrict_self`'s refusal: false, `what` formatted, and `number`. */
+/* Returns `restrict_self`'s refusal: false, `what` formatted, and `number`. */
 static int restrict_refused (lua_State *L, int number, const char *format, ...)
     __attribute__((format(printf, 3, 4)));
 static int restrict_refused (lua_State *L, int number, const char *format, ...) {
@@ -1531,7 +1533,7 @@ COSMIC_SYSCALL(maps_id, 1) {
     if (failure != 0) return cosmic_fail_effect(L, failure);
     bool mapped = id_mapped(text, used, (uint64_t)id);
     cosmic_free(text);
-    /* setuid's answer for an id this namespace does not map. */
+    /* The errno setuid fails with for an id this namespace does not map. */
     if (!mapped) return cosmic_fail_effect(L, EINVAL);
   }
   return cosmic_ok(L);

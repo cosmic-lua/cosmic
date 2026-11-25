@@ -15,7 +15,7 @@ verify each note against the current tree, reproducing it where possible. a
 note that does not reproduce is reported as fixed or stale, with the evidence,
 and changes nothing.
 
-classify the note and answer it:
+classify the note and act on it:
 
 - bug: fix it (promise 1, no silent bugs).
 - misleading message: correct the error site so it says the fix.
@@ -23,8 +23,8 @@ classify the note and answer it:
 - misunderstanding the docs invited: add the hint or doc that would have
   prevented it.
 - design choice: add a hint at the error site that explains it.
-- feature request: add a feature only when none of the answers above meets
-  the need, and judge it against principle 5 ("the least tree that keeps its
+- feature request: add a feature only when none of the remedies above is
+  enough, and judge it against principle 5 ("the least tree that keeps its
   promises") and the promises.
 
 a hint is preferred to a doc because principle 8 says "an error-site hint
@@ -32,7 +32,7 @@ beats a gotcha doc beats guide prose". principle 8 orders only those two.
 fixing a bug first follows from promise 1, and a feature last from principle 5.
 
 friction is valid when it slows a builder. friction that cannot be met without
-breaking a promise or principle is still answered, with a hint at the error
+breaking a promise or principle is still addressed, with a hint at the error
 site saying why, and not with a change.
 
 the rules below are corollaries of the promises and principles cited, not new
@@ -55,10 +55,10 @@ principles:
 
 - accept every note as a change request: it grows the tree against principle
   5 and trades a promise for a convenience.
-- answer a design choice with a decision record per item: the records bury the
+- explain a design choice with a decision record per item: the records bury the
   few that state a principle. the hint is what the builder meets.
 
 ## consequences
 
 a declined request still leaves the builder a hint at the point of friction.
-a reviewer of a friction fix checks the answer against the list above.
+a reviewer of a friction fix checks the remedy against the list above.

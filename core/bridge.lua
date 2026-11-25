@@ -1,7 +1,7 @@
 -- The bridge is the only Lua the tree writes by hand rather than compiling from Teal, because it is what makes Teal
 -- available. A boot (`cosmic-core --boot <root> ...`, core/boot.c) loads it from the tree it boots and runs it with that
--- root. It builds, over the syscall table, the compiler a boot needs in two stages, and then the searcher that answers
--- `require` for the build's code from that compiler:
+-- root. It builds, over the syscall table, the compiler a boot needs in two stages, and then the searcher that loads
+-- the build's code for `require` from that compiler:
 --
 --   * The SEED is a directory holding the Lua the pinned release wrote for the files of [`build/seed.txt`] (build.zig's
 --     `seedCompiler`), each as `<basename>.lua`: build/seed.tl and the files it requires. Stage one loads it, every
@@ -13,7 +13,7 @@
 --     removes it). A seed that `COSMIC_BOOTSTRAP` names instead of the pin is not held to a listed file that does not
 --     differ (the boot of the tree by its own tool); the pinned seed is.
 --   * Stage two is loaded the same way, as [`build.seed`]: its `program(root, declared)` is a build of the new checker over
---     the tree, and the searcher answers `build.*` and the rest up to [`build.boot`] with the Lua it writes, a module at
+--     the tree, and the searcher loads `build.*` and the rest up to [`build.boot`] from the Lua it writes, a module at
 --     a time. Type errors are not refused (the tree's checks hold the code to its ceilings); a syntax error and a
 --     construct the generator does not write are.
 --
@@ -147,7 +147,7 @@ end
 
 -- Where the cache file is, as [`build.shared_compiles`] places it: the
 -- absolute path `COSMIC_BUILD_CACHE` names, else `build/cache.db` in
--- `$XDG_CACHE_HOME/cosmic` or `$HOME/.cache/cosmic`. Answers the path
+-- `$XDG_CACHE_HOME/cosmic` or `$HOME/.cache/cosmic`. Returns the path
 -- and, for the default, the base directory above `cosmic`; nil when
 -- the cache is off (`0`) or has no place.
 local function location(variables)
@@ -226,7 +226,7 @@ local function cache_file(variables, create)
 end
 
 -- Runs one statement with `...` bound in order (a string as text, an
--- integer as an integer, a one-slot table as a blob), answering
+-- integer as an integer, a one-slot table as a blob), returning
 -- whether it ran.
 local function run(db, sql, ...)
   local statement = db:prepare(sql)
@@ -313,7 +313,7 @@ end
 -- Keeps `payload` as the row of `kind` under `key`, in one transaction:
 -- a reader sees a whole row or none, and another run writing the same
 -- key writes the same bytes. Then drops all but the newest `kept_rows`
--- of the kind. Answers whether it was kept.
+-- of the kind. Returns whether it was kept.
 local function keep(path, kind, key, declared, payload)
   local db = sqlite.open(path, true, false, false)
   if not db then return false end
@@ -598,7 +598,7 @@ end
 
 -- The compiler a boot builds the tool with: [`build/seed.tl`], the file at `entry`, and the files it requires, listed in
 -- [`build/seed.txt`], in two stages (see the top of this file). `seed_dir` is the directory of the seed (build.zig's seed
--- step). Answers the module stage two makes of the entry, which has `compile` and `program` ([`build.seed`]).
+-- step). Returns the module stage two makes of the entry, which has `compile` and `program` ([`build.seed`]).
 --
 -- Only a syntax error or a refusal of the generator stops stage one. The files do not obey the rules the new checker
 -- holds a program to when they are compiled without the standard library's declarations, which the seed is not given.
@@ -697,7 +697,7 @@ local function bootstrap(seed_dir, entry, variables)
   return program
 end
 
--- `stage_two`, the entry that `bootstrap` answered, makes the searcher for `require`: every module loaded is answered
+-- `stage_two`, the entry that `bootstrap` returned, makes the searcher for `require`: every module loaded is taken
 -- from the `modules` row where one stands (see the top of this file), without reading or compiling it. Otherwise it is
 -- compiled, and what is compiled up to the loading of [`build.boot`] -- the whole of its closure, which it requires at
 -- its top -- is kept as the row. A module loaded after that is compiled and not kept.
@@ -712,7 +712,7 @@ local function searcher_for(stage_two, variables)
   local from_declared = ''
   local rewrite = false    -- the row hit disagreed with `declare`
   local sealed = false
-  local made = {}          -- every module answered, in order
+  local made = {}          -- every module loaded, in order
   local program = nil      -- made when a module is not in the row
   local compiled, compile_ns = 0, 0
 

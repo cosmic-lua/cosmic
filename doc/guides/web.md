@@ -428,8 +428,8 @@ local function head(req: Web.Request): Html.SafeHtml
   })
 end
 
---- Answers `req` with `content` alone for an htmx request, else with the
---- whole page.
+--- Returns the response to `req`: `content` alone for an htmx request,
+--- else the whole page.
 function View.page(req: Web.Request, title: string, content: Html.SafeHtml): Web.Response
   return Htmx.page(req, content, function(body: Html.SafeHtml): Html.SafeHtml
     return layout.render({ title = title, head = head(req), csrf = Csrf.hx_headers(req), body = body })

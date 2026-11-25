@@ -484,7 +484,7 @@ local function test_an_authorization_of_a_name_not_asked_for_is_never_presented(
 end
 
 local function test_every_url_is_https_and_no_redirect_is_followed()
-  -- The resource whose answer names its URLs as http, and the step refused.
+  -- The resource whose result names its URLs as http, and the step refused.
   local cases: {{string}} = {
     { "/directory", "acme: newAccount: \"http://acme.test/acct\" is not an https URL" },
     { "/directory nonce", "acme: newNonce: \"http://acme.test/nonce\" is not an https URL" },

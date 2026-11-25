@@ -1,14 +1,14 @@
---- Proves [`cosmic.srp`] against RFC 5054's appendix B, against what the
---- Python library `srptools` 2.0.0 computes, and against a reference
---- written for these tests from the rules as [`Srp.Rules`] states them,
---- with Python's `hashlib` and `pow` alone. The reference agrees with
---- appendix B on k, x, v, A, B, u and the premaster secret, and with
---- `srptools` on every value of its vectors. Every answer is embedded as
---- hexadecimal. The tests also hold each group to the SHA-256 of its
---- prime in RFC 5054's appendix A, prove each against itself, and prove
---- every refusal and raise. Two things no test can see are left to
---- reading: how many bytes of entropy a secret is, and that proofs are
---- compared in constant time.
+--- Proves [`cosmic.srp`] against RFC 5054's appendix B, against what
+--- the Python library `srptools` 2.0.0 computes, and against a
+--- reference written for these tests from the rules as [`Srp.Rules`]
+--- states them, with Python's `hashlib` and `pow` alone. The reference
+--- agrees with appendix B on k, x, v, A, B, u and the premaster secret,
+--- and with `srptools` on every value of its vectors. Every expected
+--- value is embedded as hexadecimal. The tests also hold each group to
+--- the SHA-256 of its prime in RFC 5054's appendix A, prove each
+--- against itself, and prove every refusal and raise. Two things no
+--- test can see are left to reading: how many bytes of entropy a secret
+--- is, and that proofs are compared in constant time.
 
 local Bigint = require("cosmic.bigint")
 local Codec = require("cosmic.codec")

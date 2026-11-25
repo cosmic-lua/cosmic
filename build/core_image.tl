@@ -42,7 +42,7 @@
 --- a segment to load, and one with bytes past everything its headers
 --- name (`layout`): no loader runs a relocatable object, whose image
 --- would be its header alone, and bytes no header names are read, if at
---- all, by what the image cannot answer for.
+--- all, by what the image is not responsible for.
 
 local hashing = require("build.digest")
 

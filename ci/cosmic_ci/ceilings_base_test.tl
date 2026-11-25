@@ -1,8 +1,8 @@
 --- [`CeilingsBase.ceilings_base`], which names the merge base of a run's
---- commit with main for the format check, against a git that answers as
---- a checkout's and origin's would, each call scripted; no test runs the
---- host's git, and the step asks the API nothing, which a fake API that
---- answers every call with a 500 holds it to.
+--- commit with main for the format check, against a git that returns
+--- what a checkout's and origin's would, each call scripted; no test runs
+--- the host's git, and the step asks the API nothing, which a fake API
+--- that fails every call with a 500 holds it to.
 local CeilingsBase = require("cosmic_ci.ceilings_base")
 local ChangedPaths = require("cosmic_ci.changed_paths")
 local GithubFake = require("cosmic_ci.github_fake")
@@ -44,9 +44,9 @@ local record Step
   sleeps: {integer}
 end
 
---- [`CeilingsBase.ceilings_base`] in `env`, against a git that answers each call, by its arguments, with the next of
+--- [`CeilingsBase.ceilings_base`] in `env`, against a git that returns, for each call by its arguments, the next of
 --- `answers` for it (the last one again once they run out; false for a call that fails) and fails the test on a call
---- they do not name, and an API that answers 500.
+--- they do not name, and an API that fails every call with 500.
 local function step(env: {string: string}, answers: {string: {string | boolean}}): Step
   local fake = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
   local made: mut {string} = {}
@@ -84,7 +84,7 @@ local function grown_from_one(): mut {string: {string | boolean}}
 end
 
 --- A pull request for main names the main its merge commit was merged into, read from the checkout as it is: it
---- fetches nothing and asks the API nothing, so an API that answers 500 ("this diff is temporarily unavailable due to
+--- fetches nothing and asks the API nothing, so an API that responds with 500 ("this diff is temporarily unavailable due to
 --- heavy server load") cannot fail it.
 local function test_a_pull_request_for_main_reads_its_base_from_the_checkout_and_asks_the_api_nothing()
   local ran = step(PULL, { ["rev-list --parents -n 1 " .. SHA] = { SHA .. " " .. TIP .. " " .. HEAD .. "\n" } })
@@ -103,7 +103,7 @@ local function test_the_queue_holds_the_markers_to_the_commit_of_main_its_histor
   assert(not ran.output:find(ENTRY, 1, true), "the queue's own base was named")
 end
 
---- A pull request the checkout cannot answer for (too shallow, one parent, three, another commit's line) and one for
+--- A pull request whose base the checkout cannot name (too shallow, one parent, three, another commit's line) and one for
 --- another branch than main fetch as the queue does.
 local function test_a_pull_request_the_checkout_cannot_answer_fetches_its_history()
   local lines: {string | boolean} = { false, "", SHA .. "\n", SHA .. " " .. TIP .. "\n",
@@ -180,7 +180,7 @@ local function test_a_commit_on_main_is_its_own_base()
 end
 
 --- A fetch that fails is made again after waits that double from 5 seconds to at most 60, six in all: one that then
---- succeeds names the base, and a run no fetch answers fails the step, naming none.
+--- succeeds names the base, and a run in which no fetch succeeds fails the step, naming none.
 local function test_a_fetch_that_fails_is_made_again_and_fails_the_step_when_none_succeeds()
   local answers = grown_from_one()
   answers[fetch("refs/heads/main", SHA)] = { false, false, false, false, false, "" }

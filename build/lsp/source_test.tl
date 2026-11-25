@@ -824,7 +824,7 @@ local function rows_of(db: Sqlite.Handle, table_name: string, hash: string): int
 end
 
 --- The places of the staged module `lib.point`, read from the `places` rows the stage derived: nothing is derived, and a
---- row changed in the database changes the answer, which only a read of the rows does.
+--- row changed in the database changes the result, which only a read of the rows does.
 local function test_the_places_of_a_staged_module_are_read_from_the_database_and_not_derived()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
@@ -923,7 +923,7 @@ local function test_the_places_of_a_generated_module_are_the_headers_and_at_its_
   source.close(src)
 end
 
---- A tree that lists no module generated from a header (its header was deleted since the stage) is answered from the
+--- A tree that lists no module generated from a header (its header was deleted since the stage) is served from the
 --- header the tool carries.
 local function test_a_generated_module_of_a_tree_without_its_header_is_the_one_the_tool_carries()
   local root = project()
@@ -1082,7 +1082,7 @@ local function test_the_members_of_a_module_are_read_from_the_database_or_derive
   source.close(src)
 end
 
---- Another run holds the write lock of `build.db` for as long as it builds; an edited buffer is still answered, as it
+--- Another run holds the write lock of `build.db` for as long as it builds; an edited buffer is still served, as it
 --- writes nowhere that run holds.
 local function test_an_edited_buffer_is_answered_while_build_db_is_write_locked()
   local root = project()
@@ -1099,7 +1099,7 @@ local function test_an_edited_buffer_is_answered_while_build_db_is_write_locked(
   source.close(src)
 end
 
---- A closed document lets go of its rows; a save, which stages the text, lets them go and the rows of `build.db` answer.
+--- A closed document lets go of its rows; a save, which stages the text, lets them go and the rows of `build.db` serve.
 local function test_a_closed_or_saved_buffer_lets_go_of_its_scratch_rows()
   local root = project()
   assert(Fs.mkdirs(root .. "/lib"))
@@ -1609,7 +1609,7 @@ local function test_a_text_a_quiet_ask_could_not_derive_is_derived_for_the_place
   -- The places of the text that does not parse are those the parser recovered.
   local placed = assert(source.places(src, "lib.shapes", open_with("lib/shapes.tl", broken)))
   assert(assert(placed.spots["shapes.sides"]).line == 2 and src.tally.derived == 1 and #said == 0)
-  -- The one the analysis refuses is said at the first ask for its places, and answers none.
+  -- The one the analysis refuses is said at the first ask for its places, and gives none.
   local none = assert(source.places(src, "lib.shapes", open_with("lib/shapes.tl", refused)))
   assert(next(none.spots) == nil and #said == 1 and said[1]:find("deriving lib/shapes.tl", 1, true) ~= nil, table.concat(said, "\n"))
   source.close(src)

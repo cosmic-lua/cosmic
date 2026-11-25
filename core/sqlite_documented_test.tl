@@ -1,5 +1,5 @@
 --- doc/guides/sql.md lists every SQL function, table-valued function,
---- virtual table and collation a handle answers, and nothing a handle
+--- virtual table and collation a handle has, and nothing a handle
 --- does not: a flag, an extension or a function of cosmic's own that
 --- reaches SQL fails here until the guide names it.
 
@@ -14,7 +14,7 @@ Test.policy{
 
 local GUIDE <const> = "doc/guides/sql.md"
 
---- Every PRAGMA that answers rows is a table-valued function of its own
+--- Every PRAGMA that yields rows is a table-valued function of its own
 --- name, registered when first used: the guide names them as one entry.
 local PRAGMAS <const> = "pragma_*"
 
@@ -47,7 +47,7 @@ end
 --- like the PRAGMA tables: each is used before the modules are listed.
 local LAZY_TABLES <const> = { "json_each", "json_tree", "jsonb_each", "jsonb_tree", "carray" }
 
---- The names a fresh handle answers.
+--- The names a fresh handle has.
 local function answered(): {string:boolean}
   local handle = assert(Sqlite.memory())
   for _, name in ipairs(LAZY_TABLES) do
