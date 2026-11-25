@@ -284,7 +284,7 @@ end
 --- Whether `db`'s table of this format has its `parts` column, which a
 --- file from a binary without it lacks.
 local function has_parts(db: Sqlite.Handle): boolean?, string
-  local rows, trouble = db:text_rows("SELECT 1 FROM pragma_table_info('" ..
+  local rows, trouble = db:rows("SELECT 1 FROM pragma_table_info('" ..
       declared .. "') WHERE name = 'parts'")
   if rows == nil then return nil, tostring(trouble) end
   return #rows > 0, ""
@@ -299,7 +299,7 @@ end
 --- sharing the file still writes its own and ages its rows out, and none
 --- of this one's reads them.
 local function prepare(db: Sqlite.Handle): boolean, string
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND name IN ('" .. declared ..
       "', '" .. stores .. "')")
   if rows == nil then return false, tostring(trouble) end
@@ -351,21 +351,21 @@ end
 --- `key` ([`build.declared_key`]), or nil: the key is the whole check.
 function shared_verdicts.declared(cache: shared_verdicts.Cache,
                                   key: string): shared_verdicts.Found?, string
-  local rows, trouble = cache.db:text_rows(
+  local rows, trouble = cache.db:rows(
     "SELECT CAST(inflate(hits) AS TEXT), elapsed_ns FROM " .. declared .. " WHERE key = ?1",
     { text(key) })
   if rows == nil then return nil, tostring(trouble) end
   local row = rows[1]
   if row == nil then return nil, "" end
   return { kept = row:text(1),
-    elapsed_ns = math.tointeger(tonumber(row:text(2)) or 0) or 0 }, ""
+    elapsed_ns = row:integer(2) }, ""
 end
 
 --- The digest of the bytes of the closure store at `address`, as a run
 --- that had it kept it (`settle`), or nil.
 function shared_verdicts.store_digest(cache: shared_verdicts.Cache,
                                       address: string): string?, string
-  local rows, trouble = cache.db:text_rows(
+  local rows, trouble = cache.db:rows(
     "SELECT digest FROM " .. stores .. " WHERE address = ?1", { text(address) })
   if rows == nil then return nil, tostring(trouble) end
   if rows[1] == nil then return nil, "" end
@@ -379,12 +379,12 @@ end
 --- harness that moved), which `unmatched` says.
 function shared_verdicts.census(cache: shared_verdicts.Cache,
                                 tests: {string:boolean}): shared_verdicts.Census?, string
-  local rows, trouble = cache.db:text_rows(
+  local rows, trouble = cache.db:rows(
     "SELECT test, COUNT(*) FROM " .. declared .. " GROUP BY test")
   if rows == nil then return nil, tostring(trouble) end
   local out: shared_verdicts.Census = { rows = 0, of_tests = 0 }
   for _, row in ipairs(rows) do
-    local count = math.tointeger(tonumber(row:text(2)) or 0) or 0
+    local count = row:integer(2)
     out.rows = out.rows + count
     if tests[row:text(1)] == true then out.of_tests = out.of_tests + count end
   end
@@ -419,12 +419,12 @@ end
 --- name, the most first: what a run found in the cache before it
 --- stood on or kept anything (`cosmic test --census`).
 function shared_verdicts.held(cache: shared_verdicts.Cache): {shared_verdicts.Held}?, string
-  local rows, trouble = cache.db:text_rows("SELECT parts, COUNT(*) FROM " ..
+  local rows, trouble = cache.db:rows("SELECT parts, COUNT(*) FROM " ..
       declared .. " GROUP BY parts ORDER BY COUNT(*) DESC, parts")
   if rows == nil then return nil, tostring(trouble) end
   local out: mut {shared_verdicts.Held} = {}
   for _, row in ipairs(rows) do
-    out[#out + 1] = { parts = row:text(1), rows = math.tointeger(tonumber(row:text(2)) or 0) or 0 }
+    out[#out + 1] = { parts = row:text(1), rows = row:integer(2) }
   end
   return out, ""
 end
@@ -452,7 +452,7 @@ end
 --- row rather than leaving a mark (the failing share's own job fails CI).
 function shared_verdicts.hosts_like(cache: shared_verdicts.Cache, rest: string,
                                     own: string): {string}?, string
-  local rows, trouble = cache.db:text_rows("SELECT DISTINCT parts FROM " .. declared ..
+  local rows, trouble = cache.db:rows("SELECT DISTINCT parts FROM " .. declared ..
       " WHERE parts LIKE '%host identity %'")
   if rows == nil then return nil, tostring(trouble) end
   local seen: mut {string:boolean} = {}
