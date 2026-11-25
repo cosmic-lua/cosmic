@@ -191,6 +191,9 @@ local function test_ask_and_chat()
   -- A word `-` is standard input, in its place among the words.
   r, a = cli({ "ask", "read this:", "-" }, KEYED, { text_reply("ok") })
   assert(r.code == 0 and said(a, 1):find('"read this: from stdin"', 1, true) ~= nil, said(a, 1))
+  -- Each `-` is the same input, read once.
+  r, a = cli({ "ask", "-", "and", "-" }, KEYED, { text_reply("ok") })
+  assert(r.code == 0 and said(a, 1):find('"from stdin and from stdin"', 1, true) ~= nil, said(a, 1))
   r = cli({ "ask", "--effort", "lots", "x" }, KEYED, {})
   assert(r.code == Flags.REFUSED and r.err:find("--effort") ~= nil, r.err)
   r = cli({ "ask", "x" }, KEYED, { text_reply("no", "refusal") })
