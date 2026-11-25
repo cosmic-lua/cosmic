@@ -478,7 +478,7 @@ local function test_sqlite_sessions_are_revocable_by_logout_and_by_subject()
   local first, second = browser(app), browser(app)
   first:post("/login")
   second:post("/login")
-  assert(SessionSqlite.destroy_subject(store, "ada") == 2)
+  assert(assert(SessionSqlite.destroy_subject(store, "ada")) == 2)
   assert(first:get("/get/user"):text() == "-" and second:get("/get/user"):text() == "-")
 end
 
