@@ -646,7 +646,11 @@ fails a requirement no leg promises, because a module that is n/a or
 skipped on every leg runs nowhere.
 
 A run that is not held ignores the promises. A held run (below) fails a
-module for an n/a or a skip of a requirement its leg promises.
+module for an n/a or a skip of a requirement its leg promises. A promised
+name whose base this cosmic does not know is left out, with a note: some
+legs start an older cosmic (the release, a rebuild's first stage), which
+no module needing the new name can run under. A name of a known base that
+breaks its rule still fails the run.
 
 ## skipping
 
