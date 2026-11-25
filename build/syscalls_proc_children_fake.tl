@@ -1,4 +1,5 @@
---- The fake of core/syscalls_proc_children_test.tl, run as a [`cosmic.fake`] main. Its first argument
+--- The fake of core/syscalls_proc_children_test.tl and its macOS twin,
+--- core/children_darwin_test.tl, run as a [`cosmic.fake`] main. Its first argument
 --- names the case and the rest are that case's words.
 
 local Steps = require("build.fake_steps")
