@@ -23,7 +23,7 @@ end
 function tailnet.named(connect: {string}): boolean
   for _, target in ipairs(connect) do
     local read, _ = Grant.tailnet(target)
-    if read ~= nil then return true end
+    if read ~= nil and read ~= false then return true end
   end
   return false
 end
@@ -83,7 +83,7 @@ function tailnet.resolved(connect: {string}, status: Tailscale.Status): {string}
   local wanted: mut {Grant.Tailnet} = {}
   for _, target in ipairs(connect) do
     local read, _ = Grant.tailnet(target)
-    if read ~= nil then wanted[#wanted + 1] = read else add(target) end
+    if read ~= nil and read ~= false then wanted[#wanted + 1] = read else add(target) end
   end
   for _, target in ipairs(wanted) do
     local port = if target.port == 0 then "*" else tostring(target.port) end
@@ -127,7 +127,7 @@ function tailnet.policy(merged: rules.Policy, daemon?: Tailscale.Daemon): rules.
   local status, why = status_of(daemon)
   for _, target in ipairs(connect) do
     local read, _ = Grant.tailnet(target)
-    if read ~= nil then
+    if read ~= nil and read ~= false then
       if status == nil then
         return nil, "sandbox: connect \"" .. target .. "\" names nodes of the tailnet, which tailscaled was asked " ..
           "for: " .. (why:gsub("^tailscale: ", ""))

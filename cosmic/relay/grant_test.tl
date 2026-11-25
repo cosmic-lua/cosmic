@@ -7,15 +7,15 @@ local Wire = require("cosmic.internal.relay_wire")
 --- The text of a target that parses, else a failed assert naming `text`.
 local function canonical(text: string): string
   local target, why = Grant.parse(text)
-  assert(target ~= nil, text .. ": " .. why)
+  assert(target ~= nil, text .. ": " .. tostring(why))
   return target.text
 end
 
 local function refused(text: string): string
   local target, why = Grant.parse(text)
   assert(target == nil, text .. " should be refused")
-  assert(why ~= "", text)
-  return why
+  assert(tostring(why) ~= "", text)
+  return tostring(why)
 end
 
 local function test_canonical_forms()
@@ -92,7 +92,8 @@ local function test_consumers_read_one_canonical_meaning()
   assert(assert(Grant.parse("Example.COM.:443")).bytes == nil, "a name is no literal")
   -- Targets the request readers always refuse are no grant at all.
   for _, target in ipairs({ "bad_name:443", "-bad.example:443", ".:443", "*.example.com:443" }) do
-    assert(Grant.parse(target) == nil, target)
+    local read, _ = Grant.parse(target)
+    assert(read == nil, target)
   end
   assert(Address.granted("::1", 80, { "[0:0:0:0:0:0:0:1]:80" }))
   assert(not Address.granted("::1", 81, { "[::1]:80" }))

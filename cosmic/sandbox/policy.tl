@@ -365,14 +365,14 @@ local function invalid(p: rules.Policy, exact: boolean): string
     if grant is rules.Connect then
       local target = grant.connect
       local tailnet, wrong = Grant.tailnet(target)
-      if tailnet == nil and wrong ~= "" then
-        return at({ "grants", i, "connect" }, "\"" .. target .. "\" is not a tailnet target: " .. wrong ..
+      if tailnet == nil then
+        return at({ "grants", i, "connect" }, "\"" .. target .. "\" is not a tailnet target: " .. tostring(wrong) ..
             " (tag:<tag>:<port> or user:<login>:<port>, the port from 1 to 65535 or \"*\" for any)")
       end
       local why = ""
-      if tailnet == nil then
+      if tailnet == false then
         local _, wrong_target = Grant.parse(target)
-        why = wrong_target
+        if wrong_target ~= nil then why = tostring(wrong_target) end
       end
       if why ~= "" then
         return at({ "grants", i, "connect" }, "\"" .. target .. "\" is not a target the relay can use: " ..
@@ -895,7 +895,9 @@ end
 
 local function reach_of(target: string): Reach?
   local node, _ = Grant.tailnet(target)
-  if node ~= nil then return { kind = node.kind, host = node.name, port = node.port } end
+  if node ~= nil and node ~= false then
+    return { kind = node.kind, host = node.name, port = node.port }
+  end
   local read, _ = Grant.parse(target)
   if read == nil then return nil end
   return { kind = read.kind, host = read.host, port = read.port }
