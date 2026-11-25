@@ -6,6 +6,8 @@
 
 local sys = require("cosmic.sys")
 local Fake = require("cosmic.fake")
+-- Required, so the fake's main is of this test's closure.
+local _fake = require("build.syscalls_sigpipe_fake")
 
 local process = require("cosmic.internal.process")
 
@@ -16,7 +18,7 @@ local process = require("cosmic.internal.process")
 local function writing_to_a_closed_pipe(probe: string): integer
   local ends = assert(process.pipe())
   sys.close(ends.reader)
-  local pid = assert(process.spawn(probe, { probe, "write-fd 3 lost" }, nil, nil, nil, nil, nil,
+  local pid = assert(process.spawn(probe, { probe, "write-fd", "3", "lost" }, nil, nil, nil, nil, nil,
     false, { [3] = ends.writer }))
   sys.close(ends.writer)
   local status = assert(process.waitpid(pid, false))
@@ -29,7 +31,7 @@ end
 --- disposition intact: default when this process installed the ignore,
 --- ignored when it was already ignored at this process's start.
 local function test_a_child_keeps_the_inherited_sigpipe_disposition(tmp: string)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.syscalls_sigpipe_fake"))
   local inherited = writing_to_a_closed_pipe(probe)
   assert(inherited == 0 or inherited == sys.SIGPIPE, "ended by " .. tostring(inherited))
   assert(process.ignore_sigpipe())
