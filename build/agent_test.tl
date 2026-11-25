@@ -13,6 +13,7 @@ local Test = require("cosmic.test")
 local agent = require("build.agent")
 local agent_fixture = require("build.agent_fixture")
 local Sandbox = require("cosmic.sandbox")
+local Sessions = require("cosmic.agent.sessions")
 local sys = require("cosmic.sys")
 
 -- The host programs the tests start, each where hosts keep it: named,
@@ -55,6 +56,15 @@ local record Waited
   answers: {boolean}
   mut now: integer
   mut asked: integer
+end
+
+--- The count of rows `query` finds in the sessions.db of `home`.
+local function kept_count(query: string): integer
+  local db = assert(Sessions.open(home .. "/.local/share/cosmic/agent/sessions.db"))
+  local rows = assert(db:rows(query))
+  local n = assert(rows[1]):integer(1)
+  local _, _ = db:close()
+  return n
 end
 
 --- Runs `cosmic agent` with `argv`, `env` (and HOME), the API's
@@ -334,10 +344,8 @@ local function test_sessions_are_kept_and_go_on()
   r = cli({ "ask", "run it" }, KEYED, { { content = { { type = "tool_use", id = "t", name = "bash",
     input = { command = "echo kept-output-marker" } } }, stop_reason = "tool_use" }, text_reply("ran") })
   assert(r.code == 0, r.err)
-  r, a = cli({ "ask", "--with", "sql", "find it" }, KEYED, { { content = { { type = "tool_use", id = "t", name = "sql",
-    input = { query = "SELECT text FROM outputs_fts WHERE outputs_fts MATCH '\"kept-output\"'" } } },
-    stop_reason = "tool_use" }, text_reply("found") })
-  assert(r.code == 0 and said(a, 2):find("text\\nkept-output-marker", 1, true) ~= nil, said(a, 2))
+  local found = kept_count("SELECT count(*) FROM outputs_fts WHERE outputs_fts MATCH '\"kept-output-marker\"'")
+  assert(found == 1, tostring(found))
 end
 
 local function test_the_sandbox_on_the_command_line()
@@ -395,11 +403,9 @@ local function test_a_job_never_read_is_kept_as_the_session_ends()
     input = { command = "echo bg-job-marker; sleep 30", background = true } } }, stop_reason = "tool_use" },
     text_reply("started") })
   assert(ran.code == 0, ran.err)
-  local a: Api
-  ran, a = cli({ "ask", "--with", "sql", "find it" }, KEYED, { { content = { { type = "tool_use", id = "t", name = "sql",
-    input = { query = "SELECT count(*) FROM outputs WHERE tool = 'bash' AND input LIKE '%background%' " ..
-        "AND input LIKE '%bg-job-marker%' AND call IS NULL" } } }, stop_reason = "tool_use" }, text_reply("found") })
-  assert(ran.code == 0 and said(a, 2):find("count(*)\\n1", 1, true) ~= nil, said(a, 2))
+  local found = kept_count("SELECT count(*) FROM outputs WHERE tool = 'bash' AND input LIKE '%background%' " ..
+      "AND input LIKE '%bg-job-marker%' AND call IS NULL")
+  assert(found == 1, tostring(found))
 end
 
 local function test_the_command_line_is_refused_where_it_should_be()

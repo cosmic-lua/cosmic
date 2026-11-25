@@ -427,30 +427,47 @@ print(tostring(long))
   Worker.close(w)
 end
 
---- A snippet reads sessions.db through the agent (Host.history), which answers it read-only, as the sql tool does, row by row.
+--- A snippet reads sessions.db through the agent (Host.history), which answers it read-only, row by row: a write, a
+--- copy (VACUUM INTO) and an attach are refused.
 local function test_a_snippet_queries_the_sessions_through_the_agent()
   local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
   local db = assert(Sessions.open(dir .. "/sessions.db"))
   local id = assert(Sessions.start(db, "/", "m", 0))
   local _ = assert(Sessions.output(db, id, { tool = "bash", input = "{}", text = "a\xffb", is_error = false }))
+  local found = assert(Sessions.output(db, id, { tool = "bash", input = "{}", text = "a needle in the haystack",
+    is_error = false }))
   local context: Tools.Context = { cwd = dir, worker = w, db = db, session = id }
   local code = [[
 local Host = require("cosmic.agent.host")
-local rows = Host.history("SELECT tool, text, 1.5 AS r, NULL AS z, ?1 AS here FROM outputs")
+local rows = Host.history("SELECT tool, text, 1.5 AS r, NULL AS z, ?1 AS here FROM outputs ORDER BY id")
 local row = assert(rows[1])
 print(row["tool"], row["text"], row["r"], row["z"] == require("cosmic.json").null, row["here"])
 local refused, why = pcall(Host.history, "DELETE FROM outputs")
 print(not refused, tostring(why))
+for _, statement in ipairs({ "VACUUM INTO 'COPY'", "ATTACH 'KEPT' AS b" }) do
+  local copied, copy_why = pcall(Host.history, statement)
+  print("refused", not copied, tostring(copy_why))
+end
+local hit = assert(Host.history("SELECT rowid AS id, snippet(outputs_fts, 0, '>>', '<<', '...', 64) AS s " ..
+  "FROM outputs_fts WHERE outputs_fts MATCH '\"haystack\"'")[1])
+print("found", hit["id"], hit["s"])
 local again = Host.history("SELECT count(*) AS n FROM outputs")
 return assert(again[1])["n"]
 ]]
-  local ran = Tools.run("run", { code = code }, context)
+  local copy = dir .. "/copy.db"
+  local named = code:gsub("COPY", function(): string return copy end):gsub("KEPT", function(): string
+    return dir .. "/sessions.db"
+  end)
+  local ran = Tools.run("run", { code = named }, context)
   assert(not ran.is_error, ran.text)
   assert(ran.text:find("bash\ta\u{FFFD}b\t1.5\ttrue\t" .. tostring(id) .. "\n", 1, true) ~= nil, ran.text)
   assert(ran.text:find("true\thost: history: not authorized", 1, true) ~= nil and ran.text:find("refuses a write", 1, true) ~= nil,
     ran.text)
-  assert(ran.text:find("Returned: 1", 1, true) ~= nil, ran.text)
+  assert(ran.text:find("Returned: 2", 1, true) ~= nil, ran.text)
+  assert(ran.text:find("found\t" .. tostring(found) .. "\ta needle in the >>haystack<<", 1, true) ~= nil, ran.text)
+  local _, refusals = ran.text:gsub("refused\ttrue\t[^\n]*refuses an ATTACH", "")
+  assert(refusals == 2 and not assert(Fs.status(copy)).exists, ran.text)
   local big = Tools.run("run", { code = "local Host = require(\"cosmic.agent.host\")\n" ..
       "local _, why = pcall(Host.history, \"SELECT printf('%.1000c', 'x') AS x FROM generate_series(1, 1000)\")\n" ..
       "return tostring(why)\n" }, context)
