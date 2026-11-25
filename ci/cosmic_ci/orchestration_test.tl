@@ -1232,7 +1232,10 @@ local function full_run_legs(platform: CiWorkflow.Job): {string: {string: string
   local matrix = assert(assert(platform.strategy).matrix)
   local include = matrix.include
   assert(include is string, "the platform job's include is no expression")
-  local full = assert(include:match("|| '(%[[^']-%])'%) }}$"), "the legs are no run's choice: " .. include)
+  -- The scheduled run's list, which a manual run of main also runs; a manual run of a branch runs the last, which
+  -- leaves macOS to the queue.
+  local full = assert(include:match("%(github%.event_name == 'schedule' || github%.ref == 'refs/heads/main'[^)]-%) && " ..
+      "'(%[[^']-%])' || '%[[^']-%]'%) }}$"), "the legs are no run's choice: " .. include)
   local entries, why: {{string: string}}?, string = Shape.decode_into(full, Shape.list(Shape.map(Shape.string)))
   assert(entries ~= nil, why)
   local legs: mut {string: {string: string}} = {}
