@@ -43,6 +43,8 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
+local build_schema = require("build.schema")
+local type Build = build_schema.Build
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local bind = require("build.bind")
@@ -370,8 +372,8 @@ function bom.fill(db: Sqlite.Handle, root: string, qualifier: string): boolean, 
 end
 
 --- Every component `db` holds, by name.
-function bom.rows(db: Sqlite.Handle): {bom.Row}?, string
-  local rows, trouble = db:text_rows(
+function bom.rows(db: Build): {bom.Row}?, string
+  local rows, trouble = db:rows(
     "SELECT name, kind, version, license, url, sha256, sha3_256, patches " ..
       "FROM components ORDER BY name")
   if rows == nil then
@@ -444,8 +446,8 @@ end
 --- public domain, or a license such as MPL-2.0 that asks instead that a
 --- recipient be told where the source is -- gets its heading and that
 --- source.
-function bom.notices(db: Sqlite.Handle): string?, string
-  local rows, trouble = db:text_rows(
+function bom.notices(db: Build): string?, string
+  local rows, trouble = db:rows(
     "SELECT c.name, c.version, c.license, c.url, n.file IS NULL, " ..
       "coalesce(n.file, ''), coalesce(n.text, '') FROM components c " ..
       "LEFT JOIN notices n ON n.component = c.name ORDER BY c.name, n.ordinal")
@@ -455,7 +457,7 @@ function bom.notices(db: Sqlite.Handle): string?, string
   local parts: mut {string} = {}
   for _, row in ipairs(rows) do
     local head = "== " .. row:text(1) .. " " .. row:text(2) .. " (" .. row:text(3) .. ")"
-    if row:text(5) == "1" then
+    if row:integer(5) == 1 then
       parts[#parts + 1] = head .. "\n\nno notice; its source: " .. row:text(4) .. "\n"
     else
       parts[#parts + 1] = head .. ": " .. row:text(6) .. "\n\n" .. row:text(7)
@@ -568,9 +570,14 @@ local function run(argv: {string}): integer
     return 2
   end
   local databases = Store.databases()
-  local binary = databases[#databases]
-  if binary == nil then
+  local carried = databases[#databases]
+  if carried == nil then
     log:complain("bom: the running artifact has no database")
+    return 1
+  end
+  local binary, hold_trouble = Sqlite.hold(carried, build_schema.Build)
+  if binary == nil then
+    log:complain("bom: the running artifact's database: " .. tostring(hold_trouble))
     return 1
   end
   local rows, trouble = bom.rows(binary)
