@@ -206,7 +206,7 @@ function Grader.evidence(path: string): Grader.Evidence?, string
   if db == nil then
     return nil, tostring(otrouble)
   end
-  local rows, rtrouble = db:text_rows([[
+  local rows, rtrouble = db:rows([[
     select i.kind, i.origin, count(*)
     from runs r join inputs i on i.path = r.path
     where r.passed = 1
@@ -220,7 +220,7 @@ function Grader.evidence(path: string): Grader.Evidence?, string
   end
   local tests, examples = 0, 0
   for _, row in ipairs(rows) do
-    local kind, origin, n = row:text(1), row:text(2), math.tointeger(tonumber(row:text(3))) or 0
+    local kind, origin, n = row:text(1), row:text(2), row:integer(3)
     if kind == "test" and origin ~= "doctest" then
       tests = tests + n
     end

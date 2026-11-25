@@ -20,7 +20,7 @@ end
 --- read. Where the binary holds a module without its source ([`Store.withheld`]),
 --- the reason instead.
 function stale_reason.of(handle: work.Handle): string
-  local rows, _ = handle.db:text_rows(
+  local rows, _ = handle.db:rows(
     "SELECT path, source_hash FROM inputs WHERE (origin = 'tree' " ..
       "AND kind IN ('module', 'main')) OR origin = 'vendor' ORDER BY path")
   if rows == nil then
