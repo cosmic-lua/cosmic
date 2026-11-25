@@ -247,8 +247,9 @@ local function numeric(label: string): boolean
 end
 
 --- `text` as a DNS name in canonical form (lower-case, a trailing dot
---- removed), or nil and a [`Failure`] that says why. A name is labels of letters, digits and inner
---- hyphens, 63 bytes at most each and 253 in all, whose last is no number.
+--- removed), or nil and a [`Failure`] that says why. A name is labels
+--- of letters, digits and inner hyphens, 63 bytes at most each and 253
+--- in all, whose last is no number.
 --- @param text string The name
 function Grant.name(text: string): (string) | (nil, Failure)
   if type(text) ~= "string" then return nil, Failure.new("a host name is text") end
@@ -303,9 +304,9 @@ local function text_of(kind: Grant.Kind, host: string, port: integer): string
   return host .. ":" .. (if port == 0 then "*" else tostring(port) end)
 end
 
---- A `connect` target `text` read, or nil and a [`Failure`] that says why: the host a name, an
---- IPv4 address, an IPv6 address in brackets or "*", then ":" and a port or
---- "*" (see the module's header). The Failure names the first thing wrong,
+--- A `connect` target `text` read, or nil and a [`Failure`] that says
+--- why: the host a name, an IPv4 address, an IPv6 address in brackets or
+--- "*", then ":" and a port or "*" (see the module's header). The Failure names the first thing wrong,
 --- without the target.
 --- @param text string The target, `host:port`
 function Grant.parse(text: string): (Grant.Target) | (nil, Failure)
@@ -353,12 +354,12 @@ end
 --- The most bytes of a tag's name or a login name.
 local MAX_TAILNET_NAME <const> = 256
 
---- A tailnet `connect` target `text` read, or nil and a [`Failure`] that says why: `tag:` then a
---- letter and letters, digits and hyphens, as an ACL tag is written, or
---- `user:` then a login name (`will@example.com`, `alice@github`), then
---- ":" and a port or "*". False for a text that is neither kind
---- (`tag:443` is a host named `tag`), so
---- the caller reads it as a [`Grant.parse`] target instead.
+--- A tailnet `connect` target `text` read, or nil and a [`Failure`] that
+--- says why: `tag:` then a letter and letters, digits and hyphens, as an
+--- ACL tag is written, or `user:` then a login name (`will@example.com`,
+--- `alice@github`), then ":" and a port or "*". False for a text that is
+--- neither kind (`tag:443` is a host named `tag`), so the caller reads it
+--- as a [`Grant.parse`] target instead.
 --- @param text string The target
 function Grant.tailnet(text: string): (Grant.Tailnet | false) | (nil, Failure)
   if type(text) ~= "string" then return false end
