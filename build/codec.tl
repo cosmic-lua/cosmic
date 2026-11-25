@@ -106,7 +106,7 @@ end
 --- keeps them private, so a coder's refusals read as its own.
 local record Alphabet
   encode: function(string): string
-  decode: function(string): string?, string
+  decode: function(string): (string) | (nil, Failure)
   class: string
   padded: boolean
   name: string

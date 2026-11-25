@@ -2,8 +2,9 @@
 --- Teal. Encoders take any bytes. Decoders are strict and total: for text
 --- that no encoder here would write -- a character outside the
 --- alphabet, a bad length, misplaced padding, or nonzero trailing bits
---- -- they return `nil` and a reason rather than a guess, so every string
---- a decoder accepts encodes back to exactly itself.
+--- -- they return nil and a [`Failure`] rather than a guess, so every string
+--- a decoder accepts encodes back to exactly itself, but for the case of
+--- hex digits.
 ---
 --- - [`Codec.hex`] and [`Codec.unhex`]: lower-case hex, the way to show a
 ---   digest or a key. The decoder reads either case.
@@ -17,6 +18,8 @@
 ---
 ---     local text = Codec.base64("hello")      -- "aGVsbG8="
 ---     local bytes = assert(Codec.unbase64(text))
+
+local Failure = require("cosmic.failure")
 
 local record Codec
 end
@@ -34,10 +37,10 @@ local function byte_at(text: string, index: integer): integer
   return byte
 end
 
---- What a function returns for a failure of this module: nil and `why`
---- under the module's name.
-local function refuse(why: string): nil, string
-  return nil, "codec: " .. why
+--- What a function returns for a failure of this module: nil and a
+--- Failure of `why` under the module's name.
+local function refuse(why: string): nil, Failure
+  return nil, Failure.new("codec: " .. why)
 end
 
 --- Every byte's two lowercase hex digits, by the byte: `gsub` takes the
@@ -79,12 +82,10 @@ function Codec.hex(s: string): string
 end
 
 --- The bytes hexadecimal text spells, reading either case. Returns
---- `nil` and a reason for an odd number of digits or a character that
+--- nil and a Failure for an odd number of digits or a character that
 --- is not a hex digit.
 --- @param s string The hex text
---- @return string | nil The decoded bytes, half as many
---- @return string Why the text was refused, or "" when it was not
-function Codec.unhex(s: string): string?, string
+function Codec.unhex(s: string): (string) | (nil, Failure)
   if #s % 2 ~= 0 then
     return refuse(("hex text of odd length %d"):format(#s))
   end
@@ -92,7 +93,7 @@ function Codec.unhex(s: string): string?, string
   if at ~= nil then
     return refuse(("byte 0x%02x at %d is not a hex digit"):format(byte_at(s, at), at))
   end
-  return (s:gsub("..", hex_bytes())), ""
+  return (s:gsub("..", hex_bytes()))
 end
 
 --- One base64 alphabet's tables: `char` maps a 6-bit value to its
@@ -206,7 +207,7 @@ end
 --- The bytes `s` spells in `a`'s alphabet. `padded` says whether `s`
 --- must carry `=` padding to a multiple of four characters or must
 --- carry none.
-local function decode(a: Alphabet, s: string, padded: boolean, name: string): string?, string
+local function decode(a: Alphabet, s: string, padded: boolean, name: string): (string) | (nil, Failure)
   local n = #s
   if padded then
     if n % 4 ~= 0 then
@@ -255,7 +256,7 @@ local function decode(a: Alphabet, s: string, padded: boolean, name: string): st
     local last = string.char(v >> 10, (v >> 2) & 255)
     out[#out + 1] = last
   end
-  return table.concat(out), ""
+  return table.concat(out)
 end
 
 --- Bytes as base64 in the standard alphabet (`A-Z a-z 0-9 + /`),
@@ -266,15 +267,13 @@ function Codec.base64(s: string): string
   return encode(standard(), s, true)
 end
 
---- The bytes standard, padded base64 spells. Strict: returns `nil` and
---- a reason for a length that is not a multiple of four, a character
+--- The bytes standard, padded base64 spells. Strict: returns nil and
+--- a Failure for a length that is not a multiple of four, a character
 --- outside the alphabet (whitespace and line breaks included), `=`
 --- anywhere but the last one or two places, or a last character whose
 --- unused bits are not zero.
 --- @param s string The base64 text
---- @return string | nil The decoded bytes
---- @return string Why the text was refused, or "" when it was not
-function Codec.unbase64(s: string): string?, string
+function Codec.unbase64(s: string): (string) | (nil, Failure)
   return decode(standard(), s, true, "base64")
 end
 
@@ -287,13 +286,11 @@ function Codec.base64url(s: string): string
 end
 
 --- The bytes unpadded base64url spells. Strict like [`Codec.unbase64`],
---- and refuses `=` padding: returns `nil` and a reason for a length
+--- and refuses `=` padding: returns nil and a Failure for a length
 --- that leaves one character over, a character outside the alphabet,
 --- or a last character whose unused bits are not zero.
 --- @param s string The base64url text
---- @return string | nil The decoded bytes
---- @return string Why the text was refused, or "" when it was not
-function Codec.unbase64url(s: string): string?, string
+function Codec.unbase64url(s: string): (string) | (nil, Failure)
   return decode(url(), s, false, "base64url")
 end
 
