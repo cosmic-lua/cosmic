@@ -26,13 +26,13 @@ local EXPECTED: Webauthn.Expected = { challenge = CHALLENGE, origin = ORIGIN, rp
 -- then reaches the same inputs, and a kept login replays.
 local secret <const> = Hash.sha256("cosmic.webauthn_fuzz_test key")
 
---- DER INTEGER of the unsigned big-endian `b`.
 --- The bytes base64url `text` spells, or "" where it spells none.
 local function bytes_of(text: string): string
   local bytes, _ = Codec.unbase64url(text)
   return bytes or ""
 end
 
+--- DER INTEGER of the unsigned big-endian `b`.
 local function der_int(b: string): string
   local trimmed = b:gsub("^\0+", "")
   if trimmed == "" then trimmed = "\0" end
