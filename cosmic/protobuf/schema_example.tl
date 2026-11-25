@@ -10,7 +10,7 @@ local record Example end
 
 --- A message is a record, and the call gives each field its number. The `.proto` file this one follows would say
 --- `string name = 1; int32 id = 2; repeated string emails = 3; Address home = 5; repeated double scores = 6;`. The
---- record's literal is what `encode` takes, and the record is what `decode` answers.
+--- record's literal is what `encode` takes, and the record is what `decode` returns.
 function Example.message_of()
   local record Address
     street?: string
@@ -56,7 +56,7 @@ function Example.enum_of()
   assert(Codec.hex(bytes) == "0801")
 end
 
---- `decode` answers nil and the first thing that did not fit, by its path from the root. A field declared
+--- `decode` returns nil and the first thing that did not fit, by its path from the root. A field declared
 --- `city: string` must be there.
 function Example.decode()
   local record Address

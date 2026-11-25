@@ -25,7 +25,7 @@ local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
   return chunk
 end
 
---- Requests to a closed local port, which a loopback alone answers:
+--- Requests to a closed local port, which a loopback alone reaches:
 --- the worker runs offline, and is keyed. The tests that start the
 --- program, or read the roots its own database carries, are
 --- cosmic/http_tool_test.tl's.
@@ -56,7 +56,7 @@ local function fetch(script: {string}, opts?: Http.Options): Http.Response, stri
     parts[#parts + 1] = chunk
   end
   local sent = response:sent()
-  response:close()
+  local _, _ = response:close()
   return response, table.concat(parts), sent
 end
 
@@ -228,7 +228,7 @@ local function test_a_body_shorter_than_its_content_length_is_a_read_error()
   assert(chunk == "only ten b")
   local after, _ = response:read()
   assert(after == nil, "a truncated body is an error, not a clean end")
-  response:close()
+  local _, _ = response:close()
   local got, get_trouble = Http.get(url, { timeout_ns = Clock.seconds(60), script = {
     "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\nonly ten b",
   } })
@@ -249,7 +249,7 @@ local function test_open_returns_once_the_headers_arrive_before_any_body()
   assert(chunk == nil, "a missing body is a read error")
   -- curl's message, with no newline left on the end of it
   assert(tostring(read_trouble):find("%s$") == nil, "[" .. tostring(read_trouble) .. "]")
-  response:close()
+  local _, _ = response:close()
 end
 
 local function test_open_waits_past_a_followed_redirect_for_the_final_headers()
@@ -259,15 +259,15 @@ local function test_open_waits_past_a_followed_redirect_for_the_final_headers()
   } }))
   assert(response.status == 200, tostring(response.status))
   assert(response.url:find("/next", 1, true) ~= nil, response.url)
-  response:close()
+  local _, _ = response:close()
 end
 
 --- The request line curl wrote for `target`, a URL's text past
---- "http://cosmic.test", answered over a script.
+--- "http://cosmic.test", with a script standing in for the server.
 local function request_line(target: string): string
   local response = assert(Http.open("http://cosmic.test" .. target, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "ok") } }))
   local sent = response:sent()
-  response:close()
+  local _, _ = response:close()
   return (assert(sent:match("^GET (.-) HTTP/1%.1\r\n"), sent))
 end
 
@@ -315,7 +315,7 @@ local function test_a_url_escaped_with_url_escape_is_sent_as_written()
   local response = assert(Http.open(url .. Url.escape("a b/c"), { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "ok") } }))
   assert(response.status == 200)
   local sent = response:sent()
-  response:close()
+  local _, _ = response:close()
   assert(sent:find("GET /a%20b%2Fc HTTP/1.1\r\n", 1, true), sent)
 end
 
@@ -346,7 +346,7 @@ local function test_a_body_over_the_pause_threshold_arrives_whole()
       parts[#parts + 1] = chunk
     end
     assert(table.concat(parts) == data)
-    response:close()
+    local _, _ = response:close()
   end
 end
 
@@ -379,7 +379,7 @@ local function test_a_post_body_outlives_the_options_that_held_it()
   local after, trouble = response:read()
   assert(after == false, trouble)
   local sent = response:sent()
-  response:close()
+  local _, _ = response:close()
   assert(#sent > size)
   assert(sent:sub(-size) == string.rep("A", size), "the body arrived intact")
 end
@@ -635,7 +635,7 @@ end
 --- entry point, whichever it is, and not inside cosmic.http: between the
 --- lines that raise `mark` ahead of the call and behind it.
 local function test_a_refused_option_is_raised_at_the_callers_line()
-  -- Each answers a value, which a raise leaves `pcall` the message in
+  -- Each returns a value, which a raise leaves `pcall` the message in
   -- place of.
   local entries: {string: function(Http.Options, string): string} = {
     open = function(opts: Http.Options, mark: string): string
@@ -748,7 +748,7 @@ end
 local function test_read_refuses_a_max_bytes_below_one()
   local response = assert(Http.open(url, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "body") } }))
   Test.raises(function() local _, _ = response:read(0) end, "http: read's max_bytes must be positive")
-  response:close()
+  local _, _ = response:close()
 end
 
 local function test_read_returns_an_empty_second_value_on_success()
@@ -758,7 +758,7 @@ local function test_read_returns_an_empty_second_value_on_success()
   assert(chunk == "body" and trouble == nil, tostring(trouble))
   local after, _ = response:read()
   assert(after == false)
-  response:close()
+  local _, _ = response:close()
 end
 
 local function test_a_close_variable_closes_the_response()
@@ -770,7 +770,7 @@ local function test_a_close_variable_closes_the_response()
   local chunk, trouble = kept:read()
   assert(chunk == nil and tostring(trouble) == "http: the response is closed", trouble)
   local again, again_trouble = kept:close() -- closing again is harmless
-  assert(again and again_trouble == "")
+  assert(again and again_trouble == nil)
 end
 
 --- A response is a [`cosmic.stream`] Reader: what takes a file's Reader
@@ -814,10 +814,10 @@ local function test_a_response_a_finalizer_revives_is_closed()
   assert(not ok and tostring(err):find("http: the response is closed", 1, true) ~= nil, tostring(err))
   ok, err = pcall(function() response:sent() end)
   assert(not ok and tostring(err):find("http: the response is closed", 1, true) ~= nil, tostring(err))
-  response:close()
+  local _, _ = response:close()
 end
 
---- The raw handle's close answers nothing: it cannot fail, so a `true`
+--- The raw handle's close returns nothing: it cannot fail, so a `true`
 --- would tell its caller nothing.
 local function test_the_raw_handle_close_returns_no_values()
   local raw = require("cosmic.internal.http") as {string: function(string, {string: any}): any, string} -- cast: the table -- checked: cast_refused
@@ -938,13 +938,13 @@ local function test_a_download_with_a_sha3_256_checks_it(tmp: string)
   local path = tmp .. "/sha3.bin"
   local sha3 = Codec.hex(Hash.digest("sha3-256", "hello"))
   local ok, why = Http.download(url, path, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "hello") },
-    sha3_256 = sha3:upper() })
+    digests = { ["sha3-256"] = sha3:upper() } })
   assert(ok, why)
   assert(assert(Fs.read(path)) == "hello")
   local other = tmp .. "/wrong-sha3.bin"
   local zeros = string.rep("0", 64)
   local bad, bad_why = Http.download(url, other, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "hello") },
-    sha256 = Hash.hex_sha256("hello"), sha3_256 = zeros })
+    digests = { ["sha256"] = Hash.hex_sha256("hello"), ["sha3-256"] = zeros } })
   assert(not bad and tostring(bad_why):find("sha3-256 mismatch: want " .. zeros .. ", got " .. sha3, 1, true) ~= nil, bad_why)
   assert(not assert(Fs.status(other)).exists, "the target was created")
 end
@@ -984,8 +984,7 @@ local function test_download_result_checksums_keep_typed_digests_and_legacy_text
   for _, algorithm in ipairs(algorithms) do
     for _, expected in ipairs({ "ABC", "not HEX", string.rep("0", if algorithm == "sha256" then 64 else 128 end) }) do
       local options: Http.Options = { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "body") },
-        sha256 = if algorithm == "sha256" then expected else nil end,
-        sha512 = if algorithm == "sha256" then nil else expected end }
+        digests = { [algorithm] = expected } }
       local result = Http.download_result(url, path, options)
       local actual = Codec.hex(Hash.digest(algorithm, "body"))
       assert(result.kind == "digest_mismatch" and result.status == nil)
@@ -997,14 +996,12 @@ local function test_download_result_checksums_keep_typed_digests_and_legacy_text
       assert(assert(Fs.read(path)) == "old" and #assert(Fs.list(tmp)) == 1)
     end
   end
-  local empty = Http.download_result(url, path, { timeout_ns = Clock.seconds(60), sha256 = "", sha512 = "",
-    script = { reply("200 OK", "", "unchecked") } })
-  assert(empty.kind == "downloaded" and assert(Fs.read(path)) == "unchecked")
 end
 
 local function test_download_result_bad_checksum_shape_raises_before_publication(tmp: string)
   local path = tmp .. "/got"
-  local options: Http.Options = { timeout_ns = Clock.seconds(60), sha256 = true as string, script = {} } -- checked: cast_refused
+  local digests: {Hash.Algorithm:string} = { ["sha256"] = true as string } -- checked: cast_refused
+  local options: Http.Options = { timeout_ns = Clock.seconds(60), digests = digests, script = {} }
   local ok = pcall(Http.download_result, url, path, options) -- checked: alternatives_as_value
   assert(not ok and #assert(Fs.list(tmp)) == 0)
 end
@@ -1020,21 +1017,16 @@ local function test_a_download_checks_a_digest_of_any_algorithm(tmp: string)
   assert(wrong.kind == "digest_mismatch" and wrong.algorithm == "sha3-512", wrong.reason)
 end
 
-local function test_a_download_refuses_an_empty_digest_and_two_that_differ(tmp: string)
+local function test_a_download_refuses_an_empty_digest_and_reads_hex_in_either_case(tmp: string)
   local path = tmp .. "/got"
   local empty = Test.raises(function()
     local _ = Http.download_result(url, path, { timeout_ns = Clock.seconds(60), script = {}, digests = { ["sha256"] = "" } })
   end, 'opts.digests["sha256"] must be a digest in hex')
   assert(empty:find("^cosmic%.http_test:%d+: ") ~= nil, empty)
-  local differ = Test.raises(function()
-    local _ = Http.download_result(url, path, { timeout_ns = Clock.seconds(60), script = {},
-      sha256 = string.rep("a", 64), digests = { ["sha256"] = string.rep("b", 64) } })
-  end, 'opts.sha256 and opts.digests["sha256"] differ')
-  assert(differ:find("^cosmic%.http_test:%d+: ") ~= nil, differ)
   assert(#assert(Fs.list(tmp)) == 0)
   local same = string.rep("A", 64)
   local agreed = Http.download_result(url, path, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "body") },
-    sha256 = same, digests = { ["sha256"] = same:lower() } })
+    digests = { ["sha256"] = same } })
   assert(agreed.kind == "digest_mismatch" and agreed.expected == same:lower(), agreed.reason)
 end
 
@@ -1309,7 +1301,7 @@ local function test_a_close_variable_closes_a_decoded_response()
   local chunk, trouble = kept:read()
   assert(chunk == nil and tostring(trouble) == "http: the response is closed", trouble)
   local again, again_trouble = kept:close() -- closing again is harmless
-  assert(again and again_trouble == "")
+  assert(again and again_trouble == nil)
   local ok, err = pcall(function() kept:sent() end)
   assert(not ok and tostring(err):find("http: the response is closed", 1, true) ~= nil, tostring(err))
 end
@@ -1377,7 +1369,7 @@ local function test_decompress_fails_a_corrupt_truncated_or_trailed_body()
     -- And again: a failed body stays failed.
     local again, why = response:read()
     assert(again == nil and tostring(why) == case.trouble, why)
-    response:close()
+    local _, _ = response:close()
   end
 end
 
@@ -1389,7 +1381,7 @@ local function test_decompress_fails_a_one_byte_deflate_body_without_raising()
     local chunk, why = response:read()
     while chunk ~= nil do chunk, why = response:read() end
     assert(tostring(why):find("^http: cannot decode the deflate body: ") ~= nil, why)
-    response:close()
+    local _, _ = response:close()
   end
 end
 
@@ -1416,7 +1408,7 @@ local function test_decompress_gives_a_bomb_out_in_pieces_no_larger_than_asked()
     assert(#chunk <= 4096, tostring(#chunk))
     total = total + #chunk
   end
-  response:close()
+  local _, _ = response:close()
   assert(total == #plain, tostring(total))
 end
 
@@ -1532,7 +1524,7 @@ local function test_a_redirect_to_another_origin_never_sends_the_body_there()
       end
     end
     local sent = response:sent()
-    response:close()
+    local _, _ = response:close()
     return response, "", sent
   end
   for _, case in ipairs({ { "307 Temporary Redirect", "POST" }, { "308 Permanent Redirect", "POST" },
@@ -1555,7 +1547,7 @@ local function test_a_redirect_to_another_origin_never_sends_the_body_there()
     script = { reply("303 See Other", "Location: /a\r\n"), reply("307 Temporary Redirect",
       "Location: http://other.test/n\r\n"), reply("200 OK", "", "done") } }))
   assert(through.status == 200)
-  through:close()
+  local _, _ = through:close()
 end
 
 --- A body longer than `max_bytes` fails the request: at once when its

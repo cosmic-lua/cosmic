@@ -1,4 +1,4 @@
---- What `cosmic fix` keeps of a Teal file it found laid out ([`build.fix.laid`]): an answer is held for the same
+--- What `cosmic fix` keeps of a Teal file it found laid out ([`build.fix.laid`]): a result is held for the same
 --- dialect and text and the same code alone, and the code is the formatter's whole closure.
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
@@ -32,12 +32,12 @@ local function test_only_a_file_found_laid_out_is_kept()
   local refused = laid.format(kept, "local = \n", "a.tl")
   assert(refused.text == nil and refused.kind == "syntax")
   assert(not held(kept, "tl", "local = \n"))
-  -- Without a memo the answer is the formatter's.
+  -- Without a memo the result is the formatter's.
   assert(laid.format(nil, "local   x=1\n", "a.tl").text == "local x = 1\n")
 end
 
---- A hit answers without the formatter: a memo that holds a text laid out badly says that it is laid out, which
---- only a memo can say. The answer is of the dialect and the text it was kept for.
+--- A hit is settled without the formatter: a memo that holds a text laid out badly says that it is laid out,
+--- which only a memo can say. The result is of the dialect and the text it was kept for.
 local function test_a_hit_is_answered_from_the_memo_for_the_same_dialect_and_text_alone()
   local kept = begun()
   local source = "local record  R\nend\n"

@@ -111,6 +111,11 @@ local record sqlite
     --- The name of the column at `index`, from zero: its `AS` alias,
     --- or what SQLite calls it without one. Known before any row.
     name: function(Statement, index: integer): string
+    --- Where the column at `index`, from zero, comes from: its table,
+    --- that table's column, and the column's declared type. The table
+    --- and column are nil for an expression (`count(*)`), and the type
+    --- for a column declared with none. Known before any row.
+    origin: function(Statement, index: integer): string?, string?, string?
     --- One of "integer", "number", "text", "blob", "null".
     kind: function(Statement, index: integer): string
     --- The column at `index`, counting from 0, of the current row, as
@@ -128,7 +133,7 @@ local record sqlite
     --- the previous step's failure, in which case the statement is
     --- rewound all the same. See [`Statement.rewind`] to keep the bindings.
     reset: function(Statement): boolean, string
-    --- As [`Statement.reset`], but answers SQLite's codes as
+    --- As [`Statement.reset`], but returns SQLite's codes as
     --- [`Statement.step_result`] does. A statement stopped before its end
     --- in autocommit commits at its reset, so a failure there is its own.
     reset_result: function(Statement): ExecResult
@@ -245,7 +250,7 @@ local record sqlite
     --- `"sql_length"`, `"length"`, `"column"`, `"expr_depth"`,
     --- `"compound_select"`, `"vdbe_op"`, `"function_arg"`,
     --- `"like_pattern_length"`, `"variable_number"`, `"trigger_depth"`,
-    --- `"worker_threads"`), and answers the value it had. A negative
+    --- `"worker_threads"`), and returns the value it had. A negative
     --- `value` changes nothing, so it reads the limit. A value above the
     --- library's own ceiling raises, naming the ceiling, as does an
     --- unknown name. `"attached"` starts at 10 and may be raised to 125.
@@ -275,7 +280,7 @@ local record sqlite
   --- The SQLite library's version, such as "3.54.1".
   version: string
   --- `x` as SQLite writes a REAL as text: what `CAST(x AS TEXT)` and a
-  --- column's text answer for it.
+  --- column's text give for it.
   number_text: function(x: number): string
   --- The one read-only empty Value, which binds NULL.
   NULL: Value

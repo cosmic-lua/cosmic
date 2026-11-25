@@ -82,7 +82,7 @@ local function checkout(root: string, changed?: {string:string})
 end
 
 --- Builds the checkout at `root` (`cosmic test`, which has nothing to
---- run), answering what it printed; it must pass unless `fails`.
+--- run), returning what it printed; it must pass unless `fails`.
 local function build(root: string, env: {string:string}, fails?: boolean): string
   local output = root .. ".out"
   local fd = assert(Fs.open_write(output))
@@ -117,7 +117,7 @@ local function built(root: string, env: {string:string}, wanted: string): string
   return text
 end
 
---- Every row `sql` answers of the database at `path`, a line each.
+--- Every row `sql` finds in the database at `path`, a line each.
 local function dump(path: string, sql: string): string
   local db = assert(Sqlite.open(path))
   local rows = assert(db:text_rows(sql))
@@ -344,7 +344,7 @@ end
 
 --- Two builds meeting a fresh cache at once: the second's switch to
 --- write-ahead mode finds the first holding the file's write lock, and
---- SQLite answers "database is locked" at once, calling no busy handler
+--- SQLite returns "database is locked" at once, calling no busy handler
 --- (the switch reads the header in one transaction, then writes it);
 --- the open tries again rather than leaving that build without the cache.
 local function test_a_cache_another_build_is_making_is_opened(tmp: string)

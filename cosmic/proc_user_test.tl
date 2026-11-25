@@ -22,7 +22,7 @@ local function test_user_resolves_root_and_copies_numeric_ids()
 end
 
 --- A host may refuse its directory service when a name is not in its
---- local file; that remains an operating failure, not a missing answer.
+--- local file; that remains an operating failure, not a missing account.
 local function test_user_unknown_name_preserves_the_lookup_answer()
   local user, why = Proc.user("cosmic-test-absent-73c2a0b198")
   assert(user == nil and why.path == "cosmic-test-absent-73c2a0b198", tostring(why))

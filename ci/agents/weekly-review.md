@@ -56,7 +56,7 @@ the checkout is the working directory, on main. use cosmic for the work:
   `gh pr list --repo cosmic-lua/cosmic --state open --author app/cosmic-buddy --search 'head:weekly-review/' --limit 100 --json number,title,headRefName`.
   read the diff (`gh pr diff <number>`) of any whose title is near your
   finding. where one already fixes it, by what its diff changes and not by
-  its title, skip the finding and name that pull request in your answer.
+  its title, skip the finding and name that pull request in your reply.
 - start each fix from main on its own branch,
   `git switch -c weekly-review/<date>-<name> origin/main`, where `<name>`
   is a few words in lower case joined by `-`. commit with

@@ -20,6 +20,7 @@ Test.policy{
   env = {
     "COSMIC_FIXTURE_PRODUCT",
     "COSMIC_FIXTURE_SOURCE",
+    "COSMIC_FIXTURE_SELF_BOOT",
     "PATH",
     "HOME",
     "XDG_CACHE_HOME",
@@ -71,14 +72,20 @@ local boot_timeout_ns <const> = Clock.seconds(450)
 
 --- `product` as a tool built from the tree at `tree`, which it runs a file of: the product is built from the checkout
 --- CI booted it in, and a file of a copy of that tree at another path is run by a tool built from that copy or it
---- reads the tree as a project. Written under `tmp`; answers its path.
+--- reads the tree as a project. Written under `tmp`; returns its path.
 local function built_from(product: string, tree: string, tmp: string): string
   local path = tmp .. "/cosmic"
   Fixture.retargeted(product, path, assert(sys.realpath(tree)), 0x1ed)
   return path
 end
 
+--- Not in the merge queue (COSMIC_FIXTURE_SELF_BOOT=skip, from ci.yml's COSMIC_CI_SELF_BOOT): it proves the product
+--- can be the next pin, which only a prerelease moves, so main's push and the daily run, which run it, meet a break
+--- in time, and the queue's product jobs are some 2 min shorter.
 local function test_the_product_boots_its_own_tree_to_itself(tmp: string)
+  if Fixture.required("COSMIC_FIXTURE_SELF_BOOT") == "skip" then
+    Test.skip("the merge queue leaves the product's boot of its own tree to main's push (COSMIC_FIXTURE_SELF_BOOT=skip)")
+  end
   local product = Fixture.required("COSMIC_FIXTURE_PRODUCT") .. "/cosmic"
   local tree = tmp .. "/tree"
   local diagnostics = tmp .. "/logs"

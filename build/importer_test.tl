@@ -3,6 +3,7 @@
 --- analyzer's and writer's identities, the uses a projection keeps, and
 --- what a compile refuses.
 local importer_fixture = require("build.importer_fixture")
+local Array = require("cosmic.array")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
@@ -271,7 +272,7 @@ local function test_self_compile_consumes_cache_after_identity_selection()
     assert(selected.value == (phase ~= "record"))
     if phase == "success" then
       assert(result ~= nil, trouble)
-      -- The tool the selection answered, as the compile in the new mode keys it ([`code_identity.coded_of`]).
+      -- The tool the selection returned, as the compile in the new mode keys it ([`code_identity.coded_of`]).
       local chosen = "chosen-compiler"
       local moded = GrammarMode.tool(chosen)
       local c1, c2 = code_identity.coded(chosen), assert(code_identity.coded_of(chosen, handle.db))
@@ -405,7 +406,7 @@ local function test_a_declaration_beside_its_source_is_refused_cold_and_warm()
 end
 
 --- Two declaration files of one module (`x.d.tl` and `x/init.d.tl`) are refused, as two sources are, rather than the first
---- by name answering for the importer; on a cold run and on a warm one.
+--- by name being taken by the importer; on a cold run and on a warm one.
 local function test_two_declarations_of_one_module_are_refused_cold_and_warm()
   local root, write_trouble = write_fixture("two-declarations", {
     ["x.d.tl"] = "--- @kind binding\nlocal record X\n  f: function(a: integer): integer\nend\nreturn X\n",
@@ -537,7 +538,7 @@ local function test_a_declaration_that_names_nothing_is_refused_in_the_tree(tmp:
 end
 
 --- A project file named for a module of the language (`math`, `string`, `table`, ...) is refused, as a `.tl` and as a `.d.tl`,
---- or as a package: the binary answers `require("math")` with its own module, so the checker would type the call against
+--- or as a package: the binary resolves `require("math")` to its own module, so the checker would type the call against
 --- the project and the run would use another. A name that only contains one, a type of the library (`FILE`) and a file
 --- below a directory (`lib/math.tl`, whose tail `math` stands for no module) are names like any other.
 local function test_a_project_file_named_for_a_module_of_the_language_is_refused()
@@ -560,7 +561,7 @@ local function test_a_project_file_named_for_a_module_of_the_language_is_refused
       "rename it (for example to `" .. name .. "_lib`)"
     assert(result == nil and trouble == want, file .. ": " .. tostring(trouble))
   end
-  -- `metatable` is a type the prelude declares, no module the binary answers; `math_test` is a test of `math`.
+  -- `metatable` is a type the prelude declares, no module the binary resolves; `math_test` is a test of `math`.
   local allowed = {
     "FILE.tl", "mathlib.tl", "lib/maths.tl", "string_lib.tl", "print_x.tl", "lib/math.tl", "util/string.d.tl", "metatable.tl",
     "metatable.d.tl", "math_test.tl",
@@ -648,7 +649,7 @@ local function test_a_module_moved_to_its_init_file_is_compiled_again()
   assert(before.graph_key == after.graph_key, "the move moved x's graph key")
 end
 
---- What the working database of the project at `root` answers to `sql`,
+--- What the working database of the project at `root` gives for `sql`,
 --- as rows of text.
 local function asked_of(root: string, sql: string): {{string}}
   local handle = assert(work.open(root))
@@ -660,7 +661,7 @@ local function asked_of(root: string, sql: string): {{string}}
 end
 
 --- The keys a run makes are kept for the next run that has the same inputs
---- (`keys_memo`), and an input that changes is never answered with them: an
+--- (`keys_memo`), and an input that changes is never given them: an
 --- edit to a module moves its own key and its dependents', and what a
 --- module that requires nothing of it holds stands.
 local function test_the_keys_of_unchanged_inputs_are_kept_and_an_edit_moves_them()
@@ -1150,7 +1151,7 @@ end
 
 --- A tree that is not cosmic's own can `require` the standard library
 --- and be checked against it: the binary carries every `cosmic.*`
---- source and declaration, and the checker is answered from those
+--- source and declaration, and the checker reads those
 --- rows for a name the tree itself does not hold.
 local function test_types_the_standard_library_from_the_binary()
   local root, write_trouble = write_fixture("stdlib", {
@@ -1287,14 +1288,37 @@ local function test_compiler_identity_is_the_same_on_a_fresh_database()
   local fresh = compiler_identity()
   local warm = compiler_identity()
   assert(warm == fresh, "a second open of the same tree moved the compiler identity")
+  -- With a lexer named, the code hashes are kept: the next takes each from `code_hashes`, and with them gone, lexes
+  -- each again, alike.
+  local lexed_by = identity.lexed_by
+  identity.lexed_by = function(): string? return "a test's lexer" end
+  assert(compiler_identity() == fresh, "keeping the code hashes moved the compiler identity")
+  assert(compiler_identity() == fresh, "the code hashes kept moved the compiler identity")
+  local cache = assert(work.open(root))
+  local kept = assert(cache.db:text_rows("SELECT count(*) FROM code_hashes"))
+  assert(Array.at(kept, 1):text(1) ~= "0", "the identity kept no module's code hash")
+  -- A kept hash is taken in place of the lexer's: one set wrong moves the identity, which a lex of each again mends.
+  assert(cache.db:exec("UPDATE code_hashes SET code_hash = 'wrong'"))
+  work.close(cache)
+  assert(compiler_identity() ~= fresh, "the code hashes kept were not taken")
+  cache = assert(work.open(root))
+  assert(cache.db:exec("DELETE FROM code_hashes"))
+  work.close(cache)
+  assert(compiler_identity() == fresh, "lexing again moved the compiler identity")
+  -- The edits below run with the cache, so a hash it keeps for a source is never taken for another's.
   assert(Fs.write(root .. "/build/other.tl",
-    "local record other\nend\nreturn other\n-- edited\n"))
+    "local record other\nend\nlocal _ = \"edited\"\nreturn other\n"))
   assert(compiler_identity() == fresh,
     "an edit to a module only build.importer requires moved the compiler identity")
   assert(Fs.write(root .. "/build/helper.tl",
-    "local record helper\nend\nreturn helper\n-- edited\n"))
+    "-- A comment, and another layout.\nlocal   record helper\n  end\n\nreturn helper -- edited\n"))
+  assert(compiler_identity() == fresh,
+    "an edit to a comment and the layout of a module the compiler requires moved its identity")
+  assert(Fs.write(root .. "/build/helper.tl",
+    "local record helper\nend\nlocal _ = \"edited\"\nreturn helper\n"))
   assert(compiler_identity() ~= fresh,
-    "an edit to a module the compiler requires did not move its identity")
+    "an edit to the code of a module the compiler requires did not move its identity")
+  identity.lexed_by = lexed_by
 end
 
 --- The writer identity is every module [`build.writer`] reaches, the
@@ -1342,28 +1366,28 @@ local function test_writer_identity_follows_the_writer_closure()
   local fresh = writer_identity()
   assert(writer_identity() == fresh, "a second open of the same tree moved the writer identity")
   assert(Fs.write(root .. "/build/work.tl",
-    "local record work\nend\nreturn work\n-- edited\n"))
+    "local _ = \"edited\"\nlocal record work\nend\nreturn work\n"))
   assert(writer_identity() == fresh, "an edit to staging moved the writer identity")
   assert(Fs.write(root .. "/build/importer.tl",
-    "local helper = require(\"build.helper\")\nlocal record importer\nend\n" ..
-      "importer.helper = helper\nreturn importer\n-- edited\n"))
+    "local helper = require(\"build.helper\")\nlocal _ = \"edited\"\nlocal record importer\nend\n" ..
+      "importer.helper = helper\nreturn importer\n"))
   assert(writer_identity() == fresh, "an edit to build.importer moved the writer identity")
   assert(Fs.write(root .. "/build/helper.tl",
-    "local record helper\nend\nreturn helper\n-- edited\n"))
+    "local _ = \"edited\"\nlocal record helper\nend\nreturn helper\n"))
   assert(writer_identity() == fresh,
     "an edit to a module only build.importer requires moved the writer identity")
   assert(Fs.write(root .. "/build/schema.tl",
-    "local record schema\nend\nreturn schema\n-- edited\n"))
+    "local _ = \"edited\"\nlocal record schema\nend\nreturn schema\n"))
   local after_build = writer_identity()
   assert(after_build ~= fresh,
     "an edit to a module the writer requires did not move its identity")
   assert(Fs.write(root .. "/cosmic/codec.tl",
-    "local record codec\nend\nreturn codec\n-- edited\n"))
+    "local _ = \"edited\"\nlocal record codec\nend\nreturn codec\n"))
   assert(writer_identity() ~= after_build,
     "an edit to a standard library module the writer requires did not move its identity")
   local before_definition = writer_identity()
   assert(Fs.write(root .. "/build/identity.tl",
-    "local record identity\nend\nreturn identity\n-- edited\n"))
+    "local _ = \"edited\"\nlocal record identity\nend\nreturn identity\n"))
   assert(writer_identity() ~= before_definition,
     "an edit to the fingerprint and identity definitions did not move the writer identity")
 
@@ -1372,7 +1396,7 @@ local function test_writer_identity_follows_the_writer_closure()
       "schema.work = work\nreturn schema\n"))
   local through_schema = writer_identity()
   assert(Fs.write(root .. "/build/work.tl",
-    "local record work\nend\nreturn work\n-- edited again\n"))
+    "local _ = \"edited again\"\nlocal record work\nend\nreturn work\n"))
   assert(writer_identity() ~= through_schema,
     "the writer's root exclusion also excluded a dependency reached through its schema")
 
@@ -1636,7 +1660,7 @@ local function test_a_module_that_requires_one_whose_declarations_do_not_stand_i
   end
 end
 
---- A module that counts in a `global`, which a program may not declare, and answers `returns` from its function.
+--- A module that counts in a `global`, which a program may not declare, and returns `returns` from its function.
 local function counting(returns: string): string
   return "global count: integer = 0\nlocal record T\nend\nfunction T.next(): integer\n  count = count + 1\n  return " ..
     returns .. "\nend\nreturn T\n"
@@ -1682,7 +1706,7 @@ local function test_a_file_with_a_global_is_not_checked_where_that_is_not_sound(
 end
 
 --- [`build.syntax_contracts`] holds a module's exports to rule 10 as it compiles,
---- so an exported function answering a tuple never does.
+--- so an exported function returning a tuple never does.
 local function test_compile_rejects_an_exported_tuple()
   local root = assert(write_fixture("api-contract", {
     ["build/importer.tl"] = "local record Stub end\nreturn Stub\n",
@@ -1864,10 +1888,15 @@ local function identities_of(root: string): {string}
   return { found.compiler, analyzer }
 end
 
---- Appends a comment to the file `path` under `root`.
+--- Edits the code of the file `path` under `root`, or appends a comment to a file that is not a module.
 local function edit(root: string, path: string)
   local source = assert(Fs.read(root .. "/" .. path))
-  assert(Fs.write(root .. "/" .. path, source .. "-- edited\n"))
+  -- Code, not a comment: an identity hashes a module's code text ([`build.code_text`]), which a comment leaves alone.
+  if path:match("%.tl$") ~= nil then
+    assert(Fs.write(root .. "/" .. path, "local _ = \"edited\"\n" .. source))
+  else
+    assert(Fs.write(root .. "/" .. path, source .. "-- edited\n"))
+  end
 end
 
 --- An edit to a module a compile and a parse do not run to decide what
@@ -1990,6 +2019,7 @@ local function test_the_compiler_modules_are_closed_under_require()
     ["build.pipeline"] = "the compile with the new checker, keyed by the code that reads it " ..
       "(`code_identity.coded`) and not by the compiler's identity, which a default run keeps",
     ["build.code_walk"] = "names which modules the identities of the code that reads hash, and which a test's store keeps",
+    ["build.code_text"] = "names a module by its code text, for the identities and the analyzer's name, and stores nothing",
     ["build.code_identity"] = "hashes the code that reads into every compile's key (`code_identity.coded`), and is a root " ..
       "of what it hashes (`CodeWalk.roots_of`), not of the compiler's identity",
     ["build.error_catalog"] = "writes the catalog of the checker's codes, held in every compile's key by the code that reads " ..
@@ -2731,7 +2761,7 @@ local function test_a_refusal_is_said_ahead_of_the_report_once_the_compile_has_g
   assert(first:find("\ng.tl:1:1: one", 1, true) ~= nil and first:find("two", 1, true) == nil, first)
 end
 
---- Compiles the fixture `files` as a run over the tree does, and answers what it was told ahead of the report by a
+--- Compiles the fixture `files` as a run over the tree does, and returns what it was told ahead of the report by a
 --- caller patient for `patience_ns`, and the refusals of the report.
 local function told_of_project(case: string, files: {string:string}, patience_ns: integer?, deaf?: boolean): {string}, {string}
   local root = assert(write_fixture(case, files))

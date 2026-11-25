@@ -53,7 +53,7 @@ local function test_load_reads_a_file(tmp: string)
   assert(db:close())
 end
 
---- A failure answers why and leaves neither the table nor SQLite's CSV
+--- A failed load returns why and leaves neither the table nor SQLite's CSV
 --- table behind.
 local function test_load_failures_leave_nothing(tmp: string)
   local db = assert(Sqlite.memory())

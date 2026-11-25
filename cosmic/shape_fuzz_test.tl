@@ -1,5 +1,5 @@
 --- Fuzz properties for [`cosmic.shape`]: `into` is total on any value a
---- decoder could hand it, and what it answers is already its own shape.
+--- decoder could hand it, and what it returns is already its own shape.
 --- A spec and a value are both built from one recipe of draws; the value
 --- mostly follows the spec and sometimes strays from it, so both the
 --- walk that succeeds and every way it can fail are reached.
@@ -33,7 +33,7 @@ end
 local KEYS <const> = { "a", "b", "id", "a key", "", "é", "\n", "1" }
 
 local function key(r: Recipe): string
-  -- `byte` answers 0 to `#KEYS - 1`.
+  -- `byte` returns 0 to `#KEYS - 1`.
   return Array.at(KEYS, byte(r, #KEYS) + 1)
 end
 
@@ -45,6 +45,16 @@ end
 local record Inner
   id: string?
   n: number
+end
+
+--- Records told apart by the field each alone declares.
+local record Dot
+  at: integer
+end
+
+local record Span
+  first: integer
+  last: integer
 end
 
 --- One field of every kind: the shapes the draws are made against.
@@ -62,6 +72,8 @@ local record Wide
   opt: Inner?
   inners: {Inner}
   deep: {string: {string}}
+  either: Dot | Span
+  eithers: {Dot | Span}
 end
 
 local record Plain
@@ -141,6 +153,10 @@ local function gen_value(r: Recipe, spec: Shape.Node, depth: integer, strict: bo
       if assert(spec.fields)[extra] == nil then t[extra] = "extra" end -- checked: any_use
     end
     return t -- checked: any_use
+  elseif kind == "union" then
+    -- One of the records, which holds the field that tells it.
+    local arms = assert(spec.arms)
+    return gen_value(r, assert(arms[byte(r, #arms) + 1]), depth, strict)
   end
 end
 
@@ -164,8 +180,8 @@ same = function(a: any, b: any): boolean -- checked: not_assigned
   return true
 end
 
---- Whether an answer strictly is `spec`: the oracle, written apart from
---- the walk. An answer is never [`Json.null`] outside an `any`, holds
+--- Whether a result strictly is `spec`: the oracle, written apart from
+--- the walk. A result is never [`Json.null`] outside an `any`, holds
 --- integers where the spec says integer, a JSON array for a list, and no
 --- key a record does not name.
 local function fits(v: any, spec: Shape.Node): boolean
@@ -203,6 +219,19 @@ local function fits(v: any, spec: Shape.Node): boolean
     return true
   end
   if Json.is_array(t) then return false end
+  if kind == "union" then
+    -- The one arm whose field is there; none or two fit nothing.
+    local arms, by = assert(spec.arms), assert(spec.by)
+    local found: Shape.Node? = nil
+    for i, name in ipairs(by) do
+      local held = rawget(t, name)
+      if held ~= nil and not rawequal(held, Json.null) then
+        if found ~= nil then return false end
+        found = arms[i]
+      end
+    end
+    return found ~= nil and fits(v, found)
+  end
   if kind == "map" then
     for k, e in next, t do -- checked: overload_value
       if not (k is string) or not fits(e, assert(spec.of)) then return false end
@@ -224,7 +253,7 @@ local function total<T>(r: Recipe, typed: Shape.Typed<T>): boolean, string
   local spec = typed.node
   local value = gen_value(r, spec, 4, false)
   local out, err = Shape.into(value, typed.spec)
-  -- The same value answers the same failure on every call.
+  -- The same value gets the same failure on every call.
   local _, again_err = Shape.into(value, typed.spec)
   if again_err ~= err then
     return false, ("two calls answered %q and %q"):format(err, again_err)
@@ -271,7 +300,7 @@ local function filled(value: any): any
 end
 
 --- A value that fits, encoded and decoded, with nulls kept or not:
---- the decoded value still fits, its answer is its shape, and the answer
+--- the decoded value still fits, its result is its shape, and the result
 --- re-encodes and reads back as itself.
 local function through_json<T>(r: Recipe, typed: Shape.Typed<T>): boolean, string
   local spec = typed.node
@@ -289,7 +318,7 @@ local function through_json<T>(r: Recipe, typed: Shape.Typed<T>): boolean, strin
   if again_text == nil then
     return false, text .. ": the answer did not encode: " .. tostring(aerr)
   end
-  -- Read back as it was first read: under `any` the answer keeps
+  -- Read back as it was first read: under `any` the result keeps
   -- [`Json.null`], which only the same `null_value` reads back as itself.
   local got1, why1 = Json.decode(again_text, opts)
   assert(got1 ~= nil, tostring(why1))

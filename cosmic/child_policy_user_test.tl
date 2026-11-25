@@ -23,8 +23,9 @@ Test.policy{
   requires = { "nest" },
 }
 
---- The user ids a `Uid:` line of /proc/self/status lists, a stand-in's
---- answer to `status-field Uid`: real, effective, saved and filesystem.
+--- The user ids a `Uid:` line of /proc/self/status lists, as a stand-in
+--- prints them for `status-field Uid`: real, effective, saved and
+--- filesystem.
 local function uids(said: string): {integer}
   local found: mut {integer} = {}
   for number in said:gmatch("%d+") do
@@ -77,8 +78,8 @@ end
 --- `isolate` proc: how many it started before the kernel refused one, and
 --- the refusal.
 local function started_under(at: ChildPolicy.Place, limit: integer, wanted: integer): integer, string
-  local ran = ChildPolicy.under(at.probe, { isolate = { "proc" }, promises = { "fork" },
-    grants = { { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" } },
+  local ran = ChildPolicy.under(at.probe, { isolate = { "proc" },
+    grants = { { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" }, { calls = "fork" } },
     limits = { processes = limit } }, at.work,
     "start-count " .. tostring(wanted) .. " " .. at.probe .. " sleep-forever")
   assert(ran.code == 0, ran.said)

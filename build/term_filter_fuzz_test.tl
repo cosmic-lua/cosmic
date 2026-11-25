@@ -2,9 +2,9 @@
 --- program wrote to its terminal: it never raises for any bytes, what it
 --- passes is text and the listed sequences and nothing else -- no ESC but
 --- at the start of one, no control, no C1 control in either form, valid
---- UTF-8 -- and is no longer than what it was fed, what it answers is one
---- of its two answers, feeding in pieces passes and answers what feeding
---- whole does, and a stream costs what its length does.
+--- UTF-8 -- and is no longer than what it was fed, its second result is
+--- one of the two query replies, feeding in pieces gives both results
+--- as feeding whole does, and a stream costs what its length does.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
@@ -42,7 +42,8 @@ local function whole(input: string): string, string
   return TermFilter.new():feed(input)
 end
 
---- What `input` passes and answers, fed in `size` bytes at a time.
+--- What `input` passes, and the replies to its queries, fed in `size`
+--- bytes at a time.
 local function sized(input: string, size: integer): string, string
   local filter = TermFilter.new()
   local passed, answered: mut {string}, mut {string} = {}, {}

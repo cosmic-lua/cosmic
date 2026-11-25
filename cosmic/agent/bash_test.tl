@@ -4,6 +4,7 @@
 
 local Agent = require("cosmic.agent")
 local agent_fixture = require("build.agent_fixture")
+local Tools = require("cosmic.agent.tools")
 local Json = require("cosmic.json")
 local Sessions = require("cosmic.agent.sessions")
 local Sqlite = require("cosmic.sqlite")
@@ -75,9 +76,19 @@ local function test_each_output_is_kept_before_it_is_shown()
   s, _, db = kept({ { content = { bash_call("t2", "seq 3000") }, stop_reason = "tool_use" }, text_reply("ok") })
   assert(s:prompt("go"))
   local answer = assert(Sessions.answer(db, assert(s.id), "t2"))
-  assert(answer.text:find("use sql.]", 1, true) ~= nil and #answer.text < 20000, answer.text:sub(-100))
+  assert(#answer.text < 20000, answer.text:sub(-100))
   local whole = assert(db:rows("SELECT length(text), call FROM outputs WHERE call = 't2'"))
   assert(assert(whole[1]):integer(1) > 13000)
+  -- The note names the Host.output call that reads it in a snippet of run.
+  local id = assert(assert(db:rows("SELECT id FROM outputs WHERE call = 't2'"))[1]):integer(1)
+  assert(answer.text:find("kept as output " .. tostring(id) .. ": read it in run with Host.output(" .. tostring(id) ..
+      ").]", 1, true) ~= nil, answer.text:sub(-100))
+  -- With no run tool, nothing reads it, so there is no note.
+  s, _, db = kept({ { content = { bash_call("t3", "seq 3000") }, stop_reason = "tool_use" }, text_reply("ok") })
+  s.tools = Tools.without(s.tools, { "run" })
+  assert(s:prompt("go"))
+  local bare = assert(Sessions.answer(db, assert(s.id), "t3"))
+  assert(bare.text:find("kept as output", 1, true) == nil, bare.text:sub(-100))
 end
 
 local function test_the_user_stops_and_steers_a_turn()

@@ -63,7 +63,7 @@ end
 local function test_the_system_profile_runs_no_program_and_programs_does(tmp: string)
   local function shell(profiles: {string}): string, integer
     local result, why = Child.run({ "/bin/sh", "-c", CAT .. " " .. tmp .. "/a; echo status=$?" },
-      { timeout_ns = Child.FOREVER, policy = { profiles = profiles, promises = { "fork" }, grants = { { path = tmp, letters = "r" } } },
+      { timeout_ns = Child.FOREVER, policy = { profiles = profiles, grants = { { path = tmp, letters = "r" }, { calls = "fork" } } },
         stdout = "capture", stderr = "stdout" })
     if result == nil then
       if why.message:find("Landlock", 1, true) or why.message:find("seccomp", 1, true) or why.message:find("not implemented", 1, true) then
@@ -104,7 +104,7 @@ local function test_the_elf_loader_runs_a_readable_program_with_no_x(tmp: string
   searchable.open(tmp)
   assert(Fs.write(tmp .. "/a", "alpha\n"))
   local result, why = Child.run({ "/bin/sh", "-c", loader .. " " .. CAT .. " " .. tmp .. "/a" },
-    { timeout_ns = Child.FOREVER, policy = { profiles = { "system" }, promises = { "fork" }, grants = { { path = tmp, letters = "r" } } },
+    { timeout_ns = Child.FOREVER, policy = { profiles = { "system" }, grants = { { path = tmp, letters = "r" }, { calls = "fork" } } },
       stdout = "capture", stderr = "stdout" })
   if result == nil then
     if why.message:find("Landlock", 1, true) or why.message:find("seccomp", 1, true) or why.message:find("not implemented", 1, true) then

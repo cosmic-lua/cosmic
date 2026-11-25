@@ -36,7 +36,7 @@ function ShapeNodes.map(of: Shape.Node): Shape.Node
 end
 function ShapeNodes.optional(of: Shape.Node): Shape.Node
   return { kind = of.kind, optional = true, of = of.of, fields = of.fields, strict = of.strict,
-    values = of.values }
+    values = of.values, arms = of.arms, by = of.by }
 end
 function ShapeNodes.one_of(...: string | number | boolean): Shape.Node
   local values: {string | number | boolean} = { ... }

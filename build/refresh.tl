@@ -31,6 +31,7 @@ local Archive = require("cosmic.archive")
 local Verb = require("cosmic.cli.refresh")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local Defer = require("cosmic.defer")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Proc = require("cosmic.proc")
@@ -150,8 +151,8 @@ function refresh.cacert_date(pem: string): string?
 end
 
 --- The URL of the page after this one, by the `Link` header GitHub
---- answers a paginated listing with (`<url>; rel="next"`), or nil on the
---- last page.
+--- responds to a paginated listing with (`<url>; rel="next"`), or nil
+--- on the last page.
 function refresh.next_page(link: string?): string?
   if link == nil then
     return nil
@@ -236,7 +237,7 @@ function refresh.fetching(): Http.Options
   return { timeout_ns = Http.FOREVER, roots = "minimal" }
 end
 
---- The body `url` answers, refusing anything but a 2xx.
+--- The body the server at `url` responds with, refusing anything but a 2xx.
 local function fetch_text(url: string): string?, string
   local got, trouble = Http.get(url, refresh.fetching())
   if got == nil then
@@ -518,7 +519,7 @@ local function recorded(db: Sqlite.Handle, name: string): Recorded?, string
 end
 
 --- Replaces `dataset`'s rows in `db` with the release at `source` and
---- records it. Answers one line saying what changed.
+--- records it. Returns one line saying what changed.
 local function apply(db: Sqlite.Handle, dataset: refresh.Dataset, source: refresh.Source,
                      scratch: string): string?, string
   local bytes, trouble = Fs.read(source.path)
@@ -579,7 +580,7 @@ end
 
 --- The executable at `binary` with each dataset of `chosen` replaced from its
 --- source (`sources[name]`, a file, or fetched upstream when that is
---- nil), written to `out`. Answers a line per dataset saying what
+--- nil), written to `out`. Returns a line per dataset saying what
 --- changed. With `every`, a dataset the binary records no component for
 --- -- one built before cosmic carried it, whose core reads none -- is
 --- passed over, saying so; else that refuses the refresh.
@@ -731,6 +732,9 @@ local function run(argv: {string}): integer
   if out == nil then
     return refuse("-o names the file to write")
   end
+  if out == "-" then
+    return refuse("-o names a file, not - (standard output), which takes the report of what changed")
+  end
   local by_name: mut {string:refresh.Dataset} = {}
   for _, dataset in ipairs(refresh.datasets) do
     by_name[dataset.name] = dataset
@@ -743,8 +747,40 @@ local function run(argv: {string}): integer
     end
     wanted[word] = true
   end
+  local one_read = Flags.one_stdin(parsed.values, { "--binary", "--cacert", "--onecrl", "--tzdata" })
+  if one_read ~= "" then
+    return refuse(one_read)
+  end
+  -- A file given as "-" is standard input, which is kept in a file of its own first: a dataset is read by path,
+  -- an archive's members among them, and so is the binary.
+  local spooled: string? = nil
+  local _ <close> = Defer.new(function()
+    local dir = spooled
+    if dir ~= nil then local _, _ = Fs.remove_tree(dir) end
+  end)
+  -- A binary from standard input is written as one is run, mode 0755, which its copy keeps.
+  local function from_stdin(name: string): string?, string
+    local bytes, why = Flags.read("-")
+    if bytes == nil then return nil, name .. ": " .. why end
+    local dir, dir_why = Fs.mkdtemp("cosmic-refresh-")
+    if dir == nil then return nil, tostring(dir_why) end
+    spooled = dir
+    -- Named for the option, as the bill of materials records a file it read by its name ("file:cacert").
+    local path = dir .. "/" .. name:sub(3)
+    local wrote, write_why = Fs.write(path, bytes, if name == "--binary" then 0x1ed else nil end)
+    if not wrote then return nil, tostring(write_why) end
+    return path, ""
+  end
   for _, dataset in ipairs(refresh.datasets) do
     local given = parsed.values["--" .. dataset.name]
+    if given == "-" then
+      local spool_path, spool_why = from_stdin("--" .. dataset.name)
+      if spool_path == nil then
+        log:complain("refresh: " .. spool_why)
+        return 1
+      end
+      given = spool_path
+    end
     if given ~= nil then
       local path, trouble = Fs.absolute(given)
       if path == nil then
@@ -763,6 +799,14 @@ local function run(argv: {string}): integer
     end
   end
   local binary = parsed.values["--binary"]
+  if binary == "-" then
+    local spool_path, spool_why = from_stdin("--binary")
+    if spool_path == nil then
+      log:complain("refresh: " .. spool_why)
+      return 1
+    end
+    binary = spool_path
+  end
   -- TODO: read the running binary from the descriptor startup retained
   -- rather than opening its path again, once the store offers the whole
   -- file as it offers its core (trusted_core): a binary renamed over

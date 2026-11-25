@@ -68,7 +68,7 @@ local record Reading
 end
 
 --- The source of the module or declaration `name` of `db`, as
---- [`Store.source`] answers it of the binary's own: a declaration's ahead
+--- [`Store.source`] returns it for the binary's own: a declaration's ahead
 --- of a module's, nil for a name it holds no row of. A row held without
 --- its source is marked in `reading`.
 local function source_of(db: Sqlite.Handle, reading: Reading, name: string): string?
@@ -87,8 +87,8 @@ local function source_of(db: Sqlite.Handle, reading: Reading, name: string): str
   return nil
 end
 
---- What the module `name` of `db` requires, as [`Store.requires`] answers
---- it of the binary's own.
+--- What the module `name` of `db` requires, as [`Store.requires`] returns
+--- it for the binary's own.
 local function requires_of(db: Sqlite.Handle, name: string): {string}
   local rows, _ = db:text_rows("SELECT requires FROM imports WHERE path = ?1 ORDER BY requires",
     { { text = name } })

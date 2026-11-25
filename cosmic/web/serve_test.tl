@@ -40,7 +40,7 @@ local function pieces_of(pieces: {string}): Stream.Reader
       if piece == nil then return false end
       return piece
     end,
-    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
 end
 
@@ -165,7 +165,7 @@ local function test_stopping_ends_a_stream_and_runs_the_stop_functions_in_order(
           events[#events + 1] = "stream saw stopping"
           return false
         end,
-        close = function(_self: Stream.Reader): boolean, string return true, "" end,
+        close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
       }, "text/event-stream")
     end) },
     lifespan = function(_app: Web.App): Web.Shutdown?, string
@@ -257,7 +257,7 @@ local function test_a_handler_that_ignores_stopping_is_cut_off_at_the_grace()
         assert(Clock.sleep(Clock.ms(5)))
         return "x"
       end,
-      close = function(_self: Stream.Reader): boolean, string return true, "" end,
+      close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
     }, "text/plain")
   end) } }
   local started = Clock.monotonic_ns()
@@ -320,7 +320,7 @@ local function test_an_upload_above_the_servers_body_limit_is_the_servers_413()
     reached = true
     return Web.text(tostring(Input.multipart(req, { max_bytes = 16 * 1024 * 1024 }).invalid))
   end) } }
-  -- Only the head goes out: the server answers 413 on the Content-Length
+  -- Only the head goes out: the server sends 413 on the Content-Length
   -- and closes, so a client still writing the body would meet EPIPE.
   local head = "POST /up HTTP/1.1\r\nHost: x\r\n" ..
     "Content-Type: multipart/form-data; boundary=xx\r\n" ..

@@ -224,7 +224,7 @@ local version <const> = "35"
 --- exports it, a type no export reaches is left out, a member has no
 --- scope or kind a read of it needs).
 ---
---- `executable` is [`build.coverage.syntax_lines.executable`]'s answer for one
+--- `executable` is [`build.coverage.syntax_lines.executable`]'s result for one
 --- source, keyed by content hash as `parsed` is and written by the same
 --- parse ([`build.syntax_derivation`]), so a source parsed here or taken
 --- from another checkout's parse is never parsed again for its coverage.
@@ -291,6 +291,9 @@ local version <const> = "35"
 --- `deflated` is the compressed text of a source, by the source's SHA-256
 --- and the core that compressed it, which [`build.writer`] puts in a
 --- projection beside it instead of compressing every source on each write.
+--- `code_hashes` is the hash of a module's code text ([`build.code_text`]), by the source's SHA-256 and the boot hash
+--- of the tool whose lexer read it, which [`build.identity`] hashes into the tool's identities instead of lexing each
+--- module on each build; it holds the running tool's rows alone.
 --- `kept_bytecode` is a compile's bytecode alone, as `string.dump` wrote it,
 --- by the compile's key, which a projection's modules take theirs from.
 ---
@@ -306,10 +309,10 @@ local version <const> = "35"
 --- project with static files pays the cold compression (about 51 s for
 --- 10.6 MB at level 19). Waits on the shared cache holding the table.
 ---
---- `link_answers` is what the disk answered the last time
+--- `link_answers` is what the disk gave the last time
 --- [`build.link_index`]'s `pending` resolved the tree's links, by a
 --- fingerprint of the links and the code that resolves them, so a run
---- that finds every answer the same does not resolve them again.
+--- that finds every result the same does not resolve them again.
 ---
 --- `link_fill` and `link_fill_rows` are the `links` rows the last
 --- `fill` wrote, with a fingerprint of what they were written from, so a
@@ -354,8 +357,8 @@ local version <const> = "35"
 --- invocation whose coverage rows credit the verdict.
 --- `elapsed_ns` is how long the test function itself took to run, by
 --- [`cosmic.time`]'s monotonic clock: wall time, not CPU time. For a test
---- answered from a standing verdict it is the elapsed time of the run
---- that produced that verdict, so `runs` always answers "how long does
+--- settled from a standing verdict it is the elapsed time of the run
+--- that produced that verdict, so `runs` always tells "how long does
 --- this test take", even when most tests are cached.
 ---
 --- `failures` is the history `runs` does not keep: a row for each
@@ -371,7 +374,7 @@ local version <const> = "35"
 --- relied on in the last ten ([`build.test`]'s `kept_runs`) is dropped,
 --- and with it the `hits_by_test` rows no verdict credits any
 --- more. `elapsed_ns` carries the duration of the run that reached this
---- verdict, which `runs` reports for a test answered from it.
+--- verdict, which `runs` reports for a test settled from it.
 ---
 --- `digests` is the hash of each file a sandboxed run's keys looked
 --- at ([`build.declared_key`]) -- declared inputs beyond what the stage
@@ -403,7 +406,7 @@ local version <const> = "35"
 --- rather than replacing the last run's, so a file's coverage trend
 --- over the kept window of runs is a plain query away.
 ---
---- `hits_by_test` answers a narrower question `coverage` cannot:
+--- `hits_by_test` records what `coverage` cannot:
 --- which lines a given test hit in a given run. It is one row per test
 --- per run, its `hits` every line the test hit, as [`build.test`]'s
 --- `take_hits` writes them, each module's lines beside the text they are
@@ -535,6 +538,10 @@ for _, statement in ipairs({
                                          core TEXT NOT NULL,
                                          data BLOB NOT NULL,
                                          PRIMARY KEY (source_hash, core)) WITHOUT ROWID]],
+    [[CREATE TABLE IF NOT EXISTS code_hashes (source_hash TEXT NOT NULL,
+                                            by TEXT NOT NULL,
+                                            code_hash TEXT NOT NULL,
+                                            PRIMARY KEY (source_hash, by)) WITHOUT ROWID]],
     [[CREATE TABLE IF NOT EXISTS kept_bytecode (key TEXT PRIMARY KEY NOT NULL,
                                               data BLOB NOT NULL) WITHOUT ROWID]],
     [[CREATE TABLE IF NOT EXISTS compressed (path TEXT NOT NULL,
@@ -823,7 +830,7 @@ end
 --- and that it still waits every `reminder_ns`. The handle keeps the long
 --- wait for every statement after ([`work.begin`]'s transactions among
 --- them). Unless `wait`, it waits for no other run: where one holds the
---- lock it answers "busy". The line that says it waits names what the
+--- lock it returns "busy". The line that says it waits names what the
 --- run is `doing`, where given ([`work.waiting_line`]). A transaction begun is recorded
 --- ([`mark_holder`]).
 local function begin_waiting(db: Sqlite.Handle, path: string, wait: boolean, doing?: string): Took?, string
@@ -877,15 +884,15 @@ end
 --- write transaction open for minutes, and never waits on it. In the
 --- rollback mode a file is made in, a writer whose cache spills, or that
 --- commits, holds the file whole, and every reader waits or fails
---- "database is locked". A file already in write-ahead mode answers so
+--- "database is locked". A file already in write-ahead mode reports so
 --- from its header. Switching one that is not writes the header, and
---- where another run holds the write lock SQLite answers "database is
+--- where another run holds the write lock SQLite returns "database is
 --- locked" at once, calling no busy handler: the run waits for that
 --- lock as for its own transaction ([`begin_waiting`]), lets it go, and
---- asks again. Any mode answered but "wal" is kept: a file system with
+--- asks again. Any mode returned but "wal" is kept: a file system with
 --- no shared memory, which write-ahead mode needs, leaves the file in
 --- rollback mode, where its readers wait on a writer as they always
---- did. Unless `wait`, it waits for no other run, answering "busy".
+--- did. Unless `wait`, it waits for no other run, returning "busy".
 local function to_wal(db: Sqlite.Handle, path: string, wait: boolean, doing?: string): Took?, string
   while true do
     local rows, why = db:text_rows("PRAGMA journal_mode = WAL")
@@ -902,8 +909,8 @@ local function to_wal(db: Sqlite.Handle, path: string, wait: boolean, doing?: st
   end
 end
 
---- Whether the `SELECT count(*)` in `counting` counted none. It answers
---- one row; a database that answers none is in trouble.
+--- Whether the `SELECT count(*)` in `counting` counted none. It gives
+--- one row; a database that gives none is in trouble.
 local function counted_none(db: Sqlite.Handle, counting: string): boolean?, string
   local counted, trouble = db:text_rows(counting)
   if counted == nil then
@@ -924,7 +931,7 @@ end
 --- holding the file says so while it waits. A file that has tables keeps
 --- a transaction a statement, each a no-op, and waits, if it must, at the
 --- run's own [`begin_waiting`]. Unless `wait`, it waits for no other
---- run, answering "busy".
+--- run, returning "busy".
 local function create(db: Sqlite.Handle, path: string, wait: boolean, doing?: string): Took?, string
   local fresh, count_trouble = counted_none(db, "SELECT count(*) FROM sqlite_master")
   if fresh == nil then
@@ -964,7 +971,7 @@ local function create(db: Sqlite.Handle, path: string, wait: boolean, doing?: st
     -- A view whose stored text is not the schema's is made again, dropped and created in one transaction, so a run
     -- reading it meets one definition or the other and never none: `CREATE VIEW IF NOT EXISTS` alone would keep the
     -- other for good. The transaction is begun as the run's is ([`begin_waiting`]), so an open that waits for no
-    -- other run answers "busy" where one holds the file.
+    -- other run returns "busy" where one holds the file.
     for _, statement in ipairs(work.schema) do
       local name = statement:match("^CREATE VIEW IF NOT EXISTS (%S+) AS")
       if name ~= nil then
@@ -1077,7 +1084,7 @@ end
 --- file's write lock, and makes it again. Its write-ahead log is left,
 --- where another process reading the old file keeps one: SQLite deletes
 --- a log it finds beside an empty file. Otherwise it removes no file: it
---- answers one of another schema with no handle, having read nothing
+--- returns one of another schema with no handle, having read nothing
 --- else of it. Unless `wait`, it waits for no other run, for neither
 --- lock ([`work.try_open`]). `locked` says the rebuild lock is held for
 --- the open already: by this process, or a parent that handed it on.
@@ -1119,7 +1126,7 @@ local function opened(root: string, dir: string?, wait: boolean,
   -- After the encoding: on a fresh file the switch is the first write,
   -- which fixes the encoding.
   local logged, log_trouble = to_wal(db, path, wait, doing)
-  -- Whatever the switch answered, a file put at the path since the open,
+  -- Whatever the switch returned, a file put at the path since the open,
   -- or removed, as another run may while this one waits for its lock, is
   -- opened anew. SQLite refuses to write to the file it opened once
   -- moved ("attempt to write a readonly database"), and a file removed
@@ -1287,12 +1294,12 @@ function work.open(root: string, dir?: string, doing?: string): work.Handle?, st
 end
 
 --- Opens `root`'s working database as [`work.open`] does, but waits for
---- no other run: where another holds its write lock it answers an
+--- no other run: where another holds its write lock it returns an
 --- opening with no handle. A verb that only reads ([`rebuild.here`]) or
 --- `cosmic lsp`'s stage ([`rebuild.stage`]) opens it so: the run
 --- holding the lock builds the same tree, and what it last committed is
 --- read meanwhile, never waited for. A file of another schema it neither
---- reads nor removes, whoever holds the lock: it answers no handle, and
+--- reads nor removes, whoever holds the lock: it returns no handle, and
 --- the schema it found (`other_schema`).
 function work.try_open(root: string): work.Opening?, string
   return opened(root, nil, false, "never", false)
@@ -1302,7 +1309,7 @@ end
 --- no other run, but a file of another schema it removes and makes again
 --- as [`work.open`] does, where no run holds the checkout's rebuild lock
 --- ([`build.rebuild_lock`]) or the file's write lock. Where one does, it
---- answers no handle and the schema it found. The check a verb that only
+--- returns no handle and the schema it found. The check a verb that only
 --- reads makes of the tool ([`reboot.stale_exit`]) opens it so: where the
 --- locks are free it is a writer's.
 function work.try_open_remaking(root: string): work.Opening?, string
@@ -1314,7 +1321,7 @@ end
 --- build ([`rebuild.here`]) is a newer writer than the tool that made
 --- that file, which holds nothing the tree cannot produce, and would
 --- otherwise say so ([`work.tell_other_schema`]) on every call. A file of
---- a newer schema is left where it is, answered with no handle and the
+--- a newer schema is left where it is, returned with no handle and the
 --- schema found, as is any file a run holds a lock on, which may be that
 --- of an older tool still at work in it ([`opened`]).
 function work.try_open_older(root: string): work.Opening?, string

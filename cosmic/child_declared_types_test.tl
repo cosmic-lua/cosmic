@@ -15,7 +15,7 @@ local this_program = require("build.this_program")
 --- Each child only runs a chunk through this program's core.
 Test.policy{ profiles = { "cosmic" } }
 
---- Runs `script` through this program with `options`, answering the result.
+--- Runs `script` through this program with `options`, and returns the result.
 local function run(script: string, options: Child.Options): Child.Result
   local started = this_program.program({ "-e", script }, options)
   return (assert(Child.run(started.argv, started.options)))

@@ -90,17 +90,17 @@ local record Tar
 end
 
 -- A Reader or Writer here is made as cosmic/stream.tl's "How an object of
--- this module is made" says: a record of its own per kind, implementing the
--- public interface it answers, with its methods on that record and its
--- state in fields. The one exception is an entry's `open`, which needs the
--- reader that made it: it is a closure of that reader, shared by all its
--- entries through their metatable, so that an entry stays the one table of
--- the fields its public record declares.
+-- this module is made" says: a record of its own per kind, implementing
+-- the public interface it is returned as, with its methods on that record
+-- and its state in fields. The one exception is an entry's `open`, which
+-- needs the reader that made it: it is a closure of that reader, shared
+-- by all its entries through their metatable, so that an entry stays the
+-- one table of the fields its public record declares.
 
 local BLOCK <const> = 512
 
---- What a failure of this module answers, nil and `why` under the
---- module's name.
+--- What a function of this module returns when it fails: nil and `why`
+--- under the module's name.
 local function refuse(why: string): nil, string
   return nil, "tar: " .. why
 end
@@ -125,8 +125,8 @@ local SPECIAL_BODY_LIMIT <const> = 1 << 20
 --- first byte's second-highest bit is its sign, sign-extended before
 --- the rest of the bytes are folded in, so a negative value decodes
 --- to a small negative number rather than a huge positive one.
---- A base-256 value an integer cannot hold (a 12-byte field holds 95
---- bits) answers nil, for the header to be refused, as GNU tar does,
+--- For a base-256 value an integer cannot hold (a 12-byte field holds 95
+--- bits) it returns nil, for the header to be refused, as GNU tar does,
 --- rather than read as whatever its low 64 bits say.
 local function numeric(field: string): integer?
   if #field > 0 and (String.byte_at(field, 1) & 0x80) ~= 0 then
@@ -151,7 +151,7 @@ end
 --- field -- octal digits, perhaps space-padded, ending in a NUL or a
 --- space -- goes straight to `tonumber`; anything else (a base-256
 --- field, digits right up to the field's end, NUL padding before the
---- terminator) takes `numeric`'s slower, general path, and answers
+--- terminator) takes `numeric`'s slower, general path, and returns
 --- nil as it does.
 local function numeric_at(block: string, off: integer, len: integer): integer?
   local stop = off + len - 2
@@ -165,7 +165,7 @@ local function numeric_at(block: string, off: integer, len: integer): integer?
   return numeric(block:sub(off, off + len - 1))
 end
 
---- The refusal of a header whose `what` field `numeric` answered nil for.
+--- The refusal of a header whose `what` field `numeric` returned nil for.
 local function out_of_range(what: string): string
   return "tar: header " .. what .. " field is a base-256 value past the integer range"
 end
@@ -391,19 +391,17 @@ local class BufferedReader is Stream.Reader
     return buf:sub(at, at + n - 1)
   end
 
-  function skip(self, n: integer): boolean, string -- declared: interface_disagrees
+  function skip(self, n: integer): (true) | (false, Failure) -- declared: interface_disagrees
     local avail = #self.buf - self.at + 1
     if n <= avail then
       self.at = self.at + n
-      return true, ""
+      return true
     end
     self.buf, self.at = "", 1
-    local skipped, why = Stream.skip(self.raw, n - avail)
-    if not skipped then return false, tostring(why) end
-    return true, ""
+    return Stream.skip(self.raw, n - avail)
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.buf, self.at = "", 1
     return self.raw:close()
   end
@@ -419,7 +417,7 @@ local class BodyReader is Stream.Reader
   state: EntryReader
   generation: integer
   mut left: integer
-  --- The failure every read answers after the first, its kind kept.
+  --- The failure every read returns after the first, its kind kept.
   mut failed?: Failure
   mut closed: boolean
 
@@ -450,9 +448,9 @@ local class BodyReader is Stream.Reader
     return chunk
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.closed = true
-    return true, ""
+    return true
   end
 end
 
@@ -478,14 +476,14 @@ local class ReadEntry is Tar.Entry
 end
 
 --- Keeps `trouble` as the reader's failure, or "tar: read failed" when
---- it is "", and answers it.
+--- it is "", and returns it.
 local function fail(self: EntryReader, trouble: string): nil, string
   local why = if trouble ~= "" then trouble else "tar: read failed" end
   self.failed = why
   return nil, why
 end
 
---- What [`Tar.reader`] answers. Its entries' bodies share its state:
+--- What [`Tar.reader`] returns. Its entries' bodies share its state:
 --- a body reads through `src`, and counts down `pending_skip`, only
 --- while `generation` is still the one it was opened in.
 local class EntryReader is Tar.Reader
@@ -586,7 +584,9 @@ local class EntryReader is Tar.Reader
     self.closed = true
     self.generation = self.generation + 1
     self.current = nil
-    return self.raw:close()
+    local ok, why = self.raw:close()
+    if not ok then return false, tostring(why) end
+    return true, ""
   end
 end
 
@@ -680,16 +680,18 @@ end
 local class BodyWriter is Stream.Writer
   sink: Stream.Sticky
 
-  function write(self, data: string): boolean, string
-    return self.sink:put(data)
+  function write(self, data: string): (true) | (false, Failure)
+    local ok, why = self.sink:put(data)
+    if not ok then return false, Failure.new(why) end
+    return true
   end
 
-  function close(self): boolean, string
-    return true, ""
+  function close(self): (true) | (false, Failure)
+    return true
   end
 
-  function abort(self): boolean, string
-    return true, ""
+  function abort(self): (true) | (false, Failure)
+    return true
   end
 end
 
@@ -723,7 +725,7 @@ local function put_entry(self: EntryWriter, path: string, typeflag: string, size
   return sink:put(header)
 end
 
---- What [`Tar.writer`] answers.
+--- What [`Tar.writer`] returns.
 local class EntryWriter is Tar.Writer
   sink: Stream.Sticky
   deterministic: boolean

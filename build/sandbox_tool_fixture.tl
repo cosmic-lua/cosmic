@@ -17,7 +17,7 @@ local record sandbox_tool_fixture
 end
 
 --- Runs `cosmic <words>` in `dir` with the descriptors `fds` handed on,
---- and answers how it ended. A root caller's program runs as a user of its
+--- and returns how it ended. A root caller's program runs as a user of its
 --- own, who must be able to search `dir`: a caller makes it searchable
 --- first ([`build.searchable`]).
 --- @param dir the directory it starts in

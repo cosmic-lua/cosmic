@@ -129,7 +129,7 @@ local function test_a_holder_is_refused_another_checkouts_lock(tmp: string)
 end
 
 --- A waiting run names the holder by what it is doing: its role, as the
---- holder wrote it, and its pid only where a process answers to it.
+--- holder wrote it, and its pid only where a live process has it.
 --- One that wrote no role, as a tool from before roles did, is taken to
 --- be rebuilding.
 local function test_the_holder_is_named_by_its_role(tmp: string)

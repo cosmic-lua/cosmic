@@ -1,6 +1,6 @@
 --- The raw `lookup` and its `Lookup` (core/socket.h): stepped by hand,
 --- the way cosmic/internal/relay_resolv.tl runs one, against a hosts file
---- and a name server that never answers.
+--- and a name server that never responds.
 
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
@@ -27,7 +27,7 @@ end
 local function test_a_lookup_not_done_has_no_answer_and_a_closed_one_raises(tmp: string)
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, ""))
-  -- A socket nothing reads: the query is sent and never answered.
+  -- A socket nothing reads: the query is sent and never gets a response.
   local silent <close> = assert(socket.datagram({ kind = "udp", host = "127.0.0.1", port = 0 }))
   local port = assert(assert(socket.bound(silent:fd())).port)
   local lookup = assert(socket.lookup("pending.example.test", 1000, "127.0.0.1:" .. tostring(port), hosts))

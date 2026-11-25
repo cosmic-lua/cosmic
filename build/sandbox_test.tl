@@ -29,7 +29,7 @@ local record Ran
   mut opts: Child.Options
 end
 
---- What a stood-in start answers: a result, or nil and why.
+--- What a stood-in start returns: a result, or nil and why.
 local record Answer
   result?: Child.Result
   why?: string
@@ -40,7 +40,7 @@ local function finished(code: integer?, signal?: integer, timed_out?: boolean): 
     captured = {}, truncated = false }
 end
 
---- Runs the verb on `words`, its start answering `answer` (the program
+--- Runs the verb on `words`, its start returning `answer` (the program
 --- exits 0 when none is given), and says what it asked to start.
 local function run(words: {string}, answer?: Answer): Ran
   local argv: mut {string} = { "sandbox" }
@@ -71,7 +71,7 @@ end
 
 --- The letters `policy` grants `path`, or "".
 local function letters(policy: Sandbox.Policy, path: string): string
-  for _, grant in ipairs(policy.grants or {}) do
+  for _, grant in ipairs(Sandbox.paths(policy)) do
     if grant.path == path then return grant.letters end
   end
   return ""
@@ -90,13 +90,13 @@ local function test_each_option_sets_its_field()
   assert(letters(policy, "c") == "rwc" and letters(policy, "d") == "rwxc")
   same(ran.argv, { "prog" })
 
-  ran = run({ "--system", "--programs", "--cosmic", "--isolate", "file", "--isolate", "proc", "--promise", "fork",
+  ran = run({ "--system", "--programs", "--isolate", "file", "--isolate", "proc", "--promise", "fork",
     "--promise", "nest", "--connect", "github.com:443", "--loopback", "127.0.0.2", "--env", "HOME",
     "--env", "TERM", "--set-env", "LANG=C", "--set-env", "EMPTY=", "--tmp", "prog" })
   policy = assert(ran.opts.policy)
-  same(policy.profiles, { "system", "programs", "cosmic" })
+  same(policy.profiles, { "system", "programs" })
   same(policy.isolate, { "file", "proc" })
-  same(policy.promises, { "fork", "nest" })
+  same(Sandbox.calls(policy), { "fork", "nest" })
   same(policy.connect, { "github.com:443" })
   same(policy.loopback, { "127.0.0.2" })
   same(policy.env, { "HOME", "TERM" })
@@ -220,7 +220,7 @@ end
 
 local function test_the_other_values_are_the_decoders_too()
   assert(refused({ "--isolate", "net", "prog" }).err:find("$.isolate[0]", 1, true))
-  assert(refused({ "--promise", "all", "prog" }).err:find("$.promises[0]", 1, true))
+  assert(refused({ "--promise", "all", "prog" }).err:find("$.grants[0].calls", 1, true))
   assert(refused({ "--connect", "nohost", "prog" }).err:find("$.connect[0]", 1, true))
   assert(refused({ "--loopback", "10.0.0.1", "prog" }).err:find("$.loopback[0]", 1, true))
   assert(refused({ "--set-env", "NOVALUE", "prog" }).err:find("NAME=VALUE", 1, true))
@@ -272,7 +272,7 @@ local function test_a_connect_right_after_the_verb_is_the_relays_client()
   assert(assert(run({ "--", "connect" }).argv)[1] == "connect",
     "a program of that name is still run")
   same(run({ "--", "connect", "a", "b" }).argv, { "connect", "a", "b" })
-  same(run({ "--cosmic", "connect" }).argv, { "connect" })
+  same(run({ "--system", "connect" }).argv, { "connect" })
 end
 
 local function test_the_relays_decision_lines_go_to_the_verbs_standard_error()
@@ -375,7 +375,6 @@ local function test_the_database_options_are_refused_where_they_conflict()
   refusing({ "--modules", "a", "--database", "d", "prog" }, "--modules and --database are exclusive")
   refusing({ "--closure", "--modules", "a", "--database", "d", "prog", "x.tl" },
     "--closure and --modules and --database are exclusive")
-  refusing({ "--closure", "--cosmic", "--", "prog", "x.tl" }, "--closure and --cosmic are exclusive")
   refusing({ "--closure" }, "--closure runs a script")
   refusing({ "--closure", "--", "prog" }, "--closure runs a script")
   refusing({ "--database", "a", "--database", "b", "prog" }, "--database is given more than once")
@@ -394,7 +393,7 @@ local POLICY <const> = Shape.record_of("cosmic.sandbox.Policy")
 --- until it has a flag and a line here.
 local samples <const>: {string:{string}} = {
   profiles = { "--system" }, grants = { "--read", "x" }, isolate = { "--isolate", "proc" },
-  promises = { "--promise", "fork" }, connect = { "--connect", "h:1" },
+  connect = { "--connect", "h:1" },
   loopback = { "--loopback", "127.0.0.2" }, env = { "--env", "X" },
   set_env = { "--set-env", "X=1" }, tmp = { "--tmp" },
   open_files = { "--open-files", "5" }, file_bytes = { "--file-bytes", "5" },
@@ -415,8 +414,8 @@ local exempt <const>: {string:string} = {
 --- test_each_option_sets_its_field).
 local others <const>: {string:boolean} = {
   ["--fd"] = true, ["--timeout"] = true, ["--cwd"] = true,
-  ["--run"] = true, ["--write"] = true, ["--path"] = true, ["--cosmic"] = true,
-  ["--programs"] = true,
+  ["--run"] = true, ["--write"] = true, ["--path"] = true,
+  ["--programs"] = true, ["--promise"] = true,
   ["--database"] = true, ["--modules"] = true, ["--closure"] = true,
 }
 
@@ -463,12 +462,14 @@ local function test_every_policy_field_has_a_flag()
     local set = (policy_after(words)["limits"] as {string:any}) -- checked: cast_refused
     assert(set ~= nil and set[name] == 5, support.nth(words, 1) .. " does not set Policy.limits." .. name)
   end
-  -- A grant's path and letters are one option's. `from` has none: it needs
+  -- A grant's path and letters are one option's, and its calls `--promise`'s. `from` has none: it needs
   -- isolate file and names a host path; it waits on policy files (the
   -- design's Roadmap).
-  for name in pairs(assert(assert(assert(fields["grants"]).of).fields)) do
-    assert(name == "path" or name == "letters" or name == "from", "Policy.grants[]." .. name ..
-        " has no flag: add one, and say so here")
+  for _, arm in ipairs(assert(assert(assert(fields["grants"]).of).arms)) do
+    for name in pairs(assert(arm.fields)) do
+      assert(name == "path" or name == "letters" or name == "from" or name == "calls", "Policy.grants[]." .. name ..
+          " has no flag: add one, and say so here")
+    end
   end
   for flag in pairs(Verb.spec or {}) do
     assert(seen[flag] == true or others[flag] == true, flag .. " sets no field of the policy")

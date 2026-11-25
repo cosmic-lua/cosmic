@@ -140,6 +140,14 @@ local CASES <const>: {Case} = {
     fix = "call it: `require(\"cosmic.fs\")`" },
   { code = "require_value", source = "local ok = pcall((require), \"x\")", y = 1, x = 19, says = "`require` is read as a value here",
     fix = "call it: `require(\"cosmic.fs\")`" },
+  { code = "schema_not_constant", source = "local t = \"(x)\"\nlocal schema S = \"CREATE TABLE a \" .. t", y = 2, x = 18,
+    says = "the DDL of the schema `S` is no constant text", fix = "`<const>` locals of the same block given them" },
+  { code = "schema_not_constant", source = "local T <const> = \"CREATE TABLE a (x)\"\nlocal function f(T: string)\n  local schema S = T\nend",
+    y = 3, x = 20, says = "the DDL of the schema `S` is no constant text", fix = "joined with `..`" },
+  { code = "schema_not_constant", source = "local T <const> = \"CREATE TABLE a (x)\"\nlocal T = \"y\"\nlocal schema S = T",
+    y = 3, x = 18, says = "the DDL of the schema `S` is no constant text", fix = "joined with `..`" },
+  { code = "schema_not_constant", source = "local T <const> = \"CREATE TABLE a (x)\"\nlocal enum T: integer\n  A = 1\nend\nlocal schema S = T",
+    y = 5, x = 18, says = "the DDL of the schema `S` is no constant text", fix = "joined with `..`" },
   { code = "require_value", source = "local ok = xpcall(require, print, \"x\")", y = 1, x = 19, says = "`require` is read as a value here",
     fix = "call it: `require(\"cosmic.fs\")`" },
   { code = "global_in_program", source = "global x = 1", y = 1, x = 1, says = "`global` declares a global", fix = "write `local`" },
@@ -172,6 +180,7 @@ local CASES <const>: {Case} = {
   { code = "method_needs_self", source = "local class C\n  function m(a) end\nend", y = 2, x = 13, says = "first parameter of a method is `self`", fix = "`function m(self, ...)`" },
   { code = "too_deep", source = "local x = " .. ("("):rep(250) .. "1", y = 1, x = 210, says = "more than 200 levels of nesting", fix = "move an inner block into a function" },
   { code = "label_or_goto", source = "goto done", y = 1, x = 1, says = "`goto done` is not in the grammar", fix = "write `continue`" },
+  { code = "semicolon", source = "t = { 1; 2 }", y = 1, x = 8, says = "`;` separates the items of a table", fix = "write `,`" },
   { code = "label_or_goto", source = "goto = 1", y = 1, x = 1, says = "`goto` is not in the grammar", fix = "write `continue`" },
 }
 

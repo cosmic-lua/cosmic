@@ -3,11 +3,11 @@
 # the checkout at any path: it asks build/paths.tl, through the bootstrap
 # release as bin/zig does, where the tree's build directory is, and runs
 # the tool there with the arguments given, in the caller's directory,
-# answering its exit status. The tool, once started, rebuilds itself
+# exiting with its status. The tool, once started, rebuilds itself
 # when older than the tree (AGENTS.md, step 3).
 #
 # Where there is no tool yet it runs `bin/zig build boot` first, its
-# output on stderr, and answers a failed boot's status; with
+# output on stderr, and exits with a failed boot's status; with
 # COSMIC_AUTO_BOOT=0 it refuses instead, exiting 3, as the tool does
 # when it would have to boot.
 set -eu

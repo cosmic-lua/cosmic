@@ -36,6 +36,7 @@ local Distance = require("cosmic.internal.distance")
 local Fs = require("cosmic.fs")
 local source_run = require("cosmic.internal.source_run")
 local type Doc = require("cosmic.doc")
+local type Stream = require("cosmic.stream")
 
 local record Flags
   --- One option described, for a spec to name and [`Flags.help`] to show.
@@ -69,12 +70,21 @@ local record Flags
     --- Where an option that is gone went, for a line that still gives it: [`Flags.parse`] refuses it with
     --- this after its name ("no such option: --read; `prog read` reads one back"), and help leaves it out.
     moved?: string
+    --- That the option's value may be "-" in place of a file: "input" for standard input, "output" for
+    --- standard output. The command reads or writes it with [`Flags.read`], [`Flags.reader`] or
+    --- [`Flags.write`], and help says so ("-: standard input").
+    dash?: Dash
+  end
+
+  --- What "-" stands for as an [`Option`]'s value: standard input or standard output.
+  enum Dash
+    "input"
+    "output"
   end
 
   -- TODO: move the other verbs' value checks onto `choices` and `integer` (qr, codec, sandbox,
   -- test, build, sql, lsp), their "(default ...)" text onto `default`, and json's -r and codec's -d onto
-  -- `aliases`; each still words its own refusal of a bad value. Wait for the docs thread's move of each
-  -- verb's spec to cosmic/cli/<verb>.tl, and the six verbs to `subcommands`.
+  -- `aliases`; each still words its own refusal of a bad value. A gap: it waits on nothing.
 
   --- The bounds of a whole number an option takes, each inclusive; no bound where nil.
   record Range
@@ -108,7 +118,7 @@ local record Flags
 
   --- What [`Flags.dispatch`] did.
   record Dispatched
-    --- The exit status: what the command's `run` answered, or 0 when
+    --- The exit status: what the command's `run` returned, or 0 when
     --- help was asked for instead.
     code: integer
     --- The help asked for, for the caller to print; "" when a command
@@ -158,11 +168,11 @@ local record Flags
     --- The command's own commands, by the word that names each (`time add`, `rand uuid`): each a command as
     --- this one is, with its own `spec`, `usage`, `about` and `run`. [`Flags.dispatch`] runs the one the word
     --- after this command names, reads the line with its spec alone, and refuses a line with that one's usage;
-    --- `prog help cmd sub` and `prog cmd sub --help` answer its help. This command's help lists them under
+    --- `prog help cmd sub` and `prog cmd sub --help` show its help. This command's help lists them under
     --- "commands:", and its usage is `<a|b> ...` when it gives none. A command with these has no `spec` or `rest`
     --- of its own, and holds one at least, or [`Flags.dispatch`] raises; nil for a command that has none.
     subcommands?: {string:Command}
-    --- Runs the command with what its line held, answering its exit
+    --- Runs the command with what its line held, and returns its exit
     --- status. None for a command only described, as [`cosmic.cli`]'s
     --- verbs are, which [`Flags.dispatch`] refuses to run.
     run?: function(Parsed): integer
@@ -190,7 +200,7 @@ local record Flags
 
   --- What [`Flags.dispatch`] reads of the program's documentation, for a program that documents its commands
   --- as it documents its code: in doc comments, which the build indexes and the built program carries. Given
-  --- one, even an empty one, the program answers `docs`.
+  --- one, even an empty one, the program handles `docs`.
   record Documented
     --- The module whose record documents the commands: the doc comment on its field `add` is the page of the
     --- command `add`, shown after what [`Flags.help`] writes of it. The record may be the commands themselves,
@@ -220,7 +230,7 @@ local record Flags
     --- The program's topics, by the word `help` takes for each, listed under "topics:" after the commands; a
     --- topic's page may be one of the program's guides ([`Flags.Topic`]'s `guide`).
     --- A name that is "", a command's or the word one is typed as, "help", "docs", or one that begins with
-    --- "-" raises. A program with a command named "help" answers `prog help` itself, so [`Flags.dispatch`]
+    --- "-" raises. A program with a command named "help" handles `prog help` itself, so [`Flags.dispatch`]
     --- prints no topic for it: that command can, with [`Flags.topic_help`].
     topics?: {string:Topic}
     --- The columns a line of help may reach, at least 1, for a command's examples and options and the index
@@ -239,14 +249,14 @@ local record Flags
     err: function(line: string)
   end
 
-  --- What ends a command: it says why, and answers the exit code.
+  --- What ends a command: it says why, and returns the exit code.
   type Verdict = function(why: string): integer
 
   --- [`Flags.verdicts`]' three.
   record Verdicts
-    --- Says why on `err`, and answers [`Flags.FAILED`].
+    --- Says why on `err`, and returns [`Flags.FAILED`].
     failed: Verdict
-    --- Says why on `err`, and answers [`Flags.REFUSED`].
+    --- Says why on `err`, and returns [`Flags.REFUSED`].
     refused: Verdict
     --- Says why on `err`, and returns [`Flags.UNDONE`].
     undone: Verdict
@@ -354,7 +364,7 @@ end
 ---
 --- A name equal to `word` comes first, then the names `word` begins,
 --- then the others by distance; ties go shorter first, then by name. A
---- name given twice is answered once.
+--- name given twice is returned once.
 ---
 ---     Flags.nearest("stauts", { "start", "status", "stash" })  -- => { "status" }
 --- @param word string The word given
@@ -458,6 +468,9 @@ local function read(argv: {string}, from: integer, spec: {string:boolean | Flags
       local range = entry.integer
       if range ~= nil and range.min ~= nil and range.max ~= nil and range.min > range.max then
         error("flags: " .. name .. "'s integer range is empty", 3)
+      end
+      if entry.dash ~= nil and entry.value == nil then
+        error("flags: " .. name .. " reads or writes \"-\", and takes no value", 3)
       end
       if entry.default ~= nil and entry.required == true then
         error("flags: " .. name .. " is required and has a default", 3)
@@ -634,9 +647,9 @@ end
 --- a spec may name "-foo" or "-é" whole, and then that word is that
 --- option, never a cluster.
 ---
---- Answers nil and why for an option the spec does not name ("no such
+--- Returns nil and why for an option the spec does not name ("no such
 --- option: --chek; did you mean --check?", the names [`Flags.nearest`]
---- answers for it, when any is near), a value
+--- returns for it, when any is near), a value
 --- given to one that takes none, an option the spec marks `required` that
 --- the line does not give ("--jobs is required"; the first by name when
 --- several are missing), or one whose value is missing: the end
@@ -844,6 +857,7 @@ local function option_rows(spec: {string:boolean | Flags.Option}): {Row}
       local range = entry.integer
       if range ~= nil then notes[#notes + 1] = range_text(range) end
       if entry.default ~= nil then notes[#notes + 1] = "default: " .. entry.default end
+      if entry.dash ~= nil then notes[#notes + 1] = "-: standard " .. entry.dash end
     end
     if entry ~= nil and is_required(entry) then notes[#notes + 1] = "required" end
     if #notes > 0 then
@@ -897,20 +911,6 @@ local function usage_of(command: Flags.Command): string
     return "<" .. table.concat(words, "|") .. "> ..."
   end
   return if next(command.spec or {}) ~= nil then "[options]" else "" end
-end
-
---- The usage line of `command`, as its help's first line and every refusal's end give it:
---- "usage: prog count [options] <file>".
---- @param command Command The command
---- @param name string What the line calls it: the program, and the command's own word after it when it has one
----   ("prog count"); not empty, or this raises
---- @return string The line, with no newline
-function Flags.usage(command: Flags.Command, name: string): string
-  if name == "" then
-    error("flags: usage's name is empty", 2)
-  end
-  local usage = usage_of(command)
-  return "usage: " .. (if usage ~= "" then name .. " " .. usage else name end)
 end
 
 --- The line `command` is typed as, for its help: `program`, the word that runs it (`name`, or its `typed`), and
@@ -1047,6 +1047,29 @@ function Flags.help(command: Flags.Command, name: string, width?: integer): stri
   return table.concat(parts, "\n")
 end
 
+--- The usage line of `command`, as its help's first line and every refusal's end give it ("usage: prog count
+--- [options] <file>"), or of the subcommand that `words` name, one level a word: "usage: prog time add <time>
+--- <duration>" for `Flags.usage(time, "prog time", { "add" })`. The walk stops at a word that names no
+--- subcommand, and the line is then that of the last command reached.
+--- @param command Command The command the words start from
+--- @param name string What its usage line calls it: the program, and the command's own word after it when it
+---   has one ("prog time"); not empty, or this raises
+--- @param words? {string} The words that name its subcommands, outermost first; none when nil
+--- @return string The usage line, with no newline
+function Flags.usage(command: Flags.Command, name: string, words?: {string}): string
+  if name == "" then
+    error("flags: usage's name is empty", 2)
+  end
+  local reached, called_as = command, name
+  for _, word in ipairs(words or {}) do
+    local sub = (reached.subcommands or {})[word]
+    if sub == nil then break end
+    reached, called_as = sub, called_as .. " " .. word
+  end
+  local usage = usage_of(reached)
+  return "usage: " .. (if usage ~= "" then called_as .. " " .. usage else called_as end)
+end
+
 --- A topic's page, as `prog help <topic>` prints it: its name and
 --- `about` ("pairing: how a device is paired with"), its `text`, and
 --- its `see` names after "see also:". Each part is left out where it is
@@ -1091,7 +1114,7 @@ end
 --- usage line, its `topics` under "topics:" after the commands, by name,
 --- and `after` in place of the last lines. Given at all, and where
 --- `commands` holds no `docs`, the index ends with a line that says how to
---- search the documentation, which [`Flags.dispatch`] then answers. One
+--- search the documentation, which [`Flags.dispatch`] then handles. One
 --- column holds every section's names, topics' among them, and where
 --- `width` is given what each does is laid out within it as
 --- [`Flags.help`] lays out examples; a width below 1 raises.
@@ -1232,7 +1255,7 @@ function Flags.asks_help(argv: {string}, from: integer,
   return false
 end
 
---- The program's documentation as [`cosmic.doc`] answers from it: the rows of the program's own store, with each
+--- The program's documentation as [`cosmic.doc`] reads it: the rows of the program's own store, with each
 --- command a field of the pages record documents shown, and searched, with what its help says of it: its usage
 --- line, `about`, options and examples. The modules are required here, when
 --- a program asks, so one that never asks loads neither; its build carries both all the same.
@@ -1304,7 +1327,7 @@ local function command_help(program: string, name: string, commands: {string:Fla
   return if comment ~= "" then help .. "\n\n" .. comment else help end, ""
 end
 
---- The help of the `help` command [`Flags.dispatch`] answers itself, which takes a topic too where there are any.
+--- The help of the `help` command [`Flags.dispatch`] handles itself, which takes a topic too where there are any.
 local function help_help(program: string, topics: boolean): string
   local what = if topics then "command or topic" else "command" end
   return "usage: " .. program .. " help [" .. what .. "]\n\n" ..
@@ -1333,14 +1356,14 @@ local function topic_page(program: string, name: string, topic: Flags.Topic, com
   return nil, "the topic " .. name .. "'s guide, doc/guides/" .. guide .. ".md, is not in the documentation"
 end
 
---- The help of the `docs` command [`Flags.dispatch`] answers itself.
+--- The help of the `docs` command [`Flags.dispatch`] handles itself.
 local function docs_help(program: string): string
   return "usage: " .. program .. " docs [words...]\n\n" ..
     "What the program's documentation says of the words: a module or a symbol by its name, or the pages\n" ..
     "that hold the words. With no words, every module there is."
 end
 
---- What `prog docs <words...>` answers: the page [`cosmic.doc`] writes of the words from the program's own
+--- What `prog docs <words...>` shows: the page [`cosmic.doc`] writes of the words from the program's own
 --- documentation, or nil and why when they name and find nothing. It takes no option but `--help`.
 local function docs_answer(argv: {string}, from: integer, program: string, commands: {string:Flags.Command},
                            documented: Flags.Documented): Flags.Dispatched?, string
@@ -1370,13 +1393,13 @@ end
 
 --- Runs the command named at `argv[from]`: parses the words after it
 --- with that command's spec, as `Flags.parse(argv, from + 1, spec)`
---- would, and answers what its `run` answers. Answers nil and why, run
---- nothing, when the line names no command, one `commands` does not
+--- would, and returns what its `run` returns. Returns nil and why, and
+--- runs nothing, when the line names no command, one `commands` does not
 --- hold -- an option before the command is one; "no such command: biuld;
---- did you mean build?" where [`Flags.nearest`] answers any, of the
+--- did you mean build?" where [`Flags.nearest`] returns any, of the
 --- commands and "help", as of a command's options and "--help" -- or a line the
---- command's spec refuses, or a command with no `run`. A line the spec
---- refuses is answered with the command's name, the refusal and its usage
+--- command's spec refuses, or a command with no `run`. For a line the
+--- spec refuses, `why` holds the command's name, the refusal and its usage
 --- line -- "build: --jobs is required; usage: prog build [options] <file>"
 --- -- so a program that prints `why` shows how to type the line. Only the
 --- first line of a multi-line `usage` is shown. Empty
@@ -1387,10 +1410,10 @@ end
 --- line: a caller's mistake, met by its first run. The first such
 --- command by name is the one named, then the first such topic.
 ---
---- Help is answered rather than run -- `code` 0 and `help` for the
+--- Help is returned rather than run -- `code` 0 and `help` for the
 --- caller to print -- when the command is "--help" or "-h", or "help"
 --- and `commands` holds no command of that name (`prog help build`
---- answers build's; `prog help --help` the program's), or when
+--- gets build's; `prog help --help` the program's), or when
 --- "--help" or "-h" comes after a command whose spec does not name it,
 --- before any "--" -- even as what would be an option's value, which
 --- [`Flags.parse`] refuses anyway. Each command's help is [`Flags.help`]'s,
@@ -1399,13 +1422,13 @@ end
 --- or, where any command names a `group`, each group under its title, the
 --- titles in order, and the rest last under "other commands:", as
 --- [`Flags.program_help`] writes it. `help` given more than one word is
---- refused. `prog help help` answers a page of its own, as `prog help docs`
---- does where the program answers `docs`. Where `documented` holds topics,
---- `prog help <topic>` answers [`Flags.topic_help`]'s page, its text read
+--- refused. `prog help help` gets a page of its own, as `prog help docs`
+--- does where the program handles `docs`. Where `documented` holds topics,
+--- `prog help <topic>` gets [`Flags.topic_help`]'s page, its text read
 --- from the program's guide where the topic names one ([`Flags.Topic`]'s
 --- `guide`), and a word `help` is given that is neither is refused as "no
 --- such command or topic", with the names near it of both, "help" among
---- them, and "docs" where the program answers it.
+--- them, and "docs" where the program handles it.
 ---
 --- A command is run by its name in `commands`, or by the word it says it is
 --- typed as ([`Flags.Command`]'s `typed`), and then not by its name: an
@@ -1424,15 +1447,15 @@ end
 --- line, and a refusal names both, with that one's usage ("time: add:
 --- --days needs a value; usage: prog time add [options] <time>").
 --- `prog help time add`, `prog time help add` and `prog time add --help`
---- answer its help, and `prog time --help` the command's, which lists
+--- get its help, and `prog time --help` the command's, which lists
 --- them. A command with both `subcommands` and a `spec` or a `rest`
 --- raises, as does one whose `subcommands` are empty; a subcommand's
 --- own record is checked when the line reaches it.
 ---
---- With `documented`, the program answers from its own documentation, which
+--- With `documented`, the program reads its own documentation, which
 --- `cosmic build` carries in it ([`Flags.Documented`]). A command's help
 --- ends with the doc comment of its field of the `pages` record. `docs`,
---- where `commands` holds no command of that name, answers what
+--- where `commands` holds no command of that name, shows what
 --- [`cosmic.doc`] writes of the words after it: a module or a symbol the
 --- program documents, by name, else the doc comments and guides that hold
 --- the words, and the commands whose help does -- their `about`, usage
@@ -1456,8 +1479,8 @@ end
 ---   --help`): not read from `argv`, which holds the words after the program's
 ---   name
 --- @param documented Documented | nil Where the program's documentation is and how its help is ordered; nil for a
----   program that answers from its commands' records alone
---- @return Dispatched | nil What the command answered, or the help
+---   program whose help comes from its commands' records alone
+--- @return Dispatched | nil What the command returned, or the help
 --- @return string Why nothing ran, or "" when a command or help did
 function Flags.dispatch(argv: {string}, from: integer,
                         commands: {string:Flags.Command}, program: string,
@@ -1465,7 +1488,7 @@ function Flags.dispatch(argv: {string}, from: integer,
   if next(commands) == nil then
     error("flags: dispatch needs a command to choose among", 2)
   end
-  -- The module the program names as its pages, which a run from source answers an error's guidance from.
+  -- The module the program names as its pages, which a run from source reads an error's guidance from.
   if documented ~= nil and documented.pages ~= nil and source_run.script ~= nil then
     source_run.pages = documented.pages
   end
@@ -1654,7 +1677,12 @@ function Flags.dispatch(argv: {string}, from: integer,
     -- The word after the command names one of its own, which reads the rest of the line.
     local answered, why = Flags.dispatch(argv, first, subcommands, called(program, name, command))
     if answered == nil then
-      return nil, name .. ": " .. why
+      -- A line that names none of its subcommands gets the command's own usage, naming them; a
+      -- refusal by one of them, or by help, ends with its own.
+      local named = argv[first]
+      local reached = named ~= nil and (subcommands[named] ~= nil or named == "help")
+      local usage = if reached then "" else "; " .. Flags.usage(command, called(program, name, command)) end
+      return nil, name .. ": " .. why .. usage
     end
     return answered, ""
   end
@@ -1682,15 +1710,15 @@ function Flags.dispatch(argv: {string}, from: integer,
 end
 
 --- Runs the command line `argv`, the words after the program's name, as a
---- program's main does, and answers its exit status. An empty line
+--- program's main does, and returns its exit status. An empty line
 --- writes the program's help ([`Flags.program_help`]) to `to.out` and
---- answers [`Flags.REFUSED`], even where a command is typed by no word
+--- returns [`Flags.REFUSED`], even where a command is typed by no word
 --- (which [`Flags.dispatch`] runs for an empty line). Any other line is
---- [`Flags.dispatch`]'s from slot 1: help it answers goes to `to.out`
---- with the status 0, a command answers its own status, and a line it
---- refuses is said on `to.err` with where the commands are listed, and
---- answers [`Flags.REFUSED`]. `to` is [`Flags.std_io`]'s when nil. It
---- raises where [`Flags.dispatch`] does.
+--- [`Flags.dispatch`]'s from slot 1: help it returns goes to `to.out`
+--- with the status 0, a command's `run` returns its own status, and a
+--- line it refuses is said on `to.err` with where the commands are
+--- listed, and the status is [`Flags.REFUSED`]. `to` is
+--- [`Flags.std_io`]'s when nil. It raises where [`Flags.dispatch`] does.
 ---
 ---     return function(argv: {string}): integer
 ---       return Flags.main(argv, commands, "prog", documented, Flags.std_io(function(line: string): string
@@ -1745,7 +1773,7 @@ function Flags.std_io(said?: function(line: string): string): Flags.Io
   }
 end
 
---- What ends a command, saying why on `err`: `failed` answers
+--- What ends a command, saying why on `err`: `failed` returns
 --- [`Flags.FAILED`], `refused` [`Flags.REFUSED`], `undone` [`Flags.UNDONE`].
 ---
 ---     local ends = Flags.verdicts(Flags.std_io().err)
@@ -1767,6 +1795,103 @@ function Flags.verdicts(err: function(line: string)): Flags.Verdicts
       return Flags.UNDONE
     end,
   }
+end
+
+--- How a message names the file `path`: "standard input" for "-", the path as it is otherwise. A command
+--- that writes to `path` names "-" with [`Flags.output_name`].
+function Flags.input_name(path: string): string
+  return if path == "-" then "standard input" else path end
+end
+
+--- How a message names the file `path` a command writes: "standard output" for "-", the path otherwise.
+function Flags.output_name(path: string): string
+  return if path == "-" then "standard output" else path end
+end
+
+--- The Reader over the file `path` names, or over standard input for "-", the word a command line gives
+--- for it in place of a file. Standard input that is a terminal is refused, since nothing would end its
+--- bytes: nil and "standard input is a terminal; pipe the input in, or name a file". A Reader over
+--- standard input borrows the descriptor, which stays open; one over a file closes it at its end, or at
+--- `close` ([`Stream.open`]).
+---
+---     local reader, why = Flags.reader(parsed.words[1] or "-")
+--- @param path string The file, or "-"
+--- @return Stream.Reader | nil The bytes, to read
+--- @return string Why there is none, naming the file
+function Flags.reader(path: string): (Stream.Reader) | (nil, string)
+  local streams = require("cosmic.stream")
+  if path ~= "-" then
+    local reader, failure = streams.open(path)
+    if reader == nil then return nil, tostring(failure) end
+    return reader
+  end
+  if require("cosmic.proc").is_tty(Fs.stdin) then
+    return nil, "standard input is a terminal; pipe the input in, or name a file"
+  end
+  return streams.from_fd(Fs.stdin)
+end
+
+--- The bytes of the file `path` names, read whole, or of all of standard input for "-", which
+--- [`Flags.reader`] refuses where it is a terminal. Nil and why, naming the file, where they cannot be
+--- read.
+---
+---     local text, why = Flags.read(parsed.values["--key"])
+---     -- cosmic tool --key - < key.pem: the key from standard input
+--- @param path string The file, or "-"
+--- @return string | nil The bytes
+--- @return string Why there are none
+function Flags.read(path: string): (string) | (nil, string)
+  if path ~= "-" then
+    local text, failure = Fs.read(path)
+    if text == nil then return nil, tostring(failure) end
+    return text
+  end
+  local reader, why = Flags.reader(path)
+  if reader == nil then return nil, why end
+  local text, trouble = require("cosmic.stream").read_all(reader)
+  if text == nil then return nil, "standard input: " .. tostring(trouble) end
+  return text
+end
+
+--- Writes `data` whole to the file `path` names, through [`Fs.write_output`] (a new file is renamed into
+--- place once complete, standard output or a device is written in place), or to standard output for
+--- "-". False and why, naming the file, when the bytes did not all go.
+--- @param path string The file, or "-"
+--- @param data string The bytes
+--- @param mode integer | nil A new file's mode, as [`Fs.write_output`] takes it
+--- @return boolean Whether they all went
+--- @return string Why not, or "" when they did
+function Flags.write(path: string, data: string, mode?: integer): boolean, string
+  if path == "-" then
+    local wrote, why = Fs.put(Fs.stdout, data)
+    if not wrote then return false, "standard output: " .. tostring(why) end
+    return true, ""
+  end
+  local wrote, failure = Fs.write_output(path, data, mode)
+  if not wrote then return false, tostring(failure) end
+  return true, ""
+end
+
+--- The refusal of a command line that gives "-" for standard input more than once among the `names` of
+--- `values` (a [`Flags.Parsed`]'s, say), since standard input is read once: "--account and --key both
+--- read standard input, which is read once; give one of them a file". "" when at most one does.
+---
+---     local why = Flags.one_stdin(parsed.values, { "--account", "--key" })
+--- @param values {string:string} The paths the line gives, by how a refusal names each ("--key")
+--- @param names {string} The names of `values` that are read as files; one `values` lacks is skipped
+--- @return string The refusal, or ""
+function Flags.one_stdin(values: {string:string}, names: {string}): string
+  local named: mut {string} = {}
+  for _, name in ipairs(names) do
+    if values[name] == "-" then named[#named + 1] = name end
+  end
+  if #named < 2 then return "" end
+  table.sort(named)
+  local listed = table.concat(named, ", ", 1, #named - 1) .. " and " .. assert(named[#named], "two at least")
+  if #named == 2 then
+    return listed .. " both read standard input, which is read once; give one of them a file"
+  end
+  return listed .. " all read standard input, which is read once; give each but one a file"
 end
 
 return Flags

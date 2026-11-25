@@ -10,7 +10,6 @@ local Fuzz = require("cosmic_ci.fuzz")
 local HostId = require("cosmic_ci.host_id")
 local Images = require("cosmic_ci.images")
 local Islands = require("cosmic_ci.islands")
-local Sqlite = require("cosmic.sqlite")
 local Orchestration = require("cosmic_ci.orchestration")
 local PlaceTree = require("cosmic_ci.place_tree")
 local Prerelease = require("cosmic_ci.prerelease")
@@ -59,7 +58,7 @@ local function summarize(_argv: {string}): integer
       "Operation database unavailable: no operation ran (the self-check failed first).\n"
   else
     local db = State.open(db_path)
-    local rows = assert(Sqlite.text_rows(db, [[
+    local rows = assert(db:text_rows([[
       SELECT s.worker, s.run, s.attempt, s.phase,
              COALESCE(c.status, 'incomplete'),
              COALESCE(CAST(c.elapsed_ns / 1000000 AS TEXT), ''),
@@ -120,6 +119,10 @@ local commands: {string:Command} = {
     usage = "PATH [SINCE]", handler = ChecksSeal.command },
   ["queue-run"] = { about = "name the merge-queue run that tested SHA and uploaded ARTIFACT, the verdicts main's push takes",
     usage = "", handler = QueueVerdicts.find_command },
+  ["queue-ref-caches"] = { about = "fail a merge-queue run whose own ref, GITHUB_REF, holds a cache, which only code it ran could have saved",
+    usage = "", handler = QueueVerdicts.ref_caches_command },
+  ["queue-tried-run"] = { about = "name the failed merge-queue run of HEAD_REF's pull request that uploaded ARTIFACT, the verdicts its next try takes",
+    usage = "", handler = QueueVerdicts.find_tried_command },
   ["verdicts-merge"] = { about = "merge the verdicts in FROM, the merge queue's, into those restored",
     usage = "FROM", handler = QueueVerdicts.merge_command },
   ["verdicts-name"] = { about = "write VERDICTS, the verdict cache the queue's verdicts in DIR belong in, beside them",

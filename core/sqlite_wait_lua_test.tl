@@ -48,7 +48,7 @@ local function finish(child: Child.Handle)
 end
 
 --- A process that sends this one SIGTERM 100 ms after a line on its
---- stdin ([`interrupt`]), answered once it has started and waits for
+--- stdin ([`interrupt`]), returned once it has started and waits for
 --- that line: its start, however slow, comes before the clock.
 local function interrupter(): Child.Handle
   local child = start(([[
@@ -75,15 +75,15 @@ local function test_busy_wait_keeps_the_signal_and_clears_only_the_operations_fl
   local db = assert(Sqlite.open(tmp .. "/db", { writable = true }))
   -- Long past the signal, which the ready handshake leaves only its
   -- 100 ms and a wake-up from, and within CI's 10 s per-test deadline:
-  -- a wait the signal did not end answers BUSY, not cancelled.
+  -- a wait the signal did not end fails with BUSY, not cancelled.
   db:busy_timeout(Clock.seconds(6))
   local guard <close> = assert(Signal.guard())
   local sender <close> = interrupter()
   interrupt(sender)
-  local cancelled = db:exec_result("BEGIN IMMEDIATE")
+  local cancelled = db.connection:exec_result("BEGIN IMMEDIATE")
   local signal = guard:take()
   db:busy_timeout(Clock.ms(30))
-  local ordinary = db:exec_result("BEGIN IMMEDIATE")
+  local ordinary = db.connection:exec_result("BEGIN IMMEDIATE")
   local historical = guard:cancelled()
   local _, _ = guard:release()
   assert(cancelled.code == Sqlite.BUSY and cancelled.extended_code == Sqlite.BUSY and cancelled.cancelled == true,
@@ -94,7 +94,7 @@ local function test_busy_wait_keeps_the_signal_and_clears_only_the_operations_fl
   finish(sender)
   assert(assert(held.stdin_stream):close())
   finish(held)
-  local success = db:exec_result("BEGIN IMMEDIATE")
+  local success = db.connection:exec_result("BEGIN IMMEDIATE")
   assert(success.code == Sqlite.OK and success.cancelled == false)
   assert(db:close())
 end
@@ -106,11 +106,11 @@ local function test_busy_wait_uses_the_innermost_unread_guard_notification(tmp: 
   local outer <close> = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
   local inner <close> = assert(Signal.guard())
-  local hidden = db:exec_result("BEGIN IMMEDIATE")
+  local hidden = db.connection:exec_result("BEGIN IMMEDIATE")
   local inner_signal, _ = inner:release()
-  local restored = db:exec_result("BEGIN IMMEDIATE")
+  local restored = db.connection:exec_result("BEGIN IMMEDIATE")
   local outer_signal = outer:take()
-  local next_wait = db:exec_result("BEGIN IMMEDIATE")
+  local next_wait = db.connection:exec_result("BEGIN IMMEDIATE")
   local _, _ = outer:release()
   assert(hidden.code == Sqlite.BUSY and hidden.cancelled == false and inner_signal == 0)
   assert(restored.code == Sqlite.BUSY and restored.cancelled == true and outer_signal == sys.SIGTERM)
@@ -130,9 +130,9 @@ local function test_pragma_replaces_the_custom_handler_and_the_method_reinstalls
   assert(db:exec("PRAGMA busy_timeout = 20"))
   local guard <close> = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
-  local replaced = db:exec_result("BEGIN IMMEDIATE")
+  local replaced = db.connection:exec_result("BEGIN IMMEDIATE")
   db:busy_timeout(Clock.seconds(5))
-  local reinstalled = db:exec_result("BEGIN IMMEDIATE")
+  local reinstalled = db.connection:exec_result("BEGIN IMMEDIATE")
   local signal = guard:take()
   local _, _ = guard:release()
   assert(replaced.code == Sqlite.BUSY and replaced.cancelled == false)
@@ -148,7 +148,7 @@ local function test_zero_short_and_prepared_waits_have_separate_budgets(tmp: str
   for _, ns in ipairs({ 0, 1, Clock.ms(30) }) do
     db:busy_timeout(ns)
     local begun = Clock.monotonic_ns()
-    local busy = db:exec_result("BEGIN IMMEDIATE")
+    local busy = db.connection:exec_result("BEGIN IMMEDIATE")
     local elapsed = Clock.monotonic_ns() - begun
     assert(busy.code == Sqlite.BUSY and busy.cancelled == false)
     assert(elapsed < Clock.seconds(2))
@@ -188,7 +188,7 @@ local function test_one_exec_shares_a_budget_across_separate_database_locks(tmp:
   db:busy_timeout(Clock.ms(2500))
   assert(assert(first.stdin_stream):close())
   assert(assert(second.stdin_stream):close())
-  local result = db:exec_result("INSERT INTO main.t VALUES (1); INSERT INTO other.t VALUES (2)")
+  local result = db.connection:exec_result("INSERT INTO main.t VALUES (1); INSERT INTO other.t VALUES (2)")
   assert(result.code == Sqlite.BUSY and result.cancelled == false,
     "the second locking event restarted the timeout and acquired a late lock")
   finish(first)

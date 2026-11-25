@@ -22,7 +22,7 @@ function Example.trace()
   assert(text:find("traceback", 1, true) ~= nil, text)
 end
 
---- Where a coroutine stopped when it raised: `coroutine.resume` answers
+--- Where a coroutine stopped when it raised: `coroutine.resume` returns
 --- the error alone, and the stack it was raised from is read before the
 --- coroutine is closed.
 function Example.trace_of()

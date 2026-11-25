@@ -817,7 +817,7 @@ local function test_members_lists_what_a_walk_visits()
   assert(far.layout == "array" and far.extent == 1 << 40 and #far.keys == 1)
 end
 
---- `check` answers what `decode` would, building nothing.
+--- `check` agrees with `decode`, building nothing.
 local function test_check_answers_as_decode_would()
   assert(assert(Json.check('{"a": [1, 2]}')) == true)
   local ok, err = Json.check('{"a": 1, "a": 2}')
@@ -1031,14 +1031,14 @@ local function test_to_object_and_to_array_name_the_kind_they_wanted()
   assert(tostring(holed):find('the array at pointer "" has a hole', 1, true), holed)
 end
 
---- What the Lua in `source`, which sees `Json`, answers; a chunk of Lua because the checker would not let a test name some of
+--- What the Lua in `source`, which sees `Json`, returns; a chunk of Lua because the checker would not let a test name some of
 --- what it builds or refuses.
 local function lua_of(source: string): any, any
   local chunk = assert(load("local Json = ...\n" .. source))
   return chunk(Json)
 end
 
---- The refusal [`Json.with_holes`] answers for the Lua in `source`.
+--- The refusal [`Json.with_holes`] returns for the Lua in `source`.
 local function with_holes_refusal(source: string): string
   local list, why = lua_of(source)
   assert(list == nil, "expected a refusal")

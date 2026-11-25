@@ -115,7 +115,7 @@ local function test_f16_refuses_numbers_it_cannot_hold_and_rounds_to_even()
 end
 
 -- Numbers a half holds exactly, in sums a float holds exactly, so that the
--- f16 corpus must answer to the bit as the f32 corpus does.
+-- f16 corpus must match the f32 corpus to the bit.
 local function quarters(next_number: function(): number, dims: integer): string
   local out: mut {number} = {}
   for _ = 1, dims do
@@ -148,7 +148,7 @@ local function test_f16_scores_as_f32_does_for_numbers_a_half_holds()
 end
 
 -- Whole numbers with a 127 in each vector have the scale 1, so their codes
--- are the numbers and the int8 corpus must answer as the f32 corpus does.
+-- are the numbers and the int8 corpus must match the f32 corpus.
 local function whole(next_number: function(): number, dims: integer, sign: integer): string
   local out: mut {number} = {}
   for _ = 1, dims do
@@ -404,8 +404,8 @@ end
 
 -- The first pass keeps the rows whose signs are nearest the query's, and
 -- the signs are the f32 vector's: a number a half or a code rounds to zero
--- still counts as positive. Asking for as many rows as it keeps answers the
--- rows it kept, whatever they score.
+-- still counts as positive. A search that asks for as many rows as it
+-- keeps returns the rows it kept, whatever they score.
 local function test_candidates_read_the_signs_of_the_f32_vector()
   local dims = 24
   local next_number = stream(23)
@@ -502,7 +502,7 @@ local function test_k_means_clusters_every_storage()
       assert(owner[first] == nil, storage .. " put two clusters in one")
       owner[first] = true
     end
-    -- The same seed on the same corpus answers the same centroids.
+    -- The same seed on the same corpus picks the same centroids.
     local again = assert(Vector.kmeans(corpus, clusters, { seed = 3 }))
     assert(table.concat(again, "") == table.concat(centroids, ""))
   end
@@ -545,7 +545,7 @@ local function test_a_caught_signal_interrupts_every_storage()
   end
 end
 
---- Every int8 kernel the CPU has answers what the portable one does, to the
+--- Every int8 kernel the CPU has returns what the portable one does, to the
 --- bit, over dimension counts that leave each kernel's tail.
 local function test_every_int8_kernel_answers_alike()
   local original = testing.vector_kernel()

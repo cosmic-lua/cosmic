@@ -56,7 +56,7 @@ local function test_an_error_appears_when_a_document_is_edited_and_clears_when_i
   assert(messages_of(nth(ran, 2)):find("integer", 1, true) ~= nil, messages_of(nth(ran, 2)))
 end
 
---- Serves `messages` to the session `s` in one stream, and answers the program it held as each message went out, once it held one.
+--- Serves `messages` to the session `s` in one stream, and returns the program it held as each message went out, once it held one.
 local function programs_of(s: session.State, messages: {string}): {held.Program}
   local seen: mut {held.Program} = {}
   session.serve(s, Stream.from_string(session_fixture.framed(messages)), function(_: string): boolean, string
@@ -123,7 +123,7 @@ local function test_a_module_removed_from_disk_is_not_found_any_more()
 end
 
 --- More modules served otherwise than they were than the program is put to ([`build.lsp.check`]) make it again, to the same
---- answers.
+--- results.
 local function test_many_modules_changed_on_disk_make_the_program_again()
   local root = project()
   local requires: mut {string} = {}
@@ -210,7 +210,7 @@ local DATA <const> = "local record data\n  record Page\n    title: string\n  end
 local PAGE_MAIN <const> = 'local page = require("page")\nlocal data = require("data")\n' ..
   'local p: data.Page = { title = "t" }\nlocal s: string = page.render(p)\nreturn s\n'
 
---- A template that stops compiling is served to its dependents no more: the document that required it is not answered from the
+--- A template that stops compiling is served to its dependents no more: the document that required it is not served from the
 --- last text of the template the program held as the focus.
 local function test_a_template_that_stops_compiling_is_not_answered_from_its_last_text()
   local root = project()
@@ -404,8 +404,7 @@ end
 local function test_a_docs_database_written_in_place_checks_the_document_again()
   local root = helped()
   local path = root .. "/docs.db"
-  local writer = assert(Sqlite.open(path, { writable = true }))
-  for _, statement in ipairs(schema.create("")) do assert(writer:exec(statement)) end
+  local writer = assert(schema.hold(assert(Sqlite.open(path, { writable = true }))))
   documented(writer, "cosmic.fs", "Fs.read")
   local reader = assert(Sqlite.open(path))
   local checker = check.new(root, function(_line: string) end, function(): check.Hinted
@@ -434,8 +433,7 @@ end
 local function test_a_docs_database_written_during_a_check_checks_the_document_again()
   local root = helped()
   local path = root .. "/docs.db"
-  local writer = assert(Sqlite.open(path, { writable = true }))
-  for _, statement in ipairs(schema.create("")) do assert(writer:exec(statement)) end
+  local writer = assert(schema.hold(assert(Sqlite.open(path, { writable = true }))))
   documented(writer, "cosmic.fs", "Fs.read")
   local reader = assert(Sqlite.open(path))
   local asked = 0

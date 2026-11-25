@@ -39,7 +39,7 @@ local function declaring(fields: Fields): PolicyRules.Declared
 end
 
 --- A tree of four modules: a test requiring a helper, which requires a
---- module of its own and one only a declaration file answers for, and a
+--- module of its own and one only a declaration file covers, and a
 --- module nothing requires. The helper runs fuzz properties when
 --- `fuzzes` says so.
 local function tree(inputs?: PolicyRules.Declared, fuzzes?: boolean): Module, mut {string:Module}
@@ -82,7 +82,7 @@ local function test_a_type_only_edge_is_no_part_of_the_closure()
 end
 
 --- A test's default inputs are its module's import closure, as files --
---- a declaration file for a module only it answers for included, and a
+--- a declaration file for a module only it covers included, and a
 --- module the binary carries left out -- the pinned environment, and
 --- nothing else of the tree, the host, the network or processes.
 local function test_the_default_inputs_are_the_closure_and_the_pinned_environment()
@@ -115,7 +115,7 @@ end
 
 --- The modules a worker lets a test `require` of the tree are the
 --- closure's by name: the module itself, what it requires directly or
---- not, and one only a declaration answers for, but neither a module
+--- not, and one only a declaration covers, but neither a module
 --- it never reaches nor one the binary carries.
 local function test_the_closure_names_its_modules()
   local m, by_path = tree()

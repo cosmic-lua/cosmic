@@ -345,7 +345,7 @@ const cares_sources = [_][]const u8{
 /// `cf-https-connect.c` regardless of HTTP/3 support; without
 /// `USE_NGTCP2`/`USE_NGHTTP3`/`USE_QUICHE` defined (none are, and none
 /// of those libraries are vendored) the file's own `#else` branch
-/// compiles to a five-line stub that always answers
+/// compiles to a five-line stub that always returns
 /// `CURLE_NOT_BUILT_IN`.
 const curl_sources = [_][]const u8{
     "api.c",

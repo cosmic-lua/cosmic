@@ -1,5 +1,5 @@
 --- cosmic.http.wire's reading of a request, case by case: what it
---- takes and what it refuses, with the status the server answers.
+--- takes and what it refuses, with the status the server sends.
 
 local Stream = require("cosmic.stream")
 local wire = require("cosmic.http.wire")
@@ -240,7 +240,7 @@ local function test_many_small_chunks_pass_as_one_large_one()
   assert(state == "done" and #got == 20000, state)
 end
 
---- What the writer refuses, for the server to answer 500.
+--- What the writer refuses, for which the server sends 500.
 local function test_check_refuses_what_cannot_be_sent()
   assert(wire.check({ date = DATE, status = 200, headers = { ["X-Ok"] = "fine" } }) == "")
   assert(wire.check({ date = DATE, status = 99 }) ~= "")
@@ -393,8 +393,8 @@ local class Giving is Stream.Reader
     return piece
   end
 
-  function close(self): boolean, string
-    return true, ""
+  function close(self): (true) | (false, Failure)
+    return true
   end
 end
 

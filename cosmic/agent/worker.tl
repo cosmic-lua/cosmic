@@ -19,15 +19,15 @@
 --- 16KB and its last 48KB with a line between them of how many bytes were cut, `cut` true then, and `head_bytes` and
 --- `tail_bytes`, the length of each part; and `bytes`, how much was written. Only its start and its end are held, so a
 --- snippet that prints without end fills no file. Before its answer, a snippet may call the
---- agent ([`cosmic.agent.host`]): a line `{"id":1,"call":"sql","args":{...}}`, which [`Worker.Options.serve`] answers
+--- agent ([`cosmic.agent.host`]): a line `{"id":1,"call":"history","args":{...}}`, which [`Worker.Options.serve`] answers
 --- in the agent and the reply goes back on the worker's input, `{"reply":...}` or `{"failed":"..."}`. A snippet sets no global, which the checker
 --- refuses; what it keeps for the next it keeps with [`Host.store`], or writes to a file. Its standard input is /dev/null.
 ---
 --- Under a policy the worker is held as bash is, with these changes. Where it runs no commands
---- ([`Worker.Options.commands`] false), on Linux it keeps no right to run a file but this program's own, and has no
---- fork promise, so no program runs; on macOS it keeps them (Seatbelt's `x` maps libraries too). Beside that: it is granted this program's own file (read and
---- run), which it runs as, and it is not given the nest promise, beside which this program cannot be started again, so
---- Landlock holds its files too. Its environment is the policy's alone, so no key of the user's reaches it. With no
+--- ([`Worker.Options.commands`] false), on Linux no grant keeps `x`, and it has no fork promise, so no program runs; on
+--- macOS the grants keep `x` (Seatbelt's `x` maps libraries too). Beside that: it runs as this program, whose core its
+--- start runs with no grant of its file, and it is not given the nest promise, beside which this program cannot be
+--- started again, so Landlock holds its files too. Its environment is the policy's alone, so no key of the user's reaches it. With no
 --- policy (`--sandbox off`) it has the agent's whole environment, the API key included, as bash does then.
 
 local Child = require("cosmic.child")
@@ -97,6 +97,10 @@ local record Worker
     mut writer?: Stream.Writer
     --- The output of its snippets.
     mut output?: Stream.Reader
+    --- The policy the running worker was started under: a run under another starts a new one.
+    mut held?: Sandbox.Policy
+    --- Whether the running worker was started with commands: a run that differs starts a new one.
+    mut held_commands?: boolean
     --- The id the next request is sent with.
     mut next: integer
     --- How many workers it started.
@@ -134,37 +138,46 @@ end
 --- The worker of `set`, started under `opts` where none runs.
 local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | (nil, Failure)
   local lines = set.lines
-  if lines ~= nil then return lines end
+  local commands = opts.commands ~= false
+  if lines ~= nil and set.held == opts.policy and set.held_commands == commands then
+    return lines
+  end
+  -- A worker held to another policy is ended: a sandbox narrowed between runs holds the next one.
+  if lines ~= nil then Worker.close(set) end
   local policy: Sandbox.Policy? = nil
   local given = opts.policy
   if given ~= nil then
-    -- TODO: copy `merged` whole, changing its promises alone, once a record can be copied with a field changed: a field
+    -- TODO: copy `merged` whole, changing its calls alone, once a record can be copied with a field changed: a field
     -- Sandbox.Policy gains is left out of this copy, and so given to the worker as nothing.
-    local merged, why = Sandbox.merge(given, { profiles = { "cosmic" } })
+    local merged, why = Sandbox.union(given)
     if merged == nil then return nil, Failure.new("worker: " .. why) end
     local promises: mut {Sandbox.Promise} = {}
     local runs = opts.commands ~= false
-    for _, promise in ipairs(merged.promises or {}) do
+    for _, promise in ipairs(Sandbox.calls(merged)) do
       if promise ~= "nest" and (runs or promise ~= "fork") then
         promises[#promises + 1] = promise
       end
     end
     local grants: mut {Sandbox.Grant} = {}
-    -- The worker is this program, which its start runs as its core where the policy grants it `x` ("cosmic").
-    local self, _ = Proc.executable()
     -- On macOS `x` lets dyld map a library as well as run a file, so it stays: with no `fork` the worker starts no
     -- process there either, though it could still become another program.
     -- TODO: hold an x grant on macOS as map-only (Seatbelt's file-map-executable alone) once a grant can say so.
     local strip = not runs and not Sandbox.on_macos()
-    for _, grant in ipairs(merged.grants or {}) do
-      -- With no commands, no other grant runs a file, so the worker cannot become another program either; as this
-      -- one, it is held as it was, with no process to start. A grant of `x` alone is then no grant.
-      local letters = if strip and grant.path ~= self then (grant.letters:gsub("x", "")) else grant.letters end
+    for _, grant in ipairs(Sandbox.paths(merged)) do
+      -- With no commands, no grant runs a file. The worker is this program, which its start runs as its core
+      -- whatever the policy grants. Outside `isolate` file the core holds its policy again at boot without that `rx`:
+      -- with no grant left with `x` the exec filter holds too, so the worker cannot become another program, nor run
+      -- itself again. A grant of `x` alone is then no grant.
+      -- TODO: under `isolate` file (the agent's Linux policy) the core's `rx` stays the worker's, so it may execve its
+      -- own core again (held as it is, with no fork); Child.start's boot layer under `isolate` file would close it.
+      local letters = if not strip then grant.letters else (grant.letters:gsub("x", "")) end
       if letters ~= "" then
         grants[#grants + 1] = { path = grant.path, letters = letters, from = grant.from }
       end
     end
-    policy = { grants = grants, isolate = merged.isolate, promises = promises, connect = merged.connect,
+    for _, promise in ipairs(promises) do grants[#grants + 1] = { calls = promise } end
+    policy = { grants = grants, isolate = merged.isolate,
+      connect = merged.connect,
       loopback = merged.loopback, env = merged.env, set_env = merged.set_env, set_env_digests = merged.set_env_digests,
       tmp = merged.tmp, limits = merged.limits, user = merged.user, group = merged.group, database = merged.database }
   end
@@ -180,6 +193,7 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
   end
   lines = Stream.lines(reader)
   set.handle, set.writer, set.lines, set.output = handle, writer, lines, output
+  set.held, set.held_commands = opts.policy, commands
   set.started = set.started + 1
   return lines
 end
@@ -370,7 +384,7 @@ function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worke
   local wrote, write_why = writer:write(request .. "\n")
   if not wrote then
     Worker.close(set)
-    return nil, Failure.new("worker: it ended: " .. write_why)
+    return nil, Failure.new("worker: it ended: " .. tostring(write_why))
   end
   local seconds = opts.seconds
   local answer: Worker.Answer? = nil

@@ -62,7 +62,7 @@ local function module_of(path: string, file: string, kind: string, source: strin
   }
 end
 
---- What the pipeline answers for one module `source` of the file `m.tl`; its markers are in its text.
+--- What the pipeline gives for one module `source` of the file `m.tl`; its markers are in its text.
 local function generated(source: string, kind?: string, tests?: {string}): plans.Generated?, string
   local pipeline = Pipeline.over({ { "m.tl", source } }, { ["m.tl"] = kind or "module" }, options())
   return Pipeline.generate(module_of("m", "m.tl", kind or "module", source, tests or {}), pipeline)
@@ -173,7 +173,7 @@ local function test_a_record_the_build_describes_is_resolved_in_the_text_the_che
     "return S",
     "",
   }, "\n")
-  -- the witness the build splices answers nothing, so the splice adds no error to the module: what is left is its own
+  -- the code the build splices in is well typed, so the splice adds no error to the module: what is left is its own
   local refused, why = generated(source)
   assert(refused == nil and why:find("(export_not_declared)", 1, true) ~= nil and
       why:find("nil_not_allowed", 1, true) == nil, tostring(why))
@@ -280,7 +280,7 @@ local function test_a_lone_file_is_checked_with_no_ceiling_and_written_as_lua_th
   assert(entry:find("return function", 1, true) ~= nil, entry)
 end
 
---- Lone files checked in one build ([`Pipeline.checked_alone_each`]) are each answered as that file alone is: what one
+--- Lone files checked in one build ([`Pipeline.checked_alone_each`]) are each judged as that file alone is: what one
 --- refuses, declares or returns says nothing of another, though they share what they read of the library.
 local function test_lone_files_checked_in_one_build_are_each_answered_as_alone()
   local items: {{string}} = {
@@ -390,7 +390,7 @@ local function test_a_project_is_held_to_the_error_slot_rules()
     Pipeline.over({ { "m.tl", breach } }, { ["m.tl"] = "module" }, project))
   assert(made == nil and why:find("M.of: an exported function answers one result", 1, true) ~= nil, tostring(why))
   assert(why:find("marker", 1, true) == nil, tostring(why))
-  -- the same function answering a value or a reason is held
+  -- the same function returning a value or a reason is held
   local fine = table.concat({
     "local record M",
     "end",
@@ -435,6 +435,8 @@ local function test_the_code_that_reads_is_named_from_the_staged_tree(tmp: strin
   end
   -- a module the pipeline does not reach moves nothing; one it reaches, directly or not, moves it
   assert(again("build/other.tl", "return 3\n") == first, "a module the pipeline does not reach moved the identity")
+  assert(again("build/reader.tl", "-- a comment\nlocal Check = require(\"lang.check\")\nreturn Check\n") == first,
+    "a comment in a module the pipeline requires moved the identity")
   local reader = again("build/reader.tl", "local Check = require(\"lang.check\")\nreturn Check, 1\n")
   assert(reader ~= first, "an edit to a module the pipeline requires did not move the identity")
   assert(again("lang/check.tl", "return 4\n") ~= reader, "an edit to a module it reaches through another did not move the identity")
@@ -606,10 +608,7 @@ local function test_a_unjudged_compile_keeps_a_breach_for_the_tool_it_builds_and
 end
 
 local function test_a_refused_call_points_to_the_worked_example_when_the_docs_hold_it()
-  local db = assert(Sqlite.memory())
-  for _, statement in ipairs(schema.create("")) do
-    assert(db:exec(statement))
-  end
+  local db = assert(schema.hold(assert(Sqlite.memory())))
   assert(db:run(
     "INSERT INTO modules (path, file, kind, source_hash, key, source, bytecode, tests) " ..
       "VALUES ('cosmic.fs', 'cosmic/fs.tl', 'module', '', '', '', '', '')"))
@@ -914,7 +913,7 @@ local function boxed(): Pipeline.Options
   return { globals = made.globals, types = made.types, standard = Driver.stubs(texts), project = made.project }
 end
 
---- A kept checker ([`Pipeline.kept_alone`]) answers each text as [`Pipeline.checked_alone`] answers it alone, whatever it
+--- A kept checker ([`Pipeline.kept_alone`]) judges each text as [`Pipeline.checked_alone`] judges it alone, whatever it
 --- checked before: what one text declares, refuses or returns says nothing of the next.
 local function test_a_kept_checker_answers_each_text_as_it_is_answered_alone()
   local texts: {string} = {

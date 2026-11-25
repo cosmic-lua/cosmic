@@ -126,7 +126,7 @@ local record Qr
     modules: {integer: boolean}
   end
 
-  --- What [`Qr.decode`] and [`Qr.read`] answer for a code they read.
+  --- What [`Qr.decode`] and [`Qr.read`] return for a code they read.
   record Decoded
     --- The bytes the code holds, its segments' text joined: byte
     --- segments as their bytes (UTF-8 stays UTF-8), and numeric and

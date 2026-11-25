@@ -17,7 +17,7 @@ Test.policy{
   requires = { "landlock" },
 }
 
---- Starts the program with `words` and answers how it ended.
+--- Starts the program with `words` and returns how it ended.
 local function started(tmp: string, words: {string}): Child.Result
   local start = this_program.program(words, { cwd = tmp, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(30) })

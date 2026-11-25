@@ -14,7 +14,7 @@ Test.policy{
 local process = require("cosmic.internal.process")
 
 --- Asserts the core's own C heap holds what it held when `c_heap`
---- answered `before_bytes` and `before_blocks`: a block a refusal path
+--- returned `before_bytes` and `before_blocks`: a block a refusal path
 --- forgot to free shows here.
 local function assert_c_heap(before_bytes: integer, before_blocks: integer, what: string)
   collectgarbage("collect")

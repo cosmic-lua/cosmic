@@ -1,6 +1,6 @@
 --- The bridge (core/bridge.lua): its two stages, the declared differences of the seed, the searcher it installs and the
 --- compiles it keeps. Each case boots a tree of stand-ins with a bare core, as core/boot_test.tl does: the stand-in seed's
---- `compile` passes a file through as its Lua, so the stand-in sources are Lua, and its `program` answers a few modules by
+--- `compile` passes a file through as its Lua, so the stand-in sources are Lua, and its `program` gives a few modules by
 --- name.
 
 local Child = require("cosmic.child")
@@ -38,7 +38,7 @@ local function split_trace(text: string): {string}, string
 end
 
 --- The entry of the stand-in seed, as a source and as the Lua the seed has for it (they are one text). Its `compile`
---- hands each file back as its Lua; its `program` answers the modules a boot asks for.
+--- hands each file back as its Lua; its `program` gives the modules a boot asks for.
 local ENTRY <const> = [[
 local count = 0
 local sys = require("cosmic.sys")

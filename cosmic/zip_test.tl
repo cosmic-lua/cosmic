@@ -522,7 +522,7 @@ local function repeating(chunk: string, rounds: integer, each?: function(integer
       if each ~= nil then each(n) end
       return chunk
     end,
-    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
   return r
 end
@@ -585,12 +585,12 @@ end
 local function recording(): Stream.Writer, {string}
   local pieces: mut {string} = {}
   local w: Stream.Writer = { -- checked: literal_shape
-    write = function(_self: Stream.Writer, data: string): boolean, string
+    write = function(_self: Stream.Writer, data: string): (true) | (false, Failure)
       pieces[#pieces + 1] = data
-      return true, ""
+      return true
     end,
-    close = function(_self: Stream.Writer): boolean, string return true, "" end,
-    abort = function(_self: Stream.Writer): boolean, string return true, "" end,
+    close = function(_self: Stream.Writer): (true) | (false, Failure) return true end,
+    abort = function(_self: Stream.Writer): (true) | (false, Failure) return true end,
   }
   return w, pieces
 end
@@ -665,7 +665,7 @@ local function test_a_failing_body_fails_and_aborts_the_writer()
     read = function(_self: Stream.Reader, _max_bytes?: integer): (string | false) | (nil, Failure)
       return nil, Failure.new("disk on fire")
     end,
-    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
   local ok, trouble = w:add_file("f", bad)
   assert(not ok and trouble == "zip: add_file: disk on fire", trouble)
@@ -686,12 +686,12 @@ local function test_a_streamed_body_takes_bounded_memory()
   for _, method in ipairs({ "deflate", "store" } as {Zip.Method}) do -- checked: cast_refused
     local written: integer = 0
     local sink: Stream.Writer = { -- checked: literal_shape
-      write = function(_self: Stream.Writer, data: string): boolean, string
+      write = function(_self: Stream.Writer, data: string): (true) | (false, Failure)
         written = written + #data
-        return true, ""
+        return true
       end,
-      close = function(_self: Stream.Writer): boolean, string return true, "" end,
-      abort = function(_self: Stream.Writer): boolean, string return true, "" end,
+      close = function(_self: Stream.Writer): (true) | (false, Failure) return true end,
+      abort = function(_self: Stream.Writer): (true) | (false, Failure) return true end,
     }
     collectgarbage()
     collectgarbage()
@@ -826,13 +826,13 @@ local function test_entries_of_a_reader_closed_first_fail_as_next_does()
   assert(again == nil and again_trouble == trouble, "a failed listing is not kept")
 end
 
---- A failing Writer's own words are what the writer answers, as they
+--- A failing Writer's own words are returned by the writer as they
 --- are; a failing body Reader's are told what the writer was doing.
 local function test_a_failing_underlying_writer_is_answered_as_it_said_it()
-  local function closed(_self: Stream.Writer): boolean, string return true, "" end
+  local function closed(_self: Stream.Writer): (true) | (false, Failure) return true end
   local full: Stream.Writer = { -- checked: literal_shape
-    write = function(_self: Stream.Writer, _data: string): boolean, string
-      return false, "disk full"
+    write = function(_self: Stream.Writer, _data: string): (true) | (false, Failure)
+      return false, Failure.new("disk full")
     end,
     close = closed, abort = closed,
   }
@@ -894,7 +894,7 @@ end
 --- recording `crc`, `usize` and the length of `payload`, which is the
 --- body as stored. The bytes are built by hand from the APPNOTE layout,
 --- so no external tool is needed; the frame comes from
---- [`cosmic.compress.zstd_encoder`].
+--- [`cosmic.compress.encoder`].
 local function zstd_zip_by_hand(payload: string, crc: integer, usize: integer): string
   local name = "f"
   local lfh = "PK\3\4" .. le16(63) .. le16(0) .. le16(93) .. le16(0) .. le16(0x21) ..
@@ -907,7 +907,7 @@ local function zstd_zip_by_hand(payload: string, crc: integer, usize: integer): 
     le32(#body) .. le16(0)
 end
 
---- What reading entry "f" of `raw` to its end answers.
+--- What reading entry "f" of `raw` to its end returns.
 local function read_f(raw: string): string?, string
   local r = assert(Zip.open_string(raw))
   local body = assert(by_path(entries_of(r), "f"):open())
@@ -1123,18 +1123,18 @@ local function test_file_writer_holds_the_archive_while_open()
   assert(body:write("abc"))
   assert(body:close())
   local late, lwhy = body:write("more")
-  assert(not late and lwhy == "zip: a.txt: the entry is closed", lwhy)
+  assert(not late and tostring(lwhy) == "zip: a.txt: the entry is closed", lwhy)
   assert(w:close())
 
   local short = Zip.writer(Stream.collect())
   local promised = assert(short:file_writer("p.txt", { size = 10 }))
   assert(promised:write("123"))
   local ended, ewhy = promised:close()
-  assert(not ended and ewhy == "zip: p.txt: body is 3 bytes, not 10 bytes", ewhy)
+  assert(not ended and tostring(ewhy) == "zip: p.txt: body is 3 bytes, not 10 bytes", ewhy)
   local again, awhy = promised:close()
-  assert(not again and awhy == ewhy, awhy)
+  assert(not again and tostring(awhy) == tostring(ewhy), awhy)
   local shut, shwhy = short:close()
-  assert(not shut and shwhy == ewhy, shwhy)
+  assert(not shut and shwhy == tostring(ewhy), shwhy)
 
   local kept = Stream.collect()
   local abandoned = Zip.writer(kept)
@@ -1149,7 +1149,7 @@ local function test_file_writer_holds_the_archive_while_open()
   local orphan = assert(gone:file_writer("o.txt"))
   assert(gone:abort())
   local wrote, wwhy = orphan:write("x")
-  assert(not wrote and wwhy == "zip: the writer is closed", wwhy)
+  assert(not wrote and tostring(wwhy) == "zip: the writer is closed", wwhy)
   local finished, fwhy = orphan:close()
-  assert(not finished and fwhy == "zip: the writer is closed", fwhy)
+  assert(not finished and tostring(fwhy) == "zip: the writer is closed", fwhy)
 end

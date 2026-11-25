@@ -1,6 +1,6 @@
 --- build.digest hashes as cosmic.hash does, byte for byte: the raw
 --- SHA-256, its hexadecimal and a digest fed in chunks, so that a key
---- computed with either is the same; and each answers the published
+--- computed with either is the same; and each matches the published
 --- SHA-256 vectors.
 
 local Hash = require("cosmic.hash")

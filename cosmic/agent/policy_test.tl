@@ -9,10 +9,21 @@ local Clock = require("cosmic.clock")
 local agent_fixture = require("build.agent_fixture")
 local Fs = require("cosmic.fs")
 local Policy = require("cosmic.agent.policy")
-local type Sandbox = require("cosmic.sandbox")
+local Sandbox = require("cosmic.sandbox")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local Tools = require("cosmic.agent.tools")
+
+--- Whether `p` lets the agent's tools do each of `letters` at `path`, as
+--- [`Sandbox.permits`] answers: r reads, w writes, c creates.
+local function allows(p: Sandbox.Policy, path: string, letters: string): boolean, string
+  local actions: {string: string} = { r = "read", w = "write", c = "create" }
+  for letter in letters:gmatch(".") do
+    local real, why = Sandbox.permits(p, path, assert(actions[letter]))
+    if real == nil then return false, why end
+  end
+  return true, ""
+end
 
 -- The whole system: a sandbox nested in the worker builds its root of
 -- what the worker holds, and a program's libraries must be there to run,
@@ -36,15 +47,16 @@ local function test_the_sandbox_holds_the_tools()
     assert(env ~= nil, "Linux sets an environment")
     assert(env["USER"] == "agent" and env["LOGNAME"] == "agent" and env["HOME"] == "/tmp")
   end
-  assert(Policy.allows(p, dir .. "/new/file.txt", "w"))
-  assert(Policy.allows(p, "/usr/bin", "r") and not Policy.allows(p, "/usr/bin/x", "w"))
-  local ok, why = Policy.allows(p, outside .. "/x", "w")
-  assert(not ok and why:find("cosmic docs cosmic.agent.policy", 1, true) ~= nil, why)
-  assert(not Policy.allows(p, dir .. "/no/../../escape", "w"))
-  assert(not Policy.allows(p, outside .. "/x", "r"))
-  assert(not Policy.allows(p, "/proc/self/environ", "r"))
+  assert(allows(p, dir .. "/new/file.txt", "w"))
+  assert(allows(p, "/usr/bin", "r") and not allows(p, "/usr/bin/x", "w"))
+  assert(not allows(p, outside .. "/x", "w"))
+  local refused = Tools.run("write", { path = outside .. "/x", content = "x" }, { cwd = dir, policy = p })
+  assert(refused.is_error and refused.text:find("The sandbox does not let the agent write", 1, true) ~= nil, refused.text)
+  assert(not allows(p, dir .. "/no/../../escape", "w"))
+  assert(not allows(p, outside .. "/x", "r"))
+  assert(not allows(p, "/proc/self/environ", "r"))
   local some = assert(Policy.of(dir, { mode = "read", network = false, grants = { { path = outside, letters = "w" } } }))
-  assert(Policy.allows(some, outside, "w") and not Policy.allows(some, outside .. "/new", "wc"))
+  assert(allows(some, outside, "w") and not allows(some, outside .. "/new", "wc"))
   local ctx: Tools.Context = { cwd = dir, policy = p }
   assert(Tools.run("write", { path = outside .. "/x", content = "no" }, ctx).is_error)
   assert(Tools.run("write", { path = "in.txt", content = "yes" }, ctx).is_error == false)
@@ -87,8 +99,8 @@ local function test_the_sandbox_holds_the_tools()
   local pathed = assert(Policy.of(dir, { mode = "write", network = false, grants = {},
     path = prefix .. "/bin:" .. user .. "/.local/bin:relative/bin:/no/such/bin:/usr/bin:/bin", user_home = user }))
   local real_prefix, real_user = assert(Fs.absolute(prefix)), assert(Fs.absolute(user))
-  assert(Policy.allows(pathed, real_prefix .. "/lib/tool.sh", "r"))
-  assert(Policy.allows(pathed, real_user .. "/.local/bin", "r") and not Policy.allows(pathed, real_user .. "/.local", "r"))
+  assert(allows(pathed, real_prefix .. "/lib/tool.sh", "r"))
+  assert(allows(pathed, real_user .. "/.local/bin", "r") and not allows(pathed, real_user .. "/.local", "r"))
   -- A PATH of /, of the home, of what holds the working directory, or into
   -- the agent's own data grants nothing; no home known, no prefix.
   local work = scratch()
@@ -98,11 +110,11 @@ local function test_the_sandbox_holds_the_tools()
   local wild = assert(Policy.of(work .. "/app", { mode = "write", network = false, grants = {},
     path = "/:" .. user .. ":" .. work .. "/bin:" .. user .. "/data/bin", user_home = user, kept_out = { user .. "/data" } }))
   local real_work = assert(Fs.absolute(work))
-  assert(not Policy.allows(wild, "/etc/shadow", "r") and not Policy.allows(wild, real_user .. "/x", "r"))
-  assert(Policy.allows(wild, real_work .. "/bin", "r") and not Policy.allows(wild, real_work .. "/other", "r"))
-  assert(not Policy.allows(wild, real_user .. "/data/bin", "r"))
+  assert(not allows(wild, "/etc/shadow", "r") and not allows(wild, real_user .. "/x", "r"))
+  assert(allows(wild, real_work .. "/bin", "r") and not allows(wild, real_work .. "/other", "r"))
+  assert(not allows(wild, real_user .. "/data/bin", "r"))
   local homeless = assert(Policy.of(dir, { mode = "write", network = false, grants = {}, path = prefix .. "/bin" }))
-  assert(Policy.allows(homeless, real_prefix .. "/bin", "r") and not Policy.allows(homeless, real_prefix .. "/lib", "r"))
+  assert(allows(homeless, real_prefix .. "/bin", "r") and not allows(homeless, real_prefix .. "/lib", "r"))
   r = Tools.run("bash", { command = prefix .. "/bin/tool" }, { cwd = dir, policy = pathed })
   assert(not r.is_error and r.text == "from-lib", r.text)
   local shown = table.concat(Policy.describe(homed, home), "\n")
@@ -134,20 +146,20 @@ local function test_a_worktree_reaches_its_repository()
   local rel = worktree("rel", "gitdir: ../" .. Fs.basename(repo) .. "/.git/worktrees/rel\n")
   for _, at in ipairs({ tree, rel }) do
     local w = assert(Policy.of(at, { mode = "write", network = false, grants = {} }))
-    assert(Policy.allows(w, common .. "/HEAD", "rwc"), at)
-    assert(Policy.allows(w, common .. "/objects/ab/cd", "wc"), at)
-    assert(Policy.allows(w, common .. "/worktrees/wt/index", "rwc"), at)
+    assert(allows(w, common .. "/HEAD", "rwc"), at)
+    assert(allows(w, common .. "/objects/ab/cd", "wc"), at)
+    assert(allows(w, common .. "/worktrees/wt/index", "rwc"), at)
     -- The repository's own checkout is not the worktree's.
-    assert(not Policy.allows(w, repo .. "/tracked.txt", "r"), at)
+    assert(not allows(w, repo .. "/tracked.txt", "r"), at)
     local r = assert(Policy.of(at, { mode = "read", network = false, grants = {} }))
-    assert(Policy.allows(r, common .. "/HEAD", "r"), at)
-    assert(not Policy.allows(r, common .. "/HEAD", "w"), at)
-    assert(not Policy.allows(r, common .. "/new", "c"), at)
+    assert(allows(r, common .. "/HEAD", "r"), at)
+    assert(not allows(r, common .. "/HEAD", "w"), at)
+    assert(not allows(r, common .. "/new", "c"), at)
   end
   local function grants_none(at: string, why: string)
     local p = assert(Policy.of(at, { mode = "write", network = false, grants = {} }))
-    assert(not Policy.allows(p, common .. "/HEAD", "r"), why)
-    assert(not Policy.allows(p, repo .. "/tracked.txt", "r"), why)
+    assert(not allows(p, common .. "/HEAD", "r"), why)
+    assert(not allows(p, repo .. "/tracked.txt", "r"), why)
   end
   -- A .git that names another worktree's gitdir: its gitdir file names that worktree, not this one.
   local thief = scratch()
@@ -180,7 +192,7 @@ local function test_a_worktree_reaches_its_repository()
   local plain = scratch()
   assert(Fs.mkdirs(plain .. "/.git"))
   local p = assert(Policy.of(plain, { mode = "write", network = false, grants = {} }))
-  assert(Policy.allows(p, plain .. "/.git/HEAD", "w") and not Policy.allows(p, common .. "/HEAD", "r"))
+  assert(allows(p, plain .. "/.git/HEAD", "w") and not allows(p, common .. "/HEAD", "r"))
 end
 
 local function test_background_jobs_run_until_read_killed_or_the_session_ends()
@@ -256,15 +268,44 @@ local function test_a_grant_over_what_is_kept_out_is_refused()
     kept_out = { config } }))
 end
 
---- c is asked of the directory a file is made in; a write goes to the real name it checked, not through a link.
+--- With --network, the user's SSL_CERT_FILE is read and given to the tools, so a proxy's own root is trusted;
+--- without it, neither.
+local function test_the_cert_file_goes_with_the_network()
+  local dir, certs = scratch(), scratch()
+  local cert = certs .. "/roots.pem"
+  assert(Fs.write(cert, "-----BEGIN CERTIFICATE-----\n"))
+  local real = assert(Fs.absolute(cert))
+  local p = assert(Policy.of(dir, { mode = "write", network = true, grants = {}, cert_file = cert }))
+  assert((p.set_env or {})["SSL_CERT_FILE"] == real)
+  local granted = false
+  for _, g in ipairs(Sandbox.paths(p)) do
+    if g.path == real and g.letters == "r" then granted = true end
+  end
+  assert(granted)
+  local offline = assert(Policy.of(dir, { mode = "write", network = false, grants = {}, cert_file = cert }))
+  assert((offline.set_env or {})["SSL_CERT_FILE"] == nil)
+  -- One not there, or a directory, is given as none; one where the agent keeps its sessions is refused.
+  local missing = assert(Policy.of(dir, { mode = "write", network = true, grants = {}, cert_file = certs .. "/none" }))
+  assert((missing.set_env or {})["SSL_CERT_FILE"] == nil)
+  local p_dir = assert(Policy.of(dir, { mode = "write", network = true, grants = {}, cert_file = certs }))
+  assert((p_dir.set_env or {})["SSL_CERT_FILE"] == nil)
+  local connected = assert(Policy.of(dir, { mode = "write", network = false, connect = { "example.com:443" },
+    grants = {}, cert_file = cert }))
+  assert((connected.set_env or {})["SSL_CERT_FILE"] == real)
+  local p_kept, kept_why = Policy.of(dir, { mode = "write", network = true, grants = {}, cert_file = cert,
+    kept_out = { certs } })
+  assert(p_kept == nil and kept_why:find("keeps its sessions", 1, true) ~= nil, kept_why)
+end
+
+--- c is asked of the directory a file is made in; a write goes to the real name it checked, never through a dangling link.
 local function test_a_file_is_made_only_where_its_directory_grants_c()
   local inside, outside = scratch(), scratch()
   assert(Fs.write(inside .. "/f.txt", "old"))
   -- A grant of the file alone lets it be changed, not made again beside a file of its own.
   local file: Sandbox.Policy = { grants = { { path = inside .. "/f.txt", letters = "rw" } } }
-  assert(Policy.allows(file, inside .. "/f.txt", "rw") and not Policy.allows(file, inside .. "/f.txt", "wc"))
+  assert(allows(file, inside .. "/f.txt", "rw") and not allows(file, inside .. "/f.txt", "wc"))
   local dir: Sandbox.Policy = { grants = { { path = inside, letters = "rwc" } } }
-  assert(Policy.allows(dir, inside .. "/new.txt", "wc") and not Policy.allows(dir, outside .. "/new.txt", "wc"))
+  assert(allows(dir, inside .. "/new.txt", "wc") and not allows(dir, outside .. "/new.txt", "wc"))
   -- A link outside the grant, to a file in it, is written through to the real file: the link stays.
   assert(Fs.symlink(inside .. "/f.txt", outside .. "/link.txt"))
   local r = Tools.run("write", { path = outside .. "/link.txt", content = "new" }, { cwd = inside, policy = dir })
@@ -274,11 +315,23 @@ local function test_a_file_is_made_only_where_its_directory_grants_c()
   assert(status.exists)
   -- A grant mapped from elsewhere grants the tools nothing, which run outside the sandbox.
   local mapped: Sandbox.Policy = { grants = { { path = "/etc", letters = "r", from = inside } } }
-  assert(not Policy.allows(mapped, "/etc/hostname", "r"))
+  assert(not allows(mapped, "/etc/hostname", "r"))
   -- A device is no file to read whole.
   local devices: Sandbox.Policy = { grants = { { path = "/dev", letters = "r" } } }
   assert(Tools.run("read", { path = "/dev/zero" }, { cwd = inside, policy = devices }).text:find("is no file", 1, true) ~= nil)
   -- A policy that is none says so.
-  local _, why = Policy.allows({ profiles = { "nosuch" } }, inside, "r")
-  assert(why:find("is no policy", 1, true) ~= nil, why)
+  local unmerged, why = allows({ profiles = { "nosuch" } }, inside, "r")
+  assert(not unmerged and why:find("nosuch", 1, true) ~= nil, why)
+  -- A grant that makes files but writes none lets no new file be written.
+  local making: Sandbox.Policy = { grants = { { path = inside, letters = "rc" } } }
+  local unwritten = Tools.run("write", { path = inside .. "/made.txt", content = "x" }, { cwd = inside, policy = making })
+  assert(unwritten.is_error and not assert(Fs.status(inside .. "/made.txt")).exists, unwritten.text)
+  -- Each directory a write makes asks c of the one above it, not only the last.
+  local deep: Sandbox.Policy = { grants = { { path = inside .. "/a/b", letters = "rwc" } } }
+  local made = Tools.run("write", { path = inside .. "/a/b/c.txt", content = "x" }, { cwd = inside, policy = deep })
+  assert(made.is_error and not assert(Fs.status(inside .. "/a")).exists, made.text)
+  -- A dangling link is refused: a create through it would make a file out of the grant.
+  assert(Fs.symlink(outside .. "/not-yet.txt", inside .. "/dangling.txt"))
+  local through = Tools.run("write", { path = inside .. "/dangling.txt", content = "x" }, { cwd = inside, policy = dir })
+  assert(through.is_error and not assert(Fs.status(outside .. "/not-yet.txt")).exists, through.text)
 end

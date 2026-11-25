@@ -7,7 +7,8 @@
 --- child lies within its parent and the children of one node come in source
 --- order, none beginning before its elder sibling ends. The statements of a
 --- block tile it: the first begins where the block does, each begins at the
---- token after the one before it ends, and the last is followed by the
+--- token after the one before it ends (past the `;` that ends it, which is no
+--- node, as in Lua), and the last is followed by the
 --- terminator that ends the block, which is the block's `last` and `close`, or
 --- just after its `last` where the construct around the block did not close. The
 --- chunk spans every token. Ids are 1 for the chunk and count up in a
@@ -70,12 +71,14 @@ local function walk(node: Ast.Node, parent: Ast.Node, state: Walk)
   if (node.kind == "Block") then
     local expected = node.first
     for _, stat in ipairs(node.stats) do
+      while tokens.kind[expected] == ";" do expected = expected + 1 end
       local s = base_of(stat)
       if s.first ~= expected and state.problem == "" then
         state.problem = at .. " does not tile: " .. stat.kind .. " begins at token " .. tostring(s.first) .. ", not " .. tostring(expected)
       end
       expected = s.last + 1
     end
+    while tokens.kind[expected] == ";" do expected = expected + 1 end
     -- The terminator is the block's own, unless the construct around the block did not consume it.
     if state.problem == "" and (expected ~= node.close or (node.last ~= node.close and node.last ~= node.close - 1) or
         TERMINATORS[Lexer.text(tokens, node.close)] ~= true) then

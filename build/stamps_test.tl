@@ -10,8 +10,7 @@ local stamps = require("build.stamps")
 --- source hashes to `own`, and a module it requires, whose source hashes
 --- to `required`; and a module nothing of it requires, hashing to `other`.
 local function carrying(own: string, required: string, other: string): Sqlite.Handle
-  local db = assert(Sqlite.memory())
-  for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
+  local db = assert(schema.hold(assert(Sqlite.memory())))
   local hashes: {string:string} = { ["build.stamps"] = own, ["build.required"] = required, ["build.other"] = other }
   for path, hash in pairs(hashes) do
     assert(db:run("INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..

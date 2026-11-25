@@ -1162,6 +1162,12 @@ local function shaped(j: Relation.Judge, a: Named, b: Named, why: boolean): Rela
 end
 
 local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): Relation.Refusal?
+  local a_body = a.decl.body
+  if a.value and (b.tag == "named") and not b.value and a_body ~= nil and a_body.schema ~= nil and
+      b.decl.module == "cosmic.sqlite" and b.decl.name == "Schema" then
+    -- A `local schema` used as a value is the value of [`Sqlite.schema`] of its DDL.
+    return nil
+  end
   if (b.tag == "named") and a.value ~= b.value then
     return leaf(j, why, "declaration_value", a, b)
   elseif a.value then
@@ -1214,6 +1220,10 @@ local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): R
       end
       -- A type that lists no interface of `b`'s declaration conforms to it by having its fields.
       return conforms(j, a, b, why, closure)
+    end
+    if not a.value and not b.value and a_body ~= nil and a_body.schema ~= nil and lists(closure_of(j, a), b) then
+      -- A handle of a `local schema` is a handle of [`cosmic.sqlite`], whose class it lists.
+      return nil
     end
     return leaf(j, why, "nominal", a, b)
   elseif b.tag == "string" and a.decl.kind == "enum" then

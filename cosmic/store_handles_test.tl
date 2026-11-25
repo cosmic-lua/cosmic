@@ -128,8 +128,8 @@ local function test_alone_searches_only_the_binarys_own_database()
   assert(Store.meta("compiler") ~= nil)
 end
 
---- [`Store.holds`] tells a module the binary has a row of from a name it has none of, which [`Store.source`] answers
---- with a nil and a message in both cases.
+--- [`Store.holds`] tells a module the binary has a row of from a name it has none of, where [`Store.source`] returns
+--- a nil and a message in both cases.
 local function test_holds_tells_a_held_module_from_an_absent_one()
   local holds, why = Store.holds("cosmic.store")
   assert(holds == true, tostring(why))

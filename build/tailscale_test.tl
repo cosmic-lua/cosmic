@@ -1,11 +1,12 @@
 --- `cosmic tailscale` (build/tailscale.tl), run in this process against a
 --- stand-in tailscaled: a [`Server.serve`] on a socket of the test's own
---- that answers the LocalAPI paths with the JSON the daemon writes. The
---- verb runs in a task of the stand-in's own run, as a call of
+--- that responds to the LocalAPI paths with the JSON the daemon writes.
+--- The verb runs in a task of the stand-in's own run, as a call of
 --- [`cosmic.tailscale`] waits as one, with its output and files stood in
 --- for.
 
 local Array = require("cosmic.array")
+local type Failure = require("cosmic.failure")
 local Net = require("cosmic.net")
 local Server = require("cosmic.http.server")
 local Stream = require("cosmic.stream")
@@ -113,22 +114,22 @@ local class Sink is Stream.Writer
   path: string
   parts: mut {string}
 
-  function write(self, chunk: string): boolean, string
+  function write(self, chunk: string): (true) | (false, Failure)
     self.parts[#self.parts + 1] = chunk
-    return true, ""
+    return true
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.ran.files[self.path] = table.concat(self.parts)
-    return true, ""
+    return true
   end
 
-  function abort(self): boolean, string
-    return true, ""
+  function abort(self): (true) | (false, Failure)
+    return true
   end
 end
 
---- The stand-in's answer to a Taildrop path, or nil for another.
+--- The stand-in's response to a Taildrop path, or nil for another.
 local function file_answer(ran: Ran, req: Server.Request): Server.Reply?
   local target = req.target
   if target == "/localapi/v0/file-targets" then return { status = 200, body = TARGETS } end
@@ -161,7 +162,7 @@ local function file_answer(ran: Ran, req: Server.Request): Server.Reply?
   return { status = 200, body = data }
 end
 
---- The stand-in's answer to `target`; `status` is the status reply.
+--- The stand-in's response to `target`; `status` is the status reply.
 local function answer(target: string, status: string): Server.Reply
   if target == "/localapi/v0/status" or target == "/localapi/v0/status?peers=false" then
     return { status = 200, body = status }
@@ -193,9 +194,9 @@ end
 local runs = 0
 
 --- `cosmic tailscale <words>` against the stand-in at a socket under
---- `tmp`, which answers `status` for the status (STATUS by default).
---- With `no_socket` the command line names none, and the run's connect
---- is handed the stand-in's anyway.
+--- `tmp`, which responds with `status` for the status (STATUS by
+--- default). With `no_socket` the command line names none, and the
+--- run's connect is handed the stand-in's anyway.
 local function run(tmp: string, words: {string}, status?: string, no_socket?: boolean, setup?: function(Ran)): Ran
   local ran: Ran = { code = -1, out = "", err = "", files = {}, modes = {}, seen = {}, renamed = {},
     waiting = {}, put = {} }
@@ -214,11 +215,11 @@ local function run(tmp: string, words: {string}, status?: string, no_socket?: bo
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local path = assert(Array.at(addresses, 1).path)
       local argv: mut {string} = { "tailscale" }
+      for _, word in ipairs(words) do argv[#argv + 1] = word end
       if no_socket ~= true then
         argv[#argv + 1] = "--socket"
         argv[#argv + 1] = path
       end
-      for _, word in ipairs(words) do argv[#argv + 1] = word end
       ran.code = tailscale.run(argv, {
         out = function(text: string): boolean, string
           ran.out = ran.out .. text
@@ -471,24 +472,29 @@ local function test_ping_prints_the_round_trip_and_its_path(tmp: string)
   local refused = run(tmp, { "ping", "100.64.0.7" })
   assert(refused.code == 1 and refused.err:find("^cosmic: tailscale: /localapi/v0/ping: ") ~= nil, refused.err)
   local bad = run(tmp, { "ping", "--kind", "udp", "100.64.0.2" })
-  assert(bad.code == 2 and bad.err:find("--kind is disco", 1, true) ~= nil, bad.err)
+  assert(bad.code == 2 and bad.err:find("ping: --kind takes disco, ICMP, TSMP or peerapi, not udp", 1, true) ~= nil, bad.err)
 end
 
 --- A command line it cannot run is refused before the daemon is asked.
 local function test_a_command_line_it_cannot_run_is_refused(tmp: string)
+  -- Each line, and the usage its refusal ends with: the subcommand's own, or the verb's where it names none.
   local lines: {{string}} = { {}, { "up" }, { "status", "--kind", "disco" }, { "whois" }, { "status", "x" },
-    { "cert", "a", "b" } }
-  for _, words in ipairs(lines) do
+    { "cert", "a", "b" }, { "file", "get" }, { "file", "list", "x" } }
+  local usages: {string} = { "<cert|file|ping|status|whois> ...", "<cert|file|ping|status|whois> ...",
+    "status [options]", "whois [--json] <address|name>", "status [options]", "cert [options] [domain]",
+    "file get [options] <dir>", "file list [options]" }
+  for i, words in ipairs(lines) do
     local ran = run(tmp, words)
     assert(ran.code == 2, table.concat(words, " ") .. ": " .. tostring(ran.code))
-    assert(ran.err:find("; cosmic tailscale ", 1, true) ~= nil, ran.err)
+    local usage = "; usage: cosmic tailscale " .. assert(usages[i]) .. "\n"
+    assert(ran.err:sub(-#usage) == usage, ran.err)
     assert(#ran.seen == 0, table.concat(ran.seen, "\n"))
   end
 end
 
 --- A daemon that is not there fails the call, exit 1, naming the socket.
 local function test_a_daemon_that_is_not_there_exits_1(tmp: string)
-  local ran = run(tmp, { "--socket", tmp .. "/none.sock", "status" }, nil, true)
+  local ran = run(tmp, { "status", "--socket", tmp .. "/none.sock" }, nil, true)
   assert(ran.code == 1, tostring(ran.code))
   assert(ran.err:find("^cosmic: tailscale: ") ~= nil, ran.err)
 end

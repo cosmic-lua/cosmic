@@ -33,7 +33,8 @@
 --- `--hmac <key>` makes each digest an HMAC under the key.
 --- `--hmac-file <path>` reads the key from a file: its bytes exactly, a
 --- trailing newline too, with a warning (write the file with
---- `printf %s`). Use the file: a key on the command line shows in `ps`
+--- `printf %s`), or from standard input for `--hmac-file -` when the input to
+--- hash is a file. Use the file: a key on the command line shows in `ps`
 --- and in the shell's history. Every algorithm has an HMAC, which also
 --- streams. `--json` names it `hmac-sha256` and so on, and `check`
 --- verifies HMACs when it is given a key.
@@ -54,7 +55,7 @@ local function shared(own: {string: boolean | Flags.Option}): {string: boolean |
       choices = { "md5", "sha1", "sha224", "sha256", "sha384", "sha512", "sha3-224", "sha3-256", "sha3-384",
         "sha3-512" } },
     ["--hmac"] = { value = "key", about = "make each digest an HMAC under key (visible in ps)" },
-    ["--hmac-file"] = { value = "path", about = "make each digest an HMAC under the bytes of a file" },
+    ["--hmac-file"] = { value = "path", about = "make each digest an HMAC under the bytes of a file", dash = "input" },
   }
   -- The algorithms' own options, before -a named them.
   for _, name in ipairs({ "md5", "sha1", "sha224", "sha256", "sha384", "sha512", "sha3-224", "sha3-256", "sha3-384",

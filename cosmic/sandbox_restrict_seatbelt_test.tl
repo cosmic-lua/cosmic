@@ -30,12 +30,12 @@ Test.policy{
   env = { "HOME", "TMPDIR" },
 }
 
---- What a restriction of a process a profile holds already answers.
+--- What a restriction of a process a profile holds already returns.
 local HELD <const> = "false sandbox: restrict: this process is held by a Seatbelt profile " ..
   "already, one it applied or was started under: macOS applies one profile to a process " ..
   "and refuses a second"
 
---- What a refused path answers under Seatbelt: EPERM.
+--- What a refused path fails with under Seatbelt: EPERM.
 local DENIED <const> = "Operation not permitted"
 
 --- What the child runs first: the modules it uses, loaded before it is
@@ -74,7 +74,7 @@ local record Said
   raw: string
 end
 
---- Runs `chunk`, after `PRELUDE`, in a child of this program, and answers
+--- Runs `chunk`, after `PRELUDE`, in a child of this program, and returns
 --- what it printed, once it has ended well.
 local function in_child(chunk: string): Said
   local started = this_program.program({ "-e", PRELUDE .. chunk }, {
@@ -161,7 +161,7 @@ local function test_what_cannot_be_held_is_refused_before_anything_is_applied(tm
   assert(Fs.write(tmp .. "/free", "free"))
   assert(Fs.write(tmp .. "/held", "held"))
   local said = in_child(string.format([[
-say("nest", Sandbox.restrict({ promises = { "nest" } }))
+say("nest", Sandbox.restrict({ grants = { { calls = "nest" } } }))
 say("free", reads(%q))
 local fd = assert(sys.open(%q, sys.O_RDONLY))
 say("fd", fd)
@@ -172,7 +172,7 @@ say("child", Sandbox.restrict({}))
 assert(running:close())
 say("still", reads(%q))
 ]], tmp .. "/free", tmp .. "/held", tmp .. "/free"))
-  assert(assert(said.lines["nest"]):find("^false sandbox: restrict: promises \"nest\""), said.raw)
+  assert(assert(said.lines["nest"]):find("^false sandbox: restrict: calls \"nest\""), said.raw)
   assert(said.lines["free"] == "free" and said.lines["still"] == "free", said.raw)
   assert(said.lines["unnamed"] == "false sandbox: restrict: descriptor " .. assert(said.lines["fd"]) ..
       " is open and not named in fds: close it, or name it to keep it", said.raw)
@@ -243,7 +243,7 @@ print(tostring(ok) .. " " .. why)
 print(soft() == before)
 ]]
   local result, why = Child.run({ (assert(Proc.executable())), "-e", chunk }, {
-    policy = { profiles = { "cosmic", "system" } }, stdout = "capture", stderr = "capture",
+    policy = { profiles = { "system" } }, stdout = "capture", stderr = "capture",
     stdin = "null", timeout_ns = Clock.seconds(60) })
   assert(result, why)
   assert(result.ok and result.stdout == HELD .. "\ntrue\n",
@@ -257,8 +257,8 @@ local function test_a_child_started_without_a_policy_is_held_by_the_profile(tmp:
   assert(Fs.write(tmp .. "/granted", "granted-bytes"))
   assert(Fs.write(tmp .. "/other", "other-bytes"))
   local said = in_child(string.format([[
-say("restrict", Sandbox.restrict({ profiles = { "system" }, promises = { "fork" },
-  grants = { { path = %q, letters = "r" } } }))
+say("restrict", Sandbox.restrict({ profiles = { "system", "programs" },
+  grants = { { path = %q, letters = "r" }, { calls = "fork" } } }))
 local granted, _ = Child.run({ "/bin/cat", %q }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
 if granted ~= nil then say("granted", granted.ok, granted.stdout) else say("granted", nil, nil) end
 local other, _ = Child.run({ "/bin/cat", %q }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })

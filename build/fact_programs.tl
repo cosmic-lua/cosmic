@@ -8,7 +8,7 @@
 local Grammar = require("build.compile_grammar")
 
 local record Programs
-  --- Reads `x` after a test of it and answers `none` for nil.
+  --- Reads `x` after a test of it and gives `none` for nil.
   sound: string
   --- Narrows an enum, a class and a tag as well as nil: `paint`, `pet` and `area` read what their tests took the value to be,
   --- and `dog`, `cat`, `square` and `circle` make values for them. `area_after` and `pet_after` call a function between the

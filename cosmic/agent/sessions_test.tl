@@ -52,6 +52,26 @@ end
 
 --- What a session keeps under a key is its own, in place of what was there, let go with no value, and held to 256KB a
 --- key and 1MB a session.
+local function test_a_fork_holds_all_its_session_kept()
+  local db = assert(Sessions.open(":memory:"))
+  local a = assert(Sessions.start(db, "/a", "m", 0))
+  assert(Sessions.add(db, a, { role = "user", content = "hi" }, "m"))
+  assert(Sessions.output(db, a, { tool = "run", input = "{}", text = "out", is_error = false, call = "c1" }))
+  assert(Sessions.keep(db, a, "k", "[1]"))
+  assert(Sessions.mark(db, a, 0, false))
+  local b = assert(Sessions.fork(db, a, "/b", "n", 1))
+  local loaded = assert(Sessions.load(db, b))
+  assert(#loaded.messages == 1 and loaded.model == "n" and not loaded.ended)
+  local answer = assert(Sessions.answer(db, b, "c1"))
+  assert(answer.text == "out" and not answer.is_error)
+  assert(Sessions.kept(db, b, "k") == "[1]")
+  -- The fork's own changes stay in the fork.
+  assert(Sessions.keep(db, b, "k", "[2]"))
+  assert(Sessions.kept(db, a, "k") == "[1]")
+  local none, none_why = Sessions.fork(db, 999, "/c", "m", 2)
+  assert(none == nil and none_why:find("no session 999", 1, true) ~= nil, none_why)
+end
+
 local function test_a_session_keeps_values_by_key_within_its_limits()
   local db = assert(Sessions.open(":memory:"))
   local a = assert(Sessions.start(db, "/", "m", 0))

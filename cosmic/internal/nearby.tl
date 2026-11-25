@@ -1,11 +1,11 @@
 --- Whether an IPv4 address can only be a machine near this one: what
---- [`cosmic.mdns`]'s responder asks of a query's source before it answers
---- it by unicast, so a query that names a far address as its own draws
---- no answer to it.
+--- [`cosmic.mdns`]'s responder asks of a query's source before it
+--- responds to it by unicast, so a query that names a far address as its
+--- own draws no response to it.
 
 local record Nearby
-  --- Where a responder bound at a port sends its answer to a query: to
-  --- the group, to the query's source alone, or nowhere.
+  --- Where a responder bound at a port sends its response to a query:
+  --- to the group, to the query's source alone, or nowhere.
   enum Reply
     "group"
     "source"
@@ -33,11 +33,12 @@ local function near(host: string): boolean
     (first == 172 and second >= 16 and second <= 31) or (first == 192 and second == 168)
 end
 
---- Where [`cosmic.mdns`]'s responder, bound at `port`, answers a query
---- from `host` and `from_port` (RFC 6762 section 6.7): a query from its
---- own port is a member's, answered to the group; one from another port
---- is a program's, answered to its source alone, and only where
---- that source is a loopback, link-local or private IPv4 address. A host that is nil is none.
+--- Where [`cosmic.mdns`]'s responder, bound at `port`, sends its response
+--- to a query from `host` and `from_port` (RFC 6762 section 6.7): a query
+--- from its own port is a member's, its response sent to the group; one
+--- from another port is a program's, its response sent to its source
+--- alone, and only where that source is a loopback, link-local or
+--- private IPv4 address. A host that is nil is none.
 function Nearby.reply(host: string?, from_port: integer?, port: integer): Nearby.Reply
   if from_port == port then return "group" end
   if host ~= nil and near(host) then return "source" end

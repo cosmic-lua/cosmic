@@ -1,7 +1,7 @@
 --- The types of a connection, which [`cosmic.net`] re-exports as
 --- [`Net.Conn`] and [`Net.ConnectOptions`], and the connection over a
 --- connected socket that [`Net.connect`] and a listener's `accept`
---- answer.
+--- return.
 
 local Clock = require("cosmic.clock")
 local Failure = require("cosmic.failure")
@@ -26,7 +26,7 @@ end
 
 local DEFAULT_READ <const> = 64 * 1024
 
---- The most a TLS session's read answers: one record's plaintext.
+--- The most a TLS session's read gives: one record's plaintext.
 local RECORD_BYTES <const> = 16 * 1024
 
 --- How often [`SocketConn.wait_gone`] asks whether the peer has gone,
@@ -41,7 +41,7 @@ local function waited(fd: integer, writable: boolean, timeout_ns: integer?): boo
   -- TODO: wait through Poll.wait alone, and in `connection` too, once
   -- cosmic.poll has what the raw wait outside a task has: a core binding
   -- that gives it the core's cosmic_signal_caught (only core/socket.c's
-  -- waits and sys.flock read it today), a fourth shared answer word for
+  -- waits and sys.flock read it today), a fourth shared result word for
   -- a wait a signal interrupted, and a loop in Poll.wait outside a task
   -- that polls in slices to look for one. A Conn's read and write are
   -- then Stream.from_fd and Stream.to_fd (see the TODO at SocketConn:read
@@ -82,7 +82,7 @@ end
 local interface Duplex is Stream.Reader, Stream.Writer
 end
 
---- A connection, answered by `accept` and [`Net.connect`]: a
+--- A connection, from `accept` and [`Net.connect`]: a
 --- [`Stream.Reader`] of what the peer sends and a [`Stream.Writer`] to
 --- it. A class, so a `<close>` local holds one. One dropped unclosed
 --- needs no __gc: its socket, which only the connection holds, is closed
@@ -103,7 +103,7 @@ local class SocketConn is Duplex
   --- Internal: see `read_failure`.
   mut write_failure: string
   --- Never present: [`Stream.skip`] reads and discards a connection's bytes.
-  skip?: function(SocketConn, n: integer): boolean, string
+  skip?: function(SocketConn, n: integer): (true) | (false, Failure)
   --- Internal: the TLS session every read and write goes through, on a
   --- connection a TLS listener accepted or [`start_tls`] secured; nil
   --- for one in the clear. No caller reads or writes it.
@@ -126,7 +126,7 @@ local class SocketConn is Duplex
   end
 
   -- TODO: make a Conn's `read` and `write` the Reader and Writer
-  -- Stream.from_fd and Stream.to_fd answer over the socket
+  -- Stream.from_fd and Stream.to_fd return over the socket
   -- ({ nonblocking = true, timeout_ns }), collapsing the write loop here into
   -- theirs, once the TODO in `waited` is done: a wait outside a task here
   -- ends at a signal a Signal.guard caught ("interrupted", which net_test's
@@ -138,7 +138,7 @@ local class SocketConn is Duplex
   --- something has; `false` once the peer has ended what it sends. Nil
   --- and a [`Failure`] of kind "timeout" or "cancelled" (a caught signal,
   --- or a cancel in a task of [`Poll.run`]) takes nothing, and a later
-  --- read may still answer; nil and any other Failure is every read's after. A failed read leaves
+  --- read may still succeed; nil and any other Failure is every read's after. A failed read leaves
   --- writing be. A `max_bytes` below 1 raises.
   function read(self, max_bytes?: integer): (string | false) | (nil, Failure)
     if max_bytes ~= nil and max_bytes <= 0 then
@@ -158,7 +158,7 @@ local class SocketConn is Duplex
         if data ~= nil then return data end
         -- TODO: an end with no close_notify (a TCP end alone) is ENDED as
         -- close_notify is, so an HTTP/1.x body read to the connection's end
-        -- cannot tell truncation from the end: answer the two apart here,
+        -- cannot tell truncation from the end: tell the two apart here,
         -- from core/tls.c, and refuse a body so cut, once #3853 merges.
         if stop == tls.ENDED then return false end
         if stop == tls.FAILED then
@@ -188,13 +188,13 @@ local class SocketConn is Duplex
     end
   end
 
-  --- Sends all of `data`, waiting as the peer takes it. False and
-  --- [`Poll.TIMEOUT`], "interrupted", "cancelled" (in a task of [`Poll.run`])
-  --- or why not may leave part of it sent,
+  --- Sends all of `data`, waiting as the peer takes it. False and a
+  --- [`Failure`] (kind "timeout" for a deadline, "cancelled" for
+  --- "interrupted" or a task of [`Poll.run`] cancelled) may leave part of it sent,
   --- so it is every write's after; reading is left be.
-  function write(self, data: string): boolean, string
-    if not self.open then return false, "net: the connection is closed" end
-    if self.write_failure ~= "" then return false, self.write_failure end
+  function write(self, data: string): (true) | (false, Failure)
+    if not self.open then return false, failure_of("net: the connection is closed") end
+    if self.write_failure ~= "" then return false, failure_of(self.write_failure) end
     local fd = self.fd
     local from = 1
     local session = self.session
@@ -207,17 +207,17 @@ local class SocketConn is Duplex
         elseif stop == tls.FAILED or stop == tls.ENDED then
           local trouble = if stop == tls.ENDED then "tls: the peer ended the session" else why end
           self.write_failure = trouble
-          return false, trouble
+          return false, failure_of(trouble)
         else
           local ready, waiting = waited(fd, stop == tls.WRITE, left(deadline))
           if not ready then
             self.write_failure = waiting
-            return false, waiting
+            return false, failure_of(waiting)
           end
-          if not self.open then return false, "net: the connection is closed" end
+          if not self.open then return false, failure_of("net: the connection is closed") end
         end
       end
-      return true, ""
+      return true
     end
     -- One deadline for the call, as over TLS: a peer that takes a byte
     -- each wait would hold the write for ever.
@@ -228,17 +228,17 @@ local class SocketConn is Duplex
         from = from + sent
       elseif errno ~= raw.EAGAIN then
         self.write_failure = why
-        return false, why
+        return false, failure_of(why)
       else
         local ready, waiting = waited(fd, true, left(deadline))
         if not ready then
           self.write_failure = waiting
-          return false, waiting
+          return false, failure_of(waiting)
         end
-        if not self.open then return false, "net: the connection is closed" end
+        if not self.open then return false, failure_of("net: the connection is closed") end
       end
     end
-    return true, ""
+    return true
   end
 
   --- Completes the TLS handshake of a connection a TLS listener
@@ -351,7 +351,7 @@ local class SocketConn is Duplex
   --- connection (EAFNOSUPPORT), a peer that has reset the connection
   --- (ENOTCONN on Linux, EINVAL on macOS), or a connection already
   --- closed.
-  -- TODO: answer a unix connection's peer too, once core/socket.c's
+  -- TODO: return a unix connection's peer too, once core/socket.c's
   -- `peer` does (its Address needs a path, which an unbound client
   -- has none of).
   function peer(self): raw_socket.Address?, string
@@ -405,7 +405,7 @@ local class SocketConn is Duplex
           local ok, why = Poll.delay(slice)
           if not ok then return false, why end
         else
-          local _, _ = Clock.sleep_ns(slice)
+          local _, _ = Clock.sleep(slice)
         end
       end
     end
@@ -419,9 +419,9 @@ local class SocketConn is Duplex
   --- host's own where its listener names the wildcard. Nil and why
   --- where it has none to give: a unix connection, or a connection
   --- already closed.
-  -- TODO: answer a unix connection's own address too, once an Address
+  -- TODO: return a unix connection's own address too, once an Address
   -- can say a unix socket bound nowhere, as a client's is: the core
-  -- answers one, with a path that is empty.
+  -- gives one, with a path that is empty.
   function address(self): raw_socket.Address?, string
     if not self.open then return nil, "net: the connection is closed" end
     local address, why = raw.bound(self.fd)
@@ -431,7 +431,7 @@ local class SocketConn is Duplex
   end
 
   --- Ends one direction, or both: after "write" the peer reads the
-  --- end of what was sent, and this side can still read its answer.
+  --- end of what was sent, and this side can still read its reply.
   --- A `how` that is none of "read", "write" and "both" is refused where
   --- it is written; a caller the checker does not read raises.
   function shutdown(self, how: Shutdown): boolean, string
@@ -457,8 +457,8 @@ local class SocketConn is Duplex
   end
 
   --- Closes the connection. Safe to call more than once.
-  function close(self): boolean, string
-    if not self.open then return true, "" end
+  function close(self): (true) | (false, Failure)
+    if not self.open then return true end
     self.open = false
     Poll.closing(self.fd)
     local session = self.session
@@ -468,12 +468,12 @@ local class SocketConn is Duplex
       session:free()
     end
     local ok, why = self.socket:close()
-    if not ok then return false, why end
-    return true, ""
+    if not ok then return false, failure_of(why) end
+    return true
   end
 
   --- The same as `close`: nothing sent can be taken back.
-  function abort(self): boolean, string
+  function abort(self): (true) | (false, Failure)
     return self:close()
   end
 
@@ -489,8 +489,8 @@ local record Connection
     --- How long connecting, and then any one read or write, waits, in
     --- nanoseconds, from 0; nil for no limit. A TCP connection is
     --- waited on until made or refused. One to a listener whose backlog
-    --- is full waits for room where the kernel leaves it unanswered
-    --- (Linux, macOS 15.8). Where the kernel answers it (macOS 27.2) it
+    --- is full waits for room where the kernel leaves it waiting
+    --- (Linux, macOS 15.8). Where the kernel refuses it (macOS 27.2) it
     --- is reset at once instead: connecting fails "Connection reset by
     --- peer", or the connection is made and its first read fails so, a
     --- write "Broken pipe". Connecting to a unix one waits
@@ -501,7 +501,7 @@ local record Connection
     --- wait for room connects again.
     timeout_ns?: integer
     --- Connects over TLS as this client: once the connection is made,
-    --- its handshake is completed before it is answered, within
+    --- its handshake is completed before connecting ends, within
     --- `timeout_ns` too, as [`Net.Conn`]'s [`start_tls`] does. Nil to connect in
     --- the clear.
     tls?: Tls.Client
@@ -515,7 +515,7 @@ local record Connection
   --- Which direction of a connection [`SocketConn.shutdown`] ends.
   type Shutdown = Shutdown
 
-  --- A connection, answered by `accept` and [`Net.connect`]: a
+  --- A connection, from `accept` and [`Net.connect`]: a
   --- [`Stream.Reader`] of what the peer sends and a [`Stream.Writer`] to
   --- it. A class, so a `<close>` local holds one.
   type Conn = SocketConn

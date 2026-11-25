@@ -28,9 +28,6 @@ local record Seatbelt
   record Options
     --- Each requested path's resolved host path and directory kind.
     paths: {string:Path}
-    --- The name of this program for the "cosmic" profile, with its
-    --- resolved path and kind in `paths` like an explicit grant.
-    executable?: string
     --- The name of the core a start of this program runs (past the
     --- launcher, which unpacks a core into a cache no profile grants), in
     --- `paths` like an explicit grant: granted `rx`. Required with the
@@ -65,6 +62,11 @@ local record Seatbelt
     --- `x` it may map as a library and not run. Only the start of the relay
     --- sets it.
     mut serves_relay?: integer
+    --- Whether the core applies the profile itself at boot (a cosmic
+    --- child, past the start): `core` is then granted `r`, not `rx`, since
+    --- the core runs already, and so the program cannot run its core, or
+    --- this program, again unless a grant of the policy gives it `x`.
+    mut booted?: boolean
   end
 
   --- Text to pass to sandbox_init_with_parameters, values kept outside
@@ -111,12 +113,12 @@ local function unsupported(policy: rules.Policy): string
   if #(policy.loopback or {}) > 0 then return "loopback needs a network namespace of its own" end
   -- A promise the profile has no rule for would be dropped from it, not
   -- held: each is named here or refused.
-  for _, promise in ipairs(policy.promises or {}) do
+  for _, promise in ipairs(rules.calls(policy)) do
     if promise ~= "fork" and promise ~= "jit" and promise ~= "fattr" then
-      return "promises " .. tostring(promise) .. " cannot be held by Seatbelt"
+      return "calls " .. tostring(promise) .. " cannot be held by Seatbelt"
     end
   end
-  for _, grant in ipairs(policy.grants or {}) do
+  for _, grant in ipairs(rules.paths(policy)) do
     if grant.from ~= nil then return "grant from needs isolate file" end
   end
   local limits = policy.limits
@@ -166,10 +168,9 @@ end
 --- enforcement caller. A file uses `literal`, a directory `subpath`.
 --- Every path value is a parameter, including profile and socket paths;
 --- none is interpolated into SBPL. The "system" profile is macOS's even
---- when compiling on another host; "cosmic" names `options.executable`,
---- unless the policy has a `database`: the program is then that core and
---- file alone, `options.core` (`rx`) and `options.database` (`r`), which the
---- policy's own `database` must be. A policy's `tmp` is granted `rwc` through
+--- when compiling on another host. A start of this program names
+--- `options.core` (`rx`, or `r` where `options.booted`), and with the policy's `database` that core and
+--- `options.database` (`r`) are the program alone, which the policy's own `database` must be. A policy's `tmp` is granted `rwc` through
 --- the parameter [`Seatbelt.Profile`]'s `tmp` names, which the caller sets.
 --- A policy's `connect` is reached through the network relay alone, at
 --- [`Seatbelt.Options.relay_port`] of the host's loopback.
@@ -178,7 +179,8 @@ end
 ---
 --- The returned rlimits must be applied separately. This is preparation
 --- only: on macOS [`Child.start`] applies the profile and the limits in a
---- process of this program that executes the child's program last, and
+--- process of this program that executes the child's program last (a
+--- cosmic child's core applies its profile itself at boot), and
 --- [`Sandbox.restrict`] in the process that calls it.
 function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Seatbelt.Profile?, string
   local valid, why = rules.check(policy)
@@ -222,13 +224,6 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
           if trouble ~= "" then return refuse(trouble) end
         end
       end
-    elseif name == "cosmic" and policy.database == nil then
-      local executable = options and options.executable
-      if executable == nil then
-        return refuse("profile cosmic needs this program's executable")
-      end
-      trouble = add(executable, "rx")
-      if trouble ~= "" then return refuse(trouble) end
     end
   end
   local database = policy.database
@@ -247,24 +242,25 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     end
   end
   if options_core ~= nil then
-    trouble = add(options_core, "rx")
+    trouble = add(options_core, if options ~= nil and options.booted == true then "r" else "rx" end)
     if trouble ~= "" then return refuse(trouble) end
   end
   if options_database ~= nil then
     trouble = add(options_database, "r")
     if trouble ~= "" then return refuse(trouble) end
   end
-  for _, grant in ipairs(policy.grants or {}) do
+  for _, grant in ipairs(rules.paths(policy)) do
     trouble = add(grant.path, grant.letters)
     if trouble ~= "" then return refuse(trouble) end
   end
-  local merged, failure = rules.merge({ grants = grants, promises = policy.promises,
+  for _, promise in ipairs(rules.calls(policy)) do grants[#grants + 1] = { calls = promise } end
+  local merged, failure = rules.merge({ grants = grants,
     limits = policy.limits, env = policy.env, set_env = policy.set_env,
     set_env_digests = policy.set_env_digests, user = policy.user, group = policy.group })
   if merged == nil then return nil, failure end
   local fattr = false
   -- What every program needs to start, whatever it is granted. Contents
-  -- and writes stay denied; only these answers are given:
+  -- and writes stay denied; only these are allowed:
   --   file-read-metadata: stat of any path. dyld and libc stat each
   --     component of every path they open, from the root down, so a
   --     grant's own path is not enough to reach it. It shows that a path
@@ -284,7 +280,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     "(allow file-read-metadata)", '(allow file-read-data (literal (param "ROOT")))',
     "(allow sysctl-read)",
     "(allow signal (target self))", "(allow process-info-pidinfo (target self))" }
-  for _, promise in ipairs(merged.promises or {}) do
+  for _, promise in ipairs(rules.calls(merged)) do
     if promise == "fork" then text[#text + 1] = "(allow process-fork)" end
     if promise == "jit" then text[#text + 1] = "(allow dynamic-code-generation)" end
     if promise == "fattr" then fattr = true end
@@ -301,7 +297,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     end
     runs = core_held.path
   end
-  for i, grant in ipairs(merged.grants or {}) do
+  for i, grant in ipairs(rules.paths(merged)) do
     local name = "PATH_" .. tostring(i)
     parameters[name] = grant.path
     allow(text, fattr, grant.letters, '(' .. (if directories[grant.path] == true then "subpath" else "literal" end) ..
@@ -317,7 +313,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     if not absolute(terminal) then return refuse("terminal needs an absolute canonical path") end
     -- Data and ioctl alone: file-write* would let a child without `fattr`
     -- chmod its slave for other users to read, or unlink /dev/tty as root.
-    -- The slave answers tcgetsid and tcgetpgrp only where granted by its
+    -- tcgetsid and tcgetpgrp succeed on the slave only where granted by its
     -- path, /dev/tty opens only where granted as that literal, and ttyname
     -- and tty list /dev.
     parameters.TTY = terminal -- checked: map_field
@@ -381,10 +377,10 @@ end
 
 --- The grants `policy` gives on macOS before the host is read: its own
 --- and, for the "system" profile, [`Seatbelt.compile`]'s list of macOS's
---- paths (not Linux's, which [`Sandbox.merge`] gives), each whether or not
+--- paths (not Linux's, which [`Sandbox.union`] gives), each whether or not
 --- this host has it. For a check of which paths a policy reaches.
-function Seatbelt.grants(policy: rules.Policy): {rules.Grant}
-  local out: mut {rules.Grant} = {}
+function Seatbelt.grants(policy: rules.Policy): {rules.Path}
+  local out: mut {rules.Path} = {}
   for _, name in ipairs(policy.profiles or {}) do
     if name == "system" or name == "programs" then
       for _, entry in ipairs(assert(rules.profile_paths(name, "darwin"))) do
@@ -394,20 +390,19 @@ function Seatbelt.grants(policy: rules.Policy): {rules.Grant}
       end
     end
   end
-  for _, grant in ipairs(policy.grants or {}) do out[#out + 1] = grant end
+  for _, grant in ipairs(rules.paths(policy)) do out[#out + 1] = grant end
   return out
 end
 
 --- What [`Seatbelt.compile`] needs of the host for `policy`: each grant's
 --- real path and kind, keyed as the policy gives the path, and, for the
 --- "system" profile, each path of it this host has. A relative grant is
---- from `base`, where given. `executable` is this program's own path, for
---- the "cosmic" profile, resolved like a grant; `core` and `database` are
---- the file a start of this program runs and the one it runs on, likewise.
+--- from `base`, where given. `core` and `database` are the file a start of
+--- this program runs and the one it runs on, resolved like a grant.
 --- `terminal` is the pty slave's path, resolved through links for
 --- [`Seatbelt.Options.terminal`]. Nil and why where a grant's path is not there.
-function Seatbelt.resolve(policy: rules.Policy, base?: string, executable?: string,
-                          core?: string, database?: string, terminal?: string): Seatbelt.Options?, string
+function Seatbelt.resolve(policy: rules.Policy, base?: string, core?: string, database?: string,
+                          terminal?: string): Seatbelt.Options?, string
   local paths: mut {string:Seatbelt.Path} = {}
   -- "" where `at` was resolved, or why not.
   local function look(name: string, at: string): string
@@ -427,18 +422,12 @@ function Seatbelt.resolve(policy: rules.Policy, base?: string, executable?: stri
       end
     end
   end
-  for _, grant in ipairs(policy.grants or {}) do
+  for _, grant in ipairs(rules.paths(policy)) do
     local at = grant.path
     if base ~= nil and at:sub(1, 1) ~= "/" then at = base .. "/" .. at end
     local trouble = look(grant.path, at)
     if trouble ~= "" then
       return refuse("grant " .. string.format("%q", grant.path) .. ": " .. trouble)
-    end
-  end
-  if executable ~= nil then
-    local trouble = look(executable, executable)
-    if trouble ~= "" then
-      return refuse("executable " .. string.format("%q", executable) .. ": " .. trouble)
     end
   end
   local policy_database = policy.database
@@ -456,7 +445,7 @@ function Seatbelt.resolve(policy: rules.Policy, base?: string, executable?: stri
     end
     real_terminal = real
   end
-  return { paths = paths, executable = executable, core = core, database = database,
+  return { paths = paths, core = core, database = database,
     terminal = real_terminal }, ""
 end
 

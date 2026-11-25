@@ -1,5 +1,5 @@
 --- The declarations of the C checker tell the truth about nil: a rule
---- that finds nothing in an expression answers nil, a syntax tree names no
+--- that finds nothing in an expression returns nil, a syntax tree names no
 --- address or position for a node the dump gives none, and a local a call
 --- hands back is a record or none. Each test drives the paths where
 --- a value may be nil and asks a checked run
@@ -70,7 +70,7 @@ local function test_the_c_tree_answers_what_the_dump_leaves_out()
   end)
 end
 
---- The rules over `file` of C that hands buffers, allocations and statements a status around: every one answers nil where
+--- The rules over `file` of C that hands buffers, allocations and statements a status around: every one returns nil where
 --- an expression is none of what it looks for. A file a test of its own, since the check compiles it under each variant of the
 --- core and a checked run costs several times an unchecked one: all four in one test took more than the 10 s a CI test has.
 local function the_rules_answer_as_declared_over(file: string)

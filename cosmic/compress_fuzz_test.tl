@@ -1,6 +1,6 @@
 --- Fuzz properties for [`cosmic.compress`]'s zstd codec: decoding any
 --- bytes is total, gives no update more than it was asked for, and
---- answers the same however the input is split; and what the encoder
+--- comes out the same however the input is split; and what the encoder
 --- writes, at any level and in any chunks, decodes to what went in.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 

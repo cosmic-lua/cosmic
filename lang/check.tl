@@ -77,6 +77,7 @@ local Literals = require("lang.literals")
 local LoadOrder = require("lang.load_order")
 local Relation = require("lang.relation")
 local Scopes = require("lang.scopes")
+local type Sql = require("lang.sql")
 local Types = require("lang.types")
 local Warnings = require("lang.warnings")
 
@@ -203,7 +204,8 @@ local record Check
 
   --- What the fix of a value that is none of the arms of a recursive alias adds, and what a table literal wanted as an
   --- interface is told in place of the generic fix, by the type (`<module> <name>`): the library's own advice for the type it
-  --- declares, in words that name its functions.
+  --- declares, in words that name its functions. A key `<module> <name> .<field>` is what the fix of a field the type
+  --- does not have adds: a field it had once.
   advice: {string: string}
 end
 
@@ -215,6 +217,8 @@ Check.advice = {
   ["cosmic.time Time.CivilFields"] = "write the literal where it is typed as the record that lists it: `local wall: Time.Wall = " ..
     "{ ... }`, or `Time.Civil`; for a date alone, `Time.parse_date(text, zone)` reads one",
   ["cosmic.json Json.Value"] = "for a record or a class of your own, call `Json.encode_any`, which takes any value",
+  ["cosmic.sandbox.policy rules.Policy .promises"] = "a promise is a grant now: write `grants = { { calls = \"fork\" } }`, " ..
+    "and read them with `Sandbox.calls(policy)`",
 }
 
 -- State ----------------------------------------------------------------------------------
@@ -499,12 +503,18 @@ local record Ctx
   --- The text of each local that is given a string literal and never assigned, by id: what a literal pattern or format
   --- held in a local says.
   consts: mut {integer: string}
-  --- The DDL of each local given `Sqlite.schema(ddl)` with a literal `ddl` and never assigned, by id.
-  schemas: mut {integer: string}
-  --- The DDL of the schema each local handle was opened with (`Sqlite.open(path, { schema = S })`,
-  --- `Sqlite.memory({ schema = S })`, either in `assert`), where the local is never assigned, by id: the
-  --- SQL literals sent to it are read against that schema ([`lang.sql`]).
-  handle_schemas: mut {integer: string}
+  --- The schemas whose handles' SQL the rest of the module no longer reads: a handle of one was sent SQL that may
+  --- make a table or attach a database, or was migrated ([`Calls.sql_arguments`]).
+  unread_schemas: mut {Decl: boolean}
+  --- The result columns of each call of `rows` or `one` on a handle of a `local schema` with literal SQL
+  --- that SQLite prepares against it, by the id of the call.
+  call_columns: mut {integer: {Sql.Column}}
+  --- The result columns of the rows each local holds, by id: a local given `db:rows(sql)` of a handle
+  --- of a `local schema` ([`Calls.result_columns`]).
+  row_lists: mut {integer: {Sql.Column}}
+  --- The result columns of the row each local holds, by id: one given `db:one(sql)`, a `for` variable
+  --- over a list [`Ctx.row_lists`] holds, or the parameter of the function given `db:map`.
+  row_columns: mut {integer: {Sql.Column}}
   --- The integer literal as written (`0`) that starts each local declared without a type, by binding: an `integer` the
   --- program may mean as a `number`.
   starts: mut {integer: string}
@@ -582,6 +592,10 @@ end
 --- The text of the tokens of `node`, cut at a length a message can hold.
 local function text_of(ctx: Ctx, node: Ast.Node): string
   local b = base_of(node)
+  -- The `assert` of `e!` is written nowhere: its name is its text.
+  if b.last < b.first and node.kind == "Name" then
+    return node.text
+  end
   local tokens = ctx.tokens
   local last = math.min(b.last, b.first + 24)
   local parts: mut {string} = {}
@@ -1027,6 +1041,15 @@ local function members_index(ctx: Ctx, decl: Decl, value: boolean): Members?
   if body == nil then
     return nil
   end
+  local schema = if value and body.schema ~= nil then ctx.store:find("cosmic.sqlite", "Schema") else nil end
+  if schema ~= nil then
+    -- A `local schema` used as a value is [`Sqlite.schema`] of its DDL.
+    local of_schema = members_index(ctx, schema, false)
+    if of_schema ~= nil then
+      cache[decl] = of_schema
+    end
+    return of_schema
+  end
   local index: Members = { by_name = {}, array = not value and body.array or nil, selfish = {} } -- checked: and_ternary
   local absent = ctx.program.absent[decl] or {}
   for _, f in ipairs(body.fields) do
@@ -1143,8 +1166,8 @@ end
 -- Refusals -----------------------------------------------------------------------------------
 
 --- The fix for a read `e` of an index that may be nil. A map's key may be missing, so its read is tested, taken with
---- `assert` or given a default. For an array, the counted loop and the range test are offered only where they could
---- apply: an array that is a local name, read at a name. [`Array.at`] and `assert` take any array and key; `or <default>` is steered from.
+--- `!` (`e!`, which is `assert(e)`) or given a default. For an array, the counted loop and the range test are offered only where they could
+--- apply: an array that is a local name, read at a name. [`Array.at`] and `!` take any array and key; `or <default>` is steered from.
 --
 -- A value that may hold a boolean (`t`) is not taken with `assert(x)`, which raises for false and is refused
 -- ([`asserted_boolean`]), nor given a default with `or`, which replaces false: it is named and said to be there.
@@ -1157,7 +1180,7 @@ local function index_fix(ctx: Ctx, e: Ast.Index, t: Type): string
     if flag then
       return "test it (`local v = " .. read .. " if v ~= nil then ... end`), or " .. named .. " where the key must be there"
     end
-    return "test it (`local v = " .. read .. " if v ~= nil then ... end`), take it with `assert(" .. read .. ")` where " ..
+    return "test it (`local v = " .. read .. " if v ~= nil then ... end`), take it with `" .. read .. "!` where " ..
       "the key must be there, or write `" .. read .. " or <default>` where a missing key means that default"
   end
   local object, at = peel(e.object), peel(e.key)
@@ -1168,7 +1191,7 @@ local function index_fix(ctx: Ctx, e: Ast.Index, t: Type): string
       quoted(read) .. " as a value), "
   end
   return parts .. "read it with `Array.at(" .. xs .. ", " .. key .. ")` (`cosmic.array`: raises when missing)" ..
-    (if flag then ", " .. named else " or `assert(" .. read .. ")`" end) .. ", or test it (`local v = " .. read .. " if v ~= nil then ... end`); `or <default>` turns an out-of-range " ..
+    (if flag then ", " .. named else " or `" .. read .. "!`" end) .. ", or test it (`local v = " .. read .. " if v ~= nil then ... end`); `or <default>` turns an out-of-range " ..
     "read into a wrong value"
 end
 
@@ -1183,7 +1206,7 @@ local function nil_fix(ctx: Ctx, node: Ast.Node, t: Type): string
       return "name the value and say it is there (`local v = " .. text_of(ctx, e) .. "` then `assert(v ~= nil)`), or test " ..
         "it first (`if v == nil then " .. Naming.on_nil(ctx, "v") .. " end`); " .. call .. " answers nil when it fails"
     end
-    return "take the value with `local v = assert(" .. text_of(ctx, e) .. ")`, or test it first (`if v == nil then " ..
+    return "take the value with `local v = " .. text_of(ctx, e) .. "!`, or test it first (`if v == nil then " ..
       Naming.on_nil(ctx, "v") .. " end`); " .. call .. " answers nil when it fails"
   end
   if e.kind == "Index" then
@@ -1192,10 +1215,10 @@ local function nil_fix(ctx: Ctx, node: Ast.Node, t: Type): string
   local s = text_of(ctx, e)
   if (e.kind == "Field") then
     return "copy " .. quoted(s) .. " to a local and test that: `local v = " .. s .. " if v ~= nil then ... end`, or " ..
-      (if flag then "say it is there with `assert(v ~= nil)`" else "take it with `assert(" .. s .. ")`" end)
+      (if flag then "say it is there with `assert(v ~= nil)`" else "take it with `" .. s .. "!`" end)
   end
   return "test it first (`if " .. s .. " == nil then " .. Naming.on_nil(ctx, s) .. " end`), or " ..
-    (if flag then "say it is there with `assert(" .. s .. " ~= nil)`" else "take it with `assert(" .. s .. ")`" end)
+    (if flag then "say it is there with `assert(" .. s .. " ~= nil)`" else "take it with `" .. s .. "!`" end)
 end
 
 --- Whether the type `t` names `invalid` anywhere.
@@ -2327,7 +2350,11 @@ end
 --- this one with `@` and the node's id after it, [`lang.declarations`]), and is no member of another type, which has
 --- no table of its own at run time.
 function TableLiterals.out_of_reach(ctx: Ctx, decl: Decl): string
-  if decl.module:gsub("@.*$", "") ~= ctx.input.module then
+  local body = decl.body
+  if body ~= nil and body.schema ~= nil then
+    return "a `local schema`, whose handles have the metatable of `cosmic.sqlite`'s Handle and are made by " ..
+      "`Sqlite.open` and `Sqlite.memory` alone"
+  elseif decl.module:gsub("@.*$", "") ~= ctx.input.module then
     return "a class of the module " .. quoted(decl.module) .. ", whose metatable only that module reaches"
   elseif decl.module:find("@", 1, true) ~= nil then
     return "a class declared in a block, whose table is made again each time the block runs, so values of one run " ..
@@ -2343,7 +2370,11 @@ end
 
 --- The fix for a class out of reach: made, or tested, by a function of the class in the module that has its table.
 function TableLiterals.reach_fix(ctx: Ctx, decl: Decl, function_name: string): string
-  if decl.module == ctx.input.module and ctx.declared[decl] ~= true and #decl.names == 1 then
+  local body = decl.body
+  if body ~= nil and body.schema ~= nil then
+    return "open the database with `Sqlite.open(path, { schema = " .. decl.name .. " })` or `Sqlite.memory`, which give a " ..
+      decl.name .. ", and keep the type where the handle goes"
+  elseif decl.module == ctx.input.module and ctx.declared[decl] ~= true and #decl.names == 1 then
     return "move the declaration of " .. quoted(Types.decl_name(decl)) .. " above this, or make the value with a function of the " ..
       "class declared after it"
   elseif decl.module:find("@", 1, true) ~= nil and decl.module:gsub("@.*$", "") == ctx.input.module then
@@ -2415,9 +2446,11 @@ function TableLiterals.literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
       local field = TableLiterals.plain_field(ctx, n, name)
       if field == nil then
         local close = nearest(name, names_of(ctx, n))
+        local advised = Check.advice[n.decl.module .. " " .. n.decl.name .. " ." .. name]
         report(ctx, "literal_unknown", item, owner .. " has no field " .. quoted(name) ..
             (if close ~= "" then ", nearest " .. quoted(close) else "" end),
-          (if close ~= "" then "write " .. quoted(close) .. ", or declare " else "declare " end) .. quoted(name) .. " in " .. owner)
+          if advised ~= nil then advised else (if close ~= "" then "write " .. quoted(close) .. ", or declare " else
+            "declare " end) .. quoted(name) .. " in " .. owner end)
       elseif value ~= nil then
         given[name] = true
         local want = put_in(ctx, n, field.type)
@@ -2593,13 +2626,39 @@ function TableLiterals.literal_member(ctx: Ctx, e: Ast.Table, u: Union, written:
       end
     end
   end
+  -- A record told by being there: the one candidate that declares every field the literal names, where each
+  -- candidate is a record.
+  local every_record = true
+  for _, m in ipairs(candidates) do
+    every_record = every_record and (m.tag == "named") and not m.value and m.decl.kind == "record"
+  end
+  if every_record then
+    local declaring: mut {Type} = {}
+    for _, m in ipairs(candidates) do
+      if (m.tag == "named") then
+        local held = Declarations.names_held(ctx.store, ctx.judge, m.decl)
+        local all = true
+        for _, item in ipairs(e.items) do
+          local name = TableLiterals.item_name(item)
+          all = all and (name == nil or held[name] == true)
+        end
+        if all then
+          declaring[#declaring + 1] = m
+        end
+      end
+    end
+    if #declaring == 1 then
+      return declaring[1]
+    end
+  end
   local records = false
   for _, m in ipairs(candidates) do
     records = records or (m.tag == "named")
   end
   if records then
     report(ctx, "literal_ambiguous", e, "this literal could be any of " .. listed(type_names(ctx, candidates)),
-      "give the tag field of the member it is (`kind = \"...\"`), or type the literal first: `local v: Member = {...}`")
+      "give the tag field of the member it is (`kind = \"...\"`) or a field only that member declares, or type " ..
+        "the literal first: `local v: Member = {...}`")
   elseif shape == "empty" then
     local fix = "write an item, or type the literal as the one it is: `local v: " .. show(ctx, candidates[1]) .. " = {}`" -- checked: index_may_be_nil
     if (written.tag == "named") then
@@ -2969,9 +3028,11 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
     -- A record of cosmic's own modules is the binary's to a program, which cannot declare a field in it.
     declare = "`cosmic docs " .. t.decl.module .. "` lists what " .. owner .. " has"
   end
+  local advised = if (t.tag == "named") then Check.advice[t.decl.module .. " " .. t.decl.name .. " ." .. name] else nil end
   report(ctx, "field_unknown", node, owner .. " has no field " .. quoted(name) ..
       (if close ~= "" then ", nearest " .. quoted(close) else "" end),
-    if close ~= "" then "write " .. quoted(close) .. ", or " .. declare else declare end, { show(ctx, t) })
+    if advised ~= nil then advised elseif close ~= "" then "write " .. quoted(close) .. ", or " .. declare else declare end,
+    { show(ctx, t) })
 end
 
 --- How a message names the static `name` of `decl` that a statement of the module has yet to give, and that statement:
@@ -3920,8 +3981,9 @@ function Tests.table_members(ctx: Ctx, t: Type): {Type}?
 end
 
 --- How a run-time test tells that a value of type `value` is the record `r`: `{ "" }` where `r` is the one table `value`
---- may be, the tag field and its strings in `r` where a tag tells the tables apart, or nil where no test can tell (a
---- table of another kind, `any`, a type variable, a record with type arguments, which no tag tells).
+--- may be, the tag field and its strings in `r` where a tag tells the tables apart, the one field `r` alone has where
+--- that tells them ([`Tests.presence_field`]), or nil where no test can tell (a table of another kind, `any`, a type
+--- variable, a record with type arguments, which no tag tells).
 function Tests.record_tag(ctx: Ctx, value: Type, r: Type): {string}?
   if not ((r.tag == "named")) or r.value or #r.args > 0 then
     return nil
@@ -3940,8 +4002,12 @@ function Tests.record_tag(ctx: Ctx, value: Type, r: Type): {string}?
     return { "" }
   end
   local field = Tests.tag_field(ctx, tables)
-  local values = if field ~= nil then Tests.tag_values(ctx, r, field) else nil end
-  if field == nil or values == nil then
+  if field == nil then
+    local alone = Tests.presence_field(ctx, tables, r)
+    return if alone ~= nil then { alone } else nil end
+  end
+  local values = Tests.tag_values(ctx, r, field)
+  if values == nil then
     return nil
   end
   local out: mut {string} = { field }
@@ -3949,6 +4015,19 @@ function Tests.record_tag(ctx: Ctx, value: Type, r: Type): {string}?
     out[#out + 1] = v
   end
   return out
+end
+
+--- The field that tells the record `r` apart from the other records of `tables` by being there
+--- ([`Declarations.presence_field`]). Nil where a member of `tables` is not a record, or `r` has no such field.
+function Tests.presence_field(ctx: Ctx, tables: {Type}, r: Named): string?
+  local records: mut {Named} = {}
+  for _, m in ipairs(tables) do
+    if not ((m.tag == "named")) or m.value or m.decl.kind ~= "record" or m.decl.body == nil then
+      return nil
+    end
+    records[#records + 1] = m
+  end
+  return Declarations.presence_field(ctx.store, ctx.judge, records, r)
 end
 
 --- The field that tells the types of `list` apart: one every one declares with an enum, no value of which is in two of
@@ -4017,7 +4096,9 @@ function Narrowing.note_narrowed(ctx: Ctx, node: Ast.Node, declared: Type, narro
   if now ~= nil and #now > 0 and (old == nil or #old > #now) then
     local names: mut {string} = {}
     for _, m in ipairs(now) do
-      if (m.tag == "named") and m.decl.kind == "class" and #m.decl.names == 1 and m.decl.module == ctx.input.module and not m.value then
+      local m_body = if (m.tag == "named") then m.decl.body else nil end
+      if (m.tag == "named") and m.decl.kind == "class" and #m.decl.names == 1 and m.decl.module == ctx.input.module and not m.value and
+          (m_body == nil or m_body.schema == nil) then
         names[#names + 1] = m.decl.name
       end
     end
@@ -6139,6 +6220,7 @@ local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, a
     arity_error(ctx, node, quoted(callee), f, off, n, why)
   end
   Calls.note_plain(ctx, node, recv, vals.types, vals.tail, vals.lists)
+  local opened = if (node.kind == "Call") then Calls.opened_handle(ctx, node, f.rets) else nil end
   local tail = vals.tail
   if tail ~= nil and last ~= nil and why == nil then
     local pos, want, missing = tail_problem(ctx, f, off, n, tail, strict)
@@ -6160,7 +6242,7 @@ local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, a
       end
     end
   end
-  return f.rets
+  return opened or f.rets
 end
 
 --- The Teal the overloads are written in, for `overload_none`.
@@ -7154,6 +7236,55 @@ function Calls.sqlite_function(ctx: Ctx, callee: Ast.Node): string?
   return at.name
 end
 
+--- What `Sqlite.open(path, { schema = S })`, `Sqlite.memory({ schema = S })` and `Sqlite.hold(db, S)` return
+--- where `S` is a `local schema`: the lists `rets` with each handle a handle of `S`.
+function Calls.opened_handle(ctx: Ctx, node: Ast.Call, rets: {Alt}): {Alt}?
+  local fn = Calls.sqlite_function(ctx, node.callee)
+  local value: Ast.Node? = nil
+  if fn == "hold" then
+    local given = node.args[2]
+    value = if given ~= nil then peel(given) else nil end
+  else
+    local opts = if fn == "open" then node.args[2] elseif fn == "memory" then node.args[1] else nil end
+    local given = if opts ~= nil then peel(opts) else nil end
+    if given == nil or not (given.kind == "Table") then
+      return nil
+    end
+    for _, item in ipairs(given.items) do
+      if (item.kind == "Named") and item.name == "schema" then
+        value = peel(item.value)
+      end
+    end
+  end
+  local schema: Type? = nil
+  -- A name or a field of one, which reads no value but the one the call was given.
+  if value ~= nil and ((value.kind == "Name") or ((value.kind == "Field") and (peel(value.object).kind == "Name"))) then
+    -- Read again, quiet: the call's own check of the argument reported what it found.
+    ctx.quiet = ctx.quiet + 1
+    schema = expr(ctx, value, nil)
+    ctx.quiet = ctx.quiet - 1
+  end
+  if schema == nil or not (schema.tag == "named") or not schema.value then
+    return nil
+  end
+  local schema_body = schema.decl.body
+  if schema_body == nil or schema_body.schema == nil then
+    return nil
+  end
+  local handle = ctx.store:named(schema.decl, {})
+  local made: mut {Alt} = {}
+  for _, alt in ipairs(rets) do
+    local items: mut {Type} = {}
+    for i, item in ipairs(alt.items) do
+      local is_handle = (item.tag == "named") and not item.value and item.decl.module == "cosmic.sqlite" and
+        item.decl.name == "Handle"
+      items[i] = if is_handle then handle else item end
+    end
+    made[#made + 1] = { items = items, tail = alt.tail, narrows = alt.narrows }
+  end
+  return made
+end
+
 --- The text of `e` where every part is a literal: a string, a local that holds one, or a `..` of them.
 function Calls.joined_text(ctx: Ctx, e: Ast.Node): string?
   local at = peel(e)
@@ -7184,84 +7315,65 @@ function Calls.schema_call(ctx: Ctx, e: Ast.Node): string?, Ast.Node?
   return Calls.joined_text(ctx, given), given
 end
 
---- The DDL of the schema a handle opened by `e` holds: `Sqlite.open(path, { schema = S })` or
---- `Sqlite.memory({ schema = S })`, either in `assert`, where `S` is a local [`Ctx.schemas`] holds.
-function Calls.opened_schema(ctx: Ctx, e: Ast.Node): string?
-  local at = peel(e)
-  if (at.kind == "Call") then
-    local callee = peel(at.callee)
-    local first = at.args[1]
-    if (callee.kind == "Name") and callee.binding == nil and callee.text == "assert" and first ~= nil then
-      at = peel(first)
-    end
-  end
-  if not (at.kind == "Call") then
-    return nil
-  end
-  local fn = Calls.sqlite_function(ctx, at.callee)
-  local opts: Ast.Exp? = nil
-  if fn == "open" then
-    opts = at.args[2]
-  elseif fn == "memory" then
-    opts = at.args[1]
-  end
-  if opts == nil then
-    return nil
-  end
-  local given = peel(opts)
-  if not (given.kind == "Table") then
-    return nil
-  end
-  for _, item in ipairs(given.items) do
-    if (item.kind == "Named") and item.name == "schema" then
-      local named = peel(item.value)
-      local bound = if (named.kind == "Name") then named.binding else nil end
-      if bound ~= nil then
-        return ctx.schemas[bound]
-      end
-    end
-  end
-  return nil
-end
-
---- Reads the SQL of a call on a handle opened with a schema ([`Ctx.handle_schemas`]) against that schema: SQL that SQLite
---- refuses there, and a values list written out whose length is not the number of values the SQL binds.
-function Calls.sql_arguments(ctx: Ctx, method: string, node: Ast.Node, args: {Ast.Exp}, recv_node: Ast.Node)
+--- Reads the SQL of a call on a handle of a `local schema` (its receiver's type `recv`) against that schema: SQL that
+--- SQLite refuses there, and a values list written out whose length is not the number of values the SQL binds.
+function Calls.sql_arguments(ctx: Ctx, method: string, node: Ast.Node, args: {Ast.Exp}, recv_node: Ast.Node, recv: Type?)
   -- Required here, not in the main chunk, whose locals are at their ceiling.
-  local Sql = require("lang.sql")
-  local valued = Sql.methods[method]
+  local Reads = require("lang.sql")
+  local valued = Reads.methods[method]
   local receiver = peel(recv_node)
   local sql = args[1]
-  local bound = if (receiver.kind == "Name") then receiver.binding else nil end
-  if sql == nil or bound == nil or not (receiver.kind == "Name") then
+  local decl = if recv ~= nil and (recv.tag == "named") and not recv.value then recv.decl else nil end
+  local body = if decl ~= nil then decl.body else nil end
+  local ddl = if body ~= nil then body.schema else nil end
+  if decl == nil or ddl == nil or ctx.unread_schemas[decl] == true then
     return
   end
-  local ddl = ctx.handle_schemas[bound]
-  if ddl == nil or (valued == nil and method ~= "exec") then
+  local schema_name = decl.name
+  local runs_any = method == "exec" or method == "exec_result"
+  if method == "migrate" then
+    ctx.unread_schemas[decl] = true
+    return
+  end
+  if sql == nil or (valued == nil and not runs_any) then
     return
   end
   local text = Calls.joined_text(ctx, sql)
-  -- SQL that may make a table or attach a database ends the reads of the handle: what it holds is
-  -- no longer the schema alone.
-  if (method == "exec" and text == nil) or (text ~= nil and Sql.changes_schema(text)) then
-    ctx.handle_schemas[bound] = nil
+  -- SQL that may make a table or attach a database ends the reads of the schema's handles in the rest of the
+  -- module, whichever handle it is sent to: what they hold is no longer the schema alone.
+  if (runs_any and text == nil) or (text ~= nil and Reads.changes_schema(text)) then
+    ctx.unread_schemas[decl] = true
     return
   end
   if text == nil or valued == nil then
     return
   end
-  local read = Sql.read(ddl, text)
+  local read = Reads.read(ddl, text)
   if read == nil then
     return
   end
   local refusal = read.refused
+  local shown = text_of(ctx, receiver)
   if refusal ~= nil then
     local fix = if refusal:find("statement", 1, true) ~= nil then
-      "send one statement a call, or several with `" .. receiver.text .. ":exec`" else
+      "send one statement a call, or several with `" .. shown .. ":exec`" else
       "name only the tables and columns the schema creates, in SQL that SQLite reads" end
-    report(ctx, "sql_refused", sql, quoted(receiver.text) .. " was opened with a schema, and SQLite refuses this SQL " ..
-        "against it: " .. refusal, fix, { refusal })
+    report(ctx, "sql_refused", sql, quoted(shown) .. " is a handle of the schema " .. quoted(schema_name) ..
+        ", and SQLite refuses this SQL against it: " .. refusal, fix, { refusal })
     return
+  end
+  if method == "rows" or method == "one" then
+    ctx.call_columns[base_of(node).id] = read.columns
+  end
+  local project = if method == "map" then args[3] else nil end
+  local made = if project ~= nil then peel(project) else nil end
+  if made ~= nil and (made.kind == "FunctionLit") then
+    local param = made.fn.params[1]
+    local row = if param ~= nil then param.name else nil end
+    local held = if row ~= nil then ctx.scoped.vars[row.id] else nil end
+    if row ~= nil and held ~= nil and not held.assigned then
+      ctx.row_columns[row.id] = read.columns
+    end
   end
   if not valued then
     return
@@ -7291,6 +7403,100 @@ function Calls.sql_arguments(ctx: Ctx, method: string, node: Ast.Node, args: {As
   end
 end
 
+--- The result columns of `e` where it is `db:rows(sql)` or `db:one(sql)`, either in `assert`, on a handle
+--- of a `local schema`, with literal SQL that SQLite prepares against its schema: the columns, and whether the
+--- call returns a list of rows (`rows`) or one row (`one`). An element of a list [`Ctx.row_lists`] holds (`rows[1]`) is
+--- one row of its columns. Nil otherwise.
+function Calls.result_columns(ctx: Ctx, e: Ast.Node): {Sql.Column}?, boolean
+  local at = peel(e)
+  if (at.kind == "Call") then
+    local callee = peel(at.callee)
+    local first = at.args[1]
+    if (callee.kind == "Name") and callee.binding == nil and callee.text == "assert" and first ~= nil then
+      at = peel(first)
+    end
+  end
+  if (at.kind == "Index") then
+    local list = peel(at.object)
+    local held = if (list.kind == "Name") then list.binding else nil end
+    return if held ~= nil then ctx.row_lists[held] else nil end, false
+  end
+  if not (at.kind == "MethodCall") or (at.name ~= "rows" and at.name ~= "one") then
+    return nil, false
+  end
+  local columns = ctx.call_columns[at.id]
+  return columns, columns ~= nil and at.name == "rows"
+end
+
+--- Reads a call of `method` on a row whose result columns are known ([`Ctx.row_columns`], or an element of a list
+--- [`Ctx.row_lists`] holds) with a literal column: a column past the last, and a read that raises on every cell of the
+--- column's declared type (`row:text(i)` of an `INTEGER` column).
+function Calls.row_read(ctx: Ctx, method: string, args: {Ast.Exp}, recv_node: Ast.Node)
+  local Reads = require("lang.sql")
+  local index = args[1]
+  if index == nil or Reads.row_reads[method] == nil then
+    return
+  end
+  local at = peel(index)
+  if not (at.kind == "Integer") then
+    return
+  end
+  local receiver = peel(recv_node)
+  local columns: {Sql.Column}? = nil
+  local own = if (receiver.kind == "Name") then receiver.binding else nil end
+  if own ~= nil then
+    columns = ctx.row_columns[own]
+  elseif (receiver.kind == "Index") then
+    local list = peel(receiver.object)
+    local bound = if (list.kind == "Name") then list.binding else nil end
+    if bound ~= nil then
+      columns = ctx.row_lists[bound]
+    end
+  end
+  if columns == nil then
+    return
+  end
+  local n = at.value
+  local column = columns[n]
+  if column == nil then
+    local count = #columns
+    local counted = if count == 1 then "1 column" else tostring(count) .. " columns" end
+    report(ctx, "sql_column", index, "the SQL gives " .. counted .. ", so this row has no column " .. tostring(n),
+      "read a column from 1 to " .. tostring(count), { tostring(count), tostring(n) })
+    return
+  end
+  local kind, origin, declared = column.kind, column.origin, column.declared
+  if kind == nil or origin == nil or declared == nil or not Reads.refuses(column, method) then
+    return
+  end
+  local better: string = kind
+  report(ctx, "sql_column", index, "column " .. tostring(n) .. " is " .. origin .. ", declared " .. declared ..
+      (if column.strict then " in a STRICT table" else "" end) .. ", so `" .. method .. "` raises on each of its cells", "read it with `" .. better .. "(" .. tostring(n) .. ")`",
+    { origin, declared })
+end
+
+--- Gives the variable of `for _, row in ipairs(rows)` the result columns of `rows`, where [`Ctx.row_lists`] holds them.
+function Calls.for_rows(ctx: Ctx, s: Ast.ForIn)
+  local first = s.iterators[1]
+  local row = s.vars[2]
+  local at = if first ~= nil then peel(first) else nil end
+  if row == nil or at == nil or not (at.kind == "Call") or #s.iterators ~= 1 then
+    return
+  end
+  local callee = peel(at.callee)
+  local list = at.args[1]
+  local over = if list ~= nil then peel(list) else nil end
+  local bound = if over ~= nil and (over.kind == "Name") then over.binding else nil end
+  if not (callee.kind == "Name") or callee.binding ~= nil or callee.text ~= "ipairs" or bound == nil then
+    return
+  end
+  local columns = ctx.row_lists[bound]
+  local held = ctx.scoped.vars[row.id]
+  if columns ~= nil and held ~= nil and not held.assigned then
+    ctx.row_columns[row.id] = columns
+  end
+end
+
 --- The lists a call returns, where the callee has type `ft` (and the overloads `cands`, if it has several). `expected`
 --- is the type the call is expected to return, which solves a type parameter no argument does.
 function Calls.dispatch(ctx: Ctx, node: Ast.Node, callee_node: Ast.Node, callee: string, ft: Type, cands: {Type}?,
@@ -7316,7 +7522,8 @@ function Calls.dispatch(ctx: Ctx, node: Ast.Node, callee_node: Ast.Node, callee:
   local key: string? = nil
   local refined: Fn? = nil
   if (node.kind == "MethodCall") and recv_node ~= nil then
-    Calls.sql_arguments(ctx, node.name, node, args, recv_node)
+    Calls.sql_arguments(ctx, node.name, node, args, recv_node, recv)
+    Calls.row_read(ctx, node.name, args, recv_node)
   end
   if library ~= nil then
     Calls.literal_arguments(ctx, library, node, args, recv_node)
@@ -8167,16 +8374,19 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
         ctx.library[b.id] = Calls.library_value(ctx, literal) -- checked: nil_not_allowed
         local ddl, given = Calls.schema_call(ctx, literal)
         if ddl ~= nil and given ~= nil then
-          ctx.schemas[b.id] = ddl
           local refusal = require("lang.sql").schema(ddl)
           if refusal ~= nil then
             report(ctx, "sql_schema", given, "SQLite refuses the schema's DDL: " .. refusal,
               "write DDL that SQLite runs, and that creates the tables alone", { refusal })
           end
         end
-        local opened = Calls.opened_schema(ctx, literal)
-        if opened ~= nil then
-          ctx.handle_schemas[b.id] = opened
+        local columns, many = Calls.result_columns(ctx, literal)
+        if columns ~= nil then
+          if many then
+            ctx.row_lists[b.id] = columns
+          else
+            ctx.row_columns[b.id] = columns
+          end
         end
       end
     end
@@ -8351,7 +8561,7 @@ end
 --- The local `t` whose length the limit `to` of a numeric loop with the index `var` is at most, and the literal `b`
 --- it stops short of that length by: `#t`, `#t - b`, or a `math.min` of such a one and other values that run no code
 --- of the program ([`Writes.keeps_length`] of each), so that nothing they run can change `t` between its length and the
---- loop. `math.min` answers the least of its arguments, so the limit is at most `#t - b`. Nil for another form.
+--- loop. `math.min` returns the least of its arguments, so the limit is at most `#t - b`. Nil for another form.
 function Writes.length_limit(to: Ast.Exp, var: integer): (Ast.Exp, integer) | (nil, integer)
   local at = peel(to)
   local slack = 0
@@ -9661,6 +9871,7 @@ end
 
 local function for_generic(ctx: Ctx, s: Ast.ForIn)
   local store = ctx.store
+  Calls.for_rows(ctx, s)
   local vals = values_of(ctx, s.iterators, nil, nil)
   local iterator = vals.types[1] or vals.tail
   local types: mut {Type} = {}
@@ -10295,6 +10506,16 @@ local function stat(ctx: Ctx, s: Ast.Stat)
     if decl ~= nil then
       ctx.declared[decl] = true
     end
+    local schema_value = if (s.kind == "Class") then s.schema_value else nil end
+    if schema_value ~= nil then
+      local _ = expect(ctx, schema_value, expr(ctx, schema_value, ctx.store.string), ctx.store.string, " as the DDL of a schema")
+    end
+    local ddl = if (s.kind == "Class") then s.schema else nil end
+    local refusal = if ddl ~= nil then require("lang.sql").schema(ddl) else nil end
+    if refusal ~= nil then
+      report(ctx, "sql_schema", s.name, "SQLite refuses the DDL of the schema " .. quoted(s.name.name) .. ": " .. refusal,
+        "write DDL that SQLite runs, and that creates the tables alone", { refusal })
+    end
     declaration_bodies(ctx, s, decl)
   end
 end
@@ -10378,7 +10599,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, spreads = {}, tags = {}, declared = {}, union_fields = {}, spine = {},
     ternaries = {}, spare = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
-    loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, runs = {}, inferred = {}, boundaries = {}, types = {}, callees = {}, consts = {}, schemas = {}, handle_schemas = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
+    loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, runs = {}, inferred = {}, boundaries = {}, types = {}, callees = {}, consts = {}, unread_schemas = {}, call_columns = {}, row_lists = {}, row_columns = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
     end,

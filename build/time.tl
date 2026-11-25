@@ -1,6 +1,6 @@
 --- `cosmic time`: the clock and the calendar the same on every host, for
 --- the ten-second question ("what is this timestamp in Tokyo?", "how many
---- days from then to now?") that GNU and BSD `date` answer in different
+--- days from then to now?") that GNU and BSD `date` settle in different
 --- dialects. Zones come from the tz database the binary carries and the
 --- arithmetic from [`cosmic.time`], so a command means one thing on Linux,
 --- macOS and Windows; only the default zone (the host's own, which
@@ -8,13 +8,13 @@
 ---
 --- Like `cosmic json` it prints no summary: its standard output is
 --- data for a pipe or a `$(...)`, and complaints go to standard error.
---- Its exit status is the verdict: 0 done, 1 an `add` whose answer does
+--- Its exit status is the verdict: 0 done, 1 an `add` whose result does
 --- not exist (the day its month lacks, a moment outside what the calendar
 --- holds, a result in a gap a zone skipped, under `--disambiguate
 --- reject`), 2 a command line, a time, a duration or a zone it cannot
 --- read. So a local time a zone skipped or repeated that the user typed,
 --- read under `reject`, is bad input (2), while one an `add` lands in is
---- an answer that does not exist (1). build/dispatch.tl's `bare` names
+--- a result that does not exist (1). build/dispatch.tl's `bare` names
 --- the verb.
 ---
 --- Local times a zone skips or repeats: `YYYY-MM-DDTHH:MM[:SS]` read in a
@@ -81,21 +81,8 @@ end
 
 local NS <const> = 1000000000
 
-local spec = Verb.spec or {}
-
-local usage = "cosmic time now [--zone Z] [--format F] [--json] | " ..
-  "convert <time> [--from Z] [--to Z] [--format F] [--json] [--disambiguate H] | " ..
-  "between <a> <b> [--zone Z] [--days|--months|--seconds] [--json] [--disambiguate H] | " ..
-  "add <time> <duration> [--zone Z] [--format F] [--json] [--clamp] [--disambiguate H]; " ..
-  "a negative duration follows its time, as `add 2026-01-31 -1d`"
-
---- The options each subcommand takes: any other is a usage error.
-local takes: {string:{string}} = {
-  now = { "--zone", "--format", "--json" },
-  convert = { "--from", "--to", "--format", "--json", "--disambiguate" },
-  between = { "--zone", "--days", "--months", "--seconds", "--json", "--disambiguate" },
-  add = { "--zone", "--format", "--json", "--clamp", "--disambiguate" },
-}
+--- The subcommands, each with the options it takes, as [`cosmic.cli.time`] describes them.
+local subcommands = Verb.subcommands or {}
 
 --- How many words each subcommand takes after its name.
 local arity: {string:integer} = { now = 0, convert = 1, between = 2, add = 2 }
@@ -259,7 +246,7 @@ end
 --- fraction, `@1700000000`, `@-1.5`. Seconds are optional in the clock
 --- of RFC 3339 text as in local text (`2026-09-25T04:09Z`), and a failure
 --- names the forms, then the fault. The zone returned is nil for the
---- last three, which name none. Any text answers a moment or a failure.
+--- last three, which name none. Any text gives a moment or a failure.
 --- Raises for a `zone` no function of [`cosmic.time`] made.
 function verb.parse_input(text: string, zone?: Time.Zone, how?: Time.Disambiguation): verb.Moment?, string
   local zoned, why = read_input(text, zone, how or "compatible")
@@ -281,7 +268,7 @@ local function shown(seen: Seen, format: string, digits?: integer): string
 end
 
 --- `cosmic time [subcommand] ...`: prints what it is asked and returns the
---- exit code: 0 done, 1 an `add` with no answer, 2 a command line or an input it
+--- exit code: 0 done, 1 an `add` with no result, 2 a command line or an input it
 --- cannot read.
 --- @param argv the command line, `time` at slot 1
 --- @param io where the text is written and the clock read; the process's own when nil
@@ -296,42 +283,33 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   }
   local complain = bare.complainer("time", to.err)
   local function refuse(line: string): integer
-    complain(line .. "; " .. usage)
+    complain(line .. "; " .. Flags.usage(Verb, "cosmic time", { argv[2] or "" }))
     return bare.refused
   end
-  local got, trouble = Flags.parse(argv, 2, spec)
-  if got == nil then return refuse(trouble) end
-  local parsed: Flags.Parsed = got
-  local sub = parsed.words[1]
+  local sub = argv[2]
   if sub == nil then return refuse("name now, convert, between or add") end
-  local allowed = takes[sub]
-  if allowed == nil then return refuse("no subcommand " .. sub) end
-  local is_allowed: mut {string:boolean} = {}
-  for _, name in ipairs(allowed) do is_allowed[name] = true end
-  for _, name in ipairs(parsed.given) do
-    if is_allowed[name] ~= true then return refuse(name .. " is not an option of " .. sub) end
-  end
-  local words_taken = assert(arity[sub], "takes and arity name the same subcommands")
-  if #parsed.words - 1 ~= words_taken then
+  local described = subcommands[sub]
+  if described == nil then return refuse("no subcommand " .. sub) end
+  local none: {string:boolean | Flags.Option} = {}
+  local got, trouble = Flags.parse(argv, 3, described.spec or none)
+  if got == nil then return refuse(sub .. ": " .. trouble) end
+  local parsed: Flags.Parsed = got
+  local words_taken = assert(arity[sub], "arity names every subcommand of cosmic.cli.time")
+  if #parsed.words ~= words_taken then
     return refuse(("%s takes %d word%s, not %d"):format(sub, words_taken,
-      if words_taken == 1 then "" else "s" end, #parsed.words - 1))
+      if words_taken == 1 then "" else "s" end, #parsed.words))
   end
   local as_json = parsed.set["--json"] == true
   local format = parsed.values["--format"] or "rfc3339"
-  if format ~= "rfc3339" and format ~= "date" and format ~= "http" and format ~= "epoch" then
-    return refuse("--format is rfc3339, date, http or epoch, not " .. format)
-  end
-  if as_json and parsed.values["--format"] ~= nil then
+  if as_json and parsed.all["--format"] ~= nil then
     return refuse("--json prints a record, which --format does not shape")
   end
   local how = parsed.values["--disambiguate"] or "compatible"
   local choices: {string:Time.Disambiguation} = {
     reject = "reject", earlier = "earlier", later = "later", compatible = "compatible",
   }
-  local disambiguation = choices[how]
-  if disambiguation == nil then
-    return refuse("--disambiguate is reject, earlier, later or compatible, not " .. how)
-  end
+  -- The option's choices, which Flags.parse holds it to, are these four.
+  local disambiguation = assert(choices[how], "--disambiguate takes only its choices")
 
   -- The host's zone once asked for, which is asked for once.
   local host: mut {Time.Zone} = {}
@@ -339,7 +317,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     if host[1] == nil then
       local zone, why = to.local_zone()
       if zone == nil then
-        complain("the host's time zone: " .. plain(tostring(why)) .. "; name one with --zone, --from or --to")
+        complain("the host's time zone: " .. plain(tostring(why)) .. "; name one with --zone or --local-zone")
         return nil
       end
       host[1] = zone
@@ -394,12 +372,12 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
 
   if sub == "convert" then
-    local from = zone_of("--from")
+    local from = zone_of("--local-zone")
     if from == nil then return bare.refused end
-    local convert_word = assert(parsed.words[2], "convert takes one word, which the arity check holds it to")
+    local convert_word = assert(parsed.words[1], "convert takes one word, which the arity check holds it to")
     local zoned = read_time(convert_word, from)
     if zoned == nil then return bare.refused end
-    local target = zone_of("--to")
+    local target = zone_of("--zone")
     if target == nil then return bare.refused end
     return print_seen({ ns = zoned.ns, zone = target })
   end
@@ -408,8 +386,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   -- own zone, else the host's.
   local fallback = zone_of("--zone")
   if fallback == nil then return bare.refused end
-  local first_word = assert(parsed.words[2], "between and add take two words, which the arity check holds them to")
-  local second_word = assert(parsed.words[3], "between and add take two words, which the arity check holds them to")
+  local first_word = assert(parsed.words[1], "between and add take two words, which the arity check holds them to")
+  local second_word = assert(parsed.words[2], "between and add take two words, which the arity check holds them to")
   local first = read_time(first_word, fallback)
   if first == nil then return bare.refused end
   local calendar = parsed.values["--zone"] ~= nil and fallback or first.zone or fallback -- checked: and_ternary

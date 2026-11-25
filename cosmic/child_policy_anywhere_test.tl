@@ -73,7 +73,7 @@ local function test_a_start_under_a_policy_is_refused_where_the_platform_has_no_
     { grants = itself(probe) },
     { isolate = { "proc" }, grants = itself(probe) },
     { isolate = { "file" }, grants = itself(probe) },
-    { isolate = { "file" }, promises = { "nest" }, grants = itself(probe) },
+    { isolate = { "file" }, grants = itself(probe, { { calls = "nest" } }) },
     { user = sys.getuid(), grants = itself(probe) },
     { isolate = { "proc" }, limits = { processes = 4 }, grants = itself(probe) },
     { tmp = true, grants = itself(probe) },
@@ -239,7 +239,7 @@ local function test_from_needs_isolate_file_and_what_is_not_met_stays_refused(tm
   local from = says({ grants = { { path = probe, letters = "rx" },
     { path = "/data", letters = "r", from = tmp } } })
   assert(from:find("from", 1, true) and from:find("isolate", 1, true) and from:find("file", 1, true), from)
-  assert(says({ promises = { "nest" } }):find("nest", 1, true))
+  assert(says({ grants = { { calls = "nest" } } }):find("nest", 1, true))
   local counted = says({ limits = { processes = 4 } })
   assert(counted:find("limits.processes", 1, true) and counted:find("isolate", 1, true), counted)
   -- /tmp is the sandbox's own where tmp asks for it.
@@ -267,7 +267,7 @@ local function test_nest_needs_isolate_file_and_says_so(tmp: string)
   skip_where_seatbelt_holds("nest")
   local grants, probe = nest_grants(tmp)
   for _, isolate in ipairs({ {}, { "proc" } }) do -- checked: literal_needs_type
-    local why = refused({ probe }, { isolate = isolate, promises = { "nest" }, grants = grants })
+    local why = refused({ probe }, { isolate = isolate, grants = ChildPolicy.with(grants, { calls = "nest" }) })
     assert(why:find("nest", 1, true) and why:find("isolate \"file\"", 1, true), why)
   end
 end
@@ -276,8 +276,8 @@ local function test_nest_refuses_what_a_root_cannot_hold(tmp: string)
   skip_where_seatbelt_holds("nest")
   local grants, probe, extra = nest_grants(tmp)
   local function without(letters: string, path: string): string
-    return refused({ probe }, { isolate = { "file" }, promises = { "nest" },
-      grants = ChildPolicy.with(grants, { path = path, letters = letters }) })
+    return refused({ probe }, { isolate = { "file" },
+      grants = ChildPolicy.with(grants, { path = path, letters = letters }, { calls = "nest" }) })
   end
   -- Landlock told writing a file from making one in a directory, and running
   -- from reading; a bind does not.
@@ -346,7 +346,7 @@ end
 local function test_every_path_of_the_profile_exists_and_is_read_only_or_run()
   local system = assert(Sandbox.profile("system"))
   assert(#(system.grants or {}) > 0 or sys.stat("/usr") == nil)
-  for _, grant in ipairs(system.grants or {}) do
+  for _, grant in ipairs(Sandbox.paths(system)) do
     assert(sys.stat(grant.path) ~= nil, grant.path)
     -- /dev/dtracehelper is macOS's: libSystem opens it for writing as a program starts.
     local written = grant.path == "/dev/null" or grant.path == "/dev/dtracehelper"

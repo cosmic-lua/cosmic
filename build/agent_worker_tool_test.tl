@@ -11,25 +11,25 @@ local Sessions = require("cosmic.agent.sessions")
 local Test = require("cosmic.test")
 local Tools = require("cosmic.agent.tools")
 local Worker = require("cosmic.agent.worker")
-local agent_worker = require("build.agent_worker")
-local test_child = require("build.test_child")
 local _ = require("build.standalone")
+--- What `cosmic agent worker` loads, which the store of this module's run must hold: the tests start that verb of
+--- this program. build.verb_list names every verb's module, so an edit to any of them reruns these tests.
+local type _ = require("build.agent")
+local type _ = require("build.verb_list")
 --- What the MCP server script requires, as its standalone run loads it.
 local type _ = require("cosmic.mcp.server")
 local this_program = require("build.this_program")
 
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "/bin/sh", letters = "r" }, { path = "/bin/sleep", letters = "r" }, { path = "/usr/bin/sleep", letters = "r" }, { path = "/usr/bin/setsid", letters = "r" } } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "/bin/sh", letters = "r" }, { path = "/bin/sleep", letters = "r" }, { path = "/usr/bin/sleep", letters = "r" }, { path = "/usr/bin/setsid", letters = "r" } },
+  -- CI's suites give a test 10 s. On a loaded macOS runner a worker test started with the suite ran past that
+  -- (portable suite, run 45557741219). A test that hangs still ends at this bound.
+  timeout = 30 }
 
---- The worker, as `cosmic agent worker` runs it, in a child of this module.
-test_child.register("worker", function(_args: {string}): integer
-  return agent_worker.main()
-end)
-
---- A set whose worker is this program, as a test starts it.
+--- A set whose worker is `cosmic agent worker` of this program, as the agent starts it. Its first snippet answers in
+--- about 60 ms; a child of this module ([`build.test_child`]) took 1.3 s, checking its `-e` chunk and loading the
+--- module first.
 local function set_of_worker(): Worker.Set
-  local dir = assert(Fs.mkdtemp("agent-worker-store-"))
-  local started = this_program.program(test_child.words(dir, "build.agent_worker_tool_test", "worker"),
-    { env = this_program.environment(), timeout_ns = -1 })
+  local started = this_program.program({ "agent", "worker" }, { env = this_program.environment(), timeout_ns = -1 })
   return Worker.new(started.argv, started.options)
 end
 
@@ -65,25 +65,15 @@ local function test_a_refused_snippet_does_not_run_and_the_next_does_in_the_same
   Worker.close(w)
 end
 
-local function test_a_statements_semicolons_are_dropped_and_a_tables_or_a_calls_are_refused()
+--- A statement's `;` is the language's, as in `cosmic -e` and a file: it ends the statement, even before a `(`; one
+--- between a table's items is refused.
+local function test_a_statements_semicolons_end_it_and_a_tables_are_refused()
   local w = set_of_worker()
-  local ran = run(w, "local a, b = 1, 2; print(a); print(b);\n")
-  assert(ran["ok"] == true and ran["output"] == "1\n2\n", shown(ran))
-  for _, code in ipairs({ "local t = { a = 1; b = 2 }\nprint(t.a)\n", "local f = print; (f)(1)\n",
-      "local n: integer = \"x\"; print(n)\n" }) do
-    local refused = run(w, code)
-    local lines, _ = Json.to_array(refused["refused"])
-    assert(lines ~= nil and #lines > 0, shown(refused))
-    -- A `;` the mend cannot take is told of as the first check told of it.
-    assert(code:find("integer", 1, true) ~= nil or tostring(lines[1]):find("(semicolon)", 1, true) ~= nil, shown(refused))
-  end
-  -- Beside another error, the `;` is mended all the same, and the refusal tells of the other alone.
-  local other = run(w, "local a = 1; print(a)\nlocal t: mut {{string, integer}} = {}\nprint(#t)\n")
-  local said = assert(Json.to_array(other["refused"]))
-  local parts: mut {string} = {}
-  for _, l in ipairs(said) do parts[#parts + 1] = tostring(l) end
-  local told = table.concat(parts, "\n")
-  assert(told:find("(tuple_type)", 1, true) ~= nil and told:find("(semicolon)", 1, true) == nil, shown(other))
+  local ran = run(w, "local a, b = 1, 2; print(a); print(b);\nlocal f = print; (f)(3)\n")
+  assert(ran["ok"] == true and ran["output"] == "1\n2\n3\n", shown(ran))
+  local refused = run(w, "local t = { a = 1; b = 2 }\nprint(t.a)\n")
+  local lines = assert(Json.to_array(refused["refused"]))
+  assert(tostring(lines[1]):find("(semicolon)", 1, true) ~= nil, shown(refused))
   -- A snippet runs once, so an unused name is no reason to refuse it.
   local unused = run(w, "local seen = 1\nprint(\"ran\")\n")
   assert(unused["ok"] == true and unused["output"] == "ran\n", shown(unused))
@@ -205,6 +195,11 @@ end
 --- What a program an earlier snippet started writes after that snippet answered is not the next snippet's output,
 --- nor is a snippet's end mark another's.
 local function test_a_late_write_and_a_snippets_own_mark_are_not_the_next_snippets_output()
+  -- macOS has no setsid program, so the shell could leave nothing behind that outlives its group.
+  if not assert(Fs.status("/usr/bin/setsid")).exists then
+    Test.skip("this host has no /usr/bin/setsid to leave a program in a session of its own")
+    return
+  end
   local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
   -- The shell leaves a program behind in a session of its own, which outlives the shell's group and writes once the
@@ -226,7 +221,7 @@ local function test_a_late_write_and_a_snippets_own_mark_are_not_the_next_snippe
   local wrote, _ = Fs.read(dir .. "/wrote")
   -- The shell makes the file before it writes the line, so an empty file is one not yet written.
   while wrote ~= "late\n" and Clock.monotonic_ns() < deadline do
-    local _, _ = Clock.sleep_ns(Clock.ms(50))
+    local _, _ = Clock.sleep(Clock.ms(50))
     local again, _ = Fs.read(dir .. "/wrote")
     wrote = again
   end
@@ -247,24 +242,39 @@ local function test_a_late_write_and_a_snippets_own_mark_are_not_the_next_snippe
   Worker.close(w)
 end
 
---- Calls a snippet makes from tasks of its own are out at once, and the agent serves each in a task of its own: four
---- calls that each take half a second take about that together, and each gets its own reply.
+--- Calls a snippet makes from tasks of its own are out at once, and the agent serves each in a task of its own: each
+--- of the first four calls is held until all four are being served, which only calls served at once can be, and
+--- each gets its own reply. Held calls wait for the others, never for a time, so a slow core only slows the test.
 local function test_calls_from_a_snippets_tasks_are_served_at_once()
   local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
   local served = 0
+  local held = 0
+  local most_held = 0
   local serve: Worker.Serve = function(name: string, args: Json.Value, _: Worker.Budget): (Json.Value) | (nil, Failure)
     served = served + 1
-    local _, _ = Poll.delay(Clock.ms(500))
+    local n = math.tointeger(args)
+    if n ~= nil and n <= 4 then
+      held = held + 1
+      if held > most_held then most_held = held end
+      -- Calls served one at a time would leave this one alone here until its deadline.
+      local deadline = Clock.monotonic_ns() + Clock.seconds(20)
+      while most_held < 4 and Clock.monotonic_ns() < deadline do
+        -- A cancelled task's delay answers at once: stop, rather than spin to the deadline.
+        local slept, _ = Poll.delay(Clock.ms(10))
+        if not slept then break end
+      end
+      held = held - 1
+    else
+      local _, _ = Poll.delay(Clock.ms(500))
+    end
     if name == "fail" then return nil, Failure.new("refused " .. tostring(args)) end
     return "napped " .. tostring(args)
   end
   local code = [[
-local Clock = require("cosmic.clock")
 local Host = require("cosmic.agent.host")
 local Poll = require("cosmic.poll")
 local got: mut {integer: string} = {}
-local began = Clock.monotonic_ns()
 Poll.run(function()
   for i = 1, 4 do
     local _ = Poll.spawn(function()
@@ -273,14 +283,15 @@ Poll.run(function()
     end)
   end
 end)
-print(got[1], got[2], got[3], got[4], Clock.monotonic_ns() - began < Clock.ms(1500))
+print(got[1], got[2], got[3], got[4])
 local after, _ = Host.call("nap", 5)
 print(tostring(after))
 ]]
   local answer = assert(Worker.run(w, code, { cwd = dir, seconds = 30, serve = serve }))
-  assert(answer["ok"] == true and answer["output"] == "napped 1\tnapped 2\thost: fail: refused 3\tnapped 4\ttrue\n" ..
+  assert(answer["ok"] == true and answer["output"] == "napped 1\tnapped 2\thost: fail: refused 3\tnapped 4\n" ..
       "napped 5\n", shown(answer))
   assert(served == 5, tostring(served))
+  assert(most_held == 4, "the four calls were served at once: at most " .. tostring(most_held) .. " together")
   -- A call a cancelled task left, and one a task closed as another raised, leave the next snippet as it was.
   local left = [[
 local Clock = require("cosmic.clock")
@@ -311,8 +322,8 @@ local function test_a_worker_that_answers_wrong_or_ends_is_ended_and_told()
   local cases: {{string}} = {
     { "read line; echo '{\"id\":99}'; sleep 5", "another request" },
     { "read line; echo 'not json'; sleep 5", "no JSON object" },
-    { "read line; echo '{\"id\":99,\"call\":\"sql\"}'; sleep 5", "another request" },
-    { "read line; echo '{\"id\":1,\"call\":\"sql\"}'; read reply; exit 0", "it ended" },
+    { "read line; echo '{\"id\":99,\"call\":\"history\"}'; sleep 5", "another request" },
+    { "read line; echo '{\"id\":1,\"call\":\"history\"}'; read reply; exit 0", "it ended" },
     { "read line; exit 0", "it ended" },
   }
   for _, case in ipairs(cases) do
@@ -404,12 +415,9 @@ print(tostring(long))
   -- A hint that names a snippet's own line-1 local is the snippet's refusal, not the bare one's.
   local typo = Tools.run("run", { code = "local count = Host.wc(\"one.tl\")\nprint(cuont)" }, context)
   assert(typo.is_error and typo.text:find("cuont", 1, true) ~= nil and typo.text:find("`Host`", 1, true) == nil, typo.text)
-  -- A `;` before a string or a table would join a call: it is not mended.
-  local joined = Tools.run("run", { code = "local t: {string} = { tostring; \"a\" }\nprint(#t)" }, context)
-  assert(joined.is_error and joined.text:find("(semicolon)", 1, true) ~= nil, joined.text)
-  -- Beside a type error on its line, a `;` is told of with it.
+  -- Beside a type error on its line, a `;` is no refusal.
   local both = Tools.run("run", { code = "local n: integer = \"x\"; print(n)" }, context)
-  assert(both.is_error and both.text:find("(semicolon)", 1, true) ~= nil and
+  assert(both.is_error and both.text:find("(semicolon)", 1, true) == nil and
       both.text:find("(not_assignable)", 1, true) ~= nil, both.text)
   -- A refusal on line 1 tells the snippet's own column, not one the prelude moved.
   local first = Tools.run("run", { code = "local n: integer = Host.cat(\"one.tl\")" }, context)
@@ -419,38 +427,79 @@ print(tostring(long))
   Worker.close(w)
 end
 
---- A snippet queries sessions.db through the agent, which answers it read-only, as the sql tool does, row by row.
+--- A snippet reads sessions.db through the agent (Host.history), which answers it read-only, row by row: a write, a
+--- copy (VACUUM INTO) and an attach are refused.
 local function test_a_snippet_queries_the_sessions_through_the_agent()
   local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
   local db = assert(Sessions.open(dir .. "/sessions.db"))
   local id = assert(Sessions.start(db, "/", "m", 0))
   local _ = assert(Sessions.output(db, id, { tool = "bash", input = "{}", text = "a\xffb", is_error = false }))
+  local found = assert(Sessions.output(db, id, { tool = "bash", input = "{}", text = "a needle in the haystack",
+    is_error = false }))
   local context: Tools.Context = { cwd = dir, worker = w, db = db, session = id }
   local code = [[
 local Host = require("cosmic.agent.host")
-local rows = Host.sql("SELECT tool, text, 1.5 AS r, NULL AS z, ?1 AS here FROM outputs")
+local rows = Host.history("SELECT tool, text, 1.5 AS r, NULL AS z, ?1 AS here FROM outputs ORDER BY id")
 local row = assert(rows[1])
 print(row["tool"], row["text"], row["r"], row["z"] == require("cosmic.json").null, row["here"])
-local refused, why = pcall(Host.sql, "DELETE FROM outputs")
+local refused, why = pcall(Host.history, "DELETE FROM outputs")
 print(not refused, tostring(why))
-local again = Host.sql("SELECT count(*) AS n FROM outputs")
+for _, statement in ipairs({ "VACUUM INTO 'COPY'", "ATTACH 'KEPT' AS b" }) do
+  local copied, copy_why = pcall(Host.history, statement)
+  print("refused", not copied, tostring(copy_why))
+end
+local hit = assert(Host.history("SELECT rowid AS id, snippet(outputs_fts, 0, '>>', '<<', '...', 64) AS s " ..
+  "FROM outputs_fts WHERE outputs_fts MATCH '\"haystack\"'")[1])
+print("found", hit["id"], hit["s"])
+local again = Host.history("SELECT count(*) AS n FROM outputs")
 return assert(again[1])["n"]
 ]]
-  local ran = Tools.run("run", { code = code }, context)
+  local copy = dir .. "/copy.db"
+  local named = code:gsub("COPY", function(): string return copy end):gsub("KEPT", function(): string
+    return dir .. "/sessions.db"
+  end)
+  local ran = Tools.run("run", { code = named }, context)
   assert(not ran.is_error, ran.text)
   assert(ran.text:find("bash\ta\u{FFFD}b\t1.5\ttrue\t" .. tostring(id) .. "\n", 1, true) ~= nil, ran.text)
-  assert(ran.text:find("true\thost: sql: not authorized", 1, true) ~= nil and ran.text:find("refuses a write", 1, true) ~= nil,
+  assert(ran.text:find("true\thost: history: not authorized", 1, true) ~= nil and ran.text:find("refuses a write", 1, true) ~= nil,
     ran.text)
-  assert(ran.text:find("Returned: 1", 1, true) ~= nil, ran.text)
+  assert(ran.text:find("Returned: 2", 1, true) ~= nil, ran.text)
+  assert(ran.text:find("found\t" .. tostring(found) .. "\ta needle in the >>haystack<<", 1, true) ~= nil, ran.text)
+  local _, refusals = ran.text:gsub("refused\ttrue\t[^\n]*refuses an ATTACH", "")
+  assert(refusals == 2 and not assert(Fs.status(copy)).exists, ran.text)
   local big = Tools.run("run", { code = "local Host = require(\"cosmic.agent.host\")\n" ..
-      "local _, why = pcall(Host.sql, \"SELECT printf('%.1000c', 'x') AS x FROM generate_series(1, 1000)\")\n" ..
+      "local _, why = pcall(Host.history, \"SELECT printf('%.1000c', 'x') AS x FROM generate_series(1, 1000)\")\n" ..
       "return tostring(why)\n" }, context)
   assert(big.text:find("narrow the query", 1, true) ~= nil and big.text:find("after 5", 1, true) ~= nil, big.text)
   local other = Tools.run("run", { code = "local Host = require(\"cosmic.agent.host\")\n" ..
       "local _, why = Host.call(\"shell\", { command = \"id\" })\nreturn tostring(why)\n" }, context)
-  assert(other.text:find("serves no call", 1, true) ~= nil and other.text:find("it serves sql", 1, true) ~= nil, other.text)
+  assert(other.text:find("serves no call", 1, true) ~= nil and other.text:find("it serves history", 1, true) ~= nil, other.text)
   assert(w.started == 1, "one worker answered all")
+  Worker.close(w)
+  local _, _ = db:close()
+end
+
+--- A snippet reads one kept output whole by the id its note names (Host.output), one past what a reply holds too,
+--- and an id with no output raises.
+local function test_a_snippet_reads_a_kept_output_by_its_id()
+  local w = set_of_worker()
+  local dir = assert(Fs.mkdtemp("agent-worker-"))
+  local db = assert(Sessions.open(dir .. "/sessions.db"))
+  local id = assert(Sessions.start(db, "/", "m", 0))
+  local kept = assert(Sessions.output(db, id, { tool = "run", input = "{}", text = "first\nsecond\n", is_error = false }))
+  -- Past what one reply holds as JSON, where each control character takes six bytes.
+  local big = assert(Sessions.output(db, id, { tool = "bash", input = "{}", text = string.rep("x\1", 300000),
+    is_error = false }))
+  local context: Tools.Context = { cwd = dir, worker = w, db = db, session = id }
+  local code = "local Host = require(\"cosmic.agent.host\")\n" ..
+    "print(#Host.output(" .. tostring(kept) .. "))\n" ..
+    "print(Host.output(" .. tostring(big) .. ") == string.rep(\"x\\1\", 300000))\n" ..
+    "local _, why = pcall(Host.output, " .. tostring(big + 1) .. ")\nprint(tostring(why))\n"
+  local ran = Tools.run("run", { code = code }, context)
+  assert(not ran.is_error, ran.text)
+  assert(ran.text:find("13\ntrue\n", 1, true) == 1, ran.text)
+  assert(ran.text:find("host: output: no output " .. tostring(big + 1) .. " in sessions.db", 1, true) ~= nil, ran.text)
   Worker.close(w)
   local _, _ = db:close()
 end
@@ -465,7 +514,7 @@ local function test_a_snippets_query_answer_is_held_to_json_and_its_limit()
   local context: Tools.Context = { cwd = dir, worker = w, db = db, session = id }
   local function returned(query: string): string
     local r = Tools.run("run", { code = "local Host = require(\"cosmic.agent.host\")\n" ..
-        "local ok, rows = pcall(Host.sql, " .. Json.quote(query) .. ")\n" ..
+        "local ok, rows = pcall(Host.history, " .. Json.quote(query) .. ")\n" ..
         "if not ok then return tostring(rows) end\nreturn rows\n" }, context)
     return r.text
   end
@@ -490,7 +539,7 @@ local function test_a_snippets_query_is_stopped_at_its_time()
   local context: Tools.Context = { cwd = dir, worker = w, db = db, session = id }
   -- A query that runs past the snippet's time is stopped between its rows, and the worker ended.
   local slow = Tools.run("run", { code = "local Host = require(\"cosmic.agent.host\")\n" ..
-      "local _, _ = pcall(Host.sql, \"SELECT NULL AS n FROM generate_series(1, 1000000000000) WHERE value % 200000 = 0\")\n",
+      "local _, _ = pcall(Host.history, \"SELECT NULL AS n FROM generate_series(1, 1000000000000) WHERE value % 200000 = 0\")\n",
     timeout = 2 }, context)
   assert(slow.is_error and slow.text:find("ran past 2 seconds", 1, true) ~= nil, slow.text)
   Worker.close(w)
@@ -508,11 +557,11 @@ local function test_a_snippets_endless_query_step_is_stopped_at_its_time()
   -- One step that never ends by itself is stopped at the snippet's time too: the agent is not held.
   local began = Clock.monotonic_ns()
   local endless = Tools.run("run", { code = "local Host = require(\"cosmic.agent.host\")\n" ..
-      "local _, why = pcall(Host.sql, \"WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT count(*) FROM c\")\n" ..
+      "local _, why = pcall(Host.history, \"WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT count(*) FROM c\")\n" ..
       "return tostring(why)\n", timeout = 2 }, context)
   assert(endless.is_error or endless.text:find("time limit", 1, true) ~= nil, endless.text)
   assert(Clock.monotonic_ns() - began < Clock.seconds(20), "the query was stopped near the snippet's time")
-  local served, _ = Worker.run(w, "local Host = require(\"cosmic.agent.host\")\nlocal _, why = pcall(Host.sql, \"SELECT 1\")\n" ..
+  local served, _ = Worker.run(w, "local Host = require(\"cosmic.agent.host\")\nlocal _, why = pcall(Host.history, \"SELECT 1\")\n" ..
       "return tostring(why)\n", { cwd = dir, seconds = 30 })
   assert(served ~= nil and tostring(served["value"]):find("serves no call to this worker", 1, true) ~= nil, if served ~= nil then shown(served) else "nil" end)
   Worker.close(w)
@@ -658,7 +707,7 @@ print(got[1], got[2], got[3])
 end
 
 local function test_a_call_outside_a_worker_raises()
-  Test.raises(function() Host.sql("SELECT 1") end, "no agent answers here")
+  Test.raises(function() Host.history("SELECT 1") end, "no agent answers here")
 end
 
 --- An MCP server of the agent, over stdio: a snippet names it, lists its tools and calls one, through the agent.
@@ -724,16 +773,17 @@ print(tostring(missing))
   Worker.close(w)
 end
 
---- A snippet's Host.fetch is made from its sandbox, so a session of no network reaches none, and a request that
---- gets no response raises in the snippet, as one of no http or https URL does.
-local function test_a_snippet_fetches_from_its_sandbox()
+--- A snippet's request that gets no response raises in the snippet, naming the URL, as one of no http or https URL
+--- does. The port is one nothing listens at, so the request fails whether or not the host has a network: a macOS
+--- runner's tests may reach the internet, where a Linux one's have no network at all.
+local function test_a_failed_fetch_raises_in_the_snippet()
   local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
   local context: Tools.Context = { cwd = dir, worker = w }
-  local ran = Tools.run("run", { code = "local _, none = pcall(Host.fetch, \"http://example.com/\", { timeout = 5 })\n" ..
+  local ran = Tools.run("run", { code = "local _, none = pcall(Host.fetch, \"http://127.0.0.1:1/\", { timeout = 5 })\n" ..
       "print(tostring(none))\n" ..
       "local _, why = pcall(Host.fetch, \"file:///etc/passwd\")\nprint(tostring(why))\n" }, context)
-  assert(not ran.is_error and ran.text:find("^host: fetch: http://example.com/: ") ~= nil, ran.text)
+  assert(not ran.is_error and ran.text:find("^host: fetch: http://127.0.0.1:1/: ") ~= nil, ran.text)
   assert(ran.text:find("give an http or https URL", 1, true) ~= nil, ran.text)
   Worker.close(w)
 end
@@ -753,5 +803,35 @@ local function test_a_snippet_uses_sqlite_and_hash()
   assert(not ran.is_error and ran.text:find("^a\t1\ttrue\nb\t2\tfalse\n", 1) ~= nil, ran.text)
   assert(ran.text:find("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", 1, true) ~= nil, ran.text)
   assert(ran.text:find("host: sqlite: ", 1, true) ~= nil and ran.text:find("nope", 1, true) ~= nil, ran.text)
+  Worker.close(w)
+end
+
+--- JSON of a known shape is read into records, as the run guide shows: a declared record is checked in a snippet
+--- as in a file, and a key the record does not name is dropped.
+local function test_a_snippet_reads_json_into_records()
+  local w = set_of_worker()
+  local dir = assert(Fs.mkdtemp("agent-worker-"))
+  local context: Tools.Context = { cwd = dir, worker = w }
+  local ran = Tools.run("run", { code = "local Shape = require(\"cosmic.shape\")\n" ..
+      "local record Item name: string count: integer end\n" ..
+      "local record Page items: {Item} next?: integer end\n" ..
+      "local body = '{\"items\": [{\"name\": \"x\", \"count\": 2, \"id\": 7}], \"next\": 2}'\n" ..
+      "local page = assert(Shape.decode_into(body, Shape.record_of(\"Page\").spec))\n" ..
+      "for _, item in ipairs(page.items) do print(item.name .. tostring(item.count)) end\n" ..
+      "if page.next ~= nil then print(\"next \" .. tostring(page.next)) end\n" ..
+      "local last = assert(Shape.decode_into('{\"items\": []}', Shape.record_of(\"Page\").spec))\n" ..
+      "print(#last.items, last.next == nil)\n" }, context)
+  assert(not ran.is_error and ran.text:find("^x2\nnext 2\n0\ttrue\n") ~= nil, ran.text)
+  Worker.close(w)
+end
+
+--- Host.sort answers a new list the snippet may add to, so a list sorted in place of itself still checks.
+local function test_a_snippet_sorts_a_list_into_itself_and_adds_to_it()
+  local w = set_of_worker()
+  local dir = assert(Fs.mkdtemp("agent-worker-"))
+  local context: Tools.Context = { cwd = dir, worker = w }
+  local ran = Tools.run("run", { code = "local rows: mut {string} = { \"b\", \"a\" }\n" ..
+      "rows = Host.sort(rows)\nrows[#rows + 1] = \"c\"\nprint(table.concat(rows, \",\"))\n" }, context)
+  assert(not ran.is_error and ran.text:find("^a,b,c\n") ~= nil, ran.text)
   Worker.close(w)
 end

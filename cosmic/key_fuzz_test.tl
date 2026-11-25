@@ -1,6 +1,6 @@
 --- Fuzz properties for [`cosmic.key`]: what a seed signs verifies under
 --- its public key, and an Ed25519 key's verify is total and exact -- it
---- answers for whatever bytes it is handed, never raises, and takes a
+--- handles whatever bytes it is handed, never raises, and takes a
 --- key, message and signature only as they were signed. `FUZZ_SEED` and
 --- `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 

@@ -107,7 +107,7 @@ end
 local function test_grants_with_no_x_run_no_program(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local said = Restrict.in_child(restricted(
-    string.format("{ grants = { { path = %q, letters = \"r\" } }, promises = { \"fork\" } }", probe),
+    string.format("{ grants = { { path = %q, letters = \"r\" }, { calls = \"fork\" } } }", probe),
     string.format([[
 local ran, trouble = Child.run({ %q, "print hi" }, { timeout_ns = Child.FOREVER, process_group = false, stdout = "capture" })
 if ran ~= nil then say("child", ran.ok, ran.stdout) else say("child", false, trouble) end
@@ -139,7 +139,7 @@ say("exec", why)
 end
 
 --- Two restrictions stacked hold the process to what
---- [`Sandbox.intersect`] answers of the two: the kernel's verdict on each
+--- [`Sandbox.intersect`] returns for the two: the kernel's verdict on each
 --- path is the one [`Sandbox.allows`] gives the intersection, and
 --- [`Sandbox.held`] is that intersection.
 local function test_two_restrictions_hold_what_intersect_answers(tmp: string)
@@ -180,7 +180,7 @@ end
 local function test_the_fork_promise_lets_a_process_start(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local said = Restrict.in_child(restricted(
-    string.format("{ grants = { { path = %q, letters = \"rx\" } }, promises = { \"fork\" } }", probe),
+    string.format("{ grants = { { path = %q, letters = \"rx\" }, { calls = \"fork\" } } }", probe),
     string.format([[
 local result, trouble = Child.run({ %q, "print hi" }, { timeout_ns = Child.FOREVER, process_group = false, stdout = "capture" })
 if result ~= nil then say("fork", result.ok, result.stdout) else say("fork", false, trouble) end
@@ -197,7 +197,7 @@ local function test_the_signal_scope_lets_a_forked_process_signal_what_is_inside
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local sibling = assert(Child.start({ probe, "sleep-forever" }, { timeout_ns = Child.FOREVER, process_group = false }))
   local said = Restrict.in_child(restricted(
-    string.format("{ grants = { { path = %q, letters = \"rx\" } }, promises = { \"fork\" } }", probe),
+    string.format("{ grants = { { path = %q, letters = \"rx\" }, { calls = \"fork\" } } }", probe),
     string.format([[
 local own, _ = Child.run({ %q, "signal TERM" }, { timeout_ns = Child.FOREVER, process_group = false, stdout = "capture", stderr = "stdout" })
 if own ~= nil then say("self", own.signal, own.code, own.stdout) else say("self", nil, nil, nil) end

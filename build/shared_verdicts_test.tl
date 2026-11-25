@@ -244,7 +244,7 @@ local function test_a_checked_run_reads_its_own_file(tmp: string)
 end
 
 --- Settles the portable rows of an earlier run and then `count` native rows of one run, stamped alike, into a new
---- file named `name` under `tmp`, and answers the rows the file keeps.
+--- file named `name` under `tmp`, and returns the rows the file keeps.
 local function rows_after(tmp: string, name: string, count: integer): integer
   local cache = assert(shared_verdicts.open(tmp .. "/" .. tostring(count) .. "-" .. name))
   local function run(prefix: string, rows: integer, now_ns: integer)

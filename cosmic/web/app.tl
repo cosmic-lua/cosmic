@@ -1,6 +1,6 @@
 --- An app: the routes compiled, the middleware folded around the router, the
---- handler that answers a server's request, and [`App.serve`], which runs
---- it over [`cosmic.http.server`] with its lifespan and graceful stop.
+--- handler that responds to a server's request, and [`App.serve`], which
+--- runs it over [`cosmic.http.server`] with its lifespan and graceful stop.
 --- @public
 
 local Builtin = require("cosmic.web.builtin")
@@ -17,7 +17,7 @@ local type Tailscale = require("cosmic.tailscale")
 local Defer = require("cosmic.defer")
 local Types = require("cosmic.web.types")
 
---- What a request's handler answered, where the closer of its bodies can
+--- What a request's handler returned, where the closer of its bodies can
 --- read it: the closer is a function, and a function may write a field of
 --- what it holds but not assign a local of the code around it.
 local record Answered
@@ -276,7 +276,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   local function ready(addresses: {Net.Address}, server: Net.Server)
     if put_up ~= nil then
       -- The daemon may pass a request on as soon as it has the
-      -- configuration, before its answer to put_up arrives here: the
+      -- configuration, before its reply to put_up arrives here: the
       -- socket is the daemon's from the moment it is filed.
       app.serve_socket = socket
       app.serve_caps = forwarded
@@ -305,7 +305,9 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
         local made = filed
         if made ~= nil then
           local closed, why = made:close()
-          if not closed then sink:line("tailnet: taking down the Serve configuration: " .. why) end
+          if not closed then
+            sink:line("tailnet: taking down the Serve configuration: " .. tostring(why))
+          end
         end
         for _, fn in ipairs(app.stoppers) do
           local trouble = raised_by(fn)
@@ -339,7 +341,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   if not ran then error(raised, 0) end
   if not served.ok then return false, served.err end
   -- A configuration the daemon refused stops the server, which then
-  -- answers as stopped.
+  -- returns as a stopped one does.
   if refusal ~= "" then return false, refusal end
   return true, ""
 end

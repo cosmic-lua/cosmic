@@ -43,7 +43,7 @@ local REFUSED <const>: {Refusal} = {
   { policy = "{ isolate = { \"proc\" } }", says = "isolate \"proc\"" },
   { policy = "{ connect = { \"example.com:443\" } }", says = "connect \"example.com:443\"" },
   { policy = "{ loopback = { \"127.0.0.2\" } }", says = "loopback \"127.0.0.2\"" },
-  { policy = "{ promises = { \"nest\" } }", says = "promises \"nest\"" },
+  { policy = "{ grants = { { calls = \"nest\" } } }", says = "calls \"nest\"" },
   { policy = "{ grants = { { path = \"/\", letters = \"ru\" } } }", says = "grant \"/\" has u" },
   { policy = "{ grants = { { path = \"/\", letters = \"r\", from = \"/srv\" } } }", says = "grant \"/\" has from" },
   { policy = "{ env = { \"HOME\" } }", says = "env \"HOME\"" },
@@ -102,7 +102,7 @@ say("free", reads(%q))
   -- Its checks passed and its limit was planned, so what holds a process was
   -- asked: a ruleset refuses the grant of a path that is not there, and a
   -- kernel with no Landlock refuses the restriction itself. The child's
-  -- answer is this process's, whose filter it inherits.
+  -- result is this process's, whose filter it inherits.
   local missing = assert(said.lines["missing"])
   local abi, _ = confine.landlock_abi()
   if abi ~= nil then

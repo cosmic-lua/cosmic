@@ -12,10 +12,7 @@ Test.policy{ grants = { { path = "vendor/cacert/certdata.txt", letters = "r" } }
 
 --- An empty database of the shipped shape.
 local function database(): Sqlite.Handle
-  local db = assert(Sqlite.memory())
-  for _, statement in ipairs(schema.create("")) do
-    assert(db:exec(statement))
-  end
+  local db = assert(schema.hold(assert(Sqlite.memory())))
   return db
 end
 
@@ -130,7 +127,7 @@ local function test_the_tree_s_bundle_becomes_a_row_per_certificate()
     "SELECT count(*), count(*) FILTER (WHERE label = ''), " ..
       "count(*) FILTER (WHERE sha256 <> sha256(der)) FROM ca_roots"))
   assert(db:close())
-  -- An aggregate query answers one row.
+  -- An aggregate query gives one row.
   local totals = Array.at(counted, 1)
   assert(tonumber(totals:text(1)) == blocks, totals:text(1) .. " rows for " .. tostring(blocks))
   assert(totals:text(2) == "0", "every root of the bundle is labelled")

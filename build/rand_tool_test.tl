@@ -47,6 +47,22 @@ local function test_each_subcommand_has_its_own_help(tmp: string)
   end
 end
 
+--- A subcommand of a subcommand has its own help too, by either spelling.
+local function test_a_nested_subcommand_has_its_own_help(tmp: string)
+  for _, line in ipairs({ { "help", "tailscale", "file", "get" }, { "tailscale", "file", "get", "--help" },
+      { "tailscale", "help", "file", "get" } }) do
+    local helped = tool_fixture.cosmic(tmp, line)
+    assert(helped.code == 0 and helped.out:find("^usage: cosmic tailscale file get %[options%] <dir>") ~= nil and
+        helped.out:find("--conflict", 1, true) ~= nil, helped.out .. helped.err)
+  end
+  local unknown = tool_fixture.cosmic(tmp, { "help", "tailscale", "file", "gett" })
+  assert(unknown.code == 2 and unknown.err:find("tailscale file has no command gett; did you mean get?", 1, true) ~= nil,
+    unknown.err)
+  local leaf = tool_fixture.cosmic(tmp, { "help", "tailscale", "status", "x" })
+  assert(leaf.code == 2 and leaf.err:find("tailscale status has no commands of its own, so not x", 1, true) ~= nil,
+    leaf.err)
+end
+
 local function test_usage_is_exit_2_with_no_summary(tmp: string)
   local seeded = tool_fixture.cosmic(tmp, { "rand", "token", "--seed", "1" })
   assert(seeded.code == 2 and seeded.out == "", seeded.out)

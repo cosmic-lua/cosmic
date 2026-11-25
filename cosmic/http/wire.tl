@@ -90,7 +90,7 @@ local record wire
   record Read
     --- The head; nil where none was read.
     head?: Head
-    --- The status a refused request is answered with, 0 where none was
+    --- The status a refused request gets, 0 where none was
     --- refused.
     status: integer
     --- Why none was read: what was refused, or how reading failed;
@@ -126,7 +126,7 @@ local record wire
   interface Body is Stream.Reader
     --- How the body stands.
     mut state: BodyState
-    --- Why it failed, as every read after answers; "" until then.
+    --- Why it failed, as every read after returns; "" until then.
     mut failure: string
     --- Called once, before the first byte is read from the connection:
     --- where the server sends `100 Continue`.
@@ -262,7 +262,7 @@ local function take(input: wire.Input, most: integer): string?, string
   return chunk, ""
 end
 
---- The next line, its LF taken and not answered, a CR before it kept:
+--- The next line, its LF taken and not returned, a CR before it kept:
 --- nil and why once it would take more than `budget` bytes with its
 --- LF, `input.long` set; nil and "" where the source ends first, or nil
 --- and why. Each chunk read is searched once, the first one at most
@@ -372,7 +372,7 @@ function wire.field(text: string): wire.Field?, string
   return { name = name:lower(), value = value }, ""
 end
 
---- A refusal's status and why, where there is no head to answer.
+--- A refusal's status and why, where there is no head to return.
 local function refused(status: integer, why: string): wire.Read
   return { status = status, why = why }
 end
@@ -432,7 +432,7 @@ end
 --- to 65535 or not, as [`Url.parse`] reads an authority. A name holds
 --- letters, digits and `-._~!$&'()*+;=`: the reg-name of RFC 3986 less
 --- its comma, which is how two values join into one, and its percent
---- escapes, which no name a server answers for needs, so that a proxy in
+--- escapes, which no name a server goes by needs, so that a proxy in
 --- front and the app cannot read one Host two ways.
 local function valid_host(value: string): boolean
   if value == "" then return true end
@@ -479,7 +479,7 @@ local function target_parts(method: string, target: string): Target?, string
 end
 
 --- Reads one request's head from `input`, leaving its body and anything
---- after where they are. Answers the head; or a status and why for one
+--- after where they are. Returns the head; or a status and why for one
 --- refused -- 400 malformed, 413 a Content-Length past `body_bytes`, 417
 --- an expectation other than 100-continue, 431 past `head_bytes`, 501 a
 --- transfer coding other than chunked, 505 a version other than 1.0 or
@@ -489,8 +489,8 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
   local start = input.taken
   -- Why the head is refused, once a line says so.
   local stopped: mut {wire.Read} = {}
-  --- The refusal `next_line` has recorded: it answers nil only after one, and
-  --- a connection that ended is the answer should it ever not.
+  --- The refusal `next_line` has recorded: it returns nil only after one,
+  --- and a connection that ended is the result should it ever not.
   local function halted(): wire.Read
     return stopped[1] or refused(0, "")
   end
@@ -642,13 +642,13 @@ end
 -- cosmic/stream.tl).
 
 --- Fails the body for good: `state` says how, `why` what every later
---- read answers.
+--- read returns.
 local function fail(self: BodyReader, state: wire.BodyState, why: string): nil, string
   self.state, self.failure = state, why
   return nil, why
 end
 
---- [`fail`], answered as a step that did not go.
+--- [`fail`], returned as a step that did not go.
 local function stopped(self: BodyReader, state: wire.BodyState, why: string): boolean, string
   self.state, self.failure = state, why
   return false, why
@@ -806,9 +806,9 @@ local class BodyReader is wire.Body
 
   --- Closing the body leaves the connection be: what of it is unread,
   --- the server discards before the next request.
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     self.closed = true
-    return true, ""
+    return true
   end
 
   function drain(self): boolean
@@ -1009,17 +1009,12 @@ local function copy_body(w: Stream.Writer, body: Stream.Reader, length: integer?
       return "", "the reply body's Reader gave more bytes than asked for"
     end
     if left ~= nil then left = left - #piece end
-    local ok, write_why: boolean, string
-    if chunked then
-      ok, write_why = w:write(("%x\r\n"):format(#piece) .. piece .. "\r\n")
-    else
-      ok, write_why = w:write(piece)
-    end
-    if not ok then return write_why, "" end
+    local ok, write_why = w:write(if chunked then ("%x\r\n"):format(#piece) .. piece .. "\r\n" else piece end)
+    if not ok then return tostring(write_why), "" end
   end
   if chunked then
     local ok, why = w:write("0\r\n\r\n")
-    if not ok then return why, "" end
+    if not ok then return tostring(why), "" end
   end
   return "", ""
 end
@@ -1039,7 +1034,7 @@ function wire.send(w: Stream.Writer, reply: wire.Reply): wire.Sent
   local write_why, body_why = "", ""
   if reply.method == "HEAD" or bodiless(reply.status) then
     local ok, why = w:write(head)
-    if not ok then write_why = why end
+    if not ok then write_why = tostring(why) end
   elseif reader == nil then
     -- In CHUNK slices, as a Reader body goes: a write's timeout bounds
     -- the whole write, and a large body over a slow link would pass it.
@@ -1047,17 +1042,18 @@ function wire.send(w: Stream.Writer, reply: wire.Reply): wire.Sent
     local text = if body is string then body else "" end
     local first = CHUNK - #head
     local ok, why = w:write(if #text <= first then head .. text else head .. text:sub(1, first) end)
-    if not ok then write_why = why end
+    if not ok then write_why = tostring(why) end
     local from = first + 1
     while ok and from <= #text do
-      ok, why = w:write(text:sub(from, from + CHUNK - 1))
-      if not ok then write_why = why end
+      local wrote, trouble = w:write(text:sub(from, from + CHUNK - 1))
+      ok = wrote
+      if not wrote then write_why = tostring(trouble) end
       from = from + CHUNK
     end
   else
     local ok, why = w:write(head)
     if not ok then
-      write_why = why
+      write_why = tostring(why)
     else
       write_why, body_why = copy_body(w, reader, length, chunked)
     end

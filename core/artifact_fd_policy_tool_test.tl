@@ -13,7 +13,7 @@ local Test = require("cosmic.test")
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } },
   requires = { "landlock" } }
 
---- Under a promises filter, which answers openat2 ENOSYS
+--- Under a promises filter, which fails openat2 with ENOSYS
 --- (core/promises.c): the check holds without it, judging the walk it
 --- makes part by part (`walk_without_descriptor_links`) rather than a
 --- name resolved again after the call. "fattr" lets the chmod through.
@@ -29,6 +29,6 @@ local function test_a_link_swapped_after_the_check_changes_nothing_under_promise
     return
   end
   searchable.share(searchable.open(tmp))
-  ArtifactFd.swapped_link_changes_nothing(tmp, { promises = { "fattr" }, grants = {
-    { path = ArtifactFd.program_of(relaunch), letters = "rx" }, { path = tmp, letters = "rwc" } } })
+  ArtifactFd.swapped_link_changes_nothing(tmp, { grants = {
+    { path = ArtifactFd.program_of(relaunch), letters = "rx" }, { path = tmp, letters = "rwc" }, { calls = "fattr" } } })
 end

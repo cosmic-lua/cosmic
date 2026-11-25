@@ -156,7 +156,7 @@ local function test_a_pure_store_holds_no_text(tmp: string)
   assert(bytecode(pure, "greet_test") == bytecode(full, "greet_test"), "the test's own bytecode was stripped")
   assert(count(pure, "SELECT count(*) FROM modules WHERE bytecode <> chunk(bytecode)") == "0",
     "a pure store holds a chunk some other way than as it is loaded")
-  -- A hint asked of the pure store raises, and of the full one answers: no match is not an answer of a store without the table.
+  -- A hint asked of the pure store raises, and of the full one returns: no match is not a result of a store without the table.
   local ok, why = pcall(symbols.named, { pure }, { false }, "wave")
   assert(not ok and tostring(why):find("withheld", 1, true) ~= nil, "a hint of a pure store was answered with no match")
   local no_example, no_example_why = pcall(symbols.has_example_query, { pure }, { false }, "hello")
@@ -165,7 +165,7 @@ local function test_a_pure_store_holds_no_text(tmp: string)
   local no_guidance, no_guidance_why = pcall(errors.guidance_in, pure, "the file could not be opened for reading here")
   assert(not no_guidance and tostring(no_guidance_why):find("withheld", 1, true) ~= nil,
     "a lookup of guidance in a pure store was answered with none")
-  -- The full store answers (with no guidance, or some) and does not raise.
+  -- A lookup of the full store returns (with no guidance, or some) and does not raise.
   local _ = errors.guidance_in(full, "the file could not be opened for reading here")
   local found = symbols.named({ full }, { false }, "wave")
   assert(#found == 1 and found[1] == "greet.wave", "the full store answered " .. table.concat(found, " "))

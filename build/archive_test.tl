@@ -264,7 +264,7 @@ local function write_big_tgz(path: string, mib: integer): integer
       left = left - 1
       return chunk
     end,
-    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+    close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
   assert(w:add_file("big.bin", body, { size = #chunk * rounds }))
   assert(w:close())
@@ -289,7 +289,7 @@ local function test_list_of_a_large_piped_tar_gz_keeps_memory_bounded(tmp: strin
       reads = reads + 1
       return inner:read(max_bytes)
     end,
-    close = function(_self: Stream.Reader): boolean, string return inner:close() end,
+    close = function(_self: Stream.Reader): (true) | (false, Failure) return inner:close() end,
   }
   local ran = run({ "list", "-" }, piped)
   assert(ran.code == 0 and ran.err == "", ran.err)
@@ -527,7 +527,7 @@ local function test_create_streams_a_large_file_into_a_zip_in_bounded_memory(tmp
         reads = reads + 1
         return inner:read(max_bytes)
       end,
-      close = function(_self: Stream.Reader): boolean, string return inner:close() end,
+      close = function(_self: Stream.Reader): (true) | (false, Failure) return inner:close() end,
     }
     return wrapped
   end
@@ -583,7 +583,7 @@ local function create_counting(src: string, out: string, extra: string): Ran, in
         if got == nil then return nil, trouble end
         return got
       end,
-      close = function(_self: Stream.Reader): boolean, string
+      close = function(_self: Stream.Reader): (true) | (false, Failure)
         closes = closes + 1
         return inner:close()
       end,
@@ -764,7 +764,11 @@ local function test_a_command_line_that_is_not_one_is_refused(tmp: string)
     local ran = run(words)
     assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. " exited " .. tostring(ran.code))
     assert(ran.err:find("cosmic: archive: ", 1, true) == 1, ran.err)
-    assert(ran.err:find("cosmic archive list", 1, true), ran.err)
+    -- The usage is the subcommand's own, or the verb's where none is named.
+    local sub = words[1]
+    local usage = if sub ~= nil and sub ~= "bogus" then "; usage: cosmic archive " .. sub .. " " else
+      "; usage: cosmic archive <create|extract|list> ...\n" end
+    assert(ran.err:find(usage, 1, true), ran.err)
   end
 end
 
@@ -1134,7 +1138,7 @@ local function test_extract_of_a_large_piped_tar_gz_keeps_memory_bounded(tmp: st
       reads = reads + 1
       return inner:read(max_bytes)
     end,
-    close = function(_self: Stream.Reader): boolean, string return inner:close() end,
+    close = function(_self: Stream.Reader): (true) | (false, Failure) return inner:close() end,
   }
   local ran = run({ "extract", "-", "-C", dest }, piped)
   assert(ran.code == 0 and ran.err == "", ran.err)

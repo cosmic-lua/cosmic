@@ -1,7 +1,7 @@
 --- [`build/zig_fetch.tl`]'s parts: the sources a download tries, the
 --- rounds over them held to their limits, a failed install's cleanup and
 --- the sweep of a dead install's scratch directory. No test reaches the
---- network: every download is a stand-in or answered by a scripted
+--- network: every download is a stand-in or comes from a scripted
 --- server.
 
 local Clock = require("cosmic.clock")
@@ -70,8 +70,9 @@ end
 
 local downloaded: Http.DownloadResult = { kind = "downloaded", reason = "" }
 
---- Answers each explicit outcome in turn, writing the successful file,
---- and records calls, options and pauses. Only pauses and `per_call_ns`
+--- A fetcher whose `download` returns each explicit outcome in turn,
+--- writing the successful file, and which records calls, options and
+--- pauses. Only pauses and `per_call_ns`
 --- advance the clock.
 local function scripted(replies: {string:{Http.DownloadResult}}, calls: mut {string},
                         sleeps: mut {integer}, per_call_ns?: integer, seen?: mut {Http.Options}): ZigFetch.Fetcher
@@ -79,7 +80,7 @@ local function scripted(replies: {string:{Http.DownloadResult}}, calls: mut {str
   local clock = { value = 0 }
   return {
     download = function(url: string, path: string, opts: Http.Options): Http.DownloadResult
-      assert(opts.sha256 == "abc")
+      assert(assert(opts.digests)["sha256"] == "abc")
       local connect_timeout_ns = opts.connect_timeout_ns
       local low_speed_bytes = opts.low_speed_bytes
       local low_speed_ns = opts.low_speed_ns

@@ -23,7 +23,7 @@ local function timed(run: function(n: integer)): number
   return best
 end
 
---- Runs `argv`, its first word found on PATH, and answers its output.
+--- Runs `argv`, its first word found on PATH, and returns its output.
 local function command(argv: {string}): function(n: integer)
   local program, why = Proc.find(argv[1] or "")
   if program == nil then error("no " .. tostring(argv[1]) .. ": " .. tostring(why)) end

@@ -454,7 +454,7 @@ local function test_a_cookieless_post_is_refused_before_its_body_is_read()
     req.raw.body = { read = function(_self: Stream.Reader, max_bytes?: integer): (string | false) | (nil, Failure) -- checked: literal_shape
       read = read + 1
       return inner:read(max_bytes)
-    end, close = function(_self: Stream.Reader): boolean, string
+    end, close = function(_self: Stream.Reader): (true) | (false, Failure)
       return inner:close()
     end }
     return false

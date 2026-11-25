@@ -61,7 +61,7 @@ local function tool(work: string, policy?: Sandbox.Policy, timeout_ns?: integer)
   return McpServer.command{
     tool = { name = "cat", inputSchema = Mcp.object_schema({ path = { type = "string" } }, { "path" }) },
     argv = { (assert(Proc.executable())), work .. "/tool.tl" },
-    policy = policy or { profiles = { "cosmic" }, grants = { { path = work, letters = "rwc" } } },
+    policy = policy or { grants = { { path = work, letters = "rwc" } } },
     cwd = work,
     timeout_ns = timeout_ns,
   }
@@ -77,7 +77,7 @@ local function bare(): McpServer.Call
     keep = function(_: string) end }
 end
 
---- What the tool answers for `path`; skips the test where the host gives no sandbox.
+--- What the tool returns for `path`; skips the test where the host gives no sandbox.
 local function called(spec: McpServer.ToolSpec, path: string): Mcp.ToolResult
   local result, why = spec.call({ path = path }, bare())
   if result == nil then
@@ -188,7 +188,7 @@ end
   assert(long.isError == true and #text_of(long) < 17000 and text_of(long):find("cut at", 1, true) ~= nil)
   local small = McpServer.command{ tool = { name = "cat", inputSchema = Mcp.object_schema({ path = { type = "string" } }) },
     argv = { (assert(Proc.executable())), work .. "/tool.tl" },
-    policy = { profiles = { "cosmic" }, grants = { { path = work, letters = "rwc" } } }, cwd = work, output_limit = 100 }
+    policy = { grants = { { path = work, letters = "rwc" } } }, cwd = work, output_limit = 100 }
   local over = called(small, "short")
   assert(over.isError == true and text_of(over):find("more than", 1, true) ~= nil, text_of(over))
 end

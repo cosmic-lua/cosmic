@@ -148,7 +148,7 @@ function Board.app(): Web.App
       Web.get("/events", function(req: Web.Request): Web.Response
         local sub, why = hub:subscribe({ "notes" }, { after = Sse.last_event_id(req) })
         if sub == nil then
-          return Web.text(why, { status = 503, headers = { ["Retry-After"] = "5" } })
+          return Web.text(tostring(why), { status = 503, headers = { ["Retry-After"] = "5" } })
         end
         return Sse.EventStream(req, sub)
       end, { name = "events" }),

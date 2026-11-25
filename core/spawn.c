@@ -144,7 +144,7 @@ void close_child_descriptors (int from, long limit) {
  * dup2 overwrites a source a later one reads, and a source that is its
  * own target is moved from a copy, as a dup2 onto itself may leave
  * CLOEXEC set. The kernel takes these steps in the child, which shares nothing
- * of this process's memory, and answers an exec's failure as
+ * of this process's memory, and returns an exec's failure as
  * posix_spawn's own, so the status pipe is never written -- but for a
  * start that needs a step posix_spawn has none for: limits, a Seatbelt
  * profile, or a terminal to acquire. That one starts this program as
@@ -152,6 +152,22 @@ void close_child_descriptors (int from, long limit) {
  * which executes the program last and reports there what stopped it; a
  * profile's or a terminal's start leads a session, which replaces the process group. The child's
  * pid, or -1 and the errno in `error`. */
+/* Whether a start whose profile the program applies at boot runs this
+ * program's own core, `core`, by `path`, and hands it the profile in
+ * `envp`: the trampoline applies none, so a program that is no cosmic
+ * core, or one with no profile to apply, would run unconfined. */
+static bool boot_core_matches (const char *core, const char *path, char *const *envp) {
+  struct stat ran, own;
+  if (stat(path, &ran) != 0 || stat(core, &own) != 0) return false;
+  if (ran.st_dev != own.st_dev || ran.st_ino != own.st_ino) return false;
+  size_t length = strlen(COSMIC_SEATBELT_PROFILE);
+  for (size_t i = 0; envp != NULL && envp[i] != NULL; i++)
+    if (strncmp(envp[i], COSMIC_SEATBELT_PROFILE, length) == 0 && envp[i][length] == '=' &&
+        envp[i][length + 1] != '\0')
+      return true;
+  return false;
+}
+
 static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
   /* Darwin has neither Landlock nor seccomp. */
   if (plan->confine >= 0 || plan->promising) {
@@ -170,7 +186,7 @@ static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
     return -1;
   }
   /* Given a directory to change to, macOS's posix_spawn can start a
-   * program a relative path names and still answer ENOENT, so the path
+   * program a relative path names and still fail with ENOENT, so the path
    * is made absolute first, from where the child resolves it. One longer
    * than PATH_MAX that way is refused, ENAMETOOLONG, though its parts
    * fit; and with a relative directory too, one whose start getcwd
@@ -216,17 +232,22 @@ static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
   char **words = NULL;
   char core[PATH_MAX];
   char numbers[5 + 2 * SPAWN_RLIMIT_MAX][24];
+  /* A core that applies its profile at boot reads the parameters from its
+   * environment, so the trampoline is given none. */
+  int parameters = plan->seatbelt_boot ? 0 : plan->seatbelt_parameter_count;
   if (!failure && trampolined) {
     size_t count = 0;
     while (plan->argv[count] != NULL) count++;
     size_t room = TRAMPOLINE_LIMITS + 2 * (size_t)plan->rlimit_count +
-                  (size_t)plan->seatbelt_parameter_count + 1 + count + 1;
+                  (size_t)parameters + 1 + count + 1;
     errno = 0;
     words = calloc(room, sizeof *words);
     if (words == NULL) {
       failure = ENOMEM;
     } else if (!cosmic_executable_path(core, sizeof core)) {
       failure = errno != 0 ? errno : ENAMETOOLONG;
+    } else if (plan->seatbelt_boot && !boot_core_matches(core, path, plan->envp)) {
+      failure = EINVAL;
     } else {
       /* The limit the program started with comes back to it, as its
        * limit would be where `restore_descriptor_limit` (core/syscalls.c) lowers this
@@ -237,7 +258,7 @@ static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
       if (restoring)
         snprintf(numbers[1], sizeof numbers[1], "%llu", (unsigned long long)restored.rlim_cur);
       snprintf(numbers[2], sizeof numbers[2], "%d", plan->rlimit_count);
-      snprintf(numbers[3], sizeof numbers[3], "%d", plan->seatbelt_parameter_count);
+      snprintf(numbers[3], sizeof numbers[3], "%d", parameters);
       size_t at = 0;
       words[at++] = (char *)COSMIC_TRAMPOLINE;
       words[at++] = numbers[0];
@@ -245,7 +266,7 @@ static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
       words[at++] = restoring ? numbers[1] : (char *)"-";
       words[at++] = numbers[2];
       words[at++] = numbers[3];
-      words[at++] = (char *)(plan->seatbelt_profile != NULL ? plan->seatbelt_profile : "");
+      words[at++] = (char *)(plan->seatbelt_profile != NULL && !plan->seatbelt_boot ? plan->seatbelt_profile : "");
       words[at++] = (char *)(terminal ? plan->terminal_path : "");
       for (int i = 0; i < plan->rlimit_count; i++) {
         char *resource = numbers[4 + 2 * i], *value = numbers[5 + 2 * i];
@@ -254,8 +275,7 @@ static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
         words[at++] = resource;
         words[at++] = value;
       }
-      for (int i = 0; i < plan->seatbelt_parameter_count; i++)
-        words[at++] = (char *)plan->seatbelt_parameters[i];
+      for (int i = 0; i < parameters; i++) words[at++] = (char *)plan->seatbelt_parameters[i];
       words[at++] = (char *)path;
       for (size_t i = 0; i < count; i++) words[at++] = plan->argv[i];
       launch = core;
@@ -355,7 +375,7 @@ static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
  * ([`spawn_program`]), which covers every step a child takes there.
  * Every signal is blocked across the whole start, not only its first
  * steps, so a child hung in setup -- a chdir or an unveiled path on a
- * FUSE or NFS mount that stopped answering -- holds a SIGTERM sent it
+ * FUSE or NFS mount that stopped responding -- holds a SIGTERM sent it
  * pending for as long as it hangs, and only SIGKILL ends it. */
 static pid_t start_child (struct spawn_plan *plan, int *error) {
   sigset_t every;
@@ -558,7 +578,7 @@ static bool handed_on (lua_State *L, lua_Integer target, lua_Integer fd) {
  * (arguments 5 to 7) and the map of the rest (argument 9). `source[t]`
  * is the parent descriptor the child sees as t, or -1: for 0..2 that
  * means inherit, above that it means closed. `*top` is the highest child
- * descriptor named, at least 2. Raises for a malformed argument; answers
+ * descriptor named, at least 2. Raises for a malformed argument; returns
  * 0, or the errno of a descriptor named that is not open. */
 static int read_descriptors (lua_State *L, int *source, int *top) {
   for (int i = 0; i <= CHILD_FD_MAX; i++) source[i] = -1;
@@ -627,6 +647,7 @@ struct spawn_options {
   const char *seatbelt_profile;
   const char *seatbelt_words[2 * SEATBELT_PARAMETER_MAX];
   int seatbelt_count;
+  bool seatbelt_boot;
 #endif
   int strict;
   int proc_only;
@@ -768,7 +789,7 @@ static void read_unveil (lua_State *L, struct spawn_options *o) {
 }
 
 /* Reads the sandbox's `relay`, the table on top, into `o`. Raises for a
- * malformed one; answers 0, or the errno of a channel that is not open. */
+ * malformed one; returns 0, or the errno of a channel that is not open. */
 static int read_relay (lua_State *L, struct spawn_options *o) {
   lua_pushliteral(L, "fd");
   lua_rawget(L, -2);
@@ -817,7 +838,7 @@ static int sandbox_flag (lua_State *L, const char *key, const char *refused) {
 
 #if defined(__APPLE__)
 /* Reads the sandbox's `seatbelt`, the table on top, into `o`. Raises for
- * a malformed one; answers 0, or the results it pushed where this
+ * a malformed one; returns 0, or the results it pushed where this
  * process cannot give a child a profile of its own. */
 static int read_seatbelt (lua_State *L, struct spawn_options *o) {
   if (!lua_istable(L, -1))
@@ -844,6 +865,10 @@ static int read_seatbelt (lua_State *L, struct spawn_options *o) {
     lua_pushinteger(L, holding > 0 ? EPERM : unknown);
     return 3;
   }
+  lua_pushliteral(L, "boot");
+  lua_rawget(L, -3);
+  o->seatbelt_boot = lua_toboolean(L, -1);
+  lua_pop(L, 1);
   lua_pushliteral(L, "parameters");
   lua_rawget(L, -3);
   if (!lua_isnil(L, -1)) {
@@ -867,7 +892,7 @@ static int read_seatbelt (lua_State *L, struct spawn_options *o) {
 
 /* Reads `spawn`'s sandbox, argument 10, into `o`, and checks the options
  * against each other. Raises for a malformed or contradictory one;
- * answers 0, or the results it pushed for a start refused. */
+ * returns 0, or the results it pushed for a start refused. */
 static int read_sandbox (lua_State *L, struct spawn_options *o) {
   luaL_checktype(L, 10, LUA_TTABLE);
   /* Options a caller once had, refused rather than passed over: a child
@@ -1037,7 +1062,7 @@ struct spawn_root {
  * before a longer so one inside another lands on top of it; the program
  * and the directory to run in made absolute from this one's; and an
  * empty directory to build the root on. Made last, after everything
- * that can fail. Answers 0, or the errno it failed with, having freed
+ * that can fail. Returns 0, or the errno it failed with, having freed
  * what it made (`r->root_dir` is then empty). `*path_given` and
  * `*cwd_given` are pointed at `r`'s copies where they are made absolute. */
 static int resolve_root (const char **path_given, const char **cwd_given, struct spawn_options *o,
@@ -1060,7 +1085,7 @@ static int resolve_root (const char **path_given, const char **cwd_given, struct
    * its grant (a mount of /proc/self/fd/<n>), not from its path
    * resolved again here, so a grant's one resolution makes the Landlock
    * rule, the bind and the report, as the sandbox design has it, once
-   * `spawn` hands `build_root` (core/sandbox_root.c) the grants' descriptors and answers the
+   * `spawn` hands `build_root` (core/sandbox_root.c) the grants' descriptors and returns the
    * resolutions it made. A link a host process swaps in between the two
    * resolutions fails closed: the rule is on the file the grant named,
    * so Landlock refuses what the swapped path holds. */
@@ -1145,7 +1170,7 @@ static int resolve_root (const char **path_given, const char **cwd_given, struct
   return prepare_error;
 }
 
-/* What `spawn` answers once the child has started or failed to: it
+/* What `spawn` returns once the child has started or failed to: it
  * reads the errno the child wrote to `status_read` before its exec, if
  * it wrote one, closes `status_read` and removes the empty `root_dir`.
  * `pid` is the child running the program (an unveiled start's
@@ -1508,7 +1533,8 @@ COSMIC_SYSCALL(spawn, 12) {
     .rlimit_count = o.rlimit_count, .rlimits = o.rlimits,
 #if defined(__APPLE__)
     .seatbelt_profile = o.seatbelt_profile, .seatbelt_parameters = o.seatbelt_words,
-    .seatbelt_parameter_count = o.seatbelt_count, .terminal_path = terminal_path,
+    .seatbelt_parameter_count = o.seatbelt_count, .seatbelt_boot = o.seatbelt_boot,
+    .terminal_path = terminal_path,
 #endif
     .unveiling = o.unveiling, .offline = o.offline, .noexec_scratch = o.noexec_scratch,
     .relay_channel = o.relay_channel, .relay_ports = { o.relay_ports[0], o.relay_ports[1] },
@@ -1610,7 +1636,7 @@ COSMIC_SYSCALL(waitpid, 2) {
     return luaL_argerror(L, 1, "pid is out of range");
   pid_t pid = (pid_t)value;
   int nohang = lua_toboolean(L, 2);
-  /* The answer and its keys are made before the wait, and filling a
+  /* The result and its keys are made before the wait, and filling a
    * table sized for them allocates nothing: a child the wait reaped
    * cannot be reaped again, so a raise after it would lose its status. */
   lua_createtable(L, 0, 3);
@@ -1769,7 +1795,7 @@ COSMIC_SYSCALL(relaunch, 2) {
   lua_setfield(L, -2, COSMIC_PORTABLE_ENV_CORE_SHA256);
   lua_setfield(L, -2, "environment");
   /* The descriptor is opened last, into a slot the table already has
-   * room for, so no raise can come between it and the answer. */
+   * room for, so no raise can come between it and the result. */
   lua_pushliteral(L, "core_fd");
   int core_fd = cosmic_executable_fd();
   if (core_fd < 0) return cosmic_fail(L, errno);
@@ -1871,7 +1897,8 @@ COSMIC_SYSCALL(children, 0) {
     if (pids == NULL) return cosmic_fail(L, ENOMEM);
     guard->resource = pids;
     memset(pids, 0, room * sizeof *pids);
-    /* A refusal is answered as no children, with the errno set. */
+    /* proc_listchildpids refuses by returning no children with errno
+     * set, so errno is cleared first. */
     errno = 0;
     int got = proc_listchildpids(getpid(), pids, (int)(room * sizeof *pids));
     if (got <= 0 && errno != 0) return cosmic_fail(L, errno);
@@ -1922,7 +1949,7 @@ static int status_threads (int *error) {
 /* How many threads this process has, as the kernel counts its task's
  * (proc_pidinfo's PROC_PIDTASKINFO), the ones libdispatch started for the
  * C library among them, or -1 with the errno that refused the call in
- * `error`, EIO for an answer cut short. */
+ * `error`, EIO for a result cut short. */
 static int task_thread_count (int *error) {
   struct proc_taskinfo info;
   int got = proc_pidinfo(getpid(), PROC_PIDTASKINFO, 0, &info, (int)sizeof info);

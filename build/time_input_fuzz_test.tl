@@ -1,6 +1,6 @@
 --- Fuzz properties for the text `cosmic time` reads (build/time.tl's
 --- `parse_input`): it is total -- any bytes, and any mutation of a
---- well-formed time, answer a moment or a failure and never raise, over
+--- well-formed time, give a moment or a failure and never raise, over
 --- every form it reads, with a moment it accepts inside the range -- and a
 --- moment `format_rfc3339` writes reads back unchanged. `FUZZ_SEED` and
 --- `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).

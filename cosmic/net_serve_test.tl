@@ -25,7 +25,7 @@ end
 --- a case is about one.
 Test.policy{ loopback = { "127.0.0.1" } }
 
---- Answers each line with itself until the peer ends what it sends.
+--- Writes back each line until the peer ends what it sends.
 local function echo(conn: Net.Conn)
   local lines = Stream.lines(conn)
   for line in lines:each() do assert(conn:write(line .. "\n")) end
@@ -70,7 +70,7 @@ local function client(address: Net.Address): Client
 end
 
 --- Connections are served at once, each in a task of its own: the last
---- to connect is answered while the first still waits to be read.
+--- to connect gets its reply while the first still waits to be read.
 local function test_several_connections_are_served_at_once()
   local answers: mut {string} = {}
   assert(Net.serve{
@@ -128,7 +128,7 @@ local function test_an_error_in_one_connection_leaves_the_others_served()
 end
 
 --- At the limit the server accepts nothing more: a second client waits
---- in the backlog, neither answered nor closed, until the first
+--- in the backlog, neither accepted nor closed, until the first
 --- closes, and is then served.
 local function test_at_the_connection_limit_accepting_waits()
   local accepted: integer = 0
@@ -392,7 +392,7 @@ local function test_a_killed_protocols_close_cannot_wait()
     serve = function(conn: Net.Conn)
       local _ <close> = closer(function()
         local _, why = conn:write(string.rep("x", 8 * 1024 * 1024))
-        wrote = why
+        wrote = tostring(why)
         assert(Poll.delay(0))
       end)
       started = true
@@ -447,7 +447,7 @@ local function test_the_connection_limit_is_shared_by_every_listener()
 end
 
 --- A connection's protocol may stop the server it is served by, and
---- still finish its own answer.
+--- still finish its own reply.
 local function a_protocol_stops_its_server_at(path: string?)
   local answer: string = ""
   local serving: Net.Server? = nil
