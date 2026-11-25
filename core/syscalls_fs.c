@@ -667,6 +667,185 @@ COSMIC_SYSCALL(rename, 2) {
   return cosmic_ok(L);
 }
 
+/* Opens the directory `path` names, reached with no link anywhere on it,
+ * its last part's included, in *found, which the caller closes: 0, or
+ * the errno met -- ELOOP for a link, ENOTDIR for a part that is no
+ * directory. On Linux each part is opened O_PATH|O_NOFOLLOW from the
+ * descriptor held for the one before it, so no part is resolved twice
+ * and a link a process swaps in meanwhile is met, not followed; the
+ * answer is an O_PATH descriptor, which the *at calls take and which
+ * asks the sandbox nothing to open. macOS has the walk as one flag,
+ * O_NOFOLLOW_ANY. */
+static int open_dir_unlinked (const char *path, int *found) {
+  if (path[0] == '\0') return ENOENT;
+#if defined(__linux__)
+  char rest[PATH_MAX];
+  if (snprintf(rest, sizeof rest, "%s", path) >= (int)sizeof rest) return ENAMETOOLONG;
+  int at = open(rest[0] == '/' ? "/" : ".", O_PATH | O_DIRECTORY | O_CLOEXEC);
+  if (at < 0) return errno;
+  size_t used = 0;
+  for (;;) {
+    while (rest[used] == '/') used++;
+    if (rest[used] == '\0') break;
+    size_t length = strcspn(rest + used, "/");
+    if (length > NAME_MAX) {
+      close(at);
+      return ENAMETOOLONG;
+    }
+    char part[NAME_MAX + 1];
+    memcpy(part, rest + used, length);
+    part[length] = '\0';
+    used += length;
+    int next = openat(at, part, O_PATH | O_NOFOLLOW | O_CLOEXEC);
+    int number = next < 0 ? errno : 0;
+    struct stat st;
+    if (number == 0 && fstat(next, &st) != 0) number = errno;
+    if (number == 0 && S_ISLNK(st.st_mode)) number = ELOOP;
+    if (number == 0 && !S_ISDIR(st.st_mode)) number = ENOTDIR;
+    close(at);
+    if (number != 0) {
+      if (next >= 0) close(next);
+      return number;
+    }
+    at = next;
+  }
+  *found = at;
+  return 0;
+#else
+#ifndef O_NOFOLLOW_ANY
+#define O_NOFOLLOW_ANY 0x20000000
+#endif
+  int fd;
+  do {
+    fd = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW_ANY | O_CLOEXEC);
+  } while (fd < 0 && errno == EINTR);
+  if (fd < 0) return errno;
+  *found = fd;
+  return 0;
+#endif
+}
+
+/* Whether `name` is one entry's name: not empty, no "/", not "." or "..". */
+static bool one_name (const char *name) {
+  return name[0] != '\0' && strchr(name, '/') == NULL && strcmp(name, ".") != 0 &&
+         strcmp(name, "..") != 0;
+}
+
+COSMIC_SYSCALL(open_dir, 1) {
+  const char *path = cosmic_path(L, 1);
+  if (path == NULL) return cosmic_fail(L, EINVAL);
+  int fd = -1;
+  int number = open_dir_unlinked(path, &fd);
+  if (number != 0) return cosmic_fail(L, number);
+  lua_pushinteger(L, fd);
+  return 1;
+}
+
+COSMIC_SYSCALL(openat, 4) {
+  int dir = cosmic_checkfd(L, 1);
+  const char *name = cosmic_path(L, 2);
+  if (name == NULL || !one_name(name)) return cosmic_fail(L, EINVAL);
+  int flags = cosmic_checkint(L, 3);
+  int mode = cosmic_optint(L, 4, 0644);
+  /* The program's own file is refused, by any name: on macOS /dev/fd
+   * holds descriptor nodes, not links, which no O_NOFOLLOW meets, and
+   * one of them is the retained descriptor of the program
+   * ([`artifact_through_descriptor`]). Asked before the open, since
+   * asking may raise. */
+  const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
+  int fd;
+  do {
+    fd = openat(dir, name, flags | O_NOFOLLOW | O_CLOEXEC, (mode_t)mode);
+  } while (fd < 0 && errno == EINTR);
+  if (fd < 0) return cosmic_fail(L, errno);
+  if (artifact != NULL) {
+    struct stat st;
+    int refused = fstat(fd, &st) != 0 ? errno : 0;
+    if (refused == 0 && (uint64_t)st.st_dev == artifact->device && (uint64_t)st.st_ino == artifact->inode) {
+      refused = EACCES;
+    }
+    if (refused != 0) {
+      close(fd);
+      return cosmic_fail(L, refused);
+    }
+  }
+  lua_pushinteger(L, fd);
+  return 1;
+}
+
+COSMIC_SYSCALL(open_dir_at, 2) {
+  int dir = cosmic_checkfd(L, 1);
+  const char *name = cosmic_path(L, 2);
+  if (name == NULL || !one_name(name)) return cosmic_fail(L, EINVAL);
+#if defined(__linux__)
+  int fd = openat(dir, name, O_PATH | O_NOFOLLOW | O_CLOEXEC);
+  int number = fd < 0 ? errno : 0;
+  struct stat st;
+  if (number == 0 && fstat(fd, &st) != 0) number = errno;
+  if (number == 0 && S_ISLNK(st.st_mode)) number = ELOOP;
+  if (number == 0 && !S_ISDIR(st.st_mode)) number = ENOTDIR;
+  if (number != 0) {
+    if (fd >= 0) close(fd);
+    return cosmic_fail(L, number);
+  }
+#else
+  int fd;
+  do {
+    fd = openat(dir, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  } while (fd < 0 && errno == EINTR);
+  if (fd < 0) {
+    /* macOS answers ENOTDIR for a link when O_DIRECTORY is asked; a link
+     * is ELOOP here, as on Linux. Only the answer is read again: nothing
+     * is opened through the name. */
+    int number = errno;
+    struct stat st;
+    if (number == ENOTDIR && fstatat(dir, name, &st, AT_SYMLINK_NOFOLLOW) == 0 && S_ISLNK(st.st_mode)) {
+      number = ELOOP;
+    }
+    return cosmic_fail(L, number);
+  }
+#endif
+  lua_pushinteger(L, fd);
+  return 1;
+}
+
+COSMIC_SYSCALL(fstatat, 2) {
+  int dir = cosmic_checkfd(L, 1);
+  const char *name = cosmic_path(L, 2);
+  if (name == NULL || !one_name(name)) return cosmic_fail(L, EINVAL);
+  struct stat st;
+  if (fstatat(dir, name, &st, AT_SYMLINK_NOFOLLOW) != 0) return cosmic_fail(L, errno);
+  push_stat(L, &st);
+  return 1;
+}
+
+COSMIC_SYSCALL(mkdirat, 3) {
+  int dir = cosmic_checkfd(L, 1);
+  const char *name = cosmic_path(L, 2);
+  if (name == NULL || !one_name(name)) return cosmic_fail_effect(L, EINVAL);
+  int mode = cosmic_optint(L, 3, 0755);
+  if (mkdirat(dir, name, (mode_t)mode) != 0) return cosmic_fail_effect(L, errno);
+  return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(renameat, 3) {
+  int dir = cosmic_checkfd(L, 1);
+  const char *from = cosmic_path(L, 2);
+  if (from == NULL || !one_name(from)) return cosmic_fail_effect(L, EINVAL);
+  const char *to = cosmic_path(L, 3);
+  if (to == NULL || !one_name(to)) return cosmic_fail_effect(L, EINVAL);
+  if (renameat(dir, from, dir, to) != 0) return cosmic_fail_effect(L, errno);
+  return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(unlinkat, 2) {
+  int dir = cosmic_checkfd(L, 1);
+  const char *name = cosmic_path(L, 2);
+  if (name == NULL || !one_name(name)) return cosmic_fail_effect(L, EINVAL);
+  if (unlinkat(dir, name, 0) != 0) return cosmic_fail_effect(L, errno);
+  return cosmic_ok(L);
+}
+
 COSMIC_SYSCALL(chmod, 2) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail_effect(L, EINVAL);
