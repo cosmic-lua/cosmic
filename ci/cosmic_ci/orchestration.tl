@@ -412,6 +412,7 @@ function Orchestration.ended_line(phase: string, outcome: Runner.Outcome): strin
   local trouble = outcome.trouble
   return "\nerror: " .. phase .. ": " .. outcome.status .. (if trouble ~= nil then ": " .. trouble else "" end) .. "\n"
 end
+local ended_line = Orchestration.ended_line
 
 -- Work done in this process, recorded as an operation as a command is.
 local function step(c: Context, phase: string,
@@ -511,7 +512,7 @@ local function logged(c: Context, phase: string, command: {string}, out: string,
   local outcome = named_operation(runner, phase, request, out, err)
   local replay_ok = replay(out, err)
   if outcome.code ~= 0 then
-    Failures.keep(phase, read_or_empty(out) .. "\n" .. read_or_empty(err) .. Orchestration.ended_line(phase, outcome))
+    Failures.keep(phase, read_or_empty(out) .. "\n" .. read_or_empty(err) .. ended_line(phase, outcome))
     return outcome.code
   end
   assert(replay_ok, "could not replay retained output")
@@ -541,7 +542,7 @@ local function watched(c: Context, phase: string, command: {string},
   -- status decides the step.
   local _ = replay(out, err)
   if outcome.code ~= 0 then
-    Failures.keep(phase, read_or_empty(out) .. "\n" .. read_or_empty(err) .. Orchestration.ended_line(phase, outcome))
+    Failures.keep(phase, read_or_empty(out) .. "\n" .. read_or_empty(err) .. ended_line(phase, outcome))
   end
   return outcome.code
 end
@@ -579,7 +580,7 @@ function Orchestration.watched_group(group: Orchestration.Group, phase: string,
       done()
       if outcome.code ~= 0 then
         local out, err = files()
-        Failures.keep(phase, read_or_empty(out) .. "\n" .. read_or_empty(err) .. Orchestration.ended_line(phase, outcome))
+        Failures.keep(phase, read_or_empty(out) .. "\n" .. read_or_empty(err) .. ended_line(phase, outcome))
       end
       return group.finish(outcome)
     end,
