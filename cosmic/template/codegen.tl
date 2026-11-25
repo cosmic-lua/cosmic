@@ -342,7 +342,8 @@ local function block(g: Gen, node: types.Node, dot: Dot) -- checked: not_assigne
     -- about 40 deep (33 with an `else`) does not load, Lua naming the
     -- template's line ("too many local variables"). That stays: no template
     -- nests so deep, and a function per body, which would lift the limit,
-    -- costs a closure each time a range runs.
+    -- costs a closure each time a range runs. A `with`, and an `if` arm
+    -- that reads the path it tests, hold two (the value and its `_sure`).
     local arm = first_branch(node)
     local other = node.branches[2]
     local inner = new_dot(g)

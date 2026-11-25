@@ -47,7 +47,9 @@
 --- no key are empty: an empty list or map, and a record with no field set
 --- too, so `{{with .options}}` over a record of optional fields means "has
 --- some field set". `0` is filled, as in Lua (Go's templates take it for
---- false). So
+--- false), and so is [`Json.null`], a value, and a class instance
+--- whose fields are all on its metatable is a table with no key, so
+--- empty. So
 --- `{{with .tools}}<tools>{{range .}}..{{end}}</tools>{{end}}` leaves the
 --- section out when the list is empty, with no nil to stand for "none".
 ---
