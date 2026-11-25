@@ -576,7 +576,7 @@ written before it is shown.
 [`cosmic.agent.policy`]: ../../cosmic/agent/policy.tl
 [`cosmic.agent.show`]: ../../cosmic/agent/show.tl
 [`cosmic.agent`]: ../../cosmic/agent/init.tl
-[`cosmic.child`]: ../../cosmic/child.tl
+[`cosmic.child`]: ../../cosmic/child/init.tl
 [`Host.bash`]: ../../cosmic/agent/host.tl
 [`Host.edit`]: ../../cosmic/agent/host.tl
 [`Host.exists`]: ../../cosmic/agent/host.tl
