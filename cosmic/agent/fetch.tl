@@ -6,10 +6,12 @@
 ---     local got = assert(AgentFetch.fetch({ url = "https://example.com/" }))
 ---     print(got.status, #got.body)
 ---
---- It takes http and https alone, and a 3xx is answered, its `location` header with it: a snippet that follows it
---- makes a new call. Where it may connect is the worker's sandbox's to say, as for any of its connections: a session
+--- A status of 400 or more fails, as `curl -f` does, with the method, URL, status and the start of the body, unless
+--- the request asks for any status: a snippet that reads an error's body as data asks for it. It takes http and https
+--- alone, and a 3xx is answered, its `location` header with it: a snippet that follows it makes a new call. Where it may connect is the worker's sandbox's to say, as for any of its connections: a session
 --- with no network reaches none, and with --network the sandbox's relay refuses loopback, private, link-local and
---- the host's own addresses, whatever a name resolves to, and reaches the rest through any proxy the agent was given.
+--- the host's own addresses, whatever a name resolves to, but an address --connect names, and reaches the rest through
+--- any proxy the agent was given.
 
 local Clock = require("cosmic.clock")
 local Failure = require("cosmic.failure")
@@ -29,6 +31,8 @@ local record AgentFetch
     body?: string
     --- How long the request may take, in seconds: 30 by default, at most [`AgentFetch.MOST_SECONDS`].
     timeout?: integer
+    --- Whether a status of 400 or more is answered, in place of failing.
+    any_status?: boolean
   end
 
   --- What came back.
@@ -83,6 +87,12 @@ function AgentFetch.fetch(request: AgentFetch.Request, options?: AgentFetch.Opti
   end
   local cut = #body > AgentFetch.MOST_BYTES
   if cut then body = body:sub(1, AgentFetch.MOST_BYTES) end
+  if res.status >= 400 and request.any_status ~= true then
+    local start = body:gsub("[%z\1-\8\14-\31\127]", ""):gsub("%s+", " "):gsub("^ ", ""):sub(1, 200):gsub(" $", "")
+    return nil, Failure.new("host: fetch: " .. (request.method or (if request.body ~= nil then "POST" else "GET" end)) ..
+        " " .. request.url .. ": status " .. tostring(res.status) .. (if start ~= "" then ": " .. start else "" end) ..
+        "; give {any_status = true} to read the response as a value")
+  end
   return { status = res.status, headers = res.headers, body = body, cut = cut }
 end
 

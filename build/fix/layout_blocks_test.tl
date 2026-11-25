@@ -245,6 +245,6 @@ end
 
 local function test_a_source_with_a_long_comment_or_a_cut_form_is_refused()
   Check.refuses("x = 1\n--[[c]] y = 2\n")
-  Check.refuses("x = 1;\n")
+  Check.refuses("x = { 1; 2 }\n")
   Check.refuses("if x then\n")
 end

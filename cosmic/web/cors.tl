@@ -1,6 +1,6 @@
 --- Cross-origin resource sharing for [`cosmic.web`]: the middleware that
---- answers a browser's preflight and marks the responses a page of another
---- origin may read.
+--- responds to a browser's preflight and marks the responses a page of
+--- another origin may read.
 ---
 ---     middleware = {
 ---       Cors.middleware{
@@ -27,7 +27,7 @@
 --- `"null"`. A credentialed `"*"` raises: the browser refuses it, and the
 --- usual repair, reflecting any origin, would give every site the user's
 --- cookies. Every response to a request with an `Origin`, or without one
---- (the answer to either is not the other's), a refusal and an error
+--- (the response to either is not the other's), a refusal and an error
 --- included, carries `Vary: Origin`, so a cache keeps them apart.
 --- @public
 
@@ -52,14 +52,14 @@ local record Cors
     allow_methods?: {string}
     --- The request headers a preflight may ask for besides the safelisted
     --- (Accept, Accept-Language, Content-Language, Content-Type); {"*"}
-    --- allows any header name, and the answer repeats the ones asked for.
+    --- allows any header name, and the response repeats the ones asked for.
     allow_headers?: {string}
     --- Response headers a script may read (Access-Control-Expose-Headers).
     expose_headers?: {string}
     --- Let a page send and read cookies and Authorization (false).
     allow_credentials?: boolean
-    --- Seconds a browser may keep a preflight's answer (600). Browsers cap
-    --- it: Chrome 7200, Firefox 86400.
+    --- Seconds a browser may keep a preflight's response (600). Browsers
+    --- cap it: Chrome 7200, Firefox 86400.
     max_age?: integer
   end
 end
@@ -167,7 +167,7 @@ function Cors.middleware(opts: Cors.Options): Types.Middleware
     error("cors: max_age is a number of seconds, 0 or more", 2)
   end
   local predicate = opts.allow_origin
-  --- The origin to answer with, or nil where `sent` is not allowed.
+  --- The origin to respond with, or nil where `sent` is not allowed.
   local function allowed(sent: string): string?
     if sent == "null" then
       return if origins["null"] == true then "null" else nil end
@@ -179,7 +179,7 @@ function Cors.middleware(opts: Cors.Options): Types.Middleware
     return nil
   end
 
-  --- Adds the headers every CORS answer to `origin` carries.
+  --- Adds the headers every CORS response to `origin` carries.
   local function mark(res: Types.Response, origin: string?)
     Response.add_header(res, "Vary", "Origin")
     if origin == nil then return end
@@ -187,7 +187,7 @@ function Cors.middleware(opts: Cors.Options): Types.Middleware
     if credentials then Response.set_header(res, "Access-Control-Allow-Credentials", "true") end
   end
 
-  --- Answers a preflight: 204 with the grant, or 403 with none.
+  --- The response to a preflight: 204 with the grant, or 403 with none.
   local function preflight(req: Types.Request, origin: string): Types.Response
     local ask = req.headers["access-control-request-method"]
     local headers_asked = req.headers["access-control-request-headers"]
@@ -212,7 +212,7 @@ function Cors.middleware(opts: Cors.Options): Types.Middleware
         end
       end
     end
-    -- A refusal and an answer both depend on the three request headers.
+    -- A refusal and a grant both depend on the three request headers.
     local out = Response.empty(if pass then 204 else 403 end)
     Response.add_header(out, "Vary", "Origin, Access-Control-Request-Method, Access-Control-Request-Headers")
     if not pass then return out end

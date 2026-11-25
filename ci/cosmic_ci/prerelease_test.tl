@@ -40,22 +40,62 @@ local function refused(expected: string, action: function())
   assert(tostring(why):find(expected, 1, true), "refused otherwise: " .. tostring(why))
 end
 
---- The smoke run's tool reads and runs itself and writes its cache, and
---- nothing else: not the files whose lines set a later step's environment,
---- nor the driver that step runs; of the job's variables it gets PATH and
---- HOME alone.
+--- The smoke run's tool reads and runs itself and the programs its launcher
+--- runs, and writes its cache, and nothing else: not the files whose lines
+--- set a later step's environment, nor the driver that step runs; of the
+--- job's variables it gets PATH and HOME alone.
+--- `value` as JSON text, or "nil".
+local function encoded(value: Json.Value?): string
+  if value == nil then return "nil" end
+  local text, _ = Json.encode(value)
+  return tostring(text)
+end
+
 local function test_the_smoke_policy_grants_the_tool_and_its_cache_alone()
-  local policy = Prerelease.smoke_policy("/runner/release/cosmic", "/tmp/smoke-cache")
-  local grants: mut {string} = {}
-  for _, grant in ipairs(policy.grants or {}) do
-    grants[#grants + 1] = grant.path .. " " .. grant.letters
+  local launcher: {string: boolean} = { uname = true, id = true, mkdir = true, stat = true, mktemp = true, dd = true,
+    head = true, sha256sum = true, chmod = true, ln = true, rm = true, rmdir = true }
+  for _, as_grants in ipairs({ true, false }) do
+    local text = Prerelease.smoke_policy_text("/runner/release/cosmic", "/tmp/smoke-cache", as_grants)
+    local decoded, trouble = Json.decode(text)
+    local policy = assert(Json.object_of(decoded), tostring(trouble))
+    local granted: mut {string: boolean} = {}
+    local grants: mut {string} = {}
+    local calls: mut {string} = {}
+    for at, value in ipairs(assert(Json.array_of(policy["grants"]))) do
+      local grant = assert(Json.object_of(value))
+      local call = grant["calls"]
+      if type(call) == "string" then
+        calls[#calls + 1] = call
+      else
+        local path, letters = tostring(grant["path"]), tostring(grant["letters"])
+        if at > 2 then
+          local program = path:match("^/usr/bin/(%w+)$") or path:match("^/bin/(%w+)$") or path:match("^/sbin/(%w+)$")
+          local kernel = path == "/proc/sys/kernel/ostype" or path == "/proc/sys/kernel/arch"
+          assert((program ~= nil and launcher[program] == true and letters == "rx") or
+              (kernel and letters == "r"), path .. " " .. letters)
+          if program ~= nil then granted[program] = true end
+        end
+        grants[#grants + 1] = path .. " " .. letters
+      end
+    end
+    assert(table.concat(grants, ",", 1, 2) == "/runner/release/cosmic rx,/tmp/smoke-cache rwxc",
+      table.concat(grants, ","))
+    for name in pairs(launcher) do
+      assert(granted[name] == true, "the launcher's " .. name .. " is not granted")
+    end
+    if as_grants then
+      assert(table.concat(calls, ",") == "fork,fattr" and policy["promises"] == nil, text)
+    else
+      assert(#calls == 0 and encoded(policy["promises"]) == '["fork","fattr"]', text)
+    end
+    assert(encoded(policy["env"]) == '["PATH","HOME"]', text)
+    assert(encoded(policy["profiles"]) == '["system"]', text)
+    assert(encoded(policy["set_env"]) == '{"COSMIC_PORTABLE_CACHE":"/tmp/smoke-cache"}', text)
+    assert(policy["isolate"] == nil and policy["connect"] == nil, text)
   end
-  assert(table.concat(grants, ",") == "/runner/release/cosmic rx,/tmp/smoke-cache rwxc", table.concat(grants, ","))
-  assert(table.concat(policy.env or {}, ",") == "PATH,HOME")
-  assert(table.concat(policy.profiles or {}, ",") == "system")
-  assert((policy.set_env or {})["COSMIC_PORTABLE_CACHE"] == "/tmp/smoke-cache")
-  assert(policy.isolate == nil and policy.connect == nil)
-  assert(table.concat(policy.promises or {}, ",") == "fork,fattr")
+  -- The running cosmic reads one of the two forms.
+  local taken = Prerelease.smoke_policy("/runner/release/cosmic", "/tmp/smoke-cache")
+  assert((taken.set_env or {})["COSMIC_PORTABLE_CACHE"] == "/tmp/smoke-cache")
 end
 
 --- Under the smoke policy a program cannot write a file outside its cache,
@@ -69,7 +109,10 @@ local function test_the_smoke_policy_keeps_a_program_from_writing_elsewhere(tmp:
   local result, why = Child.run({ shell, "-c", "echo BASH_ENV=/x >> \"$1\"", "sh", outside },
     { timeout_ns = Child.FOREVER, policy = Prerelease.smoke_policy(shell, cache), stderr = "capture" })
   assert(result ~= nil, why)
-  assert(not result.ok, "the write was allowed")
+  -- Linux's shell says "Permission denied", and macOS's "Operation not permitted".
+  local said = result.stderr or ""
+  assert(not result.ok and (said:find("ermission denied", 1, true) ~= nil or said:find("not permitted", 1, true) ~= nil),
+    "the write was allowed, or refused otherwise: " .. said)
   assert(assert(Fs.read(outside)) == "kept\n")
 end
 
@@ -324,10 +367,10 @@ local record Release
   mut target?: string
 end
 
---- A repository standing in for GitHub's, answering a client's `send`
---- and `fetch` from tables, and a release staged for it. `fail` holds
---- the faults to inject: ref (the tag probe answers 500), ref-transport
---- (it gets no answer), transport (nothing is answered), create-ref (the
+--- A repository standing in for GitHub's, whose tables a client's `send`
+--- and `fetch` read, and a release staged for it. `fail` holds the
+--- faults to inject: ref (the tag probe gets 500), ref-transport (it
+--- gets no response), transport (no request gets one), create-ref (the
 --- POST of a tag is refused 403 with this message, or GitHub's to a
 --- GITHUB_TOKEN when empty) and edit-draft (the PATCH leaves the draft
 --- flag).
@@ -342,7 +385,7 @@ local record Repo
   releases: mut {Release}
   mut assets: integer
   mut compare: {string}
-  --- The committer date the API answers for the commit.
+  --- The committer date the API sends for the commit.
   mut committed: string
   fail: mut {string:string}
   --- Each request as "METHOD path" ("UPLOAD name" for an upload).
@@ -486,7 +529,7 @@ local function serve(r: Repo, request: GithubApi.Request): GithubApi.Reply?, str
   local by_tag = rest:match("^releases/tags/(.+)$")
   if by_tag ~= nil and method == "GET" then
     if r.fail["by-tag"] then return reply(500, said("Server Error")), "" end
-    -- The get-by-tag endpoint answers a published release alone.
+    -- The get-by-tag endpoint finds a published release alone.
     for _, rel in ipairs(r.releases) do
       if rel.tag == by_tag and not rel.draft then return reply(200, release_json(rel)), "" end
     end
@@ -812,7 +855,7 @@ local function test_publish_refuses_a_tag_naming_another_commit(tmp: string)
 end
 
 local function test_publish_refuses_api_failures_other_than_404(tmp: string)
-  -- ref-transport fails only the tag probe, with no answer at all: the
+  -- ref-transport fails only the tag probe, with no response at all: the
   -- lookups by tag and of the list before it succeed, so the probe itself
   -- refuses. by-tag fails the lookup by tag with a 500, which must not
   -- read as no published release.

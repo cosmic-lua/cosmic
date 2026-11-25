@@ -1,6 +1,6 @@
 -- The Protocol Buffers wire format at the Lua boundary, as the core
 -- reads it through nanopb: the bytes are indexed once, and each field is
--- answered by its number and type.
+-- found by its number and type.
 --- @kind binding
 
 local record protobuf
@@ -31,7 +31,7 @@ local record protobuf
   -- is the one it asks for.
   interface Message
     -- Every field, in the order of the bytes, the unknown ones too. An embedded message is its bytes. With
-    -- `keep`, the fields it answers true for, by number and wire type: the bytes of the others are not copied,
+    -- `keep`, the fields it keeps, by number and wire type: the bytes of the others are not copied,
     -- which is how a program takes the fields it does not know from a message it has read the rest of.
     fields: function(self: Message, keep?: function(number: integer, wire: integer): boolean): {Field}
     -- The fields whose wire type does not fit their number, as `fields` lists them, or nil where every field
@@ -108,9 +108,9 @@ local record protobuf
   end
 
   -- The bytes of a message being written, from [`Protobuf.writer`]. Each method but `encode` writes one field
-  -- after those before it and answers the writer, so calls chain. None raises for a field it cannot write: the first field that cannot be
-  -- written (a number that is no field's, a value past its type) is why `encode` fails, and the fields after
-  -- it are not written.
+  -- after those before it and returns the writer, so calls chain. None raises for a field it cannot write: the
+  -- first field that cannot be written (a number that is no field's, a value past its type) is why `encode`
+  -- fails, and the fields after it are not written.
   interface Writer
     -- A varint field: an `int32`, `int64`, `uint32`, `uint64` or an `enum`. A negative value is ten bytes.
     int: function(self: Writer, number: integer, value: integer): Writer
@@ -145,10 +145,10 @@ local record protobuf
     -- Ends the embedded message the last `open` began. One that was not opened cannot be closed, and is why
     -- `encode` fails.
     close: function(self: Writer): Writer
-    -- Bytes that are fields already, such as [`Protobuf.encode`] answers, written as they are after the fields
+    -- Bytes that are fields already, such as [`Protobuf.encode`] returns, written as they are after the fields
     -- so far. They are not read: bytes that are no fields make a message that is none.
     append: function(self: Writer, bytes: string): Writer
-    -- Why the first field that could not be written could not, as `encode` answers it, or "" while every
+    -- Why the first field that could not be written could not, as `encode` returns it, or "" while every
     -- field could.
     trouble: function(self: Writer): string
     -- The bytes of the fields written so far, or nil and why the first that could not be written could
@@ -179,11 +179,11 @@ local record protobuf
     encode: function(Building): string?, string
   end
 
-  -- A message that was read. Message above says what each method answers.
+  -- A message that was read. Message above says what each method returns.
   record Decoded is Message
     userdata
 
-    -- Every field, or those `keep` answers true for.
+    -- Every field, or those `keep` keeps.
     fields: function(Decoded, keep?: function(number: integer, wire: integer): boolean): {Field}
     -- The fields whose wire type does not fit their number.
     unfit: function(Decoded, fits: {integer: integer}, named?: boolean): {Field}?

@@ -25,7 +25,7 @@ local command: Flags.Command = {
     licenses = { about = "the notices the components' licenses ask a copy to travel with" },
     cyclonedx = {
       about = "the components as a CycloneDX document",
-      spec = { ["-o"] = { value = "path", about = "write it to path rather than to stdout" } },
+      spec = { ["-o"] = { value = "path", about = "write it to path rather than to stdout", dash = "output" } },
     },
   },
 }

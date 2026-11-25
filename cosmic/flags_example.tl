@@ -121,7 +121,7 @@ function Example.subcommands()
 end
 
 --- A program that words its own refusal of a mistyped name:
---- [`Flags.nearest`] answers the names near it, by the rule the refusals of
+--- [`Flags.nearest`] returns the names near it, by the rule the refusals of
 --- [`Flags.parse`] and [`Flags.dispatch`] end "did you mean" by, and none
 --- for a word near nothing.
 function Example.nearest()
@@ -223,7 +223,7 @@ function Example.pages()
 end
 
 --- A program's index with more than its commands, as
---- [`Flags.dispatch`] answers it from a [`Flags.Documented`]: an opening, the
+--- [`Flags.dispatch`] returns it from a [`Flags.Documented`]: an opening, the
 --- groups in an order of its own, topics that `help` prints and `see` may
 --- name, and a last line of its own. [`Flags.program_help`] writes the
 --- same index, and [`Flags.topic_help`] the same page, for a program that

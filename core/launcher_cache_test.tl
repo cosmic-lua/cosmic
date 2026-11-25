@@ -102,7 +102,7 @@ local function test_a_fresh_cache_entry_is_stamped_once_it_settles(tmp: string)
   assert(stamps(cache) == 1, "a settled entry is stamped")
 end
 
---- Launches with a cache leaf of `mode` made first, answering the launch's
+--- Launches with a cache leaf of `mode` made first, returning the launch's
 --- result and what it said. A launch that is refused exits 126.
 local function launch_with_mode(program: string, tmp: string, name: string, mode: integer): Child.Result, string
   local cache = tmp .. "/" .. name
@@ -437,13 +437,19 @@ local function test_an_entry_newer_than_its_stamp_is_repaired(tmp: string)
 end
 
 --- Startup checks an entry's mode itself, so a start with no launcher before it, as [`Proc.relaunch`] starts one,
---- refuses and removes an entry that is not mode 0500, on every host. The next launch extracts it again.
+--- refuses and removes an entry that is not mode 0500, on every host. The entry here is 0555, the mode of root's
+--- shared copies, in a leaf that is not root's, so startup's check for root's copies (`roots_entry`, core/startup.c)
+--- runs and says no. This is the one test that enters that check off Linux, where the stamped tests skip. The next
+--- launch extracts it again.
 local function test_a_direct_start_of_an_entry_of_another_mode_removes_it(tmp: string)
   relaunch_or_skip()
   local program = assert(Proc.executable())
   local cache = tmp .. "/cache"
   assert(Fs.write(tmp .. "/ok.tl", "return function(): integer print('ok') return 0 end\n"))
   launch(program, cache, tmp)
+  if assert(assert(Fs.status(entry_of(cache))).stat).uid == 0 then
+    Test.skip("startup takes a 0555 entry of root's")
+  end
   assert(Fs.write(tmp .. "/again.tl", [[
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -451,7 +457,7 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 return function(): integer
   local again = assert(Proc.relaunch())
-  assert(Fs.chmod(assert(again.argv[1]), 0x1c0))
+  assert(Fs.chmod(assert(again.argv[1]), 0x16d))
   local argv: mut {string} = {}
   for _, word in ipairs(again.argv) do argv[#argv + 1] = word end
   argv[#argv + 1] = "-e"
@@ -467,7 +473,7 @@ end
   local r = assert(Child.run({ program, "again.tl" }, { env = env, cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   local out = r.stdout or ""
-  assert(r.ok and out:find("is not mode 0500 (mode 700); removed it", 1, true) ~= nil and
+  assert(r.ok and out:find("is not mode 0500 (mode 555); removed it", 1, true) ~= nil and
       out:sub(1, 2) ~= "0\n" and out:find("\nran\n", 1, true) == nil, out .. tostring(r.stderr))
   for _, name in ipairs((assert(Fs.list(cache)))) do
     assert(name:sub(1, 5) ~= "core-", "the refused entry is left: " .. name)

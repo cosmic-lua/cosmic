@@ -47,6 +47,9 @@ local record invoke
     mut cwd: string
     --- The environment it reads, name to value; this process's when nil.
     mut env?: {string:string}
+    --- The bytes standard input holds for the run, read from a file of their own; this process's own
+    --- standard input when nil.
+    mut stdin?: string
   end
 
   --- What a run ended with, as a started binary's would be.
@@ -123,6 +126,21 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
   local saved_out = hold(saved_out_fd, saved_out_trouble, "standard output")
   local saved_err_fd, saved_err_trouble = sys.dup(2)
   local saved_err = hold(saved_err_fd, saved_err_trouble, "standard error")
+  local input: integer? = nil
+  local saved_in: integer? = nil
+  local given_in = opts.stdin
+  if given_in ~= nil then
+    -- Saved first, so the file opened next never takes descriptor 0 should it be closed.
+    local saved_in_fd, saved_in_trouble = sys.dup(0)
+    saved_in = hold(saved_in_fd, saved_in_trouble, "standard input")
+    local wrote, write_trouble = Fs.write(dir .. "/stdin", given_in)
+    if not wrote then
+      release()
+      error("invoke: standard input: " .. tostring(write_trouble), 2)
+    end
+    local in_fd, in_trouble = sys.open(dir .. "/stdin", sys.O_RDONLY)
+    input = hold(in_fd, in_trouble, "a file for standard input")
+  end
   local working, here_trouble = sys.getcwd()
   if working == nil then
     release()
@@ -143,6 +161,7 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
   local ran, trouble = pcall(function(): string
     assert(sys.dup2(out, 1))
     assert(sys.dup2(err, 2))
+    if input ~= nil then assert(sys.dup2(input, 0)) end
     assert(sys.chdir(opts.cwd))
     local env = opts.env
     if env ~= nil then
@@ -193,6 +212,11 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
   sys.exit, sys.execve, Store.attach = exit, execve, attach -- checked: field_fixed*3
   local out_back, out_back_trouble = sys.dup2(saved_out, 1)
   local err_back, err_back_trouble = sys.dup2(saved_err, 2)
+  local in_back, in_back_trouble: boolean, string = true, ""
+  if saved_in ~= nil then
+    local put, put_trouble = sys.dup2(saved_in, 0)
+    in_back, in_back_trouble = put, tostring(put_trouble)
+  end
   local back, back_trouble = sys.chdir(here)
   local result: invoke.Result = { code = run.code, stdout = drained(out), stderr = drained(err) }
   -- A descriptor that could not be put back is left open: closed, what it
@@ -200,6 +224,7 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
   local keep: mut {integer:boolean} = {}
   if not out_back then keep[saved_out] = true end
   if not err_back then keep[saved_err] = true end
+  if not in_back and saved_in ~= nil then keep[saved_in] = true end
   local closing: mut {integer} = {}
   for _, fd in ipairs(held) do
     if keep[fd] ~= true then closing[#closing + 1] = fd end
@@ -211,6 +236,9 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
   end
   if not err_back then
     error("invoke: standard error could not be put back: " .. err_back_trouble)
+  end
+  if not in_back then
+    error("invoke: standard input could not be put back: " .. in_back_trouble)
   end
   if not back then
     error("invoke: the working directory could not be put back: " .. back_trouble)

@@ -1,7 +1,7 @@
 --- [`declared_key.host_kernel`], which a key holds and which names a CI
 --- leg's verdict cache, and [`declared_key.host_cpu`], the processor's
 --- features a key holds for a module that declares `cpu_features`,
---- answer what CI's `leg-host-id` (ci/cosmic_ci/host_id.tl) computes of
+--- match what CI's `leg-host-id` (ci/cosmic_ci/host_id.tl) computes of
 --- the same hosts: the kernel digest it names the cache by, and the
 --- features it logs. The kernel moves with what `host_identity` keys of
 --- it, so a cache named by it holds verdicts whose keys the host reaches;
@@ -183,7 +183,7 @@ local record Vector
 end
 
 --- The sysctl names core/syscalls.c's `cpu_features` asks on macOS, by the
---- feature each answers for.
+--- feature each reports.
 local darwin_features: {string:string} = {
   ["hw.optional.arm.FEAT_AES"] = "aes", ["hw.optional.AdvSIMD"] = "asimd",
   ["hw.optional.armv8_crc32"] = "crc32", ["hw.optional.arm.FEAT_PMULL"] = "pmull",

@@ -155,8 +155,8 @@ cosmic sandbox --system --read . -- ls -l
 Here `ls` can read this directory, and `--system` grants what a host
 program needs to start. A path you did not grant fails. If this host
 cannot enforce the policy, nothing runs, and the command says what is
-missing. `--cosmic` grants what cosmic itself needs, to run a script of
-yours the same way. `cosmic help sandbox` has the rest.
+missing. `cosmic sandbox --read . -- cosmic convert.tl` runs a script of
+yours the same way: cosmic needs no grant of its own to start. `cosmic help sandbox` has the rest.
 
 ## running another cosmic program
 
@@ -270,8 +270,8 @@ its options.
 
 - `cosmic rand uuid` prints a UUID, and `cosmic rand token` a random
   token. A program draws one with [`Rand.uuid`].
-- `cosmic time convert 2026-03-08T12:00Z --to America/New_York` converts
-  a time. Its answers are the same on every host.
+- `cosmic time convert 2026-03-08T12:00Z --zone America/New_York` converts
+  a time. It prints the same on every host.
 - `cosmic codec base64 <file>` encodes a file, and `-d` decodes it.
 - `cosmic archive list release.tar.gz` lists an archive, and `cosmic
   archive extract` unpacks one safely.

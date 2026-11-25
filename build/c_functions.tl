@@ -89,6 +89,9 @@ local exempt: {string: string} = {
   ["core/sandbox_rules.c:cosmic_boot_layer_apply"] = "runs only at the boot of a cosmic child a policy holds, " ..
     "which no grant lets write its worker's coverage directory once it has; " ..
     "cosmic/child_policy_cosmic_test.tl's no-x test sees what it holds",
+  ["core/sandbox_rules.c:cosmic_boot_seatbelt_apply"] = "runs only at the boot of a cosmic child a " ..
+    "Seatbelt profile holds on macOS, which no grant lets write its worker's coverage directory once " ..
+    "it has; cosmic/child_policy_cosmic_test.tl's no-x test sees what it holds",
   ["core/sandbox_root.c:descriptor_kind"] = init_only,
   -- mirrored_mode is inlined into it on every core, so has no entry of
   -- its own; the checked core keeps this one out of line.
@@ -131,6 +134,8 @@ local exempt_on: {string: {string: string}} = {
     ["core/promises.c:cosmic_promises_apply"] = "Darwin has no seccomp: spawn_program refuses a start with " ..
       "promises, ENOSYS, before any child could install a filter; a Linux run enters it " ..
       "(core/promises_child_test.tl)",
+    ["core/spawn.c:resolve_root"] = "runs only for an unveiled or offline start, which spawn refuses " ..
+      "off Linux, ENOSYS, before it; a Linux run enters it (cosmic/child_policy_isolate_test.tl)",
   },
 }
 
@@ -284,7 +289,7 @@ end
 --- `sysname`, the host's uname(2) sysname, adds that host's own
 --- exemptions (`exempt_on`) to those every host shares.
 --- `unavailable` holds only prerequisites actually found absent, with
---- their reasons: never an unknown answer or one a held run promised.
+--- their reasons: never an unknown result or one a held run promised.
 function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits,
                            sources?: {string: {string}}, sysname?: string,
                            unavailable?: {string: string}): c_functions.Tally

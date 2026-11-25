@@ -1,6 +1,6 @@
 --- `cosmic time`: the clock and the calendar the same on every host, for
 --- the ten-second question ("what is this timestamp in Tokyo?", "how many
---- days from then to now?") that GNU and BSD `date` answer in different
+--- days from then to now?") that GNU and BSD `date` settle in different
 --- dialects. Zones come from the tz database the binary carries and the
 --- arithmetic from [`cosmic.time`], so a command means one thing on Linux,
 --- macOS and Windows; only the default zone (the host's own, which
@@ -8,13 +8,13 @@
 ---
 --- Like `cosmic json` it prints no summary: its standard output is
 --- data for a pipe or a `$(...)`, and complaints go to standard error.
---- Its exit status is the verdict: 0 done, 1 an `add` whose answer does
+--- Its exit status is the verdict: 0 done, 1 an `add` whose result does
 --- not exist (the day its month lacks, a moment outside what the calendar
 --- holds, a result in a gap a zone skipped, under `--disambiguate
 --- reject`), 2 a command line, a time, a duration or a zone it cannot
 --- read. So a local time a zone skipped or repeated that the user typed,
 --- read under `reject`, is bad input (2), while one an `add` lands in is
---- an answer that does not exist (1). build/dispatch.tl's `bare` names
+--- a result that does not exist (1). build/dispatch.tl's `bare` names
 --- the verb.
 ---
 --- Local times a zone skips or repeats: `YYYY-MM-DDTHH:MM[:SS]` read in a
@@ -246,7 +246,7 @@ end
 --- fraction, `@1700000000`, `@-1.5`. Seconds are optional in the clock
 --- of RFC 3339 text as in local text (`2026-09-25T04:09Z`), and a failure
 --- names the forms, then the fault. The zone returned is nil for the
---- last three, which name none. Any text answers a moment or a failure.
+--- last three, which name none. Any text gives a moment or a failure.
 --- Raises for a `zone` no function of [`cosmic.time`] made.
 function verb.parse_input(text: string, zone?: Time.Zone, how?: Time.Disambiguation): verb.Moment?, string
   local zoned, why = read_input(text, zone, how or "compatible")
@@ -268,7 +268,7 @@ local function shown(seen: Seen, format: string, digits?: integer): string
 end
 
 --- `cosmic time [subcommand] ...`: prints what it is asked and returns the
---- exit code: 0 done, 1 an `add` with no answer, 2 a command line or an input it
+--- exit code: 0 done, 1 an `add` with no result, 2 a command line or an input it
 --- cannot read.
 --- @param argv the command line, `time` at slot 1
 --- @param io where the text is written and the clock read; the process's own when nil
@@ -317,7 +317,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     if host[1] == nil then
       local zone, why = to.local_zone()
       if zone == nil then
-        complain("the host's time zone: " .. plain(tostring(why)) .. "; name one with --zone, --from or --to")
+        complain("the host's time zone: " .. plain(tostring(why)) .. "; name one with --zone or --local-zone")
         return nil
       end
       host[1] = zone
@@ -372,12 +372,12 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
 
   if sub == "convert" then
-    local from = zone_of("--from")
+    local from = zone_of("--local-zone")
     if from == nil then return bare.refused end
     local convert_word = assert(parsed.words[1], "convert takes one word, which the arity check holds it to")
     local zoned = read_time(convert_word, from)
     if zoned == nil then return bare.refused end
-    local target = zone_of("--to")
+    local target = zone_of("--zone")
     if target == nil then return bare.refused end
     return print_seen({ ns = zoned.ns, zone = target })
   end

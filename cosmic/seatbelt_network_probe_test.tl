@@ -401,7 +401,7 @@ local function test_a_port_rule_and_binding(tmp: string)
 end
 
 --- What a connect to the unix socket at `path` ends in under `text`, by perl,
---- which says what the system answered.
+--- which says what the system returned.
 local function unix_reach(tmp: string, text: string, parameters: {string:string}, path: string): string
   local ended = run_under(tmp, text, parameters, { "/usr/bin/perl", "-e",
     "use Socket; socket(S, PF_UNIX, SOCK_STREAM, 0) or die \"socket: $!\\n\"; " ..
@@ -490,7 +490,7 @@ local function resolver_files(skip: string?): {string}
 end
 
 --- c-ares's way on a system with resolv.conf: read the file, ask each name
---- server for example.com over UDP, take the first answer.
+--- server for example.com over UDP, take the first response.
 local DIG <const> = [[
 use strict; use Socket;
 open(my $f, "<", "/etc/resolv.conf") or die "open resolv.conf: $!\n";

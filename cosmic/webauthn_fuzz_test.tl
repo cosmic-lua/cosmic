@@ -1,6 +1,6 @@
 --- Fuzz properties for [`cosmic.webauthn`], whose every input is a
 --- browser's JSON and so from anyone: [`Webauthn.verify_registration`]
---- and [`Webauthn.verify_authentication`] answer for any answer, changed
+--- and [`Webauthn.verify_authentication`] return for any response, changed
 --- in its bytes or in its JSON, and never raise; a login is taken only
 --- when the bytes the key signed are the ones it signed.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
@@ -106,7 +106,7 @@ local function text_of(answer: {string: Json.Value}): string
   return (assert(Json.encode(answer)))
 end
 
---- One of `parts` changed, or `whole` (the answer's text) changed, packed:
+--- One of `parts` changed, or `whole` (the JSON text) changed, packed:
 --- first "json" and the text, or the changed part's name and every part.
 local function changed(src: Fuzz.Source, names: {string}, parts: {string}, whole: string): string
   local which = src:int(0, #names)
@@ -118,7 +118,7 @@ local function changed(src: Fuzz.Source, names: {string}, parts: {string}, whole
   return Fuzz.pack(fields)
 end
 
---- The answer an input of `changed` stands for: its text decoded, or
+--- The response an input of `changed` stands for: its text decoded, or
 --- the one `build` makes of its parts; nil for text that is no object.
 local function answer_of(fields: {string}, build: function({string}): {string: Json.Value}): {string: Json.Value}?
   if fields[1] == "json" then

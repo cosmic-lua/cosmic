@@ -1,6 +1,6 @@
 --- A session of `cosmic lsp` holding its tool to the tree at each stage, and handed to the tool that replaces its process
 --- ([`build.lsp.handoff`], [`build.lsp.session`]'s `reenter`): the check made before the messages that stage the tree
---- and no others, the open documents and the unanswered messages that go with the session, a failed rebuild that leaves
+--- and no others, the open documents and the pending messages that go with the session, a failed rebuild that leaves
 --- it serving, and the file the hand-over is written as. The check of the tool itself ([`reboot.recheck`]) is in
 --- build/rebuild_lock_tool_test.tl.
 
@@ -68,7 +68,7 @@ end
 
 --- The session handed over holds the root, the encoding, and every open document with the text the editor holds,
 --- which is not the file's; the successor serves the message that was about to be handled, and then the rest, and
---- answers for the documents without being told them again.
+--- knows the documents without being told them again.
 local function test_a_session_handed_over_keeps_its_documents_and_the_message_it_had_not_answered()
   local root = session_fixture.project()
   assert(Fs.write(root .. "/main.tl", GOOD))
@@ -97,7 +97,7 @@ local function test_a_session_handed_over_keeps_its_documents_and_the_message_it
   assert(session_fixture.nth(after, 1)[1] ~= nil)
   session_fixture.answer(after, 7)
   assert(not after.err:find("initialize", 1, true), after.err)
-  -- The first process answered the hover itself, since it was not replaced: once there, once here.
+  -- The first process responded to the hover itself, since it was not replaced: once there, once here.
   session_fixture.answer(before, 7)
 end
 
@@ -115,7 +115,7 @@ local function test_a_failed_rebuild_leaves_the_session_serving_and_is_told_once
   local shown = shown_of(ran)
   assert(#shown == 1, table.concat(shown, "\n"))
   assert(assert(shown[1]):find("could not be rebuilt", 1, true), shown[1])
-  -- Still answering, and still publishing.
+  -- Still responding, and still publishing.
   session_fixture.answer(ran, 9)
   assert(#session_fixture.published(ran) >= 1)
 end
@@ -204,7 +204,7 @@ end
 --- The session is built and written only where the process is to be replaced, just before the exec, with a nonce
 --- handed on; a process that was not replaced removes its file. A process a reboot entered is let rebuild again once
 --- its first check has returned, not before, so a rebuild that never converges is refused at the first message it was
---- handed (the check answers stale) and cannot replace the process in a loop.
+--- handed (the check says stale) and cannot replace the process in a loop.
 local function test_the_session_is_written_only_for_an_exec_and_the_entry_released_after_the_first_check()
   local launch = session_fixture.project()
   local log: mut {string} = {}

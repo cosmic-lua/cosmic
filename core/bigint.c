@@ -128,9 +128,9 @@ static int push_number (lua_State *L, const mbedtls_mpi *number) {
  * secret exponent, constant in time in the exponent's value;
  * mbedtls_mpi_exp_mod_unsafe is the one for a public exponent. Neither
  * takes a random source, so there is no blinding to ask for. It is
- * Montgomery's and refuses an even modulus, and answers 1 for an
- * exponent of no limbs whatever the modulus, so a modulus of 1 is
- * answered here. */
+ * Montgomery's and refuses an even modulus, and sets the result to 1
+ * for an exponent of no limbs whatever the modulus, so a modulus of 1 is
+ * handled here. */
 static int bigint_powmod (lua_State *L) {
   lua_settop(L, 3);
   struct numbers *numbers = push_numbers(L);
@@ -222,7 +222,7 @@ static void release_limbs (void *resource) {
   cosmic_free(limbs);
 }
 
-/* Pushes a guard holding `count` limbs, all zero, and answers the
+/* Pushes a guard holding `count` limbs, all zero, and returns the
  * first: they are wiped and freed when the call returns or raises. */
 static mbedtls_mpi_uint *push_limbs (lua_State *L, size_t count) {
   struct cosmic_guard *guard = cosmic_guard_push(L, release_limbs);
@@ -244,7 +244,7 @@ static size_t limbs_of (size_t len) {
 }
 
 /* A public modulus: its bytes past the leading zero ones, how many
- * there are, how many limbs hold them, and the width an answer modulo
+ * there are, how many limbs hold them, and the width a result modulo
  * it is written at, which is the argument's own length. */
 struct modulus {
   const unsigned char *bytes;
@@ -283,8 +283,8 @@ static int push_fixed (lua_State *L, const mbedtls_mpi_uint *number,
 
 /* X = V mod N, where V is S plus `carry` times 2 to the bits of `limbs`
  * limbs and is below 2N: V itself when it is below N, and V - N when it
- * is not, chosen as mbedtls_mpi_core_montmul chooses its own answer.
- * The difference is always computed. It is the answer unless exactly
+ * is not, chosen as mbedtls_mpi_core_montmul chooses its own result.
+ * The difference is always computed. It is the result unless exactly
  * one of the carry and the borrow is set. With neither set, S is N or
  * more. With both set, V did not fit in the limbs, and the difference
  * wrapped around to V - N. A carry with no borrow cannot be: V is below
@@ -311,7 +311,7 @@ static void double_and_add (mbedtls_mpi_uint *X, mbedtls_mpi_uint bit,
 struct modular {
   struct modulus modulus;
   /* The modulus, and each of its `modulus.limbs` limbs long: two
-   * operands reduced, the answer and scratch. */
+   * operands reduced, the result and scratch. */
   mbedtls_mpi_uint *N, *A, *B, *X, *S;
   /* Two numbers below the modulus that it alone fixes, with R 2 to the
    * bits of the modulus's limbs: `square`, R times R, where the modulus
@@ -445,7 +445,7 @@ static struct modular push_modular (lua_State *L, int operands,
   return modular;
 }
 
-/* Pushes the answer of a call that works modulo `modular`'s modulus. */
+/* Pushes the result of a call that works modulo `modular`'s modulus. */
 static int push_modular_answer (lua_State *L, const struct modular *modular) {
   return push_fixed(L, modular->X, modular->modulus.limbs,
                     modular->modulus.width);
@@ -492,7 +492,7 @@ static int bigint_submod (lua_State *L) {
 }
 
 /* secret_mulmod(a, b, modulus): (a * b) mod modulus, for an odd modulus, as
- * wide as the modulus. Montgomery's multiplication answers its factors'
+ * wide as the modulus. Montgomery's multiplication writes its factors'
  * product over R, so the product is multiplied once more, by R times R. */
 static int bigint_mulmod (lua_State *L) {
   lua_settop(L, 3);
@@ -510,9 +510,9 @@ static int bigint_mulmod (lua_State *L) {
 /* secret_powmod(base, exponent, modulus): base^exponent mod modulus, for an odd
  * modulus, as wide as the modulus. The base is reduced and put in
  * Montgomery's form, which mbedtls_mpi_core_exp_mod takes it in and
- * answers in. That function is the library's exponentiation for a
- * secret exponent, on limbs: it is documented as constant in time in
- * the base and the exponent, and sizes its window by the exponent's
+ * writes its result in. That function is the library's exponentiation
+ * for a secret exponent, on limbs: it is documented as constant in time
+ * in the base and the exponent, and sizes its window by the exponent's
  * limbs, not by its value. */
 static int bigint_expmod (lua_State *L) {
   lua_settop(L, 3);

@@ -31,7 +31,7 @@ local record Orchestration
   --- process, in order with the rest (the serial path). `start` spawns it
   --- ([`Runner.spawn`]) for the lanes; once it has ended `finish` is
   --- given its reaped outcome, replays its retained log whole and records
-  --- it, and answers its status; `abandon` is given the outcome of a group
+  --- it, and returns its status; `abandon` is given the outcome of a group
   --- stopped before it ended, and replays what it logged.
   record Group
     name: string
@@ -52,6 +52,7 @@ local record Orchestration
     low?: integer
   end
   test_words: function(env: {string:string}): {string}
+  deadlined: function(env: {string:string}, timeout_ns: integer, margin_ns: integer): {string:string}
   shares: function(env: {string:string}): {string:string}
   sandboxed_fixtures: function(): {string:boolean}
   noexec_fixture: function(target: string): boolean
@@ -100,8 +101,8 @@ local function write(path: string, data: string) assert(Fs.write(path, data)) en
 --- The events whose run a suite may stand on verdicts in (`stands`): a
 --- push, main's or a branch's, and the merge queue's run, which restores main's
 --- verdicts (ci.yml's "restore test verdicts") and so runs only what its
---- merge moved from what main's last run reached; main's push of
---- linux-x86_64 takes the queue's verdicts of its commit too
+--- merge moved from what main's last run reached; main's push of each
+--- leg takes that leg's queue verdicts of its commit too
 --- (cosmic_ci/queue_verdicts.tl). ci.yml gives main's daily scheduled
 --- run and a manual run `push` as well; the weekly run and a manual run
 --- with `every_test` are the backstop, running every test.
@@ -130,7 +131,7 @@ local standing_events: {string:boolean} = { push = true, merge_group = true }
 --- The weekly scheduled run and a manual run with `every_test` keep
 --- their own event, so they run every test (`--all`) and stand on
 --- nothing another run reached (COSMIC_TEST_NO_SHARED=1). So no gating
---- run runs every test: a pass a key does not answer for, such as a
+--- run runs every test: a pass no key is responsible for, such as a
 --- test that turns on the clock or a flaky one, is caught only by the
 --- weekly run. When that run fails, GitHub tells only whoever last
 --- edited its cron line (the TODO on ci.yml's `schedule`).
@@ -192,8 +193,8 @@ end
 --- The environment every operation runs in: the driver's own, with
 --- FUZZ_ITERS=0, so a suite checks each fuzz property's corpus of kept
 --- failures but draws no inputs of its own. Drawing is fuzz.yml's, each
---- night with a seed of its own: a check that gates a change answers the
---- same on every run, and one that searches runs where a find blocks
+--- night with a seed of its own: a check that gates a change gives the
+--- same verdict on every run, and one that searches runs where a find blocks
 --- nobody's merge. [`suite_run`] then removes what names the run from a
 --- gating suite's copy ([`forget_run`]).
 local function environment(extra?: {string:string}): {string:string}
@@ -332,6 +333,18 @@ local function with_census(words: {string}): {string}
   return out
 end
 
+--- `words`, a suite's command, run as the share `share` (`I/N`) of its
+--- tests (`cosmic test --shard`); `words` itself where `share` is nil or
+--- empty.
+function Orchestration.with_share(words: {string}, share?: string): {string}
+  if share == nil or share == "" then return words end
+  local out: mut {string} = {}
+  for _, word in ipairs(words) do out[#out + 1] = word end
+  out[#out + 1] = "--shard"
+  out[#out + 1] = share
+  return out
+end
+
 local record Context
   db: string
   worker: string
@@ -446,15 +459,18 @@ local bound_warn_percent <const> = 75
 --- `bound_ns` says of that: a line naming both and the share, and from
 --- `bound_warn_percent` a second line, a warning GitHub shows on the
 --- run's page (`::warning::`). Whole seconds, the share rounded down.
-function Orchestration.bound_lines(name: string, elapsed_ns: integer, bound_ns: integer): {string}
+--- `kind` names what ran, "fixture" by default ("suite" for a suite).
+function Orchestration.bound_lines(name: string, elapsed_ns: integer, bound_ns: integer,
+                                   kind?: string): {string}
   assert(bound_ns > 0, "a fixture's bound is more than nothing")
+  local what = kind or "fixture"
   local second = Clock.seconds(1)
   local share = elapsed_ns * 100 // bound_ns
   local said = tostring(elapsed_ns // second) .. " s of its " .. tostring(bound_ns // second) ..
     " s bound (" .. tostring(share) .. "%)"
-  local lines: mut {string} = { "fixture: " .. name .. ": took " .. said }
+  local lines: mut {string} = { what .. ": " .. name .. ": took " .. said }
   if share >= bound_warn_percent then
-    lines[#lines + 1] = "::warning::fixture " .. name .. " took " .. said ..
+    lines[#lines + 1] = "::warning::" .. what .. " " .. name .. " took " .. said ..
       "; it fails at its bound, so make it cheaper or raise the bound before it does"
   end
   return lines
@@ -462,8 +478,8 @@ end
 
 --- Says [`Orchestration.bound_lines`] on stderr, and puts a warning on
 --- the run's summary page too. Fails nothing: the log is for reading.
-local function say_bound(name: string, started_ns: integer, bound_ns: integer)
-  local lines = Orchestration.bound_lines(name, Clock.monotonic_ns() - started_ns, bound_ns)
+local function say_bound(name: string, started_ns: integer, bound_ns: integer, kind?: string)
+  local lines = Orchestration.bound_lines(name, Clock.monotonic_ns() - started_ns, bound_ns, kind)
   for _, line in ipairs(lines) do
     local _, _ = Fs.put(Fs.stderr, line .. "\n")
   end
@@ -664,7 +680,8 @@ local fixed_point_per_test_timeout_s <const> = "340"
 --- Sized from main's dispatch run of 7 November 2026 (42360832601), where the 8637 tests took 1415 s with no verdict
 --- standing, against an earlier bound of 1500 s sized from 800 to 1114 s in October; counting a pure store's imports
 --- by instruction (cosmic-lua/cosmic#3629) costs about a tenth more on the checked core, about 1585 s. The bound is
---- 2100 s, 1.3 times that, inside the job's 60 minutes with its boot and build.
+--- 2100 s, 1.3 times that, inside the job's 60 minutes with its boot and build. The run starts no test past 1860 s
+--- (`checked_margin_ns` before the bound, [`Orchestration.deadlined`]), 1.17 times that.
 local checked_suite_timeout_ns <const> = Clock.seconds(2100)
 -- Each test's bound on the checked core: the release suites' (below)
 -- scaled by how much slower the checked core runs a test, about 2.9
@@ -714,26 +731,44 @@ local performance_test_timeout_ns <const> = Clock.seconds(150)
 -- without that reparse; it is still sized for it.
 local checked_compile_timeout_ns <const> = Clock.seconds(300)
 
--- A whole `cosmic test` run of every test, sandboxed (about 4750 tests
--- in October 2026), is what a change to core/ runs, as no verdict stands
--- for it, and what a merge-queue run that moved build/harness_epoch.tl
--- ran, 12 of the 22 queue runs on October 9 (a change to the harness now
--- misses every key and runs as much). Its time follows
--- the runner more than the tree. On alpine-x86_64 each whole suite took
--- 192 to 309 s on runners where the driver's own tests took 73 to 120 s;
--- on one where they took 135 s (37991854997), the local suite took 385 s
--- and the portable suite, the step after it, ran past 450 s, the bound
--- then. The bound is 1.6 times that, the slowest run seen, as #2834 sized
--- it: were both of a leg's suites to take it whole, the leg would end in
--- about 36 of the job's 45 minutes. Each test gets far less than the
--- whole run, so a test that hangs is ended and named by the runner, not
--- hidden under a cancelled run.
--- TODO: the suite's growth, and a slow runner, against this bound go
--- unseen until a run meets it: warn from `suite` when a run uses over 75%
--- of the bound, or run the whole suite on a schedule and report its
--- elapsed time against it.
-local suite_timeout_ns <const> = Clock.seconds(720)
+-- A whole `cosmic test` run of every test, sandboxed, is what a change to
+-- core/ runs, as no verdict stands for it, and what a run whose keys
+-- moved (the harness, the runtime) runs. Its time follows the runner and
+-- the number of tests: with about 10500 tests, a passing linux-x86_64
+-- queue suite took about 690 s. The bound is 1.6 times the slowest
+-- passing run, rounded up. A queue job runs one suite; a full leg runs
+-- two (macOS three, with the darwin suite), so a leg whose suites all
+-- neared it would meet the job's 60 minutes first: the bound is for one
+-- slow suite, not all. Each test gets far less than the whole run, so a
+-- test that hangs is ended and named by the runner, not hidden under a
+-- cancelled run. Each suite says its time against the bound, and warns
+-- from 75% of it ([`Orchestration.bound_lines`]), so its growth is seen
+-- before a run meets it.
+local suite_timeout_ns <const> = Clock.seconds(1200)
 local suite_test_timeout_s <const> = "10"
+
+--- `env`, a suite's, with the deadline its `cosmic test` stops starting
+--- tests at (COSMIC_TEST_DEADLINE, build/test.tl): `margin_ns` before
+--- `timeout_ns`, the bound the driver ends it at. The tests running then
+--- finish and the run keeps the verdicts it reached, so a suite that
+--- runs out of time (every key moved, and nothing stood) leaves the next
+--- run something to stand on; ended by the bound, it would keep none.
+--- The margin holds the longest a test in flight may take and the run's
+--- settling.
+--- In the merge queue, which saves no cache, the pull request's next
+--- try takes them in, in each job that runs a suite (ci.yml's "find this
+--- pull request's last failed try").
+function Orchestration.deadlined(env: {string:string}, timeout_ns: integer,
+                                 margin_ns: integer): {string:string}
+  return Maps.with(env, { COSMIC_TEST_DEADLINE = tostring((timeout_ns - margin_ns) // Clock.seconds(1)) })
+end
+
+--- What a release suite's deadline leaves before its bound: a test's
+--- own limit may be 180 s (`timeout` in its module's Test.policy, the
+--- largest in the tree), and the run then settles in some 30 s.
+local suite_margin_ns <const> = Clock.seconds(210)
+--- The checked suites' margin: their tests are slower, and so is settling.
+local checked_margin_ns <const> = Clock.seconds(240)
 
 --- Copies the files of `source` (modules, and where `data` the JSON
 --- files beside them that the modules read) to `destination`.
@@ -1255,7 +1290,7 @@ local function checked_suite(c: Context, target: string, work: string,
   -- (build/core_image.tl). It keeps its verdicts in checked.db
   -- ([`suite_verdicts`]), and says which key parts a run that stands on
   -- none reached (`--census`, build/test.tl).
-  -- --all where it stands on no verdict (`stands`): CI answers for
+  -- --all where it stands on no verdict (`stands`): CI is responsible for
   -- every test then, whatever its build directory holds.
   local checked_argv: mut {string} = { cosmic }
   local checked_run = Orchestration.suite_run({
@@ -1264,9 +1299,14 @@ local function checked_suite(c: Context, target: string, work: string,
   for _, word in ipairs(with_census(checked_run.words)) do
     checked_argv[#checked_argv + 1] = word
   end
-  s = logged(c, "checked suite", checked_argv,
+  -- The merge queue and a manual run of a branch run the suite in
+  -- shares, each a job of its own (COSMIC_CI_CHECKED_SHARD, `I/N`;
+  -- ci.yml's `checked`). A share does not check the C functions, which
+  -- only a whole run checks; main's push and the scheduled run run it
+  -- whole.
+  s = logged(c, "checked suite", Orchestration.with_share(checked_argv, named("COSMIC_CI_CHECKED_SHARD")),
     diagnostics .. "/checked-test.out", diagnostics .. "/checked-test.err",
-    checked_suite_timeout_ns, c.root, checked_run.env)
+    checked_suite_timeout_ns, c.root, Orchestration.deadlined(checked_run.env, checked_suite_timeout_ns, checked_margin_ns))
   record_suite(c, "checked", s, diagnostics .. "/checked-test.out")
   write(diagnostics .. "/checked-test.status", tostring(s) .. "\n")
   -- The suite's per-test times and verdicts (its `runs` rows), which
@@ -1341,6 +1381,14 @@ local function snapshot(c: Context, diagnostics: string, label: string,
   return integrity.status
 end
 
+--- What a suite called `name` that met `suite_timeout_ns` says of it:
+--- the whole run's bound, not a test's.
+local function suite_timed_out(name: string): string
+  return name .. " suite: timed out (status 124): it ran past its " ..
+    tostring(suite_timeout_ns // Clock.seconds(1)) ..
+    " s bound (suite_timeout_ns in ci/cosmic_ci/orchestration.tl), not past a test's\n"
+end
+
 --- One suite of `c`'s candidate, run by `executable`, `env` added to
 --- its environment.
 local function suite(c: Context, name: string, executable: string,
@@ -1354,8 +1402,10 @@ local function suite(c: Context, name: string, executable: string,
   local words = with_census(run.words)
   local argv: mut {string} = { executable }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
+  local began = Clock.monotonic_ns()
   local status = logged(c, name .. " suite", argv, out, err,
-    suite_timeout_ns, c.root, values)
+    suite_timeout_ns, c.root, Orchestration.deadlined(values, suite_timeout_ns, suite_margin_ns))
+  say_bound(name, began, suite_timeout_ns, "suite")
   record_suite(c, name, status, out)
   write(diagnostics .. "/" .. name .. "-test.status", tostring(status) .. "\n")
   local snapped: Snapped = { status = 1 }
@@ -1367,7 +1417,7 @@ local function suite(c: Context, name: string, executable: string,
     local _, _ = Fs.put(Fs.stderr, tostring(snap_answer) .. "\n")
   end
   if status == 124 then
-    local _, _ = Fs.put(Fs.stderr, name .. " suite: timed out (status 124)\n")
+    local _, _ = Fs.put(Fs.stderr, suite_timed_out(name))
   elseif status ~= 0 then
     local _, _ = Fs.put(Fs.stderr,
       name .. " suite: failed (status " .. tostring(status) .. ")\n")
@@ -1539,10 +1589,15 @@ local function phase_darwin_suite(p: PlatformContext): integer
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   mkdir(p.local_diagnostics)
   local out = p.local_diagnostics .. "/darwin-test.out"
+  local began = Clock.monotonic_ns()
   local status = logged(c, "darwin suite", argv, out,
-    p.local_diagnostics .. "/darwin-test.err", suite_timeout_ns, c.root, values)
+    p.local_diagnostics .. "/darwin-test.err", suite_timeout_ns, c.root,
+    Orchestration.deadlined(values, suite_timeout_ns, suite_margin_ns))
+  say_bound("darwin", began, suite_timeout_ns, "suite")
   record_suite(c, "darwin", status, out)
-  if status ~= 0 then
+  if status == 124 then
+    local _, _ = Fs.put(Fs.stderr, suite_timed_out("darwin"))
+  elseif status ~= 0 then
     local _, _ = Fs.put(Fs.stderr, "darwin suite: failed (status " .. tostring(status) .. ")\n")
   end
   return status
@@ -1593,7 +1648,8 @@ local function phase_checked_narrowing(p: PlatformContext): integer
   local out = p.local_diagnostics .. "/checked-narrowing-test.out"
   local values = release_promises(run.env)
   local status = logged(c, "checked narrowing", argv, out,
-    p.local_diagnostics .. "/checked-narrowing-test.err", checked_narrowing_timeout_ns, c.root, values)
+    p.local_diagnostics .. "/checked-narrowing-test.err", checked_narrowing_timeout_ns, c.root,
+    Orchestration.deadlined(values, checked_narrowing_timeout_ns, checked_margin_ns))
   -- A run that prints no "run-time types" line (the summary of a checked
   -- run) was not one: its modules carried no checks.
   local text = read(out)
@@ -2072,6 +2128,15 @@ function Orchestration.run_groups(high: Orchestration.Group,
   return run.status
 end
 
+--- Whether the self-driven fixture's boot of the tree by the product runs (`run`) or not (`skip`), given `env`, the
+--- driver's: COSMIC_CI_SELF_BOOT, which ci.yml sets to `skip` in the merge queue alone; unset, `run`.
+function Orchestration.self_boot(env: {string:string}): string
+  local value = env["COSMIC_CI_SELF_BOOT"] or ""
+  if value == "" then return "run" end
+  assert(value == "run" or value == "skip", "COSMIC_CI_SELF_BOOT must be run or skip, not " .. value)
+  return value
+end
+
 local function phase_fixtures(p: PlatformContext): integer
   local c = p.operation
   local target = p.target
@@ -2082,12 +2147,27 @@ local function phase_fixtures(p: PlatformContext): integer
   local source = work .. "/fixture-source"
   local s = fixture_source(p, source)
   if s ~= 0 then return s end
+  -- The product fixture ran on these bytes in assemble
+  -- (product-verification); run again on the same bytes and inputs, it
+  -- would check nothing more than that none of them moved since.
+  local function unmoved(): integer
+    local changed = ProductSetup.changed(product,
+      read(work .. "/product.before.sha256"))
+    assert(changed == nil, "product mutated by fixtures: " .. tostring(changed))
+    assert(hash(product .. "/cosmic") .. "\n" == read(work .. "/cosmic.before.sha256"), "product mutated by fixtures")
+    return 0
+  end
   -- The self-rebuild regression -- a rename, an unlink or a lock gone
-  -- wrong under a running tool -- runs on every leg: no leg of ci.yml
-  -- sets COSMIC_CI_SELF_REBUILD=skip (orchestration_test's
-  -- test_every_leg_runs_the_portable_suite_and_the_self_rebuild_fixture);
-  -- a run by hand (ci/run-local) may, to skip it.
-  if Env.get("COSMIC_CI_SELF_REBUILD") == "skip" then
+  -- wrong under a running tool -- runs on every leg. The merge queue
+  -- runs it in a job of its own on each Linux leg, beside the leg's
+  -- product (ci.yml's part `rebuild`): that job sets
+  -- COSMIC_CI_SELF_REBUILD=only, and the leg's product or regressions
+  -- job `skip`; every other run sets `run`. A run by hand (ci/run-local)
+  -- may skip it too.
+  local self_rebuild = named("COSMIC_CI_SELF_REBUILD") or "run"
+  assert(self_rebuild == "run" or self_rebuild == "skip" or self_rebuild == "only",
+    "COSMIC_CI_SELF_REBUILD must be run, skip or only, not " .. self_rebuild)
+  if self_rebuild == "skip" then
     local _, _ = Fs.put(Fs.stderr, "fixture: self-rebuild-regression: skipped on this leg " ..
         "(COSMIC_CI_SELF_REBUILD=skip)\n")
   else
@@ -2105,6 +2185,7 @@ local function phase_fixtures(p: PlatformContext): integer
         COSMIC_TEST_TIMEOUT = self_rebuild_per_test_timeout_s,
       })
     if s ~= 0 then return s end
+    if self_rebuild == "only" then return unmoved() end
   end
   -- The fixed-point regression is the slowest fixture on every leg
   -- (about 275 s on the x86-64 legs: `fixed_point_test_timeout_ns` says
@@ -2158,6 +2239,7 @@ local function phase_fixtures(p: PlatformContext): integer
     source = "self_driven", timeout_ns = self_driven_test_timeout_ns, extra = {
       COSMIC_FIXTURE_SOURCE = source,
       COSMIC_FIXTURE_PRODUCT = product,
+      COSMIC_FIXTURE_SELF_BOOT = Orchestration.self_boot(Env.all()),
       COSMIC_TEST_TIMEOUT = self_driven_per_test_timeout_s,
     } }, high_jobs)
   local low: mut {Orchestration.Group} = {}
@@ -2190,14 +2272,7 @@ local function phase_fixtures(p: PlatformContext): integer
   add(performance_spec(c, work, "release", product .. "/cosmic"))
   s = Orchestration.run_groups(high, low, high_jobs ~= nil)
   if s ~= 0 then return s end
-  -- The product fixture ran on these bytes in assemble
-  -- (product-verification); run again on the same bytes and inputs, it
-  -- would check nothing more than that none of them moved since.
-  local changed = ProductSetup.changed(product,
-    read(work .. "/product.before.sha256"))
-  assert(changed == nil, "product mutated by fixtures: " .. tostring(changed))
-  assert(hash(product .. "/cosmic") .. "\n" == read(work .. "/cosmic.before.sha256"), "product mutated by fixtures")
-  return 0
+  return unmoved()
 end
 
 local function phase_attest(p: PlatformContext): integer

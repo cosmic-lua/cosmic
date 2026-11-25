@@ -2,7 +2,6 @@
 --- `cosmic test`.
 
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
 local sys = require("cosmic.sys")
 
@@ -12,30 +11,33 @@ local Example = {} -- checked: literal_needs_type
 --- "rwxcu", the lists are unions without repeats, and two different
 --- values for one limit are refused -- here, naming the limit, not the
 --- policies.
-function Example.merge()
-  local reads: Sandbox.Policy = { grants = { { path = "/srv", letters = "r" } }, promises = { "fork" } }
-  local runs: Sandbox.Policy = { grants = { { path = "/srv", letters = "x" } }, promises = { "jit", "fork" } }
-  local both = assert(Sandbox.merge(reads, runs))
-  local grant = assert(assert(both.grants)[1])
-  print(grant.letters, table.concat(both.promises or {}, ",")) -- rx  fork,jit
-  assert(grant.letters == "rx" and table.concat(both.promises or {}, ",") == "fork,jit")
-  local clash, why = Sandbox.merge({ limits = { open_files = 64 } }, { limits = { open_files = 128 } })
+function Example.union()
+  local reads: Sandbox.Policy = { grants = { { path = "/srv", letters = "r" }, { calls = "fork" } } }
+  local runs: Sandbox.Policy = { grants = { { path = "/srv", letters = "x" }, { calls = "jit" }, { calls = "fork" } } }
+  local both = assert(Sandbox.union(reads, runs))
+  local grant = assert(Sandbox.paths(both)[1])
+  print(grant.letters, table.concat(Sandbox.calls(both), ",")) -- rx  fork,jit
+  assert(grant.letters == "rx" and table.concat(Sandbox.calls(both), ",") == "fork,jit")
+  local clash, why = Sandbox.union({ limits = { open_files = 64 } }, { limits = { open_files = 128 } })
   print(why) -- sandbox: $.limits.open_files: given two values, 64 and 128
   assert(clash == nil)
   assert(why:find("limits.open_files", 1, true), why)
 end
 
---- A profile's grants as a policy: "cosmic" is this program's own
---- executable, read and run, and a profile named in `profiles` is
---- resolved by `merge`.
+--- A profile's grants as a policy: "system" is what a host's programs read, and a profile named in `profiles` is
+--- resolved by [`Sandbox.union`].
 function Example.profile()
-  local cosmic = assert(Sandbox.profile("cosmic"))
-  local grant = assert(assert(cosmic.grants)[1])
-  assert(grant.path == assert(Proc.executable()) and grant.letters == "rx")
-  local merged = assert(Sandbox.merge({ profiles = { "cosmic" } }))
-  assert(merged.profiles == nil and assert(assert(merged.grants)[1]).path == grant.path)
+  local system = assert(Sandbox.profile("system"))
+  local grant = assert(Sandbox.paths(system)[1])
+  print(grant.path, grant.letters) -- /usr  r
+  local merged = assert(Sandbox.union({ profiles = { "system" } }))
+  local held = false
+  for _, joined in ipairs(Sandbox.paths(merged)) do
+    if joined.path == grant.path then held = true end
+  end
+  assert(merged.profiles == nil and held)
   local none, why = Sandbox.profile("everything")
-  print(why) -- sandbox: unknown profile "everything" (known: cosmic, proc, system)
+  print(why) -- sandbox: unknown profile "everything" (known: proc, programs, system)
   assert(none == nil)
 end
 

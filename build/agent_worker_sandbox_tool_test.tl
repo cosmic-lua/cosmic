@@ -3,6 +3,8 @@
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Policy = require("cosmic.agent.policy")
+local Proc = require("cosmic.proc")
+local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local Worker = require("cosmic.agent.worker")
 
@@ -29,6 +31,14 @@ local function test_a_snippet_is_held_to_the_sandbox_of_the_tools()
   local read = assert(Worker.run(w, "local Fs = require(\"cosmic.fs\")\nlocal body, _ = Fs.read(\"" .. outside ..
       "/secret\")\nreturn body == nil\n", { cwd = dir, policy = p, seconds = 60 }))
   assert(read["value"] == true, shown(read))
+  -- Under another policy the next run starts a new worker; under the same one it runs on.
+  assert(w.started == 1, tostring(w.started))
+  local narrower = assert(Policy.of(dir, { mode = "read", network = false, grants = {} }))
+  local refused = assert(Worker.run(w, "local Fs = require(\"cosmic.fs\")\nlocal wrote, _ = Fs.write(\"again.txt\", \"no\")\n" ..
+      "return wrote == false\n", { cwd = dir, policy = narrower, seconds = 60 }))
+  assert(refused["value"] == true and w.started == 2, shown(refused))
+  assert(Worker.run(w, "return 1\n", { cwd = dir, policy = narrower, seconds = 60 }))
+  assert(w.started == 2, tostring(w.started))
   Worker.close(w)
 end
 
@@ -55,5 +65,35 @@ local function test_a_snippet_of_no_commands_runs_no_program()
   assert(value ~= nil, shown(answer))
   local ran, _ = Fs.read(dir .. "/ran.txt")
   assert(answer["ok"] == true and value["bashed"] == false and value["ran"] == false and ran == nil, shown(answer))
+  -- Nor may the worker become another program: execve itself is refused, and the worker answers on.
+  local exec = "local sys = require(\"cosmic.sys\")\n" ..
+    "local done, _, errno = sys.execve(\"/bin/sh\", { \"/bin/sh\", \"-c\", \"echo ran > ran.txt\" }, {})\n" ..
+    "return not done and (errno == sys.EPERM or errno == sys.EACCES)\n"
+  local refused = assert(Worker.run(w, exec, { cwd = dir, policy = p, seconds = 60, commands = false }))
+  local after, _ = Fs.read(dir .. "/ran.txt")
+  assert(refused["ok"] == true and refused["value"] == true and after == nil, shown(refused))
+  assert(w.started == 1, tostring(w.started))
+  Worker.close(w)
+end
+
+--- A policy stacked of layers that each grant this program's own file, and name no profile, still starts the worker
+--- of no commands, and the grant loses its `x`: the worker cannot run that file.
+local function test_layers_that_grant_this_program_start_a_worker_of_no_commands_that_cannot_run_it()
+  local dir = assert(Fs.mkdtemp("agent-worker-"))
+  local own = assert(Proc.executable())
+  local base = assert(Policy.of(dir, { mode = "write", network = false, grants = {} }))
+  local layer = assert(Sandbox.union(base, { grants = { { path = own, letters = "rx" } } }))
+  local p = assert(Sandbox.intersect(layer, layer))
+  local granted = false
+  for _, grant in ipairs(Sandbox.paths(p)) do
+    if grant.path == own and grant.letters:find("x", 1, true) ~= nil then granted = true end
+  end
+  assert(granted and p.profiles == nil, "the layers grant this program")
+  local w = Worker.new()
+  local code = "local Proc = require(\"cosmic.proc\")\nlocal sys = require(\"cosmic.sys\")\n" ..
+    "local done, _, errno = sys.execve(assert(Proc.executable()), { \"cosmic\", \"--version\" }, {})\n" ..
+    "return not done and (errno == sys.EPERM or errno == sys.EACCES)\n"
+  local answer = assert(Worker.run(w, code, { cwd = dir, policy = p, seconds = 60, commands = false }))
+  assert(answer["ok"] == true and answer["value"] == true, shown(answer))
   Worker.close(w)
 end

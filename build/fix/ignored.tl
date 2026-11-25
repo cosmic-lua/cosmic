@@ -2,10 +2,10 @@
 --- ignore and anything under a `node_modules/`. Only `fix` asks. The build, the link index and the projection never do,
 --- so what they hold does not turn on git, on a user's excludes or on what the tree has ignored.
 ---
---- The answer is the same on every host that holds the tree: git is asked with `--exclude-per-directory=.gitignore`
+--- The result is the same on every host that holds the tree: git is asked with `--exclude-per-directory=.gitignore`
 --- alone, so neither the user's global excludes (`core.excludesFile`), nor `.git/info/exclude`, nor the global or
 --- system git configuration is read (the repository's own `.git/config` still is), and the `GIT_*` variables that could point it at another repository are cleared. Where git
---- cannot answer (it is not installed, the root is no repository, or it lies inside an ignored directory, which git
+--- cannot tell (it is not installed, the root is no repository, or it lies inside an ignored directory, which git
 --- refuses) only `node_modules/` is left alone. Because the global configuration is not read, neither is the user's
 --- `safe.directory`: in a repository another user owns git exits 128 ("dubious ownership"), and the `say` that
 --- [`ignored.of`] is given hears of that fallback once.

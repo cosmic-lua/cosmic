@@ -21,7 +21,7 @@
 ---
 --- `before` and `after` are the agent's own policy over each tool call
 --- the model makes, and each call a snippet of run makes of the agent
---- (sql, store, mcp): `before` may block a call, with a reason the model
+--- (history, store, mcp): `before` may block a call, with a reason the model
 --- reads (or the snippet, raised), and `after` may change a result
 --- before it is kept or read
 --- ([`Agent.Before`], [`Agent.After`], [`cosmic.agent.check`]). They are
@@ -54,7 +54,7 @@
 --- and sends the whole conversation still, and the server reads it
 --- from the last compaction block on, so a request after one costs
 --- what the summary and the turns since cost. What the summary leaves
---- out is still in sessions.db, where the sql tool finds it.
+--- out is still in sessions.db, where Host.history in run finds it.
 ---
 --- Each request asks the API (beta headers): to fall back to another
 --- model where one refuses (server-side-fallback-2026-07-01); to say
@@ -65,7 +65,7 @@
 --- Each message, and each tool's whole output, is kept in sessions.db
 --- before it is shown (`cosmic docs cosmic.agent.sessions`). So a run that ends in
 --- the middle of a turn loses nothing it showed, and `cosmic agent resume`
---- (or ask or chat with --continue) takes the turn up where it was:
+--- (or ask or chat, which go on with the newest session) takes the turn up where it was:
 --- each tool call that ended is answered with its kept output, one
 --- that never ended is answered as interrupted, not run again, and the
 --- request the run was in is sent again. A turn is started again at
@@ -119,7 +119,10 @@ local record Agent
   --- reaches a limit is the last; the time is counted from the turn's
   --- start, and a tool that runs past it is stopped as the user stops one
   --- (bash's command is ended as at its timeout). A turn resumed
-  --- ([`Agent.Session.resume`]) counts from nothing again.
+  --- ([`Agent.Session.resume`]) counts from nothing again. The model
+  --- reads the limits beside the turn's prompt. Once a limit is mostly
+  --- spent (a quarter left, or one request), a note with the tool results
+  --- tells it to finish.
   record Budget
     --- Tokens new to each request of the turn: input, cache writes and
     --- output. Cache reads are left out: each counts the whole prefix
@@ -157,8 +160,9 @@ local record Agent
     where?: string
     --- What opens a request; Http.open by default.
     send?: Send
-    --- What the tools are held to (cosmic.agent.policy); nil for nothing.
-    sandbox?: Sandbox.Policy
+    --- The layers the tools are held to (cosmic.agent.policy), each held stacked: only what every layer lets
+    --- them do ([`Sandbox.intersect`]); nil or {} for nothing.
+    sandbox?: {Sandbox.Policy}
     --- The background jobs the tools start (cosmic.agent.jobs); nil for none.
     jobs?: Jobs.Set
     --- The worker the run tool sends its snippets to (cosmic.agent.worker); nil for none.
@@ -198,6 +202,9 @@ local record Agent
     kind: TextKind
     --- What it said.
     text: string
+    --- True where the message that holds it also calls a tool: words on
+    --- the way, not the turn's answer.
+    calls?: boolean
   end
 
   --- The model called the tool `name` with `input`.
@@ -237,7 +244,7 @@ local record Agent
   end
 
   --- Who made a [`Agent.Call`]: the model, or a snippet's code, through
-  --- its host: sql, store or mcp, each asked as a call of its own.
+  --- its host: history, store or mcp, each asked as a call of its own.
   enum Caller "model" "code" end
 
   --- The kind of a [`Agent.BlockedEvent`].
@@ -262,7 +269,7 @@ local record Agent
   --- A call, as `before` and `after` see it: a tool call of the model,
   --- or a snippet's call of the agent.
   record Call
-    --- The tool's name, or the snippet's call's: sql, store.get,
+    --- The tool's name, or the snippet's call's: history, store.get,
     --- store.put, mcp.servers, mcp.tools or mcp.call.
     name: string
     --- What it was given, as the tool gets it: read it, and change none of it.
@@ -357,8 +364,9 @@ local record Agent
     cwd: string
     --- What opens a request; Http.open where nil.
     mut send?: Send
-    --- What the tools are held to (cosmic.agent.policy); nil for nothing.
-    mut sandbox?: Sandbox.Policy
+    --- The layers the tools are held to (cosmic.agent.policy), stacked as [`Sandbox.intersect`] joins them at
+    --- each call; nil or {} for nothing. A call is blocked when they do not join.
+    mut sandbox?: {Sandbox.Policy}
     --- The background jobs the tools start (cosmic.agent.jobs); nil for none.
     mut jobs?: Jobs.Set
     --- The worker the run tool sends its snippets to (cosmic.agent.worker); nil for none.
@@ -397,6 +405,9 @@ local record Agent
     --- Whether the user stopped the last turn this run ran (`stopping`
     --- said so): the agent sets it.
     mut stopped: boolean
+    --- Whether the last turn this run ran ended as its budget was spent
+    --- ([`Agent.BUDGET_SPENT`]): the agent sets it.
+    mut spent: boolean
     --- The id of the last reply, which the next request names for its
     --- cache diagnosis; nil until one came, or was read from where it is
     --- kept; "" where the API refused the one named, so none is named.
@@ -501,6 +512,54 @@ local function tell(s: Agent.Session, event: Agent.Event)
   if not ran and s.on_failed == nil then s.on_failed = told(err) end
 end
 
+--- What `layers` hold stacked ([`Sandbox.intersect`]), and "": nil for no sandbox where `layers` is nil; nil and why
+--- for no layer, or layers that do not join.
+local function joined(layers?: {Sandbox.Policy}): Sandbox.Policy?, string
+  if layers == nil then return nil, "" end
+  if #layers == 0 then return nil, "the sandbox has no layer: give nil for none" end
+  if #layers == 1 then return layers[1], "" end
+  local policy, why = Sandbox.intersect(table.unpack(layers))
+  if policy == nil then return nil, "the sandbox's layers do not join: " .. why end
+  return policy, ""
+end
+
+--- [`joined`] of `s.sandbox`, kept while its layers are the same: the worker runs on under the policy it was
+--- started with, and starts again under another.
+local record Joined
+  from: {Sandbox.Policy}
+  policy?: Sandbox.Policy
+end
+local JOINED: mut {Agent.Session: Joined} = setmetatable({}, { __mode = "k" })
+
+local function held_policy(s: Agent.Session): Sandbox.Policy?, string
+  local layers = s.sandbox
+  local kept = JOINED[s]
+  if layers ~= nil and kept ~= nil and #kept.from == #layers then
+    local same = true
+    for i, layer in ipairs(layers) do
+      if kept.from[i] ~= layer then same = false end
+    end
+    if same then return kept.policy, "" end
+  end
+  local policy, why = joined(layers)
+  if policy == nil and why ~= "" then return nil, why end
+  local copy: mut {Sandbox.Policy} = {}
+  for _, layer in ipairs(layers or {}) do copy[#copy + 1] = layer end
+  if layers ~= nil then JOINED[s] = { from = copy, policy = policy } else JOINED[s] = nil end
+  return policy, ""
+end
+
+--- The paths a call by code of `name` with `input` touches: its tool's, where it is one code may call
+--- ([`Tools.for_code`]) and says; none for a host call of the agent (history, store, mcp). Nil and why where they fail.
+local function code_paths(s: Agent.Session, name: string, input: Tools.Object): {Tools.Touch}?, string
+  local t = Tools.find(s.tools, name)
+  local paths = if t ~= nil and Tools.for_code(t) then t.paths else nil end
+  if paths == nil then return {}, "" end
+  local ran, found = pcall(paths, input, s.cwd)
+  if not ran then return nil, "the tool's paths failed: " .. tostring(found) end
+  return found, ""
+end
+
 --- What `before` of `s` says of `call`: nil to run it, or why not.
 local function blocked(s: Agent.Session, call: Agent.Call): string?
   local before = s.before
@@ -590,13 +649,11 @@ local function record(s: Agent.Session, call: string, tool: string, input: Tools
   local output, why = Sessions.output(db, id, { tool = tool, input = given or "{}", text = result.raw or result.text,
     is_error = result.is_error, call = call })
   if output == nil then return nil, why end
-  -- What sql says is kept already, and it says where to find more.
-  if result.raw == nil or tool == "sql" then return result.text, "" end
-  local how = if Tools.find(s.tools, "sql") ~= nil then "use sql"
-    elseif Tools.find(s.tools, "run") ~= nil then "use require(\"cosmic.agent.host\").sql in run"
-    else "" end
-  if how == "" then return result.text, "" end
-  local shown = result.text .. "\n\n[The whole output is kept as output " .. tostring(output) .. ": " .. how .. ".]"
+  if result.raw == nil then return result.text, "" end
+  local run = Tools.find(s.tools, "run")
+  if run == nil or not Tools.for_model(run) then return result.text, "" end
+  local shown = result.text .. "\n\n[The whole output is kept as output " .. tostring(output) ..
+    ": read it in run with Host.output(" .. tostring(output) .. ").]"
   local kept, shown_why = Sessions.shown(db, output, shown)
   if not kept then return nil, shown_why end
   return shown, ""
@@ -997,6 +1054,59 @@ local function spent_why(s: Agent.Session, spent: Spent): string?
   return nil
 end
 
+--- `usd` as the budget notes show it: cents, or tenths of a cent below a dime.
+local function dollars(usd: number): string
+  return string.format(if usd ~= 0 and usd < 0.1 then "$%.4f" else "$%.2f" end, usd)
+end
+
+--- The limits of budget `b`, each with what `spent` used of it where given: "2 of 6 requests, $0.04 of $0.25".
+local function budget_text(b: Agent.Budget, spent?: Spent): string
+  local parts: mut {string} = {}
+  local function put(used: string?, most: string)
+    parts[#parts + 1] = if used ~= nil then used .. " of " .. most else most end
+  end
+  local tokens, cost, turns, seconds = b.tokens, b.cost, b.turns, b.seconds
+  if turns ~= nil then
+    put(if spent ~= nil then tostring(spent.turns) else nil end, String.counted(turns, "request"))
+  end
+  if tokens ~= nil then
+    put(if spent ~= nil then tostring(spent.tokens) else nil end, String.counted(tokens, "token"))
+  end
+  if cost ~= nil then
+    put(if spent ~= nil then dollars(spent.cost) else nil end, dollars(cost))
+  end
+  if seconds ~= nil then
+    local took = if spent ~= nil then string.format("%.0f s", (Clock.monotonic_ns() - spent.started) / 1e9) else nil end
+    put(took, string.format("%g s", seconds))
+  end
+  return table.concat(parts, ", ")
+end
+
+--- What the model reads at the start of a turn with budget `b`, so it plans to finish within it.
+local function budget_note(b: Agent.Budget): string
+  return "This turn's budget: " .. budget_text(b) .. ". The turn ends when the first of these is spent, " ..
+    "so plan to finish within it."
+end
+
+--- What the model reads with its tool results once `s`'s turn has spent most of a limit (the next request may be
+--- the last), else nil.
+local function nearly_spent(s: Agent.Session, spent: Spent): string?
+  local b = s.budget
+  if b == nil then return nil end
+  local near = false
+  local function over(used: number, most?: number)
+    if most ~= nil and used >= 0.75 * most then near = true end
+  end
+  local turns = b.turns
+  if turns ~= nil and spent.turns + 1 >= turns then near = true end
+  over(spent.tokens, b.tokens)
+  over(spent.cost, b.cost)
+  over((Clock.monotonic_ns() - spent.started) / 1e9, b.seconds)
+  if not near then return nil end
+  return "Budget: spent " .. budget_text(b, spent) .. ". The next reply may be the last: finish now with what " ..
+    "you have."
+end
+
 --- Runs the loop from where `s` is, until the model ends its turn, or
 --- its budget is spent.
 local function loop(s: Agent.Session): boolean, string
@@ -1007,7 +1117,10 @@ local function loop(s: Agent.Session): boolean, string
   while true do
     if stopped(s) then return stop(s) end
     local over = spent_why(s, spent)
-    if over ~= nil then return finish(s, false, over) end
+    if over ~= nil then
+      s.spent = true
+      return finish(s, false, over)
+    end
     local request = request_of(s)
     local reply, why = call(s, request)
     spend(spent, request)
@@ -1034,13 +1147,18 @@ local function loop(s: Agent.Session): boolean, string
     local halted, failed = false, ""
     -- Why the budget halted the turn, where it did rather than the user.
     local spent_reason: string? = nil
+    local calls = false
+    for _, item in ipairs(content or {}) do
+      local block, _ = Json.to_object(item)
+      if block ~= nil and block["type"] == "tool_use" then calls = true end
+    end
     for _, item in ipairs(content or {}) do
       local block, _ = Json.to_object(item)
       local kind = block and block["type"]
       local said_text = block and block["text"]
       local name = block and block["name"]
       if kind == "text" and said_text is string then
-        tell(s, { kind = "text", text = said_text })
+        tell(s, { kind = "text", text = said_text, calls = calls })
       elseif block ~= nil and kind == "tool_use" then
         local id = block["id"]
         local call_id = if id is string then id else "" end
@@ -1068,7 +1186,9 @@ local function loop(s: Agent.Session): boolean, string
           tell(s, { kind = "tool", name = called, input = given })
           -- A tool that runs past the turn's time is stopped as the user stops one.
           local asking = function(): boolean return stopped(s) or spent_why(s, spent) ~= nil end
-          local tool = Tools.find(s.tools, called)
+          -- A tool for code alone is not the model's to call: it is not offered, so it is not found.
+          local listed = Tools.find(s.tools, called)
+          local tool = if listed ~= nil and Tools.for_model(listed) then listed else nil end
           local paths = tool and tool.paths
           local touched: {Tools.Touch} = {}
           local reason: string? = nil
@@ -1079,19 +1199,22 @@ local function loop(s: Agent.Session): boolean, string
           local asked_call: Agent.Call = { name = called, input = given, caller = "model", cwd = s.cwd, id = s.id,
             paths = touched, stopped = asking }
           local result: Tools.Result
+          local policy, unjoined = held_policy(s)
+          if reason == nil and unjoined ~= "" then reason = unjoined end
           if reason == nil and tool ~= nil then reason = blocked(s, asked_call) end
           if reason ~= nil then
             result = { text = "Blocked: " .. reason, is_error = true }
             tell(s, { kind = "blocked", name = called, caller = "model", input = given, reason = reason })
           else
             local context: Tools.Context = { cwd = s.cwd, db = s.db, session = s.id,
-              policy = s.sandbox, jobs = s.jobs, worker = s.worker,
+              policy = policy, jobs = s.jobs, worker = s.worker,
               mcp = s.mcp, stopped = asking, deadline_ns = deadline, tools = s.tools,
               commands = Tools.find(s.tools, "bash") ~= nil,
               guard = if s.before == nil then nil else function(host: string, args: Tools.Object): string?
+                local touches, touches_why = code_paths(s, host, args)
                 local by_code: Agent.Call = { name = host, input = args, caller = "code", cwd = s.cwd, id = s.id,
-                  paths = {}, stopped = asking }
-                local why_not = blocked(s, by_code)
+                  paths = touches or {}, stopped = asking }
+                local why_not = if touches == nil then touches_why else blocked(s, by_code) end
                 if why_not ~= nil then
                   tell(s, { kind = "blocked", name = host, caller = "code", input = args, reason = why_not })
                 end
@@ -1099,11 +1222,13 @@ local function loop(s: Agent.Session): boolean, string
               end end,
               amend = if s.after == nil then nil else function(host: string, args: Tools.Object,
                                                                answered: Tools.Result): Tools.Result
+                local touches, _ = code_paths(s, host, args)
                 local by_code: Agent.Call = { name = host, input = args, caller = "code", cwd = s.cwd, id = s.id,
-                  paths = {}, stopped = asking }
+                  paths = touches or {}, stopped = asking }
                 return afterward(s, by_code, answered)
               end end }
-            result = Tools.dispatch(s.tools, called, given, context)
+            result = if tool ~= nil then Tools.dispatch(s.tools, called, given, context) else
+              { text = "Tool " .. called .. " not found", is_error = true } end
             if tool ~= nil then result = afterward(s, asked_call, result) end
           end
           local shown, record_why = record(s, call_id, called, given, result)
@@ -1118,6 +1243,9 @@ local function loop(s: Agent.Session): boolean, string
       for _, t in ipairs(steering(s)) do sent[#sent + 1] = t end
     end
     for _, t in ipairs(sent) do results[#results + 1] = { type = "text", text = t } end
+    -- None where the budget is spent already: the turn ends next, and a later prompt would read it stale.
+    local near = if #results > 0 and not halted and spent_why(s, spent) == nil then nearly_spent(s, spent) else nil end
+    if near ~= nil then results[#results + 1] = { type = "text", text = near } end
     -- Each tool call is answered before any stop, so the session stays one the API takes.
     if #results > 0 then
       local answers: Json.Value = { role = "user", content = Json.array(results) }
@@ -1129,7 +1257,10 @@ local function loop(s: Agent.Session): boolean, string
       end
     end
     if failed ~= "" then return false, failed end
-    if halted and spent_reason ~= nil then return finish(s, false, spent_reason) end
+    if halted and spent_reason ~= nil then
+      s.spent = true
+      return finish(s, false, spent_reason)
+    end
     if halted then return stop(s) end
     local stop_reason = reply["stop_reason"]
     if stop_reason == "refusal" then return finish(s, false, "the model refused") end
@@ -1148,10 +1279,14 @@ end
 --- Adds `text` to `s` as the user's, and runs the loop until the model ends its turn.
 local function prompt(s: Agent.Session, text: string): boolean, string
   if text:match("^%s*$") then return false, "the prompt is blank" end
-  s.stopped = false
+  s.stopped, s.spent = false, false
   local marked, mark_why = mark(s, 0, false)
   if not marked then return false, mark_why end
-  local kept, keep_why = add(s, { role = "user", content = text })
+  local budget = s.budget
+  -- The budget goes in the turn's message, not the system prompt, so the cache holds whatever the budget.
+  local content: Json.Value = if budget == nil then text else
+    Json.array({ { type = "text", text = text }, { type = "text", text = budget_note(budget) } }) end
+  local kept, keep_why = add(s, { role = "user", content = content })
   if not kept then return false, keep_why end
   return loop(s)
 end
@@ -1168,7 +1303,7 @@ local function resume(s: Agent.Session): boolean, string
   if s.restarts >= RESTARTS then
     return false, "the turn was started again " .. String.counted(s.restarts, "time") .. "; give a prompt to go on"
   end
-  s.stopped = false
+  s.stopped, s.spent = false, false
   local marked, mark_why = mark(s, s.restarts + 1, false)
   if not marked then return false, mark_why end
   return loop(s)
@@ -1204,7 +1339,7 @@ local class AgentSession is Agent.Session
   mut where: string
   cwd: string
   mut send?: Agent.Send
-  mut sandbox?: Sandbox.Policy
+  mut sandbox?: {Sandbox.Policy}
   mut jobs?: Jobs.Set
   mut worker?: Worker.Set
   mut mcp?: AgentMcp.Set
@@ -1221,6 +1356,7 @@ local class AgentSession is Agent.Session
   mut restarts: integer
   mut ended: boolean
   mut stopped: boolean
+  mut spent: boolean
   mut last_reply?: string
   mut sent_ns?: integer
   mut budget?: Agent.Budget
@@ -1268,7 +1404,7 @@ function Agent.new(options: Agent.Options): Agent.Session
     where = options.where or Prompt.where(options.cwd), cwd = options.cwd,
     send = options.send, sandbox = options.sandbox, jobs = options.jobs, worker = options.worker,
     mcp = options.mcp, build = options.build, messages = held, db = options.db, id = options.id,
-    restarts = options.restarts or 0, ended = options.ended == true, stopped = false,
+    restarts = options.restarts or 0, ended = options.ended == true, stopped = false, spent = false,
     on = nil, before = nil, after = nil, on_failed = nil, steering = nil, stopping = nil, last_reply = nil,
     sent_ns = nil, budget = options.budget,
   }

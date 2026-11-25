@@ -74,7 +74,7 @@ local class Watch is Stream.Reader
   session: string
   mut started: boolean
   mut ended: boolean
-  skip?: function(Watch, integer): boolean, string
+  skip?: function(Watch, integer): (true) | (false, Failure)
 
   function read(self, _max_bytes?: integer): (string | false) | (nil, Failure)
     if not self.started then
@@ -88,8 +88,8 @@ local class Watch is Stream.Reader
     return "\n"
   end
 
-  function close(self): boolean, string
-    if self.ended then return true, "" end
+  function close(self): (true) | (false, Failure)
+    if self.ended then return true end
     self.ended = true
     local d = self.daemon
     d.open = d.open - 1
@@ -112,7 +112,7 @@ local class Watch is Stream.Reader
       d.etag = d.etag + 1
     end
     d.lines[#d.lines + 1] = "ended " .. self.session
-    return true, ""
+    return true
   end
 end
 
@@ -214,8 +214,8 @@ local function text_of(config: {string: Json.Value}): string
 end
 
 --- A serve files the program's sites and forwards under its stream,
---- beside what others serve, answers their URLs, and is gone once the
---- serving is closed; what others serve stays.
+--- beside what others serve, responds at their URLs, and is gone once
+--- the serving is closed; what others serve stays.
 local function test_a_serve_is_filed_under_its_stream_and_dropped_with_it(tmp: string)
   local said, d = across(tmp, [[
   local served = assert(ts:serve({

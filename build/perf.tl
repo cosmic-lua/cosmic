@@ -397,7 +397,7 @@ end
 
 local function latest_build(fixture: Fixture): {string}
   local db = assert(Sqlite.open(fixture.output .. "/build.db"))
-  local rows = assert(Sqlite.text_rows(db,
+  local rows = assert(db:text_rows(
     "SELECT compiled, cached, read, verdict, run, (SELECT COUNT(*) FROM builds) FROM builds ORDER BY run DESC LIMIT 1"))
   assert(db:close())
   local row = rows[1]
@@ -477,7 +477,7 @@ end
   while true do
     local remaining = deadline - Clock.now_ns() + 1
     if remaining <= 0 then break end
-    assert(Clock.sleep_ns(remaining))
+    assert(Clock.sleep(remaining))
   end
   local setup: mut {Child.Result} = {}
   setup[#setup + 1] = command({ binary, "build", "--host" }, f)

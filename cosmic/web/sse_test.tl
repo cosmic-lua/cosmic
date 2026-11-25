@@ -4,6 +4,7 @@
 
 local Channel = require("cosmic.channel")
 local Clock = require("cosmic.clock")
+local Failure = require("cosmic.failure")
 local Html = require("cosmic.html")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
@@ -12,6 +13,21 @@ local Test = require("cosmic.test")
 local Web = require("cosmic.web")
 
 Test.policy{ loopback = { "127.0.0.1" } }
+
+--- The next event `source` holds, waiting at most `timeout_ns`; raises
+--- when there is none.
+local function event_of(source: Sse.EventSource, timeout_ns?: integer): Sse.Event
+  local ev, why = source:next(timeout_ns)
+  if ev == nil then error(tostring(why), 2) end
+  if ev == false then error("the source ended", 2) end
+  return ev
+end
+
+--- Whether `source` holds no event now: its `next` with no wait times out.
+local function timed_out(source: Sse.EventSource): boolean
+  local ev, why = source:next(0)
+  return ev == nil and why.kind == "timeout"
+end
 
 --- How long the test client waits for anything.
 local WAIT_NS <const> = Clock.seconds(3)
@@ -99,7 +115,7 @@ local function hub_app(hub: Sse.Hub, opts?: Sse.EventStreamOptions, spec?: Web.A
   local routes: {Web.Route} = { Web.get("/events/:topic", function(req: Web.Request): Web.Response
     local sub, why = hub:subscribe({ assert(req.params["topic"]) }, { after = Sse.last_event_id(req) })
     if sub == nil then
-      return Web.text(why, { status = 503, headers = { ["Retry-After"] = "5" } })
+      return Web.text(tostring(why), { status = 503, headers = { ["Retry-After"] = "5" } })
     end
     return Sse.EventStream(req, sub, given)
   end) }
@@ -173,8 +189,8 @@ local function test_a_source_that_fails_ends_the_stream_and_says_why()
   local closed: mut {string} = {}
   local app = Web.app{ routes = { Web.get("/s", function(req: Web.Request): Web.Response
     local source: Sse.EventSource = { -- checked: literal_shape
-      next = function(_self: Sse.EventSource, _t?: integer): Sse.Event?, string
-        return nil, "database gone"
+      next = function(_self: Sse.EventSource, _t?: integer): (Sse.Event | false) | (nil, Failure)
+        return nil, Failure.new("database gone")
       end,
       close = function(_self: Sse.EventSource) end,
     }
@@ -245,7 +261,7 @@ local function test_a_last_event_id_the_ring_lost_starts_with_a_reset()
   Poll.run(function()
     local sub = assert(none:subscribe({ "t" }, { after = "1" }))
     assert(sub.gap, "a hub that keeps nothing cannot resume")
-    local ev = assert(sub:next(Clock.ms(10)))
+    local ev = event_of(sub, Clock.ms(10))
     assert(ev.event == "reset" and ev.id == nil)
   end)
 end
@@ -257,9 +273,9 @@ local function test_a_topic_that_dropped_newer_events_makes_a_replay_across_topi
     for i = 1, 5 do hub:publish("b", { data = "b" .. tostring(i) }) end
     local sub = assert(hub:subscribe({ "a", "b" }, { after = "1" }))
     assert(sub.gap, "b has dropped events newer than the client's")
-    assert(assert(sub:next(0)).event == "reset")
+    assert(event_of(sub, 0).event == "reset")
     local alone = assert(hub:subscribe({ "a" }, { after = "1" }))
-    assert(not alone.gap and select(2, alone:next(0)) == Poll.TIMEOUT, "a alone lost nothing")
+    assert(not alone.gap and timed_out(alone), "a alone lost nothing")
   end)
 end
 
@@ -271,7 +287,7 @@ local function test_the_ring_boundary_is_oldest_minus_one_against_oldest()
     assert(lost.gap, "the event before the oldest is gone, and so may be its successors")
     local held = assert(hub:subscribe({ "t" }, { after = "3" }))
     assert(not held.gap)
-    assert(assert(held:next(0)).id == "4" and assert(held:next(0)).id == "5")
+    assert(event_of(held, 0).id == "4" and event_of(held, 0).id == "5")
   end)
 end
 
@@ -306,7 +322,7 @@ local function test_an_empty_or_missing_id_gets_the_hubs_and_nul_in_event_is_ref
     local sub = assert(hub:subscribe({ "t" }))
     hub:publish("t", { id = "", data = "a" })
     hub:publish("t", { id = "mine", data = "b" })
-    assert(assert(sub:next(0)).id == "1" and assert(sub:next(0)).id == "mine")
+    assert(event_of(sub, 0).id == "1" and event_of(sub, 0).id == "mine")
     assert(Test.raises(function() hub:publish("t", { event = "a\0b" }) end):find("NUL", 1, true))
     assert(Test.raises(function() local _ = Sse.format_event({ event = "a\0b" }) end):find("NUL", 1, true))
   end)
@@ -321,9 +337,9 @@ local function test_replay_across_topics_is_in_publication_order()
     hub:publish("c", { id = "c1", data = "other topic" })
     local sub = assert(hub:subscribe({ "a", "b", "a" }, { after = "a1" }))
     assert(not sub.gap)
-    assert(assert(sub:next(0)).id == "b1" and assert(sub:next(0)).id == "a2")
+    assert(event_of(sub, 0).id == "b1" and event_of(sub, 0).id == "a2")
     local ev, why = sub:next(Clock.ms(5))
-    assert(ev == nil and why == Poll.TIMEOUT)
+    assert(ev == nil and why.kind == "timeout", tostring(why))
     assert(hub:subscribers() == 1 and hub:subscribers("a") == 1 and hub:subscribers("c") == 0)
   end)
 end
@@ -346,8 +362,8 @@ local function test_a_hub_reaches_every_subscriber_of_a_topic_and_only_them()
     end
     assert(chunk(other) == ": ping\n\n", "the other topic saw only its heartbeat")
     local feeds_1 = assert(feeds[1], "expected feeds[1]")
-    feeds_1.conn:close()
-    other.conn:close()
+    local _, _ = feeds_1.conn:close()
+    local _, _ = other.conn:close()
     assert(until_true(function(): boolean return hub:subscribers() == 2 end),
       "a gone client is noticed")
     assert(hub:subscribers("sport") == 0)
@@ -360,13 +376,13 @@ local function test_a_subscriber_that_cannot_keep_up_is_cut_off_by_the_default_p
     local slow = assert(hub:subscribe({ "t" }))
     local keen = assert(hub:subscribe({ "t" }))
     assert(hub:publish("t", { data = "1" }) == 2 and hub:publish("t", { data = "2" }) == 2)
-    assert(assert(keen:next(0)).data == "1" and assert(keen:next(0)).data == "2")
+    assert(event_of(keen, 0).data == "1" and event_of(keen, 0).data == "2")
     assert(hub:publish("t", { data = "3" }) == 1, "the full queue is not reached")
     assert(slow:closed() and not keen:closed() and hub:subscribers() == 1)
-    assert(assert(slow:next(0)).data == "1" and assert(slow:next(0)).data == "2")
+    assert(event_of(slow, 0).data == "1" and event_of(slow, 0).data == "2")
     local ev, why = slow:next(0)
-    assert(ev == nil and why == "", "it is told the stream is over after what it held")
-    assert(assert(keen:next(0)).data == "3")
+    assert(ev == false, "it is told the stream is over after what it held: " .. tostring(why))
+    assert(event_of(keen, 0).data == "3")
   end)
 end
 
@@ -376,11 +392,11 @@ local function test_the_drop_policies_keep_a_subscriber_without_ever_waiting_the
     local sub = assert(oldest:subscribe({ "t" }))
     for i = 1, 5 do assert(oldest:publish("t", { data = tostring(i) }) == 1) end
     assert(sub:dropped() == 3 and not sub:closed())
-    assert(assert(sub:next(0)).data == "4" and assert(sub:next(0)).data == "5")
+    assert(event_of(sub, 0).data == "4" and event_of(sub, 0).data == "5")
     local newest = Sse.new_hub({ queue = 2, overflow = "drop_newest" })
     local kept = assert(newest:subscribe({ "t" }))
     for i = 1, 5 do newest:publish("t", { data = tostring(i) }) end
-    assert(assert(kept:next(0)).data == "1" and assert(kept:next(0)).data == "2" and kept:dropped() == 3)
+    assert(event_of(kept, 0).data == "1" and event_of(kept, 0).data == "2" and kept:dropped() == 3)
   end)
 end
 
@@ -405,18 +421,19 @@ local function test_hub_limits_and_a_closed_hub_refuse_a_subscription()
     local hub = Sse.new_hub({ max_per_topic = 1, max_total = 2 })
     local first = assert(hub:subscribe({ "a" }))
     local sub, why = hub:subscribe({ "a" })
-    assert(sub == nil and why == "full")
+    assert(sub == nil and tostring(why) == "full")
     local _ = assert(hub:subscribe({ "b" }))
     sub, why = hub:subscribe({ "c" })
-    assert(sub == nil and why == "full", "past the hub's total")
+    assert(sub == nil and tostring(why) == "full", "past the hub's total")
     first:close()
     first:close()
-    assert(hub:subscribers() == 1 and hub:subscribe({ "a" }) ~= nil)
+    assert(hub:subscribers() == 1)
+    assert(hub:subscribe({ "a" }))
     hub:close()
     hub:close()
     assert(hub:subscribers() == 0)
     sub, why = hub:subscribe({ "a" })
-    assert(sub == nil and why == "closed" and hub:publish("a", { data = "x" }) == 0)
+    assert(sub == nil and tostring(why) == "closed" and hub:publish("a", { data = "x" }) == 0)
   end)
 end
 
@@ -437,7 +454,7 @@ local function test_the_stream_budget_answers_503_past_it_and_frees_a_slot_when_
     local over = open(client.host, "/events/t")
     assert(over.status == 503 and over.headers["retry-after"] == "5")
     assert(hub:subscribers() == 2, "a refused request holds no subscription")
-    one.conn:close()
+    local _, _ = one.conn:close()
     assert(until_true(function(): boolean return app.stream_count == 1 end))
     assert(open(client.host, "/events/t").status == 200)
   end)
@@ -506,9 +523,9 @@ end
 local function test_a_stream_that_ignores_its_close_is_killed_at_the_grace_and_released()
   local closed: mut {string} = {}
   local stuck: Sse.EventSource = { -- checked: literal_shape
-    next = function(_self: Sse.EventSource, _t?: integer): Sse.Event?, string
+    next = function(_self: Sse.EventSource, _t?: integer): (Sse.Event | false) | (nil, Failure)
       local _, _ = Clock.sleep(Clock.seconds(60))
-      return nil, ""
+      return false
     end,
     close = function(_self: Sse.EventSource) end,
   }
@@ -665,7 +682,7 @@ local function test_a_quiet_stream_ends_soon_after_its_client_leaves()
 end
 
 --- A stream that ends on its own, on a connection kept open, leaves the
---- next request on it to be answered whole, and says "end" once, though
+--- next request on it to get its whole response, and says "end" once, though
 --- its client closes afterwards.
 local function test_a_stream_that_ends_leaves_its_connection_to_the_next_request()
   local closed: mut {string} = {}

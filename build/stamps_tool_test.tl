@@ -48,8 +48,7 @@ test_child.register("stamped again", function(args: {string}): integer
   -- A database attached ahead of the program's own, as a project's
   -- projection is, that holds stamps of its own: none of them is the
   -- program's.
-  local decoy = assert(Sqlite.open(dir .. "/decoy.db", { writable = true }))
-  for _, statement in ipairs(schema.create("")) do assert(decoy:exec(statement)) end
+  local decoy = assert(schema.hold(assert(Sqlite.open(dir .. "/decoy.db", { writable = true }))))
   local decoy_of = assert(Stamp.content(decoy))
   for _, key in ipairs(stamp_keys) do
     assert(decoy:run("INSERT INTO meta (key, value) VALUES (?1, ?2)",
@@ -108,7 +107,7 @@ test_child.register("harness", function(_args: {string}): integer
   return 0
 end)
 
---- Runs the child `name` of this module in the program and answers its
+--- Runs the child `name` of this module in the program and returns its
 --- exit status, which is 0 or `no_artifact`.
 local function runs(tmp: string, name: string): integer
   local started = this_program.program(test_child.words(tmp, "build.stamps_tool_test", name, { tmp }),

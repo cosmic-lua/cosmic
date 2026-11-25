@@ -47,8 +47,8 @@ end
 --- The subcommands, each with the options it takes, as [`cosmic.cli.archive`] describes them.
 local subcommands = Verb.subcommands or {}
 
---- What a run answers: an exit code and the complaint that goes with it
---- (none for 0).
+--- What a run ends with: an exit code and the complaint that goes
+--- with it (none for 0).
 local record Outcome
   code: integer
   why: string
@@ -143,7 +143,9 @@ local function spool(source: Stream.Reader): string?, string
   local _, _ = source:close()
   local closed, close_why = false, ""
   if copied ~= nil then
-    closed, close_why = sink:close()
+    local ok, trouble = sink:close()
+    closed = ok
+    if not ok then close_why = tostring(trouble) end
   else
     local _, _ = sink:abort()
   end

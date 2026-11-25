@@ -1,6 +1,6 @@
 --- `cosmic acme` (build/acme.tl), run in this process against the fake
 --- ACME server of build/acme_fixture.tl, with its files, hooks and
---- output stood in for: the keys it writes, the challenges it answers
+--- output stood in for: the keys it writes, the challenges it completes
 --- and what it refuses.
 
 local Codec = require("cosmic.codec")
@@ -204,6 +204,8 @@ local function test_issue_refuses_a_line_or_a_key_it_cannot_use()
     { base .. " --webroot /w --out site.pem example.com", "--out names a key file" },
     { base .. " --webroot /w --out other.pem example.com", "other.pem: holds a private key" },
     { base .. " --webroot /w example.com bad..com", "\"bad..com\" is not a DNS name" },
+    { "issue --account - --key - --webroot /w --directory " .. DIRECTORY .. " example.com",
+      "--account and --key both read standard input" },
   }
   for _, case in ipairs(cases) do
     local line, expected = assert(case[1]), assert(case[2])

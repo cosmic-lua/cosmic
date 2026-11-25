@@ -9,7 +9,7 @@
 --- holds the file it downloaded to the same before its save.
 ---
 --- To seal is to drop the rows the run did not make or take (stamped before
---- SINCE, in Unix seconds; every row a run of a fresh tree answered is one
+--- SINCE, in Unix seconds; every row a run of a fresh tree used is one
 --- of those), copy the rest into the file itself, and leave it a file of one
 --- piece (`journal_mode = DELETE`), small enough to keep per commit. A file
 --- with no row, or no such table, is refused: a save of it would be the
@@ -48,16 +48,16 @@ function ChecksSeal.seal(path: string, since_s?: integer): ChecksSeal.Said
     local _, _ = db:close()
     return { code = 1, out = "", err = "checks-seal: " .. path .. ": " .. why .. "\n" }
   end
-  local named, named_trouble = Sqlite.text_rows(db, "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = ?1",
+  local named, named_trouble = db:text_rows("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = ?1",
     { { text = TABLE } })
   if named == nil then return refused(tostring(named_trouble)) end
   if #named == 0 then return refused("no table " .. TABLE) end
   if since_s ~= nil then
-    local dropped, dropped_trouble = Sqlite.run(db, "DELETE FROM " .. TABLE .. " WHERE used_ns < ?1",
+    local dropped, dropped_trouble = db:run("DELETE FROM " .. TABLE .. " WHERE used_ns < ?1",
       { { integer = since_s * 1000000000 } })
     if not dropped then return refused(tostring(dropped_trouble)) end
   end
-  local counted, counted_trouble = Sqlite.text_rows(db, "SELECT count(*) FROM " .. TABLE)
+  local counted, counted_trouble = db:text_rows("SELECT count(*) FROM " .. TABLE)
   if counted == nil then return refused(tostring(counted_trouble)) end
   local first = counted[1]
   local rows = if first ~= nil then math.tointeger(tonumber(first:text(1))) or 0 else 0 end

@@ -164,7 +164,7 @@ local function test_a_response_of_rtsp_with_no_length_has_no_body()
 end
 
 --- `lengthless` frames a response that names no length as it is told,
---- whatever its protocol: AirPlay's HTTP answers have no body there.
+--- whatever its protocol: AirPlay's HTTP responses have no body there.
 local function test_lengthless_frames_a_response_that_names_no_length()
   local empty: Message.Options = { lengthless = "empty" }
   local text = "HTTP/1.1 200 OK\r\n\r\nHTTP/1.1 470 Connection Authorization Required\r\n\r\n"
@@ -496,7 +496,7 @@ local function test_a_feed_of_many_lines_is_read_in_time_linear_in_it()
   assert(blank.status == "done", blank.reason)
 end
 
---- Many small messages in one feed cost its length: an answer that
+--- Many small messages in one feed cost its length: a result that
 --- copied the bytes after its message would cost the square of it.
 local function test_many_pipelined_messages_in_one_feed_are_read_in_time_linear_in_it()
   local bytes = ("GET / HTTP/1.1\r\n\r\n"):rep(100000)

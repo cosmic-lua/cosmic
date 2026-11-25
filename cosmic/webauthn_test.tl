@@ -1,7 +1,7 @@
---- Proves [`cosmic.webauthn`] against a stand-in authenticator: a passkey
---- of each algorithm registers and logs in, and each answer that is not
---- bound to this challenge, origin, relying party, user and key is
---- refused.
+--- Proves [`cosmic.webauthn`] against a stand-in authenticator: a
+--- passkey of each algorithm registers and logs in, and each response
+--- that is not bound to this challenge, origin, relying party, user and
+--- key is refused.
 
 local Cbor = require("cosmic.cbor")
 local Codec = require("cosmic.codec")

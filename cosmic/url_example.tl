@@ -49,7 +49,7 @@ end
 
 --- A search form's fields read off a query string: `+` is a space, a name
 --- sent twice keeps both values in order, and a bad escape is a failure
---- for the caller to answer with a 400.
+--- for the caller to respond to with a 400.
 function Example.query()
   local q = assert(Url.decode_query("q=hello+world&tag=a&tag=b%2Bc&page=2"))
   assert(Url.query_first(q, "q") == "hello world")

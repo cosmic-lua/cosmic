@@ -70,8 +70,8 @@ end
 --- The entries a reader finds in `input`, each as its path, kind and
 --- size, and how the walk ended: `""` at the archive's end, else the
 --- failure. Each body is read when `read` is true and left for `next`
---- to skip otherwise. Nil and why when the reader answers something no
---- archive could mean.
+--- to skip otherwise. Nil and why when `next` or a body's read returns
+--- something no archive could mean.
 local function entries_of(input: string, read: boolean): {string}?, string
   local tr = Tar.reader(Stream.from_string(input))
   local seen: mut {string} = {}
@@ -116,8 +116,8 @@ local function entries_of(input: string, read: boolean): {string}?, string
 end
 
 --- Walks every entry of `input`, reading each body, then again leaving
---- every body for `next` to skip: fails when the reader answers
---- something no archive could mean, or when skipping a body leaves it
+--- every body for `next` to skip: fails when `next` or a body's read
+--- returns something no archive could mean, or when skipping a body leaves it
 --- somewhere reading the body does not.
 local function walk(input: string): boolean, string
   local read, trouble = entries_of(input, true)

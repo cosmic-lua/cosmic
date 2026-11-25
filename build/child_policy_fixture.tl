@@ -85,7 +85,7 @@ function child_policy_fixture.refused(program: string, policy: Sandbox.Policy, c
     local _, _ = handle:wait()
     return ""
   end
-  -- A refusal of the policy itself is the answer; the host's is a skip.
+  -- A refusal of the policy itself is the result; the host's is a skip.
   if child_policy_fixture.unsandboxable(tostring(why)) and not why.message:find("^child: start: sandbox: ") then
     Test.skip(tostring(why))
   end

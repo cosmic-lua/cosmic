@@ -777,7 +777,7 @@ static void push_field (lua_State *L, struct message *m, struct entry *e) {
 }
 
 /* fields(keep): every field as a table of its number, wire type and
- * value, in the order of the bytes, or those `keep` answers true for
+ * value, in the order of the bytes, or those `keep` returns true for
  * of a number and a wire type. */
 static int message_fields (lua_State *L) {
   struct message *m = self_of(L);

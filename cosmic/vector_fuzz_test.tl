@@ -2,13 +2,13 @@
 --- functions beside them (core/vector.c): the text a vector is read from,
 --- every SQL function over arbitrary blobs, the packing functions, the
 --- corpus's search against a brute-force reference (over the vectors as
---- each storage holds them), and the centroid search. Each is total -- an answer or a refusal, never a crash -- and
---- each answer is held to a reference written here in Teal, over the
+--- each storage holds them), and the centroid search. Each is total -- a result or a refusal, never a crash -- and
+--- each result is held to a reference written here in Teal, over the
 --- bytes. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 ---
 --- The references use numbers a float holds exactly (small integers and
---- quarters) wherever an answer is compared for equality, so a mismatch
---- is a wrong answer and not a different rounding; sums of other numbers
+--- quarters) wherever a result is compared for equality, so a mismatch
+--- is a wrong result and not a different rounding; sums of other numbers
 --- are compared within a tolerance.
 
 local Fuzz = require("build.fuzz")
@@ -69,7 +69,7 @@ local function hex_of(s: string): string
   end))
 end
 
---- What a statement answered: its kind (`error` for a failed statement,
+--- What a statement returned: its kind (`error` for a failed statement,
 --- else the SQLite type of its one cell), and the cell's bytes or number.
 local record Answer
   kind: string
@@ -376,7 +376,7 @@ local function render_text(blob: string): string
   return "[" .. table.concat(parts, ",") .. "]"
 end
 
---- Adds an argument's value to `values` and answers how a statement
+--- Adds an argument's value to `values` and returns how a statement
 --- names it.
 local function bind(argument: Arg, values: mut {Sqlite.Value}): string
   local k = argument.kind
@@ -425,9 +425,9 @@ local function vector_floats(a: Arg): {number}?
   return floats_of(bytes)
 end
 
---- What a function of these arguments must do: answer NULL (any argument
+--- What a function of these arguments must do: return NULL (any argument
 --- is), refuse (an argument that should be a vector or a bit vector is
---- not, or two differ in length), or answer.
+--- not, or two differ in length), or return a value.
 local function expected_state(args: {Arg}, vectors: {integer}, bits: boolean): string
   for _, a in ipairs(args) do
     if a.kind == "n" then return "null" end
@@ -454,7 +454,7 @@ local function expected_state(args: {Arg}, vectors: {integer}, bits: boolean): s
   return "answer"
 end
 
---- True when the answer is the kind the state names; `answer` also needs
+--- True when the result is the kind the state names; `answer` also needs
 --- a kind from `kinds`.
 local function holds_state(fn: string, state: string, ans: Answer, kinds: {string}): boolean, string
   if state == "null" then
@@ -530,7 +530,7 @@ local function check_distance(fn: string, a: Arg, b: Arg): boolean, string
   end
   -- Past the ordinary band the reference is the same sums in double,
   -- which the float ones may not match (they overflow or underflow, and
-  -- the function redoes them in double): a wrong but finite answer fails
+  -- the function redoes them in double): a wrong but finite result fails
   -- here, as does one that underflowed to zero. A result near zero is
   -- held to the relative tolerance alone, with no absolute floor.
   local band = ordinary(fa) and ordinary(fb)
@@ -1266,7 +1266,7 @@ local function check_search(input: string): boolean, string
     storage, metric, k, tostring(candidates), #rows, #pool, csv(query))
   if #hits.ids ~= #hits.scores then return false, who .. ": ids and scores differ in length" end
   if kind == 4 then
-    -- Sums that overflow: no reference, but an answer still holds together.
+    -- Sums that overflow: no reference, but a result still holds together.
     -- TODO: once the corpus kernels redo a non-finite sum in double (see
     -- the TODO at the score loop in core/vector.c), hold this to a
     -- reference too; until then only the structure is checked.
@@ -1390,7 +1390,7 @@ end
 --------------------------------------------------------------------------
 
 --- The distance a corpus's score stands for in `vector_block_search`, or
---- nil where the search answers NULL.
+--- nil where the search returns NULL.
 local function block_distance(metric: string, score: number): number?
   if metric == "inner_product" then return 0.0 - score end
   if metric == "l2" then return score end
@@ -1398,9 +1398,10 @@ local function block_distance(metric: string, score: number): number?
   return 1.0 - math.max(-1.0, math.min(1.0, score))
 end
 
---- Rows packed into blocks of a few, searched in SQL and loaded into a
---- corpus, answer what a corpus built row by row does, in the same
---- storage: the same ids, in the same order, at the same distances.
+--- A search of rows packed into blocks of a few, in SQL and in a corpus
+--- loaded from them, returns what a search of a corpus built row by row
+--- does, in the same storage: the same ids, in the same order, at the
+--- same distances.
 local function check_blocks(input: string): boolean, string
   local fields = Fuzz.unpack(input)
   local storage = assert(fields[1])
@@ -1441,8 +1442,8 @@ local function check_blocks(input: string): boolean, string
   if rows == nil then return false, "the search over blocks failed: " .. tostring(why) end
   local hits = assert(corpus:search(asked, k, { metric = metric_of(metric) }))
   local who = ("%s %s k=%d size %d of %d rows, query %s"):format(storage, metric, k, size, kept, csv(query))
-  -- What the search over blocks answers is the corpus's answer by the
-  -- distance it reports, then the id: a cosine that rounds past 1 is
+  -- What the search over blocks returns is the corpus's result ordered by
+  -- the distance it reports, then the id: a cosine that rounds past 1 is
   -- clamped to distance 0, where the corpus's score keeps the rounding.
   local everything = assert(corpus:search(asked, math.max(kept, 1), { metric = metric_of(metric) }))
   local ranked_hits: mut {Scored} = {}
@@ -1881,7 +1882,7 @@ local function check_nearest(input: string): boolean, string
   local want: mut {string} = {}
   for i = 1, math.min(n, #order) do want[#want + 1] = tostring(assert(order[i]).id) end
   if overflow then
-    -- Scores that overflow in float have no reference here: the answer must
+    -- Scores that overflow in float have no reference here: the result must
     -- still be distinct indexes of centroids. They await the TODO at the
     -- score loop in core/vector.c (the corpus kernels sum in float).
     local seen: mut {integer: boolean} = {}

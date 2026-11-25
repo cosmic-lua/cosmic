@@ -87,13 +87,19 @@ local function test_help_lists_each_option_a_verb_parses(tmp: string)
     local options = command.spec or {}
     local out = verbs_fixture.expect(tmp, "help", { "help", verb }, 0).stdout
     for name, entry in pairs(options) do
-      assert(entry is Flags.Option and entry.about ~= nil and entry.about ~= "",
-        verb .. " " .. name .. " says nothing of what it does")
+      assert(entry is Flags.Option, verb .. " " .. name .. " is not an option")
       local value = entry.value
       local shown = if value ~= nil then name .. " <" .. value .. ">" else name end
       -- A row with aliases begins with them: "-r, --raw".
       local row = "[\n ,] " .. shown:gsub("%p", "%%%0") .. "[ \n]"
-      assert(out:find(row) ~= nil, verb .. ": " .. out)
+      if entry.moved ~= nil then
+        -- An old spelling is refused, so help leaves it out.
+        assert(entry.moved ~= "", verb .. " " .. name .. " says nothing of where it went")
+        assert(out:find(row) == nil, verb .. ": " .. name .. " is shown: " .. out)
+      else
+        assert(entry.about ~= nil and entry.about ~= "", verb .. " " .. name .. " says nothing of what it does")
+        assert(out:find(row) ~= nil, verb .. ": " .. out)
+      end
     end
   end
   -- `cosmic docs` asked nothing lists the modules there are.
@@ -114,7 +120,7 @@ local function test_help_lists_each_option_a_verb_parses(tmp: string)
   -- the verb's own name counts, as it does in the index.
   local joined = verbs_fixture.expect(tmp, "docs", { "docs", "COSMIC_TEST_TIMEOUT" }, 0).stdout
   assert(joined:find("cosmic.cli.test", 1, true), joined)
-  -- Where the variable is declared (cosmic.env) it answers too, first.
+  -- Where the variable is declared (cosmic.env) it is listed too, first.
   assert(joined:find("Env.Name.COSMIC_TEST_TIMEOUT", 1, true), joined)
   local named = verbs_fixture.expect(tmp, "docs", { "docs", "cli", "launcher" }, 0).stdout
   assert(named:find("cosmic.cli.build", 1, true), named)
@@ -223,7 +229,7 @@ local function test_help_is_a_short_index_of_every_verb(tmp: string)
   assert(lines <= #Cli.order + alone + 32, tostring(lines) .. " lines:\n" .. all)
   -- A usage follows the word that names its verb, or what is typed
   -- where a verb has no word of its own.
-  for _, line in ipairs({ "\n  cosmic test [selector...]  ", "\n  cosmic <file.tl> [args]  ",
+  for _, line in ipairs({ "\n  cosmic test [selector...]  ", "\n  cosmic <file.tl|-> [args]  ",
       "\n  cosmic --standalone [--check] <file.tl> [args]\n", "\n  cosmic -e '<chunk>' [args]  ",
       "\n  cosmic --version  ", "\n  cosmic bom [list | licenses | cyclonedx] ...\n" }) do
     assert(all:find(line, 1, true), line .. ":\n" .. all)

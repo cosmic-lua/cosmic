@@ -55,7 +55,7 @@ end
 
 --- A guard keeps taking signals after its first: a SIGTERM after a
 --- Ctrl-C the child handled is what a supervisor must pass on next,
---- and release answers the last one delivered rather than losing it. The nested
+--- and release returns the last one delivered rather than losing it. The nested
 --- cosmic outlives both.
 local function test_guard_release_answers_the_last_signal(tmp: string)
   local report = tmp .. "/report"
@@ -89,8 +89,8 @@ end
   assert(got == table.concat({ int, term, term }, "|"), tostring(got))
 end
 
---- `take` answers each signal once, a repeat of the same one included,
---- while `cancelled` keeps answering the last: a supervisor passes a
+--- `take` returns each signal once, a repeat of the same one included,
+--- while `cancelled` keeps returning the last: a supervisor passes a
 --- second SIGTERM on after its child handled the first.
 local function test_guard_take_answers_a_repeated_signal_again(tmp: string)
   local report = tmp .. "/report"

@@ -28,8 +28,7 @@
 --- ends: the named modules (the first the main, and no requires followed),
 --- or the closure of the literal requires of a script, compiled here, in this unsealed process,
 --- by [`standalone.code`] (what a file run as `--standalone` is) and
---- sealed as the main. A command line that names two of the three, or
---- `--closure` with `--cosmic`, a module no store holds (a script's
+--- sealed as the main. A command line that names two of the three, a module no store holds (a script's
 --- require of one included) or a `--database` that is not there is refused (2); a script that cannot be read or does
 --- not compile, or a seal that cannot be written, is a start that failed
 --- (125).
@@ -96,7 +95,7 @@ local record verb
     --- it is when nil.
     run?: function(argv: {string}, opts: Child.Options): Child.Result?, string
     --- Runs `cosmic sandbox connect`'s client on the words after `connect`
-    --- and answers its exit status, as [`build.sandbox_connect`]'s `run`
+    --- and returns its exit status, as [`build.sandbox_connect`]'s `run`
     --- does, which is what it is when nil.
     connect?: function(args: {string}): integer
   end
@@ -173,12 +172,12 @@ local limits <const>: {Limit} = {
   { flag = "--processes", field = "processes", least = 1 },
 }
 
---- The fields of a policy's JSON the flags give; the words of `isolate` and `promises` are left to [`PolicyJson.decode`].
+--- The fields of a policy's JSON the flags give; the words of `isolate` and of a grant's `calls` are left to
+--- [`PolicyJson.decode`].
 local record PolicyFields
   mut grants?: {{string:string}}
   mut profiles?: {string}
   mut isolate?: {string}
-  mut promises?: {string}
   mut connect?: {string}
   mut loopback?: {string}
   mut env?: {string}
@@ -234,17 +233,18 @@ local function table_of(parsed: Flags.Parsed): PolicyFields?, string
     end
     grants[#grants + 1] = { path = path, letters = letters }
   end
+  for _, call in ipairs(list("--promise")) do
+    grants[#grants + 1] = { calls = call }
+  end
   if #grants > 0 then policy.grants = grants end
   local profiles: mut {string} = {}
   if parsed.set["--system"] == true then profiles[#profiles + 1] = "system" end
   if parsed.set["--programs"] == true then profiles[#profiles + 1] = "programs" end
-  if parsed.set["--cosmic"] == true then profiles[#profiles + 1] = "cosmic" end
   if #profiles > 0 then policy.profiles = profiles end
   local function some(name: string): {string}?
     return if #list(name) > 0 then list(name) else nil end
   end
   policy.isolate = some("--isolate")
-  policy.promises = some("--promise")
   policy.connect = some("--connect")
   policy.loopback = some("--loopback")
   policy.env = some("--env")
@@ -317,6 +317,9 @@ local function request_of(argv: {string}): Request?, string
   local databases = parsed.all["--database"] or {}
   if #databases > 1 then return nil, "--database is given more than once" end
   request.database = databases[1]
+  if request.database == "-" then
+    return nil, "--database opens a sealed database by its path, not - (standard input)"
+  end
   local listed = parsed.all["--modules"] or {}
   if #listed > 1 then return nil, "--modules is given more than once" end
   local listed_modules = listed[1]
@@ -342,10 +345,6 @@ local function request_of(argv: {string}): Request?, string
   if #given > 1 then
     return nil, table.concat(given, " and ") .. " are exclusive: each names the database the " ..
       "program runs on, which only one can"
-  end
-  if request.closure and parsed.set["--cosmic"] == true then
-    return nil, "--closure and --cosmic are exclusive: --closure runs the script on a database of " ..
-      "its own, which holds the modules it requires and not this program's file"
   end
   if at == nil then
     if #given == 1 and not request.closure then
@@ -439,7 +438,7 @@ end
 --- The module a sealed script is, named `main`: Lua that runs `code`, the
 --- Lua of `file`, as `cosmic --standalone` does -- its `arg` the
 --- program's, its entry (a function, or a record's `main`) called with
---- them -- and answers its status. The script's own text is on the
+--- them -- and returns its status. The script's own text is on the
 --- first line, so an error's line is the file's.
 local function script_chunk(file: string, code: string): string
   return string.format("local file = %q return function(args) args[0] = file rawset(_G, 'arg', " ..
@@ -472,7 +471,7 @@ local record Sealing
 end
 
 --- Seals `names` (the main among them, or `opts.extra`) into a directory
---- of this run's own ([`scratch`]), and answers the database's path there,
+--- of this run's own ([`scratch`]), and returns the database's path there,
 --- or why not, and whether the command line is to blame (a name no store
 --- holds).
 local function sealed(names: {string}, opts: Store.SealOptions, held: mut {string}): Sealing
@@ -606,7 +605,7 @@ local function notes_pipe(): Notes?, string
   return nil, tostring(why)
 end
 
---- [`Child.run`], answering its failure in words, as [`verb.Io`]'s `run` does.
+--- [`Child.run`], returning its failure in words, as [`verb.Io`]'s `run` does.
 local function run_child(argv: {string}, opts: Child.Options): Child.Result?, string
   local result, why = Child.run(argv, opts)
   if result == nil then return nil, tostring(why) end
@@ -618,7 +617,7 @@ end
 --- given a terminal of its own for each rather than the caller's, whose
 --- control sequences it could otherwise write and whose input it could
 --- push into; a stream that is no terminal is the program's as it is.
---- Both answer the program's [`Child.Result`].
+--- Both return the program's [`Child.Result`].
 ---
 --- The network relay's decision lines (`opts.relay_log`) go to this
 --- process's standard error, which a sandboxed process may not hold as a
@@ -733,7 +732,7 @@ local function execute(argv: {string}, io: verb.Io?, held: mut {string}): intege
   return Child.shell_status(result)
 end
 
---- Runs the command line `argv`, the verb at slot 1, and answers the
+--- Runs the command line `argv`, the verb at slot 1, and returns the
 --- exit status ([`build/sandbox.tl`]'s head says what each means).
 --- @param argv the command line
 --- @param io where it complains and starts, or the process's own

@@ -5,10 +5,10 @@ local Sqlite = require("cosmic.sqlite")
 local bind = require("build.bind")
 
 local record Lines
-  --- [`build.syntax_executable.of_source`]'s answer for `source`, a file named `name`.
+  --- What [`build.syntax_executable.of_source`] returns for `source`, a file named `name`.
   executable: function(source: string, name: string): {integer: boolean}?, string
 
-  --- [`Lines.executable`]'s answer for `source`, read from the `executable` table of `db` (one of
+  --- What [`Lines.executable`] returns for `source`, read from the `executable` table of `db` (one of
   --- [`build.analysis_schema`]'s, which a parse fills) when it has a row for `source_hash`, else computed and stored.
   --- A parse failure is returned as [`Lines.executable`] returns it and nothing is written: only a parse is a function
   --- of the hash.

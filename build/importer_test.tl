@@ -272,7 +272,7 @@ local function test_self_compile_consumes_cache_after_identity_selection()
     assert(selected.value == (phase ~= "record"))
     if phase == "success" then
       assert(result ~= nil, trouble)
-      -- The tool the selection answered, as the compile in the new mode keys it ([`code_identity.coded_of`]).
+      -- The tool the selection returned, as the compile in the new mode keys it ([`code_identity.coded_of`]).
       local chosen = "chosen-compiler"
       local moded = GrammarMode.tool(chosen)
       local c1, c2 = code_identity.coded(chosen), assert(code_identity.coded_of(chosen, handle.db))
@@ -406,7 +406,7 @@ local function test_a_declaration_beside_its_source_is_refused_cold_and_warm()
 end
 
 --- Two declaration files of one module (`x.d.tl` and `x/init.d.tl`) are refused, as two sources are, rather than the first
---- by name answering for the importer; on a cold run and on a warm one.
+--- by name being taken by the importer; on a cold run and on a warm one.
 local function test_two_declarations_of_one_module_are_refused_cold_and_warm()
   local root, write_trouble = write_fixture("two-declarations", {
     ["x.d.tl"] = "--- @kind binding\nlocal record X\n  f: function(a: integer): integer\nend\nreturn X\n",
@@ -538,7 +538,7 @@ local function test_a_declaration_that_names_nothing_is_refused_in_the_tree(tmp:
 end
 
 --- A project file named for a module of the language (`math`, `string`, `table`, ...) is refused, as a `.tl` and as a `.d.tl`,
---- or as a package: the binary answers `require("math")` with its own module, so the checker would type the call against
+--- or as a package: the binary resolves `require("math")` to its own module, so the checker would type the call against
 --- the project and the run would use another. A name that only contains one, a type of the library (`FILE`) and a file
 --- below a directory (`lib/math.tl`, whose tail `math` stands for no module) are names like any other.
 local function test_a_project_file_named_for_a_module_of_the_language_is_refused()
@@ -561,7 +561,7 @@ local function test_a_project_file_named_for_a_module_of_the_language_is_refused
       "rename it (for example to `" .. name .. "_lib`)"
     assert(result == nil and trouble == want, file .. ": " .. tostring(trouble))
   end
-  -- `metatable` is a type the prelude declares, no module the binary answers; `math_test` is a test of `math`.
+  -- `metatable` is a type the prelude declares, no module the binary resolves; `math_test` is a test of `math`.
   local allowed = {
     "FILE.tl", "mathlib.tl", "lib/maths.tl", "string_lib.tl", "print_x.tl", "lib/math.tl", "util/string.d.tl", "metatable.tl",
     "metatable.d.tl", "math_test.tl",
@@ -649,7 +649,7 @@ local function test_a_module_moved_to_its_init_file_is_compiled_again()
   assert(before.graph_key == after.graph_key, "the move moved x's graph key")
 end
 
---- What the working database of the project at `root` answers to `sql`,
+--- What the working database of the project at `root` gives for `sql`,
 --- as rows of text.
 local function asked_of(root: string, sql: string): {{string}}
   local handle = assert(work.open(root))
@@ -661,7 +661,7 @@ local function asked_of(root: string, sql: string): {{string}}
 end
 
 --- The keys a run makes are kept for the next run that has the same inputs
---- (`keys_memo`), and an input that changes is never answered with them: an
+--- (`keys_memo`), and an input that changes is never given them: an
 --- edit to a module moves its own key and its dependents', and what a
 --- module that requires nothing of it holds stands.
 local function test_the_keys_of_unchanged_inputs_are_kept_and_an_edit_moves_them()
@@ -1151,7 +1151,7 @@ end
 
 --- A tree that is not cosmic's own can `require` the standard library
 --- and be checked against it: the binary carries every `cosmic.*`
---- source and declaration, and the checker is answered from those
+--- source and declaration, and the checker reads those
 --- rows for a name the tree itself does not hold.
 local function test_types_the_standard_library_from_the_binary()
   local root, write_trouble = write_fixture("stdlib", {
@@ -1685,7 +1685,7 @@ local function test_a_module_that_requires_one_whose_declarations_do_not_stand_i
   end
 end
 
---- A module that counts in a `global`, which a program may not declare, and answers `returns` from its function.
+--- A module that counts in a `global`, which a program may not declare, and returns `returns` from its function.
 local function counting(returns: string): string
   return "global count: integer = 0\nlocal record T\nend\nfunction T.next(): integer\n  count = count + 1\n  return " ..
     returns .. "\nend\nreturn T\n"
@@ -1731,7 +1731,7 @@ local function test_a_file_with_a_global_is_not_checked_where_that_is_not_sound(
 end
 
 --- [`build.syntax_contracts`] holds a module's exports to rule 10 as it compiles,
---- so an exported function answering a tuple never does.
+--- so an exported function returning a tuple never does.
 local function test_compile_rejects_an_exported_tuple()
   local root = assert(write_fixture("api-contract", {
     ["build/importer.tl"] = "local record Stub end\nreturn Stub\n",
@@ -2786,7 +2786,7 @@ local function test_a_refusal_is_said_ahead_of_the_report_once_the_compile_has_g
   assert(first:find("\ng.tl:1:1: one", 1, true) ~= nil and first:find("two", 1, true) == nil, first)
 end
 
---- Compiles the fixture `files` as a run over the tree does, and answers what it was told ahead of the report by a
+--- Compiles the fixture `files` as a run over the tree does, and returns what it was told ahead of the report by a
 --- caller patient for `patience_ns`, and the refusals of the report.
 local function told_of_project(case: string, files: {string:string}, patience_ns: integer?, deaf?: boolean): {string}, {string}
   local root = assert(write_fixture(case, files))

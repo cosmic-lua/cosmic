@@ -7,7 +7,6 @@ local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
-local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 
@@ -38,7 +37,7 @@ end
 --- A descriptor opened elsewhere, read as a stream. Closing the Reader
 --- leaves the descriptor open: whoever opened it closes it. A
 --- non-blocking one can be waited on, for as long as `timeout_ns`: here a
---- named pipe with a writer that says nothing, which fails the read with [`Poll.TIMEOUT`].
+--- named pipe with a writer that says nothing, which fails the read with a Failure of kind "timeout".
 function Example.from_fd()
   local dir = assert(Fs.mkdtemp("cosmic-stream-example-"))
   assert(Fs.write(dir .. "/notes.txt", "one\ntwo\n"))
@@ -100,7 +99,7 @@ end
 --- A stream written to an open descriptor: here standard output. A
 --- non-blocking one can be waited on for room, for as long as
 --- `timeout_ns`: here a named pipe nobody reads, which takes what it
---- holds, and then fails the write with [`Poll.TIMEOUT`]; `written` says
+--- holds, and then fails the write with a Failure of kind "timeout"; `written` says
 --- how much of the body went before it did.
 function Example.to_fd()
   local w = Stream.to_fd(Fs.stdout)
@@ -114,7 +113,7 @@ function Example.to_fd()
   local body = string.rep("x", 1 << 20)
   local ok, why = slow:write(body)
   print(why, slow:written())
-  assert(not ok and why == Poll.TIMEOUT, why)
+  assert(not ok and why.kind == "timeout", tostring(why))
   assert(slow:written() > 0 and slow:written() < #body)
   assert(Fs.close(pipe))
   assert(Fs.close(reader))
@@ -165,7 +164,7 @@ function Example.limit()
 end
 
 --- A header read whole, or found short: [`read_up_to`] gathers what a
---- Reader gives in pieces, and answers "" at a clean end of the stream.
+--- Reader gives in pieces, and returns "" at a clean end of the stream.
 function Example.read_up_to()
   local block, why = Stream.read_up_to(Stream.from_string("0123456789"), 4)
   print(block)

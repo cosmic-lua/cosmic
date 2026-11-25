@@ -1,6 +1,6 @@
 --- The identity of the code that reads and checks a source ([`build.pipeline`] and every module of the tree it reaches),
 --- which every compile is keyed by: an edit to the checker or to a reader compiles the tree again. A module of its own,
---- apart from the checker, so that a run whose every module a cache answers names the compile without loading the
+--- apart from the checker, so that a run whose every module a cache holds names the compile without loading the
 --- checker's hundred modules.
 
 local AnalysisSchema = require("build.analysis_schema")
@@ -13,7 +13,7 @@ local Store = require("cosmic.store")
 local _ = require("build.reads.pipeline")
 
 local record code_identity
-  --- The identity of the code over the modules `source` and `requires` answer for, as [`code_identity.coded`] hashes
+  --- The identity of the code over the modules `source` and `requires` cover, as [`code_identity.coded`] hashes
   --- it: what [`build.stamps`] keeps as `stamp_coded`.
   code_of: function(source: function(name: string): string?, requires: function(name: string): {string}): string
 
@@ -37,7 +37,7 @@ local record Reader
   requires: function(name: string): {string}
 end
 
---- The identity of the code that reads and checks ([`code_identity.coded`]), over the modules `reader` answers for: each module
+--- The identity of the code that reads and checks ([`code_identity.coded`]), over the modules `reader` covers: each module
 --- of [`build.code_walk`]'s walk from this one by its name and its code text ([`build.code_text`]), so that an edit to a
 --- comment or to layout moves no compile's key. What the walk leaves out of this module's own
 --- requires, and why, is [`CodeWalk.type_only`].
@@ -46,7 +46,7 @@ local function identity(reader: Reader): string
     return reader.requires(name), ""
   end)
   assert(names, trouble)
-  -- Required here: a run whose compiles a cache answers takes the identity from the binary's stamps, and loads no lexer.
+  -- Required here: a run whose compiles a cache holds takes the identity from the binary's stamps, and loads no lexer.
   local code_text = require("build.code_text")
   local parts: mut {string} = {}
   for _, name in ipairs(names) do
@@ -78,7 +78,7 @@ local carried_code: Reader = {
 }
 
 --- The code as the working database `db` stages it: a boot runs the tree's own, which the bootstrap release that runs it does
---- not carry. A declaration is no code, and the binary answers no source for one.
+--- not carry. A declaration is no code, and the binary holds no source for one.
 local function staged_code(db: Sqlite.Handle): Reader
   return {
     source = function(name: string): string?

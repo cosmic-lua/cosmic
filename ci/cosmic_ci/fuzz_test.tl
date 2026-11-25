@@ -59,7 +59,7 @@ local function test_header_names_the_seed_and_iterations()
       " and its iteration under this seed.\n")
 end
 
---- A function answering `text` `size` bytes at a time, then "".
+--- A function returning `text` `size` bytes at a time, then "".
 local function pieces(text: string, size: integer): function(): string
   local at: Count = { value = 1 }
   return function(): string
@@ -388,7 +388,7 @@ local function until_found(path: string, text: string, seconds: integer): boolea
     local got, _ = Fs.read(path)
     local held = got or ""
     if held:find(text, 1, true) then return true end
-    Clock.sleep_ns(20 * 1000 * 1000)
+    assert(Clock.sleep(20 * 1000 * 1000))
   end
   return false
 end

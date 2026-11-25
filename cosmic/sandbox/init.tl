@@ -6,7 +6,7 @@
 --- one (`Child.start(argv, { timeout_ns = limit, policy = p })`), and a policy is met or the
 --- program does not start: there is no best-effort mode.
 ---
---- - [`Sandbox.merge`] joins policies into one: it resolves `profiles`,
+--- - [`Sandbox.union`] joins policies into one: it resolves `profiles`,
 ---   joins the letters of a path, unions the lists, and refuses two values
 ---   for one `set_env` name or one limit.
 --- - [`Sandbox.intersect`] is what stacked layers hold: only what each
@@ -16,7 +16,7 @@
 ---   run, create or remove a path by its real name ([`Sandbox.real`]), for
 ---   code that acts for a held program outside the sandbox.
 --- - [`Sandbox.profile`] is what a named profile holds on this host:
----   "system", "programs", "cosmic" and "proc".
+---   "system", "programs" and "proc".
 --- - [`Sandbox.loaders`] is what a program needs read and run to start.
 --- - [`Sandbox.restrict`] holds the calling process, and what it starts,
 ---   to a policy for good.
@@ -28,11 +28,11 @@
 --- policy does not carry a JSON reader and a schema checker.
 ---
 ---     local policy = { grants = { { path = "data", letters = "r" } }, tmp = true }
----     local merged = assert(Sandbox.merge(policy, { promises = { "fork" } }))
----     print(merged.grants[1].path, merged.promises[1]) -- data  fork
+---     local merged = assert(Sandbox.union(policy, { grants = { { calls = "fork" } } }))
+---     print(Sandbox.paths(merged)[1].path, Sandbox.calls(merged)[1]) -- data  fork
 ---
---- Nothing here raises on a policy's contents: a failure answers `nil`
---- and why, under the module's name.
+--- Nothing here raises on a policy's contents: a function that fails
+--- returns `nil` and why, under the module's name.
 ---
 --- This is the policy's data and the host paths it names. What holds a
 --- program to it is [`Child.start`]'s, or [`Sandbox.restrict`]'s for the
@@ -71,8 +71,14 @@ local record Sandbox
   --- ([`rules.Promise`]): `fork`, `jit`, `fattr`, `nest`.
   type Promise = rules.Promise
 
-  --- One path a program may reach, and how ([`rules.Grant`]).
+  --- One thing a program may do: reach a path or make system calls beyond its basics ([`rules.Grant`]).
   type Grant = rules.Grant
+
+  --- A grant of one path, and how it is reached ([`rules.Path`]).
+  type Path = rules.Path
+
+  --- A grant of system calls beyond a program's basics ([`rules.Calls`]): `{ calls = "fork" }`.
+  type Calls = rules.Calls
 
   --- Resource limits on every process the program starts
   --- ([`rules.Limits`]).
@@ -105,7 +111,8 @@ local record Sandbox
   end
 end
 
---- What a failure of this module answers: nil and `why` under its name.
+--- What a function returns for a failure of this module: nil and `why`
+--- under its name.
 local function refuse(why: string): nil, string
   return nil, "sandbox: " .. why
 end
@@ -117,12 +124,28 @@ end
 --- unknown profile, a letter outside "rwxcu", a malformed address, a
 --- ".." in a path. With `exact`, a grant's `letters` must also be in the
 --- order of "rwxcu", each once, as the text [`PolicyJson.decode`] reads is;
---- [`Sandbox.merge`] takes any order and writes this one.
+--- [`Sandbox.union`] takes any order and writes this one.
 ---
 ---     local ok, why = Sandbox.check({ grants = { { path = "x", letters = "xr" } } }, true)
 ---     print(ok, why) -- false  sandbox: $.grants[0].letters: "xr" is not in the order of "rwxcu", each letter once: "rx"
 function Sandbox.check(p: Sandbox.Policy, exact?: boolean): boolean, string
   return rules.check(p, exact)
+end
+
+--- The grants of `p` that name a path, in its order.
+---
+---     local p: Sandbox.Policy = { grants = { { path = "data", letters = "r" }, { calls = "fork" } } }
+---     print(#Sandbox.paths(p), Sandbox.paths(p)[1].path) -- 1  data
+function Sandbox.paths(p: Sandbox.Policy): {Sandbox.Path}
+  return rules.paths(p)
+end
+
+--- The system calls the grants of `p` give beyond a program's basics, in its order.
+---
+---     local p: Sandbox.Policy = { grants = { { path = "data", letters = "r" }, { calls = "fork" } } }
+---     print(table.concat(Sandbox.calls(p), ",")) -- fork
+function Sandbox.calls(p: Sandbox.Policy): {Sandbox.Promise}
+  return rules.calls(p)
 end
 
 --- What the profile `name` holds on this host, as a policy: "system"
@@ -139,18 +162,14 @@ end
 --- and the same devices), the list a policy naming "system" is held to
 --- there without being merged, so the profile means the same given
 --- directly, merged or through [`PolicyJson.decode`]. The list is the
---- running host's, read when the profile is resolved ([`Sandbox.merge`],
+--- running host's, read when the profile is resolved ([`Sandbox.union`],
 --- or here), so a policy merged on one OS and started on another carries
 --- the first host's paths; "programs" runs the host's programs: `rx`
 --- on /usr, /bin, /sbin and the library directories, which hold the loader
 --- a program it runs starts by (on macOS /usr, /bin and /sbin), so a shell
---- under it can run the tools it names; "cosmic"
---- grants `rx` on the path this program is started by ([`Proc.executable`]),
---- which is its launcher where it has one: what [`Child.start`] runs as
---- this program's core, by a relaunch, and which that core gives up at
---- boot, so it is the start's grant, not the program's; "proc" is the kernel's process
+--- under it can run the tools it names; "proc" is the kernel's process
 --- information: `r` on /proc, where the host has one (Linux), and nothing
---- on macOS, where sysctl answers with no file to grant, so a policy that
+--- on macOS, where sysctl reports it with no file to grant, so a policy that
 --- names it reads the same on both. That is every process's entries
 --- there, not this one's alone; `isolate` "proc" is the other thing, a
 --- /proc of the sandbox's own.
@@ -186,44 +205,42 @@ end
 --- holds if any policy has it; a limit, `user` and `group` are the one
 --- value given, and two different values for one are refused, as two different
 --- values for one `set_env` name are (without saying them: they may be
---- secrets). Two different `database`s are refused too, and with one given
---- the "cosmic" profile resolves to nothing, since its grant is of this
---- program's own file, which a program on a database is not given. A name
+--- secrets). Two different `database`s are refused too. A name
 --- with a value in one policy and a digest in another must have the
---- value's digest. The answer has no `profiles`, and every
+--- value's digest. The result has no `profiles`, and every
 --- list and table of it, empty or not, and `isolate` "file" holds "proc"
 --- too, which it implies: it is what [`PolicyJson.encode`] writes and
 --- [`Child.start`] meets. A value a policy's type does not stop -- an
 --- unknown profile, a letter outside "rwxcu", a malformed address -- is
 --- refused naming its field, as [`PolicyJson.decode`] does.
 ---
----     local a = { grants = { { path = "/srv", letters = "x" } }, promises = { "fork" } }
----     local b = { grants = { { path = "/srv", letters = "r" } }, promises = { "fork", "jit" } }
----     local merged = assert(Sandbox.merge(a, b))
----     print(merged.grants[1].letters, table.concat(merged.promises, ",")) -- rx  fork,jit
-function Sandbox.merge(...: Sandbox.Policy): Sandbox.Policy?, string
+---     local a = { grants = { { path = "/srv", letters = "x" }, { calls = "fork" } } }
+---     local b = { grants = { { path = "/srv", letters = "r" }, { calls = "fork" }, { calls = "jit" } } }
+---     local merged = assert(Sandbox.union(a, b))
+---     print(Sandbox.paths(merged)[1].letters, table.concat(Sandbox.calls(merged), ",")) -- rx  fork,jit
+function Sandbox.union(...: Sandbox.Policy): Sandbox.Policy?, string
   return rules.merge(...)
 end
 
 --- What the policies given hold a program to stacked: only what every
 --- one allows, as the kernel holds a process to every Landlock ruleset and
---- seccomp filter made. [`Sandbox.merge`] builds one layer, a union;
+--- seccomp filter made. [`Sandbox.union`] builds one layer;
 --- this is the meet of layers, the policy a child started under it, or a
 --- process restricted by each in turn ([`Sandbox.restrict`]), really has.
 --- Each is merged first. A path is reached with the letters every layer
---- gives it; `promises`, `env` and `loopback` are the members every layer
+--- gives it; the `calls` grants, `env` and `loopback` are the members every layer
 --- names; a `connect` target is what each layer's targets reach; `isolate`
 --- is the union, since more isolation is less right; `tmp` holds only
 --- where each layer has it; a limit is the lowest given. What is not a
---- right, which the start sets up, joins as a merge joins it: `set_env`,
+--- right, which the start sets up, joins as a union joins it: `set_env`,
 --- and one `user`, `group` and `database`, refused where layers
 --- disagree. A grant with `from` meets only a grant of its own path and
---- source. Nil and why for no layer, or one [`Sandbox.merge`] refuses.
+--- source. Nil and why for no layer, or one [`Sandbox.union`] refuses.
 ---
 --- Paths are met as written, cleaned, while the kernel meets the files
 --- they name: a link (`/lib` to `/usr/lib`) or a relative path read from
 --- two directories is not seen. Give real, absolute paths where the
---- answer is to be exact. A `connect` target of "*" meets names alone,
+--- result is to be exact. A `connect` target of "*" meets names alone,
 --- since the relay opens no address or tailnet node by it.
 ---
 ---     local a = { grants = { { path = "/srv", letters = "rwx" } }, connect = { "*:443" } }
@@ -312,7 +329,7 @@ local ACTIONS <const>: {string:{letter: string, directory: boolean}} = {
 --- one from `cwd` (this process's working directory where nil), while
 --- the kernel resolved it once, as the program started: give the policy
 --- with the real names the start had where the program may change what
---- a grant's path names. The policy is merged first ([`Sandbox.merge`]);
+--- a grant's path names. The policy is merged first ([`Sandbox.union`]);
 --- one that does not merge permits nothing. A grant with `from`, and a
 --- grant of "/tmp" itself where the policy isolates files and has a
 --- `tmp` of its own, name other files inside the sandbox than outside,
@@ -323,7 +340,7 @@ local ACTIONS <const>: {string:{letter: string, directory: boolean}} = {
 --- For code that acts for a held program in a process no kernel layer
 --- holds, as a second layer, never the only one: the program runs beside
 --- it and can change a name between the check and its use, so open the
---- real name this answers and follow no link there. [`Sandbox.allows`] is
+--- real name this returns and follow no link there. [`Sandbox.allows`] is
 --- the plain rule under it.
 ---
 ---     local policy = { grants = { { path = "/srv/data", letters = "rwc" } } }
@@ -380,7 +397,7 @@ function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, c
   local checked = if of_directory or creates then Fs.dirname(named) else named end
   local grants: mut {Sandbox.Grant} = {}
   local skipped: mut {string} = {}
-  for _, grant in ipairs(merged.grants or {}) do
+  for _, grant in ipairs(rules.paths(merged)) do
     local at = grant.path
     if at:sub(1, 1) ~= "/" and base ~= nil then
       at = base .. (if base:sub(-1) == "/" then "" else "/" end) .. at
@@ -388,7 +405,10 @@ function Sandbox.permits(policy: Sandbox.Policy, path: string, action: string, c
     -- The start reads "/tmp" and "tmp" alike as the letters of its own /tmp.
     local own_tmp = isolated_tmp and grant.from == nil and (grant.path == "/tmp" or grant.path == "tmp")
     if grant.from ~= nil or own_tmp then
-      local covers = at == "/" or checked == at or checked:sub(1, #at + 1) == at .. "/"
+      -- Its real name, as `checked` is one: /tmp is /private/tmp on macOS.
+      local real_at, _ = Sandbox.real(at)
+      local held = real_at or at
+      local covers = held == "" or held == "/" or checked == held or checked:sub(1, #held + 1) == held .. "/"
       if covers then
         local why_skipped = if own_tmp then "is the sandbox's own /tmp" else "has from" end
         skipped[#skipped + 1] = string.format("%q %s", grant.path, why_skipped)
@@ -420,17 +440,18 @@ local restricted: mut {Sandbox.Policy} = {}
 --- Records `merged`, which [`Sandbox.restrict`] just held this process
 --- to, with `extra` grants beside its own, each relative path made
 --- absolute against the directory it was opened from.
-local function record_held(merged: Sandbox.Policy, extra: {Sandbox.Grant})
+local function record_held(merged: Sandbox.Policy, extra: {Sandbox.Path})
   local cwd, _ = sys.getcwd()
   local grants: mut {Sandbox.Grant} = {}
-  for _, list in ipairs({ merged.grants or {}, extra }) do
+  for _, list in ipairs({ rules.paths(merged), extra }) do
     for _, grant in ipairs(list) do
       local path = grant.path
       if path:sub(1, 1) ~= "/" and cwd ~= nil then path = cwd .. "/" .. path end
       grants[#grants + 1] = { path = path, letters = grant.letters, from = grant.from }
     end
   end
-  local held, _ = rules.merge({ grants = grants, promises = merged.promises, limits = merged.limits })
+  for _, promise in ipairs(rules.calls(merged)) do grants[#grants + 1] = { calls = promise } end
+  local held, _ = rules.merge({ grants = grants, limits = merged.limits })
   if held ~= nil then restricted[#restricted + 1] = held end
 end
 
@@ -596,7 +617,7 @@ local stat <const> = sys.stat
 local seatbelt_resolve <const> = Seatbelt.resolve
 local seatbelt_compile <const> = Seatbelt.compile
 
---- What a failure of [`Sandbox.restrict`] answers: false and `why`.
+--- What [`Sandbox.restrict`] returns for a failure: false and `why`.
 local function denied(why: string): boolean, string
   return false, "sandbox: restrict: " .. why
 end
@@ -625,12 +646,12 @@ local function not_in_process(merged: Sandbox.Policy): string
     return "loopback \"" .. loopback[1] .. "\" needs a network namespace of its own: " ..
       "start a child with Child.start and a policy instead"
   end
-  for _, promise in ipairs(merged.promises or {}) do
+  for _, promise in ipairs(rules.calls(merged)) do
     if promise == "nest" then
-      return "promises \"nest\" needs isolate file, which only a child can have"
+      return "calls \"nest\" needs isolate file, which only a child can have"
     end
   end
-  for _, grant in ipairs(merged.grants or {}) do
+  for _, grant in ipairs(rules.paths(merged)) do
     if grant.from ~= nil then
       return "grant \"" .. grant.path .. "\" has from, which needs isolate file, which only a " ..
         "child can have"
@@ -723,8 +744,8 @@ end
 -- TODO: grant a portable start's unpacked core too, once its path can be
 -- had without opening it: [`Proc.relaunch`] names it, but holds a descriptor
 -- on it from then on, which the restriction's check of descriptors refuses.
-local function runtime_grants(): {Sandbox.Grant}
-  local grants: mut {Sandbox.Grant} = {}
+local function runtime_grants(): {Sandbox.Path}
+  local grants: mut {Sandbox.Path} = {}
   for _, path in ipairs(store_paths()) do
     local found, _ = stat(path)
     if found ~= nil then
@@ -740,15 +761,14 @@ end
 --- [`Seatbelt.compile`] makes of it, with [`runtime_grants`] beside its
 --- own, applied to this process with its limits. `policy` is the caller's,
 --- which [`not_in_process`] passed: the profile resolves "system" to
---- macOS's paths, not the Linux ones [`Sandbox.merge`] gives.
+--- macOS's paths, not the Linux ones [`Sandbox.union`] gives.
 local function held_by_seatbelt(policy: Sandbox.Policy, kept: {integer}): boolean, string
   local grants: mut {Sandbox.Grant} = {}
   for _, grant in ipairs(policy.grants or {}) do grants[#grants + 1] = grant end
   for _, grant in ipairs(runtime_grants()) do grants[#grants + 1] = grant end
   local held: Sandbox.Policy = { profiles = policy.profiles, grants = grants,
-    promises = policy.promises, limits = policy.limits, user = policy.user, group = policy.group }
-  local executable, _ = executable_path()
-  local options, resolve_trouble = seatbelt_resolve(held, nil, executable)
+    limits = policy.limits, user = policy.user, group = policy.group }
+  local options, resolve_trouble = seatbelt_resolve(held)
   if options == nil then return denied(resolve_trouble) end
   local profile, compile_trouble = seatbelt_compile(held, options)
   if profile == nil then return denied(compile_trouble) end
@@ -765,13 +785,13 @@ local function held_by_seatbelt(policy: Sandbox.Policy, kept: {integer}): boolea
 end
 
 --- Holds the calling process, and everything it starts, for good to the
---- policy's `grants`, `promises` and `limits`: Landlock holds the paths
+--- policy's `grants` and `limits`: Landlock holds the paths
 --- (a process with no grant reaches no file, its own program and the
 --- files it has open aside), a seccomp filter the system calls, and
 --- rlimits the resources, set first, since the filter refuses setrlimit
 --- to a process that holds CAP_SYS_RESOURCE.
 --- Nothing lifts it, and the process cannot start a program its grants
---- do not let run. The policy is merged first ([`Sandbox.merge`]), so it
+--- do not let run. The policy is merged first ([`Sandbox.union`]), so it
 --- may name `profiles`, and its limits have a child's defaults: no core
 --- dump and 1024 open files (this process's own hard limit where that
 --- is lower); a limit is only ever lowered, never
@@ -782,7 +802,7 @@ end
 --- Grants that give `x` nowhere refuse every execve, for good: Landlock
 --- refuses every file, and on Linux a seccomp filter derived from the
 --- grants refuses execve and execveat first (EPERM, where Landlock
---- answers EACCES), in every thread, a second layer for what no ruleset
+--- fails with EACCES), in every thread, a second layer for what no ruleset
 --- reaches, such as a memfd run by its descriptor. It is no refusal of
 --- foreign code: a file the process may read it may still map executable,
 --- which native code could run with no execve (the cosmic environment
@@ -825,8 +845,8 @@ end
 ---
 --- On macOS, Seatbelt holds the process instead: the policy is compiled
 --- as [`Child.start`]'s is ([`Seatbelt.compile`], whose refusals it
---- answers, a promise it cannot hold among them) and applied in this
---- process after its limits, and a refused path answers EPERM. A profile
+--- returns, a promise it cannot hold among them) and applied in this
+--- process after its limits, and a refused path fails with EPERM. A profile
 --- holds every thread, so another thread does not refuse it; a child or a
 --- descriptor does, as above. Beside the policy's own grants the profile
 --- grants what the runtime reaches by path: the store's files
@@ -841,7 +861,7 @@ end
 --- profile would be a second one; a child started without one is held by
 --- this process's. Elsewhere it fails, saying so.
 function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOptions): boolean, string
-  local merged, why = Sandbox.merge(policy)
+  local merged, why = Sandbox.union(policy)
   if merged == nil then return false, why end
   local trouble = not_in_process(merged)
   if trouble ~= "" then return denied(trouble) end
@@ -861,12 +881,12 @@ function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOpti
     return true, ""
   end
   local grants: mut {raw_process.Grant} = {}
-  for _, grant in ipairs(merged.grants or {}) do
+  for _, grant in ipairs(rules.paths(merged)) do
     grants[#grants + 1] = { path = grant.path, access = grant.letters }
   end
   local rlimits = rules.rlimits(merged.limits)
   local promises: mut {string} = {}
-  for _, promise in ipairs(merged.promises or {}) do promises[#promises + 1] = promise end
+  for _, promise in ipairs(rules.calls(merged)) do promises[#promises + 1] = promise end
   local done, held, failure = raw.restrict_self({ grants = grants, promises = promises,
     rlimits = rlimits }, kept)
   if not done then

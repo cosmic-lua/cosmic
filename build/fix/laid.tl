@@ -2,13 +2,13 @@
 --- the files that have not changed.
 ---
 --- A file's layout ([`build.fix.format`]) is a function of its text, its dialect and the code that makes it: the
---- formatter and every module it loads, down to the lexer and the parser, and the core they run on. The answer kept
+--- formatter and every module it loads, down to the lexer and the parser, and the core they run on. What is kept
 --- is that this text, in this dialect, is laid out as it stands. It is kept in the check memo ([`build.check_memo`])
 --- under the SHA-256 of the bytecode of each of those modules and of the core's identity, so a change to any of them
 --- misses and the formatter runs. A file the formatter changes or refuses is not kept: it is formatted again each
 --- run, and a run that writes it keeps what it wrote as the next run's text.
 ---
---- A memo is an optimization and never an answer: where it cannot be opened, or the code that made an answer cannot
+--- A memo is an optimization and never required: where it cannot be opened, or the code that made a result cannot
 --- be named, a file is formatted.
 local Format = require("build.fix.format")
 local Fs = require("cosmic.fs")
@@ -35,14 +35,14 @@ local record laid
   --- holds that it is laid out already: then the result is `source`. A result of the formatter itself that is `source` is kept, in
   --- the dialect of the name. `layout` is [`build.fix.format`]'s seam, for a test: what a faulty layout gives is never kept.
   format: function(kept: laid.Kept?, source: string, name: string, layout?: Format.Layouter): Format.Result
-  --- Ends the run: with `whole`, a run over every file, the answers it did not use are dropped.
+  --- Ends the run: with `whole`, a run over every file, the results it did not use are dropped.
   finish: function(kept: laid.Kept, whole: boolean)
-  --- Formats, in copies of this process ([`build.compile_fanout`]), each of `files` whose answer `kept` does not
+  --- Formats, in copies of this process ([`build.compile_fanout`]), each of `files` whose result `kept` does not
   --- hold, and keeps those the formatter found laid out, so that the run's own [`laid.format`] of each is a look-up:
   --- the files of a tree are formatted one after another in one process otherwise, some 1400 of them in over two
   --- minutes where the formatter changed. `files` are pairs of a file's name and its text. A copy keeps the keys of
   --- the files it found laid out in a file of its own, and nothing else of a copy reaches the run: a file a copy did
-  --- not answer, or answered as not laid out, the run formats itself. Answers how many files the copies answered.
+  --- not settle, or settled as not laid out, the run formats itself. Returns how many files the copies settled.
   fan: function(kept: laid.Kept, files: {{string}}): integer
 end
 

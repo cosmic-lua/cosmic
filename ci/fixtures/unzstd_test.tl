@@ -66,15 +66,15 @@ local function le32(n: integer): string
   return string.pack("<I4", n)
 end
 
---- The frame the stub takes for `raw`: [`Compress.zstd`]'s.
+--- The frame the stub takes for `raw`: [`Compress.encode`]'s.
 local function frame_of(raw: string): string
-  return (assert(Compress.zstd(raw, 19)))
+  return (assert(Compress.encode("zstd", raw, { level = 19 })))
 end
 
 --- The frame a streaming encoder writes for `raw`: a checksum, and no
 --- content size, since it takes its input a chunk at a time.
 local function streamed(raw: string): string
-  return (assert(Stream.run(assert(Compress.zstd_encoder(19)), raw)))
+  return (assert(Stream.run(assert(Compress.encoder("zstd", { level = 19 })), raw)))
 end
 
 --- `frame`, a streamed one, with `size` declared as its content size and
@@ -273,7 +273,7 @@ local function test_a_damaged_frame_never_decodes_to_other_bytes(tmp: string)
 end
 
 --- Runs `script` under sh with the stub and its words after it
---- (`"$@"`), the artifact on descriptor 3; answers its result.
+--- (`"$@"`), the artifact on descriptor 3; returns its result.
 local function shell(tmp: string, label: string, stored: string, length: integer, script: string): Run
   local artifact = tmp .. "/" .. label .. ".artifact"
   Fixture.write(artifact, string.rep("x", junk_before) .. stored .. string.rep("y", junk_after))

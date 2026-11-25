@@ -208,7 +208,7 @@ local function test_a_static_directory_named_by_the_option_is_ignored(tmp: strin
 end
 
 --- Runs the program `chunk` under the supervisor, sends the supervisor
---- (this process) a SIGTERM once `marks/<ready>` exists, and answers the
+--- (this process) a SIGTERM once `marks/<ready>` exists, and returns the
 --- program's pid after [`Dev.supervise`] returns.
 local function sigterm_the_supervisor(tmp: string, chunk: string, ready: string, grace_ns?: integer): integer
   assert(Fs.mkdirs(tmp .. "/src"))
@@ -236,7 +236,7 @@ end
 
 local function test_a_sigterm_to_the_supervisor_stops_it_and_its_program(tmp: string)
   local pid = sigterm_the_supervisor(tmp, marking(tmp), "1")
-  -- The program is reaped before supervise returns: a zombie would answer.
+  -- The program is reaped before supervise returns: a zombie would pass for alive.
   assert(not alive(pid), "the program was ended with the supervisor")
 end
 

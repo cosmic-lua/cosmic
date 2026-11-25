@@ -2,7 +2,8 @@
 --- file, against this binary's own standard library, with no tree
 --- around it -- nothing staged or built, no build directory written,
 --- and no staleness check. The chunk is checked as strictly as a file
---- run `--standalone` is (a warning is refused with an error), and one
+--- run `--standalone` is (a warning is refused with an error, but an
+--- unused name is let pass), and one
 --- the checker refuses does not run: its messages are printed and it
 --- exits 4, as a file that does not compile does. It reaches the
 --- library as a file does, `require("cosmic.json")`, by a literal
@@ -11,9 +12,11 @@
 --- Lua (`cosmic -e 'print(1 + "x")'` is refused). The words after the chunk are its `...`, each a
 --- `string?`; it prints only what it prints. What it returns is the
 --- exit code, as a built program's is: nothing is 0, a whole number
---- from 0 to 255, or text naming one, is itself, and anything else is
---- complained about and exits 2. `cosmic eval '<chunk>' [args...]` is the
---- same.
+--- from 0 to 255, or text naming one, is itself, a table (or Json.null) is printed as
+--- JSON and exits 0, and anything else is complained about and exits 2. `cosmic eval '<chunk>' [args...]` is the
+--- same. `cosmic - [args...]` (or `cosmic run -`) runs the chunk standard
+--- input holds the same way, named `stdin` in messages: `echo 'print(1)' |
+--- cosmic -`. Standard input that is a terminal is refused, exit 5.
 --- @public
 
 local Flags = require("cosmic.flags")
@@ -24,6 +27,7 @@ local command: Flags.Command = {
   examples = {
     { line = "'print(1 + 2)'", about = "run a line of Teal" },
     { line = "'print(...)' a b", about = "give it words" },
+    { line = "'return { n = 1 }'", about = "print what it returns as JSON" },
   },
 }
 

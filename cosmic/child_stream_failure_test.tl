@@ -180,7 +180,7 @@ local function test_transient_read_errors_leave_the_stream_readable()
   assert(chunk == false, trouble)
 end
 
---- A descriptor closed while a pump is answering is no longer its
+--- A descriptor closed while a pump is running is no longer its
 --- output, even when its number has already been reused by another file.
 local function test_a_failed_pump_does_not_close_a_reused_descriptor()
   local h <close> = output(1)

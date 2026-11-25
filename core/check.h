@@ -31,7 +31,7 @@ static inline int cosmic_optint (lua_State *L, int arg, int otherwise) {
  * naming the argument -- when it is the descriptor a portable start
  * retains on the artifact (core/store.h's `cosmic_store_artifact`),
  * through which core/vfs.c reads the embedded database. No binding
- * answers that descriptor but `relaunch`, for `spawn` to hand on to this
+ * returns that descriptor but `relaunch`, for `spawn` to hand on to this
  * same program, so a caller that passes it anywhere else has a number no
  * correct program uses. With it, a test would read every module the
  * program carries, past build/test_worker.tl's hold on the store and

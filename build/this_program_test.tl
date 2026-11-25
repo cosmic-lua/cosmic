@@ -18,7 +18,7 @@ Test.policy{
   profiles = { "cosmic", "proc" },
 }
 
---- Swaps [`Proc.relaunch`] for one answering `relaunch` while `fn` runs.
+--- Swaps [`Proc.relaunch`] for one returning `relaunch` while `fn` runs.
 local function relaunching(relaunch: Proc.Relaunch?, fn: function())
   local real = Proc.relaunch
   Proc.relaunch = function(): (Proc.Relaunch) | (nil, Failure) -- checked: field_fixed
@@ -153,7 +153,7 @@ local function test_program_under_a_policy_leaves_the_relaunch_to_the_start()
   local relaunch: Proc.Relaunch = { argv = { "/cache/core-x", "--database", "/db" },
     env = { COSMIC_PORTABLE_ARTIFACT = "/a" }, fds = { [254] = 7 } }
   relaunching(relaunch, function()
-    local policy: Sandbox.Policy = { profiles = { "cosmic" } }
+    local policy: Sandbox.Policy = {}
     local started = this_program.program({ "-e", "x" }, { timeout_ns = Child.FOREVER, policy = policy, cwd = "/w",
       fds = { [3] = 1 } })
     local argv = started.argv

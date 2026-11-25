@@ -14,13 +14,13 @@
 --- It is no part of the test harness (build/harness_epoch.tl): it decides
 --- whether a run is sandboxed, not what a sandboxed worker is given
 --- ([`build.test_sandbox`]'s `plan`) nor how one is judged, and a wrong
---- answer fails loudly, never passes:
+--- result fails loudly, never passes:
 ---
---- - Answered wrongly yes, every worker is started under its policy
+--- - Wrongly found yes, every worker is started under its policy
 ---   ([`build.test_policy`]) and holds itself by [`confine.forbid_running`].
 ---   Where the host can do neither, the start or the worker fails, and each
 ---   test with it, naming why.
---- - Answered wrongly no, the run is unsandboxed. A run held to the
+--- - Wrongly found no, the run is unsandboxed. A run held to the
 ---   sandbox (`COSMIC_TEST_SANDBOX=1`) fails. Any other keys its verdicts
 ---   as unsandboxed, by what each test declares but apart from a
 ---   sandboxed run's, so no sandboxed run's key finds them, as on a host
@@ -151,8 +151,8 @@ end
 --- declare `tool` does ([`confine.forbid_running`]), under the policy of a
 --- worker that declares nothing, in `scratch`. False and why where it
 --- cannot: no worker then runs sandboxed, and no verdict is keyed by its
---- declared inputs. The third answer is whether the failure is a defect,
---- not a limit of the host: the run then fails.
+--- declared inputs. Its third field, `broken`, is whether the failure is
+--- a defect, not a limit of the host: the run then fails.
 --- @return what it found
 function test_sandbox_probe.available(argv: {string}, env: {string:string}, fds: {integer:integer},
                                       scratch: string): test_sandbox_probe.Answer
@@ -228,7 +228,7 @@ end
 
 --- Resolves a requested noexec scratch grant before the worker is keyed:
 --- `effective.noexec_ready`, and `noexec_trouble` where it is not. The
---- probe runs once a run, its answer kept in `known`.
+--- probe runs once a run, its result kept in `known`.
 function test_sandbox_probe.resolve_noexec(effective: test_inputs.Effective, sandboxed: boolean,
                                            known: mut {string:string})
   effective.noexec_ready, effective.noexec_trouble = false, ""

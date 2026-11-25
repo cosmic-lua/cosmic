@@ -594,11 +594,11 @@ local function run(argv: {string}): integer
       return 1
     end
     local path = parsed.values["-o"]
-    if path == nil then
+    if path == nil or path == "-" then
       log:say(document)
       return passed(plural.count(#rows, "component"))
     end
-    local written, write_trouble = Fs.write(path, document .. "\n")
+    local written, write_trouble = Fs.write_output(path, document .. "\n")
     if not written then
       log:complain("bom: " .. path .. ": " .. tostring(write_trouble))
       return 1

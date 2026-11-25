@@ -150,7 +150,7 @@ local function test_portable_format_contract(tmp: string)
     local stored = artifact:sub(entry.offset + 1, entry.offset + entry.stored_length)
     assert(Hash.hex_sha256(stored) == entry.stored_digest and #stored < #core,
       "format stored range differs: " .. target.name)
-    local extracted = assert(Stream.run(assert(Compress.zstd_decoder(1 << 23)), stored, entry.length))
+    local extracted = assert(Stream.run(assert(Compress.decoder("zstd", { max_window = 1 << 23 })), stored, entry.length))
     assert(extracted == core and Hash.hex_sha256(extracted) == entry.digest,
       "format core range differs: " .. target.name)
   end

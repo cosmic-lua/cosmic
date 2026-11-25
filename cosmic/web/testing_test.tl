@@ -29,7 +29,7 @@ local record Echo
 end
 local ECHO <const> = Shape.record_of("Echo")
 
---- What the echo app answered, checked against what it sends.
+--- What the echo app sent back, checked as an [`Echo`].
 local function echoed(res: Web.TestResponse): Echo
   local value, reason = res:json()
   assert(value ~= nil, reason)
@@ -137,9 +137,9 @@ local function test_a_reader_body_is_read_whole_or_left_as_a_stream_or_closed_fo
       read = function(_self: Stream.Reader, max?: integer): (string | false) | (nil, Failure)
         return inner:read(max)
       end,
-      close = function(_self: Stream.Reader): boolean, string
+      close = function(_self: Stream.Reader): (true) | (false, Failure)
         closed = closed + 1
-        return true, ""
+        return true
       end,
     }
   end
@@ -173,9 +173,9 @@ local function test_the_client_fails_a_reply_the_server_would_answer_500_for()
       return { status = 204, body = { read = function(_s: Stream.Reader, _m?: integer): (string | false) | (nil, Failure) -- checked: literal_shape
         return false
       end,
-        close = function(_s: Stream.Reader): boolean, string
+        close = function(_s: Stream.Reader): (true) | (false, Failure)
           closed = true
-          return true, ""
+          return true
         end } }
     end),
   } }

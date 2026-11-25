@@ -145,12 +145,18 @@ local function test_keys_of_a_scalar_is_a_failure_naming_what_it_is(tmp: string)
   assert(ran.err == 'cosmic: json: pointer "/name": --keys needs an object or an array, got string\n', ran.err)
 end
 
-local function test_shape_prints_describe(tmp: string)
-  local ran = run({ "--shape", "$.users", file(tmp) })
+local function test_type_prints_describe(tmp: string)
+  local ran = run({ "--type", "$.users", file(tmp) })
   assert(ran.code == 0, ran.err)
   assert(ran.out == "[2 x {id: number, name: string}]\n", ran.out)
-  local whole = run({ "--shape", file(tmp, '{"ids": [1, 2], "ok": true}') })
+  local whole = run({ "--type", file(tmp, '{"ids": [1, 2], "ok": true}') })
   assert(whole.out == "{ids: [2 x number], ok: boolean}\n", whole.out)
+end
+
+local function test_the_old_shape_option_names_type(tmp: string)
+  local ran = run({ "--shape", file(tmp) })
+  assert(ran.code == 2 and ran.out == "", ran.out)
+  assert(ran.err:find("no such option: --shape; --type prints", 1, true) ~= nil, ran.err)
 end
 
 local function test_a_dash_or_no_file_reads_standard_input()
@@ -243,7 +249,7 @@ local function test_a_command_line_it_cannot_read_exits_2(tmp: string)
   for _, words in ipairs({
       { "--no-such-flag", path },
       { "--exists", "--keys", path },
-      { "--keys", "--shape", path },
+      { "--keys", "--type", path },
       { "--exists", "-r", path },
       { "--keys", "--compact", path },
       { "$.a", path, "extra" },
@@ -251,7 +257,7 @@ local function test_a_command_line_it_cannot_read_exits_2(tmp: string)
       { "--flat", "-r", path },
       { "--flat", "--compact", path },
       { "--keys", "$.users[*]", path },
-      { "--shape", "$..id", path },
+      { "--type", "$..id", path },
   }) do
     local ran = run(words)
     assert(ran.code == 2 and ran.out == "", table.concat(words, " ") .. ": " .. ran.out)
@@ -331,7 +337,7 @@ local function test_a_failed_write_exits_5_and_says_so(tmp: string)
   })
   assert(code == 5, code)
   assert(complaints.value == "cosmic: json: standard output: No space left on device\n", complaints.value)
-  for _, mode in ipairs({ "--keys", "--shape" }) do
+  for _, mode in ipairs({ "--keys", "--type" }) do
     local again = json.run(argv_of({ mode, file(tmp) }), {
       out = function(_: string): boolean, string return false, "closed" end,
       err = function(_: string) end,
@@ -438,8 +444,8 @@ local function test_exists_of_a_query_is_at_least_one_match(tmp: string)
   assert(run({ "--exists", "$.tags[*]", file(tmp, '{"tags": []}') }).code == 1)
 end
 
-local function test_keys_and_shape_refuse_a_query_of_many_with_a_usage_error(tmp: string)
-  for _, mode in ipairs({ "--keys", "--shape" }) do
+local function test_keys_and_type_refuse_a_query_of_many_with_a_usage_error(tmp: string)
+  for _, mode in ipairs({ "--keys", "--type" }) do
     for _, query in ipairs({ "$.users[*]", "$..id", "$.*" }) do
       local ran = run({ mode, query, file(tmp) })
       assert(ran.code == 2 and ran.out == "", mode .. " " .. query .. ": " .. ran.out)

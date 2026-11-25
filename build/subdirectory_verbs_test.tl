@@ -1,5 +1,5 @@
---- `cosmic fix`, `uses` and `docs` started in a subdirectory of a built
---- project answer for the project ([`build.tree_root`]): a link is
+--- `cosmic fix`, `uses` and `docs`, started in a subdirectory of a
+--- built project, run on the project ([`build.tree_root`]): a link is
 --- resolved against its root and its databases, not the subdirectory's.
 --- Run in this process ([`build.invoke`]), which reads every module's
 --- rows.

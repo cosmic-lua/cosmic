@@ -3,7 +3,6 @@
 --- the code stands for, why the language holds it, and the fix with the placeholders `<...>` the error fills from the
 --- program. `cosmic docs <code>` and the error read alike ([`build.error_catalog`]).
 ---
---- A code of the parser's list that the lexer also reports (`semicolon`) has one row, under the stage that finds it first.
 local record SyntaxCodes
   --- The stage whose error it is.
   enum Stage
@@ -45,12 +44,6 @@ SyntaxCodes.catalog = {
     why = "a label and a `goto` have no form but the `continue` that replaces `goto continue`",
     fix = "delete the label, and write `continue` where a `goto <label>` skipped the rest of a pass of a loop; restructure " ..
       "any other jump with an `if` around the code to skip, or move the code into a function and `return` from it",
-  },
-  {
-    code = "semicolon", stage = "lexer", rule = LEFT_OUT,
-    why = "a statement needs no terminator and the fields of a table are separated by `,`, so a `;` is a second spelling " ..
-      "of what is already written",
-    fix = "delete the `;`: a statement needs no terminator and the fields of a table are separated by `,`",
   },
   {
     code = "long_comment", stage = "lexer", rule = LEFT_OUT,
@@ -99,6 +92,12 @@ SyntaxCodes.catalog = {
     fix = "delete it, or write it inside a string",
   },
   -- the parser
+  {
+    code = "semicolon", stage = "parser", rule = LEFT_OUT,
+    why = "the items of a table are separated by `,`, so a `;` there is a second spelling of what is already written; " ..
+      "a `;` may end a statement, as in Lua, and `cosmic fix` deletes it",
+    fix = "write `,`: the items of a table are separated by `,`, and a `;` only ends a statement",
+  },
   {
     code = "reserved_word", stage = "parser", rule = GRAMMAR,
     why = "a reserved word begins a statement or an expression, so a name that is one could not be told from the grammar",
@@ -389,6 +388,12 @@ SyntaxCodes.catalog = {
       "argument, so a `require` kept in a variable, in parentheses or in another call's arguments is a load the build cannot see",
     fix = "call it by name, `require(\"<module>\")`, or write `pcall(require, \"<module>\")`; to choose between modules, " ..
       "require each by its literal name and pick from a table",
+  },
+  {
+    code = "schema_not_constant", stage = "parser", rule = LEFT_OUT,
+    why = "the checker reads a schema's DDL where it is written, to read the SQL its handles are sent, so the DDL is " ..
+      "text the parser knows: string literals, and `<const>` locals of the same block given them, joined with `..`",
+    fix = "write string literals, and `<const>` locals of the same block given them, joined with `..`",
   },
   -- the scope builder
   {

@@ -41,7 +41,7 @@ Test.policy{
 
 --- Ends the test where a host that gives the sandbox refuses a namespace of
 --- its own, or the write of its ids (AppArmor's restriction): `errno` is
---- "ok" or what the step answered. Any other failure fails the test.
+--- "ok" or what the step returned. Any other failure fails the test.
 local function refuse_or_skip(what: string, errno: string)
   if errno == "ok" then return end
   if errno == tostring(sys.EPERM) or errno == tostring(sys.EACCES) then
@@ -97,10 +97,9 @@ local function test_a_database_policy_refuses_another_program_and_this_ones_own_
   local above, above_why = Child.start({ executable, "x" }, { timeout_ns = Child.FOREVER, policy = { database = { path = path },
     grants = { { path = assert(executable:match("^(.*)/[^/]+$")), letters = "r" } } } })
   assert(above == nil and above_why.message:find("own file", 1, true) ~= nil, tostring(above_why))
-  -- The profile that grants the program's file is left out beside a
-  -- database, so it refuses nothing.
+  -- With no grant of the program's file, a start on a database refuses nothing.
   local profiled, profile_why = Child.run({ executable, executable },
-    { policy = { database = { path = path }, profiles = { "cosmic" } }, stdout = "capture",
+    { policy = { database = { path = path } }, stdout = "capture",
       stderr = "capture", timeout_ns = Clock.seconds(30) })
   if profiled == nil then
     assert(ChildPolicy.unsandboxable(tostring(profile_why)), tostring(profile_why))
@@ -119,7 +118,7 @@ local function test_a_decoded_policy_refuses_a_database_that_changed_since(tmp: 
   end
   local path = tmp .. "/sealed.db"
   fixture.seal(tmp, path)
-  local merged = assert(Sandbox.merge({ database = assert(Sandbox.database(path)) }))
+  local merged = assert(Sandbox.union({ database = assert(Sandbox.database(path)) }))
   local policy = assert(PolicyJson.decode(PolicyJson.encode(merged)))
   local executable = assert(Proc.executable())
   local bytes = assert(Fs.read(path))
@@ -144,10 +143,10 @@ local function under_nest(tmp: string, mode: string, policy: Sandbox.Policy): {s
   local scratch = tmp .. "/scratch"
   assert(Fs.mkdirs(scratch))
   searchable.share(scratch)
-  local grants = policy.grants or {}
-  table.insert(grants, { path = scratch, letters = "rwc" }) -- checked: overload_none
+  local grants = ChildPolicy.with(policy.grants or {}, { path = scratch, letters = "rwc" }, { calls = "fork" },
+    { calls = "nest" })
   local nested: Sandbox.Policy = { ...policy, database = policy.database or { path = path },
-    isolate = { "file" }, promises = { "fork", "nest" }, set_env = { TMPDIR = scratch }, grants = grants }
+    isolate = { "file" }, set_env = { TMPDIR = scratch }, grants = grants }
   local executable = assert(Proc.executable())
   local result, why = Child.run({ executable, executable, mode, scratch },
     { policy = nested, cwd = tmp, stdout = "capture", stderr = "capture",

@@ -75,7 +75,7 @@ end
 
 local function test_another_user_or_group_is_refused_naming_what_differs()
   local function unmet(policy: Sandbox.Policy, user: integer, group: integer): string
-    return Seatbelt.credentials_unmet(assert(Sandbox.merge(policy)), user, group)
+    return Seatbelt.credentials_unmet(assert(Sandbox.union(policy)), user, group)
   end
   local why = unmet({ user = 6, group = 7 }, 5, 7)
   assert(why:find("^user 6:") ~= nil and not why:find("group 7", 1, true) and not why:find("nil", 1, true), why)
@@ -114,7 +114,7 @@ end
 local function test_the_system_profile_is_the_same_raw_merged_and_through_json()
   SeatbeltFixture.macos_only()
   local raw: Sandbox.Policy = { profiles = { "system" } }
-  local merged = assert(Sandbox.merge(raw))
+  local merged = assert(Sandbox.union(raw))
   local decoded = assert(PolicyJson.decode(PolicyJson.encode(merged)))
   for _, policy in ipairs({ raw, merged, decoded }) do
     local versions = run({ "/usr/bin/sw_vers", "-productVersion" }, policy)
@@ -171,13 +171,15 @@ local function test_what_seatbelt_cannot_hold_fails_the_start_with_its_own_refus
   SeatbeltFixture.macos_only()
   local granted = files(tmp)
   local function says(field: Sandbox.Policy, expected: string)
-    local why = refusal({ ...field, profiles = { "system" }, grants = { { path = granted, letters = "r" } } })
+    local grants: mut {Sandbox.Grant} = { { path = granted, letters = "r" } }
+    for _, grant in ipairs(field.grants or {}) do grants[#grants + 1] = grant end
+    local why = refusal({ ...field, profiles = { "system" }, grants = grants })
     assert(why:find("^child: start: sandbox: seatbelt: ") and why:find(expected, 1, true), why)
   end
   says({ isolate = { "proc" } }, "isolate needs namespaces")
   says({ isolate = { "file" } }, "isolate needs namespaces")
   says({ loopback = { "127.0.0.1" } }, "loopback needs a network namespace")
-  says({ promises = { "nest" } }, "nest cannot be held by Seatbelt")
+  says({ grants = { { calls = "nest" } } }, "nest cannot be held by Seatbelt")
   says({ limits = { processes = 8 } }, "limits.processes needs a user namespace")
   says({ set_env_digests = { X = string.rep("0", 64) } }, "set_env_digests holds a digest")
 end

@@ -6,7 +6,7 @@
 --- snippet reads its value with no assert:
 ---
 ---     local Host = require("cosmic.agent.host")
----     local rows = Host.sql("SELECT tool, count(*) AS n FROM outputs WHERE session = ?1 GROUP BY tool")
+---     local rows = Host.history("SELECT tool, count(*) AS n FROM outputs WHERE session = ?1 GROUP BY tool")
 ---     for _, row in ipairs(rows) do print(row["tool"], row["n"]) end
 ---
 --- The MCP servers the agent was given ([`cosmic.agent.mcp`]) are reached the same way. A snippet requires a
@@ -66,7 +66,7 @@ local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 
 local record Host
-  --- A row of [`Host.sql`]: each column's name and its cell. An integer or a real is a number, NULL is
+  --- A row of [`Host.history`]: each column's name and its cell. An integer or a real is a number, NULL is
   --- [`Json.null`], and a text or a blob is a string, as UTF-8 ([`String.as_utf8`]). Two columns of one name are one:
   --- name each with `AS`.
   type Row = {string: Json.Value}
@@ -117,6 +117,8 @@ local record Host
     body?: string
     --- The most seconds it may take: 30 by default, at most 120.
     timeout?: integer
+    --- Whether a status of 400 or more is answered as a value, in place of raising.
+    any_status?: boolean
   end
 
   --- What [`Host.fetch`] got back.
@@ -191,21 +193,21 @@ function Host.call(name: string, args: Json.Value): (Json.Value) | (nil, Failure
   return through(name, args)
 end
 
---- The rows of one read-only SQLite statement on the agent's sessions.db, as the sql tool runs it (its tables are
---- named there; `?1` is the session's id), or why there are none. The agent answers at most 512KB of JSON, and a
+--- The rows of one read-only SQLite statement on the agent's sessions.db (its tables are in
+--- [`cosmic.agent.sessions`]; `?1` is the session's id), or why there are none. The agent answers at most 512KB of JSON, and a
 --- query of more fails: narrow it with LIMIT and OFFSET, or substr() for a long text.
-local function sql_of(query: string): ({Host.Row}) | (nil, Failure)
-  local answer, why = Host.call("sql", { query = query })
+local function history_of(query: string): ({Host.Row}) | (nil, Failure)
+  local answer, why = Host.call("history", { query = query })
   if answer == nil then return nil, why end
   local list, list_why = Json.to_array(answer)
   if list == nil then
-    return nil, Failure.new("host: sql: the agent's reply is no list of rows: " .. tostring(list_why))
+    return nil, Failure.new("host: history: the agent's reply is no list of rows: " .. tostring(list_why))
   end
   local rows: mut {Host.Row} = {}
   for _, item in ipairs(list) do
     local row, row_why = Json.to_object(item)
     if row == nil then
-      return nil, Failure.new("host: sql: a row of the agent's reply is no object: " .. tostring(row_why))
+      return nil, Failure.new("host: history: a row of the agent's reply is no object: " .. tostring(row_why))
     end
     rows[#rows + 1] = row
   end
@@ -400,7 +402,7 @@ function Host.describe(server: string, tool: string): string
 end
 
 --- Keeps `value` under `key` for a later snippet of this session, in sessions.db, in place of what was kept there;
---- no value, or [`Json.null`], lets the key go. A resumed session (`--continue`) reads it again. Small values alone:
+--- no value, or [`Json.null`], lets the key go. A session gone on with reads it again. Small values alone:
 --- a key holds 256KB of JSON and a session 1MB; what is larger goes to a file.
 local function store_of(key: string, value?: Json.Value): (true) | (false, Failure)
   local _, why = Host.call("store.put", { key = key, value = if value == nil then Json.null else value end })
@@ -565,7 +567,7 @@ function Host.top(counts: {string: integer}, most?: integer): {Host.Count}
 end
 
 --- A sorted copy of `list`, by `by`'s key where given ([`Shell.sort`]).
-function Host.sort(list: {string}, by?: function(string): string): {string}
+function Host.sort(list: {string}, by?: function(string): string): mut {string}
   return Shell.sort(list, by)
 end
 
@@ -592,12 +594,55 @@ function Host.declaration(server: string): string
   return McpModule.made(server, tools).teal
 end
 
---- The rows of one read-only SQLite statement on the agent's sessions.db, as the sql tool runs it (`?1` is the
---- session's id); at most 512KB of JSON, so narrow a large one with LIMIT and OFFSET. Raises where it fails, as "host: ...".
-function Host.sql(query: string): {Host.Row}
-  local value, why = sql_of(query)
+--- The rows of one read-only SQLite statement on the agent's sessions.db, whose tables [`cosmic.agent.sessions`]
+--- names (`?1` is the session's id); at most 512KB of JSON, so narrow a large one with LIMIT and OFFSET. Raises where it fails, as "host: ...".
+function Host.history(query: string): {Host.Row}
+  local value, why = history_of(query)
   if value == nil then error(tostring(why), 2) end
   return value
+end
+
+--- The characters of a kept output one history call reads: JSON takes a control character as six bytes, so a part
+--- stays within the 512KB a reply holds.
+local OUTPUT_PART <const> = 64 * 1024
+
+--- The text kept of output `id` of sessions.db, which the note under a cut output names ("kept as output 17"): what
+--- the tool's call gave, but for a run output past 64KB, of which its first 16KB and last 48KB are kept; bytes that
+--- are not UTF-8 come back replaced. It reads any session's outputs, as Host.history does: a forked session's notes
+--- name the outputs of the session it was copied from. Raises where it fails, as "host: output: ...".
+function Host.output(id: integer): string
+  local function rows_of(query: string): {Host.Row}
+    local rows, why = history_of(query)
+    if rows == nil then error("host: output: " .. tostring(why):gsub("^host: history: ", ""), 3) end
+    return rows
+  end
+  local sized = rows_of("SELECT length(text) AS n FROM outputs WHERE id = " .. tostring(id))[1]
+  local n = if sized ~= nil then sized["n"] else nil end
+  if not (n is integer) then
+    error("host: output: no output " .. tostring(id) .. " in sessions.db", 2)
+  end
+  local parts: mut {string} = {}
+  for start = 1, n, OUTPUT_PART do
+    local row = rows_of("SELECT substr(text, " .. tostring(start) .. ", " .. tostring(OUTPUT_PART) ..
+        ") AS part FROM outputs WHERE id = " .. tostring(id))[1]
+    local part = if row ~= nil then row["part"] else nil end
+    if not (part is string) then
+      error("host: output: output " .. tostring(id) .. " changed as it was read", 2)
+    end
+    parts[#parts + 1] = part
+  end
+  return table.concat(parts)
+end
+
+--- What the agent's tool `name` answers `input`, as the model would call it: its text. Only a tool code may call
+--- is called (`callers` "code" or "both", cosmic.agent.tools), under the agent's `before` and `after` as a call by
+--- code. Raises where the call is refused or the tool's result is an error, as "host: use: ...".
+function Host.use(name: string, input?: {string: Json.Value}): string
+  local none: {string: Json.Value} = {}
+  local answer, why = Host.call("use", { name = name, input = input or none })
+  if answer == nil then error(tostring(why), 2) end
+  if not (answer is string) then error("host: use: the agent's reply is no text", 2) end
+  return answer
 end
 
 --- The MCP servers the agent was given: each one's `name`, `reached` and `description`; none where it was
@@ -664,12 +709,13 @@ end
 
 --- The response to a request of `url`, which follows no redirect
 --- ([`cosmic.agent.fetch`]): made from the snippet's sandbox, which reaches no network in a session started without
---- --network, and no loopback, private or link-local address in one with it. A response of any status is answered;
---- a request that gets none raises.
+--- --network or --connect, and no loopback, private or link-local address but those --connect names. A status under
+--- 400 is answered; one of 400 or more raises, as `curl -f` fails, with the status and the start of the body in the
+--- message, unless `any_status` is given; a request that gets no response raises.
 function Host.fetch(url: string, options?: Host.FetchOptions): Host.Fetched
   local o: Host.FetchOptions = options or {}
   local got, why = AgentFetch.fetch({ url = url, method = o.method, headers = o.headers, body = o.body,
-    timeout = o.timeout })
+    timeout = o.timeout, any_status = o.any_status })
   if got == nil then error(tostring(why), 2) end
   return { status = got.status, headers = got.headers, body = got.body, cut = got.cut }
 end

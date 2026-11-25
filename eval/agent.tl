@@ -37,6 +37,9 @@ local record Agent
     name: string
     --- The prompt, which says what to leave and in what form.
     prompt: string
+    --- A second prompt, asked once the first's turn ended, in the same session (ask goes on with the newest
+    --- session in the directory): for a task about what the first turn saw.
+    follow_up?: string
     --- A bash command run in an untouched copy of the fixture: its output is what a right answer leaves.
     truth: string
     --- A bash command run in the run's copy once the agent ended: its output must be the truth's.
@@ -44,6 +47,18 @@ local record Agent
     --- An MCP server the run is given, where the task needs one. Its truth runs with `$data` the path of the
     --- server's data.
     server?: Server
+    --- A web API the run reaches over HTTP at a loopback port, where the task needs one: `{url}` in the prompt is
+    --- its URL, and the run is given `--connect` to it. Its truth runs with `$data` the path of its data.
+    site?: Site
+  end
+
+  --- A web API of a task: a program started for each run, which serves its data at 127.0.0.1 on a port the
+  --- kernel chose, and writes that port to the file its second argument names once it serves.
+  record Site
+    --- The Teal of its program, a main taking the data's path and the port file's.
+    source: string
+    --- The data it serves, in data.tsv beside it.
+    data: string
   end
 
   --- An MCP server of a task: written for each run to a directory of its own beside its config, which the
@@ -61,7 +76,7 @@ local record Agent
   record Tool
     name: string
     path: string
-    --- The tools its agent offers (`--tools`), as `--offer NAME=LIST` names them; nil for all.
+    --- The tools its agent offers (`--tools`), as `--offer NAME=LIST` names them; nil for the agent's default.
     tools?: string
     --- How hard its agent thinks (`--effort`); nil for the agent's default.
     effort?: string
@@ -75,7 +90,7 @@ local record Agent
     tasks: {Task}
     reps: integer
     model: string
-    --- Each run's deadline, in seconds.
+    --- Each ask's deadline, in seconds: a task with a follow-up asks twice.
     timeout: integer
   end
 
@@ -132,6 +147,9 @@ local record Agent
     spent: function(tool: string, marker: string): Agent.Spent?
     --- Writes `text` to the file `path`.
     put: function(path: string, text: string)
+    --- Starts `argv` in `cwd` and waits, for at most `seconds`, until the file `ready` holds a port: the port,
+    --- and a call that ends the program. Nil and why where it ended or did not say so in time.
+    serve: function(argv: {string}, cwd: string, ready: string, seconds: integer): (string, function()) | (nil, string)
   end
 
   --- Every task, in the order a report lists them.
@@ -153,6 +171,27 @@ local function inventory(): string
   for i = 1, 240 do
     lines[#lines + 1] = string.format("i%04d\t%s %s\t%s\t%d\t%d", i, adjectives[draw(#adjectives) + 1],
       nouns[draw(#nouns) + 1], categories[draw(#categories) + 1], 100 + draw(9900), draw(61))
+  end
+  return table.concat(lines, "\n") .. "\n"
+end
+
+--- The event log earlier-log's web API serves: 400 lines of `HH:MM:SS LEVEL component message`, about 17KB. That
+--- is more than run shows, so the printed log is cut. Each process draws it anew, so no copy of this file tells it.
+local function event_log(): string
+  local levels <const> = { "INFO", "INFO", "INFO", "WARN", "ERROR" }
+  local components <const> = { "billing", "cache", "gateway", "queue", "search", "storage" }
+  local messages <const> = { "request done", "retrying after timeout", "connection reset by peer",
+    "slow response from upstream", "config reloaded", "lease renewed", "disk usage above threshold" }
+  local seed = math.random(1, 2147483647)
+  local function draw(n: integer): integer
+    seed = (seed * 1103515245 + 12345) % 2147483648
+    return (seed // 65536) % n
+  end
+  local lines: mut {string} = {}
+  for i = 1, 400 do
+    local t = 36000 + i * 7
+    lines[#lines + 1] = string.format("%02d:%02d:%02d %s %s %s", t // 3600, t // 60 % 60, t % 60,
+      levels[draw(#levels) + 1], components[draw(#components) + 1], messages[draw(#messages) + 1])
   end
   return table.concat(lines, "\n") .. "\n"
 end
@@ -222,6 +261,84 @@ return function(argv: {string}): integer
     } },
   }
   assert(server:serve_stdio())
+  return 0
+end
+]==]
+
+--- The inventory web API, the same items over HTTP at a loopback port the kernel chose: GET /items?page=N answers
+--- JSON, `{items, next}`, 40 items a page, each with every field, and `next` the page after it, which the last
+--- page has not. It writes its port to the file its second argument names once it serves.
+local INVENTORY_SITE <const> = [==[
+local Fs = require("cosmic.fs")
+local Json = require("cosmic.json")
+local Net = require("cosmic.net")
+local Server = require("cosmic.http.server")
+
+local PAGE <const> = 40
+
+return function(argv: {string}): integer
+  local text, why = Fs.read(argv[1] or "")
+  if text == nil then error("inventory: the data: " .. tostring(why)) end
+  local ready = argv[2] or ""
+  local items: mut {Json.Value} = {}
+  for line in text:gmatch("[^\n]+") do
+    local id, name, category, price, stock = line:match("^([^\t]+)\t([^\t]+)\t([^\t]+)\t(%d+)\t(%d+)$")
+    if id ~= nil and name ~= nil and category ~= nil and price ~= nil and stock ~= nil then
+      local item: {string: Json.Value} = { id = id, name = name, category = category,
+        price_cents = assert(math.tointeger(tonumber(price))), stock = assert(math.tointeger(tonumber(stock))) }
+      items[#items + 1] = item
+    end
+  end
+  assert(Server.serve{
+    listeners = { Net.tcp("127.0.0.1", 0) },
+    on_ready = function(addresses: {Net.Address}, _: Net.Server)
+      assert(Fs.write(ready, tostring(assert(addresses[1]).port)))
+    end,
+    handle = function(req: Server.Request): Server.Reply
+      if req.method ~= "GET" or req.path ~= "/items" then
+        return { status = 404, body = "no such page: GET /items?page=N, from 1\n" }
+      end
+      local page = math.tointeger(tonumber(("&" .. req.query):match("&page=(%d+)") or "1")) or 1
+      local first = (page - 1) * PAGE + 1
+      local out: mut {Json.Value} = {}
+      for i = first, math.min(first + PAGE - 1, #items) do
+        local item = items[i]
+        if item ~= nil then out[#out + 1] = item end
+      end
+      local body: mut {string: Json.Value} = { items = Json.array(out) }
+      if first + PAGE <= #items then body["next"] = page + 1 end
+      return { status = 200, headers = { ["Content-Type"] = "application/json" },
+        body = assert(Json.encode(body)) .. "\n" }
+    end,
+  })
+  return 0
+end
+]==]
+
+--- The log web API: GET /log answers the event log, as plain text, once; every request after the first is
+--- answered 410, so a question about the log after the first turn is answered from sessions.db. It writes its port to the file its second argument names once it serves.
+local LOG_SITE <const> = [==[
+local Fs = require("cosmic.fs")
+local Net = require("cosmic.net")
+local Server = require("cosmic.http.server")
+
+return function(argv: {string}): integer
+  local text, why = Fs.read(argv[1] or "")
+  if text == nil then error("log: the data: " .. tostring(why)) end
+  local ready = argv[2] or ""
+  local served = false
+  assert(Server.serve{
+    listeners = { Net.tcp("127.0.0.1", 0) },
+    on_ready = function(addresses: {Net.Address}, _: Net.Server)
+      assert(Fs.write(ready, tostring(assert(addresses[1]).port)))
+    end,
+    handle = function(req: Server.Request): Server.Reply
+      if req.method ~= "GET" or req.path ~= "/log" then return { status = 404, body = "no such page: GET /log\n" } end
+      if served then return { status = 410, body = "gone: the log is served once, and it was\n" } end
+      served = true
+      return { status = 200, headers = { ["Content-Type"] = "text/plain" }, body = text }
+    end,
+  })
   return 0
 end
 ]==]
@@ -352,6 +469,25 @@ Agent.tasks = {
     check = "cat answer.txt",
     server = { name = "inventory", source = INVENTORY_SERVER, data = inventory() },
   },
+  {
+    name = "web-low",
+    prompt = "The inventory web API at {url} answers GET /items?page=N, from page 1, with JSON: `items`, each " ..
+      "with id, name, category, price_cents and stock, and `next`, the page after it, which the last page has " ..
+      "not. Write to answer.txt each item whose stock is below 3, as `id stock`, one a line, sorted by id.",
+    truth = "awk -F'\\t' '$5 < 3 {print $1\" \"$5}' \"$data\" | sort",
+    check = "cat answer.txt",
+    site = { source = INVENTORY_SITE, data = inventory() },
+  },
+  {
+    name = "earlier-log",
+    prompt = "The web API at {url} serves its event log as plain text at GET /log: lines of " ..
+      "`HH:MM:SS LEVEL component message`. Print the log.",
+    follow_up = "Write to answer.txt, for each component, how many lines of that log have level ERROR, as " ..
+      "`count component`, one a line, most first, ties by component.",
+    truth = "awk '$2 == \"ERROR\" {n[$3]++} END {for (c in n) print n[c]\" \"c}' \"$data\" | sort -k1,1nr -k2,2",
+    check = "cat answer.txt",
+    site = { source = LOG_SITE, data = event_log() },
+  },
 }
 
 local USAGE <const> = "usage: eval/agent --tool NAME=PATH [--tool NAME=PATH ...] --fixture DIR --out DIR " ..
@@ -472,6 +608,11 @@ local function env_of(base: {string: string}, key: string, data: string, home: s
   e["HARNESS_ANTHROPIC_API_KEY"] = nil
   e["XDG_DATA_HOME"] = data
   e["HOME"] = home
+  -- The web API's 127.0.0.1 is this host's: a relay behind an https_proxy reaches only what no_proxy names directly.
+  for _, name in ipairs({ "NO_PROXY", "no_proxy" }) do
+    local listed = e[name]
+    e[name] = if listed ~= nil and listed ~= "" then listed .. ",127.0.0.1" else "127.0.0.1" end
+  end
   return e
 end
 
@@ -489,7 +630,7 @@ local function laid_out(system: Agent.System, server: Agent.Server, tool: Agent.
   system.put(dir .. "/data.tsv", server.data)
   local servers: {string: Json.Value} = { [server.name] = {
     command = Json.array({ tool.path, "--standalone", dir .. "/server.tl", dir .. "/data.tsv" }),
-    policy = { profiles = Json.array({ "cosmic" }), grants = Json.array({ { path = dir, letters = "r" } }) },
+    policy = { grants = Json.array({ { path = dir, letters = "r" } }) },
   } }
   local encoded = assert(Json.encode({ servers = servers }))
   system.put(dir .. "/mcp.json", encoded)
@@ -508,10 +649,11 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
     local pristine = system.fresh("truth-" .. task.name .. "-")
     system.run({ "cp", "-a", options.fixture .. "/.", pristine }, "/", nil, 600)
     local script = task.truth
-    local server = task.server
-    if server ~= nil then
+    local server, site = task.server, task.site
+    local served: string? = if server ~= nil then server.data elseif site ~= nil then site.data else nil end
+    if served ~= nil then
       local data = system.fresh("data-" .. task.name .. "-") .. "/data.tsv"
-      system.put(data, server.data)
+      system.put(data, served)
       script = "data=" .. quoted(data) .. "; " .. script
     end
     local truth = system.run({ "bash", "-c", script }, pristine, nil, 60)
@@ -539,11 +681,47 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
         end
         local server = task.server
         if server ~= nil then
+          local config = laid_out(system, server, tool, "mcp-" .. tool.name .. "-" .. task.name .. "-")
           argv[#argv + 1] = "--mcp"
-          argv[#argv + 1] = laid_out(system, server, tool, "mcp-" .. tool.name .. "-" .. task.name .. "-")
+          argv[#argv + 1] = config
         end
-        argv[#argv + 1] = task.prompt
-        local asked = system.run(argv, work, env, options.timeout)
+        local prompt = task.prompt
+        local stop: function() = function() end
+        local unserved: string? = nil
+        local site = task.site
+        if site ~= nil then
+          local dir = system.fresh("site-" .. tool.name .. "-" .. task.name .. "-")
+          system.put(dir .. "/site.tl", site.source)
+          system.put(dir .. "/data.tsv", site.data)
+          local port, ended = system.serve({ tool.path, "--standalone", dir .. "/site.tl", dir .. "/data.tsv",
+            dir .. "/port" }, dir, dir .. "/port", 60)
+          if port == nil then
+            unserved = "the web API did not start: " .. tostring(ended)
+          else
+            stop = ended
+            argv[#argv + 1] = "--connect"
+            argv[#argv + 1] = "127.0.0.1:" .. port
+            prompt = (prompt:gsub("{url}", "http://127.0.0.1:" .. port))
+          end
+        end
+        local follow_up = task.follow_up
+        local again: mut {string} = {}
+        for _, word in ipairs(argv) do again[#again + 1] = word end
+        argv[#argv + 1] = prompt
+        -- A run that raises still ends the web API.
+        local asked: Agent.Output = { code = 127, stdout = "", stderr = unserved or "" }
+        local ran, why = pcall(function()
+          if unserved ~= nil then return end
+          asked = system.run(argv, work, env, options.timeout)
+          if follow_up == nil or asked.code ~= 0 then return end
+          again[#again + 1] = follow_up
+          local next_asked = system.run(again, work, env, options.timeout)
+          asked = { code = next_asked.code, stdout = asked.stdout .. "\n--- follow-up\n" .. next_asked.stdout,
+            stderr = asked.stderr .. "\n--- follow-up\n" .. next_asked.stderr,
+            seconds = (asked.seconds or 0) + (next_asked.seconds or 0) }
+        end)
+        stop()
+        if not ran then error(why, 0) end
         local truth = truths[task.name] or ""
         local left = Agent.lines_of(system.run({ "bash", "-c", task.check }, work, nil, 60).stdout)
         local grade = "fail"
@@ -561,17 +739,17 @@ end
 
 --- What the session of a run spent, from `db`: the newest session whose directory's name holds `marker`.
 function Agent.spent_in(db: Sqlite.Handle, marker: string): Agent.Spent?
-  local found, _ = Sqlite.rows(db, "SELECT id FROM sessions WHERE instr(cwd, ?1) > 0 ORDER BY id DESC LIMIT 1",
+  local found, _ = db:rows("SELECT id FROM sessions WHERE instr(cwd, ?1) > 0 ORDER BY id DESC LIMIT 1",
     { { text = marker } })
   local row = found and found[1]
   if row == nil then return nil end
   local id = row:integer(1)
-  local r, _ = Sqlite.rows(db, "SELECT count(*), coalesce(sum(input_tokens), 0), coalesce(sum(output_tokens), 0), " ..
+  local r, _ = db:rows("SELECT count(*), coalesce(sum(input_tokens), 0), coalesce(sum(output_tokens), 0), " ..
       "coalesce(sum(cache_read), 0), coalesce(sum(coalesce(cache_write_5m, 0) + coalesce(cache_write_1h, 0)), 0), " ..
       "coalesce(sum(cost), 0.0), coalesce(sum(ms), 0) FROM requests WHERE session = ?1", { { integer = id } })
-  local o, _ = Sqlite.rows(db, "SELECT count(*), coalesce(sum(tool = 'run'), 0) FROM outputs WHERE session = ?1",
+  local o, _ = db:rows("SELECT count(*), coalesce(sum(tool = 'run'), 0) FROM outputs WHERE session = ?1",
     { { integer = id } })
-  local snippets, _ = Sqlite.rows(db, "SELECT input FROM outputs WHERE session = ?1 AND tool = 'run'",
+  local snippets, _ = db:rows("SELECT input FROM outputs WHERE session = ?1 AND tool = 'run'",
     { { integer = id } })
   -- A helper's name starts with a small letter (Host.Count is a record type), after no other word (MyHost.x).
   local helpers: mut {string: integer} = {}
@@ -589,9 +767,9 @@ function Agent.spent_in(db: Sqlite.Handle, marker: string): Agent.Spent?
       end
     end
   end
-  local first, _ = Sqlite.rows(db, "SELECT coalesce(cache_read, 0) FROM requests WHERE session = ?1 AND status = 200 ORDER BY rowid " ..
+  local first, _ = db:rows("SELECT coalesce(cache_read, 0) FROM requests WHERE session = ?1 AND status = 200 ORDER BY rowid " ..
       "LIMIT 1", { { integer = id } })
-  local refusals, _ = Sqlite.rows(db, "SELECT text FROM outputs WHERE session = ?1 AND tool = 'run' AND " ..
+  local refusals, _ = db:rows("SELECT text FROM outputs WHERE session = ?1 AND tool = 'run' AND " ..
       "instr(text, 'The checker refused the snippet') = 1", { { integer = id } })
   local codes: mut {string: integer} = {}
   for _, refusal in ipairs(refusals or {}) do
@@ -769,7 +947,28 @@ local function real(out: string): Agent.System
   local function put(path: string, text: string)
     assert(Fs.write(path, text))
   end
-  return { run = run, fresh = fresh, spent = spent, put = put }
+  local function serve(argv: {string}, cwd: string, ready: string, seconds: integer): (string, function()) |
+      (nil, string)
+    local handle, why = Child.start(argv, { cwd = cwd, stdin = "null", stdout = "inherit", stderr = "inherit",
+      timeout_ns = Child.FOREVER })
+    if handle == nil then return nil, tostring(why) end
+    local stop = function() local _, _ = handle:close() end
+    local deadline = Clock.monotonic_ns() + seconds * 1000000000
+    while Clock.monotonic_ns() < deadline do
+      local text, _ = Fs.read(ready)
+      local port = text and text:match("^(%d+)")
+      if port ~= nil then return port, stop end
+      local done, _ = handle:try_wait()
+      if done ~= nil and done.finished then
+        stop()
+        return nil, "it ended before it served"
+      end
+      local _, _ = Clock.sleep(50000000)
+    end
+    stop()
+    return nil, "it did not serve in " .. tostring(seconds) .. " s"
+  end
+  return { run = run, fresh = fresh, spent = spent, put = put, serve = serve }
 end
 
 --- Runs the evals `argv` asks for: 0 when every graded run passed, 1 when one did not, 2 for a bad command line.

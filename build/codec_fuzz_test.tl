@@ -1,5 +1,5 @@
 --- Fuzz properties for `cosmic codec`'s streaming coders (build/codec.tl):
---- each answers as [`cosmic.codec`]'s whole-string functions do, the same
+--- each behaves as [`cosmic.codec`]'s whole-string functions do, the same
 --- text or bytes or the same reason, however the input is cut into
 --- chunks. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
 --- (build/fuzz/init.tl).
@@ -22,7 +22,7 @@ local PAIRS <const>: {Pair} = {
   { name = "base64url", encode = Codec.base64url, decode = Codec.unbase64url },
 }
 
---- What `coder` answers to `input` cut by the sizes `cuts` bytes give,
+--- What `coder` gives for `input` cut by the sizes `cuts` bytes give,
 --- then a byte at a time: the output, or nil and the reason, and
 --- whether a chunk was empty.
 local function run_cut(coder: codec.Coder, input: string, cuts: string): string?, string, boolean

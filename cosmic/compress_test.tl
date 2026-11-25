@@ -1,6 +1,6 @@
 local Array = require("cosmic.array")
 --- Proves the streaming codecs round-trip, decode published vectors,
---- and refuse corrupt or truncated input rather than answering with
+--- and refuse corrupt or truncated input rather than returning
 --- something wrong.
 
 local Codec = require("cosmic.codec")
@@ -184,7 +184,7 @@ local function test_a_block_with_no_codes_is_refused_rather_than_decoded_forever
   for _, format in ipairs({ "gzip", "raw" } as {Compress.Format}) do -- checked: cast_refused
     local bytes = if format == "gzip" then NO_CODES_GZIP else NO_CODES_GZIP:sub(11) end
     local dec = assert(Compress.decoder(format))
-    -- One update is enough: before, it answered a full megabyte of
+    -- One update is enough: before, it returned a full megabyte of
     -- zeros, and every update after it another.
     local out, trouble = dec:update(bytes)
     assert(out == nil and trouble == "compress: corrupt compressed data", format .. ": " .. tostring(out and #out))
@@ -203,7 +203,7 @@ local function test_bits_that_name_no_code_are_refused()
   -- The bits no code has, followed by 8 bytes (read on the fast
   -- path), 2 or 3 (the slow path, which has enough to decode with), or
   -- none: then the decoder waits for more, and `finish` finds the stream
-  -- cut short. One update each, so a decoder answering zeros for them
+  -- cut short. One update each, so a decoder returning zeros for them
   -- fails here rather than looping.
   local record Case
     tail: string
@@ -224,7 +224,7 @@ local function test_bits_that_name_no_code_are_refused()
       out, trouble = dec:finish()
     end
     -- The patch's own words, not the ratio check's, which would also
-    -- stop a decoder answering zeros, but only after a window of them.
+    -- stop a decoder returning zeros, but only after a window of them.
     assert(out == nil and (trouble == want or want == "truncated" and trouble:find(want, 1, true) ~= nil),
       tostring(#tail) .. ": " .. trouble)
   end
@@ -809,7 +809,7 @@ local function test_one_shot_encode_defaults_to_the_encoder_level()
   assert(assert(Compress.encode("zlib", plain)) == streamed)
 end
 
---- `chunk(X)` answers a module's bytecode as it was dumped, whichever way
+--- `chunk(X)` returns a module's bytecode as it was dumped, whichever way
 --- X stores it: the chunk itself, or its raw deflate. No deflate stream
 --- begins with a chunk's first byte, so one is never taken for the other.
 local function test_sql_chunk_answers_bytecode_stored_either_way()
@@ -839,7 +839,7 @@ end
 --- `Compress` does, byte for byte, so the build can store text with one
 --- and any reader decode it with the other; and `inflate` refuses a
 --- stream that is damaged, cut short, or followed by more bytes, rather
---- than answering with part of one.
+--- than returning part of one.
 -- TODO: `inflate` refuses a stream that decodes past SQLite's length
 -- limit, which no test reaches: a handle cannot lower that limit from
 -- Teal. Test it once cosmic.sqlite carries sqlite3_limit.
@@ -943,7 +943,7 @@ end
 local function test_zstd_frame_short_of_its_declared_size_is_corrupt_however_split()
   -- A single-segment frame that declares 72 bytes of content and ends on an
   -- empty last block. zstd checks the size itself only when it decodes the
-  -- frame whole or ends it on a block holding data, so the answer used to
+  -- frame whole or ends it on a block holding data, so the result used to
   -- depend on how the input was split. Followed by a skippable frame, it
   -- is the same.
   local short = "\40\181\47\253\32\72\1\0\0"
@@ -1001,7 +1001,7 @@ end
 
 local function test_zstd_header_window_log_over_the_maximum_is_refused()
   -- A window descriptor of 0xF8 has exponent 31, a window log of 41,
-  -- over zstd's maximum: the header parse itself answers windowTooLarge,
+  -- over zstd's maximum: the header parse itself returns windowTooLarge,
   -- which reads as the window message, not as corrupt.
   local huge = "\40\181\47\253\0\248\1\0\0\0"
   local out, trouble = assert(Compress.decoder("zstd")):update(huge)
@@ -1340,7 +1340,7 @@ local function test_bz2_encoder_of_nothing_is_an_empty_stream()
 end
 
 local function test_bz2_encoder_update_of_nothing_is_not_a_failure()
-  -- bzlib answers BZ_PARAM_ERROR to a BZ_RUN call that takes and emits
+  -- bzlib returns BZ_PARAM_ERROR for a BZ_RUN call that takes and emits
   -- nothing; an empty update must not surface it.
   local fresh = assert(Compress.encoder("bz2", { level = 1 }))
   assert(fresh:update("") == "")

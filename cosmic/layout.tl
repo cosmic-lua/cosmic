@@ -21,7 +21,7 @@ local record Layout
   --- statement -- are discovered and run by `cosmic test`. No return
   --- value and no registration; the name alone is the rule. Its
   --- summary's "N ran, M stood" is [`test.Tally`]: ran counts
-  --- tests actually executed this time, stood the ones answered from
+  --- tests actually executed this time, stood the ones settled from
   --- an unchanged prior verdict instead. An edit to the test file, a
   --- comment included, runs its tests again; a comment in a module it
   --- imports runs them again only where the test is given that module's
@@ -60,7 +60,7 @@ local record Layout
   --- `output` after it says what it prints; doc/guides/<name>.md is
   --- `cosmic docs doc.guides.<name>`, and a program built from the
   --- project carries it for its users. One under doc/guides/internal/ is
-  --- for those working on the project: `cosmic docs` answers for it there,
+  --- for those working on the project: `cosmic docs` covers it there,
   --- and no program carries it. A program's own guide,
   --- `cmd/<name>/doc/guides/<guide>.md`, is a test too, and that program
   --- alone carries it, as the guide `<guide>` in place of the project's of

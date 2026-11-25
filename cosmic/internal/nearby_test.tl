@@ -1,6 +1,6 @@
 local Nearby = require("cosmic.internal.nearby")
 
---- Whether a program's query from `host` is answered to it.
+--- Whether a program's query from `host` gets a response sent to it.
 local function near(host: string): boolean
   return Nearby.reply(host, 49152, 5353) == "source"
 end
