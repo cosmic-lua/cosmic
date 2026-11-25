@@ -24,10 +24,10 @@
 --- refuses; what it keeps for the next it keeps with [`Host.store`], or writes to a file. Its standard input is /dev/null.
 ---
 --- Under a policy the worker is held as bash is, with these changes. Where it runs no commands
---- ([`Worker.Options.commands`] false), on Linux it keeps no right to run a file but this program's own, and has no
---- fork promise, so no program runs; on macOS it keeps them (Seatbelt's `x` maps libraries too). Beside that: it is granted this program's own file (read and
---- run), which it runs as, and it is not given the nest promise, beside which this program cannot be started again, so
---- Landlock holds its files too. Its environment is the policy's alone, so no key of the user's reaches it. With no
+--- ([`Worker.Options.commands`] false), on Linux no grant keeps `x`, and it has no fork promise, so no program runs; on
+--- macOS the grants keep `x` (Seatbelt's `x` maps libraries too). Beside that: it runs as this program, whose core its
+--- start runs with no grant of its file, and it is not given the nest promise, beside which this program cannot be
+--- started again, so Landlock holds its files too. Its environment is the policy's alone, so no key of the user's reaches it. With no
 --- policy (`--sandbox off`) it has the agent's whole environment, the API key included, as bash does then.
 
 local Child = require("cosmic.child")
@@ -149,7 +149,7 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
   if given ~= nil then
     -- TODO: copy `merged` whole, changing its calls alone, once a record can be copied with a field changed: a field
     -- Sandbox.Policy gains is left out of this copy, and so given to the worker as nothing.
-    local merged, why = Sandbox.union(given, { profiles = { "cosmic" } })
+    local merged, why = Sandbox.union(given)
     if merged == nil then return nil, Failure.new("worker: " .. why) end
     local promises: mut {Sandbox.Promise} = {}
     local runs = opts.commands ~= false
@@ -159,34 +159,24 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
       end
     end
     local grants: mut {Sandbox.Grant} = {}
-    -- The worker is this program, which its start runs as its core where the policy grants it `x` ("cosmic").
-    local own, _ = Proc.executable()
-    local self: string? = nil
-    if own ~= nil then
-      local real_own, _ = Sandbox.real(own)
-      self = real_own
-    end
     -- On macOS `x` lets dyld map a library as well as run a file, so it stays: with no `fork` the worker starts no
     -- process there either, though it could still become another program.
     -- TODO: hold an x grant on macOS as map-only (Seatbelt's file-map-executable alone) once a grant can say so.
     local strip = not runs and not Sandbox.on_macos()
     for _, grant in ipairs(Sandbox.paths(merged)) do
-      -- With no commands, no grant runs a file. The grant of this program is left to the "cosmic" profile, named
-      -- below, so it is the start's alone: the core holds its policy again at boot without it, and with no grant
-      -- left with `x` the exec filter holds too, so the worker cannot become another program, nor run itself again.
-      -- A grant of `x` alone is then no grant.
-      -- A grant of it by another name is its grant too, as Child.start reads it, by the real name.
-      local at = grant.from or grant.path
-      if at:sub(1, 1) ~= "/" then at = opts.cwd .. "/" .. at end
-      local real, _ = Sandbox.real(at)
-      local named = self ~= nil and real == self
-      local letters = if not strip then grant.letters elseif named then "" else (grant.letters:gsub("x", "")) end
+      -- With no commands, no grant runs a file. The worker is this program, which its start runs as its core
+      -- whatever the policy grants. Outside `isolate` file the core holds its policy again at boot without that `rx`:
+      -- with no grant left with `x` the exec filter holds too, so the worker cannot become another program, nor run
+      -- itself again. A grant of `x` alone is then no grant.
+      -- TODO: under `isolate` file (the agent's Linux policy) the core's `rx` stays the worker's, so it may execve its
+      -- own core again (held as it is, with no fork); Child.start's boot layer under `isolate` file would close it.
+      local letters = if not strip then grant.letters else (grant.letters:gsub("x", "")) end
       if letters ~= "" then
         grants[#grants + 1] = { path = grant.path, letters = letters, from = grant.from }
       end
     end
     for _, promise in ipairs(promises) do grants[#grants + 1] = { calls = promise } end
-    policy = { grants = grants, profiles = if strip then { "cosmic" } else nil end, isolate = merged.isolate,
+    policy = { grants = grants, isolate = merged.isolate,
       connect = merged.connect,
       loopback = merged.loopback, env = merged.env, set_env = merged.set_env, set_env_digests = merged.set_env_digests,
       tmp = merged.tmp, limits = merged.limits, user = merged.user, group = merged.group, database = merged.database }

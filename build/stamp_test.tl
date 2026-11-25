@@ -8,8 +8,7 @@ local schema = require("build.schema")
 --- what they require, the `meta` rows a stamp's binding reads, and one
 --- stamp bound to those rows.
 local function stamped(): Sqlite.Handle
-  local db = assert(Sqlite.memory())
-  for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
+  local db = assert(schema.hold(assert(Sqlite.memory())))
   assert(db:exec("INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) VALUES " ..
       "('a', 'a.tl', 'module', x'01', x'', x'', '', x''), ('b', 'b.tl', 'module', x'02', x'', x'', '', x'')"))
   assert(db:exec("INSERT INTO imports (path, requires) VALUES ('a', 'b')"))

@@ -133,8 +133,8 @@ end
 --- out by `layout` where one is given and lays it out; bash's command in
 --- one of console, behind "$ ";
 --- edit's path, then its changes in one named diff, as [`Show.diff`] lines
---- (each replacement after a line "@@"); a path for read and write, the
---- statement for sql, else the name and [`Show.input`].
+--- (each replacement after a line "@@"); a path for read and write, else
+--- the name and [`Show.input`].
 ---
 ---     for _, l in ipairs(Show.call("read", { path = "a.tl", offset = 3 })) do print(l) end -- read a.tl, from line 3
 function Show.call(name: string, input: Tools.Object, layout?: Show.Arrange): {string}
@@ -143,7 +143,6 @@ function Show.call(name: string, input: Tools.Object, layout?: Show.Arrange): {s
   local path = input["path"]
   local code = input["code"]
   local command = input["command"]
-  local query = input["query"]
   if name == "run" and code is string then
     local laid = if layout ~= nil then layout(code) else nil end
     fenced(put, "teal", lines_of(laid or code), "", MOST_LINES)
@@ -167,8 +166,6 @@ function Show.call(name: string, input: Tools.Object, layout?: Show.Arrange): {s
     local at = if offset is number then math.tointeger(offset) else nil end
     local from = if at ~= nil then ", from line " .. tostring(at) else "" end
     put("read " .. path .. from)
-  elseif name == "sql" and query is string then
-    put("sql " .. Show.brief(query))
   else
     put(name .. " " .. Show.input(input))
   end

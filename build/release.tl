@@ -44,7 +44,11 @@
 --- its SHA256SUMS names one digest for `cosmic`, and its source.json
 --- names the tag's commit and that digest. A binary written anywhere is
 --- downloaded beside its target and renamed into place only once its
---- sha256 is that digest, so a failed check leaves nothing. The trust
+--- sha256 is that digest, so a failed check leaves nothing. A device, a
+--- FIFO or `/dev/stdout` at `-o`, or at `pin`'s file, is written in place
+--- instead ([`Fs.output`]), once the whole binary is in memory (256 MiB
+--- at most) and verified, with no execute bit; a link to one is
+--- refused. A launcher is a file, never a device. The trust
 --- rests on TLS to GitHub: the assets are not signed, so the checks
 --- catch a release that disagrees with itself or a broken transfer, not
 --- a forged release.
@@ -164,6 +168,9 @@ local max_tags <const> = 10
 local max_pages <const> = 100
 --- What SHA256SUMS or source.json may weigh; each is a line or two.
 local max_small <const> = 65536
+--- The most a binary written in place is held to in memory, while its
+--- digest is checked: many times a release's size.
+local max_binary <const> = 256 * 1024 * 1024
 
 --- One asset of a release, as the API lists it.
 local record Asset
@@ -339,6 +346,15 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local launcher = if command_name == "launcher" then parsed.words[1] else nil end
   if target == "" then return refuse(bare.empty_file .. " after -o") end
   if pin == "" or launcher == "" then return refuse(bare.empty_file) end
+  if launcher == "-" then
+    return refuse("launcher writes its pin beside it, as <file>.pin, so it takes a file, not - (standard output)")
+  end
+  if target == "-" then
+    return refuse("-o takes a file the verified binary is written to, not - (standard output)")
+  end
+  if pin == "-" and to_cache then
+    return refuse("pin - prints the pin, and --cache prints the binary's path: give pin a file, or leave out --cache")
+  end
   if target == nil and not to_cache and command_name == "get" then
     return refuse("give -o <file> or --cache: where the verified binary goes")
   end
@@ -350,6 +366,11 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     local directory = directory_status ~= nil and directory_status.is_dir
     if launcher:sub(-1) == "/" or directory == true then
       return refuse(launcher .. " is a directory: it takes the file to write the launcher to")
+    end
+    -- A device or `/dev/stdout` has no directory beside it for the pin.
+    local in_place, _ = Fs.in_place(launcher)
+    if in_place == true then
+      return refuse(launcher .. " is a device: a launcher is a file, with its pin beside it")
     end
     local text, name_trouble = pinned_launcher.script(Fs.basename(launcher))
     if text == nil then return refuse(launcher .. ": " .. name_trouble) end
@@ -658,7 +679,37 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
 
   local kept: string? = nil
+  local in_place = false
   if target ~= nil then
+    local looked, look_trouble = Fs.in_place(target)
+    if looked == nil then return fail(tostring(look_trouble)) end
+    in_place = looked
+  end
+  if target ~= nil and in_place then
+    -- A device, a FIFO or one of the process's own descriptors (`-o
+    -- /dev/stdout`) takes the binary in place ([`Fs.output`]): a rename
+    -- would put a regular file where it was. Nothing reaches it until
+    -- the whole binary is in memory and matches its digest.
+    local response, open_trouble = Http.open(binary, options())
+    if response == nil then return fail(binary .. ": " .. tostring(open_trouble)) end
+    if response.status < 200 or response.status >= 300 then
+      local _, _ = response:close()
+      return fail(binary .. ": HTTP " .. tostring(response.status))
+    end
+    local body, read_trouble = Stream.read_all(Stream.limit(response, max_binary + 1))
+    local _, _ = response:close()
+    if body == nil then return fail(binary .. ": " .. tostring(read_trouble)) end
+    if #body > max_binary then
+      return fail(binary .. ": more than " .. plural.count(max_binary, "byte"))
+    end
+    local got = Hash.hex_sha256(body)
+    if got ~= digest then
+      return fail(binary .. ": sha256 mismatch: want " .. digest .. ", got " .. got)
+    end
+    -- 0755 where the target turned into a file since the look.
+    local ok, write_trouble = Fs.write_output(target, body, 0x1ed)
+    if not ok then return fail(tostring(write_trouble)) end
+  elseif target ~= nil then
     local ok, download_trouble = download(target)
     if not ok then return fail(download_trouble) end
   elseif to_cache then
@@ -695,8 +746,11 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     end
   end
 
-  if pin ~= nil then
-    local ok, write_trouble = Fs.write(pin, verb.pin_text(release.tag, release.commit, digest))
+  if pin == "-" then
+    local status = written(to.out(verb.pin_text(release.tag, release.commit, digest)))
+    if status ~= bare.ok then return status end
+  elseif pin ~= nil then
+    local ok, write_trouble = Fs.write_output(pin, verb.pin_text(release.tag, release.commit, digest))
     if not ok then return fail(tostring(write_trouble)) end
   end
   if launcher ~= nil and launcher_text ~= nil then

@@ -140,8 +140,8 @@ local standard: verb.Io = {
   out = bare.out,
   err = bare.err,
   read = function(path: string): string?, string
-    local text, why = Fs.read(path)
-    if text == nil then return nil, tostring(why) end
+    local text, why = Flags.read(path)
+    if text == nil then return nil, why end
     return text, ""
   end,
   write = function(path: string, data: string, mode: integer): boolean, string
@@ -211,16 +211,16 @@ local function read_key(to: verb.Io, complain: function(line: string), parsed: F
   end
   local text, why = to.read(file)
   if text == nil then
-    complain(why)
+    complain(if file == "-" then name .. ": " .. why else why end)
     return nil
   end
   local key, trouble = Key.read(text)
   if key == nil then
-    complain(file .. ": " .. (trouble.message:gsub("^key: ", "")))
+    complain(Flags.input_name(file) .. ": " .. (trouble.message:gsub("^key: ", "")))
     return nil
   end
   if key.alg == "ed25519" then
-    complain(file .. ": an Ed25519 key, which ACME servers take none of: make a P-256 or RSA key with `cosmic acme key`")
+    complain(Flags.input_name(file) .. ": an Ed25519 key, which ACME servers take none of: make a P-256 or RSA key with `cosmic acme key`")
     return nil
   end
   return key
@@ -250,6 +250,8 @@ local function issue(to: verb.Io, complain: function(line: string), parsed: Flag
   if directory ~= nil and directory:sub(1, 8):lower() ~= "https://" then
     return refuse("--directory is an https URL")
   end
+  local one_read = Flags.one_stdin(parsed.values, { "--account", "--key" })
+  if one_read ~= "" then return refuse(one_read) end
   local out = parsed.values["--out"]
   if out == "" then return refuse(bare.empty_file) end
   if out == "-" then out = nil end

@@ -66,7 +66,6 @@ local function test_call_shows_code_commands_and_edits()
   assert(table.concat(Show.call("run", { code = "print(a)" }, none), "|") == "```teal|print(a)|```")
   assert(joined("bash", { command = "git status\ngit diff" }) == "```console|$ git status|git diff|```")
   assert(joined("write", { path = "a.md", content = "a\nb\n" }) == "write a.md (2 lines)")
-  assert(joined("sql", { query = "SELECT 1" }) == "sql SELECT 1")
   local edit = joined("edit", { path = "R.md", edits = {
     { oldText = "a\nb\nc", newText = "a\nB\nc" }, { oldText = "x", newText = "y\nz" } } })
   assert(edit == "edit R.md|```diff|@@| a|-b|+B| c|@@|-x|+y|+z|```", edit)

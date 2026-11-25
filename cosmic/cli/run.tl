@@ -3,7 +3,9 @@
 --- the file is under it, so a file of a project reaches the rest of the
 --- project. Otherwise the tree is the file's own directory. `cosmic run
 --- <file.tl> [args...]` is the same, and `cosmic run --standalone
---- [--check] <file.tl> [args...]` is `cosmic --standalone`.
+--- [--check] <file.tl> [args...]` is `cosmic --standalone`. `cosmic -`
+--- and `cosmic run -` run the Teal standard input holds, as `cosmic -e`
+--- runs a chunk.
 ---
 --- Running the file requires it. If it returns a function, cosmic calls
 --- that function with the words after the file's path (`argv[1]` on; its
@@ -50,7 +52,7 @@
 ---
 --- With COSMIC_STANDALONE=1, cosmic runs the file as `--standalone`
 --- does: it builds nothing and writes no build directory. A program that
---- `cosmic sandbox --cosmic` runs has COSMIC_STANDALONE=1 unless
+--- `cosmic sandbox` runs has COSMIC_STANDALONE=1 unless
 --- `--set-env` says otherwise.
 --- @public
 
@@ -58,7 +60,7 @@ local Flags = require("cosmic.flags")
 
 local command: Flags.Command = {
   about = "build the tree around a file and run it",
-  usage = "<file.tl> [args]",
+  usage = "<file.tl|-> [args]",
   examples = {
     { line = "hello.tl", about = "build the tree around hello.tl and run it" },
     { line = "cmd/tally/main.tl words.txt", about = "run a program from its source, with its words" },

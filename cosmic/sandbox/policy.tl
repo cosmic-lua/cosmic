@@ -9,7 +9,6 @@ local FieldPath = require("cosmic.internal.field_path")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Loopback = require("cosmic.internal.loopback")
-local Proc = require("cosmic.proc")
 local Grant = require("cosmic.relay.grant")
 local RelayConfig = require("cosmic.internal.relay_config")
 local sys = require("cosmic.sys")
@@ -93,7 +92,7 @@ local record rules
   --- What a program is held to; every field is optional, and what a policy
   --- leaves out it does not have.
   record Policy
-    --- Named policies to join in, by [`Sandbox.union`]: "system", "programs", "cosmic", "proc".
+    --- Named policies to join in, by [`Sandbox.union`]: "system", "programs", "proc".
     profiles?: {string}
     --- What the program may do: the paths it reaches, and the system calls it may make beyond its basics.
     grants?: {Grant}
@@ -172,8 +171,7 @@ local record rules
     --- file read-only and the core, and refuses a grant that reaches this
     --- program's own file, which holds modules the database leaves out.
     --- [`Sandbox.restrict`] refuses it: a running process cannot change
-    --- its program. The "cosmic" profile adds nothing beside it, since its
-    --- grant is of that program's file; two different databases do not
+    --- its program. Two different databases do not
     --- merge. The "system" profile cannot be joined with it where this
     --- program is installed under a directory the profile grants (/usr):
     --- the grant reaches the program's own file, and the start fails, naming
@@ -229,7 +227,11 @@ local function env_name_ok(name: string): boolean
   return name ~= "" and not name:find("=", 1, true) and not name:find("\0", 1, true)
 end
 
-local PROFILES <const>: {string} = { "cosmic", "proc", "programs", "system" }
+local PROFILES <const>: {string} = { "proc", "programs", "system" }
+
+--- Why "cosmic", a profile no more, is none: what to write in its place.
+local NO_COSMIC <const> = "there is no profile \"cosmic\": a start of this program runs its core with no grant, " ..
+  "as it runs any program with what it needs to start; a program that runs this program again grants its file by name"
 
 local PROMISES <const>: {string} = { "fattr", "fork", "jit", "nest" }
 
@@ -284,6 +286,7 @@ local function invalid(p: rules.Policy, exact: boolean): string
     return path_of(steps) .. ": " .. why
   end
   for i, name in ipairs(p.profiles or {}) do
+    if name == "cosmic" then return at({ "profiles", i }, NO_COSMIC) end
     if not listed(name, PROFILES) then
       return at({ "profiles", i }, "unknown profile \"" .. name .. "\" (known: " ..
           table.concat(PROFILES, ", ") .. ")")
@@ -575,22 +578,6 @@ local function present(path: string): boolean
   return found ~= nil
 end
 
---- The "cosmic" profile: `rx` on what [`Proc.executable`] names, which is
---- the path this program is started by: under a development build or a
---- portable artifact that is the launcher (a `#!/bin/sh` script) or the
---- artifact, not the native core the launcher runs. [`Child.start`] runs
---- that path, where a policy grants it, as its core, by a relaunch, which
---- needs neither the launcher's shell nor a cache to unpack a core into;
---- a process that runs the path itself (a shell under the policy) runs
---- the launcher, which needs both.
-local function cosmic_profile(): rules.Policy?, string
-  local path, why = Proc.executable()
-  if path == nil then
-    return refuse("profile \"cosmic\": this process has no executable: " .. tostring(why))
-  end
-  return { grants = { { path = path, letters = "rx" } } }, ""
-end
-
 --- The "proc" profile: `r` on the host's /proc where there is one (Linux),
 --- the kernel's process information, and nothing on macOS, where sysctl
 --- reports it with no file to grant. As the "system" profile does, it grants
@@ -607,7 +594,7 @@ function rules.profile(name: string): rules.Policy?, string
   if name == "system" or name == "programs" then
     return rules.system_profile(if rules.on_macos() then "darwin" else "linux" end, present, name), ""
   end
-  if name == "cosmic" then return cosmic_profile() end
+  if name == "cosmic" then return refuse(NO_COSMIC) end
   return refuse("unknown profile \"" .. tostring(name) .. "\" (known: " ..
       table.concat(PROFILES, ", ") .. ")")
 end
@@ -643,22 +630,13 @@ end
 function rules.merge(...: rules.Policy): rules.Policy?, string
   local flat: mut {rules.Policy} = {}
   local given: {rules.Policy} = { ... }
-  local on_database = false
-  for _, p in ipairs(given) do
-    if p.database ~= nil then on_database = true end
-  end
   for _, p in ipairs(given) do
     local bad = invalid(p, false)
     if bad ~= "" then return refuse(bad) end
     for _, name in ipairs(p.profiles or {}) do
-      -- The program on a database is a core and that file, which a start
-      -- grants: the profile's grant of this program's own file is
-      -- none of it, and one a start refuses.
-      if not (on_database and name == "cosmic") then
-        local profile, why = rules.profile(name)
-        if profile == nil then return nil, why end
-        flat[#flat + 1] = profile
-      end
+      local profile, why = rules.profile(name)
+      if profile == nil then return nil, why end
+      flat[#flat + 1] = profile
     end
     flat[#flat + 1] = p
   end

@@ -1,14 +1,13 @@
 --- @public
 --- The tools of `cosmic agent`: pi's four, read, write, edit and bash; run,
---- which checks and runs a snippet of Teal; and sql, over the sessions and
---- outputs it keeps (offered when asked for: run's Host.history reads the
---- same). Each is a definition the model reads (its name, description
+--- which checks and runs a snippet of Teal; and jobs, over bash's background
+--- jobs. Each is a definition the model reads (its name, description
 --- and input schema), a line for the system prompt, and a function that
 --- does it. A tool never raises: what goes wrong is its result, marked
 --- as an error, for the model to read and act on.
 ---
---- The model has pi's four tools, one for snippets of Teal, one for
---- background jobs, and one over what is kept:
+--- The model has pi's four tools, one for snippets of Teal, and one for
+--- background jobs:
 ---
 ---     read   path, offset?, limit?
 ---       a file's lines, at most 2000 lines or 50KB; offset (from 1) and
@@ -36,15 +35,12 @@
 ---       oldText must be found once, and no two may overlap
 ---     write  path, content
 ---       creates or overwrites a file, and the directories above it
----     sql    query
----       runs one SQLite statement on sessions.db, opened read-only:
----       column names, then a row a line, cells split by tabs, at most
----       2000 lines or 50KB; ?1 is the current session's id
 ---
 --- Each call's whole output is kept in sessions.db (`cosmic agent help
 --- files`). Where a tool's text is cut, the model reads the id of the
---- whole, so it pulls back what it needs and no more: with substr(),
---- or with FTS5 (MATCH, snippet()) over every session's outputs.
+--- whole, so it pulls back what it needs and no more, in a snippet of
+--- run: with Host.output, or with Host.history, a read-only query that
+--- can use substr() or FTS5 (MATCH, snippet()) over every session's outputs.
 ---
 --- Each tool is a value ([`Tools.Tool`]): an agent's `tools` is the list
 --- it offers the model, and a program of its own picks or makes its own.
@@ -54,7 +50,7 @@
 --- sandbox); [`Tools.only`] and
 --- [`Tools.without`] pick by name.
 ---
----     local agent = Agent.new({ sign = sign, cwd = cwd, tools = Tools.only(Tools.all(), { "read", "sql" }) })
+---     local agent = Agent.new({ sign = sign, cwd = cwd, tools = Tools.only(Tools.all(), { "read", "run" }) })
 ---
 --- A relative path is from the working directory; ~ is HOME. A tool
 --- that fails says why to the model, which goes on from there. Each
@@ -121,9 +117,9 @@ local record Tools
   record Context
     --- The working directory, which a relative path is from.
     cwd: string
-    --- The sessions database, for sql; nil for none.
+    --- The sessions database, for a snippet's history, output and store calls; nil for none.
     db?: Sqlite.Handle
-    --- The session's id, `?1` to sql.
+    --- The session's id: `?1` to a history query, and whose store a snippet reads and writes.
     session?: integer
     --- What the tools are held to (cosmic.agent.policy); nil for nothing.
     policy?: Sandbox.Policy
@@ -713,7 +709,7 @@ local function jobs(input: Tools.Object, context: Tools.Context): Tools.Result
   return r
 end
 
---- The values `statement` runs with for a query of the sql tool: `?1` is
+--- The values `statement` runs with for a history query: `?1` is
 --- `session`, where there is one, and any other parameter is NULL.
 local function session_values(statement: Sqlite.Statement, session?: integer): {Sqlite.Param}
   local values: mut {Sqlite.Param} = {}
@@ -722,64 +718,6 @@ local function session_values(statement: Sqlite.Statement, session?: integer): {
   end
   return values
 end
-
---- The rows of `query` on `db`, as text: the column names, then a line
---- a row, cells split by tabs, within the limits. `?1` is `session`.
-local function rows_of(db: Sqlite.Handle, query: string, session?: integer): Tools.Result
-  local statement, why = db:prepare(query)
-  if statement == nil then return fail("sql: " .. tostring(why)) end
-  local names = statement:names()
-  local columns = #names
-  local found, query_why = statement:query(session_values(statement, session))
-  if found == nil then
-    statement:close()
-    return fail("sql: " .. tostring(query_why))
-  end
-  local header = table.concat(names, "\t")
-  local out: mut {string} = { header }
-  local bytes, rows, cut, lines_used = #header, 0, false, 1
-  for row in found:each() do
-    local cells: mut {string} = {}
-    for i = 1, columns do
-      cells[#cells + 1] = row:as_text(i) or "NULL"
-    end
-    local line = table.concat(cells, "\t")
-    local _, breaks = line:gsub("\n", "")
-    if lines_used + 1 + breaks > MAX_LINES or bytes + 1 + #line > MAX_BYTES then
-      if rows == 0 then
-        local part = String.cut(line, math.max(MAX_BYTES - bytes - 1, 0))
-        local at: integer? = 0
-        for _ = 1, MAX_LINES - lines_used do
-          if at == nil then break end
-          at = part:find("\n", at + 1, true)
-        end
-        out[#out + 1] = if at ~= nil then part:sub(1, at - 1) else part end
-        rows = 1
-      end
-      cut = true
-      break
-    end
-    out[#out + 1] = line
-    bytes, rows, lines_used = bytes + 1 + #line, rows + 1, lines_used + 1 + breaks
-  end
-  local _, _ = found:close()
-  statement:close()
-  local failure = found:failure()
-  if failure ~= nil then return fail("sql: " .. tostring(failure)) end
-  if columns == 0 then return ok("Done.") end
-  local text = table.concat(out, "\n")
-  if cut then
-    text = text .. string.format("\n\n[Stopped after %s, at the %d-line or %s limit. Narrow the query: " ..
-        "LIMIT/OFFSET for rows, substr(text, start, length) for a long text.]", String.counted(rows, "row"), MAX_LINES,
-      size(MAX_BYTES))
-  elseif rows == 0 then
-    text = text .. "\n\n[No rows.]"
-  end
-  return ok(text)
-end
-
---- How long one statement of the sql tool may run, in seconds.
-local SQL_SECONDS <const> = 60
 
 --- The sessions database of `context`, opened again read-only, so a query cannot change what is kept; or why it is not.
 local function reader_of(context: Tools.Context, limit_ns?: integer): (Sqlite.Handle) | (nil, string)
@@ -797,18 +735,6 @@ local function reader_of(context: Tools.Context, limit_ns?: integer): (Sqlite.Ha
   -- A query that runs past its time, or one Ctrl-C stops (the turn holds a guard), fails rather than hold the agent.
   reader:time_limit(limit_ns)
   return reader
-end
-
---- Runs one SQL statement on the sessions database, opened again
---- read-only, so a query cannot change what is kept.
-local function sql(input: Tools.Object, context: Tools.Context): Tools.Result
-  local query, why = text_of(input, "query")
-  if query == nil then return fail(why) end
-  local reader, open_why = reader_of(context, Clock.seconds(SQL_SECONDS))
-  if reader == nil then return fail("sql: " .. open_why) end
-  local r = rows_of(reader, query, context.session)
-  local _, _ = reader:close()
-  return r
 end
 
 --- The most bytes of the JSON of the rows a snippet's history call gets: well within the line of 1MB the
@@ -918,8 +844,8 @@ local function stored(context: Tools.Context, name: string, given: {string: Json
   return true
 end
 
---- What serves the calls a snippet of `context` makes of the agent, as they come, with no guard: history, a query
---- as the sql tool runs it, store, and the MCP servers.
+--- What serves the calls a snippet of `context` makes of the agent, as they come, with no guard: history (a
+--- read-only query of sessions.db), store, and the MCP servers.
 local function served_unguarded(context: Tools.Context): Worker.Serve
   return function(name: string, args: Json.Value, budget: Worker.Budget): (Json.Value) | (nil, Failure)
     local fields, _ = Json.to_object(args)
@@ -1072,7 +998,7 @@ local function used(context: Tools.Context, args: Json.Value, budget: Worker.Bud
   return result.text
 end
 
---- What serves the calls a snippet of `context` makes of the agent (history, a query as the sql tool runs it, store.get,
+--- What serves the calls a snippet of `context` makes of the agent (history, a read-only query of sessions.db, store.get,
 --- store.put, and mcp.servers, mcp.tools and mcp.call), each asked of its guard first and given to its amend
 --- after, failed or not. A call of no other name is refused before either is asked.
 local function served(context: Tools.Context): Worker.Serve
@@ -1200,7 +1126,7 @@ local function touches(actions: {string}): function(input: Tools.Object, cwd: st
   end
 end
 
---- What sessions.db holds, as the sql tool and Host.history tell the model.
+--- What sessions.db holds, as Host.history tells the model.
 local KEPT_TABLES <const> = "Tables: sessions (id, cwd, started (Unix time), model); messages (session, seq, " ..
   "message: the JSON the API takes); outputs (id, session, tool, input (JSON), text (the whole output), is_error); " ..
   "outputs_fts, FTS5 over outputs.text with the trigram tokenizer (rowid = outputs.id): " ..
@@ -1313,26 +1239,12 @@ local ALL <const>: {Tools.Tool} = {
     run = write,
     paths = touches({ "write", "create" }),
   },
-  {
-    name = "sql",
-    snippet = "Query sessions.db, where every conversation and every tool's whole output is kept",
-    guidelines = { "Each tool's whole output is kept in sessions.db: use sql to find and read what was cut, " ..
-        "or seen before, rather than running a command again." },
-    description = "Run one read-only SQLite statement on sessions.db, where the agent keeps every session. " ..
-      KEPT_TABLES .. " " ..
-      "Returns the column names, then a line a row, cells split by tabs: at most " .. LIMIT .. ". " ..
-      "A statement may run " .. String.counted(SQL_SECONDS, "second") .. ".",
-    schema = schema({
-      query = string_field("One SQLite statement, for example: SELECT text FROM outputs WHERE id = 3"),
-    }, { "query" }),
-    run = sql,
-  },
 }
 
 --- Every tool, in the order the system prompt lists them: a new list,
 --- yours to change.
 ---
----     for _, t in ipairs(Tools.all()) do print(t.name) end -- read bash run jobs edit write sql
+---     for _, t in ipairs(Tools.all()) do print(t.name) end -- read bash run jobs edit write
 function Tools.all(): mut {Tools.Tool}
   local out: mut {Tools.Tool} = {}
   for _, t in ipairs(ALL) do out[#out + 1] = t end
@@ -1342,7 +1254,7 @@ end
 --- Those of `tools` named in `names`, in the order of `tools`; a name
 --- that none of them has is passed over.
 ---
----     local reading = Tools.only(Tools.all(), { "read", "sql" })
+---     local reading = Tools.only(Tools.all(), { "read", "run" })
 function Tools.only(tools: {Tools.Tool}, names: {string}): mut {Tools.Tool}
   local named: mut {string: boolean} = {}
   for _, n in ipairs(names) do named[n] = true end
@@ -1369,9 +1281,8 @@ end
 --- What an agent offers unless told: read, run, edit and write. No
 --- program runs: without bash a snippet's worker starts no process
 --- either ([`Worker.Options`] `commands`, on Linux under a sandbox).
---- What is kept is read with Host.output and Host.history in run, so sql is left out.
 function Tools.default(): mut {Tools.Tool}
-  return Tools.without(ALL, { "bash", "jobs", "sql" })
+  return Tools.without(ALL, { "bash", "jobs" })
 end
 
 --- Runs `tool` on `input` in `context`, the background jobs looked at
@@ -1438,7 +1349,7 @@ end
 --- `tools` with those `with` names added and those `without` names taken out, each a list as [`Tools.named`] takes,
 --- in the order of [`Tools.all`]: or nil and why, for a name no tool has, jobs without bash, or no tool left.
 ---
----     for _, t in ipairs(assert(Tools.changed(Tools.default(), "bash,sql", "write"))) do print(t.name) end -- read bash run edit sql
+---     for _, t in ipairs(assert(Tools.changed(Tools.default(), "bash,jobs", "write"))) do print(t.name) end -- read bash run jobs edit
 function Tools.changed(tools: {Tools.Tool}, with?: string, without?: string): ({Tools.Tool}) | (nil, string)
   local adds, add_why = names_of(with or "")
   if adds == nil then return nil, add_why end
