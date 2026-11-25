@@ -457,6 +457,23 @@ local CASES <const>: {Case} = {
     fix = "`Fs` has `read: function(path: string, n?: integer): string`, `read_is: function(v: any): v is string`",
   },
   {
+    -- A field whose function may be nil, written either way.
+    code = "field_unknown", source = "local Fs = require(\"cosmic.fs\")\nlocal r = Fs.read_file\n",
+    modules = { ["cosmic.fs"] = "local record Fs\n  read: (function(path: string): string)?\n" ..
+        "  read_at?: function(path: string, at: integer): string\nend\nreturn Fs\n" },
+    msg = "`Fs` has no field `read_file`",
+    fix = "`Fs` has `read: (function(path: string): string)?`, `read_at: (function(path: string, at: integer): string)?`",
+  },
+  {
+    -- A signature too long to show whole keeps its first parameters and its returns.
+    code = "field_unknown", source = "local Fs = require(\"cosmic.fs\")\nlocal r = Fs.read_file\n",
+    modules = { ["cosmic.fs"] = "local record Fs\n  read: function(path: string, offset: integer, length: integer, " ..
+        "flags: {string: boolean}, encoding: string, callback: function(chunk: string)): string, integer\nend\nreturn Fs\n" },
+    msg = "`Fs` has no field `read_file`",
+    fix = "`Fs` has `read: function(path: string, offset: integer, length: integer, flags: {string: boolean}, " ..
+      "...): string, integer`",
+  },
+  {
     -- A method of a class.
     code = "field_unknown",
     source = "local Fs = require(\"cosmic.fs\")\nlocal function f(b: Fs.Box): any return b.grw end\n",
@@ -2168,7 +2185,8 @@ local function test_the_hint_of_an_index_read_names_the_loop_and_the_checked_rea
   end
   local named = fix_of("local xs: {integer} = {}\nlocal i: integer = 2\nlocal n: integer = xs[i]\n", "index_may_be_nil")
   for _, part in ipairs({ "for i = 1, #xs do", "if i >= 1 and i <= #xs then", "Array.at(xs, i)", "xs[i]!", "ipairs(xs)",
-      "or <default>", "a wrong value" }) do
+      "or <default>", "a wrong value", "before the read or after it, calls a function or method",
+      "(`v > best` counts; `v > 0` does not)" }) do
     assert(has(named, part), part .. " is not in " .. named)
   end
   -- the loop is offered only for a local array read at a name
@@ -2183,6 +2201,13 @@ local function test_the_hint_of_an_index_read_names_the_loop_and_the_checked_rea
 end
 
 local function test_a_read_at_the_index_of_a_loop_over_the_length_of_the_array_is_not_optional()
+  -- what the hint of an index read names: a call or a comparison of two locals, before the read or after it, keeps it
+  -- optional, in a loop and in a test of the index alike
+  assert(counted("for i = 1, #xs do\n  total = total + xs[i]\n  print(i)\nend\n") ~= "")
+  assert(counted("for i = 1, #xs do\n  local v: integer = xs[i]\n  if v > total then total = v end\nend\n") ~= "")
+  assert(counted("local i = 2\nif i >= 1 and i <= #xs then\n  total = xs[i]\n  local _ = tostring(i)\nend\n") ~= "")
+  local kept = counted("for i = 1, #xs do\n  total = total + xs[i]\n  if xs[i] > 0 then total = 0 end\nend\n")
+  assert(kept == "", kept)
   assert(counted("for i = 1, #xs do\n  total = total + xs[i]\nend\n") == "")
   assert(counted("for i = 2, #xs do\n  total = total + xs[i]\nend\n") == "")
   assert(counted("for i = 1, #xs, 1 do\n  total = total + xs[i]\nend\n") == "")

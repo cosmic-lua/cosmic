@@ -859,7 +859,8 @@ end
 --- driver, and a held run there refuses a promise it cannot read (COSMIC_TEST_PROMISES), failing the fixture before it
 --- starts. No fixture requires them.
 -- TODO: drop this and [`driver_promises`] once ci/cosmic-driver.pin names a release whose `cosmic test` knows
--- `pinned_zig`.
+-- `pinned_zig`, or one that leaves out a promised name it does not know (build/host_names.tl `read_promises`), which
+-- spares every later name too.
 local DRIVER_UNKNOWN <const>: {string:boolean} = { pinned_zig = true }
 
 --- `env` without the promises of [`DRIVER_UNKNOWN`].
@@ -1361,7 +1362,9 @@ local function snapshot(c: Context, diagnostics: string, label: string,
     end
   end
   write(out .. "/hashes.sha256", hashes)
-  local temporary_root = Env.read("TMPDIR") or "/tmp"
+  -- TODO: use Fs.temp_dir once ci/cosmic-driver.pin names a release that has it.
+  local temporary_root = Env.read("TMPDIR") or ""
+  if temporary_root:sub(1, 1) ~= "/" then temporary_root = "/tmp" end
   State.external_path(temporary_root .. "/probe", c.root)
   local inspect = assert(Fs.mkdtemp("cosmic-work-db-integrity-"))
   local integrity: Snapped = { status = 1 }

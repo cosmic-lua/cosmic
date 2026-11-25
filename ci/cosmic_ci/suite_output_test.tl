@@ -242,21 +242,23 @@ local function test_rows_round_trip_into_the_summary_table(tmp: string)
   assert(handle:close())
 end
 
---- A suite's skips are grouped by reason, a scratch path made one, and
---- reported as a table; a suite with none reports nothing.
+--- A suite's skips are grouped by reason, a scratch path made one, a
+--- module's line that counts its tests read as that many, and reported as
+--- a table; a suite with none reports nothing.
 local function test_skips_are_grouped_by_reason_for_the_summary()
   local text = table.concat({
     "test: SKIP  a.b_test test_x: no socket (/tmp/cosmic-test-pad/x/probe.sock: denied)",
     "test: SKIP  a.b_test test_y: no socket (/tmp/cosmic-test-pad/y/probe.sock: denied)",
     "test: SKIP  c.d_test test_z: nests: a worker | pipe",
-    "test: 5 tests passed in 2 modules; 2 ran, 0 stood, 3 skipped (this host could not check them), 9 ms; sandboxed",
+    "test: SKIP  e.f_test: 4 tests, nests: a worker | pipe",
+    "test: 9 tests passed in 3 modules; 2 ran, 0 stood, 7 skipped (this host could not check them), 9 ms; sandboxed",
   }, "\n") .. "\n"
   local skips = SuiteOutput.skips(text)
-  assert(#skips == 2 and assert(skips[1]).count == 2 and assert(skips[1]).reason == "no socket (<dir>: denied)")
+  assert(#skips == 2 and assert(skips[1]).count == 5 and assert(skips[1]).reason == "nests: a worker | pipe")
   local report = SuiteOutput.skip_report("local", text)
-  assert(report:find("### Skipped tests: local (3)", 1, true), report)
+  assert(report:find("### Skipped tests: local (7)", 1, true), report)
   assert(report:find("| 2 | no socket (\\<dir\\>: denied) |", 1, true), report)
-  assert(report:find("| 1 | nests: a worker \\| pipe |", 1, true), report)
+  assert(report:find("| 5 | nests: a worker \\| pipe |", 1, true), report)
   assert(SuiteOutput.skip_report("l", "test: SKIP  a b: a `x` *y*\n"):find("a \\`x\\` \\*y\\*", 1, true))
   assert(SuiteOutput.skip_report("local", "test: 1 test passed in 1 module\n") == "")
 end

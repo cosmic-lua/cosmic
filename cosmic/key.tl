@@ -461,7 +461,7 @@ local function read_text(text: string): Key.Secret?, string
       end
       local der_bytes, undecoded = Codec.unbase64((body:gsub("%s", "")))
       if der_bytes == nil then
-        return nil, "key: the " .. label .. " block is not base64: " .. undecoded
+        return nil, "key: the " .. label .. " block is not base64: " .. tostring(undecoded)
       end
       if label == "PRIVATE KEY" then return pkcs8_key(der_bytes) end
       if label == "RSA PRIVATE KEY" then return secret_of("rsa", der_bytes) end

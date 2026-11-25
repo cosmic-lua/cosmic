@@ -408,6 +408,36 @@ local function test_a_project_is_held_to_the_error_slot_rules()
   assert(held ~= nil, tostring(held_why))
 end
 
+--- Rule 10 holds the modules other code may require: a module private to its directory, beside the package's `init.tl`,
+--- exports to the package alone and may answer two results; one that says `--- @public`, and one of a namespace (a
+--- top-level directory with no `init.tl`), are held as any module is.
+local function test_a_private_module_of_a_package_may_answer_two_results()
+  local project = Pipeline.project({ prelude = "do\nend\n", stdlib = "do\nend\n" })
+  local pair = table.concat({
+    "local record M",
+    "end",
+    "function M.of(s: string): string, string",
+    "  return s, \"\"",
+    "end",
+    "return M",
+    "",
+  }, "\n")
+  local entry = "local record P\nend\nreturn P\n"
+  local kinds = { ["p/init.tl"] = "module", ["p/m.tl"] = "module" }
+  local held, held_why = Pipeline.generate(module_of("p.m", "p/m.tl", "module", pair, {}),
+    Pipeline.over({ { "p/init.tl", entry }, { "p/m.tl", pair } }, kinds, project))
+  assert(held ~= nil, tostring(held_why))
+  local public = "--- @public\n" .. pair
+  local made, why = Pipeline.generate(module_of("p.m", "p/m.tl", "module", public, {}),
+    Pipeline.over({ { "p/init.tl", entry }, { "p/m.tl", public } }, kinds, project))
+  assert(made == nil and why:find("M.of: an exported function answers one result", 1, true) ~= nil, tostring(why))
+  -- A top-level directory with no `init.tl` is a namespace: its modules are open to every importer, and held.
+  local open, open_why = Pipeline.generate(module_of("q.m", "q/m.tl", "module", pair, {}),
+    Pipeline.over({ { "q/m.tl", pair } }, { ["q/m.tl"] = "module" }, project))
+  assert(open == nil and open_why:find("M.of: an exported function answers one result", 1, true) ~= nil,
+    tostring(open_why))
+end
+
 --- A boot names the code that reads from the tree it stages, since the release that runs it carries another: the modules the
 --- pipeline reaches, and no other, once the tree is parsed.
 local function test_the_code_that_reads_is_named_from_the_staged_tree(tmp: string)

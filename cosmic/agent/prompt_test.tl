@@ -4,6 +4,7 @@ local Agent = require("cosmic.agent")
 local agent_fixture = require("build.agent_fixture")
 local AgentMcp = require("cosmic.agent.mcp")
 local Fs = require("cosmic.fs")
+local type Json = require("cosmic.json")
 local Prompt = require("cosmic.agent.prompt")
 local Test = require("cosmic.test")
 local Tools = require("cosmic.agent.tools")
@@ -11,6 +12,15 @@ local Tools = require("cosmic.agent.tools")
 Test.policy{ env = { "TMPDIR" } }
 
 local scratch = agent_fixture.scratch
+
+local NO_PROPERTIES <const>: {string: Json.Value} = {}
+
+--- A tool of the tests' own, for the model, with a rule of its own.
+local NOTE <const>: Tools.Tool = { name = "note", snippet = "Note a word", guidelines = { "Note what matters." },
+  description = "Notes a word.", schema = { type = "object", properties = NO_PROPERTIES },
+  run = function(_: Tools.Object, _: Tools.Context): Tools.Result
+    return { text = "", is_error = false }
+  end }
 
 local function test_the_prompt_lists_tools_rules_and_context_by_relative_path()
   local dir = scratch()
@@ -25,8 +35,8 @@ local function test_the_prompt_lists_tools_rules_and_context_by_relative_path()
   assert(#mine == 2 and mine[1].path == dir .. "/AGENTS.md" and mine[2].content == "sub rules")
   local p = Prompt.build(dir .. "/sub", mine, { tools = Tools.all() })
   assert(p:find("^You are a coding assistant running inside cosmic agent") ~= nil)
-  assert(p:find("<tools>\n- read: Read file contents\n- bash: ", 1, true) ~= nil, p)
-  assert(p:find("- Use write only for new files or complete rewrites.", 1, true) ~= nil)
+  assert(p:find("<tools>\n- run: ", 1, true) ~= nil, p)
+  assert(p:find("- Each tool's output is kept in sessions.db", 1, true) ~= nil, p)
   assert(p:find('<project_instructions path="../AGENTS.md">\ntop rules\n</project_instructions>', 1, true) ~= nil, p)
   assert(p:find('<project_instructions path="CLAUDE.md">\nsub rules', 1, true) ~= nil, p)
   -- No path of the machine: the same prompt in each directory, so it is read from the cache.
@@ -48,16 +58,18 @@ local function test_code_mode_adds_no_section_to_the_prompt()
   assert(p:find("<stdlib>", 1, true) == nil and p:find("Host.find", 1, true) == nil, p)
 end
 
---- A session that offers some tools alone names those, and their rules; with no bash, files are run's.
-local function test_the_prompt_names_only_the_tools_offered()
-  local all = Prompt.build("/w", {}, { tools = Tools.all() })
-  assert(all:find("- bash: ", 1, true) ~= nil and all:find("<rules>\n- Use bash for file operations", 1, true) ~= nil, all)
-  local some = Prompt.build("/w", {}, { tools = Tools.only(Tools.all(), { "run", "read" }) })
-  assert(some:find("- bash: ", 1, true) == nil and some:find("- edit: ", 1, true) == nil, some)
-  assert(some:find("- run: ", 1, true) ~= nil and some:find("- read: ", 1, true) ~= nil, some)
+--- A tool of one's own is named with its rules; where a snippet may run programs, the rules say Host.bash runs them
+--- and the project's checks are to be run; where it may not, that no program runs.
+local function test_the_prompt_names_the_tools_offered_and_whether_programs_run()
+  local run = assert(Tools.find(Tools.all(), "run"))
+  local some = Prompt.build("/w", {}, { tools = { run, NOTE } })
+  assert(some:find("- run: ", 1, true) ~= nil and some:find("- note: Note a word", 1, true) ~= nil, some)
+  assert(some:find("- Note what matters.", 1, true) ~= nil, some)
   assert(some:find("Use run for file operations: no program runs here", 1, true) ~= nil, some)
-  assert(some:find("Use bash for", 1, true) == nil and some:find("Use write only", 1, true) == nil, some)
-  -- The default tools offer no bash, and the rules name none; the rules for every tool stay.
+  local commands = Prompt.build("/w", {}, { commands = true })
+  assert(commands:find("Host.bash runs a program where one is needed", 1, true) ~= nil, commands)
+  assert(commands:find("Check a change with the project's own checks and tests (Host.bash)", 1, true) ~= nil, commands)
+  -- By default no program runs, and the rules name no bash; the rules for every tool stay.
   local quiet = Prompt.build("/", {})
   assert(quiet:find("bash", 1, true) == nil and quiet:find("- Tools may run in a sandbox", 1, true) ~= nil, quiet)
   assert(Prompt.build("/", {}, { tools = {} }):find("<tools>", 1, true) == nil)
@@ -66,15 +78,15 @@ end
 -- The whole prompt, byte for byte: the template's trim markers decide each
 -- blank line, which the tests above, by parts, would not see.
 local function test_the_prompt_is_exactly_its_sections()
-  local read = assert(Tools.find(Tools.all(), "read"))
+  local note = NOTE
   local contexts: {Prompt.Context} = { { path = "/w/AGENTS.md", content = "top" }, { path = "/w/a/CLAUDE.md", content = "sub" } }
   local servers: {AgentMcp.Server} = { { name = "gh", description = "GitHub\n  tools" }, { name = "plain" } }
   local guidelines: mut {string} = {}
-  for _, g in ipairs(read.guidelines) do guidelines[#guidelines + 1] = "\n- " .. g end
-  local p = Prompt.build("/w/a", contexts, { tools = { read } })
+  for _, g in ipairs(note.guidelines) do guidelines[#guidelines + 1] = "\n- " .. g end
+  local p = Prompt.build("/w/a", contexts, { tools = { note } })
   local want = "You are a coding assistant running inside cosmic agent, the coding agent of cosmic. " ..
     "Help users inspect files, run commands, and modify code.\n\n" ..
-    "<tools>\n- read: " .. read.snippet .. "\n</tools>\n\n" ..
+    "<tools>\n- note: " .. note.snippet .. "\n</tools>\n\n" ..
     "<rules>" .. table.concat(guidelines) ..
     "\n- Tools may run in a sandbox: where one is refused (a read-only file system, a path not there, no network), " ..
     "say so rather than working around it." ..
@@ -126,7 +138,7 @@ end
 
 local function test_a_prompt_that_offers_run_lists_the_modules_a_snippet_may_require()
   local run = assert(Tools.find(Tools.all(), "run"))
-  local read = assert(Tools.find(Tools.all(), "read"))
+  local read = NOTE
   local listed = Prompt.build("/w", {}, { tools = { run }, modules = "cosmic.csv: CSV.\ncosmic.fs: Files." })
   assert(listed:find("\n\n<cosmic_modules>\nThe cosmic.* modules a snippet of run may require", 1, true) ~= nil, listed)
   assert(listed:find(":\ncosmic.csv: CSV.\ncosmic.fs: Files.\n</cosmic_modules>", 1, true) ~= nil, listed)

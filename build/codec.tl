@@ -106,7 +106,7 @@ end
 --- keeps them private, so a coder's refusals read as its own.
 local record Alphabet
   encode: function(string): string
-  decode: function(string): string?, string
+  decode: function(string): (string) | (nil, Failure)
   class: string
   padded: boolean
   name: string
@@ -307,7 +307,7 @@ local class Base64Decoder is verb.Coder
     -- would see it, padded out if the alphabet is.
     local last = if a.padded then carry .. ("="):rep(4 - #carry) else carry end
     local out, why = a.decode(last)
-    if out == nil then return nil, Failure.new(why) end
+    if out == nil then return nil, why end
     return out
   end
 end

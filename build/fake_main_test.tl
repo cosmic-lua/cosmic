@@ -42,3 +42,27 @@ local function test_a_place_with_nothing_given_clears_what_an_earlier_one_gave(t
   assert(Fake.place(program, tmp .. "/git"))
   assert(run({ tmp .. "/git" }).stdout == "none\n\n")
 end
+
+local function test_a_reply_fake_answers_by_its_first_argument(tmp: string)
+  local program = assert(Fake.build(tmp .. "/fake", Fake.REPLY))
+  assert(Fake.reply(program, tmp .. "/git", {
+    ["rev-parse"] = { stdout = "abc1234\n" },
+    [""] = { stderr = "usage: git\n", code = 1 },
+  }))
+  local ran = assert(Child.run({ tmp .. "/git", "rev-parse", "HEAD" },
+    { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
+  assert(ran.code == 0 and ran.stdout == "abc1234\n" and ran.stderr == "", ran.stderr)
+  local bare = assert(Child.run({ tmp .. "/git" },
+    { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
+  assert(bare.code == 1 and bare.stdout == "" and bare.stderr == "usage: git\n", bare.stderr)
+  local other = assert(Child.run({ tmp .. "/git", "push" },
+    { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
+  assert(other.code == 127, tostring(other.code))
+  assert((other.stderr or ""):find('no reply for "push"', 1, true) ~= nil, other.stderr)
+end
+
+local function test_a_reply_fake_falls_back_to_its_star_reply(tmp: string)
+  local program = assert(Fake.build(tmp .. "/fake", Fake.REPLY))
+  assert(Fake.reply(program, tmp .. "/zig", { ["*"] = { code = 0 } }))
+  assert(run({ tmp .. "/zig", "build" }).code == 0)
+end

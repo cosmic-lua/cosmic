@@ -26,10 +26,11 @@
 ---
 --- ANTHROPIC_BASE_URL, where set, replaces https://api.anthropic.com.
 ---
---- --model opus (the default) is claude-opus-5-5, and --model sonnet is
---- claude-sonnet-5-5: the latest of each. --effort is medium unless it
---- says low, high, xhigh or max. Thinking is adaptive, and a refusal
---- falls back to another model on the server.
+--- --model opus (the default) is claude-opus-5-5, --model sonnet is
+--- claude-sonnet-5-5, and --model haiku is claude-haiku-5-5: the latest
+--- of each. --effort is medium unless it says low, high, xhigh or max.
+--- Thinking is adaptive, and a refusal falls back to another model on
+--- the server.
 
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")

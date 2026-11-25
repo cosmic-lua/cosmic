@@ -110,9 +110,9 @@ end
 --- git is found on the PATH given, not run as a bare name, which
 --- Child.run would not search for.
 local function test_the_harness_commit_comes_from_the_git_on_the_path(dir: string)
-  local probe = assert(Fake.build(dir .. "/fake"))
+  local probe = assert(Fake.build(dir .. "/fake", Fake.REPLY))
   assert(Fs.mkdirs(dir .. "/bin"))
-  assert(Fake.place(probe, dir .. "/bin/git", "print 0123456789abcdef0123456789abcdef01234567"))
+  assert(Fake.reply(probe, dir .. "/bin/git", { ["*"] = { stdout = "0123456789abcdef0123456789abcdef01234567\n" } }))
   assert(Result.git_head("/anywhere", dir .. "/bin") == "0123456789abcdef0123456789abcdef01234567")
   assert(Result.git_head("/anywhere", dir .. "/nowhere") == nil)
 end

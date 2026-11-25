@@ -8,8 +8,8 @@
 ---         [--offer NAME=TOOL,...] [--effort [NAME=]LEVEL] [--tasks T,...|all] [--reps N] [--model M]
 ---         [--timeout S]
 ---
---- `--offer NAME=run,read` runs the agent of the tool NAME with `--tools run,read`: one binary under two names
---- compares, for example, the agent with bash and without it. `--effort NAME=low` runs the agent of the tool NAME
+--- `--offer NAME=run,read` runs the agent of the tool NAME with `--tools run,read`, for a binary from before run became
+--- the agent's one tool (a newer one refuses `--tools`). `--effort NAME=low` runs the agent of the tool NAME
 --- with `--effort low`, and `--effort low` every tool not named so: one binary under two names compares two efforts.
 --- Where none is given, the agent takes its own default.
 --- The fixture is a tree the tasks read, such as this repository at a commit
@@ -489,7 +489,7 @@ Agent.tasks = {
   {
     name = "largest",
     prompt = "Write to answer.txt the five largest .tl files under cosmic/ by line count, as `wc -l` counts " ..
-      "lines: one `count path` per line (path from this directory, as cosmic/x.tl), largest first, ties by path.",
+      "lines: one `count path` per line, such as `412 cosmic/x.tl` (path from this directory), largest first, ties by path.",
     truth = "find cosmic -name '*.tl' -type f -exec wc -l {} + | grep -v ' total$' | awk '{print $1\" \"$2}' | " ..
       "sort -k1,1nr -k2,2 | head -5",
     check = "cat answer.txt",
@@ -497,7 +497,7 @@ Agent.tasks = {
   {
     name = "todos",
     prompt = "Write to answer.txt every line of the .tl files under cosmic/ that holds `TODO`, as " ..
-      "`path:line` (path from this directory, line numbered from 1), one a line, sorted by path, then by line.",
+      "`path:line`, such as `cosmic/x.tl:12` (path from this directory, line numbered from 1), one a line, sorted by path, then by line.",
     truth = "grep -rn --include='*.tl' 'TODO' cosmic | cut -d: -f1,2 | sort -t: -k1,1 -k2,2n",
     check = "cat answer.txt",
   },
@@ -505,7 +505,7 @@ Agent.tasks = {
     name = "requires",
     prompt = "For each .tl file under cosmic/agent/ whose name does not end in _test.tl, count the distinct " ..
       "modules it names in `require(\"cosmic.<...>\")`. Write to answer.txt the three with the most, as " ..
-      "`count path`, one a line, most first, ties by path.",
+      "`count path`, such as `7 cosmic/agent/x.tl`, one a line, most first, ties by path.",
     truth = "for f in $(find cosmic/agent -name '*.tl' ! -name '*_test.tl'); do " ..
       "echo \"$(grep -o 'require(\"cosmic\\.[^\"]*\")' \"$f\" | sort -u | wc -l) $f\"; done | " ..
       "sort -k1,1nr -k2,2 | head -3",
@@ -514,7 +514,7 @@ Agent.tasks = {
   {
     name = "tests",
     prompt = "For every file under cosmic/agent/ whose name ends in _test.tl, count the lines that start " ..
-      "`local function test_`. Write to answer.txt one `path count` per line, most first, ties by path.",
+      "`local function test_`. Write to answer.txt one `path count` per line, such as `cosmic/agent/x_test.tl 9`, most first, ties by path.",
     truth = "for f in $(find cosmic/agent -name '*_test.tl'); do " ..
       "echo \"$f $(grep -c '^local function test_' \"$f\")\"; done | sort -k2,2nr -k1,1",
     check = "cat answer.txt",
@@ -523,7 +523,7 @@ Agent.tasks = {
     name = "undocumented",
     prompt = "In the .tl files under cosmic/agent/ whose names do not end in _test.tl, find each line that " ..
       "starts `local function <name>(` where the line just before it does not start with `---`. Write to " ..
-      "answer.txt one `path:line name` per line, sorted by path, then by line.",
+      "answer.txt one `path:line name` per line, such as `cosmic/agent/x.tl:40 helper`, sorted by path, then by line.",
     truth = [==[find cosmic/agent -name '*.tl' ! -name '*_test.tl' | sort | xargs awk 'FNR==1{prev=""} /^local function [A-Za-z_][A-Za-z0-9_]*\(/ { if (prev !~ /^---/) { n=$3; sub(/\(.*/,"",n); print FILENAME":"FNR" "n } } {prev=$0}' | sort -t: -k1,1 -k2,2n]==],
     check = "cat answer.txt",
   },
@@ -531,7 +531,7 @@ Agent.tasks = {
     name = "fan-in",
     prompt = "For each .tl file directly in cosmic/ (not in a subdirectory, and not ending in _test.tl), say " ..
       "cosmic/<x>.tl, count the other .tl files anywhere under cosmic/ that hold the text `require(\"cosmic.<x>\")`. " ..
-      "Write to answer.txt the ten with the most, as `count cosmic.<x>`, most first, ties by name.",
+      "Write to answer.txt the ten with the most, as `count cosmic.<x>`, such as `31 cosmic.x`, most first, ties by name.",
     truth = [==[for f in $(find cosmic -maxdepth 1 -name '*.tl' ! -name '*_test.tl'); do m=$(basename "$f" .tl); n=$(grep -rlF --include='*.tl' "require(\"cosmic.$m\")" cosmic | grep -vx "$f" | wc -l); echo "$n cosmic.$m"; done | sort -k1,1nr -k2,2 | head -10]==],
     check = "cat answer.txt",
   },
@@ -558,8 +558,8 @@ Agent.tasks = {
     name = "sqlite",
     prompt = "Make files.db, a SQLite database with a table files(dir text, path text, lines integer): one row " ..
       "for each .tl file under cosmic/, `lines` as `wc -l` counts them and `dir` the path's directory " ..
-      "(cosmic, or cosmic/x/y). Then, with SQL on it, write to answer.txt one `dir count lines` per line, the " ..
-      "files and lines of each dir: the ten dirs of the most lines, most first, ties by dir.",
+      "(cosmic, or cosmic/x/y). Then, with SQL on it, write to answer.txt one `dir count lines` per line, the files " ..
+      "and lines of each dir, such as `cosmic/x 4 812`: the ten dirs of the most lines, most first, ties by dir.",
     truth = "echo 'SQLite format 3'; find cosmic -name '*.tl' -type f -exec wc -l {} + | grep -v ' total$' | " ..
       "awk '{d=$2; sub(/\\/[^\\/]*$/, \"\", d); c[d]++; l[d] += $1} END {for (d in c) print d\" \"c[d]\" \"l[d]}' | " ..
       "sort -k3,3nr -k1,1 | head -10",
@@ -583,7 +583,7 @@ Agent.tasks = {
   {
     name = "imports",
     prompt = "Across the .tl files under cosmic/agent/, count each `require(\"cosmic.<...>\")` text, every time it " ..
-      "appears. Write to answer.txt the five modules named most, as `count cosmic.<...>`, most first, ties by name.",
+      "appears. Write to answer.txt the five modules named most, as `count cosmic.<...>`, such as `12 cosmic.x`, most first, ties by name.",
     truth = [==[grep -rho --include='*.tl' 'require("cosmic\.[^"]*")' cosmic/agent | sed 's/require("//; s/")//' | sort | uniq -c | awk '{print $1" "$2}' | sort -k1,1nr -k2,2 | head -5]==],
     check = "cat answer.txt",
   },
@@ -598,14 +598,14 @@ Agent.tasks = {
     name = "mcp-value",
     prompt = "The inventory MCP server lists items and tells each one's category, price in cents and stock. " ..
       "Write to answer.txt, for each category, the sum over its items of price_cents times stock, as " ..
-      "`sum category`, one a line, largest first, ties by category.",
+      "`sum category`, such as `123456 shoes`, one a line, largest first, ties by category.",
     truth = "awk -F'\\t' '{s[$3] += $4 * $5} END {for (c in s) print s[c]\" \"c}' \"$data\" | sort -k1,1nr -k2,2",
     check = "cat answer.txt",
     servers = { { name = "inventory", source = INVENTORY_SERVER, data = inventory() } },
   },
   {
     name = "mcp-low",
-    prompt = "Write to answer.txt each item of the inventory MCP server whose stock is below 3, as `id stock`, " ..
+    prompt = "Write to answer.txt each item of the inventory MCP server whose stock is below 3, as `id stock`, such as `i9999 2`, " ..
       "one a line, sorted by id.",
     truth = "awk -F'\\t' '$5 < 3 {print $1\" \"$5}' \"$data\" | sort",
     check = "cat answer.txt",
@@ -613,7 +613,7 @@ Agent.tasks = {
   },
   {
     name = "mcp-many-low",
-    prompt = "Write to answer.txt each item of the warehouse whose stock is below 3, as `id stock`, one a line, " ..
+    prompt = "Write to answer.txt each item of the warehouse whose stock is below 3, as `id stock`, such as `i9999 2`, one a line, " ..
       "sorted by id.",
     truth = "awk -F'\\t' '$5 < 3 {print $1\" \"$5}' \"$data\" | sort",
     check = "cat answer.txt",
@@ -622,7 +622,7 @@ Agent.tasks = {
   {
     name = "mcp-many-value",
     prompt = "Write to answer.txt, for each category of the warehouse's items, the sum over its items of price " ..
-      "in cents times stock, as `sum category`, one a line, largest first, ties by category.",
+      "in cents times stock, as `sum category`, such as `123456 shoes`, one a line, largest first, ties by category.",
     truth = "awk -F'\\t' '{s[$3] += $4 * $5} END {for (c in s) print s[c]\" \"c}' \"$data\" | sort -k1,1nr -k2,2",
     check = "cat answer.txt",
     servers = many_servers(),
@@ -631,7 +631,7 @@ Agent.tasks = {
     name = "web-low",
     prompt = "The inventory web API at {url} answers GET /items?page=N, from page 1, with JSON: `items`, each " ..
       "with id, name, category, price_cents and stock, and `next`, the page after it, which the last page has " ..
-      "not. Write to answer.txt each item whose stock is below 3, as `id stock`, one a line, sorted by id.",
+      "not. Write to answer.txt each item whose stock is below 3, as `id stock`, such as `i9999 2`, one a line, sorted by id.",
     truth = "awk -F'\\t' '$5 < 3 {print $1\" \"$5}' \"$data\" | sort",
     check = "cat answer.txt",
     site = { source = INVENTORY_SITE, data = inventory() },
@@ -640,7 +640,7 @@ Agent.tasks = {
     name = "web-csv",
     prompt = "The web API at {url} serves the sales as CSV at GET /sales.csv, with a header row " ..
       "`region,customer,amount_cents`. Write to answer.txt, for each customer, the sum of its amount_cents, as " ..
-      "`sum customer`, the name as it reads unquoted, one a line, largest first, ties by customer in byte order.",
+      "`sum customer`, the name as it reads unquoted, such as `5000 Zephyr Goods`, one a line, largest first, ties by customer in byte order.",
     truth = "awk -F'\\t' '{s[$2] += $3} END {for (c in s) print s[c]\" \"c}' \"$data\" | LC_ALL=C sort -k1,1nr -k2",
     check = "cat answer.txt",
     site = { source = SALES_SITE, data = sales() },
@@ -650,10 +650,18 @@ Agent.tasks = {
     prompt = "The web API at {url} serves its event log as plain text at GET /log: lines of " ..
       "`HH:MM:SS LEVEL component message`. Print the log.",
     follow_up = "Write to answer.txt, for each component, how many lines of that log have level ERROR, as " ..
-      "`count component`, one a line, most first, ties by component.",
+      "`count component`, such as `3 mailer`, one a line, most first, ties by component.",
     truth = "awk '$2 == \"ERROR\" {n[$3]++} END {for (c in n) print n[c]\" \"c}' \"$data\" | sort -k1,1nr -k2,2",
     check = "cat answer.txt",
     site = { source = LOG_SITE, data = event_log() },
+  },
+  {
+    name = "docedit",
+    prompt = "In cosmic/compress.tl, before each line that starts `local function <name>(`, such as " ..
+      "`local function helper(`, where the line just before it does not start with `---`, insert the line `--- TODO: say what this does.`, and change " ..
+      "nothing else.",
+    truth = [==[n=$(awk '/^local function [A-Za-z_][A-Za-z0-9_]*\(/ && prev !~ /^---/ {n++} {prev=$0} END {print n+0}' cosmic/compress.tl); [ "$n" -gt 0 ] && awk '/^local function [A-Za-z_][A-Za-z0-9_]*\(/ && prev !~ /^---/ {print "--- TODO: say what this does."} {print; prev=$0}' cosmic/compress.tl | sha256sum | cut -c1-64]==],
+    check = "sha256sum cosmic/compress.tl | cut -c1-64",
   },
 }
 

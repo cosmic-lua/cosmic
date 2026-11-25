@@ -14,6 +14,10 @@
 --- - `own_proc`: a sandbox gets a procfs of its own;
 --- - `proc`: /proc is mounted;
 --- - `portable`: this run is a portable artifact, not a native start;
+--- - `os:<name>`: the host's operating system is `linux` or `darwin`. A
+---   module whose tests mean nothing elsewhere requires it, rather than
+---   skipping each test on `sys.uname().sysname`: the policy then says it,
+---   so its tests are `na` on another platform with no worker started;
 --- - `checked`: this core is the checked (sanitized) build, whose instruments
 ---   refuse an allocation or fire a fault on demand (core/testing.h);
 --- - `all_cores`: this tool carries a core for every release target, not the
@@ -47,8 +51,14 @@
 
 local record host_names
   --- The table's names, sorted: `landlock` is also written `landlock:N`,
-  --- and `path` and `program` only with an argument.
+  --- and `os`, `path` and `program` only with an argument.
   mut names: mut {string}
+
+  --- The operating systems `os:` accepts, each with the `sysname` [`cosmic.sys`]'s `uname` returns for it.
+  systems: {string:string}
+
+  --- The keys of `systems`, sorted.
+  mut system_names: mut {string}
 
   --- Whether a requirement is one only some platforms have.
   enum Class
@@ -76,6 +86,14 @@ local record host_names
     --- Its table entry's class.
     class: Class
   end
+
+  --- A leg's promises as [`read_promises`] reads them.
+  record Promises
+    --- The names the table knows.
+    names: {string}
+    --- The names of a base it does not know, left out.
+    unknown: {string}
+  end
 end
 
 --- A name's shape: its class, and whether it takes an argument, which may
@@ -96,6 +114,7 @@ local shapes: {string:Shape} = {
   own_proc = { class = "platform", argument = false, optional = false },
   proc = { class = "platform", argument = false, optional = false },
   portable = { class = "platform", argument = false, optional = false },
+  os = { class = "platform", argument = true, optional = false },
   checked = { class = "platform", argument = false, optional = false },
   all_cores = { class = "host", argument = false, optional = false },
   pinned_zig = { class = "host", argument = false, optional = false },
@@ -104,6 +123,13 @@ local shapes: {string:Shape} = {
   program = { class = "host", argument = true, optional = false },
 }
 
+host_names.systems = { linux = "Linux", darwin = "Darwin" }
+host_names.system_names = {}
+for name in pairs(host_names.systems) do
+  host_names.system_names[#host_names.system_names + 1] = name
+end
+table.sort(host_names.system_names)
+
 host_names.names = {}
 for name in pairs(shapes) do host_names.names[#host_names.names + 1] = name end
 table.sort(host_names.names)
@@ -111,7 +137,8 @@ table.sort(host_names.names)
 --- Takes `name` apart, or nil and the rule it breaks: a name the table does
 --- not have, an argument where it takes none (or none where it needs one),
 --- a `landlock:N` whose N is not a positive integer of at most four digits,
---- a `path:` that is not absolute, a `program:` that names a path.
+--- a `path:` that is not absolute, a `program:` that names a path, an `os:`
+--- that is not one of `system_names`.
 --- @param name a requirement as written
 --- @return its table name and argument, or nil and why it is refused
 function host_names.parse(name: string): host_names.Spec?, string
@@ -119,13 +146,13 @@ function host_names.parse(name: string): host_names.Spec?, string
   if base == nil then base, argument = name, nil end
   local entry = shapes[base]
   if entry == nil then
-    return nil, string.format("unknown requirement %q: it is one of %s, with `landlock:N`, `path:<absolute path>` and `program:<name>`",
+    return nil, string.format("unknown requirement %q: it is one of %s, with `landlock:N`, `os:<name>`, `path:<absolute path>` and `program:<name>`",
       name, table.concat(host_names.names, ", "))
   end
   if argument == nil then
     if entry.argument and not entry.optional then
       return nil, string.format("%q needs an argument: `%s:<%s>`", name, base,
-        if base == "path" then "absolute path" else "name" end)
+        if base == "path" then "absolute path" elseif base == "os" then table.concat(host_names.system_names, " or ") else "name" end)
     end
     return { base = base, argument = "", class = entry.class }, ""
   end
@@ -142,6 +169,10 @@ function host_names.parse(name: string): host_names.Spec?, string
     end
     if argument:find("\0", 1, true) then
       return nil, string.format("%q: `path:` takes a path with no NUL byte", name)
+    end
+  elseif base == "os" then
+    if host_names.systems[argument] == nil then
+      return nil, string.format("%q: `os:` takes one of %s", name, table.concat(host_names.system_names, ", "))
     end
   elseif base == "program" then
     if argument == "" or argument:find("/", 1, true) ~= nil or argument:find("\0", 1, true) ~= nil then
@@ -161,23 +192,34 @@ function host_names.class(name: string): host_names.Class?, string
 end
 
 --- The requirements a run's leg promises, as the variable
---- COSMIC_TEST_PROMISES writes them: names separated by commas, each one
---- [`parse`] accepts (a `path:` with a comma in it cannot be promised).
---- An empty text promises nothing.
+--- COSMIC_TEST_PROMISES writes them: names separated by commas (a `path:`
+--- with a comma in it cannot be promised). An empty text promises
+--- nothing. A name whose base is shaped as the table's are (lower case,
+--- digits and `_`) but is not one of them is left out and returned apart:
+--- a leg may promise a name newer than the cosmic it starts, which no
+--- module of that cosmic's tree can require. Any other name [`parse`]
+--- refuses, and one written twice, is refused.
 --- @param text the variable's value
---- @return the names, or nil and the rule one breaks
-function host_names.read_promises(text: string): {string}?, string
+--- @return the names the table knows and those left out, or nil and the rule one breaks
+function host_names.read_promises(text: string): host_names.Promises?, string
   local out: mut {string} = {}
-  if text == "" then return out, "" end
+  local unknown: mut {string} = {}
+  if text == "" then return { names = out, unknown = unknown }, "" end
   local seen: mut {string:boolean} = {}
   for name in (text .. ","):gmatch("([^,]*),") do
-    local spec, why = host_names.parse(name)
-    if spec == nil then return nil, why end
     if seen[name] == true then return nil, string.format("%q is promised twice", name) end
     seen[name] = true
-    out[#out + 1] = name
+    local base = name:match("^([a-z][a-z0-9_]*)") or ""
+    local rest = name:sub(#base + 1)
+    if base ~= "" and shapes[base] == nil and (rest == "" or rest:sub(1, 1) == ":") then
+      unknown[#unknown + 1] = name
+    else
+      local spec, why = host_names.parse(name)
+      if spec == nil then return nil, why end
+      out[#out + 1] = name
+    end
   end
-  return out, ""
+  return { names = out, unknown = unknown }, ""
 end
 
 --- The least Landlock ABI version a `landlock` or `landlock:N` asks for.

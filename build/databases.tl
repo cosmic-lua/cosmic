@@ -38,14 +38,14 @@ local function describe(path: string): integer?, string
   if db == nil then
     return nil, tostring(open_trouble)
   end
-  local sizes, size_trouble = db:text_rows(
+  local sizes, size_trouble = db:rows(
     "SELECT name, count(*), sum(pgsize), sum(payload) FROM dbstat " ..
       "GROUP BY name ORDER BY sum(pgsize) DESC, name")
   if sizes == nil then
     local _, _ = db:close()
     return nil, tostring(size_trouble)
   end
-  local tables, table_trouble = db:text_rows(
+  local tables, table_trouble = db:rows(
     "SELECT name FROM sqlite_schema WHERE type = 'table'")
   if tables == nil then
     local _, _ = db:close()
@@ -60,10 +60,11 @@ local function describe(path: string): integer?, string
   log:say("  " .. column("rows", 8) .. column("pages", 8) ..
       column("bytes", 10) .. column("payload", 10) .. "  name")
   for _, row in ipairs(sizes) do
-    local name, pages, bytes, payload = row:text(1), row:text(2), row:text(3), row:text(4)
+    local name, pages, bytes, payload = row:text(1), tostring(row:integer(2)), tostring(row:integer(3)),
+      tostring(row:integer(4))
     local rows = ""
     if is_table[name] == true then
-      local counted, count_trouble = db:text_rows(
+      local counted, count_trouble = db:rows(
         "SELECT count(*) FROM " .. quoted(name))
       if counted == nil then
         local _, _ = db:close()
@@ -74,7 +75,7 @@ local function describe(path: string): integer?, string
         local _, _ = db:close()
         return nil, "count(*) of " .. name .. " answered no row"
       end
-      rows = only:text(1)
+      rows = tostring(only:integer(1))
     end
     log:say("  " .. column(rows, 8) .. column(pages, 8) .. column(bytes, 10) ..
         column(payload, 10) .. "  " .. name)
@@ -89,7 +90,7 @@ local function builds(path: string): boolean, string
   if db == nil then
     return false, tostring(open_trouble)
   end
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT run, ms, files, read, compiled, cached, verdict FROM builds " ..
       "ORDER BY run DESC LIMIT 5")
   local _, _ = db:close()
@@ -98,9 +99,9 @@ local function builds(path: string): boolean, string
   end
   log:say("builds, latest first")
   for _, row in ipairs(rows) do
-    log:say("  run " .. row:text(1) .. "  " .. row:text(2) .. " ms  " .. plural.count(math.tointeger(tonumber(row:text(3))) or 0, "file") ..
-        " staged (" .. row:text(4) .. " read)  " .. row:text(5) .. " compiled, " ..
-        row:text(6) .. " cached  " .. row:text(7))
+    log:say("  run " .. tostring(row:integer(1)) .. "  " .. tostring(row:integer(2)) .. " ms  " ..
+        plural.count(row:integer(3), "file") .. " staged (" .. tostring(row:integer(4)) .. " read)  " ..
+        tostring(row:integer(5)) .. " compiled, " .. tostring(row:integer(6)) .. " cached  " .. row:text(7))
   end
   return true, ""
 end
@@ -116,7 +117,7 @@ local function slowest(path: string, about: function(string): boolean): boolean,
   if db == nil then
     return false, tostring(open_trouble)
   end
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT path, test, elapsed_ns FROM runs ORDER BY elapsed_ns DESC")
   local _, _ = db:close()
   if rows == nil then
@@ -131,7 +132,7 @@ local function slowest(path: string, about: function(string): boolean): boolean,
   end
   log:say("slowest tests")
   for _, row in ipairs(kept) do
-    local ns = math.tointeger(tonumber(row:text(3)) or 0) or 0
+    local ns = row:integer(3)
     log:say("  " .. string.format("%.1f", ns / 1e9) .. "s  " .. row:text(1) ..
         " " .. row:text(2))
   end
@@ -176,7 +177,7 @@ local function module_files(root: string, working: boolean): {string:string}?, s
       if db == nil then
         return nil, tostring(open_trouble)
       end
-      local rows, trouble = db:text_rows(source.sql)
+      local rows, trouble = db:rows(source.sql)
       local _, _ = db:close()
       if rows == nil then
         return nil, path .. ": " .. tostring(trouble)
@@ -195,7 +196,7 @@ local function describe_under(path: string, about: function(string): boolean): i
   if db == nil then
     return nil, tostring(open_trouble)
   end
-  local tables, table_trouble = db:text_rows(
+  local tables, table_trouble = db:rows(
     "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
   if tables == nil then
     local _, _ = db:close()
@@ -206,7 +207,7 @@ local function describe_under(path: string, about: function(string): boolean): i
   local kept = 0
   for _, row in ipairs(tables) do
     local name = row:text(1)
-    local columns, column_trouble = db:text_rows(
+    local columns, column_trouble = db:rows(
       "SELECT name FROM pragma_table_info(?1)", { { text = name } })
     if columns == nil then
       local _, _ = db:close()
@@ -219,7 +220,7 @@ local function describe_under(path: string, about: function(string): boolean): i
       if chosen == nil and has[candidate] == true then chosen = candidate end
     end
     if chosen ~= nil then
-      local values, value_trouble = db:text_rows(
+      local values, value_trouble = db:rows(
         "SELECT " .. quoted(chosen) .. " FROM " .. quoted(name))
       if values == nil then
         local _, _ = db:close()
@@ -227,7 +228,7 @@ local function describe_under(path: string, about: function(string): boolean): i
       end
       local count = 0
       for _, value in ipairs(values) do
-        if about(value:text(1)) then count = count + 1 end
+        if about(value:as_text(1) or "") then count = count + 1 end
       end
       if count > 0 then
         log:say("  " .. column(tostring(count), 8) .. "  " .. name)
