@@ -22,14 +22,17 @@
 --- A SEALED RUN: `--database`, `--modules` and `--closure` each name the
 --- database the program runs on ([`Sandbox.Policy`]'s `database`), the
 --- program being this program's core and the words after it the main's
---- arguments. `--database` takes a file as it is. `--modules` and
+--- arguments. `--database` takes a file as it is, or standard input for
+--- `-`, kept in a file in a directory of the run's own (the program's own
+--- standard input is then at its end). `--modules` and
 --- `--closure` seal one first, through [`Store.seal`], into a directory
 --- of the run's own that the program's user can search, removed when it
 --- ends: the named modules (the first the main, and no requires followed),
 --- or the closure of the literal requires of a script, compiled here, in this unsealed process,
 --- by [`standalone.code`] (what a file run as `--standalone` is) and
 --- sealed as the main. A command line that names two of the three, a module no store holds (a script's
---- require of one included) or a `--database` that is not there is refused (2); a script that cannot be read or does
+--- require of one included), a `--database` that is not there, or a `--database -` with nothing piped
+--- in, is refused (2); a script that cannot be read or does
 --- not compile, or a seal that cannot be written, is a start that failed
 --- (125).
 ---
@@ -74,6 +77,7 @@ local Sandbox = require("cosmic.sandbox")
 local PolicyJson = require("cosmic.policy")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
+local Defer = require("cosmic.defer")
 local Compiled = require("cosmic.internal.compiled")
 local Globals = require("cosmic.internal.globals")
 local bare = require("build.bare")
@@ -98,6 +102,9 @@ local record verb
     --- and returns its exit status, as [`build.sandbox_connect`]'s `run`
     --- does, which is what it is when nil.
     connect?: function(args: {string}): integer
+    --- All of standard input, for `--database -`, or nil and why it could not be read; [`Flags.read`]
+    --- of "-" when nil.
+    stdin?: function(): string?, string
   end
 end
 
@@ -317,9 +324,6 @@ local function request_of(argv: {string}): Request?, string
   local databases = parsed.all["--database"] or {}
   if #databases > 1 then return nil, "--database is given more than once" end
   request.database = databases[1]
-  if request.database == "-" then
-    return nil, "--database opens a sealed database by its path, not - (standard input)"
-  end
   local listed = parsed.all["--modules"] or {}
   if #listed > 1 then return nil, "--modules is given more than once" end
   local listed_modules = listed[1]
@@ -468,6 +472,23 @@ local record Sealing
   path?: string
   why: string
   refused: boolean
+end
+
+--- Standard input, a sealed database `--database -` names, kept as program.db in a directory of this
+--- run's own ([`scratch`]) that the program's user can read.
+local function spooled(read: function(): string?, string, held: mut {string}): Sealing
+  local bytes, why = read()
+  -- A terminal, or nothing piped in, is the command line's to fix.
+  if bytes == nil then return { why = "--database -: " .. why, refused = true } end
+  local dir, dir_why = scratch(held)
+  if dir == nil then return { why = dir_why, refused = false } end
+  local path = dir .. "/program.db"
+  local wrote, write_why = Fs.write(path, bytes)
+  if not wrote then return { why = tostring(write_why), refused = false } end
+  -- 0644, in decimal, whatever the umask: the program's user reads it.
+  local readable, readable_why = sys.chmod(path, 4 * 64 + 4 * 8 + 4)
+  if not readable then return { why = path .. ": " .. tostring(readable_why), refused = false } end
+  return { path = path, why = "", refused = false }
 end
 
 --- Seals `names` (the main among them, or `opts.extra`) into a directory
@@ -647,6 +668,13 @@ local function run_here(argv: {string}, opts: Child.Options): Child.Result?, str
   return result, ""
 end
 
+--- All of standard input, as [`verb.Io`]'s `stdin` reads it.
+local function read_stdin(): string?, string
+  local bytes, why = Flags.read("-")
+  if bytes == nil then return nil, why end
+  return bytes, ""
+end
+
 local standard: verb.Io = { err = bare.err, run = run_here }
 
 --- [`verb.run`], with the directories it makes for a sealed database put
@@ -671,7 +699,9 @@ local function execute(argv: {string}, io: verb.Io?, held: mut {string}): intege
   local sealing: Sealing?
   local request_database = request.database
   local request_modules = request.modules
-  if request_database ~= nil then
+  if request_database == "-" then
+    sealing = spooled(to.stdin or read_stdin, held)
+  elseif request_database ~= nil then
     local path, why = absolute(request_database, request.cwd)
     sealing = { path = path, why = why, refused = true }
   elseif request_modules ~= nil then
@@ -741,12 +771,11 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   -- The directory a sealed database was written in, removed whatever the
   -- run's end.
   local held: mut {string} = {}
-  local status = execute(argv, io, held)
-  local dir = held[1]
-  if dir ~= nil then
-    local _, _ = Fs.remove_tree(dir)
-  end
-  return status
+  local _ <close> = Defer.new(function()
+    local dir = held[1]
+    if dir ~= nil then local _, _ = Fs.remove_tree(dir) end
+  end)
+  return execute(argv, io, held)
 end
 
 verb.spec = {

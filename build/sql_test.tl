@@ -463,6 +463,28 @@ local function test_standard_input_needs_as()
   assert(Fs.remove_tree(dir))
 end
 
+--- `--db -` reads a database from standard input, kept in a file while the statement runs, since SQLite
+--- opens a database by its path; bytes that are no database are refused, pointing at `--from -`.
+local function test_db_dash_reads_a_database_from_standard_input()
+  local root = assert(Fs.mkdtemp("cosmic-sql-stdin-test-"))
+  local path = root .. "/s.db"
+  local db = assert(Sqlite.open(path, { writable = true }))
+  assert(db:exec("CREATE TABLE t (n INTEGER); INSERT INTO t VALUES (3), (4)"))
+  assert(db:close())
+  local bytes = assert(Fs.read(path))
+  local code, written = run(root, { "--db", "-", "SELECT sum(n) AS s FROM t" }, bytes)
+  assert(code == 0 and written.out[2] == "7", table.concat(written.err, "|"))
+  code, written = run(root, { "--db", "-" }, bytes)
+  assert(code == 0 and table.concat(written.out, "\n"):find("t", 1, true) ~= nil, table.concat(written.err, "|"))
+  code, written = run(root, { "--db", "-", "SELECT 1" }, "a,b\n1,2\n")
+  assert(code == 1 and support.nth(written.err, 1):find("standard input is no SQLite database", 1, true) ~= nil and
+      support.nth(written.err, 1):find("--from -", 1, true) ~= nil, table.concat(written.err, "|"))
+  code, written = run(root, { "--db", "-", "SELECT 1" })
+  assert(code == 1 and support.nth(written.err, 1):find("no standard input given", 1, true) ~= nil,
+    table.concat(written.err, "|"))
+  assert(Fs.remove_tree(root))
+end
+
 local function test_no_statement_prints_the_schema()
   local dir = data()
   local code, written = run(dir, { "--from", dir .. "/accounts.json" })
@@ -595,7 +617,7 @@ local function test_a_missing_file_names_its_path_once_and_usage_shows_as_and_at
   assert(code == 1 and count == 1, written.err[1])
   code, written = run(dir, { "--from" })
   assert(code == 2 and support.nth(written.err, 1):find("--from needs a value", 1, true) ~= nil, written.err[1])
-  assert(support.nth(written.err, 1):find("; usage: cosmic sql [--db <path> | --build | --store | --from <file|-> [--as <fmt>] [--at <path>] [--raw]...]", 1, true), written.err[1])
+  assert(support.nth(written.err, 1):find("; usage: cosmic sql [--db <path|-> | --build | --store | --from <file|-> [--as <fmt>] [--at <path>] [--raw]...]", 1, true), written.err[1])
   assert(Fs.remove_tree(dir))
 end
 
