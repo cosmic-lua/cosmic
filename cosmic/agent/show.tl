@@ -125,8 +125,9 @@ function Show.diff(old: string, new: string): {string}
 end
 
 --- The lines a tool call shows at a terminal, as Markdown: run's code in a
---- code fence named run, laid out by `layout` where one is given and
---- lays it out; bash's command in one named bash, each line behind "$ ";
+--- code fence of the language teal, so a Markdown viewer colors it, laid
+--- out by `layout` where one is given and lays it out; bash's command in
+--- one of console, each line behind "$ ";
 --- edit's path, then its changes in one named diff, as [`Show.diff`] lines
 --- (each replacement after a line "@@"); a path for read and write, the
 --- statement for sql, else the name and [`Show.input`].
@@ -141,9 +142,9 @@ function Show.call(name: string, input: Tools.Object, layout?: Show.Arrange): {s
   local query = input["query"]
   if name == "run" and code is string then
     local laid = if layout ~= nil then layout(code) else nil end
-    fenced(put, "run", lines_of(laid or code), "", MOST_LINES)
+    fenced(put, "teal", lines_of(laid or code), "", MOST_LINES)
   elseif name == "bash" and command is string then
-    fenced(put, "bash", lines_of(command), "$ ", MOST_LINES)
+    fenced(put, "console", lines_of(command), "$ ", MOST_LINES)
   elseif name == "edit" and path is string then
     put("edit " .. path)
     local diff: mut {string} = {}

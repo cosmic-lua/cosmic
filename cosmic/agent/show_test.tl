@@ -58,13 +58,13 @@ local function test_call_shows_code_commands_and_edits()
   local function joined(name: string, input: {string: Json.Value}): string
     return table.concat(Show.call(name, input), "|")
   end
-  assert(joined("run", { code = "local a = 1\nprint(a)\n" }) == "```run|local a = 1|print(a)|```")
+  assert(joined("run", { code = "local a = 1\nprint(a)\n" }) == "```teal|local a = 1|print(a)|```")
   -- A layout shows run's code as it lays it out, and one that answers nil shows it as written.
   local function upper(code: string): string? return code:upper() end
   local function none(_: string): string? return nil end
-  assert(table.concat(Show.call("run", { code = "print(a)" }, upper), "|") == "```run|PRINT(A)|```")
-  assert(table.concat(Show.call("run", { code = "print(a)" }, none), "|") == "```run|print(a)|```")
-  assert(joined("bash", { command = "git status\ngit diff" }) == "```bash|$ git status|$ git diff|```")
+  assert(table.concat(Show.call("run", { code = "print(a)" }, upper), "|") == "```teal|PRINT(A)|```")
+  assert(table.concat(Show.call("run", { code = "print(a)" }, none), "|") == "```teal|print(a)|```")
+  assert(joined("bash", { command = "git status\ngit diff" }) == "```console|$ git status|$ git diff|```")
   assert(joined("write", { path = "a.md", content = "a\nb\n" }) == "write a.md (2 lines)")
   assert(joined("sql", { query = "SELECT 1" }) == "sql SELECT 1")
   local edit = joined("edit", { path = "R.md", edits = {

@@ -176,15 +176,15 @@ local function test_ask_and_chat()
     text_reply("hi back"),
   })
   assert(r.code == 0 and r.out == "hi back", r.out .. r.err)
-  assert(r.err:find("```bash\n$ true\n```\n", 1, true) ~= nil, r.err)
+  assert(r.err:find("```console\n$ true\n```\n", 1, true) ~= nil, r.err)
   -- Run's code shows as `cosmic fix` lays it out, and as written where it does not parse.
   r = cli({ "ask", "--new", "x" }, KEYED, {
     { content = { { type = "tool_use", id = "a", name = "run", input = { code = "for i = 1, 2 do if i > 1 then print(i) end end" } },
       { type = "tool_use", id = "b", name = "run", input = { code = "print((" } } }, stop_reason = "tool_use" },
     text_reply("done"),
   })
-  assert(r.err:find("```run\nfor i = 1, 2 do\n  if i > 1 then print(i) end\nend\n```\n", 1, true) ~= nil, r.err)
-  assert(r.err:find("```run\nprint((\n```\n", 1, true) ~= nil, r.err)
+  assert(r.err:find("```teal\nfor i = 1, 2 do\n  if i > 1 then print(i) end\nend\n```\n", 1, true) ~= nil, r.err)
+  assert(r.err:find("```teal\nprint((\n```\n", 1, true) ~= nil, r.err)
   assert(said(a, 1):find('"hello there"', 1, true) ~= nil, said(a, 1))
   r, a = cli({ "ask" }, KEYED, { text_reply("ok") })
   assert(r.code == 0 and said(a, 1):find("from stdin", 1, true) ~= nil)
