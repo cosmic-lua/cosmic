@@ -22,8 +22,8 @@ function Nearby.find(roots: {string}, name: string): Pipeline.Nearby?
   if name == "cosmic" or name:sub(1, 7) == "cosmic." or name:find("^[%w_]+[%w_.]*$") == nil then
     return nil
   end
-  local carried, _ = Store.source(name)
-  if carried ~= nil then
+  local carried, _ = Store.holds(name)
+  if carried == true then
     return nil
   end
   local stem = name:gsub("%.", "/")
