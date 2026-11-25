@@ -125,7 +125,7 @@ local record Oidc
 
   --- Sends a request: [`Http.request`] by default. A test stands in for
   --- the provider with one of its own.
-  type Fetch = function(method: string, url: string, opts: Http.Options): Http.Body?, string
+  type Fetch = function(method: string, url: string, opts: Http.RequestOptions): Http.Body?, string
 
   --- What [`Web.oidc`] takes.
   record Options
@@ -393,7 +393,7 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
   local keep: mut {string} = {}
   for _, name in ipairs(STANDARD) do keep[#keep + 1] = name end
   for _, name in ipairs(opts.keep_claims or {}) do keep[#keep + 1] = name end
-  local fetch: Oidc.Fetch = opts.fetch or function(method: string, url: string, o: Http.Options): Http.Body?, string
+  local fetch: Oidc.Fetch = opts.fetch or function(method: string, url: string, o: Http.RequestOptions): Http.Body?, string
     local body, why = Http.request(method, url, o)
     if body == nil then return nil, tostring(why) end
     return body, ""
