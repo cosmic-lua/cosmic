@@ -307,7 +307,7 @@ local class Base64Decoder is verb.Coder
     -- would see it, padded out if the alphabet is.
     local last = if a.padded then carry .. ("="):rep(4 - #carry) else carry end
     local out, why = a.decode(last)
-    if out == nil then return nil, Failure.new(why) end
+    if out == nil then return nil, why end
     return out
   end
 end

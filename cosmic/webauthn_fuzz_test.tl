@@ -27,6 +27,12 @@ local EXPECTED: Webauthn.Expected = { challenge = CHALLENGE, origin = ORIGIN, rp
 local secret <const> = Hash.sha256("cosmic.webauthn_fuzz_test key")
 
 --- DER INTEGER of the unsigned big-endian `b`.
+--- The bytes base64url `text` spells, or "" where it spells none.
+local function bytes_of(text: string): string
+  local bytes, _ = Codec.unbase64url(text)
+  return bytes or ""
+end
+
 local function der_int(b: string): string
   local trimmed = b:gsub("^\0+", "")
   if trimmed == "" then trimmed = "\0" end
@@ -171,7 +177,7 @@ local function test_a_changed_registration_is_answered_and_never_raises(tmp: str
       end
       local r, _ = Json.to_object(answer["response"])
       if r == nil then return false, "registered an answer with no response object" end
-      local wrong = client_wrong(Codec.unbase64url(tostring(r["clientDataJSON"])) or "", "webauthn.create")
+      local wrong = client_wrong(bytes_of(tostring(r["clientDataJSON"])), "webauthn.create")
       if wrong ~= "" then return false, wrong end
       return true, ""
     end,
@@ -182,10 +188,10 @@ end
 --- holds is the challenge's, the origin's, the relying party's, a
 --- present user's and the credential's user's.
 local function wrongly_taken(r: {string: Json.Value}): string
-  local client = Codec.unbase64url(tostring(r["clientDataJSON"])) or ""
-  local data = Codec.unbase64url(tostring(r["authenticatorData"])) or ""
+  local client = bytes_of(tostring(r["clientDataJSON"]))
+  local data = bytes_of(tostring(r["authenticatorData"]))
   local handle = r["userHandle"]
-  local user = if handle is string then Codec.unbase64url(handle) or "" else "" end
+  local user = if handle is string then bytes_of(handle) else "" end
   local bad_client = client_wrong(client, "webauthn.get")
   if bad_client ~= "" then return bad_client end
   if data:sub(1, 32) ~= Hash.sha256(RP) then return "took data for another relying party" end
@@ -247,8 +253,8 @@ local function test_a_login_is_taken_only_as_it_was_signed(tmp: string)
       local wrong = wrongly_taken(r)
       if wrong ~= "" then return false, wrong end
       if not resigned then
-        local client = Codec.unbase64url(tostring(r["clientDataJSON"]))
-        local data = Codec.unbase64url(tostring(r["authenticatorData"]))
+        local client, _ = Codec.unbase64url(tostring(r["clientDataJSON"]))
+        local data, _ = Codec.unbase64url(tostring(r["authenticatorData"]))
         if client ~= login_client or data ~= login_data then
           return false, "took a login whose signed bytes changed"
         end
