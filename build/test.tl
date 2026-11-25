@@ -2767,7 +2767,11 @@ local function choose_sandbox(ctx: Run): integer?
       log:complain("test: COSMIC_TEST_PROMISES: " .. promises_trouble)
       return 1
     end
-    promises = read
+    if #read.unknown > 0 then
+      log:say("test: COSMIC_TEST_PROMISES: left out " .. table.concat(read.unknown, ", ") ..
+          ", which this cosmic does not know and no module it runs can require")
+    end
+    promises = read.names
   end
   ctx.promises, ctx.leg = promises, Env.read("COSMIC_TEST_LEG") or ""
   -- Each worker runs sandboxed where the kernel can sandbox one, unless
