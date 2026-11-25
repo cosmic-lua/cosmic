@@ -499,7 +499,10 @@ macOS's whole leg. A branch's push runs nothing.
   scripts and the tree's format over the paths the commit changed since
   main, as a pull request does, and `linux-x86_64-driver` (the `driver`
   job) boots nothing and checks the pinned CI driver where those paths
-  reach what its tests read (`ci/`, `.github/`). The checked suite runs
+  reach what its tests read (`ci/`, `.github/`). `macos-aarch64` checks
+  it there too, before its suites: its tests start the host's programs,
+  which macOS keeps elsewhere (`/sbin/sha256sum`), and a break only
+  macOS meets showed before only in the next daily or manual run. The checked suite runs
   in three shares at once (`linux-x86_64-checked-1` to `-3`,
   `cosmic test --shard`), so it is not the entry's longest job; a share
   does not check the C functions, which main's push does. The gate
