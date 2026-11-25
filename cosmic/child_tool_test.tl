@@ -25,7 +25,7 @@ local this_program = require("build.this_program")
 Test.policy{
   profiles = { "cosmic", "proc" },
   grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } },
-  }
+}
 
 local function path_exists(path: string): boolean
   local answer = assert(Fs.status(path)).exists

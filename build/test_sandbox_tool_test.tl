@@ -23,7 +23,7 @@ local support = require("build.test_support_fixture")
 Test.policy{
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } },
-  }
+}
 
 --- Makes `tmp`/scratch, a scratch directory laid out as build.test_key's
 --- `scratch` lays one out -- `real`, and `tmp` a link to it -- and

@@ -22,7 +22,7 @@ local type raw_process = require("cosmic.internal.process")
 Test.policy{
   profiles = { "cosmic", "proc" },
   grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } },
-  }
+}
 
 --- A stand-in program built under `tmp` (build/stand_in.tl), which runs
 --- the script its first argument holds: a static executable that reads

@@ -18,7 +18,7 @@ local _ = require("build.must_confine_children_test")
 Test.policy{
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } },
-  }
+}
 -- What these tests start is this very program.
 confine.confine({ reads = confine.itself() })
 

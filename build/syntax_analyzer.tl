@@ -1343,7 +1343,7 @@ local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.Polic
     end
     if field == nil or takes == nil then
       return nil, if field ~= nil then TestPolicy.no_field(field) else "has an entry with no name; it has " ..
-        TestPolicy.field_list() end
+          TestPolicy.field_list() end
     end
     if seen[field] == true then
       return nil, field .. " is declared twice"
