@@ -21,6 +21,9 @@ local String = require("cosmic.string")
 local Tools = require("cosmic.agent.tools")
 
 local record Show
+  --- Lays out a run call's code for showing, or answers nil to show it as the model wrote it. `cosmic agent` gives
+  --- the layout `cosmic fix` writes.
+  type Layout = function(code: string): string?
 end
 
 --- `text` cut to one line of at most 80 bytes.
@@ -63,15 +66,21 @@ local function cut(line: string): string
   return line
 end
 
---- Each of `lines` behind `lead`, cut to [`MOST_LINES`] and each line to 120 bytes, to `err`.
-local function block(err: function(line: string), lines: {string}, lead: string)
+-- At most this many lines show of what a call answered.
+local MOST_ANSWER_LINES <const> = 6
+
+--- `lines` in a Markdown code fence of `info`, each behind `lead`, cut to `most` lines and each line to 120 bytes,
+--- to `err`.
+local function fenced(err: function(line: string), info: string, lines: {string}, lead: string, most: integer)
+  err("```" .. info)
   for i, line in ipairs(lines) do
-    if i > MOST_LINES then
-      err("    ... " .. String.counted(#lines - MOST_LINES, "more line"))
-      return
+    if i > most then
+      err("... " .. String.counted(#lines - most, "more line"))
+      break
     end
     err(lead .. cut(line))
   end
+  err("```")
 end
 
 --- What an edit changes, as diff lines: the lines of `old` and `new`
@@ -105,13 +114,15 @@ function Show.diff(old: string, new: string): {string}
   return out
 end
 
---- The lines a tool call shows at a terminal, the first naming it: run's
---- code, bash's command, edit's changes as [`Show.diff`] lines (each
---- replacement after a line "@@"), a path for
---- read and write, the statement for sql, else [`Show.input`].
+--- The lines a tool call shows at a terminal, as Markdown: run's code in a
+--- code fence named run, laid out by `layout` where one is given and
+--- lays it out; bash's command in one named bash, each line behind "$ ";
+--- edit's path, then its changes in one named diff, as [`Show.diff`] lines
+--- (each replacement after a line "@@"); a path for read and write, the
+--- statement for sql, else the name and [`Show.input`].
 ---
 ---     for _, l in ipairs(Show.call("read", { path = "a.tl", offset = 3 })) do print(l) end -- read a.tl, from line 3
-function Show.call(name: string, input: Tools.Object): {string}
+function Show.call(name: string, input: Tools.Object, layout?: Show.Layout): {string}
   local out: mut {string} = {}
   local function put(line: string) out[#out + 1] = line end
   local path = input["path"]
@@ -119,11 +130,10 @@ function Show.call(name: string, input: Tools.Object): {string}
   local command = input["command"]
   local query = input["query"]
   if name == "run" and code is string then
-    put("run")
-    block(put, lines_of(code), "    ")
+    local laid = if layout ~= nil then layout(code) else nil end
+    fenced(put, "run", lines_of(laid or code), "", MOST_LINES)
   elseif name == "bash" and command is string then
-    put("bash")
-    block(put, lines_of(command), "    $ ")
+    fenced(put, "bash", lines_of(command), "$ ", MOST_LINES)
   elseif name == "edit" and path is string then
     put("edit " .. path)
     local diff: mut {string} = {}
@@ -132,7 +142,7 @@ function Show.call(name: string, input: Tools.Object): {string}
       diff[#diff + 1] = "@@"
       for _, line in ipairs(Show.diff(r.old, r.new)) do diff[#diff + 1] = line end
     end
-    block(put, diff, "    ")
+    fenced(put, "diff", diff, "", MOST_LINES)
   elseif name == "write" and path is string then
     local content = input["content"]
     local n = if content is string then #lines_of(content) else 0 end
@@ -153,21 +163,22 @@ end
 --- What shows the events as `cosmic agent` shows them at a terminal: the
 --- turn's answer to `out`, and to `err` the words the model says on the
 --- way (in a message that also calls a tool), each tool call as
---- [`Show.call`] shows it, and each that failed (its name and the first
---- lines of what it said). The other events show nothing.
-function Show.text(out: function(line: string), err: function(line: string)): function(event: Agent.Event)
+--- [`Show.call`] shows it (run's code laid out by `layout`), and below
+--- it what the call answered: the first lines of what run or bash said,
+--- in a code fence named output, and of what any call that failed said,
+--- in one named error. The other events show nothing.
+function Show.text(out: function(line: string), err: function(line: string), layout?: Show.Layout):
+    function(event: Agent.Event)
   return function(e: Agent.Event)
     if e.kind == "text" then
       if e.calls == true then err(e.text) else out(e.text) end
     elseif e.kind == "tool" then
-      for _, line in ipairs(Show.call(e.name, e.input)) do err(line) end
+      for _, line in ipairs(Show.call(e.name, e.input, layout)) do err(line) end
     elseif e.kind == "result" then
       if e.result.is_error then
-        local lines = lines_of(e.result.text)
-        err(cut(e.name .. " failed: " .. (lines[1] or "")))
-        local rest: mut {string} = {}
-        for i = 2, #lines do rest[#rest + 1] = lines[i] end
-        block(err, rest, "    ")
+        fenced(err, "error", lines_of(e.result.text), "", MOST_LINES)
+      elseif e.name == "run" or e.name == "bash" then
+        fenced(err, "output", lines_of(e.result.text), "", MOST_ANSWER_LINES)
       end
     end
   end

@@ -46,23 +46,36 @@ Go to the directory to work in. The tools can read and change that
 directory and a home of their own. Outside it they read only what a
 program needs, such as `/usr`, and change nothing. Then ask:
 
-```text
+````text
 $ cd ~/src/tidy
 $ cosmic agent ask 'what does this repository do? keep it short'
-run
-    for _, p in ipairs(Host.find(".")) do if not p:match("^%./%.git/") then print(p) end end
-run
-    print(Host.cat("README.md")) print(Host.cat("docs/usage.md"))
-**tidy** is a command-line tool that sorts the files in a folder into subfolders by type: `images/`, `documents/`, `archives/` and `other/`. For example, `tidy ~/Downloads` does this to your Downloads folder. Adding `--dry-run` shows the moves without making them, and you can change the folder names in the configuration. It's MIT licensed.
-
-This repo contains only documentation (`README.md`, `docs/`) and the `LICENSE`. There is no source code in it.
-
-One broken link: `README.md` points to `docs/config.md`, but the file is called `docs/configuration.md`.
+```run
+for _, p in ipairs(Host.find(".")) do
+  if not p:match("^%./%.git/") then print(p) end
+end
 ```
+```output
+LICENSE
+README.md
+docs/configuration.md
+docs/faq.md
+docs/install.md
+docs/usage.md
+```
+read README.md
+**tidy** is a tool that sorts the files in a folder into subfolders by file type. It uses the IANA media types list to decide each file's type. It's MIT licensed.
 
-The tool calls go to standard error. `run` is the agent's main tool.
-Each call is a short program in the cosmic environment. The agent checks
-it, then runs it in the sandbox. [`Host.find`], [`Host.cat`],
+This repo has no source code, though. It only holds the README, the LICENSE, and docs in `docs/` (install, usage, configuration, FAQ).
+
+One thing I noticed: the README's Configuration link points to `docs/config.md`, but the file is actually `docs/configuration.md`, so that link is broken.
+````
+
+The tool calls go to standard error, as Markdown: each call's code in a
+fence named for the tool, laid out as `cosmic fix` lays out a file, and
+the first lines of what it printed in a fence named `output` (`error`
+for a call that failed). `run` is the agent's main tool. Each call is a
+short program in the cosmic environment. The agent checks it, then runs
+it in the sandbox. [`Host.find`], [`Host.cat`],
 [`Host.grep`] and the like work much as the commands they are named
 for, but give values in place of text. The answer goes to standard
 output, so `cosmic agent ask '...' > answer.md` keeps only the answer.
@@ -75,28 +88,57 @@ starts a fresh session. `--session <id>` goes on with any session.
 `--fork` goes on in a copy of the newest session, or of the one
 `--session` names.
 
-```text
+````text
 $ cosmic agent ask 'fix the broken links with the edit tool'
 cosmic: agent: going on with session 1 (6 messages, claude-opus-5-5); --new starts a fresh one
-run
-    for _, p in ipairs({"docs/configuration.md","docs/faq.md","docs/install.md"}) do print("== "..p) print(Host.cat(p)) end
-edit README.md
-    @@
-    -(docs/config.md)
-    +(docs/configuration.md)
-edit docs/faq.md
-    @@
-    -(instal.md)
-    +(install.md)
-I fixed two broken links:
-- `README.md`: `docs/config.md` → `docs/configuration.md`
-- `docs/faq.md`: `instal.md` → `install.md`
-
-One link is still broken: `docs/faq.md` points to `usage.md#undo`, but `docs/usage.md` has no Undo section.
+```run
+for _, h in ipairs(Host.grep("%]%(", Host.find(".", ".md"))) do
+  print(h.path .. ":" .. tostring(h.line) .. ": " .. h.text)
+end
 ```
+```output
+README.md:5: - [Install](docs/install.md)
+README.md:6: - [Usage](docs/usage.md)
+README.md:7: - [Configuration](docs/config.md)
+README.md:8: - [FAQ](docs/faq.md)
+README.md:10: tidy is MIT licensed: see [LICENSE](LICENSE).
+README.md:12: The file types come from [the IANA media types list](https://www.iana.org/assignments/media-types/media...
+... 7 more lines
+```
+Need to check the anchors too.
+```run
+for _, h in ipairs(Host.grep("^#", { "docs/usage.md", "docs/faq.md" })) do
+  print(h.path .. ": " .. h.text)
+end
+```
+```output
+docs/usage.md: # Usage
+docs/faq.md: # FAQ
+docs/faq.md: ## Does tidy delete files?
+docs/faq.md: ## macOS says the file is damaged
+```
+read docs/usage.md
+edit README.md
+```diff
+@@
+-(docs/config.md)
++(docs/configuration.md)
+```
+edit docs/faq.md
+```diff
+@@
+-(instal.md)
++(install.md)
+```
+I fixed two broken links:
+- **`README.md`**: `docs/config.md` → `docs/configuration.md`
+- **`docs/faq.md`**: `instal.md` → `install.md`
 
-Each edit shows as diff lines. `@@` starts each replacement, `-` marks
-what it takes out, and `+` what it puts in. A line that starts with a
+There's a third broken link I left alone. `docs/faq.md` links to `usage.md#undo`, but `docs/usage.md` has no Undo section and doesn't mention `--undo` at all. To fix it, I could either add an "Undo" section to `usage.md` (which needs to say how `--undo` behaves, and I don't know that) or remove the `#undo` part of the link. Which do you want?
+````
+
+Each edit shows as diff lines, in a fence named `diff`. `@@` starts each
+replacement, `-` marks what it takes out, and `+` what it puts in. A line that starts with a
 space is unchanged context. Read the answer as a colleague's report: ask again to check
 the work (`now check every link`), or look with your own tools
 (`git diff`).
@@ -140,13 +182,25 @@ prompt.
   model reads the limits with the prompt, and the first one reached
   ends the turn:
 
-```text
+````text
 $ cosmic agent ask --new --budget turns=2 'document the [ignore] table in docs/configuration.md: it lists file names tidy never moves'
-run
-    print(Host.cat("docs/configuration.md"))
-    for _, g in ipairs(Host.grep("ignore", Host.find(".", ""), true)) do print(g.path .. ":" .. tostring(g.line) .. ": " ...
-cosmic: agent: ask: the turn's budget is spent: 2 requests, of 2; go on with `cosmic agent ask --session 2 'go on'` and a larger --budget
+```run
+print(Host.cat("docs/configuration.md"))
+for _, g in ipairs(Host.grep("ignore", Host.find(".", ""), true)) do
+  if not g.path:match("%.git/") then print(g.path .. ":" .. tostring(g.line) .. ": " .. g.text) end
+end
 ```
+```output
+# Configuration
+
+tidy reads `~/.config/tidy/rules.toml` if it is there.
+
+    [images]
+    folder = "pictures"
+... 6 more lines
+```
+cosmic: agent: ask: the turn's budget is spent: 2 requests, of 2; go on with `cosmic agent ask --session 2 'go on'` and a larger --budget
+````
 
 - `--model sonnet` costs less than the default, opus. A session keeps
   the model it used last, until `--model` names another.
