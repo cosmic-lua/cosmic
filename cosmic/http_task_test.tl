@@ -137,7 +137,11 @@ local function test_a_refused_connection_fails_as_outside_a_run()
   Poll.run(function()
     local inside, inside_why = Http.get(url, { timeout_ns = WAIT })
     assert(inside == nil)
-    assert(tostring(inside_why) == tostring(outside_why), tostring(inside_why) .. " / " .. tostring(outside_why))
+    -- curl's text names the milliseconds the attempt took, which differ
+    -- between two attempts ("after 0 ms", "after 1 ms").
+    local inside_text = tostring(inside_why):gsub("after %d+ ms", "after N ms")
+    local outside_text = tostring(outside_why):gsub("after %d+ ms", "after N ms")
+    assert(inside_text == outside_text, inside_text .. " / " .. outside_text)
   end)
 end
 

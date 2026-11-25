@@ -8,7 +8,7 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local confine = require("build.confine")
-local stand_in = require("build.stand_in")
+local Fake = require("cosmic.fake")
 local support = require("build.test_support_fixture")
 local Test = require("cosmic.test")
 
@@ -27,7 +27,7 @@ Test.policy{
 --- module declares `system`. Where the kernel cannot confine it, it runs
 --- unconfined, and sees /usr all the same.
 local function test_a_confined_process_is_given_the_system_s_paths(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local own = tmp .. "/own"
   assert(Fs.mkdirs(own))
   local code: support.Cell<integer> = {}

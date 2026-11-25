@@ -431,7 +431,13 @@ local CASES <const>: {Case} = {
   {
     code = "field_unknown", source = "local Fs = require(\"cosmic.fs\")\nlocal j = Fs.join\n",
     modules = { ["cosmic.fs"] = "local record Fs\n  read: function(string): string\nend\nreturn Fs\n" },
-    msg = "`Fs` has no field `join`", fix = "`cosmic docs cosmic.fs` lists what `Fs` has",
+    msg = "`Fs` has no field `join`", fix = "`Fs` has: read",
+  },
+  {
+    -- A name the guess begins with is shown with its type, and the other members by name.
+    code = "field_unknown", source = "local Fs = require(\"cosmic.fs\")\nlocal r = Fs.read_file\n",
+    modules = { ["cosmic.fs"] = "local record Fs\n  read: function(string): string\n  walk: function(string)\nend\nreturn Fs\n" },
+    msg = "`Fs` has no field `read_file`", fix = "`Fs` has `read: function(string): string`; its other members: walk",
   },
   {
     code = "require_unknown", source = "local x = require(\"cosmic.io\")\n",

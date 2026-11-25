@@ -1,7 +1,7 @@
 --- `spawn`'s `relay` on a live child (core/process.h's `Sandbox`): the
 --- listeners a child binds in the network namespace it makes for itself and
 --- hands out over a channel, and the loopback of that namespace, which is
---- its own. The child is a stand-in (build/stand_in.tl). Where the platform
+--- its own. The child is a fake ([`cosmic.fake`]). Where the platform
 --- has no sandbox they are not applicable, and where this host gives no user
 --- namespace or seccomp a test skips itself. The arguments' own checks, which
 --- raise before a child, are core/syscalls_test.tl's.
@@ -12,7 +12,7 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local stand_in = require("build.stand_in")
+local Fake = require("cosmic.fake")
 local type raw_process = require("cosmic.internal.process")
 local type raw_socket = require("cosmic.internal.socket")
 -- Required, so the modules whose loaders are handed the raw tables are of
@@ -134,12 +134,12 @@ local function relays(tmp: string, probe: string, sandbox: raw_process.Sandbox, 
 end
 
 local function test_a_child_in_its_own_network_hands_out_listeners_at_the_ports_given(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   relays(tmp, probe, { offline = true, promises = {}, sockets = { "inet" } }, { 3128, 1080 })
 end
 
 local function test_the_relay_ports_default_to_http_connect_and_socks(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local given, receiving = channel()
   local pid, why = start(tmp, probe, "sleep 1", { offline = true, promises = {},
     relay = { fd = given } })
@@ -158,7 +158,7 @@ local function test_the_relay_ports_default_to_http_connect_and_socks(tmp: strin
 end
 
 local function test_an_unveiled_child_hands_out_listeners_too(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   relays(tmp, probe, { strict = true, offline = true, promises = {}, sockets = { "inet" },
     unveil = { reads = { probe, "/proc", "/dev/null" } } }, { 3129, 1081 })
 end
@@ -182,7 +182,7 @@ local function relay_refused(tmp: string, probe: string, sandbox: raw_process.Sa
 end
 
 local function test_a_channel_that_is_no_socket_fails_the_start_naming_the_relay(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local file = assert(sys.open(tmp .. "/not-a-socket", sys.O_CREAT | sys.O_RDWR, 420))
   relay_refused(tmp, probe, { offline = true, promises = {}, relay = { fd = file } }, "Not a socket")
   relay_refused(tmp, probe, { strict = true, offline = true, promises = {},
@@ -191,7 +191,7 @@ local function test_a_channel_that_is_no_socket_fails_the_start_naming_the_relay
 end
 
 local function test_a_channel_not_open_is_refused_before_a_child(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   -- A number no descriptor of this worker is: it holds a few dozen.
   local pid, _, errno = start(tmp, probe, "sleep 1", { offline = true, promises = {},
     relay = { fd = 999 } })
@@ -202,7 +202,7 @@ end
 --- port this worker listens on is nothing; and one with no family named
 --- makes no socket at all.
 local function test_an_offline_childs_loopback_is_its_own(tmp: string)
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local probe = assert(Fake.build(tmp .. "/fake"))
   local alone = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
   local target = "connect-tcp 127.0.0.1 " .. tostring(assert(alone.address.port))
   local private, why = start(tmp, probe, target,

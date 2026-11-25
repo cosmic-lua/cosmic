@@ -2,11 +2,11 @@
 
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local stand_in = require("build.stand_in")
+local Fake = require("cosmic.fake")
 local process = require("cosmic.internal.process")
 
 local function probe_in(tmp: string): string
-  return (assert(stand_in.build(tmp .. "/probe")))
+  return (assert(Fake.build(tmp .. "/probe")))
 end
 
 Test.policy{ profiles = { "proc" }, requires = { "proc" } }

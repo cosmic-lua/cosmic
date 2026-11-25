@@ -1,5 +1,5 @@
 --- A snippet's calls of the agent (history, store, mcp) go through the agent's guard and amend, as `before` and `after`
---- see the model's calls: a blocked one raises in the snippet, and an amended answer is what it reads.
+--- see the model's calls: a blocked one raises in the snippet, and an amended result is what it reads.
 local Agent = require("cosmic.agent")
 local Clock = require("cosmic.clock")
 local agent_fixture = require("build.agent_fixture")
@@ -111,7 +111,7 @@ local function test_an_agents_after_sees_a_snippets_answers()
   end
   assert(s:prompt("go"))
   local answer = agent_fixture.said(a, 2)
-  -- The snippet read what after made of the store's answer, and returned it.
+  -- The snippet read what after made of the store's result, and returned it.
   assert(answer:find("[redacted]", 1, true) ~= nil, answer)
   assert(table.concat(callers, " ") == "store.put:code store.get:code run:model", table.concat(callers, " "))
   s:close()
@@ -165,9 +165,11 @@ local function test_a_tool_for_code_is_called_from_a_snippet_alone()
   local first = agent_fixture.said(a, 1)
   assert(first:find('"name":"stamp"', 1, true) == nil, first)
   local second = agent_fixture.said(a, 2)
-  assert(second:find("Tool stamp not found", 1, true) ~= nil, second)
+  -- The answer names the tools the model is offered, and not the one kept for snippets.
+  local unknown = second:match("Tool stamp not found: the tools are ([%w_, ]+)")
+  assert(unknown ~= nil and unknown:find("run", 1, true) ~= nil and unknown:find("stamp", 1, true) == nil, second)
   local answer = agent_fixture.said(a, 3)
-  -- after made the answer the snippet read; before blocked the call it refused.
+  -- after made the result the snippet read; before blocked the call it refused.
   assert(answer:find("STAMPED HI", 1, true) ~= nil, answer)
   assert(answer:find("Blocked: no word no", 1, true) ~= nil, answer)
   assert(answer:find("host: use: no word", 1, true) ~= nil, answer)
@@ -178,7 +180,7 @@ local function test_a_tool_for_code_is_called_from_a_snippet_alone()
 end
 
 --- Calls of a tool for code from a snippet's tasks of their own each pass before and after, and each task reads its
---- own answer.
+--- own reply.
 local function test_a_snippets_tasks_each_use_a_tool_for_code()
   local dir = assert(Fs.mkdtemp("agent-hook-"))
   local none: {string: Json.Value} = {}
@@ -186,7 +188,7 @@ local function test_a_snippets_tasks_each_use_a_tool_for_code()
   local stamp: Tools.Tool = { name = "stamp", snippet = "Stamp a word", guidelines = {}, description = "Stamps a word.",
     schema = { type = "object", properties = none }, callers = "code",
     run = function(input: Tools.Object, _: Tools.Context): Tools.Result
-      -- The first call waits until the two others it lets through are answered, so it is the last answered, and
+      -- The first call waits until the two others it lets through get replies, so it gets the last reply, and
       -- each reply must find its own task, not the next one waiting. It waits for them, never for a time: calls
       -- served one at a time leave it alone here until the deadline, and the order below then fails.
       local word = tostring(input["word"])
@@ -232,7 +234,7 @@ local function test_a_snippets_tasks_each_use_a_tool_for_code()
   assert(s:prompt("go"))
   local answer = agent_fixture.said(a, 2)
   assert(answer:find("STAMPED W1,STAMPED W2,raised host: use: Blocked: not w3,STAMPED W4", 1, true) ~= nil, answer)
-  -- w1 was answered after w2 and w4, so its answer reached its own task out of order.
+  -- w1 got its reply after w2 and w4, so its reply reached its own task out of order.
   assert(table.concat(stamped, " ") == "w2 w4 w1", table.concat(stamped, " "))
   table.sort(before)
   table.sort(after)

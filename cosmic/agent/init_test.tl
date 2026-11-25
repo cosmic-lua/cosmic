@@ -314,14 +314,14 @@ local function test_a_compacting_reply_is_not_kept_warm()
 end
 
 --- A turn's budget: the first limit reached ends it for good, the tool
---- calls of its last reply answered as stopped, and the next prompt gets
+--- calls of its last reply given results of stopped, and the next prompt gets
 --- a budget of its own.
 local function test_a_turn_ends_where_its_budget_is_spent()
   local function calling(id: string, n: integer): Json.Value
     return { content = { bash_call(id, "true") }, stop_reason = "tool_use",
       usage = { input_tokens = n, output_tokens = n, cache_read_input_tokens = n, cache_creation_input_tokens = n } }
   end
-  -- turns: the reply of the last request asks for a tool, which is answered, not run.
+  -- turns: the reply of the last request asks for a tool, which gets a result, not run.
   local s, a = kept({ calling("t1", 10), calling("t2", 10), text_reply("never") }, nil, "claude-sonnet-5-5")
   s.budget = { turns = 2 }
   local seen = agent_fixture.events()

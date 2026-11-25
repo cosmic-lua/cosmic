@@ -50,7 +50,7 @@ local home = ""
 
 local KEYED <const>: {string: string} = { ANTHROPIC_API_KEY = "k", ANTHROPIC_BASE_URL = "https://api.test" }
 
---- How a run waits for each line typed: `wait` answers each call in turn
+--- How a run waits for each line typed: `wait` returns the next of `answers` at each call
 --- (true where a line came), and moves `now` on by what it waited.
 local record Waited
   answers: {boolean}

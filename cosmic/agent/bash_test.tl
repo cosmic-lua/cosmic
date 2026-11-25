@@ -52,7 +52,8 @@ local function test_bash_runs_in_the_directory_and_says_its_status()
   local one = run("bash", { command = "head -c 60000 /dev/zero | tr '\\0' y" }, dir)
   assert(one.text:find("^" .. string.rep("y", 100)) ~= nil, one.text:sub(1, 40))
   assert(run("bash", NONE, dir).is_error)
-  assert(run("nope", NONE, dir).text == "Tool nope not found")
+  local nope = run("nope", NONE, dir).text
+  assert(nope:find("^Tool nope not found: the tools are read, bash, run") ~= nil, nope)
 end
 
 local function test_each_output_is_kept_before_it_is_shown()

@@ -2,6 +2,8 @@
 --- the markers hold, kept in a memo by the sources each file reaches.
 
 local Fs = require("cosmic.fs")
+local type work_schema = require("build.work_schema")
+local type Database = work_schema.Database
 local Proc = require("cosmic.proc")
 local fanout = require("build.compile_fanout")
 local Sqlite = require("cosmic.sqlite")
@@ -676,7 +678,7 @@ end
 --- Whether the build's own pipeline ([`build.pipeline`]) holds each module of the tree as the checks of the tree do, and
 --- names the modules it refuses for more than a count ([`build.pipeline_check`] has the rules). `memo` keeps the result for
 --- a module under the key `checked` keeps its own.
-function tree_checked.pipeline(root: string, build_db: Sqlite.Handle, memo?: Sqlite.Handle):
+function tree_checked.pipeline(root: string, build_db: Database, memo?: Sqlite.Handle):
     {string}
   local files, trouble = sources_of(root)
   if files == nil then

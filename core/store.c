@@ -1028,7 +1028,8 @@ static int store_zone_names (lua_State *L) {
   return cosmic_succeeded(L);
 }
 
-/* Private capability handed only to the trusted build.artifact chunk. */
+/* Private capability handed only to the trusted build.artifact and
+ * cosmic.store chunks. */
 static int store_trusted_prefix (lua_State *L) {
   const struct cosmic_artifact *artifact =
       lua_touserdata(L, lua_upvalueindex(1));
@@ -1099,7 +1100,8 @@ static bool read_running_core (const struct cosmic_portable_entry *entry,
   return read;
 }
 
-/* Private capability handed only to the trusted build.artifact chunk: the
+/* Private capability handed only to the trusted build.artifact and
+ * cosmic.store chunks (cosmic.store's `host_program`): the
  * running core's exact bytes, checked against its manifest digest, and the
  * identity a host program made from them declares. A raw entry's bytes are
  * its range of the artifact; a compressed one is read from the cached core

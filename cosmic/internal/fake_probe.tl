@@ -1,7 +1,7 @@
---- The stand-in's whole program (build/stand_in.tl, whose doc comment
+--- The fake's whole program ([`cosmic.fake`], whose doc comment
 --- says what its script runs): the main module of the host program
---- [`stand_in.build`] makes, which carries it and the modules it requires,
---- and nothing else of this tree.
+--- [`Fake.build`] makes, which carries it and the modules it requires,
+--- and nothing else.
 
 local Child = require("cosmic.child")
 local Signal = require("cosmic.signal")
@@ -9,7 +9,6 @@ local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Proc = require("cosmic.proc")
 local Clock = require("cosmic.clock")
-local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local String = require("cosmic.string")
 
@@ -152,9 +151,11 @@ local verbs: {string:function(string, string): integer?} = {
   ls = function(path: string): integer?
     local names, trouble = Fs.list(path)
     if names == nil then return failed(path, tostring(trouble)) end
-    table.sort(names) -- checked: overload_none -- untyped: call
+    local sorted: mut {string} = {}
+    for _, name in ipairs(names) do sorted[#sorted + 1] = name end
+    table.sort(sorted)
     local lines: mut {string} = {}
-    for _, name in ipairs(names) do lines[#lines + 1] = name .. "\n" end
+    for _, name in ipairs(sorted) do lines[#lines + 1] = name .. "\n" end
     return put_all(1, table.concat(lines))
   end,
   exit = function(status: string): integer?
@@ -189,9 +190,8 @@ local verbs: {string:function(string, string): integer?} = {
     -- Past the bound it ends at once, running no more of the script
     -- and nothing its end would run.
     local _, _ = Fs.put(2, "probe: signal: SIG" .. name .. " sent to itself did not end it in " ..
-        Time.format_duration({ ns = SIGNAL_WAIT_NS }) .. "\n")
+        tostring(SIGNAL_WAIT_NS // Clock.seconds(1)) .. " s\n")
     sys.exit(SIGNAL_MISSED)
-    return SIGNAL_MISSED -- checked: unreachable
   end,
   trap = function(status: string): integer?
     local opened = probe.guard
@@ -484,7 +484,6 @@ local verbs: {string:function(string, string): integer?} = {
       local _, _ = sys.rename(b, a)
       local _, _ = sys.rename(a .. ".t", b)
     end
-    return nil -- checked: unreachable
   end,
   chmod = function(path: string, word: string): integer?
     local bits = math.tointeger(tonumber(word, 8))
@@ -606,7 +605,11 @@ local function run_script(script: string, args: {string}, dir: string): integer
   return 0
 end
 
-return function(argv: mut {string}): integer
+--- Runs the script its path, its first argument or a `#!` file names
+--- (see [`cosmic.fake`]).
+--- @param argv {string} The command line past the program's own name
+--- @return integer The exit status
+local function main(argv: mut {string}): integer
   local executable, _ = Proc.executable()
   local self = executable or ""
   local beside, _ = Fs.read(self .. ".do")
@@ -636,3 +639,5 @@ return function(argv: mut {string}): integer
   if #started > 0 then sys.exit(status) end
   return status
 end
+
+return main
