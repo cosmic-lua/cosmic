@@ -167,11 +167,9 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
     local strip = not runs and not Sandbox.on_macos()
     for _, grant in ipairs(Sandbox.paths(merged)) do
       -- With no commands, no grant runs a file. The worker is this program, which its start runs as its core
-      -- whatever the policy grants. Outside `isolate` file the core holds its policy again at boot without that `rx`:
-      -- with no grant left with `x` the exec filter holds too, so the worker cannot become another program, nor run
-      -- itself again. A grant of `x` alone is then no grant.
-      -- TODO: under `isolate` file (the agent's Linux policy) the core's `rx` stays the worker's, so it may execve its
-      -- own core again (held as it is, with no fork); Child.start's boot layer under `isolate` file would close it.
+      -- whatever the policy grants. The core holds its policy again at boot without that `rx` (under `isolate` file
+      -- by the names the root binds): with no grant left with `x` the exec filter holds too, so the worker cannot
+      -- become another program, nor run itself again. A grant of `x` alone is then no grant.
       local letters = if not strip then grant.letters else (grant.letters:gsub("x", "")) end
       if letters ~= "" then
         grants[#grants + 1] = { path = grant.path, letters = letters, from = grant.from }
