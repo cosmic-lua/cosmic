@@ -156,8 +156,8 @@ local function test_k_bounds()
   corpus:add(3, Vector.pack({ -1, 0 }))
   assert(#assert(Vector.kmeans(corpus, 1)) == 1)
   assert(#assert(Vector.kmeans(corpus, 3)) == 3)
-  assert(Test.raises(function() Vector.kmeans(corpus, 0) end):find("k is from 1", 1, true))
-  assert(Test.raises(function() Vector.kmeans(corpus, 4) end):find("k is from 1", 1, true))
+  assert(Test.raises(function() local _, _ = Vector.kmeans(corpus, 0) end):find("k is from 1", 1, true))
+  assert(Test.raises(function() local _, _ = Vector.kmeans(corpus, 4) end):find("k is from 1", 1, true))
 end
 
 local function test_nearest_and_nearest_n()
@@ -264,7 +264,7 @@ local function test_zero_vectors_are_no_cluster()
   local only = Vector.corpus(2)
   only:add(1, Vector.pack({ 0, 0 }))
   only:add(2, Vector.pack({ 0, 0 }))
-  assert(Test.raises(function() Vector.kmeans(only, 1) end):find("direction", 1, true))
+  assert(Test.raises(function() local _, _ = Vector.kmeans(only, 1) end):find("direction", 1, true))
 end
 
 local function test_a_vector_too_short_to_scale_has_no_direction()
@@ -291,7 +291,7 @@ end
 
 local function test_iterations_under_one_raise()
   local corpus = corpus_of(dataset())
-  assert(Test.raises(function() Vector.kmeans(corpus, 3, { iterations = 0 }) end)
+  assert(Test.raises(function() local _, _ = Vector.kmeans(corpus, 3, { iterations = 0 }) end)
       :find("iterations is at least 1", 1, true))
 end
 

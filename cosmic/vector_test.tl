@@ -32,9 +32,10 @@ local function test_pack_unpack_and_json_round_trip()
   assert(#packed == 12 and packed == string.pack("<fff", 1, 2.5, -3))
   local back = Vector.unpack(packed)
   assert(#back == 3 and back[1] == 1 and back[2] == 2.5 and back[3] == -3)
-  assert(Vector.from_json(" [1, 2.5, -3] ") == packed)
+  local parsed, pwhy = Vector.from_json(" [1, 2.5, -3] ")
+  assert(parsed == packed, tostring(pwhy))
   local none, why = Vector.from_json("[1, oops]")
-  assert(none == nil and why:find("finite numbers", 1, true) ~= nil, why)
+  assert(none == nil and tostring(why):find("finite numbers", 1, true) ~= nil, tostring(why))
   local unit = Vector.unpack(Vector.normalize(Vector.pack({ 3, 4 })))
   assert(close_to(assert(unit[1]), 0.6) and close_to(assert(unit[2]), 0.8))
   assert(Vector.normalize(Vector.pack({ 0, 0 })) == Vector.pack({ 0, 0 }))
@@ -98,12 +99,12 @@ local function test_load_reads_a_query()
   local hits = assert(corpus:search(Vector.pack({ 1, 0 }), 5))
   assert(#hits.ids == 2 and hits.ids[1] == 10 and hits.ids[2] == 30)
   local bad, why = Vector.load(db, "SELECT id, tenant FROM chunks")
-  assert(bad == nil and why:find("vector blob", 1, true) ~= nil, why)
+  assert(bad == nil and tostring(why):find("vector blob", 1, true) ~= nil, tostring(why))
   local missing, trouble = Vector.load(db, "SELECT id, embedding FROM nowhere")
-  assert(missing == nil and trouble:find("nowhere", 1, true) ~= nil, trouble)
+  assert(missing == nil and tostring(trouble):find("nowhere", 1, true) ~= nil, tostring(trouble))
   local ragged, rwhy = Vector.load(db,
     "SELECT id, embedding FROM chunks UNION ALL SELECT 99, x'00000000'")
-  assert(ragged == nil and rwhy:find("row 99", 1, true) ~= nil, rwhy)
+  assert(ragged == nil and tostring(rwhy):find("row 99", 1, true) ~= nil, tostring(rwhy))
   assert(db:close())
 end
 
@@ -318,10 +319,10 @@ local function test_shape_errors_raise()
   corpus:add(1, Vector.pack({ 1, 2, 3 }))
   local short = Vector.pack({ 1, 2 })
   assert(Test.raises(function() corpus:add(2, short) end):find("dimensions", 1, true) ~= nil)
-  assert(Test.raises(function() corpus:search(short, 1) end):find("dimensions", 1, true) ~= nil)
+  assert(Test.raises(function() local _, _ = corpus:search(short, 1) end):find("dimensions", 1, true) ~= nil)
   local q = Vector.pack({ 1, 2, 3 })
-  assert(Test.raises(function() corpus:search(q, 0) end):find("k is at least 1", 1, true) ~= nil)
-  assert(Test.raises(function() corpus:search(q, 1, { candidates = 0 }) end):find("candidates", 1, true) ~= nil)
+  assert(Test.raises(function() local _, _ = corpus:search(q, 0) end):find("k is at least 1", 1, true) ~= nil)
+  assert(Test.raises(function() local _, _ = corpus:search(q, 1, { candidates = 0 }) end):find("candidates", 1, true) ~= nil)
   assert(Test.raises(function() Vector.corpus(0) end):find("dimensions", 1, true) ~= nil)
   assert(Test.raises(function() Vector.pack({ 1 / 0 }) end):find("finite", 1, true) ~= nil)
   assert(Test.raises(function() Vector.pack({ 1e39 }) end):find("finite", 1, true) ~= nil)
@@ -356,7 +357,7 @@ local function test_the_collector_counts_the_corpus_buffers()
 end
 
 --- A guard of cosmic.signal that has caught a signal ends a search or a
---- k-means with `nil, "interrupted"`, and neither changes the corpus nor
+--- k-means with nil and a cancelled Failure, "interrupted", and neither changes the corpus nor
 --- takes the signal: once it is taken, the same calls return as they did
 --- before.
 local function test_a_caught_signal_interrupts_long_calls_and_leaves_the_corpus()
@@ -373,12 +374,13 @@ local function test_a_caught_signal_interrupts_long_calls_and_leaves_the_corpus(
   local guard = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
   local none, why = corpus:search(query, 5)
-  assert(none == nil and why == "interrupted", tostring(why))
+  assert(none == nil and tostring(why) == "interrupted", tostring(why))
+  assert(why.kind == "cancelled", tostring(why))
   none, why = corpus:search(query, 5, { candidates = 50 })
-  assert(none == nil and why == "interrupted", tostring(why))
+  assert(none == nil and tostring(why) == "interrupted", tostring(why))
   local no_centroids: {string}?
   no_centroids, why = Vector.kmeans(corpus, 3, { seed = 4, iterations = 5 })
-  assert(no_centroids == nil and why == "interrupted", tostring(why))
+  assert(no_centroids == nil and tostring(why) == "interrupted", tostring(why))
   -- An add is short and not interruptible: it still lands.
   corpus:add(601, query)
   assert(corpus:count() == 601)
@@ -398,7 +400,7 @@ end
 
 local function test_from_json_reads_no_text_with_a_nul()
   local none, why = Vector.from_json("[1]\0junk")
-  assert(none == nil and why:find("NUL", 1, true) ~= nil, why)
+  assert(none == nil and tostring(why):find("NUL", 1, true) ~= nil, tostring(why))
 end
 
 local function test_pack_takes_no_string_for_a_number()

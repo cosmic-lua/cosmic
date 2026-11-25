@@ -56,7 +56,8 @@
 ---
 --- Interruption: inside a [`Signal.guard`] of [`cosmic.signal`], a pending
 --- SIGINT or SIGTERM ends [`Vector.Corpus.search`] and [`Vector.kmeans`]
---- with `nil, "interrupted"`, within a few hundred rows of work
+--- with `nil` and a [`Failure`] of kind "cancelled" and message
+--- "interrupted", within a few hundred rows of work
 --- (milliseconds at thousands of dimensions; one centroid pass while
 --- k-means seeds), without taking the signal (the guard's holder still
 --- sees it) and without changing the corpus. That is the shape every
@@ -65,6 +66,7 @@
 --- Out of memory and a wrong argument still raise. Without a guard open
 --- nothing interrupts them.
 
+local Failure = require("cosmic.failure")
 local Sqlite = require("cosmic.sqlite")
 
 -- The raw module behind every function here lives under the reserved
@@ -147,10 +149,10 @@ local record Vector
     --- is then as it was.
     add_block: function(Corpus, block: string)
     --- `corpus:search(query, k, opts)`: the `k` nearest, as [`Vector.Hits`].
-    --- Returns `nil, "interrupted"` on a caught signal, and raises "not
-    --- enough memory" when the heap refuses, as the module's description
-    --- says.
-    search: function(Corpus, query: string, k: integer, opts?: SearchOptions): Hits?, string
+    --- Returns `nil` and a cancelled [`Failure`] ("interrupted") on a
+    --- caught signal, and raises "not enough memory" when the heap
+    --- refuses, as the module's description says.
+    search: function(Corpus, query: string, k: integer, opts?: SearchOptions): (Hits) | (nil, Failure)
   end
 
   record KmeansOptions
@@ -176,9 +178,18 @@ function Vector.unpack(v: string): {number}
 end
 
 --- The vector a JSON array of numbers spells, `[0.1, 0.2]`, or `nil` and
---- why it is not one.
-function Vector.from_json(text: string): string?, string
-  return raw.from_json(text)
+--- a [`Failure`] saying why it is not one.
+function Vector.from_json(text: string): (string) | (nil, Failure)
+  local v, why = raw.from_json(text)
+  if v == nil then return nil, Failure.new(why) end
+  return v
+end
+
+--- The Failure for `why`, a reason the core gave a search or k-means:
+--- kind "cancelled" for "interrupted", a signal a guard caught.
+local function core_failure(why: string): Failure
+  if why == "interrupted" then return Failure.cancelled(why) end
+  return Failure.new(why)
 end
 
 --- The vector scaled to length 1; all zeros stays all zeros. Normalize
@@ -227,18 +238,18 @@ end
 --- The `k` nearest vectors to `query`, best first. Rows of equal score
 --- are ordered by the lower id, so a result is stable. Raises on a query
 --- of the wrong length, or `k` under 1; for a corpus with fewer than `k`
---- rows it returns them all. Returns `nil, "interrupted"` when a signal
---- guard caught a signal meanwhile (the corpus unchanged, the signal
---- untaken).
+--- rows it returns them all. Returns `nil` and a cancelled Failure when
+--- a signal guard caught a signal meanwhile (the corpus unchanged, the
+--- signal untaken).
 local function corpus_search(self: Vector.Corpus, query: string, k: integer,
-                             opts?: Vector.SearchOptions): Vector.Hits?, string
+                             opts?: Vector.SearchOptions): (Vector.Hits) | (nil, Failure)
   local o = opts or {}
   local metric: string = o.metric or "inner_product"
   local ids, scores = self.handle:search(query, k, metric, o.candidates, o.allow)
   if scores is string then
-    return nil, scores
+    return nil, core_failure(scores)
   end
-  return { ids = assert(ids), scores = scores }, ""
+  return { ids = assert(ids), scores = scores }
 end
 
 --- `k` centroids for IVF search: spherical k-means (k-means++ seeding,
@@ -249,18 +260,18 @@ end
 --- zero vector (or one too short to scale to length 1) has no direction:
 --- it is never a seed and counts toward no cluster, and [`Vector.nearest`]
 --- gives it the first centroid.
---- Cost is count x k x dims per iteration, in C. Returns `nil,
---- "interrupted"` at the next row or centroid once a [`Signal.guard`] has
+--- Cost is count x k x dims per iteration, in C. Returns `nil` and a
+--- cancelled [`Failure`] ("interrupted") at the next row or centroid once a [`Signal.guard`] has
 --- caught a signal (see the module's description), and raises "not enough
 --- memory" when the heap refuses its scratch; the corpus is unchanged
 --- either way.
-function Vector.kmeans(corpus: Vector.Corpus, k: integer, opts?: Vector.KmeansOptions): {string}?, string
+function Vector.kmeans(corpus: Vector.Corpus, k: integer, opts?: Vector.KmeansOptions): ({string}) | (nil, Failure)
   local o = opts or {}
   local centroids, why = corpus.handle:kmeans(k, o.seed or 1, o.iterations or 20)
   if centroids == nil then
-    return nil, assert(why)
+    return nil, core_failure(assert(why))
   end
-  return centroids, ""
+  return centroids
 end
 
 --- The 1-based index of the centroid nearest `v` by inner product (the
@@ -309,18 +320,18 @@ end
 --- A corpus from the rows a query yields, each an integer id and a
 --- vector blob, in that order: `Vector.load(db, "SELECT id, embedding
 --- FROM chunks")`. `opts` is as [`Vector.corpus`]'s. Returns `nil` and
---- why when the query fails, yields no rows, or a row holds something
+--- a [`Failure`] (the database's own when the query fails) when the query fails, yields no rows, or a row holds something
 --- else than an integer id and a vector of the first row's length (or,
 --- for `"f16"`, one it cannot hold).
 function Vector.load(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value},
-                     opts?: Vector.CorpusOptions): Vector.Corpus?, string
+                     opts?: Vector.CorpusOptions): (Vector.Corpus) | (nil, Failure)
   -- A storage the core refuses raises here, before a query is open to leak.
   if opts ~= nil and opts.storage ~= nil then
     local _ = raw.corpus(1, opts.storage)
   end
   local q, why = db:query(sql, values)
   if not q then
-    return nil, tostring(why)
+    return nil, why
   end
   local corpus: Vector.Corpus? = nil
   local failure = ""
@@ -337,17 +348,17 @@ function Vector.load(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value},
     corpus = grown
   end
   local stopped = q:failure()
-  if failure == "" and stopped ~= nil then
-    failure = tostring(stopped)
-  end
   local _, _ = q:close()
   if failure ~= "" then
-    return nil, failure
+    return nil, Failure.new(failure)
+  end
+  if stopped ~= nil then
+    return nil, stopped
   end
   if corpus == nil then
-    return nil, "the query answered no rows, so there are no dimensions to read"
+    return nil, Failure.new("the query answered no rows, so there are no dimensions to read")
   end
-  return corpus, ""
+  return corpus
 end
 
 --- A corpus from the rows a query yields, each holding in its first
@@ -357,19 +368,20 @@ end
 --- than [`Vector.load`] over the same vectors one to a row. The corpus
 --- takes its dimensions, and unless `opts.storage` says otherwise its
 --- storage, from the first block; every block must have those
---- dimensions. Returns `nil` and why when the query fails, a row holds
+--- dimensions. Returns `nil` and a [`Failure`] (the database's own when
+--- the query fails) when the query fails, a row holds
 --- something else than a block (a NULL too: a group of rows without a
 --- vector packs to NULL, so select `WHERE vectors IS NOT NULL`), or a
 --- block cannot be added (see [`Vector.Corpus.add_block`]), and when the
 --- query yields no rows.
 function Vector.load_blocks(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value},
-                            opts?: Vector.CorpusOptions): Vector.Corpus?, string
+                            opts?: Vector.CorpusOptions): (Vector.Corpus) | (nil, Failure)
   if opts ~= nil and opts.storage ~= nil then
     local _ = raw.corpus(1, opts.storage)
   end
   local q, why = db:query(sql, values)
   if not q then
-    return nil, tostring(why)
+    return nil, why
   end
   local corpus: Vector.Corpus? = nil
   local failure = ""
@@ -401,17 +413,17 @@ function Vector.load_blocks(db: Sqlite.Handle, sql: string, values?: {Sqlite.Val
     corpus = target
   end
   local stopped = q:failure()
-  if failure == "" and stopped ~= nil then
-    failure = tostring(stopped)
-  end
   local _, _ = q:close()
   if failure ~= "" then
-    return nil, failure
+    return nil, Failure.new(failure)
+  end
+  if stopped ~= nil then
+    return nil, stopped
   end
   if corpus == nil then
-    return nil, "the query answered no rows, so there are no dimensions to read"
+    return nil, Failure.new("the query answered no rows, so there are no dimensions to read")
   end
-  return corpus, ""
+  return corpus
 end
 
 return Vector
