@@ -1293,12 +1293,25 @@ function Tools.call(tool: Tools.Tool, input: Tools.Object, context: Tools.Contex
   return tool.run(input, context)
 end
 
+--- What a call of `name`, which none of `tools` is, is answered: that no tool has the name, and the names of those
+--- offered to the model, so its next call names one.
+---
+---     print(Tools.unknown(Tools.default(), "bash")) -- Tool bash not found: the tools are read, run, edit, write
+function Tools.unknown(tools: {Tools.Tool}, name: string): string
+  local offered: mut {string} = {}
+  for _, t in ipairs(tools) do
+    if Tools.for_model(t) then offered[#offered + 1] = t.name end
+  end
+  if #offered == 0 then return "Tool " .. name .. " not found" end
+  return "Tool " .. name .. " not found: the tools are " .. table.concat(offered, ", ")
+end
+
 --- Runs the first of `tools` named `name` on `input` in `context`, as
---- [`Tools.call`] does; one not there is an error result.
+--- [`Tools.call`] does; one not there is an error result ([`Tools.unknown`]).
 function Tools.dispatch(tools: {Tools.Tool}, name: string, input: Tools.Object, context: Tools.Context): Tools.Result
   Jobs.check(context.jobs)
   local t = Tools.find(tools, name)
-  if t == nil then return fail("Tool " .. name .. " not found") end
+  if t == nil then return fail(Tools.unknown(tools, name)) end
   return t.run(input, context)
 end
 
