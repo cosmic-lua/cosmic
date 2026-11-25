@@ -228,3 +228,35 @@ local function test_a_push_says_whether_main_moved_past_it()
     return nil
   end).host) == 2)
 end
+
+--- A queue ref, or its branch, names its pull request and the commit its
+--- entry was put on; nothing else does.
+local function test_a_queue_ref_names_its_pull_request()
+  local entry = assert(QueueVerdicts.entry_of("refs/heads/gh-readonly-queue/main/pr-4196-" .. SHA))
+  assert(entry.pr == "4196" and entry.on == SHA, entry.pr .. " " .. entry.on)
+  assert(assert(QueueVerdicts.entry_of("gh-readonly-queue/main/pr-7-" .. SHA)).pr == "7")
+  for _, other in ipairs({ "refs/heads/main", "gh-readonly-queue/main/pr-x-" .. SHA,
+      "gh-readonly-queue/main/pr-7-", "gh-readonly-queue/main/pr-7-abc", "claude/pr-7-" .. SHA, "" }) do
+    assert(QueueVerdicts.entry_of(other) == nil, other)
+  end
+end
+
+--- A queue ref that holds a cache, or whose caches GitHub does not list,
+--- fails the run; one that holds none passes; a step of no queue ref is
+--- refused before it asks.
+local function test_a_queue_ref_that_holds_a_cache_fails_the_run()
+  local ref = "refs/heads/gh-readonly-queue/main/pr-41-" .. SHA
+  local listing = "repos/o/r/actions/caches?ref=" .. ref .. "&per_page=1"
+  local answers: {string:integer} = { ['{"total_count":0,"actions_caches":[]}'] = 0, ['{"total_count":1}'] = 1, ['{"total_count":2}'] = 1,
+    ['{"actions_caches":[]}'] = 1, [""] = 1 }
+  for answer, code in pairs(answers) do
+    local fake = GithubFake.new(function(path: string, _nth: integer): string?
+      if path == listing and answer ~= "" then return answer end
+      return nil
+    end)
+    assert(QueueVerdicts.ref_caches({ GITHUB_REF = ref, GITHUB_REPOSITORY = "o/r" }, fake.host) == code, answer)
+  end
+  local fake = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
+  assert(QueueVerdicts.ref_caches({ GITHUB_REF = "refs/heads/main", GITHUB_REPOSITORY = "o/r" }, fake.host) == 2)
+  assert(#fake.calls == 0)
+end
