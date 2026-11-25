@@ -430,7 +430,7 @@ function Calls.prepare(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?, asser
     local vals = values_of(ctx, { last }, if wants ~= nil then alone else nil end, nil)
     local several = vals.lists
     if several ~= nil and asserting == true then
-      local passed = Calls.asserted(ctx, several)
+      local passed = ValueLists.asserted(ctx, several)
       if passed ~= nil then
         for _, item in ipairs(passed.items) do
           vals.types[#vals.types + 1] = item
@@ -464,27 +464,6 @@ function Calls.prepare(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?, asser
     end
   end
   return prep
-end
-
---- The one list of `alts` that `assert` lets pass: the list whose first value is never nil or false, where the first
---- value of every other list is `nil` or `false` and nothing else, so `assert` raises at each of them. Nil where there
---- is no such list, more than one, or a list whose first value may be either (a `boolean`, an optional, `any`).
-function Calls.asserted(ctx: Ctx, alts: {Alt}): Alt?
-  local passed: Alt? = nil
-  for _, alt in ipairs(alts) do
-    local first = alt.items[1]
-    if first == nil then
-      return nil
-    elseif Operands.present(ctx, first) and not Types.may_be_false(first) then
-      if passed ~= nil then
-        return nil
-      end
-      passed = alt
-    elseif first.tag ~= "nil" and first.tag ~= "false" then
-      return nil
-    end
-  end
-  return passed
 end
 
 --- The field of the interface `bound` that `held` lacks, as the interface declares it (`mut name?: T`), or nil.
