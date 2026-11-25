@@ -92,9 +92,11 @@ function Speed.within(base: function(), scaled: function(), limit: integer, most
     small = math.min(small, base_total // base_runs)
     large = math.min(large, scaled_total // scaled_runs)
     if pair >= FEWEST_PAIRS and large <= limit * small then
+      print(string.format("RATIO %.2f limit %d pairs %d (%d us vs %d us)", large / small, limit, pair, large // 1000, small // 1000))
       return true, ""
     end
   end
+  print(string.format("RATIO %.2f limit %d pairs %d FAIL (%d us vs %d us)", large / small, limit, pair, large // 1000, small // 1000))
   return false, "took " .. tostring(large // 1000) .. " us against " .. tostring(small // 1000) .. " us, over " .. tostring(limit) .. " times"
 end
 

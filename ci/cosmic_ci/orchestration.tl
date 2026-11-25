@@ -1297,7 +1297,7 @@ local function checked_suite(c: Context, target: string, work: string,
   -- none reached (`--census`, build/test.tl).
   -- --all where it stands on no verdict (`stands`): CI is responsible for
   -- every test then, whatever its build directory holds.
-  local checked_argv: mut {string} = { cosmic }
+  local checked_argv: mut {string} = { cosmic, "--show-output" }
   local checked_run = Orchestration.suite_run({
     COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "checked"),
     COSMIC_TEST_TIMEOUT = checked_suite_test_timeout_s })
