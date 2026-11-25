@@ -921,6 +921,18 @@ local function alone_of(build: Driver.Build, module: string, file: string, optio
         for _, line in ipairs(build:held(near, false, { checked = { "export_not_declared" } })) do
           told[#told + 1] = line
         end
+        -- What a run of the tree holds the module to besides: the error-slot discipline, and a project's refusals.
+        local subject = Report.of(build.program, near)
+        if subject ~= nil then
+          for _, p in ipairs(SyntaxContracts.check(subject).problems) do
+            told[#told + 1] = p
+          end
+        end
+        if options.project == true then
+          for _, line in ipairs(ProjectRefusals.check(near.source.filename, near.chunk, near.scoped, Pipeline.kept)) do
+            told[#told + 1] = line
+          end
+        end
       end
       if #told == before then
         local made = CompileGrammar.emit(build, near, false, true, false)

@@ -471,6 +471,15 @@ local function loads_of(loading: Loading): string
   return table.concat(words, ", ")
 end
 
+--- The trees snippets may load modules of, as a refusal says them.
+local function loads_of_trees(loading: Loading): string
+  local words: mut {string} = {}
+  for _, root in ipairs(loading.roots) do
+    words[#words + 1] = if root == "." then "the working directory" else root end
+  end
+  return table.concat(words, " or ")
+end
+
 --- The lines refusing each module `code`, or a module of a tree it reaches, requires and `loading` lets it load none
 --- of; {} where it lets each.
 local function unloadable(loading: Loading, code: string): {string}
@@ -484,7 +493,12 @@ local function unloadable(loading: Loading, code: string): {string}
     for _, name in ipairs(required or {}) do
       if seen[file .. " " .. name] == nil then
         seen[file .. " " .. name] = true
-        if not may_require(loading, name) then
+        local tree_name = name ~= "cosmic" and name:sub(1, 7) ~= "cosmic." and name:find("^mcp%.") == nil
+        if not may_require(loading, name) and tree_name and #loading.roots > 0 then
+          local stem = name:gsub("%.", "/")
+          told[#told + 1] = file .. ": require(" .. Json.quote(name) .. "): no module of that name: neither " .. stem ..
+            ".tl nor " .. stem .. "/init.tl is in " .. loads_of_trees(loading) .. "; write it first, or check the name"
+        elseif not may_require(loading, name) then
           told[#told + 1] = file .. ": require(" .. Json.quote(name) .. "): a snippet here loads code only from " ..
             loads_of(loading) .. " (cosmic agent --modules)"
         elseif #loading.roots > 0 then

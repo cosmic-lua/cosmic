@@ -952,6 +952,12 @@ local function test_a_snippet_requires_a_module_of_the_working_directory_and_see
   assert(Fs.write(dir .. "/util.tl", "local record U\nend\nfunction U.twice(n: integer): integer return n * 3 end\nreturn U\n"))
   local edited = run(w, "local L = require(\"lib\")\nreturn { n = L.four(1) }\n", nil, dir)
   assert(edited["ok"] == true and value_text(edited) == "{\"n\":9}", shown(edited))
+  -- The module is held to what a run of the tree holds it to: here, a failure's reason is a string.
+  assert(Fs.write(dir .. "/util.tl", "local record U\nend\nfunction U.twice(n: integer): integer?, integer\n" ..
+      "  if n < 0 then return nil, 1 end\n  return n * 2, 0\nend\nreturn U\n"))
+  local held = run(w, "local U = require(\"util\")\nreturn { n = U.twice(1) }\n", nil, dir)
+  local said = Json.to_array(held["refused"])!
+  assert(tostring(said[1]):find("^util%.tl:3: U%.twice: a failure's reason is exactly a string") ~= nil, shown(held))
   worker_close(w)
 end
 
@@ -976,5 +982,9 @@ local function test_a_snippet_loads_no_code_its_modules_do_not_name()
   assert(host["ok"] == true and value_text(host) == "{\"here\":true}", shown(host))
   local both = under({ "." }, "local U = require(\"util\")\nreturn { n = U.one() }\n")
   assert(both["ok"] == true and value_text(both) == "{\"n\":1}", shown(both))
+  local missing = under({ "." }, "local M = require(\"util_test\")\nreturn { m = M ~= nil }\n")
+  local gone = Json.to_array(missing["refused"])!
+  assert(tostring(gone[1]):find("require(\"util_test\"): no module of that name: neither util_test.tl nor " ..
+    "util_test/init.tl is in the working directory", 1, true) ~= nil, shown(missing))
   worker_close(w)
 end
