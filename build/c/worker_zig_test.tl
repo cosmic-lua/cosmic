@@ -1,4 +1,4 @@
---- What the runner answers of the requirement `pinned_zig` ([`build.c`]'s `worker_zig`): the zig a check of the core's
+--- What the runner finds of the requirement `pinned_zig` ([`build.c`]'s `worker_zig`): the zig a check of the core's
 --- C starts, where a test's worker can start it, and why not where it cannot, as after a seeded boot, which installs no
 --- zig. Each case is a tree of its own holding only bin/zig.pin, and a cache of its own.
 
@@ -20,7 +20,7 @@ local function seeded(tmp: string): string, {string:string}
   return tmp .. "/root", { HOME = tmp, XDG_CACHE_HOME = tmp .. "/cache" }
 end
 
---- Installs a stand-in for the pinned zig where `root`'s pin names it under `variables`' cache, and answers its path.
+--- Installs a stand-in for the pinned zig where `root`'s pin names it under `variables`' cache, and returns its path.
 local function install(root: string, variables: {string:string}): string
   local cache = assert(Fs.cache_dir("zig", { environment = variables }))
   local found = assert(Zig.pinned_install(root, cache))

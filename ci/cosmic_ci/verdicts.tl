@@ -75,7 +75,7 @@ function Verdicts.command(argv: {string}, env: {string:string}): CacheTrim.Comma
   return { code = 0, out = trimmed.out, err = trimmed.err }
 end
 
---- Writes what a command said, and answers its status.
+--- Writes what a command said, and returns its status.
 local function said(command: CacheTrim.Command): integer
   if command.out ~= "" then local _, _ = Fs.put(Fs.stdout, command.out) end
   if command.err ~= "" then local _, _ = Fs.put(Fs.stderr, command.err) end

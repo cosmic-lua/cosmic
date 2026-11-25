@@ -16,7 +16,7 @@ local Clock = require("cosmic.clock")
 --- which its tests start.
 Test.policy{ grants = { { path = "core/bridge.lua", letters = "r" } } }
 
---- The entry of a stand-in seed: its `compile` passes each file through as its Lua, and its `program` answers the two
+--- The entry of a stand-in seed: its `compile` passes each file through as its Lua, and its `program` returns the two
 --- modules a boot asks for, whose Lua is their text here, by name: the generator of the syscall declaration, and
 --- [`build.boot`], which reaches a raw module the core preloads for the tree and then ends as its argument asks.
 local entry <const> = [==[

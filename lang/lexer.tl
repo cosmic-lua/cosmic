@@ -7,11 +7,12 @@
 --- several problems. An unterminated short string ends at the end of its
 --- line; an unterminated long string or long comment runs to the end of the
 --- file, as in Lua, so it is the last problem the run finds. A form the
---- grammar cuts (a label, a `;`, a long comment, a `_` in a
+--- grammar cuts (a label, a long comment, a `_` in a
 --- number, a hexadecimal float) is refused the same way. A cut form that has
 --- a token of its own meaning (a long comment, a number) keeps that token and
---- gains an error. A cut form that has none (a label, a `;`) is
---- an `$ERR$` token. A `#!` first line is skipped, as Lua skips it: it is
+--- gains an error. A cut form that has none (a label) is
+--- an `$ERR$` token. A `;` is a token of its own, which [`lang.parser`] reads
+--- where it ends a statement and refuses between a table's items. A `#!` first line is skipped, as Lua skips it: it is
 --- no token and no error. A `goto` is a `keyword` token like any reserved
 --- word, and [`lang.parser`] refuses the statement.
 ---
@@ -38,7 +39,7 @@ local find, byte, sub, capture, concat = string.find, string.byte, string.sub, s
 local math_type = math.type
 
 local record Lexer
-  --- The kind of a token. A bracket, `,`, `:`, `.`, `?` and `...` are their
+  --- The kind of a token. A bracket, `,`, `:`, `.`, `?`, `;` and `...` are their
   --- own kind. `op` is every other operator and punctuator (`=` and `|`
   --- among them) and `keyword` every reserved word, with the text in `text`.
   --- `integer` is a number Lua reads as an integer and `number` one it reads
@@ -62,6 +63,7 @@ local record Lexer
     ":"
     "."
     "?"
+    ";"
     "..."
     "$ERR$"
     "$EOF$"
@@ -72,8 +74,6 @@ local record Lexer
   enum Code
     -- a label `::name::` (the parser refuses a `goto`)
     "label_or_goto"
-    -- a `;`
-    "semicolon"
     -- a long comment `--[[ ... ]]`
     "long_comment"
     -- a long comment with no closing bracket: the token runs to the end
@@ -314,7 +314,7 @@ class[byte(":")] = 10 -- untyped: call
 class[byte("[")] = 11 -- untyped: call
 
 local bracket_kinds: {string: Lexer.Kind} = {
-  ["("] = "(", [")"] = ")", ["{"] = "{", ["}"] = "}", ["]"] = "]", [","] = ",", ["?"] = "?",
+  ["("] = "(", [")"] = ")", ["{"] = "{", ["}"] = "}", ["]"] = "]", [","] = ",", ["?"] = "?", [";"] = ";",
   ["#"] = "op", ["+"] = "op", ["*"] = "op", ["%"] = "op", ["^"] = "op", ["&"] = "op", ["|"] = "op",
 }
 local one_text: mut {integer: string} = {}
@@ -871,39 +871,39 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
         mark_end(tokens, n + 1, line, x, last - pos + 1, end_y, end_x)
         line, line_start = yend, yend_start
       end
+    elseif b == 33 and sub(source, pos + 1, pos + 1) ~= "=" and ys[n] == line and
+        (kinds[n] == "identifier" or kinds[n] == ")" or kinds[n] == "]") then
+      -- A `!` after a name, a call or an index on its line is the "must" of the value: `Fs.read(p)!`. What it
+      -- follows is the token before it, not the space between, so the tokens lex alike however a line spaces them.
+      kind = "op"
+      text = "!"
     else
-      -- A cut `;`, or a byte that begins no token.
+      -- A byte that begins no token.
       if b >= 128 then
         e = run_end(source, "^[\128-\255]+", pos)
       end
       kind = "$ERR$"
       text = sub(source, pos, e)
       local x = pos - line_start + 1
-      if b == 59 then
-        add_error(errors, name, "semicolon", "`;` is not in the grammar", -- checked: view_as_mut
-          "delete the `;`: a statement needs no terminator and the fields of a table are separated by `,`",
-          pos, 1, line, x)
-      else
-        local fix = "delete it; a character outside Lua's syntax can stand only inside a string or a comment"
-        if b == 33 then
-          fix = if byte(source, pos + 1) == 61 then "write `~=` for \"not equal\"" else "write `not` for negation" end -- untyped: call
-        elseif b >= 128 then
-          if text == "\239\187\191" then
-            fix = if pos == 1 then "delete the byte order mark at the start of the file" else
-              "delete the byte order mark; one marks the start of a file and is no part of a program" end
-          else
-            fix = "names are ASCII letters, digits and `_`; a character like this can stand only inside a " ..
-              "string or a comment"
-          end
+      local fix = "delete it; a character outside Lua's syntax can stand only inside a string or a comment"
+      if b == 33 then
+        fix = if byte(source, pos + 1) == 61 then "write `~=` for \"not equal\"" else "write `not` for negation; the `!` of `e!` follows its value" end -- untyped: call
+      elseif b >= 128 then
+        if text == "\239\187\191" then
+          fix = if pos == 1 then "delete the byte order mark at the start of the file" else
+            "delete the byte order mark; one marks the start of a file and is no part of a program" end
+        else
+          fix = "names are ASCII letters, digits and `_`; a character like this can stand only inside a " ..
+            "string or a comment"
         end
-        local what = "`" .. shown(text) .. "`"
-        if text == "`" then
-          what = "backtick"
-        elseif text == "\239\187\191" then
-          what = "byte order mark"
-        end
-        add_error(errors, name, "stray_byte", "stray " .. what, fix, pos, e - pos + 1, line, x) -- checked: view_as_mut
       end
+      local what = "`" .. shown(text) .. "`"
+      if text == "`" then
+        what = "backtick"
+      elseif text == "\239\187\191" then
+        what = "byte order mark"
+      end
+      add_error(errors, name, "stray_byte", "stray " .. what, fix, pos, e - pos + 1, line, x) -- checked: view_as_mut
     end
     if kind ~= nil then
       n = n + 1
@@ -1044,7 +1044,7 @@ end
 
 Lexer.reserved = reserved_set
 Lexer.codes = {
-  "label_or_goto", "semicolon", "long_comment", "unterminated_long_comment",
+  "label_or_goto", "long_comment", "unterminated_long_comment",
   "digit_separator", "hex_float", "malformed_number", "unterminated_string",
   "unterminated_long_string", "bad_escape", "stray_byte",
 }

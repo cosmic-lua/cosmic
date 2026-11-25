@@ -1,8 +1,8 @@
---- What [`sys.cpu_features`] answers, which is the processor's own: a
+--- What [`sys.cpu_features`] returns, which is the processor's own: a
 --- verdict earned on one processor says nothing of another's, so this
 --- module declares `cpu_features` and its tests are keyed by the
 --- processor's features (doc/testing.md, "processor features"). A test
---- that only needs the answer to be some list belongs where it is; one
+--- that only needs the result to be some list belongs where it is; one
 --- whose pass or fail depends on what the processor has belongs here.
 
 local Fs = require("cosmic.fs")
@@ -16,7 +16,7 @@ Test.policy{
   profiles = { "proc" },
 }
 
---- The features `cpu_features` can answer, by machine.
+--- The features `cpu_features` can return, by machine.
 local KNOWN_FEATURES <const>: {string:{string:boolean}} = {
   x86_64 = { aes = true, avx512_vnni = true, avx512f = true, avx512vl = true, avx_vnni = true,
     pclmulqdq = true, sha_ni = true, sse4_1 = true, ssse3 = true },
@@ -31,7 +31,7 @@ local function read_file(path: string): string
 end
 
 --- `cpu_features` names each feature this processor has, of those it
---- can answer for its machine, once and in byte order, as
+--- can return for its machine, once and in byte order, as
 --- /proc/cpuinfo's "flags" or "Features" does where the worker has one
 --- to read: its own procfs, a sandbox's, has none.
 local function test_cpu_features_are_named_as_proc_cpuinfo_names_them()

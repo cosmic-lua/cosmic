@@ -4,7 +4,7 @@
 --- ([`build/doctest/markdown_test.tl`] and
 --- [`build/doctest/generate_test.tl`] test its two halves).
 --- The fixtures call no `cosmic.*` module: the checker types a fixture's
---- `require` of one from the store, which answers a worker only the
+--- `require` of one from the store, which gives a worker only the
 --- modules of its closure. The tree's own guides, built with it, hold
 --- `cosmic.*` examples, file= blocks included.
 local Fs = require("cosmic.fs")

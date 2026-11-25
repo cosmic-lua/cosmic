@@ -76,7 +76,7 @@ end
 local FIELDS <const>: {string} = { "r.a", "r.b", "s.a", "s.b" }
 
 --- Declares what every program starts with. `count` starts at `seed`,
---- which moves where `maybe` answers nil.
+--- which moves where `maybe` returns nil.
 local function header(seed: integer): string
   return table.concat({
     "local record R",
@@ -391,7 +391,7 @@ local function loop_body(g: Gen, v: Vis, depth: integer, label: string?, facts?:
 end
 
 --- A function that writes fields (it may not assign a local it does not
---- declare): nil, or what `maybe` answers.
+--- declare): nil, or what `maybe` returns.
 local function proc(g: Gen, outside: Vis)
   local name = fresh(g, "p")
   add(g, "local function " .. name .. "()")
@@ -1195,7 +1195,7 @@ end
 local CAPTURES_MARK <const> = "-- captures\n"
 
 --- What a program that draws shapes begins with: a global `G`, a function
---- that answers a string or nil, a record whose metamethods each write a
+--- that returns a string or nil, a record whose metamethods each write a
 --- field or the global, and, with `<close>`, locals whose `__close` does.
 local function prologue(g: Gen)
   local lines = g.lines

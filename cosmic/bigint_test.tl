@@ -1,5 +1,5 @@
 --- Proves [`cosmic.bigint`] against values worked by hand and against
---- Python's integers (`pow(b, e, m)`, `*`, `%`), whose answers are
+--- Python's integers (`pow(b, e, m)`, `*`, `%`), whose results are
 --- embedded as hexadecimal: every operation, the edges of each, and every
 --- refusal and raise.
 ---
@@ -185,10 +185,10 @@ local a_mod_m = n(
     "5686"
 )
 
--- Operands and answers for the functions for secrets, from Python: a
+-- Operands and results for the functions for secrets, from Python: a
 -- number below the 3072-bit prime, one of a digest's length, one of 700
 -- bytes, an even modulus of 40 bytes and an odd one of 13. The last six
--- are SHA-256 digests of answers at the limits, whose operands `drawn`
+-- are SHA-256 digests of results at the limits, whose operands `drawn`
 -- makes.
 local s_a = n(
   "43ca95e3bc07292b6039dfb5262eabe72d1a95674819872a700efca2ce8a1eb0d1857a9a23de885ed0a49b97ecb60c98" ..
@@ -560,7 +560,7 @@ local function wide(number: string, width: integer): string
 end
 
 --- `count` bytes that `seed` fixes: SHA-256 of the seed and a counter
---- byte, block after block, which the Python that made the answers below
+--- byte, block after block, which the Python that made the results below
 --- draws the same way.
 local function drawn(seed: string, count: integer): string
   local blocks: mut {string} = {}
@@ -910,7 +910,7 @@ local function test_secret_powmod_raises_on_an_even_or_zero_modulus_and_a_number
 end
 
 --- Calls `call` with `count` arguments, each the number 3 as a string
---- but for argument `position`, which is `value`, and answers what pcall
+--- but for argument `position`, which is `value`, and returns what pcall
 --- does. It is Lua, where an argument that is no string can be passed:
 --- the checker refuses the call written in Teal.
 local probe = assert(load([[

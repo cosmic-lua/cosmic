@@ -193,7 +193,7 @@ local function write_project(root: string, target: string, bye: string)
 end
 
 --- Builds the project `handle` holds into `out`, its links naming no
---- standard library ([`link_index.none`]), and answers its links,
+--- standard library ([`link_index.none`]), and returns its links,
 --- each as `file:line kind symbol path#anchor`.
 local function build_links(handle: work.Handle, out: string): {string}
   assert(work.stage(handle, { own = false }))
@@ -461,7 +461,7 @@ local function test_a_files_links_and_headings_sign_the_projection(tmp: string)
   assert(work.close(handle))
 end
 
---- The disk's answers a resolution kept are asked again before a later
+--- The disk's results a resolution kept are asked again before a later
 --- call serves them: a file that comes, changes its headings, goes or
 --- becomes a directory is resolved again, to what a resolution that kept
 --- nothing gives, and so is a call by other code. Only what nothing moved is
@@ -507,7 +507,7 @@ local function test_a_kept_answer_the_disk_no_longer_gives_is_not_served(tmp: st
 end
 
 --- The rows a projection's links resolved to are kept, and copied by a
---- projection whose links, code, disk answers and symbols are the same: an
+--- projection whose links, code, disk results and symbols are the same: an
 --- edit to a body writes the rows it wrote. An edit that renames a symbol,
 --- a link that moves and a file that goes each make them again, to what
 --- a resolution that kept nothing makes. (The kept rows are poisoned to

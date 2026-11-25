@@ -960,7 +960,7 @@ end
 
 --- Ends the tag just read, at the `>` before `from` (after a value with no
 --- quotes, which a `/` ends nothing in): into the text of a raw text
---- element if it opens one, else into text. Answers where reading goes on.
+--- element if it opens one, else into text. Returns where reading goes on.
 --- `<textarea>` and `<title>` are RCDATA wherever they stand: inside
 --- `<svg>` the browser may read them as ordinary elements instead, and
 --- `scan` marks the place murky if what they hold could tell the two apart.
@@ -1387,7 +1387,7 @@ local function locate(text: string, i: integer, line: integer, col: integer): in
 end
 
 --- Reads `text` a byte at a time in each place `p` may be, until they are
---- one place, and answers where the rest of it begins. Each must read the
+--- one place, and returns where the rest of it begins. Each must read the
 --- same thing: a byte that continues a name or value in one (`ked` after
 --- `{{if .a}}chec{{end}}`) or brings a value (`=`), or that leaves them apart
 --- in more than phase and attribute (`http-equiv` named in one), makes

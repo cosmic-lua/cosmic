@@ -135,7 +135,7 @@ local function test_texts_lists_the_columns_of_a_row_of_text()
   assert(db:close())
 end
 
---- `text_rows` keeps SQLite's byte representation: its rows answer `text`
+--- `text_rows` keeps SQLite's byte representation: its rows hold `text`
 --- for every column, NULL as "" and numbers as SQLite spells them.
 local function test_text_rows_answer_text_for_every_column()
   local db = assert(Sqlite.memory())

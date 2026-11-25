@@ -31,8 +31,8 @@
 ---     local merged = assert(Sandbox.union(policy, { promises = { "fork" } }))
 ---     print(merged.grants[1].path, merged.promises[1]) -- data  fork
 ---
---- Nothing here raises on a policy's contents: a failure answers `nil`
---- and why, under the module's name.
+--- Nothing here raises on a policy's contents: a function that fails
+--- returns `nil` and why, under the module's name.
 ---
 --- This is the policy's data and the host paths it names. What holds a
 --- program to it is [`Child.start`]'s, or [`Sandbox.restrict`]'s for the
@@ -105,7 +105,8 @@ local record Sandbox
   end
 end
 
---- What a failure of this module answers: nil and `why` under its name.
+--- What a function returns for a failure of this module: nil and `why`
+--- under its name.
 local function refuse(why: string): nil, string
   return nil, "sandbox: " .. why
 end
@@ -150,7 +151,7 @@ end
 --- this program's core, by a relaunch, and which that core gives up at
 --- boot, so it is the start's grant, not the program's; "proc" is the kernel's process
 --- information: `r` on /proc, where the host has one (Linux), and nothing
---- on macOS, where sysctl answers with no file to grant, so a policy that
+--- on macOS, where sysctl reports it with no file to grant, so a policy that
 --- names it reads the same on both. That is every process's entries
 --- there, not this one's alone; `isolate` "proc" is the other thing, a
 --- /proc of the sandbox's own.
@@ -190,7 +191,7 @@ end
 --- the "cosmic" profile resolves to nothing, since its grant is of this
 --- program's own file, which a program on a database is not given. A name
 --- with a value in one policy and a digest in another must have the
---- value's digest. The answer has no `profiles`, and every
+--- value's digest. The result has no `profiles`, and every
 --- list and table of it, empty or not, and `isolate` "file" holds "proc"
 --- too, which it implies: it is what [`PolicyJson.encode`] writes and
 --- [`Child.start`] meets. A value a policy's type does not stop -- an
@@ -223,7 +224,7 @@ end
 --- Paths are met as written, cleaned, while the kernel meets the files
 --- they name: a link (`/lib` to `/usr/lib`) or a relative path read from
 --- two directories is not seen. Give real, absolute paths where the
---- answer is to be exact. A `connect` target of "*" meets names alone,
+--- result is to be exact. A `connect` target of "*" meets names alone,
 --- since the relay opens no address or tailnet node by it.
 ---
 ---     local a = { grants = { { path = "/srv", letters = "rwx" } }, connect = { "*:443" } }
@@ -323,7 +324,7 @@ local ACTIONS <const>: {string:{letter: string, directory: boolean}} = {
 --- For code that acts for a held program in a process no kernel layer
 --- holds, as a second layer, never the only one: the program runs beside
 --- it and can change a name between the check and its use, so open the
---- real name this answers and follow no link there. [`Sandbox.allows`] is
+--- real name this returns and follow no link there. [`Sandbox.allows`] is
 --- the plain rule under it.
 ---
 ---     local policy = { grants = { { path = "/srv/data", letters = "rwc" } } }
@@ -599,7 +600,7 @@ local stat <const> = sys.stat
 local seatbelt_resolve <const> = Seatbelt.resolve
 local seatbelt_compile <const> = Seatbelt.compile
 
---- What a failure of [`Sandbox.restrict`] answers: false and `why`.
+--- What [`Sandbox.restrict`] returns for a failure: false and `why`.
 local function denied(why: string): boolean, string
   return false, "sandbox: restrict: " .. why
 end
@@ -785,7 +786,7 @@ end
 --- Grants that give `x` nowhere refuse every execve, for good: Landlock
 --- refuses every file, and on Linux a seccomp filter derived from the
 --- grants refuses execve and execveat first (EPERM, where Landlock
---- answers EACCES), in every thread, a second layer for what no ruleset
+--- fails with EACCES), in every thread, a second layer for what no ruleset
 --- reaches, such as a memfd run by its descriptor. It is no refusal of
 --- foreign code: a file the process may read it may still map executable,
 --- which native code could run with no execve (the cosmic environment
@@ -828,8 +829,8 @@ end
 ---
 --- On macOS, Seatbelt holds the process instead: the policy is compiled
 --- as [`Child.start`]'s is ([`Seatbelt.compile`], whose refusals it
---- answers, a promise it cannot hold among them) and applied in this
---- process after its limits, and a refused path answers EPERM. A profile
+--- returns, a promise it cannot hold among them) and applied in this
+--- process after its limits, and a refused path fails with EPERM. A profile
 --- holds every thread, so another thread does not refuse it; a child or a
 --- descriptor does, as above. Beside the policy's own grants the profile
 --- grants what the runtime reaches by path: the store's files

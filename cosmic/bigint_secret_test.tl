@@ -38,7 +38,7 @@ local function test_a_secret_is_refused_where_time_shows_its_value()
 end
 
 --- A secret's bytes are an operand as a string's are: arithmetic on
---- secrets answers what it answers on their bytes.
+--- secrets returns what it returns on their bytes.
 local function test_a_secret_is_an_operand_of_its_bytes()
   local Bigint = require("cosmic.bigint")
   local m = "\0\101"

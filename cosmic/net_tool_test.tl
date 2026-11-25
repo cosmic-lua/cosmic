@@ -87,7 +87,7 @@ local function test_a_protocol_runs_a_child_under_the_server_s_guard()
 end
 
 --- Runs `script`, a Teal file taking the scratch directory, in a
---- process of this program's own, and answers how it ended.
+--- process of this program's own, and returns how it ended.
 local function run_script(tmp: string, script: string): Child.Result
   local started = this_program.program({ "--standalone", script, tmp },
     { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })

@@ -51,7 +51,7 @@ local function gen_list(src: Fuzz.Source, max: integer, out: mut {string}, item:
   end
 end
 
---- Writes a type that is not a union or an optional. Answers whether `?` and `|` may follow it: a
+--- Writes a type that is not a union or an optional. Returns whether `?` and `|` may follow it: a
 --- function type takes them into its return list.
 local function gen_base_type(src: Fuzz.Source, depth: integer, out: mut {string}): boolean
   local k = src:int(1, if depth > 0 then 9 else 3 end)

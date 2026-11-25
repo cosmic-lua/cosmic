@@ -70,7 +70,7 @@ function syntax_read.splices(build: Driver.Build, name: string, text: string, pa
 end
 
 --- The byte of the document's own text at byte `offset` of it as spliced (`splices`, the last first, as
---- [`ShapeSpecs.splices`] answers them). A byte a splice put in is the byte the splice follows.
+--- [`ShapeSpecs.splices`] returns them). A byte a splice put in is the byte the splice follows.
 function syntax_read.unspliced(splices: {ShapeSpecs.Splice}, offset: integer): integer
   local shift = 0
   for i = #splices, 1, -1 do
@@ -185,7 +185,7 @@ end
 
 --- Whether `line` counts the errors of a code ([`build.ceilings.marked`]: `file: 2 errors of arity in its bodies; follow the fix
 --- above`), which a list of the errors in an editor, each at its place, has no use for.
--- TODO: drop this reader of the checker's prose once [`Driver.Build.held`] answers the spots of [`build.ceilings.marked`] beside its
+-- TODO: drop this reader of the checker's prose once [`Driver.Build.held`] returns the spots of [`build.ceilings.marked`] beside its
 -- lines, so that a list of errors in an editor is made of the errors and no count line is there to leave out.
 local function counts_errors(line: string): boolean
   return line:match("^[^:\n]*: %d+ errors? of [%a][%w_]* in its [%a ]+[;,]") ~= nil or
@@ -201,7 +201,7 @@ local function refusals_of_lines(lines: {string}): {Refusal}
   return out
 end
 
---- The refusals of `trouble`, what [`Pipeline.review`] answers for a module it refuses: the header line it puts before the
+--- The refusals of `trouble`, what [`Pipeline.review`] returns for a module it refuses: the header line it puts before the
 --- checker's lines is dropped, and each line left is one refusal.
 local function refusals_of_generated(trouble: string): {Refusal}
   local lines: mut {string} = {}
@@ -217,7 +217,7 @@ end
 --- and whether it is a warning or a hint. A refusal is matched to a problem of its line, column and code whose message its
 --- words begin with, so that two findings of one code at one place keep their own spans; one that no problem matches (a
 --- refusal of the pipeline's own, a line that counts errors) is left as its words placed it.
--- TODO: take the problems from [`Pipeline.review`] beside its lines, once it answers them, so that a refusal is not joined
+-- TODO: take the problems from [`Pipeline.review`] beside its lines, once it returns them, so that a refusal is not joined
 -- to its problem by the place and code read back out of its words ([`plan.refusal_of`]).
 -- TODO: carry the opener a syntax error names ([`Parser.Error.other`], the `if` an `end` is missing for) into its problem,
 -- once [`Driver.Problem`]'s `other` takes a parser's place as well as a scope's.

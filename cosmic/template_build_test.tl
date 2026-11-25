@@ -78,7 +78,7 @@ local function project(tmp: string, case: string, files: {string: string}): {str
 end
 
 -- TODO: once a `load` environment can hold a module and a function together without `any` (or a test can hand
--- `require` the real [`cosmic.html`] another way), [`load_module`] answers it typed and loses its `any_use`.
+-- `require` the real [`cosmic.html`] another way), [`load_module`] returns it typed and loses its `any_use`.
 
 --- The module `path` of `lua`, run against the real [`cosmic.html`].
 --- Each module it loads is set in `loaded`, when given.
@@ -105,7 +105,7 @@ local record Loaded
   render: function(Page): any
 end
 
---- What an HTML template exports: it answers markup.
+--- What an HTML template exports: its `render` returns markup.
 local record Markup
   render: function(Page): Html.SafeHtml
 end

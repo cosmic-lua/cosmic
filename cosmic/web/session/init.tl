@@ -26,9 +26,9 @@
 --- unless the response sets its own); one that changes it gets a
 --- `Set-Cookie`, and one that only reads gets none. A tampered, expired or
 --- unknown cookie is an anonymous session, never an error, and is expired
---- on the way out. A handler that raises, which the app has answered 500 by
---- the time the middleware sees it, saves nothing; a 4xx keeps what the
---- handler changed, as a handler may flash and answer 422 on purpose.
+--- on the way out. A handler that raises, which the app has turned into a 500
+--- by the time the middleware sees it, saves nothing; a 4xx keeps what the
+--- handler changed, as a handler may flash and return 422 on purpose.
 ---
 --- Values are [`Json.Value`]s, so the checker refuses any other at the call;
 --- `set` still raises for one that nests too deep, is not UTF-8 or holds a NaN
@@ -118,7 +118,7 @@ local record Session
     --- Nil and why when the store itself failed, which is a 500.
     load: function(Store, token: string, now: integer, cookie: string): Data?, string
     --- Keeps `data`, the session as the request saw it with its changes
-    --- applied, and answers the token to send. `previous` is the token the
+    --- applied, and returns the token to send. `previous` is the token the
     --- request came with, "" for a new session. Nil and why when it cannot
     --- (the cookie store when the token is too big), which is a 500.
     save: function(Store, previous: string, data: Data, changes: Changes, now: integer,

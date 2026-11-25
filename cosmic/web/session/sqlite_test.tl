@@ -27,7 +27,7 @@ local function changed(set: mut {string: Json.Value}): Session.Changes
   return { set = set, removed = {} }
 end
 
---- Saves a new session holding `values` at time 100 and answers its id.
+--- Saves a new session holding `values` at time 100 and returns its id.
 local function create(store: Session.Store, values: mut {string: Json.Value}, expires?: integer): string
   return (assert(store:save("", fresh(values, expires), changed(values), 100, "session")))
 end
@@ -371,7 +371,7 @@ local function writes_of(db: Sqlite.Handle): integer
   return assert(rows[1], "a count answers a row"):integer(1)
 end
 
---- An app behind a proxy that names the client, over `store`, at the time `clock` answers.
+--- An app behind a proxy that names the client, over `store`, at the time `clock` returns.
 local function seen_app(store: Session.Store, clock: function(): integer): Web.App
   return Web.app{
     trusted_proxy = { "loopback" },

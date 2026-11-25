@@ -1,4 +1,4 @@
---- A failure as a value of its own: what a call answers in place of a
+--- A failure as a value of its own: what a call returns in place of a
 --- value, `(T) | (nil, Failure)`, where a `string` would carry only the
 --- words. A failure keeps the words (`message`), the path it concerns
 --- (`path`) and the errno that says why (`errno`) apart, so a caller tests
@@ -18,7 +18,7 @@
 
 local sys = require("cosmic.sys")
 
---- What went wrong, where, and why, answered by [`Failure.new`],
+--- What went wrong, where, and why, returned by [`Failure.new`],
 --- [`Failure.at`], [`Failure.system`], [`Failure.coded`],
 --- [`Failure.timeout`] or [`Failure.cancelled`].
 local class Failure
@@ -33,7 +33,7 @@ local class Failure
     "system"
     --- A text was refused at a place; `line` says where ([`Failure.at`]).
     "parse"
-    --- A library answered its own code; `code` holds it
+    --- A library returned its own code; `code` holds it
     --- ([`Failure.coded`]).
     "library"
     --- A wait ran past its time limit ([`Failure.timeout`], or
@@ -61,7 +61,7 @@ local class Failure
   --- known.
   column?: integer
   --- The library's own code for the failure, as the library names it
-  --- ([`Sqlite.BUSY`]), nil where no library answered one.
+  --- ([`Sqlite.BUSY`]), nil where no library returned one.
   code?: integer
   --- The detail the library gives beside `code` ([`cosmic.sqlite`]'s
   --- extended result code), nil where it gives none.
@@ -90,19 +90,19 @@ local class Failure
 end
 
 --- A failure of `message`, about `path` when one is given, that no
---- system call answered: its errno is 0.
+--- system call returned: its errno is 0.
 function Failure.new(message: string, path?: string): Failure
   return { kind = "other", message = message, path = path, errno = 0, line = nil, column = nil, code = nil, extended_code = nil }
 end
 
 --- A failure of `message` at `line` (and `column`, a byte from 1, when
 --- given) of a text, about `path` when one is given: what a decoder
---- answers for what it refuses. Its errno is 0.
+--- returns for what it refuses. Its errno is 0.
 function Failure.at(message: string, line: integer, column?: integer, path?: string): Failure
   return { kind = "parse", message = message, path = path, errno = 0, line = line, column = column, code = nil, extended_code = nil }
 end
 
---- The failure a system call answered with `errno`, about `path` when one
+--- The failure for `errno` from a system call, about `path` when one
 --- is given: its message is the errno's, the same words on every OS
 --- ([`sys.errno_message`]). Its kind is "timeout" for `ETIMEDOUT`, so a
 --- caller tells a timeout by its kind wherever it came from, else
@@ -113,9 +113,9 @@ function Failure.system(errno: integer, path?: string): Failure
     code = nil, extended_code = nil }
 end
 
---- A failure of `message` that a library answered with its own `code`,
+--- A failure of `message` that a library returned with its own `code`,
 --- and `extended_code` where it gives one: what [`cosmic.sqlite`]
---- answers. Its kind is `kind` where given: "cancelled" for a call a
+--- returns. Its kind is `kind` where given: "cancelled" for a call a
 --- caught signal stopped, "timeout" for one past its time limit; else
 --- "library". Its errno is 0.
 function Failure.coded(message: string, code: integer, extended_code?: integer, kind?: Failure.Kind): Failure

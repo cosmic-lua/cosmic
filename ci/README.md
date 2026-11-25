@@ -449,7 +449,7 @@ Before the agent starts, it lets unprivileged user namespaces be made
 and runs `gh auth setup-git`. While the agent runs, it writes a fresh
 GitHub OIDC token every 4 minutes, for the agent to trade for a Claude
 token. It ends the agent at 130 minutes or on a signal. The job's log
-gets the agent's answer and its `cosmic:` complaints, not the agent's
+gets the agent's reply and its `cosmic:` complaints, not the agent's
 tool calls. The header of review.yml says when it runs and what the
 agent may do; [`cosmic_ci/review.tl`] says why the token is refreshed
 and the tool calls are kept out of the log. [`cosmic_ci/review_test.tl`]
@@ -489,6 +489,9 @@ macOS's whole leg. A branch's push runs nothing.
   suite and its boundary, the darwin suite, the sandbox probe and the
   credential proofs; `<leg>-product` (part `product`) runs assemble, the
   regressions, the portable suite, the attestation and the product.
+  alpine-x86_64's product, the longest, is two jobs, each assembling:
+  `alpine-x86_64-portable` (the portable suite, the attestation and the
+  product) and `alpine-x86_64-regressions`.
   `macos-aarch64` (part `suite`) runs macOS's native suite and darwin
   suite, which a push does not: macOS's failures were met only by the
   daily run, and each held up the prerelease. Beside
@@ -497,7 +500,7 @@ macOS's whole leg. A branch's push runs nothing.
   main, as a pull request does, and `linux-x86_64-driver` (the `driver`
   job) boots nothing and checks the pinned CI driver where those paths
   reach what its tests read (`ci/`, `.github/`). The checked suite runs
-  in two shares at once (`linux-x86_64-checked-1` and `-2`,
+  in three shares at once (`linux-x86_64-checked-1` to `-3`,
   `cosmic test --shard`), so it is not the entry's longest job; a share
   does not check the C functions, which main's push does. The gate
   compares the three products. An entry takes as long as its longest job. Main moves
@@ -508,7 +511,11 @@ macOS's whole leg. A branch's push runs nothing.
   portable suite, the attestation and the product), the checked core's
   whole suite (`checked`) and the whole suite on a checked run
   (`narrowing`), and the gate compares the three products
-  (`COSMIC_CI_PRODUCTS=3`). It publishes nothing. It repeats neither
+  (`COSMIC_CI_PRODUCTS=3`). It also runs macOS's suite (part `suite`, no
+  product), which stands on the queue's macOS verdicts and saves macOS's
+  caches (zig, its build outputs, compiles, verdicts) for the queue's next
+  runs: only the daily run saved them before, and the queue's macOS job
+  booted cold. It publishes nothing. It repeats neither
   the format check nor the pinned driver's, which the queue made of the
   very commit; the daily run checks the driver on every leg, and the
   weekly and a manual run check the whole tree's format too. Each leg
@@ -545,14 +552,41 @@ relay the next queue entry stood on main's last save, a commit or more
 behind, and ran its whole native suite where that commit moved a key. A
 row stands only for a test whose key is the same, so the relay decides how
 many tests stand, never whether one is right, and no step of it fails a
-job. The queue's format job, where its check passed, seals the memo of the
+job. No queue run saves a cache, but a queue ref's name comes again
+where a pull request is queued again on the same commit of main, and a
+run restores its own ref's caches before main's; a cache there was saved
+by code the queue ran, perhaps an earlier head that never merged, whose
+archive a restore extracts over the checkout. So every job that restores
+a cache waits on the `queue-ref` job, which restores none and fails a
+queue run whose ref holds one (`driver.tl queue-ref-caches`), and the
+`ci` gate lists them again once every job has run, for a cache written
+while the run ran. A cache GitHub evicted before the second listing goes
+unseen.
+
+A queue leg that failed uploads the rows it used too
+(`queue-tried-verdicts-<job>`, kept a day), and the next try of the same
+pull request finds the newest failed run that has ended and holds that
+job's artifact (`driver.tl queue-tried-run`) and merges it in before its
+suites, so a suite the deadline stopped (COSMIC_TEST_DEADLINE) keeps its
+passes for that try. The code a run ran can write any row, so it takes a
+run only where GitHub's record shows that run ran merged code and this
+try's change: the commit its entry was put on is on main (a queue commit
+holds the entries ahead of it too, and one dropped from the queue never
+merges), and its commit changes the same files, by name, name before and
+content, as this try's does (an earlier head of the pull request never
+merges either). The run's `queue-ref` job and the gate's second listing
+must both have passed, and its ref must hold no cache now. Only a run's
+first attempt counts (an attempt again keeps the earlier one's artifacts
+and jobs), and the download takes the one artifact the lookup checked,
+by its id.
+The queue's format job, where its check passed, seals the memo of the
 tree checks (the shared rows of `build/check_memo.tl`, in the cache
 directory: `driver.tl checks-seal` keeps the rows the run used, in one
 file with no write-ahead log) and uploads it (`queue-checks-linux-x86_64`);
 the relay downloads it, holds it to a memo with rows, and saves it
 (`checks-linux-x86_64-<sha>`, [`cosmic_ci/checks_seal.tl`]). The format
 check of a pull request or a queue entry restores the newest, so the tree
-checks check again only the files its rows do not answer: from cold they
+checks check again only the files its rows do not cover: from cold they
 take some 3.5 minutes. Each queue leg also uploads the compiles and
 parses it trimmed (`queue-compiles-<leg>`); the relay, a job a leg, saves
 them (`compiles-<leg>-queue-<sha>`), and main's push boots on them in
@@ -571,7 +605,7 @@ never given).
 The platform job's `include` is an expression that chooses one of four
 lists by the kind of run (linux-x86_64 alone for a pull request; for the
 queue every leg but macOS as its suite and its product, linux-x86_64's
-format check and macOS's suite; every leg but macOS for a push to main; all four otherwise),
+format check and macOS's suite; every leg but macOS, and macOS's suite, for a push to main; all four otherwise),
 each listing every job: an `include` entry naming a leg
 no dimension holds would start that leg anyway (GitHub adds an entry that
 fits no combination as one of its own). Each entry names the job

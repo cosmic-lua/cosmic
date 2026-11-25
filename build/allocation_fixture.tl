@@ -9,7 +9,7 @@ local record allocation_fixture
 end
 
 --- Runs `work` once per allocation it makes, refusing that allocation,
---- and a last time with none refused; answers how many runs a refusal
+--- and a last time with none refused; returns how many runs a refusal
 --- ended. A run that nothing was refused in must succeed.
 ---
 --- `settle`, when given, runs after each run with allocations granted

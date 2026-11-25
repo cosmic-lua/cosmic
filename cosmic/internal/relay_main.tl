@@ -49,7 +49,7 @@ local function say(line: string)
   local _, _ = sys.write(1, line .. "\n")
 end
 
---- Says `error: why` and answers the status of a relay that did not start.
+--- Says `error: why` and returns the status of a relay that did not start.
 local function failed(why: string): integer
   say("error: " .. (why:gsub("%c", " ")))
   return 1
@@ -86,7 +86,7 @@ local function until_end_of_input()
   end
 end
 
---- [`Relay.start`], answering a spec it refuses (it raises) as nil and why.
+--- [`Relay.start`], returning nil and why for a spec it refuses (it raises).
 local function started(spec: Relay.Spec): Relay.Serving?, string
   local ok, server = pcall(Relay.start, spec)
   if not ok then return nil, tostring(server) end

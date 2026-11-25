@@ -68,25 +68,15 @@ local function test_a_refused_snippet_does_not_run_and_the_next_does_in_the_same
   Worker.close(w)
 end
 
-local function test_a_statements_semicolons_are_dropped_and_a_tables_or_a_calls_are_refused()
+--- A statement's `;` is the language's, as in `cosmic -e` and a file: it ends the statement, even before a `(`; one
+--- between a table's items is refused.
+local function test_a_statements_semicolons_end_it_and_a_tables_are_refused()
   local w = set_of_worker()
-  local ran = run(w, "local a, b = 1, 2; print(a); print(b);\n")
-  assert(ran["ok"] == true and ran["output"] == "1\n2\n", shown(ran))
-  for _, code in ipairs({ "local t = { a = 1; b = 2 }\nprint(t.a)\n", "local f = print; (f)(1)\n",
-      "local n: integer = \"x\"; print(n)\n" }) do
-    local refused = run(w, code)
-    local lines, _ = Json.to_array(refused["refused"])
-    assert(lines ~= nil and #lines > 0, shown(refused))
-    -- A `;` the mend cannot take is told of as the first check told of it.
-    assert(code:find("integer", 1, true) ~= nil or tostring(lines[1]):find("(semicolon)", 1, true) ~= nil, shown(refused))
-  end
-  -- Beside another error, the `;` is mended all the same, and the refusal tells of the other alone.
-  local other = run(w, "local a = 1; print(a)\nlocal t: mut {{string, integer}} = {}\nprint(#t)\n")
-  local said = assert(Json.to_array(other["refused"]))
-  local parts: mut {string} = {}
-  for _, l in ipairs(said) do parts[#parts + 1] = tostring(l) end
-  local told = table.concat(parts, "\n")
-  assert(told:find("(tuple_type)", 1, true) ~= nil and told:find("(semicolon)", 1, true) == nil, shown(other))
+  local ran = run(w, "local a, b = 1, 2; print(a); print(b);\nlocal f = print; (f)(3)\n")
+  assert(ran["ok"] == true and ran["output"] == "1\n2\n3\n", shown(ran))
+  local refused = run(w, "local t = { a = 1; b = 2 }\nprint(t.a)\n")
+  local lines = assert(Json.to_array(refused["refused"]))
+  assert(tostring(lines[1]):find("(semicolon)", 1, true) ~= nil, shown(refused))
   -- A snippet runs once, so an unused name is no reason to refuse it.
   local unused = run(w, "local seen = 1\nprint(\"ran\")\n")
   assert(unused["ok"] == true and unused["output"] == "ran\n", shown(unused))
@@ -428,12 +418,9 @@ print(tostring(long))
   -- A hint that names a snippet's own line-1 local is the snippet's refusal, not the bare one's.
   local typo = Tools.run("run", { code = "local count = Host.wc(\"one.tl\")\nprint(cuont)" }, context)
   assert(typo.is_error and typo.text:find("cuont", 1, true) ~= nil and typo.text:find("`Host`", 1, true) == nil, typo.text)
-  -- A `;` before a string or a table would join a call: it is not mended.
-  local joined = Tools.run("run", { code = "local t: {string} = { tostring; \"a\" }\nprint(#t)" }, context)
-  assert(joined.is_error and joined.text:find("(semicolon)", 1, true) ~= nil, joined.text)
-  -- Beside a type error on its line, a `;` is told of with it.
+  -- Beside a type error on its line, a `;` is no refusal.
   local both = Tools.run("run", { code = "local n: integer = \"x\"; print(n)" }, context)
-  assert(both.is_error and both.text:find("(semicolon)", 1, true) ~= nil and
+  assert(both.is_error and both.text:find("(semicolon)", 1, true) == nil and
       both.text:find("(not_assignable)", 1, true) ~= nil, both.text)
   -- A refusal on line 1 tells the snippet's own column, not one the prelude moved.
   local first = Tools.run("run", { code = "local n: integer = Host.cat(\"one.tl\")" }, context)
@@ -475,6 +462,30 @@ return assert(again[1])["n"]
       "local _, why = Host.call(\"shell\", { command = \"id\" })\nreturn tostring(why)\n" }, context)
   assert(other.text:find("serves no call", 1, true) ~= nil and other.text:find("it serves history", 1, true) ~= nil, other.text)
   assert(w.started == 1, "one worker answered all")
+  Worker.close(w)
+  local _, _ = db:close()
+end
+
+--- A snippet reads one kept output whole by the id its note names (Host.output), one past what a reply holds too,
+--- and an id with no output raises.
+local function test_a_snippet_reads_a_kept_output_by_its_id()
+  local w = set_of_worker()
+  local dir = assert(Fs.mkdtemp("agent-worker-"))
+  local db = assert(Sessions.open(dir .. "/sessions.db"))
+  local id = assert(Sessions.start(db, "/", "m", 0))
+  local kept = assert(Sessions.output(db, id, { tool = "run", input = "{}", text = "first\nsecond\n", is_error = false }))
+  -- Past what one reply holds as JSON, where each control character takes six bytes.
+  local big = assert(Sessions.output(db, id, { tool = "bash", input = "{}", text = string.rep("x\1", 300000),
+    is_error = false }))
+  local context: Tools.Context = { cwd = dir, worker = w, db = db, session = id }
+  local code = "local Host = require(\"cosmic.agent.host\")\n" ..
+    "print(#Host.output(" .. tostring(kept) .. "))\n" ..
+    "print(Host.output(" .. tostring(big) .. ") == string.rep(\"x\\1\", 300000))\n" ..
+    "local _, why = pcall(Host.output, " .. tostring(big + 1) .. ")\nprint(tostring(why))\n"
+  local ran = Tools.run("run", { code = code }, context)
+  assert(not ran.is_error, ran.text)
+  assert(ran.text:find("13\ntrue\n", 1, true) == 1, ran.text)
+  assert(ran.text:find("host: output: no output " .. tostring(big + 1) .. " in sessions.db", 1, true) ~= nil, ran.text)
   Worker.close(w)
   local _, _ = db:close()
 end

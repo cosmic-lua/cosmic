@@ -28,7 +28,7 @@ Test.policy{
 
 --- End to end: a sandboxed test that starts /bin/sh, or reads /etc,
 --- without declaring `system` fails saying that is not in its sandbox and
---- what to declare -- where it checks the start's answer, and where a
+--- what to declare -- where it checks the start's result, and where a
 --- bare `assert` on it says nothing itself, as for a script whose `#!`
 --- names /bin/sh -- and one that declares it runs /bin/sh, its failure
 --- its own, saying nothing of the sandbox. A relative path or a URL a

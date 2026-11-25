@@ -1,5 +1,5 @@
 --- Passkeys for a cosmic.web app: a user registers a passkey, and logs
---- in with it later, through JSON endpoints this middleware answers and
+--- in with it later, through JSON endpoints this middleware handles and
 --- a script it serves that calls them from the page. The checks are
 --- [`cosmic.webauthn`]'s; what is kept is the session's and a store's.
 ---
@@ -25,7 +25,7 @@
 ---
 --- A page loads `/auth/passkey/script.js` and calls
 --- `cosmicPasskeys.register()` to add a passkey for the user that `user`
---- names, or `cosmicPasskeys.login()` to log in with one; each answers a
+--- names, or `cosmicPasskeys.login()` to log in with one; each returns a
 --- promise, and `cosmicPasskeys.logout()` ends the session.
 --- `login({ conditional: true })` offers the passkeys in the
 --- browser's autofill of an input with `autocomplete="username webauthn"`,
@@ -33,7 +33,7 @@
 --- default; `go: false` stays). The script needs a browser with
 --- `PublicKeyCredential.parseCreationOptionsFromJSON`.
 ---
---- Under the prefix (`/auth/passkey`), the middleware answers:
+--- Under the prefix (`/auth/passkey`), the middleware handles:
 ---
 --- - `POST /register/begin` and `POST /login/begin`: the options for
 ---   `navigator.credentials.create` or `.get`, around a new challenge kept
@@ -52,9 +52,9 @@
 --- sends `Origin` with each such POST; a request with none is taken, as
 --- one from a program. Each challenge is used once: the store notes it
 --- ([`Store.spend`]), since a session in a signed cookie cannot forget
---- it, and an answer to it is refused after. A login is a passkey with no user named first: the
+--- it, and a response to it is refused after. A login is a passkey with no user named first: the
 --- browser offers the passkeys it holds for `rp_id`, and the user handle
---- of the one chosen says who logs in. [`Web.who`] answers
+--- of the one chosen says who logs in. [`Web.who`] returns
 --- it, for every request of the session after while the store keeps the
 --- passkey: removing one ([`Store.remove`]) logs out every session it
 --- logged in, at its next request, though the session and what else it
@@ -84,7 +84,7 @@ local record Passkeys
   record User
     --- The user handle: opaque bytes the app chooses for the account, 1
     --- to 64, never an email address or a name. A passkey keeps it, and
-    --- a login with the passkey answers it. Make it at random when the
+    --- a login with the passkey gives it back. Make it at random when the
     --- account is made (16 bytes of [`Rand.entropy`]), keep it with the
     --- account, and look it up from there: a handle made from what a user
     --- types is one anybody can type, and the passkey they then register
@@ -101,8 +101,8 @@ local record Passkeys
   type Identity = Identities.Passkey
 
   --- Where passkeys are kept: [`Web.passkey_store`] makes one in SQLite.
-  --- Each answers nil (or false) and why when the store itself fails,
-  --- which is a 500.
+  --- Each of its functions returns nil (or false) and why when the store
+  --- itself fails, which is a 500.
   record Store
     --- The passkey of credential id `id`; nil and "" where none is kept.
     find: function(Store, id: string): Webauthn.Credential?, string
@@ -145,7 +145,7 @@ local record Passkeys
     store: Store
     --- Who may register a passkey now, or nil where nobody may (401):
     --- the account logged in, or one this browser is making (a sign-up
-    --- the session holds). A registration logs in as the user answered,
+    --- the session holds). A registration logs in as the user it returns,
     --- so a user named by the request alone, a header or a form field,
     --- gives the account to whoever names it. A sign-up reserves its name
     --- first, refusing one an account has, or a second browser signing up
@@ -272,8 +272,8 @@ local function origin_host(url: string): string?
   return nil
 end
 
---- The challenge an answer's `clientDataJSON` names, base64url as it
---- holds it; nil for an answer that names none. Only to find what is
+--- The challenge a response's `clientDataJSON` names, base64url as it
+--- holds it; nil for a response that names none. Only to find what is
 --- under way: the check of it is [`Webauthn`]'s.
 local function answer_challenge(answer: {string: Json.Value}): string?
   local response, _ = Json.to_object(answer["response"])
@@ -352,7 +352,7 @@ function Passkeys.middleware(opts: Passkeys.Options): Types.Middleware
   end
 
   --- Keeps `entry` under way at `key` for a new challenge, the oldest
-  --- going past `MAX_PENDING`; answers the challenge.
+  --- going past `MAX_PENDING`; returns the challenge.
   local function begin(session: Session.Handle, key: string, entry: mut {string: Json.Value}): string
     local challenge = Webauthn.challenge()
     local t = now()
@@ -395,7 +395,7 @@ function Passkeys.middleware(opts: Passkeys.Options): Types.Middleware
   end
 
   --- Notes `took`'s challenge as used, in the store: nil where it is,
-  --- else the response that refuses the answer.
+  --- else the response that refuses the request.
   local function spent(req: Types.Request, took: Taken): Types.Response?
     local fresh, why = store:spend(took.challenge, took.lapses, took.taken_at)
     if not fresh then
@@ -504,7 +504,7 @@ function Passkeys.middleware(opts: Passkeys.Options): Types.Middleware
     return Response.json({ next = next_path })
   end
 
-  --- Answers a POST to one of the endpoints, `step`.
+  --- Returns the response to a POST to one of the endpoints, `step`.
   local function answer(req: Types.Request, step: string): Types.Response
     if req.method ~= "POST" then
       local res = Response.problem(405, "this takes a POST")

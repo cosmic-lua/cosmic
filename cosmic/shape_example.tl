@@ -32,13 +32,13 @@ function Example.into()
   assert(release ~= nil, err)
   print(release.tag, #release.assets, release.draft)
   assert(release.tag == "v1" and release.assets[2] == "zip" and release.draft == nil)
-  -- The answer holds what the spec names and nothing else.
+  -- The result holds what the spec names and nothing else.
   local text, _ = Json.encode_any(release)
   print(text)
   assert(text == '{"assets":["lua","zip"],"tag":"v1"}', text)
 end
 
---- The spec's methods answer the record without naming it, and a failure
+--- The spec's methods return the record without naming it, and a failure
 --- starts with the record's name.
 function Example.record_of()
   local record Entry
@@ -57,7 +57,7 @@ function Example.record_of()
   assert(why == "Entry: $.assets[0]: want string, got integer", why)
 end
 
---- Text that is JSON is decoded and checked in one call: the answer is a
+--- Text that is JSON is decoded and checked in one call: the result is a
 --- `Release`, or the reason the text is not one, whether it is not JSON
 --- or is JSON of another shape.
 function Example.decode_into()
@@ -87,7 +87,7 @@ function Example.into_failure()
   assert(err == "$.assets[0]: want integer, got string", err)
 end
 
---- `into` answers the first value that does not fit, in the order the
+--- `into` names the first value that does not fit, in the order the
 --- walk meets them: a record's fields in byte order, a list's elements
 --- by index. A config whose author wants every mistake fixes that one
 --- and runs again.
@@ -141,8 +141,8 @@ function Example.map()
 end
 
 --- A list whose elements may be missing is not an array, which holds no
---- hole: [`sparse_list`] answers a map from the indexes that are there, and
---- `list(optional(...))` does not compile.
+--- hole: [`sparse_list`] reads it as a map from the indexes that are
+--- there, and `list(optional(...))` does not compile.
 function Example.sparse_list()
   local SLOTS <const> = Shape.sparse_list(Shape.optional(Shape.integer))
   local got3, why3 = Json.decode('[1, null, 3]', { null_value = Json.null })

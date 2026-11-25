@@ -2,7 +2,7 @@ local Sqlite = require("cosmic.sqlite")
 local State = require("cosmic_ci.state")
 local SuiteOutput = require("cosmic_ci.suite_output")
 
---- [`SuiteOutput.read`], its answer as two values.
+--- [`SuiteOutput.read`], what it returns as two values.
 local function both(text: string, code: integer): SuiteOutput.Figures, string
   local read = SuiteOutput.read(text, code)
   return read.figures, read.status
@@ -86,6 +86,10 @@ local function test_a_failing_run()
   local bare_bailed = SuiteOutput.parse("test: 1 of 3 tests failed, 0 infrastructure errors, " ..
       "9 ms; 2 not run after the first failure\n")
   assert(bare_bailed.sandbox == "" and bare_bailed.not_run == 2)
+  -- And a run past its deadline (`--deadline`), which stopped the same way.
+  local late = SuiteOutput.parse("test: 1 of 3 tests failed, 0 infrastructure errors, " ..
+      "9 ms; sandboxed; 2 not run after the deadline\n")
+  assert(late.sandbox == "sandboxed" and late.not_run == 2, tostring(late.sandbox))
 end
 
 --- A run that stood on none of a cache's rows says its key parts in the
@@ -179,7 +183,7 @@ local function test_a_timed_out_suite_keeps_only_its_key_parts()
 end
 
 --- A suite that exited otherwise than 0 failed, though it said it passed:
---- its status is what it answered. Its counts are still the suite's.
+--- its exit status decides. Its counts are still the suite's.
 local function test_a_pass_that_exits_nonzero_is_a_failure()
   local figures, status = both(
     "test: 10 tests passed in 2 modules; 4 ran, 6 stood, 30 ms; sandboxed\n", 1)

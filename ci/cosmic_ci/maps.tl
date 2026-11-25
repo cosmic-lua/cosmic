@@ -1,4 +1,4 @@
---- Copies of string maps. A collection a call answers is a view in the
+--- Copies of string maps. A collection a call returns is a view in the
 --- new checker, so a caller that writes to one builds its own with `with`.
 
 local record Maps

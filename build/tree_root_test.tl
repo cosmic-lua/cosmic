@@ -139,7 +139,7 @@ local function test_paths_are_read_from_where_the_verb_started(tmp: string)
   assert(json == nil)
 end
 
---- A verb started in a subdirectory answers for the tree, says which
+--- A verb started in a subdirectory works on the tree, says which
 --- root it used on stderr, and reads a path from the subdirectory.
 local function test_a_verb_below_the_root_runs_at_the_root(tmp: string)
   local root = project(tmp)

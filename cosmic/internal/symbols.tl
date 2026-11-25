@@ -28,7 +28,7 @@ end
 --- Whether a module's name is in the standard library's namespace and is
 --- none of its internals or tests: `cosmic.*`, which no project may
 --- define. cosmic's own projection records as public those of them any
---- module may require ([`build.writer`]). Whether a source answers for a
+--- module may require ([`build.writer`]). Whether a source covers a
 --- module is asked of its database ([`symbols.public_modules`],
 --- [`symbols.public_only`]); this says only whose the module is.
 function symbols.is_library_module(module: string): boolean
@@ -44,7 +44,7 @@ function symbols.library_modules(column: string): string
 end
 
 --- The modules `db` records as public ([`public_modules`]), each set: what
---- a public source answers for. Nil and why when they cannot be read.
+--- a public source covers. Nil and why when they cannot be read.
 function symbols.public_modules(db: Sqlite.Handle): {string: boolean}?, string
   local rows, trouble = db:rows("SELECT path FROM public_modules")
   if rows == nil then
@@ -55,7 +55,7 @@ function symbols.public_modules(db: Sqlite.Handle): {string: boolean}?, string
   return out, ""
 end
 
---- The rows a public source answers with, as a condition on the
+--- The rows a public source shows, as a condition on the
 --- module `column` names: those of a module its database records as
 --- public; `1` when the source is not public. The table is the one of
 --- the database the statement runs on.
@@ -66,7 +66,7 @@ function symbols.public_only(column: string, public: boolean): string
   return "(" .. column .. " IN (SELECT path FROM public_modules))"
 end
 
---- Whether a module is a user guide a public source answers for: the
+--- Whether a module is a user guide a public source covers: the
 --- module a guide directly under `doc/guides/` compiles as
 --- ([`doc.guides.quickstart`]), what a reader of `cosmic docs` is meant to
 --- find and a binary carries. A guide under `doc/guides/internal/` is for
@@ -93,11 +93,11 @@ local function public_docs(column: string, public: boolean): string
     symbols.guide_module(column) .. ")"
 end
 
---- The modules a database under `qualifier` (`""`, or `"out."`) answers
---- for, sorted: its modules, a declaration only where it documents one
+--- The modules a database under `qualifier` (`""`, or `"out."`) covers,
+--- sorted: its modules, a declaration only where it documents one
 --- -- a database that copied a declaration without its docs must not
 --- hide the one that does -- and a guide by its own row. Which database
---- owns a module is the first of a lookup's that answers for it, for
+--- owns a module is the first of a lookup's that covers it, for
 --- `cosmic docs`, `cosmic fix` and the index of links alike.
 function symbols.owned_modules(qualifier: string): string
   return "SELECT path FROM " .. qualifier .. "modules UNION SELECT path FROM " ..
@@ -151,7 +151,7 @@ function symbols.shown_docs(alias: string, public: boolean, indexed?: boolean): 
     dotted .. " GLOB '_*')) AND " .. hidden .. "))"
 end
 
---- [`shown_docs`] as the database `db` can answer it quickest: with the
+--- [`shown_docs`] as the database `db` can run it quickest: with the
 --- lookup of `local` declarations when it has the index for it, which a
 --- database written before [`build.schema`]'s `create` made one does not. The rows
 --- are the same either way.
@@ -160,7 +160,7 @@ function symbols.shown_in(db: Sqlite.Handle, alias: string, public: boolean): st
     return "1"
   end
   -- A probe that fails takes the form that needs no index, which
-  -- answers the same rows.
+  -- yields the same rows.
   local rows, _ = db:rows(
     "SELECT 1 FROM sqlite_schema WHERE type = 'index' AND name = ?1",
     { { text = symbols.local_index } })
@@ -251,8 +251,8 @@ function symbols.used_where(alias: string): string
 end
 
 --- Raises where `db` is a test's pure store ([`build.closure_store`]'s `write`), which leaves the tables of text-derived rows
---- out: a hint asked of it would answer as no match and a test would pass on that. A binary from before the table
---- answers no match, as a hint may.
+--- out: a hint asked of it would find no match and a test would pass on that. A binary from before the table
+--- finds no match, as a hint may.
 local function refuse_withheld(db: Sqlite.Handle, table_name: string)
   local rows, _ = db:rows("SELECT 1 FROM meta WHERE key = 'pure_store'")
   if rows ~= nil and #rows > 0 then
@@ -267,7 +267,7 @@ end
 --- ([`Removed.io`]), or as the bare module name for a module's own row
 --- (`symbol` is `""` there). It is what a name the compiler could not
 --- resolve might have meant. A database with no `docs` table, or a
---- query that fails, answers as no match rather than a trouble: a hint
+--- query that fails, counts as no match rather than a trouble: a hint
 --- is never a reason to fail the compile it explains.
 function symbols.named(databases: {Sqlite.Handle}, public: {boolean},
                        query: string): {string}
@@ -302,10 +302,10 @@ local record ExampleQuery
   second?: string
 end
 
---- Whether a worked-example name, comment, or checked source answers a
+--- Whether a worked-example name, comment, or checked source matches a
 --- query in any of `databases`. Compiler diagnostics ask before printing
 --- a docs command, so an old or incomplete binary never advertises
---- documentation it cannot answer. A query that fails is false: a hint
+--- documentation it cannot show. A query that fails is false: a hint
 --- cannot replace the compiler's own diagnostic.
 function symbols.has_example_query(databases: {Sqlite.Handle}, public: {boolean},
                                    name: string): boolean
@@ -353,7 +353,7 @@ end
 --- Adds to `into` each name a module binds to another, keyed by the module, a newline and the name: the rows of
 --- `bound` of the database `db` holds under `qualifier` (`""` or `"out."`), where it holds that table, one written
 --- before it existed binding none. A key `into` already holds is kept, so the first database read that binds a
---- name answers for it.
+--- name wins.
 function symbols.add_bound(into: mut {string: string}, db: Sqlite.Handle, qualifier: string): boolean, string
   local held, held_trouble = db:rows("SELECT 1 FROM " .. qualifier ..
       "sqlite_schema WHERE type = 'table' AND name = 'bound'")

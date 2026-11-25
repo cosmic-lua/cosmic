@@ -194,7 +194,7 @@ print(#map(function(x: string): string return x:upper() end, {"a"}))
 print(#map(function(x) return x:upper() end, {"a"}))
 ]])
   -- The new checker binds A from the later argument `{"a"}` as well, so x is a string and `x:upper()` is fine; what no
-  -- argument fixes is B, the literal's result, which a literal does not answer.
+  -- argument fixes is B, the result of the second literal, which does not declare it.
   assert(refused_by(ok, trouble, "cannot_infer"),
     "nothing fixes B, the result of a literal whose parameter is untyped, but: " .. tostring(trouble))
 end

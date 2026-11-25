@@ -357,7 +357,7 @@ end
 
 --- A guard of cosmic.signal that has caught a signal ends a search or a
 --- k-means with `nil, "interrupted"`, and neither changes the corpus nor
---- takes the signal: once it is taken, the same calls answer as they did
+--- takes the signal: once it is taken, the same calls return as they did
 --- before.
 local function test_a_caught_signal_interrupts_long_calls_and_leaves_the_corpus()
   local next_number = stream(21)

@@ -47,7 +47,7 @@ local function test_text_reads_references_cdata_and_entities()
   assert(got == 'start a|text "<A<x>world"|end a', got)
 end
 
---- However the chunks split it, a document answers the same events, and a
+--- However the chunks split it, a document reads as the same events, and a
 --- run of character data stays one event.
 local function test_chunks_split_anywhere()
   local text = '<r k="v">one &amp; two<c>three</c>\n four</r>'
@@ -205,9 +205,9 @@ local function test_a_run_of_text_past_max_text_is_refused()
   assert(not ok and tostring(raised):match("max_text must be at least 1") ~= nil, tostring(raised))
 end
 
---- Fed a byte at a time past a long attribute, an eager parser answers
---- each element in the chunk that completes it; a deferring one may hold
---- it back.
+--- Fed a byte at a time past a long attribute, an eager parser's `feed`
+--- returns each element in the chunk that completes it; a deferring
+--- parser may hold it back.
 local function test_an_eager_parser_answers_each_chunk_what_it_completes()
   local text = '<r><i k="' .. string.rep("v", 10000) .. '"/><b/>'
   local p <close> = assert(Xml.parser({ eager = true }))
@@ -289,7 +289,7 @@ end
 
 --- Subtrees at a path come whole, one as each closes, however the
 --- chunks split the document; `*` stands for any name, and an element
---- at the path inside another is part of it, not answered apart.
+--- at the path inside another is part of it, not returned apart.
 local function test_subtrees_come_whole_at_their_path()
   local text = '<doc><rows><row n="1"><c>a</c></row><row n="2"><c>b</c><c>c</c></row></rows><other><row/></other></doc>'
   for size = 1, #text do
@@ -429,7 +429,7 @@ local function test_a_writer_refuses_and_stays_refused()
 end
 
 --- A writer closed once stays closed and keeps what it wrote: a second
---- `close` answers true, and `abort` after it leaves the document as it is.
+--- `close` returns true, and `abort` after it leaves the document as it is.
 local function test_a_closed_writer_keeps_its_document()
   local out = Stream.collect()
   local w = Xml.writer(out)

@@ -273,7 +273,7 @@ local function test_a_damaged_frame_never_decodes_to_other_bytes(tmp: string)
 end
 
 --- Runs `script` under sh with the stub and its words after it
---- (`"$@"`), the artifact on descriptor 3; answers its result.
+--- (`"$@"`), the artifact on descriptor 3; returns its result.
 local function shell(tmp: string, label: string, stored: string, length: integer, script: string): Run
   local artifact = tmp .. "/" .. label .. ".artifact"
   Fixture.write(artifact, string.rep("x", junk_before) .. stored .. string.rep("y", junk_after))

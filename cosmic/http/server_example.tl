@@ -14,7 +14,7 @@ Test.policy{ loopback = { "127.0.0.1" } }
 local Example = {} -- checked: literal_needs_type
 
 --- A key-value store over HTTP: PUT stores a body under its path, GET
---- (and HEAD) answers it, 404 when there is none. A HEAD is answered as
+--- (and HEAD) fetches it, 404 when there is none. A HEAD is handled as
 --- the GET is: the server sends its head, Content-Length included, and
 --- drops the body. The server writes each reply's Content-Length, Date
 --- and Connection itself. A real one
@@ -29,7 +29,7 @@ function Example.serve()
     limits = { body_bytes = 64 * 1024 },
     handle = function(req: Server.Request): Server.Reply
       if req.method == "PUT" then
-        -- Past limits.body_bytes the read fails, and the server answers 413.
+        -- Past limits.body_bytes the read fails, and the server sends 413.
         store[req.path] = assert(Stream.read_all(req.body))
         return { status = 204 }
       elseif req.method == "GET" or req.method == "HEAD" then
@@ -51,7 +51,7 @@ function Example.serve()
   })
 end
 
---- A handler's answer to a GET of a file it holds in memory, honoring
+--- What a handler returns for a GET of a file it holds in memory, honoring
 --- Range: 206 with the span asked for, 416 for a range holding none of
 --- its bytes, and 200 with the whole for no Range, or one it ignores.
 function Example.range()
@@ -75,7 +75,7 @@ function Example.range()
   assert(answer("bytes=0-1,5-6").status == 200 and answer(nil).status == 200)
 end
 
---- A handler's answer to a GET a client may already hold: 304, with
+--- What a handler returns for a GET a client may already hold: 304, with
 --- no body, where If-None-Match names the version it would send.
 function Example.none_match()
   local etag = '"v7"'

@@ -25,7 +25,7 @@ local function chunk_of(reader: Stream.Reader, max_bytes?: integer): string
   return chunk
 end
 
---- Requests to a closed local port, which a loopback alone answers:
+--- Requests to a closed local port, which a loopback alone reaches:
 --- the worker runs offline, and is keyed. The tests that start the
 --- program, or read the roots its own database carries, are
 --- cosmic/http_tool_test.tl's.
@@ -263,7 +263,7 @@ local function test_open_waits_past_a_followed_redirect_for_the_final_headers()
 end
 
 --- The request line curl wrote for `target`, a URL's text past
---- "http://cosmic.test", answered over a script.
+--- "http://cosmic.test", with a script standing in for the server.
 local function request_line(target: string): string
   local response = assert(Http.open("http://cosmic.test" .. target, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "ok") } }))
   local sent = response:sent()
@@ -635,7 +635,7 @@ end
 --- entry point, whichever it is, and not inside cosmic.http: between the
 --- lines that raise `mark` ahead of the call and behind it.
 local function test_a_refused_option_is_raised_at_the_callers_line()
-  -- Each answers a value, which a raise leaves `pcall` the message in
+  -- Each returns a value, which a raise leaves `pcall` the message in
   -- place of.
   local entries: {string: function(Http.Options, string): string} = {
     open = function(opts: Http.Options, mark: string): string
@@ -817,7 +817,7 @@ local function test_a_response_a_finalizer_revives_is_closed()
   local _, _ = response:close()
 end
 
---- The raw handle's close answers nothing: it cannot fail, so a `true`
+--- The raw handle's close returns nothing: it cannot fail, so a `true`
 --- would tell its caller nothing.
 local function test_the_raw_handle_close_returns_no_values()
   local raw = require("cosmic.internal.http") as {string: function(string, {string: any}): any, string} -- cast: the table -- checked: cast_refused

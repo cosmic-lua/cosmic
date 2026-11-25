@@ -43,7 +43,7 @@ local sys = require("cosmic.sys")
 local Waits = require("cosmic.internal.waits")
 
 local record Poll
-  --- A function running under [`Poll.run`] beside the others, answered by
+  --- A function running under [`Poll.run`] beside the others, returned by
   --- [`Poll.spawn`].
   interface Task
     --- Waits for the task to end, at most `timeout_ns` nanoseconds (no
@@ -52,20 +52,20 @@ local record Poll
     --- a task killed, or one a failed run closed where it waited.
     join: function(Task, timeout_ns?: integer): (true) | (false, Failure)
     --- Ends the task at its next wait: the wait it is in, if any, and
-    --- every one after, answers false and a Failure of kind "cancelled" at once --
+    --- every one after, fail at once with a Failure of kind "cancelled" --
     --- but for one in [`Poll.shielded`], which waits on as though the
     --- task were not cancelled. A task that has ended is left alone.
     cancel: function(Task)
     --- Ends the task now, where it waits or before it starts, without
     --- resuming it: the pending `<close>` variables of its own coroutine
     --- are closed (not those of a coroutine it made and left
-    --- suspended), none of its waits answers it again, and each task
-    --- joining it answers false and a Failure of kind "cancelled". A task that has
+    --- suspended), none of its waits resumes it again, and each `join` of
+    --- it returns false and a Failure of kind "cancelled". A task that has
     --- ended is left alone. Unlike `cancel`, it is called from a task's
     --- own coroutine, and raises elsewhere in the run, and in the task
     --- it would kill. A `<close>` handler of a task being killed cannot
     --- wait, spawn or kill: each raises at once, and [`Poll.in_task`]
-    --- still answers true there, so a module that waits raises rather
+    --- still returns true there, so a module that waits raises rather
     --- than hold the thread. What such a handler raises, `kill` raises,
     --- the task ended all the same -- an error in the killing task,
     --- which ends the run unless that task catches it. Only a task that
@@ -90,7 +90,7 @@ local record Poll
   ---     local item = table.remove(queue, 1)
   ---
   --- and the sender queues its item, then calls [`notify_one`]. A wait
-  --- that answers true is no promise that the condition holds: another
+  --- that returns true is no promise that the condition holds: another
   --- task may have run first.
   interface Notifier
     --- Waits for a notice, at most `timeout_ns` nanoseconds (no limit
@@ -103,9 +103,10 @@ local record Poll
     --- Wakes the task that has waited longest, if any: a no-op when none
     --- waits. The woken task runs on the run's next turn, so it is
     --- callable from any code of the run -- a task, a `<close>` handler,
-    --- a finalizer -- and never waits. A woken task that is killed before
-    --- it runs hands the notice to the next waiter; one cancelled before
-    --- it runs still answers true, having been noticed first.
+    --- a finalizer -- and never waits. A woken task that is killed
+    --- before it runs hands the notice to the next waiter; one cancelled
+    --- before it runs still returns true from its wait, having been
+    --- noticed first.
     notify_one: function(Notifier)
     --- Wakes every task waiting now, in the order they began to wait,
     --- as [`notify_one`] does. A task that begins to wait afterwards is
@@ -116,8 +117,8 @@ local record Poll
   end
 
   --- The words of a wait that ran past its `timeout_ns`: the message of
-  --- the "timeout" Failure a wait here answers, and the reason a module
-  --- that still answers its failure in words ([`cosmic.child`], a
+  --- the "timeout" Failure a wait here returns, and the reason a module
+  --- that still returns its failure in words ([`cosmic.child`], a
   --- [`cosmic.net`] connection's methods) gives for one.
   TIMEOUT: string
   --- The words of a wait whose task was cancelled, as `TIMEOUT` is.
@@ -139,7 +140,7 @@ local function failure_of(why: string): Failure
   return Failure.new(why)
 end
 
---- `ok` and `why` from a wait in words, as a wait answers them.
+--- `ok` and `why` from a wait in words, as a wait returns them.
 local function answered(ok: boolean, why: string): (true) | (false, Failure)
   if ok then return true end
   return false, failure_of(why)
@@ -150,7 +151,7 @@ Poll.MOST_NS = Clock.ms(0x7fffffff)
 local MS <const> = Clock.ms(1)
 --- The highest descriptor [`sys.poll`] takes: a C `int`.
 local MOST_FD <const> = 0x7fffffff
---- What [`sys.poll`] answers of a descriptor whether asked or not.
+--- What [`sys.poll`] returns of a descriptor whether asked or not.
 local UNASKED <const> = sys.POLLERR | sys.POLLHUP | sys.POLLNVAL
 --- How many done waits the timer heap holds before it is rebuilt
 --- without them, however few are live: rebuilding a small heap saves
@@ -159,7 +160,7 @@ local STALE_FLOOR <const> = 64
 
 --- One wait a task is parked in, and what ends it: a descriptor ready, a
 --- time reached, a task joined. `done` is set once one of them has
---- answered it, so the others that still hold it pass it by.
+--- ended it, so the others that still hold it pass it by.
 local record Wait
   task: State
   fd?: integer
@@ -173,8 +174,8 @@ local record Wait
   --- Its descriptors' entries among the run's, while it waits on them.
   mut watches?: mut {Watch}
   mut at?: integer
-  --- When it began among the run's waits: the order those a poll
-  --- answers together are woken in, and the tie-break between timers.
+  --- When it began among the run's waits: the order those a poll finds
+  --- ready together are woken in, and the tie-break between timers.
   mut seq?: integer
   --- Set while it is in the run's `timers`, done or not.
   mut in_heap?: boolean
@@ -182,10 +183,10 @@ local record Wait
   joined?: State
   --- The notifier a wait for a notice is in the waiters of, until it ends.
   mut gate?: NotifierState
-  --- Set once a poll, or a descriptor closing, has answered it.
+  --- Set once a poll, or a descriptor closing, has ended it.
   mut hit?: boolean
-  --- What the wait answers once `at` is reached: a delay's success, or
-  --- a `ready`'s, which answers no descriptor ready; any other wait's
+  --- What the wait returns once `at` is reached: a delay's success, or
+  --- a `ready`'s, which returns no descriptor ready; any other wait's
   --- TIMEOUT.
   expiry_ok?: boolean
   mut done?: boolean
@@ -216,14 +217,14 @@ local record Watched
 end
 
 -- How a task is made. What a run keeps of a task is one record, which is
--- also the handle `spawn` answers, so a task costs one table and no
+-- also the handle `spawn` returns, so a task costs one table and no
 -- closure: its methods are defined once, on the record's own table, which
 -- a task reaches through `__index`, and its state is in fields. The
 -- note on how an object is made in cosmic/stream.tl says why Teal
 -- makes the public type an interface ([`Poll.Task`]) and the record
 -- implement it, and how the constructor is written.
 
---- A task to resume, with what its wait answers.
+--- A task to resume, with what its wait returns.
 local record Wake
   task: State
   ok: boolean
@@ -283,7 +284,7 @@ local function sift_down(heap: mut {integer: Wait}, size: integer, i: integer)
 end
 
 --- Rebuilds the run's timers from the waits not done. `at` then `seq`
---- orders every pair of waits, so the rebuilt heap answers in the same
+--- orders every pair of waits, so the rebuilt heap pops them in the same
 --- order the old one would have.
 local function compact_timers()
   local heap, kept = running().timers, 0
@@ -385,14 +386,14 @@ local function ungate(w: Wait)
   end
 end
 
---- Marks `w` answered: it leaves what is polled now, and the joiners of
+--- Marks `w` done: it leaves what is polled now, and the joiners of
 --- a task still running; and the timer heap once it reaches the top,
 --- or once the done waits there outnumber the live ones and the heap is
 --- rebuilt without them.
 local function finish(w: Wait)
   w.done = true
   local joined = w.joined
-  -- A task that has ended answers its joiners while it walks them, and
+  -- A task that has ended wakes its joiners while it walks them, and
   -- is marked ended first, so none is taken from under the walk.
   if joined ~= nil and not joined.ended then unjoin(w) end
   if w.gate ~= nil then ungate(w) end
@@ -409,7 +410,7 @@ local function finish(w: Wait)
   end
 end
 
---- Answers `w`, once: the run resumes its task with `ok` and `why`.
+--- Wakes `w`, once: the run resumes its task with `ok` and `why`.
 local function wake(w: Wait, ok: boolean, why: string, notice?: NotifierState)
   if w.done == true then return end
   finish(w)
@@ -433,8 +434,8 @@ local function current(what: string, level: integer): State
   return task
 end
 
---- Parks `task` in `w`, bounded by `timeout_ns`, and answers what ends
---- it. A cancelled task still yields, answered at once, so a task that
+--- Parks `task` in `w`, bounded by `timeout_ns`, and returns what ends
+--- it. A cancelled task still yields, woken at once, so a task that
 --- waits in a loop lets the others run.
 local function park(task: State, w: Wait, timeout_ns: integer?): boolean, string
   task.parked = w
@@ -469,7 +470,7 @@ local function park(task: State, w: Wait, timeout_ns: integer?): boolean, string
 end
 
 --- Ends `task`, suspended, as a Task's `kill` says: its wait is marked
---- answered and its wakes taken from the ready queue, so nothing resumes
+--- done and its wakes taken from the ready queue, so nothing resumes
 --- it, and it is settled as ended before what its closing raised is
 --- raised.
 local function close_task(task: State)
@@ -499,10 +500,10 @@ local function close_task(task: State)
   if not closed then error(err, 0) end
 end
 
---- What a run keeps of a task, which `spawn` answers.
+--- What a run keeps of a task, which `spawn` returns.
 local class State is Poll.Task
   co: thread -- declared: thread_type
-  --- The run the task belongs to: a handle kept past it answers as a
+  --- The run the task belongs to: a handle kept past it behaves as a
   --- task that has ended.
   loop: Loop
   mut started: boolean
@@ -513,7 +514,7 @@ local class State is Poll.Task
   mut killed: boolean
   mut cancelled: boolean
   --- How many [`Poll.shielded`] calls the task is in: while any, a
-  --- cancel answers none of its waits.
+  --- cancel wakes none of its waits.
   mut shields: integer
   mut parked?: Wait
   joiners: mut {Wait}
@@ -544,14 +545,14 @@ local class State is Poll.Task
   end
 end
 
---- Answers `w`, taken from its notifier's waiters already so that `wake`
+--- Wakes `w`, taken from its notifier's waiters already so that `wake`
 --- need not search for it.
 local function notice(w: Wait, one?: NotifierState)
   w.gate = nil
   wake(w, true, "", one)
 end
 
---- What a run keeps of a notifier, which [`Poll.notifier`] answers.
+--- What a run keeps of a notifier, which [`Poll.notifier`] returns.
 local class NotifierState is Poll.Notifier
   loop: Loop
   --- The waits in it, longest first.
@@ -636,7 +637,7 @@ local function began_first(a: Wait, b: Wait): boolean
   return assert(a.seq) < assert(b.seq)
 end
 
---- Answers each of `hits` ready, in the order they began.
+--- Wakes each of `hits` as ready, in the order they began.
 local function wake_hits(hits: mut {Wait})
   table.sort(hits, began_first)
   for _, w in ipairs(hits) do wake(w, true, "") end
@@ -736,7 +737,7 @@ end
 --- In a `<close>` handler of a task the run is ending -- killed, or
 --- closed as the run fails -- it raises, as every wait but a finalizer's
 --- does: such a handler must not hold the thread. In a task, true is no
---- promise that `fd` is ready: [`Poll.closing`] answers a wait as though
+--- promise that `fd` is ready: [`Poll.closing`] wakes a wait as though
 --- it were, so a caller reads or writes without waiting
 --- (a nonblocking descriptor) and waits again on EAGAIN.
 function Poll.wait(fd: integer, events: integer, timeout_ns?: integer): (true) | (false, Failure)
@@ -768,7 +769,7 @@ end
 --- unasked -- or nil and a Failure of kind "timeout" once `timeout_ns` passes
 --- first, as [`Poll.readable`] fails, or nil and a Failure of kind "cancelled" once
 --- the task is cancelled. A descriptor another module is about to close
---- ([`Poll.closing`]) answers [`sys.POLLNVAL`].
+--- ([`Poll.closing`]) has [`sys.POLLNVAL`].
 function Poll.ready(fds: {integer}, events: {integer}, timeout_ns?: integer): ({integer}) | (nil, Failure)
   local task = current("Poll.ready", 2)
   Poll.checked_ns(timeout_ns, "poll", "timeout_ns", 2)
@@ -838,9 +839,9 @@ local class Shielding
 end
 
 --- Calls `fn` in the calling task with its waits shielded from a
---- cancel: one that comes meanwhile answers none of them, nor the
+--- cancel: one that comes meanwhile wakes none of them, nor the
 --- waits `fn` begins after it, which each wait for what they wait for.
---- Once `fn` returns, the task's next wait answers "cancelled" at
+--- Once `fn` returns, the task's next wait fails as "cancelled" at
 --- once, as a cancelled task's do. It is for a cleanup that must wait --
 --- a child to be ended, a peer to read its last bytes -- while the other
 --- tasks run. A kill still ends the task, and a failed run still closes
@@ -862,7 +863,7 @@ end
 
 --- Ends every task where it waits, closing its pending `<close>`
 --- variables, and marks each ended, so a handle kept past the run
---- answers as one. What a `<close>` handler raises is dropped: the run
+--- behaves as one. What a `<close>` handler raises is dropped: the run
 --- is already ending with an error of its own.
 local function close_all()
   running().closing = true
@@ -877,7 +878,7 @@ local function close_all()
   end
 end
 
---- Resumes `task` with a wait's answer and settles what it did next:
+--- Resumes `task` with a wait's result and settles what it did next:
 --- ended, parked in a wait, or raised.
 local function step(task: State, ok: boolean, why: string)
   local resumed, err: boolean, any
@@ -900,7 +901,7 @@ local function step(task: State, ok: boolean, why: string)
       end
     end
     -- resume leaves a coroutine that raised with its `<close>` variables
-    -- open: close answers the error again, which is already in hand.
+    -- open: close returns the error again, which is already in hand.
     local _, _ = coroutine.close(task.co)
     error(err, 0)
   end
@@ -927,9 +928,9 @@ local function next_timeout(): integer
 end
 
 --- Waits on every watched descriptor for as long as `timeout`, and
---- answers each wait whose descriptor is ready, or in error or hung up,
+--- wakes each wait whose descriptor is ready, or in error or hung up,
 --- which its read or write then reports. A descriptor is polled once
---- for the union of what its waits ask; each wait is answered only the
+--- for the union of what its waits ask; each wait is given only the
 --- events it asked for, and those three, as an entry of its own would
 --- be.
 local function poll_once(timeout: integer)
@@ -949,7 +950,7 @@ local function poll_once(timeout: integer)
   end
   local revents, trouble = sys.poll(fds, events, timeout)
   if revents == nil then error("poll: " .. trouble, 0) end
-  -- Every descriptor of a wait is recorded before any wait is answered,
+  -- Every descriptor of a wait is recorded before any wait is woken,
   -- which changes what is polled.
   local hits: mut {Wait} = {}
   for slot, happened in ipairs(revents) do
@@ -972,7 +973,7 @@ local function poll_once(timeout: integer)
   wake_hits(hits)
 end
 
---- Answers every time wait whose time has come.
+--- Wakes every time wait whose time has come.
 local function expire()
   local t = Clock.monotonic_ns()
   while running().timer_count > 0 and (wait_at(running().timers, 1).done == true or assert(wait_at(running().timers, 1).at) <= t) do
@@ -985,7 +986,7 @@ end
 
 local function turn()
   while running().live > 0 do
-    -- One batch a turn, then the poll and the clock, so tasks answered
+    -- One batch a turn, then the poll and the clock, so tasks woken
     -- at once -- a cancelled one waiting in a loop -- cannot hold back
     -- those waiting on a descriptor or on time.
     local batch = running().ready
@@ -1005,7 +1006,7 @@ local function turn()
   end
 end
 
---- Answers every wait on `fd` as though it had `answer` (a mask, for a
+--- Wakes every wait on `fd` as though it had `answer` (a mask, for a
 --- wait on several descriptors).
 local function answer_waits(fd: integer, answer: integer)
   local loop = ongoing.loop
@@ -1025,7 +1026,7 @@ local function answer_waits(fd: integer, answer: integer)
   wake_hits(hits)
 end
 
---- Answers every wait on `fd` as though it were ready, for a module
+--- Wakes every wait on `fd` as though it were ready, for a module
 --- about to close it: each waiting task, looking again, finds it closed
 --- rather than waiting on a number the next descriptor opened may take.
 --- Outside a run, and for a descriptor nothing waits on, it does nothing.
@@ -1043,7 +1044,7 @@ end
 --- Whether the caller is a task of a running [`Poll.run`], whose waits
 --- let the other tasks run: what a module asks that must act
 --- differently there -- refuse a call that cannot run in a task, or
---- wait through the run for what a task of it holds. It answers true,
+--- wait through the run for what a task of it holds. It returns true,
 --- too, in a `<close>` handler of a task being killed, where waits
 --- raise: a wait there fails at once rather than hold the thread.
 function Poll.in_task(): boolean
@@ -1075,7 +1076,7 @@ end
 --- Runs `main` as the first task and every task it spawns, returning
 --- once all have ended. It raises what a task raised, with the task's
 --- stack beneath a message, having closed the rest; and raises when
---- every task left waits on another, which none could ever answer. It
+--- every task left waits on another, which none could ever wake. It
 --- cannot be called from within a task.
 function Poll.run(main: function())
   if ongoing.loop ~= nil then error("poll: Poll.run is already running", 2) end
@@ -1093,7 +1094,7 @@ end
 --- Calls `f` where its tasks can run: in the calling task where a run
 --- is in progress, and as the first task of a [`Poll.run`] of its own
 --- otherwise. It is for a function that spawns tasks and does not know
---- which its caller is in. Like [`Poll.run`] it answers nothing: `f`
+--- which its caller is in. Like [`Poll.run`] it returns nothing: `f`
 --- keeps what it made in a local of the caller's.
 ---
 ---     local function fetch_all(urls: {string}): {string}
@@ -1122,7 +1123,7 @@ end
 ---   a message with `f`'s stack beneath it -- what the caller's run
 ---   raises too, of an error its task did not catch. A value that is no
 ---   string is raised as it is in both.
---- * A cancel. In a task, `f`'s waits answer "cancelled" once the
+--- * A cancel. In a task, `f`'s waits fail as "cancelled" once the
 ---   calling task is cancelled. A run of `within`'s own has no task the
 ---   caller holds, and nothing cancels it.
 ---

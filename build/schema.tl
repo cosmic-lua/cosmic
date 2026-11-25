@@ -36,7 +36,7 @@ local tables: {Definition} = {
   -- build wrote holds it raw-deflated, which the core tells apart by its
   -- first byte (core/compress.h's `cosmic_stored_chunk`) and inflates,
   -- when it loads a module and in [`Store.bytecode`]; a query that reads
-  -- its bytes takes them through `chunk(bytecode)`, which answers
+  -- its bytes takes them through `chunk(bytecode)`, which returns
   -- either as `string.dump` wrote it, so no digest or key moves with how
   -- it is stored. `source` is stored raw-deflated (`deflate(X)`), as is
   -- a declaration's: only an uncaught error's line and [`Store.source`]
@@ -85,7 +85,7 @@ local tables: {Definition} = {
                 source BLOB NOT NULL) WITHOUT ROWID]] },
 
   -- Each module a reader with the binary alone is told of: what a public
-  -- source answers for ([`cosmic.internal.symbols`]'s `public_only`). The projection
+  -- source covers ([`cosmic.internal.symbols`]'s `public_only`). The projection
   -- writes it ([`build.writer`]), the tool carries the standard library's
   -- rows and a program its project's.
   { name = "public_modules", body = "(path TEXT PRIMARY KEY) WITHOUT ROWID" },
@@ -100,13 +100,13 @@ local tables: {Definition} = {
   -- Where each standard-library module declares its types and their
   -- members ([`build.syntax_places`]), in the module's source as `modules`
   -- holds it: the working database's `places` of that source, by module.
-  -- What `cosmic lsp` answers a go to definition of a symbol of the
+  -- What `cosmic lsp` responds to a go to definition of a symbol of the
   -- binary's own `cosmic.*` modules from, in a project, where the working
   -- database holds no such module ([`build.lsp.source`]'s
   -- `places`). `line` and `column` count from 1, `length` in
   -- bytes; `plain` is 1 where the name's line holds only ASCII and the
   -- protocol numbers the lines before it as the lexer does. Only cosmic's own projection and the tool fill it; a program
-  -- has no editor to answer.
+  -- has no editor to respond to.
   { name = "places", body = [[(module TEXT NOT NULL,
                   ordinal INTEGER NOT NULL,
                   symbol TEXT NOT NULL,
@@ -125,7 +125,7 @@ local tables: {Definition} = {
   -- members of a type of the binary's own `cosmic.*` modules from, in a
   -- project, where the working database holds no such module
   -- ([`build.lsp.source`]'s `members`). Only cosmic's own projection and
-  -- the tool fill it; a program has no editor to answer.
+  -- the tool fill it; a program has no editor to respond to.
   { name = "members", body = [[(module TEXT NOT NULL,
                   ordinal INTEGER NOT NULL,
                   owner TEXT NOT NULL,
@@ -140,8 +140,9 @@ local tables: {Definition} = {
   -- syscall modules, from `core/*.h`) is generated from, raw-deflated like a
   -- source, beside the module's `places`, which hold the lines of that file
   -- ([`build.syntax_derivation`]'s `origin_lines`). `cosmic lsp` writes the
-  -- file below the build directory and answers there. `sha256` is the
-  -- file's, as hex. Only cosmic's own projection and the tool fill it.
+  -- file below the build directory and responds with a place there.
+  -- `sha256` is the file's, as hex. Only cosmic's own projection and the
+  -- tool fill it.
   { name = "origins", body = [[(module TEXT PRIMARY KEY,
                   file TEXT NOT NULL,
                   sha256 TEXT NOT NULL,
@@ -317,7 +318,7 @@ local settings: {string} = {
 --- every row. A module is found by the end of its name in the index of
 --- the modules' own rows. A public source's filter
 --- ([`symbols.shown_docs`]) finds a module's `local` declarations in
---- the index of those alone. A query answers the same rows with them or
+--- the index of those alone. A query finds the same rows with them or
 --- without them, so a database written before they existed is only
 --- slower to read.
 local docs_indexes: {Definition} = {
@@ -387,7 +388,7 @@ function schema.settings(qualifier: string): {string}
   return out
 end
 
---- The query answering one digest of the data tables a binary carries
+--- The query that gives one digest of the data tables a binary carries
 --- that `cosmic refresh` replaces without moving its runtime identity
 --- (core/store.c, `runtime`): every zone by name and bytes, every CA
 --- root by digest, label and bytes, every web asset by name, version and

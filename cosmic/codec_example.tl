@@ -15,7 +15,7 @@ function Example.hex()
 end
 
 --- Malformed hex is a failure the caller handles, not a raise: the
---- decoder answers `nil` and why.
+--- decoder returns `nil` and why.
 function Example.unhex()
   local bytes, why = Codec.unhex("abc")
   print(why)

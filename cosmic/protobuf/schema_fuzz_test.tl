@@ -1,5 +1,5 @@
 --- Fuzz properties for [`cosmic.protobuf.schema`], whose readers take the bytes anyone sends: `decode` never
---- raises and answers a record or a reason and never both, a record it answers is written, and what was written
+--- raises and returns a record or a reason and never both, a record it returns is written, and what was written
 --- reads back and is written again as the same bytes. They hold for a record that drops what it does not
 --- understand and for one that keeps it, and for a decode that is lenient. `FUZZ_SEED` and `FUZZ_ITERS` pick
 --- the inputs (build/fuzz/init.tl).
@@ -128,7 +128,7 @@ local function gen_bytes(src: Fuzz.Source): string
   return written
 end
 
---- What holds of one codec over `input`: it answers a record or a reason, and a record goes to bytes and back to
+--- What holds of one codec over `input`: it returns a record or a reason, and a record goes to bytes and back to
 --- the same bytes.
 local function settles<T>(codec: Schema.Codec<T>, input: string, opts?: Schema.DecodeOptions): boolean, string
   -- A raise fails the property: [`Fuzz.run`] runs the check protected.

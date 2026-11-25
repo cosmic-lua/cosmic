@@ -3,7 +3,6 @@
 --- the code stands for, why the language holds it, and the fix with the placeholders `<...>` the error fills from the
 --- program. `cosmic docs <code>` and the error read alike ([`build.error_catalog`]).
 ---
---- A code of the parser's list that the lexer also reports (`semicolon`) has one row, under the stage that finds it first.
 local record SyntaxCodes
   --- The stage whose error it is.
   enum Stage
@@ -45,12 +44,6 @@ SyntaxCodes.catalog = {
     why = "a label and a `goto` have no form but the `continue` that replaces `goto continue`",
     fix = "delete the label, and write `continue` where a `goto <label>` skipped the rest of a pass of a loop; restructure " ..
       "any other jump with an `if` around the code to skip, or move the code into a function and `return` from it",
-  },
-  {
-    code = "semicolon", stage = "lexer", rule = LEFT_OUT,
-    why = "a statement needs no terminator and the fields of a table are separated by `,`, so a `;` is a second spelling " ..
-      "of what is already written",
-    fix = "delete the `;`: a statement needs no terminator and the fields of a table are separated by `,`",
   },
   {
     code = "long_comment", stage = "lexer", rule = LEFT_OUT,
@@ -99,6 +92,12 @@ SyntaxCodes.catalog = {
     fix = "delete it, or write it inside a string",
   },
   -- the parser
+  {
+    code = "semicolon", stage = "parser", rule = LEFT_OUT,
+    why = "the items of a table are separated by `,`, so a `;` there is a second spelling of what is already written; " ..
+      "a `;` may end a statement, as in Lua, and `cosmic fix` deletes it",
+    fix = "write `,`: the items of a table are separated by `,`, and a `;` only ends a statement",
+  },
   {
     code = "reserved_word", stage = "parser", rule = GRAMMAR,
     why = "a reserved word begins a statement or an expression, so a name that is one could not be told from the grammar",

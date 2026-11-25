@@ -21,9 +21,9 @@
 --- bits, which `math.ult` compares and `("%x"):format` prints as the unsigned one. A negative `int32` is ten
 --- bytes on the wire, as the format has it, and reads back negative.
 ---
---- A message is read by the format's rules for a field that comes more than once. A read of one value answers
---- the last. `message` answers the embedded messages of that number merged, as one message of all their fields.
---- A `repeated_` read answers every value in order, and takes a packed field, an unpacked one, or both. A field
+--- A message is read by the format's rules for a field that comes more than once. A read of one value returns
+--- the last. `message` returns the embedded messages of that number merged, as one message of all their fields.
+--- A `repeated_` read returns every value in order, and takes a packed field, an unpacked one, or both. A field
 --- of another wire type than the read asks for is not that field: the read passes over it. Every field stays in
 --- the message, known to the caller or not, and `fields` lists them.
 ---
@@ -34,7 +34,7 @@
 --- in more bytes than it needs is read as its value. One whose tenth byte holds more than the 64th bit is
 --- refused, where the reference implementations drop the bits past it: the bytes are read by nanopb, in the
 --- core, and that is its rule. A decode holds [`Protobuf.Options`]' `max_fields` fields at most
---- and messages nest `max_depth` deep at most: past either, the answer is nil and why. A decode costs time and
+--- and messages nest `max_depth` deep at most: past either, the result is nil and why. A decode costs time and
 --- memory in proportion to the bytes and copies none of them: an embedded message is read in place when it is
 --- asked for.
 
@@ -50,12 +50,12 @@ local record Protobuf
   --- What [`Protobuf.decode`] may be told. Every field is optional.
   record Options
     --- How deep messages may nest, the decoded one counted, 1 or more (default [`Protobuf.default_depth`],
-    --- 100). At that depth `message` and `repeated_message` answer nil and why.
+    --- 100). At that depth `message` and `repeated_message` return nil and why.
     max_depth?: integer
     --- How many fields one message may hold, 1 or more (default [`Protobuf.default_fields`], 65536). A message
     --- of more is refused whole, as is an embedded one when it is asked for, which counts the fields of
     --- every part merged into it. The elements of a packed field are not counted: a `repeated_` read
-    --- answers one for each byte of the field at most.
+    --- returns one for each byte of the field at most.
     max_fields?: integer
     --- For [`Protobuf.describe`] alone: each field on a line of its own, an embedded message's fields this
     --- much further in than the message. Nil (the default) writes the message on one line.
@@ -75,7 +75,7 @@ local record Protobuf
   --- is the one it asks for.
   ---
   --- `fields(keep?)`: Every field, in the order of the bytes, the unknown ones too. An embedded message is its
-  --- bytes. With `keep`, the fields it answers true for, by number and wire type: the bytes of the others are not
+  --- bytes. With `keep`, the fields it returns true for, by number and wire type: the bytes of the others are not
   --- copied, which is how a program takes the fields it does not know from a message it has read the rest of.
   ---
   --- `unfit(fits, named?)`: The fields whose wire type does not fit their number, as `fields` lists them, or
@@ -143,7 +143,7 @@ local record Protobuf
   type Message = Raw.Message
 
   --- The bytes of a message being written, from [`Protobuf.writer`]. Each method but `encode` writes one field
-  --- after those before it and answers the writer, so calls chain. None raises for a field it cannot write: the first field that cannot be
+  --- after those before it and returns the writer, so calls chain. None raises for a field it cannot write: the first field that cannot be
   --- written (a number that is no field's, a value past its type) is why `encode` fails, and the fields after
   --- it are not written.
   ---
@@ -183,10 +183,10 @@ local record Protobuf
   --- `close()`: Ends the embedded message the last `open` began. One that was not opened cannot be closed, and
   --- is why `encode` fails.
   ---
-  --- `append(bytes)`: Bytes that are fields already, such as [`Protobuf.encode`] answers, written as they are
+  --- `append(bytes)`: Bytes that are fields already, such as [`Protobuf.encode`] returns, written as they are
   --- after the fields so far. They are not read: bytes that are no fields make a message that is none.
   ---
-  --- `trouble()`: Why the first field that could not be written could not, as `encode` answers it, or "" while
+  --- `trouble()`: Why the first field that could not be written could not, as `encode` returns it, or "" while
   --- every field could.
   ---
   --- `encode()`: The bytes of the fields written so far, or nil and why the first that could not be written could

@@ -622,7 +622,7 @@ local function split_at(body: string, cut: integer): string?
 end
 
 --- Compiles each of `cases` with the empty block put at every byte boundary
---- and answers what differs from the case compiled whole, and how many
+--- and returns what differs from the case compiled whole, and how many
 --- splits it compiled.
 local function split_wrong(cases: {string}): {string}, integer
   local wrong: mut {string} = {}

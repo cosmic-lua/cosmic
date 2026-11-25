@@ -1,6 +1,6 @@
 --- A parse's rows as a test compares them: every row of every table a
 --- parse fills ([`build.analysis_schema`]'s `tables`), and the rows a
---- query answers of a database on disk, a line each. Test support for
+--- query finds in a database on disk, a line each. Test support for
 --- build/shared_parses_test.tl and build/shared_parses_tool_test.tl,
 --- which compare what one build or boot parsed with another's.
 ---
@@ -34,7 +34,7 @@ local function dumped_field(field: string?, alone: boolean): string
   return Csv.encode_field(field, { delimiter = "\t", quote_empty = alone })
 end
 
---- Every row `sql` answers of the database at `path`, a line each: fields
+--- Every row `sql` finds in the database at `path`, a line each: fields
 --- joined by a tab, lines by a line feed, the last without its end.
 ---
 --- NULL, an empty text and no rows dump apart. A field is written as
@@ -43,12 +43,13 @@ end
 --- is quoted, `"\N"`. An empty text is quoted, `""`, when it is the only field
 --- of a row, so a row of one empty text is not no rows, and a row of one NULL
 --- is neither. Every other cell is written as its text, as
---- [`Sqlite.Row.as_text`] answers it, with no mark of its type: the integer 1
+--- [`Sqlite.Row.as_text`] returns it, with no mark of its type: the integer 1
 --- and the text '1' dump alike, as a blob and the text of the same bytes do.
 ---
---- The rows are read in one pass, so a query with no ORDER BY that answers in
---- another order on each run still dumps each NULL on its own row. A query
---- that fails raises, as a test fixture should, leaving the database open.
+--- The rows are read in one pass, so a query with no ORDER BY that gives its
+--- rows in another order on each run still dumps each NULL on its own row. A
+--- query that fails raises, as a test fixture should, leaving the database
+--- open.
 function parses_fixture.dump(path: string, sql: string): string
   local db = assert(Sqlite.open(path))
   local statement = assert(db:prepare(sql))

@@ -177,7 +177,7 @@ local function test_a_list_is_keyed_from_one()
   fails({ [1.5] = "a" }, strings, "$: want list, got the float key 1.5") -- checked: float_key
 end
 
--- A list answers a JSON array, so an empty one encodes back as `[]`,
+-- A list's check returns a JSON array, so an empty one encodes back as `[]`,
 -- whether it came from JSON or was built in Lua.
 local function test_a_list_answers_a_json_array()
   local integers = Shape.list(Shape.integer)
@@ -228,7 +228,7 @@ local function test_a_map_refuses_a_key_that_is_not_a_string()
   fails({ a = 1, [2] = 2 }, Shape.map(Shape.integer), "$: want map, got the integer key 2") -- checked: literal_shape
 end
 
--- [`Json.null`] is a missing value: optional admits it and answers nil,
+-- [`Json.null`] is a missing value: optional admits it and returns nil,
 -- and a required field refuses it by name.
 local function test_json_null_is_a_missing_value()
   local text = '{"host": "h", "port": 1, "tls": null}'
@@ -275,7 +275,7 @@ local function test_json_numbers_meet_integer()
   fails(big, Shape.integer, "$: want integer, got string")
 end
 
--- Decode, check, re-encode: the answer holds only what the spec names,
+-- Decode, check, re-encode: the result holds only what the spec names,
 -- so a field the payload grew does not reach the output.
 local function test_a_checked_payload_re_encodes_without_its_extras()
   local text = '{"port": 8080, "host": "h", "debug": {"x": 1}}'
@@ -422,7 +422,7 @@ end
 -- encodes as, and a key added past its end is refused, as for any array
 -- with a hole. A sparse list writes null where it has a hole.
 local function test_a_dense_list_stays_a_plain_array_and_a_sparse_list_writes_null()
-  -- A chunk of Lua, because the checker would not let a test change what [`Shape.into`] answers.
+  -- A chunk of Lua, because the checker would not let a test change what [`Shape.into`] returns.
   local chunk = assert(load([[
     local Json, Shape = ...
     local r = assert(Shape.into({ 1, 2, 3 }, Shape.list(Shape.integer)))
@@ -519,7 +519,7 @@ local function test_decode_into_null_text_is_nothing_to_check()
   assert(o == nil and oerr == "", oerr)
 end
 
--- What the types refuse: a list whose elements may be missing is no array, and a spec says the type of its answer.
+-- What the types refuse: a list whose elements may be missing is no array, and a spec says the type of its result.
 local function test_a_list_of_optional_elements_is_a_map_in_the_type()
   local slots = must(Shape.into({ 1, 2 }, Shape.sparse_list(Shape.optional(Shape.integer))))
   local first: integer? = slots[1]
@@ -527,7 +527,7 @@ local function test_a_list_of_optional_elements_is_a_map_in_the_type()
 end
 
 -- `any?` is `any` to the checker, so the type cannot tell a list of elements that may be missing from one that may not:
--- the list fails where an element is missing, whatever its element spec answers for it.
+-- the list fails where an element is missing, whatever its element spec returns for it.
 local function test_a_list_whose_element_may_be_missing_fails_even_where_the_type_cannot_say()
   local got22, why22 = Json.decode("[1, null, 3]")
   assert(got22 ~= nil, tostring(why22))
@@ -537,7 +537,7 @@ end
 
 -- `record_of` is completed by the build only where it is written `Shape.record_of("Name")`. A call written another way
 -- gets no check, and raises when it runs; one that passes a check of its own passes a function the checker types
--- (lang/check_generics_test.tl), so no route names a `T` the check does not answer.
+-- (lang/check_generics_test.tl), so no route names a `T` the check does not return.
 local function test_a_record_of_the_build_did_not_complete_raises_by_every_route()
   local alias = Shape
   local by_alias, why = pcall(function() local _: Shape.Typed<Row> = alias.record_of("Row") end) -- record_of: unresolved on purpose
@@ -552,7 +552,7 @@ local function test_a_record_of_the_build_did_not_complete_raises_by_every_route
   assert(not indexed and tostring(indexed_why):find("was not resolved", 1, true) ~= nil, tostring(indexed_why))
 end
 
--- A `Spec<T>` is a check, and one written by hand is a function the checker types: it answers a `T` or it does not
+-- A `Spec<T>` is a check, and one written by hand is a function the checker types: it returns a `T` or it does not
 -- compile (lang/check_generics_test.tl). So it composes as any other does, by its check; it only has no fields to
 -- describe, which a strict record needs.
 local function test_a_spec_written_by_hand_composes_by_its_check()
@@ -575,12 +575,12 @@ local function test_a_spec_written_by_hand_composes_by_its_check()
   fails({ k = 1 }, Shape.map(text), "$.k: a string, by hand")
   assert(Shape.into(Json.null, Shape.optional(text)) == nil)
   fails({ [1] = "a", [3] = "c" }, Shape.list(text), "$[1]: missing")
-  -- a check that answers nothing for a value it accepts is a hole, which a list fails
+  -- a check that returns nothing for a value it accepts is a hole, which a list fails
   local nothing: Shape.Spec<string> = { check = function(_value: any, _path: string): string?, string
     return nil, ""
   end }
   fails({ "a" }, Shape.list(nothing), "$[0]: missing")
-  -- a record written by hand answers through a check written by hand, whatever it is named
+  -- a record written by hand is checked by a check written by hand, whatever it is named
   local honest: Shape.Spec<Server> = {
     check = function(_value: any, _path: string): Server?, string
       return nil, "no server is a Server here"
@@ -595,7 +595,7 @@ local function test_a_spec_written_by_hand_composes_by_its_check()
   }
   local _, said = forged:into({ host = "h" })
   assert(said == "Server: no server is a Server here", said)
-  -- the specs the module makes are composed, strict ones included, and `strict` keeps its answer
+  -- the specs the module makes are composed, strict ones included, and `strict` returns the same spec each time
   assert(SERVER:strict() == SERVER:strict() and SERVER:strict():strict() == SERVER:strict())
 end
 

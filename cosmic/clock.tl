@@ -210,7 +210,7 @@ end
 --- The count of `unit` nanoseconds that covers `ns`, rounded up, for a
 --- raw call that takes its span as a count of one unit: `Clock.ceil(ns,
 --- Clock.ms(1))` is the milliseconds a poll waits, and 1 for a single
---- nanosecond, where rounding down would answer 0, no wait at all.
+--- nanosecond, where rounding down would make 0, no wait at all.
 --- Raises for a `unit` below 1.
 function Clock.ceil(ns: integer, unit: integer): integer
   if unit < 1 then
@@ -220,7 +220,7 @@ function Clock.ceil(ns: integer, unit: integer): integer
 end
 
 --- Times the code from here to the end of the block, by name: hold the
---- answer in a `<close>` variable (`local _t <close> = Clock.span(spans,
+--- result in a `<close>` variable (`local _t <close> = Clock.span(spans,
 --- "parse")`). When the block ends (at its `end`, a `return`, a `break`
 --- or an error), the wall time ([`monotonic_ns`]) and the CPU time of this
 --- thread ([`cpu_ns`]) since this call are added to `spans[name]`, and its

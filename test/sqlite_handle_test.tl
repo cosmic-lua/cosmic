@@ -6,7 +6,8 @@ local Sqlite = require("cosmic.sqlite")
 
 --- A prepared statement runs again and again, each run binding every
 --- parameter from its values and leaving none bound after; a run short
---- of values answers why (RANGE) and leaves the statement to run again.
+--- of values fails, saying why (RANGE), and leaves the statement to run
+--- again.
 local function test_a_prepared_statement_binds_each_run_afresh()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE t (owner TEXT, n INTEGER)"))
@@ -47,8 +48,8 @@ local function test_a_statement_closed_under_its_query_lets_the_handle_close()
 end
 
 --- While a query reads a statement's rows, another call on the statement
---- answers why and leaves the rows as they were; once the query ends, the
---- statement runs again.
+--- fails, saying why, and leaves the rows as they were; once the query
+--- ends, the statement runs again.
 local function test_a_statement_under_an_open_query_does_not_run()
   local db = assert(Sqlite.memory())
   local cases: {string} = { "SELECT value FROM generate_series(1, 4)", "SELECT value FROM generate_series(?1, 4)" }

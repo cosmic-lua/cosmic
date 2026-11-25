@@ -38,8 +38,8 @@ local function vectors(): {Vector}
   return found
 end
 
---- The facts of the recorded host `vector`, where `docker` answers the
---- engine's version (nil: it fails).
+--- The facts of the recorded host `vector`, where `docker` is the
+--- version the engine prints (nil: it fails).
 local function facts_of(vector: Vector, docker?: string): HostId.Facts
   local files: mut {string:string} = {}
   local function put(path: string, content?: string)
@@ -161,7 +161,7 @@ local runs: Runs = { value = 0 }
 --- What the command appends to $GITHUB_ENV and to $GITHUB_OUTPUT (nil
 --- where `files` is false: unset), what it said and wrote to standard
 --- output, and its status, run with `words` and `env` on the recorded
---- host `host`, whose engine answers `docker`.
+--- host `host`, whose engine prints `docker` as its version.
 local function named(tmp: string, host: string, words: {string}, env: {string:string}, docker?: string):
     string?, string?, string, integer
   runs.value = runs.value + 1

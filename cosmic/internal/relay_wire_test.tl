@@ -75,8 +75,8 @@ local PYTHON <const> = Fixture.bytes(
     "00000000000000000000000000000000000000000000000000000000000000000000000000"
 )
 
---- The status and every field [`connect_head`] answers, as one line, so
---- that two answers compare and a failure shows both.
+--- The status and every field [`connect_head`] returns, as one line, so
+--- that two results compare and a failure shows both.
 local function shown_connect(r: Wire.Connect): string
   return ("%s consumed=%d http=%s host=%s kind=%s port=%s auth=%s reason=%s forward=%q"):format(r.status, r.consumed,
     tostring(r.http_status), tostring(r.host), tostring(r.kind), tostring(r.port), tostring(r.authorization),
@@ -85,8 +85,8 @@ end
 
 --- Whether [`connect_head`] reads every prefix of `input` as more, or as the
 --- whole's refusal, and the prefix of the head's own length as the whole.
---- Whether a reader's answer to each prefix of `input` agrees with its
---- answer to the whole: undecided before the whole decides, then the same.
+--- Whether a reader's result for each prefix of `input` agrees with its
+--- result for the whole: undecided before the whole decides, then the same.
 local function prefix_agrees(whole: Wire.Connect, wanted: string, cut: integer, part: Wire.Connect): boolean
   if whole.status == "done" and cut < whole.consumed then
     return part.status == "more"
@@ -102,7 +102,7 @@ local function connect_splits_agree(input: string)
   local whole = connect_head(input)
   assert(whole.status ~= "more", "the whole is undecided: " .. shown_connect(whole))
   local wanted = shown_connect(whole)
-  -- One reader fed a byte at a time answers every prefix in linear work; a
+  -- One reader fed a byte at a time reads every prefix in linear work; a
   -- fresh reader per prefix is checked on a sample and near the end, since
   -- one for every prefix of a 16 KiB head is quadratic and timed out. Each
   -- message is built only on a failure, for the same reason.
@@ -840,7 +840,7 @@ local function test_client_hello_waits_for_the_rest_of_a_short_message()
   assert(empty.status == "malformed", empty.status)
 end
 
---- `input` fed to `feed` a byte at a time, and the last answer.
+--- `input` fed to `feed` a byte at a time, and the last result.
 local function dribbled<T>(feed: function(string): T, input: string): T
   local answer: T? = nil
   for at = 1, #input do
@@ -1024,7 +1024,7 @@ local function test_an_encrypted_server_name_extension_is_its_own_answer()
   assert(broken.status == "malformed", broken.status)
 end
 
---- A plain request to an absolute http:// URL, as a proxy client sends one, is read to its target and answered with
+--- A plain request to an absolute http:// URL, as a proxy client sends one, is read to its target and to
 --- the head the origin is sent: the path on the request line, the URL's host as Host, the client's headers but the
 --- proxy's and hop-by-hop ones, and Connection: close.
 local function test_connect_reads_a_plain_request_to_an_absolute_url()
@@ -1057,7 +1057,7 @@ local function test_connect_reads_a_plain_request_to_an_absolute_url()
 end
 
 --- An origin's final response head is told to close, however it is split, and interim heads and the body pass as
---- they came; an answer that is no HTTP response is refused.
+--- they came; a reply that is no HTTP response is refused.
 local function test_a_plain_requests_response_is_told_to_close()
   local response = "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 200 OK\r\nConnection: keep-alive\r\n" ..
     "Keep-Alive: timeout=5\r\nContent-Length: 4\r\n\r\nbody"

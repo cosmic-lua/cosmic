@@ -29,13 +29,13 @@
 ---   appends a header line (a `Set-Cookie`, a `Vary` token).
 --- - Routes are data ([`Web.route`], [`Web.get`], [`Web.mount`]) that
 ---   [`Web.app`] compiles. The most specific route wins whatever the order,
----   a path is canonical before any middleware sees it, a HEAD is answered
+---   a path is canonical before any middleware sees it, a HEAD is handled
 ---   by the GET, an OPTIONS and a 405 by `Allow`, and
 ---   `app:url_for("item", { id = 7 })` builds a URL back.
 --- - A typed route (a route given a [`Web.typed`] handler) names
 ---   [`cosmic.shape`] specs for its path, query and body ([`Web.input`]); its
 ---   handler is given the checked records, and input that fails them is
----   answered before it runs (see cosmic.web.input).
+---   responded to before it runs (see cosmic.web.input).
 --- - Middleware is a function from a handler to a handler, stacked app,
 ---   then mount, then route. The exception layer sits inside the app's
 ---   middleware, so a 500 passes out through all of it; with `debug` off
@@ -75,13 +75,13 @@ local type Passkeys = require("cosmic.web.passkeys")
 local type Sqlite = require("cosmic.sqlite")
 
 local record Web
-  --- What a handler answers: the server's own [`Server.Reply`].
+  --- What a handler returns: the server's own [`Server.Reply`].
   type Response = Types.Response
-  --- Answers one request.
+  --- Responds to one request.
   type Handler = Types.Handler
   --- A handler that reads typed input first: see [`Types.TypedHandler`].
   type TypedHandler = Types.TypedHandler
-  --- What a route answers with, a plain or a typed handler: see [`Types.Handles`].
+  --- What handles a route, a plain or a typed handler: see [`Types.Handles`].
   type Handles = Types.Handles
   --- Wraps a [`Web.Handler`] in another, once, when the app is built.
   type Middleware = Types.Middleware
@@ -127,9 +127,9 @@ local record Web
   type None = Types.None
   --- Input that was refused: see [`Input.Invalid`].
   type Invalid = Types.Invalid
-  --- What a reader or binder of input answers: see [`Types.Parsed`].
+  --- What a reader or binder of input returns: see [`Types.Parsed`].
   type Parsed<T> = Types.Parsed<T>
-  --- Answers input that fails a typed route's specs.
+  --- Responds to input that fails a typed route's specs.
   type InvalidHandler = Types.InvalidHandler
   --- A typed route's body slot.
   type Body<B> = Types.Body<B>
@@ -152,7 +152,7 @@ local record Web
   --- or a fragment of `text/html`: see [`Response.html`].
   html: function(body: Html.SafeHtml, opts?: Types.ResponseOptions): Types.Response
   --- Makes `value` a JSON body, `nosniff`; a value that cannot be encoded raises,
-  --- and the exception layer answers 500: see [`Response.json`].
+  --- and the exception layer responds 500: see [`Response.json`].
   json: function(value: Json.Value, opts?: Types.ResponseOptions): Types.Response
   --- Makes `body` a plain-text body: see [`Response.text`].
   text: function(body: string, opts?: Types.ResponseOptions): Types.Response
@@ -164,12 +164,12 @@ local record Web
   safe_next: function(input: string?, default: string): string
   --- Whether a text is a path on this origin: see [`Response.local_path`].
   local_path: function(target: string): boolean
-  --- Answers with no body, 204 unless told: see [`Response.empty`].
+  --- Returns a response with no body, 204 unless told: see [`Response.empty`].
   empty: function(status?: integer, opts?: Types.ResponseOptions): Types.Response
-  --- Answers with a Reader body read as it is sent: see [`Response.stream`].
+  --- Returns a response with a Reader body read as it is sent: see [`Response.stream`].
   stream: function(body: Stream.Reader, content_type: string,
       opts?: Types.ResponseOptions): Types.Response
-  --- Answers with an RFC 9457 problem body: see [`Response.problem`].
+  --- Returns a response with an RFC 9457 problem body: see [`Response.problem`].
   problem: function(status: integer, detail?: string, extra?: {string: Json.Value}): Types.Response
   --- Ends the request with an error status from anywhere, with a detail the
   --- error page shows; it returns a response only to type-check
@@ -185,18 +185,18 @@ local record Web
   --- [`Response.add_header`].
   add_header: function(res: Types.Response, name: string, value: string)
 
-  --- A route answering some methods at a pattern: see [`Route.route`].
+  --- A route for some methods at a pattern: see [`Route.route`].
   route: function(methods: string | {string}, pattern: string, handler: Types.Handles,
       opts?: Types.RouteOptions): Types.Route
-  --- A route answering GET: see [`Route.get`].
+  --- A route for GET: see [`Route.get`].
   get: function(pattern: string, handler: Types.Handles, opts?: Types.RouteOptions): Types.Route
-  --- A route answering POST: see [`Route.post`].
+  --- A route for POST: see [`Route.post`].
   post: function(pattern: string, handler: Types.Handles, opts?: Types.RouteOptions): Types.Route
-  --- A route answering PUT: see [`Route.put`].
+  --- A route for PUT: see [`Route.put`].
   put: function(pattern: string, handler: Types.Handles, opts?: Types.RouteOptions): Types.Route
-  --- A route answering PATCH: see [`Route.patch`].
+  --- A route for PATCH: see [`Route.patch`].
   patch: function(pattern: string, handler: Types.Handles, opts?: Types.RouteOptions): Types.Route
-  --- A route answering DELETE: see [`Route.delete`].
+  --- A route for DELETE: see [`Route.delete`].
   delete: function(pattern: string, handler: Types.Handles, opts?: Types.RouteOptions): Types.Route
   --- A prefix with routes below it: see [`Route.mount`].
   mount: function(prefix: string, routes: {Types.Route}, opts?: Types.MountOptions): Types.Route

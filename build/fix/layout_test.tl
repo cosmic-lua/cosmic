@@ -177,8 +177,22 @@ end
 local function test_a_source_with_an_error_is_refused_in_the_parsers_words()
   local got, why = Layout.of("x = = 1\n", "bad.tl")
   assert(got == nil and why:find("^bad.tl:1:5: ") ~= nil, why)
-  local lexical = Layout.of("x = 1;\n", "bad.tl")
-  assert(lexical == nil)
+  local table_one = Layout.of("x = { 1; 2 }\n", "bad.tl")
+  assert(table_one == nil)
+end
+
+--- The `!` of `e!` closes on `e`, and what follows it is spaced as after a call.
+local function test_a_must_closes_on_its_value()
+  lays("x = f() !\n", "x = f()!\n")
+  lays("x = f()!:g() .. t[1]!\n", "x = f()!:g() .. t[1]!\n")
+  lays("print(a, f()!)\n", "print(a, f()!)\n")
+end
+
+--- A `;` that ends a statement is deleted, and a statement after one on its line begins a line.
+local function test_a_statements_semicolon_is_deleted()
+  lays("x = 1;\n", "x = 1\n")
+  lays("x = 1; y = 2;; -- c\nif x then f(); end;\n", "x = 1\ny = 2 -- c\nif x then f() end\n")
+  lays("local f = g;\n(f)(1)\n", "local f = g\n(f)(1)\n")
 end
 
 --- The previous formatter wrote a record, interface or enum body as the author did, and authors align the columns of

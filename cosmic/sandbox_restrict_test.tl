@@ -139,7 +139,7 @@ say("exec", why)
 end
 
 --- Two restrictions stacked hold the process to what
---- [`Sandbox.intersect`] answers of the two: the kernel's verdict on each
+--- [`Sandbox.intersect`] returns for the two: the kernel's verdict on each
 --- path is the one [`Sandbox.allows`] gives the intersection, and
 --- [`Sandbox.held`] is that intersection.
 local function test_two_restrictions_hold_what_intersect_answers(tmp: string)
