@@ -2127,6 +2127,15 @@ function Orchestration.run_groups(high: Orchestration.Group,
   return run.status
 end
 
+--- Whether the self-driven fixture's boot of the tree by the product runs (`run`) or not (`skip`), given `env`, the
+--- driver's: COSMIC_CI_SELF_BOOT, which ci.yml sets to `skip` in the merge queue alone; unset, `run`.
+function Orchestration.self_boot(env: {string:string}): string
+  local value = env["COSMIC_CI_SELF_BOOT"] or ""
+  if value == "" then return "run" end
+  assert(value == "run" or value == "skip", "COSMIC_CI_SELF_BOOT must be run or skip, not " .. value)
+  return value
+end
+
 local function phase_fixtures(p: PlatformContext): integer
   local c = p.operation
   local target = p.target
@@ -2137,12 +2146,27 @@ local function phase_fixtures(p: PlatformContext): integer
   local source = work .. "/fixture-source"
   local s = fixture_source(p, source)
   if s ~= 0 then return s end
+  -- The product fixture ran on these bytes in assemble
+  -- (product-verification); run again on the same bytes and inputs, it
+  -- would check nothing more than that none of them moved since.
+  local function unmoved(): integer
+    local changed = ProductSetup.changed(product,
+      read(work .. "/product.before.sha256"))
+    assert(changed == nil, "product mutated by fixtures: " .. tostring(changed))
+    assert(hash(product .. "/cosmic") .. "\n" == read(work .. "/cosmic.before.sha256"), "product mutated by fixtures")
+    return 0
+  end
   -- The self-rebuild regression -- a rename, an unlink or a lock gone
-  -- wrong under a running tool -- runs on every leg: no leg of ci.yml
-  -- sets COSMIC_CI_SELF_REBUILD=skip (orchestration_test's
-  -- test_every_leg_runs_the_portable_suite_and_the_self_rebuild_fixture);
-  -- a run by hand (ci/run-local) may, to skip it.
-  if Env.get("COSMIC_CI_SELF_REBUILD") == "skip" then
+  -- wrong under a running tool -- runs on every leg. The merge queue
+  -- runs it in a job of its own on each Linux leg, beside the leg's
+  -- product (ci.yml's part `rebuild`): that job sets
+  -- COSMIC_CI_SELF_REBUILD=only, and the leg's product or regressions
+  -- job `skip`; every other run sets `run`. A run by hand (ci/run-local)
+  -- may skip it too.
+  local self_rebuild = named("COSMIC_CI_SELF_REBUILD") or "run"
+  assert(self_rebuild == "run" or self_rebuild == "skip" or self_rebuild == "only",
+    "COSMIC_CI_SELF_REBUILD must be run, skip or only, not " .. self_rebuild)
+  if self_rebuild == "skip" then
     local _, _ = Fs.put(Fs.stderr, "fixture: self-rebuild-regression: skipped on this leg " ..
         "(COSMIC_CI_SELF_REBUILD=skip)\n")
   else
@@ -2160,6 +2184,7 @@ local function phase_fixtures(p: PlatformContext): integer
         COSMIC_TEST_TIMEOUT = self_rebuild_per_test_timeout_s,
       })
     if s ~= 0 then return s end
+    if self_rebuild == "only" then return unmoved() end
   end
   -- The fixed-point regression is the slowest fixture on every leg
   -- (about 275 s on the x86-64 legs: `fixed_point_test_timeout_ns` says
@@ -2213,6 +2238,7 @@ local function phase_fixtures(p: PlatformContext): integer
     source = "self_driven", timeout_ns = self_driven_test_timeout_ns, extra = {
       COSMIC_FIXTURE_SOURCE = source,
       COSMIC_FIXTURE_PRODUCT = product,
+      COSMIC_FIXTURE_SELF_BOOT = Orchestration.self_boot(Env.all()),
       COSMIC_TEST_TIMEOUT = self_driven_per_test_timeout_s,
     } }, high_jobs)
   local low: mut {Orchestration.Group} = {}
@@ -2245,14 +2271,7 @@ local function phase_fixtures(p: PlatformContext): integer
   add(performance_spec(c, work, "release", product .. "/cosmic"))
   s = Orchestration.run_groups(high, low, high_jobs ~= nil)
   if s ~= 0 then return s end
-  -- The product fixture ran on these bytes in assemble
-  -- (product-verification); run again on the same bytes and inputs, it
-  -- would check nothing more than that none of them moved since.
-  local changed = ProductSetup.changed(product,
-    read(work .. "/product.before.sha256"))
-  assert(changed == nil, "product mutated by fixtures: " .. tostring(changed))
-  assert(hash(product .. "/cosmic") .. "\n" == read(work .. "/cosmic.before.sha256"), "product mutated by fixtures")
-  return 0
+  return unmoved()
 end
 
 local function phase_attest(p: PlatformContext): integer

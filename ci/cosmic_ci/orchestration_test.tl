@@ -1315,13 +1315,17 @@ local function test_the_fixed_point_fixture_runs_on_the_weekly_run_and_when_aske
 end
 
 --- Every leg of every run with legs past the native suite runs the
---- portable suite and the self-rebuild regression: no switch skips them
---- (COSMIC_CI_PORTABLE_SUITE, COSMIC_CI_SELF_REBUILD), and the four legs
+--- portable suite and the self-rebuild regression: no switch skips the
+--- portable suite (COSMIC_CI_PORTABLE_SUITE), and the self-rebuild one
+--- (COSMIC_CI_SELF_REBUILD) is skipped only by a queue job whose leg runs
+--- it in a job of its own (part `rebuild`), and the four legs
 --- are a glibc and a musl x86-64 host, a Linux and a macOS aarch64 one.
 local function test_every_leg_runs_the_portable_suite_and_the_self_rebuild_fixture()
   local legs, env = platform_legs_and_env()
-  assert(env["COSMIC_CI_PORTABLE_SUITE"] == nil and env["COSMIC_CI_SELF_REBUILD"] == nil,
-    "a leg skips the portable suite or the self-rebuild fixture")
+  assert(env["COSMIC_CI_PORTABLE_SUITE"] == nil, "a leg skips the portable suite")
+  assert(env["COSMIC_CI_SELF_REBUILD"] == "${{ matrix.part == 'rebuild' && 'only' || " ..
+      "(matrix.part == 'product' || matrix.part == 'regressions') && 'skip' || 'run' }}",
+    "a leg skips the self-rebuild fixture: " .. tostring(env["COSMIC_CI_SELF_REBUILD"]))
   local names: mut {string} = {}
   for name in pairs(legs) do names[#names + 1] = name end
   table.sort(names)
@@ -1509,6 +1513,16 @@ exit 0
     assert((env["COSMIC_TEST_NO_SHARED"] == "1") == case.shared,
       case.event .. ": COSMIC_TEST_NO_SHARED=" .. tostring(env["COSMIC_TEST_NO_SHARED"]))
   end
+end
+
+--- The self-driven fixture's boot of the tree by the product runs unless ci.yml says skip (the merge queue), and a
+--- value it does not know fails the phase rather than run or skip it unasked.
+local function test_the_self_boot_runs_unless_the_queue_skips_it()
+  local Orchestration = require("cosmic_ci.orchestration")
+  assert(Orchestration.self_boot({}) == "run" and Orchestration.self_boot({ COSMIC_CI_SELF_BOOT = "" }) == "run")
+  assert(Orchestration.self_boot({ COSMIC_CI_SELF_BOOT = "skip" }) == "skip")
+  assert(Orchestration.self_boot({ COSMIC_CI_SELF_BOOT = "run" }) == "run")
+  Test.raises(function() Orchestration.self_boot({ COSMIC_CI_SELF_BOOT = "Skip" }) end, "must be run or skip")
 end
 
 --- The merge queue's checked jobs each run a share of the checked suite (COSMIC_CI_CHECKED_SHARD, ci.yml's
