@@ -90,11 +90,11 @@ local function test_each_option_sets_its_field()
   assert(letters(policy, "c") == "rwc" and letters(policy, "d") == "rwxc")
   same(ran.argv, { "prog" })
 
-  ran = run({ "--system", "--programs", "--cosmic", "--isolate", "file", "--isolate", "proc", "--promise", "fork",
+  ran = run({ "--system", "--programs", "--isolate", "file", "--isolate", "proc", "--promise", "fork",
     "--promise", "nest", "--connect", "github.com:443", "--loopback", "127.0.0.2", "--env", "HOME",
     "--env", "TERM", "--set-env", "LANG=C", "--set-env", "EMPTY=", "--tmp", "prog" })
   policy = assert(ran.opts.policy)
-  same(policy.profiles, { "system", "programs", "cosmic" })
+  same(policy.profiles, { "system", "programs" })
   same(policy.isolate, { "file", "proc" })
   same(Sandbox.calls(policy), { "fork", "nest" })
   same(policy.connect, { "github.com:443" })
@@ -272,7 +272,7 @@ local function test_a_connect_right_after_the_verb_is_the_relays_client()
   assert(assert(run({ "--", "connect" }).argv)[1] == "connect",
     "a program of that name is still run")
   same(run({ "--", "connect", "a", "b" }).argv, { "connect", "a", "b" })
-  same(run({ "--cosmic", "connect" }).argv, { "connect" })
+  same(run({ "--system", "connect" }).argv, { "connect" })
 end
 
 local function test_the_relays_decision_lines_go_to_the_verbs_standard_error()
@@ -375,7 +375,6 @@ local function test_the_database_options_are_refused_where_they_conflict()
   refusing({ "--modules", "a", "--database", "d", "prog" }, "--modules and --database are exclusive")
   refusing({ "--closure", "--modules", "a", "--database", "d", "prog", "x.tl" },
     "--closure and --modules and --database are exclusive")
-  refusing({ "--closure", "--cosmic", "--", "prog", "x.tl" }, "--closure and --cosmic are exclusive")
   refusing({ "--closure" }, "--closure runs a script")
   refusing({ "--closure", "--", "prog" }, "--closure runs a script")
   refusing({ "--database", "a", "--database", "b", "prog" }, "--database is given more than once")
@@ -415,7 +414,7 @@ local exempt <const>: {string:string} = {
 --- test_each_option_sets_its_field).
 local others <const>: {string:boolean} = {
   ["--fd"] = true, ["--timeout"] = true, ["--cwd"] = true,
-  ["--run"] = true, ["--write"] = true, ["--path"] = true, ["--cosmic"] = true,
+  ["--run"] = true, ["--write"] = true, ["--path"] = true,
   ["--programs"] = true, ["--promise"] = true,
   ["--database"] = true, ["--modules"] = true, ["--closure"] = true,
 }

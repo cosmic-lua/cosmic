@@ -192,7 +192,7 @@ return function(args)
   if args[1] == "sandboxed" then
     -- This program's own file is the core, which the profile grants.
     local result, why = Child.run({ Proc.executable(), "child", "z" },
-      { timeout_ns = Child.FOREVER, policy = { profiles = { "cosmic" } }, stdout = "capture", stderr = "capture" })
+      { timeout_ns = Child.FOREVER, policy = {}, stdout = "capture", stderr = "capture" })
     if result == nil then
       say("sandbox_refused", why)
     else

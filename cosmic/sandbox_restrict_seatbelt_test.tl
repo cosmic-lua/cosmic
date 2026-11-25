@@ -243,7 +243,7 @@ print(tostring(ok) .. " " .. why)
 print(soft() == before)
 ]]
   local result, why = Child.run({ (assert(Proc.executable())), "-e", chunk }, {
-    policy = { profiles = { "cosmic", "system" } }, stdout = "capture", stderr = "capture",
+    policy = { profiles = { "system" } }, stdout = "capture", stderr = "capture",
     stdin = "null", timeout_ns = Clock.seconds(60) })
   assert(result, why)
   assert(result.ok and result.stdout == HELD .. "\ntrue\n",

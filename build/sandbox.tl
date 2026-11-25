@@ -28,8 +28,7 @@
 --- ends: the named modules (the first the main, and no requires followed),
 --- or the closure of the literal requires of a script, compiled here, in this unsealed process,
 --- by [`standalone.code`] (what a file run as `--standalone` is) and
---- sealed as the main. A command line that names two of the three, or
---- `--closure` with `--cosmic`, a module no store holds (a script's
+--- sealed as the main. A command line that names two of the three, a module no store holds (a script's
 --- require of one included) or a `--database` that is not there is refused (2); a script that cannot be read or does
 --- not compile, or a seal that cannot be written, is a start that failed
 --- (125).
@@ -241,7 +240,6 @@ local function table_of(parsed: Flags.Parsed): PolicyFields?, string
   local profiles: mut {string} = {}
   if parsed.set["--system"] == true then profiles[#profiles + 1] = "system" end
   if parsed.set["--programs"] == true then profiles[#profiles + 1] = "programs" end
-  if parsed.set["--cosmic"] == true then profiles[#profiles + 1] = "cosmic" end
   if #profiles > 0 then policy.profiles = profiles end
   local function some(name: string): {string}?
     return if #list(name) > 0 then list(name) else nil end
@@ -344,10 +342,6 @@ local function request_of(argv: {string}): Request?, string
   if #given > 1 then
     return nil, table.concat(given, " and ") .. " are exclusive: each names the database the " ..
       "program runs on, which only one can"
-  end
-  if request.closure and parsed.set["--cosmic"] == true then
-    return nil, "--closure and --cosmic are exclusive: --closure runs the script on a database of " ..
-      "its own, which holds the modules it requires and not this program's file"
   end
   if at == nil then
     if #given == 1 and not request.closure then
