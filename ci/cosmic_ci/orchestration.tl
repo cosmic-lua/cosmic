@@ -1318,7 +1318,7 @@ local function checked_suite(c: Context, target: string, work: string,
     local previous = ""
     for line in read(diagnostics .. "/checked-test.out"):gmatch("[^\n]+") do
       if line:find("RATIO", 1, true) then
-        io.stderr:write("PROBE " .. previous .. " :: " .. line .. "\n")
+        local _, _ = Fs.put(Fs.stderr, "PROBE " .. previous .. " :: " .. line .. "\n")
       else
         previous = line
       end
