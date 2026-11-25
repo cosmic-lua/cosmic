@@ -3,6 +3,7 @@
 
 local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
+local Failure = require("cosmic.failure")
 local Net = require("cosmic.net")
 local Server = require("cosmic.http.server")
 local Tailscale = require("cosmic.tailscale")
@@ -41,22 +42,14 @@ end
 --- A whois that knows WILL and DB, this node at 100.64.0.1 (WILL's own
 --- node), fails for 100.64.0.99, and says any
 --- other address is no peer's, noting each address it is asked.
-local function stand_in(seen: Seen): function(string): Tailscale.WhoIsResult
-  return function(address: string): Tailscale.WhoIsResult
+local function stand_in(seen: Seen): function(string): (Tailscale.WhoIs | false) | (nil, Failure)
+  return function(address: string): (Tailscale.WhoIs | false) | (nil, Failure)
     seen.asked[#seen.asked + 1] = address
-    if address == "100.64.0.2" then
-      return { kind = "found", whois = WILL, reason = "", status = 200 }
-    end
-    if address == "100.64.0.3" then
-      return { kind = "found", whois = DB, reason = "", status = 200 }
-    end
-    if address == "100.64.0.1" then
-      return { kind = "found", whois = { ...WILL, own = true }, reason = "", status = 200 }
-    end
-    if address == "100.64.0.99" then
-      return { kind = "failed", reason = "tailscale: connect: refused", status = 0 }
-    end
-    return { kind = "not_a_peer", reason = "tailscale: no node has the address " .. address, status = 404 }
+    if address == "100.64.0.2" then return WILL end
+    if address == "100.64.0.3" then return DB end
+    if address == "100.64.0.1" then return { ...WILL, own = true } end
+    if address == "100.64.0.99" then return nil, Failure.new("tailscale: connect: refused") end
+    return false
   end
 end
 
@@ -336,7 +329,7 @@ local function test_the_middleware_asks_a_daemon_in_the_requests_own_run(tmp: st
         timeout_ns = Clock.seconds(5) }))
       local seen = new_seen()
       local client = Web.test_client(app_of(seen, {
-        whois = function(address: string): Tailscale.WhoIsResult return ts:whois_result(address) end,
+        whois = function(address: string): (Tailscale.WhoIs | false) | (nil, Failure) return ts:whois(address) end,
       }))
       local peer = Net.tcp("100.64.0.2", 50123)
       local home = client:get("/", { peer = peer }).body

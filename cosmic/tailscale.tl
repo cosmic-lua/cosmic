@@ -7,8 +7,9 @@
 ---
 ---     local Tailscale = require("cosmic.tailscale")
 ---     local ts = assert(Tailscale.connect())
----     local who = assert(ts:whois("100.101.102.103"))
----     print(who.user.login_name, who.node.name, who.tagged)
+---     local who, why = ts:whois("100.101.102.103")
+---     if who == nil then error(why) end
+---     if who ~= false then print(who.user.login_name, who.node.name, who.tagged) end
 ---     local status = assert(ts:status())
 ---     print(status.self.dns_name, #status.peers)
 ---
@@ -122,7 +123,7 @@ local record WirePeer
   KeyExpiry?: string
 end
 
---- The part of the status [`Client.whois_result`] reads: which node
+--- The part of the status [`Client.whois`] reads: which node
 --- this one is.
 local record WireSelf
   ID: string
@@ -277,30 +278,6 @@ local record WhoIs
   --- connects from the node's own address, so `user`, its owner, is
   --- not who asked.
   own: boolean
-end
-
---- Which way [`Client.whois_result`] came out.
-local enum WhoIsKind
-  --- The address is a peer's, or this node's own.
-  "found"
-  --- The daemon knows no node at the address: it is not on the tailnet.
-  "not_a_peer"
-  --- The daemon could not be asked, or its response could not be read.
-  "failed"
-end
-
---- What [`Client.whois_result`] returns.
-local record WhoIsResult
-  --- Which way it came out.
-  kind: WhoIsKind
-  --- Present only for "found".
-  whois?: WhoIs
-  --- Empty for "found"; otherwise why.
-  reason: string
-  --- The daemon's HTTP status: 200 for "found", 404 for "not_a_peer",
-  --- and for "failed" the status that refused the call (403 for a
-  --- caller the daemon refuses), or 0 where none came back.
-  status: integer
 end
 
 --- A peer of this node, or the node itself, as [`Client.status`] lists it.
@@ -1303,61 +1280,46 @@ local class Client
   --- grants that apply to the peer on this node, so a server reads its
   --- own permissions there:
   ---
-  ---     local who = assert(ts:whois(peer))
-  ---     if who.caps["example.com/cap/admin"] == nil then return forbidden() end
+  ---     local who, why = ts:whois(peer)
+  ---     if who == nil then error(why) end
+  ---     if who == false or who.caps["example.com/cap/admin"] == nil then return forbidden() end
   ---
-  --- [`Client.whois_result`] tells an address that is no peer's from a
-  --- daemon that cannot be asked. A result whose `own` is true names
-  --- this node itself: some process on this machine connected, and the
-  --- owner in `user` is not who asked.
-  function whois(self, address: string): (WhoIs) | (nil, Failure)
-    local result = self:whois_result(address)
-    local whois = result.whois
-    if whois == nil then return nil, Failure.new(result.reason) end
-    return whois
-  end
-
-  --- [`Client.whois`], classified: "not_a_peer" where the daemon knows
-  --- no node at the address, as for one off the tailnet.
+  --- It is false where the daemon knows no node at the address, as for
+  --- one off the tailnet, and nil and a Failure where the daemon cannot
+  --- be asked or its response cannot be read. A result whose `own` is
+  --- true names this node itself: some process on this machine
+  --- connected, and the owner in `user` is not who asked.
   -- TODO: take the daemon's `svc_name` and `proto` once a server can host
   -- a Tailscale Service, whose grants scope the CapMap to it.
-  function whois_result(self, address: string): WhoIsResult
+  function whois(self, address: string): (WhoIs | false) | (nil, Failure)
     local answer = ok(self.endpoint, self.timeout_ns, "GET", "/localapi/v0/whois?addr=" .. Url.escape(address))
     local text = answer.body
     if text == nil then
-      if answer.status == 404 then
-        return { kind = "not_a_peer", reason = "tailscale: no node has the address " .. address, status = 404 }
-      end
-      return { kind = "failed", reason = answer.reason, status = answer.status }
+      if answer.status == 404 then return false end
+      return nil, Failure.new(answer.reason)
     end
     -- Null kept as itself, so that a capability granted with no value
     -- stays a key of CapMap.
     local wire, bad = WHOIS:decode_into(text, { null_value = Json.null })
-    if wire == nil then
-      return { kind = "failed", reason = "tailscale: whois: " .. bad, status = 200 }
-    end
+    if wire == nil then return nil, Failure.new("tailscale: whois: " .. bad) end
     -- The daemon reports its own node for its own address; only its
     -- status tells that node from a peer's.
     local mine = ok(self.endpoint, self.timeout_ns, "GET", "/localapi/v0/status?peers=false")
     local status_text = mine.body
-    if status_text == nil then
-      return { kind = "failed", reason = mine.reason, status = mine.status }
-    end
+    if status_text == nil then return nil, Failure.new(mine.reason) end
     local status, unread = ME:decode_into(status_text)
-    if status == nil then
-      return { kind = "failed", reason = "tailscale: status: " .. unread, status = 200 }
-    end
+    if status == nil then return nil, Failure.new("tailscale: status: " .. unread) end
     -- A node that cannot be told from this one is taken for it.
     local me = status.Self
     if me == nil or me.ID == "" or wire.Node.StableID == "" then
-      return { kind = "failed", reason = "tailscale: status: the daemon names no node of its own", status = 200 }
+      return nil, Failure.new("tailscale: status: the daemon names no node of its own")
     end
     local host = address:match("^%[(.*)%]") or address:match("^([^:]*):%d+$") or address
     local own = me.ID == wire.Node.StableID
     for _, mine_ip in ipairs(me.TailscaleIPs or {}) do
       if mine_ip == host then own = true end
     end
-    return { kind = "found", whois = whois_of(wire, own), reason = "", status = 200 }
+    return whois_of(wire, own)
   end
 
   --- The node's status and its peers' (`tailscale status`).
@@ -1724,8 +1686,6 @@ local record Tailscale
   type User = User
   type Node = Node
   type WhoIs = WhoIs
-  type WhoIsKind = WhoIsKind
-  type WhoIsResult = WhoIsResult
   type Peer = Peer
   type Status = Status
   type Prefs = Prefs
