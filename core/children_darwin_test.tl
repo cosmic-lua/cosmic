@@ -1,6 +1,7 @@
 --- `children` on macOS, where libproc lists them (core/spawn.c): apart
 --- from core/syscalls_proc_children_test.tl, whose module requires Linux's
---- /proc list and so runs nowhere else.
+--- /proc list and so runs nowhere else. This module requires macOS, so its
+--- tests are n/a on Linux.
 
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
@@ -11,15 +12,10 @@ local function probe_in(tmp: string): string
   return (assert(Fake.build(tmp .. "/probe")))
 end
 
-local function darwin(): boolean
-  return assert(sys.uname()).sysname == "Darwin"
-end
+Test.policy{ requires = { "os:darwin" } }
 
 --- A child still running is listed, and gone from the list once reaped.
 local function test_children_lists_a_running_child_until_it_is_reaped(tmp: string)
-  if not darwin() then
-    Test.skip("Linux's list is checked in core/syscalls_proc_children_test.tl")
-  end
   local probe = probe_in(tmp)
   local ends = assert(process.pipe())
   local pid = assert(process.spawn(probe, { probe, "cat" }, nil, tmp, ends.reader, nil, nil, false))
@@ -42,9 +38,6 @@ end
 --- A child that has ended is listed until it is reaped: the list is of
 --- what a wait is still owed for.
 local function test_children_lists_an_ended_child_until_it_is_reaped(tmp: string)
-  if not darwin() then
-    Test.skip("Linux's list is checked in core/syscalls_proc_children_test.tl")
-  end
   local probe = probe_in(tmp)
   local ends = assert(process.pipe())
   local pid = assert(process.spawn(probe, { probe, "cat" }, nil, tmp, ends.reader, nil, nil, false))

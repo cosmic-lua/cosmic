@@ -138,6 +138,7 @@ local function test_every_name_parses()
     local text = name
     if name == "path" then text = "path:/etc/hostname" end
     if name == "program" then text = "program:sh" end
+    if name == "os" then text = "os:linux" end
     local spec, why = host_names.parse(text)
     assert(spec ~= nil, why)
     assert(spec.base == name)
@@ -156,6 +157,9 @@ local function test_a_bad_name_is_refused_naming_the_rule()
   end
   local cases: {Refusal} = {
     { name = "sandbxo", says = "unknown requirement" },
+    { name = "os", says = "needs an argument" },
+    { name = "os:Linux", says = "takes one of darwin, linux" },
+    { name = "os:windows", says = "takes one of darwin, linux" },
     { name = "", says = "unknown requirement" },
     { name = "Sandbox", says = "unknown requirement" },
     { name = "landlock:", says = "positive integer" },
@@ -553,6 +557,20 @@ local function test_a_platform_that_is_not_linux_is_not_applicable()
     assert(support.nth(answers, i).kind == "na" and support.nth(answers, i).class == "platform", support.nth(answers, i).name)
   end
   assert(support.nth(answers, 4).class == "host" and support.nth(answers, 4).kind ~= "na")
+end
+
+--- `os:<name>` is present on the operating system it names, keyed by its name, and not applicable on any other,
+--- with no probe: it says a module's tests mean nothing there.
+local function test_an_os_is_present_on_itself_and_not_applicable_elsewhere()
+  local sysname = assert(sys.uname()).sysname
+  local here = if sysname == "Linux" then "os:linux" else "os:darwin" end
+  local there = if sysname == "Linux" then "os:darwin" else "os:linux" end
+  local answers = host_requires.answer(host_requires.new(), { here, there })
+  local own, other = support.nth(answers, 1), support.nth(answers, 2)
+  assert(own.kind == "present" and own.class == "platform" and own.key == here:sub(4), own.kind .. own.why)
+  assert(other.kind == "na" and other.class == "platform", other.kind)
+  assert(ask(host_requires.new({ linux = false }), "os:linux").kind == "na")
+  assert(ask(host_requires.new({ linux = true }), "os:linux").kind == "present")
 end
 
 --- `all_cores` is present unless the runner says the tool lacks a core, which
