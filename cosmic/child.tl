@@ -3147,8 +3147,8 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   local tmp_exec = false
   if file and merged.tmp == true then
     local others: mut {Rules.Grant} = {}
-    for _, grant in ipairs(Rules.paths(merged)) do
-      if grant.from == nil and named(grant.path, "/") == "/tmp" then
+    for _, grant in ipairs(merged.grants or {}) do
+      if grant is Rules.Path and grant.from == nil and named(grant.path, "/") == "/tmp" then
         if grant.letters ~= "rwc" and grant.letters ~= "rwxc" then
           return nil, "sandbox: grant \"" .. grant.path .. "\" (" .. grant.letters .. ") is the " ..
             "sandbox's own /tmp, which tmp makes: it is `rwc`, and `rwxc` where the program is to " ..
@@ -3159,7 +3159,6 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
         others[#others + 1] = grant
       end
     end
-    for _, promise in ipairs(Rules.calls(merged)) do others[#others + 1] = { calls = promise } end
     merged.grants = others -- checked: field_fixed
   end
   -- The directory the root of `isolate` file is built around, and the one

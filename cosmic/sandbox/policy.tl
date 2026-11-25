@@ -685,12 +685,12 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
       database = { path = at, sha256 = digest or (database and database.sha256) }
     end
     for _, grant in ipairs(p.grants or {}) do
-      if grant is rules.Calls then
-        promises = sorted_set(promises, { grant.calls })
-        continue
-      end
       if grant is rules.Connect then
         connect = sorted_set(connect, { grant.connect })
+        continue
+      end
+      if grant is rules.Calls then
+        promises = sorted_set(promises, { grant.calls })
         continue
       end
       local at = clean_path(grant.path)
