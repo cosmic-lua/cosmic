@@ -1293,6 +1293,11 @@ typedecl = function(d: Ast.Node, nested: boolean) -- checked: not_assigned
   else
     return
   end
+  local schema_value = if (d.kind == "Class") then d.schema_value else nil end
+  if schema_value ~= nil then
+    -- The DDL of `local schema Name = <exp>` reads the locals it joins, before its own name is declared.
+    exp(schema_value)
+  end
   -- An alias does not see its own name, so that `type Node = Node` inside a record names the `Node`
   -- around it; the name is declared once its type is walked.
   local v: Scopes.Var? = nil
