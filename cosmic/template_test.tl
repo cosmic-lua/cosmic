@@ -112,6 +112,11 @@ local SLOTS <const>: {Expect} = {
   { source = "<br/>{{.x}}", want = "_text(" },
   { source = "<svg><a href=\"{{.x}}\"></a></svg>", want = "_url(" },
   { source = "<a title=\"a>b\">{{.x}}", want = "_text(" },
+  { source = "<script src=\"{{.x}}\" defer></script>", want = "_turl(" },
+  { source = "<SCRIPT SRC=' {{.x}} '></script>", want = "_turl(" },
+  { source = "<link rel=\"stylesheet\" href=\"{{.x}}\">", want = "_turl(" },
+  { source = "<script nonce=\"{{.x}}\"></script>", want = "_attr(" },
+  { source = "<script src=\"/a.js\" integrity=\"{{.x}}\"></script>", want = "_attr(" },
 }
 
 local function test_each_slot_is_escaped_for_the_place_it_stands_in()
@@ -261,8 +266,9 @@ local REFUSALS <const>: {Refusal} = {
   { source = "<a hx-vals=\"{{.x}}\">", line = "2", column = "13", reason = "{{use htmx}}" },
   { source = "<a data-hx-vals='{\"a\": \"{{.x}}\"}'>", line = "2", column = "25", reason = "{{use htmx}}" },
   { source = "<a hx-vals=\"x\" hx-get=\"/a\" hx-on:click=\"a{{if .a}}b{{end}}{{.x}}\">", line = "2", column = "59", reason = "would be script" },
-  { source = "<script src=\"{{.x}}\">", line = "2", column = "14", reason = "<script>" },
-  { source = "<link href=\"{{.x}}\">", line = "2", column = "13", reason = "<link>" },
+  { source = "<script src=\"/js/{{.x}}\">", line = "2", column = "18", reason = "must be the whole value, a SafeResourceUrl" },
+  { source = "<link href=\"/{{.x}}\">", line = "2", column = "14", reason = "must be the whole value, a SafeResourceUrl" },
+  { source = "<script crossorigin=\"{{.x}}\">", line = "2", column = "22", reason = "other than src, nonce and integrity" },
   { source = "<object data=\"{{.x}}\">", line = "2", column = "15", reason = "<object>" },
   { source = "<a title=\"x\">\n<a\n  b={{.y}}>", line = "4", column = "5", reason = "unquoted" },
   { source = "<textarea></textarea{{.x}}><script>{{.y}}</script>", line = "2", column = "21", reason = "complete its end tag" },
@@ -660,6 +666,25 @@ local function test_a_json_slot_is_the_whole_value()
   }
   for _, case in ipairs(cases) do
     local why = refused(HEAD .. "{{use htmx}}\n" .. case.source)
+    assert(why:find(case.want, 1, true), case.source .. ": " .. why)
+  end
+end
+
+local function test_the_src_of_a_script_and_the_href_of_a_link_take_a_safeurl_as_the_whole_value()
+  -- A string could name any script, so the slot takes only a SafeResourceUrl, which only Html.trust_resource_url makes.
+  local out = compiled(HEAD .. "<script src=\"{{.x}}\" nonce=\"{{.n}}\" defer></script>")
+  assert(out:find("local v: html.SafeResourceUrl = d.x", 1, true) ~= nil, out)
+  assert(out:find("local v: string | number | html.SafeAttr = d.n", 1, true) ~= nil, out)
+  local cases: {Expect} = {
+    { source = "<script src=\"{{.x}}?v=1\"></script>", want = "the slot is the whole value, a SafeResourceUrl" },
+    { source = "<link href=\"{{.x}}x\" title='q'>", want = "the slot is the whole value, a SafeResourceUrl" },
+    { source = "<script src=\"{{.x}}{{.x}}\"></script>", want = "must be the whole value, a SafeResourceUrl" },
+    { source = "<script src=\"{{if .a}}/a.js{{end}}{{.x}}\"></script>", want = "must be the whole value, a SafeResourceUrl" },
+    { source = "<script type=\"{{.x}}\"></script>", want = "could name the code it runs" },
+    { source = "<embed src=\"{{.x}}\">", want = "would make the page load or run it" },
+  }
+  for _, case in ipairs(cases) do
+    local why = refused(HEAD .. case.source)
     assert(why:find(case.want, 1, true), case.source .. ": " .. why)
   end
 end

@@ -1,7 +1,7 @@
 --- Errors: the exception layer that turns a raise into a response, the error
 --- pages, and the terminal that responds to what the router could not route.
 
-local Html = require("cosmic.html")
+local ErrorPage = require("cosmic.web.error_page")
 local type Json = require("cosmic.json")
 local Response = require("cosmic.web.response")
 local Server = require("cosmic.http.server")
@@ -23,24 +23,10 @@ end
 
 --- A small page for `status`, holding `detail` and `trace` escaped.
 local function page(status: integer, detail: string?, trace: string?): Types.Response
-  local title = title_of(status)
-  local parts: mut {Html.SafeHtml} = {
-    Html.trust('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>'),
-    Html.escape(title), Html.trust("</title></head><body><h1>"), Html.escape(title),
-    Html.trust("</h1>"),
-  }
-  if detail ~= nil and detail ~= "" then
-    parts[#parts + 1] = Html.trust("<p>")
-    parts[#parts + 1] = Html.escape(detail)
-    parts[#parts + 1] = Html.trust("</p>")
-  end
-  if trace ~= nil then
-    parts[#parts + 1] = Html.trust("<p>debug is on: this page shows the fault and its stack</p><pre>")
-    parts[#parts + 1] = Html.escape(trace)
-    parts[#parts + 1] = Html.trust("</pre>")
-  end
-  parts[#parts + 1] = Html.trust("</body></html>")
-  return Response.html(Html.concat(parts), { status = status })
+  -- The markup is the template error_page.tmpl (cosmic.template).
+  local markup = ErrorPage.render({ title = title_of(status),
+    detail = if detail ~= "" then detail else nil end, trace = trace })
+  return Response.html(markup, { status = status })
 end
 
 --- Whether the request prefers JSON to a page.

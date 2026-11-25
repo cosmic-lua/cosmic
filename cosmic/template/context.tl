@@ -175,7 +175,7 @@ walk = function(w: Walk, body: {types.Node}, from: markup.Place, marks: Marks): 
           "text after a URL slot begins with '/' or '\\': the value and that text could make a protocol-relative URL (//host)")
       elseif at.sole_trail then
         return nil, refuse(name, node.line, node.col,
-          "text after a JSON slot in the '" .. at.attr .. "' attribute: a JSON slot is the whole value")
+          markup.sole_trouble(at.tag, at.attr))
       elseif at.late ~= "" then
         return nil, refuse(name, at.late_line, at.late_col, at.late)
       end
