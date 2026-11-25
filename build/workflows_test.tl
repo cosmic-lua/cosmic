@@ -1794,16 +1794,21 @@ local function test_only_main_saves_and_only_the_queue_relays_to_main()
 end
 
 --- A merge-queue run takes in what the last failed try of its pull
---- request reached, before each job's suite, and a failed try uploads
---- that under the job's own name, in the release legs, the checked
---- shards and the narrowing suite; neither takes part outside the queue, and
---- none of their steps fails the job.
+--- request reached, before each job's suite: what each release leg, checked
+--- shard and the narrowing suite uploaded under the job's own name, or a
+--- release leg's suite's verdicts for main's push. None of the steps takes
+--- part outside the queue or fails the job.
 local function test_a_queue_try_stands_on_its_pull_requests_last_failed_try()
-  -- Each job that runs a suite in the queue: its suite step and its artifact.
-  for _, leg in ipairs({ { "platform", "release-suite", "queue-tried-verdicts-${{ matrix.name }}" },
-      { "checked", "checked-suite", "queue-tried-verdicts-${{ matrix.name }}" },
-      { "narrowing", "checked-narrowing", "queue-tried-verdicts-linux-x86_64-checked-narrowing" } }) do
-    local job_name, suite, name = leg[1]!, leg[2]!, leg[3]!
+  -- Each job that runs a suite in the queue: its suite step, its artifact, what its upload
+  -- of its rows waits on, and the artifact it reads where a try passed in a run that
+  -- failed. A release leg's suite that passed left them for main's push
+  -- ("upload the merge queue's verdicts"); the others upload theirs passing or failing.
+  local release = "${{ matrix.part == 'suite' && format('queue-verdicts-{0}', matrix.leg) || '' }}"
+  for _, leg in ipairs({
+      { "platform", "release-suite", "queue-tried-verdicts-${{ matrix.name }}", "job.status == 'failure' && ", release },
+      { "checked", "checked-suite", "queue-tried-verdicts-${{ matrix.name }}", "", "" },
+      { "narrowing", "checked-narrowing", "queue-tried-verdicts-linux-x86_64-checked-narrowing", "", "" } }) do
+    local job_name, suite, name, waits, passed = leg[1]!, leg[2]!, leg[3]!, leg[4]!, leg[5]!
     local steps = job_of(ci_workflow().jobs, job_name).steps
     local find, find_at = step_with_id(steps, "tried-run")
     local download, download_at = step_with_id(steps, "tried-download")
@@ -1811,7 +1816,8 @@ local function test_a_queue_try_stands_on_its_pull_requests_last_failed_try()
     local _, restore_at = step_with_id(steps, "verdicts-restore")
     local _, suite_at = step_with_id(steps, suite)
     local trim, trim_at = step_with_id(steps, "verdicts-trim")
-    local upload, upload_at = step_named(steps, "upload what this failed try in the merge queue reached")
+    local upload, upload_at = step_named(steps, if waits == "" then "upload what this try in the merge queue reached"
+      else "upload what this failed try in the merge queue reached" end)
     assert(restore_at < find_at and find_at < download_at and download_at < taken_at and taken_at < suite_at and
         trim_at < upload_at, "the tried verdicts are taken in out of order")
     local env = map_of(find.env)
@@ -1820,6 +1826,7 @@ local function test_a_queue_try_stands_on_its_pull_requests_last_failed_try()
         env["ARTIFACT"] == name and env["HEAD_REF"] == "${{ github.event.merge_group.head_ref }}" and
         env["RUN_ID"] == "${{ github.run_id }}" and env["BASE_SHA"] == "${{ github.event.merge_group.base_sha }}" and
         env["SHA"] == "${{ github.sha }}" and env["GH_TOKEN"] == "${{ github.token }}" and
+        (env["PASSED_ARTIFACT"] or "") == passed and
         (find.run or ""):find("driver.tl queue-tried-run", 1, true) ~= nil,
       "the tried run's lookup")
     -- By the artifact's id, which the lookup checked, not its name: an
@@ -1837,7 +1844,7 @@ local function test_a_queue_try_stands_on_its_pull_requests_last_failed_try()
     assert(taken["if"] == "steps.tried-download.outcome == 'success'" and taken["continue-on-error"] == true and
         (taken.run or ""):find("driver.tl verdicts-merge \"" .. param(download, "path") .. "\"", 1, true) ~= nil,
       "the tried verdicts are taken in otherwise")
-    assert(upload["if"] == "always() && github.event_name == 'merge_group' && job.status == 'failure' && " ..
+    assert(upload["if"] == "always() && github.event_name == 'merge_group' && " .. waits ..
         "steps.verdicts-trim.outputs.digest != ''" and upload["continue-on-error"] == true and
         param(upload, "name") == name and param(upload, "path") == "${{ runner.temp }}/verdicts/*.db" and
         with_of(upload)["retention-days"] == 1,
