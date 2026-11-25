@@ -10443,6 +10443,10 @@ local function stat(ctx: Ctx, s: Ast.Stat)
     if decl ~= nil then
       ctx.declared[decl] = true
     end
+    local schema_value = if (s.kind == "Class") then s.schema_value else nil end
+    if schema_value ~= nil then
+      local _ = expect(ctx, schema_value, expr(ctx, schema_value, ctx.store.string), ctx.store.string, " as the DDL of a schema")
+    end
     local ddl = if (s.kind == "Class") then s.schema else nil end
     local refusal = if ddl ~= nil then require("lang.sql").schema(ddl) else nil end
     if refusal ~= nil then

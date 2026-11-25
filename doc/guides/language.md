@@ -914,6 +914,21 @@ value `Notes` has the field `ddl`. A module exports a schema as the type, `type 
 function that opens a handle of it: another module that holds the value in a field holds a [`Sqlite.Schema`], which
 opens a plain handle.
 
+The DDL may also be written `local schema Name = <exp>`, where the expression is string literals and `<const>` locals of
+the same block given them, joined with `..`: a schema of one piece per table reads as their join.
+
+```teal
+local NOTES <const> = "CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL);"
+local TAGS <const> = "CREATE TABLE tags (note INTEGER NOT NULL, tag TEXT NOT NULL);"
+local schema Tagged = NOTES .. TAGS
+
+print(#Tagged.ddl > 0)
+```
+
+```output
+true
+```
+
 ## a value or a failure
 
 A function that returns a value or a failure declares both lists of
