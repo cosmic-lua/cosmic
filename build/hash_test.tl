@@ -209,6 +209,24 @@ local function test_a_key_file_ending_in_a_newline_warns_and_keeps_it(tmp: strin
   assert(run({ "--hmac-file", file(tmp, "k2", "secret") }, "abc").err == "")
 end
 
+local function test_a_key_from_standard_input_with_a_dash(tmp: string)
+  local a = file(tmp, "a", "abc")
+  local ran = run({ "--hmac-file", "-", a }, "secret")
+  assert(ran.code == 0, ran.err)
+  assert(ran.out == Codec.hex(Hash.hmac("sha256", "secret", "abc")) .. "  " .. a .. "\n", ran.out)
+  -- Standard input is read once: the key, or the bytes to hash, not both.
+  for _, line in ipairs({ { "--hmac-file", "-" }, { "--hmac-file", "-", "-" }, { "--hmac-file", "-", a, "-" },
+      { "check", "--hmac-file", "-", "-" } }) do
+    local refused = run(line, "secret")
+    assert(refused.code == 2 and refused.out == "", table.concat(line, " "))
+    assert(refused.err:find("both read standard input", 1, true) ~= nil, refused.err)
+  end
+  -- A sums file that lists "-" cannot hash it once standard input was the key.
+  local sums = file(tmp, "sums", Codec.hex(Hash.hmac("sha256", "secret", "")) .. "  -\n")
+  local listed = run({ "check", "--hmac-file", "-", sums }, "secret")
+  assert(listed.code == 1 and listed.err:find("standard input holds the key", 1, true) ~= nil, listed.err)
+end
+
 local function test_json_is_an_array_of_path_algorithm_digest(tmp: string)
   local a = file(tmp, "a", "abc")
   local ran = run({ "--json", "-a", "sha1", a, "-" }, "abc")

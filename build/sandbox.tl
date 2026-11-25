@@ -319,6 +319,9 @@ local function request_of(argv: {string}): Request?, string
   local databases = parsed.all["--database"] or {}
   if #databases > 1 then return nil, "--database is given more than once" end
   request.database = databases[1]
+  if request.database == "-" then
+    return nil, "--database opens a sealed database by its path, not - (standard input)"
+  end
   local listed = parsed.all["--modules"] or {}
   if #listed > 1 then return nil, "--modules is given more than once" end
   local listed_modules = listed[1]
