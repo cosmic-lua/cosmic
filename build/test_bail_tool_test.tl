@@ -13,7 +13,8 @@ local build_paths = require("build.paths")
 local this_program = require("build.this_program")
 
 --- The program itself, which its tests start.
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+--- The deadline's test sleeps a second in each of its eight tests, over two runs.
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } }, timeout = 60 }
 
 --- A project of one module, whose tests run in the order of their names
 --- and each mark `marks/<name>`. A name that starts `a_` fails; one
@@ -125,4 +126,36 @@ local function test_a_test_in_flight_at_the_first_failure_finishes(tmp: string)
   local first, second = Array.at(rows, 1), Array.at(rows, 2)
   assert(first:text(1) == "test_a_fails" and first:text(2) == "0" and
       second:text(1) == "test_b_passes" and second:text(2) == "1", "the runs kept: " .. tostring(#rows))
+end
+
+--- With `--deadline`, the run starts no test once the deadline has
+--- passed: the tests that ran keep their verdicts, so a run after it
+--- stands on them and runs only the tests not started, and the run past
+--- its deadline fails, saying how many it did not start.
+local function test_a_run_past_its_deadline_keeps_the_verdicts_it_reached(tmp: string)
+  local names: {string} = { "b_1", "b_2", "b_3", "b_4", "b_5", "b_6", "b_7", "b_8" }
+  local root = project(tmp, names)
+  local late = invoke(root, tmp .. "/late.out", { "--deadline", "4" })
+  local text = assert(Fs.read(tmp .. "/late.out"))
+  assert(not late.ok, text)
+  assert(text:find("the run passed its deadline of 4 seconds", 1, true) ~= nil, text)
+  assert(text:find("not run after the deadline", 1, true) ~= nil, text)
+  local ran: mut {string: boolean} = {}
+  local count = 0
+  for _, name in ipairs(names) do
+    if marked(tmp, name) then
+      ran[name] = true
+      count = count + 1
+      assert(Fs.remove(tmp .. "/marks/" .. name))
+    end
+  end
+  -- Each test takes a second, so the deadline falls before the last starts, and after the first.
+  assert(count > 0 and count < #names, "the late run ran " .. tostring(count) .. " tests")
+  local again = invoke(root, tmp .. "/again.out", {})
+  local again_text = assert(Fs.read(tmp .. "/again.out"))
+  assert(again.ok, again_text)
+  for _, name in ipairs(names) do
+    assert(marked(tmp, name) == (ran[name] ~= true),
+      name .. ": a test the late run passed ran again, or one it did not start stood")
+  end
 end
