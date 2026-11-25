@@ -76,7 +76,6 @@ local Lexer = require("lang.lexer")
 local Literals = require("lang.literals")
 local LoadOrder = require("lang.load_order")
 local Relation = require("lang.relation")
-local NearNames = require("lang.near_names")
 local Scopes = require("lang.scopes")
 local type Sql = require("lang.sql")
 local Types = require("lang.types")
@@ -2964,7 +2963,8 @@ end
 
 --- What `t` (named) has, for a read of the field `name` it does not have: the members `name` may mean ([`nearest`]
 --- `close`, then [`NearNames.related`] ones) with their types, then the names of the others; nil where it has none.
-local function members_told(ctx: Ctx, t: Type, name: string, close: string): string?
+function Naming.members_told(ctx: Ctx, t: Type, name: string, close: string): string?
+  local NearNames = require("lang.near_names")
   if not (t.tag == "named") then return nil end
   local index = members_index(ctx, t.decl, t.value)
   if index == nil then return nil end
@@ -3081,7 +3081,7 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
   if (t.tag == "named") and t.decl.module:sub(1, 7) == "cosmic." and ctx.input.module:sub(1, 7) ~= "cosmic." then
     -- A record of cosmic's own modules is the binary's to a program, which cannot declare a field in it: what it has
     -- is told here, so the next try needs no lookup.
-    told = members_told(ctx, t, name, close)
+    told = Naming.members_told(ctx, t, name, close)
     declare = told or ("`cosmic docs " .. t.decl.module .. "` lists what " .. owner .. " has")
   end
   local advised = if (t.tag == "named") then Check.advice[t.decl.module .. " " .. t.decl.name .. " ." .. name] else nil end
