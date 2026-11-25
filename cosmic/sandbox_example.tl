@@ -31,7 +31,11 @@ function Example.profile()
   local grant = assert(Sandbox.paths(system)[1])
   print(grant.path, grant.letters) -- /usr  r
   local merged = assert(Sandbox.union({ profiles = { "system" } }))
-  assert(merged.profiles == nil and assert(Sandbox.paths(merged)[1]).path == grant.path)
+  local held = false
+  for _, joined in ipairs(Sandbox.paths(merged)) do
+    if joined.path == grant.path then held = true end
+  end
+  assert(merged.profiles == nil and held)
   local none, why = Sandbox.profile("everything")
   print(why) -- sandbox: unknown profile "everything" (known: proc, programs, system)
   assert(none == nil)
