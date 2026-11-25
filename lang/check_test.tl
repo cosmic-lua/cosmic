@@ -449,6 +449,32 @@ local CASES <const>: {Case} = {
       "mode?: integer): string`; its other members: readlink, reads",
   },
   {
+    -- So does a function statement's, an optional one's, and a narrowing return's.
+    code = "field_unknown", source = "local Fs = require(\"cosmic.fs\")\nlocal r = Fs.read_file\n",
+    modules = { ["cosmic.fs"] = "local record Fs\n  read_is: function(v: any): v is string\nend\n" ..
+        "function Fs.read(path: string, n?: integer): string return path end\nreturn Fs\n" },
+    msg = "`Fs` has no field `read_file`",
+    fix = "`Fs` has `read: function(path: string, n?: integer): string`, `read_is: function(v: any): v is string`",
+  },
+  {
+    -- A method of a class.
+    code = "field_unknown",
+    source = "local Fs = require(\"cosmic.fs\")\nlocal function f(b: Fs.Box): any return b.grw end\n",
+    modules = { ["cosmic.fs"] = "local interface Reads\n  reed_all: function(path: string): string\nend\n" ..
+        "local record Fs\n  record R is Reads\n  end\n  class Box\n    n: integer\n" ..
+        "    function grow(self, by: integer): integer return self.n + by end\n  end\nend\nreturn Fs\n" },
+    msg = "`Fs.Box` has no field `grw`", fix = "`Fs.Box` has `grow: function(self: Fs.Box, by: integer): integer`",
+  },
+  {
+    -- A field a record has from the interface it lists.
+    code = "field_unknown",
+    source = "local Fs = require(\"cosmic.fs\")\nlocal function f(r: Fs.R): any return r.reed end\n",
+    modules = { ["cosmic.fs"] = "local interface Reads\n  reed_all: function(path: string): string\nend\n" ..
+        "local record Fs\n  record R is Reads\n  end\n  class Box\n    n: integer\n" ..
+        "    function grow(self, by: integer): integer return self.n + by end\n  end\nend\nreturn Fs\n" },
+    msg = "`Fs.R` has no field `reed`", fix = "`Fs.R` has `reed_all: function(path: string): string`",
+  },
+  {
     code = "require_unknown", source = "local x = require(\"cosmic.io\")\n",
     msg = "cosmic has no module `cosmic.io`", fix = "`cosmic docs` lists the modules cosmic holds",
   },

@@ -2194,7 +2194,6 @@ local function lower_method(ctx: Ctx, build: Build, m: Ast.Method)
   end
 end
 
---- The field `m` of a record, interface or class.
 --- The names of the parameters `t` writes, where it is a function type that names one ("" for one it does not name), for
 --- [`Types.Field.params`]; nil otherwise.
 local function type_param_names(t: Ast.Type): {string}?
@@ -2222,6 +2221,7 @@ local function fn_param_names(fn: Ast.Fn): {string}
   return names
 end
 
+--- The field `m` of a record, interface or class.
 local function lower_field(ctx: Ctx, build: Build, m: Ast.FieldDecl)
   local ft = lower_type(ctx, m.type)
   -- A field that may be nil (`name?: T`, or a type that has `nil` in it) is never a metamethod.

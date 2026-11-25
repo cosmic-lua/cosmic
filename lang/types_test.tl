@@ -1322,4 +1322,19 @@ local function test_the_parameter_names_of_a_field_are_kept_and_shown_but_are_no
   assert(params[1] == "path" and params[2] == "n" and assert(body.fields[2]).params == nil)
   same(Types.display(read, nil, nil, params), "function(path: string, n?: integer): string")
   same(Types.display(read), "function(string, p2?: integer): string")
+  -- A method's are kept as well, through the store's copy of the body and its text.
+  local box = s:declare("class", "m", { "Box" }, 0)
+  local grow = s:fn({ params = { { type = s:named(box) }, { type = s.integer } }, rets = { { items = { s.integer } } } })
+  s:define(box, { tparams = {}, supers = {}, fields = {}, methods = { { name = "grow", type = grow, params = { "self", "by" } } },
+    values = {} })
+  local held = assert(assert(assert(box.body).methods[1]).params)
+  assert(held[2] == "by", tostring(held[2]))
+  local box_text = Types.encode_declaration(box)
+  assert(box_text:find('(params "self" "by")', 1, true) ~= nil, box_text)
+  local box_there, box_why = second:decode_declaration(box_text)
+  local read_back = assert(assert(assert(assert(box_there, box_why).body).methods[1]).params)
+  assert(read_back[1] == "self" and read_back[2] == "by")
+  -- A narrowing return names the parameter as its declaration does.
+  local is_text = s:fn({ params = { { type = s.any } }, rets = { { items = {}, narrows = { param = 1, to = s.string, asserts = false } } } })
+  same(Types.display(is_text, nil, nil, { "v" }), "function(v: any): v is string")
 end

@@ -13,7 +13,7 @@ local record StandardMeant
   --- ([`Doc.exact`]).
   record Docs
     index: {Doc.Summary}
-    --- The module and the symbol of each function the word names.
+    --- The module, the symbol and the kind (`function`, `field`, ...) of each row the word names.
     exact: function(word: string): {{string}}
     --- The module and the symbol of each exported function with a parameter of the word's name (`Fs.basename(path)`).
     takes: function(word: string): {{string}}
@@ -69,9 +69,7 @@ local function binary_docs(): StandardMeant.Docs?
     return { index = index, exact = function(w: string): {{string}}
       local found, _ = Docs.exact(view, w)
       local rows: mut {{string}} = {}
-      for _, e in ipairs(found or {}) do
-        if e.kind == "function" then rows[#rows + 1] = { e.module, e.symbol } end
-      end
+      for _, e in ipairs(found or {}) do rows[#rows + 1] = { e.module, e.symbol, e.kind } end
       return rows
     end, takes = function(w: string): {{string}}
       local found, _ = Docs.taking(view, w)
@@ -157,7 +155,10 @@ function StandardMeant.of(name: string, docs?: StandardMeant.Docs): {string}
   end
   for _, row in ipairs(held.exact(last)) do
     local module, symbol = row[1] or "", row[2] or ""
-    if summaries[module] ~= nil and symbol == last then put(module, "has `" .. symbol .. "`") end
+    -- A field of a record of the module ([`Failure.path`]) is no part of what the module offers.
+    if summaries[module] ~= nil and symbol == last and row[3] == "function" then
+      put(module, "has `" .. symbol .. "`")
+    end
   end
   for _, module in ipairs(modules) do
     local text = summaries[module] or ""

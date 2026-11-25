@@ -18,7 +18,7 @@ local DOCS <const>: StandardMeant.Docs = {
     summary("cosmic.test", "Tests, the tool's own.") },
   exact = function(word: string): {{string}}
     if word ~= "base64" then return {} end
-    return { { "cosmic.codec", "base64" } }
+    return { { "cosmic.codec", "base64", "function" }, { "cosmic.fs", "base64", "field" } }
   end,
   takes = function(word: string): {{string}}
     if word ~= "path" then return {} end

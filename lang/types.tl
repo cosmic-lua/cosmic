@@ -55,8 +55,8 @@
 --- names it was declared with beside its type ([`Field.params`]), for a message to show. Its returns are a set
 --- of alternatives, kept without repeats and in digest order. A narrowing declaration is an
 --- alternative with `narrows`, and the only one, since the grammar makes it the whole return
---- list. Display names a parameter `p<position>` where a spelling needs a name: an
---- omittable parameter and the one a narrowing declaration names.
+--- list. Display names a parameter `p<position>` where a spelling needs a name (an
+--- omittable parameter and the one a narrowing declaration names) and it was given none.
 ---
 --- **Text.** [`Types.encode`] writes a type as canonical text, an S-expression that names
 --- a declaration by its path, and [`Store.decode`] reads it into any store, in normal form
@@ -1172,10 +1172,13 @@ local function show_item(t: Type, names: Names): string
   return show(t, names, false)
 end
 
-local function show_alt(alt: Alt, names: Names): string
+--- `given` names the parameters of the function the alternative is of, as [`Names.params`] does.
+local function show_alt(alt: Alt, names: Names, given?: {string}): string
   local narrows = alt.narrows
   if narrows ~= nil then
-    return (if narrows.asserts then "asserts " else "" end) .. "p" .. tostring(narrows.param) .. " is " .. show(narrows.to, names, false)
+    local declared = if given ~= nil then given[narrows.param] or "" else "" end
+    local param = if declared ~= "" then declared else "p" .. tostring(narrows.param) end
+    return (if narrows.asserts then "asserts " else "" end) .. param .. " is " .. show(narrows.to, names, false)
   end
   local parts: mut {string} = {}
   for _, item in ipairs(alt.items) do
@@ -1207,7 +1210,7 @@ end
 local function show_rets(f: Fn, names: Names): string
   local alts: mut {SortedAlt} = {}
   for _, alt in ipairs(f.rets) do
-    local text = show_alt(alt, names)
+    local text = show_alt(alt, names, if f == names.root then names.params else nil end)
     alts[#alts + 1] = { text = text, order = alt_order(alt, text) }
   end
   if #alts == 0 then
@@ -2019,7 +2022,6 @@ end
 
 -- Declaration text -----------------------------------------------------------------
 
---- `(opt T)` for an omittable slot (a parameter or a field), or `T`.
 --- ` (params "a" "b")` of the names a function field's parameters were declared with, or "" where none is held.
 local function params_text(params?: {string}): string
   if params == nil then return "" end
@@ -2027,6 +2029,8 @@ local function params_text(params?: {string}): string
   for _, name in ipairs(params) do quoted_names[#quoted_names + 1] = quote(name) end
   return " (params " .. table.concat(quoted_names, " ") .. ")"
 end
+
+--- `(opt T)` for an omittable slot (a parameter or a field), or `T`.
 
 local function slot_text(type_: Type, omittable: boolean?): string
   if omittable == true then
