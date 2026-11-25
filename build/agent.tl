@@ -716,8 +716,19 @@ local function prompting(text: string): Go
 end
 
 local function ask(r: Run, got: Flags.Parsed): integer
-  local text = table.concat(got.words, " ")
-  if text == "" then text = r.io.read_all() end
+  -- A word `-` stands for all of standard input, read once; with no words the prompt is standard input.
+  local words: mut {string} = {}
+  local input: string? = nil
+  for _, word in ipairs(got.words) do
+    if word == "-" then
+      input = input or r.io.read_all()
+      words[#words + 1] = input
+    else
+      words[#words + 1] = word
+    end
+  end
+  local text = table.concat(words, " ")
+  if #got.words == 0 then text = r.io.read_all() end
   if text:match("^%s*$") then
     r.complain("ask: give a prompt, as words or on standard input; " .. Flags.usage(Verb, "cosmic agent", { "ask" }))
     return bare.refused

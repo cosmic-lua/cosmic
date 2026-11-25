@@ -16,7 +16,8 @@
 --- Commands:
 ---
 --- - `ask [prompt...]` runs one prompt to the end. The prompt is the
----   words, else all of standard input.
+---   words, else all of standard input; a word `-` stands for standard
+---   input (`cat log | cosmic agent ask 'why does this fail:' -`).
 --- - `chat` takes one prompt a line until `/exit`. A line typed at a
 ---   terminal while the model works steers it. `/later <prompt>` waits
 ---   for the turn to end. A failed turn does not end the chat.
@@ -179,7 +180,7 @@ local command: Flags.Command = {
     { line = "sessions", about = "list the kept sessions" },
   },
   subcommands = {
-    ask = { about = "run one prompt to the end: the words, else all of standard input",
+    ask = { about = "run one prompt to the end: the words (`-` for standard input), else all of standard input",
       usage = "[options] [prompt...]", spec = ask_spec },
     chat = { about = "a conversation, a prompt a line, until /exit", spec = waiting_spec() },
     resume = { about = "finish the turn a run left unfinished", spec = session_spec() },
