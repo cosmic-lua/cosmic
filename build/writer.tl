@@ -1428,20 +1428,7 @@ local carry: {string} = {
 --- require, since working them out takes the code they name.
 function writer.carried(whole: string, out: string,
                         finish?: function(db: Sqlite.Handle): boolean, string): boolean, string
-  local function fill(db: Sqlite.Handle): boolean, string
-    local statements: mut {string} = {}
-    for _, statement in ipairs(schema.settings("")) do
-      statements[#statements + 1] = statement
-    end
-    for _, statement in ipairs(schema.create("")) do
-      statements[#statements + 1] = statement
-    end
-    for _, statement in ipairs(statements) do
-      local ok, failure = db:exec(statement)
-      if not ok then
-        return false, tostring(failure)
-      end
-    end
+  local function fill(db: schema.Build): boolean, string
     local attached, attach_trouble = db:run(
       "ATTACH DATABASE ?1 AS whole", { text(whole) })
     if not attached then
@@ -1482,9 +1469,14 @@ function writer.carried(whole: string, out: string,
     if not moved then return false, tostring(move_why) end
     return true, ""
   end
-  local db, open_trouble = Sqlite.memory()
-  if db == nil then
+  local opened, open_trouble = Sqlite.memory()
+  if opened == nil then
     return false, tostring(open_trouble)
+  end
+  local db, hold_trouble = schema.hold(opened)
+  if db == nil then
+    local _, _ = opened:close()
+    return false, tostring(hold_trouble)
   end
   local ok, trouble = fill(db)
   local _, _ = db:close()

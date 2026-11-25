@@ -608,10 +608,7 @@ local function test_a_unjudged_compile_keeps_a_breach_for_the_tool_it_builds_and
 end
 
 local function test_a_refused_call_points_to_the_worked_example_when_the_docs_hold_it()
-  local db = assert(Sqlite.memory())
-  for _, statement in ipairs(schema.create("")) do
-    assert(db:exec(statement))
-  end
+  local db = assert(schema.hold(assert(Sqlite.memory())))
   assert(db:run(
     "INSERT INTO modules (path, file, kind, source_hash, key, source, bytecode, tests) " ..
       "VALUES ('cosmic.fs', 'cosmic/fs.tl', 'module', '', '', '', '', '')"))

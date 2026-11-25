@@ -79,8 +79,7 @@ end
 --- load when `made.library`, and the meta rows `made` says.
 function database_start_fixture.write_database(path: string, modules: {Module}, made: Made)
   local _, _ = Fs.remove(path)
-  local db = assert(Sqlite.open(path, { writable = true }))
-  for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
+  local db = assert(schema.hold(assert(Sqlite.open(path, { writable = true }))))
   local rows: mut {Module} = {}
   local bytecode: mut {string:string} = {}
   if made.library then
