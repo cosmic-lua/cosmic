@@ -12,10 +12,12 @@
 --- - `wait_for`: waits until that file exists;
 --- - `signal` (INT, TERM or KILL): sends it to `pid`, or to the pid the
 ---   file `pid_file` holds (negated for a process group), or else to
----   itself, and then waits, two seconds at most, for it to end it;
+---   itself, and then waits, two seconds at most, for it to end it (past
+---   which it says so and ends with status 4);
 --- - `sleep_ms`: sleeps that long.
 ---
---- Then it ends with `code`, 0 when not given.
+--- Then it ends with `code`, 0 when not given. A key it does not know
+--- is refused, with status 1.
 
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
@@ -41,7 +43,7 @@ local record Given
   code?: integer
 end
 
-local GIVEN <const> = Shape.record_of("Given")
+local GIVEN <const> = Shape.record_of("Given"):strict()
 
 local signals: {string:integer} = { INT = sys.SIGINT, TERM = sys.SIGTERM, KILL = sys.SIGKILL }
 
@@ -70,8 +72,7 @@ local function main(argv: {string}): integer
   end
   if given.write_args ~= nil then assert(Fs.write(given.write_args, args)) end
   if given.append_args ~= nil then
-    local before, _ = Fs.read(given.append_args)
-    assert(Fs.write(given.append_args, (before or "") .. args))
+    assert(Fs.append(given.append_args, args))
   end
   if given.stdout ~= nil then assert(Fs.put(1, given.stdout)) end
   local guard: Signal.Guard? = nil
@@ -81,7 +82,9 @@ local function main(argv: {string}): integer
     guard = held
   end
   if given.wait_for ~= nil then
-    while not assert(Fs.status(given.wait_for)).exists do
+    while true do
+      local there, _ = Fs.status(given.wait_for)
+      if there ~= nil and there.exists then break end
       if slept_into_a_signal(Clock.ms(5), guard) then return given.trap or 0 end
     end
   end
@@ -100,7 +103,8 @@ local function main(argv: {string}): integer
     if not sent then return fail(tostring(why)) end
     if to_self then
       if slept_into_a_signal(Clock.seconds(2), guard) then return given.trap or 0 end
-      return fail("SIG" .. given.signal .. " sent to itself did not end it in 2 s")
+      fail("SIG" .. given.signal .. " sent to itself did not end it in 2 s")
+      return 4
     end
   end
   if given.sleep_ms ~= nil and slept_into_a_signal(Clock.ms(given.sleep_ms), guard) then

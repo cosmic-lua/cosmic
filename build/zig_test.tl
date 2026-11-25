@@ -365,13 +365,14 @@ end
 
 local function test_run_answers_as_the_child_did(tmp: string)
   local probe = assert(Fake.build(tmp .. "/fake", "build.tool_fake"))
-  local function placed(name: string, given: string): string
-    assert(Fake.place(probe, tmp .. "/" .. name, given))
-    return tmp .. "/" .. name
-  end
-  assert(Zig.run({ placed("ok", "{}") }) == 0)
-  assert(Zig.run({ placed("three", '{"code":3}') }) == 3)
-  assert(Zig.run({ placed("killed", '{"signal":"KILL"}') }) == 128 + sys.SIGKILL)
+  -- One copy, given each time anew: a checked core's copy is 39.5 MB.
+  local zig = tmp .. "/zig"
+  assert(Fake.place(probe, zig, "{}"))
+  assert(Zig.run({ zig }) == 0)
+  assert(Fs.write(zig .. ".do", '{"code":3}'))
+  assert(Zig.run({ zig }) == 3)
+  assert(Fs.write(zig .. ".do", '{"signal":"KILL"}'))
+  assert(Zig.run({ zig }) == 128 + sys.SIGKILL)
 end
 
 local function test_run_passes_on_a_signal_sent_to_it_alone(tmp: string)

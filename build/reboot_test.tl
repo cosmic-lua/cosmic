@@ -161,7 +161,7 @@ local function test_every_core_into_boots_every_core_in_the_checkout(tmp: string
   assert(trouble ~= "nil" and trouble ~= "", trouble)
 
   -- The same fake, told to fail.
-  assert(Fs.write(checkout .. "/bin/zig.do", "exit 1\n"))
+  assert(Fs.write(checkout .. "/bin/zig.do", '{"code":1}'))
   local failed = reboot.every_core_into({ "build" }, own, {})
   assert(failed == "bin/zig build boot -Dboot-cores=all failed; fix what it reports and run this again",
     tostring(failed))
