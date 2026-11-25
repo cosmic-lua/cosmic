@@ -25,6 +25,7 @@ local type _ = require("build.test_inputs")
 local type _ = require("build.module")
 local type _ = require("build.inputs")
 local work = require("build.work")
+local work_schema = require("build.work_schema")
 local build_paths = require("build.paths")
 local writer = require("build.writer")
 local shared_compiles = require("build.shared_compiles")
@@ -434,7 +435,7 @@ end
 
 --- What a build of the tree `files` as cosmic's own tree (not a project) says of it: the trouble of its derive, "" for none.
 local function tree_trouble(dir: string, files: {string: string}): string
-  local db = assert(Sqlite.memory({ schema = work.Database }))
+  local db = assert(Sqlite.memory({ schema = work_schema.Database }))
   for path, text in pairs(files) do
     assert(db:run(
       "INSERT INTO files (path, size, mtime_ns, ino, dev, sha256, data) " ..
@@ -2100,6 +2101,7 @@ local function test_the_writer_modules_are_closed_under_require()
   --- and why no projection's bytes turn on it.
   local neither: mut {string:string} = {
     ["build.work"] = "stages rows and owns transactions and history",
+    ["build.work_schema"] = "the working database's tables, build.work's; the projection holds rows, not this DDL",
     ["build.link_files"] = "stages prose links, whose rows the projection holds",
     ["build.c_tokens"] = "reads C comments for those staged links",
     ["build.importer"] = "coordinates semantic operations and cache transport, and renders diagnostics",
