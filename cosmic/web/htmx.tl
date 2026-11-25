@@ -484,7 +484,8 @@ local function config_of(opts: Htmx.HeadOptions): {string: Json.Value}
   local history_cache_size = config.history_cache_size
   if history_cache_size ~= nil then out["historyCacheSize"] = history_cache_size end
   local nonce = opts.nonce
-  if nonce ~= nil then out["inlineScriptNonce"] = nonce end
+  -- An empty nonce is none, as the tags' template takes it.
+  if nonce ~= nil and nonce ~= "" then out["inlineScriptNonce"] = nonce end
   return out
 end
 
