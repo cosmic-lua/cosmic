@@ -237,14 +237,9 @@ local function only_root_fails(text: string): boolean
   return any
 end
 
---- Tests the checked-out batch, which changes the tree from `main`:
---- true if every check passes; else it says the first that failed.
-local function checked(main: string): boolean
-  local cosmic, unfound = Fs.absolute("bin/cosmic")
-  if cosmic == nil then
-    say("cannot find bin/cosmic: " .. tostring(unfound))
-    return false
-  end
+--- Runs the checks in worktree `dir`, which changes the tree from `main`.
+local function checked_in(dir: string, main: string): boolean
+  local cosmic = dir .. "/bin/cosmic"
   local as_root = trimmed(run({ "id", "-u" }).out) == "0"
   local typed: mut {string} = { cosmic, "test", "--check-types" }
   for path in git({ "diff", "--name-only", "--diff-filter=d", main, "HEAD" }).out:gmatch("[^\n]+") do
@@ -260,16 +255,16 @@ local function checked(main: string): boolean
     root_only?: boolean
   end
   local checks: mut {Check} = {
-    { name = "fix --check at the root", argv = { cosmic, "fix", "--check", "." } },
-    { name = "fix --check in ci/", argv = { cosmic, "fix", "--check", "." }, cwd = "ci" },
-    { name = "the whole suite", argv = { cosmic, "test" } },
+    { name = "fix --check at the root", argv = { cosmic, "fix", "--check", "." }, cwd = dir },
+    { name = "fix --check in ci/", argv = { cosmic, "fix", "--check", "." }, cwd = dir .. "/ci" },
+    { name = "the whole suite", argv = { cosmic, "test" }, cwd = dir },
     -- As CI's driver job runs it.
-    { name = "ci/'s suite", argv = { cosmic, "test", "cosmic_ci" }, cwd = "ci",
+    { name = "ci/'s suite", argv = { cosmic, "test", "cosmic_ci" }, cwd = dir .. "/ci",
       env = { COSMIC_VERDICT_CACHE = "0", COSMIC_TEST_SANDBOX = "0" }, root_only = true },
   }
   if #typed > 3 then
     checks[#checks + 1] = { name = "test --check-types on " .. tostring(#typed - 3) .. " changed test files",
-      argv = typed }
+      argv = typed, cwd = dir }
   end
   for _, check in ipairs(checks) do
     say("checking: " .. check.name)
@@ -288,6 +283,22 @@ local function checked(main: string): boolean
     end
   end
   return true
+end
+
+--- Tests the checked-out batch, which changes the tree from `main`, in
+--- a worktree of its own: a cosmic started from this process, whose
+--- tool the batch's checkout left stale, says its tool stays stale.
+--- True if every check passes; else it says the first that failed.
+local function checked(main: string): boolean
+  local dir = (Env.get("TMPDIR") or "/tmp") .. "/cosmic-batch-check"
+  git({ "worktree", "remove", "--force", dir })
+  if not git({ "worktree", "add", "-q", "--detach", dir, "HEAD" }).ok then
+    say("cannot make a worktree at " .. dir)
+    return false
+  end
+  local ok = checked_in(dir, main)
+  git({ "worktree", "remove", "--force", dir })
+  return ok
 end
 
 local function stack(branch: string, numbers: {string}): integer
