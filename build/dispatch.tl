@@ -458,7 +458,7 @@ local function with_tree_hint(trouble: string, root: Root): string
   if trouble:find("(require_unknown)", 1, true) == nil then
     return trouble
   end
-  -- TODO: leave out the checker's "did you mean" of `trouble` where this hint is given, once lang/check.tl's
+  -- TODO: leave out the checker's "did you mean" of `trouble` where this hint is given, once lang/check/init.tl's
   -- `require_unknown` suggestion can be told the project's root: from a directory above the project it names the
   -- module from the run's tree (`proj.m`), a require that works only from there.
   return trouble .. "\n" .. "cosmic: this run built the tree " .. root.dir .. ", " .. root.chosen ..

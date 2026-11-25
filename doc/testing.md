@@ -1380,7 +1380,7 @@ Other rules:
 [`build/test_state.tl`]: ../build/test_state.tl
 [`build/type_watch.tl`]: ../build/type_watch.tl
 [`build/zig.tl`]: ../build/zig.tl
-[`Check.Checked.narrowed`]: ../lang/check.tl
+[`Check.Checked.narrowed`]: ../lang/check/init.tl
 [`ci/cosmic_ci/capabilities.json`]: ../ci/cosmic_ci/capabilities.json
 [`ci/README.md`]: ../ci/README.md
 [`cosmic.fake`]: ../cosmic/fake.tl
