@@ -60,10 +60,50 @@ end
 ---     print(NearNames.cut("abcdef", 5)) -- ab...
 function NearNames.cut(text: string, most: integer): string
   if #text <= most then return text end
+  if most < 3 then return "" end
   local at = most - 3
   -- A byte 10xxxxxx continues a character: back up to the start of one.
   while at > 0 and (text:byte(at + 1) or 0) & 0xC0 == 0x80 do at = at - 1 end
   return text:sub(1, at) .. "..."
+end
+
+--- The type `text` cut to at most `most` bytes, where it is longer, with its returns kept: a function type keeps its
+--- first parameters whole and writes `...` for the rest; any other type is cut at its end, as [`NearNames.cut`] does.
+---
+---     print(NearNames.cut_signature("function(path: string, mode: integer): string", 35)) -- function(path: string, ...): string
+function NearNames.cut_signature(text: string, most: integer): string
+  if #text <= most then return text end
+  if text:sub(1, 1) == "(" and text:sub(-2) == ")?" and most > 3 then
+    return "(" .. NearNames.cut_signature(text:sub(2, -3), most - 3) .. ")?"
+  end
+  local open = text:find("(", 1, true)
+  if text:sub(1, 8) ~= "function" or open == nil then return NearNames.cut(text, most) end
+  -- The ends of the parameters at depth 0 of the list `open` begins, before each `,`; `close` is the list's `)`.
+  local ends: mut {integer} = {}
+  local close: integer? = nil
+  local depth = 0
+  for i = open + 1, #text do
+    local c = text:sub(i, i)
+    if c == "(" or c == "{" or c == "<" then
+      depth = depth + 1
+    elseif depth > 0 and (c == ")" or c == "}" or c == ">") then
+      depth = depth - 1
+    elseif depth == 0 and c == "," then
+      ends[#ends + 1] = i - 1
+    elseif depth == 0 and c == ")" then
+      close = i
+      break
+    end
+  end
+  if close == nil then return NearNames.cut(text, most) end
+  local tail = text:sub(close)
+  local kept = open
+  for _, e in ipairs(ends) do
+    if e + #", ..." + #tail <= most then kept = e end
+  end
+  local head = text:sub(1, kept) .. (if kept > open then ", ..." else "..." end)
+  if #head + #tail > most then return NearNames.cut(text, most) end
+  return head .. tail
 end
 
 return NearNames

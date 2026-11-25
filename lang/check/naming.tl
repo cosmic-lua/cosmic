@@ -173,7 +173,7 @@ function Naming.members_told(ctx: Ctx, t: Type, name: string, close: string): st
     local list = index.by_name[n]
     local first = if list ~= nil then list[1] else nil end
     local shown = if first ~= nil then
-      NearNames.cut(Types.display(first.type, ctx.binders, ctx.fn_names, first.params), 120) else "" end
+      NearNames.cut_signature(Types.display(first.type, ctx.binders, ctx.fn_names, first.params), 120) else "" end
     -- A type that holds a type variable of the checker's own (`?0.0`) is shown by its name alone.
     typed[#typed + 1] = if shown ~= "" and shown:find("%?%d") == nil then "`" .. n .. ": " .. shown .. "`" else quoted(n) end
   end

@@ -190,6 +190,11 @@ local function test_the_functions_that_take_a_parameter_of_a_name_are_found()
     { "cosmic.fs", "Fs.join", "function", "function Fs.join(paths: {string}): string", "", "cosmic/fs.tl", "4" },
     { "cosmic.fs", "Fs.hidden", "function", "function Fs.hidden(path: string): string", "", "cosmic/fs.tl", "5", "private" },
     { "cosmic.fs", "Fs.Dir.path", "field", "path: string", "", "cosmic/fs.tl", "6" },
+    -- A callback's parameter is the callback's, not the function's.
+    { "cosmic.fs", "Fs.reserved", "function", "function Fs.reserved(entries: {string}, skip: function(path: string): boolean)",
+      "", "cosmic/fs.tl", "7" },
+    { "cosmic.fs", "Fs.each", "function", "function Fs.each(f: (function(n: integer, path: string))?): integer", "",
+      "cosmic/fs.tl", "8" },
   }, {})
   local found = assert(Doc.taking(view({ db }), "path"))
   local symbols_found: mut {string} = {}
