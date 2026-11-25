@@ -36,7 +36,7 @@ end
 local function test_a_loop_of_calls_the_checker_counts_inert_runs_none()
   -- `string.rep` (also as a method), `math.max` and `math.random` (a C closure) run no code of the
   -- program, so no finalizer runs at their calls, however much they
-  -- allocate (lang/check.tl's [`Tests.inert_callee`]).
+  -- allocate (lang/check/init.tl's [`Tests.inert_callee`]).
   local seen = finalized_during([[
     for i = 1, 200000 do
       local s = string.rep("x", 64 + i % 7); s = s:rep(2); math.max(i, random(3))

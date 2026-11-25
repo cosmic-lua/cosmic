@@ -360,7 +360,7 @@ end
 ---
 --- The seed ([`build/seed.txt`] and each file it lists) is in it too: a boot compiles the compiler the tool carries from
 --- those files alone (core/bridge.lua's `bootstrap`), and a rebuild by the running tool carries its own compiler on, so
---- an edit to one of them ([`lang/check.tl`], say) is a tool that only a boot makes.
+--- an edit to one of them (lang/check/init.tl, say) is a tool that only a boot makes.
 ---
 --- Both fingerprints are written into `meta` for the projection to carry
 --- into the binary, which is how a binary knows what it was built from,
