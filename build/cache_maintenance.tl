@@ -89,12 +89,17 @@ end
 
 --- A column's shape, including hidden/generated columns that table_info omits.
 local function columns(db: Sqlite.Handle, name: string): {string}?, string
-  local rows, why = db:text_rows(
+  local rows, why = db:rows(
     'SELECT name, upper(type), "notnull", coalesce(dflt_value, \'\'), pk, hidden ' ..
       "FROM pragma_table_xinfo(?1) ORDER BY cid", { { text = name } })
   if rows == nil then return nil, tostring(why) end
   local shape: mut {string} = {}
-  for _, row in ipairs(rows) do shape[#shape + 1] = table.concat(row:texts(), "\0") end
+  for _, row in ipairs(rows) do
+    local cells: mut {string} = {}
+    -- notnull, pk and hidden are integers; the shape compares them as text.
+    for i = 1, 6 do cells[i] = row:as_text(i) or "" end
+    shape[#shape + 1] = table.concat(cells, "\0")
+  end
   return shape, ""
 end
 
@@ -121,7 +126,7 @@ local function shapes(): {string:Shape}
   local out: mut {string:Shape} = {}
   for _, name in ipairs({ formats.compiled, formats.parsed, formats.bridge, formats.declared,
       formats.stores, "verdicts_v4" }) do
-    local declared = assert(memory:text_rows(
+    local declared = assert(memory:rows(
       "SELECT sql FROM sqlite_schema WHERE name = ?1", { { text = name } }))
     local sql = assert(declared[1], "every format is declared in memory"):text(1)
     out[name] = { columns = (assert(columns(memory, name))), sql = normalized(sql) }
@@ -163,7 +168,7 @@ end
 --- Conservatively retain all family rows when any such effect is present.
 local function inspect(db: Sqlite.Handle, family: maintenance.Family,
                        expected: {string:Shape}): {Table}?, string
-  local schema, why = db:text_rows(
+  local schema, why = db:rows(
     "SELECT name, type, coalesce(sql, '') FROM sqlite_schema ORDER BY name")
   if schema == nil then return nil, tostring(why) end
   local unsafe = false
@@ -341,13 +346,13 @@ local function feed_rows(hasher: Hash.Hasher, path: string, guard: Signal.Guard)
   local begun, begun_why = db:exec("BEGIN")
   if not begun then return false, tostring(begun_why) end
   database.transaction = true
-  local names, names_why = db:text_rows("SELECT name FROM sqlite_schema " ..
+  local names, names_why = db:rows("SELECT name FROM sqlite_schema " ..
       "WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name")
   if names == nil then return false, tostring(names_why) end
   for _, row in ipairs(names) do
     if guard:cancelled() ~= 0 then return false, "cache maintenance interrupted" end
     local name = row:text(1)
-    local fields, fields_why = db:text_rows(
+    local fields, fields_why = db:rows(
       "SELECT name FROM pragma_table_info(?1) WHERE name <> 'used_ns' ORDER BY cid",
       { { text = name } })
     if fields == nil then return false, tostring(fields_why) end
@@ -464,7 +469,7 @@ local function fresh_keys(path: string, restored: string, expected: {string:Shap
       end
     end
   end
-  local names, names_why = opened:text_rows(
+  local names, names_why = opened:rows(
     "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
   if names == nil then return nil, tostring(names_why) end
   local total = 0

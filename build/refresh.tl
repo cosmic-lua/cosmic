@@ -335,7 +335,7 @@ local cacert: refresh.Dataset = {
       write = function(db: Sqlite.Handle): boolean, string
         -- A binary built before the table held distrust dates: its core
         -- reads only `der`, and takes the column as it comes.
-        local columns, column_trouble = db:text_rows(
+        local columns, column_trouble = db:rows(
           "SELECT 1 FROM pragma_table_info('ca_roots') WHERE name = 'distrust_after'")
         if columns == nil then
           return false, tostring(column_trouble)
@@ -501,7 +501,7 @@ end
 
 --- What the binary records of the release it carries of `name`.
 local function recorded(db: Sqlite.Handle, name: string): Recorded?, string
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT version, url, sha256, patches FROM components WHERE name = ?1", { bind.text(name) })
   if rows == nil then
     return nil, tostring(trouble)
@@ -626,7 +626,7 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
     local skipped: mut {string:boolean} = {}
     if every == true then
       for _, dataset in ipairs(chosen) do
-        local has, has_trouble = db:text_rows("SELECT 1 FROM components WHERE name = ?1",
+        local has, has_trouble = db:rows("SELECT 1 FROM components WHERE name = ?1",
           { bind.text(dataset.name) })
         if has == nil then
           return done(tostring(has_trouble))
@@ -668,12 +668,12 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
     -- function of its rows. A vacuum writes the schema cookie one past
     -- the source's, which no row here moved: set back by one first, so
     -- the copy carries the cookie the binary did.
-    local cookie, cookie_trouble = db:text_rows("PRAGMA schema_version")
+    local cookie, cookie_trouble = db:rows("PRAGMA schema_version")
     if cookie == nil then
       return done(tostring(cookie_trouble))
     end
     local cookie_row = cookie[1]
-    local cookie_value = if cookie_row ~= nil then math.tointeger(tonumber(cookie_row:text(1))) else nil end
+    local cookie_value = if cookie_row ~= nil then cookie_row:integer(1) else nil end
     if cookie_value == nil then
       return done("PRAGMA schema_version answered no integer")
     end

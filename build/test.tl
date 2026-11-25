@@ -455,7 +455,7 @@ end
 --- Every test that has a `runs` row, by "path name": each that ran or
 --- stood here before.
 local function previous_runs(handle: Sqlite.Handle): {string:boolean}?, string
-  local rows, trouble = handle:text_rows("SELECT path, test FROM runs")
+  local rows, trouble = handle:rows("SELECT path, test FROM runs")
   if rows == nil then
     return nil, tostring(trouble)
   end
@@ -796,7 +796,7 @@ local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
       placeholders[index] = "?" .. tostring((index + 1))
       args[#args + 1] = text(id)
     end
-    local rows, trouble = handle:text_rows(
+    local rows, trouble = handle:rows(
       "SELECT hits FROM hits_by_test WHERE ran_at_ns = ?1 " ..
         "AND test IN (" .. table.concat(placeholders, ", ") .. ")", args)
     if rows == nil then
@@ -868,7 +868,7 @@ function test.write_module_coverage(handle: Sqlite.Handle,
   into_modules:close()
   into_hits:close()
   if not filled then return nil, fill_trouble end
-  local missing, missing_trouble = handle:text_rows(
+  local missing, missing_trouble = handle:rows(
     "SELECT m.path FROM temp.run_modules m LEFT JOIN executable e ON e.source_hash = m.source_hash " ..
       "WHERE e.source_hash IS NULL ORDER BY m.path")
   if missing == nil then return nil, tostring(missing_trouble) end
@@ -885,7 +885,7 @@ function test.write_module_coverage(handle: Sqlite.Handle,
   if not written then return nil, tostring(write_trouble) end
   -- How many rows that wrote, and how many of them are hit, counted from the rows themselves: asking `run_hits` which
   -- of its lines a module's executable lines hold spreads the module's lines again for each line hit.
-  local totals, totals_trouble = handle:text_rows(
+  local totals, totals_trouble = handle:rows(
     "SELECT count(*), coalesce(sum(c.hit), 0) FROM coverage c JOIN temp.run_modules m ON m.path = c.path " ..
       "WHERE c.ran_at_ns = ?1", { { integer = run_at_ns } })
   local cleaned, clean_trouble = handle:exec("DELETE FROM temp.run_modules; DELETE FROM temp.run_hits")
@@ -893,7 +893,7 @@ function test.write_module_coverage(handle: Sqlite.Handle,
   if not cleaned then return nil, tostring(clean_trouble) end
   local counted = totals[1]
   if counted == nil then return nil, "the count of the rows written came back empty" end
-  return { hit = math.tointeger(tonumber(counted:text(2))) or 0, lines = math.tointeger(tonumber(counted:text(1))) or 0 }, ""
+  return { hit = counted:integer(2), lines = counted:integer(1) }, ""
 end
 
 --- Every line [`build.coverage`] found for every non-vendor module
@@ -1044,7 +1044,7 @@ end
 --- so a checkout made again at the same path is another checkout, and
 --- one whose o/ is removed is too.
 local function checkout_id(records: Sqlite.Handle, root: string, now_ns: integer): string
-  local rows, _ = records:text_rows("SELECT value FROM meta WHERE key = 'checkout'")
+  local rows, _ = records:rows("SELECT value FROM meta WHERE key = 'checkout'")
   if rows ~= nil and rows[1] ~= nil then return rows[1]:text(1) end
   local made = hex_sha256(root .. "\0" .. tostring(now_ns) .. "\0" ..
       tostring(Clock.monotonic_ns()) .. "\0" .. tostring({})) -- checked: literal_needs_type
@@ -3551,14 +3551,14 @@ end
 --- entirely on verdicts has the same figures as the runs that earned them,
 --- but for a module whose lines have moved since (`stale`).
 local function file_lines(handle: Sqlite.Handle, run_at_ns: integer): {test_report.FileLines}?, string
-  local rows, trouble = handle:text_rows(
+  local rows, trouble = handle:rows(
     "SELECT path, count(*), sum(hit) FROM coverage WHERE ran_at_ns = ?1 GROUP BY path",
     { { integer = run_at_ns } })
   if rows == nil then return nil, tostring(trouble) end
   local files: mut {test_report.FileLines} = {}
   for _, row in ipairs(rows) do
-    files[#files + 1] = { path = row:text(1), lines = math.tointeger(tonumber(row:text(2))) or 0,
-      hit = math.tointeger(tonumber(row:text(3))) or 0 }
+    files[#files + 1] = { path = row:text(1), lines = row:integer(2),
+      hit = row:integer(3) }
   end
   return files, ""
 end
