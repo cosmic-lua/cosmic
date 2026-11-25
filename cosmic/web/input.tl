@@ -661,7 +661,9 @@ end
 --- `opts.max_bytes` (64 KiB). The body is read once: the decode is kept
 --- under [`Input.FORM`], the bytes in `req:bytes()` and `req.raw.body`, so
 --- a middleware and a handler both read it. A request with no body is an
---- empty form.
+--- empty form. A `multipart/form-data` body is read as [`Input.multipart`]
+--- reads it, at most `opts.max_bytes` (64 KiB) here too, and its text parts
+--- are the form.
 --- @param req Types.Request The request
 --- @param opts Types.InputOptions | nil The limit
 --- @return Types.Parsed<Url.Query> The form, or status 400, 408, 413 or 415

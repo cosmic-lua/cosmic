@@ -230,9 +230,9 @@ local record Shape
   --- the path to the first value that does not fit, when it is JSON of
   --- another shape. `opts` are [`Json.decode`]'s, forwarded as they are
   --- (`json5`, `null_value`, `max_depth`). The result's type is the spec's,
-  --- as `into`'s is. Text that is `null` decodes to nothing (unless
-  --- `opts.null_value` says otherwise), so for a required spec it returns
-  --- nil and `$: missing`, and for an optional one nil and "".
+  --- as `into`'s is. Text that is `null` decodes to [`Json.null`], a
+  --- missing value, so for a required spec it returns nil and
+  --- `$: missing`, and for an optional one nil and "".
   ---
   ---     local SERVER <const> = Shape.record_of("Server")
   ---     local server, err = decode_into(text, SERVER.spec)

@@ -18,7 +18,13 @@ local DOCS <const>: StandardMeant.Docs = {
     summary("cosmic.test", "Tests, the tool's own.") },
   exact = function(word: string): {{string}}
     if word ~= "base64" then return {} end
-    return { { "cosmic.codec", "base64" } }
+    return { { "cosmic.codec", "base64", "function" }, { "cosmic.fs", "base64", "field" } }
+  end,
+  takes = function(word: string): {{string}}
+    if word ~= "path" then return {} end
+    -- Four functions of one module take a `path` (one in each of two databases), and one of another.
+    return { { "cosmic.fs", "Fs.basename" }, { "cosmic.fs", "Fs.dirname" }, { "cosmic.fs", "Fs.read" },
+      { "cosmic.fs", "Fs.read" }, { "cosmic.fs", "Fs.write" }, { "cosmic.web.route", "Route.match" } }
   end,
 }
 
@@ -34,6 +40,10 @@ local function test_a_wrong_module_name_finds_the_module_that_has_it()
   local route = StandardMeant.of("cosmic.route", DOCS)
   assert(#route == 1 and route[1] == "`cosmic.web.route` (Routes, under web.)", table.concat(route, " | "))
   assert(#StandardMeant.of("cosmic.web.rote", DOCS) == 1)
+  -- A module named for a word its functions take names the module that has most of them; one function is not enough.
+  local path = StandardMeant.of("cosmic.path", DOCS)
+  assert(#path == 1 and path[1] == "`cosmic.fs` (4 functions take a `path`: basename, dirname, read, write)",
+    table.concat(path, " | "))
   -- No name outside cosmic, none of the tool's own modules, and none for a word nothing holds.
   assert(#StandardMeant.of("app.thing", DOCS) == 0 and #StandardMeant.of("cosmic.zzqqxx", DOCS) == 0)
   assert(#StandardMeant.of("cosmic.tests", DOCS) == 0)

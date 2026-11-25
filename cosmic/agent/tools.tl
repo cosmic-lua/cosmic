@@ -999,8 +999,9 @@ local function used(context: Tools.Context, args: Json.Value, budget: Worker.Bud
 end
 
 --- What serves the calls a snippet of `context` makes of the agent (history, a read-only query of sessions.db, store.get,
---- store.put, and mcp.servers, mcp.tools and mcp.call), each asked of its guard first and given to its amend
---- after, failed or not. A call of no other name is refused before either is asked.
+--- store.put, mcp.servers, mcp.tools, mcp.call, and use, a tool's call by [`Host.use`]), each asked of its guard first
+--- and given to its amend after, failed or not; use by the tool's own name. A call of no other name is refused before
+--- either is asked.
 local function served(context: Tools.Context): Worker.Serve
   local answer_of = served_unguarded(context)
   return function(name: string, args: Json.Value, budget: Worker.Budget): (Json.Value) | (nil, Failure)

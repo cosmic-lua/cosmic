@@ -141,8 +141,8 @@ local record Json
     --- indented by two spaces (default false).
     pretty?: boolean
     --- How many arrays and objects may nest, 1 to [`Json.depth_limit`]
-    --- (1000; default [`Json.default_depth`], 64). A table that contains
-    --- itself fails here.
+    --- (1000; default [`Json.default_depth`], 64); a value outside that
+    --- raises. A table that contains itself fails here.
     mut max_depth?: integer
     --- Write every character past U+007F as a `\uXXXX` escape, a pair
     --- of them above U+FFFF, so that the text is ASCII throughout and
@@ -190,7 +190,8 @@ local record Json
     --- it. Only [`Json.null`], the stand-in that encodes back as `null`.
     mut null_value?: Json.Null
     --- How many arrays and objects may nest, 1 to [`Json.depth_limit`]
-    --- (1000; default [`Json.default_depth`], 64).
+    --- (1000; default [`Json.default_depth`], 64); a value outside that
+    --- raises.
     max_depth?: integer
     --- Read JSON5 rather than RFC 8259 JSON (default false). NaN and
     --- Infinity decode to the float they name.
@@ -272,7 +273,8 @@ local record Json
   --- means what it means to `decode`.
   record ReaderOptions
     --- How many arrays and objects may be open at once, 1 to
-    --- [`Json.depth_limit`] (default [`Json.default_depth`]).
+    --- [`Json.depth_limit`] (default [`Json.default_depth`]); a value
+    --- outside that raises.
     max_depth?: integer
     --- Read an object that holds a key twice rather than refusing it.
     duplicate_keys?: boolean
@@ -397,8 +399,8 @@ local record Json
   --- What [`Json.select`] may be told. Every field is optional.
   record SelectOptions
     --- How deep a descendant segment (`..`) may walk, 1 to
-    --- [`Json.depth_limit`] (the default): a table that contains itself
-    --- fails here.
+    --- [`Json.depth_limit`] (the default); a value outside that raises. A
+    --- table that contains itself fails here.
     max_depth?: integer
   end
 
@@ -1055,7 +1057,7 @@ end
 --- finite, a table is an array or an object by [`Json.layout`] -- so what comes
 --- back is what [`Json.encode`] writes: an array, a Teal array literal among them, is marked as one, so
 --- [`Json.is_array`] returns true for it, and a table with no keys is an object unless [`is_array`] marks it. nil and
---- a message naming the first part that is none, by its JSON Pointer, when
+--- a [`Failure`] naming the first part that is none, by its JSON Pointer, when
 --- `value` is a nil (a decoded `null`, unless `null_value` kept it), a
 --- function, userdata other than [`Json.null`], a table with mixed keys or
 --- a hole, a string that is not UTF-8, or nesting past [`Json.depth_limit`].
@@ -1578,7 +1580,7 @@ end
 --- The last step names the place: a member of an object, there or not, or an
 --- array's position, a negative one counted from the end as [`Json.get`]
 --- counts. The position one past the last element appends. nil and a
---- message naming the place by its JSON Pointer for a position further
+--- [`Failure`] naming the place by its JSON Pointer for a position further
 --- past the end, which would leave a hole; for a step before the last that
 --- reaches nothing, since nothing says whether an object or an array belongs
 --- there (set one first); and for a step [`Json.get`] refuses: into a value
