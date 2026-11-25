@@ -90,6 +90,12 @@
 --- - Without `--commands`, no program runs: on Linux the sandbox refuses
 ---   every file but cosmic's own the right to run. On macOS, or with
 ---   `--sandbox off`, a snippet may still run one.
+--- - `--modules` says what snippets load code from: `cosmic`, the
+---   standard library, and a directory, whose tree's modules they require
+---   as a file at its root does (`.`, the working directory, by default;
+---   another needs a `--grant`). `--modules none` loads no code but Host
+---   and the MCP servers' modules. A snippet has no `load`, `loadfile`
+---   or `dofile` in any case. The default is `cosmic,.`.
 --- - `--sandbox read` lets them change nothing.
 --- - `--sandbox off` runs them with your user's rights and environment,
 ---   your API key included.
@@ -140,6 +146,9 @@ local grant: Flags.Option = { value = "path[:rwxc]",
   about = "let the tools reach this path too, read alone unless letters say more" }
 local commands: Flags.Option = { about = "let snippets run programs (Host.bash), as the grants below let them; " ..
     "by default none runs" }
+local modules: Flags.Option = { value = "list",
+  about = "what snippets may load code from, by commas: cosmic (the standard library), a directory (its tree's " ..
+    "modules, . the working directory's; --grant another), or none (default cosmic,.)" }
 local budget: Flags.Option = { value = "limits",
   about = "the most each turn may spend, such as tokens=200000,cost=0.50,turns=20,time=10m; the first reached ends it" }
 local mcp: Flags.Option = { value = "file",
@@ -151,7 +160,7 @@ local function session_spec(): mut {string: Flags.Option}
     ["--model"] = model, ["--effort"] = effort, ["--continue"] = continue_, ["--session"] = session,
     ["--new"] = new, ["--fork"] = fork,
     ["--sandbox"] = sandbox, ["--network"] = network, ["--connect"] = connect, ["--grant"] = grant, ["--mcp"] = mcp,
-    ["--commands"] = commands, ["--budget"] = budget,
+    ["--commands"] = commands, ["--modules"] = modules, ["--budget"] = budget,
   }
 end
 
@@ -182,12 +191,12 @@ local command: Flags.Command = {
     rpc = { about = "one session for another program, as JSON lines", spec = waiting_spec() },
     sessions = { about = "the newest sessions in this directory" },
     prompt = { about = "the system prompt the model reads",
-      spec = { ["--commands"] = commands } },
+      spec = { ["--commands"] = commands, ["--modules"] = modules } },
     policy = { about = "the sandbox the tools would run under here; clear-home empties their kept home",
       usage = "[options] [clear-home]",
       spec = { ["--sandbox"] = sandbox, ["--network"] = network, ["--connect"] = connect, ["--grant"] = grant,
         ["--commands"] = commands } },
-    worker = { about = "the process that runs the snippets; the agent starts it" },
+    worker = { about = "the process that runs the snippets; the agent starts it", spec = { ["--modules"] = modules } },
   },
 }
 

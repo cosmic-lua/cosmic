@@ -101,6 +101,8 @@ local record Tools
     --- Whether a snippet of run may run programs ([`Worker.Options`] `commands`, by Host.bash). Nil is false. A run
     --- whose commands differ from those its worker was started with starts a new one.
     commands?: boolean
+    --- What a snippet of run may load code from ([`Worker.Options`] `modules`); nil is [`Worker.MODULES`].
+    modules?: {string}
     --- The tools the agent offers; every tool ([`Tools.all`]) where nil.
     --- A tool's hints name only tools offered.
     tools?: {Tool}
@@ -623,6 +625,7 @@ local function run(input: Tools.Object, context: Tools.Context): Tools.Result
   local set = context.worker
   if set == nil then return fail("No worker runs snippets here") end
   local answer, run_why = Worker.run(set, code, { cwd = context.cwd, policy = context.policy, commands = context.commands,
+    modules = context.modules,
     seconds = seconds or RUN_SECONDS, stopped = context.stopped, serve = served(context) })
   if answer == nil then return fail(tostring(run_why)) end
   local refused, _ = Json.to_array(answer["refused"])

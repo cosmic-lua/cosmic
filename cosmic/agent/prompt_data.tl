@@ -40,6 +40,8 @@ local record PromptData
     code_tools?: {CodeTool}
     --- Whether a snippet of run may run programs (Host.bash).
     commands: boolean
+    --- Whether a snippet may require the working directory's own modules ([`Prompt.Options`] `loads`).
+    tree: boolean
     --- Whether run is offered.
     run: boolean
     --- The project's instructions.

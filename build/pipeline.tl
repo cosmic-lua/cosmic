@@ -87,7 +87,7 @@ local record Pipeline
     --- text: what `standard` read of the tree ([`build.nearby`]), and so what the text is checked with and what runs
     --- with it. Their bodies are checked as the text's are, and their Lua written beside its own
     --- ([`Pipeline.Alone.nearby`]). nil where `standard` reads only `cosmic.*` modules.
-    nearby?: {string: Nearby}
+    mut nearby?: {string: Nearby}
   end
 
   --- A module of the working directory's tree, as [`Pipeline.Options.nearby`] holds it.

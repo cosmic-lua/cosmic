@@ -148,8 +148,12 @@ local function sweep(dir: string)
 end
 
 --- The Lua of a `require` that returns each of `modules` by its name, and asks `load_module` for any other.
-local OWN_REQUIRE <const> = "local modules, load_module, nearby = ... local loaded = {} " ..
+local OWN_REQUIRE <const> = "local modules, load_module, nearby, allowed, env = ... local loaded = {} " ..
+  "if allowed ~= nil then for _, n in ipairs({'load', 'loadfile', 'dofile'}) do env[n] = function() " ..
+  "error(n .. ': this chunk loads no code but the modules it may require', 2) end end end " ..
   "return function(name) local found = modules[name] if found ~= nil then return found end " ..
+  "if allowed ~= nil and not allowed(name) then error('require(\"' .. tostring(name) .. '\"): " ..
+  "this chunk may not load that module', 2) end " ..
   "local near = nearby[name] if near == nil then return load_module(name) end " ..
   "if loaded[name] == nil then loaded[name] = true local value = near(name) if value ~= nil then loaded[name] = value end end " ..
   "return loaded[name] end"
@@ -167,11 +171,15 @@ end
 --- `modules` by its name, as a module the binary does not hold: the module of an MCP server a snippet of cosmic agent
 --- requires ([`build.agent_worker`]). Each of `nearby`, the Lua of a module of the working directory's tree by its
 --- name, with its file ([`Pipeline.Alone.nearby`]), runs at its first `require`, in the same globals, as a tree runs it.
+--- With `allowed`, the chunk is held to the code it says: a `require` of any other name raises, and `load`, `loadfile`
+--- and `dofile` raise too, so the chunk loads no code but what it may require.
 function standalone.loaded_with<M>(file: string, code: string, modules: {string: M},
-                                   nearby?: {string: standalone.Near}): standalone.Main?, string
+                                   nearby?: {string: standalone.Near},
+                                   allowed?: function(name: string): boolean): standalone.Main?, string
   local globals = Globals.table()
   local own: mut {string: any} = {}
   for k, v in pairs(globals) do own[k] = v end
+
   local loaders: mut {string: standalone.Main} = {}
   for name, near in pairs(nearby or {}) do
     local chunk, trouble = loaded_in(near.file, near.code, own)
@@ -180,8 +188,8 @@ function standalone.loaded_with<M>(file: string, code: string, modules: {string:
     end
     loaders[name] = chunk
   end
-  local made = assert(load(OWN_REQUIRE, "=own_require", "t", {}))
-  own["require"] = made(modules, globals["require"], loaders)
+  local made = assert(load(OWN_REQUIRE, "=own_require", "t", globals))
+  own["require"] = made(modules, globals["require"], loaders, allowed, own)
   return loaded_in(file, code, own)
 end
 
