@@ -108,8 +108,9 @@ end
 --- and `seed`'s legs is a job of the platform matrix, named by its leg (or,
 --- in the queue, `linux-x86_64-format`, the format part of linux-x86_64's),
 --- a job of the checked suite (`linux-x86_64-checked`, its shares, its
---- narrowing run), which run beside them, or the queue's check of the
---- pinned driver (`linux-x86_64-driver`), counted as a leg.
+--- narrowing run), which run beside them, or the pull request's and the
+--- queue's check of the pinned driver (`linux-x86_64-driver`), counted as
+--- a leg.
 local join_job <const> = "ci"
 --- The suites whose key parts decide whether a run qualifies: the
 --- checked suite's and each leg's native one (orchestration.tl's
