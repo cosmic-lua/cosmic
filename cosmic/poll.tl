@@ -420,7 +420,7 @@ local function wake(w: Wait, ok: boolean, why: string, notice?: NotifierState)
   queue[#queue + 1] = { task = w.task, ok = ok, why = why, notice = notice }
 end
 
---- What a call outside a run is told to do instead.
+--- Where to make a call that needs a running [`Poll.run`], for the error of one made outside it.
 local OUTSIDE = ": call it in the function `Poll.run(main)` runs, or in a task that function spawns"
 
 --- The task the calling coroutine is, raising at `level` where there is

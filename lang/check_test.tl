@@ -239,6 +239,11 @@ local CASES <const>: {Case} = {
       "fails, or match the call: `match f() do | ... end`",
   },
   {
+    -- `pcall(f)!` would raise what `pcall` caught: `!` is not offered for it.
+    code = "alternatives_as_value", source = "local function f(): integer return 1 end\nlocal x = pcall(f) + 1\n",
+    msg = "`pcall(f)` answers one of 2 lists of values, which is no value", fix = "`) or match the call: `match pcall(f) do",
+  },
+  {
     code = "value_count", source = "local a, b = 1\n", at = { line = 1, column = 1 },
     msg = "this gives 1 value to 2 names, so the last name is nil", fix = "give 2 values",
   },

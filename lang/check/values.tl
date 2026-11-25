@@ -52,6 +52,14 @@ function ValueLists.vararg_rest(ctx: Ctx, e: Ast.Node): Type
 end
 local vararg_rest = ValueLists.vararg_rest
 
+--- Whether no value of `t` is nil ([`Types.present`]), where a type parameter of the code around is never nil once a
+--- bound bounds it: each bound is below `Some`, which holds no `nil`.
+function ValueLists.present(ctx: Ctx, t: Type): boolean
+  return Types.present_where(t, function(v: Types.Var): boolean
+    return ctx.judge:subtype(v, ctx.store:atom("Some"))
+  end)
+end
+
 --- The one list of `alts` that `assert` lets pass: the list whose first value is never nil or false, where the first
 --- value of every other list is `nil` or `false` and nothing else, so `assert` raises at each of them. Nil where there
 --- is no such list, more than one, or a list whose first value may be either (a `boolean`, an optional, `any`).
@@ -61,9 +69,7 @@ function ValueLists.asserted(ctx: Ctx, alts: {Alt}): Alt?
     local first = alt.items[1]
     if first == nil then
       return nil
-    elseif Types.present_where(first, function(var: Types.Var): boolean
-      return ctx.judge:subtype(var, ctx.store:atom("Some"))
-    end) and not Types.may_be_false(first) then
+    elseif ValueLists.present(ctx, first) and not Types.may_be_false(first) then
       if passed ~= nil then
         return nil
       end
@@ -82,11 +88,12 @@ function ValueLists.first_value(ctx: Ctx, node: Ast.Node, alts: {Alt}): Type
   elseif #alts > 1 then
     local call = Naming.call(ctx, node)
     local raises = ""
-    if ctx.filename:sub(-8) == "_test.tl" and (call:find("^pcall%(") ~= nil or call:find("^xpcall%(") ~= nil) then
+    if ctx.filename:sub(-8) == "_test.tl" and call:find("^x?pcall%(") ~= nil then
       raises = "; to check that a call raises, `Test.raises(function() f(x) end, says?)` runs it and answers the message it raised"
     end
     -- Where `assert` tells the lists apart, `call!` takes the value, raising with the failure's reason.
-    local taken = if ValueLists.asserted(ctx, alts) ~= nil then ", take the value with `" .. call .. "!`, which raises " ..
+    local protected = call:find("^x?pcall%(") ~= nil
+    local taken = if not protected and ValueLists.asserted(ctx, alts) ~= nil then ", take the value with `" .. call .. "!`, which raises " ..
         "where it fails," else "" end
     report(ctx, "alternatives_as_value", node, subject(ctx, node) .. " answers one of " .. tostring(#alts) ..
         " lists of values, which is no value",
