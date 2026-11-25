@@ -15,7 +15,7 @@ local function asking(name: string): string
   return header(1, 0) .. name .. "\x00\x01\x00\x01"
 end
 
---- A message of one answer of the internet class, with this type and data, about the root.
+--- A message holding one answer record of the internet class, with this type and data, about the root.
 local function answering(rtype: integer, rdata: string): string
   return header(0, 1) .. "\x00\x00" .. string.char(rtype) .. "\x00\x01\x00\x00\x00\x00\x00" .. string.char(#rdata) ..
     rdata
@@ -37,7 +37,7 @@ local function written(message: Dns.Message): string
   return bytes
 end
 
---- The one answer of the message in `data`.
+--- The one record of the message in `data`.
 local function answer_of(data: string): Dns.Record
   local message = assert(Dns.decode(data))
   assert(#message.answers == 1)
@@ -619,7 +619,7 @@ local function test_lying_counts_are_refused()
   refused(header(0, 0) .. "\x00\x00\x01\x00\x01")
 end
 
---- No cut and no changed byte makes decode raise, or answer nil without a reason.
+--- No cut and no changed byte makes decode raise, or return nil without a reason.
 local function test_decode_never_raises()
   for length = 0, #COMPRESSED - 1 do
     refused(COMPRESSED:sub(1, length))

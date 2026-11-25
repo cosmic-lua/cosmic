@@ -158,7 +158,7 @@ end
 --- How a suite ended, for its row, given `figures`, what its output
 --- said, and `code`, its exit status: "timeout" where the driver ended
 --- it (status 124); "fail" where it exited otherwise than 0, whatever
---- its summary said, since the status is what it answered; else its
+--- its summary said, since the exit status decides; else its
 --- summary line's verdict, or
 --- "unreported" where it said none because it stopped before its tests'
 --- end.

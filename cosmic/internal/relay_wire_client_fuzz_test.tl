@@ -1,5 +1,5 @@
 --- Fuzz properties for the client's side of [`cosmic.internal.relay_wire`], whose
---- readers take what a SOCKS5 server answers: none raises on any bytes,
+--- readers take what a SOCKS5 server replies: none raises on any bytes,
 --- none reports more bytes taken than it was given, a read in pieces agrees
 --- with the read of the whole, and a request the client writes is read back
 --- by the relay's own reader as the host and port it was written for.
@@ -10,8 +10,8 @@ local Fuzz = require("build.fuzz")
 local Wire = require("cosmic.internal.relay_wire")
 
 --- A reader of one format, made afresh, as a function that feeds the next
---- bytes and answers a status, a count of bytes taken and every field the
---- answer carries as one string, so that two answers compare whole.
+--- bytes and returns a status, a count of bytes taken and every field the
+--- result carries as one string, so that two results compare whole.
 local record Format
   name: string
   fresh: function(): function(string): string, integer, string

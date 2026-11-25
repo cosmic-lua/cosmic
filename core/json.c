@@ -25,7 +25,7 @@
 
 /* The stand-in a caller may ask decode to put where JSON says `null`,
  * and that encodes as `null`: a userdata, so indexing it by mistake
- * raises instead of answering nil. Held in the registry under this
+ * raises instead of returning nil. Held in the registry under this
  * name, its metatable under NULL_TYPE. */
 #define NULL_KEY "cosmic.json.null.value"
 #define NULL_TYPE "cosmic.json.null"
@@ -40,7 +40,7 @@
  * C uses (core/memory.h), so the checked core counts its blocks and can
  * refuse one. The fault point refuses yyjson's allocation alone. An
  * allocation walk cannot: it refuses every allocation after the refused
- * too, so the message that answers yyjson's refusal could never be
+ * too, so the message that reports yyjson's refusal could never be
  * built. */
 static void *json_malloc (void *ctx, size_t size) {
   (void)ctx;
@@ -91,7 +91,7 @@ struct path {
   bool cut;
 };
 
-/* Makes room for `n` bytes in front of `p`, and answers where they go;
+/* Makes room for `n` bytes in front of `p`, and returns where they go;
  * NULL, the path cut, when they do not fit. */
 static char *path_room (struct path *p, size_t n) {
   if (p->cut || n >= sizeof p->text - p->len) {
@@ -285,7 +285,7 @@ static size_t repeated_member (yyjson_val *obj) {
   return count;
 }
 
-/* Pushes `val` as a Lua value, or answers what decode refuses in it --
+/* Pushes `val` as a Lua value, or returns what decode refuses in it --
  * an array or object nested `max_depth` deep, a key twice unless
  * `duplicate_keys` -- having pushed nothing, with the path to it in
  * `d->path`. It finds the first such in the order the text holds them:
@@ -814,7 +814,7 @@ static void read_options (lua_State *L, int at, struct reading *r) {
 }
 
 /* Reads `r->text` into a document, which it sets as `guard`'s resource,
- * and answers it; or NULL, having pushed why it is refused: it is not
+ * and returns it; or NULL, having pushed why it is refused: it is not
  * one JSON value as `r` reads one, or, when `walk` is true, the walk
  * below finds a problem in it -- which a decode, building the value,
  * finds itself. A repaired copy of the text stays on the stack above
@@ -858,7 +858,7 @@ static yyjson_doc *read_text (lua_State *L, struct reading *r,
   }
 }
 
-/* Answers nil and the message on top of the stack. */
+/* Returns nil and the message on top of the stack. */
 static int refused (lua_State *L) {
   lua_pushnil(L);
   lua_insert(L, -2);
@@ -975,7 +975,7 @@ struct encoding {
   int out_of_memory;
 };
 
-/* Records why the value cannot be encoded, and answers -1 for the
+/* Records why the value cannot be encoded, and returns -1 for the
  * caller to pass up. */
 static int refuse (struct encoding *e, const char *why) {
   snprintf(e->failure, sizeof e->failure, "%s", why);
@@ -1806,7 +1806,7 @@ static int json_format (lua_State *L) {
 }
 
 /* array(t?): marks `t` (a new table when absent) as a JSON array and
- * answers it. Raises when `t` already has another metatable. */
+ * returns it. Raises when `t` already has another metatable. */
 static int json_array (lua_State *L) {
   if (lua_isnoneornil(L, 1)) {
     lua_settop(L, 0);
@@ -1828,7 +1828,7 @@ static int json_array (lua_State *L) {
 
 /* with_holes(t, holey): marks `t`, which has no metatable, as an array
  * that may have holes when `holey` is true and as an array otherwise,
- * and answers it. */
+ * and returns it. */
 static int json_with_holes (lua_State *L) {
   luaL_checktype(L, 1, LUA_TTABLE);
   int holey = lua_toboolean(L, 2);

@@ -2,7 +2,7 @@
 --- build's own walks take (`function(string): T?, string`, the reason as
 --- text): what [`build.code_walk`], [`build.identity`],
 --- [`build.importer`] and [`build.check_memo`] are handed in place of the
---- Store functions, which answer a [`cosmic.failure`].
+--- Store functions, which return a [`cosmic.failure`].
 -- TODO: make those walks take the Failure shape, and drop this module.
 
 local Store = require("cosmic.store")

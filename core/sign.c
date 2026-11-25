@@ -225,8 +225,8 @@ static int sign_p256_verify (lua_State *L) {
     psa_set_key_algorithm(&attributes, PSA_ALG_ECDSA(PSA_ALG_SHA_256));
     psa_key_id_t key = PSA_KEY_ID_NULL;
     /* An import refuses a point that is not on the curve. Any failure,
-     * the library's own included, answers false: the contract is that
-     * verify never raises. */
+     * the library's own included, makes verify return false: the
+     * contract is that verify never raises. */
     if (psa_import_key(&attributes, (const uint8_t *)public, public_length,
                        &key) == PSA_SUCCESS) {
       verified = psa_verify_message(
@@ -296,7 +296,7 @@ static psa_key_id_t rsa_import (lua_State *L) {
     luaL_error(L,
                "sign: an RSA key is from 2048 to 4096 bits, in whole bytes");
   }
-  /* The library answers a generic error for bytes after the key's
+  /* The library returns a generic error for bytes after the key's
    * SEQUENCE, or a component of zero. */
   if (status == PSA_ERROR_INVALID_ARGUMENT ||
       status == PSA_ERROR_GENERIC_ERROR) {
@@ -389,9 +389,9 @@ static int sign_rsa_verify (lua_State *L) {
     psa_key_attributes_t attributes = rsa_attributes(
         PSA_KEY_TYPE_RSA_PUBLIC_KEY, 0, PSA_KEY_USAGE_VERIFY_MESSAGE);
     psa_key_id_t key = PSA_KEY_ID_NULL;
-    /* Any failure, the library's own included, answers false: the
-     * contract is that verify never raises. A key outside 2048 to 4096
-     * bits answers false too, as signing refuses one. */
+    /* Any failure, the library's own included, makes verify return
+     * false: the contract is that verify never raises. A key outside 2048
+     * to 4096 bits makes it return false too, as signing refuses one. */
     if (psa_import_key(&attributes, (const uint8_t *)public, public_length,
                        &key) == PSA_SUCCESS) {
       size_t bits = rsa_bits(key);

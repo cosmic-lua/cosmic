@@ -111,7 +111,7 @@ local function test_a_resource_server_points_at_its_metadata_and_takes_only_its_
       assert((other.headers["www-authenticate"] or ""):find('scope="mail:send files:read files:write"', 1, true) ~= nil)
       local enough = call(resource, "write", token(resource, "files:read files:write"))
       assert(enough.status == 200 and enough.body:find("written", 1, true) ~= nil, enough.body)
-      -- A stream ends when the token it was opened with is past its time, before its answer.
+      -- A stream ends when the token it was opened with is past its time, before its response.
       local started = Clock.monotonic_ns()
       local streamed = call(resource, "wait", token(resource, "files:read", nil, nil, 1), true)
       assert(streamed.status == 200 and streamed.body:find("waited", 1, true) == nil, streamed.body)

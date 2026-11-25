@@ -44,7 +44,7 @@ local function certificate(value: string): string
 end
 
 -- TODO: check that `SEQUENCE { INTEGER 1 }` reads as cA FALSE, not only
--- that it reads, once cosmic.http answers a certificate's basicConstraints
+-- that it reads, once cosmic.http reports a certificate's basicConstraints
 -- or the tests have a TLS server to verify a chain against.
 
 --- A basicConstraints of `cA TRUE`, an empty one, and one of

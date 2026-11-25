@@ -42,7 +42,7 @@ function Example.decode()
 end
 
 --- Test the value: `null` is a document too, and it decodes to
---- [`Json.null`], so only a refusal answers nil.
+--- [`Json.null`], so nil comes back only for a refusal.
 function Example.decode_failure()
   local value, err = Json.decode("null")
   assert(rawequal(value, Json.null) and err == nil)
@@ -247,7 +247,7 @@ function Example.paths()
 end
 
 --- Lay a few settings over configuration read from a file: each
---- [`Json.set`] answers a new value with one place changed, and
+--- [`Json.set`] returns a new value with one place changed, and
 --- [`Json.remove`] one without it. Nothing is changed in place, so the
 --- defaults stay as they were read.
 function Example.set()

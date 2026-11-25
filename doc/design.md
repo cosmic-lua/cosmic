@@ -51,12 +51,12 @@ these argues with the principle, not with the reviewer.
    the errno where a system call failed, and a `kind` (`other`,
    `system`, `parse`, `library`, `timeout`, `cancelled`), so a caller
    acts on the cause and never matches the words. a call that asks
-   whether something is there answers that as a value ([`Fs.status`]'s
+   whether something is there returns that as a value ([`Fs.status`]'s
    `exists`, [`Store.holds`]), not as a failure. the stdlib moves to this
-   shape a module at a time; a module not yet moved answers `T?,
+   shape a module at a time; a module not yet moved returns `T?,
    string` and `boolean, string`, which the checks on callers hold as
    well. intended: one operation is one function, with no twin beside
-   it that raises or that answers a classified record
+   it that raises or that returns a classified record
    ([`Http.download_result`] goes once its module moves;
    [`Proc.find`]'s failure carries the errno a shell's 126 and 127
    tell apart). the raw binding table [`cosmic.sys`] is

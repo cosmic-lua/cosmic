@@ -48,7 +48,7 @@ end
 --- The modules `roots` need and the names each requires, from the rows
 --- the running binary carries, for a program that loads the same
 --- libraries this test does: [`Store.requires`] and [`Store.bytecode`]
---- answer for a module this test's closure holds.
+--- cover a module this test's closure holds.
 local function closure(roots: {string}): {Module}, {string:string}
   local found: mut {Module} = {}
   local bytecode: mut {string:string} = {}

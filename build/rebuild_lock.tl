@@ -173,7 +173,7 @@ end
 local held: Hold = {}
 
 --- Takes SQLite's half of the lock on `path` into `lock`, waiting up to
---- `wait_ns`. Answers "held", "busy", or nil and why.
+--- `wait_ns`. Returns "held", "busy", or nil and why.
 local function take_sqlite(lock: Lock, path: string,
                            wait_ns: integer): rebuild_lock.Taken?, string
   local db, db_trouble = Sqlite.open(path, { writable = true })
@@ -233,7 +233,7 @@ end
 --- Takes the rebuild lock of `root` as `role` ("rebuild" unless
 --- given), waiting up to `wait_ns` (0 to [`Poll.MOST_NS`], which [`sys.flock`]'s
 --- C int of milliseconds holds; another raises)
---- in all for a run that holds it. Answers "held" once this process
+--- in all for a run that holds it. Returns "held" once this process
 --- holds it -- at once when it already does -- "busy" when another run
 --- held it past the wait, or nil and why when the lock could not be
 --- asked for at all (its file cannot be opened for writing, a
@@ -323,7 +323,7 @@ end
 --- waiting run names them -- "another cosmic run (pid 12) in this
 --- checkout is running its tests" -- read once this run has failed to
 --- take it. The file may still name the run before, which a new holder
---- has not yet written over: a pid no process answers to, or this one's
+--- has not yet written over: a pid no live process has, or this one's
 --- own (a holder that re-entered this process), is left unnamed. One a
 --- holder in another pid namespace wrote -- a container sharing the
 --- checkout -- names what that namespace called it, not a process here.
@@ -399,7 +399,7 @@ end
 --- take it as `role`, having said `line`; says it still waits every
 --- `interval_ns` (15 seconds unless given, which a test shortens), for as
 --- long as it takes; each reminder goes to `say` (the logger's complaint
---- unless given, which a test takes in its place). Answers nil and why
+--- unless given, which a test takes in its place). Returns nil and why
 --- when it cannot.
 function rebuild_lock.wait(root: string, role: rebuild_lock.Role,
                            line: string, interval_ns?: integer,
@@ -427,7 +427,7 @@ function rebuild_lock.wait(root: string, role: rebuild_lock.Role,
 end
 
 --- The lock of `root` taken as `role` without waiting, as
---- [`rebuild_lock.hold`] answers: true when this call took it, false
+--- [`rebuild_lock.hold`] returns: true when this call took it, false
 --- when this process held it already or a parent handed it on for a
 --- write or a remake; nil and "" where another run holds it, nil and why
 --- where it cannot be asked for.
@@ -453,14 +453,14 @@ local function at_once(root: string, role: rebuild_lock.Role): boolean?, string
 end
 
 --- Holds the rebuild lock of `root` as `role` before this run goes on,
---- for `what` (a verb, which names itself in what it says). Answers
+--- for `what` (a verb, which names itself in what it says). Returns
 --- true when this call took it -- the caller releases it
 --- ([`rebuild_lock.release`]) when done, or leaves it to its exit -- and
 --- false when this process held it already, or, for a write or a remake,
 --- a parent that holds it handed it on (`handed_variable`). A run that finds
 --- another holding it says so, naming that run and what it is doing,
 --- and waits for it (`wait`): the other may be a whole `cosmic test`
---- run. Answers nil and why when it cannot take the lock.
+--- run. Returns nil and why when it cannot take the lock.
 ---
 --- It must be called holding nothing that run may wait for: the working
 --- database's transaction above all ([`build.work`]).
@@ -496,7 +496,7 @@ end
 --- Holds the rebuild lock of `root` as `role` as [`rebuild_lock.hold`]
 --- does, but waits for no other run: what a verb that only reads
 --- ([`verb_spec.Spec`]'s `reads`) asks before a write its lookup would
---- make under the lock, which it leaves unmade rather than wait. Answers
+--- make under the lock, which it leaves unmade rather than wait. Returns
 --- as `hold` does where this process holds the lock, and nil and ""
 --- where another run holds it, having said so for `what`
 --- ([`rebuild_lock.tell_not_waiting`]).

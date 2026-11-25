@@ -101,11 +101,11 @@ local record Taken
   mut length: integer
 end
 
---- Calls `each` with every line `next_chunk` answers, as grep reads them
+--- Calls `each` with every line `next_chunk` returns, as grep reads them
 --- (a last line without a newline is a line too), each cut to
 --- bytes (`limit`, `cut` by default) so that a line of any length takes
---- no more than that. Stops when `next_chunk` answers "" or `each`
---- answers true.
+--- no more than that. Stops when `next_chunk` returns "" or `each`
+--- returns true.
 local function each_line(next_chunk: function(): string,
                          each: function(string): boolean, limit?: integer)
   local line: mut {string} = {}
@@ -146,7 +146,7 @@ function Fuzz.header(seed: string, iters: string): string
 end
 
 --- What a failed run's summary adds, from its output, read a chunk at a
---- time from `next_chunk` until it answers "": every failing test's
+--- time from `next_chunk` until it returns "": every failing test's
 --- line first, then the reports beneath them, bounded.
 function Fuzz.failure(next_chunk: function(): string, seed: string): string
   local failing: mut {string} = {}
@@ -193,7 +193,7 @@ local record Tailed
 end
 
 --- The last `tail_lines` lines of the file at `path`, as `tail -n` and
---- `cut` answer them, or nil when there is no such file. It reads the
+--- `cut` print them, or nil when there is no such file. It reads the
 --- file backwards from its end only as far as those lines begin, and
 --- then only each one's first `cut` bytes.
 function Fuzz.tail(path: string): {string}?
@@ -257,7 +257,7 @@ local slow_lines <const> = 60
 local progress_cut <const> = 1000
 
 --- The last progress line and the slow tests' lines of the output that
---- `next_chunk` answers a chunk at a time until it answers "".
+--- `next_chunk` returns a chunk at a time until it returns "".
 function Fuzz.scan(next_chunk: function(): string): Fuzz.Scanned
   local scanned: Fuzz.Scanned = { slow = {} }
   each_line(next_chunk, function(line: string): boolean
@@ -292,7 +292,7 @@ end
 --- What a cancelled run's summary says: how far it got, as [`Fuzz.scan`]
 --- found it (the tests still running when it last said, longest first, and
 --- those that ran long), and the end of the output the run kept, as
---- [`Fuzz.tail`] answers it, or none when it kept none.
+--- [`Fuzz.tail`] returns it, or none when it kept none.
 function Fuzz.cancelled_summary(tail: {string}?, scanned?: Fuzz.Scanned): string
   local out = "\nCancelled, at the time limit or by hand, before fuzzing finished:" ..
     " a property\nthat hangs is the likeliest cause.\n"
@@ -396,7 +396,7 @@ end
 
 --- Fuzzes every property `r.root` holds on its checked core, writing
 --- the output to `$temp/fuzz.out` and the status to `$temp/fuzz.status`,
---- and answers the status.
+--- and returns the status.
 function Fuzz.execute(r: Fuzz.Run): integer
   local seed, iters = r.env["FUZZ_SEED"] or "", r.env["FUZZ_ITERS"] or ""
   r.summarize(Fuzz.header(seed, iters))

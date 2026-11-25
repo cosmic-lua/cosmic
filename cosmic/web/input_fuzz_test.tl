@@ -1,5 +1,5 @@
 --- Fuzz properties for the form binder, which reads text a client chose:
---- binding never raises, and what it answers is either a value the spec
+--- binding never raises, and what it returns is either a value the spec
 --- accepts or a refusal that lists its errors; a Content-Type header of
 --- any bytes parses to something total.
 

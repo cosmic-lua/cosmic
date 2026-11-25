@@ -1,5 +1,5 @@
 -- Digests, HMACs and streaming digests and HMACs at the Lua boundary, as the
--- core provides them. Every fallible function answers `value, ""` on
+-- core provides them. Every fallible function returns `value, ""` on
 -- success and `nil, error` on failure.
 --- @kind binding
 
@@ -30,7 +30,7 @@ local record hash
   -- digest cannot start.
   hasher: function(algorithm: string): Hasher?, string
   -- An incremental HMAC under key, of any length, whose digest is what
-  -- `hmac` answers over the whole of what was fed. Raises when no
+  -- `hmac` returns over the whole of what was fed. Raises when no
   -- algorithm has that name; nil, error when it cannot start.
   hmac_hasher: function(algorithm: string, key: string): Hasher?, string
   -- The sum of the unsigned bytes of data[first..last] (1-based,
@@ -38,7 +38,7 @@ local record hash
   -- last > #data, or first > last + 1; an empty range sums to 0.
   byte_sum: function(data: string, first?: integer, last?: integer): integer
   -- Whether a and b hold the same bytes, in a time that depends on their
-  -- length alone; different lengths answer false at once.
+  -- length alone; different lengths are false at once.
   equal: function(a: string, b: string): boolean
   -- The raw SipHash tag of data under a 16-byte key: `compression` and
   -- `finalization` rounds (2 and 4 by default, 1 to 64), and `size`

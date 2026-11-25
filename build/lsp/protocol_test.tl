@@ -12,7 +12,7 @@ local record Read
   mut at: integer
 end
 
---- A stream's `read` that answers one byte of `data` a call, so a
+--- A stream's `read` that returns one byte of `data` a call, so a
 --- message arrives split at every place it can be.
 local function trickle(data: string): function(): string?, string
   local read: Read = { at = 1 }

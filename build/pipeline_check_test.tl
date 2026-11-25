@@ -48,7 +48,7 @@ local function test_a_module_over_the_limit_on_main_locals_is_refused_with_its_f
   local first = compare()
   assert(#first == 1, told(first))
   assert(assert(first[1]):find("^wide%.tl: the main chunk of its Lua holds 181 locals, over 180 "), told(first))
-  -- Answered from the memo: the same.
+  -- Settled from the memo: the same.
   local second = compare()
   assert(told(second) == told(first), told(second))
   -- An entry that says no count is asked again, and the count is not 0.
@@ -77,8 +77,8 @@ local function test_a_module_the_tree_refuses_and_the_pipeline_accepts_is_told(t
   assert(work.close(handle))
 end
 
---- Copies of the process ([`build.compile_fanout`]) answer what the process answers alone: the same lines, and the same
---- answers kept in the memo.
+--- Copies of the process ([`build.compile_fanout`]) give what the process gives alone: the same lines, and the same
+--- results kept in the memo.
 local function test_copies_of_the_process_answer_as_the_process_does(tmp: string)
   if Proc.cpu_count() < 2 then
     Test.skip("this host has one processor, for which no copy is forked")

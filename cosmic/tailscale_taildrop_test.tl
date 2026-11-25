@@ -1,7 +1,7 @@
 --- Taildrop through [`cosmic.tailscale`] against a stand-in tailscaled: a
---- [`Server.serve`] that answers the LocalAPI's file paths as the daemon
---- does. Each client call runs in a task of the stand-in's own run, as a
---- call waits as one.
+--- [`Server.serve`] that responds at the LocalAPI's file paths as the
+--- daemon does. Each client call runs in a task of the stand-in's own
+--- run, as a call waits as one.
 
 local Array = require("cosmic.array")
 local Net = require("cosmic.net")
@@ -28,9 +28,9 @@ local record Daemon
   put: mut {string: string}
   --- The waiting files, by name.
   waiting: mut {string: string}
-  --- What `files/` answers in place of the list, where set.
+  --- What `files/` responds with in place of the list, where set.
   mut listing?: string
-  --- What `file-targets` answers in place of TARGETS, where set.
+  --- What `file-targets` responds with in place of TARGETS, where set.
   mut targets?: string
 end
 
@@ -74,11 +74,12 @@ local function answer(daemon: Daemon, req: Server.Request): Server.Reply
   return { status = 404, body = "404 page not found\n" }
 end
 
---- Runs `body` with a client of a stand-in daemon, in a task of the run
---- that serves the stand-in, and answers what the stand-in saw.
 --- How many stand-ins this process served: each takes a socket of its own.
 local served = 0
 
+--- Runs `body` with a client of a stand-in daemon, in a task of the run
+--- that serves the stand-in, and stops the stand-in once `body` returns;
+--- what the stand-in saw is kept in `daemon.seen`.
 local function against(tmp: string, daemon: Daemon, body: function(ts: Tailscale.Client))
   served = served + 1
   assert(Server.serve{
@@ -142,7 +143,7 @@ local function test_send_file_puts_the_bytes_under_the_escaped_name(tmp: string)
     say(said, odd)
     local _, unknown = ts:send_file("nNONE", "x", Stream.from_string(""), 0)
     say(said, unknown)
-    -- A refusal the daemon sends before it reads the body is the answer,
+    -- A refusal the daemon sends before it reads the body is the result,
     -- however much of the body was left to write, not the write's failure.
     local large = string.rep("x", 8 * 1024 * 1024)
     local _, early = ts:send_file("nNONE", "big", Stream.from_string(large), #large, { timeout_ns = 0 })

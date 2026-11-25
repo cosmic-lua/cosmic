@@ -449,7 +449,7 @@ Before the agent starts, it lets unprivileged user namespaces be made
 and runs `gh auth setup-git`. While the agent runs, it writes a fresh
 GitHub OIDC token every 4 minutes, for the agent to trade for a Claude
 token. It ends the agent at 130 minutes or on a signal. The job's log
-gets the agent's answer and its `cosmic:` complaints, not the agent's
+gets the agent's reply and its `cosmic:` complaints, not the agent's
 tool calls. The header of review.yml says when it runs and what the
 agent may do; [`cosmic_ci/review.tl`] says why the token is refreshed
 and the tool calls are kept out of the log. [`cosmic_ci/review_test.tl`]
@@ -559,7 +559,7 @@ file with no write-ahead log) and uploads it (`queue-checks-linux-x86_64`);
 the relay downloads it, holds it to a memo with rows, and saves it
 (`checks-linux-x86_64-<sha>`, [`cosmic_ci/checks_seal.tl`]). The format
 check of a pull request or a queue entry restores the newest, so the tree
-checks check again only the files its rows do not answer: from cold they
+checks check again only the files its rows do not cover: from cold they
 take some 3.5 minutes. Each queue leg also uploads the compiles and
 parses it trimmed (`queue-compiles-<leg>`); the relay, a job a leg, saves
 them (`compiles-<leg>-queue-<sha>`), and main's push boots on them in

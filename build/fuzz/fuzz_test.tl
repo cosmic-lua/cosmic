@@ -121,7 +121,7 @@ local function test_a_checked_run_allows_the_checks_their_instructions()
   local saved = globals.__cosmic_tc
   globals.__cosmic_tc = nil
   local unhooked_ok, unhooked_held, unhooked_why = pcall(Fuzz.replay, property(), "input")
-  -- A hook that answers the values, as `select` does.
+  -- A hook that returns the values, as `select` does.
   globals.__cosmic_tc = select -- checked: overload_value
   local ok, hooked_held, hooked_why = pcall(Fuzz.replay, property(), "input")
   globals.__cosmic_tc = saved

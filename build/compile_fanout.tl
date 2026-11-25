@@ -38,10 +38,10 @@ local record fanout
   --- build for good.
   mut patience_ns: integer
   --- How many copies of every [`fanout.run`] of this process ended well: what a test reads to know that copies did the
-  --- work, where the process doing it alone would answer the same.
+  --- work, where the process doing it alone would give the same.
   mut ended_well: integer
 
-  --- What [`fanout.run`] answers: whether each copy ended well, by its
+  --- What [`fanout.run`] returns: whether each copy ended well, by its
   --- number, and how many were ended for running past `patience_ns`.
   record Ran
     ended: {integer:boolean}
@@ -70,7 +70,7 @@ local unmeasured <const> = 4
 
 --- The memory the host says is available, in bytes, nil where it does not
 --- say: /proc/meminfo's MemAvailable on Linux, what [`sys.memory_available`]
---- answers on macOS, and what [`fanout.meminfo`] says in place of either.
+--- returns on macOS, and what [`fanout.meminfo`] says in place of either.
 local function available(): integer?
   local text = fanout.meminfo
   if text == nil then

@@ -60,16 +60,16 @@ local record Assets
     integrity: function(self: Asset, algorithm?: Algorithm): string
   end
 
-  --- Where assets come from. `get` answers nil, and why, for a path the
-  --- source does not hold, and raises for none.
+  --- Where assets come from. `get` returns nil, and why, for a path
+  --- the source does not hold, and raises for none.
   record Source
     --- The asset at `path` ("css/app.css"), or nil and why.
     get: function(self: Source, path: string): Asset?, string
     --- Every path the source holds, sorted.
     paths: function(self: Source): {string}
-    --- True when `get` may answer differently later (a directory being
+    --- True when `get` may return something else later (a directory being
     --- edited): a caller then trusts nothing it computed from an earlier
-    --- answer.
+    --- result.
     dynamic: function(self: Source): boolean
   end
 
@@ -219,7 +219,7 @@ end
 
 -- TODO: serve a file past 1 MiB as a Reader with `length` set and a
 -- modification-time tag, once
--- [`Source.get`] can answer a file without its bytes in memory; every file is
+-- [`Source.get`] can return a file without its bytes in memory; every file is
 -- read whole today, so development holds the largest asset in memory.
 --- A source reading the files under `root` from disk, hidden files (a
 --- component starting with ".") excepted, re-reading a file
@@ -344,7 +344,7 @@ local function is_built(): boolean
 end
 
 --- One source of `sources`, each laid over those after it: a path is
---- answered by the first that holds it, and `paths` is every path any of
+--- found in the first that holds it, and `paths` is every path any of
 --- them holds, once each, sorted. It is dynamic where any of them is. A
 --- miss says why the last of them missed.
 --- [`Assets.default`] lays a program's own static files over the shared
@@ -387,7 +387,7 @@ function Assets.layered(sources: {Assets.Source}): Assets.Source
 end
 
 --- The files of `source` under `prefix` ("images/"), each named by the
---- rest of its path: `get("a.png")` answers `source`'s "images/a.png",
+--- rest of its path: `get("a.png")` returns `source`'s "images/a.png",
 --- with that rest as its `path`.
 --- @param source Assets.Source The source
 --- Raises for a `prefix` that is not "" and does not end in a slash.
@@ -420,7 +420,7 @@ end
 
 --- The files of `source` that `names` lists, and no other.
 --- @param source Assets.Source The source
---- @param names {string} The paths it answers
+--- @param names {string} The paths it holds
 --- @return Assets.Source The source
 function Assets.only(source: Assets.Source, names: {string}): Assets.Source
   local listed: mut {string:boolean} = {}

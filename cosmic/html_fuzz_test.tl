@@ -3,7 +3,7 @@
 --- undone by reading its five entities; the attribute escaper's output,
 --- read between either quote by the standard's tokenizer, ends at that
 --- quote and reads back as its input; and `concat` is the join
---- of its parts' strings; and `href` answers `about:invalid` or a URL
+--- of its parts' strings; and `href` returns `about:invalid` or a URL
 --- with no control byte or edge space whose scheme a browser would see is
 --- http, https or mailto, or that is relative and no host.
 --- `url_part` writes only unreserved bytes and `%XX`, reads back as its
@@ -253,7 +253,7 @@ local function url_is_safe(text: string): boolean
   return text:find("^[/\\][/\\]") == nil
 end
 
---- What `href` must answer for `text` when it does not refuse more than
+--- What `href` must return for `text` when it does not refuse more than
 --- the browser's reading needs: the same, but a colon ahead of any `/`,
 --- `?` or `#` without an allowed scheme is refused too.
 local function url_expected(text: string): string

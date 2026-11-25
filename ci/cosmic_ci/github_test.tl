@@ -1,6 +1,6 @@
 --- The live host of cosmic_ci/github.tl: what it asks of the API, over
 --- [`cosmic.http`]'s `script` (no network is reached), and of `git`, as a
---- recording of git's answers.
+--- recording of git's output.
 local Github = require("cosmic_ci.github")
 local GithubApi = require("cosmic_ci.github_api")
 local Shape = require("cosmic.shape")
@@ -25,7 +25,7 @@ local CACHES <const> = Shape.record_of("Caches")
 --- A whole reply: a status line, `head`'s header lines, and `body`.
 local reply <const> = TestSupport.reply
 
---- The live host over a plain-HTTP API whose calls `script` answers in
+--- The live host over a plain-HTTP API whose calls `script` replies to in
 --- order, and what each request wrote.
 local function host_with(script: {{string}}): Github.Host, {string}
   local sent: mut {string} = {}
@@ -39,7 +39,7 @@ local function has(text: string, needle: string)
 end
 
 --- A lookup GETs the path with the token the environment holds and
---- answers the object it got.
+--- returns the object it got.
 local function test_a_lookup_gets_the_path_and_decodes_its_answer()
   local host, sent = host_with({ { reply("200 OK", "", '{"merge_base_commit":{"sha":"abc"}}') } })
   local pages, why = host.fetch("repos/o/r/compare/main...x", false, 30)
@@ -52,7 +52,7 @@ local function test_a_lookup_gets_the_path_and_decodes_its_answer()
   has(assert(sent[1]), "\r\nAuthorization: Bearer secret\r\n")
 end
 
---- A listing answers every page, each fetched where the `Link` header of
+--- A listing returns every page, each fetched where the `Link` header of
 --- the one before names it, however the header is written.
 local function test_a_listing_follows_the_link_header_to_every_page()
   local host, sent = host_with({
@@ -98,8 +98,8 @@ local function test_a_next_link_that_repeats_a_page_fails_the_listing()
   assert(#sent == 2, "the loop was followed")
 end
 
---- A lookup that the API refuses, answers no JSON, or never answers fails
---- naming the status, the request and why.
+--- A lookup fails, naming the status, the request and why, where the API
+--- refuses it, sends no JSON or never responds.
 local function test_a_lookup_that_fails_answers_nil()
   local host = host_with({
     { reply("404 Not Found", "", '{"message":"Not Found"}') },

@@ -17,7 +17,7 @@ conflict with the parent's squash.
 
 1. look for the API first. `bin/cosmic docs <words>` searches every doc
    comment and example by what it does (`cosmic docs find program path`
-   answers [`Proc.find`]). open PRs may carry it too.
+   prints [`Proc.find`]). open PRs may carry it too.
 2. cut one branch per PR, named for the change, fresh from
    `origin/main`. never reuse a branch whose PR has merged or closed, even one a
    session was started on or told to push to.
@@ -235,7 +235,7 @@ change touched. it also runs macOS's native suite. macOS's product, its
 fixtures and its checked regressions run in main's daily scheduled run
 alone, so a failure only they show turns main's next prerelease red after
 the change lands; fix it, or revert the change, at once. a change macOS may
-answer otherwise there (the core's C, the launcher, the product or its
+handle otherwise there (the core's C, the launcher, the product or its
 fixtures) runs CI on its branch first: a
 manual run (`workflow_dispatch` on the branch, from the Actions tab or
 `gh workflow run ci.yml --ref <branch>`) runs what main's run does.
@@ -280,7 +280,7 @@ the merge's own.
 Teal ([`build/zig.tl`], ...) through [`bin/cosmic-bootstrap`], which
 fetches that release once and caches it by digest. [`bin/cosmic`] asks
 [`build/paths.tl`] for the build directory the same way.
-`COSMIC_BOOTSTRAP=<path>` makes [`bin/cosmic-bootstrap`] answer another
+`COSMIC_BOOTSTRAP=<path>` makes [`bin/cosmic-bootstrap`] use another
 cosmic instead, such as the tree's own tool (by its path in the build
 directory, which `bin/cosmic build` prints; [`bin/cosmic`] itself is
 refused), for all of them and for CI's driver step alike.

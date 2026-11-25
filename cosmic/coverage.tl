@@ -42,8 +42,8 @@ local record Coverage
 end
 
 --- The open window's session, nil while none is open.
---- What a failure of this module answers, nil and `why` under the
---- module's name.
+--- What a function returns for a failure of this module: nil and `why`
+--- under the module's name.
 local function refuse(why: string): nil, string
   return nil, "coverage: " .. why
 end
@@ -94,8 +94,8 @@ end
 --- Every line of the core's own C a hit could land on, by the file's
 --- path in the cosmic repository, in the same form hits on it take:
 --- what C hits are counted out of. Every core cosmic ships and tests with is
---- built with native coverage; one that is not (a test fixture's)
---- answers an empty table, and its hits never name a C file.
+--- built with native coverage; for one that is not (a test
+--- fixture's) it returns an empty table, and its hits never name a C file.
 --- @return Hits Every observable C line, each true
 function Coverage.native_lines(): Coverage.Hits
   return native.lines()

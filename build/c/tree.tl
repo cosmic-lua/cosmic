@@ -61,8 +61,8 @@ local record tree
     children: mut {tree.Node}
     mut parent?: tree.Node
     --- What [`referent`], [`callee`], [`canonical_type`] and [`operator`]
-    --- answered the first time, so a rule that asks again reads it.
-    --- Each has a flag saying it was asked, since nil is an answer.
+    --- returned the first time, so a rule that asks again reads it.
+    --- Each has a flag saying it was asked, since nil is a result.
     mut referent_cache?: tree.Referent
     mut referent_asked?: boolean
     mut callee_cache?: string

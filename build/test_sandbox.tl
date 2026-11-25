@@ -51,7 +51,7 @@
 ---   and the `host` paths the module declares, each at its own name --
 ---   refused where that is the tree's, the scratch directory's, or above
 ---   either ([`test_inputs.resolve`]);
---- - no network but a loopback of its own, which answers the loopback
+--- - no network but a loopback of its own, which carries the loopback
 ---   addresses a module may declare ([`cosmic.test`]'s `network`), as the
 ---   host's would;
 --- - the pinned environment and the variables it declares (`environment`),
@@ -110,7 +110,7 @@ local record test_sandbox
     sandbox: Child.Sandbox
     --- Its environment, before the runner adds its own (the relaunch
     --- contract, coverage from the first instruction): what a test's
-    --- read of a variable answers, and so what its key holds.
+    --- read of a variable gives, and so what its key holds.
     env: {string:string}
     --- The paths it was given beyond the most a sandbox holds, or 0.
     over: integer
@@ -119,7 +119,7 @@ local record test_sandbox
     --- "".
     trouble: string
     --- The name the worker has the program by -- the artifact path its
-    --- relaunch names (`--artifact`), which [`Proc.executable()`] answers
+    --- relaunch names (`--artifact`), which [`Proc.executable()`] returns
     --- -- where the program is the tree's own tool: that in the
     --- worker's build directory ([`test_sandbox.output`]); where it is the
     --- runner's own beneath /tree, /program/<its name> ([`program_name`]);
@@ -737,7 +737,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- and refuse a plan past the most saying how many paths over.
   local over = math.max(0, #reads + #writes - UNVEIL_MAX)
   -- Offline, always: a module declares only loopback addresses, which
-  -- the worker's own loopback answers as the host's would. Keying it is
+  -- the worker's own loopback carries as the host's would. Keying it is
   -- sound so:
   --
   -- - a new network namespace reaches only the worker's own processes,

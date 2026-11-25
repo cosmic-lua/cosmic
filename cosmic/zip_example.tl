@@ -24,7 +24,7 @@ function Example.writer()
 end
 
 --- A symlink, held as Info-ZIP holds one: its target is the entry's
---- body, and a reader answers it as a "symlink" with its `linkpath`.
+--- body, and a reader lists it as a "symlink" with its `linkpath`.
 function Example.add_symlink()
   local out = Stream.collect()
   local w = Zip.writer(out)

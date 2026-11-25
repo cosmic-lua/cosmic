@@ -51,7 +51,7 @@ local function test_a_dynamic_program_is_given_the_loader_it_names(tmp: string)
     assert(Fs.chmod(path, 0x1ed))
     return host_program.complete({ path }, "/usr/bin:/bin")
   end
-  -- The stand-in loader is the shell, which is there and answers no `--list`.
+  -- The stand-in loader is the shell, which is there and lists nothing for `--list`.
   local dynamic = given_for("dynamic", elf(3, "/bin/sh", 64, 120))
   assert(dynamic[2] == "/bin/sh", table.concat(dynamic, " "))
   assert(#given_for("static", elf(1, "/bin/sh", 64, 120)) == 1, "a file with no PT_INTERP names no loader")

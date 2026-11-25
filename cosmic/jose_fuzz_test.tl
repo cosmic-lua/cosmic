@@ -1,5 +1,5 @@
 --- Fuzz properties for [`cosmic.jose`]: [`Jose.verify_jwt`] and
---- [`Jose.key`] are total, answering for whatever text they are handed
+--- [`Jose.key`] are total, handling whatever text they are handed
 --- and never raising, and a token is taken only as it was signed.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 

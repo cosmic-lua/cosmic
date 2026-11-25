@@ -218,7 +218,7 @@ function Fixture.count_occurrences(text: string, needle: string): integer
 end
 
 --- Unpacks the tar at `tar` into `destination`, which must not exist
---- yet, and answers it: a copy the fixture may write in, of files the
+--- yet, and returns it: a copy the fixture may write in, of files the
 --- runtime setup packed (cosmic_ci/runtime_setup.tl's `pack`).
 function Fixture.unpack(tar: string, destination: string): string
   assert(not assert(Fs.status(destination)).exists, "unpack destination already exists: " .. destination)

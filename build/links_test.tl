@@ -380,7 +380,7 @@ local function test_a_link_into_a_module_that_did_not_build_says_so()
   })
 end
 
---- A module of the tree that built answers for its own members though a module above it did not, whether or not an
+--- A module of the tree that built covers its own members though a module above it did not, whether or not an
 --- earlier build knew it: the link names what it lacks, or waits for the symbols, and never blames the parent.
 local function test_a_link_into_a_module_that_built_under_one_that_did_not_says_what_it_lacks()
   local source = lines(
@@ -644,7 +644,7 @@ local function test_a_name_that_names_nothing_is_offered_the_one_symbol_of_its_l
       "link it in full)",
     "/p/n.tl:2: link: m.both does not resolve (no declaration, symbol or file by that name)",
   })
-  -- Asked by one name, the symbols answer a module of that name by its first row, which is no symbol of the name.
+  -- Asked by one name, the symbols give a module of that name by its first row, which is no symbol of the name.
   local module = world({}, { first = { "first.other" } })
   same(checked(module, "/p/a.md", "markdown", "[`m.first`]\n"), {
     "/p/a.md:1: link: m.first does not resolve (no declaration, symbol or file by that name)",
@@ -705,7 +705,7 @@ local function test_a_module_docs_knows_nothing_of_says_so()
 end
 
 --- Where the symbols are an earlier build's, a name of a module of the tree that build has no row of is not known yet,
---- through an alias or in full: the module is new and may declare it. A module that build holds answers as it did, and a
+--- through an alias or in full: the module is new and may declare it. A module that build holds resolves as it did, and a
 --- name of no module of the tree still names nothing.
 local function test_a_link_checked_against_an_earlier_build_is_not_known_yet()
   local source = lines(
@@ -1157,7 +1157,7 @@ local function test_a_path_through_git_metadata_is_never_a_file_of_the_tree()
 end
 
 --- The world the rewriting tests share: a symbol declared in a file of
---- the tree, a name two symbols answer, a file, and a directory.
+--- the tree, a name two symbols match, a file, and a directory.
 local function linking_world(): link_resolve.Context
   return world({
     ["/p/known.tl"] = "",

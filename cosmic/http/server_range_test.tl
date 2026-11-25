@@ -5,7 +5,7 @@
 local Server = require("cosmic.http.server")
 local Test = require("cosmic.test")
 
---- What `Server.range(header, size)` answers, as text: "whole",
+--- What `Server.range(header, size)` returns, as text: "whole",
 --- "unsatisfiable", or the span's "first-last".
 local function ranged(header: string?, size: integer): string
   local r = Server.range(header, size)

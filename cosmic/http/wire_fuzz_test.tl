@@ -1,6 +1,6 @@
 --- Fuzz properties for cosmic.http.wire, which reads the bytes any
 --- client sends [`Server.serve`]: reading requests is total and bounded,
---- answering a head or one of the server's refusals; a request written
+--- returning a head or one of the server's refusals; a request written
 --- out is read back as it was; the same bytes read the same in any
 --- chunking, which a reader that kept bytes it read ahead in the wrong
 --- place would not; and a reply is written with no body where it may
@@ -188,7 +188,7 @@ end
 --- What reading every request of `data`, cut into `sizes`, gives, as
 --- text: each head's fields and its body, and how reading ended. Raises
 --- where reading is not total and bounded: a status the server never
---- answers, a body past its limit, or more requests than bytes.
+--- sends, a body past its limit, or more requests than bytes.
 local function transcript(data: string, sizes: {integer}): string
   local input = wire.input(pieces(data, sizes))
   local out: mut {string} = {}
@@ -253,7 +253,7 @@ local function bytes_and_sizes(input: string): string, {integer}
   return fields[1] or "", sizes
 end
 
--- Reading any bytes ends, in a head or a refusal the server answers,
+-- Reading any bytes ends, in a head or a refusal the server sends,
 -- with no body past its limit.
 local function test_reading_requests_is_total_and_bounded(tmp: string)
   Fuzz.run({

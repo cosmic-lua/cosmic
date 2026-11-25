@@ -79,7 +79,7 @@ local function ask(id: integer, root: string, name: string, line: integer, chara
   return at(id, "textDocument/completion", root, name, line, character)
 end
 
---- The items `ran` answered the completion request `id` with, by label; the test fails on a `null`.
+--- The items `ran` responded to the completion request `id` with, by label; the test fails on a `null`.
 local function items(ran: Ran, id: integer): {string: Item}
   local sent = assert(COMPLETION_SENT:decode_into(answer(ran, id)))
   local listed = assert(sent.result, "no list: " .. answer(ran, id) .. ran.err)
@@ -371,7 +371,7 @@ local function test_a_receiver_that_is_a_call_is_taken_for_the_type_the_call_ans
   assert(offered(base, head .. 'make().|\n', { "x", "y" }) == "x,y")
   -- A call with arguments that hold brackets of their own.
   assert(offered(base, head .. 'local _ = make({ 1, (2) }, "a)").|\n', { "x", "y" }) == "x,y")
-  -- A function that answers nothing a table has.
+  -- A function that returns nothing a table has.
   assert(offered(base, head .. 'local _ = tostring(1).|\n', { "x", "y" }) == "")
 end
 
@@ -925,7 +925,7 @@ local function test_the_members_of_a_module_open_and_unsaved_have_the_docs_of_th
   assert(ran.tally.member_declarations == 0 and ran.tally.derived >= 1)
 end
 
---- Two types of a module that one name stands for are not told apart in the rows, so the checker answers for them: the
+--- Two types of a module that one name stands for are not told apart in the rows, so the checker covers them: the
 --- members of the first are not the second's, and a type in a block is no top-level type of its name.
 local function test_a_name_declared_twice_or_in_a_block_is_completed_by_the_checker_and_not_merged()
   local root = session_fixture.project()

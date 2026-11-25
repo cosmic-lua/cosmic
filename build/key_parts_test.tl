@@ -1,6 +1,6 @@
 --- The parts of a key a worker spells (build/key_parts.tl): hexadecimal
 --- as [`cosmic.codec`] spells it, a fixed framing, and a fixed name for the
---- tree, so a key does not change with them. build.declared_key answers
+--- tree, so a key does not change with them. build.declared_key exports
 --- the compiler's readers too.
 
 local Codec = require("cosmic.codec")
@@ -31,7 +31,7 @@ local function test_hex_is_codec_hex_and_unhex_inverts_it()
   end
 end
 
---- A contribution is framed as the kind, then the path and the answer
+--- A contribution is framed as the kind, then the path and the `answer`
 --- in lowercase hex, a space between each.
 local function test_a_key_part_is_the_kind_then_path_and_answer_in_hex()
   local edges = "\0\n\x7f\xff"
@@ -55,7 +55,7 @@ local function group(name: string): key_parts.MetaReaders
 end
 
 --- The reader map holds a group for the compiler's identity and one for
---- `image_hash`, answered by one function: a closure with a reader of a
+--- `image_hash`, served by one function: a closure with a reader of a
 --- group is told so for that group alone, and a carrier of `image_hash`
 --- (which hands the row on) is no reader of it.
 local function test_the_meta_readers_map_answers_each_group_alone()
@@ -79,7 +79,7 @@ local function test_the_meta_readers_map_answers_each_group_alone()
   assert(not asked, "a group the map lacks was answered")
 end
 
---- build.declared_key answers the compiler's readers as its own, so its
+--- build.declared_key exports the compiler's readers as its own, so its
 --- callers need not name build.key_parts.
 local function test_declared_key_answers_the_compiler_readers()
   assert(declared_key.reads_compiler == key_parts.reads_compiler)

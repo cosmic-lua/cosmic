@@ -2137,7 +2137,7 @@ local function test_a_read_at_the_index_of_a_loop_over_the_length_of_the_array_i
       "total = sum()\n") == "")
 end
 
---- `math.min` answers the least of its arguments, so a limit of `math.min(n, #t)` is at most `#t`.
+--- `math.min` returns the least of its arguments, so a limit of `math.min(n, #t)` is at most `#t`.
 local function test_a_read_at_the_index_of_a_loop_to_the_least_of_a_number_and_the_length_is_not_optional()
   assert(counted("for i = 1, math.min(2, #xs) do\n  total = total + xs[i]\nend\n") == "")
   assert(counted("for i = 1, math.min(#xs, total, 5) do\n  total = total + xs[i]\nend\n") == "")

@@ -9,7 +9,7 @@ local function source(...: string): string
   return table.concat({ ... }, "\n") .. "\n"
 end
 
---- The helpers of `text` that [`TestClones.read`] answers, all heads read.
+--- The helpers of `text` that [`TestClones.read`] returns, all heads read.
 local function read(text: string): {{string}}
   local scan = TestClones.scan(text)
   local out: mut {{string}} = {}

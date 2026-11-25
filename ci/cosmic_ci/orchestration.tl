@@ -31,7 +31,7 @@ local record Orchestration
   --- process, in order with the rest (the serial path). `start` spawns it
   --- ([`Runner.spawn`]) for the lanes; once it has ended `finish` is
   --- given its reaped outcome, replays its retained log whole and records
-  --- it, and answers its status; `abandon` is given the outcome of a group
+  --- it, and returns its status; `abandon` is given the outcome of a group
   --- stopped before it ended, and replays what it logged.
   record Group
     name: string
@@ -131,7 +131,7 @@ local standing_events: {string:boolean} = { push = true, merge_group = true }
 --- The weekly scheduled run and a manual run with `every_test` keep
 --- their own event, so they run every test (`--all`) and stand on
 --- nothing another run reached (COSMIC_TEST_NO_SHARED=1). So no gating
---- run runs every test: a pass a key does not answer for, such as a
+--- run runs every test: a pass no key is responsible for, such as a
 --- test that turns on the clock or a flaky one, is caught only by the
 --- weekly run. When that run fails, GitHub tells only whoever last
 --- edited its cron line (the TODO on ci.yml's `schedule`).
@@ -193,8 +193,8 @@ end
 --- The environment every operation runs in: the driver's own, with
 --- FUZZ_ITERS=0, so a suite checks each fuzz property's corpus of kept
 --- failures but draws no inputs of its own. Drawing is fuzz.yml's, each
---- night with a seed of its own: a check that gates a change answers the
---- same on every run, and one that searches runs where a find blocks
+--- night with a seed of its own: a check that gates a change gives the
+--- same verdict on every run, and one that searches runs where a find blocks
 --- nobody's merge. [`suite_run`] then removes what names the run from a
 --- gating suite's copy ([`forget_run`]).
 local function environment(extra?: {string:string}): {string:string}
@@ -1292,7 +1292,7 @@ local function checked_suite(c: Context, target: string, work: string,
   -- (build/core_image.tl). It keeps its verdicts in checked.db
   -- ([`suite_verdicts`]), and says which key parts a run that stands on
   -- none reached (`--census`, build/test.tl).
-  -- --all where it stands on no verdict (`stands`): CI answers for
+  -- --all where it stands on no verdict (`stands`): CI is responsible for
   -- every test then, whatever its build directory holds.
   local checked_argv: mut {string} = { cosmic }
   local checked_run = Orchestration.suite_run({
@@ -1303,7 +1303,7 @@ local function checked_suite(c: Context, target: string, work: string,
   end
   -- The merge queue runs the suite in shares, each a job of its own
   -- (COSMIC_CI_CHECKED_SHARD, `I/N`; ci.yml's `checked`). A share does not
-  -- check the C functions, which only a whole run answers; main's push
+  -- check the C functions, which only a whole run checks; main's push
   -- and the full runs run it whole.
   s = logged(c, "checked suite", Orchestration.with_share(checked_argv, named("COSMIC_CI_CHECKED_SHARD")),
     diagnostics .. "/checked-test.out", diagnostics .. "/checked-test.err",

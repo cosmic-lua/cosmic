@@ -3,22 +3,22 @@
 --- the build that wrote the database worked out once and kept as `meta`
 --- rows ([`build.stamps`] names them and fills them).
 ---
---- The invariant: a stamp `read` answers is the value this binary would
+--- The invariant: a stamp `read` returns is the value this binary would
 --- work out from its own database. Two things hold it:
 ---
 --- - [`build.stamps`] writes stamps only where the code that works them
 ---   out is the code the database carries, so this binary's code would
 ---   work out the same from the same rows.
---- - `read` answers a stamp only where the database's `stamp_of` row is
+--- - `read` returns a stamp only where the database's `stamp_of` row is
 ---   the digest of the rows the stamps were worked out from
 ---   (`content`), taken again here. A database that came to hold stamps
----   made for other rows answers none, and the caller works the value
+---   made for other rows gives none, and the caller works the value
 ---   out as it would with no stamp.
 ---
 --- `read` asks the binary's own database and no other, whatever is
 --- attached ahead of it: a project's projection names another binary.
 ---
---- COSMIC_STAMPS=0 has `read` answer none of the binary's own, so each
+--- COSMIC_STAMPS=0 has `read` return none of the binary's own, so each
 --- caller works its value out: for the test that holds a run to reaching
 --- the same keys either way (build/sandboxed_verdicts_test.tl), and for
 --- telling whether a stamp is at fault.
@@ -42,7 +42,7 @@ local record stamp
   --- The stamp `key` of `db`, by default the running binary's own
   --- database: nil where it holds none, or where its stamps are not of
   --- its rows. The binary's own are read once a process, and none of them
-  --- is answered under COSMIC_STAMPS=0.
+  --- is returned under COSMIC_STAMPS=0.
   read: function(key: string, db?: Sqlite.Handle): string?
 
   --- Whether the running binary's database carries stamps of its own

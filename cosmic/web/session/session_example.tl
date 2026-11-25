@@ -112,7 +112,7 @@ function Example.logout_everywhere()
   assert(SessionSqlite.sweep(store, 0) == 0)
 end
 
---- A page of "your devices": [`SessionSqlite.list`] answers a user's
+--- A page of "your devices": [`SessionSqlite.list`] returns a user's
 --- sessions with a label each and when and from where each was last seen,
 --- never a token; [`SessionSqlite.info`] finds the request's own, and
 --- [`SessionSqlite.destroy_id`] forgets one by its public id.

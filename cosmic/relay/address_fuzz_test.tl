@@ -1,5 +1,5 @@
 --- Fuzz properties for [`cosmic.relay.address`], which reads addresses out
---- of DNS answers, untrusted bytes: no text raises it; an IPv6 address
+--- of DNS responses, untrusted bytes: no text raises it; an IPv6 address
 --- reads as the 16 bytes it was written from, however it is spelled; an
 --- address that carries an IPv4 one is refused undecoded;
 --- and a literal grant opens its address alone, and selection keeps every allowed
@@ -313,7 +313,7 @@ local function test_a_grant_opens_its_address_and_selection_keeps_every_allowed_
           end
         end
       end
-      -- Selection: every answer check allows, in order, else a reason naming every one.
+      -- Selection: every address check allows, in order, else a reason naming every one.
       local want: mut {integer} = {}
       for i, a in ipairs(list) do
         if relay_address.check(a, port, NONE, NO_OWN) then want[#want + 1] = i end

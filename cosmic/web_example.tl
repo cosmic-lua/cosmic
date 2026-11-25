@@ -53,10 +53,10 @@ function Example.api()
   assert(url == "/items/7?fields=title")
 end
 
---- A page: [`Web.html`] takes only escaped or vouched-for markup, so a title
---- from a client cannot become script. A POST answers with [`Web.redirect`],
---- 303 by default, to a local path; [`Web.safe_next`] keeps a client-sent
---- target from leaving the site.
+--- A page: [`Web.html`] takes only escaped or vouched-for markup, so a
+--- title from a client cannot become script. The app responds to a POST
+--- with [`Web.redirect`], 303 by default, to a local path;
+--- [`Web.safe_next`] keeps a client-sent target from leaving the site.
 function Example.pages()
   local app = Web.app{ routes = {
     Web.get("/hello/:name", function(req: Web.Request): Web.Response
@@ -122,8 +122,9 @@ end
 
 --- Routing picks the most specific route whatever the declaration order,
 --- turns a path into its canonical form before any middleware sees it, and
---- answers HEAD from the GET and OPTIONS with `Allow`. [`Web.router`] builds
---- the table without an app, to ask what an app would do.
+--- responds to HEAD from the GET and to OPTIONS with `Allow`.
+--- [`Web.router`] builds the table without an app, to ask what an app
+--- would do.
 function Example.routing()
   local function handler(_req: Web.Request): Web.Response
     return Web.text("ok")
@@ -150,7 +151,7 @@ end
 
 --- A mount hands the rest of the path to its own routes, which are named
 --- "mount:route"; [`Web.mount_handler`] sends everything below a prefix to one
---- handler and answers `url_for` through a resolver of its own.
+--- handler and resolves `url_for` with a resolver of its own.
 function Example.mounts()
   local function show(req: Web.Request): Web.Response
     return Web.text(req.mount_path .. " " .. assert(req.route).pattern)

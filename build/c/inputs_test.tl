@@ -60,7 +60,7 @@ local function test_a_header_found_earlier_in_the_search_changes_the_key(tmp: st
 end
 
 local function test_a_copy_of_a_header_found_earlier_changes_the_key_though_its_bytes_are_the_same(tmp: string)
-  -- The tree a compile prints names the file each declaration is in, so a header found at another path is another answer.
+  -- The tree a compile prints names the file each declaration is in, so a header found at another path is another result.
   write(tmp, { ["main.c"] = "#include <h.h>\n", ["late/h.h"] = "int h;\n" })
   local before = key_of(tmp, nil, { "early", "late" })
   assert(before ~= nil)

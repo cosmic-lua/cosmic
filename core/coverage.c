@@ -139,7 +139,7 @@ void __sanitizer_cov_pcs_init (const uintptr_t *start, const uintptr_t *stop) {
 }
 
 /* A table from another link would put hits on the wrong lines, so a
- * mismatch is an error rather than an empty answer. */
+ * mismatch is an error rather than an empty result. */
 static int native_ready (lua_State *L) {
   if (!native_flags) return 0;
   if (cosmic_native_coverage_blocks != native_count) {
@@ -366,7 +366,7 @@ extern int (*luaG_instructionline) (lua_State *L, const Proto *p, int pc);
  * with no line information, on its ordinal line. Called before every such
  * instruction, it runs nothing that can allocate or raise: a source or a
  * page the collector does not hold yet is left to the line hook, which
- * this answers the line for and which makes them. A function with no
+ * this returns the line for and which makes them. A function with no
  * source (a chunk stripped whole) names nothing to count it under. */
 static int instruction_line (lua_State *L, const Proto *p, int pc) {
   Collector *collector = current_collector(L);
