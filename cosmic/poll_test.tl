@@ -451,6 +451,46 @@ local function test_closing_answers_the_waits_on_a_descriptor(tmp: string)
   sys.close(writer)
 end
 
+--- `answer` wakes each wait on a descriptor as though it had the events, every place given only what it asked: a
+--- module that read into a buffer what another task waits on wakes that task to look there.
+local function test_answer_wakes_the_waits_on_a_descriptor_with_its_events(tmp: string)
+  local reader, writer = fifo(tmp, "a")
+  local readable: boolean = false
+  local answers: {integer}? = nil
+  local woken_for_room = false
+  Poll.run(function()
+    local one = Poll.spawn(function()
+      local ready, _ = Poll.readable(reader, Clock.seconds(5))
+      readable = ready
+    end)
+    local both = Poll.spawn(function()
+      answers = assert(Poll.ready({ writer, reader }, { sys.POLLIN, sys.POLLIN }, Clock.seconds(5)))
+    end)
+    -- A wait for room on it asked for none of the events: it stays parked.
+    local other = Poll.spawn(function()
+      local _, _ = Poll.wait(reader, sys.POLLOUT, Clock.seconds(5))
+      woken_for_room = true
+    end)
+    assert(Clock.sleep(0))
+    Poll.answer(reader, sys.POLLIN)
+    assert(one:join(Clock.seconds(1)))
+    assert(both:join(Clock.seconds(1)))
+    assert(Clock.sleep(Clock.ms(20)))
+    assert(not woken_for_room, "a wait for room was answered with what it did not ask")
+    other:cancel()
+    local _, _ = other:join()
+    Test.raises(function() Poll.answer(-1, sys.POLLIN) end, "fd must be a descriptor")
+    Test.raises(function() Poll.answer(reader, -1) end, "events must be a mask")
+  end)
+  assert(readable, "the wait was not answered")
+  local got = assert(answers, "the wait on two was not answered")
+  assert(got[1] == 0 and got[2] == sys.POLLIN, tostring(got[1]) .. " " .. tostring(got[2]))
+  -- Outside a run it does nothing.
+  Poll.answer(reader, sys.POLLIN)
+  sys.close(reader)
+  sys.close(writer)
+end
+
 --- A killed task is ended where it waits and never resumed: its
 --- `<close>` variables are closed, its joiners' joins fail with
 --- CANCELLED, and neither its descriptor turning ready nor its timeout
