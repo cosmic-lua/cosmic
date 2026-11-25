@@ -7,7 +7,30 @@ local Json = require("cosmic.json")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
 local ChunkedReader = require("build.chunked_reader_fixture")
-local type Failure = require("cosmic.failure")
+local Failure = require("cosmic.failure")
+
+--- `r`'s next token, and ""; nil and "" at the end; nil and the text of the failure.
+local function next_text(r: Json.Reader): Json.Token?, string
+  local t, why = r:next()
+  if t == nil then return nil, tostring(why) end
+  if t == false then return nil, "" end
+  return t, ""
+end
+
+--- The kind of `r`'s next token, as [`next_text`] answers.
+local function peek_text(r: Json.Reader): Json.TokenKind?, string
+  local k, why = r:peek()
+  if k == nil then return nil, tostring(why) end
+  if k == false then return nil, "" end
+  return k, ""
+end
+
+--- `r`'s next value, and ""; nil and the text of the failure.
+local function value_text(r: Json.Reader): Json.Value?, string
+  local v, why = r:value()
+  if v == nil then return nil, tostring(why) end
+  return v, ""
+end
 
 --- The value of a value-and-reason pair, which is there: `assert` takes no optional that may hold `false`, which it would
 --- raise for as for nil.
@@ -35,7 +58,7 @@ local function tokens(text: string, size?: integer, opts?: Json.ReaderOptions): 
   local r = Json.reader(ChunkedReader.chunked(text, size or #text + 1), opts)
   local out: mut {string} = {}
   while true do
-    local t, err = r:next()
+    local t, err = next_text(r)
     if t == nil then return out, err end
     local value = t.value
     out[#out + 1] = t.kind .. (if value ~= nil then "=" .. tostring(value) else "" end) .. "@" .. assert(Json.pointer(r:steps()))
@@ -109,10 +132,10 @@ local function test_refusals_name_where()
     end
   end
   local r = Json.reader(Stream.from_string("[1,]"))
-  assert(assert(r:next()).kind == "array" and assert(r:next()).value == 1)
-  local _, first = r:next()
-  local _, again = r:next()
-  local _, peeked = r:peek()
+  assert(assert(next_text(r)).kind == "array" and assert(next_text(r)).value == 1)
+  local _, first = next_text(r)
+  local _, again = next_text(r)
+  local _, peeked = peek_text(r)
   assert(first ~= "" and again == first and peeked == first, "a failure answers again")
 end
 
@@ -138,11 +161,11 @@ local function test_value_reads_one_whole_value()
   local text = '{"rows": [\n  {"id": 1, "tags": ["a"]},\n  {"id": 2, "tags": []},\n  null\n], "after": 3}'
   for _, size in ipairs({ 1, 4, 1000 }) do
     local r = Json.reader(ChunkedReader.chunked(text, size), { null_value = Json.null })
-    assert(assert(r:next()).kind == "object" and assert(r:next()).value == "rows")
-    assert(assert(r:next()).kind == "array")
+    assert(assert(next_text(r)).kind == "object" and assert(next_text(r)).value == "rows")
+    assert(assert(next_text(r)).kind == "array")
     local ids: mut {integer} = {}
-    while r:peek() == "object" do
-      local row = known_value(r:value())
+    while peek_text(r) == "object" do
+      local row = known_value(value_text(r))
       local got1, why1 = Json.get(row, { "id" })
       assert(got1 ~= nil, tostring(why1))
       ids[#ids + 1] = assert(Shape.into(got1, Shape.integer))
@@ -150,12 +173,12 @@ local function test_value_reads_one_whole_value()
       assert(got2 ~= nil, tostring(why2))
       assert(Json.is_array(got2), "an array decodes marked, as decode marks one")
     end
-    assert(r:peek() == "null" and r:value() == Json.null, "null_value stands in")
+    assert(peek_text(r) == "null" and value_text(r) == Json.null, "a null alone is Json.null")
     assert(#ids == 2 and ids[1] == 1 and ids[2] == 2)
-    assert(assert(r:next()).kind == "end_array" and assert(Json.pointer(r:steps())) == "/rows")
-    assert(assert(r:next()).value == "after" and r:value() == 3)
-    assert(assert(r:next()).kind == "end_object")
-    local done, err = r:next()
+    assert(assert(next_text(r)).kind == "end_array" and assert(Json.pointer(r:steps())) == "/rows")
+    assert(assert(next_text(r)).value == "after" and value_text(r) == 3)
+    assert(assert(next_text(r)).kind == "end_object")
+    local done, err = next_text(r)
     assert(done == nil and err == "", err)
     assert(r:offset() == #text, "every byte read past")
   end
@@ -163,45 +186,106 @@ end
 
 local function test_value_refusals_are_placed_in_the_stream()
   local r = Json.reader(Stream.from_string('[\n {"a": 1},\n {"a": 1, "a": 2}]'))
-  assert(assert(r:next()).kind == "array" and r:value() ~= nil)
-  local _, err = r:value()
+  assert(assert(next_text(r)).kind == "array" and value_text(r) ~= nil)
+  local _, err = value_text(r)
   assert(err == "json: duplicate key at line 3, column 11 (pointer \"/1/a\")", err)
   local deep = Json.reader(Stream.from_string('[{"a": [1, {"b": [[[1]]]}]}]'), { max_depth = 4 })
-  assert(assert(deep:next()).kind == "array")
-  local _, too_deep = deep:value()
+  assert(assert(next_text(deep)).kind == "array")
+  local _, too_deep = value_text(deep)
   assert(too_deep == "json: JSON nests deeper than 4 levels at line 1, column 18 (pointer \"/0/a/1/b\")", too_deep)
   local syntax = Json.reader(Stream.from_string('[1,\n  {"a": [1,]}]'))
-  assert(assert(syntax:next()).kind == "array" and syntax:value() == 1)
-  local _, bad = syntax:value()
+  assert(assert(next_text(syntax)).kind == "array" and value_text(syntax) == 1)
+  local _, bad = value_text(syntax)
   assert(bad:match("^json: invalid JSON at line 2, column %d+: "), bad)
   local at_key = Json.reader(Stream.from_string('{"a": 1}'))
-  assert(assert(at_key:next()).kind == "object")
-  local _, key = at_key:value()
+  assert(assert(next_text(at_key)).kind == "object")
+  local _, key = value_text(at_key)
   assert(key == "json: expected a value at line 1, column 2 (pointer \"\")", key)
   local spent = Json.reader(Stream.from_string(""))
-  local _, ended = spent:value()
+  local _, ended = value_text(spent)
   assert(ended == "json: no value: the stream has ended", ended)
   -- After a value that spans lines, a refusal counts the lines it held.
   local after = Json.reader(Stream.from_string('[{"a":\n\n1}, x]'))
-  assert(assert(after:next()).kind == "array" and after:value() ~= nil)
-  local _, x = after:next()
+  assert(assert(next_text(after)).kind == "array" and value_text(after) ~= nil)
+  local _, x = next_text(after)
   assert(x == "json: expected a value at line 3, column 5 (pointer \"/0\")", x)
 end
 
-local function test_a_failing_stream_fails_the_reader()
-  local r = Json.reader(ChunkedReader.chunked("[1, 2", 2, "disk on fire"))
-  local got: mut {string} = {}
-  local err: string
+--- A source that gives an unclosed array, then times out.
+local class TimingOut is Stream.Reader
+  mut sent: boolean
+
+  function read(self, _max_bytes?: integer): (string | false) | (nil, Failure)
+    if self.sent then return nil, Failure.timeout("disk on fire") end
+    self.sent = true
+    return "[1, 2"
+  end
+
+  function close(self): (true) | (false, Failure)
+    return true
+  end
+end
+
+local function test_a_failing_stream_fails_the_reader_with_its_own_failure()
+  local source: TimingOut = { sent = false, skip = nil }
+  local r = Json.reader(source)
+  local failed: Failure
   while true do
     local t, why = r:next()
     if t == nil then
-      err = why
+      failed = why
       break
     end
-    got[#got + 1] = t.kind
+    assert(t ~= false, "the stream failed before its end")
   end
-  assert(err == "json: disk on fire", err)
-  assert(select(2, r:next()) == err, "and answers it again")
+  assert(tostring(failed) == "disk on fire" and failed.kind == "timeout", tostring(failed))
+  local _, again = r:peek()
+  assert(rawequal(again, failed), "and answers it again")
+  local _, value_again = r:value()
+  assert(rawequal(value_again, failed), "from every call")
+end
+
+local function test_null_value_says_what_a_null_inside_a_value_is()
+  local text = '[null, 1]'
+  local plain = Json.reader(Stream.from_string(text))
+  local kept, why = plain:value()
+  assert(kept ~= nil, tostring(why))
+  local items = Json.array_of(kept)
+  assert(items ~= nil and items[1] == nil and items[2] == 1, "a null inside is nil by default")
+  local marked = Json.reader(Stream.from_string(text), { null_value = Json.null })
+  local held, trouble = marked:value()
+  assert(held ~= nil, tostring(trouble))
+  local marked_items = Json.array_of(held)
+  assert(marked_items ~= nil and rawequal(marked_items[1], Json.null), "and null_value stands in for it")
+end
+
+local function test_a_refusal_in_the_text_is_one_failure_on_every_call()
+  local r = Json.reader(Stream.from_string("[1 2]"))
+  local open, _ = r:next()
+  assert(open ~= nil and open ~= false and open.kind == "array")
+  local one, _ = r:value()
+  assert(one == 1)
+  local none, why = r:next()
+  assert(none == nil and tostring(why):find("^json: expected `,` or `%]`") ~= nil, tostring(why))
+  local _, peeked = r:peek()
+  local _, valued = r:value()
+  assert(rawequal(peeked, why) and rawequal(valued, why), "the same Failure from every call")
+end
+
+local function test_the_end_is_false_and_a_refusal_is_one_failure()
+  local r = Json.reader(Stream.from_string("1 null"))
+  local one, _ = r:value()
+  assert(one == 1)
+  local null, _ = r:value()
+  assert(rawequal(null, Json.null), "a null value is Json.null")
+  local at_end, _ = r:peek()
+  assert(at_end == false)
+  local last, _ = r:next()
+  assert(last == false)
+  local none, why = r:value()
+  assert(none == nil and tostring(why) == "json: no value: the stream has ended", tostring(why))
+  local _, again = r:next()
+  assert(rawequal(again, why), "a refusal is answered again")
 end
 
 --- A \r passed as part of whitespace joins a \n right after it into one
@@ -223,8 +307,8 @@ local function test_a_carriage_return_joins_only_the_newline_after_it()
   local _, twice = tokens('{"a":1\r,\n"a":2}')
   assert(twice == "json: duplicate key at line 3, column 1 (pointer \"/a\")", twice)
   local r = Json.reader(Stream.from_string('[1\r,\n{"a":1,"a":2}]'))
-  assert(assert(r:next()).kind == "array" and r:value() == 1)
-  local _, inside = r:value()
+  assert(assert(next_text(r)).kind == "array" and value_text(r) == 1)
+  local _, inside = value_text(r)
   assert(inside == "json: duplicate key at line 3, column 8 (pointer \"/1/a\")", inside)
 end
 
@@ -248,7 +332,7 @@ local function test_the_offset_stays_where_it_failed()
   local offsets: mut {integer: boolean} = {}
   for size = 1, 8 do
     local r = Json.reader(ChunkedReader.chunked(text, size))
-    while r:next() ~= nil do end
+    while next_text(r) ~= nil do end
     offsets[r:offset()] = true
   end
   local count = 0
@@ -257,7 +341,7 @@ local function test_the_offset_stays_where_it_failed()
   for _, cut in ipairs({ '["\\', '["\\u12', '["ab' }) do
     for size = 1, 3 do
       local r = Json.reader(ChunkedReader.chunked(cut, size))
-      while r:next() ~= nil do end
+      while next_text(r) ~= nil do end
       assert(r:offset() == #cut, ("%q in chunks of %d: %d"):format(cut, size, r:offset()))
     end
   end
@@ -283,8 +367,8 @@ local function test_a_long_token_in_small_chunks_reads_in_linear_time()
   assert(err == "" and #got == 4, err)
   assert(#got[2] == #"string=@/0" + #long)
   local r = Json.reader(ChunkedReader.chunked('[{"a": "' .. long .. '"}]', 3))
-  assert(assert(r:next()).kind == "array")
-  local got3, why3 = Json.get(known_value(r:value()), { "a" })
+  assert(assert(next_text(r)).kind == "array")
+  local got3, why3 = Json.get(known_value(value_text(r)), { "a" })
   assert(got3 ~= nil, tostring(why3))
   assert(got3 == long)
 end
@@ -297,9 +381,9 @@ local function test_a_value_failure_under_a_long_place_reads_as_decode_names_it(
   local text = ('{"%s": {"%s": {"%s": {"%s": [{"a": 1, "a": 2}]}}}}'):format(key, key, key, key)
   local r = Json.reader(Stream.from_string(text))
   for _ = 1, 4 do
-    assert(assert(r:next()).kind == "object" and assert(r:next()).value == key)
+    assert(assert(next_text(r)).kind == "object" and assert(next_text(r)).value == key)
   end
-  local _, err = r:value()
+  local _, err = value_text(r)
   local _, whole = Json.decode(text)
   assert(err == tostring(whole) and err:find('pointer ending "', 1, true) ~= nil, err .. " vs " .. tostring(whole))
 end
@@ -369,10 +453,10 @@ local function test_json5_forms_are_tokens()
   -- NaN, which prints by platform as `nan` or `-nan`, is a number no
   -- number equals, written any way `decode` reads it.
   for _, text in ipairs({ "NaN", "nan", "+NaN", "-NaN", "nAn" }) do
-    local got = assert(Json.reader(Stream.from_string(text), JSON5):next())
+    local got = assert(next_text(Json.reader(Stream.from_string(text), JSON5)))
     local value = got.value
     assert(got.kind == "number" and value ~= value, text)
-    assert(Json.reader(Stream.from_string(text), JSON5):peek() == "number", text .. " peeks as a number")
+    assert(peek_text(Json.reader(Stream.from_string(text), JSON5)) == "number", text .. " peeks as a number")
   end
 end
 
@@ -384,18 +468,18 @@ local function test_json5_numbers_and_strings_are_what_decode_reads()
     local got4, why4 = Json.decode(text, { json5 = true })
     assert(got4 ~= nil, tostring(why4))
     local want = known_value(got4)
-    local got = assert(Json.reader(Stream.from_string(text), JSON5):next())
+    local got = assert(next_text(Json.reader(Stream.from_string(text), JSON5)))
     assert(got.value == want, ("%q: %s, not %s"):format(text, tostring(got.value), tostring(want)))
     assert(math.type(got.value) == math.type(want))
-    local viewed = known_value(Json.reader(Stream.from_string(text), JSON5):value())
+    local viewed = known_value(value_text(Json.reader(Stream.from_string(text), JSON5)))
     assert(viewed == want, "value reads the same")
   end
-  local nan = assert(Json.reader(Stream.from_string("NaN"), JSON5):next()).value
+  local nan = assert(next_text(Json.reader(Stream.from_string("NaN"), JSON5))).value
   assert(nan ~= nan, "NaN is not a number equal to itself")
   local big = assert(Json.reader(Stream.from_string("[0xFFFFFFFFFFFFFFFFFF]"),
     { json5 = true, big_numbers_as_strings = true }))
-  assert(assert(big:next()).kind == "array")
-  assert(assert(big:next()).value == "0xFFFFFFFFFFFFFFFFFF", "a hex number past 64 bits is its text")
+  assert(assert(next_text(big)).kind == "array")
+  assert(assert(next_text(big)).value == "0xFFFFFFFFFFFFFFFFFF", "a hex number past 64 bits is its text")
   local _, overflow = tokens("[0xFFFFFFFFFFFFFFFFFF]", nil, JSON5)
   assert(overflow:match("hex number overflow"), overflow)
 end
@@ -521,8 +605,8 @@ local function test_json5_line_ends_count_as_decode_counts_them()
   end
   -- A failure after a value read whole counts the lines it held.
   local r = Json.reader(ChunkedReader.chunked("[/* a\u{2028} */ {'k': 'v\u{2029}'}, // x\u{2028}\n  x]", 2), JSON5)
-  assert(assert(r:next()).kind == "array" and r:value() ~= nil)
-  local _, err = r:next()
+  assert(assert(next_text(r)).kind == "array" and value_text(r) ~= nil)
+  local _, err = next_text(r)
   assert(err == "json: expected a value at line 5, column 3 (pointer \"/0\")", err)
 end
 
@@ -535,9 +619,9 @@ local function test_value_reads_json5_and_comments()
   local want = known_value(got5)
   for _, size in ipairs({ 1, 2, 5, 1000 }) do
     local r = Json.reader(ChunkedReader.chunked(text, size), { json5 = true, hash_comments = true, null_value = Json.null })
-    assert(assert(r:next()).kind == "object" and assert(r:next()).value == "rows")
-    assert(r:peek() == "array")
-    local rows = known_value(r:value())
+    assert(assert(next_text(r)).kind == "object" and assert(next_text(r)).value == "rows")
+    assert(peek_text(r) == "array")
+    local rows = known_value(value_text(r))
     local got6, why6 = Json.get(rows, { 1, "id" })
     assert(got6 ~= nil, tostring(why6))
     local got7, why7 = Json.get(rows, { 1, "name" })
@@ -548,19 +632,19 @@ local function test_value_reads_json5_and_comments()
     assert(got9 ~= nil, tostring(why9))
     assert(#assert(Json.to_array(rows)) == 2 and got6 == 1 and got7 == "a}" and
         got8 == 2 and got9 == 3)
-    assert(assert(r:next()).value == "n" and r:value() == 3)
-    assert(assert(r:next()).kind == "end_object")
-    local done, err = r:next()
+    assert(assert(next_text(r)).value == "n" and value_text(r) == 3)
+    assert(assert(next_text(r)).kind == "end_object")
+    local done, err = next_text(r)
     assert(done == nil and err == "", err)
   end
   local r = Json.reader(Stream.from_string("// lead\n[1, /* c\n */ {'a': 1, 'a': 2}]"), JSON5)
-  assert(assert(r:next()).kind == "array" and r:value() == 1)
-  local _, dup = r:value()
+  assert(assert(next_text(r)).kind == "array" and value_text(r) == 1)
+  local _, dup = value_text(r)
   assert(dup == "json: duplicate key at line 3, column 14 (pointer \"/1/a\")", dup)
   -- Without the options the same comment is a refusal, by value too.
   local plain = Json.reader(Stream.from_string("[[1, /* ] */ 2]]"))
-  assert(assert(plain:next()).kind == "array")
-  local _, refused = plain:value()
+  assert(assert(next_text(plain)).kind == "array")
+  local _, refused = value_text(plain)
   assert(refused:match("^json: invalid JSON at line 1, column 6: "), refused)
 end
 
@@ -626,7 +710,7 @@ local function assert_comments_read_in_linear_time(comment: string)
     local r = Json.reader(Stream.from_string("[" .. string.rep("1, " .. comment, n) .. "2]"), BOTH)
     local started, count = Clock.now_ns(), 0
     while true do
-      local t, err = r:next()
+      local t, err = next_text(r)
       if t == nil then
         assert(err == "", err)
         break
@@ -661,7 +745,7 @@ end
 local function test_a_nested_value_with_many_comments_reads_in_one_byte_chunks()
   local text = "[" .. string.rep("1, /* c */ ", 10000) .. "2]"
   local r = Json.reader(ChunkedReader.chunked("[" .. text .. "]", 1), JSON5)
-  assert(assert(r:next()).kind == "array" and #assert(Json.to_array((known_value(r:value())))) == 10001)
+  assert(assert(next_text(r)).kind == "array" and #assert(Json.to_array((known_value(value_text(r))))) == 10001)
 end
 
 --- yyjson reads JSON5's extra whitespace right after an object's `{` or
@@ -685,8 +769,8 @@ local function test_extended_whitespace_where_an_object_key_starts_is_refused()
           local r = Json.reader(ChunkedReader.chunked(text, size), JSON5)
           local failure = ""
           while true do
-            for _ = 1, peeks do r:peek() end
-            local t, err = r:next()
+            for _ = 1, peeks do peek_text(r) end
+            local t, err = next_text(r)
             if t == nil then
               failure = err
               break
@@ -701,7 +785,7 @@ local function test_extended_whitespace_where_an_object_key_starts_is_refused()
   for _, text in ipairs({ "{a:1,\u{a0}:2}", "{\u{a0}:2}" }) do
     local r = Json.reader(Stream.from_string(text), JSON5)
     local kinds: mut {string} = {}
-    while r:peek() ~= nil do kinds[#kinds + 1] = assert(r:next()).kind end
+    while peek_text(r) ~= nil do kinds[#kinds + 1] = assert(next_text(r)).kind end
     assert(#kinds >= 4 and assert(Json.check(text, { json5 = true })), text)
   end
   -- Whitespace after a comment, or anywhere else, is read.
@@ -747,8 +831,8 @@ local function test_an_n_waits_for_its_next_byte()
     close = function(_self: Stream.Reader): (true) | (false, Failure) return true end,
   }
   local r = Json.reader(source, JSON5)
-  assert(assert(r:next()).kind == "array")
-  assert(r:peek() == "number", "nan is a number")
+  assert(assert(next_text(r)).kind == "array")
+  assert(peek_text(r) == "number", "nan is a number")
 end
 
 --- A number that stops early inside an array or object is refused in
