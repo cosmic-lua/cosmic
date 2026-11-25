@@ -1972,8 +1972,9 @@ local function test_a_queue_run_refuses_its_own_refs_caches()
       local condition = job["if"] or ""
       local rest = condition:sub(#QUEUE_REF + 1)
       assert(waits and condition:sub(1, #QUEUE_REF) == QUEUE_REF and (rest == "" or rest:sub(1, 4) == " && ") and
-          -- An `||` only inside parentheses cannot run the job past the queue ref's check.
-          (rest:gsub("%b()", "")):find("||", 1, true) == nil,
+          -- An `||` only inside parentheses cannot run the job past the queue ref's check; a
+          -- string literal is emptied first, so a parenthesis in one pairs with none outside it.
+          ((rest:gsub("'[^']*'", "''")):gsub("%b()", "")):find("||", 1, true) == nil,
         name .. " restores a cache without waiting on the queue ref's check")
     end
   end

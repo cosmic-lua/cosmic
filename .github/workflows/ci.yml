@@ -11,7 +11,8 @@
     # what main's daily run does, macOS only when it asks (`macos`).
     push: {branches: ["main"]},
     # A pull request runs a light check (linux-x86_64's leg, below, with the
-    # launcher fixtures where it changes what they check, and macOS's suite
+    # launcher fixtures where it changes what they check, the pinned CI
+    # driver's check where it changes ci/ or .github/, and macOS's suite
     # once it is not a draft), which reports the `ci` check the merge queue
     # requires of it. Marking it ready (`ready_for_review`) runs it again.
     pull_request: {types: ["opened", "synchronize", "reopened", "ready_for_review"]},
@@ -117,8 +118,9 @@
     # not: macOS failures blocked prereleases, and the daily run was the
     # first to meet them. A pull request runs
     # a light gate: linux-x86_64's boot, native suite and format check of
-    # what it changed (and the launcher fixtures, where it reaches them), and,
-    # once it is not a draft, macOS's suite, each suite on main's verdicts.
+    # what it changed (and the launcher fixtures, where it reaches them), the
+    # `driver` job, and, once it is not a draft, macOS's suite, each suite
+    # on main's verdicts.
     # A draft leaves the few macOS runners to the queue (ci/README.md says
     # why). A push to main runs
     # three legs whole, all but macOS, and macOS's suite, which saves
@@ -522,8 +524,7 @@
         # of the daily, weekly and a manual run; on a pull request, the
         # `driver` job's, and in the queue, that job's and the macOS
         # leg's, where the change touches ci/ or .github/ or its paths are
-        # not known
-        # (changed_paths.tl's `driver=skip`); never on main's push, whose
+        # not known (changed_paths.tl's `driver=skip`); never on main's push, whose
         # commit the queue checked. cosmic_ci's tests start the host's
         # programs, which macOS keeps elsewhere (/sbin/sha256sum): before
         # the macOS leg ran them in the queue, such a break showed only in
@@ -1573,11 +1574,12 @@
     },
 
     # The one check a ruleset requires: it fails when a leg, the checked
-    # suite, the checked narrowing run, the queue's pinned driver check or
-    # its check of the queue ref's caches did not pass, or when the queue
-    # ref holds a cache once they have run. The checked jobs read as passed on a pull
-    # request, which skips them; the driver job's result is read in the
-    # queue and on a pull request, where it runs. On every run but a pull request's it is
+    # suite, the checked narrowing run, the pinned driver check or the
+    # queue's check of its ref's caches did not pass, or when the queue
+    # ref holds a cache once they have run. The checked jobs read as
+    # passed on a pull request, which skips them; the driver job's result
+    # is read in the queue and on a pull request, where it runs. On every
+    # run but a pull request's it is
     # the provenance join too, proving the legs attested identical bytes:
     # the queue's, a push's and a branch's manual run's three, the
     # scheduled run's and a manual run of main's or with `macos` four.
