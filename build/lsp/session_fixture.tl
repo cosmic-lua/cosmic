@@ -176,8 +176,7 @@ end
 --- default [`Store.databases`] carries the real ones).
 function session_fixture.carrying(path: string, file: string, text: string, places: {{string}},
                                   members?: {{string}}): Sqlite.Handle
-  local db = assert(Sqlite.memory())
-  for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
+  local db = assert(schema.hold(assert(Sqlite.memory())))
   assert(db:run("INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
       "VALUES (?1, ?2, 'module', CAST(?3 AS BLOB), x'00', x'00', '', deflate(?4))",
     { { text = path }, { text = file }, { text = Hash.hex_sha256(text) }, { text = text } }))

@@ -42,10 +42,7 @@ end
 --- modules: what a public source reads, with nothing the writer's
 --- analysis would add.
 local function projection(rows: {Row}): Sqlite.Handle
-  local db = assert(Sqlite.memory())
-  for _, statement in ipairs(schema.create("")) do
-    assert(db:exec(statement))
-  end
+  local db = assert(schema.hold(assert(Sqlite.memory())))
   local seen: mut {string: boolean} = {}
   for _, item in ipairs(rows) do
     if seen[item.module] ~= true then
