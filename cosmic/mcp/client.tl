@@ -177,8 +177,9 @@ local record McpClient
     --- what changed: list or read again to see how.
     listen: function(Session, wanted: Subscription, on_notice: function(Notice),
                      on_ack?: function(agreed: Subscription)): (true) | (false, Failure)
-    --- Ends the session: closes the server's stdin and waits for a
-    --- spawned server to exit. Safe to call more than once.
+    --- Ends the session: over stdio closes the server's stdin and waits
+    --- for a spawned server to exit; over HTTP does nothing more. Safe to
+    --- call more than once.
     close: function(Session): (true) | (false, Failure)
   end
 end

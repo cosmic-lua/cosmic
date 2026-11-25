@@ -307,6 +307,95 @@ local function test_a_slot_with_no_escaping_is_refused_at_its_line_and_column()
   assert(#wrong == 0, table.concat(wrong, "\n"))
 end
 
+local function test_a_define_is_a_function_of_the_module_on_its_own_lines()
+  local src = HEAD .. "<ul>{{range .items}}{{. | item}}{{end}}</ul>\n{{define item Item}}\n<li>{{.name}}</li>\n{{end}}\n"
+  local out = compiled(src)
+  assert(newlines(out) == newlines(src) + 1, out)
+  assert(out:find("local record _Module end function _Module.render(d: t.T): html.SafeHtml", 1, true), out)
+  assert(out:find("_one(_Module.item(d1))", 1, true), out)
+  assert(out:find("function _Module.item(d: t.Item): html.SafeHtml", 1, true), out)
+  assert(out:find("return _Module\n$"), out)
+  -- render's return shares the first define's line: line 3 of the module.
+  local third = assert(select(3, out:match("^([^\n]*)\n([^\n]*)\n([^\n]*)")))
+  assert(third:find("^return html.trust%(table.concat%(parts%)%) end function _Module.item"), third)
+end
+
+local function test_a_define_keeps_lines_through_trimming_and_crlf()
+  for _, src in ipairs({
+      HEAD .. "a\n{{- define x T -}}\n<b>{{.n}}</b>\n{{- end -}}\n\n{{define\n  y T}}\n{{.m}}{{end}}\n",
+      "{{type T from m.t}}\r\nx{{. | z}}\r\n{{define z T}}\r\n{{.q}}\r\n{{end}}\r\n",
+      "{{type T from m.t}}{{mode text}}\n{{define w T}}{{.q}}{{end}}",
+  }) do
+    local out = compiled(src)
+    assert(newlines(out) == newlines(src) + 1, src .. "\n" .. out)
+  end
+end
+
+local function test_a_define_is_refused_where_it_stands_amiss()
+  local cases: {Refusal} = {
+    { source = "{{if .a}}{{define x T}}{{end}}{{end}}", line = "2", column = "10", reason = "stands at the top level" },
+    { source = "{{. | x}}", line = "2", column = "7", reason = "'x' names no {{define}}" },
+    { source = "x\n{{define a T}}{{end}}\ntext\n", line = "3", column = "22", reason = "text after a {{define}}" },
+    { source = "{{define a T}}{{end}}{{define a T}}{{end}}", line = "2", column = "31", reason = "'a' is defined twice" },
+    { source = "{{define render T}}{{end}}", line = "2", column = "10", reason = "not a name for a {{define}}" },
+    { source = "{{define a}}{{end}}", line = "2", column = "1", reason = "write {{define name Type}}" },
+    { source = "{{define a T}}x", line = "2", column = "1", reason = "never closed" },
+    { source = "{{define a T}}<b class=\"{{end}}", line = "2", column = "25", reason = "{{define a}} ends" },
+    { source = "{{define a T}}<script>{{end}}", line = "2", column = "23", reason = "{{define a}} ends" },
+    { source = "{{define a T}}{{define b T}}{{end}}{{end}}", line = "2", column = "15", reason = "close the one before" },
+    { source = "{{define a T}}{{else}}{{end}}", line = "2", column = "15", reason = "it has no block to belong to" },
+    { source = "{{define a T}}{{end}}{{.y}}", line = "2", column = "22", reason = "an action after a {{define}}" },
+    { source = "{{define a T}}{{end}}\n{{if .x}}y{{end}}", line = "3", column = "1", reason = "an action after a {{define}}" },
+    { source = "{{define __index T}}{{end}}", line = "2", column = "10", reason = "starts with no __" },
+    { source = "{{range $x := .a}}{{end}}{{define a T}}{{$x}}{{end}}", line = "2", column = "42",
+      reason = "'$x' is not declared here" },
+  }
+  local wrong: mut {string} = {}
+  for _, case in ipairs(cases) do
+    local why = refused(HEAD .. case.source)
+    local want = "t.tmpl:" .. case.line .. ":" .. case.column .. ": "
+    if why:sub(1, #want) ~= want or not why:find(case.reason, 1, true) then
+      wrong[#wrong + 1] = case.source .. " said " .. why .. ", not " .. want .. "..." .. case.reason
+    end
+  end
+  assert(#wrong == 0, table.concat(wrong, "\n"))
+end
+
+local function test_a_stage_is_called_with_its_arguments_after_the_piped_value()
+  local out = compiled(HEAD .. "{{range $x := .items}}{{.a | m.f \"x\\\"y\" 2 -1 0.5 .b $ $x.c}}{{end}}")
+  assert(out:find('_one(m.f(d1.a, "x\\"y", 2, -1, 0.5, d1.b, d, d1.c))', 1, true), out)
+  local odd = compiled(HEAD .. "{{.a | m.f \"}}|\t\" 0 -}} {{if .b}}{{.a | m.f .b}}{{end}}{{with .w}}{{.c | m.f .}}{{end}}" ..
+      "{{if .a | m.f \"x\"}}y{{end}}")
+  assert(odd:find('_one(m.f(d.a, "}}|\\t", 0))', 1, true), odd)
+  assert(odd:find("_one(m.f(d.a, d2))", 1, true), odd)
+  assert(odd:find("_one(m.f(d4.c, d4))", 1, true), odd)
+  assert(odd:find('if html.filled(_one(m.f(d.a, "x"))) then', 1, true), odd)
+  local cases: {Refusal} = {
+    { source = "{{.a | m.f true}}", line = "2", column = "12", reason = "'true' is not an argument" },
+    { source = "{{.a | m.f 1e5}}", line = "2", column = "12", reason = "is not an argument" },
+    { source = "{{.a | m.f 0x1}}", line = "2", column = "12", reason = "is not an argument" },
+    { source = "{{.a | m.f 1..2}}", line = "2", column = "12", reason = "is not an argument" },
+    { source = "{{.a | m.f --}}", line = "2", column = "12", reason = "is not an argument" },
+    { source = "{{.a | m.f 007}}", line = "2", column = "12", reason = "is not an argument" },
+    { source = "{{.a | m.f 99999999999999999999}}", line = "2", column = "12", reason = "is not an argument" },
+    { source = "{{.a | .b $nope}}", line = "2", column = "8", reason = "not a function reached by import path" },
+    { source = "{{.a | nodef \"x\"}}", line = "2", column = "8", reason = "a {{define}} takes no arguments" },
+    { source = "{{.a | m.f $y}}", line = "2", column = "12", reason = "'$y' is not declared here" },
+    { source = "{{.a \"x\" | m.f}}", line = "2", column = "6", reason = "a string is not a value" },
+    { source = "{{. | item \"x\"}}\n{{define item T}}{{end}}", line = "2", column = "7",
+      reason = "a {{define}} takes no arguments" },
+  }
+  local wrong: mut {string} = {}
+  for _, case in ipairs(cases) do
+    local why = refused(HEAD .. case.source)
+    local want = "t.tmpl:" .. case.line .. ":" .. case.column .. ": "
+    if why:sub(1, #want) ~= want or not why:find(case.reason, 1, true) then
+      wrong[#wrong + 1] = case.source .. " said " .. why .. ", not " .. want .. "..." .. case.reason
+    end
+  end
+  assert(#wrong == 0, table.concat(wrong, "\n"))
+end
+
 local function test_the_same_slots_stand_in_a_text_template()
   compiled("{{type T from m.t}}{{mode text}}\n<script>{{.x}}</script><a href={{.y}} onclick='{{.z}}'>")
 end
@@ -853,7 +942,8 @@ local SYNTAX <const>: {Refusal} = {
   { source = HEAD .. "{{.a |}}", line = "2", column = "6", reason = "expected a function" },
   { source = HEAD .. "{{.a | f}}", line = "2", column = "8", reason = "module.path.func" },
   { source = HEAD .. "{{.a | .b}}", line = "2", column = "8", reason = "module.path.func" },
-  { source = HEAD .. "{{.a | m.f x}}", line = "2", column = "12", reason = "expected |" },
+  { source = HEAD .. "{{.a | m.f x}}", line = "2", column = "12", reason = "'x' is not an argument" },
+  { source = HEAD .. "{{.a x | m.f}}", line = "2", column = "6", reason = "expected |" },
   { source = HEAD .. "{{.a | m..f}}", line = "2", column = "8", reason = "module.path.func" },
   { source = HEAD .. "{{if .a | }}{{end}}", line = "2", column = "9", reason = "expected a function" },
   { source = HEAD .. "{{ -.x}}", line = "2", column = "4", reason = "not a field path" },

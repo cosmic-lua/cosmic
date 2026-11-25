@@ -20,7 +20,7 @@
 ---     }
 ---
 --- [`Web.tailnet`] asks the daemon who the connection's far end is
---- ([`cosmic.tailscale.Client.whois_result`]) and keeps the result on the request, where
+--- ([`cosmic.tailscale.Client.whois`]) and keeps the result on the request, where
 --- [`Web.who`] reads it and [`Web.require_cap`] tests it. It
 --- responds by itself:
 ---
@@ -73,6 +73,7 @@
 --- @public
 
 local Json = require("cosmic.json")
+local type Failure = require("cosmic.failure")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
@@ -112,11 +113,11 @@ local record Tailnet
 
   --- What [`Web.tailnet`] takes; every field is optional.
   record Options
-    --- Asks who an address is: a client's [`cosmic.tailscale.Client.whois_result`] by
+    --- Asks who an address is: a client's [`cosmic.tailscale.Client.whois`] by
     --- default, of [`Tailscale.connect`]'s daemon. Given, it is how a
     --- test stands in for the daemon, or a program puts a cache of its
     --- own in front.
-    whois?: function(address: string): Tailscale.WhoIsResult
+    whois?: function(address: string): (Tailscale.WhoIs | false) | (nil, Failure)
     --- Respond 403 to a request with no identity (true); false lets it
     --- through with none.
     required?: boolean
@@ -148,7 +149,7 @@ local CACHE_ENTRIES <const> = 4096
 
 --- A reply of the daemon, and when it stops counting.
 local record Kept
-  result: Tailscale.WhoIsResult
+  who: Tailscale.WhoIs | false
   until_ns: integer
 end
 
@@ -248,17 +249,17 @@ end
 
 --- The whois of [`Tailscale.connect`]'s daemon, made on the first call,
 --- so an app that never meets a request asks for no daemon.
-local function daemon_whois(): function(address: string): Tailscale.WhoIsResult
+local function daemon_whois(): function(address: string): (Tailscale.WhoIs | false) | (nil, Failure)
   local client: Tailscale.Client? = nil
-  return function(address: string): Tailscale.WhoIsResult
+  return function(address: string): (Tailscale.WhoIs | false) | (nil, Failure)
     local c = client
     if c == nil then
       local made, why = Tailscale.connect()
-      if made == nil then return { kind = "failed", reason = tostring(why), status = 0 } end
+      if made == nil then return nil, why end
       client = made
       c = made
     end
-    return c:whois_result(address)
+    return c:whois(address)
   end
 end
 
@@ -283,14 +284,15 @@ function Tailnet.middleware(opts?: Tailnet.Options): Types.Middleware
   -- which anyone has many of, never push a peer's reply out.
   local peers: Cache = { entries = {}, held = 0 }
   local strangers: Cache = { entries = {}, held = 0 }
-  local function asked(host: string): Tailscale.WhoIsResult
+  local function asked(host: string): (Tailscale.WhoIs | false) | (nil, Failure)
     local now = Clock.monotonic_ns()
     local kept = peers.entries[host] or strangers.entries[host]
-    if kept ~= nil and kept.until_ns > now then return kept.result end
-    local result = whois(host)
-    if cache_ns > 0 and result.kind ~= "failed" then
-      local into = if result.kind == "found" then peers else strangers end
-      local other = if result.kind == "found" then strangers else peers end
+    if kept ~= nil and kept.until_ns > now then return kept.who end
+    local who, why = whois(host)
+    if who == nil then return nil, why end
+    if cache_ns > 0 then
+      local into = if who ~= false then peers else strangers end
+      local other = if who ~= false then strangers else peers end
       if other.entries[host] ~= nil then
         other.entries[host] = nil
         other.held = other.held - 1
@@ -300,28 +302,40 @@ function Tailnet.middleware(opts?: Tailnet.Options): Types.Middleware
         room(into, later)
         into.held = into.held + 1
       end
-      into.entries[host] = { result = result, until_ns = later + cache_ns }
+      into.entries[host] = { who = who, until_ns = later + cache_ns }
     end
-    return result
+    return who
   end
   -- The 503 for a request whose sender the daemon could not be asked
-  -- about, `result` saying why in the app's sink.
-  local function unasked(req: Types.Request, result: Tailscale.WhoIsResult): Types.Response
+  -- about, `why` saying why in the app's sink.
+  local function unasked(req: Types.Request, why: Failure): Types.Response
     local sink = req.app.spec.sink
-    if sink ~= nil then sink:line("tailnet: " .. result.reason) end
+    if sink ~= nil then sink:line("tailnet: " .. tostring(why)) end
     return Response.problem(503, "who this request is from cannot be told")
   end
-  -- The whois of the address the daemon's Serve says the request came
-  -- from, in the X-Forwarded-For it sets over any a client sent (its last
-  -- entry), or nil where there is none. The daemon names this node's
-  -- owner in its headers for a request from this node's own address,
-  -- though any process here can make one (by the node's own name).
-  local function forwarded_from(req: Types.Request): Tailscale.WhoIsResult?
+  -- The address the daemon's Serve says the request came from, in the
+  -- X-Forwarded-For it sets over any a client sent (its last entry), or
+  -- nil where there is none. The daemon names this node's owner in its
+  -- headers for a request from this node's own address, though any
+  -- process here can make one (by the node's own name).
+  local function forwarded_from(req: Types.Request): string?
     local list = req.headers["x-forwarded-for"]
     if list == nil then return nil end
     local last = assert(assert(list:match("([^,]*)$")):match("^%s*(.-)%s*$"))
     if last == "" then return nil end
-    return asked(unmapped(last))
+    return unmapped(last)
+  end
+  -- The serve identity, kept only where the forwarded address is a
+  -- peer's other than this node's; nil and a Failure where the daemon
+  -- could not be asked.
+  local function vouched(req: Types.Request, identity: Tailnet.Identity?): (Tailnet.Identity?, Failure?)
+    if identity == nil then return nil, nil end
+    local host = forwarded_from(req)
+    if host == nil then return identity, nil end
+    local who, why = asked(host)
+    if who == nil then return nil, why end
+    if who == false or who.own then return nil, nil end
+    return identity, nil
   end
   return function(inner: Types.Handler): Types.Handler
     return function(req: Types.Request): Types.Response
@@ -340,9 +354,9 @@ function Tailnet.middleware(opts?: Tailnet.Options): Types.Middleware
         if not funneled then
           identity = of_serve(req, if filed then req.app.serve_caps or {} else {} end)
         end
-        local from = if identity ~= nil then forwarded_from(req) else nil end
-        if from ~= nil and from.kind == "failed" then return unasked(req, from) end
-        if from ~= nil and (from.kind ~= "found" or assert(from.whois).own) then identity = nil end
+        local kept, why = vouched(req, identity)
+        if why ~= nil then return unasked(req, why) end
+        identity = kept
       elseif peer == nil or peer.kind == "unix" then
         -- Any other unix socket: nobody this middleware can name.
         identity = nil
@@ -353,17 +367,14 @@ function Tailnet.middleware(opts?: Tailnet.Options): Types.Middleware
           -- unless the serve config forwards them, which is not known here.
           funneled = req.headers["tailscale-funnel-request"] == "?1"
           if not funneled then identity = of_serve(req, {}) end
-          local from = if identity ~= nil then forwarded_from(req) else nil end
-          if from ~= nil and from.kind == "failed" then return unasked(req, from) end
-          if from ~= nil and (from.kind ~= "found" or assert(from.whois).own) then
-            identity = nil
-          end
+          local kept, why = vouched(req, identity)
+          if why ~= nil then return unasked(req, why) end
+          identity = kept
         else
-          local result = asked(host)
-          if result.kind == "failed" then return unasked(req, result) end
+          local who, why = asked(host)
+          if who == nil then return unasked(req, assert(why)) end
           -- This node's own address is any process here, not its owner.
-          local who = result.whois
-          if who ~= nil and not who.own then identity = of_whois(who) end
+          if who ~= false and not who.own then identity = of_whois(who) end
         end
       end
       if funneled then req:set(FUNNEL, true) end

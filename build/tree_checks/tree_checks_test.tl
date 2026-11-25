@@ -25,6 +25,7 @@ local tree_readers = require("build.tree_checks.readers")
 local tree_tests = require("build.tree_checks.tests")
 local writer = require("build.writer")
 local support = require("build.test_support_fixture")
+local build_schema = require("build.schema")
 
 Test.policy{
   grants = {
@@ -45,7 +46,7 @@ end
 --- value only, or through a method declared outside its record; the same
 --- types exported (one under another name) pass.
 local function test_a_type_the_api_names_but_does_not_export_is_refused(dir: string)
-  local function tree(exported: boolean): Sqlite.Handle
+  local function tree(exported: boolean): build_schema.Build
     return fixture.database(dir, {
       ["cosmic/thing.tl"] = source(
         "local enum Where",
@@ -107,8 +108,8 @@ local function test_an_internal_module_is_absent_from_the_public_docs(dir: strin
       "function fs.read() end",
       "return fs"),
   })
-  local all = assert(db:text_rows("SELECT DISTINCT module FROM docs ORDER BY module"))
-  local public = assert(db:text_rows("SELECT DISTINCT module FROM docs WHERE " ..
+  local all = assert(db:rows("SELECT DISTINCT module FROM docs ORDER BY module"))
+  local public = assert(db:rows("SELECT DISTINCT module FROM docs WHERE " ..
       symbols.public_only("module", true) .. " ORDER BY module"))
   assert(#all == 2 and all[1]:text(1) == "cosmic.fs" and support.nth(all, 2):text(1) == "cosmic.internal.shared",
     tostring(#all) .. " modules")
@@ -802,6 +803,8 @@ local function test_a_requirement_no_leg_promises_is_refused()
   assert(support.nth(found, 1):find("b_test requires proc, which no CI leg promises", 1, true), found[1])
   assert(support.nth(found, 2):find("b_test requires root, which no CI leg promises", 1, true), found[2])
   assert(#tree_build.promises({ ["a_test"] = { "nest" } }, legs) == 0)
+  assert(#tree_build.promises({ ["a_test"] = { "os:linux" }, ["b_test"] = { "os:darwin" } }, legs) == 0,
+    "an os: requirement needs no promise")
   assert(#tree_build.promises({}, legs) == 0)
   local refused = tree_build.promises({}, { linux = { "nope" } })
   assert(#refused == 1 and refused[1]:find("leg linux promises \"nope\", which is refused", 1, true) ~= nil, refused[1])
@@ -937,8 +940,8 @@ local function test_a_run_in_copies_tells_what_the_process_tells(dir: string)
   local meminfo = fanout.meminfo
   fanout.meminfo = "MemAvailable: 67108864 kB\n"
   local ran, told = pcall(function(): {string}
-    return tree_checks.run(db, "", nil, nil, nil, nil, function(): Sqlite.Handle?, Sqlite.Handle?
-      local opened, _ = Sqlite.open(path)
+    return tree_checks.run(db, "", nil, nil, nil, nil, function(): build_schema.Build?, build_schema.Build?
+      local opened, _ = Sqlite.open(path, { schema = build_schema.Build })
       return opened, nil
     end)
   end)
@@ -1366,7 +1369,7 @@ local function test_a_change_to_the_code_or_the_declarations_the_declaration_che
     "build/check_memo.tl", "build/tree_checks/checked.tl", "build/tree_checks/common.tl" }
   assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.mkdirs(root .. "/build/tree_checks"))
-  assert(Fs.mkdirs(root .. "/lang"))
+  assert(Fs.mkdirs(root .. "/lang/check"))
   for _, path in ipairs(salted) do
     assert(Fs.write(root .. "/" .. path, "-- one\n"))
   end
@@ -1463,11 +1466,11 @@ end
 local function test_a_change_to_the_code_or_the_declarations_the_body_check_reads_misses_the_memo(dir: string)
   local root = dir .. "/checksalt"
   local salted: {string} = { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl", "lang/truthy.tl",
-    "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl", "lang/check_codes.tl",
+    "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check/init.tl", "lang/check/context.tl", "lang/check_codes.tl",
     "lang/prelude.d.tl", "lang/stdlib.d.tl", "build/check_memo.tl", "build/tree_checks/checked.tl", "build/tree_checks/common.tl" }
   assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.mkdirs(root .. "/build/tree_checks"))
-  assert(Fs.mkdirs(root .. "/lang"))
+  assert(Fs.mkdirs(root .. "/lang/check"))
   for _, path in ipairs(salted) do
     assert(Fs.write(root .. "/" .. path, "-- one\n"))
   end

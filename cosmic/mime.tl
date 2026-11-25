@@ -1,7 +1,7 @@
---- Content types by file name, for the files a web program serves. The
---- build stores the result beside each embedded asset, so this module
---- requires only the standard library and a program that never loads
---- [`cosmic.web`] carries the same types.
+--- Content types by file name, and the gzip and zstd worth sending, for the
+--- files a web program serves. The build stores the result beside each
+--- embedded asset, so this module requires only [`cosmic.compress`] and a
+--- program that never loads [`cosmic.web`] carries the same types.
 
 local Compress = require("cosmic.compress")
 
@@ -49,9 +49,10 @@ local function extension(path: string): string?
 end
 
 --- The Content-Type for a file called `path`, by its extension, in any
---- case: "text/css; charset=utf-8" for "css/app.CSS". Text, JSON,
---- JavaScript, SVG and XML carry `charset=utf-8`; a name with no known
---- extension is "application/octet-stream". Content is never sniffed.
+--- case: "text/css; charset=utf-8" for "css/app.CSS". Text, JSON (but a
+--- `.webmanifest`), JavaScript, SVG and XML carry `charset=utf-8`; a
+--- name with no known extension is "application/octet-stream". Content
+--- is never sniffed.
 --- @param path string A file name or path
 --- @return string The Content-Type
 function Mime.of(path: string): string
@@ -135,9 +136,9 @@ function Mime.zstd(path: string, data: string): string?, string
   local encoder, trouble = Compress.encoder("zstd", { level = ZSTD_LEVEL })
   if encoder == nil then return nil, tostring(trouble) end
   local head, head_trouble = encoder:update(data)
-  if head == nil then return nil, head_trouble end
+  if head == nil then return nil, tostring(head_trouble) end
   local tail, tail_trouble = encoder:finish()
-  if tail == nil then return nil, tail_trouble end
+  if tail == nil then return nil, tostring(tail_trouble) end
   return worth(head .. tail, data), ""
 end
 

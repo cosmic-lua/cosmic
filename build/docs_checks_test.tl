@@ -41,7 +41,7 @@ end
 --- A projection holding `rows`, each module a row names among its
 --- modules: what a public source reads, with nothing the writer's
 --- analysis would add.
-local function projection(rows: {Row}): Sqlite.Handle
+local function projection(rows: {Row}): schema.Build
   local db = assert(schema.hold(assert(Sqlite.memory())))
   local seen: mut {string: boolean} = {}
   for _, item in ipairs(rows) do

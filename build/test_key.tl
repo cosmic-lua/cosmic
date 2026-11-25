@@ -1258,7 +1258,7 @@ function test_key.scratch(): string?, string
   -- Padded so the scratch directory's path is as long on this host as
   -- a sandbox's is, and as macOS's is ([`test_sandbox.scratch_length`]),
   -- past the temporary directory's resolved path and mkdtemp's six.
-  local base, base_trouble = Fs.absolute(Env.read("TMPDIR") or "/tmp")
+  local base, base_trouble = Fs.absolute(Fs.temp_dir())
   if base == nil then return nil, tostring(base_trouble) end
   local separator = if base:sub(-1) == "/" then 0 else 1 end
   local made, trouble = Fs.mkdtemp(test_sandbox.padded("cosmic-test-",

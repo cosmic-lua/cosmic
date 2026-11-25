@@ -874,7 +874,7 @@ local class Handle
   --- Every row a query yields as `project` makes it: the list of what
   --- `project` returned for each row in turn, or `nil` and why.
   --- `project` reads the row's columns (`r:text(1)`) and returns one
-  --- value, never nil, which is how a caller builds a record per row. A
+  --- value, which is how a caller builds a record per row; a nil raises. A
   --- raise inside `project`, such as a column of another type than it
   --- read, leaves nothing open and reaches the caller. `values` follows
   --- [`Handle.run`]'s contract, and is nil where the query takes none.
@@ -1684,8 +1684,8 @@ end
 ---
 --- `handle:limit(name, value)` sets one of the connection's limits and
 --- returns the old one. A handle may attach 10 databases
---- (`ATTACH DATABASE`) until `handle:limit("attached", n)` raises that,
---- to at most 125; the refusal of one too many says so.
+--- (`ATTACH DATABASE`) until `handle:limit("attached", n)` sets more,
+--- at most 125; the refusal of one too many says so.
 function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): (Sqlite.Handle) | (nil, Failure)
   local writable, immutable, create = opts and opts.writable, opts and opts.immutable, opts and opts.create
   local held = opts ~= nil and opts.reads_only == true

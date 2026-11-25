@@ -17,6 +17,8 @@ local writer = require("build.writer")
 local String = require("cosmic.string")
 local _ = require("build.reads.all")
 local tree_common = require("build.tree_checks.common")
+local build_schema = require("build.schema")
+local type Build = build_schema.Build
 
 local lookup_in = tree_common.lookup_in
 
@@ -30,7 +32,7 @@ end
 --- @param build the working database
 --- @return the names a module declares, for each that declares any
 function tree_build.requirements(build: Sqlite.Handle): {string:{string}}?, string
-  local rows, trouble = build:text_rows(
+  local rows, trouble = build:rows(
     "SELECT i.path, t.value FROM test_inputs t JOIN inputs i ON i.source_hash = t.source_hash " ..
       "WHERE t.field = 'requires' ORDER BY i.path, t.ordinal")
   if rows == nil then return nil, "reading the declared requirements: " .. tostring(trouble) end
@@ -51,7 +53,7 @@ end
 --- @param build the working database
 --- @return the findings, or nil and why the declarations cannot be read
 function tree_build.unguarded_zig(build: Sqlite.Handle): {string}?, string
-  local rows, trouble = build:text_rows(
+  local rows, trouble = build:rows(
     "SELECT DISTINCT i.path FROM test_inputs t JOIN inputs i ON i.source_hash = t.source_hash " ..
       "WHERE t.field = 'caches' AND t.value = 'zig' AND NOT EXISTS (SELECT 1 FROM test_inputs r " ..
       "WHERE r.source_hash = t.source_hash AND r.field = 'requires' AND r.value = 'pinned_zig') ORDER BY i.path")
@@ -72,7 +74,7 @@ end
 --- @param build the working database
 --- @return the module paths, as a set
 function tree_build.unsealed(build: Sqlite.Handle): {string:boolean}?, string
-  local rows, trouble = build:text_rows(
+  local rows, trouble = build:rows(
     "SELECT DISTINCT i.path FROM test_inputs t JOIN inputs i ON i.source_hash = t.source_hash " ..
       "WHERE t.field IN ('tool', 'store') OR (t.field = 'requires' AND t.value = 'portable')")
   if rows == nil then return nil, "reading the unsealed modules: " .. tostring(trouble) end
@@ -127,9 +129,9 @@ launcher_allowed["build.workflows_test"] = "reads COSMIC_PORTABLE_CACHE in the t
 --- @param db the tree's projection
 --- @param unsealed the modules whose workers run unsealed ([`unsealed`])
 --- @param excused the modules that may, with the reason of each
-function tree_build.sealed_launch(db: Sqlite.Handle, unsealed: {string:boolean},
+function tree_build.sealed_launch(db: Build, unsealed: {string:boolean},
                                   excused?: {string: string}): {string}
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT path, CAST(inflate(source) AS TEXT) FROM modules WHERE path GLOB '*_test' ORDER BY path")
   if rows == nil then return { "reading the modules' sources: " .. tostring(trouble) } end
   local allowed_here = excused or launcher_allowed
@@ -194,7 +196,7 @@ end
 --- finding: a name a leg promises that the table of
 --- [`build.host_names`] refuses, and a module requiring a name no leg
 --- promises, which would be n/a or skipped on every leg and run nowhere
---- in CI, with no held run to fail for it.
+--- in CI, with no held run to fail for it. An `os:` name is no finding.
 --- @param declared the requirements each test module declares
 --- @param legs the names each CI leg promises
 --- @return the findings, none when every declared name is promised
@@ -219,7 +221,12 @@ function tree_build.promises(declared: {string:{string}}, legs: {string:{string}
   table.sort(modules)
   for _, module in ipairs(modules) do
     for _, name in ipairs(lookup_in(declared, module)) do
-      if not host_names.promised(all, name) then
+      -- Every system `os:` takes has a leg, where it is present. No leg
+      -- promises one: the release cosmic some legs run refuses a name it
+      -- does not know in COSMIC_TEST_PROMISES.
+      local spec, _ = host_names.parse(name)
+      local os_name = spec ~= nil and spec.base == "os"
+      if not os_name and not host_names.promised(all, name) then
         out[#out + 1] = string.format("%s requires %s, which no CI leg promises " ..
             "(ci/cosmic_ci/capabilities.json): it would be n/a or skipped on every leg and run " ..
             "nowhere, with no held run to fail for it", module, name)
@@ -247,7 +254,7 @@ end
 --- is a failure: the checks would read a projection without it.
 ---
 --- The tree is compiled with the new checker, as `cosmic test` compiles it.
-function tree_build.projection(root: string, standing: tree_standing.Standing): Sqlite.Handle?, string
+function tree_build.projection(root: string, standing: tree_standing.Standing): Build?, string
   local handle, open_trouble = work.open(root, nil, "fix")
   if handle == nil then
     return nil, open_trouble
@@ -277,7 +284,7 @@ function tree_build.projection(root: string, standing: tree_standing.Standing): 
   if not closed then
     return nil, close_trouble
   end
-  local answered, answer_why = Sqlite.open(path)
+  local answered, answer_why = Sqlite.open(path, { schema = build_schema.Build })
   if not answered then return nil, tostring(answer_why) end
   return answered, ""
 end

@@ -1361,7 +1361,9 @@ local function snapshot(c: Context, diagnostics: string, label: string,
     end
   end
   write(out .. "/hashes.sha256", hashes)
-  local temporary_root = Env.read("TMPDIR") or "/tmp"
+  -- TODO: use Fs.temp_dir once ci/cosmic-driver.pin names a release that has it.
+  local temporary_root = Env.read("TMPDIR") or ""
+  if temporary_root:sub(1, 1) ~= "/" then temporary_root = "/tmp" end
   State.external_path(temporary_root .. "/probe", c.root)
   local inspect = assert(Fs.mkdtemp("cosmic-work-db-integrity-"))
   local integrity: Snapped = { status = 1 }

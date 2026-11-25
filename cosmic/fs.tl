@@ -1,19 +1,21 @@
 --- Files and directories.
 ---
 --- Every call goes through the syscall table, so one call behaves the
---- same on Linux and on macOS. [`Fs.read`], [`Fs.stat`], [`Fs.list`],
---- [`Fs.mkdtemp`], [`Fs.absolute`], [`Fs.readlink`], [`Fs.open_read`],
---- [`Fs.open_write`], [`Fs.take`], [`Fs.create`], [`Fs.walk`],
---- [`Fs.scratch`] and [`Fs.relative`] return `(T) | (nil, Failure)`:
---- the value alone, or nil and a [`Failure`] that names the path (none for `take`, which reads a descriptor) and
---- the errno (0 for `relative`, which reads nothing). Other fallible calls
---- that produce a value still return `T | nil, string`: a value and `""`
---- on success, or nil and an error. A predicate uses the same contract, with false
---- as a valid result. [`Fs.write`], [`Fs.mkdirs`], [`Fs.remove`],
+--- same on Linux and on macOS. Every fallible call that produces a value
+--- ([`Fs.read`], [`Fs.stat`], [`Fs.status`], [`Fs.list`], [`Fs.walk`],
+--- [`Fs.create`], [`Fs.dir`], [`Fs.cache_dir`] and the rest) returns
+--- `(T) | (nil, Failure)`: the value alone, or nil and a [`Failure`] that
+--- names the path and the errno (0 where no system call failed, as for
+--- `relative`, which reads nothing). A refusal of [`Fs.cache_dir`],
+--- [`Fs.program_cache_dir`] or [`Fs.data_dir`] before any directory is
+--- known (no absolute base, or a bad name) names no path. A predicate ([`Fs.in_place`]) has
+--- the same shape, with false a valid result. [`Fs.write`],
+--- [`Fs.write_output`], [`Fs.mkdirs`], [`Fs.remove`],
 --- [`Fs.remove_tree`], [`Fs.rename`], [`Fs.chmod`], [`Fs.symlink`],
 --- [`Fs.set_mtime`], [`Fs.append`], [`Fs.copy_tree`], [`Fs.put`],
 --- [`Fs.fsync`] and [`Fs.close`] only have an effect, and return
---- `(true) | (false, Failure)`; one on a descriptor names no path.
+--- `(true) | (false, Failure)`. A call on a descriptor ([`Fs.take`],
+--- [`Fs.put`], [`Fs.fsync`], [`Fs.close`]) names no path.
 ---
 --- A descriptor from [`Fs.open_read`] or [`Fs.open_write`] is a plain
 --- integer, closed with [`Fs.close`], so a `<close>` variable cannot hold
@@ -790,11 +792,19 @@ function Fs.mkdirs(path: string, mode?: integer): (true) | (false, Failure)
   return false, Failure.system(number, path)
 end
 
---- A fresh, empty temporary directory under the system temp directory,
---- named with `prefix` and a random suffix: `mktemp -d`. `TMPDIR` picks the
---- temp directory when it is set, and `/tmp` otherwise.
+--- The system temp directory: `TMPDIR` when it is an absolute path, and
+--- `/tmp` when it is unset, empty or not absolute, as the sandbox's own
+--- start takes it.
+function Fs.temp_dir(): string
+  local given = Env.read("TMPDIR")
+  if given == nil or given:sub(1, 1) ~= "/" then return "/tmp" end
+  return given
+end
+
+--- A fresh, empty temporary directory under the system temp directory
+--- ([`Fs.temp_dir`]), named with `prefix` and a random suffix: `mktemp -d`.
 function Fs.mkdtemp(prefix: string): (string) | (nil, Failure)
-  local base = Env.read("TMPDIR") or "/tmp"
+  local base = Fs.temp_dir()
   local template = base .. "/" .. prefix .. "XXXXXX"
   local path, _, errno = sys.mkdtemp(template)
   if path == nil then return nil, Failure.system(errno, template) end
@@ -1082,8 +1092,8 @@ local class Descriptor
   end
 end
 
---- A fresh, empty, private directory under `parent`, which must exist,
---- and a `.scratch-gate` file there. The directory is removed, with its
+--- A fresh, private directory under `parent`, which must exist; the call
+--- also makes a `.scratch-gate` file in `parent`. The directory is removed, with its
 --- contents, when the result's `<close>` variable ends its scope. A
 --- process that dies first leaves it, and the next call under the same
 --- `parent` removes it: a directory is swept only when its owner file

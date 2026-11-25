@@ -2,7 +2,6 @@
 --- `Sandbox` option): what a start may run and reach, the user it runs as, the cores it shares, the relay it holds,
 --- and the scratch directory it is given. Use [`cosmic.child`]. Apart from it only to keep that module smaller.
 
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
@@ -438,9 +437,7 @@ end
 function Hold.reached_by(merged: Rules.Policy, base: string, file: boolean,
                          user: MappedUser): {integer: boolean}?, string
   if merged.tmp == true and not file then
-    local given = Env.read("TMPDIR")
-    local tmpdir = "/tmp"
-    if given ~= nil and #given > 0 then tmpdir = given end
+    local tmpdir = Fs.temp_dir()
     local real, _ = sys.realpath(tmpdir)
     local above = if real ~= nil then unsearchable_above(real .. "/.", user) else "" end
     if above ~= "" then

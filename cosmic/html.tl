@@ -32,7 +32,7 @@
 --- place is a type error, and a value is made only in this module, by the
 --- escaping or by the `trust` functions, which a review can search for.
 --- There is no `__concat` and no `__tostring`: a safe value cannot reach a
---- string except through [`Html.raw`] or [`Html.raw_attr`]. A cast (`x as Html.SafeHtml`)
+--- string except through its `raw` function above. A cast (`x as Html.SafeHtml`)
 --- defeats the types, as it does anywhere; it stops forged and
 --- accidental values, not deliberate ones.
 ---
@@ -264,8 +264,9 @@ function Html.escape_css_attr(s: string | number): Html.SafeAttr
   return raw.escape_css_attr(s)
 end
 
---- `value` as JSON text, from [`Json.encode`]. Returns `nil` and a
---- Failure where it cannot be encoded (a function, a cycle, NaN, ...).
+--- `value` as JSON text, encoded as [`Json.encode_any`] encodes it.
+--- Returns `nil` and a Failure where it cannot be encoded (a function, a
+--- cycle, NaN, ...).
 ---
 ---     Html.raw_json(assert(Html.json({ id = 7 }))) -- '{"id":7}'
 function Html.json(value: any): (Html.SafeJson) | (nil, Failure)

@@ -513,7 +513,9 @@ end
 
 --- The CBOR bytes of `item`, in the preferred serialization; with
 --- `opts.sort`, each map's keys sorted, the core deterministic encoding.
---- Raises on an item that is not whole: a kind whose field is missing.
+--- Raises on an item that is not whole (a kind whose field is missing),
+--- and on one CBOR cannot write: a "big" past 64 bits, a negative tag,
+--- or a simple value below 0, from 24 to 31, or past 255.
 ---
 ---     assert(Cbor.encode(Cbor.array({ Cbor.integer(1), Cbor.text("a") })) == "\x82\x01\x61a")
 function Cbor.encode(item: Cbor.Item, opts?: Cbor.EncodeOptions): string

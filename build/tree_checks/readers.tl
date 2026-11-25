@@ -2,7 +2,6 @@
 --- spelled by its module alone, every familiar command finding what stands in for it, `package` read by the files
 --- that may, text loaded and text tables read only where allowed.
 
-local Sqlite = require("cosmic.sqlite")
 local CodeWalk = require("build.code_walk")
 local key_parts = require("build.key_parts")
 local docs = require("build.docs")
@@ -11,6 +10,8 @@ local Lexer = require("lang.lexer")
 local String = require("cosmic.string")
 local _ = require("build.reads.all")
 local tree_common = require("build.tree_checks.common")
+local type build_schema = require("build.schema")
+local type Build = build_schema.Build
 
 local sources_of = tree_common.sources_of
 
@@ -71,12 +72,12 @@ end
 --- and a closure store carries `image_hash` for it alone. A reader the map
 --- misses would leave a verdict standing that turned on a value no key
 --- held, or be given no row.
-function tree_readers.meta_readers(db: Sqlite.Handle, group: string, named?: {string}): {string}
+function tree_readers.meta_readers(db: Build, group: string, named?: {string}): {string}
   local entry = key_parts.meta_group(group)
   if entry == nil then
     return { group .. " is no group of build/key_parts.tl's `meta_readers`" }
   end
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT path, CAST(inflate(source) AS TEXT) FROM modules ORDER BY path")
   if rows == nil then
     return { "reading the modules' sources: " .. tostring(trouble) }
@@ -147,9 +148,9 @@ end
 --- and then each file `excused` names that no longer does. Only
 --- [`build.paths`] says where a build directory is, so boot, the verbs and
 --- the rebuild lock cannot come to name different ones.
-function tree_readers.build_directory(db: Sqlite.Handle, excused?: {string: string}): {string}
+function tree_readers.build_directory(db: Build, excused?: {string: string}): {string}
   excused = excused or spelled
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT file, CAST(inflate(source) AS TEXT) FROM modules " ..
       "WHERE file GLOB '*.tl' AND file NOT GLOB '*_test.tl' ORDER BY file")
   if rows == nil then
@@ -220,7 +221,7 @@ local stand_ins_expected: {{string}} = {
 --- call they would have used elsewhere, so a doc comment that stops
 --- naming its command is caught here, not by the next person who writes
 --- the function again.
-function tree_readers.stand_ins(db: Sqlite.Handle, cases?: {{string}}): {string}
+function tree_readers.stand_ins(db: Build, cases?: {{string}}): {string}
   local looked, trouble = docs.view({ db }, { true })
   if looked == nil then
     return { "reading the docs: " .. trouble }
@@ -527,16 +528,16 @@ local text_read_allowed <const>: {string:string} = {
 --- [`text_tables`] or the source of a module, in any module that names it (a handle handed on is read by whoever
 --- queries it). A module that runs a statement it is handed (`cosmic sql`) cannot be told apart by what it names, and
 --- declares [`build.reads.all`] by hand.
-function tree_readers.text_readers(db: Sqlite.Handle, excusing?: {string:string}): {string}
+function tree_readers.text_readers(db: Build, excusing?: {string:string}): {string}
   local excused = excusing or text_read_allowed
-  local imported, imported_trouble = db:text_rows("SELECT path, requires FROM imports ORDER BY path, requires")
+  local imported, imported_trouble = db:rows("SELECT path, requires FROM imports ORDER BY path, requires")
   if imported == nil then return { "reading the imports: " .. tostring(imported_trouble) } end
-  local modules, trouble = db:text_rows(
+  local modules, trouble = db:rows(
     "SELECT path, CAST(inflate(source) AS TEXT) FROM modules WHERE kind NOT IN ('test', 'example') ORDER BY path")
   if modules == nil then return { "reading the modules: " .. tostring(trouble) } end
   local source_of: mut {string:string} = {}
   for _, row in ipairs(modules) do source_of[row:text(1)] = row:text(2) end
-  local called, called_trouble = db:text_rows(
+  local called, called_trouble = db:rows(
     "SELECT DISTINCT from_module, symbol FROM uses WHERE module = 'cosmic.store' " ..
       "AND symbol IN ('source', 'withheld') ORDER BY from_module, symbol")
   if called == nil then return { "reading the uses: " .. tostring(called_trouble) } end

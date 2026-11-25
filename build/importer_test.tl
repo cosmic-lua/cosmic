@@ -620,7 +620,9 @@ local function test_a_project_file_named_for_a_module_of_the_language_is_refused
   -- A name an edit from one of cosmic's modules is told the module, from the docs (this test's store withholds the
   -- binary's).
   StandardMeant.read_from({ index = { { module = "cosmic.codec", text = "Byte-to-text encodings.", closed = "" } },
-    exact = function(_: string): {{string}} return {} end })
+    exact = function(_: string): {{string}} return {} end, takes = function(_: string): {{string}}
+      return {}
+    end })
   local near, near_trouble = write_fixture("cosmic-module-near", { ["main.tl"] = 'local s = require("cosmic.codecs")\nreturn s\n' })
   assert(near ~= nil, "could not write fixture: " .. tostring(near_trouble))
   local _, told = importer_fixture.compile_fixture(near)
@@ -2234,7 +2236,7 @@ local function test_the_analyzer_modules_are_closed_under_require()
     assert(listed[name] == true, name .. ", which a parse runs, is not in importer.analyzer_modules: " ..
         table.concat(modules, ", "))
   end
-  for _, name in ipairs({ "lang.check", "lang.flow", "lang.codegen", "lang.truthy", "lang.warnings", "lang.literals",
+  for _, name in ipairs({ "lang.check", "lang.check.context", "lang.check.naming", "lang.flow", "lang.codegen", "lang.truthy", "lang.warnings", "lang.literals",
       "lang.load_order", "lang.boundaries", "lang.boundary_checks", "lang.fact_wraps", "build.driver", "build.pipeline",
       "build.tree_program", "build.error_render", "build.ceilings", "build.plans" }) do
     assert(listed[name] ~= true, name .. ", which no parse runs, is in importer.analyzer_modules, so an edit to it " ..
