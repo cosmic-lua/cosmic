@@ -117,9 +117,9 @@ local record Tools
   record Context
     --- The working directory, which a relative path is from.
     cwd: string
-    --- The sessions database, for a snippet's history call; nil for none.
+    --- The sessions database, for a snippet's history, output and store calls; nil for none.
     db?: Sqlite.Handle
-    --- The session's id, `?1` to a history query.
+    --- The session's id: `?1` to a history query, and whose store a snippet reads and writes.
     session?: integer
     --- What the tools are held to (cosmic.agent.policy); nil for nothing.
     policy?: Sandbox.Policy

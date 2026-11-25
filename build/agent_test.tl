@@ -58,10 +58,6 @@ local record Waited
   mut asked: integer
 end
 
---- Runs `cosmic agent` with `argv`, `env` (and HOME), the API's
---- `replies`, the lines `typed` at each prompt, and the lines
---- `meanwhile` typed while the model works (standard input a terminal
---- where it is given).
 --- The count of rows `query` finds in the sessions.db of `home`.
 local function kept_count(query: string): integer
   local db = assert(Sessions.open(home .. "/.local/share/cosmic/agent/sessions.db"))
@@ -71,6 +67,10 @@ local function kept_count(query: string): integer
   return n
 end
 
+--- Runs `cosmic agent` with `argv`, `env` (and HOME), the API's
+--- `replies`, the lines `typed` at each prompt, and the lines
+--- `meanwhile` typed while the model works (standard input a terminal
+--- where it is given).
 local function cli(argv: {string}, env: {string: string}, replies: {Json.Value}, typed?: {string},
                    meanwhile?: {string}, waited?: Waited): Ran, Api
   if home == "" then home = scratch() end

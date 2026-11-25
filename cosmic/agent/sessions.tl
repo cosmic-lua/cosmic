@@ -19,7 +19,7 @@
 ---     outputs       id, session, tool, input (JSON), text (the whole
 ---                   output), is_error, call (the tool_use id), shown
 ---                   (what the model read, where less than text)
----     outputs_fts   FTS5 over outputs.text, trigram, for queries (but their own)
+---     outputs_fts   FTS5 over outputs.text, trigram, for queries
 ---     requests      each request to the API: when (started, Unix ms) and
 ---                   how long (ms); what was asked (model, effort,
 ---                   max_tokens, betas, system, shape: the rest of the
@@ -205,6 +205,8 @@ CREATE TABLE outputs (id INTEGER PRIMARY KEY, session INTEGER NOT NULL REFERENCE
 CREATE INDEX outputs_by_call ON outputs (session, call);
 CREATE VIRTUAL TABLE outputs_fts USING fts5(text, content = 'outputs', content_rowid = 'id',
   tokenize = 'trigram');
+-- 'sql' was a tool that read this database, whose rows were kept out of the index; the step stays as it was made,
+-- since databases made by it are migrated by what it says.
 CREATE TRIGGER outputs_indexed AFTER INSERT ON outputs WHEN new.tool <> 'sql' BEGIN
   INSERT INTO outputs_fts (rowid, text) VALUES (new.id, new.text);
 END;

@@ -1,4 +1,5 @@
---- The file tools, read, write and edit, run unsandboxed in a directory of their own.
+--- The tools as values to pick and make, and the file tools, read, write and edit, run unsandboxed in a
+--- directory of their own.
 
 local Agent = require("cosmic.agent")
 local agent_fixture = require("build.agent_fixture")
@@ -89,7 +90,6 @@ end
 local function test_a_run_that_ended_in_a_call_is_settled()
   local db = assert(Sessions.open(scratch() .. "/sessions.db"))
   local id = assert(Sessions.start(db, "/", "m", 0))
-  -- A run that ended inside a tool call is settled with an error result.
   local s = Agent.new({ model = "m", effort = "low", sign = keyed("k"), system = "", cwd = "/", db = db, id = id,
     messages = {
       { role = "user", content = "go" },
