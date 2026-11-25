@@ -203,25 +203,27 @@ local lettered = Hold.lettered
 --- Whether `copy`, the core a child starts by, is a copy of this
 --- process's own core ([`shared_core`]) that one of `grants` other than
 --- `core_grant` gives `x` on by the file it copies; their names are from
---- `base` where it is given.
-function Hold.copies_granted_core(copy: string, grants: {Rules.Path}, core_grant: Rules.Path?, base?: string): boolean
+--- `base` where it is given. False and why where this process's own core
+--- has no real path; a grant whose path has none gives nothing, as spawn
+--- skips it.
+function Hold.copies_granted_core(copy: string, grants: {Rules.Path}, core_grant: Rules.Path?, base?: string): boolean, string
   local started, _ = Proc.relaunch()
-  if started == nil then return false end
+  if started == nil then return false, "" end
   local own = started.argv[1]
-  if own == nil or own == copy then return false end
-  local own_real, _ = sys.realpath(own)
-  if own_real == nil then return false end
+  if own == nil or own == copy then return false, "" end
+  local own_real, own_trouble = sys.realpath(own)
+  if own_real == nil then return false, own .. ": " .. own_trouble end
   for _, grant in ipairs(grants) do
     if grant ~= core_grant and lettered(grant.letters, "x") then
       local at = grant.from or grant.path
       if base ~= nil and at:sub(1, 1) ~= "/" then at = base .. "/" .. at end
       local real, _ = sys.realpath(at)
       if real ~= nil and (real == own_real or own_real:sub(1, #real + 1) == real .. "/") then
-        return true
+        return true, ""
       end
     end
   end
-  return false
+  return false, ""
 end
 
 --- What `isolate` file builds from a policy's grants, resolved against the

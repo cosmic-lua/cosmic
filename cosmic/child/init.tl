@@ -2688,7 +2688,8 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
   -- this process's own core is a grant of the copy the child runs.
   if relaunch ~= nil then
     local copy = assert(relaunch.argv[1], "a relaunch leads with its core")
-    if copies_granted_core(copy, Rules.paths(merged), core_grant, base) then
+    local copies, _ = copies_granted_core(copy, Rules.paths(merged), core_grant, base)
+    if copies then
       layer[#layer + 1] = { path = copy, access = "rx" }
     end
   end
