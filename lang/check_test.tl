@@ -457,6 +457,23 @@ local CASES <const>: {Case} = {
     fix = "`Fs` has `read: function(path: string, n?: integer): string`, `read_is: function(v: any): v is string`",
   },
   {
+    -- A field whose function may be nil, written either way.
+    code = "field_unknown", source = "local Fs = require(\"cosmic.fs\")\nlocal r = Fs.read_file\n",
+    modules = { ["cosmic.fs"] = "local record Fs\n  read: (function(path: string): string)?\n" ..
+        "  read_at?: function(path: string, at: integer): string\nend\nreturn Fs\n" },
+    msg = "`Fs` has no field `read_file`",
+    fix = "`Fs` has `read: (function(path: string): string)?`, `read_at: (function(path: string, at: integer): string)?`",
+  },
+  {
+    -- A signature too long to show whole keeps its first parameters and its returns.
+    code = "field_unknown", source = "local Fs = require(\"cosmic.fs\")\nlocal r = Fs.read_file\n",
+    modules = { ["cosmic.fs"] = "local record Fs\n  read: function(path: string, offset: integer, length: integer, " ..
+        "flags: {string: boolean}, encoding: string, callback: function(chunk: string)): string, integer\nend\nreturn Fs\n" },
+    msg = "`Fs` has no field `read_file`",
+    fix = "`Fs` has `read: function(path: string, offset: integer, length: integer, flags: {string: boolean}, " ..
+      "...): string, integer`",
+  },
+  {
     -- A method of a class.
     code = "field_unknown",
     source = "local Fs = require(\"cosmic.fs\")\nlocal function f(b: Fs.Box): any return b.grw end\n",
