@@ -1723,16 +1723,19 @@ end
 ---     ]]
 ---     local db = assert(Sqlite.open("notes.db", { writable = true, schema = Notes }))
 ---
---- The DDL may be written `local schema Notes = A .. B`, string
---- literals and `<const>` locals of the same block joined with `..`.
+--- The DDL may be written `local schema Notes = A .. B`, which joins
+--- string literals, `<const>` locals of the same block, and the `ddl`
+--- of another schema (`Other.ddl`, `module.Other.ddl`).
 --- The value is [`Sqlite.schema`] of the DDL. The type, `Notes`, is a
 --- class of the handles that hold its tables: `open` and `memory`
 --- give a `Notes` for `{ schema = Notes }`, as [`Sqlite.hold`] does for
 --- a handle opened without it, and a `Notes` is a
 --- [`Handle`] wherever one is wanted, but a handle is no `Notes`. A
---- module that exports the schema exports the type (`type Notes =
---- Notes` in its record) and a function that opens a handle of it: a
---- field that holds the value is a [`Schema`], which opens a plain handle.
+--- module exports the schema with `type Notes = Notes` in its record,
+--- whose table then holds the value too: another module opens a
+--- handle of it with `{ schema = Store.Notes }`. A field typed
+--- [`Schema`] holds a schema of no known tables, which opens a plain
+--- handle.
 ---
 --- A writable open of a new file (one with no table, index, view or
 --- trigger) runs the DDL on it, in one transaction. Every open then

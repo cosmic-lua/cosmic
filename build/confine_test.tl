@@ -19,8 +19,7 @@ local this_program = require("build.this_program")
 --- what they start in a root of its own.
 Test.policy{
   profiles = { "cosmic", "proc" },
-  grants = { { path = "o/bin", letters = "rx" } },
-  promises = { "nest" },
+  grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } },
   env = { "COSMIC_SANDBOX" },
 }
 

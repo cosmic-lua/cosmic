@@ -1,11 +1,11 @@
---- [`build.tree_checks`]' `meta_readers` on a fixture tree: which lines
+--- [`build.tree_checks.readers`]' `meta_readers` on a fixture tree: which lines
 --- read the compiler's identity or `image_hash` through [`Store.meta`],
 --- and which modules the lists miss or name in vain. The tree's own
 --- readers are held to [`build.key_parts`]' `meta_readers` by `cosmic fix
 --- --check .`, not here.
 
 local fixture = require("build.docs_fixture")
-local tree_checks = require("build.tree_checks")
+local tree_readers = require("build.tree_checks.readers")
 local support = require("build.test_support_fixture")
 
 --- A module of one line, `line`, after its require.
@@ -26,11 +26,11 @@ local function test_a_read_of_the_compiler_is_seen(dir: string)
     ["build/declares.tl"] = module_of("function " .. call .. "(key: string): string? end"),
     ["build/runtime.tl"] = module_of("local runtime = " .. call .. '("runtime")'),
   })
-  local found = tree_checks.meta_readers(db, "compiler", { "build.tool", "build.by", "build.gone" })
+  local found = tree_readers.meta_readers(db, "compiler", { "build.tool", "build.by", "build.gone" })
   assert(#found == 2, table.concat(found, "\n"))
   assert(found[1]:find("^build%.keyed reads the meta row compiler/compiled_by, but") ~= nil, found[1])
   assert(found[2]:find("^build%.gone is named in") ~= nil, found[2])
-  assert(#tree_checks.meta_readers(db, "compiler", { "build.tool", "build.by", "build.keyed" }) == 0)
+  assert(#tree_readers.meta_readers(db, "compiler", { "build.tool", "build.by", "build.keyed" }) == 0)
 end
 
 --- A read of `image_hash` by a quoted name, through [`Store.meta`] or a
@@ -53,7 +53,7 @@ local function test_a_read_of_the_image_hash_is_seen(dir: string)
     ["build/quiet.tl"] = module_of("-- " .. call .. " is the store's, and " .. call .. "(x) in a comment"),
   })
   local named = { "build.reader", "build.quoted", "build.passed", "build.gone" }
-  local found = tree_checks.meta_readers(db, "image_hash", named)
+  local found = tree_readers.meta_readers(db, "image_hash", named)
   assert(#found == 5, table.concat(found, "\n"))
   local wanted = { "aliased", "joined", "keyed" }
   for i, name in ipairs(wanted) do
@@ -64,8 +64,8 @@ local function test_a_read_of_the_image_hash_is_seen(dir: string)
   assert(support.nth(found, 4):find("^build%.quiet reads") ~= nil, table.concat(found, "\n"))
   local all = { "build.reader", "build.quoted", "build.passed", "build.keyed", "build.joined", "build.aliased",
     "build.quiet" }
-  assert(#tree_checks.meta_readers(db, "image_hash", all) == 0)
-  local compiler = tree_checks.meta_readers(db, "compiler", { "build.compiler", "build.keyed", "build.joined",
+  assert(#tree_readers.meta_readers(db, "image_hash", all) == 0)
+  local compiler = tree_readers.meta_readers(db, "compiler", { "build.compiler", "build.keyed", "build.joined",
     "build.aliased", "build.quiet" })
   assert(#compiler == 0, table.concat(compiler, "\n"))
 end
@@ -73,6 +73,6 @@ end
 --- A group the map does not have is reported, not read as empty.
 local function test_a_group_the_map_lacks_is_reported(dir: string)
   local db = fixture.database(dir, { ["build/reader.tl"] = module_of("local x = 1") })
-  local found = tree_checks.meta_readers(db, "no_such_group")
+  local found = tree_readers.meta_readers(db, "no_such_group")
   assert(#found == 1 and found[1]:find("^no_such_group is no group of") ~= nil, table.concat(found, "\n"))
 end

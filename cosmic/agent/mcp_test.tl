@@ -39,7 +39,7 @@ local function test_a_config_names_servers_over_stdio_and_http_sandboxed_by_defa
   assert(granted and #(policy.grants or {}) > 1, "the system profile's grants are merged in")
   local bare = assert(loaded(tmp, '{"servers": {"plain": {"command": ["/p"]}}}'))
   local held = assert(assert(bare[1]).policy)
-  assert(held.tmp == true and (held.connect == nil or #held.connect == 0) and (held.env == nil or #held.env == 0),
+  assert(held.tmp == true and #Sandbox.connects(held) == 0 and (held.env == nil or #held.env == 0),
     "a server with no policy is held to the default: no host, no key")
   local set = AgentMcp.new(servers, tmp)
   local listed, _ = Json.encode(AgentMcp.listed(set))

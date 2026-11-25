@@ -12,8 +12,8 @@ local Tools = require("cosmic.agent.tools")
 local Worker = require("cosmic.agent.worker")
 
 --- This program, which the worker runs, and a root of its own for it, which needs the nest promise.
-Test.policy{ profiles = { "cosmic", "system" }, grants = { { path = "o/bin", letters = "rx" } }, env = { "PATH", "TMPDIR" },
-  promises = { "nest" }, requires = { "nest" } }
+Test.policy{ profiles = { "cosmic", "system" }, grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } }, env = { "PATH", "TMPDIR" },
+  requires = { "nest" } }
 
 local function test_a_snippets_calls_of_the_agent_are_guarded_and_amended()
   local dir = assert(Fs.mkdtemp("agent-hook-"))

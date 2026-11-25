@@ -27,8 +27,7 @@ local support = require("build.test_support_fixture")
 --- variables [`skip_unless_shared`] reads, which hold a run to sandboxing.
 Test.policy{
   profiles = { "cosmic" },
-  grants = { { path = "o/bin", letters = "rx" } },
-  promises = { "nest" },
+  grants = { { path = "o/bin", letters = "rx" }, { calls = "nest" } },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
 }
 

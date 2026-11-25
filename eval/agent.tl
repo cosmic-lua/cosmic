@@ -14,9 +14,10 @@
 --- Where none is given, the agent takes its own default.
 --- The fixture is a tree the tasks read, such as this repository at a commit
 --- (`git archive <commit> | tar -x -C DIR`); the report names it, and a task whose truth comes out empty on it is
---- marked unfit rather than graded. A task of an MCP server (mcp-*) gives the run `--mcp`, a config of the
---- server laid out in its own temp directory, which the agent's tools may not read: only a snippet reaches it, so a
---- tool with no `--mcp` or no code mode fails it. Where the evals run as root, the tool's path must be one every
+--- marked unfit rather than graded. A task of MCP servers (mcp-*) gives the run `--mcp`, a config of the
+--- servers laid out in its own temp directory, which the agent's tools may not read: only a snippet reaches them, so
+--- a tool with no `--mcp` or no code mode fails it. The mcp-many-* tasks give eight servers, the one the task needs
+--- named for what it holds and not for its tools, so a run finds its tools among the others'. Where the evals run as root, the tool's path must be one every
 --- user may search, as the server runs as a user of its own. Each run is a fresh copy, `bench-<tool>-<task>-*` in the temp directory, with
 --- `HOME` and `XDG_DATA_HOME` the tool's own under <out>/<tool>. ANTHROPIC_API_KEY, or HARNESS_ANTHROPIC_API_KEY,
 --- is the key. <out>/report.md is the report, <out>/results.json each run's numbers, and each run's answer, the
@@ -44,9 +45,9 @@ local record Agent
     truth: string
     --- A bash command run in the run's copy once the agent ended: its output must be the truth's.
     check: string
-    --- An MCP server the run is given, where the task needs one. Its truth runs with `$data` the path of the
-    --- server's data.
-    server?: Server
+    --- The MCP servers the run is given, in one config, where the task needs them. Its truth runs with `$data`
+    --- the path of the first one's data: the others are there to be passed over.
+    servers?: {Server}
     --- A web API the run reaches over HTTP at a loopback port, where the task needs one: `{url}` in the prompt is
     --- its URL, and the run is given `--connect` to it. Its truth runs with `$data` the path of its data.
     site?: Site
@@ -66,6 +67,8 @@ local record Agent
   record Server
     --- Its name in the config: the agent requires `mcp.<name>`.
     name: string
+    --- What it is for, as the config says to the model; nil for none.
+    about?: string
     --- The Teal of its program, a main taking the data's path as its first argument.
     source: string
     --- The data it serves, in data.tsv beside it.
@@ -145,7 +148,7 @@ local record Agent
     fresh: function(prefix: string): string
     --- What one run spent: the session of `tool` whose directory's name holds `marker`.
     spent: function(tool: string, marker: string): Agent.Spent?
-    --- Writes `text` to the file `path`.
+    --- Writes `text` to the file `path`, making the directories it is in.
     put: function(path: string, text: string)
     --- Starts `argv` in `cwd` and waits, for at most `seconds`, until the file `ready` holds a port: the port,
     --- and a call that ends the program. Nil and why where it ended or did not say so in time.
@@ -171,6 +174,26 @@ local function inventory(): string
   for i = 1, 240 do
     lines[#lines + 1] = string.format("i%04d\t%s %s\t%s\t%d\t%d", i, adjectives[draw(#adjectives) + 1],
       nouns[draw(#nouns) + 1], categories[draw(#categories) + 1], 100 + draw(9900), draw(61))
+  end
+  return table.concat(lines, "\n") .. "\n"
+end
+
+--- The sales web-csv's web API serves: 300 rows of `region customer amount_cents`, tab apart, drawn anew by each
+--- process. Some customers' names hold a comma or a double quote, so the CSV quotes them and a split on commas
+--- miscounts.
+local function sales(): string
+  local regions <const> = { "east", "north", "south", "west" }
+  local customers <const> = { "Acme, Inc.", "Bolt & Nut", "Joe's \"Best\" Pies", "Northwind", "Lumen, Ltd.",
+    "Okra Farms", "Pine \"&\" Oak, LLC", "Quill" }
+  local seed = math.random(1, 2147483647)
+  local function draw(n: integer): integer
+    seed = (seed * 1103515245 + 12345) % 2147483648
+    return (seed // 65536) % n
+  end
+  local lines: mut {string} = {}
+  for _ = 1, 300 do
+    lines[#lines + 1] = string.format("%s\t%s\t%d", regions[draw(#regions) + 1], customers[draw(#customers) + 1],
+      100 + draw(99900))
   end
   return table.concat(lines, "\n") .. "\n"
 end
@@ -309,6 +332,125 @@ return function(argv: {string}): integer
       if first + PAGE <= #items then body["next"] = page + 1 end
       return { status = 200, headers = { ["Content-Type"] = "application/json" },
         body = assert(Json.encode(body)) .. "\n" }
+    end,
+  })
+  return 0
+end
+]==]
+
+--- A server that is there to be passed over: it lists the tools its data names, a line each as
+--- `name<TAB>description<TAB>param,param`, each taking those string parameters, and replies to any call with
+--- nothing found.
+local DECOY_SERVER <const> = [==[
+local Failure = require("cosmic.failure")
+local Fs = require("cosmic.fs")
+local Json = require("cosmic.json")
+local Mcp = require("cosmic.mcp")
+local Server = require("cosmic.mcp.server")
+
+return function(argv: {string}): integer
+  local text, why = Fs.read(argv[1] or "")
+  if text == nil then error("decoy: the data: " .. tostring(why)) end
+  local tools: mut {Server.ToolSpec} = {}
+  for line in text:gmatch("[^\n]+") do
+    local name, description, params = line:match("^([^\t]+)\t([^\t]+)\t([^\t]*)$")
+    if name ~= nil and description ~= nil and params ~= nil then
+      local properties: mut {string: Json.Value} = {}
+      for param in params:gmatch("[^,]+") do properties[param] = { type = "string" } end
+      tools[#tools + 1] = {
+        tool = { name = name, description = description, inputSchema = Mcp.object_schema(properties) },
+        call = function(_: {string: Json.Value}, _: Server.Call): (Mcp.ToolResult) | (nil, Failure)
+          return Mcp.result({ name .. ": nothing found" })
+        end,
+      }
+    end
+  end
+  -- It is named for the directory of its data, which is its name in the config, as a real server names itself.
+  local named = (argv[1] or ""):match("([^/]+)/[^/]*$") or "server"
+  assert(Server.new{ info = { name = named, version = "1" }, tools = tools }:serve_stdio())
+  return 0
+end
+]==]
+
+--- The servers of the decoy kind a task of many servers passes over, by name: what each is for, and its tools.
+--- catalog is the near miss: its products are the warehouse's items, without their stock or category.
+local DECOYS <const>: {{string}} = {
+  { "billing", "Invoices and payments of customers.",
+    "list_invoices\tA page of the invoices, newest first.\tcursor,customer\n" ..
+      "get_invoice\tOne invoice: its lines, total and state.\tid\n" ..
+      "list_payments\tA page of the payments received.\tcursor\n" },
+  { "calendar", "The team's calendar.",
+    "list_events\tThe events between two dates.\tfrom,to\n" ..
+      "create_event\tAdds an event.\ttitle,start,end\n" ..
+      "free_busy\tWhen each person is busy.\tpeople,from,to\n" },
+  { "catalog", "The product catalog shown on the shop's site.",
+    "list_products\tA page of the products: each one's id, title and description.\tcursor\n" ..
+      "get_product\tOne product: its title, description and images.\tid\n" ..
+      "search_products\tProducts whose title or description holds the words.\tquery\n" },
+  { "crm", "Customers, their contacts and the deals with them.",
+    "list_contacts\tA page of the contacts.\tcursor\n" ..
+      "get_contact\tOne contact: name, email, company.\tid\n" ..
+      "search_contacts\tContacts whose name or company holds the words.\tquery\n" ..
+      "list_deals\tA page of the deals, by stage.\tcursor,stage\n" },
+  { "docs", "The company's internal wiki.",
+    "search_docs\tPages whose text holds the words.\tquery\n" ..
+      "get_page\tOne page's text.\tid\n" ..
+      "list_spaces\tThe wiki's spaces.\t\n" },
+  { "metrics", "Service metrics and dashboards.",
+    "query_metric\tA metric's values over a time range.\tname,from,to\n" ..
+      "list_dashboards\tThe dashboards.\t\n" },
+  { "tickets", "Support tickets.",
+    "list_tickets\tA page of the tickets, by state.\tcursor,state\n" ..
+      "get_ticket\tOne ticket and its replies.\tid\n" ..
+      "search_tickets\tTickets whose text holds the words.\tquery\n" },
+}
+
+--- The servers of a task of many: the warehouse, whose data its truth reads, then the decoys.
+local function many_servers(): {Agent.Server}
+  local out: mut {Agent.Server} = {
+    { name = "warehouse", about = "The warehouse's records.", source = INVENTORY_SERVER, data = inventory() },
+  }
+  for _, decoy in ipairs(DECOYS) do
+    out[#out + 1] = { name = assert(decoy[1]), about = decoy[2], source = DECOY_SERVER, data = assert(decoy[3]) }
+  end
+  return out
+end
+
+--- The sales web API: GET /sales.csv replies with the sales as CSV (RFC 4180), a header `region,customer,amount_cents`
+--- then a row each, a field quoted where it holds a comma or a double quote. It writes its port to the file its
+--- second argument names once it serves.
+local SALES_SITE <const> = [==[
+local Fs = require("cosmic.fs")
+local Net = require("cosmic.net")
+local Server = require("cosmic.http.server")
+
+local function field(text: string): string
+  if text:find('[,"]') == nil then return text end
+  return '"' .. (text:gsub('"', '""')) .. '"'
+end
+
+return function(argv: {string}): integer
+  local text, why = Fs.read(argv[1] or "")
+  if text == nil then error("sales: the data: " .. tostring(why)) end
+  local ready = argv[2] or ""
+  local rows: mut {string} = { "region,customer,amount_cents" }
+  for line in text:gmatch("[^\n]+") do
+    local region, customer, amount = line:match("^([^\t]+)\t([^\t]+)\t(%d+)$")
+    if region ~= nil and customer ~= nil and amount ~= nil then
+      rows[#rows + 1] = field(region) .. "," .. field(customer) .. "," .. amount
+    end
+  end
+  local body = table.concat(rows, "\r\n") .. "\r\n"
+  assert(Server.serve{
+    listeners = { Net.tcp("127.0.0.1", 0) },
+    on_ready = function(addresses: {Net.Address}, _: Net.Server)
+      assert(Fs.write(ready, tostring(assert(addresses[1]).port)))
+    end,
+    handle = function(req: Server.Request): Server.Reply
+      if req.method ~= "GET" or req.path ~= "/sales.csv" then
+        return { status = 404, body = "no such page: GET /sales.csv\n" }
+      end
+      return { status = 200, headers = { ["Content-Type"] = "text/csv" }, body = body }
     end,
   })
   return 0
@@ -459,7 +601,7 @@ Agent.tasks = {
       "`sum category`, one a line, largest first, ties by category.",
     truth = "awk -F'\\t' '{s[$3] += $4 * $5} END {for (c in s) print s[c]\" \"c}' \"$data\" | sort -k1,1nr -k2,2",
     check = "cat answer.txt",
-    server = { name = "inventory", source = INVENTORY_SERVER, data = inventory() },
+    servers = { { name = "inventory", source = INVENTORY_SERVER, data = inventory() } },
   },
   {
     name = "mcp-low",
@@ -467,7 +609,23 @@ Agent.tasks = {
       "one a line, sorted by id.",
     truth = "awk -F'\\t' '$5 < 3 {print $1\" \"$5}' \"$data\" | sort",
     check = "cat answer.txt",
-    server = { name = "inventory", source = INVENTORY_SERVER, data = inventory() },
+    servers = { { name = "inventory", source = INVENTORY_SERVER, data = inventory() } },
+  },
+  {
+    name = "mcp-many-low",
+    prompt = "Write to answer.txt each item of the warehouse whose stock is below 3, as `id stock`, one a line, " ..
+      "sorted by id.",
+    truth = "awk -F'\\t' '$5 < 3 {print $1\" \"$5}' \"$data\" | sort",
+    check = "cat answer.txt",
+    servers = many_servers(),
+  },
+  {
+    name = "mcp-many-value",
+    prompt = "Write to answer.txt, for each category of the warehouse's items, the sum over its items of price " ..
+      "in cents times stock, as `sum category`, one a line, largest first, ties by category.",
+    truth = "awk -F'\\t' '{s[$3] += $4 * $5} END {for (c in s) print s[c]\" \"c}' \"$data\" | sort -k1,1nr -k2,2",
+    check = "cat answer.txt",
+    servers = many_servers(),
   },
   {
     name = "web-low",
@@ -477,6 +635,15 @@ Agent.tasks = {
     truth = "awk -F'\\t' '$5 < 3 {print $1\" \"$5}' \"$data\" | sort",
     check = "cat answer.txt",
     site = { source = INVENTORY_SITE, data = inventory() },
+  },
+  {
+    name = "web-csv",
+    prompt = "The web API at {url} serves the sales as CSV at GET /sales.csv, with a header row " ..
+      "`region,customer,amount_cents`. Write to answer.txt, for each customer, the sum of its amount_cents, as " ..
+      "`sum customer`, the name as it reads unquoted, one a line, largest first, ties by customer in byte order.",
+    truth = "awk -F'\\t' '{s[$2] += $3} END {for (c in s) print s[c]\" \"c}' \"$data\" | LC_ALL=C sort -k1,1nr -k2",
+    check = "cat answer.txt",
+    site = { source = SALES_SITE, data = sales() },
   },
   {
     name = "earlier-log",
@@ -621,17 +788,24 @@ local function quoted(text: string): string
   return "'" .. (text:gsub("'", "'\\''")) .. "'"
 end
 
---- Lays out `server` for a run of `tool` in a fresh directory, through `system`: its program, its data and the
---- config naming it, held to reading that directory, which every user may read: where the agent is root, its
---- servers run as a user of their own. The config's path.
-local function laid_out(system: Agent.System, server: Agent.Server, tool: Agent.Tool, prefix: string): string
+--- Lays out `servers` for a run of `tool` in a fresh directory, through `system`: each one's program and data in a
+--- directory of its name, and the config naming them all, each held to reading its own directory. Every user may
+--- read them: where the agent is root, its servers run as a user of their own. The config's path.
+local function laid_out(system: Agent.System, given: {Agent.Server}, tool: Agent.Tool, prefix: string): string
   local dir = system.fresh(prefix)
-  system.put(dir .. "/server.tl", server.source)
-  system.put(dir .. "/data.tsv", server.data)
-  local servers: {string: Json.Value} = { [server.name] = {
-    command = Json.array({ tool.path, "--standalone", dir .. "/server.tl", dir .. "/data.tsv" }),
-    policy = { grants = Json.array({ { path = dir, letters = "r" } }) },
-  } }
+  local servers: mut {string: Json.Value} = {}
+  for _, server in ipairs(given) do
+    local own = dir .. "/" .. server.name
+    system.put(own .. "/server.tl", server.source)
+    system.put(own .. "/data.tsv", server.data)
+    local entry: mut {string: Json.Value} = {
+      command = Json.array({ tool.path, "--standalone", own .. "/server.tl", own .. "/data.tsv" }),
+      policy = { grants = Json.array({ { path = own, letters = "r" } }) },
+    }
+    local about = server.about
+    if about ~= nil then entry["description"] = about end
+    servers[server.name] = entry
+  end
   local encoded = assert(Json.encode({ servers = servers }))
   system.put(dir .. "/mcp.json", encoded)
   local opened = system.run({ "chmod", "-R", "a+rX", dir }, "/", nil, 60)
@@ -649,8 +823,9 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
     local pristine = system.fresh("truth-" .. task.name .. "-")
     system.run({ "cp", "-a", options.fixture .. "/.", pristine }, "/", nil, 600)
     local script = task.truth
-    local server, site = task.server, task.site
-    local served: string? = if server ~= nil then server.data elseif site ~= nil then site.data else nil end
+    local first = task.servers and task.servers[1]
+    local site = task.site
+    local served: string? = if first ~= nil then first.data elseif site ~= nil then site.data else nil end
     if served ~= nil then
       local data = system.fresh("data-" .. task.name .. "-") .. "/data.tsv"
       system.put(data, served)
@@ -679,9 +854,9 @@ function Agent.execute(options: Agent.Options, system: Agent.System, key: string
           argv[#argv + 1] = "--tools"
           argv[#argv + 1] = offered
         end
-        local server = task.server
-        if server ~= nil then
-          local config = laid_out(system, server, tool, "mcp-" .. tool.name .. "-" .. task.name .. "-")
+        local servers = task.servers
+        if servers ~= nil then
+          local config = laid_out(system, servers, tool, "mcp-" .. tool.name .. "-" .. task.name .. "-")
           argv[#argv + 1] = "--mcp"
           argv[#argv + 1] = config
         end
@@ -945,6 +1120,8 @@ local function real(out: string): Agent.System
     return s
   end
   local function put(path: string, text: string)
+    local parent = path:match("^(.*)/[^/]*$")
+    if parent ~= nil and parent ~= "" then assert(Fs.mkdirs(parent)) end
     assert(Fs.write(path, text))
   end
   local function serve(argv: {string}, cwd: string, ready: string, seconds: integer): (string, function()) |

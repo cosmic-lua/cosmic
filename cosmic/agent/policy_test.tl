@@ -30,7 +30,7 @@ end
 -- which a test's own grant of a program (read alone) does not give. This
 -- is the agent's one module that keys the system; the others name their
 -- programs.
-Test.policy{ profiles = { "system" }, env = { "PATH", "TMPDIR" }, promises = { "nest" }, requires = { "nest" } }
+Test.policy{ profiles = { "system" }, env = { "PATH", "TMPDIR" }, grants = { { calls = "nest" } }, requires = { "nest" } }
 
 local slurp = agent_fixture.slurp
 local scratch = agent_fixture.scratch

@@ -247,6 +247,19 @@ local CASES <const>: {Case} = {
     fix = "rename `__call` and call it as a method (`v:call(...)`)",
   },
   {
+    code = "schema_unknown",
+    source = "local t = { ddl = \"x\" }\nlocal schema S = t.ddl .. \"CREATE TABLE a (x)\"\nprint(t, S)\n",
+    msg = "the schema `S` joins the `ddl` of a name that is no schema whose DDL the checker knows",
+    fix = "join the `ddl` of a `local schema` declared above it",
+  },
+  {
+    code = "repeated_field",
+    source = "local schema Notes \"CREATE TABLE t (x)\"\nlocal record Store\n  type Notes = Notes\nend\n" ..
+      "function Store.Notes(): integer\n  return 1\nend\nreturn Store\n",
+    msg = "`Notes` is declared twice in `Store`: a function `Store.Notes` and the schema the record names",
+    fix = "rename the function or the type",
+  },
+  {
     code = "schema_member",
     source = "local schema S \"CREATE TABLE t (x)\"\nfunction S.count(): integer\n  return 1\nend\n",
     msg = "the function `S.count` is written into the schema `S`, whose handles have the methods of `cosmic.sqlite`'s " ..

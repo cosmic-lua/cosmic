@@ -11,7 +11,7 @@
 --- and in [`cosmic.cli`] its `verbs` entry and its place in a group,
 --- which sets its order in help (build/verb_list_test.tl holds the
 --- verbs here to be those groups name). The spec also names a `guide`
---- and `tests` (build/tree_checks.tl's `verbs` holds them to the
+--- and `tests` (build/tree_checks/docs.tl's `verbs` holds them to the
 --- quickstart and the tree's tests).
 
 local type Flags = require("cosmic.flags")

@@ -54,5 +54,5 @@ end
 
 local function test_the_fields_are_named_and_kinded()
   assert(TestPolicy.kind_of("grants") == "grants" and TestPolicy.kind_of("nope") == nil)
-  assert(TestPolicy.field_list():find("^connect, cpu_features, database, "), TestPolicy.field_list())
+  assert(TestPolicy.field_list():find("^cpu_features, database, env, grants, "), TestPolicy.field_list())
 end

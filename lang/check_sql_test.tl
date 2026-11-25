@@ -174,6 +174,50 @@ local function test_a_held_handle_is_read_against_its_schema()
       'print(db:rows("SELECT nme FROM notes"))\n')
 end
 
+--- A record that names a schema as its type exports the value with it: the field opens a handle of the schema.
+local function test_a_schema_exported_by_its_name_opens_a_handle_of_it()
+  local modules: {string: string} = {
+    ["cosmic.sqlite"] = SQLITE,
+    ["store"] = 'local schema Notes "CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL)"\n' ..
+      'local record Store\n  type Notes = Notes\nend\nreturn Store\n',
+  }
+  local run = Programs.run('local Sqlite = require("cosmic.sqlite")\nlocal Store = require("store")\n' ..
+      'local db = Sqlite.memory({ schema = Store.Notes })\nprint(db:run("DELETE FROM note"))\n', modules)
+  local first = run.errors[1]
+  assert(first ~= nil and first.code == "sql_refused" and first.msg:find("no such table: note", 1, true) ~= nil,
+    if first ~= nil then first.code .. ": " .. first.msg else "no error" end)
+end
+
+--- A schema joins the DDL of another: one declared above it, or one a required module's record names.
+local function test_a_schema_that_joins_another_reads_both()
+  local head = 'local Sqlite = require("cosmic.sqlite")\n' ..
+    'local schema Notes "CREATE TABLE notes (id INTEGER PRIMARY KEY)"\n' ..
+    'local schema Both = Notes.ddl .. "; CREATE TABLE tags (tag TEXT NOT NULL)"\n' ..
+    'local db = Sqlite.memory({ schema = Both })\n'
+  accepted(head .. 'print(db:rows("SELECT id, tag FROM notes, tags"))\n')
+  says(head .. 'print(db:rows("SELECT nme FROM notes"))\n', "sql_refused", "no such column: nme")
+  local modules: {string: string} = {
+    ["cosmic.sqlite"] = SQLITE,
+    ["store"] = 'local schema Notes "CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL)"\n' ..
+      'local record Store\n  type Notes = Notes\nend\nreturn Store\n',
+  }
+  local run = Programs.run('local Sqlite = require("cosmic.sqlite")\nlocal Store = require("store")\n' ..
+      'local schema Work = Store.Notes.ddl .. "; CREATE TABLE runs (n INTEGER)"\n' ..
+      'local db = Sqlite.memory({ schema = Work })\nprint(db:rows("SELECT body, n FROM notes, runs"))\n' ..
+      'print(db:run("DELETE FROM note"))\n', modules)
+  local first = run.errors[1]
+  assert(#run.errors == 1 and first ~= nil and first.code == "sql_refused" and
+      first.msg:find("no such table: note", 1, true) ~= nil, if first ~= nil then first.code .. ": " .. first.msg else "no error" end)
+end
+
+--- A join of a join reads every table; a record of the module names a schema the module joins as another would.
+local function test_joins_chain_and_read_through_a_record_of_the_module()
+  accepted('local Sqlite = require("cosmic.sqlite")\n' ..
+      'local schema A "CREATE TABLE a (x)"\nlocal schema B = A.ddl .. "; CREATE TABLE b (y)"\n' ..
+      'local record R\n  type B = B\nend\nlocal schema C = R.B.ddl .. "; CREATE TABLE c (z)"\n' ..
+      'local db = Sqlite.memory({ schema = C })\nprint(db:rows("SELECT x, y, z FROM a, b, c"), R)\n')
+end
+
 local function test_assert_around_open_keeps_the_schema()
   says('local Sqlite = require("cosmic.sqlite")\n' ..
       'local schema Notes "CREATE TABLE notes (id INTEGER PRIMARY KEY)"\n' ..
