@@ -41,7 +41,7 @@ end
 local function test_a_new_session_gets_a_256_bit_id_and_the_table_holds_only_its_hash()
   local store, db = open()
   local id = create(store, { user = "ada" })
-  assert(#id == 43 and Codec.unbase64url(id) ~= nil and #assert(Codec.unbase64url(id)) == 32)
+  assert(#id == 43 and #assert(Codec.unbase64url(id)) == 32)
   local rows = assert(db:rows("SELECT id_hash, data FROM web_sessions"))
   assert(#rows == 1 and rows[1]:blob(1) == Hash.sha256(id))
   local rows_1 = assert(rows[1], "expected rows[1]")

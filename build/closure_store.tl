@@ -293,7 +293,7 @@ local function grouped(db: Sqlite.Handle, of: string, columns: {string}, from: s
     quoted[i] = "typeof(" .. column .. ") || ':' || quote(CASE WHEN typeof(" .. column ..
       ") = 'text' THEN CAST(" .. column .. " AS BLOB) ELSE " .. column .. " END)"
   end
-  local rows, trouble = db:text_rows(
+  local rows, trouble = db:rows(
     "SELECT " .. of .. ", lower(hex(sha256(group_concat(" ..
       table.concat(quoted, " || ',' || ") .. ", char(10) ORDER BY " .. order .. ")))) " ..
       "FROM " .. from .. " GROUP BY " .. of)
@@ -490,7 +490,7 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
   if opened == nil then return nil, whole .. ": " .. tostring(trouble) end
   local db: Sqlite.Handle = opened
   local function read(): closure_store.Basis?, string
-    local rows, rows_trouble = db:text_rows(
+    local rows, rows_trouble = db:rows(
       "SELECT path, path || char(9) || kind || char(9) || file || char(9) || " ..
         "lower(hex(source_hash)) || char(9) || lower(hex(sha256(chunk(bytecode)))) || char(9) || " ..
         "lower(hex(sha256(tests))) || char(9) || lower(hex(sha256(source))), file " ..
@@ -529,16 +529,16 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
       if group.from == "decl_imports" then edges = digests end
       by_file[#by_file + 1] = group.owner == "file"
     end
-    local shared, shared_trouble = db:text_rows(
+    local shared, shared_trouble = db:rows(
       "SELECT coalesce((SELECT group_concat(key || ' ' || lower(hex(value)), char(10) " ..
         "ORDER BY key) FROM meta WHERE key IN " .. closure_meta .. "), '')")
     if shared == nil then return nil, tostring(shared_trouble) end
     local shared_row = assert(shared[1], "the shared meta query answers one row")
-    local image, image_trouble = db:text_rows(
+    local image, image_trouble = db:rows(
       "SELECT coalesce((SELECT lower(hex(value)) FROM meta WHERE key = '" .. gated_meta .. "'), '')")
     if image == nil then return nil, tostring(image_trouble) end
     local image_row = assert(image[1], "the gated meta query answers one row")
-    local decl_rows, decl_trouble = db:text_rows(
+    local decl_rows, decl_trouble = db:rows(
       "SELECT path, lower(hex(sha256(source))), CAST(inflate(source) AS TEXT) FROM decls " ..
         "ORDER BY path")
     if decl_rows == nil then return nil, tostring(decl_trouble) end
@@ -546,7 +546,7 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
       { "symbol", "source_symbol", "exported", "kind", "signature", "text", "file", "line" },
       "docs WHERE module IN (SELECT path FROM decls)", "id")
     if declared == nil then return nil, declared_trouble end
-    local names, names_trouble = db:text_rows(
+    local names, names_trouble = db:rows(
       "SELECT path FROM modules WHERE kind NOT IN ('test', 'example') ORDER BY path")
     if names == nil then return nil, tostring(names_trouble) end
     local basis: closure_store.Basis = {
@@ -583,14 +583,14 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
       -- What the checker reads of a standard-library module is its stub ([`build.standard_text`]); the
       -- stub keeps no comment but keeps every token at its source line and column ([`build.syntax_stub`]),
       -- so these digests move with a module's declared types and with a line added or removed above them.
-      local stubbed, stubbed_trouble = db:text_rows(
+      local stubbed, stubbed_trouble = db:rows(
         "SELECT path, lower(hex(sha256(inflate(source)))), CAST(inflate(source) AS TEXT) FROM stubs ORDER BY path")
       if stubbed == nil then return nil, tostring(stubbed_trouble) end
       for _, row in ipairs(stubbed) do
         basis.texts[row:text(1)] = row:text(2)
         basis.text_edges[row:text(1)] = closure_store.required_by(row:text(3))
       end
-      local sourced, sourced_trouble = db:text_rows(
+      local sourced, sourced_trouble = db:rows(
         "SELECT path, CAST(inflate(source) AS TEXT) FROM modules WHERE kind IN ('test', 'example') ORDER BY path")
       if sourced == nil then return nil, tostring(sourced_trouble) end
       for _, row in ipairs(sourced) do
@@ -601,12 +601,12 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
     -- ([`source_kept`]), pure store or full. The pure address holds each source's digest; the full one holds the
     -- module's line, which holds its source, so it takes none.
     local digest = if pure == true then "lower(hex(sha256(inflate(source))))" else "''" end
-    local hashed, hashed_trouble = db:text_rows(
+    local hashed, hashed_trouble = db:rows(
       "SELECT path, " .. digest .. " FROM modules WHERE kind NOT IN ('test', 'example') " ..
         "AND length(source) > 0 ORDER BY path")
     if hashed == nil then return nil, tostring(hashed_trouble) end
     for _, row in ipairs(hashed) do basis.sources[row:text(1)] = row:text(2) end
-    local imported, imported_trouble = db:text_rows("SELECT path, requires FROM imports ORDER BY path, requires")
+    local imported, imported_trouble = db:rows("SELECT path, requires FROM imports ORDER BY path, requires")
     if imported == nil then return nil, tostring(imported_trouble) end
     local lists: mut {string:mut {string}} = {}
     for _, row in ipairs(imported) do
