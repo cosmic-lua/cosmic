@@ -28,6 +28,19 @@ local function test_the_one_table_a_value_may_be_is_told_by_its_kind()
       "    return v.n\n  end\n  return 0\nend\nprint(f({ n = 4 }))\nprint(f(\"s\"))\nprint(f(nil))\n", "4,0,0")
 end
 
+--- The test of the one table a value may be is written as a compile given no declarations writes it, where it cannot
+--- know the record is that one table: the boot compiles the seed so ([`core/bridge.lua`]), and holds its Lua to what
+--- `cosmic compile` writes with the binary's declarations.
+local function test_the_one_table_a_value_may_be_is_written_as_a_compile_without_declarations_writes_it()
+  local r = Programs.run("local record R\n  n: integer\nend\nlocal function get(): R | string\n  return \"s\"\nend\n" ..
+      "local v = get()\nlocal a, b = v is R, not v is R\nlocal c = get() is R\nprint(a, b, c)\n")
+  assert(#r.before == 0, table.concat(r.before, " "))
+  local lua = Programs.lua(r)
+  assert(lua:find('local a, b = type(v) == "table", not (type(v) == "table")', 1, true) ~= nil, lua)
+  -- A value that is no name is read once by the test of a table alone: it is not held in a function.
+  assert(lua:find('local c = type(get()) == "table"', 1, true) ~= nil, lua)
+end
+
 local GRANTS <const> = "local record Path\n  path: string\n  letters: string\nend\nlocal record Calls\n" ..
   "  calls: string\nend\nlocal record Connect\n  connect: string\n  port?: integer\nend\n" ..
   "local type Grant = Path | Calls | Connect\n"
