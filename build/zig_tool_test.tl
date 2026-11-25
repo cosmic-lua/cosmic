@@ -11,6 +11,8 @@ local Hash = require("cosmic.hash")
 local this_program = require("build.this_program")
 local rebuild_lock = require("build.rebuild_lock")
 local Fake = require("cosmic.fake")
+local Json = require("cosmic.json")
+local _ = require("build.tool_fake")
 local sys = require("cosmic.sys")
 local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
@@ -128,11 +130,11 @@ end
 --- does, and exits at once, well inside the pass-on window.
 local function test_run_answers_a_caught_ctrl_c_by_the_childs_status(tmp: string)
   local script = bare_root(tmp)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.tool_fake"))
   -- Child.start starts bin/zig in a group of its own, so the SIGINT to
   -- that group stays inside it.
-  assert(Fake.place(probe, tmp .. "/zig-for-test",
-    "trap 0; wait-for $DIR/zig-pid; signal INT @$DIR/zig-pid; exit 0"))
+  assert(Fake.place(probe, tmp .. "/zig-for-test", assert(Json.encode_any({ trap = 0,
+    wait_for = tmp .. "/zig-pid", signal = "INT", pid_file = tmp .. "/zig-pid" }))))
   local result = build_with_fake(tmp, script, true)
   assert(result.signal == nil and result.code == 0,
     tostring(result.code) .. " " .. tostring(result.signal) .. ": " .. tostring(result.stderr))
@@ -143,9 +145,9 @@ end
 --- it not been running a build.
 local function test_run_reraises_a_signal_its_child_never_got(tmp: string)
   local script = bare_root(tmp)
-  local probe = assert(Fake.build(tmp .. "/fake"))
-  assert(Fake.place(probe, tmp .. "/zig-for-test",
-    "wait-for $DIR/zig-pid; signal TERM @$DIR/zig-pid; exit 0"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.tool_fake"))
+  assert(Fake.place(probe, tmp .. "/zig-for-test", assert(Json.encode_any({
+    wait_for = tmp .. "/zig-pid", signal = "TERM", pid_file = tmp .. "/zig-pid" }))))
   local result = build_with_fake(tmp, script, false)
   assert(result.signal == sys.SIGTERM,
     tostring(result.code) .. " " .. tostring(result.signal) .. ": " .. tostring(result.stderr))
@@ -159,9 +161,9 @@ end
 local function test_a_boot_holds_the_lock_and_hands_it_on(tmp: string)
   local script = bare_root(tmp)
   local root = tmp .. "/root"
-  local probe = assert(Fake.build(tmp .. "/fake"))
-  assert(Fake.place(probe, tmp .. "/zig-for-test",
-    "write $DIR/handed [$COSMIC_REBUILD_LOCK_HANDED]; wait-for $DIR/go; exit 0"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.tool_fake"))
+  assert(Fake.place(probe, tmp .. "/zig-for-test", assert(Json.encode_any({
+    handed = tmp .. "/handed", wait_for = tmp .. "/go" }))))
   local env: mut {string:string} = { COSMIC_ZIG = "zig-for-test", PATH = tmp, XDG_CACHE_HOME = tmp .. "/cache" }
   local build_home = Env.get("COSMIC_BUILD_HOME")
   if build_home ~= nil then env["COSMIC_BUILD_HOME"] = build_home end
@@ -194,8 +196,8 @@ end
 
 local function test_other_subcommands_accept_cache_directories_not_yet_created(tmp: string)
   local script = bare_root(tmp)
-  local probe = assert(Fake.build(tmp .. "/fake"))
-  assert(Fake.place(probe, tmp .. "/zig-for-test", "exit 0"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.tool_fake"))
+  assert(Fake.place(probe, tmp .. "/zig-for-test", "{}"))
   local project, shared = tmp .. "/new-project", tmp .. "/new-global"
   local started = this_program.program({ "--standalone", script, "version" }, {
     env = { COSMIC_ZIG = tmp .. "/zig-for-test", COSMIC_ZIG_CACHE = project,
@@ -210,8 +212,8 @@ end
 
 local function test_a_build_repairs_a_manifest_whose_contents_do_not_match_its_name(tmp: string)
   local script = bare_root(tmp)
-  local probe = assert(Fake.build(tmp .. "/fake"))
-  assert(Fake.place(probe, tmp .. "/zig-for-test", "exit 0"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.tool_fake"))
+  assert(Fake.place(probe, tmp .. "/zig-for-test", "{}"))
   local project = tmp .. "/project"
   local started = this_program.program({ "--standalone", script, "build" }, {
     env = { COSMIC_ZIG = tmp .. "/zig-for-test", COSMIC_ZIG_CACHE = project,
@@ -230,8 +232,8 @@ end
 
 local function test_boot_refuses_an_install_prefix_that_would_name_another_lock(tmp: string)
   local script = bare_root(tmp)
-  local probe = assert(Fake.build(tmp .. "/fake"))
-  assert(Fake.place(probe, tmp .. "/zig-for-test", "exit 0"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.tool_fake"))
+  assert(Fake.place(probe, tmp .. "/zig-for-test", "{}"))
   for _, args in ipairs({ { "build", "boot", "--prefix", tmp .. "/other" },
       { "build", "sanitized", "--prefix=" .. tmp .. "/other" },
       { "build", "boot", "-p", tmp .. "/other" } }) do

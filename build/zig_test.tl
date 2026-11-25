@@ -14,6 +14,8 @@ local sys = require("cosmic.sys")
 local build_paths = require("build.paths")
 local rebuild_lock = require("build.rebuild_lock")
 local Fake = require("cosmic.fake")
+local Json = require("cosmic.json")
+local _ = require("build.tool_fake")
 local Zig = require("build.zig")
 local Child = require("cosmic.child")
 local test_child = require("build.test_child")
@@ -362,19 +364,24 @@ local function test_a_build_a_source_moved_during_is_run_again_and_only_so_often
 end
 
 local function test_run_answers_as_the_child_did(tmp: string)
-  local probe = assert(Fake.build(tmp .. "/fake"))
-  assert(Zig.run({ probe, "exit 0" }) == 0)
-  assert(Zig.run({ probe, "exit 3" }) == 3)
-  assert(Zig.run({ probe, "signal KILL" }) == 128 + sys.SIGKILL)
+  local probe = assert(Fake.build(tmp .. "/fake", "build.tool_fake"))
+  local function placed(name: string, given: string): string
+    assert(Fake.place(probe, tmp .. "/" .. name, given))
+    return tmp .. "/" .. name
+  end
+  assert(Zig.run({ placed("ok", "{}") }) == 0)
+  assert(Zig.run({ placed("three", '{"code":3}') }) == 3)
+  assert(Zig.run({ placed("killed", '{"signal":"KILL"}') }) == 128 + sys.SIGKILL)
 end
 
 local function test_run_passes_on_a_signal_sent_to_it_alone(tmp: string)
-  local probe = assert(Fake.build(tmp .. "/fake"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.tool_fake"))
   -- The child has this process interrupted, as a `kill -INT` aimed at
   -- bin/zig alone would; the child hears of it only if it is passed on.
+  assert(Fake.place(probe, tmp .. "/zig", assert(Json.encode_any({ trap = 42, signal = "INT",
+    pid = sys.getpid(), sleep_ms = 10000 }))))
   local started = Clock.monotonic_ns()
-  local status = Zig.run({ probe,
-    "trap 42; signal INT " .. tostring(sys.getpid()) .. "; sleep 10000" })
+  local status = Zig.run({ tmp .. "/zig" })
   assert(status == 42, tostring(status))
   assert(Clock.monotonic_ns() - started < 5 * 1000 * 1000 * 1000)
 end

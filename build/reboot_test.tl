@@ -12,6 +12,8 @@ local rebuild = require("build.rebuild")
 local rebuild_lock = require("build.rebuild_lock")
 local artifact = require("build.artifact")
 local Fake = require("cosmic.fake")
+local Json = require("cosmic.json")
+local _ = require("build.tool_fake")
 local logger = require("build.logger")
 local work = require("build.work")
 local sys = require("cosmic.sys")
@@ -54,9 +56,9 @@ end
 local function tree_with_zig(tmp: string, status: integer): string
   local root = tmp .. "/tree"
   assert(Fs.mkdirs(root .. "/bin"))
-  local probe = assert(Fake.build(tmp .. "/fake"))
-  assert(Fake.place(probe, root .. "/bin/zig",
-    "write $DIR/ran $@\nprint built\nexit " .. tostring(status)))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.tool_fake"))
+  assert(Fake.place(probe, root .. "/bin/zig", assert(Json.encode_any({
+    write_args = root .. "/bin/ran", stdout = "built\n", code = status }))))
   return root
 end
 
@@ -93,9 +95,9 @@ local function test_boot_into_hands_on_the_lock_it_holds(tmp: string)
   local layout = paths.resolve(root)
   assert(Fs.mkdirs(root .. "/bin"))
   assert(Fs.mkdirs(layout.directory))
-  local probe = assert(Fake.build(tmp .. "/fake"))
-  assert(Fake.place(probe, root .. "/bin/zig",
-    "write $DIR/handed [$COSMIC_REBUILD_LOCK_HANDED]\nexit 1"))
+  local probe = assert(Fake.build(tmp .. "/fake", "build.tool_fake"))
+  assert(Fake.place(probe, root .. "/bin/zig", assert(Json.encode_any({
+    handed = root .. "/bin/handed", code = 1 }))))
   local _ = reboot.boot_into(root, { "test" }, {})
   assert(assert(Fs.read(root .. "/bin/handed")) == "[]\n", assert(Fs.read(root .. "/bin/handed")))
   assert(rebuild_lock.take(root, 0, "test") == "held")
