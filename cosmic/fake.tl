@@ -306,10 +306,12 @@ end
 
 --- Places a copy of the reply fake `program` (built with
 --- [`Fake.REPLY`] as its main) at `path`, answering its first argument
---- with `replies[that argument]`: the key "" stands for no argument, and
---- "*" for any key `replies` lacks. One with no reply for its argument
---- says so on stderr and ends with status 127. False and a Failure where
---- the copy cannot be written.
+--- with `replies[that argument]`: the key "" stands for no argument at
+--- all, and "*" for any key `replies` lacks. One with no reply for its
+--- argument says so on stderr and ends with status 127, as one whose
+--- code is outside 0 to 255 does. The replies travel as JSON, so their
+--- text must be UTF-8. False and a Failure where a reply's text is not
+--- UTF-8 or the copy cannot be written.
 ---
 ---     local program = assert(Fake.build(tmp .. "/fake", Fake.REPLY))
 ---     assert(Fake.reply(program, tmp .. "/bin/git", {

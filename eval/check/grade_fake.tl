@@ -1,10 +1,11 @@
 --- The fake arena `cosmic` of eval/check/grade_test.tl's API tests,
---- run as a [`cosmic.fake`] main. Its `test` stands in for a hidden API
---- test that ran on a copy of the project: it prints the variables
---- `probes` names, lists its directory, leaves a file behind, writes
---- its directory's path to `cwd_file`, prints `lines` and ends with
---- `code`. It does all that only where `kv_api_test.tl` is there, and
---- ends with 0 otherwise. Given `sleep_ms`, its `test` sleeps that long
+--- run as a [`cosmic.fake`] main. Given `cwd_file`, its `test` stands in
+--- for a hidden API test that ran on a copy of the project: it prints the
+--- variables `probes` names, then, only where `kv_api_test.tl` is there,
+--- lists its directory, leaves a file behind, writes its directory's path
+--- to `cwd_file`, prints `lines` and ends with `code`; it ends with 0
+--- where that file is not there. Without `cwd_file`, `test` ends with
+--- `code` (0 when nil). Given `sleep_ms`, its `test` sleeps that long
 --- first; given `fix_refuses_journal`, its `fix` fails where a
 --- JOURNAL.md is in its directory. Every other command passes. What it
 --- does is the JSON [`Fake.given`] reads.
@@ -35,7 +36,8 @@ local function main(argv: {string}): integer
     return 2
   end
   if argv[1] == "fix" and given.fix_refuses_journal == true then
-    return if assert(Fs.status("JOURNAL.md")).exists then 1 else 0 end
+    local journal, _ = Fs.status("JOURNAL.md")
+    return if journal ~= nil and journal.exists then 1 else 0 end
   end
   if argv[1] ~= "test" then return 0 end
   if given.sleep_ms ~= nil then assert(Clock.sleep(Clock.ms(given.sleep_ms))) end
