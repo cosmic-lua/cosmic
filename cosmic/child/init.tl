@@ -2704,7 +2704,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     end
     if lettered(grant.letters, "u") then unix = true end
   end
-  -- A root caller's child runs a copy of the core ([`shared_core`]), and
+  -- A root caller's child runs a copy of the core ([`Hold.relaunch_of`]), and
   -- runs that copy again where it runs this program: a grant of `x` on
   -- this process's own core is a grant of the copy the child runs.
   if relaunch ~= nil then
