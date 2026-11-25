@@ -168,21 +168,6 @@ end
   assert(seen == "/pkg.tar?z=3 @files.test:8080", seen)
 end
 
---- `download_result` takes the same `via` and reports "downloaded".
-local function test_download_result_writes_the_body_it_fetched_over_the_socket(tmp: string)
-  local said, seen = across(tmp, download_prelude .. [[
-return function(argv: {string}): integer
-  local dest = destination((argv[1] or ""))
-  local result = Http.download_result("http://files.test:8080/pkg.tar?z=3", dest, { timeout_ns = Clock.seconds(60), via = Net.unix((argv[1] or "")) })
-  assert(result.kind == "downloaded", result.kind .. ": " .. result.reason)
-  local _, _ = Fs.put(Fs.stdout, result.kind .. " " .. result.reason .. "|" .. assert(Fs.read(dest)))
-  return 0
-end
-]])
-  assert(said == "downloaded |body of /pkg.tar", said)
-  assert(seen == "/pkg.tar?z=3 @files.test:8080", seen)
-end
-
 --- A download is of the first response: over `via` a 3xx is not followed,
 --- so it is not a 2xx and fails with its status, leaving no file; with
 --- `follow = true` the redirect goes through the same socket and the
@@ -193,10 +178,8 @@ return function(argv: {string}): integer
   local via = Net.unix((argv[1] or ""))
   local dest = destination((argv[1] or ""))
   local ok, why = Http.download("http://files.test/moved", dest, { timeout_ns = Clock.seconds(60), via = via })
-  local result = Http.download_result("http://files.test/moved", dest, { timeout_ns = Clock.seconds(60), via = via })
   local lines = {
-    tostring(ok) .. " " .. tostring(why),
-    result.kind .. " " .. tostring(result.status),
+    tostring(ok) .. " " .. tostring(why) .. " " .. (if ok then "" else why.kind .. " " .. tostring(why.code) end),
     "exists " .. tostring(assert(Fs.status(dest)).exists),
   }
   local followed, followed_why = Http.download("http://files.test/moved", dest, { timeout_ns = Clock.seconds(60), via = via, follow = true })
@@ -206,8 +189,8 @@ return function(argv: {string}): integer
   return 0
 end
 ]])
-  assert(said == "false http://files.test/moved: HTTP 302\nhttp_status 302\nexists false\nbody of /final", said)
-  assert(seen == "/moved @files.test|/moved @files.test|/moved @files.test|/final @files.test", seen)
+  assert(said == "false http://files.test/moved: HTTP 302 library 302\nexists false\nbody of /final", said)
+  assert(seen == "/moved @files.test|/moved @files.test|/final @files.test", seen)
 end
 
 --- A request over a socket that cannot be connected to names the socket

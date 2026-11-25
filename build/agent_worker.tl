@@ -283,7 +283,7 @@ local function provide(modules: Modules, code: string): string?
 end
 
 --- The modules a snippet may use with no require, each by the name it is given: where a snippet reads a field of one
---- ([`Host.cat`], `Fs:...`), the require goes before its first line, on that line, so the lines the checker tells of
+--- ([`Host.read`], `Fs:...`), the require goes before its first line, on that line, so the lines the checker tells of
 --- stay the snippet's own.
 local PRELUDE <const>: {{string}} = { { "Host", "cosmic.agent.host" }, { "Fs", "cosmic.fs" }, { "Json", "cosmic.json" } }
 

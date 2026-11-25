@@ -21,15 +21,17 @@ local function lf(text: string): string
 end
 
 --- `raw` with each of `edits` made, and how many were; or nil and why not, naming `path` and the replacements'
---- field `field` (as `oldText` for the tool).
-function Edit.apply(raw: string, edits: {Edit.Replacement}, path: string, field: string): (string, integer) | (nil, string)
+--- field `field` (as `oldText` for the tool), and each replacement by its index from `first` (0 where nil, as a JSON
+--- list counts; 1 for a snippet's list).
+function Edit.apply(raw: string, edits: {Edit.Replacement}, path: string, field: string, first?: integer):
+    (string, integer) | (nil, string)
   if #edits == 0 then return nil, "edits must hold at least one replacement" end
   local crlf = raw:find("\r\n", 1, true) ~= nil
   local body = lf(raw)
   local order: mut {integer} = {}
   local starts: mut {integer: integer} = {}
   for i, e in ipairs(edits) do
-    local name = string.format("edits[%d]", i - 1)
+    local name = string.format("edits[%d]", i - 1 + (first or 0))
     local old = lf(e.old)
     if old == "" then return nil, name .. "." .. field .. " must not be empty" end
     local at = body:find(old, 1, true)

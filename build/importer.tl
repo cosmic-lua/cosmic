@@ -375,7 +375,7 @@ end
 --- they import, can only be named whole. What a parse runs is these
 --- modules and the Lua and declarations of the basis, and nothing else of
 --- the compiler's identity or of the code that checks ([`build.code_identity`]'s
---- `coded`): an edit to build.plans, build.tree or the checker (lang/check.tl,
+--- `coded`): an edit to build.plans, build.tree or the checker (lang/check/,
 --- build.driver, build.pipeline) compiles again and parses nothing again. An
 --- edit to the lexer, the parser or a reader of the syntax tree parses
 --- everything again.

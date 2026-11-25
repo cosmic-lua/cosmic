@@ -329,7 +329,7 @@ do
     char: function(...: integer): string
     dump: function(f: function(...: any): (any), strip?: boolean): string
     -- The new checker types the captures of `find`, `match` and `gmatch` and the arguments of a `gsub` callback from a literal
-    -- pattern (lang/check.tl, [`Calls.refine`]): a position capture `()` is an integer, and these declarations hold
+    -- pattern (lang/check/init.tl, [`Calls.refine`]): a position capture `()` is an integer, and these declarations hold
     -- for a pattern that is no literal, where every capture is a string.
     find: function(s: string, pattern: string, init?: integer, plain?: boolean): integer?, integer?, string...
     format: function(formatstring: string, ...: any): string

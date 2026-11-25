@@ -582,7 +582,8 @@ local function breaches_of_refused(m: Module, built: Pipeline.Built, result: Dri
   if subject == nil then
     return {}
   end
-  return SyntaxContracts.check(subject, nil, SyntaxContracts.declared_in(built.index), result.errors).problems
+  return SyntaxContracts.check(subject, nil, SyntaxContracts.declared_in(built.index), result.errors,
+    SyntaxContracts.is_private(built.index, m.file)).problems
 end
 
 --- [`Pipeline.generate`]'s work. With `kept` the build is one the caller keeps across modules ([`Pipeline.review`]): the
@@ -672,7 +673,8 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
     refused = trouble ~= ""
   end
   if Rules.applies(m.kind, m.generated) then
-    local read = SyntaxContracts.check(subject, nil, SyntaxContracts.declared_in(built.index))
+    local read = SyntaxContracts.check(subject, nil, SyntaxContracts.declared_in(built.index), nil,
+      SyntaxContracts.is_private(built.index, m.file))
     local problems = read.problems
     if built.project ~= true then
       -- Held by markers at the lines of the calls, in the text of the module itself.

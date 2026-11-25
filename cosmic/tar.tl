@@ -199,6 +199,8 @@ end
 --- including a short read that never reaches a full block.
 local function read_block_or_eof(raw: Stream.Reader): string?, boolean, string
   local block, trouble = Stream.read_up_to(raw, BLOCK)
+  -- TODO: give the caller Stream's Failure, its kind kept, once this
+  -- module's readers return a Failure rather than words.
   if block == nil then return nil, false, tostring(trouble) end
   if block == "" then return nil, true, "" end
   if #block < BLOCK then return nil, false, "tar: truncated header block" end
