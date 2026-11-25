@@ -31,6 +31,9 @@ local record Prompt
   record Options
     --- The tools the model is offered, each a line and its rules; [`Tools.default`] where nil, as an agent's.
     tools?: {Tools.Tool}
+    --- The cosmic.* modules a snippet may require, a line each, which the prompt lists where run is offered;
+    --- [`Host.modules`]' from this binary's docs where nil, "" for none.
+    modules?: string
   end
 end
 
@@ -106,12 +109,27 @@ function Prompt.build(cwd: string, contexts: {Prompt.Context}, options?: Prompt.
     end
   end
   local run = Tools.find(for_model, "run") ~= nil
+  local modules: string? = nil
+  if run then
+    -- Read only where run is offered: the docs take a few tens of milliseconds to list.
+    if options ~= nil and options.modules ~= nil then
+      modules = options.modules
+    else
+      -- A binary whose store withholds its docs (a test's) raises on reading them: the prompt lists none then.
+      local read, listed = pcall(require("cosmic.agent.host").modules)
+      modules = if read then listed else nil end
+    end
+    if modules == "" or (modules ~= nil and modules:find("^host: modules: ") ~= nil) then
+      modules = nil
+    end
+  end
   return Text.render({
     tools = if #for_model > 0 then for_model else nil end,
     code_tools = if #for_code > 0 and run then for_code else nil end,
     bash = Tools.find(for_model, "bash") ~= nil,
     run = run,
     instructions = if #instructions > 0 then instructions else nil end,
+    modules = modules,
   })
 end
 
