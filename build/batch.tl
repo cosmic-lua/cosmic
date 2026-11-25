@@ -17,7 +17,8 @@
 --- `close` reads a merged batch pull request's commits, and closes each
 --- member whose head is still the one batched, with a comment that names
 --- the batch's commit on main. A member pushed since it was batched
---- stays open, and is named.
+--- stays open, and is named. It reads each commit's message from git,
+--- not the REST API, which cuts a long message short.
 ---
 --- It runs the host's `git` and `gh` (its REST API alone), found on PATH.
 local Child = require("cosmic.child")
@@ -70,6 +71,7 @@ local record CommitText
 end
 
 local record Commit
+  sha: string
   commit: CommitText
 end
 
@@ -150,7 +152,7 @@ local function messages(base: string, head: string): string
   for message in ran.out:gmatch("([^%z]*)%z") do
     local lines: mut {string} = {}
     for line in (message .. "\n"):gmatch("([^\n]*)\n") do
-      if not line:match("^Claude%-Session:") and not line:match("^Co%-Authored%-By:") and
+      if not line:match("^Claude%-Session:") and not line:lower():match("^co%-authored%-by:") and
           not line:match("Batched from #") then
         lines[#lines + 1] = line
       end
@@ -285,11 +287,16 @@ local function close(batch: string): integer
     say("its commits cannot be read: " .. tostring(wrong))
     return 1
   end
+  if not git({ "fetch", "-q", "origin", pr.head.sha }).ok then
+    say("#" .. batch .. "'s head cannot be fetched")
+    return 1
+  end
   local status = 0
   for _, commit in ipairs(commits.commits) do
+    local message = git({ "log", "-1", "--format=%B", commit.sha }).out
     -- The trailer is the message's last line, which stack writes; a
     -- member's own text above it cannot name another pull request.
-    local n, head = commit.commit.message:match("\nBatched from #(%d+) at (%x%x%x%x%x%x%x%x%x)%.%s*$")
+    local n, head = message:match("\nBatched from #(%d+) at (%x%x%x%x%x%x%x%x%x)%.%s*$")
     if n ~= nil and head ~= nil and not close_one(batch, landed, n, head) then status = 1 end
   end
   return status
