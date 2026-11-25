@@ -291,8 +291,8 @@ end
 local TREE_ROW <const> = Shape.record_of("TreeRow")
 
 --- The mode of each of `paths` in commit `sha`'s tree in `repository`,
---- by path; nil where GitHub does not say, cuts the tree short, or names
---- none for one of them.
+--- by path; nil where GitHub does not say, cuts the tree short, names
+--- none for one of them, or names one twice.
 local function modes_of(host: Github.Host, repository: string, sha: string, paths: {string}): {string:string}?
   local pages = Github.ask(host, "repos/" .. repository .. "/git/trees/" .. sha .. "?recursive=1", false, LOOKUP_SECONDS)
   local listed, _ = TREE_ROW:decode_into((pages or {})[1] or "")
@@ -315,24 +315,27 @@ local function modes_of(host: Github.Host, repository: string, sha: string, path
   return modes
 end
 
+--- A commit's change over a base, as [`change_of`] reads it: `text`,
+--- each changed file's name, the name it had before, its status and its
+--- content's blob, sorted, one a line; `head`, the commit; and
+--- `staying`, the files it does not remove.
+local record Change
+  text: string
+  head: string
+  staying: {string}
+end
+
 --- What commit `head` changes over `base` in `repository`, as GitHub
---- says: each changed file's name, the name it had before, its status,
---- its content's blob and its mode in `head`'s tree, sorted, one a line.
---- Nil where GitHub does not say, `head` is not ahead of `base`, the list
---- may be cut, a file that stays has no blob named, or `head`'s tree
---- names no mode for it.
-local function change_of(host: Github.Host, repository: string, base: string, head: string): string?
+--- says. Nil where GitHub does not say, `head` is not ahead of `base`,
+--- the list may be cut, or a file that stays has no blob named. GitHub
+--- names no file's mode here: [`moded`] adds them.
+local function change_of(host: Github.Host, repository: string, base: string, head: string): Change?
   local pages = Github.ask(host, "repos/" .. repository .. "/compare/" .. base .. "..." .. head, false, LOOKUP_SECONDS)
   local compared, _ = CHANGE_ROW:decode_into((pages or {})[1] or "")
   if compared == nil or compared.status ~= "ahead" then return nil end
   local files = compared.files
   if files == nil or #files >= LISTED_FILES then return nil end
-  local record Line
-    name: string
-    rest: string
-    stays: boolean
-  end
-  local rows: mut {Line} = {}
+  local lines: mut {string} = {}
   local staying: mut {string} = {}
   for _, item in ipairs(files) do
     local file, _ = FILE_ROW:into(item)
@@ -346,18 +349,24 @@ local function change_of(host: Github.Host, repository: string, base: string, he
       return nil
     end
     if before is string then was = before end
-    local stays = status ~= "removed"
-    if stays then staying[#staying + 1] = name end
-    rows[#rows + 1] = { name = name, rest = "\0" .. was .. "\0" .. status .. "\0" .. content, stays = stays }
-  end
-  local modes = modes_of(host, repository, head, staying)
-  if modes == nil then return nil end
-  local lines: mut {string} = {}
-  for _, row in ipairs(rows) do
-    lines[#lines + 1] = row.name .. row.rest .. "\0" .. (if row.stays then modes[row.name] or "" else "" end)
+    if status ~= "removed" then staying[#staying + 1] = name end
+    lines[#lines + 1] = name .. "\0" .. was .. "\0" .. status .. "\0" .. content
   end
   table.sort(lines)
-  return table.concat(lines, "\n")
+  return { text = table.concat(lines, "\n"), head = head, staying = staying }
+end
+
+--- `change`'s text and, after it, the mode in its commit's tree of each
+--- file it keeps, sorted, one a line; nil where [`modes_of`] is.
+local function moded(host: Github.Host, repository: string, change: Change): string?
+  local modes = modes_of(host, repository, change.head, change.staying)
+  if modes == nil then return nil end
+  local lines: mut {string} = {}
+  for _, name in ipairs(change.staying) do
+    lines[#lines + 1] = name .. "\0" .. (modes[name] or "")
+  end
+  table.sort(lines)
+  return change.text .. "\n\n" .. table.concat(lines, "\n")
 end
 
 --- What a listing of caches is read for.
@@ -519,6 +528,7 @@ function QueueVerdicts.find_tried(env: {string:string}, host: Github.Host): inte
         base .. "; the suites run what they would have answered")
     return 0
   end
+  local mine_moded: string? = nil
   local runs, trouble = tried_runs(host, repository, entry, own)
   local why = if runs == nil then trouble else "no failed merge-queue run of pull request " .. entry .. " is listed" end
   for _, tried in ipairs(runs or {}) do
@@ -527,18 +537,32 @@ function QueueVerdicts.find_tried(env: {string:string}, host: Github.Host): inte
     local absent = "run " .. tostring(id) .. " was built on " .. tried.on .. ", which is not on main"
     if on_main(host, repository, tried.on) then
       absent = "run " .. tostring(id) .. " tested another change than this run's"
-      if change_of(host, repository, tried.on, tried.sha) == mine then
-        -- A run whose ref holds a cache may have restored one that code
-        -- which never merges wrote ([`QueueVerdicts.ref_caches`]).
-        absent = "run " .. tostring(id) .. "'s ref holds a cache, or GitHub does not say"
-        if caches_of(host, repository, tried.ref) == 0 then
-          absent = "run " .. tostring(id) .. " did not refuse its ref's caches before and after its jobs"
-          if refused_caches(host, repository, id) then
-            held, absent = tried_artifact(host, repository, id, name)
-            if held == nil and passed ~= "" then
-              local missed = absent
-              held, absent = tried_artifact(host, repository, id, passed)
-              if held == nil then absent = missed .. "; " .. absent end
+      local change = change_of(host, repository, tried.on, tried.sha)
+      if change ~= nil and change.text == mine.text then
+        -- The trees are read only for a change that matches otherwise.
+        mine_moded = mine_moded or moded(host, repository, mine)
+        absent = "GitHub did not say the modes of the files " .. sha .. " or run " .. tostring(id) .. "'s commit keeps"
+        local same = false
+        if mine_moded ~= nil then
+          local theirs = moded(host, repository, change)
+          same = theirs == mine_moded
+          if theirs ~= nil and not same then
+            absent = "run " .. tostring(id) .. " tested another change than this run's: a mode differs"
+          end
+        end
+        if same then
+          -- A run whose ref holds a cache may have restored one that code
+          -- which never merges wrote ([`QueueVerdicts.ref_caches`]).
+          absent = "run " .. tostring(id) .. "'s ref holds a cache, or GitHub does not say"
+          if caches_of(host, repository, tried.ref) == 0 then
+            absent = "run " .. tostring(id) .. " did not refuse its ref's caches before and after its jobs"
+            if refused_caches(host, repository, id) then
+              held, absent = tried_artifact(host, repository, id, name)
+              if held == nil and passed ~= "" then
+                local missed = absent
+                held, absent = tried_artifact(host, repository, id, passed)
+                if held == nil then absent = missed .. "; " .. absent end
+              end
             end
           end
         end

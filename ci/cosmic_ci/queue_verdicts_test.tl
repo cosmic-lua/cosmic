@@ -236,7 +236,6 @@ local NOW <const> = "2222222222222222222222222222222222222222"
 local AHEAD <const> = "1111111111111111111111111111111111111111"
 local function tried_sha(id: integer): string return string.format("%040x", id) end
 
---- A comparison of commits that changes `blob` into a.tl, and b.tl.
 --- A commit's tree, its files a.tl (of `mode`, else a plain file's),
 --- b.tl and evil.tl.
 local function tree(mode?: string): string
@@ -244,9 +243,11 @@ local function tree(mode?: string): string
     '{"path":"b.tl","mode":"100644","type":"blob"},{"path":"evil.tl","mode":"100644","type":"blob"}]}'
 end
 
+--- A comparison of commits that changes `blob` into a.tl, adds b.tl and
+--- removes gone.tl, which no tree holds.
 local function change(blob: string): string
   return '{"status":"ahead","files":[{"filename":"b.tl","status":"added","sha":"bb"},' ..
-    '{"filename":"a.tl","status":"modified","sha":"' .. blob .. '"}]}'
+    '{"filename":"a.tl","status":"modified","sha":"' .. blob .. '"},{"filename":"gone.tl","status":"removed"}]}'
 end
 
 local function tried_env(): mut {string:string}
@@ -323,6 +324,8 @@ local function test_the_newest_failed_try_of_the_pull_request_is_named()
   end)
   assert(QueueVerdicts.find_tried(tried_env(), fake.host) == 0)
   assert(GithubFake.text(fake.outputs) == "run=8\nartifact=800\n", GithubFake.text(fake.outputs))
+  -- Trees only for a change that matches otherwise (runs 11 and 8), and this run's once.
+  assert(GithubFake.count(fake, "/git/trees/") == 3, table.concat(fake.calls, "\n"))
   for _, id in ipairs({ 9, 10, 12, 13, 15, 16, 20 }) do
     assert(GithubFake.count(fake, "runs/" .. tostring(id) .. "/") == 0, tostring(id) .. ": " .. table.concat(fake.calls, "\n"))
   end
