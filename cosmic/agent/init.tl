@@ -1229,7 +1229,7 @@ local function loop(s: Agent.Session): boolean, string
                 return afterward(s, by_code, answered)
               end end }
             result = if tool ~= nil then Tools.dispatch(s.tools, called, given, context) else
-              { text = "Tool " .. called .. " not found", is_error = true } end
+              { text = Tools.unknown(s.tools, called), is_error = true } end
             if tool ~= nil then result = afterward(s, asked_call, result) end
           end
           local shown, record_why = record(s, call_id, called, given, result)

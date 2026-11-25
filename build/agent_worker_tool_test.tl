@@ -432,6 +432,21 @@ print(tostring(long))
   assert(not bare.is_error and bare.text:find("^3\t\"x\"\tb\n") ~= nil, bare.text)
   local own = tools_run("run", { code = "local Host = 7\nprint(Host + 1)" }, context)
   assert(not own.is_error and own.text:find("^8\n") ~= nil, own.text)
+  -- A snippet that requires one of the prelude's modules itself still has the others.
+  local mixed = tools_run("run", { code = "local Json = require(\"cosmic.json\")\nprint(Json.encode({ Host.cat(\"one.tl\") })!)" },
+    context)
+  assert(not mixed.is_error and mixed.text:find('^%["x') ~= nil, mixed.text)
+  for _, code in ipairs({ "local Json: integer = 3\nprint(Host.cat(\"one.tl\"), Json + 1)",
+      -- A `local` in a comment or a string binds nothing.
+      "-- local Json = 1\nprint(Json.quote(\"q\"))", "print(\"local Json = 1\", Json.quote(\"q\"))" }) do
+    local r = tools_run("run", { code = code }, context)
+    assert(not r.is_error, code .. ": " .. r.text)
+  end
+  -- A refusal of its own is told as it is, with the other prelude names bound.
+  local own_error = tools_run("run", { code = "local Json = require(\"cosmic.json\")\nlocal n: integer = Host.cat(\"one.tl\")" },
+    context)
+  assert(own_error.is_error and own_error.text:find("not_assignable", 1, true) ~= nil and
+      own_error.text:find("not declared", 1, true) == nil, own_error.text)
   local wrong = tools_run("run", { code = "print(Host.find(\".\"))\nlocal n: integer = \"x\"\nprint(n)" }, context)
   assert(wrong.is_error and wrong.text:find(":2:", 1, true) ~= nil, wrong.text)
   -- A name in a string or a comment, a binding of the name, and a first line that begins with `(` all run.

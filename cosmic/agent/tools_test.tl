@@ -136,7 +136,8 @@ local function test_tools_are_values_to_pick_and_make()
   local wide = Tools.dispatch(Tools.default(), "read", { path = "wide.txt" }, { cwd = dir, tools = Tools.default() })
   assert(wide.text:find("Use run: read wide.txt", 1, true) ~= nil and wide.text:find("bash") == nil, wide.text:sub(-200))
   assert(Tools.run("read", { path = "wide.txt" }, { cwd = dir }).text:find("Use bash: sed", 1, true) ~= nil)
-  assert(Tools.dispatch(Tools.default(), "bash", { command = "true" }, { cwd = dir }).text == "Tool bash not found")
+  local unknown = Tools.dispatch(Tools.default(), "bash", { command = "true" }, { cwd = dir }).text
+  assert(unknown == "Tool bash not found: the tools are read, run, edit, write", unknown)
   -- Each call gives a new list: a change to one is not seen in the next.
   local mine = Tools.all()
   table.remove(mine, 1)

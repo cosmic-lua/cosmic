@@ -30,6 +30,7 @@ local writer = require("build.writer")
 local shared_compiles = require("build.shared_compiles")
 local fanout = require("build.compile_fanout")
 local Lexer = require("lang.lexer")
+local StandardMeant = require("build.standard_meant")
 local Parser = require("lang.parser")
 local SyntaxNode = require("build.syntax_node")
 local support = require("build.test_support_fixture")
@@ -615,6 +616,14 @@ local function test_a_project_file_named_for_a_module_of_the_language_is_refused
   local _, absent = importer_fixture.compile_fixture(missing)
   assert(absent:find("main.tl:1:", 1, true) ~= nil and absent:find("cosmic has no module `cosmic.no_such_module`", 1,
     true) ~= nil, tostring(absent))
+  -- A name an edit from one of cosmic's modules is told the module, from the docs (this test's store withholds the
+  -- binary's).
+  StandardMeant.read_from({ index = { { module = "cosmic.codec", text = "Byte-to-text encodings.", closed = "" } },
+    exact = function(_: string): {{string}} return {} end })
+  local near, near_trouble = write_fixture("cosmic-module-near", { ["main.tl"] = 'local s = require("cosmic.codecs")\nreturn s\n' })
+  assert(near ~= nil, "could not write fixture: " .. tostring(near_trouble))
+  local _, told = importer_fixture.compile_fixture(near)
+  assert(told:find("cosmic has no module `cosmic.codecs`; did you mean `cosmic.codec` (", 1, true) ~= nil, tostring(told))
 end
 
 --- A module's own compile is keyed by its file as well as its import
