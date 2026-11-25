@@ -234,14 +234,15 @@ local launcher_programs <const> = { "uname", "id", "mkdir", "stat", "mktemp", "d
   "ln", "rm", "rmdir" }
 
 --- The policy [`Prerelease.smoke`] runs the tool at `path` under, its cores unpacked in `cache`: it reads and runs
---- `path` and the programs its launcher runs, of those under /bin and /usr/bin, writes `cache`, and nothing else, so
+--- `path` and the programs its launcher runs, of those under /bin, /usr/bin and /sbin, writes `cache`, and nothing else, so
 --- it cannot touch the files whose lines set the environment of the job's later steps (`GITHUB_ENV`,
 --- `GITHUB_PATH`), the publishing one among them, nor the driver that step runs; of the job's variables it gets
 --- `PATH` and `HOME` alone.
 function Prerelease.smoke_policy(path: string, cache: string): Sandbox.Policy
   local grants: mut {Sandbox.Grant} = { { path = path, letters = "rx" }, { path = cache, letters = "rwxc" } }
   for _, name in ipairs(launcher_programs) do
-    for _, dir in ipairs({ "/bin/", "/usr/bin/" }) do
+    -- macOS 15 keeps sha256sum in /sbin.
+    for _, dir in ipairs({ "/bin/", "/usr/bin/", "/sbin/" }) do
       local program = dir .. name
       local found, _ = Fs.status(program)
       if found ~= nil and found.exists then

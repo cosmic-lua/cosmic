@@ -52,7 +52,8 @@ local function test_the_smoke_policy_grants_the_tool_and_its_cache_alone()
   local grants: mut {string} = {}
   for at, grant in ipairs(policy.grants or {}) do
     if at > 2 then
-      local program = grant.path:match("^/usr/bin/(%w+)$") or grant.path:match("^/bin/(%w+)$")
+      local program = grant.path:match("^/usr/bin/(%w+)$") or grant.path:match("^/bin/(%w+)$") or
+        grant.path:match("^/sbin/(%w+)$")
       local kernel = grant.path == "/proc/sys/kernel/ostype" or grant.path == "/proc/sys/kernel/arch"
       assert((program ~= nil and launcher[program] == true and grant.letters == "rx") or
           (kernel and grant.letters == "r"), grant.path .. " " .. grant.letters)
