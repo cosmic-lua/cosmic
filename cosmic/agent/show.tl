@@ -158,6 +158,23 @@ local function replacements(input: Tools.Object): {AgentEdit.Replacement}?, stri
   return out, ""
 end
 
+--- Puts the line "edit <path>", then the replacements `made` in one named diff, as [`Show.diff`] lines, each after a
+--- line "@@".
+local function edited(put: function(line: string), path: string, made: {AgentEdit.Replacement})
+  put("edit " .. path)
+  local diff: mut {string} = {}
+  for _, r in ipairs(made) do
+    diff[#diff + 1] = "@@"
+    for _, line in ipairs(Show.diff(r.old, r.new)) do diff[#diff + 1] = line end
+  end
+  fenced(put, "diff", diff, "", MOST_LINES)
+end
+
+--- The line a write of `n` lines to `path` shows.
+local function written(path: string, n: integer): string
+  return "write " .. path .. " (" .. String.counted(n, "line") .. ")"
+end
+
 --- The lines a tool call shows at a terminal, as Markdown: run's code in a
 --- code fence of the language teal, so a Markdown viewer colors it, laid
 --- out by `layout` where one is given and lays it out; bash's command in
@@ -179,18 +196,11 @@ function Show.call(name: string, input: Tools.Object, layout?: Show.Arrange): {s
   elseif name == "bash" and command is string then
     fenced(put, "console", lines_of(command), "$ ", MOST_LINES)
   elseif name == "edit" and path is string then
-    put("edit " .. path)
-    local diff: mut {string} = {}
     local made, _ = replacements(input)
-    for _, r in ipairs(made or {}) do
-      diff[#diff + 1] = "@@"
-      for _, line in ipairs(Show.diff(r.old, r.new)) do diff[#diff + 1] = line end
-    end
-    fenced(put, "diff", diff, "", MOST_LINES)
+    edited(put, path, made or {})
   elseif name == "write" and path is string then
     local content = input["content"]
-    local n = if content is string then #lines_of(content) else 0 end
-    put("write " .. path .. " (" .. String.counted(n, "line") .. ")")
+    put(written(path, if content is string then #lines_of(content) else 0 end))
   elseif name == "read" and path is string then
     local offset = input["offset"]
     local at = if offset is number then math.tointeger(offset) else nil end
@@ -208,7 +218,8 @@ end
 --- [`Show.call`] shows it (run's code laid out by `layout`), and below
 --- it the call's result: the first lines of what run (or an older session's bash) said,
 --- in a code fence named output, and of what any call that failed said,
---- in one named error. An output of no lines shows no fence. No control
+--- in one named error, then each file a snippet changed: an edit as an edit call shows, a write as
+--- "write <path> (n lines)". An output of no lines shows no fence. No control
 --- byte but tab and newline is shown. The other events show nothing.
 function Show.text(out: function(line: string), err: function(line: string), layout?: Show.Arrange):
     function(event: Agent.Event)
@@ -225,6 +236,17 @@ function Show.text(out: function(line: string), err: function(line: string), lay
         fenced(err, "error", lines_of(e.result.text), "", MOST_LINES)
       elseif (e.name == "run" or e.name == "bash") and e.result.text ~= "" then
         fenced(err, "output", lines_of(e.result.text), "", MOST_ANSWER_LINES)
+      end
+      -- What a snippet changed shows after what it printed, as the edit and write tools of older sessions showed.
+      for _, c in ipairs(e.result.changes or {}) do
+        local made, more = c.edits, c.more
+        if more ~= nil then
+          err("... " .. String.counted(more, "more change") .. " not shown")
+        elseif made ~= nil then
+          edited(err, c.path, made)
+        else
+          err(written(c.path, c.lines or 0))
+        end
       end
     end
   end
