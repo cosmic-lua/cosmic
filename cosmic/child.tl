@@ -4258,6 +4258,20 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
         string.format("%q", argv[1]) .. ") answers where a shell would find it"
     elseif errno == sys.EINVAL or errno == sys.EMFILE then
       trouble = trouble .. descriptor_limit_hint(slots)
+    elseif (errno == sys.EACCES or errno == sys.EPERM) and not string.find(tostring(trouble), ":", 1, true) and
+        opts.credentials == nil then
+      -- A bare refusal, with no step of the start named: the run of the
+      -- program, or entering its directory. Name the file the start ran,
+      -- which is not always argv[1]: a cosmic program runs by its core,
+      -- and a root caller's child by a copy of it ([`shared_core`]).
+      trouble = trouble .. ": running " .. string.format("%q", path) ..
+        " (the program, or the interpreter it starts through)" ..
+        (if held ~= nil then
+          ": a program to run needs an `rx` grant on it in this start's policy, and in any sandbox holding this process"
+          else
+          ": a sandbox holding this process gives no `rx` there, or the file's mode refuses it"
+          end) ..
+        (if opts.cwd ~= nil then "; or its directory, " .. string.format("%q", opts.cwd) .. ", cannot be entered" else "" end)
     end
     return refuse("start: " .. trouble)
   end
