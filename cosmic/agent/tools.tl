@@ -18,12 +18,12 @@
 ---       stderr together; it keeps the last 2000 lines or 50KB, and saves
 ---       the whole as an output when it cuts; no timeout unless the model
 ---       gives one, in seconds; background: true starts it as a job and
----       answers at once, with the job's id
+---       returns at once, with the job's id
 ---     run    code, timeout?
 ---       checks and runs a snippet of Teal in the session's worker
 ---       (`cosmic docs cosmic.agent.worker`), under the same sandbox:
 ---       what it printed, its last 8KB, and the JSON of what it
----       returned; a refused snippet's answer is the checker's lines;
+---       returned; a refused snippet's result is the checker's lines;
 ---       120 seconds unless the model says, after which the worker ends
 ---     jobs   id?, wait?, kill?
 ---       no id: each job, its state, seconds run and command; with id:
@@ -100,7 +100,7 @@ local record Tools
     "both"
   end
 
-  --- What a tool answers: the text the model reads, and whether it is
+  --- What a tool returns: the text the model reads, and whether it is
   --- an error.
   record Result
     --- What the model reads.
@@ -116,7 +116,7 @@ local record Tools
   --- sessions kept and the current one's id (nil where none is). The
   --- sandbox is not put on a tool from outside: a tool of your own that
   --- reads or writes a path asks `Sandbox.permits(context.policy, path,
-  --- action, context.cwd)` first and opens the real name it answers, as
+  --- action, context.cwd)` first and opens the real name it returns, as
   --- read, write and edit do.
   record Context
     --- The working directory, which a relative path is from.
@@ -160,9 +160,9 @@ local record Tools
     --- time runs.
     guard?: function(name: string, input: Object): string?
     --- What a snippet's call of the agent that ran is given to before
-    --- the snippet reads it (the agent's `after`): its answer as JSON
+    --- the snippet reads it (the agent's `after`): its result as JSON
     --- text (escaped as JSON is), or its failure as an error result; the
-    --- result it answers is what the snippet reads, as JSON where it is
+    --- result it returns is what the snippet reads, as JSON where it is
     --- JSON, else as a string, and an error result raises in the
     --- snippet. `raw` is not read. A raise fails the call.
     amend?: function(name: string, input: Object, result: Result): Result
@@ -342,7 +342,7 @@ end
 local function permitted(context: Tools.Context, full: string, actions: {string}): string?, string
   local policy = context.policy
   if policy == nil then return full, "" end
-  -- Each action of the real name the one before answered: a link is
+  -- Each action of the real name the one before gave: a link is
   -- checked, and written, at its target.
   local real = full
   for _, action in ipairs(actions) do
@@ -811,8 +811,8 @@ local function sql(input: Tools.Object, context: Tools.Context): Tools.Result
   return r
 end
 
---- The most bytes of the JSON of the rows a snippet's history call is answered: well within the line of 1MB the
---- worker's answer may be, should the snippet return them.
+--- The most bytes of the JSON of the rows a snippet's history call gets: well within the line of 1MB the
+--- worker's response line may be, should the snippet return them.
 local MAX_REPLY <const> = 512 * 1024
 
 --- The rows of `query` on `db`, each an object of its columns, for a snippet's history call; `?1` is `session`. It stops
@@ -884,7 +884,7 @@ end
 local KEY_BYTES <const> = 256
 
 --- What a snippet of `context` keeps for a later one, in sessions.db ([`Sessions.keep`]): `store.put` keeps `value`
---- under `key` (no value lets it go), and `store.get` answers what is kept, null for nothing.
+--- under `key` (no value lets it go), and `store.get` returns what is kept, null for nothing.
 local function stored(context: Tools.Context, name: string, given: {string: Json.Value}): (Json.Value) | (nil, Failure)
   local db, session = context.db, context.session
   if db == nil or session == nil then
@@ -918,7 +918,7 @@ local function stored(context: Tools.Context, name: string, given: {string: Json
   return true
 end
 
---- What answers the calls a snippet of `context` makes of the agent, as they come, with no guard: history, a query
+--- What serves the calls a snippet of `context` makes of the agent, as they come, with no guard: history, a query
 --- as the sql tool runs it, store, and the MCP servers.
 local function served_unguarded(context: Tools.Context): Worker.Serve
   return function(name: string, args: Json.Value, budget: Worker.Budget): (Json.Value) | (nil, Failure)
@@ -983,8 +983,8 @@ local SERVED <const>: {string: boolean} = {
   ["mcp.servers"] = true, ["mcp.tools"] = true, ["mcp.call"] = true,
 }
 
---- What `context`'s amend makes of the host call `name` with `given`, which answered `result`: the value the
---- snippet reads, or nil and why. An amend that raises, or answers no text, makes the call fail.
+--- What `context`'s amend makes of the host call `name` with `given`, which returned `result`: the value the
+--- snippet reads, or nil and why. An amend that raises, or returns no text, makes the call fail.
 local function amended(context: Tools.Context, name: string, given: Tools.Object, result: Tools.Result):
     (Json.Value) | (nil, Failure)
   local amend = context.amend
@@ -1007,7 +1007,7 @@ local function amended(context: Tools.Context, name: string, given: Tools.Object
   return value
 end
 
---- What a tool code may call ([`Tools.for_code`]) answers a snippet of `context` that calls it with `args`,
+--- What a tool code may call ([`Tools.for_code`]) returns to a snippet of `context` that calls it with `args`,
 --- `{name, input}` ([`Host.use`]): its text, or its error result as a failure. The call is asked of the guard first,
 --- and given to the amend after, by the tool's own name, as the model's calls of it are.
 local function used(context: Tools.Context, args: Json.Value, budget: Worker.Budget): (Json.Value) | (nil, Failure)
@@ -1041,7 +1041,7 @@ local function used(context: Tools.Context, args: Json.Value, budget: Worker.Bud
     if reason ~= nil then return nil, Failure.new("Blocked: " .. tostring(reason)) end
   end
   -- The tool runs in the agent, outside the snippet's sandbox, held to the snippet's time, with no worker: the
-  -- snippet that called it holds the worker until it answers.
+  -- snippet that called it holds the worker until it returns.
   Jobs.check(context.jobs)
   local left = budget.left()
   local deadline = context.deadline_ns
@@ -1072,7 +1072,7 @@ local function used(context: Tools.Context, args: Json.Value, budget: Worker.Bud
   return result.text
 end
 
---- What answers the calls a snippet of `context` makes of the agent (history, a query as the sql tool runs it, store.get,
+--- What serves the calls a snippet of `context` makes of the agent (history, a query as the sql tool runs it, store.get,
 --- store.put, and mcp.servers, mcp.tools and mcp.call), each asked of its guard first and given to its amend
 --- after, failed or not. A call of no other name is refused before either is asked.
 local function served(context: Tools.Context): Worker.Serve

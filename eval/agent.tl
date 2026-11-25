@@ -241,7 +241,7 @@ return function(argv: {string}): integer
 end
 ]==]
 
---- The inventory web API, the same items over HTTP at a loopback port the kernel chose: GET /items?page=N answers
+--- The inventory web API, the same items over HTTP at a loopback port the kernel chose: GET /items?page=N gets
 --- JSON, `{items, next}`, 40 items a page, each with every field, and `next` the page after it, which the last
 --- page has not. It writes its port to the file its second argument names once it serves.
 local INVENTORY_SITE <const> = [==[
