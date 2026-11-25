@@ -484,8 +484,11 @@ branch's push runs nothing.
   `cosmic_ci/changed_paths.tl`: `build/launcher.tl`, `core/startup.c`,
   `ci/fixtures/` and the like), or the paths changed are not known, it
   also builds the artifacts and runs those fixtures, which nothing else
-  before main's push runs. Beside it, `macos-aarch64` (part `suite`) runs
-  macOS's native suite and darwin suite, as the queue's does. Both native
+  before main's push runs. Beside it, once the pull request is not a
+  draft, `macos-aarch64` (part `suite`) runs macOS's native suite and
+  darwin suite, as the queue's does; marking it ready runs the check
+  again. GitHub gives no job a priority, so a draft's pushes leave the
+  few macOS runners to the queue. Both native
   suites stand on main's verdicts ([`cosmic_ci/orchestration.tl`]'s
   `standing_events`), so they run only the tests the change reaches. A
   failure the queue would meet on those legs shows on the pull request
@@ -617,7 +620,7 @@ driver does not read it (it is `COSMIC_CI_*`, which a suite's workers are
 never given).
 
 The platform job's `include` is an expression that chooses one of four
-lists by the kind of run (linux-x86_64 and macOS's suite for a pull request; for the
+lists by the kind of run (linux-x86_64, and macOS's suite once it is not a draft, for a pull request; for the
 queue every leg but macOS as its suite and its product, linux-x86_64's
 format check and macOS's suite; every leg but macOS, and macOS's suite, for a push to main; all four otherwise),
 each listing every job: an `include` entry naming a leg

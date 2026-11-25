@@ -222,8 +222,10 @@ queued merge commit ([`.github/workflows/ci.yml`] runs on
 locally, are the branch's. a pull request runs one light check, the `ci`
 check the queue requires of it: the tree booted, `fix --check` of what it
 changed, with the checks spanning files over the whole tree, and
-linux-x86_64's and macOS's native suites, which stand on main's verdicts
-and so run only the tests the change reaches.
+linux-x86_64's native suite and, once the pull request is not a draft,
+macOS's, which stand on main's verdicts and so run only the tests the
+change reaches. keep a pull request a draft until it is ready: marking it
+ready runs macOS's suite, and the queue shares the few macOS runners.
 enable auto-merge, and watch the queue's run.
 start a next PR that depends on this one only once it has merged.
 

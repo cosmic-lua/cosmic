@@ -71,6 +71,7 @@ local record Branches
   paths?: {string}
   ["paths-ignore"]?: {string}
   branches?: {string}
+  types?: {string}
 end
 local record Workflow
   name: string
@@ -333,6 +334,20 @@ local KIND_CHOICE <const> = "^%${{ fromJSON%(github%.event_name == 'pull_request
   "github%.event_name == 'merge_group' && '(%[[^']-%])' || github%.event_name == 'push' && '(%[[^']-%])' || " ..
   "%((github%.event_name == 'schedule' || github%.ref == 'refs/heads/main'[^)]-)%) && '(%[[^']-%])' || " ..
   "'(%[[^']-%])'%) }}$"
+--- How a pull request's list is chosen where a draft's differs
+--- (`draft`): a draft's list, then a ready one's (`pr`).
+local DRAFT_CHOICE <const> = "github%.event_name == 'pull_request' && %(github%.event%.pull_request%.draft && " ..
+  "'(%[[^']-%])' || '(%[[^']-%])'%)"
+--- `include` with a pull request's choice of [`DRAFT_CHOICE`] made the ready one's list, and the draft's list, nil
+--- where the two do not differ.
+local function ready_include(include: string): string, string?
+  local draft, ready = include:match(DRAFT_CHOICE)
+  if ready == nil then return include, nil end
+  local chosen = include:gsub(DRAFT_CHOICE, function(): string
+    return "github.event_name == 'pull_request' && '" .. ready .. "'"
+  end)
+  return chosen, draft
+end
 local FOUR_KINDS <const> = "^%${{ fromJSON%(github%.event_name == 'pull_request' && '(%[[^']-%])' || " ..
   "github%.event_name == 'merge_group' && '(%[[^']-%])' || github%.event_name == 'push' && '(%[[^']-%])' || " ..
   "'(%[[^']-%])'%) }}$"
@@ -450,15 +465,17 @@ local function expand(matrix: {string: Json.Value}, kind: string): {{string: str
   local created: mut {{string: string}} = {}
   local include: Json.Value? = matrix["include"]
   if include is string then
+    local ready, draft = ready_include(include)
+    include = ready
     local pr, queue, push, _, full, dispatch = include:match(KIND_CHOICE)
     if dispatch == nil then
       pr, queue, push, full = include:match(FOUR_KINDS)
       dispatch = full
     end
     assert(dispatch ~= nil, "the include is chosen other than by the kind of run: " .. include)
-    local chosen = if kind == "pr" then pr elseif kind == "queue" then queue elseif kind == "push" then push
+    local chosen = if kind == "draft" then (draft or pr) elseif kind == "pr" then pr elseif kind == "queue" then queue elseif kind == "push" then push
       elseif kind == "full" then full else dispatch end
-    assert(kind == "pr" or kind == "queue" or kind == "push" or kind == "full" or kind == "dispatch",
+    assert(kind == "draft" or kind == "pr" or kind == "queue" or kind == "push" or kind == "full" or kind == "dispatch",
       "no kind of run " .. kind)
     local chosen_include, include_trouble = Json.decode(assert(chosen))
     assert(chosen_include ~= nil, include_trouble)
@@ -497,7 +514,7 @@ end
 local function full_condition(job: Job): string?
   local include = assert(Json.to_object(assert(assert(job.strategy).matrix)))["include"]
   if not (include is string) then return nil end
-  local _, _, _, condition = include:match(KIND_CHOICE)
+  local _, _, _, condition = (ready_include(include)):match(KIND_CHOICE)
   return condition
 end
 
@@ -1445,7 +1462,7 @@ local function test_every_leg_has_its_promises_and_no_other_does()
   local promised: mut {string: boolean} = {}
   for name in pairs(loaded.legs) do promised[name] = true end
   local ran: mut {string: boolean} = {}
-  for _, kind in ipairs({ "pr", "queue", "push", "full", "dispatch" }) do
+  for _, kind in ipairs({ "draft", "pr", "queue", "push", "full", "dispatch" }) do
     for _, leg in pairs(platform_legs(kind)) do ran[assert(leg["leg"])] = true end
   end
   ran[assert(map_of(assert(ci_workflow().jobs["narrowing"]).env)["COSMIC_WORKER"])] = true
@@ -2402,6 +2419,12 @@ local function test_a_pull_request_runs_the_suites_and_the_light_check()
   local _, listed = step_running(steps, "driver.tl changed-paths")
   assert(based < moved and listed < moved, "a step fetches from origin after the tree moved, without the checkout's credentials")
   assert(names_of(platform_legs("pr")) == "linux-x86_64 macos-aarch64", "a pull request's legs")
+  -- GitHub gives no job a priority: a draft's every push leaves the few macOS runners to the queue, and marking
+  -- it ready runs the check again with macOS's leg.
+  assert(names_of(platform_legs("draft")) == "linux-x86_64", "a draft's legs")
+  local types = table.concat(filters_of(ci["on"])["pull_request"]!.types or {}, " ")
+  assert(types == "opened synchronize reopened ready_for_review", "marking a pull request ready does not run its check: " ..
+      types)
   for _, name in ipairs({ "checked", "narrowing" }) do
     assert(job_of(ci.jobs, name)["if"] == QUEUE_REF .. " && " .. PR_SKIPS, name .. " runs on a pull request")
   end
