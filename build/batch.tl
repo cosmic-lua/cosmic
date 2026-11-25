@@ -37,13 +37,6 @@ local REPO <const> = "cosmic-lua/cosmic"
 local TIMEOUT_NS <const> = 120 * 1000000000
 --- A check of the stacked batch: the whole suite takes minutes.
 local CHECK_TIMEOUT_NS <const> = 60 * 60 * 1000000000
---- The tests of ci/'s suite that fail when it runs as root, as this
---- container does, and pass in CI: a root caller's sandboxed child runs
---- as another user, who cannot use a grant root owns.
-local ROOT_ONLY <const>: {string:boolean} = {
-  ["cosmic_ci.prerelease_test test_driver_stages_and_refuses_to_publish_without_a_token"] = true,
-  ["cosmic_ci.prerelease_test test_the_smoke_policy_keeps_a_program_from_writing_elsewhere"] = true,
-}
 --- How much of a failed check's output is said.
 local TAIL_LINES <const> = 40
 
@@ -224,23 +217,9 @@ local function tail(text: string): string
   return table.concat(lines, "\n", first, #lines)
 end
 
---- Whether every test that `text` says failed is one of ROOT_ONLY.
-local function only_root_fails(text: string): boolean
-  local any = false
-  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
-    local name = line:match("^test: FAIL  ([%w_.]+ [%w_]+):")
-    if name ~= nil then
-      if ROOT_ONLY[name] ~= true then return false end
-      any = true
-    end
-  end
-  return any
-end
-
 --- Runs the checks in worktree `dir`, which changes the tree from `main`.
 local function checked_in(dir: string, main: string): boolean
   local cosmic = dir .. "/bin/cosmic"
-  local as_root = trimmed(run({ "id", "-u" }).out) == "0"
   local typed: mut {string} = { cosmic, "test", "--check-types" }
   for path in git({ "diff", "--name-only", "--diff-filter=d", main, "HEAD" }).out:gmatch("[^\n]+") do
     if path:match("_test%.tl$") ~= nil and path:match("^ci/") == nil then
@@ -252,7 +231,6 @@ local function checked_in(dir: string, main: string): boolean
     argv: {string}
     cwd?: string
     env?: {string:string}
-    root_only?: boolean
   end
   local checks: mut {Check} = {
     { name = "fix --check at the root", argv = { cosmic, "fix", "--check", "." }, cwd = dir },
@@ -260,7 +238,7 @@ local function checked_in(dir: string, main: string): boolean
     { name = "the whole suite", argv = { cosmic, "test" }, cwd = dir },
     -- As CI's driver job runs it.
     { name = "ci/'s suite", argv = { cosmic, "test", "cosmic_ci" }, cwd = dir .. "/ci",
-      env = { COSMIC_VERDICT_CACHE = "0", COSMIC_TEST_SANDBOX = "0" }, root_only = true },
+      env = { COSMIC_VERDICT_CACHE = "0", COSMIC_TEST_SANDBOX = "0" } },
   }
   if #typed > 3 then
     checks[#checks + 1] = { name = "test --check-types on " .. tostring(#typed - 3) .. " changed test files",
@@ -276,9 +254,7 @@ local function checked_in(dir: string, main: string): boolean
       for name, value in pairs(check.env) do env[name] = value end
     end
     local ran = run(check.argv, nil, check.cwd, CHECK_TIMEOUT_NS, env)
-    if not ran.ok and check.root_only == true and as_root and only_root_fails(ran.out .. "\n" .. ran.err) then
-      say(check.name .. " passes but for the tests that fail only as root")
-    elseif not ran.ok then
+    if not ran.ok then
       say("the batch fails " .. check.name .. ":\n" .. tail(ran.out .. "\n" .. ran.err))
       return false
     end
