@@ -201,7 +201,7 @@ end
 --- guard closes, either signal is caught rather than acted on:
 --- `g:cancelled()` returns the last one delivered, 0 until one is. A signal
 --- the process ignores stays ignored (a shell's `cmd &` starts with SIGINT
---- ignored). Only `h:wait` reads the guard -- it ends its child and fails
+--- ignored). Of [`cosmic.child`]'s calls, only `h:wait` reads the guard -- it ends its child and fails
 --- with "child: cancelled by signal N" once a signal is caught -- and a
 --- stream's read or write, which fails with the same message and leaves
 --- the child running; [`Child.wait_any`] and `h:try_wait` do not, so a
