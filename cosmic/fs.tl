@@ -6,7 +6,9 @@
 --- [`Fs.create`], [`Fs.dir`], [`Fs.cache_dir`] and the rest) returns
 --- `(T) | (nil, Failure)`: the value alone, or nil and a [`Failure`] that
 --- names the path and the errno (0 where no system call failed, as for
---- `relative`, which reads nothing). A predicate ([`Fs.in_place`]) has
+--- `relative`, which reads nothing). A refusal of [`Fs.cache_dir`],
+--- [`Fs.program_cache_dir`] or [`Fs.data_dir`] before any directory is
+--- known (no absolute base, or a bad name) names no path. A predicate ([`Fs.in_place`]) has
 --- the same shape, with false a valid result. [`Fs.write`],
 --- [`Fs.write_output`], [`Fs.mkdirs`], [`Fs.remove`],
 --- [`Fs.remove_tree`], [`Fs.rename`], [`Fs.chmod`], [`Fs.symlink`],

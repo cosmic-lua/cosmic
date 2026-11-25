@@ -140,8 +140,11 @@ local record Vector
     count: function(Corpus): integer
     --- `corpus:add_block(block)`: adds every vector of a packed block, as
     --- the SQL aggregate `vector_block` makes it, converted to the corpus's
-    --- storage. Raises on a string that is not a block, or one of other
-    --- dimensions, and leaves the corpus as it was.
+    --- storage. Raises on a string that is not a block, one of other
+    --- dimensions, a block holding a number that is not finite, an int8
+    --- block for an int8 corpus whose sums are not its codes', and, in an
+    --- `"f16"` corpus, a number of 65520 or more in magnitude; the corpus
+    --- is then as it was.
     add_block: function(Corpus, block: string)
     --- `corpus:search(query, k, opts)`: the `k` nearest, as [`Vector.Hits`].
     --- Returns `nil, "interrupted"` on a caught signal, and raises "not

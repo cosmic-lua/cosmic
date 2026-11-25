@@ -1073,7 +1073,9 @@ end
 --- connections, signals and stopping it shares, speaking HTTP. It
 --- returns when [`Net.serve`] does: true and "", or false and the
 --- failure's message. It raises for a spec of the wrong shape, naming
---- the field, and when called in a task of a [`Poll.run`].
+--- the field, and when called in a task of a [`Poll.run`]. What
+--- `spec.on_ready` or `spec.on_error` raises, it raises, as [`Net.serve`]
+--- does.
 ---
 ---     assert(Server.serve{
 ---       listeners = { Net.tcp("127.0.0.1", 8080) },

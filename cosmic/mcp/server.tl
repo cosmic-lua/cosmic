@@ -390,15 +390,19 @@ local record McpServer
     --- the protocol's alone, and a log goes to stderr.
     serve_stdio: function(Instance, input?: Stream.Reader, output?: Stream.Writer): (true) | (false, Failure)
     --- A handler for [`cosmic.http.server`] that speaks Streamable HTTP at `spec.path`: one POST a message, each response
-    --- `application/json`. In order, a request is refused 403 for an
+    --- `application/json`. With `spec.oauth`, a request to the protected-resource metadata path
+    --- that is not a GET is refused 405 first. Then, in order, a request is refused 403 for an
     --- `Origin` not in `spec.origins`, 404 for another path, 405 for a
     --- method other than POST, 401 where `spec.authorize` says no (or, with
     --- `spec.oauth`, where no access token `verify` takes comes with it), 415 for a
     --- body that is not `application/json`, 406 for an `Accept` that takes
-    --- no JSON, 413 for a body past [`Mcp.MAX_MESSAGE_BYTES`], 400 for a body
+    --- no JSON, 400 where the body cannot be read, 413 for a body past
+    --- [`Mcp.MAX_MESSAGE_BYTES`], 400 for a body
     --- that is no JSON-RPC message, and 400 for headers that disagree with the body
     --- (`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, and each
-    --- `Mcp-Param-` a tool's schema names). A notification gets 202.
+    --- `Mcp-Param-` a tool's schema names). With `spec.oauth`, a `tools/call` whose token lacks a
+    --- scope the tool needs gets 403 `insufficient_scope`, naming every scope to ask for. A
+    --- notification gets 202.
     --- A `spec` that gives neither or both of `authorize` and `oauth` raises.
     --- A request with a `progressToken`, or a `subscriptions/listen`, from a client whose `Accept` names
     --- `text/event-stream` gets an event stream in response: each notice of

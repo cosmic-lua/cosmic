@@ -442,8 +442,9 @@ local record Http
     --- algorithm, the digest wanted and the one got, leaving no file. An
     --- empty digest raises.
     digests?: {Hash.Algorithm:string}
-    --- Downloads, and the waits of `retry` and `pace`, which it ends
-    --- with "interrupted" too. In a download: asked before each chunk is read and once
+    --- Asked whether to stop: read by downloads, and by the waits of
+    --- `retry` and `pace`, which it ends with "interrupted" too. In a
+    --- download: asked before each chunk is read and once
     --- more when the body is complete, before it is renamed into place;
     --- when it returns true the download stops, removes its temporary
     --- file, never creates `path`, and fails with "interrupted", the
@@ -498,8 +499,10 @@ local record Http
   end
 
   --- What [`Http.request`] and [`Http.get`] return: a status, a whole
-  --- body, and headers, bundled into one value since a fallible
-  --- function here returns one value, or nil and a [`Failure`].
+  --- body, and headers, bundled into one value since most fallible
+  --- functions here return one value, or nil and a [`Failure`].
+  --- [`Http.download`] and [`Http.check_certificate`] return true, or
+  --- false and a Failure; [`Http.download_result`] returns a record.
   record Body
     --- The final response's HTTP status code, after any redirect taken.
     status: integer

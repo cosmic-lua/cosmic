@@ -147,8 +147,8 @@ local record Zip
     --- is then never held whole. Closing it ends the entry; until then
     --- the archive takes no other entry and does not close, and aborting
     --- it abandons the archive, whose bytes are written already, so the
-    --- archive's `close` then fails. Closing the archive while it is open
-    --- is refused without failing the archive. A body that fails, by its
+    --- archive's `close` then fails. Closing the archive while the entry's
+    --- body is open is refused without failing the archive. A body that fails, by its
     --- encoder or the underlying Writer, fails the archive. `opts.size`,
     --- when given, is what the body must come to, as for [`add_file`]: a
     --- size of 2 GiB or more is written zip64, and a body without one
