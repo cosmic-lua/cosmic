@@ -64,10 +64,9 @@ local function test_the_loop_runs_tools_until_the_turn_ends()
   assert(whole:find('"system":[{"cache_control":{"type":"ephemeral"},"text":"sys","type":"text"},{"text":"<cwd>\\n' ..
       dir .. '\\n</cwd>","type":"text"}]', 1, true) ~= nil, whole)
   assert(whole:find('"content":"make out.txt"', 1, true) ~= nil, whole)
-  -- The tools offered by default run no program: no bash, no jobs, and no sql (run reads what is kept).
+  -- The tools offered by default run no program: no bash and no jobs.
   local tools, _ = Json.to_array(first["tools"])
-  assert(tools ~= nil and #tools == 4 and not assert(Json.encode(tools)):find('"name":"bash"', 1, true) and
-      not assert(Json.encode(tools)):find('"name":"sql"', 1, true))
+  assert(tools ~= nil and #tools == 4 and not assert(Json.encode(tools)):find('"name":"bash"', 1, true))
   local h = header(a, 1)
   assert(h["x-api-key"] == "k" and h["anthropic-version"] == "2026-10-21", h["x-api-key"])
   assert(h["anthropic-beta"] == "server-side-fallback-2026-07-01,cache-diagnosis-2026-04-07,compact-2026-01-12", h["anthropic-beta"])

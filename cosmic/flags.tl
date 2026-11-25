@@ -36,6 +36,7 @@ local Distance = require("cosmic.internal.distance")
 local Fs = require("cosmic.fs")
 local source_run = require("cosmic.internal.source_run")
 local type Doc = require("cosmic.doc")
+local type Stream = require("cosmic.stream")
 
 local record Flags
   --- One option described, for a spec to name and [`Flags.help`] to show.
@@ -69,6 +70,16 @@ local record Flags
     --- Where an option that is gone went, for a line that still gives it: [`Flags.parse`] refuses it with
     --- this after its name ("no such option: --read; `prog read` reads one back"), and help leaves it out.
     moved?: string
+    --- That the option's value may be "-" in place of a file: "input" for standard input, "output" for
+    --- standard output. The command reads or writes it with [`Flags.read`], [`Flags.reader`] or
+    --- [`Flags.write`], and help says so ("-: standard input").
+    dash?: Dash
+  end
+
+  --- What "-" stands for as an [`Option`]'s value: standard input or standard output.
+  enum Dash
+    "input"
+    "output"
   end
 
   -- TODO: move the other verbs' value checks onto `choices` and `integer` (qr, codec, sandbox,
@@ -458,6 +469,9 @@ local function read(argv: {string}, from: integer, spec: {string:boolean | Flags
       if range ~= nil and range.min ~= nil and range.max ~= nil and range.min > range.max then
         error("flags: " .. name .. "'s integer range is empty", 3)
       end
+      if entry.dash ~= nil and entry.value == nil then
+        error("flags: " .. name .. " reads or writes \"-\", and takes no value", 3)
+      end
       if entry.default ~= nil and entry.required == true then
         error("flags: " .. name .. " is required and has a default", 3)
       end
@@ -843,6 +857,7 @@ local function option_rows(spec: {string:boolean | Flags.Option}): {Row}
       local range = entry.integer
       if range ~= nil then notes[#notes + 1] = range_text(range) end
       if entry.default ~= nil then notes[#notes + 1] = "default: " .. entry.default end
+      if entry.dash ~= nil then notes[#notes + 1] = "-: standard " .. entry.dash end
     end
     if entry ~= nil and is_required(entry) then notes[#notes + 1] = "required" end
     if #notes > 0 then
@@ -1780,6 +1795,103 @@ function Flags.verdicts(err: function(line: string)): Flags.Verdicts
       return Flags.UNDONE
     end,
   }
+end
+
+--- How a message names the file `path`: "standard input" for "-", the path as it is otherwise. A command
+--- that writes to `path` names "-" with [`Flags.output_name`].
+function Flags.input_name(path: string): string
+  return if path == "-" then "standard input" else path end
+end
+
+--- How a message names the file `path` a command writes: "standard output" for "-", the path otherwise.
+function Flags.output_name(path: string): string
+  return if path == "-" then "standard output" else path end
+end
+
+--- The Reader over the file `path` names, or over standard input for "-", the word a command line gives
+--- for it in place of a file. Standard input that is a terminal is refused, since nothing would end its
+--- bytes: nil and "standard input is a terminal; pipe the input in, or name a file". A Reader over
+--- standard input borrows the descriptor, which stays open; one over a file closes it at its end, or at
+--- `close` ([`Stream.open`]).
+---
+---     local reader, why = Flags.reader(parsed.words[1] or "-")
+--- @param path string The file, or "-"
+--- @return Stream.Reader | nil The bytes, to read
+--- @return string Why there is none, naming the file
+function Flags.reader(path: string): (Stream.Reader) | (nil, string)
+  local streams = require("cosmic.stream")
+  if path ~= "-" then
+    local reader, failure = streams.open(path)
+    if reader == nil then return nil, tostring(failure) end
+    return reader
+  end
+  if require("cosmic.proc").is_tty(Fs.stdin) then
+    return nil, "standard input is a terminal; pipe the input in, or name a file"
+  end
+  return streams.from_fd(Fs.stdin)
+end
+
+--- The bytes of the file `path` names, read whole, or of all of standard input for "-", which
+--- [`Flags.reader`] refuses where it is a terminal. Nil and why, naming the file, where they cannot be
+--- read.
+---
+---     local text, why = Flags.read(parsed.values["--key"])
+---     -- cosmic tool --key - < key.pem: the key from standard input
+--- @param path string The file, or "-"
+--- @return string | nil The bytes
+--- @return string Why there are none
+function Flags.read(path: string): (string) | (nil, string)
+  if path ~= "-" then
+    local text, failure = Fs.read(path)
+    if text == nil then return nil, tostring(failure) end
+    return text
+  end
+  local reader, why = Flags.reader(path)
+  if reader == nil then return nil, why end
+  local text, trouble = require("cosmic.stream").read_all(reader)
+  if text == nil then return nil, "standard input: " .. tostring(trouble) end
+  return text
+end
+
+--- Writes `data` whole to the file `path` names, through [`Fs.write_output`] (a new file is renamed into
+--- place once complete, standard output or a device is written in place), or to standard output for
+--- "-". False and why, naming the file, when the bytes did not all go.
+--- @param path string The file, or "-"
+--- @param data string The bytes
+--- @param mode integer | nil A new file's mode, as [`Fs.write_output`] takes it
+--- @return boolean Whether they all went
+--- @return string Why not, or "" when they did
+function Flags.write(path: string, data: string, mode?: integer): boolean, string
+  if path == "-" then
+    local wrote, why = Fs.put(Fs.stdout, data)
+    if not wrote then return false, "standard output: " .. tostring(why) end
+    return true, ""
+  end
+  local wrote, failure = Fs.write_output(path, data, mode)
+  if not wrote then return false, tostring(failure) end
+  return true, ""
+end
+
+--- The refusal of a command line that gives "-" for standard input more than once among the `names` of
+--- `values` (a [`Flags.Parsed`]'s, say), since standard input is read once: "--account and --key both
+--- read standard input, which is read once; give one of them a file". "" when at most one does.
+---
+---     local why = Flags.one_stdin(parsed.values, { "--account", "--key" })
+--- @param values {string:string} The paths the line gives, by how a refusal names each ("--key")
+--- @param names {string} The names of `values` that are read as files; one `values` lacks is skipped
+--- @return string The refusal, or ""
+function Flags.one_stdin(values: {string:string}, names: {string}): string
+  local named: mut {string} = {}
+  for _, name in ipairs(names) do
+    if values[name] == "-" then named[#named + 1] = name end
+  end
+  if #named < 2 then return "" end
+  table.sort(named)
+  local listed = table.concat(named, ", ", 1, #named - 1) .. " and " .. assert(named[#named], "two at least")
+  if #named == 2 then
+    return listed .. " both read standard input, which is read once; give one of them a file"
+  end
+  return listed .. " all read standard input, which is read once; give each but one a file"
 end
 
 return Flags

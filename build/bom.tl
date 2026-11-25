@@ -594,7 +594,7 @@ local function run(argv: {string}): integer
       return 1
     end
     local path = parsed.values["-o"]
-    if path == nil then
+    if path == nil or path == "-" then
       log:say(document)
       return passed(plural.count(#rows, "component"))
     end
