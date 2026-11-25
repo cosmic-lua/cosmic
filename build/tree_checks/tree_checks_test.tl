@@ -802,6 +802,8 @@ local function test_a_requirement_no_leg_promises_is_refused()
   assert(support.nth(found, 1):find("b_test requires proc, which no CI leg promises", 1, true), found[1])
   assert(support.nth(found, 2):find("b_test requires root, which no CI leg promises", 1, true), found[2])
   assert(#tree_build.promises({ ["a_test"] = { "nest" } }, legs) == 0)
+  assert(#tree_build.promises({ ["a_test"] = { "os:linux" }, ["b_test"] = { "os:darwin" } }, legs) == 0,
+    "an os: requirement needs no promise")
   assert(#tree_build.promises({}, legs) == 0)
   local refused = tree_build.promises({}, { linux = { "nope" } })
   assert(#refused == 1 and refused[1]:find("leg linux promises \"nope\", which is refused", 1, true) ~= nil, refused[1])
