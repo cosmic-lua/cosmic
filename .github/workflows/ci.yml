@@ -8,7 +8,7 @@
   "on": {
     # Only main's pushes: a branch's push runs nothing, the merge queue
     # testing every change before it lands. A manual run of a branch runs
-    # what main's run does.
+    # what main's daily run does, macOS only when it asks (`macos`).
     push: {branches: ["main"]},
     # A pull request runs the light check alone (linux-x86_64's leg, below,
     # with the launcher fixtures where it changes what they check), which reports the `ci` check the merge queue requires of it.
@@ -1548,8 +1548,8 @@
     # request, which skips them; the driver job's result is read in the
     # queue alone, where it runs. On every run but a pull request's it is
     # the provenance join too, proving the legs attested identical bytes:
-    # the queue's and a push's three, the scheduled and a manual run's
-    # four.
+    # the queue's, a push's and a branch's manual run's three, the
+    # scheduled run's and a manual run of main's or with `macos` four.
     ci: {
       needs: ["queue-ref", "platform", "checked", "narrowing", "driver"],
       if: "always()",

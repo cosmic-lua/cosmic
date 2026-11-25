@@ -1633,7 +1633,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
   -- key trusts its declaration as it trusts the test's own.
   if key == nil and job.unrun ~= true then rec.tally.every = rec.tally.every + 1 end
   local ran_at_ns, recorded_key = Clock.now_ns(), run_key(key or "", key)
-  rec.ran_ns[id] = elapsed
+  if job.unrun ~= true then rec.ran_ns[id] = elapsed end
   local saved, save_trouble = record_run(rec.records, job.m.path, job.name, kept_pass,
     message, ran_at_ns, recorded_key, rec.run_at_ns, elapsed)
   if not saved then

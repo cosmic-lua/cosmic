@@ -463,14 +463,16 @@ drives it against a fake host.
 
 The merge queue gates a merge and runs what main's push runs, so a
 commit that would turn main red fails its queue entry instead. The
-queue also runs macOS's native suite; the daily and a manual run add
-macOS's whole leg. A branch's push runs nothing.
+queue also runs macOS's native suite; the daily run, a manual run of
+main and one that asks for it (`macos`) add macOS's whole leg. A
+branch's push runs nothing.
 
 - **a push to a branch** runs no CI. The merge queue tests every change
   before it lands, and the author's local checks (`bin/cosmic fix`,
   `bin/cosmic test`, `ci/run-local`) are the branch's (the tree's
   `doc/contributing.md`). A **manual run** (`workflow_dispatch`) of a
-  branch runs what main's run does.
+  branch runs what main's daily run does but macOS, unless it asks for
+  it (`-f macos=true`), and runs the checked suite in the queue's shares.
 - **a pull request** runs the lightest check, the `ci` check the merge
   queue requires of a pull request before it takes it: linux-x86_64's leg
   boots the tree, checks the bootstrap's scripts, and checks the tree's
@@ -520,8 +522,8 @@ macOS's whole leg. A branch's push runs nothing.
   very commit; the daily run checks the driver on every leg, and the
   weekly and a manual run check the whole tree's format too. Each leg
   stands on the verdicts its queue job reached for the commit.
-- **the daily scheduled run** and **a manual run** run all that and the
-  macOS leg, and the gate compares the four products, which
+- **the daily scheduled run** and **a manual run** of main (or one with
+  `macos`) run all that and the macOS leg, and the gate compares the four products, which
   prerelease.yml publishes: a prerelease is tested on all four legs, and
   some hours behind main (`prerelease-follow`, below). The daily run and a manual run stand on the
   verdicts main's pushes left, as a push does (`COSMIC_CI_EVENT`); Sunday's,
